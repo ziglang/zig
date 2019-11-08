@@ -10,15 +10,16 @@ test "" {
     _ = @import("net/test.zig");
 }
 
-pub const IpAddress = extern union {
+pub const Address = extern union {
     any: os.sockaddr,
     in: os.sockaddr_in,
     in6: os.sockaddr_in6,
+    unix: os.sockaddr_un,
 
     // TODO this crashed the compiler
     //pub const localhost = initIp4(parseIp4("127.0.0.1") catch unreachable, 0);
 
-    pub fn parse(name: []const u8, port: u16) !IpAddress {
+    pub fn parseIp(name: []const u8, port: u16) !Address {
         if (parseIp4(name, port)) |ip4| return ip4 else |err| switch (err) {
             error.Overflow,
             error.InvalidEnd,
@@ -39,7 +40,7 @@ pub const IpAddress = extern union {
         return error.InvalidIPAddressFormat;
     }
 
-    pub fn parseExpectingFamily(name: []const u8, family: os.sa_family_t, port: u16) !IpAddress {
+    pub fn parseExpectingFamily(name: []const u8, family: os.sa_family_t, port: u16) !Address {
         switch (family) {
             os.AF_INET => return parseIp4(name, port),
             os.AF_INET6 => return parseIp6(name, port),
@@ -48,8 +49,8 @@ pub const IpAddress = extern union {
         }
     }
 
-    pub fn parseIp6(buf: []const u8, port: u16) !IpAddress {
-        var result = IpAddress{
+    pub fn parseIp6(buf: []const u8, port: u16) !Address {
+        var result = Address{
             .in6 = os.sockaddr_in6{
                 .scope_id = 0,
                 .port = mem.nativeToBig(u16, port),
@@ -154,8 +155,8 @@ pub const IpAddress = extern union {
         }
     }
 
-    pub fn parseIp4(buf: []const u8, port: u16) !IpAddress {
-        var result = IpAddress{
+    pub fn parseIp4(buf: []const u8, port: u16) !Address {
+        var result = Address{
             .in = os.sockaddr_in{
                 .port = mem.nativeToBig(u16, port),
                 .addr = undefined,
@@ -194,8 +195,8 @@ pub const IpAddress = extern union {
         return error.Incomplete;
     }
 
-    pub fn initIp4(addr: [4]u8, port: u16) IpAddress {
-        return IpAddress{
+    pub fn initIp4(addr: [4]u8, port: u16) Address {
+        return Address{
             .in = os.sockaddr_in{
                 .port = mem.nativeToBig(u16, port),
                 .addr = @ptrCast(*align(1) const u32, &addr).*,
@@ -203,8 +204,8 @@ pub const IpAddress = extern union {
         };
     }
 
-    pub fn initIp6(addr: [16]u8, port: u16, flowinfo: u32, scope_id: u32) IpAddress {
-        return IpAddress{
+    pub fn initIp6(addr: [16]u8, port: u16, flowinfo: u32, scope_id: u32) Address {
+        return Address{
             .in6 = os.sockaddr_in6{
                 .addr = addr,
                 .port = mem.nativeToBig(u16, port),
@@ -215,7 +216,7 @@ pub const IpAddress = extern union {
     }
 
     /// Returns the port in native endian.
-    pub fn getPort(self: IpAddress) u16 {
+    pub fn getPort(self: Address) u16 {
         const big_endian_port = switch (self.any.family) {
             os.AF_INET => self.in.port,
             os.AF_INET6 => self.in6.port,
@@ -225,7 +226,7 @@ pub const IpAddress = extern union {
     }
 
     /// `port` is native-endian.
-    pub fn setPort(self: *IpAddress, port: u16) void {
+    pub fn setPort(self: *Address, port: u16) void {
         const ptr = switch (self.any.family) {
             os.AF_INET => &self.in.port,
             os.AF_INET6 => &self.in6.port,
@@ -237,16 +238,16 @@ pub const IpAddress = extern union {
     /// Asserts that `addr` is an IP address.
     /// This function will read past the end of the pointer, with a size depending
     /// on the address family.
-    pub fn initPosix(addr: *align(4) const os.sockaddr) IpAddress {
+    pub fn initPosix(addr: *align(4) const os.sockaddr) Address {
         switch (addr.family) {
-            os.AF_INET => return IpAddress{ .in = @ptrCast(*const os.sockaddr_in, addr).* },
-            os.AF_INET6 => return IpAddress{ .in6 = @ptrCast(*const os.sockaddr_in6, addr).* },
+            os.AF_INET => return Address{ .in = @ptrCast(*const os.sockaddr_in, addr).* },
+            os.AF_INET6 => return Address{ .in6 = @ptrCast(*const os.sockaddr_in6, addr).* },
             else => unreachable,
         }
     }
 
     pub fn format(
-        self: IpAddress,
+        self: Address,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
         context: var,
@@ -271,7 +272,7 @@ pub const IpAddress = extern union {
             },
             os.AF_INET6 => {
                 const port = mem.bigToNative(u16, self.in6.port);
-                if (mem.eql(u8, self.in6.addr[0..12], [_]u8{0,0,0,0,0,0,0,0,0,0,0xff,0xff})) {
+                if (mem.eql(u8, self.in6.addr[0..12], [_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
                     try std.fmt.format(
                         context,
                         Errors,
@@ -318,13 +319,13 @@ pub const IpAddress = extern union {
         }
     }
 
-    pub fn eql(a: IpAddress, b: IpAddress) bool {
+    pub fn eql(a: Address, b: Address) bool {
         const a_bytes = @ptrCast([*]const u8, &a.any)[0..a.getOsSockLen()];
         const b_bytes = @ptrCast([*]const u8, &b.any)[0..b.getOsSockLen()];
         return mem.eql(u8, a_bytes, b_bytes);
     }
 
-    fn getOsSockLen(self: IpAddress) os.socklen_t {
+    fn getOsSockLen(self: Address) os.socklen_t {
         switch (self.any.family) {
             os.AF_INET => return @sizeOf(os.sockaddr_in),
             os.AF_INET6 => return @sizeOf(os.sockaddr_in6),
@@ -358,7 +359,7 @@ pub fn connectUnixSocket(path: []const u8) !fs.File {
 
 pub const AddressList = struct {
     arena: std.heap.ArenaAllocator,
-    addrs: []IpAddress,
+    addrs: []Address,
     canon_name: ?[]u8,
 
     fn deinit(self: *AddressList) void {
@@ -381,7 +382,7 @@ pub fn tcpConnectToHost(allocator: *mem.Allocator, name: []const u8, port: u16) 
     return tcpConnectToAddress(addrs[0], port);
 }
 
-pub fn tcpConnectToAddress(address: IpAddress) !fs.File {
+pub fn tcpConnectToAddress(address: Address) !fs.File {
     const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
     const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | nonblock;
     const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO_TCP);
@@ -456,13 +457,13 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
             }
             break :blk count;
         };
-        result.addrs = try arena.alloc(IpAddress, addr_count);
+        result.addrs = try arena.alloc(Address, addr_count);
 
         var it: ?*os.addrinfo = res;
         var i: usize = 0;
         while (it) |info| : (it = info.next) {
             const addr = info.addr orelse continue;
-            result.addrs[i] = IpAddress.initPosix(@alignCast(4, addr));
+            result.addrs[i] = Address.initPosix(@alignCast(4, addr));
 
             if (info.canonname) |n| {
                 if (result.canon_name == null) {
@@ -485,7 +486,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
 
         try linuxLookupName(&lookup_addrs, &canon, name, family, flags, port);
 
-        result.addrs = try arena.alloc(IpAddress, lookup_addrs.len);
+        result.addrs = try arena.alloc(Address, lookup_addrs.len);
         if (!canon.isNull()) {
             result.canon_name = canon.toOwnedSlice();
         }
@@ -501,7 +502,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
 }
 
 const LookupAddr = struct {
-    addr: IpAddress,
+    addr: Address,
     sortkey: i32 = 0,
 };
 
@@ -524,7 +525,7 @@ fn linuxLookupName(
     if (opt_name) |name| {
         // reject empty name and check len so it fits into temp bufs
         try canon.replaceContents(name);
-        if (IpAddress.parseExpectingFamily(name, family, port)) |addr| {
+        if (Address.parseExpectingFamily(name, family, port)) |addr| {
             try addrs.append(LookupAddr{ .addr = addr });
         } else |name_err| if ((flags & std.c.AI_NUMERICHOST) != 0) {
             return name_err;
@@ -751,23 +752,23 @@ fn linuxLookupNameFromNull(
     if ((flags & std.c.AI_PASSIVE) != 0) {
         if (family != os.AF_INET6) {
             (try addrs.addOne()).* = LookupAddr{
-                .addr = IpAddress.initIp4([1]u8{0} ** 4, port),
+                .addr = Address.initIp4([1]u8{0} ** 4, port),
             };
         }
         if (family != os.AF_INET) {
             (try addrs.addOne()).* = LookupAddr{
-                .addr = IpAddress.initIp6([1]u8{0} ** 16, port, 0, 0),
+                .addr = Address.initIp6([1]u8{0} ** 16, port, 0, 0),
             };
         }
     } else {
         if (family != os.AF_INET6) {
             (try addrs.addOne()).* = LookupAddr{
-                .addr = IpAddress.initIp4([4]u8{ 127, 0, 0, 1 }, port),
+                .addr = Address.initIp4([4]u8{ 127, 0, 0, 1 }, port),
             };
         }
         if (family != os.AF_INET) {
             (try addrs.addOne()).* = LookupAddr{
-                .addr = IpAddress.initIp6(([1]u8{0} ** 15) ++ [1]u8{1}, port, 0, 0),
+                .addr = Address.initIp6(([1]u8{0} ** 15) ++ [1]u8{1}, port, 0, 0),
             };
         }
     }
@@ -812,7 +813,7 @@ fn linuxLookupNameFromHosts(
             }
         } else continue;
 
-        const addr = IpAddress.parseExpectingFamily(ip_text, family, port) catch |err| switch (err) {
+        const addr = Address.parseExpectingFamily(ip_text, family, port) catch |err| switch (err) {
             error.Overflow,
             error.InvalidEnd,
             error.InvalidCharacter,
@@ -1033,7 +1034,7 @@ fn linuxLookupNameFromNumericUnspec(
     name: []const u8,
     port: u16,
 ) !void {
-    const addr = try IpAddress.parse(name, port);
+    const addr = try Address.parse(name, port);
     (try addrs.addOne()).* = LookupAddr{ .addr = addr };
 }
 
@@ -1049,7 +1050,7 @@ fn resMSendRc(
     var sl: os.socklen_t = @sizeOf(os.sockaddr_in);
     var family: os.sa_family_t = os.AF_INET;
 
-    var ns_list = std.ArrayList(IpAddress).init(rc.ns.allocator);
+    var ns_list = std.ArrayList(Address).init(rc.ns.allocator);
     defer ns_list.deinit();
 
     try ns_list.resize(rc.ns.len);
@@ -1065,8 +1066,8 @@ fn resMSendRc(
     }
 
     // Get local address and open/bind a socket
-    var sa: IpAddress = undefined;
-    @memset(@ptrCast([*]u8, &sa), 0, @sizeOf(IpAddress));
+    var sa: Address = undefined;
+    @memset(@ptrCast([*]u8, &sa), 0, @sizeOf(Address));
     sa.any.family = family;
     const flags = os.SOCK_DGRAM | os.SOCK_CLOEXEC | os.SOCK_NONBLOCK;
     const fd = os.socket(family, flags, 0) catch |err| switch (err) {
@@ -1224,7 +1225,7 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
             const new_addr = try ctx.addrs.addOne();
             new_addr.* = LookupAddr{
                 // TODO slice [0..4] to make this *[4]u8 without @ptrCast
-                .addr = IpAddress.initIp4(@ptrCast(*const [4]u8, data.ptr).*, ctx.port),
+                .addr = Address.initIp4(@ptrCast(*const [4]u8, data.ptr).*, ctx.port),
             };
         },
         os.RR_AAAA => {
@@ -1232,7 +1233,7 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
             const new_addr = try ctx.addrs.addOne();
             new_addr.* = LookupAddr{
                 // TODO slice [0..16] to make this *[16]u8 without @ptrCast
-                .addr = IpAddress.initIp6(@ptrCast(*const [16]u8, data.ptr).*, ctx.port, 0, 0),
+                .addr = Address.initIp6(@ptrCast(*const [16]u8, data.ptr).*, ctx.port, 0, 0),
             };
         },
         os.RR_CNAME => {
@@ -1253,7 +1254,7 @@ pub const TcpServer = struct {
     kernel_backlog: u32,
 
     /// `undefined` until `listen` returns successfully.
-    listen_address: IpAddress,
+    listen_address: Address,
 
     sockfd: ?os.fd_t,
 
@@ -1280,7 +1281,7 @@ pub const TcpServer = struct {
         self.* = undefined;
     }
 
-    pub fn listen(self: *TcpServer, address: IpAddress) !void {
+    pub fn listen(self: *TcpServer, address: Address) !void {
         const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
         const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | nonblock;
         const sockfd = try os.socket(os.AF_INET, sock_flags, os.IPPROTO_TCP);
@@ -1330,8 +1331,8 @@ pub const TcpServer = struct {
     pub fn accept(self: *TcpServer) AcceptError!fs.File {
         const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
         const accept_flags = nonblock | os.SOCK_CLOEXEC;
-        var accepted_addr: IpAddress = undefined;
-        var adr_len: os.socklen_t = @sizeOf(IpAddress);
+        var accepted_addr: Address = undefined;
+        var adr_len: os.socklen_t = @sizeOf(Address);
         if (os.accept4(self.sockfd.?, &accepted_addr.any, &adr_len, accept_flags)) |fd| {
             return fs.File.openHandle(fd);
         } else |err| switch (err) {
