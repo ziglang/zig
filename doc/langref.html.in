@@ -6445,6 +6445,14 @@ comptime {
       </p>
       {#header_close#}
 
+      {#header_open|@as#}
+      <pre>{#syntax#}@as(comptime T: type, expression) T{#endsyntax#}</pre>
+      <p>
+      Performs {#link|Type Coercion#}. This cast is allowed when the conversion is unambiguous and safe,
+      and is the preferred way to convert between types, whenever possible.
+      </p>
+      {#header_close#}
+
       {#header_open|@asyncCall#}
       <pre>{#syntax#}@asyncCall(frame_buffer: []align(@alignOf(@Frame(anyAsyncFunction))) u8, result_ptr, function_ptr, args: ...) anyframe->T{#endsyntax#}</pre>
       <p>
