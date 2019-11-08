@@ -15719,7 +15719,7 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             return result_loc->resolved_loc;
         }
         case ResultLocIdCast: {
-            if (!non_null_comptime && value != nullptr && value->value.special != ConstValSpecialRuntime)
+            if (value != nullptr && value->value.special != ConstValSpecialRuntime)
                 return nullptr;
             ResultLocCast *result_cast = reinterpret_cast<ResultLocCast *>(result_loc);
             ZigType *dest_type = ir_resolve_type(ira, result_cast->base.source_instruction->child);
