@@ -43,3 +43,21 @@ pub extern "NtDll" stdcallcc fn NtQueryDirectoryFile(
     FileName: ?*UNICODE_STRING,
     RestartScan: BOOLEAN,
 ) NTSTATUS;
+pub extern "NtDll" stdcallcc fn NtCreateKeyedEvent(
+    KeyedEventHandle: *HANDLE,
+    DesiredAccess: ACCESS_MASK,
+    ObjectAttributes: ?PVOID,
+    Flags: ULONG,
+) NTSTATUS;
+pub extern "NtDll" stdcallcc fn NtReleaseKeyedEvent(
+    EventHandle: HANDLE,
+    Key: *const c_void,
+    Alertable: BOOLEAN,
+    Timeout: ?*LARGE_INTEGER,
+) NTSTATUS;
+pub extern "NtDll" stdcallcc fn NtWaitForKeyedEvent(
+    EventHandle: HANDLE,
+    Key: *const c_void,
+    Alertable: BOOLEAN,
+    Timeout: ?*LARGE_INTEGER,
+) NTSTATUS;

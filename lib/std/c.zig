@@ -203,3 +203,5 @@ pub extern "c" fn dn_expand(
     exp_dn: [*]u8,
     length: c_int,
 ) c_int;
+
+pub extern "c" fn sched_yield() c_int;

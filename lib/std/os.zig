@@ -3171,3 +3171,10 @@ pub fn dn_expand(
     }
     return error.InvalidDnsPacket;
 }
+
+pub fn sched_yield() void {
+    switch (builtin.os) {
+        .windows => _ = windows.kernel32.SwitchToThread(),
+        else => assert(system.sched_yield() == 0),
+    }
+}
