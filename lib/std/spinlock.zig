@@ -31,8 +31,8 @@ pub const SpinLock = struct {
         var i = iterations;
         while (i != 0) : (i -= 1) {
             switch (builtin.arch) {
-                .i386, .x86_64 => asm volatile("pause"),
-                .arm, .aarch64 => asm volatile("yield"),
+                .i386, .x86_64 => asm volatile ("pause"),
+                .arm, .aarch64 => asm volatile ("yield"),
                 else => time.sleep(0),
             }
         }
@@ -53,7 +53,7 @@ pub const SpinLock = struct {
             if (self.iteration < 20) {
                 SpinLock.yield(self.iteration);
             } else if (self.iteration < 24) {
-                os.sched_yield();
+                os.sched_yield() catch time.sleep(1);
             } else if (self.iteration < 26) {
                 time.sleep(1 * time.millisecond);
             } else {
