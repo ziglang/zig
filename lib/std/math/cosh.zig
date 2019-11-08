@@ -88,8 +88,8 @@ fn cosh64(x: f64) f64 {
 }
 
 test "math.cosh" {
-    expect(cosh(f32(1.5)) == cosh32(1.5));
-    expect(cosh(f64(1.5)) == cosh64(1.5));
+    expect(cosh(@as(f32, 1.5)) == cosh32(1.5));
+    expect(cosh(@as(f64, 1.5)) == cosh64(1.5));
 }
 
 test "math.cosh32" {

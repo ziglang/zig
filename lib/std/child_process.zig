@@ -219,7 +219,7 @@ pub const ChildProcess = struct {
     fn waitUnwrappedWindows(self: *ChildProcess) !void {
         const result = windows.WaitForSingleObject(self.handle, windows.INFINITE);
 
-        self.term = (SpawnError!Term)(x: {
+        self.term = @as(SpawnError!Term, x: {
             var exit_code: windows.DWORD = undefined;
             if (windows.kernel32.GetExitCodeProcess(self.handle, &exit_code) == 0) {
                 break :x Term{ .Unknown = 0 };
@@ -717,7 +717,7 @@ fn destroyPipe(pipe: [2]os.fd_t) void {
 // Child of fork calls this to report an error to the fork parent.
 // Then the child exits.
 fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
-    writeIntFd(fd, ErrInt(@errorToInt(err))) catch {};
+    writeIntFd(fd, @as(ErrInt,@errorToInt(err))) catch {};
     os.exit(1);
 }
 

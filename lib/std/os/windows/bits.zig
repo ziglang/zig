@@ -69,7 +69,7 @@ pub const FALSE = 0;
 
 pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, maxInt(usize));
 
-pub const INVALID_FILE_ATTRIBUTES = DWORD(maxInt(DWORD));
+pub const INVALID_FILE_ATTRIBUTES = @as(DWORD, maxInt(DWORD));
 
 pub const FILE_ALL_INFORMATION = extern struct {
     BasicInformation: FILE_BASIC_INFORMATION,
@@ -571,16 +571,16 @@ pub const KF_FLAG_SIMPLE_IDLIST = 256;
 pub const KF_FLAG_ALIAS_ONLY = -2147483648;
 
 pub const S_OK = 0;
-pub const E_NOTIMPL = @bitCast(c_long, c_ulong(0x80004001));
-pub const E_NOINTERFACE = @bitCast(c_long, c_ulong(0x80004002));
-pub const E_POINTER = @bitCast(c_long, c_ulong(0x80004003));
-pub const E_ABORT = @bitCast(c_long, c_ulong(0x80004004));
-pub const E_FAIL = @bitCast(c_long, c_ulong(0x80004005));
-pub const E_UNEXPECTED = @bitCast(c_long, c_ulong(0x8000FFFF));
-pub const E_ACCESSDENIED = @bitCast(c_long, c_ulong(0x80070005));
-pub const E_HANDLE = @bitCast(c_long, c_ulong(0x80070006));
-pub const E_OUTOFMEMORY = @bitCast(c_long, c_ulong(0x8007000E));
-pub const E_INVALIDARG = @bitCast(c_long, c_ulong(0x80070057));
+pub const E_NOTIMPL = @bitCast(c_long, @as(c_ulong, 0x80004001));
+pub const E_NOINTERFACE = @bitCast(c_long, @as(c_ulong, 0x80004002));
+pub const E_POINTER = @bitCast(c_long, @as(c_ulong, 0x80004003));
+pub const E_ABORT = @bitCast(c_long, @as(c_ulong, 0x80004004));
+pub const E_FAIL = @bitCast(c_long, @as(c_ulong, 0x80004005));
+pub const E_UNEXPECTED = @bitCast(c_long, @as(c_ulong, 0x8000FFFF));
+pub const E_ACCESSDENIED = @bitCast(c_long, @as(c_ulong, 0x80070005));
+pub const E_HANDLE = @bitCast(c_long, @as(c_ulong, 0x80070006));
+pub const E_OUTOFMEMORY = @bitCast(c_long, @as(c_ulong, 0x8007000E));
+pub const E_INVALIDARG = @bitCast(c_long, @as(c_ulong, 0x80070057));
 
 pub const FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
 pub const FILE_FLAG_DELETE_ON_CLOSE = 0x04000000;

@@ -306,7 +306,7 @@ test "hash struct deep" {
 test "testHash optional" {
     const a: ?u32 = 123;
     const b: ?u32 = null;
-    testing.expectEqual(testHash(a), testHash(u32(123)));
+    testing.expectEqual(testHash(a), testHash(@as(u32, 123)));
     testing.expect(testHash(a) != testHash(b));
     testing.expectEqual(testHash(b), 0);
 }
@@ -315,9 +315,9 @@ test "testHash array" {
     const a = [_]u32{ 1, 2, 3 };
     const h = testHash(a);
     var hasher = Wyhash.init(0);
-    autoHash(&hasher, u32(1));
-    autoHash(&hasher, u32(2));
-    autoHash(&hasher, u32(3));
+    autoHash(&hasher, @as(u32, 1));
+    autoHash(&hasher, @as(u32, 2));
+    autoHash(&hasher, @as(u32, 3));
     testing.expectEqual(h, hasher.final());
 }
 
@@ -330,9 +330,9 @@ test "testHash struct" {
     const f = Foo{};
     const h = testHash(f);
     var hasher = Wyhash.init(0);
-    autoHash(&hasher, u32(1));
-    autoHash(&hasher, u32(2));
-    autoHash(&hasher, u32(3));
+    autoHash(&hasher, @as(u32, 1));
+    autoHash(&hasher, @as(u32, 2));
+    autoHash(&hasher, @as(u32, 3));
     testing.expectEqual(h, hasher.final());
 }
 

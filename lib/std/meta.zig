@@ -341,7 +341,7 @@ test "std.meta.TagType" {
 ///Returns the active tag of a tagged union
 pub fn activeTag(u: var) @TagType(@typeOf(u)) {
     const T = @typeOf(u);
-    return @TagType(T)(u);
+    return @as(@TagType(T), u);
 }
 
 test "std.meta.activeTag" {
@@ -505,7 +505,7 @@ test "std.meta.eql" {
     const EU = struct {
         fn tst(err: bool) !u8 {
             if (err) return error.Error;
-            return u8(5);
+            return @as(u8, 5);
         }
     };
 

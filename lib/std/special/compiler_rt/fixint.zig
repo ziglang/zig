@@ -25,11 +25,11 @@ pub fn fixint(comptime fp_t: type, comptime fixint_t: type, a: fp_t) fixint_t {
 
     const typeWidth = rep_t.bit_count;
     const exponentBits = (typeWidth - significandBits - 1);
-    const signBit = (rep_t(1) << (significandBits + exponentBits));
+    const signBit = (@as(rep_t, 1) << (significandBits + exponentBits));
     const maxExponent = ((1 << exponentBits) - 1);
     const exponentBias = (maxExponent >> 1);
 
-    const implicitBit = (rep_t(1) << significandBits);
+    const implicitBit = (@as(rep_t, 1) << significandBits);
     const significandMask = (implicitBit - 1);
 
     // Break a into sign, exponent, significand
@@ -51,7 +51,7 @@ pub fn fixint(comptime fp_t: type, comptime fixint_t: type, a: fp_t) fixint_t {
 
     // If the value is too large for the integer type, saturate.
     if (@intCast(usize, exponent) >= fixint_t.bit_count) {
-        return if (negative) fixint_t(minInt(fixint_t)) else fixint_t(maxInt(fixint_t));
+        return if (negative) @as(fixint_t, minInt(fixint_t)) else @as(fixint_t, maxInt(fixint_t));
     }
 
     // If 0 <= exponent < significandBits, right shift else left shift

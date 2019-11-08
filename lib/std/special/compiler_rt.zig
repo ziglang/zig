@@ -672,7 +672,7 @@ extern fn __udivsi3(n: u32, d: u32) u32 {
     // special cases
     if (d == 0) return 0; // ?!
     if (n == 0) return 0;
-    var sr = @bitCast(c_uint, c_int(@clz(u32, d)) - c_int(@clz(u32, n)));
+    var sr = @bitCast(c_uint, @as(c_int, @clz(u32, d)) - @as(c_int, @clz(u32, n)));
     // 0 <= sr <= n_uword_bits - 1 or sr large
     if (sr > n_uword_bits - 1) {
         // d > r
@@ -1414,10 +1414,10 @@ test "test_divsi3" {
         [_]i32{ -2, 1, -2 },
         [_]i32{ -2, -1, 2 },
 
-        [_]i32{ @bitCast(i32, u32(0x80000000)), 1, @bitCast(i32, u32(0x80000000)) },
-        [_]i32{ @bitCast(i32, u32(0x80000000)), -1, @bitCast(i32, u32(0x80000000)) },
-        [_]i32{ @bitCast(i32, u32(0x80000000)), -2, 0x40000000 },
-        [_]i32{ @bitCast(i32, u32(0x80000000)), 2, @bitCast(i32, u32(0xC0000000)) },
+        [_]i32{ @bitCast(i32, @as(u32, 0x80000000)), 1, @bitCast(i32, @as(u32, 0x80000000)) },
+        [_]i32{ @bitCast(i32, @as(u32, 0x80000000)), -1, @bitCast(i32, @as(u32, 0x80000000)) },
+        [_]i32{ @bitCast(i32, @as(u32, 0x80000000)), -2, 0x40000000 },
+        [_]i32{ @bitCast(i32, @as(u32, 0x80000000)), 2, @bitCast(i32, @as(u32, 0xC0000000)) },
     };
 
     for (cases) |case| {
@@ -1443,8 +1443,8 @@ test "test_divmodsi4" {
         [_]i32{ 19, 5, 3, 4 },
         [_]i32{ 19, -5, -3, 4 },
 
-        [_]i32{ @bitCast(i32, u32(0x80000000)), 8, @bitCast(i32, u32(0xf0000000)), 0 },
-        [_]i32{ @bitCast(i32, u32(0x80000007)), 8, @bitCast(i32, u32(0xf0000001)), -1 },
+        [_]i32{ @bitCast(i32, @as(u32, 0x80000000)), 8, @bitCast(i32, @as(u32, 0xf0000000)), 0 },
+        [_]i32{ @bitCast(i32, @as(u32, 0x80000007)), 8, @bitCast(i32, @as(u32, 0xf0000001)), -1 },
     };
 
     for (cases) |case| {
@@ -1467,10 +1467,10 @@ test "test_divdi3" {
         [_]i64{ -2, 1, -2 },
         [_]i64{ -2, -1, 2 },
 
-        [_]i64{ @bitCast(i64, u64(0x8000000000000000)), 1, @bitCast(i64, u64(0x8000000000000000)) },
-        [_]i64{ @bitCast(i64, u64(0x8000000000000000)), -1, @bitCast(i64, u64(0x8000000000000000)) },
-        [_]i64{ @bitCast(i64, u64(0x8000000000000000)), -2, 0x4000000000000000 },
-        [_]i64{ @bitCast(i64, u64(0x8000000000000000)), 2, @bitCast(i64, u64(0xC000000000000000)) },
+        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), 1, @bitCast(i64, @as(u64, 0x8000000000000000)) },
+        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), -1, @bitCast(i64, @as(u64, 0x8000000000000000)) },
+        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), -2, 0x4000000000000000 },
+        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), 2, @bitCast(i64, @as(u64, 0xC000000000000000)) },
     };
 
     for (cases) |case| {
@@ -1492,12 +1492,12 @@ test "test_moddi3" {
         [_]i64{ -5, 3, -2 },
         [_]i64{ -5, -3, -2 },
 
-        [_]i64{ @bitCast(i64, @intCast(u64, 0x8000000000000000)), 1, 0 },
-        [_]i64{ @bitCast(i64, @intCast(u64, 0x8000000000000000)), -1, 0 },
-        [_]i64{ @bitCast(i64, @intCast(u64, 0x8000000000000000)), 2, 0 },
-        [_]i64{ @bitCast(i64, @intCast(u64, 0x8000000000000000)), -2, 0 },
-        [_]i64{ @bitCast(i64, @intCast(u64, 0x8000000000000000)), 3, -2 },
-        [_]i64{ @bitCast(i64, @intCast(u64, 0x8000000000000000)), -3, -2 },
+        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), 1, 0 },
+        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), -1, 0 },
+        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), 2, 0 },
+        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), -2, 0 },
+        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), 3, -2 },
+        [_]i64{ @bitCast(i64, @as(u64, 0x8000000000000000)), -3, -2 },
     };
 
     for (cases) |case| {

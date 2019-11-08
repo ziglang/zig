@@ -327,8 +327,8 @@ pub fn isConstPtr(comptime T: type) bool {
 }
 
 test "std.meta.trait.isConstPtr" {
-    var t = u8(0);
-    const c = u8(0);
+    var t = @as(u8, 0);
+    const c = @as(u8, 0);
     testing.expect(isConstPtr(*const @typeOf(t)));
     testing.expect(isConstPtr(@typeOf(&c)));
     testing.expect(!isConstPtr(*@typeOf(t)));

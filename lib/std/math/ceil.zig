@@ -37,7 +37,7 @@ fn ceil32(x: f32) f32 {
     if (e >= 23) {
         return x;
     } else if (e >= 0) {
-        m = u32(0x007FFFFF) >> @intCast(u5, e);
+        m = @as(u32, 0x007FFFFF) >> @intCast(u5, e);
         if (u & m == 0) {
             return x;
         }
@@ -87,8 +87,8 @@ fn ceil64(x: f64) f64 {
 }
 
 test "math.ceil" {
-    expect(ceil(f32(0.0)) == ceil32(0.0));
-    expect(ceil(f64(0.0)) == ceil64(0.0));
+    expect(ceil(@as(f32, 0.0)) == ceil32(0.0));
+    expect(ceil(@as(f64, 0.0)) == ceil64(0.0));
 }
 
 test "math.ceil32" {

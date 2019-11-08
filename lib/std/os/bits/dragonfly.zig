@@ -315,7 +315,7 @@ pub const dirent = extern struct {
     d_name: [256]u8,
 
     pub fn reclen(self: dirent) u16 {
-        return (@byteOffsetOf(dirent, "d_name") + self.d_namlen + 1 + 7) & ~u16(7);
+        return (@byteOffsetOf(dirent, "d_name") + self.d_namlen + 1 + 7) & ~@as(u16, 7);
     }
 };
 

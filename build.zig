@@ -155,7 +155,7 @@ fn dependOnLib(b: *Builder, lib_exe_obj: var, dep: LibraryDep) void {
     ) catch unreachable;
     for (dep.system_libs.toSliceConst()) |lib| {
         const static_bare_name = if (mem.eql(u8, lib, "curses"))
-            ([]const u8)("libncurses.a")
+            @as([]const u8, "libncurses.a")
         else
             b.fmt("lib{}.a", lib);
         const static_lib_name = fs.path.join(

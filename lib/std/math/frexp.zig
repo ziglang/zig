@@ -108,11 +108,11 @@ fn frexp64(x: f64) frexp64_result {
 }
 
 test "math.frexp" {
-    const a = frexp(f32(1.3));
+    const a = frexp(@as(f32, 1.3));
     const b = frexp32(1.3);
     expect(a.significand == b.significand and a.exponent == b.exponent);
 
-    const c = frexp(f64(1.3));
+    const c = frexp(@as(f64, 1.3));
     const d = frexp64(1.3);
     expect(c.significand == d.significand and c.exponent == d.exponent);
 }

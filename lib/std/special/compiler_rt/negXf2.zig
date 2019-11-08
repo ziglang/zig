@@ -15,7 +15,7 @@ fn negXf2(comptime T: type, a: T) T {
     const significandBits = std.math.floatMantissaBits(T);
     const exponentBits = std.math.floatExponentBits(T);
 
-    const signBit = (Z(1) << (significandBits + exponentBits));
+    const signBit = (@as(Z, 1) << (significandBits + exponentBits));
 
     return @bitCast(T, @bitCast(Z, a) ^ signBit);
 }

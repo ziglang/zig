@@ -399,7 +399,7 @@ test "Headers.iterator" {
         }
         count += 1;
     }
-    testing.expectEqual(i32(2), count);
+    testing.expectEqual(@as(i32, 2), count);
 }
 
 test "Headers.contains" {
@@ -420,10 +420,10 @@ test "Headers.delete" {
     try h.append("cookie", "somevalue", null);
 
     testing.expectEqual(false, h.delete("not-present"));
-    testing.expectEqual(usize(3), h.count());
+    testing.expectEqual(@as(usize, 3), h.count());
 
     testing.expectEqual(true, h.delete("foo"));
-    testing.expectEqual(usize(2), h.count());
+    testing.expectEqual(@as(usize, 2), h.count());
     {
         const e = h.at(0);
         testing.expectEqualSlices(u8, "baz", e.name);
@@ -448,7 +448,7 @@ test "Headers.orderedRemove" {
     try h.append("cookie", "somevalue", null);
 
     h.orderedRemove(0);
-    testing.expectEqual(usize(2), h.count());
+    testing.expectEqual(@as(usize, 2), h.count());
     {
         const e = h.at(0);
         testing.expectEqualSlices(u8, "baz", e.name);
@@ -471,7 +471,7 @@ test "Headers.swapRemove" {
     try h.append("cookie", "somevalue", null);
 
     h.swapRemove(0);
-    testing.expectEqual(usize(2), h.count());
+    testing.expectEqual(@as(usize, 2), h.count());
     {
         const e = h.at(0);
         testing.expectEqualSlices(u8, "cookie", e.name);

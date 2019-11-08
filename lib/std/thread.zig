@@ -344,7 +344,7 @@ pub const Thread = struct {
     pub fn cpuCount() CpuCountError!usize {
         if (builtin.os == .linux) {
             const cpu_set = try os.sched_getaffinity(0);
-            return usize(os.CPU_COUNT(cpu_set)); // TODO should not need this usize cast
+            return @as(usize, os.CPU_COUNT(cpu_set)); // TODO should not need this usize cast
         }
         if (builtin.os == .windows) {
             var system_info: windows.SYSTEM_INFO = undefined;

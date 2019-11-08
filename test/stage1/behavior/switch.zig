@@ -68,7 +68,7 @@ test "switch statement" {
 }
 fn nonConstSwitch(foo: SwitchStatmentFoo) void {
     const val = switch (foo) {
-        SwitchStatmentFoo.A => i32(1),
+        SwitchStatmentFoo.A => @as(i32, 1),
         SwitchStatmentFoo.B => 2,
         SwitchStatmentFoo.C => 3,
         SwitchStatmentFoo.D => 4,
@@ -127,7 +127,7 @@ test "switch with multiple expressions" {
     const x = switch (returnsFive()) {
         1, 2, 3 => 1,
         4, 5, 6 => 2,
-        else => i32(3),
+        else => @as(i32, 3),
     };
     expect(x == 2);
 }
@@ -186,7 +186,7 @@ fn testSwitchHandleAllCases() void {
 
 fn testSwitchHandleAllCasesExhaustive(x: u2) u2 {
     return switch (x) {
-        0 => u2(3),
+        0 => @as(u2, 3),
         1 => 2,
         2 => 1,
         3 => 0,
@@ -195,7 +195,7 @@ fn testSwitchHandleAllCasesExhaustive(x: u2) u2 {
 
 fn testSwitchHandleAllCasesRange(x: u8) u8 {
     return switch (x) {
-        0...100 => u8(0),
+        0...100 => @as(u8, 0),
         101...200 => 1,
         201, 203 => 2,
         202 => 4,

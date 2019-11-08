@@ -581,7 +581,7 @@ pub const Target = union(enum) {
     };
 
     pub fn getExternalExecutor(self: Target) Executor {
-        if (@TagType(Target)(self) == .Native) return .native;
+        if (@as(@TagType(Target),self) == .Native) return .native;
 
         // If the target OS matches the host OS, we can use QEMU to emulate a foreign architecture.
         if (self.getOs() == builtin.os) {

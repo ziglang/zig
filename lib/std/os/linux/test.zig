@@ -72,7 +72,7 @@ test "statx" {
     expect(stat_buf.mode == statx_buf.mode);
     expect(@bitCast(u32, stat_buf.uid) == statx_buf.uid);
     expect(@bitCast(u32, stat_buf.gid) == statx_buf.gid);
-    expect(@bitCast(u64, i64(stat_buf.size)) == statx_buf.size);
-    expect(@bitCast(u64, i64(stat_buf.blksize)) == statx_buf.blksize);
-    expect(@bitCast(u64, i64(stat_buf.blocks)) == statx_buf.blocks);
+    expect(@bitCast(u64, @as(i64, stat_buf.size)) == statx_buf.size);
+    expect(@bitCast(u64, @as(i64, stat_buf.blksize)) == statx_buf.blksize);
+    expect(@bitCast(u64, @as(i64, stat_buf.blocks)) == statx_buf.blocks);
 }

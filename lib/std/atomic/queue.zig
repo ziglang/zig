@@ -214,8 +214,8 @@ test "std.atomic.Queue" {
         std.debug.panic(
             "failure\nget_count:{} != puts_per_thread:{} * put_thread_count:{}",
             context.get_count,
-            u32(puts_per_thread),
-            u32(put_thread_count),
+            @as(u32, puts_per_thread),
+            @as(u32, put_thread_count),
         );
     }
 }

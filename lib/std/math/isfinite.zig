@@ -26,12 +26,12 @@ pub fn isFinite(x: var) bool {
 }
 
 test "math.isFinite" {
-    expect(isFinite(f16(0.0)));
-    expect(isFinite(f16(-0.0)));
-    expect(isFinite(f32(0.0)));
-    expect(isFinite(f32(-0.0)));
-    expect(isFinite(f64(0.0)));
-    expect(isFinite(f64(-0.0)));
+    expect(isFinite(@as(f16, 0.0)));
+    expect(isFinite(@as(f16, -0.0)));
+    expect(isFinite(@as(f32, 0.0)));
+    expect(isFinite(@as(f32, -0.0)));
+    expect(isFinite(@as(f64, 0.0)));
+    expect(isFinite(@as(f64, -0.0)));
     expect(!isFinite(math.inf(f16)));
     expect(!isFinite(-math.inf(f16)));
     expect(!isFinite(math.inf(f32)));

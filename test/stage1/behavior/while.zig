@@ -137,7 +137,7 @@ test "while on optional with else result follow else prong" {
     const result = while (returnNull()) |value| {
         break value;
     } else
-        i32(2);
+        @as(i32, 2);
     expect(result == 2);
 }
 
@@ -145,7 +145,7 @@ test "while on optional with else result follow break prong" {
     const result = while (returnOptional(10)) |value| {
         break value;
     } else
-        i32(2);
+        @as(i32, 2);
     expect(result == 10);
 }
 
@@ -153,7 +153,7 @@ test "while on error union with else result follow else prong" {
     const result = while (returnError()) |value| {
         break value;
     } else |err|
-        i32(2);
+        @as(i32, 2);
     expect(result == 2);
 }
 
@@ -161,23 +161,23 @@ test "while on error union with else result follow break prong" {
     const result = while (returnSuccess(10)) |value| {
         break value;
     } else |err|
-        i32(2);
+        @as(i32, 2);
     expect(result == 10);
 }
 
 test "while on bool with else result follow else prong" {
     const result = while (returnFalse()) {
-        break i32(10);
+        break @as(i32, 10);
     } else
-        i32(2);
+        @as(i32, 2);
     expect(result == 2);
 }
 
 test "while on bool with else result follow break prong" {
     const result = while (returnTrue()) {
-        break i32(10);
+        break @as(i32, 10);
     } else
-        i32(2);
+        @as(i32, 2);
     expect(result == 10);
 }
 

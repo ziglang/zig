@@ -117,7 +117,7 @@ pub const IpAddress = extern union {
                 ip_slice[10] = 0xff;
                 ip_slice[11] = 0xff;
 
-                const ptr = @sliceToBytes((*const [1]u32)(&addr)[0..]);
+                const ptr = @sliceToBytes(@as(*const [1]u32, &addr)[0..]);
 
                 ip_slice[12] = ptr[0];
                 ip_slice[13] = ptr[1];
@@ -161,7 +161,7 @@ pub const IpAddress = extern union {
                 .addr = undefined,
             },
         };
-        const out_ptr = @sliceToBytes((*[1]u32)(&result.in.addr)[0..]);
+        const out_ptr = @sliceToBytes(@as(*[1]u32, &result.in.addr)[0..]);
 
         var x: u8 = 0;
         var index: u8 = 0;
@@ -271,7 +271,7 @@ pub const IpAddress = extern union {
             },
             os.AF_INET6 => {
                 const port = mem.bigToNative(u16, self.in6.port);
-                if (mem.eql(u8, self.in6.addr[0..12], [_]u8{0,0,0,0,0,0,0,0,0,0,0xff,0xff})) {
+                if (mem.eql(u8, self.in6.addr[0..12], [_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
                     try std.fmt.format(
                         context,
                         Errors,
@@ -611,7 +611,7 @@ fn linuxLookupName(
                 // TODO sa6.addr[12..16] should return *[4]u8, making this cast unnecessary.
                 mem.writeIntNative(u32, @ptrCast(*[4]u8, &sa6.addr[12]), sa4.addr);
             }
-            if (dscope == i32(scopeOf(sa6.addr))) key |= DAS_MATCHINGSCOPE;
+            if (dscope == @as(i32, scopeOf(sa6.addr))) key |= DAS_MATCHINGSCOPE;
             if (dlabel == labelOf(sa6.addr)) key |= DAS_MATCHINGLABEL;
             prefixlen = prefixMatch(sa6.addr, da6.addr);
         } else |_| {}
@@ -710,7 +710,7 @@ fn prefixMatch(s: [16]u8, d: [16]u8) u8 {
     // address. However the definition of the source prefix length is
     // not clear and thus this limiting is not yet implemented.
     var i: u8 = 0;
-    while (i < 128 and ((s[i / 8] ^ d[i / 8]) & (u8(128) >> @intCast(u3, i % 8))) == 0) : (i += 1) {}
+    while (i < 128 and ((s[i / 8] ^ d[i / 8]) & (@as(u8, 128) >> @intCast(u3, i % 8))) == 0) : (i += 1) {}
     return i;
 }
 
@@ -1133,7 +1133,7 @@ fn resMSendRc(
         }
 
         // Wait for a response, or until time to retry
-        const clamped_timeout = std.math.min(u31(std.math.maxInt(u31)), t1 + retry_interval - t2);
+        const clamped_timeout = std.math.min(@as(u31, std.math.maxInt(u31)), t1 + retry_interval - t2);
         const nevents = os.poll(&pfd, clamped_timeout) catch 0;
         if (nevents == 0) continue;
 
@@ -1194,23 +1194,23 @@ fn dnsParse(
     if (r.len < 12) return error.InvalidDnsPacket;
     if ((r[3] & 15) != 0) return;
     var p = r.ptr + 12;
-    var qdcount = r[4] * usize(256) + r[5];
-    var ancount = r[6] * usize(256) + r[7];
+    var qdcount = r[4] * @as(usize, 256) + r[5];
+    var ancount = r[6] * @as(usize, 256) + r[7];
     if (qdcount + ancount > 64) return error.InvalidDnsPacket;
     while (qdcount != 0) {
         qdcount -= 1;
         while (@ptrToInt(p) - @ptrToInt(r.ptr) < r.len and p[0] -% 1 < 127) p += 1;
         if (p[0] > 193 or (p[0] == 193 and p[1] > 254) or @ptrToInt(p) > @ptrToInt(r.ptr) + r.len - 6)
             return error.InvalidDnsPacket;
-        p += usize(5) + @boolToInt(p[0] != 0);
+        p += @as(usize, 5) + @boolToInt(p[0] != 0);
     }
     while (ancount != 0) {
         ancount -= 1;
         while (@ptrToInt(p) - @ptrToInt(r.ptr) < r.len and p[0] -% 1 < 127) p += 1;
         if (p[0] > 193 or (p[0] == 193 and p[1] > 254) or @ptrToInt(p) > @ptrToInt(r.ptr) + r.len - 6)
             return error.InvalidDnsPacket;
-        p += usize(1) + @boolToInt(p[0] != 0);
-        const len = p[8] * usize(256) + p[9];
+        p += @as(usize, 1) + @boolToInt(p[0] != 0);
+        const len = p[8] * @as(usize, 256) + p[9];
         if (@ptrToInt(p) + len > @ptrToInt(r.ptr) + r.len) return error.InvalidDnsPacket;
         try callback(ctx, p[1], p[10 .. 10 + len], r);
         p += 10 + len;

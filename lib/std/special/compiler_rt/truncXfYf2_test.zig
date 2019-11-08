@@ -152,11 +152,11 @@ fn test__trunctfsf2(a: f128, expected: u32) void {
 
 test "trunctfsf2" {
     // qnan
-    test__trunctfsf2(@bitCast(f128, u128(0x7fff800000000000 << 64)), 0x7fc00000);
+    test__trunctfsf2(@bitCast(f128, @as(u128, 0x7fff800000000000 << 64)), 0x7fc00000);
     // nan
-    test__trunctfsf2(@bitCast(f128, u128((0x7fff000000000000 | (0x810000000000 & 0xffffffffffff)) << 64)), 0x7fc08000);
+    test__trunctfsf2(@bitCast(f128, @as(u128, (0x7fff000000000000 | (0x810000000000 & 0xffffffffffff)) << 64)), 0x7fc08000);
     // inf
-    test__trunctfsf2(@bitCast(f128, u128(0x7fff000000000000 << 64)), 0x7f800000);
+    test__trunctfsf2(@bitCast(f128, @as(u128, 0x7fff000000000000 << 64)), 0x7f800000);
     // zero
     test__trunctfsf2(0.0, 0x0);
 
@@ -187,11 +187,11 @@ fn test__trunctfdf2(a: f128, expected: u64) void {
 
 test "trunctfdf2" {
     // qnan
-    test__trunctfdf2(@bitCast(f128, u128(0x7fff800000000000 << 64)), 0x7ff8000000000000);
+    test__trunctfdf2(@bitCast(f128, @as(u128, 0x7fff800000000000 << 64)), 0x7ff8000000000000);
     // nan
-    test__trunctfdf2(@bitCast(f128, u128((0x7fff000000000000 | (0x810000000000 & 0xffffffffffff)) << 64)), 0x7ff8100000000000);
+    test__trunctfdf2(@bitCast(f128, @as(u128, (0x7fff000000000000 | (0x810000000000 & 0xffffffffffff)) << 64)), 0x7ff8100000000000);
     // inf
-    test__trunctfdf2(@bitCast(f128, u128(0x7fff000000000000 << 64)), 0x7ff0000000000000);
+    test__trunctfdf2(@bitCast(f128, @as(u128, 0x7fff000000000000 << 64)), 0x7ff0000000000000);
     // zero
     test__trunctfdf2(0.0, 0x0);
 
@@ -224,11 +224,11 @@ fn test__truncdfsf2(a: f64, expected: u32) void {
 
 test "truncdfsf2" {
     // nan & qnan
-    test__truncdfsf2(@bitCast(f64, u64(0x7ff8000000000000)), 0x7fc00000);
-    test__truncdfsf2(@bitCast(f64, u64(0x7ff0000000000001)), 0x7fc00000);
+    test__truncdfsf2(@bitCast(f64, @as(u64, 0x7ff8000000000000)), 0x7fc00000);
+    test__truncdfsf2(@bitCast(f64, @as(u64, 0x7ff0000000000001)), 0x7fc00000);
     // inf
-    test__truncdfsf2(@bitCast(f64, u64(0x7ff0000000000000)), 0x7f800000);
-    test__truncdfsf2(@bitCast(f64, u64(0xfff0000000000000)), 0xff800000);
+    test__truncdfsf2(@bitCast(f64, @as(u64, 0x7ff0000000000000)), 0x7f800000);
+    test__truncdfsf2(@bitCast(f64, @as(u64, 0xfff0000000000000)), 0xff800000);
 
     test__truncdfsf2(0.0, 0x0);
     test__truncdfsf2(1.0, 0x3f800000);

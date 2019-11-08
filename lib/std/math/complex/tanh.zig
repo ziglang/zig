@@ -76,7 +76,7 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
             return Complex(f64).new(x, r);
         }
 
-        const xx = @bitCast(f64, (u64(hx - 0x40000000) << 32) | lx);
+        const xx = @bitCast(f64, (@as(u64, hx - 0x40000000) << 32) | lx);
         const r = if (math.isInf(y)) y else math.sin(y) * math.cos(y);
         return Complex(f64).new(xx, math.copysign(f64, 0, r));
     }

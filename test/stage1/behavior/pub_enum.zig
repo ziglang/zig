@@ -9,5 +9,5 @@ fn pubEnumTest(foo: other.APubEnum) void {
 }
 
 test "cast with imported symbol" {
-    expect(other.size_t(42) == 42);
+    expect(@as(other.size_t, 42) == 42);
 }

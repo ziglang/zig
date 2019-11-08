@@ -584,7 +584,7 @@ pub const Dir = struct {
                             .FileBothDirectoryInformation,
                             w.FALSE,
                             null,
-                            if (self.first) w.BOOLEAN(w.TRUE) else w.BOOLEAN(w.FALSE),
+                            if (self.first) @as(w.BOOLEAN, w.TRUE) else @as(w.BOOLEAN, w.FALSE),
                         );
                         self.first = false;
                         if (io.Information == 0) return null;

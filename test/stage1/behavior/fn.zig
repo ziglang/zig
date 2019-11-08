@@ -29,7 +29,7 @@ test "mutable local variables" {
     var zero: i32 = 0;
     expect(zero == 0);
 
-    var i = i32(0);
+    var i = @as(i32, 0);
     while (i != 3) {
         i += 1;
     }
@@ -43,7 +43,7 @@ test "separate block scopes" {
     }
 
     const c = x: {
-        const no_conflict = i32(10);
+        const no_conflict = @as(i32, 10);
         break :x no_conflict;
     };
     expect(c == 10);

@@ -13,11 +13,11 @@ pub extern fn __divsf3(a: f32, b: f32) f32 {
     const significandBits = std.math.floatMantissaBits(f32);
     const exponentBits = std.math.floatExponentBits(f32);
 
-    const signBit = (Z(1) << (significandBits + exponentBits));
+    const signBit = (@as(Z, 1) << (significandBits + exponentBits));
     const maxExponent = ((1 << exponentBits) - 1);
     const exponentBias = (maxExponent >> 1);
 
-    const implicitBit = (Z(1) << significandBits);
+    const implicitBit = (@as(Z, 1) << significandBits);
     const quietBit = implicitBit >> 1;
     const significandMask = implicitBit - 1;
 
@@ -90,7 +90,7 @@ pub extern fn __divsf3(a: f32, b: f32) f32 {
     // polynomial approximation: reciprocal = 3/4 + 1/sqrt(2) - b/2.  This
     // is accurate to about 3.5 binary digits.
     const q31b = bSignificand << 8;
-    var reciprocal = u32(0x7504f333) -% q31b;
+    var reciprocal = @as(u32, 0x7504f333) -% q31b;
 
     // Now refine the reciprocal estimate using a Newton-Raphson iteration:
     //
@@ -100,12 +100,12 @@ pub extern fn __divsf3(a: f32, b: f32) f32 {
     // with each iteration, so after three iterations, we have about 28 binary
     // digits of accuracy.
     var correction: u32 = undefined;
-    correction = @truncate(u32, ~(u64(reciprocal) *% q31b >> 32) +% 1);
-    reciprocal = @truncate(u32, u64(reciprocal) *% correction >> 31);
-    correction = @truncate(u32, ~(u64(reciprocal) *% q31b >> 32) +% 1);
-    reciprocal = @truncate(u32, u64(reciprocal) *% correction >> 31);
-    correction = @truncate(u32, ~(u64(reciprocal) *% q31b >> 32) +% 1);
-    reciprocal = @truncate(u32, u64(reciprocal) *% correction >> 31);
+    correction = @truncate(u32, ~(@as(u64, reciprocal) *% q31b >> 32) +% 1);
+    reciprocal = @truncate(u32, @as(u64, reciprocal) *% correction >> 31);
+    correction = @truncate(u32, ~(@as(u64, reciprocal) *% q31b >> 32) +% 1);
+    reciprocal = @truncate(u32, @as(u64, reciprocal) *% correction >> 31);
+    correction = @truncate(u32, ~(@as(u64, reciprocal) *% q31b >> 32) +% 1);
+    reciprocal = @truncate(u32, @as(u64, reciprocal) *% correction >> 31);
 
     // Exhaustive testing shows that the error in reciprocal after three steps
     // is in the interval [-0x1.f58108p-31, 0x1.d0e48cp-29], in line with our
@@ -127,7 +127,7 @@ pub extern fn __divsf3(a: f32, b: f32) f32 {
     //       is the error in the reciprocal of b scaled by the maximum
     //       possible value of a.  As a consequence of this error bound,
     //       either q or nextafter(q) is the correctly rounded
-    var quotient: Z = @truncate(u32, u64(reciprocal) *% (aSignificand << 1) >> 32);
+    var quotient: Z = @truncate(u32, @as(u64, reciprocal) *% (aSignificand << 1) >> 32);
 
     // Two cases: quotient is in [0.5, 1.0) or quotient is in [1.0, 2.0).
     // In either case, we are going to compute a residual of the form
@@ -189,7 +189,7 @@ fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)) i32 {
     @setRuntimeSafety(builtin.is_test);
     const Z = @IntType(false, T.bit_count);
     const significandBits = std.math.floatMantissaBits(T);
-    const implicitBit = Z(1) << significandBits;
+    const implicitBit = @as(Z, 1) << significandBits;
 
     const shift = @clz(Z, significand.*) - @clz(Z, implicitBit);
     significand.* <<= @intCast(std.math.Log2Int(Z), shift);

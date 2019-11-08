@@ -13,19 +13,19 @@ const srep_t = i32;
 const typeWidth = rep_t.bit_count;
 const significandBits = std.math.floatMantissaBits(fp_t);
 const exponentBits = std.math.floatExponentBits(fp_t);
-const signBit = (rep_t(1) << (significandBits + exponentBits));
+const signBit = (@as(rep_t, 1) << (significandBits + exponentBits));
 const absMask = signBit - 1;
-const implicitBit = rep_t(1) << significandBits;
+const implicitBit = @as(rep_t, 1) << significandBits;
 const significandMask = implicitBit - 1;
 const exponentMask = absMask ^ significandMask;
 const infRep = @bitCast(rep_t, std.math.inf(fp_t));
 
 // TODO https://github.com/ziglang/zig/issues/641
 // and then make the return types of some of these functions the enum instead of c_int
-const LE_LESS = c_int(-1);
-const LE_EQUAL = c_int(0);
-const LE_GREATER = c_int(1);
-const LE_UNORDERED = c_int(1);
+const LE_LESS = @as(c_int, -1);
+const LE_EQUAL = @as(c_int, 0);
+const LE_GREATER = @as(c_int, 1);
+const LE_UNORDERED = @as(c_int, 1);
 
 pub extern fn __lesf2(a: fp_t, b: fp_t) c_int {
     @setRuntimeSafety(is_test);
@@ -65,10 +65,10 @@ pub extern fn __lesf2(a: fp_t, b: fp_t) c_int {
 
 // TODO https://github.com/ziglang/zig/issues/641
 // and then make the return types of some of these functions the enum instead of c_int
-const GE_LESS = c_int(-1);
-const GE_EQUAL = c_int(0);
-const GE_GREATER = c_int(1);
-const GE_UNORDERED = c_int(-1); // Note: different from LE_UNORDERED
+const GE_LESS = @as(c_int, -1);
+const GE_EQUAL = @as(c_int, 0);
+const GE_GREATER = @as(c_int, 1);
+const GE_UNORDERED = @as(c_int, -1); // Note: different from LE_UNORDERED
 
 pub extern fn __gesf2(a: fp_t, b: fp_t) c_int {
     @setRuntimeSafety(is_test);

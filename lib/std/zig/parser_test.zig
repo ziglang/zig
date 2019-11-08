@@ -37,7 +37,7 @@ test "zig fmt: while else err prong with no block" {
         \\test "" {
         \\    const result = while (returnError()) |value| {
         \\        break value;
-        \\    } else |err| i32(2);
+        \\    } else |err| @as(i32, 2);
         \\    expect(result == 2);
         \\}
         \\
