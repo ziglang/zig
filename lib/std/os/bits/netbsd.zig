@@ -14,12 +14,6 @@ pub const Kevent = extern struct {
     udata: usize,
 };
 
-pub const pthread_attr_t = extern struct {
-    pta_magic: u32,
-    pta_flags: c_int,
-    pta_private: *c_void,
-};
-
 pub const dl_phdr_info = extern struct {
     dlpi_addr: usize,
     dlpi_name: ?[*]const u8,

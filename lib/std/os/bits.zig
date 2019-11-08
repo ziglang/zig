@@ -14,9 +14,6 @@ pub usingnamespace switch (builtin.os) {
     else => struct {},
 };
 
-pub const pthread_t = *@OpaqueType();
-pub const FILE = @OpaqueType();
-
 pub const iovec = extern struct {
     iov_base: [*]u8,
     iov_len: usize,

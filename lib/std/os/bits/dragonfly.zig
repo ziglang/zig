@@ -360,11 +360,6 @@ pub const Kevent = extern struct {
     udata: usize,
 };
 
-pub const pthread_attr_t = extern struct { // copied from freebsd
-    __size: [56]u8,
-    __align: c_long,
-};
-
 pub const EVFILT_FS = -10;
 pub const EVFILT_USER = -9;
 pub const EVFILT_EXCEPT = -8;
@@ -515,13 +510,13 @@ pub const sigset_t = extern struct {
 pub const sig_atomic_t = c_int;
 pub const Sigaction = extern struct {
     __sigaction_u: extern union {
-        __sa_handler: ?extern fn(c_int) void,
-        __sa_sigaction: ?extern fn(c_int, [*c]siginfo_t, ?*c_void) void,
+        __sa_handler: ?extern fn (c_int) void,
+        __sa_sigaction: ?extern fn (c_int, [*c]siginfo_t, ?*c_void) void,
     },
     sa_flags: c_int,
     sa_mask: sigset_t,
 };
-pub const sig_t = [*c]extern fn(c_int) void;
+pub const sig_t = [*c]extern fn (c_int) void;
 
 pub const sigvec = extern struct {
     sv_handler: [*c]__sighandler_t,

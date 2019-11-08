@@ -133,11 +133,6 @@ pub const dirent = extern struct {
     }
 };
 
-pub const pthread_attr_t = extern struct {
-    __sig: c_long,
-    __opaque: [56]u8,
-};
-
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
 pub const Kevent = extern struct {
     ident: usize,

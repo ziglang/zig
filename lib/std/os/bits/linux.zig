@@ -1000,11 +1000,6 @@ pub const dl_phdr_info = extern struct {
     dlpi_phnum: u16,
 };
 
-pub const pthread_attr_t = extern struct {
-    __size: [56]u8,
-    __align: c_long,
-};
-
 pub const CPU_SETSIZE = 128;
 pub const cpu_set_t = [CPU_SETSIZE / @sizeOf(usize)]usize;
 pub const cpu_count_t = @IntType(false, std.math.log2(CPU_SETSIZE * 8));
