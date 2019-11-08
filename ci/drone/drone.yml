@@ -9,6 +9,8 @@ steps:
 - name: build-and-test
   image: ziglang/static-base:llvm9-1
   environment:
+    SRHT_OAUTH_TOKEN:
+      from_secret: SRHT_OAUTH_TOKEN
     AWS_ACCESS_KEY_ID:
       from_secret: AWS_ACCESS_KEY_ID
     AWS_SECRET_ACCESS_KEY:
