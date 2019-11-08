@@ -262,7 +262,7 @@ pub const ReadFileError = error{Unexpected};
 pub fn ReadFile(in_hFile: HANDLE, buffer: []u8) ReadFileError!usize {
     var index: usize = 0;
     while (index < buffer.len) {
-        const want_read_count = @intCast(DWORD, math.min(DWORD(maxInt(DWORD)), buffer.len - index));
+        const want_read_count = @intCast(DWORD, math.min(@as(DWORD, maxInt(DWORD)), buffer.len - index));
         var amt_read: DWORD = undefined;
         if (kernel32.ReadFile(in_hFile, buffer.ptr + index, want_read_count, &amt_read, null) == 0) {
             switch (kernel32.GetLastError()) {

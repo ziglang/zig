@@ -6339,7 +6339,8 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
         return irb->codegen->invalid_instruction;
 
     if (result_loc_cast != nullptr) {
-        IrInstruction *implicit_cast = ir_build_implicit_cast(irb, scope, node, init_value, result_loc_cast);
+        IrInstruction *implicit_cast = ir_build_implicit_cast(irb, scope, init_value->source_node,
+                init_value, result_loc_cast);
         ir_build_end_expr(irb, scope, node, implicit_cast, &result_loc_var->base);
     }
 
@@ -9610,7 +9611,7 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
     }
 
     ir_add_error(ira, instruction,
-        buf_sprintf("%s value %s cannot be implicitly casted to type '%s'",
+        buf_sprintf("%s value %s cannot be coerced to type '%s'",
             num_lit_str,
             buf_ptr(val_buf),
             buf_ptr(&other_type->name)));
@@ -13065,8 +13066,8 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     return ira->codegen->invalid_instruction;
 }
 
-static IrInstruction *ir_implicit_cast_with_result(IrAnalyze *ira, IrInstruction *value, ZigType *expected_type,
-        ResultLoc *result_loc)
+static IrInstruction *ir_implicit_cast_with_result(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *value, ZigType *expected_type, ResultLoc *result_loc)
 {
     assert(value);
     assert(value != ira->codegen->invalid_instruction);
@@ -13080,11 +13081,11 @@ static IrInstruction *ir_implicit_cast_with_result(IrAnalyze *ira, IrInstruction
     if (value->value.type->id == ZigTypeIdUnreachable)
         return value;
 
-    return ir_analyze_cast(ira, value, expected_type, value, result_loc);
+    return ir_analyze_cast(ira, source_instr, expected_type, value, result_loc);
 }
 
 static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, ZigType *expected_type) {
-    return ir_implicit_cast_with_result(ira, value, expected_type, nullptr);
+    return ir_implicit_cast_with_result(ira, value, value, expected_type, nullptr);
 }
 
 static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruction, IrInstruction *ptr,
@@ -26068,7 +26069,7 @@ static IrInstruction *ir_analyze_instruction_implicit_cast(IrAnalyze *ira, IrIns
     ZigType *dest_type = ir_resolve_type(ira, instruction->result_loc_cast->base.source_instruction->child);
     if (type_is_invalid(dest_type))
         return ira->codegen->invalid_instruction;
-    return ir_implicit_cast(ira, operand, dest_type);
+    return ir_implicit_cast_with_result(ira, &instruction->base, operand, dest_type, nullptr);
 }
 
 static IrInstruction *ir_analyze_instruction_bit_cast_src(IrAnalyze *ira, IrInstructionBitCastSrc *instruction) {

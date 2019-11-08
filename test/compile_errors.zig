@@ -189,7 +189,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = 1 << &@as(u8, 10);
         \\}
     ,
-        "tmp.zig:2:23: error: shift amount has to be an integer type, but found '*u8'",
+        "tmp.zig:2:21: error: shift amount has to be an integer type, but found '*u8'",
         "tmp.zig:2:17: note: referenced here",
     );
 
@@ -199,8 +199,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = &@as(u8, 1) << 10;
         \\}
     ,
-        "tmp.zig:2:18: error: bit shifting operation expected integer type, found '*u8'",
-        "tmp.zig:2:22: note: referenced here",
+        "tmp.zig:2:16: error: bit shifting operation expected integer type, found '*u8'",
+        "tmp.zig:2:27: note: referenced here",
     );
 
     cases.add(
@@ -245,7 +245,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:2:20: error: expected type 'u29', found 'bool'",
-        "tmp.zig:5:22: error: fractional component prevents float value 12.340000 from being casted to type 'u29'",
+        "tmp.zig:5:19: error: fractional component prevents float value 12.340000 from being casted to type 'u29'",
     );
 
     cases.addCase(x: {
@@ -1243,7 +1243,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var ptr: [*c]u8 = x;
         \\}
     ,
-        "tmp.zig:2:33: error: integer value 18446744073709551617 cannot be implicitly casted to type 'usize'",
+        "tmp.zig:2:33: error: integer value 18446744073709551617 cannot be coerced to type 'usize'",
         "tmp.zig:6:23: error: integer type 'u65' too big for implicit @intToPtr to type '[*c]u8'",
     );
 
@@ -1300,14 +1300,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var z = @truncate(u8, @as(u16, undefined));
         \\}
     ,
-        "tmp.zig:2:30: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:2:27: error: use of undefined value here causes undefined behavior",
     );
 
     cases.addTest(
         "return invalid type from test",
         \\test "example" { return 1; }
     ,
-        "tmp.zig:1:25: error: integer value 1 cannot be implicitly casted to type 'void'",
+        "tmp.zig:1:25: error: integer value 1 cannot be coerced to type 'void'",
     );
 
     cases.add(
@@ -1464,8 +1464,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var byte: u8 = spartan_count;
         \\}
     ,
-        "tmp.zig:3:31: error: integer value 300 cannot be implicitly casted to type 'u8'",
-        "tmp.zig:7:22: error: integer value 300 cannot be implicitly casted to type 'u8'",
+        "tmp.zig:3:31: error: integer value 300 cannot be coerced to type 'u8'",
+        "tmp.zig:7:22: error: integer value 300 cannot be coerced to type 'u8'",
         "tmp.zig:11:20: error: expected type 'u8', found 'u16'",
     );
 
@@ -1498,7 +1498,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x: i65536 = 1;
         \\}
     ,
-        "tmp.zig:2:31: error: integer value 65536 cannot be implicitly casted to type 'u16'",
+        "tmp.zig:2:31: error: integer value 65536 cannot be coerced to type 'u16'",
         "tmp.zig:5:12: error: primitive integer type 'i65536' exceeds maximum bit width of 65535",
     );
 
@@ -1689,7 +1689,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = @floatToInt(i32, @as(i32, 54));
         \\}
     ,
-        "tmp.zig:2:35: error: expected float type, found 'i32'",
+        "tmp.zig:2:32: error: expected float type, found 'i32'",
     );
 
     cases.add(
@@ -1698,7 +1698,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = @floatToInt(i8, 200);
         \\}
     ,
-        "tmp.zig:2:31: error: integer value 200 cannot be implicitly casted to type 'i8'",
+        "tmp.zig:2:31: error: integer value 200 cannot be coerced to type 'i8'",
     );
 
     cases.add(
@@ -2207,7 +2207,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var rule_set = try Foo.init();
         \\}
     ,
-        "tmp.zig:2:13: error: expected type 'i32', found 'type'",
+        "tmp.zig:2:10: error: expected type 'i32', found 'type'",
     );
 
     cases.add(
@@ -2357,10 +2357,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "comptime slice of undefined pointer non-zero len",
         \\export fn entry() void {
-        \\    const slice = ([*]i32)(undefined)[0..1];
+        \\    const slice = @as([*]i32, undefined)[0..1];
         \\}
     ,
-        "tmp.zig:2:38: error: non-zero length slice of undefined pointer",
+        "tmp.zig:2:41: error: non-zero length slice of undefined pointer",
     );
 
     cases.add(
@@ -2660,7 +2660,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const x = @as(usize, -10);
         \\}
     ,
-        "tmp.zig:2:21: error: cannot cast negative value -10 to unsigned integer type 'usize'",
+        "tmp.zig:2:26: error: cannot cast negative value -10 to unsigned integer type 'usize'",
     );
 
     cases.add(
@@ -3388,7 +3388,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() void { f(true); g(true); }
     ,
-        "tmp.zig:2:42: error: integer value 1 cannot be implicitly casted to type 'void'",
+        "tmp.zig:2:21: error: expected type 'i32', found 'void'",
         "tmp.zig:5:15: error: incompatible types: 'i32' and 'void'",
     );
 
@@ -3524,7 +3524,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() void { _ = f(); }
     ,
-        "tmp.zig:2:15: error: unreachable code",
+        "tmp.zig:2:12: error: unreachable code",
     );
 
     cases.add(
@@ -3765,7 +3765,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const x : u8 = 300;
         \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
     ,
-        "tmp.zig:1:16: error: integer value 300 cannot be implicitly casted to type 'u8'",
+        "tmp.zig:1:16: error: integer value 300 cannot be coerced to type 'u8'",
     );
 
     cases.add(
@@ -3897,8 +3897,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         "tmp.zig:1:21: error: division by zero",
         "tmp.zig:2:25: error: division by zero",
-        "tmp.zig:3:22: error: division by zero",
-        "tmp.zig:4:26: error: division by zero",
+        "tmp.zig:3:27: error: division by zero",
+        "tmp.zig:4:31: error: division by zero",
     );
 
     cases.add(
@@ -4908,7 +4908,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var vga_mem: u16 = 0xB8000;
         \\}
     ,
-        "tmp.zig:2:24: error: integer value 753664 cannot be implicitly casted to type 'u16'",
+        "tmp.zig:2:24: error: integer value 753664 cannot be coerced to type 'u16'",
     );
 
     cases.add(
@@ -5080,7 +5080,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "pass const ptr to mutable ptr fn",
         \\fn foo() bool {
-        \\    const a = ([]const u8)("a",);
+        \\    const a = @as([]const u8, "a",);
         \\    const b = &a;
         \\    return ptrEql(b, b);
         \\}
@@ -5584,7 +5584,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @as(i32, 12.34);
         \\}
     ,
-        "tmp.zig:2:16: error: fractional component prevents float value 12.340000 from being casted to type 'i32'",
+        "tmp.zig:2:21: error: fractional component prevents float value 12.340000 from being casted to type 'i32'",
     );
 
     cases.add(
@@ -5671,16 +5671,16 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    var foo = Foo { .a = 1, .b = 10 };
         \\    foo.b += 1;
-        \\    bar((*[1]u32)(&foo.b)[0..]);
+        \\    bar(@as(*[1]u32, &foo.b)[0..]);
         \\}
         \\
         \\fn bar(x: []u32) void {
         \\    x[0] += 1;
         \\}
     ,
-        "tmp.zig:9:18: error: cast increases pointer alignment",
-        "tmp.zig:9:23: note: '*align(1) u32' has alignment 1",
-        "tmp.zig:9:18: note: '*[1]u32' has alignment 4",
+        "tmp.zig:9:9: error: cast increases pointer alignment",
+        "tmp.zig:9:26: note: '*align(1) u32' has alignment 1",
+        "tmp.zig:9:9: note: '*[1]u32' has alignment 4",
     );
 
     cases.add(
@@ -5702,7 +5702,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @alignCast(4, @as(u32, 3));
         \\}
     ,
-        "tmp.zig:2:22: error: expected pointer or slice, found 'u32'",
+        "tmp.zig:2:19: error: expected pointer or slice, found 'u32'",
     );
 
     cases.add(
@@ -5740,7 +5740,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "wrong pointer implicitly casted to pointer to @OpaqueType()",
+        "wrong pointer coerced to pointer to @OpaqueType()",
         \\const Derp = @OpaqueType();
         \\extern fn bar(d: *Derp) void;
         \\export fn foo() void {
@@ -5793,7 +5793,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:17:4: error: variable of type 'Opaque' not allowed",
         "tmp.zig:20:4: error: variable of type 'type' must be const or comptime",
         "tmp.zig:23:4: error: variable of type '(bound fn(*const Foo) void)' must be const or comptime",
-        "tmp.zig:26:4: error: unreachable code",
+        "tmp.zig:26:22: error: unreachable code",
     );
 
     cases.add(
@@ -5803,7 +5803,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    while (!@cmpxchgWeak(i32, &x, 1234, 5678, @as(u32, 1234), @as(u32, 1234))) {}
         \\}
     ,
-        "tmp.zig:3:50: error: expected type 'std.builtin.AtomicOrder', found 'u32'",
+        "tmp.zig:3:47: error: expected type 'std.builtin.AtomicOrder', found 'u32'",
     );
 
     cases.add(
@@ -5813,7 +5813,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @export("entry", entry, @as(u32, 1234));
         \\}
     ,
-        "tmp.zig:3:32: error: expected type 'std.builtin.GlobalLinkage', found 'u32'",
+        "tmp.zig:3:29: error: expected type 'std.builtin.GlobalLinkage', found 'u32'",
     );
 
     cases.add(
@@ -6185,7 +6185,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\};
         \\
         \\export fn entry() void {
-        \\    var y = u3(3);
+        \\    var y = @as(u3, 3);
         \\    var x = @intToEnum(Small, y);
         \\}
     ,
@@ -6722,8 +6722,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:1:1: note: declared here",
     );
 
-    // fixed bug #2032
-    cases.add(
+    cases.add( // fixed bug #2032
         "compile diagnostic string for top level decl type",
         \\export fn entry() void {
         \\    var foo: u32 = @This(){};
@@ -6731,6 +6730,5 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     ,
         "tmp.zig:2:27: error: expected type 'u32', found '(root)'",
         "tmp.zig:1:1: note: (root) declared here",
-        "tmp.zig:2:5: note: referenced here",
     );
 }

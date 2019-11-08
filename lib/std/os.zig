@@ -1126,9 +1126,9 @@ pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*]const u16, flags: u32) UnlinkatErro
 
     const want_rmdir_behavior = (flags & AT_REMOVEDIR) != 0;
     const create_options_flags = if (want_rmdir_behavior)
-        w.ULONG(w.FILE_DELETE_ON_CLOSE)
+        @as(w.ULONG, w.FILE_DELETE_ON_CLOSE)
     else
-        w.ULONG(w.FILE_DELETE_ON_CLOSE | w.FILE_NON_DIRECTORY_FILE);
+        @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_NON_DIRECTORY_FILE);
 
     const path_len_bytes = @intCast(u16, mem.toSliceConst(u16, sub_path_w).len * 2);
     var nt_name = w.UNICODE_STRING{
