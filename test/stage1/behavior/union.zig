@@ -535,3 +535,17 @@ test "global union with single field is correctly initialized" {
     };
     expect(glbl.f.x == 123);
 }
+
+pub const FooUnion = union(enum) {
+    U0: usize,
+    U1: u8,
+};
+
+var glbl_array: [2]FooUnion = undefined;
+
+test "initialize global array of union" {
+    glbl_array[1] = FooUnion{ .U1 = 2 };
+    glbl_array[0] = FooUnion{ .U0 = 1 };
+    expect(glbl_array[0].U0 == 1);
+    expect(glbl_array[1].U1 == 2);
+}

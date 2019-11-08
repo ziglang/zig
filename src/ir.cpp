@@ -18263,7 +18263,8 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
             if (!ptr_val)
                 return ira->codegen->invalid_instruction;
 
-            if (ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
+            if (ptr_val->data.x_ptr.mut != ConstPtrMutRuntimeVar &&
+                ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
                 ConstExprValue *union_val = const_ptr_pointee(ira, ira->codegen, ptr_val, source_instr->source_node);
                 if (union_val == nullptr)
                     return ira->codegen->invalid_instruction;
@@ -18294,7 +18295,6 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                 }
 
                 ConstExprValue *payload_val = union_val->data.x_union.payload;
-
 
                 IrInstruction *result;
                 if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
