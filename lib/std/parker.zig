@@ -78,12 +78,12 @@ const WindowsParker = struct {
 
     pub fn unpark(self: *WindowsParker, ptr: *const u32) void {
         const key = @ptrCast(*const c_void, ptr);
-        const handle_ptr = getEventHandlePtr() orelse return;
+        const handle = getEventHandle() orelse return;
 
         var waiting = @atomicLoad(u32, &self.waiters, .Monotonic);
         while (waiting != 0) {
             waiting = @cmpxchgWeak(u32, &self.waiters, waiting, waiting - 1, .Acquire, .Monotonic) orelse {
-                const rc = windows.ntdll.NtReleaseKeyedEvent(handle_ptr.*, key, windows.FALSE, null);
+                const rc = windows.ntdll.NtReleaseKeyedEvent(handle, key, windows.FALSE, null);
                 assert(rc == 0);
                 return;
             };
@@ -92,12 +92,13 @@ const WindowsParker = struct {
 
     pub fn park(self: *WindowsParker, ptr: *const u32, expected: u32) void {
         var spin = SpinLock.Backoff.init();
+        const ev_handle = getEventHandle();
         const key = @ptrCast(*const c_void, ptr);
         
-        while (@atomicLoad(u32, ptr, .Acquire) == expected) {
-            if (getEventHandlePtr()) |handle_ptr| {
+        while (@atomicLoad(u32, ptr, .Monotonic) == expected) {
+            if (ev_handle) |handle| {
                 _ = @atomicRmw(u32, &self.waiters, .Add, 1, .Release);
-                const rc = windows.ntdll.NtWaitForKeyedEvent(handle_ptr.*, key, windows.FALSE, null);
+                const rc = windows.ntdll.NtWaitForKeyedEvent(handle, key, windows.FALSE, null);
                 assert(rc == 0);
             } else {
                 spin.yield();
@@ -107,14 +108,15 @@ const WindowsParker = struct {
 
     var event_handle = std.lazyInit(windows.HANDLE);
 
-    fn getEventHandlePtr() ?*const windows.HANDLE {
-        return event_handle.get() orelse {
-            const access_mask = windows.GENERIC_READ | windows.GENERIC_WRITE;
-            if (windows.ntdll.NtCreateKeyedEvent(&event_handle.data, access_mask, null, 0) != 0)
-                return null;
-            event_handle.resolve();
-            return &event_handle.data;
-        };
+    fn getEventHandle() ?windows.HANDLE {
+        if (event_handle.get()) |handle_ptr|
+            return handle_ptr.*;
+        defer event_handle.resolve();
+
+        const access_mask = windows.GENERIC_READ | windows.GENERIC_WRITE;
+        if (windows.ntdll.NtCreateKeyedEvent(&event_handle.data, access_mask, null, 0) != 0)
+            return null;
+        return event_handle.data;
     }
 };
 
