@@ -3171,3 +3171,22 @@ pub fn dn_expand(
     }
     return error.InvalidDnsPacket;
 }
+
+pub const SchedYieldError = error{
+    /// The system is not configured to allow yielding
+    SystemCannotYield,
+};
+
+pub fn sched_yield() SchedYieldError!void {
+    if (builtin.os == .windows) {
+        // The return value has to do with how many other threads there are; it is not
+        // an error condition on Windows.
+        _ = windows.kernel32.SwitchToThread();
+        return;
+    }
+    switch (errno(system.sched_yield())) {
+        0 => return,
+        ENOSYS => return error.SystemCannotYield,
+        else => return error.SystemCannotYield,
+    }
+}

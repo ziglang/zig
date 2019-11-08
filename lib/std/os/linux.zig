@@ -954,6 +954,10 @@ pub fn fremovexattr(fd: usize, name: [*]const u8) usize {
     return syscall2(SYS_fremovexattr, fd, @ptrToInt(name));
 }
 
+pub fn sched_yield() usize {
+    return syscall0(SYS_sched_yield);
+}
+
 pub fn sched_getaffinity(pid: i32, size: usize, set: *cpu_set_t) usize {
     const rc = syscall3(SYS_sched_getaffinity, @bitCast(usize, isize(pid)), size, @ptrToInt(set));
     if (@bitCast(isize, rc) < 0) return rc;

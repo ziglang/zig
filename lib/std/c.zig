@@ -8,9 +8,16 @@ pub usingnamespace switch (builtin.os) {
     .linux => @import("c/linux.zig"),
     .windows => @import("c/windows.zig"),
     .macosx, .ios, .tvos, .watchos => @import("c/darwin.zig"),
-    .freebsd => @import("c/freebsd.zig"),
+    .freebsd, .kfreebsd => @import("c/freebsd.zig"),
     .netbsd => @import("c/netbsd.zig"),
     .dragonfly => @import("c/dragonfly.zig"),
+    .openbsd => @import("c/openbsd.zig"),
+    .haiku => @import("c/haiku.zig"),
+    .hermit => @import("c/hermit.zig"),
+    .solaris => @import("c/solaris.zig"),
+    .fuchsia => @import("c/fuchsia.zig"),
+    .minix => @import("c/minix.zig"),
+    .emscripten => @import("c/emscripten.zig"),
     else => struct {},
 };
 
@@ -203,3 +210,18 @@ pub extern "c" fn dn_expand(
     exp_dn: [*]u8,
     length: c_int,
 ) c_int;
+
+pub extern "c" fn sched_yield() c_int;
+
+pub const PTHREAD_MUTEX_INITIALIZER = pthread_mutex_t{};
+pub extern "c" fn pthread_mutex_lock(mutex: *pthread_mutex_t) c_int;
+pub extern "c" fn pthread_mutex_unlock(mutex: *pthread_mutex_t) c_int;
+pub extern "c" fn pthread_mutex_destroy(mutex: *pthread_mutex_t) c_int;
+
+pub const PTHREAD_COND_INITIALIZER = pthread_cond_t{};
+pub extern "c" fn pthread_cond_wait(noalias cond: *pthread_cond_t, noalias mutex: *pthread_mutex_t) c_int;
+pub extern "c" fn pthread_cond_signal(cond: *pthread_cond_t) c_int;
+pub extern "c" fn pthread_cond_destroy(cond: *pthread_cond_t) c_int;
+
+pub const pthread_t = *@OpaqueType();
+pub const FILE = @OpaqueType();

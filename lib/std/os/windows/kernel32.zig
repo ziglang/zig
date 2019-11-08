@@ -184,6 +184,8 @@ pub extern "kernel32" stdcallcc fn SetHandleInformation(hObject: HANDLE, dwMask:
 
 pub extern "kernel32" stdcallcc fn Sleep(dwMilliseconds: DWORD) void;
 
+pub extern "kernel32" stdcallcc fn SwitchToThread() BOOL;
+
 pub extern "kernel32" stdcallcc fn TerminateProcess(hProcess: HANDLE, uExitCode: UINT) BOOL;
 
 pub extern "kernel32" stdcallcc fn TlsAlloc() DWORD;
