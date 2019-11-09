@@ -40,21 +40,6 @@ pub const Address = extern union {
         return error.InvalidIPAddressFormat;
     }
 
-    pub fn parseUnix(path: []const u8) !Address {
-        var sock_addr = os.sockaddr_un{
-            .family = os.AF_UNIX,
-            .path = undefined,
-        };
-
-        // this enables us to have the proper length of the socket in getOsSockLen
-        mem.zero(&sock_addr.path);
-
-        if (path.len > sock_addr.path.len) return error.NameTooLong;
-        mem.copy(u8, &sock_addr.path, path);
-
-        return Address{ .un = sock_addr };
-    }
-
     pub fn parseExpectingFamily(name: []const u8, family: os.sa_family_t, port: u16) !Address {
         switch (family) {
             os.AF_INET => return parseIp4(name, port),
@@ -228,6 +213,21 @@ pub const Address = extern union {
                 .scope_id = scope_id,
             },
         };
+    }
+
+    pub fn initUnix(path: []const u8) !Address {
+        var sock_addr = os.sockaddr_un{
+            .family = os.AF_UNIX,
+            .path = undefined,
+        };
+
+        // this enables us to have the proper length of the socket in getOsSockLen
+        mem.zero(&sock_addr.path);
+
+        if (path.len > sock_addr.path.len) return error.NameTooLong;
+        mem.copy(u8, &sock_addr.path, path);
+
+        return Address{ .un = sock_addr };
     }
 
     /// Returns the port in native endian.
@@ -1306,7 +1306,7 @@ pub const StreamServer = struct {
     pub fn listen(self: *StreamServer, address: Address) !void {
         const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
         const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | nonblock;
-        const sockfd = try os.socket(os.AF_INET, sock_flags, os.IPPROTO_TCP);
+        const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO_TCP);
         self.sockfd = sockfd;
         errdefer {
             os.close(sockfd);
