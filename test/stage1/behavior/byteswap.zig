@@ -11,24 +11,24 @@ test "@byteSwap integers" {
             t(u24, 0x123456, 0x563412);
             t(u32, 0x12345678, 0x78563412);
             t(u40, 0x123456789a, 0x9a78563412);
-            t(i48, 0x123456789abc, @bitCast(i48, u48(0xbc9a78563412)));
+            t(i48, 0x123456789abc, @bitCast(i48, @as(u48, 0xbc9a78563412)));
             t(u56, 0x123456789abcde, 0xdebc9a78563412);
             t(u64, 0x123456789abcdef1, 0xf1debc9a78563412);
             t(u128, 0x123456789abcdef11121314151617181, 0x8171615141312111f1debc9a78563412);
 
-            t(u0, u0(0), 0);
-            t(i8, i8(-50), -50);
-            t(i16, @bitCast(i16, u16(0x1234)), @bitCast(i16, u16(0x3412)));
-            t(i24, @bitCast(i24, u24(0x123456)), @bitCast(i24, u24(0x563412)));
-            t(i32, @bitCast(i32, u32(0x12345678)), @bitCast(i32, u32(0x78563412)));
-            t(u40, @bitCast(i40, u40(0x123456789a)), u40(0x9a78563412));
-            t(i48, @bitCast(i48, u48(0x123456789abc)), @bitCast(i48, u48(0xbc9a78563412)));
-            t(i56, @bitCast(i56, u56(0x123456789abcde)), @bitCast(i56, u56(0xdebc9a78563412)));
-            t(i64, @bitCast(i64, u64(0x123456789abcdef1)), @bitCast(i64, u64(0xf1debc9a78563412)));
+            t(u0, @as(u0, 0), 0);
+            t(i8, @as(i8, -50), -50);
+            t(i16, @bitCast(i16, @as(u16, 0x1234)), @bitCast(i16, @as(u16, 0x3412)));
+            t(i24, @bitCast(i24, @as(u24, 0x123456)), @bitCast(i24, @as(u24, 0x563412)));
+            t(i32, @bitCast(i32, @as(u32, 0x12345678)), @bitCast(i32, @as(u32, 0x78563412)));
+            t(u40, @bitCast(i40, @as(u40, 0x123456789a)), @as(u40, 0x9a78563412));
+            t(i48, @bitCast(i48, @as(u48, 0x123456789abc)), @bitCast(i48, @as(u48, 0xbc9a78563412)));
+            t(i56, @bitCast(i56, @as(u56, 0x123456789abcde)), @bitCast(i56, @as(u56, 0xdebc9a78563412)));
+            t(i64, @bitCast(i64, @as(u64, 0x123456789abcdef1)), @bitCast(i64, @as(u64, 0xf1debc9a78563412)));
             t(
                 i128,
-                @bitCast(i128, u128(0x123456789abcdef11121314151617181)),
-                @bitCast(i128, u128(0x8171615141312111f1debc9a78563412)),
+                @bitCast(i128, @as(u128, 0x123456789abcdef11121314151617181)),
+                @bitCast(i128, @as(u128, 0x8171615141312111f1debc9a78563412)),
             );
         }
         fn t(comptime I: type, input: I, expected_output: I) void {

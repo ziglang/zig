@@ -262,7 +262,7 @@ pub const ReadFileError = error{Unexpected};
 pub fn ReadFile(in_hFile: HANDLE, buffer: []u8) ReadFileError!usize {
     var index: usize = 0;
     while (index < buffer.len) {
-        const want_read_count = @intCast(DWORD, math.min(DWORD(maxInt(DWORD)), buffer.len - index));
+        const want_read_count = @intCast(DWORD, math.min(@as(DWORD, maxInt(DWORD)), buffer.len - index));
         var amt_read: DWORD = undefined;
         if (kernel32.ReadFile(in_hFile, buffer.ptr + index, want_read_count, &amt_read, null) == 0) {
             switch (kernel32.GetLastError()) {
@@ -801,7 +801,7 @@ pub fn toSysTime(ns: i64) i64 {
 }
 
 pub fn fileTimeToNanoSeconds(ft: FILETIME) i64 {
-    const hns = @bitCast(i64, (u64(ft.dwHighDateTime) << 32) | ft.dwLowDateTime);
+    const hns = @bitCast(i64, (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime);
     return fromSysTime(hns);
 }
 

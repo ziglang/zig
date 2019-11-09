@@ -149,8 +149,8 @@ fn acos64(x: f64) f64 {
 }
 
 test "math.acos" {
-    expect(acos(f32(0.0)) == acos32(0.0));
-    expect(acos(f64(0.0)) == acos64(0.0));
+    expect(acos(@as(f32, 0.0)) == acos32(0.0));
+    expect(acos(@as(f64, 0.0)) == acos64(0.0));
 }
 
 test "math.acos32" {

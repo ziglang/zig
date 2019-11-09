@@ -532,7 +532,7 @@ const Msf = struct {
         const stream_sizes = try allocator.alloc(u32, stream_count);
         defer allocator.free(stream_sizes);
 
-        // Microsoft's implementation uses u32(-1) for inexistant streams.
+        // Microsoft's implementation uses @as(u32, -1) for inexistant streams.
         // These streams are not used, but still participate in the file
         // and must be taken into account when resolving stream indices.
         const Nil = 0xFFFFFFFF;

@@ -35,7 +35,7 @@ fn testPopCount() void {
         expect(@popCount(i8, x) == 2);
     }
     comptime {
-        expect(@popCount(u8, @bitCast(u8, i8(-120))) == 2);
+        expect(@popCount(u8, @bitCast(u8, @as(i8, -120))) == 2);
     }
     comptime {
         expect(@popCount(i128, 0b11111111000110001100010000100001000011000011100101010001) == 24);

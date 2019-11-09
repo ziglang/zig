@@ -7,10 +7,10 @@ const mem = std.mem;
 /// Returns how many bytes the UTF-8 representation would require
 /// for the given codepoint.
 pub fn utf8CodepointSequenceLength(c: u32) !u3 {
-    if (c < 0x80) return u3(1);
-    if (c < 0x800) return u3(2);
-    if (c < 0x10000) return u3(3);
-    if (c < 0x110000) return u3(4);
+    if (c < 0x80) return @as(u3, 1);
+    if (c < 0x800) return @as(u3, 2);
+    if (c < 0x10000) return @as(u3, 3);
+    if (c < 0x110000) return @as(u3, 4);
     return error.CodepointTooLarge;
 }
 
@@ -18,10 +18,10 @@ pub fn utf8CodepointSequenceLength(c: u32) !u3 {
 /// returns a number 1-4 indicating the total length of the codepoint in bytes.
 /// If this byte does not match the form of a UTF-8 start byte, returns Utf8InvalidStartByte.
 pub fn utf8ByteSequenceLength(first_byte: u8) !u3 {
-    if (first_byte < 0b10000000) return u3(1);
-    if (first_byte & 0b11100000 == 0b11000000) return u3(2);
-    if (first_byte & 0b11110000 == 0b11100000) return u3(3);
-    if (first_byte & 0b11111000 == 0b11110000) return u3(4);
+    if (first_byte < 0b10000000) return @as(u3, 1);
+    if (first_byte & 0b11100000 == 0b11000000) return @as(u3, 2);
+    if (first_byte & 0b11110000 == 0b11100000) return @as(u3, 3);
+    if (first_byte & 0b11111000 == 0b11110000) return @as(u3, 4);
     return error.Utf8InvalidStartByte;
 }
 
@@ -68,7 +68,7 @@ const Utf8DecodeError = Utf8Decode2Error || Utf8Decode3Error || Utf8Decode4Error
 /// utf8Decode2,utf8Decode3,utf8Decode4 directly instead of this function.
 pub fn utf8Decode(bytes: []const u8) Utf8DecodeError!u32 {
     return switch (bytes.len) {
-        1 => u32(bytes[0]),
+        1 => @as(u32, bytes[0]),
         2 => utf8Decode2(bytes),
         3 => utf8Decode3(bytes),
         4 => utf8Decode4(bytes),
@@ -226,7 +226,7 @@ pub const Utf8Iterator = struct {
         const slice = it.nextCodepointSlice() orelse return null;
 
         switch (slice.len) {
-            1 => return u32(slice[0]),
+            1 => return @as(u32, slice[0]),
             2 => return utf8Decode2(slice) catch unreachable,
             3 => return utf8Decode3(slice) catch unreachable,
             4 => return utf8Decode4(slice) catch unreachable,
@@ -250,15 +250,15 @@ pub const Utf16LeIterator = struct {
         assert(it.i <= it.bytes.len);
         if (it.i == it.bytes.len) return null;
         const c0: u32 = mem.readIntSliceLittle(u16, it.bytes[it.i .. it.i + 2]);
-        if (c0 & ~u32(0x03ff) == 0xd800) {
+        if (c0 & ~@as(u32, 0x03ff) == 0xd800) {
             // surrogate pair
             it.i += 2;
             if (it.i >= it.bytes.len) return error.DanglingSurrogateHalf;
             const c1: u32 = mem.readIntSliceLittle(u16, it.bytes[it.i .. it.i + 2]);
-            if (c1 & ~u32(0x03ff) != 0xdc00) return error.ExpectedSecondSurrogateHalf;
+            if (c1 & ~@as(u32, 0x03ff) != 0xdc00) return error.ExpectedSecondSurrogateHalf;
             it.i += 2;
             return 0x10000 + (((c0 & 0x03ff) << 10) | (c1 & 0x03ff));
-        } else if (c0 & ~u32(0x03ff) == 0xdc00) {
+        } else if (c0 & ~@as(u32, 0x03ff) == 0xdc00) {
             return error.UnexpectedSecondSurrogateHalf;
         } else {
             it.i += 2;

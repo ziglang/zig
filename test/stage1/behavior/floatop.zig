@@ -117,11 +117,11 @@ test "@ln" {
 fn testLn() void {
     {
         var a: f32 = e;
-        expect(@ln(f32, a) == 1 or @ln(f32, a) == @bitCast(f32, u32(0x3f7fffff)));
+        expect(@ln(f32, a) == 1 or @ln(f32, a) == @bitCast(f32, @as(u32, 0x3f7fffff)));
     }
     {
         var a: f64 = e;
-        expect(@ln(f64, a) == 1 or @ln(f64, a) == @bitCast(f64, u64(0x3ff0000000000000)));
+        expect(@ln(f64, a) == 1 or @ln(f64, a) == @bitCast(f64, @as(u64, 0x3ff0000000000000)));
     }
 }
 

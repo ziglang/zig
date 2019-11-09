@@ -7,7 +7,7 @@ var foo: u8 align(4) = 100;
 test "global variable alignment" {
     expect(@typeOf(&foo).alignment == 4);
     expect(@typeOf(&foo) == *align(4) u8);
-    const slice = (*[1]u8)(&foo)[0..];
+    const slice = @as(*[1]u8, &foo)[0..];
     expect(@typeOf(slice) == []align(4) u8);
 }
 
@@ -61,7 +61,7 @@ fn addUnaligned(a: *align(1) const u32, b: *align(1) const u32) u32 {
 test "implicitly decreasing slice alignment" {
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
-    expect(addUnalignedSlice((*const [1]u32)(&a)[0..], (*const [1]u32)(&b)[0..]) == 7);
+    expect(addUnalignedSlice(@as(*const [1]u32, &a)[0..], @as(*const [1]u32, &b)[0..]) == 7);
 }
 fn addUnalignedSlice(a: []align(1) const u32, b: []align(1) const u32) u32 {
     return a[0] + b[0];

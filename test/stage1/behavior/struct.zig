@@ -388,8 +388,8 @@ test "runtime struct initialization of bitfield" {
     expect(s2.y == @intCast(u4, x2));
 }
 
-var x1 = u4(1);
-var x2 = u8(2);
+var x1 = @as(u4, 1);
+var x2 = @as(u8, 2);
 
 const Nibbles = packed struct {
     x: u4,
@@ -545,9 +545,9 @@ test "packed struct with fp fields" {
     s.data[1] = 2.0;
     s.data[2] = 3.0;
     s.frob();
-    expectEqual(f32(6.0), s.data[0]);
-    expectEqual(f32(11.0), s.data[1]);
-    expectEqual(f32(20.0), s.data[2]);
+    expectEqual(@as(f32, 6.0), s.data[0]);
+    expectEqual(@as(f32, 11.0), s.data[1]);
+    expectEqual(@as(f32, 20.0), s.data[2]);
 }
 
 test "use within struct scope" {
@@ -558,7 +558,7 @@ test "use within struct scope" {
             }
         };
     };
-    expectEqual(i32(42), S.inner());
+    expectEqual(@as(i32, 42), S.inner());
 }
 
 test "default struct initialization fields" {
@@ -583,7 +583,7 @@ test "extern fn returns struct by value" {
     const S = struct {
         fn entry() void {
             var x = makeBar(10);
-            expectEqual(i32(10), x.handle);
+            expectEqual(@as(i32, 10), x.handle);
         }
 
         const ExternBar = extern struct {
@@ -614,7 +614,7 @@ test "for loop over pointers to struct, getting field from struct pointer" {
 
         const ArrayList = struct {
             fn toSlice(self: *ArrayList) []*Foo {
-                return ([*]*Foo)(undefined)[0..0];
+                return @as([*]*Foo, undefined)[0..0];
             }
         };
 

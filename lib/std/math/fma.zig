@@ -18,7 +18,7 @@ pub fn fma(comptime T: type, x: T, y: T, z: T) T {
 }
 
 fn fma32(x: f32, y: f32, z: f32) f32 {
-    const xy = f64(x) * y;
+    const xy = @as(f64, x) * y;
     const xy_z = xy + z;
     const u = @bitCast(u64, xy_z);
     const e = (u >> 52) & 0x7FF;

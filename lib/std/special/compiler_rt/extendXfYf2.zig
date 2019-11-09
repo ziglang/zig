@@ -49,7 +49,7 @@ fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: @IntType(false, @t
     const dstInfExp = (1 << dstExpBits) - 1;
     const dstExpBias = dstInfExp >> 1;
 
-    const dstMinNormal: dst_rep_t = dst_rep_t(1) << dstSigBits;
+    const dstMinNormal: dst_rep_t = @as(dst_rep_t, 1) << dstSigBits;
 
     // Break a into a sign and representation of the absolute value
     const aRep: src_rep_t = @bitCast(src_rep_t, a);
@@ -61,7 +61,7 @@ fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: @IntType(false, @t
         // a is a normal number.
         // Extend to the destination type by shifting the significand and
         // exponent into the proper position and rebiasing the exponent.
-        absResult = dst_rep_t(aAbs) << (dstSigBits - srcSigBits);
+        absResult = @as(dst_rep_t, aAbs) << (dstSigBits - srcSigBits);
         absResult += (dstExpBias - srcExpBias) << dstSigBits;
     } else if (aAbs >= srcInfinity) {
         // a is NaN or infinity.
@@ -69,15 +69,15 @@ fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: @IntType(false, @t
         // bit (if needed) and right-aligning the rest of the trailing NaN
         // payload field.
         absResult = dstInfExp << dstSigBits;
-        absResult |= dst_rep_t(aAbs & srcQNaN) << (dstSigBits - srcSigBits);
-        absResult |= dst_rep_t(aAbs & srcNaNCode) << (dstSigBits - srcSigBits);
+        absResult |= @as(dst_rep_t, aAbs & srcQNaN) << (dstSigBits - srcSigBits);
+        absResult |= @as(dst_rep_t, aAbs & srcNaNCode) << (dstSigBits - srcSigBits);
     } else if (aAbs != 0) {
         // a is denormal.
         // renormalize the significand and clear the leading bit, then insert
         // the correct adjusted exponent in the destination type.
         const scale: u32 = @clz(src_rep_t, aAbs) -
-            @clz(src_rep_t, src_rep_t(srcMinNormal));
-        absResult = dst_rep_t(aAbs) << @intCast(DstShift, dstSigBits - srcSigBits + scale);
+            @clz(src_rep_t, @as(src_rep_t, srcMinNormal));
+        absResult = @as(dst_rep_t, aAbs) << @intCast(DstShift, dstSigBits - srcSigBits + scale);
         absResult ^= dstMinNormal;
         const resultExponent: u32 = dstExpBias - srcExpBias - scale + 1;
         absResult |= @intCast(dst_rep_t, resultExponent) << dstSigBits;
@@ -87,7 +87,7 @@ fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: @IntType(false, @t
     }
 
     // Apply the signbit to (dst_t)abs(a).
-    const result: dst_rep_t align(@alignOf(dst_t)) = absResult | dst_rep_t(sign) << (dstBits - srcBits);
+    const result: dst_rep_t align(@alignOf(dst_t)) = absResult | @as(dst_rep_t, sign) << (dstBits - srcBits);
     return @bitCast(dst_t, result);
 }
 

@@ -134,7 +134,7 @@ fn exp64(x_: f64) f64 {
         }
         if (x < -708.39641853226410622) {
             // underflow if x != -inf
-            // math.forceEval(f32(-0x1.0p-149 / x));
+            // math.forceEval(@as(f32, -0x1.0p-149 / x));
             if (x < -745.13321910194110842) {
                 return 0;
             }
@@ -183,8 +183,8 @@ fn exp64(x_: f64) f64 {
 }
 
 test "math.exp" {
-    assert(exp(f32(0.0)) == exp32(0.0));
-    assert(exp(f64(0.0)) == exp64(0.0));
+    assert(exp(@as(f32, 0.0)) == exp32(0.0));
+    assert(exp(@as(f64, 0.0)) == exp64(0.0));
 }
 
 test "math.exp32" {

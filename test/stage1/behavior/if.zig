@@ -32,7 +32,7 @@ fn elseIfExpressionF(c: u8) u8 {
     } else if (c == 1) {
         return 1;
     } else {
-        return u8(2);
+        return @as(u8, 2);
     }
 }
 
@@ -58,7 +58,7 @@ test "labeled break inside comptime if inside runtime if" {
     var c = true;
     if (c) {
         answer = if (true) blk: {
-            break :blk i32(42);
+            break :blk @as(i32, 42);
         };
     }
     expect(answer == 42);

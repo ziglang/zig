@@ -186,9 +186,9 @@ fn testThreeExprInARow(f: bool, t: bool) void {
     assertFalse(90 >> 1 >> 2 != 90 >> 3);
     assertFalse(100 - 1 + 1000 != 1099);
     assertFalse(5 * 4 / 2 % 3 != 1);
-    assertFalse(i32(i32(5)) != 5);
+    assertFalse(@as(i32, @as(i32, 5)) != 5);
     assertFalse(!!false);
-    assertFalse(i32(7) != --(i32(7)));
+    assertFalse(@as(i32, 7) != --(@as(i32, 7)));
 }
 fn assertFalse(b: bool) void {
     expect(!b);
@@ -256,10 +256,10 @@ const DivResult = struct {
 
 test "binary not" {
     expect(comptime x: {
-        break :x ~u16(0b1010101010101010) == 0b0101010101010101;
+        break :x ~@as(u16, 0b1010101010101010) == 0b0101010101010101;
     });
     expect(comptime x: {
-        break :x ~u64(2147483647) == 18446744071562067968;
+        break :x ~@as(u64, 2147483647) == 18446744071562067968;
     });
     testBinaryNot(0b1010101010101010);
 }
@@ -472,7 +472,7 @@ test "comptime_int multiplication" {
 
 test "comptime_int shifting" {
     comptime {
-        expect((u128(1) << 127) == 0x80000000000000000000000000000000);
+        expect((@as(u128, 1) << 127) == 0x80000000000000000000000000000000);
     }
 }
 
@@ -480,13 +480,13 @@ test "comptime_int multi-limb shift and mask" {
     comptime {
         var a = 0xefffffffa0000001eeeeeeefaaaaaaab;
 
-        expect(u32(a & 0xffffffff) == 0xaaaaaaab);
+        expect(@as(u32, a & 0xffffffff) == 0xaaaaaaab);
         a >>= 32;
-        expect(u32(a & 0xffffffff) == 0xeeeeeeef);
+        expect(@as(u32, a & 0xffffffff) == 0xeeeeeeef);
         a >>= 32;
-        expect(u32(a & 0xffffffff) == 0xa0000001);
+        expect(@as(u32, a & 0xffffffff) == 0xa0000001);
         a >>= 32;
-        expect(u32(a & 0xffffffff) == 0xefffffff);
+        expect(@as(u32, a & 0xffffffff) == 0xefffffff);
         a >>= 32;
 
         expect(a == 0);
@@ -552,7 +552,7 @@ fn should_not_be_zero(x: f128) void {
 
 test "comptime float rem int" {
     comptime {
-        var x = f32(1) % 2;
+        var x = @as(f32, 1) % 2;
         expect(x == 1.0);
     }
 }
@@ -568,8 +568,8 @@ test "remainder division" {
 }
 
 fn remdiv(comptime T: type) void {
-    expect(T(1) == T(1) % T(2));
-    expect(T(1) == T(7) % T(3));
+    expect(@as(T, 1) == @as(T, 1) % @as(T, 2));
+    expect(@as(T, 1) == @as(T, 7) % @as(T, 3));
 }
 
 test "@sqrt" {

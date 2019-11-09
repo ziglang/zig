@@ -59,29 +59,29 @@ const Z96 = struct {
 
     // d += s
     inline fn add(d: *Z96, s: Z96) void {
-        var w = u64(d.d0) + u64(s.d0);
+        var w = @as(u64, d.d0) + @as(u64, s.d0);
         d.d0 = @truncate(u32, w);
 
         w >>= 32;
-        w += u64(d.d1) + u64(s.d1);
+        w += @as(u64, d.d1) + @as(u64, s.d1);
         d.d1 = @truncate(u32, w);
 
         w >>= 32;
-        w += u64(d.d2) + u64(s.d2);
+        w += @as(u64, d.d2) + @as(u64, s.d2);
         d.d2 = @truncate(u32, w);
     }
 
     // d -= s
     inline fn sub(d: *Z96, s: Z96) void {
-        var w = u64(d.d0) -% u64(s.d0);
+        var w = @as(u64, d.d0) -% @as(u64, s.d0);
         d.d0 = @truncate(u32, w);
 
         w >>= 32;
-        w += u64(d.d1) -% u64(s.d1);
+        w += @as(u64, d.d1) -% @as(u64, s.d1);
         d.d1 = @truncate(u32, w);
 
         w >>= 32;
-        w += u64(d.d2) -% u64(s.d2);
+        w += @as(u64, d.d2) -% @as(u64, s.d2);
         d.d2 = @truncate(u32, w);
     }
 };
@@ -160,7 +160,7 @@ fn convertRepr(comptime T: type, n: FloatRepr) T {
             break :blk if (n.negative) f64_minus_zero else f64_plus_zero;
         } else if (s.d2 != 0) {
             const binexs2 = @intCast(u64, binary_exponent) << 52;
-            const rr = (u64(s.d2 & ~mask28) << 24) | ((u64(s.d1) + 128) >> 8) | binexs2;
+            const rr = (@as(u64, s.d2 & ~mask28) << 24) | ((@as(u64, s.d1) + 128) >> 8) | binexs2;
             break :blk if (n.negative) rr | (1 << 63) else rr;
         } else {
             break :blk 0;
@@ -375,7 +375,7 @@ pub fn parseFloat(comptime T: type, s: []const u8) !T {
     return switch (try parseRepr(s, &r)) {
         ParseResult.Ok => convertRepr(T, r),
         ParseResult.PlusZero => 0.0,
-        ParseResult.MinusZero => -T(0.0),
+        ParseResult.MinusZero => -@as(T, 0.0),
         ParseResult.PlusInf => std.math.inf(T),
         ParseResult.MinusInf => -std.math.inf(T),
     };
@@ -426,8 +426,8 @@ test "fmt.parseFloat" {
             expect(approxEq(T, try parseFloat(T, "1234e-2"), 12.34, epsilon));
 
             expect(approxEq(T, try parseFloat(T, "123142.1"), 123142.1, epsilon));
-            expect(approxEq(T, try parseFloat(T, "-123142.1124"), T(-123142.1124), epsilon));
-            expect(approxEq(T, try parseFloat(T, "0.7062146892655368"), T(0.7062146892655368), epsilon));
+            expect(approxEq(T, try parseFloat(T, "-123142.1124"), @as(T, -123142.1124), epsilon));
+            expect(approxEq(T, try parseFloat(T, "0.7062146892655368"), @as(T, 0.7062146892655368), epsilon));
         }
     }
 }

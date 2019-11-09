@@ -601,6 +601,12 @@ static void ir_print_result_loc_bit_cast(IrPrint *irp, ResultLocBitCast *result_
     fprintf(irp->f, ")");
 }
 
+static void ir_print_result_loc_cast(IrPrint *irp, ResultLocCast *result_loc_cast) {
+    fprintf(irp->f, "cast(ty=");
+    ir_print_other_instruction(irp, result_loc_cast->base.source_instruction);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_result_loc(IrPrint *irp, ResultLoc *result_loc) {
     switch (result_loc->id) {
         case ResultLocIdInvalid:
@@ -619,6 +625,8 @@ static void ir_print_result_loc(IrPrint *irp, ResultLoc *result_loc) {
             return ir_print_result_loc_peer(irp, (ResultLocPeer *)result_loc);
         case ResultLocIdBitCast:
             return ir_print_result_loc_bit_cast(irp, (ResultLocBitCast *)result_loc);
+        case ResultLocIdCast:
+            return ir_print_result_loc_cast(irp, (ResultLocCast *)result_loc);
         case ResultLocIdPeerParent:
             fprintf(irp->f, "peer_parent");
             return;
@@ -1484,6 +1492,13 @@ static void ir_print_ptr_cast_gen(IrPrint *irp, IrInstructionPtrCastGen *instruc
     fprintf(irp->f, ")");
 }
 
+static void ir_print_implicit_cast(IrPrint *irp, IrInstructionImplicitCast *instruction) {
+    fprintf(irp->f, "@implicitCast(");
+    ir_print_other_instruction(irp, instruction->operand);
+    fprintf(irp->f, ")result=");
+    ir_print_result_loc(irp, &instruction->result_loc_cast->base);
+}
+
 static void ir_print_bit_cast_src(IrPrint *irp, IrInstructionBitCastSrc *instruction) {
     fprintf(irp->f, "@bitCast(");
     ir_print_other_instruction(irp, instruction->operand);
@@ -1734,14 +1749,6 @@ static void ir_print_align_cast(IrPrint *irp, IrInstructionAlignCast *instructio
     } else {
         ir_print_other_instruction(irp, instruction->align_bytes);
     }
-    fprintf(irp->f, ",");
-    ir_print_other_instruction(irp, instruction->target);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_implicit_cast(IrPrint *irp, IrInstructionImplicitCast *instruction) {
-    fprintf(irp->f, "@implicitCast(");
-    ir_print_other_instruction(irp, instruction->dest_type);
     fprintf(irp->f, ",");
     ir_print_other_instruction(irp, instruction->target);
     fprintf(irp->f, ")");
@@ -2541,4 +2548,19 @@ void ir_print_instruction(CodeGen *codegen, FILE *f, IrInstruction *instruction,
     irp->pending = {};
 
     ir_print_instruction(irp, instruction, false);
+}
+
+void ir_print_const_expr(CodeGen *codegen, FILE *f, ConstExprValue *value, int indent_size, IrPass pass) {
+    IrPrint ir_print = {};
+    IrPrint *irp = &ir_print;
+    irp->pass = pass;
+    irp->codegen = codegen;
+    irp->f = f;
+    irp->indent = indent_size;
+    irp->indent_size = indent_size;
+    irp->printed = {};
+    irp->printed.init(4);
+    irp->pending = {};
+
+    ir_print_const_value(irp, value);
 }

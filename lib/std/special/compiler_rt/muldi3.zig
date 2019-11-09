@@ -21,7 +21,7 @@ fn __muldsi3(a: u32, b: u32) i64 {
     @setRuntimeSafety(builtin.is_test);
 
     const bits_in_word_2 = @sizeOf(i32) * 8 / 2;
-    const lower_mask = (~u32(0)) >> bits_in_word_2;
+    const lower_mask = (~@as(u32, 0)) >> bits_in_word_2;
 
     var r: dwords = undefined;
     r.s.low = (a & lower_mask) *% (b & lower_mask);

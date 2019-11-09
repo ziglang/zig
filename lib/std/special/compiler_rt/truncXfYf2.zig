@@ -69,7 +69,7 @@ inline fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t
         // destination format.  We can convert by simply right-shifting with
         // rounding and adjusting the exponent.
         absResult = @truncate(dst_rep_t, aAbs >> (srcSigBits - dstSigBits));
-        absResult -%= dst_rep_t(srcExpBias - dstExpBias) << dstSigBits;
+        absResult -%= @as(dst_rep_t, srcExpBias - dstExpBias) << dstSigBits;
 
         const roundBits: src_rep_t = aAbs & roundMask;
         if (roundBits > halfway) {

@@ -32,7 +32,7 @@ pub extern fn __floatuntidf(arg: u128) f64 {
                 const shift_amt = @bitCast(i32, N + (DBL_MANT_DIG + 2)) - sd;
                 const shift_amt_u7 = @intCast(u7, shift_amt);
                 a = (a >> @intCast(u7, sd - (DBL_MANT_DIG + 2))) |
-                    @boolToInt((a & (u128(maxInt(u128)) >> shift_amt_u7)) != 0);
+                    @boolToInt((a & (@as(u128, maxInt(u128)) >> shift_amt_u7)) != 0);
             },
         }
         // finish
@@ -40,7 +40,7 @@ pub extern fn __floatuntidf(arg: u128) f64 {
         a += 1; // round - this step may add a significant bit
         a >>= 2; // dump Q and R
         // a is now rounded to DBL_MANT_DIG or DBL_MANT_DIG+1 bits
-        if ((a & (u128(1) << DBL_MANT_DIG)) != 0) {
+        if ((a & (@as(u128, 1) << DBL_MANT_DIG)) != 0) {
             a >>= 1;
             e += 1;
         }

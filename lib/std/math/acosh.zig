@@ -61,8 +61,8 @@ fn acosh64(x: f64) f64 {
 }
 
 test "math.acosh" {
-    expect(acosh(f32(1.5)) == acosh32(1.5));
-    expect(acosh(f64(1.5)) == acosh64(1.5));
+    expect(acosh(@as(f32, 1.5)) == acosh32(1.5));
+    expect(acosh(@as(f64, 1.5)) == acosh64(1.5));
 }
 
 test "math.acosh32" {

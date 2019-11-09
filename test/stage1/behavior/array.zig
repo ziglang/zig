@@ -12,7 +12,7 @@ test "arrays" {
     }
 
     i = 0;
-    var accumulator = u32(0);
+    var accumulator = @as(u32, 0);
     while (i < 5) {
         accumulator += array[i];
 
@@ -149,7 +149,7 @@ test "implicit cast single-item pointer" {
 
 fn testImplicitCastSingleItemPtr() void {
     var byte: u8 = 100;
-    const slice = (*[1]u8)(&byte)[0..];
+    const slice = @as(*[1]u8, &byte)[0..];
     slice[0] += 1;
     expect(byte == 101);
 }

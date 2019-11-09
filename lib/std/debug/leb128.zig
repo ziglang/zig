@@ -62,13 +62,13 @@ pub fn readILEB128(comptime T: type, in_stream: var) !T {
     var shift: usize = 0;
 
     while (true) {
-        const byte = u8(try in_stream.readByte());
+        const byte: u8 = try in_stream.readByte();
 
         if (shift > T.bit_count)
             return error.Overflow;
 
         var operand: UT = undefined;
-        if (@shlWithOverflow(UT, UT(byte & 0x7f), @intCast(ShiftT, shift), &operand)) {
+        if (@shlWithOverflow(UT, @as(UT, byte & 0x7f), @intCast(ShiftT, shift), &operand)) {
             if (byte != 0x7f)
                 return error.Overflow;
         }
@@ -101,7 +101,7 @@ pub fn readILEB128Mem(comptime T: type, ptr: *[*]const u8) !T {
             return error.Overflow;
 
         var operand: UT = undefined;
-        if (@shlWithOverflow(UT, UT(byte & 0x7f), @intCast(ShiftT, shift), &operand)) {
+        if (@shlWithOverflow(UT, @as(UT, byte & 0x7f), @intCast(ShiftT, shift), &operand)) {
             if (byte != 0x7f)
                 return error.Overflow;
         }

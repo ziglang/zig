@@ -21,7 +21,7 @@ pub extern fn __multi3_windows_x86_64(a: v128, b: v128) v128 {
 
 fn __mulddi3(a: u64, b: u64) i128 {
     const bits_in_dword_2 = (@sizeOf(i64) * 8) / 2;
-    const lower_mask = ~u64(0) >> bits_in_dword_2;
+    const lower_mask = ~@as(u64, 0) >> bits_in_dword_2;
     var r: twords = undefined;
     r.s.low = (a & lower_mask) *% (b & lower_mask);
     var t: u64 = r.s.low >> bits_in_dword_2;

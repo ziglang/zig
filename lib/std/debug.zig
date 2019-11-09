@@ -1008,7 +1008,7 @@ fn readSparseBitVector(stream: var, allocator: *mem.Allocator) ![]usize {
         const word = try stream.readIntLittle(u32);
         var bit_i: u5 = 0;
         while (true) : (bit_i += 1) {
-            if (word & (u32(1) << bit_i) != 0) {
+            if (word & (@as(u32, 1) << bit_i) != 0) {
                 try list.append(word_i * 32 + bit_i);
             }
             if (bit_i == maxInt(u5)) break;
@@ -1556,13 +1556,14 @@ fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: boo
 
 // TODO the noasyncs here are workarounds
 fn parseFormValueDwarfOffsetSize(in_stream: var, is_64: bool) !u64 {
-    return if (is_64) try noasync in_stream.readIntLittle(u64) else u64(try noasync in_stream.readIntLittle(u32));
+    return if (is_64) try noasync in_stream.readIntLittle(u64) else @as(u64, try noasync in_stream.readIntLittle(u32));
 }
 
 // TODO the noasyncs here are workarounds
 fn parseFormValueTargetAddrSize(in_stream: var) !u64 {
     if (@sizeOf(usize) == 4) {
-        return u64(try noasync in_stream.readIntLittle(u32));
+        // TODO this cast should not be needed
+        return @as(u64, try noasync in_stream.readIntLittle(u32));
     } else if (@sizeOf(usize) == 8) {
         return noasync in_stream.readIntLittle(u64);
     } else {
@@ -1846,7 +1847,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
             // special opcodes
             const adjusted_opcode = opcode - opcode_base;
             const inc_addr = minimum_instruction_length * (adjusted_opcode / line_range);
-            const inc_line = i32(line_base) + i32(adjusted_opcode % line_range);
+            const inc_line = @as(i32, line_base) + @as(i32, adjusted_opcode % line_range);
             prog.line += inc_line;
             prog.address += inc_addr;
             if (try prog.checkLineMatch()) |info| return info;
@@ -1913,7 +1914,7 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_addr
     if (unit_length == 0) {
         return error.MissingDebugInfo;
     }
-    const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
+    const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
 
     const version = try di.dwarf_in_stream.readInt(u16, di.endian);
     // TODO support 3 and 5
@@ -2012,7 +2013,7 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_addr
             // special opcodes
             const adjusted_opcode = opcode - opcode_base;
             const inc_addr = minimum_instruction_length * (adjusted_opcode / line_range);
-            const inc_line = i32(line_base) + i32(adjusted_opcode % line_range);
+            const inc_line = @as(i32, line_base) + @as(i32, adjusted_opcode % line_range);
             prog.line += inc_line;
             prog.address += inc_addr;
             if (try prog.checkLineMatch()) |info| return info;
@@ -2093,7 +2094,7 @@ fn scanAllFunctions(di: *DwarfInfo) !void {
         var is_64: bool = undefined;
         const unit_length = try readInitialLength(@typeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
         if (unit_length == 0) return;
-        const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
+        const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
 
         const version = try di.dwarf_in_stream.readInt(u16, di.endian);
         if (version < 2 or version > 5) return error.InvalidDebugInfo;
@@ -2195,7 +2196,7 @@ fn scanAllCompileUnits(di: *DwarfInfo) !void {
         var is_64: bool = undefined;
         const unit_length = try readInitialLength(@typeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
         if (unit_length == 0) return;
-        const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
+        const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
 
         const version = try di.dwarf_in_stream.readInt(u16, di.endian);
         if (version < 2 or version > 5) return error.InvalidDebugInfo;
@@ -2312,7 +2313,8 @@ fn readInitialLengthMem(ptr: *[*]const u8, is_64: *bool) !u64 {
     } else {
         if (first_32_bits >= 0xfffffff0) return error.InvalidDebugInfo;
         ptr.* += 4;
-        return u64(first_32_bits);
+        // TODO this cast should not be needed
+        return @as(u64, first_32_bits);
     }
 }
 
@@ -2329,7 +2331,8 @@ fn readInitialLength(comptime E: type, in_stream: *io.InStream(E), is_64: *bool)
         return in_stream.readIntLittle(u64);
     } else {
         if (first_32_bits >= 0xfffffff0) return error.InvalidDebugInfo;
-        return u64(first_32_bits);
+        // TODO this cast should not be needed
+        return @as(u64, first_32_bits);
     }
 }
 
