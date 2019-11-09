@@ -319,7 +319,7 @@ pub const Target = union(enum) {
         inline for (info.Union.fields) |field| {
             if (mem.eql(u8, text, field.name)) {
                 if (field.field_type == void) {
-                    return (Arch)(@field(Arch, field.name));
+                    return @as(Arch, @field(Arch, field.name));
                 } else {
                     const sub_info = @typeInfo(field.field_type);
                     inline for (sub_info.Enum.fields) |sub_field| {
@@ -581,7 +581,7 @@ pub const Target = union(enum) {
     };
 
     pub fn getExternalExecutor(self: Target) Executor {
-        if (@as(@TagType(Target),self) == .Native) return .native;
+        if (@as(@TagType(Target), self) == .Native) return .native;
 
         // If the target OS matches the host OS, we can use QEMU to emulate a foreign architecture.
         if (self.getOs() == builtin.os) {
