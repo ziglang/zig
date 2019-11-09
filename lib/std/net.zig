@@ -14,7 +14,7 @@ pub const Address = extern union {
     any: os.sockaddr,
     in: os.sockaddr_in,
     in6: os.sockaddr_in6,
-    unix: os.sockaddr_un,
+    un: os.sockaddr_un,
 
     // TODO this crashed the compiler
     //pub const localhost = initIp4(parseIp4("127.0.0.1") catch unreachable, 0);
@@ -38,6 +38,18 @@ pub const Address = extern union {
         }
 
         return error.InvalidIPAddressFormat;
+    }
+
+    pub fn parseUnix(path: []const u8) !Address {
+        var sock_addr = os.sockaddr_un{
+            .family = os.AF_UNIX,
+            .path = undefined,
+        };
+
+        if (path.len > sock_addr.path.len) return error.NameTooLong;
+        mem.copy(u8, &sock_addr.path, path);
+
+        return Address{ .un = sock_addr };
     }
 
     pub fn parseExpectingFamily(name: []const u8, family: os.sa_family_t, port: u16) !Address {
@@ -314,6 +326,9 @@ pub const Address = extern union {
                     }
                 }
                 try std.fmt.format(context, Errors, output, "]:{}", port);
+            },
+            os.AF_UNIX => {
+                try std.fmt.format(context, Errors, output, "{}", self.un.path);
             },
             else => unreachable,
         }
