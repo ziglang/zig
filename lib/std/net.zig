@@ -222,7 +222,7 @@ pub const Address = extern union {
         };
 
         // this enables us to have the proper length of the socket in getOsSockLen
-        mem.zero(&sock_addr.path);
+        mem.set(u8, &sock_addr.path, 0);
 
         if (path.len > sock_addr.path.len) return error.NameTooLong;
         mem.copy(u8, &sock_addr.path, path);
@@ -347,9 +347,9 @@ pub const Address = extern union {
         switch (self.any.family) {
             os.AF_INET => return @sizeOf(os.sockaddr_in),
             os.AF_INET6 => return @sizeOf(os.sockaddr_in6),
-            os.AF_UNIX => blk: {
-                const path_len = std.mem.len(self.un.path.len);
-                break :blk @intCast(os.socklen_t, @sizeOf(os.sockaddr_un) - self.un.path.len + path_len);
+            os.AF_UNIX => {
+                const path_len = std.mem.len(u8, &self.un.path);
+                return @intCast(os.socklen_t, @sizeOf(os.sockaddr_un) - self.un.path.len + path_len);
             },
             else => unreachable,
         }
@@ -365,16 +365,13 @@ pub fn connectUnixSocket(path: []const u8) !fs.File {
     );
     errdefer os.close(sockfd);
 
-    var sock_addr = os.sockaddr_un{
-        .family = os.AF_UNIX,
-        .path = undefined,
-    };
+    var addr = try std.net.Address.initUnix(path);
 
-    if (path.len > sock_addr.path.len) return error.NameTooLong;
-    mem.copy(u8, &sock_addr.path, path);
-
-    const size = @intCast(u32, @sizeOf(os.sockaddr_un) - sock_addr.path.len + path.len);
-    try os.connect(sockfd, &sock_addr, size);
+    try os.connect(
+        sockfd,
+        &addr.any,
+        addr.getOsSockLen(),
+    );
 
     return fs.File.openHandle(sockfd);
 }
@@ -1306,7 +1303,8 @@ pub const StreamServer = struct {
     pub fn listen(self: *StreamServer, address: Address) !void {
         const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
         const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | nonblock;
-        const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO_TCP);
+        const proto = if (address.any.family == os.AF_UNIX) u32(0) else os.IPPROTO_TCP;
+        const sockfd = try os.socket(address.any.family, sock_flags, proto);
         self.sockfd = sockfd;
         errdefer {
             os.close(sockfd);
