@@ -193,7 +193,8 @@ pub fn FixedSizeFifo(comptime T: type) type {
             self.count += count;
         }
 
-        /// Appends the data in `src` to the fifo. You must
+        /// Appends the data in `src` to the fifo.
+        /// You must have ensured there is enough space.
         pub fn writeAssumeCapacity(self: *Self, src: []const T) void {
             assert(self.writableLength() >= src.len);
 
