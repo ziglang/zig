@@ -1100,7 +1100,7 @@ pub const Walker = struct {
     }
 
     pub fn deinit(self: *Walker) void {
-        while (self.stack.popOrNull()) |*item| item.dir_it.close();
+        while (self.stack.popOrNull()) |*item| item.dir_it.dir.close();
         self.stack.deinit();
         self.name_buffer.deinit();
     }
