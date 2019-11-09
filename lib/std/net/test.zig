@@ -93,7 +93,7 @@ test "listen on a port, send bytes, receive bytes" {
     // TODO doing this at comptime crashed the compiler
     const localhost = net.Address.parseIp("127.0.0.1", 0);
 
-    var server = net.TcpServer.init(net.TcpServer.Options{});
+    var server = net.StreamServer.init(net.StreamServer.Options{});
     defer server.deinit();
     try server.listen(localhost);
 
@@ -114,7 +114,7 @@ fn testClient(addr: net.Address) anyerror!void {
     testing.expect(mem.eql(u8, msg, "hello from server\n"));
 }
 
-fn testServer(server: *net.TcpServer) anyerror!void {
+fn testServer(server: *net.StreamServer) anyerror!void {
     var client_file = try server.accept();
 
     const stream = &client_file.outStream().stream;

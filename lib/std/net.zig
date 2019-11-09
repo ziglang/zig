@@ -46,6 +46,9 @@ pub const Address = extern union {
             .path = undefined,
         };
 
+        // this enables us to have the proper length of the socket in getOsSockLen
+        mem.zero(&sock_addr.path);
+
         if (path.len > sock_addr.path.len) return error.NameTooLong;
         mem.copy(u8, &sock_addr.path, path);
 
@@ -344,6 +347,10 @@ pub const Address = extern union {
         switch (self.any.family) {
             os.AF_INET => return @sizeOf(os.sockaddr_in),
             os.AF_INET6 => return @sizeOf(os.sockaddr_in6),
+            os.AF_UNIX => blk: {
+                const path_len = std.mem.len(self.un.path.len);
+                break :blk @intCast(os.socklen_t, @sizeOf(os.sockaddr_un) - self.un.path.len + path_len);
+            },
             else => unreachable,
         }
     }
@@ -1264,7 +1271,7 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
     }
 }
 
-pub const TcpServer = struct {
+pub const StreamServer = struct {
     /// Copied from `Options` on `init`.
     kernel_backlog: u32,
 
@@ -1282,21 +1289,21 @@ pub const TcpServer = struct {
 
     /// After this call succeeds, resources have been acquired and must
     /// be released with `deinit`.
-    pub fn init(options: Options) TcpServer {
-        return TcpServer{
+    pub fn init(options: Options) StreamServer {
+        return StreamServer{
             .sockfd = null,
             .kernel_backlog = options.kernel_backlog,
             .listen_address = undefined,
         };
     }
 
-    /// Release all resources. The `TcpServer` memory becomes `undefined`.
-    pub fn deinit(self: *TcpServer) void {
+    /// Release all resources. The `StreamServer` memory becomes `undefined`.
+    pub fn deinit(self: *StreamServer) void {
         self.close();
         self.* = undefined;
     }
 
-    pub fn listen(self: *TcpServer, address: Address) !void {
+    pub fn listen(self: *StreamServer, address: Address) !void {
         const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
         const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | nonblock;
         const sockfd = try os.socket(os.AF_INET, sock_flags, os.IPPROTO_TCP);
@@ -1315,7 +1322,7 @@ pub const TcpServer = struct {
     /// Stop listening. It is still necessary to call `deinit` after stopping listening.
     /// Calling `deinit` will automatically call `close`. It is safe to call `close` when
     /// not listening.
-    pub fn close(self: *TcpServer) void {
+    pub fn close(self: *StreamServer) void {
         if (self.sockfd) |fd| {
             os.close(fd);
             self.sockfd = null;
@@ -1343,7 +1350,7 @@ pub const TcpServer = struct {
     } || os.UnexpectedError;
 
     /// If this function succeeds, the returned `fs.File` is a caller-managed resource.
-    pub fn accept(self: *TcpServer) AcceptError!fs.File {
+    pub fn accept(self: *StreamServer) AcceptError!fs.File {
         const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
         const accept_flags = nonblock | os.SOCK_CLOEXEC;
         var accepted_addr: Address = undefined;
