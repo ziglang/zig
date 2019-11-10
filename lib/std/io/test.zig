@@ -5,6 +5,7 @@ const meta = std.meta;
 const trait = std.trait;
 const DefaultPrng = std.rand.DefaultPrng;
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;
 const mem = std.mem;
 const fs = std.fs;
@@ -44,8 +45,8 @@ test "write a file, read it, then delete it" {
         defer file.close();
 
         const file_size = try file.getEndPos();
-        const expected_file_size = "begin".len + data.len + "end".len;
-        expect(file_size == expected_file_size);
+        const expected_file_size: u64 = "begin".len + data.len + "end".len;
+        expectEqual(expected_file_size, file_size);
 
         var file_in_stream = file.inStream();
         var buf_stream = io.BufferedInStream(File.ReadError).init(&file_in_stream.stream);
