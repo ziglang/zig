@@ -186,6 +186,11 @@ pub const sockaddr_in6 = extern struct {
 pub const in6_addr = [16]u8;
 pub const in_addr = u32;
 
+pub const sockaddr_un = extern struct {
+    family: sa_family_t = AF_UNIX,
+    path: [108]u8,
+};
+
 pub const AF_UNSPEC = 0;
 pub const AF_UNIX = 1;
 pub const AF_INET = 2;
