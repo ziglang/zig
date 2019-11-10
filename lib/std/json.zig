@@ -1259,7 +1259,7 @@ pub const Parser = struct {
         // TODO: We don't strictly have to copy values which do not contain any escape
         // characters if flagged with the option.
         const slice = token.slice(input, i);
-        return Value{ .String = try mem.dupe(allocator, u8, slice) };
+        return Value{ .String = try unescapeStringAlloc(allocator, slice) };
     }
 
     fn parseNumber(p: *Parser, token: Token, input: []const u8, i: usize) !Value {
@@ -1269,6 +1269,45 @@ pub const Parser = struct {
             Value{ .Float = try std.fmt.parseFloat(f64, token.slice(input, i)) };
     }
 };
+
+pub fn unescapeStringAlloc(alloc: *Allocator, input: []const u8) ![]u8 {
+    var output = try alloc.alloc(u8, input.len);
+    errdefer alloc.free(output);
+    
+    var inIndex: usize = 0;
+    var outIndex: usize = 0;
+    while(inIndex < input.len) {
+        if(input[inIndex] == '\\'){
+            if(input[inIndex + 1] == 'u'){
+                const codepoint = std.fmt.parseInt(u32, input[inIndex+2 .. inIndex+6], 16) catch return error.InvalidUnicodeHexSymbol;
+                outIndex += std.unicode.utf8Encode(codepoint, output[outIndex..]) catch return error.InvalidUnicodeHexSymbol;
+                inIndex += 6;
+            } else {
+                output[outIndex] = @as(u8,
+                    switch(input[inIndex + 1]){
+                        '\\' => '\\',
+                        '/' => '/',
+                        'n' => '\n',
+                        'r' => '\r',
+                        't' => '\t',
+                        'f' => 12,
+                        'b' => 8,
+                        '"' => '"',
+                        else => return error.InvalidEscapeCharacter;
+                    }
+                );
+                inIndex += 2;
+                outIndex += 1;
+            }
+        } else {
+            output[outIndex] = input[inIndex];
+            inIndex += 1;
+            outIndex += 1;
+        }
+    }
+
+    return try alloc.realloc(unescaped, outIndex);
+}
 
 test "json.parser.dynamic" {
     var p = Parser.init(debug.global_allocator, false);
@@ -1378,4 +1417,35 @@ test "parsing empty string gives appropriate error" {
     var p = Parser.init(debug.global_allocator, false);
     defer p.deinit();
     testing.expectError(error.UnexpectedEndOfJson, p.parse(""));
+}
+
+test "escaped characters" {
+    const input =
+        \\{
+        \\  "backslash": "\\",
+        \\  "forwardslash": "\/",
+        \\  "newline": "\n",
+        \\  "carriagereturn": "\r",
+        \\  "tab": "\t",
+        \\  "formfeed": "\f",
+        \\  "backspace": "\b",
+        \\  "doublequote": "\"",
+        \\  "unicode": "\u0105"
+        \\}
+    ;
+
+    var p = Parser.init(debug.global_allocator, false);
+    const tree = try p.parse(input);
+
+    const obj = tree.root.Object;
+
+    testing.expect(mem.eql(u8, obj.get("backslash").?.value.String, "\\"));
+    testing.expect(mem.eql(u8, obj.get("forwardslash").?.value.String, "/"));
+    testing.expect(mem.eql(u8, obj.get("newline").?.value.String, "\n"));
+    testing.expect(mem.eql(u8, obj.get("carriagereturn").?.value.String, "\r"));
+    testing.expect(mem.eql(u8, obj.get("tab").?.value.String, "\t"));
+    testing.expect(mem.eql(u8, obj.get("formfeed").?.value.String, "\x0C"));
+    testing.expect(mem.eql(u8, obj.get("backspace").?.value.String, "\x08"));
+    testing.expect(mem.eql(u8, obj.get("doublequote").?.value.String, "\""));
+    testing.expect(mem.eql(u8, obj.get("unicode").?.value.String, "ą"));
 }
