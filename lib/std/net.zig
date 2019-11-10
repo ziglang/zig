@@ -10,14 +10,13 @@ test "" {
     _ = @import("net/test.zig");
 }
 
+const has_unix_sockets = @hasDecl(os, "sockaddr_un");
+
 pub const Address = extern union {
     any: os.sockaddr,
     in: os.sockaddr_in,
     in6: os.sockaddr_in6,
-    un: switch (builtin.os) {
-        .linux, .macosx, .freebsd, .netbsd => os.sockaddr_un,
-        else => void,
-    },
+    un: if (has_unix_sockets) os.sockaddr_un else void,
 
     // TODO this crashed the compiler
     //pub const localhost = initIp4(parseIp4("127.0.0.1") catch unreachable, 0);
@@ -239,6 +238,7 @@ pub const Address = extern union {
     }
 
     /// Returns the port in native endian.
+    /// Asserts that the address is ip4 or ip6.
     pub fn getPort(self: Address) u16 {
         const big_endian_port = switch (self.any.family) {
             os.AF_INET => self.in.port,
@@ -249,6 +249,7 @@ pub const Address = extern union {
     }
 
     /// `port` is native-endian.
+    /// Asserts that the address is ip4 or ip6.
     pub fn setPort(self: *Address, port: u16) void {
         const ptr = switch (self.any.family) {
             os.AF_INET => &self.in.port,
