@@ -203,8 +203,8 @@ pub fn LinearFifo(
             return c;
         }
 
-        /// Read data from the fifo into `dst`, returns slice of bytes copied (subslice of `dst`)
-        pub fn read(self: *Self, dst: []T) []T {
+        /// Read data from the fifo into `dst`, returns number of bytes copied.
+        pub fn read(self: *Self, dst: []T) usize {
             var dst_left = dst;
 
             while (dst_left.len > 0) {
@@ -216,7 +216,7 @@ pub fn LinearFifo(
                 dst_left = dst_left[n..];
             }
 
-            return dst[0 .. dst.len - dst_left.len];
+            return dst.len - dst_left.len;
         }
 
         /// Returns number of bytes available in fifo
@@ -384,7 +384,7 @@ test "LinearFifo(u8, .Dynamic)" {
     {
         try fifo.unget("prependedstring");
         var result: [30]u8 = undefined;
-        testing.expectEqualSlices(u8, "prependedstringabcdefghij", fifo.read(&result));
+        testing.expectEqualSlices(u8, "prependedstringabcdefghij", result[0..fifo.read(&result)]);
     }
 
     fifo.shrink(0);
@@ -392,7 +392,7 @@ test "LinearFifo(u8, .Dynamic)" {
     {
         try fifo.print("{}, {}!", "Hello", "World");
         var result: [30]u8 = undefined;
-        testing.expectEqualSlices(u8, "Hello, World!", fifo.read(&result));
+        testing.expectEqualSlices(u8, "Hello, World!", result[0..fifo.read(&result)]);
         testing.expectEqual(@as(usize, 0), fifo.readableLength());
     }
 }
