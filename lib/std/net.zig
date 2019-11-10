@@ -14,7 +14,10 @@ pub const Address = extern union {
     any: os.sockaddr,
     in: os.sockaddr_in,
     in6: os.sockaddr_in6,
-    un: os.sockaddr_un,
+    un: switch (builtin.os) {
+        .linux, .macosx, .freebsd, .netbsd => os.sockaddr_un,
+        else => void,
+    },
 
     // TODO this crashed the compiler
     //pub const localhost = initIp4(parseIp4("127.0.0.1") catch unreachable, 0);
@@ -216,6 +219,11 @@ pub const Address = extern union {
     }
 
     pub fn initUnix(path: []const u8) !Address {
+        switch (builtin.os) {
+            .linux, .macosx, .freebsd, .netbsd => {},
+            else => return error.UnsupportedOS,
+        }
+
         var sock_addr = os.sockaddr_un{
             .family = os.AF_UNIX,
             .path = undefined,
@@ -331,6 +339,10 @@ pub const Address = extern union {
                 try std.fmt.format(context, Errors, output, "]:{}", port);
             },
             os.AF_UNIX => {
+                if (@typeOf(self.un) == void) {
+                    @panic("unsupported OS");
+                }
+
                 try std.fmt.format(context, Errors, output, "{}", self.un.path);
             },
             else => unreachable,
@@ -348,6 +360,10 @@ pub const Address = extern union {
             os.AF_INET => return @sizeOf(os.sockaddr_in),
             os.AF_INET6 => return @sizeOf(os.sockaddr_in6),
             os.AF_UNIX => {
+                if (@typeOf(self.un) == void) {
+                    @panic("unsupported OS");
+                }
+
                 const path_len = std.mem.len(u8, &self.un.path);
                 return @intCast(os.socklen_t, @sizeOf(os.sockaddr_un) - self.un.path.len + path_len);
             },
@@ -1304,6 +1320,13 @@ pub const StreamServer = struct {
         const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
         const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | nonblock;
         const proto = if (address.any.family == os.AF_UNIX) @as(u32, 0) else os.IPPROTO_TCP;
+        if (address.any.family == os.AF_UNIX and @typeOf(address.un) == void) {
+            return error{
+                /// When the OS does not have support for AF_UNIX sockets.
+                UnsupportedOS,
+            }.UnsupportedOS;
+        }
+
         const sockfd = try os.socket(address.any.family, sock_flags, proto);
         self.sockfd = sockfd;
         errdefer {
