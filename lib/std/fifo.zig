@@ -228,9 +228,14 @@ pub fn FixedSizeFifo(comptime T: type) type {
             return self.writeAssumeCapacity(src);
         }
 
-        pub fn print(self: *Self, comptime format: []const u8, args: ...) !void {
-            return std.fmt.format(self, error{OutOfMemory}, Self.write, format, args);
-        }
+        pub usingnamespace if (T == u8)
+            struct {
+                pub fn print(self: *Self, comptime format: []const u8, args: ...) !void {
+                    return std.fmt.format(self, error{OutOfMemory}, Self.write, format, args);
+                }
+            }
+        else
+            struct {};
 
         /// Make `count` bytes available before the current read location
         fn rewind(self: *Self, size: usize) void {
@@ -338,5 +343,23 @@ test "ByteFifo" {
         var result: [30]u8 = undefined;
         testing.expectEqualSlices(u8, "Hello, World!", fifo.read(&result));
         testing.expectEqual(@as(usize, 0), fifo.readableLength());
+    }
+}
+
+test "FixedSizeFifo" {
+    inline for ([_]type{ u1, u8, u16, u64 }) |T| {
+        var fifo = FixedSizeFifo(T).init(debug.global_allocator);
+        defer fifo.deinit();
+
+        try fifo.write([_]T{ 0, 1, 1, 0, 1 });
+        testing.expectEqual(@as(usize, 5), fifo.readableLength());
+
+        {
+            testing.expectEqual(@as(T, 0), try fifo.readItem());
+            testing.expectEqual(@as(T, 1), try fifo.readItem());
+            testing.expectEqual(@as(T, 1), try fifo.readItem());
+            testing.expectEqual(@as(T, 0), try fifo.readItem());
+            testing.expectEqual(@as(T, 1), try fifo.readItem());
+        }
     }
 }
