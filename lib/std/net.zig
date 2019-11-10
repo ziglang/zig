@@ -340,8 +340,8 @@ pub const Address = extern union {
                 try std.fmt.format(context, Errors, output, "]:{}", port);
             },
             os.AF_UNIX => {
-                if (@typeOf(self.un) == void) {
-                    @panic("unsupported OS");
+                if (!has_unix_sockets) {
+                    unreachable;
                 }
 
                 try std.fmt.format(context, Errors, output, "{}", self.un.path);
@@ -361,8 +361,8 @@ pub const Address = extern union {
             os.AF_INET => return @sizeOf(os.sockaddr_in),
             os.AF_INET6 => return @sizeOf(os.sockaddr_in6),
             os.AF_UNIX => {
-                if (@typeOf(self.un) == void) {
-                    @panic("unsupported OS");
+                if (!has_unix_sockets) {
+                    unreachable;
                 }
 
                 const path_len = std.mem.len(u8, &self.un.path);
@@ -1321,12 +1321,6 @@ pub const StreamServer = struct {
         const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
         const sock_flags = os.SOCK_STREAM | os.SOCK_CLOEXEC | nonblock;
         const proto = if (address.any.family == os.AF_UNIX) @as(u32, 0) else os.IPPROTO_TCP;
-        if (address.any.family == os.AF_UNIX and @typeOf(address.un) == void) {
-            return error{
-                /// When the OS does not have support for AF_UNIX sockets.
-                UnsupportedOS,
-            }.UnsupportedOS;
-        }
 
         const sockfd = try os.socket(address.any.family, sock_flags, proto);
         self.sockfd = sockfd;
