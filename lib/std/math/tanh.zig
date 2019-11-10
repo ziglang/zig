@@ -119,8 +119,8 @@ fn tanh64(x: f64) f64 {
 }
 
 test "math.tanh" {
-    expect(tanh(f32(1.5)) == tanh32(1.5));
-    expect(tanh(f64(1.5)) == tanh64(1.5));
+    expect(tanh(@as(f32, 1.5)) == tanh32(1.5));
+    expect(tanh(@as(f64, 1.5)) == tanh64(1.5));
 }
 
 test "math.tanh32" {

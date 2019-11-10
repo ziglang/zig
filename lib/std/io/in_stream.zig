@@ -11,7 +11,6 @@ pub const stack_size: usize = if (@hasDecl(root, "stack_size_std_io_InStream"))
     root.stack_size_std_io_InStream
 else
     default_stack_size;
-pub const stack_align = 16;
 
 pub fn InStream(comptime ReadError: type) type {
     return struct {
@@ -34,7 +33,7 @@ pub fn InStream(comptime ReadError: type) type {
             if (std.io.is_async) {
                 // Let's not be writing 0xaa in safe modes for upwards of 4 MiB for every stream read.
                 @setRuntimeSafety(false);
-                var stack_frame: [stack_size]u8 align(stack_align) = undefined;
+                var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
                 return await @asyncCall(&stack_frame, {}, self.readFn, self, buffer);
             } else {
                 return self.readFn(self, buffer);
@@ -128,6 +127,47 @@ pub fn InStream(comptime ReadError: type) type {
 
             try self.readUntilDelimiterBuffer(&buf, delimiter, max_size);
             return buf.toOwnedSlice();
+        }
+
+        /// Reads from the stream until specified byte is found. If the buffer is not
+        /// large enough to hold the entire contents, `error.StreamTooLong` is returned.
+        /// If end-of-stream is found, returns the rest of the stream. If this
+        /// function is called again after that, returns null.
+        /// Returns a slice of the stream data, with ptr equal to `buf.ptr`. The
+        /// delimiter byte is not included in the returned slice.
+        pub fn readUntilDelimiterOrEof(self: *Self, buf: []u8, delimiter: u8) !?[]u8 {
+            var index: usize = 0;
+            while (true) {
+                const byte = self.readByte() catch |err| switch (err) {
+                    error.EndOfStream => {
+                        if (index == 0) {
+                            return null;
+                        } else {
+                            return buf[0..index];
+                        }
+                    },
+                    else => |e| return e,
+                };
+
+                if (byte == delimiter) return buf[0..index];
+                if (index >= buf.len) return error.StreamTooLong;
+
+                buf[index] = byte;
+                index += 1;
+            }
+        }
+
+        /// Reads from the stream until specified byte is found, discarding all data,
+        /// including the delimiter.
+        /// If end-of-stream is found, this function succeeds.
+        pub fn skipUntilDelimiterOrEof(self: *Self, delimiter: u8) !void {
+            while (true) {
+                const byte = self.readByte() catch |err| switch (err) {
+                    error.EndOfStream => return,
+                    else => |e| return e,
+                };
+                if (byte == delimiter) return;
+            }
         }
 
         /// Reads 1 byte from the stream or returns `error.EndOfStream`.

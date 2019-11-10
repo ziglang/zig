@@ -78,6 +78,8 @@ const char* ir_instruction_type_str(IrInstructionId id) {
             return "LoadPtrGen";
         case IrInstructionIdStorePtr:
             return "StorePtr";
+        case IrInstructionIdVectorStoreElem:
+            return "VectorStoreElem";
         case IrInstructionIdFieldPtr:
             return "FieldPtr";
         case IrInstructionIdStructFieldPtr:
@@ -370,6 +372,8 @@ const char* ir_instruction_type_str(IrInstructionId id) {
             return "SpillBegin";
         case IrInstructionIdSpillEnd:
             return "SpillEnd";
+        case IrInstructionIdVectorExtractElem:
+            return "VectorExtractElem";
     }
     zig_unreachable();
 }
@@ -597,6 +601,12 @@ static void ir_print_result_loc_bit_cast(IrPrint *irp, ResultLocBitCast *result_
     fprintf(irp->f, ")");
 }
 
+static void ir_print_result_loc_cast(IrPrint *irp, ResultLocCast *result_loc_cast) {
+    fprintf(irp->f, "cast(ty=");
+    ir_print_other_instruction(irp, result_loc_cast->base.source_instruction);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_result_loc(IrPrint *irp, ResultLoc *result_loc) {
     switch (result_loc->id) {
         case ResultLocIdInvalid:
@@ -615,6 +625,8 @@ static void ir_print_result_loc(IrPrint *irp, ResultLoc *result_loc) {
             return ir_print_result_loc_peer(irp, (ResultLocPeer *)result_loc);
         case ResultLocIdBitCast:
             return ir_print_result_loc_bit_cast(irp, (ResultLocBitCast *)result_loc);
+        case ResultLocIdCast:
+            return ir_print_result_loc_cast(irp, (ResultLocCast *)result_loc);
         case ResultLocIdPeerParent:
             fprintf(irp->f, "peer_parent");
             return;
@@ -785,6 +797,15 @@ static void ir_print_store_ptr(IrPrint *irp, IrInstructionStorePtr *instruction)
     fprintf(irp->f, "*");
     ir_print_var_instruction(irp, instruction->ptr);
     fprintf(irp->f, " = ");
+    ir_print_other_instruction(irp, instruction->value);
+}
+
+static void ir_print_vector_store_elem(IrPrint *irp, IrInstructionVectorStoreElem *instruction) {
+    fprintf(irp->f, "vector_ptr=");
+    ir_print_var_instruction(irp, instruction->vector_ptr);
+    fprintf(irp->f, ",index=");
+    ir_print_var_instruction(irp, instruction->index);
+    fprintf(irp->f, ",value=");
     ir_print_other_instruction(irp, instruction->value);
 }
 
@@ -1471,6 +1492,13 @@ static void ir_print_ptr_cast_gen(IrPrint *irp, IrInstructionPtrCastGen *instruc
     fprintf(irp->f, ")");
 }
 
+static void ir_print_implicit_cast(IrPrint *irp, IrInstructionImplicitCast *instruction) {
+    fprintf(irp->f, "@implicitCast(");
+    ir_print_other_instruction(irp, instruction->operand);
+    fprintf(irp->f, ")result=");
+    ir_print_result_loc(irp, &instruction->result_loc_cast->base);
+}
+
 static void ir_print_bit_cast_src(IrPrint *irp, IrInstructionBitCastSrc *instruction) {
     fprintf(irp->f, "@bitCast(");
     ir_print_other_instruction(irp, instruction->operand);
@@ -1726,14 +1754,6 @@ static void ir_print_align_cast(IrPrint *irp, IrInstructionAlignCast *instructio
     fprintf(irp->f, ")");
 }
 
-static void ir_print_implicit_cast(IrPrint *irp, IrInstructionImplicitCast *instruction) {
-    fprintf(irp->f, "@implicitCast(");
-    ir_print_other_instruction(irp, instruction->dest_type);
-    fprintf(irp->f, ",");
-    ir_print_other_instruction(irp, instruction->target);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_resolve_result(IrPrint *irp, IrInstructionResolveResult *instruction) {
     fprintf(irp->f, "ResolveResult(");
     ir_print_result_loc(irp, instruction->result_loc);
@@ -1969,6 +1989,14 @@ static void ir_print_spill_end(IrPrint *irp, IrInstructionSpillEnd *instruction)
     fprintf(irp->f, ")");
 }
 
+static void ir_print_vector_extract_elem(IrPrint *irp, IrInstructionVectorExtractElem *instruction) {
+    fprintf(irp->f, "@vectorExtractElem(");
+    ir_print_other_instruction(irp, instruction->vector);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->index);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool trailing) {
     ir_print_prefix(irp, instruction, trailing);
     switch (instruction->id) {
@@ -2036,6 +2064,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
             break;
         case IrInstructionIdStorePtr:
             ir_print_store_ptr(irp, (IrInstructionStorePtr *)instruction);
+            break;
+        case IrInstructionIdVectorStoreElem:
+            ir_print_vector_store_elem(irp, (IrInstructionVectorStoreElem *)instruction);
             break;
         case IrInstructionIdTypeOf:
             ir_print_typeof(irp, (IrInstructionTypeOf *)instruction);
@@ -2466,6 +2497,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
         case IrInstructionIdSpillEnd:
             ir_print_spill_end(irp, (IrInstructionSpillEnd *)instruction);
             break;
+        case IrInstructionIdVectorExtractElem:
+            ir_print_vector_extract_elem(irp, (IrInstructionVectorExtractElem *)instruction);
+            break;
     }
     fprintf(irp->f, "\n");
 }
@@ -2514,4 +2548,19 @@ void ir_print_instruction(CodeGen *codegen, FILE *f, IrInstruction *instruction,
     irp->pending = {};
 
     ir_print_instruction(irp, instruction, false);
+}
+
+void ir_print_const_expr(CodeGen *codegen, FILE *f, ConstExprValue *value, int indent_size, IrPass pass) {
+    IrPrint ir_print = {};
+    IrPrint *irp = &ir_print;
+    irp->pass = pass;
+    irp->codegen = codegen;
+    irp->f = f;
+    irp->indent = indent_size;
+    irp->indent_size = indent_size;
+    irp->printed = {};
+    irp->printed.init(4);
+    irp->pending = {};
+
+    ir_print_const_value(irp, value);
 }

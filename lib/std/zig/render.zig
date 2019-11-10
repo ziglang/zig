@@ -410,8 +410,8 @@ fn renderExpression(
             switch (prefix_op_node.op) {
                 ast.Node.PrefixOp.Op.PtrType => |ptr_info| {
                     const star_offset = switch (tree.tokens.at(prefix_op_node.op_token).id) {
-                        Token.Id.AsteriskAsterisk => usize(1),
-                        else => usize(0),
+                        Token.Id.AsteriskAsterisk => @as(usize, 1),
+                        else => @as(usize, 0),
                     };
                     try renderTokenOffset(tree, stream, prefix_op_node.op_token, indent, start_col, Space.None, star_offset); // *
                     if (ptr_info.allowzero_token) |allowzero_token| {
@@ -617,10 +617,15 @@ fn renderExpression(
                     return renderToken(tree, stream, rbracket, indent, start_col, space); // ]
                 },
 
-                ast.Node.SuffixOp.Op.Deref, ast.Node.SuffixOp.Op.UnwrapOptional => {
+                ast.Node.SuffixOp.Op.Deref => {
+                    try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
+                    return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space); // .*
+                },
+
+                ast.Node.SuffixOp.Op.UnwrapOptional => {
                     try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs, Space.None);
                     try renderToken(tree, stream, tree.prevToken(suffix_op.rtoken), indent, start_col, Space.None); // .
-                    return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space); // * or ?
+                    return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space); // ?
                 },
 
                 @TagType(ast.Node.SuffixOp.Op).Slice => |range| {
@@ -2092,7 +2097,7 @@ fn renderTokenOffset(
 
     while (true) {
         assert(loc.line != 0);
-        const newline_count = if (loc.line == 1) u8(1) else u8(2);
+        const newline_count = if (loc.line == 1) @as(u8, 1) else @as(u8, 2);
         try stream.writeByteNTimes('\n', newline_count);
         try stream.writeByteNTimes(' ', indent);
         try stream.write(mem.trimRight(u8, tree.tokenSlicePtr(next_token), " "));

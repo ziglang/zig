@@ -48,6 +48,7 @@ struct ResultLoc;
 struct ResultLocPeer;
 struct ResultLocPeerParent;
 struct ResultLocBitCast;
+struct ResultLocCast;
 struct ResultLocReturn;
 
 enum PtrLen {
@@ -1183,13 +1184,22 @@ struct FnTypeId {
 uint32_t fn_type_id_hash(FnTypeId*);
 bool fn_type_id_eql(FnTypeId *a, FnTypeId *b);
 
+static const uint32_t VECTOR_INDEX_NONE = UINT32_MAX;
+static const uint32_t VECTOR_INDEX_RUNTIME = UINT32_MAX - 1;
+
 struct ZigTypePointer {
     ZigType *child_type;
     ZigType *slice_parent;
+
     PtrLen ptr_len;
     uint32_t explicit_alignment; // 0 means use ABI alignment
+
     uint32_t bit_offset_in_host;
-    uint32_t host_int_bytes; // size of host integer. 0 means no host integer; this field is aligned
+    // size of host integer. 0 means no host integer; this field is aligned
+    // when vector_index != VECTOR_INDEX_NONE this is the len of the containing vector
+    uint32_t host_int_bytes;
+
+    uint32_t vector_index; // see the VECTOR_INDEX_* constants
     bool is_const;
     bool is_volatile;
     bool allow_zero;
@@ -1682,6 +1692,7 @@ enum BuiltinFnId {
     BuiltinFnIdFrameType,
     BuiltinFnIdFrameHandle,
     BuiltinFnIdFrameSize,
+    BuiltinFnIdAs,
 };
 
 struct BuiltinFnEntry {
@@ -1732,8 +1743,11 @@ struct TypeId {
             ZigType *child_type;
             PtrLen ptr_len;
             uint32_t alignment;
+
             uint32_t bit_offset_in_host;
             uint32_t host_int_bytes;
+
+            uint32_t vector_index;
             bool is_const;
             bool is_volatile;
             bool allow_zero;
@@ -2414,6 +2428,7 @@ enum IrInstructionId {
     IrInstructionIdLoadPtr,
     IrInstructionIdLoadPtrGen,
     IrInstructionIdStorePtr,
+    IrInstructionIdVectorStoreElem,
     IrInstructionIdFieldPtr,
     IrInstructionIdStructFieldPtr,
     IrInstructionIdUnionFieldPtr,
@@ -2563,6 +2578,7 @@ enum IrInstructionId {
     IrInstructionIdResume,
     IrInstructionIdSpillBegin,
     IrInstructionIdSpillEnd,
+    IrInstructionIdVectorExtractElem,
 };
 
 struct IrInstruction {
@@ -2754,6 +2770,14 @@ struct IrInstructionStorePtr {
 
     bool allow_write_through_const;
     IrInstruction *ptr;
+    IrInstruction *value;
+};
+
+struct IrInstructionVectorStoreElem {
+    IrInstruction base;
+
+    IrInstruction *vector_ptr;
+    IrInstruction *index;
     IrInstruction *value;
 };
 
@@ -3436,6 +3460,13 @@ struct IrInstructionPtrCastGen {
     bool safety_check_on;
 };
 
+struct IrInstructionImplicitCast {
+    IrInstruction base;
+
+    IrInstruction *operand;
+    ResultLocCast *result_loc_cast;
+};
+
 struct IrInstructionBitCastSrc {
     IrInstruction base;
 
@@ -3801,14 +3832,6 @@ struct IrInstructionEndExpr {
     ResultLoc *result_loc;
 };
 
-struct IrInstructionImplicitCast {
-    IrInstruction base;
-
-    IrInstruction *dest_type;
-    IrInstruction *target;
-    ResultLoc *result_loc;
-};
-
 // This one is for writing through the result pointer.
 struct IrInstructionResolveResult {
     IrInstruction base;
@@ -3890,6 +3913,13 @@ struct IrInstructionSpillEnd {
     IrInstructionSpillBegin *begin;
 };
 
+struct IrInstructionVectorExtractElem {
+    IrInstruction base;
+
+    IrInstruction *vector;
+    IrInstruction *index;
+};
+
 enum ResultLocId {
     ResultLocIdInvalid,
     ResultLocIdNone,
@@ -3899,6 +3929,7 @@ enum ResultLocId {
     ResultLocIdPeerParent,
     ResultLocIdInstruction,
     ResultLocIdBitCast,
+    ResultLocIdCast,
 };
 
 // Additions to this struct may need to be handled in
@@ -3961,6 +3992,13 @@ struct ResultLocInstruction {
 
 // The source_instruction is the destination type
 struct ResultLocBitCast {
+    ResultLoc base;
+
+    ResultLoc *parent;
+};
+
+// The source_instruction is the destination type
+struct ResultLocCast {
     ResultLoc base;
 
     ResultLoc *parent;

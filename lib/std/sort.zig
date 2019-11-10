@@ -813,7 +813,7 @@ fn blockSwap(comptime T: type, items: []T, start1: usize, start2: usize, block_s
 // where have some idea as to how many unique values there are and where the next value might be
 fn findFirstForward(comptime T: type, items: []T, value: T, range: Range, lessThan: fn (T, T) bool, unique: usize) usize {
     if (range.length() == 0) return range.start;
-    const skip = math.max(range.length() / unique, usize(1));
+    const skip = math.max(range.length() / unique, @as(usize, 1));
 
     var index = range.start + skip;
     while (lessThan(items[index - 1], value)) : (index += skip) {
@@ -827,7 +827,7 @@ fn findFirstForward(comptime T: type, items: []T, value: T, range: Range, lessTh
 
 fn findFirstBackward(comptime T: type, items: []T, value: T, range: Range, lessThan: fn (T, T) bool, unique: usize) usize {
     if (range.length() == 0) return range.start;
-    const skip = math.max(range.length() / unique, usize(1));
+    const skip = math.max(range.length() / unique, @as(usize, 1));
 
     var index = range.end - skip;
     while (index > range.start and !lessThan(items[index - 1], value)) : (index -= skip) {
@@ -841,7 +841,7 @@ fn findFirstBackward(comptime T: type, items: []T, value: T, range: Range, lessT
 
 fn findLastForward(comptime T: type, items: []T, value: T, range: Range, lessThan: fn (T, T) bool, unique: usize) usize {
     if (range.length() == 0) return range.start;
-    const skip = math.max(range.length() / unique, usize(1));
+    const skip = math.max(range.length() / unique, @as(usize, 1));
 
     var index = range.start + skip;
     while (!lessThan(value, items[index - 1])) : (index += skip) {
@@ -855,7 +855,7 @@ fn findLastForward(comptime T: type, items: []T, value: T, range: Range, lessTha
 
 fn findLastBackward(comptime T: type, items: []T, value: T, range: Range, lessThan: fn (T, T) bool, unique: usize) usize {
     if (range.length() == 0) return range.start;
-    const skip = math.max(range.length() / unique, usize(1));
+    const skip = math.max(range.length() / unique, @as(usize, 1));
 
     var index = range.end - skip;
     while (index > range.start and lessThan(value, items[index - 1])) : (index -= skip) {

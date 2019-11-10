@@ -91,8 +91,8 @@ fn round64(x_: f64) f64 {
 }
 
 test "math.round" {
-    expect(round(f32(1.3)) == round32(1.3));
-    expect(round(f64(1.3)) == round64(1.3));
+    expect(round(@as(f32, 1.3)) == round32(1.3));
+    expect(round(@as(f64, 1.3)) == round64(1.3));
 }
 
 test "math.round32" {

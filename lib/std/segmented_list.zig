@@ -162,7 +162,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         /// Grows or shrinks capacity to match usage.
         pub fn setCapacity(self: *Self, new_capacity: usize) !void {
             if (prealloc_item_count != 0) {
-                if (new_capacity <= usize(1) << (prealloc_exp + @intCast(ShelfIndex, self.dynamic_segments.len))) {
+                if (new_capacity <= @as(usize, 1) << (prealloc_exp + @intCast(ShelfIndex, self.dynamic_segments.len))) {
                     return self.shrinkCapacity(new_capacity);
                 }
             }
@@ -231,9 +231,9 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
         fn shelfSize(shelf_index: ShelfIndex) usize {
             if (prealloc_item_count == 0) {
-                return usize(1) << shelf_index;
+                return @as(usize, 1) << shelf_index;
             }
-            return usize(1) << (shelf_index + (prealloc_exp + 1));
+            return @as(usize, 1) << (shelf_index + (prealloc_exp + 1));
         }
 
         fn shelfIndex(list_index: usize) ShelfIndex {
@@ -245,9 +245,9 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
         fn boxIndex(list_index: usize, shelf_index: ShelfIndex) usize {
             if (prealloc_item_count == 0) {
-                return (list_index + 1) - (usize(1) << shelf_index);
+                return (list_index + 1) - (@as(usize, 1) << shelf_index);
             }
-            return list_index + prealloc_item_count - (usize(1) << ((prealloc_exp + 1) + shelf_index));
+            return list_index + prealloc_item_count - (@as(usize, 1) << ((prealloc_exp + 1) + shelf_index));
         }
 
         fn freeShelves(self: *Self, from_count: ShelfIndex, to_count: ShelfIndex) void {

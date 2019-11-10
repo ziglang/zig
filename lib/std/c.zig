@@ -8,8 +8,16 @@ pub usingnamespace switch (builtin.os) {
     .linux => @import("c/linux.zig"),
     .windows => @import("c/windows.zig"),
     .macosx, .ios, .tvos, .watchos => @import("c/darwin.zig"),
-    .freebsd => @import("c/freebsd.zig"),
+    .freebsd, .kfreebsd => @import("c/freebsd.zig"),
     .netbsd => @import("c/netbsd.zig"),
+    .dragonfly => @import("c/dragonfly.zig"),
+    .openbsd => @import("c/openbsd.zig"),
+    .haiku => @import("c/haiku.zig"),
+    .hermit => @import("c/hermit.zig"),
+    .solaris => @import("c/solaris.zig"),
+    .fuchsia => @import("c/fuchsia.zig"),
+    .minix => @import("c/minix.zig"),
+    .emscripten => @import("c/emscripten.zig"),
     else => struct {},
 };
 
@@ -60,7 +68,6 @@ pub extern "c" fn abort() noreturn;
 pub extern "c" fn exit(code: c_int) noreturn;
 pub extern "c" fn isatty(fd: fd_t) c_int;
 pub extern "c" fn close(fd: fd_t) c_int;
-pub extern "c" fn @"close$NOCANCEL"(fd: fd_t) c_int;
 pub extern "c" fn fstat(fd: fd_t, buf: *Stat) c_int;
 pub extern "c" fn @"fstat$INODE64"(fd: fd_t, buf: *Stat) c_int;
 pub extern "c" fn lseek(fd: fd_t, offset: off_t, whence: c_int) off_t;
@@ -116,6 +123,26 @@ pub extern "c" fn getsockname(sockfd: fd_t, noalias addr: *sockaddr, noalias add
 pub extern "c" fn connect(sockfd: fd_t, sock_addr: *const sockaddr, addrlen: socklen_t) c_int;
 pub extern "c" fn accept4(sockfd: fd_t, addr: *sockaddr, addrlen: *socklen_t, flags: c_uint) c_int;
 pub extern "c" fn getsockopt(sockfd: fd_t, level: c_int, optname: c_int, optval: *c_void, optlen: *socklen_t) c_int;
+pub extern "c" fn send(sockfd: fd_t, buf: *const c_void, len: usize, flags: u32) isize;
+pub extern "c" fn sendto(
+    sockfd: fd_t,
+    buf: *const c_void,
+    len: usize,
+    flags: u32,
+    dest_addr: *const sockaddr,
+    addrlen: socklen_t,
+) isize;
+
+pub extern fn recv(sockfd: fd_t, arg1: ?*c_void, arg2: usize, arg3: c_int) isize;
+pub extern fn recvfrom(
+    sockfd: fd_t,
+    noalias buf: *c_void,
+    len: usize,
+    flags: u32,
+    noalias src_addr: ?*sockaddr,
+    noalias addrlen: ?*socklen_t,
+) isize;
+
 pub extern "c" fn kill(pid: pid_t, sig: c_int) c_int;
 pub extern "c" fn getdirentries(fd: fd_t, buf_ptr: [*]u8, nbytes: usize, basep: *i64) isize;
 pub extern "c" fn setgid(ruid: c_uint, euid: c_uint) c_int;
@@ -128,6 +155,10 @@ pub extern "c" fn malloc(usize) ?*c_void;
 pub extern "c" fn realloc(?*c_void, usize) ?*c_void;
 pub extern "c" fn free(*c_void) void;
 pub extern "c" fn posix_memalign(memptr: **c_void, alignment: usize, size: usize) c_int;
+
+// Deprecated
+pub extern "c" fn futimes(fd: fd_t, times: *[2]timeval) c_int;
+pub extern "c" fn utimes(path: [*]const u8, times: *[2]timeval) c_int;
 
 pub extern "c" fn utimensat(dirfd: fd_t, pathname: [*]const u8, times: *[2]timespec, flags: u32) c_int;
 pub extern "c" fn futimens(fd: fd_t, times: *const [2]timespec) c_int;
@@ -148,3 +179,49 @@ pub extern "c" fn kevent(
     nevents: c_int,
     timeout: ?*const timespec,
 ) c_int;
+
+pub extern "c" fn getaddrinfo(
+    noalias node: [*]const u8,
+    noalias service: [*]const u8,
+    noalias hints: *const addrinfo,
+    noalias res: **addrinfo,
+) c_int;
+
+pub extern "c" fn freeaddrinfo(res: *addrinfo) void;
+
+pub extern "c" fn getnameinfo(
+    noalias addr: *const sockaddr,
+    addrlen: socklen_t,
+    noalias host: [*]u8,
+    hostlen: socklen_t,
+    noalias serv: [*]u8,
+    servlen: socklen_t,
+    flags: u32,
+) c_int;
+
+pub extern "c" fn gai_strerror(errcode: c_int) [*]const u8;
+
+pub extern "c" fn poll(fds: [*]pollfd, nfds: nfds_t, timeout: c_int) c_int;
+
+pub extern "c" fn dn_expand(
+    msg: [*]const u8,
+    eomorig: [*]const u8,
+    comp_dn: [*]const u8,
+    exp_dn: [*]u8,
+    length: c_int,
+) c_int;
+
+pub extern "c" fn sched_yield() c_int;
+
+pub const PTHREAD_MUTEX_INITIALIZER = pthread_mutex_t{};
+pub extern "c" fn pthread_mutex_lock(mutex: *pthread_mutex_t) c_int;
+pub extern "c" fn pthread_mutex_unlock(mutex: *pthread_mutex_t) c_int;
+pub extern "c" fn pthread_mutex_destroy(mutex: *pthread_mutex_t) c_int;
+
+pub const PTHREAD_COND_INITIALIZER = pthread_cond_t{};
+pub extern "c" fn pthread_cond_wait(noalias cond: *pthread_cond_t, noalias mutex: *pthread_mutex_t) c_int;
+pub extern "c" fn pthread_cond_signal(cond: *pthread_cond_t) c_int;
+pub extern "c" fn pthread_cond_destroy(cond: *pthread_cond_t) c_int;
+
+pub const pthread_t = *@OpaqueType();
+pub const FILE = @OpaqueType();

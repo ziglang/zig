@@ -241,14 +241,14 @@ fn memFree(comptime T: type, memory: []T) void {}
 
 test "cast undefined" {
     const array: [100]u8 = undefined;
-    const slice = ([]const u8)(array);
+    const slice = @as([]const u8, array);
     testCastUndefined(slice);
 }
 fn testCastUndefined(x: []const u8) void {}
 
 test "cast small unsigned to larger signed" {
-    expect(castSmallUnsignedToLargerSigned1(200) == i16(200));
-    expect(castSmallUnsignedToLargerSigned2(9999) == i64(9999));
+    expect(castSmallUnsignedToLargerSigned1(200) == @as(i16, 200));
+    expect(castSmallUnsignedToLargerSigned2(9999) == @as(i64, 9999));
 }
 fn castSmallUnsignedToLargerSigned1(x: u8) i16 {
     return x;
@@ -268,7 +268,7 @@ fn outer() i64 {
 }
 
 test "pointer dereferencing" {
-    var x = i32(3);
+    var x = @as(i32, 3);
     const y = &x;
 
     y.* += 1;
@@ -350,7 +350,7 @@ fn testTakeAddressOfParameter(f: f32) void {
 }
 
 test "pointer comparison" {
-    const a = ([]const u8)("a");
+    const a = @as([]const u8, "a");
     const b = &a;
     expect(ptrEql(b, b));
 }
@@ -500,7 +500,7 @@ fn TypeFromFn(comptime T: type) type {
 }
 
 test "double implicit cast in same expression" {
-    var x = i32(u16(nine()));
+    var x = @as(i32, @as(u16, nine()));
     expect(x == 9);
 }
 fn nine() u8 {
@@ -642,7 +642,7 @@ test "self reference through fn ptr field" {
 
 test "volatile load and store" {
     var number: i32 = 1234;
-    const ptr = (*volatile i32)(&number);
+    const ptr = @as(*volatile i32, &number);
     ptr.* += 1;
     expect(ptr.* == 1235);
 }
@@ -761,7 +761,7 @@ test "nested optional field in struct" {
 
 fn maybe(x: bool) anyerror!?u32 {
     return switch (x) {
-        true => u32(42),
+        true => @as(u32, 42),
         else => null,
     };
 }

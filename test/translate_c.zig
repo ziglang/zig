@@ -28,9 +28,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub fn foo() void {
         \\    var a: c_int = undefined;
-        \\    var b: u8 = u8(123);
+        \\    var b: u8 = @as(u8, 123);
         \\    const c: c_int = undefined;
-        \\    const d: c_uint = c_uint(440);
+        \\    const d: c_uint = @as(c_uint, 440);
         \\}
     );
 
@@ -144,7 +144,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn foo() void;
         \\pub fn bar() void {
         \\    var func_ptr: ?*c_void = @ptrCast(?*c_void, foo);
-        \\    var typed_func_ptr: ?extern fn () void = @intToPtr(?extern fn () void, c_ulong(@ptrToInt(func_ptr)));
+        \\    var typed_func_ptr: ?extern fn () void = @intToPtr(?extern fn () void, @as(c_ulong, @ptrToInt(func_ptr)));
         \\}
     );
 
@@ -561,43 +561,43 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("u integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020u  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO = c_uint(32);
+        \\pub const SDL_INIT_VIDEO = @as(c_uint, 32);
     );
 
     cases.add("l integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020l  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO = c_long(32);
+        \\pub const SDL_INIT_VIDEO = @as(c_long, 32);
     );
 
     cases.add("ul integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020ul  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO = c_ulong(32);
+        \\pub const SDL_INIT_VIDEO = @as(c_ulong, 32);
     );
 
     cases.add("lu integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020lu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO = c_ulong(32);
+        \\pub const SDL_INIT_VIDEO = @as(c_ulong, 32);
     );
 
     cases.add("ll integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020ll  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO = c_longlong(32);
+        \\pub const SDL_INIT_VIDEO = @as(c_longlong, 32);
     );
 
     cases.add("ull integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020ull  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO = c_ulonglong(32);
+        \\pub const SDL_INIT_VIDEO = @as(c_ulonglong, 32);
     );
 
     cases.add("llu integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020llu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO = c_ulonglong(32);
+        \\pub const SDL_INIT_VIDEO = @as(c_ulonglong, 32);
     );
 
     cases.add("zig keywords in C code",
@@ -676,8 +676,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn log2(_arg_a: c_uint) c_int {
         \\    var a = _arg_a;
         \\    var i: c_int = 0;
-        \\    while (a > c_uint(0)) {
-        \\        a >>= @import("std").math.Log2Int(c_uint)(1);
+        \\    while (a > @as(c_uint, 0)) {
+        \\        a >>= @as(@import("std").math.Log2Int(c_uint), 1);
         \\    }
         \\    return i;
         \\}
@@ -848,8 +848,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn log2(_arg_a: u32) c_int {
         \\    var a = _arg_a;
         \\    var i: c_int = 0;
-        \\    while (a > c_uint(0)) {
-        \\        a >>= u5(1);
+        \\    while (a > @as(c_uint, 0)) {
+        \\        a >>= @as(u5, 1);
         \\    }
         \\    return i;
         \\}
@@ -895,7 +895,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    field: c_int,
         \\};
         \\pub export fn read_field(foo: [*c]struct_Foo) c_int {
-        \\    return foo.?.field;
+        \\    return foo.*.field;
         \\}
     );
 
@@ -937,7 +937,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     ,
         \\pub export fn float_to_int(a: f32) c_int {
-        \\    return c_int(a);
+        \\    return @as(c_int, a);
         \\}
     );
 
@@ -1027,7 +1027,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     ,
         \\pub export fn foo() c_int {
-        \\    return (1 << @import("std").math.Log2Int(c_int)(2)) >> @import("std").math.Log2Int(c_int)(1);
+        \\    return (1 << @as(@import("std").math.Log2Int(c_int), 2)) >> @as(@import("std").math.Log2Int(c_int), 1);
         \\}
     );
 
@@ -1076,14 +1076,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        _ref.* = (_ref.* ^ 1);
         \\        break :x _ref.*;
         \\    });
-        \\    a >>= @import("std").math.Log2Int(c_int)((x: {
+        \\    a >>= @as(@import("std").math.Log2Int(c_int), (x: {
         \\        const _ref = &a;
-        \\        _ref.* = (_ref.* >> @import("std").math.Log2Int(c_int)(1));
+        \\        _ref.* = (_ref.* >> @as(@import("std").math.Log2Int(c_int), 1));
         \\        break :x _ref.*;
         \\    }));
-        \\    a <<= @import("std").math.Log2Int(c_int)((x: {
+        \\    a <<= @as(@import("std").math.Log2Int(c_int), (x: {
         \\        const _ref = &a;
-        \\        _ref.* = (_ref.* << @import("std").math.Log2Int(c_int)(1));
+        \\        _ref.* = (_ref.* << @as(@import("std").math.Log2Int(c_int), 1));
         \\        break :x _ref.*;
         \\    }));
         \\}
@@ -1103,45 +1103,45 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     ,
         \\pub export fn foo() void {
-        \\    var a: c_uint = c_uint(0);
+        \\    var a: c_uint = @as(c_uint, 0);
         \\    a +%= (x: {
         \\        const _ref = &a;
-        \\        _ref.* = (_ref.* +% c_uint(1));
+        \\        _ref.* = (_ref.* +% @as(c_uint, 1));
         \\        break :x _ref.*;
         \\    });
         \\    a -%= (x: {
         \\        const _ref = &a;
-        \\        _ref.* = (_ref.* -% c_uint(1));
+        \\        _ref.* = (_ref.* -% @as(c_uint, 1));
         \\        break :x _ref.*;
         \\    });
         \\    a *%= (x: {
         \\        const _ref = &a;
-        \\        _ref.* = (_ref.* *% c_uint(1));
+        \\        _ref.* = (_ref.* *% @as(c_uint, 1));
         \\        break :x _ref.*;
         \\    });
         \\    a &= (x: {
         \\        const _ref = &a;
-        \\        _ref.* = (_ref.* & c_uint(1));
+        \\        _ref.* = (_ref.* & @as(c_uint, 1));
         \\        break :x _ref.*;
         \\    });
         \\    a |= (x: {
         \\        const _ref = &a;
-        \\        _ref.* = (_ref.* | c_uint(1));
+        \\        _ref.* = (_ref.* | @as(c_uint, 1));
         \\        break :x _ref.*;
         \\    });
         \\    a ^= (x: {
         \\        const _ref = &a;
-        \\        _ref.* = (_ref.* ^ c_uint(1));
+        \\        _ref.* = (_ref.* ^ @as(c_uint, 1));
         \\        break :x _ref.*;
         \\    });
-        \\    a >>= @import("std").math.Log2Int(c_uint)((x: {
+        \\    a >>= @as(@import("std").math.Log2Int(c_uint), (x: {
         \\        const _ref = &a;
-        \\        _ref.* = (_ref.* >> @import("std").math.Log2Int(c_uint)(1));
+        \\        _ref.* = (_ref.* >> @as(@import("std").math.Log2Int(c_uint), 1));
         \\        break :x _ref.*;
         \\    }));
-        \\    a <<= @import("std").math.Log2Int(c_uint)((x: {
+        \\    a <<= @as(@import("std").math.Log2Int(c_uint), (x: {
         \\        const _ref = &a;
-        \\        _ref.* = (_ref.* << @import("std").math.Log2Int(c_uint)(1));
+        \\        _ref.* = (_ref.* << @as(@import("std").math.Log2Int(c_uint), 1));
         \\        break :x _ref.*;
         \\    }));
         \\}
@@ -1174,7 +1174,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub export fn foo() void {
         \\    var i: c_int = 0;
-        \\    var u: c_uint = c_uint(0);
+        \\    var u: c_uint = @as(c_uint, 0);
         \\    i += 1;
         \\    i -= 1;
         \\    u +%= 1;
@@ -1222,7 +1222,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub export fn foo() void {
         \\    var i: c_int = 0;
-        \\    var u: c_uint = c_uint(0);
+        \\    var u: c_uint = @as(c_uint, 0);
         \\    i += 1;
         \\    i -= 1;
         \\    u +%= 1;
@@ -1539,7 +1539,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("macro pointer cast",
         \\#define NRF_GPIO ((NRF_GPIO_Type *) NRF_GPIO_BASE)
     ,
-        \\pub const NRF_GPIO = if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Pointer) @ptrCast([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Int) @intToPtr([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else ([*c]NRF_GPIO_Type)(NRF_GPIO_BASE);
+        \\pub const NRF_GPIO = if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Pointer) @ptrCast([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Int) @intToPtr([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else @as([*c]NRF_GPIO_Type, NRF_GPIO_BASE);
     );
 
     cases.add("if on non-bool",
@@ -1564,7 +1564,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    if (a != 0) return 0;
         \\    if (b != 0) return 1;
         \\    if (c != null) return 2;
-        \\    if (d != @bitCast(enum_SomeEnum, @TagType(enum_SomeEnum)(0))) return 3;
+        \\    if (d != @bitCast(enum_SomeEnum, @as(@TagType(enum_SomeEnum), 0))) return 3;
         \\    return 4;
         \\}
     );
@@ -1646,49 +1646,49 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.addC(
         "u integer suffix after 0 (zero) in macro definition",
         "#define ZERO 0U",
-        "pub const ZERO = c_uint(0);",
+        "pub const ZERO = @as(c_uint, 0);",
     );
 
     cases.addC(
         "l integer suffix after 0 (zero) in macro definition",
         "#define ZERO 0L",
-        "pub const ZERO = c_long(0);",
+        "pub const ZERO = @as(c_long, 0);",
     );
 
     cases.addC(
         "ul integer suffix after 0 (zero) in macro definition",
         "#define ZERO 0UL",
-        "pub const ZERO = c_ulong(0);",
+        "pub const ZERO = @as(c_ulong, 0);",
     );
 
     cases.addC(
         "lu integer suffix after 0 (zero) in macro definition",
         "#define ZERO 0LU",
-        "pub const ZERO = c_ulong(0);",
+        "pub const ZERO = @as(c_ulong, 0);",
     );
 
     cases.addC(
         "ll integer suffix after 0 (zero) in macro definition",
         "#define ZERO 0LL",
-        "pub const ZERO = c_longlong(0);",
+        "pub const ZERO = @as(c_longlong, 0);",
     );
 
     cases.addC(
         "ull integer suffix after 0 (zero) in macro definition",
         "#define ZERO 0ULL",
-        "pub const ZERO = c_ulonglong(0);",
+        "pub const ZERO = @as(c_ulonglong, 0);",
     );
 
     cases.addC(
         "llu integer suffix after 0 (zero) in macro definition",
         "#define ZERO 0LLU",
-        "pub const ZERO = c_ulonglong(0);",
+        "pub const ZERO = @as(c_ulonglong, 0);",
     );
 
     cases.addC(
         "bitwise not on u-suffixed 0 (zero) in macro definition",
         "#define NOT_ZERO (~0U)",
-        "pub const NOT_ZERO = ~c_uint(0);",
+        "pub const NOT_ZERO = ~@as(c_uint, 0);",
     );
 
     cases.addC("implicit casts",
@@ -1733,9 +1733,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    fn_int(1094861636);
         \\    fn_f32(@intToFloat(f32, 3));
         \\    fn_f64(@intToFloat(f64, 3));
-        \\    fn_char(u8('3'));
-        \\    fn_char(u8('\x01'));
-        \\    fn_char(u8(0));
+        \\    fn_char(@as(u8, '3'));
+        \\    fn_char(@as(u8, '\x01'));
+        \\    fn_char(@as(u8, 0));
         \\    fn_f32(3.000000);
         \\    fn_f64(3.000000);
         \\    fn_bool(true);
@@ -1798,17 +1798,17 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\
     ,
         \\pub export fn escapes() [*c]const u8 {
-        \\    var a: u8 = u8('\'');
-        \\    var b: u8 = u8('\\');
-        \\    var c: u8 = u8('\x07');
-        \\    var d: u8 = u8('\x08');
-        \\    var e: u8 = u8('\x0c');
-        \\    var f: u8 = u8('\n');
-        \\    var g: u8 = u8('\r');
-        \\    var h: u8 = u8('\t');
-        \\    var i: u8 = u8('\x0b');
-        \\    var j: u8 = u8('\x00');
-        \\    var k: u8 = u8('\"');
+        \\    var a: u8 = @as(u8, '\'');
+        \\    var b: u8 = @as(u8, '\\');
+        \\    var c: u8 = @as(u8, '\x07');
+        \\    var d: u8 = @as(u8, '\x08');
+        \\    var e: u8 = @as(u8, '\x0c');
+        \\    var f: u8 = @as(u8, '\n');
+        \\    var g: u8 = @as(u8, '\r');
+        \\    var h: u8 = @as(u8, '\t');
+        \\    var i: u8 = @as(u8, '\x0b');
+        \\    var j: u8 = @as(u8, '\x00');
+        \\    var k: u8 = @as(u8, '\"');
         \\    return c"\'\\\x07\x08\x0c\n\r\t\x0b\x00\"";
         \\}
         \\

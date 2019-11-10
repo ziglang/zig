@@ -98,5 +98,12 @@ test "cmpxchg with ignored result" {
 
     _ = @cmpxchgStrong(i32, &x, 1234, 5678, .Monotonic, .Monotonic);
 
-    expectEqual(i32(5678), x);
+    expectEqual(@as(i32, 5678), x);
+}
+
+var a_global_variable = @as(u32, 1234);
+
+test "cmpxchg on a global variable" {
+    _ = @cmpxchgWeak(u32, &a_global_variable, 1234, 42, .Acquire, .Monotonic);
+    expectEqual(@as(u32, 42), a_global_variable);
 }

@@ -7,6 +7,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
+const isNan = std.math.isNan;
 
 const is_wasm = switch (builtin.arch) {
     .wasm32, .wasm64 => true,
@@ -61,7 +62,7 @@ extern fn strncmp(_l: [*]const u8, _r: [*]const u8, _n: usize) c_int {
         r += 1;
         n -= 1;
     }
-    return c_int(l[0]) - c_int(r[0]);
+    return @as(c_int, l[0]) - @as(c_int, r[0]);
 }
 
 extern fn strerror(errnum: c_int) [*]const u8 {
@@ -81,9 +82,11 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
     if (builtin.is_test) {
         @setCold(true);
         std.debug.panic("{}", msg);
-    } else {
-        unreachable;
     }
+    if (builtin.os != .freestanding) {
+        std.os.abort();
+    }
+    while (true) {}
 }
 
 export fn memset(dest: ?[*]u8, c: u8, n: usize) ?[*]u8 {
@@ -480,7 +483,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
     const sx = if (T == f32) @intCast(u32, ux & 0x80000000) else @intCast(i32, ux >> bits_minus_1);
     var i: uint = undefined;
 
-    if (uy << 1 == 0 or isNan(uint, uy) or ex == mask)
+    if (uy << 1 == 0 or isNan(@bitCast(T, uy)) or ex == mask)
         return (x * y) / (x * y);
 
     if (ux << 1 <= uy << 1) {
@@ -537,7 +540,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
     // scale result up
     if (ex > 0) {
         ux -%= 1 << digits;
-        ux |= uint(@bitCast(u32, ex)) << digits;
+        ux |= @as(uint, @bitCast(u32, ex)) << digits;
     } else {
         ux >>= @intCast(log2uint, @bitCast(u32, -ex + 1));
     }
@@ -547,18 +550,6 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
         ux |= @intCast(uint, sx) << bits_minus_1;
     }
     return @bitCast(T, ux);
-}
-
-fn isNan(comptime T: type, bits: T) bool {
-    if (T == u16) {
-        return (bits & 0x7fff) > 0x7c00;
-    } else if (T == u32) {
-        return (bits & 0x7fffffff) > 0x7f800000;
-    } else if (T == u64) {
-        return (bits & (maxInt(u64) >> 1)) > (u64(0x7ff) << 52);
-    } else {
-        unreachable;
-    }
 }
 
 // NOTE: The original code is full of implicit signed -> unsigned assumptions and u32 wraparound
@@ -696,7 +687,7 @@ export fn sqrt(x: f64) f64 {
 
 export fn sqrtf(x: f32) f32 {
     const tiny: f32 = 1.0e-30;
-    const sign: i32 = @bitCast(i32, u32(0x80000000));
+    const sign: i32 = @bitCast(i32, @as(u32, 0x80000000));
     var ix: i32 = @bitCast(i32, x);
 
     if ((ix & 0x7F800000) == 0x7F800000) {

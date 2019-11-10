@@ -142,8 +142,8 @@ fn asin64(x: f64) f64 {
 }
 
 test "math.asin" {
-    expect(asin(f32(0.0)) == asin32(0.0));
-    expect(asin(f64(0.0)) == asin64(0.0));
+    expect(asin(@as(f32, 0.0)) == asin32(0.0));
+    expect(asin(@as(f64, 0.0)) == asin64(0.0));
 }
 
 test "math.asin32" {

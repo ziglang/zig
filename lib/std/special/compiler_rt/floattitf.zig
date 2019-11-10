@@ -47,7 +47,7 @@ pub extern fn __floattitf(arg: i128) f128 {
         a += 1; // round - this step may add a significant bit
         a >>= 2; // dump Q and R
         // a is now rounded to LDBL_MANT_DIG or LDBL_MANT_DIG+1 bits
-        if ((a & (u128(1) << LDBL_MANT_DIG)) != 0) {
+        if ((a & (@as(u128, 1) << LDBL_MANT_DIG)) != 0) {
             a >>= 1;
             e += 1;
         }

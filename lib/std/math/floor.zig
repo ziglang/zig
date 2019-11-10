@@ -40,7 +40,7 @@ fn floor16(x: f16) f16 {
     }
 
     if (e >= 0) {
-        m = u16(1023) >> @intCast(u4, e);
+        m = @as(u16, 1023) >> @intCast(u4, e);
         if (u & m == 0) {
             return x;
         }
@@ -74,7 +74,7 @@ fn floor32(x: f32) f32 {
     }
 
     if (e >= 0) {
-        m = u32(0x007FFFFF) >> @intCast(u5, e);
+        m = @as(u32, 0x007FFFFF) >> @intCast(u5, e);
         if (u & m == 0) {
             return x;
         }
@@ -123,9 +123,9 @@ fn floor64(x: f64) f64 {
 }
 
 test "math.floor" {
-    expect(floor(f16(1.3)) == floor16(1.3));
-    expect(floor(f32(1.3)) == floor32(1.3));
-    expect(floor(f64(1.3)) == floor64(1.3));
+    expect(floor(@as(f16, 1.3)) == floor16(1.3));
+    expect(floor(@as(f32, 1.3)) == floor32(1.3));
+    expect(floor(@as(f64, 1.3)) == floor64(1.3));
 }
 
 test "math.floor16" {

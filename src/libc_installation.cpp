@@ -320,7 +320,7 @@ Error zig_libc_cc_print_file_name(const char *o_file, Buf *out, bool want_dirnam
 
 #undef CC_EXE
 
-#if defined(ZIG_OS_WINDOWS) || defined(ZIG_OS_LINUX)
+#if defined(ZIG_OS_WINDOWS) || defined(ZIG_OS_LINUX) || defined(ZIG_OS_DRAGONFLY)
 static Error zig_libc_find_native_crt_dir_posix(ZigLibCInstallation *self, bool verbose) {
     return zig_libc_cc_print_file_name("crt1.o", &self->crt_dir, true, verbose);
 }
@@ -413,6 +413,7 @@ void zig_libc_render(ZigLibCInstallation *self, FILE *file) {
         "# The directory that contains `stdlib.h`.\n"
         "# On POSIX-like systems, include directories be found with: `cc -E -Wp,-v -xc /dev/null`\n"
         "include_dir=%s\n"
+        "\n"
         "# The system-specific include directory. May be the same as `include_dir`.\n"
         "# On Windows it's the directory that includes `vcruntime.h`.\n"
         "# On POSIX it's the directory that includes `sys/errno.h`.\n"
@@ -435,8 +436,7 @@ void zig_libc_render(ZigLibCInstallation *self, FILE *file) {
         "# The directory that contains `kernel32.lib`.\n"
         "# Only needed when targeting MSVC on Windows.\n"
         "kernel32_lib_dir=%s\n"
-        "\n"
-    ,
+        "\n",
         buf_ptr(&self->include_dir),
         buf_ptr(&self->sys_include_dir),
         buf_ptr(&self->crt_dir),
@@ -489,7 +489,7 @@ Error zig_libc_find_native(ZigLibCInstallation *self, bool verbose) {
         return err;
 #if defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
     buf_init_from_str(&self->crt_dir, "/usr/lib");
-#elif defined(ZIG_OS_LINUX)
+#elif defined(ZIG_OS_LINUX) || defined(ZIG_OS_DRAGONFLY)
     if ((err = zig_libc_find_native_crt_dir_posix(self, verbose)))
         return err;
 #endif

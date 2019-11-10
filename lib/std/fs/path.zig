@@ -32,7 +32,7 @@ pub fn isSep(byte: u8) bool {
 /// This is different from mem.join in that the separator will not be repeated if
 /// it is found at the end or beginning of a pair of consecutive paths.
 fn joinSep(allocator: *Allocator, separator: u8, paths: []const []const u8) ![]u8 {
-    if (paths.len == 0) return (([*]u8)(undefined))[0..0];
+    if (paths.len == 0) return &[0]u8{};
 
     const total_len = blk: {
         var sum: usize = paths[0].len;
@@ -253,27 +253,7 @@ pub fn windowsParsePath(path: []const u8) WindowsPath {
         return relative_path;
     }
 
-    // TODO when I combined these together with `inline for` the compiler crashed
-    {
-        const this_sep = '/';
-        const two_sep = [_]u8{ this_sep, this_sep };
-        if (mem.startsWith(u8, path, two_sep)) {
-            if (path[2] == this_sep) {
-                return relative_path;
-            }
-
-            var it = mem.tokenize(path, [_]u8{this_sep});
-            _ = (it.next() orelse return relative_path);
-            _ = (it.next() orelse return relative_path);
-            return WindowsPath{
-                .is_abs = isAbsoluteWindows(path),
-                .kind = WindowsPath.Kind.NetworkShare,
-                .disk_designator = path[0..it.index],
-            };
-        }
-    }
-    {
-        const this_sep = '\\';
+    inline for ("/\\") |this_sep| {
         const two_sep = [_]u8{ this_sep, this_sep };
         if (mem.startsWith(u8, path, two_sep)) {
             if (path[2] == this_sep) {

@@ -3,6 +3,7 @@ const Event = uefi.Event;
 const Guid = uefi.Guid;
 const Handle = uefi.Handle;
 const TableHeader = uefi.tables.TableHeader;
+const DevicePathProtocol = uefi.protocols.DevicePathProtocol;
 
 /// Boot services are services provided by the system's firmware until the operating system takes
 /// over control over the hardware by calling exitBootServices.
@@ -17,56 +18,96 @@ const TableHeader = uefi.tables.TableHeader;
 /// As the boot_services table may grow with new UEFI versions, it is important to check hdr.header_size.
 pub const BootServices = extern struct {
     hdr: TableHeader,
+
     raiseTpl: usize, // TODO
     restoreTpl: usize, // TODO
     allocatePages: usize, // TODO
     freePages: usize, // TODO
+
     /// Returns the current memory map.
     getMemoryMap: extern fn (*usize, [*]MemoryDescriptor, *usize, *usize, *u32) usize,
+
     /// Allocates pool memory.
     allocatePool: extern fn (MemoryType, usize, *align(8) [*]u8) usize,
-    freePool: usize, // TODO
+
+    /// Returns pool memory to the system.
+    freePool: extern fn ([*]align(8) u8) usize,
+
     /// Creates an event.
-    createEvent: extern fn (u32, usize, ?extern fn (Event, ?*const c_void) void, ?*const c_void, *Event) usize,
+    createEvent: extern fn (u32, usize, ?extern fn (Event, ?*c_void) void, ?*const c_void, *Event) usize,
+
     /// Sets the type of timer and the trigger time for a timer event.
     setTimer: extern fn (Event, TimerDelay, u64) usize,
+
     /// Stops execution until an event is signaled.
     waitForEvent: extern fn (usize, [*]const Event, *usize) usize,
+
     /// Signals an event.
     signalEvent: extern fn (Event) usize,
+
     /// Closes an event.
     closeEvent: extern fn (Event) usize,
-    checkEvent: usize, // TODO
+
+    /// Checks whether an event is in the signaled state.
+    checkEvent: extern fn (Event) usize,
+
     installProtocolInterface: usize, // TODO
     reinstallProtocolInterface: usize, // TODO
     uninstallProtocolInterface: usize, // TODO
-    handleProtocol: usize, // TODO
+
+    /// Queries a handle to determine if it supports a specified protocol.
+    handleProtocol: extern fn (Handle, *align(8) const Guid, *?*c_void) usize,
+
     reserved: *c_void,
+
     registerProtocolNotify: usize, // TODO
     locateHandle: usize, // TODO
     locateDevicePath: usize, // TODO
     installConfigurationTable: usize, // TODO
-    imageLoad: usize, // TODO
-    imageStart: usize, // TODO
+
+    /// Loads an EFI image into memory.
+    loadImage: extern fn (bool, Handle, ?*const DevicePathProtocol, ?[*]const u8, usize, *?Handle) usize,
+
+    /// Transfers control to a loaded image's entry point.
+    startImage: extern fn (Handle, ?*usize, ?*[*]u16) usize,
+
     /// Terminates a loaded EFI image and returns control to boot services.
     exit: extern fn (Handle, usize, usize, ?*const c_void) usize,
-    imageUnload: usize, // TODO
+
+    /// Unloads an image.
+    unloadImage: extern fn (Handle) usize,
+
     /// Terminates all boot services.
     exitBootServices: extern fn (Handle, usize) usize,
+
     getNextMonotonicCount: usize, // TODO
+
     /// Induces a fine-grained stall.
     stall: extern fn (usize) usize,
+
     /// Sets the system's watchdog timer.
     setWatchdogTimer: extern fn (usize, u64, usize, ?[*]const u16) usize,
+
     connectController: usize, // TODO
     disconnectController: usize, // TODO
-    openProtocol: usize, // TODO
-    closeProtocol: usize, // TODO
-    openProtocolInformation: usize, // TODO
+
+    /// Queries a handle to determine if it supports a specified protocol.
+    openProtocol: extern fn (Handle, *align(8) const Guid, *?*c_void, ?Handle, ?Handle, OpenProtocolAttributes) usize,
+
+    /// Closes a protocol on a handle that was opened using openProtocol().
+    closeProtocol: extern fn (Handle, *align(8) const Guid, Handle, ?Handle) usize,
+
+    /// Retrieves the list of agents that currently have a protocol interface opened.
+    openProtocolInformation: extern fn (Handle, *align(8) const Guid, *[*]ProtocolInformationEntry, *usize) usize,
+
     protocolsPerHandle: usize, // TODO
-    locateHandleBuffer: usize, // TODO
+
+    /// Returns an array of handles that support the requested protocol in a buffer allocated from pool.
+    locateHandleBuffer: extern fn (LocateSearchType, ?*align(8) const Guid, ?*const c_void, *usize, *[*]Handle) usize,
+
     /// Returns the first protocol instance that matches the given protocol.
     locateProtocol: extern fn (*align(8) const Guid, ?*const c_void, *?*c_void) usize,
+
     installMultipleProtocolInterfaces: usize, // TODO
     uninstallMultipleProtocolInterfaces: usize, // TODO
     calculateCrc32: usize, // TODO
@@ -137,4 +178,27 @@ pub const MemoryDescriptor = extern struct {
         _pad2: u43,
         memory_runtime: bool,
     },
+};
+
+pub const LocateSearchType = extern enum(u32) {
+    AllHandles,
+    ByRegisterNotify,
+    ByProtocol,
+};
+
+pub const OpenProtocolAttributes = packed struct {
+    by_handle_protocol: bool,
+    get_protocol: bool,
+    test_protocol: bool,
+    by_child_controller: bool,
+    by_driver: bool,
+    exclusive: bool,
+    _pad: u26,
+};
+
+pub const ProtocolInformationEntry = extern struct {
+    agent_handle: ?Handle,
+    controller_handle: ?Handle,
+    attributes: OpenProtocolAttributes,
+    open_count: u32,
 };

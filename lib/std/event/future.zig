@@ -3,7 +3,6 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const builtin = @import("builtin");
 const Lock = std.event.Lock;
-const Loop = std.event.Loop;
 
 /// This is a value that starts out unavailable, until resolve() is called
 /// While it is unavailable, functions suspend when they try to get() it,
@@ -23,9 +22,9 @@ pub fn Future(comptime T: type) type {
         const Self = @This();
         const Queue = std.atomic.Queue(anyframe);
 
-        pub fn init(loop: *Loop) Self {
+        pub fn init() Self {
             return Self{
-                .lock = Lock.initLocked(loop),
+                .lock = Lock.initLocked(),
                 .available = 0,
                 .data = undefined,
             };
@@ -87,20 +86,14 @@ test "std.event.Future" {
     if (builtin.single_threaded) return error.SkipZigTest;
     // https://github.com/ziglang/zig/issues/3251
     if (builtin.os == .freebsd) return error.SkipZigTest;
+    // TODO provide a way to run tests in evented I/O mode
+    if (!std.io.is_async) return error.SkipZigTest;
 
-    const allocator = std.heap.direct_allocator;
-
-    var loop: Loop = undefined;
-    try loop.initMultiThreaded(allocator);
-    defer loop.deinit();
-
-    const handle = async testFuture(&loop);
-
-    loop.run();
+    const handle = async testFuture();
 }
 
-fn testFuture(loop: *Loop) void {
-    var future = Future(i32).init(loop);
+fn testFuture() void {
+    var future = Future(i32).init();
 
     var a = async waitOnFuture(&future);
     var b = async waitOnFuture(&future);

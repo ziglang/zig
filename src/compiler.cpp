@@ -4,7 +4,7 @@
 #include <stdio.h>
 
 static Buf saved_compiler_id = BUF_INIT;
-static Buf saved_app_data_dir = BUF_INIT;
+static Buf saved_cache_dir = BUF_INIT;
 static Buf saved_stage1_path = BUF_INIT;
 static Buf saved_lib_dir = BUF_INIT;
 static Buf saved_special_dir = BUF_INIT;
@@ -21,11 +21,11 @@ Buf *get_stage1_cache_path(void) {
         return &saved_stage1_path;
     }
     Error err;
-    if ((err = os_get_app_data_dir(&saved_app_data_dir, "zig"))) {
-        fprintf(stderr, "Unable to get app data dir: %s\n", err_str(err));
+    if ((err = os_get_cache_dir(&saved_cache_dir, "zig"))) {
+        fprintf(stderr, "Unable to get cache dir: %s\n", err_str(err));
         exit(1);
     }
-    os_path_join(&saved_app_data_dir, buf_create_from_str("stage1"), &saved_stage1_path);
+    os_path_join(&saved_cache_dir, buf_create_from_str("stage1"), &saved_stage1_path);
     return &saved_stage1_path;
 }
 

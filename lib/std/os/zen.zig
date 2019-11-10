@@ -138,7 +138,7 @@ pub const Syscall = enum(usize) {
 ////////////////////
 
 pub fn exit(status: i32) noreturn {
-    _ = syscall1(Syscall.exit, @bitCast(usize, isize(status)));
+    _ = syscall1(Syscall.exit, @bitCast(usize, @as(isize, status)));
     unreachable;
 }
 
@@ -167,7 +167,7 @@ pub fn map(v_addr: usize, p_addr: usize, size: usize, writable: bool) bool {
 }
 
 pub fn createThread(function: fn () void) u16 {
-    return u16(syscall1(Syscall.createThread, @ptrToInt(function)));
+    return @as(u16, syscall1(Syscall.createThread, @ptrToInt(function)));
 }
 
 /////////////////////////

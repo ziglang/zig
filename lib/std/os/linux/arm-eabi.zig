@@ -100,7 +100,7 @@ pub extern fn getThreadPointer() usize {
 pub nakedcc fn restore() void {
     return asm volatile ("svc #0"
         :
-        : [number] "{r7}" (usize(SYS_sigreturn))
+        : [number] "{r7}" (@as(usize, SYS_sigreturn))
         : "memory"
     );
 }
@@ -108,7 +108,7 @@ pub nakedcc fn restore() void {
 pub nakedcc fn restore_rt() void {
     return asm volatile ("svc #0"
         :
-        : [number] "{r7}" (usize(SYS_rt_sigreturn))
+        : [number] "{r7}" (@as(usize, SYS_rt_sigreturn))
         : "memory"
     );
 }

@@ -83,8 +83,8 @@ fn cos_(comptime T: type, x_: T) T {
 }
 
 test "math.cos" {
-    expect(cos(f32(0.0)) == cos_(f32, 0.0));
-    expect(cos(f64(0.0)) == cos_(f64, 0.0));
+    expect(cos(@as(f32, 0.0)) == cos_(f32, 0.0));
+    expect(cos(@as(f64, 0.0)) == cos_(f64, 0.0));
 }
 
 test "math.cos32" {

@@ -41,7 +41,7 @@ pub const File = struct {
             const path_w = try windows.cStrToPrefixedFileW(path);
             return openReadW(&path_w);
         }
-        const flags = os.O_LARGEFILE | os.O_RDONLY;
+        const flags = os.O_LARGEFILE | os.O_RDONLY | os.O_CLOEXEC;
         const fd = try os.openC(path, flags, 0);
         return openHandle(fd);
     }
@@ -272,9 +272,9 @@ pub const File = struct {
         return Stat{
             .size = @bitCast(u64, st.size),
             .mode = st.mode,
-            .atime = i64(atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
-            .mtime = i64(mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
-            .ctime = i64(ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
+            .atime = @as(i64, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
+            .mtime = @as(i64, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
+            .ctime = @as(i64, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
         };
     }
 

@@ -8,24 +8,32 @@ pub const pid_t = c_int;
 pub const in_port_t = u16;
 pub const sa_family_t = u8;
 pub const socklen_t = u32;
-pub const sockaddr = extern union {
-    in: sockaddr_in,
-    in6: sockaddr_in6,
+pub const sockaddr = extern struct {
+    len: u8,
+    family: sa_family_t,
+    data: [14]u8,
 };
 pub const sockaddr_in = extern struct {
-    len: u8,
-    family: sa_family_t,
+    len: u8 = @sizeOf(sockaddr_in),
+    family: sa_family_t = AF_INET,
     port: in_port_t,
     addr: u32,
-    zero: [8]u8,
+    zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
 };
 pub const sockaddr_in6 = extern struct {
-    len: u8,
-    family: sa_family_t,
+    len: u8 = @sizeOf(sockaddr_in6),
+    family: sa_family_t = AF_INET6,
     port: in_port_t,
     flowinfo: u32,
     addr: [16]u8,
     scope_id: u32,
+};
+
+/// UNIX domain socket
+pub const sockaddr_un = extern struct {
+    len: u8 = @sizeOf(sockaddr_un),
+    family: sa_family_t = AF_UNIX,
+    path: [104]u8,
 };
 
 pub const timeval = extern struct {
@@ -119,11 +127,10 @@ pub const dirent = extern struct {
     d_namlen: u16,
     d_type: u8,
     d_name: u8, // field address is address of first byte of name
-};
 
-pub const pthread_attr_t = extern struct {
-    __sig: c_long,
-    __opaque: [56]u8,
+    pub fn reclen(self: dirent) u16 {
+        return self.d_reclen;
+    }
 };
 
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
@@ -1192,3 +1199,14 @@ pub const AT_SYMLINK_FOLLOW = 0x0040;
 
 /// Path refers to directory
 pub const AT_REMOVEDIR = 0x0080;
+
+pub const addrinfo = extern struct {
+    flags: i32,
+    family: i32,
+    socktype: i32,
+    protocol: i32,
+    addrlen: socklen_t,
+    canonname: ?[*]u8,
+    addr: ?*sockaddr,
+    next: ?*addrinfo,
+};

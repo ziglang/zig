@@ -52,7 +52,7 @@ typedef SSIZE_T ssize_t;
 
 #endif
 
-#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_DRAGONFLY)
 #include <link.h>
 #endif
 
@@ -60,7 +60,7 @@ typedef SSIZE_T ssize_t;
 #include <sys/auxv.h>
 #endif
 
-#if defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
+#if defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_DRAGONFLY)
 #include <sys/sysctl.h>
 #endif
 
@@ -85,7 +85,7 @@ static clock_serv_t macos_monotonic_clock;
 #if defined(__APPLE__) && !defined(environ)
 #include <crt_externs.h>
 #define environ (*_NSGetEnviron())
-#elif defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
+#elif defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_DRAGONFLY)
 extern char **environ;
 #endif
 
@@ -1450,7 +1450,7 @@ Error os_self_exe_path(Buf *out_path) {
     }
     buf_resize(out_path, amt);
     return ErrorNone;
-#elif defined(ZIG_OS_FREEBSD)
+#elif defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_DRAGONFLY)
     buf_resize(out_path, PATH_MAX);
     int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1 };
     size_t cb = PATH_MAX;
@@ -1748,7 +1748,7 @@ static void utf16le_ptr_to_utf8(Buf *out, WCHAR *utf16le) {
 #endif
 
 // Ported from std.os.getAppDataDir
-Error os_get_app_data_dir(Buf *out_path, const char *appname) {
+Error os_get_cache_dir(Buf *out_path, const char *appname) {
 #if defined(ZIG_OS_WINDOWS)
     WCHAR *dir_path_ptr;
     switch (SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &dir_path_ptr)) {
@@ -1774,25 +1774,36 @@ Error os_get_app_data_dir(Buf *out_path, const char *appname) {
     buf_appendf(out_path, "%s/Library/Application Support/%s", home_dir, appname);
     return ErrorNone;
 #elif defined(ZIG_OS_POSIX)
-    const char *home_dir = getenv("HOME");
-    if (home_dir == nullptr) {
-        // TODO use /etc/passwd
-        return ErrorFileNotFound;
+    const char *cache_dir = getenv("XDG_CACHE_HOME");
+    if (cache_dir == nullptr) {
+        cache_dir = getenv("HOME");
+        if (cache_dir == nullptr) {
+            // TODO use /etc/passwd
+            return ErrorFileNotFound;
+        }
+        if (cache_dir[0] == 0) {
+            return ErrorFileNotFound;
+        }
+        buf_init_from_str(out_path, cache_dir);
+        if (buf_ptr(out_path)[buf_len(out_path) - 1] != '/') {
+            buf_append_char(out_path, '/');
+        }
+        buf_appendf(out_path, ".cache/%s", appname);
+    } else {
+        if (cache_dir[0] == 0) {
+            return ErrorFileNotFound;
+        }
+        buf_init_from_str(out_path, cache_dir);
+        if (buf_ptr(out_path)[buf_len(out_path) - 1] != '/') {
+            buf_append_char(out_path, '/');
+        }
+        buf_appendf(out_path, "%s", appname);
     }
-    if (home_dir[0] == 0) {
-        return ErrorFileNotFound;
-    }
-    buf_init_from_str(out_path, home_dir);
-    if (buf_ptr(out_path)[buf_len(out_path) - 1] != '/') {
-        buf_append_char(out_path, '/');
-    }
-    buf_appendf(out_path, ".local/share/%s", appname);
     return ErrorNone;
 #endif
 }
 
-
-#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_DRAGONFLY)
 static int self_exe_shared_libs_callback(struct dl_phdr_info *info, size_t size, void *data) {
     ZigList<Buf *> *libs = reinterpret_cast< ZigList<Buf *> *>(data);
     if (info->dlpi_name[0] == '/') {
@@ -1803,7 +1814,7 @@ static int self_exe_shared_libs_callback(struct dl_phdr_info *info, size_t size,
 #endif
 
 Error os_self_exe_shared_libs(ZigList<Buf *> &paths) {
-#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD)
+#if defined(ZIG_OS_LINUX) || defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_DRAGONFLY)
     paths.resize(0);
     dl_iterate_phdr(self_exe_shared_libs_callback, &paths);
     return ErrorNone;

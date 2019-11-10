@@ -5,6 +5,7 @@ const builtin = @import("builtin");
 
 pub usingnamespace switch (builtin.os) {
     .macosx, .ios, .tvos, .watchos => @import("bits/darwin.zig"),
+    .dragonfly => @import("bits/dragonfly.zig"),
     .freebsd => @import("bits/freebsd.zig"),
     .linux => @import("bits/linux.zig"),
     .netbsd => @import("bits/netbsd.zig"),
@@ -12,9 +13,6 @@ pub usingnamespace switch (builtin.os) {
     .windows => @import("bits/windows.zig"),
     else => struct {},
 };
-
-pub const pthread_t = *@OpaqueType();
-pub const FILE = @OpaqueType();
 
 pub const iovec = extern struct {
     iov_base: [*]u8,

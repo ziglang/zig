@@ -221,6 +221,15 @@ static AstNode *trans_create_node_opaque(Context *c) {
     return trans_create_node_builtin_fn_call_str(c, "OpaqueType");
 }
 
+static AstNode *trans_create_node_cast(Context *c, AstNode *dest_type, AstNode *operand) {
+    AstNode *node = trans_create_node(c, NodeTypeFnCallExpr);
+    node->data.fn_call_expr.fn_ref_expr = trans_create_node_symbol(c, buf_create_from_str("as"));
+    node->data.fn_call_expr.modifier = CallModifierBuiltin;
+    node->data.fn_call_expr.params.append(dest_type);
+    node->data.fn_call_expr.params.append(operand);
+    return node;
+}
+
 static AstNode *trans_create_node_fn_call_1(Context *c, AstNode *fn_ref_expr, AstNode *arg1) {
     AstNode *node = trans_create_node(c, NodeTypeFnCallExpr);
     node->data.fn_call_expr.fn_ref_expr = fn_ref_expr;
@@ -335,14 +344,6 @@ static AstNode *trans_create_node_unsigned_negative(Context *c, uint64_t x, bool
 
 static AstNode *trans_create_node_unsigned(Context *c, uint64_t x) {
     return trans_create_node_unsigned_negative(c, x, false);
-}
-
-static AstNode *trans_create_node_cast(Context *c, AstNode *dest, AstNode *src) {
-    AstNode *node = trans_create_node(c, NodeTypeFnCallExpr);
-    node->data.fn_call_expr.fn_ref_expr = dest;
-    node->data.fn_call_expr.params.resize(1);
-    node->data.fn_call_expr.params.items[0] = src;
-    return node;
 }
 
 static AstNode *trans_create_node_unsigned_negative_type(Context *c, uint64_t x, bool is_negative,
@@ -701,7 +702,7 @@ static AstNode* trans_c_cast(Context *c, ZigClangSourceLocation source_location,
     if (c_is_unsigned_integer(c, dest_type) && qual_type_is_ptr(src_type)) {
         AstNode *addr_node = trans_create_node_builtin_fn_call_str(c, "ptrToInt");
         addr_node->data.fn_call_expr.params.append(expr);
-        return trans_create_node_fn_call_1(c, trans_qual_type(c, dest_type, source_location), addr_node);
+        return trans_create_node_cast(c, trans_qual_type(c, dest_type, source_location), addr_node);
     }
     if (c_is_unsigned_integer(c, src_type) && qual_type_is_ptr(dest_type)) {
         AstNode *ptr_node = trans_create_node_builtin_fn_call_str(c, "intToPtr");
@@ -712,7 +713,7 @@ static AstNode* trans_c_cast(Context *c, ZigClangSourceLocation source_location,
     // TODO: maybe widen to increase size
     // TODO: maybe bitcast to change sign
     // TODO: maybe truncate to reduce size
-    return trans_create_node_fn_call_1(c, trans_qual_type(c, dest_type, source_location), expr);
+    return trans_create_node_cast(c, trans_qual_type(c, dest_type, source_location), expr);
 }
 
 static bool c_is_signed_integer(Context *c, ZigClangQualType qt) {
@@ -1527,7 +1528,7 @@ static AstNode *trans_create_shift_op(Context *c, TransScope *scope, ZigClangQua
 
     AstNode *rhs = trans_expr(c, ResultUsedYes, scope, rhs_expr, TransRValue);
     if (rhs == nullptr) return nullptr;
-    AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
+    AstNode *coerced_rhs = trans_create_node_cast(c, rhs_type, rhs);
 
     return trans_create_node_bin_op(c, lhs, bin_op, coerced_rhs);
 }
@@ -1702,7 +1703,7 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
 
         AstNode *rhs = trans_expr(c, ResultUsedYes, scope, ZigClangCompoundAssignOperator_getRHS(stmt), TransRValue);
         if (rhs == nullptr) return nullptr;
-        AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
+        AstNode *coerced_rhs = trans_create_node_cast(c, rhs_type, rhs);
 
         return trans_create_node_bin_op(c, lhs, assign_op, coerced_rhs);
     } else {
@@ -1733,7 +1734,7 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
 
         AstNode *rhs = trans_expr(c, ResultUsedYes, &child_scope->base, ZigClangCompoundAssignOperator_getRHS(stmt), TransRValue);
         if (rhs == nullptr) return nullptr;
-        AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
+        AstNode *coerced_rhs = trans_create_node_cast(c, rhs_type, rhs);
 
         // operation_type(*_ref)
         AstNode *operation_type_cast = trans_c_cast(c, rhs_location,
@@ -2684,7 +2685,7 @@ static AstNode *to_enum_zero_cmp(Context *c, AstNode *expr, AstNode *enum_type) 
 
     // @TagType(Enum)(0)
     AstNode *zero = trans_create_node_unsigned_negative(c, 0, false);
-    AstNode *casted_zero = trans_create_node_fn_call_1(c, tag_type, zero);
+    AstNode *casted_zero = trans_create_node_cast(c, tag_type, zero);
 
     // @bitCast(Enum, @TagType(Enum)(0))
     AstNode *bitcast = trans_create_node_builtin_fn_call_str(c, "bitCast");
@@ -3052,7 +3053,7 @@ static AstNode *trans_member_expr(Context *c, ResultUsed result_used, TransScope
         return nullptr;
 
     if (ZigClangMemberExpr_isArrow(stmt)) {
-        container_node = trans_create_node_unwrap_null(c, container_node);
+        container_node = trans_create_node_ptr_deref(c, container_node);
     }
 
     const char *name = ZigClangDecl_getName_bytes_begin((const ZigClangDecl *)ZigClangMemberExpr_getMemberDecl(stmt));

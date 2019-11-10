@@ -15,11 +15,6 @@ pub const Kevent = extern struct {
     // TODO ext
 };
 
-pub const pthread_attr_t = extern struct {
-    __size: [56]u8,
-    __align: c_long,
-};
-
 pub const dl_phdr_info = extern struct {
     dlpi_addr: usize,
     dlpi_name: ?[*]const u8,
@@ -132,31 +127,47 @@ pub const dirent = extern struct {
     d_namlen: u16,
     d_pad1: u16,
     d_name: [256]u8,
+
+    pub fn reclen(self: dirent) u16 {
+        return self.d_reclen;
+    }
 };
 
 pub const in_port_t = u16;
 pub const sa_family_t = u16;
 
-pub const sockaddr = extern union {
-    in: sockaddr_in,
-    in6: sockaddr_in6,
+pub const sockaddr = extern struct {
+    /// total length
+    len: u8,
+
+    /// address family
+    family: sa_family_t,
+
+    /// actually longer; address value
+    data: [14]u8,
 };
 
 pub const sockaddr_in = extern struct {
-    len: u8,
-    family: sa_family_t,
+    len: u8 = @sizeOf(sockaddr_in),
+    family: sa_family_t = AF_INET,
     port: in_port_t,
-    addr: [16]u8,
-    zero: [8]u8,
+    addr: u32,
+    zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
 };
 
 pub const sockaddr_in6 = extern struct {
-    len: u8,
-    family: sa_family_t,
+    len: u8 = @sizeOf(sockaddr_in6),
+    family: sa_family_t = AF_INET6,
     port: in_port_t,
     flowinfo: u32,
     addr: [16]u8,
     scope_id: u32,
+};
+
+pub const sockaddr_un = extern struct {
+    len: u8 = @sizeOf(sockaddr_un),
+    family: sa_family_t = AF_UNIX,
+    path: [104]u8,
 };
 
 pub const CTL_KERN = 1;
@@ -331,43 +342,6 @@ pub const SOCK_SEQPACKET = 5;
 
 pub const SOCK_CLOEXEC = 0x10000000;
 pub const SOCK_NONBLOCK = 0x20000000;
-
-pub const PROTO_ip = 0o000;
-pub const PROTO_icmp = 0o001;
-pub const PROTO_igmp = 0o002;
-pub const PROTO_ggp = 0o003;
-pub const PROTO_ipencap = 0o004;
-pub const PROTO_st = 0o005;
-pub const PROTO_tcp = 0o006;
-pub const PROTO_egp = 0o010;
-pub const PROTO_pup = 0o014;
-pub const PROTO_udp = 0o021;
-pub const PROTO_hmp = 0o024;
-pub const PROTO_xns_idp = 0o026;
-pub const PROTO_rdp = 0o033;
-pub const PROTO_iso_tp4 = 0o035;
-pub const PROTO_xtp = 0o044;
-pub const PROTO_ddp = 0o045;
-pub const PROTO_idpr_cmtp = 0o046;
-pub const PROTO_ipv6 = 0o051;
-pub const PROTO_ipv6_route = 0o053;
-pub const PROTO_ipv6_frag = 0o054;
-pub const PROTO_idrp = 0o055;
-pub const PROTO_rsvp = 0o056;
-pub const PROTO_gre = 0o057;
-pub const PROTO_esp = 0o062;
-pub const PROTO_ah = 0o063;
-pub const PROTO_skip = 0o071;
-pub const PROTO_ipv6_icmp = 0o072;
-pub const PROTO_ipv6_nonxt = 0o073;
-pub const PROTO_ipv6_opts = 0o074;
-pub const PROTO_rspf = 0o111;
-pub const PROTO_vmtp = 0o121;
-pub const PROTO_ospf = 0o131;
-pub const PROTO_ipip = 0o136;
-pub const PROTO_encap = 0o142;
-pub const PROTO_pim = 0o147;
-pub const PROTO_raw = 0o377;
 
 pub const PF_UNSPEC = 0;
 pub const PF_LOCAL = 1;
@@ -959,3 +933,351 @@ pub const AT_REMOVEDIR = 0x0800;
 
 /// Fail if not under dirfd
 pub const AT_BENEATH = 0x1000;
+
+/// dummy for IP
+pub const IPPROTO_IP = 0;
+
+/// control message protocol
+pub const IPPROTO_ICMP = 1;
+
+/// tcp
+pub const IPPROTO_TCP = 6;
+
+/// user datagram protocol
+pub const IPPROTO_UDP = 17;
+
+/// IP6 header
+pub const IPPROTO_IPV6 = 41;
+
+/// raw IP packet
+pub const IPPROTO_RAW = 255;
+
+/// IP6 hop-by-hop options
+pub const IPPROTO_HOPOPTS = 0;
+
+/// group mgmt protocol
+pub const IPPROTO_IGMP = 2;
+
+/// gateway^2 (deprecated)
+pub const IPPROTO_GGP = 3;
+
+/// IPv4 encapsulation
+pub const IPPROTO_IPV4 = 4;
+
+/// for compatibility
+pub const IPPROTO_IPIP = IPPROTO_IPV4;
+
+/// Stream protocol II
+pub const IPPROTO_ST = 7;
+
+/// exterior gateway protocol
+pub const IPPROTO_EGP = 8;
+
+/// private interior gateway
+pub const IPPROTO_PIGP = 9;
+
+/// BBN RCC Monitoring
+pub const IPPROTO_RCCMON = 10;
+
+/// network voice protocol
+pub const IPPROTO_NVPII = 11;
+
+/// pup
+pub const IPPROTO_PUP = 12;
+
+/// Argus
+pub const IPPROTO_ARGUS = 13;
+
+/// EMCON
+pub const IPPROTO_EMCON = 14;
+
+/// Cross Net Debugger
+pub const IPPROTO_XNET = 15;
+
+/// Chaos
+pub const IPPROTO_CHAOS = 16;
+
+/// Multiplexing
+pub const IPPROTO_MUX = 18;
+
+/// DCN Measurement Subsystems
+pub const IPPROTO_MEAS = 19;
+
+/// Host Monitoring
+pub const IPPROTO_HMP = 20;
+
+/// Packet Radio Measurement
+pub const IPPROTO_PRM = 21;
+
+/// xns idp
+pub const IPPROTO_IDP = 22;
+
+/// Trunk-1
+pub const IPPROTO_TRUNK1 = 23;
+
+/// Trunk-2
+pub const IPPROTO_TRUNK2 = 24;
+
+/// Leaf-1
+pub const IPPROTO_LEAF1 = 25;
+
+/// Leaf-2
+pub const IPPROTO_LEAF2 = 26;
+
+/// Reliable Data
+pub const IPPROTO_RDP = 27;
+
+/// Reliable Transaction
+pub const IPPROTO_IRTP = 28;
+
+/// tp-4 w/ class negotiation
+pub const IPPROTO_TP = 29;
+
+/// Bulk Data Transfer
+pub const IPPROTO_BLT = 30;
+
+/// Network Services
+pub const IPPROTO_NSP = 31;
+
+/// Merit Internodal
+pub const IPPROTO_INP = 32;
+
+/// Datagram Congestion Control Protocol
+pub const IPPROTO_DCCP = 33;
+
+/// Third Party Connect
+pub const IPPROTO_3PC = 34;
+
+/// InterDomain Policy Routing
+pub const IPPROTO_IDPR = 35;
+
+/// XTP
+pub const IPPROTO_XTP = 36;
+
+/// Datagram Delivery
+pub const IPPROTO_DDP = 37;
+
+/// Control Message Transport
+pub const IPPROTO_CMTP = 38;
+
+/// TP++ Transport
+pub const IPPROTO_TPXX = 39;
+
+/// IL transport protocol
+pub const IPPROTO_IL = 40;
+
+/// Source Demand Routing
+pub const IPPROTO_SDRP = 42;
+
+/// IP6 routing header
+pub const IPPROTO_ROUTING = 43;
+
+/// IP6 fragmentation header
+pub const IPPROTO_FRAGMENT = 44;
+
+/// InterDomain Routing
+pub const IPPROTO_IDRP = 45;
+
+/// resource reservation
+pub const IPPROTO_RSVP = 46;
+
+/// General Routing Encap.
+pub const IPPROTO_GRE = 47;
+
+/// Mobile Host Routing
+pub const IPPROTO_MHRP = 48;
+
+/// BHA
+pub const IPPROTO_BHA = 49;
+
+/// IP6 Encap Sec. Payload
+pub const IPPROTO_ESP = 50;
+
+/// IP6 Auth Header
+pub const IPPROTO_AH = 51;
+
+/// Integ. Net Layer Security
+pub const IPPROTO_INLSP = 52;
+
+/// IP with encryption
+pub const IPPROTO_SWIPE = 53;
+
+/// Next Hop Resolution
+pub const IPPROTO_NHRP = 54;
+
+/// IP Mobility
+pub const IPPROTO_MOBILE = 55;
+
+/// Transport Layer Security
+pub const IPPROTO_TLSP = 56;
+
+/// SKIP
+pub const IPPROTO_SKIP = 57;
+
+/// ICMP6
+pub const IPPROTO_ICMPV6 = 58;
+
+/// IP6 no next header
+pub const IPPROTO_NONE = 59;
+
+/// IP6 destination option
+pub const IPPROTO_DSTOPTS = 60;
+
+/// any host internal protocol
+pub const IPPROTO_AHIP = 61;
+
+/// CFTP
+pub const IPPROTO_CFTP = 62;
+
+/// "hello" routing protocol
+pub const IPPROTO_HELLO = 63;
+
+/// SATNET/Backroom EXPAK
+pub const IPPROTO_SATEXPAK = 64;
+
+/// Kryptolan
+pub const IPPROTO_KRYPTOLAN = 65;
+
+/// Remote Virtual Disk
+pub const IPPROTO_RVD = 66;
+
+/// Pluribus Packet Core
+pub const IPPROTO_IPPC = 67;
+
+/// Any distributed FS
+pub const IPPROTO_ADFS = 68;
+
+/// Satnet Monitoring
+pub const IPPROTO_SATMON = 69;
+
+/// VISA Protocol
+pub const IPPROTO_VISA = 70;
+
+/// Packet Core Utility
+pub const IPPROTO_IPCV = 71;
+
+/// Comp. Prot. Net. Executive
+pub const IPPROTO_CPNX = 72;
+
+/// Comp. Prot. HeartBeat
+pub const IPPROTO_CPHB = 73;
+
+/// Wang Span Network
+pub const IPPROTO_WSN = 74;
+
+/// Packet Video Protocol
+pub const IPPROTO_PVP = 75;
+
+/// BackRoom SATNET Monitoring
+pub const IPPROTO_BRSATMON = 76;
+
+/// Sun net disk proto (temp.)
+pub const IPPROTO_ND = 77;
+
+/// WIDEBAND Monitoring
+pub const IPPROTO_WBMON = 78;
+
+/// WIDEBAND EXPAK
+pub const IPPROTO_WBEXPAK = 79;
+
+/// ISO cnlp
+pub const IPPROTO_EON = 80;
+
+/// VMTP
+pub const IPPROTO_VMTP = 81;
+
+/// Secure VMTP
+pub const IPPROTO_SVMTP = 82;
+
+/// Banyon VINES
+pub const IPPROTO_VINES = 83;
+
+/// TTP
+pub const IPPROTO_TTP = 84;
+
+/// NSFNET-IGP
+pub const IPPROTO_IGP = 85;
+
+/// dissimilar gateway prot.
+pub const IPPROTO_DGP = 86;
+
+/// TCF
+pub const IPPROTO_TCF = 87;
+
+/// Cisco/GXS IGRP
+pub const IPPROTO_IGRP = 88;
+
+/// OSPFIGP
+pub const IPPROTO_OSPFIGP = 89;
+
+/// Strite RPC protocol
+pub const IPPROTO_SRPC = 90;
+
+/// Locus Address Resoloution
+pub const IPPROTO_LARP = 91;
+
+/// Multicast Transport
+pub const IPPROTO_MTP = 92;
+
+/// AX.25 Frames
+pub const IPPROTO_AX25 = 93;
+
+/// IP encapsulated in IP
+pub const IPPROTO_IPEIP = 94;
+
+/// Mobile Int.ing control
+pub const IPPROTO_MICP = 95;
+
+/// Semaphore Comm. security
+pub const IPPROTO_SCCSP = 96;
+
+/// Ethernet IP encapsulation
+pub const IPPROTO_ETHERIP = 97;
+
+/// encapsulation header
+pub const IPPROTO_ENCAP = 98;
+
+/// any private encr. scheme
+pub const IPPROTO_APES = 99;
+
+/// GMTP
+pub const IPPROTO_GMTP = 100;
+
+/// payload compression (IPComp)
+pub const IPPROTO_IPCOMP = 108;
+
+/// SCTP
+pub const IPPROTO_SCTP = 132;
+
+/// IPv6 Mobility Header
+pub const IPPROTO_MH = 135;
+
+/// UDP-Lite
+pub const IPPROTO_UDPLITE = 136;
+
+/// IP6 Host Identity Protocol
+pub const IPPROTO_HIP = 139;
+
+/// IP6 Shim6 Protocol
+pub const IPPROTO_SHIM6 = 140;
+
+/// Protocol Independent Mcast
+pub const IPPROTO_PIM = 103;
+
+/// CARP
+pub const IPPROTO_CARP = 112;
+
+/// PGM
+pub const IPPROTO_PGM = 113;
+
+/// MPLS-in-IP
+pub const IPPROTO_MPLS = 137;
+
+/// PFSYNC
+pub const IPPROTO_PFSYNC = 240;
+
+/// Reserved
+pub const IPPROTO_RESERVED_253 = 253;
+
+/// Reserved
+pub const IPPROTO_RESERVED_254 = 254;

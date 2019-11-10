@@ -92,6 +92,7 @@ pub fn pwritev(loop: *Loop, fd: fd_t, data: []const []const u8, offset: usize) P
         .linux,
         .freebsd,
         .netbsd,
+        .dragonfly,
         => {
             const iovecs = try loop.allocator.alloc(os.iovec_const, data.len);
             defer loop.allocator.free(iovecs);
@@ -248,6 +249,7 @@ pub fn preadv(loop: *Loop, fd: fd_t, data: []const []u8, offset: usize) PReadVEr
         .linux,
         .freebsd,
         .netbsd,
+        .dragonfly,
         => {
             const iovecs = try loop.allocator.alloc(os.iovec, data.len);
             defer loop.allocator.free(iovecs);
@@ -326,11 +328,11 @@ pub fn preadWindows(loop: *Loop, fd: fd_t, data: []u8, offset: u64) !usize {
             windows.ERROR.IO_PENDING => unreachable,
             windows.ERROR.OPERATION_ABORTED => return error.OperationAborted,
             windows.ERROR.BROKEN_PIPE => return error.BrokenPipe,
-            windows.ERROR.HANDLE_EOF => return usize(bytes_transferred),
+            windows.ERROR.HANDLE_EOF => return @as(usize, bytes_transferred),
             else => |err| return windows.unexpectedError(err),
         }
     }
-    return usize(bytes_transferred);
+    return @as(usize, bytes_transferred);
 }
 
 /// iovecs must live until preadv frame completes
@@ -412,7 +414,7 @@ pub fn openPosix(
 
 pub fn openRead(loop: *Loop, path: []const u8) File.OpenError!fd_t {
     switch (builtin.os) {
-        .macosx, .linux, .freebsd, .netbsd => {
+        .macosx, .linux, .freebsd, .netbsd, .dragonfly => {
             const flags = os.O_LARGEFILE | os.O_RDONLY | os.O_CLOEXEC;
             return openPosix(loop, path, flags, File.default_mode);
         },
@@ -444,6 +446,7 @@ pub fn openWriteMode(loop: *Loop, path: []const u8, mode: File.Mode) File.OpenEr
         .linux,
         .freebsd,
         .netbsd,
+        .dragonfly,
         => {
             const flags = os.O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_TRUNC;
             return openPosix(loop, path, flags, File.default_mode);
@@ -468,7 +471,7 @@ pub fn openReadWrite(
     mode: File.Mode,
 ) File.OpenError!fd_t {
     switch (builtin.os) {
-        .macosx, .linux, .freebsd, .netbsd => {
+        .macosx, .linux, .freebsd, .netbsd, .dragonfly => {
             const flags = os.O_LARGEFILE | os.O_RDWR | os.O_CREAT | os.O_CLOEXEC;
             return openPosix(loop, path, flags, mode);
         },
@@ -498,7 +501,7 @@ pub const CloseOperation = struct {
     os_data: OsData,
 
     const OsData = switch (builtin.os) {
-        .linux, .macosx, .freebsd, .netbsd => OsDataPosix,
+        .linux, .macosx, .freebsd, .netbsd, .dragonfly => OsDataPosix,
 
         .windows => struct {
             handle: ?fd_t,
@@ -517,7 +520,7 @@ pub const CloseOperation = struct {
         self.* = CloseOperation{
             .loop = loop,
             .os_data = switch (builtin.os) {
-                .linux, .macosx, .freebsd, .netbsd => initOsDataPosix(self),
+                .linux, .macosx, .freebsd, .netbsd, .dragonfly => initOsDataPosix(self),
                 .windows => OsData{ .handle = null },
                 else => @compileError("Unsupported OS"),
             },
@@ -548,6 +551,7 @@ pub const CloseOperation = struct {
             .macosx,
             .freebsd,
             .netbsd,
+            .dragonfly,
             => {
                 if (self.os_data.have_fd) {
                     self.loop.posixFsRequest(&self.os_data.close_req_node);
@@ -571,6 +575,7 @@ pub const CloseOperation = struct {
             .macosx,
             .freebsd,
             .netbsd,
+            .dragonfly,
             => {
                 self.os_data.close_req_node.data.msg.Close.fd = handle;
                 self.os_data.have_fd = true;
@@ -589,6 +594,7 @@ pub const CloseOperation = struct {
             .macosx,
             .freebsd,
             .netbsd,
+            .dragonfly,
             => {
                 self.os_data.have_fd = false;
             },
@@ -605,6 +611,7 @@ pub const CloseOperation = struct {
             .macosx,
             .freebsd,
             .netbsd,
+            .dragonfly,
             => {
                 assert(self.os_data.have_fd);
                 return self.os_data.close_req_node.data.msg.Close.fd;
@@ -630,6 +637,7 @@ pub fn writeFileMode(loop: *Loop, path: []const u8, contents: []const u8, mode: 
         .macosx,
         .freebsd,
         .netbsd,
+        .dragonfly,
         => return writeFileModeThread(loop, path, contents, mode),
         .windows => return writeFileWindows(loop, path, contents),
         else => @compileError("Unsupported OS"),
@@ -742,7 +750,7 @@ fn hashString(s: []const u16) u32 {
 //        os_data: OsData,
 //
 //        const OsData = switch (builtin.os) {
-//            .macosx, .freebsd, .netbsd => struct {
+//            .macosx, .freebsd, .netbsd, .dragonfly => struct {
 //                file_table: FileTable,
 //                table_lock: event.Lock,
 //
@@ -831,7 +839,7 @@ fn hashString(s: []const u16) u32 {
 //                    return self;
 //                },
 //
-//                .macosx, .freebsd, .netbsd => {
+//                .macosx, .freebsd, .netbsd, .dragonfly => {
 //                    const self = try loop.allocator.create(Self);
 //                    errdefer loop.allocator.destroy(self);
 //
@@ -851,7 +859,7 @@ fn hashString(s: []const u16) u32 {
 //        /// All addFile calls and removeFile calls must have completed.
 //        pub fn destroy(self: *Self) void {
 //            switch (builtin.os) {
-//                .macosx, .freebsd, .netbsd => {
+//                .macosx, .freebsd, .netbsd, .dragonfly => {
 //                    // TODO we need to cancel the frames before destroying the lock
 //                    self.os_data.table_lock.deinit();
 //                    var it = self.os_data.file_table.iterator();
@@ -893,7 +901,7 @@ fn hashString(s: []const u16) u32 {
 //
 //        pub async fn addFile(self: *Self, file_path: []const u8, value: V) !?V {
 //            switch (builtin.os) {
-//                .macosx, .freebsd, .netbsd => return await (async addFileKEvent(self, file_path, value) catch unreachable),
+//                .macosx, .freebsd, .netbsd, .dragonfly => return await (async addFileKEvent(self, file_path, value) catch unreachable),
 //                .linux => return await (async addFileLinux(self, file_path, value) catch unreachable),
 //                .windows => return await (async addFileWindows(self, file_path, value) catch unreachable),
 //                else => @compileError("Unsupported OS"),

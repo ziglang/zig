@@ -38,7 +38,7 @@ pub fn milliTimestamp() u64 {
         const hns_per_ms = (ns_per_s / 100) / ms_per_s;
         const epoch_adj = epoch.windows * ms_per_s;
 
-        const ft64 = (u64(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+        const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
         return @divFloor(ft64, hns_per_ms) - -epoch_adj;
     }
     if (builtin.os == .wasi and !builtin.link_libc) {
@@ -142,10 +142,10 @@ pub const Timer = struct {
             //  seccomp is going to block us it will at least do so consistently
             var ts: os.timespec = undefined;
             os.clock_getres(monotonic_clock_id, &ts) catch return error.TimerUnsupported;
-            self.resolution = @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
+            self.resolution = @intCast(u64, ts.tv_sec) * @as(u64, ns_per_s) + @intCast(u64, ts.tv_nsec);
 
             os.clock_gettime(monotonic_clock_id, &ts) catch return error.TimerUnsupported;
-            self.start_time = @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
+            self.start_time = @intCast(u64, ts.tv_sec) * @as(u64, ns_per_s) + @intCast(u64, ts.tv_nsec);
         }
 
         return self;
@@ -185,7 +185,7 @@ pub const Timer = struct {
         }
         var ts: os.timespec = undefined;
         os.clock_gettime(monotonic_clock_id, &ts) catch unreachable;
-        return @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
+        return @intCast(u64, ts.tv_sec) * @as(u64, ns_per_s) + @intCast(u64, ts.tv_nsec);
     }
 };
 

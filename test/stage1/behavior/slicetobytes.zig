@@ -10,7 +10,7 @@ test "@sliceToBytes packed struct at runtime and comptime" {
     const S = struct {
         fn doTheTest() void {
             var foo: Foo = undefined;
-            var slice = @sliceToBytes(((*[1]Foo)(&foo))[0..1]);
+            var slice = @sliceToBytes(@as(*[1]Foo, &foo)[0..1]);
             slice[0] = 0x13;
             switch (builtin.endian) {
                 builtin.Endian.Big => {

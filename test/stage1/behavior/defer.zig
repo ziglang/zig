@@ -52,7 +52,7 @@ fn testBreakContInDefer(x: usize) void {
 }
 
 test "defer and labeled break" {
-    var i = usize(0);
+    var i = @as(usize, 0);
 
     blk: {
         defer i += 1;

@@ -441,9 +441,9 @@ pub const Elf = struct {
             elf.program_header_offset = try in.readInt(u64, elf.endian);
             elf.section_header_offset = try in.readInt(u64, elf.endian);
         } else {
-            elf.entry_addr = u64(try in.readInt(u32, elf.endian));
-            elf.program_header_offset = u64(try in.readInt(u32, elf.endian));
-            elf.section_header_offset = u64(try in.readInt(u32, elf.endian));
+            elf.entry_addr = @as(u64, try in.readInt(u32, elf.endian));
+            elf.program_header_offset = @as(u64, try in.readInt(u32, elf.endian));
+            elf.section_header_offset = @as(u64, try in.readInt(u32, elf.endian));
         }
 
         // skip over flags
@@ -458,13 +458,13 @@ pub const Elf = struct {
         const ph_entry_count = try in.readInt(u16, elf.endian);
         const sh_entry_size = try in.readInt(u16, elf.endian);
         const sh_entry_count = try in.readInt(u16, elf.endian);
-        elf.string_section_index = usize(try in.readInt(u16, elf.endian));
+        elf.string_section_index = @as(usize, try in.readInt(u16, elf.endian));
 
         if (elf.string_section_index >= sh_entry_count) return error.InvalidFormat;
 
-        const sh_byte_count = u64(sh_entry_size) * u64(sh_entry_count);
+        const sh_byte_count = @as(u64, sh_entry_size) * @as(u64, sh_entry_count);
         const end_sh = try math.add(u64, elf.section_header_offset, sh_byte_count);
-        const ph_byte_count = u64(ph_entry_size) * u64(ph_entry_count);
+        const ph_byte_count = @as(u64, ph_entry_size) * @as(u64, ph_entry_count);
         const end_ph = try math.add(u64, elf.program_header_offset, ph_byte_count);
 
         const stream_end = try seekable_stream.getEndPos();
@@ -499,14 +499,14 @@ pub const Elf = struct {
                 // TODO (multiple occurrences) allow implicit cast from %u32 -> %u64 ?
                 elf_section.name = try in.readInt(u32, elf.endian);
                 elf_section.sh_type = try in.readInt(u32, elf.endian);
-                elf_section.flags = u64(try in.readInt(u32, elf.endian));
-                elf_section.addr = u64(try in.readInt(u32, elf.endian));
-                elf_section.offset = u64(try in.readInt(u32, elf.endian));
-                elf_section.size = u64(try in.readInt(u32, elf.endian));
+                elf_section.flags = @as(u64, try in.readInt(u32, elf.endian));
+                elf_section.addr = @as(u64, try in.readInt(u32, elf.endian));
+                elf_section.offset = @as(u64, try in.readInt(u32, elf.endian));
+                elf_section.size = @as(u64, try in.readInt(u32, elf.endian));
                 elf_section.link = try in.readInt(u32, elf.endian);
                 elf_section.info = try in.readInt(u32, elf.endian);
-                elf_section.addr_align = u64(try in.readInt(u32, elf.endian));
-                elf_section.ent_size = u64(try in.readInt(u32, elf.endian));
+                elf_section.addr_align = @as(u64, try in.readInt(u32, elf.endian));
+                elf_section.ent_size = @as(u64, try in.readInt(u32, elf.endian));
             }
         }
 

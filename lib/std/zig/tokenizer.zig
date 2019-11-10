@@ -103,6 +103,7 @@ pub const Token = struct {
         LBracket,
         RBracket,
         Period,
+        PeriodAsterisk,
         Ellipsis2,
         Ellipsis3,
         Caret,
@@ -231,6 +232,7 @@ pub const Token = struct {
                 .LBracket => "[",
                 .RBracket => "]",
                 .Period => ".",
+                .PeriodAsterisk => ".*",
                 .Ellipsis2 => "..",
                 .Ellipsis3 => "...",
                 .Caret => "^",
@@ -348,7 +350,7 @@ pub const Tokenizer = struct {
             };
         } else {
             // Skip the UTF-8 BOM if present
-            const src_start = if (mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else usize(0);
+            const src_start = if (mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else @as(usize, 0);
             return Tokenizer{
                 .buffer = buffer,
                 .index = src_start,
@@ -1033,6 +1035,11 @@ pub const Tokenizer = struct {
                     '.' => {
                         state = State.Period2;
                     },
+                    '*' => {
+                        result.id = Token.Id.PeriodAsterisk;
+                        self.index += 1;
+                        break;
+                    },
                     else => {
                         result.id = Token.Id.Period;
                         break;
@@ -1614,6 +1621,16 @@ test "tokenizer - line comment followed by identifier" {
 test "tokenizer - UTF-8 BOM is recognized and skipped" {
     testTokenize("\xEF\xBB\xBFa;\n", [_]Token.Id{
         Token.Id.Identifier,
+        Token.Id.Semicolon,
+    });
+}
+
+test "correctly parse pointer assignment" {
+    testTokenize("b.*=3;\n", [_]Token.Id{
+        Token.Id.Identifier,
+        Token.Id.PeriodAsterisk,
+        Token.Id.Equal,
+        Token.Id.IntegerLiteral,
         Token.Id.Semicolon,
     });
 }

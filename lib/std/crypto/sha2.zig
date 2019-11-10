@@ -180,13 +180,13 @@ fn Sha2_32(comptime params: Sha2Params32) type {
             var i: usize = 0;
             while (i < 16) : (i += 1) {
                 s[i] = 0;
-                s[i] |= u32(b[i * 4 + 0]) << 24;
-                s[i] |= u32(b[i * 4 + 1]) << 16;
-                s[i] |= u32(b[i * 4 + 2]) << 8;
-                s[i] |= u32(b[i * 4 + 3]) << 0;
+                s[i] |= @as(u32, b[i * 4 + 0]) << 24;
+                s[i] |= @as(u32, b[i * 4 + 1]) << 16;
+                s[i] |= @as(u32, b[i * 4 + 2]) << 8;
+                s[i] |= @as(u32, b[i * 4 + 3]) << 0;
             }
             while (i < 64) : (i += 1) {
-                s[i] = s[i - 16] +% s[i - 7] +% (math.rotr(u32, s[i - 15], u32(7)) ^ math.rotr(u32, s[i - 15], u32(18)) ^ (s[i - 15] >> 3)) +% (math.rotr(u32, s[i - 2], u32(17)) ^ math.rotr(u32, s[i - 2], u32(19)) ^ (s[i - 2] >> 10));
+                s[i] = s[i - 16] +% s[i - 7] +% (math.rotr(u32, s[i - 15], @as(u32, 7)) ^ math.rotr(u32, s[i - 15], @as(u32, 18)) ^ (s[i - 15] >> 3)) +% (math.rotr(u32, s[i - 2], @as(u32, 17)) ^ math.rotr(u32, s[i - 2], @as(u32, 19)) ^ (s[i - 2] >> 10));
             }
 
             var v: [8]u32 = [_]u32{
@@ -267,11 +267,11 @@ fn Sha2_32(comptime params: Sha2Params32) type {
                 Rp256(1, 2, 3, 4, 5, 6, 7, 0, 63, 0xC67178F2),
             };
             inline for (round0) |r| {
-                v[r.h] = v[r.h] +% (math.rotr(u32, v[r.e], u32(6)) ^ math.rotr(u32, v[r.e], u32(11)) ^ math.rotr(u32, v[r.e], u32(25))) +% (v[r.g] ^ (v[r.e] & (v[r.f] ^ v[r.g]))) +% r.k +% s[r.i];
+                v[r.h] = v[r.h] +% (math.rotr(u32, v[r.e], @as(u32, 6)) ^ math.rotr(u32, v[r.e], @as(u32, 11)) ^ math.rotr(u32, v[r.e], @as(u32, 25))) +% (v[r.g] ^ (v[r.e] & (v[r.f] ^ v[r.g]))) +% r.k +% s[r.i];
 
                 v[r.d] = v[r.d] +% v[r.h];
 
-                v[r.h] = v[r.h] +% (math.rotr(u32, v[r.a], u32(2)) ^ math.rotr(u32, v[r.a], u32(13)) ^ math.rotr(u32, v[r.a], u32(22))) +% ((v[r.a] & (v[r.b] | v[r.c])) | (v[r.b] & v[r.c]));
+                v[r.h] = v[r.h] +% (math.rotr(u32, v[r.a], @as(u32, 2)) ^ math.rotr(u32, v[r.a], @as(u32, 13)) ^ math.rotr(u32, v[r.a], @as(u32, 22))) +% ((v[r.a] & (v[r.b] | v[r.c])) | (v[r.b] & v[r.c]));
             }
 
             d.s[0] +%= v[0];
@@ -522,17 +522,19 @@ fn Sha2_64(comptime params: Sha2Params64) type {
             var i: usize = 0;
             while (i < 16) : (i += 1) {
                 s[i] = 0;
-                s[i] |= u64(b[i * 8 + 0]) << 56;
-                s[i] |= u64(b[i * 8 + 1]) << 48;
-                s[i] |= u64(b[i * 8 + 2]) << 40;
-                s[i] |= u64(b[i * 8 + 3]) << 32;
-                s[i] |= u64(b[i * 8 + 4]) << 24;
-                s[i] |= u64(b[i * 8 + 5]) << 16;
-                s[i] |= u64(b[i * 8 + 6]) << 8;
-                s[i] |= u64(b[i * 8 + 7]) << 0;
+                s[i] |= @as(u64, b[i * 8 + 0]) << 56;
+                s[i] |= @as(u64, b[i * 8 + 1]) << 48;
+                s[i] |= @as(u64, b[i * 8 + 2]) << 40;
+                s[i] |= @as(u64, b[i * 8 + 3]) << 32;
+                s[i] |= @as(u64, b[i * 8 + 4]) << 24;
+                s[i] |= @as(u64, b[i * 8 + 5]) << 16;
+                s[i] |= @as(u64, b[i * 8 + 6]) << 8;
+                s[i] |= @as(u64, b[i * 8 + 7]) << 0;
             }
             while (i < 80) : (i += 1) {
-                s[i] = s[i - 16] +% s[i - 7] +% (math.rotr(u64, s[i - 15], u64(1)) ^ math.rotr(u64, s[i - 15], u64(8)) ^ (s[i - 15] >> 7)) +% (math.rotr(u64, s[i - 2], u64(19)) ^ math.rotr(u64, s[i - 2], u64(61)) ^ (s[i - 2] >> 6));
+                s[i] = s[i - 16] +% s[i - 7] +%
+                    (math.rotr(u64, s[i - 15], @as(u64, 1)) ^ math.rotr(u64, s[i - 15], @as(u64, 8)) ^ (s[i - 15] >> 7)) +%
+                    (math.rotr(u64, s[i - 2], @as(u64, 19)) ^ math.rotr(u64, s[i - 2], @as(u64, 61)) ^ (s[i - 2] >> 6));
             }
 
             var v: [8]u64 = [_]u64{
@@ -629,11 +631,11 @@ fn Sha2_64(comptime params: Sha2Params64) type {
                 Rp512(1, 2, 3, 4, 5, 6, 7, 0, 79, 0x6C44198C4A475817),
             };
             inline for (round0) |r| {
-                v[r.h] = v[r.h] +% (math.rotr(u64, v[r.e], u64(14)) ^ math.rotr(u64, v[r.e], u64(18)) ^ math.rotr(u64, v[r.e], u64(41))) +% (v[r.g] ^ (v[r.e] & (v[r.f] ^ v[r.g]))) +% r.k +% s[r.i];
+                v[r.h] = v[r.h] +% (math.rotr(u64, v[r.e], @as(u64, 14)) ^ math.rotr(u64, v[r.e], @as(u64, 18)) ^ math.rotr(u64, v[r.e], @as(u64, 41))) +% (v[r.g] ^ (v[r.e] & (v[r.f] ^ v[r.g]))) +% r.k +% s[r.i];
 
                 v[r.d] = v[r.d] +% v[r.h];
 
-                v[r.h] = v[r.h] +% (math.rotr(u64, v[r.a], u64(28)) ^ math.rotr(u64, v[r.a], u64(34)) ^ math.rotr(u64, v[r.a], u64(39))) +% ((v[r.a] & (v[r.b] | v[r.c])) | (v[r.b] & v[r.c]));
+                v[r.h] = v[r.h] +% (math.rotr(u64, v[r.a], @as(u64, 28)) ^ math.rotr(u64, v[r.a], @as(u64, 34)) ^ math.rotr(u64, v[r.a], @as(u64, 39))) +% ((v[r.a] & (v[r.b] | v[r.c])) | (v[r.b] & v[r.c]));
             }
 
             d.s[0] +%= v[0];

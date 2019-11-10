@@ -23,10 +23,10 @@ pub fn log(comptime T: type, base: T, x: T) T {
     const float_base = math.lossyCast(f64, base);
     switch (@typeId(T)) {
         TypeId.ComptimeFloat => {
-            return @typeOf(1.0)(math.ln(f64(x)) / math.ln(float_base));
+            return @typeOf(1.0)(math.ln(@as(f64, x)) / math.ln(float_base));
         },
         TypeId.ComptimeInt => {
-            return @typeOf(1)(math.floor(math.ln(f64(x)) / math.ln(float_base)));
+            return @typeOf(1)(math.floor(math.ln(@as(f64, x)) / math.ln(float_base)));
         },
         builtin.TypeId.Int => {
             // TODO implement integer log without using float math
@@ -35,7 +35,7 @@ pub fn log(comptime T: type, base: T, x: T) T {
 
         builtin.TypeId.Float => {
             switch (T) {
-                f32 => return @floatCast(f32, math.ln(f64(x)) / math.ln(float_base)),
+                f32 => return @floatCast(f32, math.ln(@as(f64, x)) / math.ln(float_base)),
                 f64 => return math.ln(x) / math.ln(float_base),
                 else => @compileError("log not implemented for " ++ @typeName(T)),
             }
@@ -64,9 +64,9 @@ test "math.log float" {
 }
 
 test "math.log float_special" {
-    expect(log(f32, 2, 0.2301974) == math.log2(f32(0.2301974)));
-    expect(log(f32, 10, 0.2301974) == math.log10(f32(0.2301974)));
+    expect(log(f32, 2, 0.2301974) == math.log2(@as(f32, 0.2301974)));
+    expect(log(f32, 10, 0.2301974) == math.log10(@as(f32, 0.2301974)));
 
-    expect(log(f64, 2, 213.23019799993) == math.log2(f64(213.23019799993)));
-    expect(log(f64, 10, 213.23019799993) == math.log10(f64(213.23019799993)));
+    expect(log(f64, 2, 213.23019799993) == math.log2(@as(f64, 213.23019799993)));
+    expect(log(f64, 10, 213.23019799993) == math.log10(@as(f64, 213.23019799993)));
 }

@@ -39,7 +39,7 @@ fn LazyInit(comptime T: type) type {
                     },
                     2 => {
                         if (@sizeOf(T) == 0) {
-                            return T(undefined);
+                            return @as(T, undefined);
                         } else {
                             return &self.data;
                         }

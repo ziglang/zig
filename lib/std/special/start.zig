@@ -35,7 +35,9 @@ comptime {
 }
 
 extern fn wasm_freestanding_start() void {
-    _ = callMain();
+    // This is marked inline because for some reason LLVM in release mode fails to inline it,
+    // and we want fewer call frames in stack traces.
+    _ = @inlineCall(callMain);
 }
 
 extern fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) usize {
@@ -63,7 +65,9 @@ extern fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) u
 
 nakedcc fn _start() noreturn {
     if (builtin.os == builtin.Os.wasi) {
-        std.os.wasi.proc_exit(callMain());
+        // This is marked inline because for some reason LLVM in release mode fails to inline it,
+        // and we want fewer call frames in stack traces.
+        std.os.wasi.proc_exit(@inlineCall(callMain));
     }
 
     switch (builtin.arch) {
@@ -110,7 +114,7 @@ extern fn WinMainCRTStartup() noreturn {
 
     std.debug.maybeEnableSegfaultHandler();
 
-    std.os.windows.kernel32.ExitProcess(callMain());
+    std.os.windows.kernel32.ExitProcess(initEventLoopAndCallMain());
 }
 
 // TODO https://github.com/ziglang/zig/issues/265
@@ -170,7 +174,7 @@ fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
 
     std.debug.maybeEnableSegfaultHandler();
 
-    return callMain();
+    return initEventLoopAndCallMain();
 }
 
 extern fn main(c_argc: i32, c_argv: [*][*]u8, c_envp: [*]?[*]u8) i32 {
@@ -185,7 +189,41 @@ const bad_main_ret = "expected return type of main to be 'void', '!void', 'noret
 
 // This is marked inline because for some reason LLVM in release mode fails to inline it,
 // and we want fewer call frames in stack traces.
-inline fn callMain() u8 {
+inline fn initEventLoopAndCallMain() u8 {
+    if (std.event.Loop.instance) |loop| {
+        if (!@hasDecl(root, "event_loop")) {
+            loop.init() catch |err| {
+                std.debug.warn("error: {}\n", @errorName(err));
+                if (@errorReturnTrace()) |trace| {
+                    std.debug.dumpStackTrace(trace.*);
+                }
+                return 1;
+            };
+            defer loop.deinit();
+
+            var result: u8 = undefined;
+            var frame: @Frame(callMainAsync) = undefined;
+            _ = @asyncCall(&frame, &result, callMainAsync, loop);
+            loop.run();
+            return result;
+        }
+    }
+
+    // This is marked inline because for some reason LLVM in release mode fails to inline it,
+    // and we want fewer call frames in stack traces.
+    return @inlineCall(callMain);
+}
+
+async fn callMainAsync(loop: *std.event.Loop) u8 {
+    // This prevents the event loop from terminating at least until main() has returned.
+    loop.beginOneEvent();
+    defer loop.finishOneEvent();
+    return callMain();
+}
+
+// This is not marked inline because it is called with @asyncCall when
+// there is an event loop.
+fn callMain() u8 {
     switch (@typeInfo(@typeOf(root.main).ReturnType)) {
         .NoReturn => {
             root.main();
@@ -222,6 +260,3 @@ inline fn callMain() u8 {
         else => @compileError(bad_main_ret),
     }
 }
-
-const main_thread_tls_align = 32;
-var main_thread_tls_bytes: [64]u8 align(main_thread_tls_align) = [1]u8{0} ** 64;

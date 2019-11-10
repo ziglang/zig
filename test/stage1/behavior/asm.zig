@@ -45,42 +45,42 @@ test "alternative constraints" {
 test "sized integer/float in asm input" {
     asm volatile (""
         :
-        : [_] "m" (usize(3))
+        : [_] "m" (@as(usize, 3))
         : ""
     );
     asm volatile (""
         :
-        : [_] "m" (i15(-3))
+        : [_] "m" (@as(i15, -3))
         : ""
     );
     asm volatile (""
         :
-        : [_] "m" (u3(3))
+        : [_] "m" (@as(u3, 3))
         : ""
     );
     asm volatile (""
         :
-        : [_] "m" (i3(3))
+        : [_] "m" (@as(i3, 3))
         : ""
     );
     asm volatile (""
         :
-        : [_] "m" (u121(3))
+        : [_] "m" (@as(u121, 3))
         : ""
     );
     asm volatile (""
         :
-        : [_] "m" (i121(3))
+        : [_] "m" (@as(i121, 3))
         : ""
     );
     asm volatile (""
         :
-        : [_] "m" (f32(3.17))
+        : [_] "m" (@as(f32, 3.17))
         : ""
     );
     asm volatile (""
         :
-        : [_] "m" (f64(3.17))
+        : [_] "m" (@as(f64, 3.17))
         : ""
     );
 }

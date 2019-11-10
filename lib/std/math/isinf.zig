@@ -74,14 +74,14 @@ pub fn isNegativeInf(x: var) bool {
 }
 
 test "math.isInf" {
-    expect(!isInf(f16(0.0)));
-    expect(!isInf(f16(-0.0)));
-    expect(!isInf(f32(0.0)));
-    expect(!isInf(f32(-0.0)));
-    expect(!isInf(f64(0.0)));
-    expect(!isInf(f64(-0.0)));
-    expect(!isInf(f128(0.0)));
-    expect(!isInf(f128(-0.0)));
+    expect(!isInf(@as(f16, 0.0)));
+    expect(!isInf(@as(f16, -0.0)));
+    expect(!isInf(@as(f32, 0.0)));
+    expect(!isInf(@as(f32, -0.0)));
+    expect(!isInf(@as(f64, 0.0)));
+    expect(!isInf(@as(f64, -0.0)));
+    expect(!isInf(@as(f128, 0.0)));
+    expect(!isInf(@as(f128, -0.0)));
     expect(isInf(math.inf(f16)));
     expect(isInf(-math.inf(f16)));
     expect(isInf(math.inf(f32)));
@@ -93,14 +93,14 @@ test "math.isInf" {
 }
 
 test "math.isPositiveInf" {
-    expect(!isPositiveInf(f16(0.0)));
-    expect(!isPositiveInf(f16(-0.0)));
-    expect(!isPositiveInf(f32(0.0)));
-    expect(!isPositiveInf(f32(-0.0)));
-    expect(!isPositiveInf(f64(0.0)));
-    expect(!isPositiveInf(f64(-0.0)));
-    expect(!isPositiveInf(f128(0.0)));
-    expect(!isPositiveInf(f128(-0.0)));
+    expect(!isPositiveInf(@as(f16, 0.0)));
+    expect(!isPositiveInf(@as(f16, -0.0)));
+    expect(!isPositiveInf(@as(f32, 0.0)));
+    expect(!isPositiveInf(@as(f32, -0.0)));
+    expect(!isPositiveInf(@as(f64, 0.0)));
+    expect(!isPositiveInf(@as(f64, -0.0)));
+    expect(!isPositiveInf(@as(f128, 0.0)));
+    expect(!isPositiveInf(@as(f128, -0.0)));
     expect(isPositiveInf(math.inf(f16)));
     expect(!isPositiveInf(-math.inf(f16)));
     expect(isPositiveInf(math.inf(f32)));
@@ -112,14 +112,14 @@ test "math.isPositiveInf" {
 }
 
 test "math.isNegativeInf" {
-    expect(!isNegativeInf(f16(0.0)));
-    expect(!isNegativeInf(f16(-0.0)));
-    expect(!isNegativeInf(f32(0.0)));
-    expect(!isNegativeInf(f32(-0.0)));
-    expect(!isNegativeInf(f64(0.0)));
-    expect(!isNegativeInf(f64(-0.0)));
-    expect(!isNegativeInf(f128(0.0)));
-    expect(!isNegativeInf(f128(-0.0)));
+    expect(!isNegativeInf(@as(f16, 0.0)));
+    expect(!isNegativeInf(@as(f16, -0.0)));
+    expect(!isNegativeInf(@as(f32, 0.0)));
+    expect(!isNegativeInf(@as(f32, -0.0)));
+    expect(!isNegativeInf(@as(f64, 0.0)));
+    expect(!isNegativeInf(@as(f64, -0.0)));
+    expect(!isNegativeInf(@as(f128, 0.0)));
+    expect(!isNegativeInf(@as(f128, -0.0)));
     expect(!isNegativeInf(math.inf(f16)));
     expect(isNegativeInf(-math.inf(f16)));
     expect(!isNegativeInf(math.inf(f32)));

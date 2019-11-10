@@ -128,6 +128,7 @@ export fn stage2_free_clang_errors(errors_ptr: [*]translate_c.ClangErrMsg, error
 export fn stage2_render_ast(tree: *ast.Tree, output_file: *FILE) Error {
     const c_out_stream = &std.io.COutStream.init(output_file).stream;
     _ = std.zig.render(std.heap.c_allocator, c_out_stream, tree) catch |e| switch (e) {
+        error.WouldBlock => unreachable, // stage1 opens stuff in exclusively blocking mode
         error.SystemResources => return Error.SystemResources,
         error.OperationAborted => return Error.OperationAborted,
         error.BrokenPipe => return Error.BrokenPipe,
@@ -223,7 +224,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
         }
         if (flags.present("check")) {
             const anything_changed = try std.zig.render(allocator, io.null_out_stream, tree);
-            const code = if (anything_changed) u8(1) else u8(0);
+            const code = if (anything_changed) @as(u8, 1) else @as(u8, 0);
             process.exit(code);
         }
 

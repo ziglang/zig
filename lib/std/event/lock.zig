@@ -9,13 +9,16 @@ const Loop = std.event.Loop;
 /// Functions which are waiting for the lock are suspended, and
 /// are resumed when the lock is released, in order.
 /// Allows only one actor to hold the lock.
+/// TODO: make this API also work in blocking I/O mode.
 pub const Lock = struct {
-    loop: *Loop,
     shared_bit: u8, // TODO make this a bool
     queue: Queue,
     queue_empty_bit: u8, // TODO make this a bool
 
     const Queue = std.atomic.Queue(anyframe);
+
+    const global_event_loop = Loop.instance orelse
+        @compileError("std.event.Lock currently only works with event-based I/O");
 
     pub const Held = struct {
         lock: *Lock,
@@ -23,7 +26,7 @@ pub const Lock = struct {
         pub fn release(self: Held) void {
             // Resume the next item from the queue.
             if (self.lock.queue.get()) |node| {
-                self.lock.loop.onNextTick(node);
+                global_event_loop.onNextTick(node);
                 return;
             }
 
@@ -48,7 +51,7 @@ pub const Lock = struct {
 
                 // Resume the next item from the queue.
                 if (self.lock.queue.get()) |node| {
-                    self.lock.loop.onNextTick(node);
+                    global_event_loop.onNextTick(node);
                     return;
                 }
 
@@ -64,18 +67,16 @@ pub const Lock = struct {
         }
     };
 
-    pub fn init(loop: *Loop) Lock {
+    pub fn init() Lock {
         return Lock{
-            .loop = loop,
             .shared_bit = 0,
             .queue = Queue.init(),
             .queue_empty_bit = 1,
         };
     }
 
-    pub fn initLocked(loop: *Loop) Lock {
+    pub fn initLocked() Lock {
         return Lock{
-            .loop = loop,
             .shared_bit = 1,
             .queue = Queue.init(),
             .queue_empty_bit = 1,
@@ -118,32 +119,29 @@ pub const Lock = struct {
 test "std.event.Lock" {
     // TODO https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
+
     // TODO https://github.com/ziglang/zig/issues/3251
     if (builtin.os == .freebsd) return error.SkipZigTest;
 
-    const allocator = std.heap.direct_allocator;
+    // TODO provide a way to run tests in evented I/O mode
+    if (!std.io.is_async) return error.SkipZigTest;
 
-    var loop: Loop = undefined;
-    try loop.initMultiThreaded(allocator);
-    defer loop.deinit();
-
-    var lock = Lock.init(&loop);
+    var lock = Lock.init();
     defer lock.deinit();
 
-    _ = async testLock(&loop, &lock);
-    loop.run();
+    _ = async testLock(&lock);
 
     testing.expectEqualSlices(i32, [1]i32{3 * @intCast(i32, shared_test_data.len)} ** shared_test_data.len, shared_test_data);
 }
 
-async fn testLock(loop: *Loop, lock: *Lock) void {
+async fn testLock(lock: *Lock) void {
     var handle1 = async lockRunner(lock);
     var tick_node1 = Loop.NextTickNode{
         .prev = undefined,
         .next = undefined,
         .data = &handle1,
     };
-    loop.onNextTick(&tick_node1);
+    Loop.instance.?.onNextTick(&tick_node1);
 
     var handle2 = async lockRunner(lock);
     var tick_node2 = Loop.NextTickNode{
@@ -151,7 +149,7 @@ async fn testLock(loop: *Loop, lock: *Lock) void {
         .next = undefined,
         .data = &handle2,
     };
-    loop.onNextTick(&tick_node2);
+    Loop.instance.?.onNextTick(&tick_node2);
 
     var handle3 = async lockRunner(lock);
     var tick_node3 = Loop.NextTickNode{
@@ -159,7 +157,7 @@ async fn testLock(loop: *Loop, lock: *Lock) void {
         .next = undefined,
         .data = &handle3,
     };
-    loop.onNextTick(&tick_node3);
+    Loop.instance.?.onNextTick(&tick_node3);
 
     await handle1;
     await handle2;
