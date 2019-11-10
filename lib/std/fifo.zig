@@ -12,6 +12,8 @@ const testing = std.testing;
 pub fn FixedSizeFifo(comptime T: type) type {
     const autoalign = false;
 
+    const powers_of_two = true;
+
     return struct {
         allocator: *Allocator,
         buf: []T,
@@ -68,10 +70,10 @@ pub fn FixedSizeFifo(comptime T: type) type {
         }
 
         /// Ensure that the buffer can fit at least `size` items
-        pub fn ensureCapacity(self: *Self, size: usize) error{OutOfMemory}!void {
+        pub fn ensureCapacity(self: *Self, size: usize) !void {
             if (self.buf.len >= size) return;
             self.realign();
-            const new_size = math.ceilPowerOfTwo(usize, size) catch return error.OutOfMemory;
+            const new_size = if (powers_of_two) math.ceilPowerOfTwo(usize, size) catch return error.OutOfMemory else size;
             self.buf = try self.allocator.realloc(self.buf, new_size);
         }
 
@@ -124,10 +126,19 @@ pub fn FixedSizeFifo(comptime T: type) type {
                     @memset(unused2.ptr, undefined, unused2.len);
                 }
             }
-            self.head = (self.head + count) % self.buf.len;
-            self.count -= count;
-            if (autoalign and self.count == 0)
+            if (autoalign and self.count == count) {
                 self.head = 0;
+                self.count = 0;
+            } else {
+                var head = self.head + count;
+                if (powers_of_two) {
+                    head &= self.buf.len - 1;
+                } else {
+                    head %= self.buf.len;
+                }
+                self.head = head;
+                self.count -= count;
+            }
         }
 
         /// Read the next item from the fifo
@@ -225,7 +236,13 @@ pub fn FixedSizeFifo(comptime T: type) type {
         fn rewind(self: *Self, size: usize) void {
             assert(self.writableLength() >= size);
 
-            self.head = (self.head + (self.buf.len - size)) % self.buf.len;
+            var head = self.head + (self.buf.len - size);
+            if (powers_of_two) {
+                head &= self.buf.len - 1;
+            } else {
+                head %= self.buf.len;
+            }
+            self.head = head;
             self.count += size;
         }
 
@@ -246,7 +263,13 @@ pub fn FixedSizeFifo(comptime T: type) type {
             if (offset >= self.count)
                 return error.EndOfStream;
 
-            return self.buf[(self.head + offset) % self.buf.len];
+            var index = self.head + offset;
+            if (powers_of_two) {
+                index &= self.buf.len - 1;
+            } else {
+                index %= self.buf.len;
+            }
+            return self.buf[index];
         }
     };
 }
