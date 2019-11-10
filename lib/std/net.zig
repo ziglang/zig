@@ -218,11 +218,6 @@ pub const Address = extern union {
     }
 
     pub fn initUnix(path: []const u8) !Address {
-        switch (builtin.os) {
-            .linux, .macosx, .freebsd, .netbsd => {},
-            else => return error.UnsupportedOS,
-        }
-
         var sock_addr = os.sockaddr_un{
             .family = os.AF_UNIX,
             .path = undefined,
