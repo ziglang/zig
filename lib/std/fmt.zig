@@ -892,7 +892,7 @@ pub fn formatInt(
 ) Errors!void {
     const int_value = if (@typeOf(value) == comptime_int) blk: {
         const Int = math.IntFittingRange(value, value);
-        break :blk Int(value);
+        break :blk @as(Int, value);
     } else
         value;
 
