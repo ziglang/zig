@@ -311,9 +311,13 @@ pub fn LinearFifo(
             self.rewind(src.len);
 
             const slice = self.readableSliceMut(0);
-            mem.copy(T, slice, src[0..slice.len]);
-            const slice2 = self.readableSliceMut(slice.len);
-            mem.copy(T, slice2, src[slice.len..]);
+            if (src.len < slice.len) {
+                mem.copy(T, slice, src);
+            } else {
+                mem.copy(T, slice, src[0..slice.len]);
+                const slice2 = self.readableSliceMut(slice.len);
+                mem.copy(T, slice2, src[slice.len..]);
+            }
         }
 
         /// Peek at the item at `offset`
@@ -385,6 +389,9 @@ test "LinearFifo(u8, .Dynamic)" {
         try fifo.unget("prependedstring");
         var result: [30]u8 = undefined;
         testing.expectEqualSlices(u8, "prependedstringabcdefghij", result[0..fifo.read(&result)]);
+        try fifo.unget("b");
+        try fifo.unget("a");
+        testing.expectEqualSlices(u8, "ab", result[0..fifo.read(&result)]);
     }
 
     fifo.shrink(0);
