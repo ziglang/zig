@@ -196,7 +196,7 @@ test "io.BufferedInStream" {
 
 /// Creates a stream which supports 'un-reading' data, so that it can be read again.
 /// This makes look-ahead style parsing much easier.
-pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) type {
+pub fn PeekStream(comptime buffer_type: usize, comptime InStreamError: type) type {
     return struct {
         const Self = @This();
         pub const Error = InStreamError;
@@ -207,55 +207,35 @@ pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) typ
 
         // Right now the look-ahead space is statically allocated, but a version with dynamic allocation
         // is not too difficult to derive from this.
-        buffer: [buffer_size]u8,
-        index: usize,
-        at_end: bool,
+        const FifoType = std.fifo.LinearFifo(u8, .{ .Static = buffer_size });
+        fifo: FifoType,
 
         pub fn init(base: *Stream) Self {
-            return Self{
+            return .{
                 .base = base,
-                .buffer = undefined,
-                .index = 0,
-                .at_end = false,
+                .fifo = FifoType.init(),
                 .stream = Stream{ .readFn = readFn },
             };
         }
 
-        pub fn putBackByte(self: *Self, byte: u8) void {
-            self.buffer[self.index] = byte;
-            self.index += 1;
+        pub fn putBackByte(self: *Self, byte: u8) !void {
+            try self.putBack(@ptrCast([*]const u8, &byte)[0..1]);
         }
 
-        pub fn putBack(self: *Self, bytes: []const u8) void {
-            var pos = bytes.len;
-            while (pos != 0) {
-                pos -= 1;
-                self.putBackByte(bytes[pos]);
-            }
+        pub fn putBack(self: *Self, bytes: []const u8) !void {
+            try self.fifo.unget(bytes);
         }
 
         fn readFn(in_stream: *Stream, dest: []u8) Error!usize {
             const self = @fieldParentPtr(Self, "stream", in_stream);
 
             // copy over anything putBack()'d
-            var pos: usize = 0;
-            while (pos < dest.len and self.index != 0) {
-                dest[pos] = self.buffer[self.index - 1];
-                self.index -= 1;
-                pos += 1;
-            }
-
-            if (pos == dest.len or self.at_end) {
-                return pos;
-            }
+            var dest_index = self.fifo.read(dest);
+            if (dest_index == dest.len) return dest_index;
 
             // ask the backing stream for more
-            const left = dest.len - pos;
-            const read = try self.base.read(dest[pos..]);
-            assert(read <= left);
-
-            self.at_end = (read < left);
-            return pos + read;
+            dest_index += try self.base.read(dest[dest_index..]);
+            return dest_index;
         }
     };
 }
