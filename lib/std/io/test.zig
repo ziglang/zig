@@ -102,8 +102,8 @@ test "PeekStream" {
 
     var dest: [4]u8 = undefined;
 
-    ps.putBackByte(9);
-    ps.putBackByte(10);
+    try ps.putBackByte(9);
+    try ps.putBackByte(10);
 
     var read = try ps.stream.read(dest[0..4]);
     expect(read == 4);
@@ -119,8 +119,8 @@ test "PeekStream" {
     expect(read == 2);
     expect(mem.eql(u8, dest[0..2], bytes[6..8]));
 
-    ps.putBackByte(11);
-    ps.putBackByte(12);
+    try ps.putBackByte(11);
+    try ps.putBackByte(12);
 
     read = try ps.stream.read(dest[0..4]);
     expect(read == 2);
