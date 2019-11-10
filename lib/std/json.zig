@@ -1270,6 +1270,8 @@ pub const Parser = struct {
     }
 };
 
+/// Unescape a JSON string
+/// Optimized for arena allocators, uses Allocator.shrink
 pub fn unescapeStringAlloc(alloc: *Allocator, input: []const u8) ![]u8 {
     var output = try alloc.alloc(u8, input.len);
     errdefer alloc.free(output);
@@ -1293,7 +1295,7 @@ pub fn unescapeStringAlloc(alloc: *Allocator, input: []const u8) ![]u8 {
                         'f' => 12,
                         'b' => 8,
                         '"' => '"',
-                        else => return error.InvalidEscapeCharacter;
+                        else => return error.InvalidEscapeCharacter
                     }
                 );
                 inIndex += 2;
@@ -1306,7 +1308,7 @@ pub fn unescapeStringAlloc(alloc: *Allocator, input: []const u8) ![]u8 {
         }
     }
 
-    return try alloc.realloc(unescaped, outIndex);
+    return alloc.shrink(output, outIndex);
 }
 
 test "json.parser.dynamic" {
