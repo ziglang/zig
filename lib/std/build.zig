@@ -957,6 +957,7 @@ pub const Builder = struct {
                 error.ProcessTerminated => error.PkgConfigCrashed,
                 error.ExitCodeFailure => error.PkgConfigFailed,
                 error.FileNotFound => error.PkgConfigNotInstalled,
+                error.InvalidName => error.PkgConfigNotInstalled,
                 error.PkgConfigInvalidOutput => error.PkgConfigInvalidOutput,
                 else => return err,
             };
