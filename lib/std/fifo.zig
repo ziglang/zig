@@ -9,7 +9,7 @@ const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
 
-pub const FifoBufferType = union(enum) {
+pub const LinearFifoBufferType = union(enum) {
     /// The buffer is internal to the fifo; it is of the specified size.
     Static: usize,
 
@@ -20,9 +20,9 @@ pub const FifoBufferType = union(enum) {
     Dynamic,
 };
 
-pub fn FixedSizeFifo(
+pub fn LinearFifo(
     comptime T: type,
-    comptime buffer_type: FifoBufferType,
+    comptime buffer_type: LinearFifoBufferType,
 ) type {
     const autoalign = false;
 
@@ -332,8 +332,8 @@ pub fn FixedSizeFifo(
     };
 }
 
-test "FixedSizeFifo(u8, .Dynamic)" {
-    var fifo = FixedSizeFifo(u8, .Dynamic).init(debug.global_allocator);
+test "LinearFifo(u8, .Dynamic)" {
+    var fifo = LinearFifo(u8, .Dynamic).init(debug.global_allocator);
     defer fifo.deinit();
 
     try fifo.write("HELLO");
@@ -397,10 +397,10 @@ test "FixedSizeFifo(u8, .Dynamic)" {
     }
 }
 
-test "FixedSizeFifo" {
+test "LinearFifo" {
     inline for ([_]type{ u1, u8, u16, u64 }) |T| {
-        inline for ([_]FifoBufferType{ FifoBufferType{ .Static = 32 }, .Slice, .Dynamic }) |bt| {
-            const FifoType = FixedSizeFifo(T, bt);
+        inline for ([_]LinearFifoBufferType{ LinearFifoBufferType{ .Static = 32 }, .Slice, .Dynamic }) |bt| {
+            const FifoType = LinearFifo(T, bt);
             var buf: if (bt == .Slice) [32]T else void = undefined;
             var fifo = switch (bt) {
                 .Static => FifoType.init(),
