@@ -10,6 +10,8 @@ const assert = debug.assert;
 const testing = std.testing;
 
 pub fn FixedSizeFifo(comptime T: type) type {
+    const autoalign = false;
+
     return struct {
         allocator: *Allocator,
         buf: []T,
@@ -106,8 +108,6 @@ pub fn FixedSizeFifo(comptime T: type) type {
         pub fn readableSlice(self: Self, offset: usize) []const T {
             return self.readableSliceMut(offset);
         }
-
-        const autoalign = false;
 
         /// Discard first `count` bytes of readable data
         pub fn discard(self: *Self, count: usize) void {
