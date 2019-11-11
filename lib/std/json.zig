@@ -1002,6 +1002,8 @@ pub const ValueTree = struct {
 pub const ObjectMap = StringHashMap(Value);
 pub const Array = ArrayList(Value);
 
+/// Represents a JSON value
+/// Currently only supports numbers that fit into i64 or f64.
 pub const Value = union(enum) {
     Null,
     Bool: bool,
@@ -1270,10 +1272,11 @@ pub const Parser = struct {
     }
 };
 
-/// Unescape a JSON string
-/// Optimized for arena allocators, uses Allocator.shrink
-pub fn unescapeStringAlloc(alloc: *Allocator, input: []const u8) ![]u8 {
-    var output = try alloc.alloc(u8, input.len);
+// Unescape a JSON string
+// Only to be used on strings already validated by the parser
+// Optimized for arena allocators, uses Allocator.shrink
+fn unescapeStringAlloc(alloc: *Allocator, input: []const u8) ![]u8 {
+    const output = try alloc.alloc(u8, input.len);
     errdefer alloc.free(output);
     
     var inIndex: usize = 0;
@@ -1281,8 +1284,8 @@ pub fn unescapeStringAlloc(alloc: *Allocator, input: []const u8) ![]u8 {
     while(inIndex < input.len) {
         if(input[inIndex] == '\\'){
             if(input[inIndex + 1] == 'u'){
-                const codepoint = std.fmt.parseInt(u32, input[inIndex+2 .. inIndex+6], 16) catch return error.InvalidUnicodeHexSymbol;
-                outIndex += std.unicode.utf8Encode(codepoint, output[outIndex..]) catch return error.InvalidUnicodeHexSymbol;
+                const codepoint = std.fmt.parseInt(u32, input[inIndex+2 .. inIndex+6], 16) catch unreachable;
+                outIndex += std.unicode.utf8Encode(codepoint, output[outIndex..]) catch unreachable;
                 inIndex += 6;
             } else {
                 output[outIndex] = @as(u8,
@@ -1295,7 +1298,7 @@ pub fn unescapeStringAlloc(alloc: *Allocator, input: []const u8) ![]u8 {
                         'f' => 12,
                         'b' => 8,
                         '"' => '"',
-                        else => return error.InvalidEscapeCharacter
+                        else => unreachable
                     }
                 );
                 inIndex += 2;
@@ -1441,13 +1444,13 @@ test "escaped characters" {
 
     const obj = tree.root.Object;
 
-    testing.expect(mem.eql(u8, obj.get("backslash").?.value.String, "\\"));
-    testing.expect(mem.eql(u8, obj.get("forwardslash").?.value.String, "/"));
-    testing.expect(mem.eql(u8, obj.get("newline").?.value.String, "\n"));
-    testing.expect(mem.eql(u8, obj.get("carriagereturn").?.value.String, "\r"));
-    testing.expect(mem.eql(u8, obj.get("tab").?.value.String, "\t"));
-    testing.expect(mem.eql(u8, obj.get("formfeed").?.value.String, "\x0C"));
-    testing.expect(mem.eql(u8, obj.get("backspace").?.value.String, "\x08"));
-    testing.expect(mem.eql(u8, obj.get("doublequote").?.value.String, "\""));
-    testing.expect(mem.eql(u8, obj.get("unicode").?.value.String, "ą"));
+    testing.expectEqualSlices(u8, obj.get("backslash").?.value.String, "\\");
+    testing.expectEqualSlices(u8, obj.get("forwardslash").?.value.String, "/");
+    testing.expectEqualSlices(u8, obj.get("newline").?.value.String, "\n");
+    testing.expectEqualSlices(u8, obj.get("carriagereturn").?.value.String, "\r");
+    testing.expectEqualSlices(u8, obj.get("tab").?.value.String, "\t");
+    testing.expectEqualSlices(u8, obj.get("formfeed").?.value.String, "\x0C");
+    testing.expectEqualSlices(u8, obj.get("backspace").?.value.String, "\x08");
+    testing.expectEqualSlices(u8, obj.get("doublequote").?.value.String, "\"");
+    testing.expectEqualSlices(u8, obj.get("unicode").?.value.String, "ą");
 }
