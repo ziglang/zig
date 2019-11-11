@@ -58,7 +58,7 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             return self.items[0..self.len];
         }
 
-        /// Safely access index i of the list. 
+        /// Safely access index i of the list.
         pub fn at(self: Self, i: usize) T {
             return self.toSliceConst()[i];
         }
@@ -200,7 +200,8 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             var better_capacity = self.capacity();
             if (better_capacity >= new_capacity) return;
             while (true) {
-                better_capacity += better_capacity / 2 + 8;
+                // + has greater precedence than >> does.
+                better_capacity += (better_capacity >> 1) + 8;
                 if (better_capacity >= new_capacity) break;
             }
             self.items = try self.allocator.realloc(self.items, better_capacity);
