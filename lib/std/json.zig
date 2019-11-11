@@ -10,18 +10,18 @@ const maxInt = std.math.maxInt;
 
 pub const WriteStream = @import("json/write_stream.zig").WriteStream;
 
-// A single token slice into the parent string.
-//
-// Use `token.slice()` on the input at the current position to get the current slice.
+/// A single token slice into the parent string.
+///
+/// Use `token.slice()` on the input at the current position to get the current slice.
 pub const Token = struct {
     id: Id,
-    // How many bytes do we skip before counting
+    /// How many bytes do we skip before counting
     offset: u1,
-    // Whether string contains a \uXXXX sequence and cannot be zero-copied
+    /// Whether string contains an escape sequence and cannot be zero-copied
     string_has_escape: bool,
-    // Whether number is simple and can be represented by an integer (i.e. no `.` or `e`)
+    /// Whether number is simple and can be represented by an integer (i.e. no `.` or `e`)
     number_is_integer: bool,
-    // How many bytes from the current position behind the start of this token is.
+    /// How many bytes from the current position behind the start of this token is.
     count: usize,
 
     pub const Id = enum {
@@ -66,7 +66,7 @@ pub const Token = struct {
         };
     }
 
-    // A marker token is a zero-length
+    /// A marker token is a zero-length
     pub fn initMarker(id: Id) Token {
         return Token{
             .id = id,
@@ -77,19 +77,19 @@ pub const Token = struct {
         };
     }
 
-    // Slice into the underlying input string.
+    /// Slice into the underlying input string.
     pub fn slice(self: Token, input: []const u8, i: usize) []const u8 {
         return input[i + self.offset - self.count .. i + self.offset];
     }
 };
 
-// A small streaming JSON parser. This accepts input one byte at a time and returns tokens as
-// they are encountered. No copies or allocations are performed during parsing and the entire
-// parsing state requires ~40-50 bytes of stack space.
-//
-// Conforms strictly to RFC8529.
-//
-// For a non-byte based wrapper, consider using TokenStream instead.
+/// A small streaming JSON parser. This accepts input one byte at a time and returns tokens as
+/// they are encountered. No copies or allocations are performed during parsing and the entire
+/// parsing state requires ~40-50 bytes of stack space.
+///
+/// Conforms strictly to RFC8529.
+///
+/// For a non-byte based wrapper, consider using TokenStream instead.
 pub const StreamingParser = struct {
     // Current state
     state: State,
@@ -205,10 +205,10 @@ pub const StreamingParser = struct {
         InvalidControlCharacter,
     };
 
-    // Give another byte to the parser and obtain any new tokens. This may (rarely) return two
-    // tokens. token2 is always null if token1 is null.
-    //
-    // There is currently no error recovery on a bad stream.
+    /// Give another byte to the parser and obtain any new tokens. This may (rarely) return two
+    /// tokens. token2 is always null if token1 is null.
+    ///
+    /// There is currently no error recovery on a bad stream.
     pub fn feed(p: *StreamingParser, c: u8, token1: *?Token, token2: *?Token) Error!void {
         token1.* = null;
         token2.* = null;
@@ -860,7 +860,7 @@ pub const StreamingParser = struct {
     }
 };
 
-// A small wrapper over a StreamingParser for full slices. Returns a stream of json Tokens.
+/// A small wrapper over a StreamingParser for full slices. Returns a stream of json Tokens.
 pub const TokenStream = struct {
     i: usize,
     slice: []const u8,
@@ -898,7 +898,13 @@ pub const TokenStream = struct {
             }
         }
 
-        if (self.parser.complete) {
+        // Without this a bare number fails, becasue the streaming parser doesn't know it ended
+        try self.parser.feed(' ', &t1, &t2);
+        self.i += 1;
+
+        if (t1) |token| {
+            return token;
+        } else if (self.parser.complete) {
             return null;
         } else {
             return error.UnexpectedEndOfJson;
@@ -1050,7 +1056,7 @@ pub const Value = union(enum) {
     }
 };
 
-// A non-stream JSON parser which constructs a tree of Value's.
+/// A non-stream JSON parser which constructs a tree of Value's.
 pub const Parser = struct {
     allocator: *Allocator,
     state: State,
@@ -1119,7 +1125,10 @@ pub const Parser = struct {
                     p.state = State.ObjectValue;
                 },
                 else => {
-                    unreachable;
+                    // The streaming parser would return an error eventually.
+                    // To prevent invalid state we return an error now.
+                    // TODO make the streaming parser return an error as soon as it encounters an invalid object key
+                    return error.InvalidLiteral;
                 },
             },
             State.ObjectValue => {
@@ -1276,6 +1285,10 @@ pub const Parser = struct {
 // Only to be used on strings already validated by the parser
 // (note the unreachable statements and lack of bounds checking)
 // Optimized for arena allocators, uses Allocator.shrink
+//
+// Idea: count how many bytes we will need to allocate in the streaming parser and store it
+// in the token to avoid allocating too much memory or iterating through the string again
+// Downside: need to find how many bytes a unicode escape sequence will produce twice
 fn unescapeStringAlloc(alloc: *Allocator, input: []const u8) ![]u8 {
     const output = try alloc.alloc(u8, input.len);
     errdefer alloc.free(output);
@@ -1290,22 +1303,22 @@ fn unescapeStringAlloc(alloc: *Allocator, input: []const u8) ![]u8 {
             inIndex += 1;
             outIndex += 1;
         } else if(input[inIndex + 1] != 'u'){
-             // a simple escape sequence
-                output[outIndex] = @as(u8,
-                    switch(input[inIndex + 1]){
-                        '\\' => '\\',
-                        '/' => '/',
-                        'n' => '\n',
-                        'r' => '\r',
-                        't' => '\t',
-                        'f' => 12,
-                        'b' => 8,
-                        '"' => '"',
-                        else => unreachable
-                    }
-                );
-                inIndex += 2;
-                outIndex += 1;
+            // a simple escape sequence
+            output[outIndex] = @as(u8,
+                switch(input[inIndex + 1]){
+                    '\\' => '\\',
+                    '/' => '/',
+                    'n' => '\n',
+                    'r' => '\r',
+                    't' => '\t',
+                    'f' => 12,
+                    'b' => 8,
+                    '"' => '"',
+                    else => unreachable
+                }
+            );
+            inIndex += 2;
+            outIndex += 1;
         } else {
             // a unicode escape sequence
             const firstCodeUnit = std.fmt.parseInt(u16, input[inIndex+2 .. inIndex+6], 16) catch unreachable;

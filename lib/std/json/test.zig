@@ -559,17 +559,15 @@ test "y_structure_lonely_false" {
 }
 
 test "y_structure_lonely_int" {
-    return error.SkipZigTest;
-//     ok(
-//         \\42
-//     );
+    ok(
+        \\42
+    );
 }
 
 test "y_structure_lonely_negative_real" {
-    return error.SkipZigTest;
-//     ok(
-//         \\-0.1
-//     );
+    ok(
+        \\-0.1
+    );
 }
 
 test "y_structure_lonely_null" {
@@ -1107,10 +1105,9 @@ test "n_object_bad_value" {
 }
 
 test "n_object_bracket_key" {
-    return error.SkipZigTest;
-//     err(
-//         \\{[: "x"}
-//     );
+    err(
+        \\{[: "x"}
+    );
 }
 
 test "n_object_comma_instead_of_colon" {
@@ -1192,10 +1189,9 @@ test "n_object_non_string_key" {
 }
 
 test "n_object_repeated_null_null" {
-    return error.SkipZigTest;
-//     err(
-//         \\{null:null,null:null}
-//     );
+    err(
+        \\{null:null,null:null}
+    );
 }
 
 test "n_object_several_trailing_commas" {
@@ -1618,10 +1614,9 @@ test "n_structure_open_object" {
 }
 
 test "n_structure_open_object_open_array" {
-    return error.SkipZigTest;
-    // err(
-    //     \\{[
-    // );
+    err(
+        \\{[
+    );
 }
 
 test "n_structure_open_object_open_string" {
@@ -1734,6 +1729,7 @@ test "i_number_double_huge_neg_exp" {
 
 test "i_number_huge_exp" {
     return error.SkipZigTest;
+    // FIXME Integer overflow in parseFloat
 //     any(
 //         \\[0.4e00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]
 //     );
