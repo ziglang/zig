@@ -1648,9 +1648,14 @@ pub const Node = struct {
 
     pub const SuffixOp = struct {
         base: Node,
-        lhs: *Node,
+        lhs: Lhs,
         op: Op,
         rtoken: TokenIndex,
+
+        pub const Lhs = union(enum) {
+            node: *Node,
+            dot: TokenIndex,
+        };
 
         pub const Op = union(enum) {
             Call: Call,
@@ -1679,8 +1684,13 @@ pub const Node = struct {
         pub fn iterate(self: *SuffixOp, index: usize) ?*Node {
             var i = index;
 
-            if (i < 1) return self.lhs;
-            i -= 1;
+            switch (self.lhs) {
+                .node => |node| {
+                    if (i == 0) return node;
+                    i -= 1;
+                },
+                .dot => {},
+            }
 
             switch (self.op) {
                 .Call => |*call_info| {
@@ -1721,7 +1731,10 @@ pub const Node = struct {
                 .Call => |*call_info| if (call_info.async_token) |async_token| return async_token,
                 else => {},
             }
-            return self.lhs.firstToken();
+            switch (self.lhs) {
+                .node => |node| return node.firstToken(),
+                .dot => |dot| return dot,
+            }
         }
 
         pub fn lastToken(self: *const SuffixOp) TokenIndex {
