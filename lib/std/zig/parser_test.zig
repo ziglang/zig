@@ -1,13 +1,3 @@
-// TODO remove `use` keyword eventually: https://github.com/ziglang/zig/issues/2591
-test "zig fmt: change use to usingnamespace" {
-    try testTransform(
-        \\use @import("std");
-    ,
-        \\usingnamespace @import("std");
-        \\
-    );
-}
-
 test "zig fmt: async function" {
     try testCanonical(
         \\pub const Server = struct {

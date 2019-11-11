@@ -153,7 +153,6 @@ static const struct ZigKeyword zig_keywords[] = {
     {"undefined", TokenIdKeywordUndefined},
     {"union", TokenIdKeywordUnion},
     {"unreachable", TokenIdKeywordUnreachable},
-    {"use", TokenIdKeywordUsingNamespace},
     {"usingnamespace", TokenIdKeywordUsingNamespace},
     {"var", TokenIdKeywordVar},
     {"volatile", TokenIdKeywordVolatile},

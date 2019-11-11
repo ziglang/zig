@@ -14,8 +14,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
 
     cases.addCase(x: {
         var tc = cases.create("multiple files with private function",
-            \\use @import("std").io;
-            \\use @import("foo.zig");
+            \\usingnamespace @import("std").io;
+            \\usingnamespace @import("foo.zig");
             \\
             \\pub fn main() void {
             \\    privateFunction();
@@ -29,7 +29,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         , "OK 1\nOK 2\n");
 
         tc.addSourceFile("foo.zig",
-            \\use @import("std").io;
+            \\usingnamespace @import("std").io;
             \\
             \\// purposefully conflicting function with main.zig
             \\// but it's private so it should be OK
@@ -48,8 +48,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
 
     cases.addCase(x: {
         var tc = cases.create("import segregation",
-            \\use @import("foo.zig");
-            \\use @import("bar.zig");
+            \\usingnamespace @import("foo.zig");
+            \\usingnamespace @import("bar.zig");
             \\
             \\pub fn main() void {
             \\    foo_function();
@@ -58,7 +58,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         , "OK\nOK\n");
 
         tc.addSourceFile("foo.zig",
-            \\use @import("std").io;
+            \\usingnamespace @import("std").io;
             \\pub fn foo_function() void {
             \\    const stdout = &(getStdOut() catch unreachable).outStream().stream;
             \\    stdout.print("OK\n") catch unreachable;
@@ -66,8 +66,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         );
 
         tc.addSourceFile("bar.zig",
-            \\use @import("other.zig");
-            \\use @import("std").io;
+            \\usingnamespace @import("other.zig");
+            \\usingnamespace @import("std").io;
             \\
             \\pub fn bar_function() void {
             \\    if (foo_function()) {
@@ -88,8 +88,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     });
 
     cases.addCase(x: {
-        var tc = cases.create("two files use import each other",
-            \\use @import("a.zig");
+        var tc = cases.create("two files usingnamespace import each other",
+            \\usingnamespace @import("a.zig");
             \\
             \\pub fn main() void {
             \\    ok();
@@ -97,7 +97,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         , "OK\n");
 
         tc.addSourceFile("a.zig",
-            \\use @import("b.zig");
+            \\usingnamespace @import("b.zig");
             \\const io = @import("std").io;
             \\
             \\pub const a_text = "OK\n";
@@ -109,7 +109,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         );
 
         tc.addSourceFile("b.zig",
-            \\use @import("a.zig");
+            \\usingnamespace @import("a.zig");
             \\
             \\pub const b_text = a_text;
         );

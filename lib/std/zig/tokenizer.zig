@@ -59,7 +59,6 @@ pub const Token = struct {
         Keyword{ .bytes = "undefined", .id = Id.Keyword_undefined },
         Keyword{ .bytes = "union", .id = Id.Keyword_union },
         Keyword{ .bytes = "unreachable", .id = Id.Keyword_unreachable },
-        Keyword{ .bytes = "use", .id = Id.Keyword_usingnamespace },
         Keyword{ .bytes = "usingnamespace", .id = Id.Keyword_usingnamespace },
         Keyword{ .bytes = "var", .id = Id.Keyword_var },
         Keyword{ .bytes = "volatile", .id = Id.Keyword_volatile },
