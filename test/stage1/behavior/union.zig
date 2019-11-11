@@ -559,9 +559,13 @@ test "anonymous union literal syntax" {
 
         fn doTheTest() void {
             var i: Number = .{.int = 42};
-            var f: Number = .{.float = 12.34};
+            var f = makeNumber();
             expect(i.int == 42);
             expect(f.float == 12.34);
+        }
+
+        fn makeNumber() Number {
+            return .{.float = 12.34};
         }
     };
     S.doTheTest();

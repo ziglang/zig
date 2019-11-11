@@ -6151,7 +6151,11 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
         init_array_type_source_node = container_type->source_node;
     } else {
         child_result_loc = parent_result_loc;
-        init_array_type_source_node = parent_result_loc->source_instruction->source_node;
+        if (parent_result_loc->source_instruction != nullptr) {
+            init_array_type_source_node = parent_result_loc->source_instruction->source_node;
+        } else {
+            init_array_type_source_node = node;
+        }
     }
 
     switch (kind) {
@@ -15933,6 +15937,10 @@ static IrInstruction *ir_analyze_instruction_resolve_result(IrAnalyze *ira,
         if (instruction->result_loc->id == ResultLocIdCast) {
             implicit_elem_type = ir_resolve_type(ira,
                     instruction->result_loc->source_instruction->child);
+            if (type_is_invalid(implicit_elem_type))
+                return ira->codegen->invalid_instruction;
+        } else if (instruction->result_loc->id == ResultLocIdReturn) {
+            implicit_elem_type = ira->explicit_return_type;
             if (type_is_invalid(implicit_elem_type))
                 return ira->codegen->invalid_instruction;
         } else {
