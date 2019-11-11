@@ -964,8 +964,8 @@ test "json.token" {
     testing.expect((try p.next()) == null);
 }
 
-// Validate a JSON string. This does not limit number precision so a decoder may not necessarily
-// be able to decode the string even if this returns true.
+/// Validate a JSON string. This does not limit number precision so a decoder may not necessarily
+/// be able to decode the string even if this returns true.
 pub fn validate(s: []const u8) bool {
     var p = StreamingParser.init();
 
@@ -1274,6 +1274,7 @@ pub const Parser = struct {
 
 // Unescape a JSON string
 // Only to be used on strings already validated by the parser
+// (note the unreachable statements and lack of bounds checking)
 // Optimized for arena allocators, uses Allocator.shrink
 fn unescapeStringAlloc(alloc: *Allocator, input: []const u8) ![]u8 {
     const output = try alloc.alloc(u8, input.len);
@@ -1281,13 +1282,15 @@ fn unescapeStringAlloc(alloc: *Allocator, input: []const u8) ![]u8 {
     
     var inIndex: usize = 0;
     var outIndex: usize = 0;
+
     while(inIndex < input.len) {
-        if(input[inIndex] == '\\'){
-            if(input[inIndex + 1] == 'u'){
-                const codepoint = std.fmt.parseInt(u32, input[inIndex+2 .. inIndex+6], 16) catch unreachable;
-                outIndex += std.unicode.utf8Encode(codepoint, output[outIndex..]) catch unreachable;
-                inIndex += 6;
-            } else {
+        if(input[inIndex] != '\\'){
+            // not an escape sequence
+            output[outIndex] = input[inIndex];
+            inIndex += 1;
+            outIndex += 1;
+        } else if(input[inIndex + 1] != 'u'){
+             // a simple escape sequence
                 output[outIndex] = @as(u8,
                     switch(input[inIndex + 1]){
                         '\\' => '\\',
@@ -1303,11 +1306,33 @@ fn unescapeStringAlloc(alloc: *Allocator, input: []const u8) ![]u8 {
                 );
                 inIndex += 2;
                 outIndex += 1;
-            }
         } else {
-            output[outIndex] = input[inIndex];
-            inIndex += 1;
-            outIndex += 1;
+            // a unicode escape sequence
+            const firstCodeUnit = std.fmt.parseInt(u16, input[inIndex+2 .. inIndex+6], 16) catch unreachable;
+
+            // guess optimistically that it's not a surrogate pair
+            if(std.unicode.utf8Encode(firstCodeUnit, output[outIndex..])) |byteCount| {
+                outIndex += byteCount;
+                inIndex += 6;
+            } else |err| {
+                // it might be a surrogate pair
+                if(err != error.Utf8CannotEncodeSurrogateHalf) {
+                    return error.InvalidUnicodeHexSymbol;
+                }
+                // check if a second code unit is present
+                if(inIndex + 7 >= input.len or input[inIndex + 6] != '\\' or input[inIndex + 7] != 'u'){
+                    return error.InvalidUnicodeHexSymbol;
+                }
+                
+                const secondCodeUnit = std.fmt.parseInt(u16, input[inIndex+8 .. inIndex+12], 16) catch unreachable;
+                
+                if(std.unicode.utf16leToUtf8(output[outIndex..], [2]u16{ firstCodeUnit, secondCodeUnit })) |byteCount| {
+                    outIndex += byteCount;
+                    inIndex += 12;
+                } else |_| {
+                    return error.InvalidUnicodeHexSymbol;
+                }
+            }
         }
     }
 
@@ -1435,7 +1460,8 @@ test "escaped characters" {
         \\  "formfeed": "\f",
         \\  "backspace": "\b",
         \\  "doublequote": "\"",
-        \\  "unicode": "\u0105"
+        \\  "unicode": "\u0105",
+        \\  "surrogatepair": "\ud83d\ude02"
         \\}
     ;
 
@@ -1453,4 +1479,5 @@ test "escaped characters" {
     testing.expectEqualSlices(u8, obj.get("backspace").?.value.String, "\x08");
     testing.expectEqualSlices(u8, obj.get("doublequote").?.value.String, "\"");
     testing.expectEqualSlices(u8, obj.get("unicode").?.value.String, "ą");
+    testing.expectEqualSlices(u8, obj.get("surrogatepair").?.value.String, "😂");
 }
