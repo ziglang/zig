@@ -729,3 +729,25 @@ test "anonymous struct literal syntax" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "fully anonymous struct" {
+    const S = struct {
+        fn doTheTest() void {
+            dump(.{
+                .int = @as(u32, 1234),
+                .float = @as(f64, 12.34),
+                .b = true,
+                .s = "hi",
+            });
+        }
+        fn dump(args: var) void {
+            expect(args.int == 1234);
+            expect(args.float == 12.34);
+            expect(args.b);
+            expect(args.s[0] == 'h');
+            expect(args.s[1] == 'i');
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

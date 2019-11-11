@@ -1187,9 +1187,21 @@ bool fn_type_id_eql(FnTypeId *a, FnTypeId *b);
 static const uint32_t VECTOR_INDEX_NONE = UINT32_MAX;
 static const uint32_t VECTOR_INDEX_RUNTIME = UINT32_MAX - 1;
 
+struct InferredStructField {
+    ZigType *inferred_struct_type;
+    Buf *field_name;
+};
+
 struct ZigTypePointer {
     ZigType *child_type;
     ZigType *slice_parent;
+
+    // Anonymous struct literal syntax uses this when the result location has
+    // no type in it. This field is null if this pointer does not refer to
+    // a field of a currently-being-inferred struct type.
+    // When this is non-null, the pointer is pointing to the base of the inferred
+    // struct.
+    InferredStructField *inferred_struct_field;
 
     PtrLen ptr_len;
     uint32_t explicit_alignment; // 0 means use ABI alignment
@@ -1743,6 +1755,7 @@ struct TypeId {
     union {
         struct {
             ZigType *child_type;
+            InferredStructField *inferred_struct_field;
             PtrLen ptr_len;
             uint32_t alignment;
 

@@ -24,7 +24,7 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type,
 ZigType *get_pointer_to_type_extra2(CodeGen *g, ZigType *child_type,
         bool is_const, bool is_volatile, PtrLen ptr_len,
         uint32_t byte_alignment, uint32_t bit_offset, uint32_t unaligned_bit_count,
-        bool allow_zero, uint32_t vector_index);
+        bool allow_zero, uint32_t vector_index, InferredStructField *inferred_struct_field);
 uint64_t type_size(CodeGen *g, ZigType *type_entry);
 uint64_t type_size_bits(CodeGen *g, ZigType *type_entry);
 ZigType *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
@@ -175,6 +175,7 @@ void init_const_arg_tuple(CodeGen *g, ConstExprValue *const_val, size_t arg_inde
 ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_t arg_index_end);
 
 ConstExprValue *create_const_vals(size_t count);
+ConstExprValue *realloc_const_vals(ConstExprValue *base, size_t old_count, size_t new_count);
 
 ZigType *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
 void expand_undef_array(CodeGen *g, ConstExprValue *const_val);
