@@ -140,7 +140,6 @@ void init_scope(CodeGen *g, Scope *dest, ScopeId id, AstNode *source_node, Scope
 static ScopeDecls *create_decls_scope(CodeGen *g, AstNode *node, Scope *parent, ZigType *container_type,
         ZigType *import, Buf *bare_name)
 {
-    assert(node == nullptr || node->type == NodeTypeContainerDecl || node->type == NodeTypeFnCallExpr);
     ScopeDecls *scope = allocate<ScopeDecls>(1);
     init_scope(g, &scope->base, ScopeIdDecls, node, parent);
     scope->decl_table.init(4);
@@ -346,6 +345,8 @@ bool type_is_resolved(ZigType *type_entry, ResolveStatus status) {
             switch (status) {
                 case ResolveStatusInvalid:
                     zig_unreachable();
+                case ResolveStatusBeingInferred:
+                    zig_unreachable();
                 case ResolveStatusUnstarted:
                 case ResolveStatusZeroBitsKnown:
                     return true;
@@ -361,6 +362,8 @@ bool type_is_resolved(ZigType *type_entry, ResolveStatus status) {
         case ZigTypeIdPointer:
             switch (status) {
                 case ResolveStatusInvalid:
+                    zig_unreachable();
+                case ResolveStatusBeingInferred:
                     zig_unreachable();
                 case ResolveStatusUnstarted:
                     return true;
@@ -6132,6 +6135,8 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
                 continue;
             if (instruction->ref_count == 0)
                 continue;
+            if ((err = type_resolve(g, instruction->value.type, ResolveStatusZeroBitsKnown)))
+                return ErrorSemanticAnalyzeFail;
             if (!type_has_bits(instruction->value.type))
                 continue;
             if (scope_needs_spill(instruction->scope)) {
@@ -6271,6 +6276,8 @@ Error type_resolve(CodeGen *g, ZigType *ty, ResolveStatus status) {
     switch (status) {
         case ResolveStatusUnstarted:
             return ErrorNone;
+        case ResolveStatusBeingInferred:
+            zig_unreachable();
         case ResolveStatusInvalid:
             zig_unreachable();
         case ResolveStatusZeroBitsKnown:
@@ -9038,4 +9045,3 @@ Error analyze_import(CodeGen *g, ZigType *source_import, Buf *import_target_str,
     *out_import = add_source_file(g, target_package, resolved_path, import_code, source_kind);
     return ErrorNone;
 }
-

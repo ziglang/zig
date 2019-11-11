@@ -1237,6 +1237,7 @@ struct TypeStructField {
 enum ResolveStatus {
     ResolveStatusUnstarted,
     ResolveStatusInvalid,
+    ResolveStatusBeingInferred,
     ResolveStatusZeroBitsKnown,
     ResolveStatusAlignmentKnown,
     ResolveStatusSizeKnown,
@@ -1285,6 +1286,7 @@ struct ZigTypeStruct {
     bool requires_comptime;
     bool resolve_loop_flag_zero_bits;
     bool resolve_loop_flag_other;
+    bool is_inferred;
 };
 
 struct ZigTypeOptional {
@@ -2812,7 +2814,7 @@ struct IrInstructionElemPtr {
 
     IrInstruction *array_ptr;
     IrInstruction *elem_index;
-    IrInstruction *init_array_type;
+    AstNode *init_array_type_source_node;
     PtrLen ptr_len;
     bool safety_check_on;
 };
@@ -2909,11 +2911,11 @@ struct IrInstructionResizeSlice {
 struct IrInstructionContainerInitList {
     IrInstruction base;
 
-    IrInstruction *container_type;
     IrInstruction *elem_type;
     size_t item_count;
     IrInstruction **elem_result_loc_list;
     IrInstruction *result_loc;
+    AstNode *init_array_type_source_node;
 };
 
 struct IrInstructionContainerInitFieldsField {
@@ -2926,7 +2928,6 @@ struct IrInstructionContainerInitFieldsField {
 struct IrInstructionContainerInitFields {
     IrInstruction base;
 
-    IrInstruction *container_type;
     size_t field_count;
     IrInstructionContainerInitFieldsField *fields;
     IrInstruction *result_loc;

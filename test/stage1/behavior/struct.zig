@@ -709,3 +709,23 @@ test "packed struct field passed to generic function" {
     var loaded = S.genericReadPackedField(&p.b);
     expect(loaded == 29);
 }
+
+test "anonymous struct literal syntax" {
+    const S = struct {
+        const Point = struct {
+            x: i32,
+            y: i32,
+        };
+
+        fn doTheTest() void {
+            var p: Point = .{
+                .x = 1,
+                .y = 2,
+            };
+            expect(p.x == 1);
+            expect(p.y == 2);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

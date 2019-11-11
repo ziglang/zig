@@ -1214,7 +1214,7 @@ test "spill target expr in a for loop" {
         }
 
         const Foo = struct {
-            slice: []i32,
+            slice: []const i32,
         };
 
         fn atest(foo: *Foo) i32 {
@@ -1245,7 +1245,7 @@ test "spill target expr in a for loop, with a var decl in the loop body" {
         }
 
         const Foo = struct {
-            slice: []i32,
+            slice: []const i32,
         };
 
         fn atest(foo: *Foo) i32 {
