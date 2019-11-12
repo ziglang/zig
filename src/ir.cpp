@@ -25618,9 +25618,29 @@ static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstruction *op
                 buf_sprintf("%" PRIu32 "-bit integer type is not a power of 2", operand_type->data.integral.bit_count));
             return ira->codegen->builtin_types.entry_invalid;
         }
+    } else if (operand_type->id == ZigTypeIdEnum) {
+        ZigType *int_type = operand_type->data.enumeration.tag_int_type;
+        if (int_type->data.integral.bit_count < 8) {
+            ir_add_error(ira, op,
+                buf_sprintf("expected enum tag type 8 bits or larger, found %" PRIu32 "-bit tag type",
+                    int_type->data.integral.bit_count));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        uint32_t max_atomic_bits = target_arch_largest_atomic_bits(ira->codegen->zig_target->arch);
+        if (int_type->data.integral.bit_count > max_atomic_bits) {
+            ir_add_error(ira, op,
+                buf_sprintf("expected %" PRIu32 "-bit enum tag type or smaller, found %" PRIu32 "-bit tag type",
+                    max_atomic_bits, int_type->data.integral.bit_count));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        if (!is_power_of_2(int_type->data.integral.bit_count)) {
+            ir_add_error(ira, op,
+                buf_sprintf("%" PRIu32 "-bit enum tag type is not a power of 2", int_type->data.integral.bit_count));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
     } else if (get_codegen_ptr_type(operand_type) == nullptr) {
         ir_add_error(ira, op,
-            buf_sprintf("expected integer or pointer type, found '%s'", buf_ptr(&operand_type->name)));
+            buf_sprintf("expected integer, enum or pointer type, found '%s'", buf_ptr(&operand_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 
