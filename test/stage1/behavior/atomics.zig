@@ -131,3 +131,16 @@ test "atomic store" {
     @atomicStore(u32, &x, 12345678, .SeqCst);
     expect(@atomicLoad(u32, &x, .SeqCst) == 12345678);
 }
+
+test "atomic store comptime" {
+    comptime testAtomicStore();
+    testAtomicStore();
+}
+
+fn testAtomicStore() void {
+    var x: u32 = 0;
+    @atomicStore(u32, &x, 1, .SeqCst);
+    expect(@atomicLoad(u32, &x, .SeqCst) == 1);
+    @atomicStore(u32, &x, 12345678, .SeqCst);
+    expect(@atomicLoad(u32, &x, .SeqCst) == 12345678);
+}

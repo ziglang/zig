@@ -25807,7 +25807,7 @@ static IrInstruction *ir_analyze_instruction_atomic_store(IrAnalyze *ira, IrInst
     if (type_is_invalid(ptr_inst->value.type))
         return ira->codegen->invalid_instruction;
 
-    ZigType *ptr_type = get_pointer_to_type(ira->codegen, operand_type, true);
+    ZigType *ptr_type = get_pointer_to_type(ira->codegen, operand_type, false);
     IrInstruction *casted_ptr = ir_implicit_cast(ira, ptr_inst, ptr_type);
     if (type_is_invalid(casted_ptr->value.type))
         return ira->codegen->invalid_instruction;
@@ -25837,8 +25837,8 @@ static IrInstruction *ir_analyze_instruction_atomic_store(IrAnalyze *ira, IrInst
     }
 
     if (instr_is_comptime(casted_value) && instr_is_comptime(casted_ptr)) {
-        IrInstruction *result = ir_get_deref(ira, &instruction->base, casted_ptr, nullptr);
-        ir_assert(result->value.type != nullptr, &instruction->base);
+        IrInstruction *result = ir_analyze_store_ptr(ira, &instruction->base, casted_ptr, value, false);
+        result->value.type = ira->codegen->builtin_types.entry_void;
         return result;
     }
 
