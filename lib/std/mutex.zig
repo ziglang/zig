@@ -39,12 +39,14 @@ pub const Mutex = if (builtin.single_threaded)
     }
 else
     struct {
-        state: u32, // TODO: make this an enum
+        state: State, // TODO: make this an enum
         parker: ThreadParker,
 
-        const Unlocked = 0;
-        const Sleeping = 1;
-        const Locked = 2;
+        const State = enum(u32) {
+            Unlocked,
+            Sleeping,
+            Locked,
+        };
 
         /// number of iterations to spin yielding the cpu
         const SPIN_CPU = 4;
@@ -57,7 +59,7 @@ else
 
         pub fn init() Mutex {
             return Mutex{
-                .state = Unlocked,
+                .state = .Unlocked,
                 .parker = ThreadParker.init(),
             };
         }
@@ -70,10 +72,10 @@ else
             mutex: *Mutex,
 
             pub fn release(self: Held) void {
-                switch (@atomicRmw(u32, &self.mutex.state, .Xchg, Unlocked, .Release)) {
-                    Locked => {},
-                    Sleeping => self.mutex.parker.unpark(&self.mutex.state),
-                    Unlocked => unreachable, // unlocking an unlocked mutex
+                switch (@atomicRmw(State, &self.mutex.state, .Xchg, .Unlocked, .Release)) {
+                    .Locked => {},
+                    .Sleeping => self.mutex.parker.unpark(@ptrCast(*const u32,  &self.mutex.state)),
+                    .Unlocked => unreachable, // unlocking an unlocked mutex
                     else => unreachable, // should never be anything else
                 }
             }
@@ -83,34 +85,34 @@ else
             // Try and speculatively grab the lock.
             // If it fails, the state is either Locked or Sleeping
             // depending on if theres a thread stuck sleeping below.
-            var state = @atomicRmw(u32, &self.state, .Xchg, Locked, .Acquire);
-            if (state == Unlocked)
+            var state = @atomicRmw(State, &self.state, .Xchg, .Locked, .Acquire);
+            if (state == .Unlocked)
                 return Held{ .mutex = self };
 
             while (true) {
                 // try and acquire the lock using cpu spinning on failure
                 var spin: usize = 0;
                 while (spin < SPIN_CPU) : (spin += 1) {
-                    var value = @atomicLoad(u32, &self.state, .Monotonic);
-                    while (value == Unlocked)
-                        value = @cmpxchgWeak(u32, &self.state, Unlocked, state, .Acquire, .Monotonic) orelse return Held{ .mutex = self };
+                    var value = @atomicLoad(State, &self.state, .Monotonic);
+                    while (value == .Unlocked)
+                        value = @cmpxchgWeak(State, &self.state, .Unlocked, state, .Acquire, .Monotonic) orelse return Held{ .mutex = self };
                     SpinLock.yield(SPIN_CPU_COUNT);
                 }
 
                 // try and acquire the lock using thread rescheduling on failure
                 spin = 0;
                 while (spin < SPIN_THREAD) : (spin += 1) {
-                    var value = @atomicLoad(u32, &self.state, .Monotonic);
-                    while (value == Unlocked)
-                        value = @cmpxchgWeak(u32, &self.state, Unlocked, state, .Acquire, .Monotonic) orelse return Held{ .mutex = self };
+                    var value = @atomicLoad(State, &self.state, .Monotonic);
+                    while (value == .Unlocked)
+                        value = @cmpxchgWeak(State, &self.state, .Unlocked, state, .Acquire, .Monotonic) orelse return Held{ .mutex = self };
                     std.os.sched_yield() catch std.time.sleep(1);
                 }
 
                 // failed to acquire the lock, go to sleep until woken up by `Held.release()`
-                if (@atomicRmw(u32, &self.state, .Xchg, Sleeping, .Acquire) == Unlocked)
+                if (@atomicRmw(State, &self.state, .Xchg, .Sleeping, .Acquire) == .Unlocked)
                     return Held{ .mutex = self };
-                state = Sleeping;
-                self.parker.park(&self.state, Sleeping);
+                state = .Sleeping;
+                self.parker.park(@ptrCast(*const u32,  &self.state), @enumToInt(State.Sleeping));
             }
         }
     };
