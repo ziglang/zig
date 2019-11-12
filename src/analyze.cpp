@@ -7138,7 +7138,7 @@ static void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
         const_val->data.x_struct.fields = create_const_vals(field_count);
         for (size_t i = 0; i < field_count; i += 1) {
             ConstExprValue *field_val = &const_val->data.x_struct.fields[i];
-            field_val->type = wanted_type->data.structure.fields[i].type_entry;
+            field_val->type = resolve_struct_field_type(g, &wanted_type->data.structure.fields[i]);
             assert(field_val->type);
             init_const_undefined(g, field_val);
             field_val->parent.id = ConstParentIdStruct;
