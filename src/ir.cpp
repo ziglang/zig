@@ -204,6 +204,8 @@ static ResultLocCast *ir_build_cast_result_loc(IrBuilder *irb, IrInstruction *de
         ResultLoc *parent_result_loc);
 static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction *source_instr,
         TypeStructField *field, IrInstruction *struct_ptr, ZigType *struct_type, bool initializing);
+static IrInstruction *ir_analyze_inferred_field_ptr(IrAnalyze *ira, Buf *field_name,
+    IrInstruction *source_instr, IrInstruction *container_ptr, ZigType *container_type);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -16329,16 +16331,14 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
         uint32_t old_field_count = isf->inferred_struct_type->data.structure.src_field_count;
         uint32_t new_field_count = old_field_count + 1;
         isf->inferred_struct_type->data.structure.src_field_count = new_field_count;
-        // This thing with max(x, 16) is a hack to allow this functionality to work without
-        // modifying the ConstExprValue layout of structs. That reworking needs to be
-        // done, but this hack lets us do it separately, in the future.
-        TypeStructField *prev_ptr = isf->inferred_struct_type->data.structure.fields;
-        isf->inferred_struct_type->data.structure.fields = reallocate(
-                isf->inferred_struct_type->data.structure.fields,
-                (old_field_count == 0) ? 0 : max(old_field_count, 16u),
-                max(new_field_count, 16u));
-        if (prev_ptr != nullptr && prev_ptr != isf->inferred_struct_type->data.structure.fields) {
-            zig_panic("TODO need to rework the layout of ZigTypeStruct. this realloc would have caused invalid pointer references");
+        if (new_field_count > 16) {
+            // This thing with 16 is a hack to allow this functionality to work without
+            // modifying the ConstExprValue layout of structs. That reworking needs to be
+            // done, but this hack lets us do it separately, in the future.
+            zig_panic("TODO need to rework the layout of ZigTypeStruct. This realloc would have caused invalid pointer references");
+        }
+        if (isf->inferred_struct_type->data.structure.fields == nullptr) {
+            isf->inferred_struct_type->data.structure.fields = allocate<TypeStructField>(16);
         }
 
         // This reference can't live long, don't keep it around outside this block.
@@ -16368,15 +16368,14 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
                 ConstExprValue *struct_val = const_ptr_pointee(ira, ira->codegen, ptr_val,
                         source_instr->source_node);
                 struct_val->special = ConstValSpecialStatic;
-                ConstExprValue *prev_ptr = struct_val->data.x_struct.fields;
-                // This thing with max(x, 16) is a hack to allow this functionality to work without
-                // modifying the ConstExprValue layout of structs. That reworking needs to be
-                // done, but this hack lets us do it separately, in the future.
-                struct_val->data.x_struct.fields = realloc_const_vals(struct_val->data.x_struct.fields,
-                        (old_field_count == 0) ? 0 : max(old_field_count, 16u),
-                        max(new_field_count, 16u));
-                if (prev_ptr != nullptr && prev_ptr != struct_val->data.x_struct.fields) {
-                    zig_panic("TODO need to rework the layout of ConstExprValue for structs. this realloc would have caused invalid pointer references");
+                if (new_field_count > 16) {
+                    // This thing with 16 is a hack to allow this functionality to work without
+                    // modifying the ConstExprValue layout of structs. That reworking needs to be
+                    // done, but this hack lets us do it separately, in the future.
+                    zig_panic("TODO need to rework the layout of ConstExprValue for structs. This realloc would have caused invalid pointer references");
+                }
+                if (struct_val->data.x_struct.fields == nullptr) {
+                    struct_val->data.x_struct.fields = create_const_vals(16);
                 }
 
                 ConstExprValue *field_val = &struct_val->data.x_struct.fields[old_field_count];
@@ -17893,6 +17892,19 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
     } else if (array_type->id == ZigTypeIdVector) {
         // This depends on whether the element index is comptime, so it is computed later.
         return_type = nullptr;
+    } else if (elem_ptr_instruction->init_array_type_source_node != nullptr &&
+        array_type->id == ZigTypeIdStruct &&
+        array_type->data.structure.resolve_status == ResolveStatusBeingInferred)
+    {
+        ZigType *usize = ira->codegen->builtin_types.entry_usize;
+        IrInstruction *casted_elem_index = ir_implicit_cast(ira, elem_index, usize);
+        if (casted_elem_index == ira->codegen->invalid_instruction)
+            return ira->codegen->invalid_instruction;
+        ir_assert(instr_is_comptime(casted_elem_index), &elem_ptr_instruction->base);
+        Buf *field_name = buf_alloc();
+        bigint_append_buf(field_name, &casted_elem_index->value.data.x_bigint, 10);
+        return ir_analyze_inferred_field_ptr(ira, field_name, &elem_ptr_instruction->base,
+                array_ptr, array_type);
     } else {
         ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
                 buf_sprintf("array access of non-array type '%s'", buf_ptr(&array_type->name)));
@@ -20246,8 +20258,12 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
         TypeStructField *field = &container_type->data.structure.fields[i];
         if (field->init_val == nullptr) {
             // it's not memoized. time to go analyze it
-            assert(field->decl_node->type == NodeTypeStructField);
-            AstNode *init_node = field->decl_node->data.struct_field.value;
+            AstNode *init_node;
+            if (field->decl_node->type == NodeTypeStructField) {
+                init_node = field->decl_node->data.struct_field.value;
+            } else {
+                init_node = nullptr;
+            }
             if (init_node == nullptr) {
                 ir_add_error_node(ira, instruction->source_node,
                     buf_sprintf("missing field: '%s'", buf_ptr(container_type->data.structure.fields[i].name)));
@@ -20337,20 +20353,25 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         return ir_analyze_container_init_fields(ira, &instruction->base, container_type, 0, nullptr, result_loc);
     }
 
-    if (container_type->id != ZigTypeIdArray) {
+    if (container_type->id == ZigTypeIdArray) {
+        ZigType *child_type = container_type->data.array.child_type;
+        if (container_type->data.array.len != elem_count) {
+            ZigType *literal_type = get_array_type(ira->codegen, child_type, elem_count);
+
+            ir_add_error(ira, &instruction->base,
+                buf_sprintf("expected %s literal, found %s literal",
+                    buf_ptr(&container_type->name), buf_ptr(&literal_type->name)));
+            return ira->codegen->invalid_instruction;
+        }
+    } else if (container_type->id == ZigTypeIdStruct &&
+         container_type->data.structure.resolve_status == ResolveStatusBeingInferred)
+    {
+        // We're now done inferring the type.
+        container_type->data.structure.resolve_status = ResolveStatusUnstarted;
+    } else {
         ir_add_error_node(ira, instruction->base.source_node,
             buf_sprintf("type '%s' does not support array initialization",
                 buf_ptr(&container_type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    ZigType *child_type = container_type->data.array.child_type;
-    if (container_type->data.array.len != elem_count) {
-        ZigType *literal_type = get_array_type(ira->codegen, child_type, elem_count);
-
-        ir_add_error(ira, &instruction->base,
-            buf_sprintf("expected %s literal, found %s literal",
-                buf_ptr(&container_type->name), buf_ptr(&literal_type->name)));
         return ira->codegen->invalid_instruction;
     }
 

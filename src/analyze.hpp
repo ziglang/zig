@@ -175,7 +175,6 @@ void init_const_arg_tuple(CodeGen *g, ConstExprValue *const_val, size_t arg_inde
 ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_t arg_index_end);
 
 ConstExprValue *create_const_vals(size_t count);
-ConstExprValue *realloc_const_vals(ConstExprValue *base, size_t old_count, size_t new_count);
 
 ZigType *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
 void expand_undef_array(CodeGen *g, ConstExprValue *const_val);

@@ -751,3 +751,20 @@ test "fully anonymous struct" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "fully anonymous list literal" {
+    const S = struct {
+        fn doTheTest() void {
+            dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi"});
+        }
+        fn dump(args: var) void {
+            expect(args.@"0" == 1234);
+            expect(args.@"1" == 12.34);
+            expect(args.@"2");
+            expect(args.@"3"[0] == 'h');
+            expect(args.@"3"[1] == 'i');
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

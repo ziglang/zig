@@ -5857,15 +5857,9 @@ ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_
 
 
 ConstExprValue *create_const_vals(size_t count) {
-    return realloc_const_vals(nullptr, 0, count);
-}
-
-ConstExprValue *realloc_const_vals(ConstExprValue *base, size_t old_count, size_t new_count) {
-    ConstGlobalRefs *old_global_refs = (base == nullptr) ? nullptr : base->global_refs;
-    ConstGlobalRefs *global_refs = reallocate<ConstGlobalRefs>(old_global_refs, old_count,
-            new_count, "ConstGlobalRefs");
-    ConstExprValue *vals = reallocate<ConstExprValue>(base, old_count, new_count, "ConstExprValue");
-    for (size_t i = old_count; i < new_count; i += 1) {
+    ConstGlobalRefs *global_refs = allocate<ConstGlobalRefs>(count, "ConstGlobalRefs");
+    ConstExprValue *vals = allocate<ConstExprValue>(count, "ConstExprValue");
+    for (size_t i = 0; i < count; i += 1) {
         vals[i].global_refs = &global_refs[i];
     }
     return vals;
