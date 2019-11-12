@@ -25394,6 +25394,7 @@ static IrInstruction *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
 }
 
 static IrInstruction *ir_analyze_instruction_ptr_to_int(IrAnalyze *ira, IrInstructionPtrToInt *instruction) {
+    Error err;
     IrInstruction *target = instruction->target->child;
     if (type_is_invalid(target->value.type))
         return ira->codegen->invalid_instruction;
@@ -25407,6 +25408,8 @@ static IrInstruction *ir_analyze_instruction_ptr_to_int(IrAnalyze *ira, IrInstru
         return ira->codegen->invalid_instruction;
     }
 
+    if ((err = type_resolve(ira->codegen, target->value.type, ResolveStatusZeroBitsKnown)))
+        return ira->codegen->invalid_instruction;
     if (!type_has_bits(target->value.type)) {
         ir_add_error(ira, target,
                 buf_sprintf("pointer to size 0 type has no address"));
