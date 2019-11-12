@@ -1734,6 +1734,43 @@ test "array initialization with function calls" {
       {#code_end#}
       {#see_also|for|Slices#}
 
+      {#header_open|Anonymous List Literals#}
+      <p>Similar to {#link|Enum Literals#} and {#link|Anonymous Struct Literals#}
+      the type can be omitted from array literals:</p>
+      {#code_begin|test|anon_list#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "anonymous list literal syntax" {
+    var array: [4]u8 = .{11, 22, 33, 44};
+    assert(array[0] == 11);
+    assert(array[1] == 22);
+    assert(array[2] == 33);
+    assert(array[3] == 44);
+}
+      {#code_end#}
+      <p>
+      If there is no type in the result location then an anonymous list literal actually
+      turns into a {#link|struct#} with numbered field names:
+      </p>
+      {#code_begin|test|infer_list_literal#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "fully anonymous list literal" {
+    dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi"});
+}
+
+fn dump(args: var) void {
+    assert(args.@"0" == 1234);
+    assert(args.@"1" == 12.34);
+    assert(args.@"2");
+    assert(args.@"3"[0] == 'h');
+    assert(args.@"3"[1] == 'i');
+}
+      {#code_end#}
+      {#header_close#}
+
       {#header_open|Multidimensional Arrays#}
       <p>
       Mutlidimensional arrays can be created by nesting arrays:
@@ -2526,7 +2563,8 @@ test "overaligned pointer to packed struct" {
       Don't worry, there will be a good solution for this use case in zig.
       </p>
       {#header_close#}
-      {#header_open|struct Naming#}
+
+      {#header_open|Struct Naming#}
       <p>Since all structs are anonymous, Zig infers the type name based on a few rules.</p>
       <ul>
           <li>If the struct is in the initialization expression of a variable, it gets named after
@@ -2549,6 +2587,53 @@ fn List(comptime T: type) type {
     return struct {
         x: T,
     };
+}
+      {#code_end#}
+      {#header_close#}
+
+      {#header_open|Anonymous Struct Literals#}
+      <p>
+      Zig allows omitting the struct type of a literal. When the result is {#link|coerced|Type Coercion#},
+      the struct literal will directly instantiate the result location, with no copy:
+      </p>
+      {#code_begin|test|struct_result#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const Point = struct {x: i32, y: i32};
+
+test "anonymous struct literal" {
+    var pt: Point = .{
+        .x = 13,
+        .y = 67,
+    };
+    assert(pt.x == 13);
+    assert(pt.y == 67);
+}
+      {#code_end#}
+      <p>
+      The struct type can be inferred. Here the result location does not include a type, and
+      so Zig infers the type:
+      </p>
+      {#code_begin|test|struct_anon#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "fully anonymous struct" {
+    dump(.{
+        .int = @as(u32, 1234),
+        .float = @as(f64, 12.34),
+        .b = true,
+        .s = "hi",
+    });
+}
+
+fn dump(args: var) void {
+    assert(args.int == 1234);
+    assert(args.float == 12.34);
+    assert(args.b);
+    assert(args.s[0] == 'h');
+    assert(args.s[1] == 'i');
 }
       {#code_end#}
       {#header_close#}
@@ -2906,6 +2991,32 @@ test "@tagName" {
       <p>A {#syntax#}packed union{#endsyntax#} has well-defined in-memory layout and is eligible
       to be in a {#link|packed struct#}.
       {#header_close#}
+
+      {#header_open|Anonymous Union Literals#}
+      <p>{#link|Anonymous Struct Literals#} syntax can be used to initialize unions without specifying
+      the type:</p>
+      {#code_begin|test|anon_union#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const Number = union {
+    int: i32,
+    float: f64,
+};
+
+test "anonymous union literal syntax" {
+    var i: Number = .{.int = 42};
+    var f = makeNumber();
+    assert(i.int == 42);
+    assert(f.float == 12.34);
+}
+
+fn makeNumber() Number {
+    return .{.float = 12.34};
+}
+      {#code_end#}
+      {#header_close#}
+
       {#header_close#}
 
       {#header_open|blocks#}
