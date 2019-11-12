@@ -1,3 +1,20 @@
+test "zig fmt: anon struct literal syntax" {
+    try testCanonical(
+        \\const x = .{
+        \\    .a = b,
+        \\    .c = d,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: anon list literal syntax" {
+    try testCanonical(
+        \\const x = .{ a, b, c };
+        \\
+    );
+}
+
 test "zig fmt: async function" {
     try testCanonical(
         \\pub const Server = struct {

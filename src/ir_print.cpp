@@ -731,7 +731,6 @@ static void ir_print_phi(IrPrint *irp, IrInstructionPhi *phi_instruction) {
 }
 
 static void ir_print_container_init_list(IrPrint *irp, IrInstructionContainerInitList *instruction) {
-    ir_print_other_instruction(irp, instruction->container_type);
     fprintf(irp->f, "{");
     if (instruction->item_count > 50) {
         fprintf(irp->f, "...(%" ZIG_PRI_usize " items)...", instruction->item_count);
@@ -743,11 +742,11 @@ static void ir_print_container_init_list(IrPrint *irp, IrInstructionContainerIni
             ir_print_other_instruction(irp, result_loc);
         }
     }
-    fprintf(irp->f, "}");
+    fprintf(irp->f, "}result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
 }
 
 static void ir_print_container_init_fields(IrPrint *irp, IrInstructionContainerInitFields *instruction) {
-    ir_print_other_instruction(irp, instruction->container_type);
     fprintf(irp->f, "{");
     for (size_t i = 0; i < instruction->field_count; i += 1) {
         IrInstructionContainerInitFieldsField *field = &instruction->fields[i];
@@ -755,7 +754,8 @@ static void ir_print_container_init_fields(IrPrint *irp, IrInstructionContainerI
         fprintf(irp->f, "%s.%s = ", comma, buf_ptr(field->name));
         ir_print_other_instruction(irp, field->result_loc);
     }
-    fprintf(irp->f, "} // container init");
+    fprintf(irp->f, "}result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
 }
 
 static void ir_print_unreachable(IrPrint *irp, IrInstructionUnreachable *instruction) {

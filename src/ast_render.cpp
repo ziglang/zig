@@ -821,7 +821,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 break;
             }
         case NodeTypeContainerInitExpr:
-            render_node_ungrouped(ar, node->data.container_init_expr.type);
+            if (node->data.container_init_expr.type != nullptr) {
+                render_node_ungrouped(ar, node->data.container_init_expr.type);
+            }
             if (node->data.container_init_expr.kind == ContainerInitKindStruct) {
                 fprintf(ar->f, "{\n");
                 ar->indent += ar->indent_size;

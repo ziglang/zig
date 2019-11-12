@@ -549,3 +549,25 @@ test "initialize global array of union" {
     expect(glbl_array[0].U0 == 1);
     expect(glbl_array[1].U1 == 2);
 }
+
+test "anonymous union literal syntax" {
+    const S = struct {
+        const Number = union {
+            int: i32,
+            float: f64,
+        };
+
+        fn doTheTest() void {
+            var i: Number = .{.int = 42};
+            var f = makeNumber();
+            expect(i.int == 42);
+            expect(f.float == 12.34);
+        }
+
+        fn makeNumber() Number {
+            return .{.float = 12.34};
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

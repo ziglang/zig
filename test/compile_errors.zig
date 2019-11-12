@@ -3,6 +3,23 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "missing const in slice with nested array type",
+        \\const Geo3DTex2D = struct { vertices: [][2]f32 };
+        \\pub fn getGeo3DTex2D() Geo3DTex2D {
+        \\    return Geo3DTex2D{
+        \\        .vertices = [_][2]f32{
+        \\            [_]f32{ -0.5, -0.5},
+        \\        },
+        \\    };
+        \\}
+        \\export fn entry() void {
+        \\    var geo_data = getGeo3DTex2D();
+        \\}
+    ,
+        "tmp.zig:4:30: error: expected type '[][2]f32', found '[1][2]f32'",
+    );
+
+    cases.add(
         "slicing of global undefined pointer",
         \\var buf: *[1]u8 = undefined;
         \\export fn entry() void {
@@ -216,9 +233,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const obj = AstObject{ .lhsExpr = lhsExpr };
         \\}
     ,
-        "tmp.zig:4:19: error: union 'AstObject' depends on itself",
-        "tmp.zig:2:5: note: while checking this field",
+        "tmp.zig:1:17: error: struct 'LhsExpr' depends on itself",
         "tmp.zig:5:5: note: while checking this field",
+        "tmp.zig:2:5: note: while checking this field",
     );
 
     cases.add(

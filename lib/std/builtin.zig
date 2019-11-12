@@ -90,40 +90,11 @@ pub const Mode = enum {
     ReleaseSmall,
 };
 
-/// This data structure is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-pub const TypeId = enum {
-    Type,
-    Void,
-    Bool,
-    NoReturn,
-    Int,
-    Float,
-    Pointer,
-    Array,
-    Struct,
-    ComptimeFloat,
-    ComptimeInt,
-    Undefined,
-    Null,
-    Optional,
-    ErrorUnion,
-    ErrorSet,
-    Enum,
-    Union,
-    Fn,
-    BoundFn,
-    ArgTuple,
-    Opaque,
-    Frame,
-    AnyFrame,
-    Vector,
-    EnumLiteral,
-};
+pub const TypeId = @TagType(TypeInfo);
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const TypeInfo = union(TypeId) {
+pub const TypeInfo = union(enum) {
     Type: void,
     Void: void,
     Bool: void,

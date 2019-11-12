@@ -709,3 +709,62 @@ test "packed struct field passed to generic function" {
     var loaded = S.genericReadPackedField(&p.b);
     expect(loaded == 29);
 }
+
+test "anonymous struct literal syntax" {
+    const S = struct {
+        const Point = struct {
+            x: i32,
+            y: i32,
+        };
+
+        fn doTheTest() void {
+            var p: Point = .{
+                .x = 1,
+                .y = 2,
+            };
+            expect(p.x == 1);
+            expect(p.y == 2);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "fully anonymous struct" {
+    const S = struct {
+        fn doTheTest() void {
+            dump(.{
+                .int = @as(u32, 1234),
+                .float = @as(f64, 12.34),
+                .b = true,
+                .s = "hi",
+            });
+        }
+        fn dump(args: var) void {
+            expect(args.int == 1234);
+            expect(args.float == 12.34);
+            expect(args.b);
+            expect(args.s[0] == 'h');
+            expect(args.s[1] == 'i');
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "fully anonymous list literal" {
+    const S = struct {
+        fn doTheTest() void {
+            dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi"});
+        }
+        fn dump(args: var) void {
+            expect(args.@"0" == 1234);
+            expect(args.@"1" == 12.34);
+            expect(args.@"2");
+            expect(args.@"3"[0] == 'h');
+            expect(args.@"3"[1] == 'i');
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

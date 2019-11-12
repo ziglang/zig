@@ -298,3 +298,17 @@ test "implicit cast zero sized array ptr to slice" {
     const c: []const u8 = &b;
     expect(c.len == 0);
 }
+
+test "anonymous list literal syntax" {
+    const S = struct {
+        fn doTheTest() void {
+            var array: [4]u8 = .{1, 2, 3, 4};
+            expect(array[0] == 1);
+            expect(array[1] == 2);
+            expect(array[2] == 3);
+            expect(array[3] == 4);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
