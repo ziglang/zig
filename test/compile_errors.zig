@@ -2113,8 +2113,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
             \\
             \\fn bar(x: *b.Foo) void {}
         ,
-            "tmp.zig:6:10: error: expected type '*b.Foo', found '*a.Foo'",
-            "tmp.zig:6:10: note: pointer type child 'a.Foo' cannot cast into pointer type child 'b.Foo'",
+            "tmp.zig:6:9: error: expected type '*b.Foo', found '*a.Foo'",
+            "tmp.zig:6:9: note: pointer type child 'a.Foo' cannot cast into pointer type child 'b.Foo'",
             "a.zig:1:17: note: a.Foo declared here",
             "b.zig:1:17: note: b.Foo declared here",
         );
@@ -4978,7 +4978,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
     ,
-        "tmp.zig:8:26: error: expected type '*const u3', found '*align(:3:1) const u3'",
+        "tmp.zig:8:16: error: expected type '*const u3', found '*align(:3:1) const u3'",
     );
 
     cases.add(
@@ -5675,7 +5675,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    x.* += 1;
         \\}
     ,
-        "tmp.zig:8:13: error: expected type '*u32', found '*align(1) u32'",
+        "tmp.zig:8:9: error: expected type '*u32', found '*align(1) u32'",
     );
 
     cases.add(

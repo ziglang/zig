@@ -3665,6 +3665,7 @@ struct IrInstructionArgType {
 
     IrInstruction *fn_type;
     IrInstruction *arg_index;
+    bool allow_var;
 };
 
 struct IrInstructionExport {

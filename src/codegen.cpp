@@ -7821,6 +7821,11 @@ static void define_builtin_types(CodeGen *g) {
         g->builtin_types.entry_null = entry;
     }
     {
+        ZigType *entry = new_type_table_entry(ZigTypeIdOpaque);
+        buf_init_from_str(&entry->name, "(var)");
+        g->builtin_types.entry_var = entry;
+    }
+    {
         ZigType *entry = new_type_table_entry(ZigTypeIdArgTuple);
         buf_init_from_str(&entry->name, "(args)");
         g->builtin_types.entry_arg_tuple = entry;

@@ -247,3 +247,19 @@ test "discard the result of a function that returns a struct" {
     S.entry();
     comptime S.entry();
 }
+
+test "function call with anon list literal" {
+    const S = struct {
+        fn doTheTest() void {
+            consumeVec(.{9, 8, 7});
+        }
+
+        fn consumeVec(vec: [3]f32) void {
+            expect(vec[0] == 9);
+            expect(vec[1] == 8);
+            expect(vec[2] == 7);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

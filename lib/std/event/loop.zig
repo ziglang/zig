@@ -645,12 +645,6 @@ pub const Loop = struct {
         }
     }
 
-    /// This is equivalent to function call, except it calls `startCpuBoundOperation` first.
-    pub fn call(comptime func: var, args: ...) @typeOf(func).ReturnType {
-        startCpuBoundOperation();
-        return func(args);
-    }
-
     /// Yielding lets the event loop run, starting any unstarted async operations.
     /// Note that async operations automatically start when a function yields for any other reason,
     /// for example, when async I/O is performed. This function is intended to be used only when
@@ -940,23 +934,6 @@ test "std.event.Loop - basic" {
     defer loop.deinit();
 
     loop.run();
-}
-
-test "std.event.Loop - call" {
-    // https://github.com/ziglang/zig/issues/1908
-    if (builtin.single_threaded) return error.SkipZigTest;
-
-    var loop: Loop = undefined;
-    try loop.initMultiThreaded();
-    defer loop.deinit();
-
-    var did_it = false;
-    var handle = async Loop.call(testEventLoop);
-    var handle2 = async Loop.call(testEventLoop2, &handle, &did_it);
-
-    loop.run();
-
-    testing.expect(did_it);
 }
 
 async fn testEventLoop() i32 {
