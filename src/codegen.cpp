@@ -5650,6 +5650,17 @@ static LLVMValueRef ir_render_atomic_load(CodeGen *g, IrExecutable *executable,
     return load_inst;
 }
 
+static LLVMValueRef ir_render_atomic_store(CodeGen *g, IrExecutable *executable,
+        IrInstructionAtomicStore *instruction)
+{
+    LLVMAtomicOrdering ordering = to_LLVMAtomicOrdering(instruction->resolved_ordering);
+    LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
+    LLVMValueRef value = ir_llvm_value(g, instruction->value);
+    LLVMValueRef store_inst = gen_store(g, value, ptr, instruction->ptr->value.type);
+    LLVMSetOrdering(store_inst, ordering);
+    return nullptr;
+}
+
 static LLVMValueRef ir_render_float_op(CodeGen *g, IrExecutable *executable, IrInstructionFloatOp *instruction) {
     LLVMValueRef op = ir_llvm_value(g, instruction->op1);
     assert(instruction->base.value.type->id == ZigTypeIdFloat);
@@ -6253,6 +6264,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_atomic_rmw(g, executable, (IrInstructionAtomicRmw *)instruction);
         case IrInstructionIdAtomicLoad:
             return ir_render_atomic_load(g, executable, (IrInstructionAtomicLoad *)instruction);
+        case IrInstructionIdAtomicStore:
+            return ir_render_atomic_store(g, executable, (IrInstructionAtomicStore *)instruction);
         case IrInstructionIdSaveErrRetAddr:
             return ir_render_save_err_ret_addr(g, executable, (IrInstructionSaveErrRetAddr *)instruction);
         case IrInstructionIdFloatOp:
@@ -8064,6 +8077,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdErrorReturnTrace, "errorReturnTrace", 0);
     create_builtin_fn(g, BuiltinFnIdAtomicRmw, "atomicRmw", 5);
     create_builtin_fn(g, BuiltinFnIdAtomicLoad, "atomicLoad", 3);
+    create_builtin_fn(g, BuiltinFnIdAtomicStore, "atomicStore", 4);
     create_builtin_fn(g, BuiltinFnIdErrSetCast, "errSetCast", 2);
     create_builtin_fn(g, BuiltinFnIdToBytes, "sliceToBytes", 1);
     create_builtin_fn(g, BuiltinFnIdFromBytes, "bytesToSlice", 2);

@@ -6612,14 +6612,14 @@ async fn func(y: *i32) void {
       This builtin function atomically dereferences a pointer and returns the value.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#},
-      or an integer whose bit count meets these requirements:
+      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#}
+      an integer whose bit count meets these requirements:
       </p>
       <ul>
           <li>At least 8</li>
           <li>At most the same as usize</li>
           <li>Power of 2</li>
-      </ul>
+      </ul> or an enum with a valid integer tag type.
       <p>
       TODO right now bool is not accepted. Also I think we could make non powers of 2 work fine, maybe
       we can remove this restriction
@@ -6659,6 +6659,25 @@ async fn func(y: *i32) void {
         <li>{#syntax#}.Max{#endsyntax#} - stores the operand if it is larger. Supports integers and floats.</li>
         <li>{#syntax#}.Min{#endsyntax#} - stores the operand if it is smaller. Supports integers and floats.</li>
       </ul>
+      {#header_close#}
+      {#header_open|@atomicStore#}
+      <pre>{#syntax#}@atomicStore(comptime T: type, ptr: *T, value: T, comptime ordering: builtin.AtomicOrder) void{#endsyntax#}</pre>
+      <p>
+      This builtin function atomically stores a value.
+      </p>
+      <p>
+      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#}
+      an integer whose bit count meets these requirements:
+      </p>
+      <ul>
+          <li>At least 8</li>
+          <li>At most the same as usize</li>
+          <li>Power of 2</li>
+      </ul> or an enum with a valid integer tag type.
+      <p>
+      TODO right now bool is not accepted. Also I think we could make non powers of 2 work fine, maybe
+      we can remove this restriction
+      </p>
       {#header_close#}
       {#header_open|@bitCast#}
       <pre>{#syntax#}@bitCast(comptime DestType: type, value: var) DestType{#endsyntax#}</pre>
