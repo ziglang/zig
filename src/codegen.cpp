@@ -1699,6 +1699,10 @@ static void gen_var_debug_decl(CodeGen *g, ZigVar *var) {
 }
 
 static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
+    Error err;
+    if ((err = type_resolve(g, instruction->value.type, ResolveStatusZeroBitsKnown))) {
+        codegen_report_errors_and_exit(g);
+    }
     if (!type_has_bits(instruction->value.type))
         return nullptr;
     if (!instruction->llvm_value) {
