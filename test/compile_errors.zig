@@ -3,6 +3,22 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "atomicrmw with enum op not .Xchg",
+        \\export fn entry() void {
+        \\    const E = enum(u8) {
+        \\        a,
+        \\        b,
+        \\        c,
+        \\        d,
+        \\    };
+        \\    var x: E = .a;
+        \\    _ = @atomicRmw(E, &x, .Add, .b, .SeqCst);
+        \\}
+    ,
+        "tmp.zig:9:27: error: @atomicRmw on enum only works with .Xchg",
+    );
+
+    cases.add(
         "atomic orderings of atomicStore Acquire or AcqRel",
         \\export fn entry() void {
         \\    var x: u32 = 0;
