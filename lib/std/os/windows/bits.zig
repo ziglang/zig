@@ -166,6 +166,14 @@ pub const FILE_ANY_ACCESS = 0;
 pub const FILE_READ_ACCESS = 1;
 pub const FILE_WRITE_ACCESS = 2;
 
+/// https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/defining-i-o-control-codes
+pub fn CTL_CODE(deviceType: u16, function: u12, method: TransferType, access: u2) DWORD {
+    return (@as(DWORD, deviceType) << 16) |
+        (@as(DWORD, access) << 14) |
+        (@as(DWORD, function) << 2) |
+        @enumToInt(method);
+}
+
 pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, maxInt(usize));
 
 pub const INVALID_FILE_ATTRIBUTES = @as(DWORD, maxInt(DWORD));
