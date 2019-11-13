@@ -608,6 +608,27 @@ pub fn GetFileAttributesW(lpFileName: [*]const u16) GetFileAttributesError!DWORD
     return rc;
 }
 
+pub fn WSASocketW(
+    af: i32,
+    socket_type: i32,
+    protocol: i32,
+    protocolInfo: ?*ws2_32.WSAPROTOCOL_INFOW,
+    g: ws2_32.GROUP,
+    dwFlags: DWORD,
+) !ws2_32.SOCKET {
+    const rc = ws2_32.WSASocketW(af, socket_type, protocol, protocolInfo, g, dwFlags);
+    if (rc == ws2_32.INVALID_SOCKET) {
+        switch (ws2_32.WSAGetLastError()) {
+            ws2_32.WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+            ws2_32.WSAEMFILE => return error.ProcessFdQuotaExceeded,
+            ws2_32.WSAENOBUFS => return error.SystemResources,
+            ws2_32.WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,
+            else => |err| return unexpectedWSAError(err),
+        }
+    }
+    return rc;
+}
+
 const GetModuleFileNameError = error{Unexpected};
 
 pub fn GetModuleFileNameW(hModule: ?HMODULE, buf_ptr: [*]u16, buf_len: DWORD) GetModuleFileNameError![]u16 {
@@ -903,6 +924,10 @@ pub fn unexpectedError(err: DWORD) std.os.UnexpectedError {
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
+}
+
+pub fn unexpectedWSAError(err: c_int) std.os.UnexpectedError {
+    return unexpectedError(@intCast(DWORD, err));
 }
 
 /// Call this when you made a windows NtDll call
