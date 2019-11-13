@@ -755,7 +755,7 @@ test "fully anonymous struct" {
 test "fully anonymous list literal" {
     const S = struct {
         fn doTheTest() void {
-            dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi"});
+            dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi" });
         }
         fn dump(args: var) void {
             expect(args.@"0" == 1234);
@@ -767,4 +767,13 @@ test "fully anonymous list literal" {
     };
     S.doTheTest();
     comptime S.doTheTest();
+}
+
+test "anonymous struct literal assigned to variable" {
+    var vec = .{ @as(i32, 22), @as(i32, 55), @as(i32, 99) };
+    expect(vec.@"0" == 22);
+    expect(vec.@"1" == 55);
+    expect(vec.@"2" == 99);
+    vec.@"1" += 1;
+    expect(vec.@"1" == 56);
 }

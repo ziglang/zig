@@ -5432,12 +5432,33 @@ bool fn_eval_eql(Scope *a, Scope *b) {
     return false;
 }
 
-// Whether the type has bits at runtime.
+// Deprecated. Use type_has_bits2.
 bool type_has_bits(ZigType *type_entry) {
     assert(type_entry != nullptr);
     assert(!type_is_invalid(type_entry));
     assert(type_is_resolved(type_entry, ResolveStatusZeroBitsKnown));
     return type_entry->abi_size != 0;
+}
+
+// Whether the type has bits at runtime.
+Error type_has_bits2(CodeGen *g, ZigType *type_entry, bool *result) {
+    Error err;
+
+    if (type_is_invalid(type_entry))
+        return ErrorSemanticAnalyzeFail;
+
+    if (type_entry->id == ZigTypeIdStruct &&
+        type_entry->data.structure.resolve_status == ResolveStatusBeingInferred)
+    {
+        *result = true;
+        return ErrorNone;
+    }
+
+    if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
+        return err;
+
+    *result = type_entry->abi_size != 0;
+    return ErrorNone;
 }
 
 // Whether you can infer the value based solely on the type.

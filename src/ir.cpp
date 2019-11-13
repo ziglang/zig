@@ -15513,15 +15513,16 @@ static IrInstruction *ir_analyze_alloca(IrAnalyze *ira, IrInstruction *source_in
     result->base.value.data.x_ptr.mut = force_comptime ? ConstPtrMutComptimeVar : ConstPtrMutInfer;
     result->base.value.data.x_ptr.data.ref.pointee = pointee;
 
-    if ((err = type_resolve(ira->codegen, var_type, ResolveStatusZeroBitsKnown)))
+    bool var_type_has_bits;
+    if ((err = type_has_bits2(ira->codegen, var_type, &var_type_has_bits)))
         return ira->codegen->invalid_instruction;
     if (align != 0) {
         if ((err = type_resolve(ira->codegen, var_type, ResolveStatusAlignmentKnown)))
             return ira->codegen->invalid_instruction;
-        if (!type_has_bits(var_type)) {
-                ir_add_error(ira, source_inst,
-                    buf_sprintf("variable '%s' of zero-bit type '%s' has no in-memory representation, it cannot be aligned",
-                        name_hint, buf_ptr(&var_type->name)));
+        if (!var_type_has_bits) {
+            ir_add_error(ira, source_inst,
+                buf_sprintf("variable '%s' of zero-bit type '%s' has no in-memory representation, it cannot be aligned",
+                    name_hint, buf_ptr(&var_type->name)));
             return ira->codegen->invalid_instruction;
         }
     }
@@ -22138,15 +22139,15 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
             }
             for (size_t i = 0; i < errors_len; i += 1) {
                 Stage2ErrorMsg *clang_err = &errors_ptr[i];
-		// Clang can emit "too many errors, stopping now", in which case `source` and `filename_ptr` are null
-		if (clang_err->source && clang_err->filename_ptr) {
+                // Clang can emit "too many errors, stopping now", in which case `source` and `filename_ptr` are null
+                if (clang_err->source && clang_err->filename_ptr) {
                     ErrorMsg *err_msg = err_msg_create_with_offset(
                         clang_err->filename_ptr ?
                             buf_create_from_mem(clang_err->filename_ptr, clang_err->filename_len) : buf_alloc(),
                         clang_err->line, clang_err->column, clang_err->offset, clang_err->source,
                         buf_create_from_mem(clang_err->msg_ptr, clang_err->msg_len));
                     err_msg_add_note(parent_err_msg, err_msg);
-		}
+                }
             }
 
             return ira->codegen->invalid_instruction;

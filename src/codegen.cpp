@@ -3622,9 +3622,14 @@ static void gen_undef_init(CodeGen *g, uint32_t ptr_align_bytes, ZigType *value_
 }
 
 static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, IrInstructionStorePtr *instruction) {
+    Error err;
+
     ZigType *ptr_type = instruction->ptr->value.type;
     assert(ptr_type->id == ZigTypeIdPointer);
-    if (!type_has_bits(ptr_type))
+    bool ptr_type_has_bits;
+    if ((err = type_has_bits2(g, ptr_type, &ptr_type_has_bits)))
+        codegen_report_errors_and_exit(g);
+    if (!ptr_type_has_bits)
         return nullptr;
     if (instruction->ptr->ref_count == 0) {
         // In this case, this StorePtr instruction should be elided. Something happened like this:
