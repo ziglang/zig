@@ -154,6 +154,14 @@ pub const FILE_DEVICE_NVDIMM: DEVICE_TYPE = 0x005a;
 pub const FILE_DEVICE_HOLOGRAPHIC: DEVICE_TYPE = 0x005b;
 pub const FILE_DEVICE_SDFXHCI: DEVICE_TYPE = 0x005c;
 
+/// https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/buffer-descriptions-for-i-o-control-codes
+pub const TransferType = enum(u2) {
+    METHOD_BUFFERED = 0,
+    METHOD_IN_DIRECT = 1,
+    METHOD_OUT_DIRECT = 2,
+    METHOD_NEITHER = 3,
+};
+
 pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, maxInt(usize));
 
 pub const INVALID_FILE_ATTRIBUTES = @as(DWORD, maxInt(DWORD));
