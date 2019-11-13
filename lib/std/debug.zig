@@ -49,15 +49,15 @@ var stderr_mutex = std.Mutex.init();
 pub fn warn(comptime fmt: []const u8, args: ...) void {
     const held = stderr_mutex.acquire();
     defer held.release();
-    const stderr = getStderrStream() catch return;
+    const stderr = getStderrStream();
     stderr.print(fmt, args) catch return;
 }
 
-pub fn getStderrStream() !*io.OutStream(File.WriteError) {
+pub fn getStderrStream() *io.OutStream(File.WriteError) {
     if (stderr_stream) |st| {
         return st;
     } else {
-        stderr_file = try io.getStdErr();
+        stderr_file = io.getStdErr();
         stderr_file_out_stream = stderr_file.outStream();
         const st = &stderr_file_out_stream.stream;
         stderr_stream = st;
@@ -90,7 +90,7 @@ fn wantTtyColor() bool {
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
-    const stderr = getStderrStream() catch return;
+    const stderr = getStderrStream();
     if (builtin.strip_debug_info) {
         stderr.print("Unable to dump stack trace: debug info stripped\n") catch return;
         return;
@@ -109,7 +109,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 /// unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
-    const stderr = getStderrStream() catch return;
+    const stderr = getStderrStream();
     if (builtin.strip_debug_info) {
         stderr.print("Unable to dump stack trace: debug info stripped\n") catch return;
         return;
@@ -182,7 +182,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace
 /// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
-    const stderr = getStderrStream() catch return;
+    const stderr = getStderrStream();
     if (builtin.strip_debug_info) {
         stderr.print("Unable to dump stack trace: debug info stripped\n") catch return;
         return;
@@ -237,7 +237,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
         // which first called panic can finish printing a stack trace.
         os.abort();
     }
-    const stderr = getStderrStream() catch os.abort();
+    const stderr = getStderrStream();
     stderr.print(format ++ "\n", args) catch os.abort();
     if (trace) |t| {
         dumpStackTrace(t.*);

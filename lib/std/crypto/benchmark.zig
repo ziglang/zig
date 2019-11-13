@@ -131,9 +131,7 @@ fn printPad(stdout: var, s: []const u8) !void {
 }
 
 pub fn main() !void {
-    var stdout_file = try std.io.getStdOut();
-    var stdout_out_stream = stdout_file.outStream();
-    const stdout = &stdout_out_stream.stream;
+    const stdout = &std.io.getStdOut().outStream().stream;
 
     var buffer: [1024]u8 = undefined;
     var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);

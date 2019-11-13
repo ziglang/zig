@@ -1015,7 +1015,7 @@ pub const Value = union(enum) {
         var held = std.debug.getStderrMutex().acquire();
         defer held.release();
 
-        const stderr = std.debug.getStderrStream() catch return;
+        const stderr = std.debug.getStderrStream();
         self.dumpStream(stderr, 1024) catch return;
     }
 
@@ -1026,7 +1026,7 @@ pub const Value = union(enum) {
             var held = std.debug.getStderrMutex().acquire();
             defer held.release();
 
-            const stderr = std.debug.getStderrStream() catch return;
+            const stderr = std.debug.getStderrStream();
             self.dumpStreamIndent(indent, stderr, 1024) catch return;
         }
     }

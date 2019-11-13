@@ -98,11 +98,8 @@ pub const Progress = struct {
     /// TODO solve https://github.com/ziglang/zig/issues/2765 and then change this
     /// API to return Progress rather than accept it as a parameter.
     pub fn start(self: *Progress, name: []const u8, estimated_total_items: ?usize) !*Node {
-        if (std.io.getStdErr()) |stderr| {
-            self.terminal = if (stderr.supportsAnsiEscapeCodes()) stderr else null;
-        } else |_| {
-            self.terminal = null;
-        }
+        const stderr = std.io.getStdErr();
+        self.terminal = if (stderr.supportsAnsiEscapeCodes()) stderr else null;
         self.root = Node{
             .context = self,
             .parent = null,

@@ -34,28 +34,23 @@ else
     Mode.blocking;
 pub const is_async = mode != .blocking;
 
-pub const GetStdIoError = os.windows.GetStdHandleError;
-
-pub fn getStdOut() GetStdIoError!File {
+pub fn getStdOut() File {
     if (builtin.os == .windows) {
-        const handle = try os.windows.GetStdHandle(os.windows.STD_OUTPUT_HANDLE);
-        return File.openHandle(handle);
+        return File.openHandle(os.windows.peb().ProcessParameters.hStdOutput);
     }
     return File.openHandle(os.STDOUT_FILENO);
 }
 
-pub fn getStdErr() GetStdIoError!File {
+pub fn getStdErr() File {
     if (builtin.os == .windows) {
-        const handle = try os.windows.GetStdHandle(os.windows.STD_ERROR_HANDLE);
-        return File.openHandle(handle);
+        return File.openHandle(os.windows.peb().ProcessParameters.hStdError);
     }
     return File.openHandle(os.STDERR_FILENO);
 }
 
-pub fn getStdIn() GetStdIoError!File {
+pub fn getStdIn() File {
     if (builtin.os == .windows) {
-        const handle = try os.windows.GetStdHandle(os.windows.STD_INPUT_HANDLE);
-        return File.openHandle(handle);
+        return File.openHandle(os.windows.peb().ProcessParameters.hStdInput);
     }
     return File.openHandle(os.STDIN_FILENO);
 }
@@ -598,7 +593,7 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
             self.index = 0;
         }
 
-        fn writeFn(out_stream: *Stream, bytes: []const u8) !void {
+        fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
             const self = @fieldParentPtr(Self, "stream", out_stream);
 
             if (bytes.len >= self.buffer.len) {
@@ -814,8 +809,7 @@ pub const BufferedAtomicFile = struct {
 };
 
 pub fn readLine(buf: *std.Buffer) ![]u8 {
-    var stdin = try getStdIn();
-    var stdin_stream = stdin.inStream();
+    var stdin_stream = getStdIn().inStream();
     return readLineFrom(&stdin_stream.stream, buf);
 }
 
@@ -856,8 +850,7 @@ test "io.readLineFrom" {
 }
 
 pub fn readLineSlice(slice: []u8) ![]u8 {
-    var stdin = try getStdIn();
-    var stdin_stream = stdin.inStream();
+    var stdin_stream = getStdIn().inStream();
     return readLineSliceFrom(&stdin_stream.stream, slice);
 }
 

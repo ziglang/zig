@@ -181,7 +181,7 @@ pub const TestContext = struct {
             },
             Compilation.Event.Error => |err| return err,
             Compilation.Event.Fail => |msgs| {
-                var stderr = try std.io.getStdErr();
+                const stderr = std.io.getStdErr();
                 try stderr.write("build incorrectly failed:\n");
                 for (msgs) |msg| {
                     defer msg.destroy();
@@ -231,7 +231,7 @@ pub const TestContext = struct {
                     text,
                 );
                 std.debug.warn("\n====found:========\n");
-                var stderr = try std.io.getStdErr();
+                const stderr = std.io.getStdErr();
                 for (msgs) |msg| {
                     defer msg.destroy();
                     try msg.printToFile(stderr, errmsg.Color.Auto);

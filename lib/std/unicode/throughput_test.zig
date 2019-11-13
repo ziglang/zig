@@ -2,9 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 
 pub fn main() !void {
-    var stdout_file = try std.io.getStdOut();
-    var stdout_out_stream = stdout_file.outStream();
-    const stdout = &stdout_out_stream.stream;
+    const stdout = &std.io.getStdOut().outStream().stream;
 
     const args = try std.process.argsAlloc(std.heap.direct_allocator);
 
