@@ -531,7 +531,7 @@ extern fn init_vdso_clock_gettime(clk: i32, ts: *timespec) usize {
     const ptr = @intToPtr(?*const c_void, vdso.lookup(VDSO_CGT_VER, VDSO_CGT_SYM));
     // Note that we may not have a VDSO at all, update the stub address anyway
     // so that clock_gettime will fall back on the good old (and slow) syscall
-    _ = @cmpxchgStrong(?*const c_void, &vdso_clock_gettime, &init_vdso_clock_gettime, ptr, .Monotonic, .Monotonic);
+    @atomicStore(?*const c_void, &vdso_clock_gettime, ptr, .Monotonic);
     // Call into the VDSO if available
     if (ptr) |fn_ptr| {
         const f = @ptrCast(vdso_clock_gettime_ty, fn_ptr);

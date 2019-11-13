@@ -1700,6 +1700,7 @@ enum BuiltinFnId {
     BuiltinFnIdErrorReturnTrace,
     BuiltinFnIdAtomicRmw,
     BuiltinFnIdAtomicLoad,
+    BuiltinFnIdAtomicStore,
     BuiltinFnIdHasDecl,
     BuiltinFnIdUnionInit,
     BuiltinFnIdFrameAddress,
@@ -2569,6 +2570,7 @@ enum IrInstructionId {
     IrInstructionIdErrorUnion,
     IrInstructionIdAtomicRmw,
     IrInstructionIdAtomicLoad,
+    IrInstructionIdAtomicStore,
     IrInstructionIdSaveErrRetAddr,
     IrInstructionIdAddImplicitReturnType,
     IrInstructionIdErrSetCast,
@@ -3710,6 +3712,16 @@ struct IrInstructionAtomicLoad {
 
     IrInstruction *operand_type;
     IrInstruction *ptr;
+    IrInstruction *ordering;
+    AtomicOrder resolved_ordering;
+};
+
+struct IrInstructionAtomicStore {
+    IrInstruction base;
+
+    IrInstruction *operand_type;
+    IrInstruction *ptr;
+    IrInstruction *value;
     IrInstruction *ordering;
     AtomicOrder resolved_ordering;
 };

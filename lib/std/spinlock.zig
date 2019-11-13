@@ -11,8 +11,7 @@ pub const SpinLock = struct {
         spinlock: *SpinLock,
 
         pub fn release(self: Held) void {
-            // TODO: @atomicStore() https://github.com/ziglang/zig/issues/2995
-            assert(@atomicRmw(u8, &self.spinlock.lock, .Xchg, 0, .Release) == 1);
+            @atomicStore(u8, &self.spinlock.lock, 0, .Release);
         }
     };
 

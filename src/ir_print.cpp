@@ -324,6 +324,8 @@ const char* ir_instruction_type_str(IrInstructionId id) {
             return "AtomicRmw";
         case IrInstructionIdAtomicLoad:
             return "AtomicLoad";
+        case IrInstructionIdAtomicStore:
+            return "AtomicStore";
         case IrInstructionIdSaveErrRetAddr:
             return "SaveErrRetAddr";
         case IrInstructionIdAddImplicitReturnType:
@@ -1871,6 +1873,27 @@ static void ir_print_atomic_load(IrPrint *irp, IrInstructionAtomicLoad *instruct
     fprintf(irp->f, ")");
 }
 
+static void ir_print_atomic_store(IrPrint *irp, IrInstructionAtomicStore *instruction) {
+    fprintf(irp->f, "@atomicStore(");
+    if (instruction->operand_type != nullptr) {
+        ir_print_other_instruction(irp, instruction->operand_type);
+    } else {
+        fprintf(irp->f, "[TODO print]");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ",");
+    if (instruction->ordering != nullptr) {
+        ir_print_other_instruction(irp, instruction->ordering);
+    } else {
+        fprintf(irp->f, "[TODO print]");
+    }
+    fprintf(irp->f, ")");
+}
+
+
 static void ir_print_save_err_ret_addr(IrPrint *irp, IrInstructionSaveErrRetAddr *instruction) {
     fprintf(irp->f, "@saveErrRetAddr()");
 }
@@ -2430,6 +2453,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
             break;
         case IrInstructionIdAtomicLoad:
             ir_print_atomic_load(irp, (IrInstructionAtomicLoad *)instruction);
+            break;
+        case IrInstructionIdAtomicStore:
+            ir_print_atomic_store(irp, (IrInstructionAtomicStore *)instruction);
             break;
         case IrInstructionIdEnumToInt:
             ir_print_enum_to_int(irp, (IrInstructionEnumToInt *)instruction);

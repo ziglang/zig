@@ -161,7 +161,7 @@ pub fn Channel(comptime T: type) type {
 
         fn dispatch(self: *SelfChannel) void {
             // set the "need dispatch" flag
-            _ = @atomicRmw(u8, &self.need_dispatch, .Xchg, 1, .SeqCst);
+            @atomicStore(u8, &self.need_dispatch, 1, .SeqCst);
 
             lock: while (true) {
                 // set the lock flag
@@ -169,7 +169,7 @@ pub fn Channel(comptime T: type) type {
                 if (prev_lock != 0) return;
 
                 // clear the need_dispatch flag since we're about to do it
-                _ = @atomicRmw(u8, &self.need_dispatch, .Xchg, 0, .SeqCst);
+                @atomicStore(u8, &self.need_dispatch, 0, .SeqCst);
 
                 while (true) {
                     one_dispatch: {

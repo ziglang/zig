@@ -128,7 +128,7 @@ test "std.atomic.stack" {
 
         for (putters) |t|
             t.wait();
-        _ = @atomicRmw(u8, &context.puts_done, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
+        @atomicStore(u8, &context.puts_done, 1, AtomicOrder.SeqCst);
         for (getters) |t|
             t.wait();
     }

@@ -62,12 +62,12 @@ pub fn Future(comptime T: type) type {
         pub async fn start(self: *Self) ?*T {
             const state = @cmpxchgStrong(Available, &self.available, .NotStarted, .Started, .SeqCst, .SeqCst) orelse return null;
             switch (state) {
-                1 => {
+                .Started => {
                     const held = self.lock.acquire();
                     held.release();
                     return &self.data;
                 },
-                2 => return &self.data,
+                .Finished => return &self.data,
                 else => unreachable,
             }
         }

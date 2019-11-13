@@ -31,8 +31,8 @@ pub const Lock = struct {
             }
 
             // We need to release the lock.
-            _ = @atomicRmw(u8, &self.lock.queue_empty_bit, .Xchg, 1, .SeqCst);
-            _ = @atomicRmw(u8, &self.lock.shared_bit, .Xchg, 0, .SeqCst);
+            @atomicStore(u8, &self.lock.queue_empty_bit, 1, .SeqCst);
+            @atomicStore(u8, &self.lock.shared_bit, 0, .SeqCst);
 
             // There might be a queue item. If we know the queue is empty, we can be done,
             // because the other actor will try to obtain the lock.
@@ -56,8 +56,8 @@ pub const Lock = struct {
                 }
 
                 // Release the lock again.
-                _ = @atomicRmw(u8, &self.lock.queue_empty_bit, .Xchg, 1, .SeqCst);
-                _ = @atomicRmw(u8, &self.lock.shared_bit, .Xchg, 0, .SeqCst);
+                @atomicStore(u8, &self.lock.queue_empty_bit, 1, .SeqCst);
+                @atomicStore(u8, &self.lock.shared_bit, 0, .SeqCst);
 
                 // Find out if we can be done.
                 if (@atomicLoad(u8, &self.lock.queue_empty_bit, .SeqCst) == 1) {
@@ -101,7 +101,7 @@ pub const Lock = struct {
 
             // We set this bit so that later we can rely on the fact, that if queue_empty_bit is 1, some actor
             // will attempt to grab the lock.
-            _ = @atomicRmw(u8, &self.queue_empty_bit, .Xchg, 0, .SeqCst);
+            @atomicStore(u8, &self.queue_empty_bit, 0, .SeqCst);
 
             const old_bit = @atomicRmw(u8, &self.shared_bit, .Xchg, 1, .SeqCst);
             if (old_bit == 0) {

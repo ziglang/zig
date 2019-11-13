@@ -814,7 +814,7 @@ pub const Loop = struct {
                 _ = os.kevent(self.os_data.fs_kqfd, fs_kevs, empty_kevs, null) catch unreachable;
             },
             .linux => {
-                _ = @atomicRmw(i32, &self.os_data.fs_queue_item, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
+                @atomicStore(i32, &self.os_data.fs_queue_item, 1, AtomicOrder.SeqCst);
                 const rc = os.linux.futex_wake(&self.os_data.fs_queue_item, os.linux.FUTEX_WAKE, 1);
                 switch (os.linux.getErrno(rc)) {
                     0 => {},
@@ -837,7 +837,7 @@ pub const Loop = struct {
     fn posixFsRun(self: *Loop) void {
         while (true) {
             if (builtin.os == .linux) {
-                _ = @atomicRmw(i32, &self.os_data.fs_queue_item, .Xchg, 0, .SeqCst);
+                @atomicStore(i32, &self.os_data.fs_queue_item, 0, .SeqCst);
             }
             while (self.os_data.fs_queue.get()) |node| {
                 switch (node.data.msg) {

@@ -3,6 +3,16 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "atomic orderings of atomicStore Acquire or AcqRel",
+        \\export fn entry() void {
+        \\    var x: u32 = 0;
+        \\    @atomicStore(u32, &x, 1, .Acquire);
+        \\}
+    ,
+        "tmp.zig:3:30: error: @atomicStore atomic ordering must not be Acquire or AcqRel",
+    );
+
+    cases.add(
         "missing const in slice with nested array type",
         \\const Geo3DTex2D = struct { vertices: [][2]f32 };
         \\pub fn getGeo3DTex2D() Geo3DTex2D {

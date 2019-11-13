@@ -40,7 +40,7 @@ pub const RwLock = struct {
                 return;
             }
 
-            _ = @atomicRmw(u8, &self.lock.reader_queue_empty_bit, .Xchg, 1, .SeqCst);
+            @atomicStore(u8, &self.lock.reader_queue_empty_bit, 1, .SeqCst);
             if (@cmpxchgStrong(State, &self.lock.shared_state, .ReadLock, .Unlocked, .SeqCst, .SeqCst) != null) {
                 // Didn't unlock. Someone else's problem.
                 return;
@@ -64,15 +64,15 @@ pub const RwLock = struct {
             // We need to release the write lock. Check if any readers are waiting to grab the lock.
             if (@atomicLoad(u8, &self.lock.reader_queue_empty_bit, .SeqCst) == 0) {
                 // Switch to a read lock.
-                _ = @atomicRmw(State, &self.lock.shared_state, .Xchg, .ReadLock, .SeqCst);
+                @atomicStore(State, &self.lock.shared_state, .ReadLock, .SeqCst);
                 while (self.lock.reader_queue.get()) |node| {
                     global_event_loop.onNextTick(node);
                 }
                 return;
             }
 
-            _ = @atomicRmw(u8, &self.lock.writer_queue_empty_bit, .Xchg, 1, .SeqCst);
-            _ = @atomicRmw(State, &self.lock.shared_state, .Xchg, State.Unlocked, .SeqCst);
+            @atomicStore(u8, &self.lock.writer_queue_empty_bit, 1, .SeqCst);
+            @atomicStore(State, &self.lock.shared_state, .Unlocked, .SeqCst);
 
             self.lock.commonPostUnlock();
         }
@@ -113,7 +113,7 @@ pub const RwLock = struct {
 
             // We set this bit so that later we can rely on the fact, that if reader_queue_empty_bit is 1,
             // some actor will attempt to grab the lock.
-            _ = @atomicRmw(u8, &self.reader_queue_empty_bit, .Xchg, 0, .SeqCst);
+            @atomicStore(u8, &self.reader_queue_empty_bit, 0, .SeqCst);
 
             // Here we don't care if we are the one to do the locking or if it was already locked for reading.
             const have_read_lock = if (@cmpxchgStrong(State, &self.shared_state, .Unlocked, .ReadLock, .SeqCst, .SeqCst)) |old_state| old_state == .ReadLock else true;
@@ -144,7 +144,7 @@ pub const RwLock = struct {
 
             // We set this bit so that later we can rely on the fact, that if writer_queue_empty_bit is 1,
             // some actor will attempt to grab the lock.
-            _ = @atomicRmw(u8, &self.writer_queue_empty_bit, .Xchg, 0, .SeqCst);
+            @atomicStore(u8, &self.writer_queue_empty_bit, 0, .SeqCst);
 
             // Here we must be the one to acquire the write lock. It cannot already be locked.
             if (@cmpxchgStrong(State, &self.shared_state, .Unlocked, .WriteLock, .SeqCst, .SeqCst) == null) {
@@ -176,8 +176,8 @@ pub const RwLock = struct {
                     return;
                 }
                 // Release the lock again.
-                _ = @atomicRmw(u8, &self.writer_queue_empty_bit, .Xchg, 1, .SeqCst);
-                _ = @atomicRmw(State, &self.shared_state, .Xchg, .Unlocked, .SeqCst);
+                @atomicStore(u8, &self.writer_queue_empty_bit, 1, .SeqCst);
+                @atomicStore(State, &self.shared_state, .Unlocked, .SeqCst);
                 continue;
             }
 
@@ -195,7 +195,7 @@ pub const RwLock = struct {
                     return;
                 }
                 // Release the lock again.
-                _ = @atomicRmw(u8, &self.reader_queue_empty_bit, .Xchg, 1, .SeqCst);
+                @atomicStore(u8, &self.reader_queue_empty_bit, 1, .SeqCst);
                 if (@cmpxchgStrong(State, &self.shared_state, .ReadLock, .Unlocked, .SeqCst, .SeqCst) != null) {
                     // Didn't unlock. Someone else's problem.
                     return;
