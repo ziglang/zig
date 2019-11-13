@@ -25824,6 +25824,12 @@ static IrInstruction *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstru
         }
     }
 
+    if (operand_type->id == ZigTypeIdEnum && op != AtomicRmwOp_xchg) {
+        ir_add_error(ira, instruction->op,
+            buf_sprintf("@atomicRmw on enum only works with .Xchg"));
+        return ira->codegen->invalid_instruction;
+    }
+
     IrInstruction *operand = instruction->operand->child;
     if (type_is_invalid(operand->value.type))
         return ira->codegen->invalid_instruction;
