@@ -97,6 +97,42 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
     }
 }
 
+pub fn DeviceIoControl(
+    h: HANDLE,
+    ioControlCode: DWORD,
+    in: ?[]const u8,
+    out: ?[]u8,
+    overlapped: ?*OVERLAPPED,
+) !DWORD {
+    var bytes: DWORD = undefined;
+    if (kernel32.DeviceIoControl(
+        h,
+        ioControlCode,
+        if (in) |i| i.ptr else null,
+        if (in) |i| @intCast(u32, i.len) else 0,
+        if (out) |o| o.ptr else null,
+        if (out) |o| @intCast(u32, o.len) else 0,
+        &bytes,
+        overlapped,
+    ) == 0) {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+    return bytes;
+}
+
+pub fn GetOverlappedResult(h: HANDLE, overlapped: *OVERLAPPED, wait: bool) !DWORD {
+    var bytes: DWORD = undefined;
+    if (kernel32.GetOverlappedResult(h, overlapped, &bytes, wait) == 0) {
+        switch (kernel32.GetLastError()) {
+            ERROR_IO_INCOMPLETE => if (!wait) return error.WouldBlock else unreachable,
+            else => |err| return unexpectedError(err),
+        }
+    }
+    return bytes;
+}
+
 pub const SetHandleInformationError = error{Unexpected};
 
 pub fn SetHandleInformation(h: HANDLE, mask: DWORD, flags: DWORD) SetHandleInformationError!void {
