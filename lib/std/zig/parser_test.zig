@@ -1451,11 +1451,11 @@ test "zig fmt: preserve spacing" {
         \\const std = @import("std");
         \\
         \\pub fn main() !void {
-        \\    var stdout_file = try std.io.getStdOut;
-        \\    var stdout_file = try std.io.getStdOut;
+        \\    var stdout_file = std.io.getStdOut;
+        \\    var stdout_file = std.io.getStdOut;
         \\
-        \\    var stdout_file = try std.io.getStdOut;
-        \\    var stdout_file = try std.io.getStdOut;
+        \\    var stdout_file = std.io.getStdOut;
+        \\    var stdout_file = std.io.getStdOut;
         \\}
         \\
     );
@@ -2565,8 +2565,7 @@ const maxInt = std.math.maxInt;
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *bool) ![]u8 {
-    var stderr_file = try io.getStdErr();
-    var stderr = &stderr_file.outStream().stream;
+    const stderr = &io.getStdErr().outStream().stream;
 
     const tree = try std.zig.parse(allocator, source);
     defer tree.deinit();

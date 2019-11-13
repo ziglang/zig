@@ -166,13 +166,9 @@ fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
         try args_list.append(std.mem.toSliceConst(u8, argv[arg_i]));
     }
 
-    var stdout_file = try std.io.getStdOut();
-    var stdout_out_stream = stdout_file.outStream();
-    stdout = &stdout_out_stream.stream;
-
-    stderr_file = try std.io.getStdErr();
-    var stderr_out_stream = stderr_file.outStream();
-    stderr = &stderr_out_stream.stream;
+    stdout = &std.io.getStdOut().outStream().stream;
+    stderr_file = std.io.getStdErr();
+    stderr = &stderr_file.outStream().stream;
 
     const args = args_list.toSliceConst();
     var flags = try Args.parse(allocator, self_hosted_main.args_fmt_spec, args[2..]);
@@ -203,7 +199,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
             process.exit(1);
         }
 
-        var stdin_file = try io.getStdIn();
+        const stdin_file = io.getStdIn();
         var stdin = stdin_file.inStream();
 
         const source_code = try stdin.stream.readAllAlloc(allocator, self_hosted_main.max_src_size);
