@@ -162,6 +162,10 @@ pub const TransferType = enum(u2) {
     METHOD_NEITHER = 3,
 };
 
+pub const FILE_ANY_ACCESS = 0;
+pub const FILE_READ_ACCESS = 1;
+pub const FILE_WRITE_ACCESS = 2;
+
 pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, maxInt(usize));
 
 pub const INVALID_FILE_ATTRIBUTES = @as(DWORD, maxInt(DWORD));
