@@ -608,6 +608,24 @@ pub fn GetFileAttributesW(lpFileName: [*]const u16) GetFileAttributesError!DWORD
     return rc;
 }
 
+pub fn WSAStartup(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
+    var wsadata: ws2_32.WSADATA = undefined;
+    return switch (ws2_32.WSAStartup((@as(WORD, minorVersion) << 8) | majorVersion, &wsadata)) {
+        0 => wsadata,
+        else => |err| unexpectedWSAError(err),
+    };
+}
+
+pub fn WSACleanup() !void {
+    return switch (ws2_32.WSACleanup()) {
+        0 => {},
+        ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
+            else => |err| return unexpectedWSAError(err),
+        },
+        else => unreachable,
+    };
+}
+
 pub fn WSASocketW(
     af: i32,
     socket_type: i32,

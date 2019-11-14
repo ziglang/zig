@@ -2,6 +2,31 @@ usingnamespace @import("bits.zig");
 
 pub const SOCKET = *@OpaqueType();
 pub const INVALID_SOCKET = @intToPtr(SOCKET, ~@as(usize, 0));
+pub const SOCKET_ERROR = -1;
+
+pub const WSADESCRIPTION_LEN = 256;
+pub const WSASYS_STATUS_LEN = 128;
+
+pub const WSADATA = if (usize.bit_count == u64.bit_count)
+    extern struct {
+        wVersion: WORD,
+        wHighVersion: WORD,
+        iMaxSockets: u16,
+        iMaxUdpDg: u16,
+        lpVendorInfo: *u8,
+        szDescription: [WSADESCRIPTION_LEN + 1]u8,
+        szSystemStatus: [WSASYS_STATUS_LEN + 1]u8,
+    }
+else
+    extern struct {
+        wVersion: WORD,
+        wHighVersion: WORD,
+        szDescription: [WSADESCRIPTION_LEN + 1]u8,
+        szSystemStatus: [WSASYS_STATUS_LEN + 1]u8,
+        iMaxSockets: u16,
+        iMaxUdpDg: u16,
+        lpVendorInfo: *u8,
+    };
 
 pub const MAX_PROTOCOL_CHAIN = 7;
 
@@ -167,6 +192,11 @@ pub const WSA_QOS_ESDMODEOBJ = 11029;
 pub const WSA_QOS_ESHAPERATEOBJ = 11030;
 pub const WSA_QOS_RESERVED_PETYPE = 11031;
 
+pub extern "ws2_32" stdcallcc fn WSAStartup(
+    wVersionRequired: WORD,
+    lpWSAData: *WSADATA,
+) c_int;
+pub extern "ws2_32" stdcallcc fn WSACleanup() c_int;
 pub extern "ws2_32" stdcallcc fn WSAGetLastError() c_int;
 pub extern "ws2_32" stdcallcc fn WSASocketA(
     af: c_int,
