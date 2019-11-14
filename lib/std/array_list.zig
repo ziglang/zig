@@ -200,7 +200,8 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             var better_capacity = self.capacity();
             if (better_capacity >= new_capacity) return;
             while (true) {
-                // + has greater precedence than >> does.
+                // + has greater precedence than >> does, so the
+                // parentheses are needed.
                 better_capacity += (better_capacity >> 1) + 8;
                 if (better_capacity >= new_capacity) break;
             }
