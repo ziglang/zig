@@ -3281,3 +3281,35 @@ pub fn setsockopt(fd: fd_t, level: u32, optname: u32, opt: []const u8) SetSockOp
         else => |err| return unexpectedErrno(err),
     }
 }
+
+// TODO support for non-null terminated strings?
+pub fn memfd_createC(name: [*:0]const u8, flags: usize) !fd_t {
+    if (builtin.os != .linux) @compileError("memfd_create() not implemented for this target");
+
+    const rc = linux.memfd_create(name, flags);
+    switch (linux.getErrno(rc)) {
+        0 => return @intCast(fd_t, rc),
+        EFAULT => unreachable, // name has invalid memory
+        EINVAL => unreachable, // name/flags are faulty
+        ENFILE => return error.SystemFdQuotaExceeded,
+        EMFILE => return error.ProcessFdQuotaExceeded,
+        ENOMEM => return error.OutOfMemory,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub const MFD_NAME_PREFIX = "memfd:";
+pub const MFD_MAX_NAME_LEN = NAME_MAX - MFD_NAME_PREFIX.len;
+fn toMemFdPath(name: []const u8) ![MFD_MAX_NAME_LEN:0]u8 {
+    var path_with_null: [MFD_MAX_NAME_LEN:0]u8 = undefined;
+    // >= rather than > to make room for the null byte
+    if (name.len >= MFD_MAX_NAME_LEN) return error.NameTooLong;
+    mem.copy(u8, &path_with_null, name);
+    path_with_null[name.len] = 0;
+    return path_with_null;
+}
+
+pub fn memfd_create(name: []const u8, flags: usize) !fd_t {
+    const name_t = try toMemFdPath(name);
+    return try memfd_createC(&name_t, flags);
+}
