@@ -180,6 +180,9 @@ ConstExprValue *create_const_vals(size_t count);
 ConstExprValue **alloc_const_vals_ptrs(size_t count);
 ConstExprValue **realloc_const_vals_ptrs(ConstExprValue **ptr, size_t old_count, size_t new_count);
 
+TypeStructField **alloc_type_struct_fields(size_t count);
+TypeStructField **realloc_type_struct_fields(TypeStructField **ptr, size_t old_count, size_t new_count);
+
 ZigType *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
 void expand_undef_array(CodeGen *g, ConstExprValue *const_val);
 void expand_undef_struct(CodeGen *g, ConstExprValue *const_val);

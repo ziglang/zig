@@ -1279,7 +1279,7 @@ struct RootStruct {
 
 struct ZigTypeStruct {
     AstNode *decl_node;
-    TypeStructField *fields;
+    TypeStructField **fields;
     ScopeDecls *decls_scope;
     HashMap<Buf *, TypeStructField *, buf_hash, buf_eql_buf> fields_by_name;
     RootStruct *root_struct;

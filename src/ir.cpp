@@ -277,7 +277,7 @@ static bool is_slice(ZigType *type) {
 
 static bool slice_is_const(ZigType *type) {
     assert(is_slice(type));
-    return type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const;
+    return type->data.structure.fields[slice_ptr_index]->type_entry->data.pointer.is_const;
 }
 
 // This function returns true when you can change the type of a ConstExprValue and the
@@ -9858,8 +9858,8 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
 
     // slice const
     if (is_slice(wanted_type) && is_slice(actual_type)) {
-        ZigType *actual_ptr_type = actual_type->data.structure.fields[slice_ptr_index].type_entry;
-        ZigType *wanted_ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *actual_ptr_type = actual_type->data.structure.fields[slice_ptr_index]->type_entry;
+        ZigType *wanted_ptr_type = wanted_type->data.structure.fields[slice_ptr_index]->type_entry;
         if ((err = type_resolve(g, actual_ptr_type->data.pointer.child_type, ResolveStatusAlignmentKnown))) {
             result.id = ConstCastResultIdInvalid;
             return result;
@@ -10623,7 +10623,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             ZigType *array_type = cur_type->data.pointer.child_type;
             ZigType *slice_type = (prev_type->id == ZigTypeIdErrorUnion) ?
                 prev_type->data.error_union.payload_type : prev_type;
-            ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index].type_entry;
+            ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index]->type_entry;
             if ((slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0) &&
                 types_match_const_cast_only(ira,
                     slice_ptr_type->data.pointer.child_type,
@@ -10644,7 +10644,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             ZigType *array_type = prev_type->data.pointer.child_type;
             ZigType *slice_type = (cur_type->id == ZigTypeIdErrorUnion) ?
                 cur_type->data.error_union.payload_type : cur_type;
-            ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index].type_entry;
+            ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index]->type_entry;
             if ((slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0) &&
                 types_match_const_cast_only(ira,
                     slice_ptr_type->data.pointer.child_type,
@@ -10658,10 +10658,10 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
 
         // [N]T to []T
         if (cur_type->id == ZigTypeIdArray && is_slice(prev_type) &&
-            (prev_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const ||
+            (prev_type->data.structure.fields[slice_ptr_index]->type_entry->data.pointer.is_const ||
             cur_type->data.array.len == 0) &&
             types_match_const_cast_only(ira,
-                prev_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
+                prev_type->data.structure.fields[slice_ptr_index]->type_entry->data.pointer.child_type,
                 cur_type->data.array.child_type, source_node, false).id == ConstCastResultIdOk)
         {
             convert_to_const_slice = false;
@@ -10670,10 +10670,10 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
 
         // [N]T to []T
         if (prev_type->id == ZigTypeIdArray && is_slice(cur_type) &&
-            (cur_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const ||
+            (cur_type->data.structure.fields[slice_ptr_index]->type_entry->data.pointer.is_const ||
             prev_type->data.array.len == 0) &&
             types_match_const_cast_only(ira,
-                cur_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
+                cur_type->data.structure.fields[slice_ptr_index]->type_entry->data.pointer.child_type,
                 prev_type->data.array.child_type, source_node, false).id == ConstCastResultIdOk)
         {
             prev_inst = cur_inst;
@@ -10978,7 +10978,7 @@ static IrInstruction *ir_resolve_ptr_of_array_to_slice(IrAnalyze *ira, IrInstruc
             assert(value->value.type->id == ZigTypeIdPointer);
             ZigType *array_type = value->value.type->data.pointer.child_type;
             assert(is_slice(wanted_type));
-            bool is_const = wanted_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const;
+            bool is_const = wanted_type->data.structure.fields[slice_ptr_index]->type_entry->data.pointer.is_const;
 
             IrInstruction *result = ir_const(ira, source_instr, wanted_type);
             init_const_slice(ira->codegen, &result->value, pointee, 0, array_type->data.array.len, is_const);
@@ -12775,7 +12775,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     // cast from [N]T to []const T
     // TODO: once https://github.com/ziglang/zig/issues/265 lands, remove this
     if (is_slice(wanted_type) && actual_type->id == ZigTypeIdArray) {
-        ZigType *ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *ptr_type = wanted_type->data.structure.fields[slice_ptr_index]->type_entry;
         assert(ptr_type->id == ZigTypeIdPointer);
         if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
             types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type,
@@ -12792,7 +12792,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         actual_type->id == ZigTypeIdArray)
     {
         ZigType *ptr_type =
-            wanted_type->data.maybe.child_type->data.structure.fields[slice_ptr_index].type_entry;
+            wanted_type->data.maybe.child_type->data.structure.fields[slice_ptr_index]->type_entry;
         assert(ptr_type->id == ZigTypeIdPointer);
         if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
             types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type,
@@ -12841,7 +12841,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     {
         ZigType *slice_type = (wanted_type->id == ZigTypeIdErrorUnion) ?
             wanted_type->data.error_union.payload_type : wanted_type;
-        ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index]->type_entry;
         assert(slice_ptr_type->id == ZigTypeIdPointer);
         ZigType *array_type = actual_type->data.pointer.child_type;
         bool const_ok = (slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0
@@ -12895,7 +12895,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         actual_type->data.pointer.child_type->id == ZigTypeIdArray)
     {
         ZigType *slice_type = wanted_type->data.error_union.payload_type;
-        ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index]->type_entry;
         assert(slice_ptr_type->id == ZigTypeIdPointer);
         ZigType *array_type = actual_type->data.pointer.child_type;
         bool const_ok = (slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0
@@ -12972,7 +12972,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         actual_type->id == ZigTypeIdArray)
     {
         ZigType *ptr_type =
-            wanted_type->data.error_union.payload_type->data.structure.fields[slice_ptr_index].type_entry;
+            wanted_type->data.error_union.payload_type->data.structure.fields[slice_ptr_index]->type_entry;
         assert(ptr_type->id == ZigTypeIdPointer);
         if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
             types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type,
@@ -14817,7 +14817,7 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         op1_array_index = op1_val->data.x_ptr.data.base_array.elem_index;
         op1_array_end = op1_array_val->type->data.array.len - 1;
     } else if (is_slice(op1_type)) {
-        ZigType *ptr_type = op1_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *ptr_type = op1_type->data.structure.fields[slice_ptr_index]->type_entry;
         child_type = ptr_type->data.pointer.child_type;
         ConstExprValue *ptr_val = op1_val->data.x_struct.fields[slice_ptr_index];
         assert(ptr_val->data.x_ptr.special == ConstPtrSpecialBaseArray);
@@ -14850,7 +14850,7 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         op2_array_index = op2_val->data.x_ptr.data.base_array.elem_index;
         op2_array_end = op2_array_val->type->data.array.len - 1;
     } else if (is_slice(op2_type)) {
-        ZigType *ptr_type = op2_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *ptr_type = op2_type->data.structure.fields[slice_ptr_index]->type_entry;
         op2_type_valid = ptr_type->data.pointer.child_type == child_type;
         ConstExprValue *ptr_val = op2_val->data.x_struct.fields[slice_ptr_index];
         assert(ptr_val->data.x_ptr.special == ConstPtrSpecialBaseArray);
@@ -16458,18 +16458,10 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
         uint32_t old_field_count = isf->inferred_struct_type->data.structure.src_field_count;
         uint32_t new_field_count = old_field_count + 1;
         isf->inferred_struct_type->data.structure.src_field_count = new_field_count;
-        if (new_field_count > 16) {
-            // This thing with 16 is a hack to allow this functionality to work without
-            // modifying the ConstExprValue layout of structs. That reworking needs to be
-            // done, but this hack lets us do it separately, in the future.
-            zig_panic("TODO need to rework the layout of ZigTypeStruct. This realloc would have caused invalid pointer references");
-        }
-        if (isf->inferred_struct_type->data.structure.fields == nullptr) {
-            isf->inferred_struct_type->data.structure.fields = allocate<TypeStructField>(16);
-        }
+        isf->inferred_struct_type->data.structure.fields = realloc_type_struct_fields(
+                isf->inferred_struct_type->data.structure.fields, old_field_count, new_field_count);
 
-        // This reference can't live long, don't keep it around outside this block.
-        TypeStructField *field = &isf->inferred_struct_type->data.structure.fields[old_field_count];
+        TypeStructField *field = isf->inferred_struct_type->data.structure.fields[old_field_count];
         field->name = isf->field_name;
         field->type_entry = uncasted_value->value.type;
         field->type_val = create_const_type(ira->codegen, field->type_entry);
@@ -17900,7 +17892,7 @@ static ZigType *adjust_ptr_align(CodeGen *g, ZigType *ptr_type, uint32_t new_ali
 
 static ZigType *adjust_slice_align(CodeGen *g, ZigType *slice_type, uint32_t new_align) {
     assert(is_slice(slice_type));
-    ZigType *ptr_type = adjust_ptr_align(g, slice_type->data.structure.fields[slice_ptr_index].type_entry,
+    ZigType *ptr_type = adjust_ptr_align(g, slice_type->data.structure.fields[slice_ptr_index]->type_entry,
         new_align);
     return get_slice_type(g, ptr_type);
 }
@@ -17986,7 +17978,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
         }
         return_type = adjust_ptr_len(ira->codegen, array_type, elem_ptr_instruction->ptr_len);
     } else if (is_slice(array_type)) {
-        return_type = adjust_ptr_len(ira->codegen, array_type->data.structure.fields[slice_ptr_index].type_entry,
+        return_type = adjust_ptr_len(ira->codegen, array_type->data.structure.fields[slice_ptr_index]->type_entry,
                 elem_ptr_instruction->ptr_len);
     } else if (array_type->id == ZigTypeIdArgTuple) {
         ConstExprValue *ptr_val = ir_resolve_const(ira, array_ptr, UndefBad);
@@ -18464,7 +18456,7 @@ static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction 
                     ConstExprValue *field_val = struct_val->data.x_struct.fields[i];
                     field_val->special = ConstValSpecialUndef;
                     field_val->type = resolve_struct_field_type(ira->codegen,
-                            &struct_type->data.structure.fields[i]);
+                            struct_type->data.structure.fields[i]);
                     field_val->parent.id = ConstParentIdStruct;
                     field_val->parent.data.p_struct.struct_val = struct_val;
                     field_val->parent.data.p_struct.field_index = i;
@@ -20385,7 +20377,7 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
         if (field_assign_nodes[i] != nullptr) continue;
 
         // look for a default field value
-        TypeStructField *field = &container_type->data.structure.fields[i];
+        TypeStructField *field = container_type->data.structure.fields[i];
         if (field->init_val == nullptr) {
             // it's not memoized. time to go analyze it
             AstNode *init_node;
@@ -20396,7 +20388,7 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
             }
             if (init_node == nullptr) {
                 ir_add_error_node(ira, instruction->source_node,
-                    buf_sprintf("missing field: '%s'", buf_ptr(container_type->data.structure.fields[i].name)));
+                    buf_sprintf("missing field: '%s'", buf_ptr(container_type->data.structure.fields[i]->name)));
                 any_missing = true;
                 continue;
             }
@@ -21198,7 +21190,7 @@ static ConstExprValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_ty
     ZigType *attrs_type;
     BuiltinPtrSize size_enum_index;
     if (is_slice(ptr_type_entry)) {
-        attrs_type = ptr_type_entry->data.structure.fields[slice_ptr_index].type_entry;
+        attrs_type = ptr_type_entry->data.structure.fields[slice_ptr_index]->type_entry;
         size_enum_index = BuiltinPtrSizeSlice;
     } else if (ptr_type_entry->id == ZigTypeIdPointer) {
         attrs_type = ptr_type_entry;
@@ -21691,7 +21683,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 init_const_slice(ira->codegen, fields[1], struct_field_array, 0, struct_field_count, false);
 
                 for (uint32_t struct_field_index = 0; struct_field_index < struct_field_count; struct_field_index++) {
-                    TypeStructField *struct_field = &type_entry->data.structure.fields[struct_field_index];
+                    TypeStructField *struct_field = type_entry->data.structure.fields[struct_field_index];
                     ConstExprValue *struct_field_val = &struct_field_array->data.x_array.data.s_none.elements[struct_field_index];
 
                     struct_field_val->special = ConstValSpecialStatic;
@@ -22647,7 +22639,7 @@ static IrInstruction *ir_analyze_instruction_from_bytes(IrAnalyze *ira, IrInstru
         if ((err = resolve_ptr_align(ira, target->value.type, &src_ptr_align)))
             return ira->codegen->invalid_instruction;
     } else if (is_slice(target->value.type)) {
-        ZigType *src_ptr_type = target->value.type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *src_ptr_type = target->value.type->data.structure.fields[slice_ptr_index]->type_entry;
         src_ptr_const = src_ptr_type->data.pointer.is_const;
         src_ptr_volatile = src_ptr_type->data.pointer.is_volatile;
 
@@ -22740,7 +22732,7 @@ static IrInstruction *ir_analyze_instruction_to_bytes(IrAnalyze *ira, IrInstruct
         return ira->codegen->invalid_instruction;
     }
 
-    ZigType *src_ptr_type = target->value.type->data.structure.fields[slice_ptr_index].type_entry;
+    ZigType *src_ptr_type = target->value.type->data.structure.fields[slice_ptr_index]->type_entry;
 
     uint32_t alignment;
     if ((err = resolve_ptr_align(ira, src_ptr_type, &alignment)))
@@ -23548,7 +23540,7 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
             }
         }
     } else if (is_slice(array_type)) {
-        ZigType *ptr_type = array_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *ptr_type = array_type->data.structure.fields[slice_ptr_index]->type_entry;
         return_type = get_slice_type(ira->codegen, ptr_type);
     } else {
         ir_add_error(ira, &instruction->base,
@@ -23857,7 +23849,7 @@ static IrInstruction *ir_analyze_instruction_member_type(IrAnalyze *ira, IrInstr
                     member_index, buf_ptr(&container_type->name), container_type->data.structure.src_field_count));
             return ira->codegen->invalid_instruction;
         }
-        TypeStructField *field = &container_type->data.structure.fields[member_index];
+        TypeStructField *field = container_type->data.structure.fields[member_index];
 
         return ir_const_type(ira, &instruction->base, field->type_entry);
     } else if (container_type->id == ZigTypeIdUnion) {
@@ -23899,7 +23891,7 @@ static IrInstruction *ir_analyze_instruction_member_name(IrAnalyze *ira, IrInstr
                     member_index, buf_ptr(&container_type->name), container_type->data.structure.src_field_count));
             return ira->codegen->invalid_instruction;
         }
-        TypeStructField *field = &container_type->data.structure.fields[member_index];
+        TypeStructField *field = container_type->data.structure.fields[member_index];
 
         IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
         init_const_str_lit(ira->codegen, &result->value, field->name);
@@ -24885,7 +24877,7 @@ static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint3
         ZigType *fn_type = get_fn_type(ira->codegen, &fn_type_id);
         result_type = get_optional_type(ira->codegen, fn_type);
     } else if (is_slice(target_type)) {
-        ZigType *slice_ptr_type = target_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *slice_ptr_type = target_type->data.structure.fields[slice_ptr_index]->type_entry;
         if ((err = resolve_ptr_align(ira, slice_ptr_type, &old_align_bytes)))
             return ira->codegen->invalid_instruction;
         ZigType *result_ptr_type = adjust_ptr_align(ira->codegen, slice_ptr_type, align_bytes);
@@ -25130,7 +25122,7 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
                 case ContainerLayoutExtern: {
                     size_t src_field_count = val->type->data.structure.src_field_count;
                     for (size_t field_i = 0; field_i < src_field_count; field_i += 1) {
-                        TypeStructField *struct_field = &val->type->data.structure.fields[field_i];
+                        TypeStructField *struct_field = val->type->data.structure.fields[field_i];
                         if (struct_field->gen_index == SIZE_MAX)
                             continue;
                         ConstExprValue *field_val = val->data.x_struct.fields[field_i];
@@ -25159,7 +25151,7 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
                         bigint_init_unsigned(&big_int, 0);
                         size_t used_bits = 0;
                         while (src_i < src_field_count) {
-                            TypeStructField *field = &val->type->data.structure.fields[src_i];
+                            TypeStructField *field = val->type->data.structure.fields[src_i];
                             assert(field->gen_index != SIZE_MAX);
                             if (field->gen_index != gen_i)
                                 break;
@@ -25306,7 +25298,7 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                     for (size_t field_i = 0; field_i < src_field_count; field_i += 1) {
                         ConstExprValue *field_val = val->data.x_struct.fields[field_i];
                         field_val->special = ConstValSpecialStatic;
-                        TypeStructField *struct_field = &val->type->data.structure.fields[field_i];
+                        TypeStructField *struct_field = val->type->data.structure.fields[field_i];
                         field_val->type = struct_field->type_entry;
                         if (struct_field->gen_index == SIZE_MAX)
                             continue;
@@ -25337,7 +25329,7 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                         BigInt big_int;
                         bigint_read_twos_complement(&big_int, buf + offset, big_int_byte_count * 8, is_big_endian, false);
                         while (src_i < src_field_count) {
-                            TypeStructField *field = &val->type->data.structure.fields[src_i];
+                            TypeStructField *field = val->type->data.structure.fields[src_i];
                             src_assert(field->gen_index != SIZE_MAX, source_node);
                             if (field->gen_index != gen_i)
                                 break;
@@ -25600,7 +25592,7 @@ static IrInstruction *ir_analyze_instruction_align_cast(IrAnalyze *ira, IrInstru
 
     ZigType *elem_type = nullptr;
     if (is_slice(target->value.type)) {
-        ZigType *slice_ptr_type = target->value.type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *slice_ptr_type = target->value.type->data.structure.fields[slice_ptr_index]->type_entry;
         elem_type = slice_ptr_type->data.pointer.child_type;
     } else if (target->value.type->id == ZigTypeIdPointer) {
         elem_type = target->value.type->data.pointer.child_type;

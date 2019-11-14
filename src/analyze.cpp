@@ -803,19 +803,19 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
     entry->data.structure.is_slice = true;
     entry->data.structure.src_field_count = element_count;
     entry->data.structure.gen_field_count = element_count;
-    entry->data.structure.fields = allocate<TypeStructField>(element_count);
+    entry->data.structure.fields = alloc_type_struct_fields(element_count);
     entry->data.structure.fields_by_name.init(element_count);
-    entry->data.structure.fields[slice_ptr_index].name = ptr_field_name;
-    entry->data.structure.fields[slice_ptr_index].type_entry = ptr_type;
-    entry->data.structure.fields[slice_ptr_index].src_index = slice_ptr_index;
-    entry->data.structure.fields[slice_ptr_index].gen_index = 0;
-    entry->data.structure.fields[slice_len_index].name = len_field_name;
-    entry->data.structure.fields[slice_len_index].type_entry = g->builtin_types.entry_usize;
-    entry->data.structure.fields[slice_len_index].src_index = slice_len_index;
-    entry->data.structure.fields[slice_len_index].gen_index = 1;
+    entry->data.structure.fields[slice_ptr_index]->name = ptr_field_name;
+    entry->data.structure.fields[slice_ptr_index]->type_entry = ptr_type;
+    entry->data.structure.fields[slice_ptr_index]->src_index = slice_ptr_index;
+    entry->data.structure.fields[slice_ptr_index]->gen_index = 0;
+    entry->data.structure.fields[slice_len_index]->name = len_field_name;
+    entry->data.structure.fields[slice_len_index]->type_entry = g->builtin_types.entry_usize;
+    entry->data.structure.fields[slice_len_index]->src_index = slice_len_index;
+    entry->data.structure.fields[slice_len_index]->gen_index = 1;
 
-    entry->data.structure.fields_by_name.put(ptr_field_name, &entry->data.structure.fields[slice_ptr_index]);
-    entry->data.structure.fields_by_name.put(len_field_name, &entry->data.structure.fields[slice_len_index]);
+    entry->data.structure.fields_by_name.put(ptr_field_name, entry->data.structure.fields[slice_ptr_index]);
+    entry->data.structure.fields_by_name.put(len_field_name, entry->data.structure.fields[slice_len_index]);
 
     switch (type_requires_comptime(g, ptr_type)) {
         case ReqCompTimeInvalid:
@@ -828,8 +828,8 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
 
     if (!type_has_bits(ptr_type)) {
         entry->data.structure.gen_field_count = 1;
-        entry->data.structure.fields[slice_ptr_index].gen_index = SIZE_MAX;
-        entry->data.structure.fields[slice_len_index].gen_index = 0;
+        entry->data.structure.fields[slice_ptr_index]->gen_index = SIZE_MAX;
+        entry->data.structure.fields[slice_len_index]->gen_index = 0;
     }
 
     ZigType *child_type = ptr_type->data.pointer.child_type;
@@ -1984,12 +1984,12 @@ static ZigType *get_struct_type(CodeGen *g, const char *type_name, SrcField fiel
     struct_type->data.structure.src_field_count = field_count;
     struct_type->data.structure.gen_field_count = 0;
     struct_type->data.structure.resolve_status = ResolveStatusSizeKnown;
-    struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
+    struct_type->data.structure.fields = alloc_type_struct_fields(field_count);
     struct_type->data.structure.fields_by_name.init(field_count);
 
     size_t abi_align = min_abi_align;
     for (size_t i = 0; i < field_count; i += 1) {
-        TypeStructField *field = &struct_type->data.structure.fields[i];
+        TypeStructField *field = struct_type->data.structure.fields[i];
         field->name = buf_create_from_str(fields[i].name);
         field->type_entry = fields[i].ty;
         field->src_index = i;
@@ -2009,7 +2009,7 @@ static ZigType *get_struct_type(CodeGen *g, const char *type_name, SrcField fiel
 
     size_t next_offset = 0;
     for (size_t i = 0; i < field_count; i += 1) {
-        TypeStructField *field = &struct_type->data.structure.fields[i];
+        TypeStructField *field = struct_type->data.structure.fields[i];
         if (!type_has_bits(field->type_entry))
             continue;
 
@@ -2018,7 +2018,7 @@ static ZigType *get_struct_type(CodeGen *g, const char *type_name, SrcField fiel
         // find the next non-zero-byte field for offset calculations
         size_t next_src_field_index = i + 1;
         for (; next_src_field_index < field_count; next_src_field_index += 1) {
-            if (type_has_bits(struct_type->data.structure.fields[next_src_field_index].type_entry))
+            if (type_has_bits(struct_type->data.structure.fields[next_src_field_index]->type_entry))
                 break;
         }
         size_t next_abi_align;
@@ -2026,7 +2026,7 @@ static ZigType *get_struct_type(CodeGen *g, const char *type_name, SrcField fiel
             next_abi_align = abi_align;
         } else {
             next_abi_align = max(fields[next_src_field_index].align,
-                    struct_type->data.structure.fields[next_src_field_index].type_entry->abi_align);
+                    struct_type->data.structure.fields[next_src_field_index]->type_entry->abi_align);
         }
         next_offset = next_field_offset(next_offset, abi_align, field->type_entry->abi_size, next_abi_align);
     }
@@ -2109,7 +2109,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
 
     // Calculate offsets
     for (size_t i = 0; i < field_count; i += 1) {
-        TypeStructField *field = &struct_type->data.structure.fields[i];
+        TypeStructField *field = struct_type->data.structure.fields[i];
         if (field->gen_index == SIZE_MAX)
             continue;
 
@@ -2178,12 +2178,12 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
             gen_field_index += 1;
             size_t next_src_field_index = i + 1;
             for (; next_src_field_index < field_count; next_src_field_index += 1) {
-                if (struct_type->data.structure.fields[next_src_field_index].gen_index != SIZE_MAX) {
+                if (struct_type->data.structure.fields[next_src_field_index]->gen_index != SIZE_MAX) {
                     break;
                 }
             }
             size_t next_align = (next_src_field_index == field_count) ?
-                abi_align : struct_type->data.structure.fields[next_src_field_index].align;
+                abi_align : struct_type->data.structure.fields[next_src_field_index]->align;
             next_offset = next_field_offset(next_offset, abi_align, field_abi_size, next_align);
             size_in_bits = next_offset * 8;
         }
@@ -2206,7 +2206,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
 
     // Resolve types for fields
     for (size_t i = 0; i < field_count; i += 1) {
-        TypeStructField *field = &struct_type->data.structure.fields[i];
+        TypeStructField *field = struct_type->data.structure.fields[i];
         ZigType *field_type = resolve_struct_field_type(g, field);
         if (field_type == nullptr) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
@@ -2697,7 +2697,7 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
         struct_type->data.structure.src_field_count = (uint32_t)field_count;
 
         src_assert(struct_type->data.structure.fields == nullptr, decl_node);
-        struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
+        struct_type->data.structure.fields = alloc_type_struct_fields(field_count);
     } else if (decl_node->type == NodeTypeContainerInitExpr) {
         src_assert(struct_type->data.structure.is_inferred, decl_node);
         src_assert(struct_type->data.structure.fields != nullptr, decl_node);
@@ -2711,7 +2711,7 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
 
     size_t gen_field_index = 0;
     for (size_t i = 0; i < field_count; i += 1) {
-        TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
+        TypeStructField *type_struct_field = struct_type->data.structure.fields[i];
 
         AstNode *field_node;
         if (decl_node->type == NodeTypeContainerDecl) {
@@ -2843,7 +2843,7 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
     bool packed = struct_type->data.structure.layout == ContainerLayoutPacked;
 
     for (size_t i = 0; i < field_count; i += 1) {
-        TypeStructField *field = &struct_type->data.structure.fields[i];
+        TypeStructField *field = struct_type->data.structure.fields[i];
         if (field->gen_index == SIZE_MAX)
             continue;
 
@@ -5506,7 +5506,7 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
             return type_has_one_possible_value(g, type_entry->data.array.child_type);
         case ZigTypeIdStruct:
             for (size_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
-                TypeStructField *field = &type_entry->data.structure.fields[i];
+                TypeStructField *field = type_entry->data.structure.fields[i];
                 OnePossibleValue opv = (field->type_entry != nullptr) ?
                     type_has_one_possible_value(g, field->type_entry) :
                     type_val_resolve_has_one_possible_value(g, field->type_val);
@@ -5902,6 +5902,21 @@ ConstExprValue **realloc_const_vals_ptrs(ConstExprValue **ptr, size_t old_count,
     return result;
 }
 
+TypeStructField **alloc_type_struct_fields(size_t count) {
+    return realloc_type_struct_fields(nullptr, 0, count);
+}
+
+TypeStructField **realloc_type_struct_fields(TypeStructField **ptr, size_t old_count, size_t new_count) {
+    assert(new_count >= old_count);
+
+    size_t new_item_count = new_count - old_count;
+    TypeStructField **result = reallocate(ptr, old_count, new_count, "TypeStructField*");
+    TypeStructField *vals = allocate<TypeStructField>(new_item_count, "TypeStructField");
+    for (size_t i = old_count; i < new_count; i += 1) {
+        result[i] = &vals[i - old_count];
+    }
+    return result;
+}
 
 static ZigType *get_async_fn_type(CodeGen *g, ZigType *orig_fn_type) {
     if (orig_fn_type->data.fn.fn_type_id.cc == CallingConventionAsync)
@@ -7176,7 +7191,7 @@ static void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
         const_val->data.x_struct.fields = alloc_const_vals_ptrs(field_count);
         for (size_t i = 0; i < field_count; i += 1) {
             ConstExprValue *field_val = const_val->data.x_struct.fields[i];
-            field_val->type = resolve_struct_field_type(g, &wanted_type->data.structure.fields[i]);
+            field_val->type = resolve_struct_field_type(g, wanted_type->data.structure.fields[i]);
             assert(field_val->type);
             init_const_undefined(g, field_val);
             field_val->parent.id = ConstParentIdStruct;
@@ -7608,7 +7623,7 @@ static X64CABIClass type_system_V_abi_x86_64_class(CodeGen *g, ZigType *ty, size
             }
             X64CABIClass working_class = X64CABIClass_Unknown;
             for (uint32_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
-                X64CABIClass field_class = type_c_abi_x86_64_class(g, ty->data.structure.fields->type_entry);
+                X64CABIClass field_class = type_c_abi_x86_64_class(g, ty->data.structure.fields[0]->type_entry);
                 if (field_class == X64CABIClass_Unknown)
                     return X64CABIClass_Unknown;
                 if (i == 0 || field_class == X64CABIClass_MEMORY || working_class == X64CABIClass_SSE) {
@@ -7740,7 +7755,7 @@ Buf *type_h_name(ZigType *t) {
 static void resolve_llvm_types_slice(CodeGen *g, ZigType *type, ResolveStatus wanted_resolve_status) {
     if (type->data.structure.resolve_status >= wanted_resolve_status) return;
 
-    ZigType *ptr_type = type->data.structure.fields[slice_ptr_index].type_entry;
+    ZigType *ptr_type = type->data.structure.fields[slice_ptr_index]->type_entry;
     ZigType *child_type = ptr_type->data.pointer.child_type;
     ZigType *usize_type = g->builtin_types.entry_usize;
 
@@ -7762,7 +7777,7 @@ static void resolve_llvm_types_slice(CodeGen *g, ZigType *type, ResolveStatus wa
     // If the child type is []const T then we need to make sure the type ref
     // and debug info is the same as if the child type were []T.
     if (is_slice(child_type)) {
-        ZigType *child_ptr_type = child_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *child_ptr_type = child_type->data.structure.fields[slice_ptr_index]->type_entry;
         assert(child_ptr_type->id == ZigTypeIdPointer);
         if (child_ptr_type->data.pointer.is_const || child_ptr_type->data.pointer.is_volatile ||
             child_ptr_type->data.pointer.explicit_alignment != 0 || child_ptr_type->data.pointer.allow_zero)
@@ -7939,7 +7954,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
 
     // trigger all the recursive get_llvm_type calls
     for (size_t i = 0; i < field_count; i += 1) {
-        TypeStructField *field = &struct_type->data.structure.fields[i];
+        TypeStructField *field = struct_type->data.structure.fields[i];
         ZigType *field_type = field->type_entry;
         if (!type_has_bits(field_type))
             continue;
@@ -7953,7 +7968,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     // inserting padding bytes where LLVM would do it automatically.
     size_t llvm_struct_abi_align = 0;
     for (size_t i = 0; i < field_count; i += 1) {
-        ZigType *field_type = struct_type->data.structure.fields[i].type_entry;
+        ZigType *field_type = struct_type->data.structure.fields[i]->type_entry;
         if (!type_has_bits(field_type))
             continue;
         LLVMTypeRef field_llvm_type = get_llvm_type(g, field_type);
@@ -7962,7 +7977,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     }
 
     for (size_t i = 0; i < field_count; i += 1) {
-        TypeStructField *field = &struct_type->data.structure.fields[i];
+        TypeStructField *field = struct_type->data.structure.fields[i];
         ZigType *field_type = field->type_entry;
 
         if (!type_has_bits(field_type)) {
@@ -8012,23 +8027,23 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
             // find the next non-zero-byte field for offset calculations
             size_t next_src_field_index = i + 1;
             for (; next_src_field_index < field_count; next_src_field_index += 1) {
-                if (type_has_bits(struct_type->data.structure.fields[next_src_field_index].type_entry))
+                if (type_has_bits(struct_type->data.structure.fields[next_src_field_index]->type_entry))
                     break;
             }
             size_t next_abi_align;
             if (next_src_field_index == field_count) {
                 next_abi_align = struct_type->abi_align;
             } else {
-                if (struct_type->data.structure.fields[next_src_field_index].align == 0) {
-                    next_abi_align = struct_type->data.structure.fields[next_src_field_index].type_entry->abi_align;
+                if (struct_type->data.structure.fields[next_src_field_index]->align == 0) {
+                    next_abi_align = struct_type->data.structure.fields[next_src_field_index]->type_entry->abi_align;
                 } else {
-                    next_abi_align = struct_type->data.structure.fields[next_src_field_index].align;
+                    next_abi_align = struct_type->data.structure.fields[next_src_field_index]->align;
                 }
             }
             size_t llvm_next_abi_align = (next_src_field_index == field_count) ?
                 llvm_struct_abi_align :
                 LLVMABIAlignmentOfType(g->target_data_ref,
-                        get_llvm_type(g, struct_type->data.structure.fields[next_src_field_index].type_entry));
+                        get_llvm_type(g, struct_type->data.structure.fields[next_src_field_index]->type_entry));
 
             size_t next_offset = next_field_offset(field->offset, struct_type->abi_align,
                     field_type->abi_size, next_abi_align);
@@ -8067,7 +8082,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(debug_field_count);
     size_t debug_field_index = 0;
     for (size_t i = 0; i < field_count; i += 1) {
-        TypeStructField *field = &struct_type->data.structure.fields[i];
+        TypeStructField *field = struct_type->data.structure.fields[i];
         size_t gen_field_index = field->gen_index;
         if (gen_field_index == SIZE_MAX) {
             continue;
