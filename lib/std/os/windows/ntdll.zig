@@ -21,6 +21,18 @@ pub extern "NtDll" stdcallcc fn NtCreateFile(
     EaBuffer: ?*c_void,
     EaLength: ULONG,
 ) NTSTATUS;
+pub extern "NtDll" stdcallcc fn NtDeviceIoControlFile(
+    FileHandle: HANDLE,
+    Event: ?HANDLE,
+    ApcRoutine: ?*IO_APC_ROUTINE,
+    ApcContext: usize,
+    IoStatusBlock: *IO_STATUS_BLOCK,
+    IoControlCode: ULONG,
+    InputBuffer: ?*const c_void,
+    InputBufferLength: ULONG,
+    OutputBuffer: ?PVOID,
+    OutputBufferLength: ULONG,
+) NTSTATUS;
 pub extern "NtDll" stdcallcc fn NtClose(Handle: HANDLE) NTSTATUS;
 pub extern "NtDll" stdcallcc fn RtlDosPathNameToNtPathName_U(
     DosPathName: [*]const u16,
