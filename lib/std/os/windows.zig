@@ -647,6 +647,35 @@ pub fn WSASocketW(
     return rc;
 }
 
+pub fn WSAIoctl(
+    s: ws2_32.SOCKET,
+    dwIoControlCode: DWORD,
+    inBuffer: ?[]const u8,
+    outBuffer: []u8,
+    overlapped: ?*ws2_32.WSAOVERLAPPED,
+    completionRoutine: ?*ws2_32.WSAOVERLAPPED_COMPLETION_ROUTINE,
+) !DWORD {
+    var bytes: DWORD = undefined;
+    switch (ws2_32.WSAIoctl(
+        s,
+        dwIoControlCode,
+        if (inBuffer) |i| i.ptr else null,
+        if (inBuffer) |i| @intCast(DWORD, i.len) else 0,
+        outBuffer.ptr,
+        @intCast(DWORD, outBuffer.len),
+        &bytes,
+        overlapped,
+        completionRoutine,
+    )) {
+        0 => {},
+        ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
+            else => |err| return unexpectedWSAError(err),
+        },
+        else => unreachable,
+    }
+    return bytes;
+}
+
 const GetModuleFileNameError = error{Unexpected};
 
 pub fn GetModuleFileNameW(hModule: ?HMODULE, buf_ptr: [*]u16, buf_len: DWORD) GetModuleFileNameError![]u16 {
