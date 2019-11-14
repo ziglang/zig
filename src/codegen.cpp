@@ -3508,7 +3508,7 @@ static bool value_is_all_undef(CodeGen *g, ConstExprValue *const_val) {
         case ConstValSpecialStatic:
             if (const_val->type->id == ZigTypeIdStruct) {
                 for (size_t i = 0; i < const_val->type->data.structure.src_field_count; i += 1) {
-                    if (!value_is_all_undef(g, &const_val->data.x_struct.fields[i]))
+                    if (!value_is_all_undef(g, const_val->data.x_struct.fields[i]))
                         return false;
                 }
                 return true;
@@ -6572,7 +6572,7 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
                     if (field->gen_index == SIZE_MAX) {
                         continue;
                     }
-                    LLVMValueRef child_val = pack_const_int(g, big_int_type_ref, &const_val->data.x_struct.fields[i]);
+                    LLVMValueRef child_val = pack_const_int(g, big_int_type_ref, const_val->data.x_struct.fields[i]);
                     uint32_t packed_bits_size = type_size_bits(g, field->type_entry);
                     if (is_big_endian) {
                         LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref, packed_bits_size, false);
@@ -6840,7 +6840,7 @@ check: switch (const_val->special) {
                         }
 
                         if (src_field_index + 1 == src_field_index_end) {
-                            ConstExprValue *field_val = &const_val->data.x_struct.fields[src_field_index];
+                            ConstExprValue *field_val = const_val->data.x_struct.fields[src_field_index];
                             LLVMValueRef val = gen_const_val(g, field_val, "");
                             fields[type_struct_field->gen_index] = val;
                             make_unnamed_struct = make_unnamed_struct || is_llvm_value_unnamed_type(g, field_val->type, val);
@@ -6858,7 +6858,7 @@ check: switch (const_val->special) {
                                     continue;
                                 }
                                 LLVMValueRef child_val = pack_const_int(g, big_int_type_ref,
-                                        &const_val->data.x_struct.fields[i]);
+                                        const_val->data.x_struct.fields[i]);
                                 uint32_t packed_bits_size = type_size_bits(g, it_field->type_entry);
                                 if (is_big_endian) {
                                     LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref,
@@ -6897,7 +6897,7 @@ check: switch (const_val->special) {
                         if (type_struct_field->gen_index == SIZE_MAX) {
                             continue;
                         }
-                        ConstExprValue *field_val = &const_val->data.x_struct.fields[i];
+                        ConstExprValue *field_val = const_val->data.x_struct.fields[i];
                         assert(field_val->type != nullptr);
                         if ((err = ensure_const_val_repr(nullptr, g, nullptr, field_val,
                                         type_struct_field->type_entry)))
@@ -9074,13 +9074,13 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
         this_val->parent.id = ConstParentIdArray;
         this_val->parent.data.p_array.array_val = test_fn_array;
         this_val->parent.data.p_array.elem_index = i;
-        this_val->data.x_struct.fields = create_const_vals(2);
+        this_val->data.x_struct.fields = alloc_const_vals_ptrs(2);
 
-        ConstExprValue *name_field = &this_val->data.x_struct.fields[0];
+        ConstExprValue *name_field = this_val->data.x_struct.fields[0];
         ConstExprValue *name_array_val = create_const_str_lit(g, &test_fn_entry->symbol_name);
         init_const_slice(g, name_field, name_array_val, 0, buf_len(&test_fn_entry->symbol_name), true);
 
-        ConstExprValue *fn_field = &this_val->data.x_struct.fields[1];
+        ConstExprValue *fn_field = this_val->data.x_struct.fields[1];
         fn_field->type = fn_type;
         fn_field->special = ConstValSpecialStatic;
         fn_field->data.x_ptr.special = ConstPtrSpecialFunction;

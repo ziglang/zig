@@ -1461,8 +1461,8 @@ static bool analyze_const_string(CodeGen *g, Scope *scope, AstNode *node, Buf **
     if (type_is_invalid(result_val->type))
         return false;
 
-    ConstExprValue *ptr_field = &result_val->data.x_struct.fields[slice_ptr_index];
-    ConstExprValue *len_field = &result_val->data.x_struct.fields[slice_len_index];
+    ConstExprValue *ptr_field = result_val->data.x_struct.fields[slice_ptr_index];
+    ConstExprValue *len_field = result_val->data.x_struct.fields[slice_len_index];
 
     assert(ptr_field->data.x_ptr.special == ConstPtrSpecialBaseArray);
     ConstExprValue *array_val = ptr_field->data.x_ptr.data.base_array.array_val;
@@ -5283,7 +5283,7 @@ static bool can_mutate_comptime_var_state(ConstExprValue *value) {
             zig_unreachable();
         case ZigTypeIdStruct:
             for (uint32_t i = 0; i < value->type->data.structure.src_field_count; i += 1) {
-                if (can_mutate_comptime_var_state(&value->data.x_struct.fields[i]))
+                if (can_mutate_comptime_var_state(value->data.x_struct.fields[i]))
                     return true;
             }
             return false;
@@ -5798,11 +5798,11 @@ void init_const_slice(CodeGen *g, ConstExprValue *const_val, ConstExprValue *arr
 
     const_val->special = ConstValSpecialStatic;
     const_val->type = get_slice_type(g, ptr_type);
-    const_val->data.x_struct.fields = create_const_vals(2);
+    const_val->data.x_struct.fields = alloc_const_vals_ptrs(2);
 
-    init_const_ptr_array(g, &const_val->data.x_struct.fields[slice_ptr_index], array_val, start, is_const,
+    init_const_ptr_array(g, const_val->data.x_struct.fields[slice_ptr_index], array_val, start, is_const,
             PtrLenUnknown);
-    init_const_usize(g, &const_val->data.x_struct.fields[slice_len_index], len);
+    init_const_usize(g, const_val->data.x_struct.fields[slice_len_index], len);
 }
 
 ConstExprValue *create_const_slice(CodeGen *g, ConstExprValue *array_val, size_t start, size_t len, bool is_const) {
@@ -5885,6 +5885,23 @@ ConstExprValue *create_const_vals(size_t count) {
     }
     return vals;
 }
+
+ConstExprValue **alloc_const_vals_ptrs(size_t count) {
+    return realloc_const_vals_ptrs(nullptr, 0, count);
+}
+
+ConstExprValue **realloc_const_vals_ptrs(ConstExprValue **ptr, size_t old_count, size_t new_count) {
+    assert(new_count >= old_count);
+
+    size_t new_item_count = new_count - old_count;
+    ConstExprValue **result = reallocate(ptr, old_count, new_count, "ConstExprValue*");
+    ConstExprValue *vals = create_const_vals(new_item_count);
+    for (size_t i = old_count; i < new_count; i += 1) {
+        result[i] = &vals[i - old_count];
+    }
+    return result;
+}
+
 
 static ZigType *get_async_fn_type(CodeGen *g, ZigType *orig_fn_type) {
     if (orig_fn_type->data.fn.fn_type_id.cc == CallingConventionAsync)
@@ -6567,8 +6584,8 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
         }
         case ZigTypeIdStruct:
             for (size_t i = 0; i < a->type->data.structure.src_field_count; i += 1) {
-                ConstExprValue *field_a = &a->data.x_struct.fields[i];
-                ConstExprValue *field_b = &b->data.x_struct.fields[i];
+                ConstExprValue *field_a = a->data.x_struct.fields[i];
+                ConstExprValue *field_b = b->data.x_struct.fields[i];
                 if (!const_values_equal(g, field_a, field_b))
                     return false;
             }
@@ -6876,10 +6893,10 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
         case ZigTypeIdStruct:
             {
                 if (is_slice(type_entry)) {
-                    ConstExprValue *len_val = &const_val->data.x_struct.fields[slice_len_index];
+                    ConstExprValue *len_val = const_val->data.x_struct.fields[slice_len_index];
                     size_t len = bigint_as_usize(&len_val->data.x_bigint);
 
-                    ConstExprValue *ptr_val = &const_val->data.x_struct.fields[slice_ptr_index];
+                    ConstExprValue *ptr_val = const_val->data.x_struct.fields[slice_ptr_index];
                     if (ptr_val->special == ConstValSpecialUndef) {
                         assert(len == 0);
                         buf_appendf(buf, "((%s)(undefined))[0..0]", buf_ptr(&type_entry->name));
@@ -7156,9 +7173,9 @@ static void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
 
         const_val->special = ConstValSpecialStatic;
         size_t field_count = wanted_type->data.structure.src_field_count;
-        const_val->data.x_struct.fields = create_const_vals(field_count);
+        const_val->data.x_struct.fields = alloc_const_vals_ptrs(field_count);
         for (size_t i = 0; i < field_count; i += 1) {
-            ConstExprValue *field_val = &const_val->data.x_struct.fields[i];
+            ConstExprValue *field_val = const_val->data.x_struct.fields[i];
             field_val->type = resolve_struct_field_type(g, &wanted_type->data.structure.fields[i]);
             assert(field_val->type);
             init_const_undefined(g, field_val);

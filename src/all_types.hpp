@@ -152,7 +152,7 @@ struct ConstParent {
 };
 
 struct ConstStructValue {
-    ConstExprValue *fields;
+    ConstExprValue **fields;
 };
 
 struct ConstUnionValue {
