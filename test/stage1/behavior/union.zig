@@ -110,7 +110,7 @@ fn doTest() void {
 }
 
 fn bar(value: Payload) i32 {
-    expect(@as(Letter,value) == Letter.A);
+    expect(@as(Letter, value) == Letter.A);
     return switch (value) {
         Payload.A => |x| return x - 1244,
         Payload.B => |x| if (x == 12.34) @as(i32, 20) else 21,
@@ -208,7 +208,7 @@ test "cast union to tag type of union" {
 }
 
 fn testCastUnionToTagType(x: TheUnion) void {
-    expect(@as(TheTag,x) == TheTag.B);
+    expect(@as(TheTag, x) == TheTag.B);
 }
 
 test "cast tag type of union to union" {
@@ -558,16 +558,27 @@ test "anonymous union literal syntax" {
         };
 
         fn doTheTest() void {
-            var i: Number = .{.int = 42};
+            var i: Number = .{ .int = 42 };
             var f = makeNumber();
             expect(i.int == 42);
             expect(f.float == 12.34);
         }
 
         fn makeNumber() Number {
-            return .{.float = 12.34};
+            return .{ .float = 12.34 };
         }
     };
     S.doTheTest();
     comptime S.doTheTest();
+}
+
+test "update the tag value for zero-sized unions" {
+    const S = union(enum) {
+        U0: void,
+        U1: void,
+    };
+    var x = S{ .U0 = {} };
+    expect(x == .U0);
+    x = S{ .U1 = {} };
+    expect(x == .U1);
 }
