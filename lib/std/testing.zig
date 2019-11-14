@@ -62,7 +62,7 @@ pub fn expectEqual(expected: var, actual: @typeOf(expected)) void {
                 builtin.TypeInfo.Pointer.Size.C,
                 => {
                     if (actual != expected) {
-                        std.debug.panic("expected {}, found {}", expected, actual);
+                        std.debug.panic("expected {*}, found {*}", expected, actual);
                     }
                 },
 
