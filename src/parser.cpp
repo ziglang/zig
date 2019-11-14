@@ -2618,6 +2618,11 @@ static AstNode *ast_parse_prefix_type_op(ParseContext *pc) {
     if (array != nullptr) {
         assert(array->type == NodeTypeArrayType);
         while (true) {
+            if (eat_token_if(pc, TokenIdKeywordNull) != nullptr) {
+                array->data.array_type.is_null_terminated = true;
+                continue;
+            }
+
             Token *allowzero_token = eat_token_if(pc, TokenIdKeywordAllowZero);
             if (allowzero_token != nullptr) {
                 array->data.array_type.allow_zero_token = allowzero_token;
@@ -2653,6 +2658,11 @@ static AstNode *ast_parse_prefix_type_op(ParseContext *pc) {
         if (child == nullptr)
             child = ptr;
         while (true) {
+            if (eat_token_if(pc, TokenIdKeywordNull) != nullptr) {
+                child->data.pointer_type.is_null_terminated = true;
+                continue;
+            }
+
             Token *allowzero_token = eat_token_if(pc, TokenIdKeywordAllowZero);
             if (allowzero_token != nullptr) {
                 child->data.pointer_type.allow_zero_token = allowzero_token;

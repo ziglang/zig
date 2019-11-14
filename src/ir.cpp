@@ -6043,12 +6043,24 @@ static PtrLen star_token_to_ptr_len(TokenId token_id) {
 
 static IrInstruction *ir_gen_pointer_type(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypePointerType);
+
     PtrLen ptr_len = star_token_to_ptr_len(node->data.pointer_type.star_token->id);
+    if (node->data.pointer_type.is_null_terminated) {
+        if (ptr_len == PtrLenUnknown) {
+            ptr_len = PtrLenNull;
+        } else {
+            exec_add_error_node(irb->codegen, irb->exec, node,
+                    buf_sprintf("null-terminated pointer must be specified with [*] token"));
+            return irb->codegen->invalid_instruction;
+        }
+    }
+
     bool is_const = node->data.pointer_type.is_const;
     bool is_volatile = node->data.pointer_type.is_volatile;
     bool is_allow_zero = node->data.pointer_type.allow_zero_token != nullptr;
     AstNode *expr_node = node->data.pointer_type.op_expr;
     AstNode *align_expr = node->data.pointer_type.align_expr;
+
 
     IrInstruction *align_value;
     if (align_expr != nullptr) {
@@ -9793,6 +9805,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
     // alignment can be decreased
     // bit offset attributes must match exactly
     // PtrLenSingle/PtrLenUnknown must match exactly, but PtrLenC matches either one
+    // PtrLenNull can coerce into PtrLenUnknown
     ZigType *wanted_ptr_type = get_src_ptr_type(wanted_type);
     ZigType *actual_ptr_type = get_src_ptr_type(actual_type);
     bool wanted_allows_zero = ptr_allows_addr_zero(wanted_type);
@@ -9843,7 +9856,10 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             return result;
         }
         bool ptr_lens_equal = actual_ptr_type->data.pointer.ptr_len == wanted_ptr_type->data.pointer.ptr_len;
-        if ((ptr_lens_equal || wanted_is_c_ptr || actual_is_c_ptr) &&
+        bool ok_null_term_ptrs =
+            actual_ptr_type->data.pointer.ptr_len == PtrLenNull ||
+            wanted_ptr_type->data.pointer.ptr_len == PtrLenUnknown;
+        if ((ptr_lens_equal || wanted_is_c_ptr || actual_is_c_ptr || ok_null_term_ptrs) &&
             type_has_bits(wanted_type) == type_has_bits(actual_type) &&
             (!actual_ptr_type->data.pointer.is_const || wanted_ptr_type->data.pointer.is_const) &&
             (!actual_ptr_type->data.pointer.is_volatile || wanted_ptr_type->data.pointer.is_volatile) &&
@@ -14532,6 +14548,7 @@ static bool is_pointer_arithmetic_allowed(ZigType *lhs_type, IrBinOp op) {
         case PtrLenSingle:
             return false;
         case PtrLenUnknown:
+        case PtrLenNull:
         case PtrLenC:
             break;
     }
@@ -21166,6 +21183,7 @@ static BuiltinPtrSize ptr_len_to_size_enum_index(PtrLen ptr_len) {
         case PtrLenSingle:
             return BuiltinPtrSizeOne;
         case PtrLenUnknown:
+        case PtrLenNull:
             return BuiltinPtrSizeMany;
         case PtrLenC:
             return BuiltinPtrSizeC;
@@ -21210,7 +21228,7 @@ static ConstExprValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_ty
     result->special = ConstValSpecialStatic;
     result->type = type_info_pointer_type;
 
-    ConstExprValue **fields = alloc_const_vals_ptrs(6);
+    ConstExprValue **fields = alloc_const_vals_ptrs(7);
     result->data.x_struct.fields = fields;
 
     // size: Size
@@ -21246,6 +21264,11 @@ static ConstExprValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_ty
     fields[5]->special = ConstValSpecialStatic;
     fields[5]->type = ira->codegen->builtin_types.entry_bool;
     fields[5]->data.x_bool = attrs_type->data.pointer.allow_zero;
+    // is_null_terminated: bool
+    ensure_field_index(result->type, "is_null_terminated", 6);
+    fields[6]->special = ConstValSpecialStatic;
+    fields[6]->type = ira->codegen->builtin_types.entry_bool;
+    fields[6]->data.x_bool = attrs_type->data.pointer.ptr_len == PtrLenNull;
 
     return result;
 };

@@ -460,6 +460,8 @@ static const char *ptr_len_to_star_str(PtrLen ptr_len) {
             return "[*]";
         case PtrLenC:
             return "[*c]";
+        case PtrLenNull:
+            return "[*]null ";
     }
     zig_unreachable();
 }
@@ -7032,7 +7034,7 @@ uint32_t type_id_hash(TypeId x) {
             return hash_ptr(x.data.error_union.err_set_type) ^ hash_ptr(x.data.error_union.payload_type);
         case ZigTypeIdPointer:
             return hash_ptr(x.data.pointer.child_type) +
-                ((x.data.pointer.ptr_len == PtrLenSingle) ? (uint32_t)1120226602 : (uint32_t)3200913342) +
+                (uint32_t)x.data.pointer.ptr_len * 1120226602u +
                 (x.data.pointer.is_const ? (uint32_t)2749109194 : (uint32_t)4047371087) +
                 (x.data.pointer.is_volatile ? (uint32_t)536730450 : (uint32_t)1685612214) +
                 (x.data.pointer.allow_zero ? (uint32_t)3324284834 : (uint32_t)3584904923) +

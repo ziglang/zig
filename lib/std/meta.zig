@@ -558,3 +558,4 @@ pub fn refAllDecls(comptime T: type) void {
     if (!builtin.is_test) return;
     _ = declarations(T);
 }
+

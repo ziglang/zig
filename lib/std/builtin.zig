@@ -144,6 +144,7 @@ pub const TypeInfo = union(enum) {
         alignment: comptime_int,
         child: type,
         is_allowzero: bool,
+        is_null_terminated: bool,
 
         /// This data structure is used by the Zig language code generation and
         /// therefore must be kept in sync with the compiler implementation.

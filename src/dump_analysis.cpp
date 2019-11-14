@@ -992,6 +992,10 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
                     jw_object_field(jw, "len");
                     jw_int(jw, 3);
                     break;
+                case PtrLenNull:
+                    jw_object_field(jw, "len");
+                    jw_int(jw, 4);
+                    break;
             }
             anal_dump_pointer_attrs(ctx, ty);
             break;

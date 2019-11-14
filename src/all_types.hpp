@@ -55,6 +55,7 @@ enum PtrLen {
     PtrLenUnknown,
     PtrLenSingle,
     PtrLenC,
+    PtrLenNull,
 };
 
 // This one corresponds to the builtin.zig enum.
@@ -825,6 +826,7 @@ struct AstNodePointerType {
     Token *allow_zero_token;
     bool is_const;
     bool is_volatile;
+    bool is_null_terminated;
 };
 
 struct AstNodeInferredArrayType {
@@ -838,6 +840,7 @@ struct AstNodeArrayType {
     Token *allow_zero_token;
     bool is_const;
     bool is_volatile;
+    bool is_null_terminated;
 };
 
 struct AstNodeUsingNamespace {
