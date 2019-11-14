@@ -4351,17 +4351,32 @@ static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executab
     TypeUnionField *field = instruction->field;
 
     if (!type_has_bits(field->type_entry)) {
-        if (union_type->data.unionation.gen_tag_index == SIZE_MAX) {
+        ZigType *tag_type = union_type->data.unionation.tag_type;
+        if (!instruction->initializing || !type_has_bits(tag_type))
             return nullptr;
+
+        // The field has no bits but we still have to change the discriminant
+        // value here
+        LLVMValueRef union_ptr = ir_llvm_value(g, instruction->union_ptr);
+
+        LLVMTypeRef tag_type_ref = get_llvm_type(g, tag_type);
+        LLVMValueRef tag_field_ptr = nullptr;
+        if (union_type->data.unionation.gen_field_count == 0) {
+            assert(union_type->data.unionation.gen_tag_index == SIZE_MAX);
+            // The whole union is collapsed into the discriminant
+            tag_field_ptr = LLVMBuildBitCast(g->builder, union_ptr,
+                LLVMPointerType(tag_type_ref, 0), "");
+        } else {
+            assert(union_type->data.unionation.gen_tag_index != SIZE_MAX);
+            tag_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr,
+                union_type->data.unionation.gen_tag_index, "");
         }
-        if (instruction->initializing) {
-            LLVMValueRef union_ptr = ir_llvm_value(g, instruction->union_ptr);
-            LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr,
-                    union_type->data.unionation.gen_tag_index, "");
-            LLVMValueRef tag_value = bigint_to_llvm_const(get_llvm_type(g, union_type->data.unionation.tag_type),
-                    &field->enum_field->value);
-            gen_store_untyped(g, tag_value, tag_field_ptr, 0, false);
-        }
+
+        LLVMValueRef tag_value = bigint_to_llvm_const(tag_type_ref,
+            &field->enum_field->value);
+        assert(tag_field_ptr != nullptr);
+        gen_store_untyped(g, tag_value, tag_field_ptr, 0, false);
+
         return nullptr;
     }
 
