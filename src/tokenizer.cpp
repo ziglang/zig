@@ -198,6 +198,7 @@ enum TokenizeState {
     TokenizeStateSawSlash,
     TokenizeStateSawSlash2,
     TokenizeStateSawSlash3,
+    TokenizeStateSawSlashBang,
     TokenizeStateSawBackslash,
     TokenizeStateSawPercent,
     TokenizeStateSawPlus,
@@ -209,6 +210,7 @@ enum TokenizeState {
     TokenizeStateSawBar,
     TokenizeStateSawBarBar,
     TokenizeStateDocComment,
+    TokenizeStateContainerDocComment,
     TokenizeStateLineComment,
     TokenizeStateLineString,
     TokenizeStateLineStringEnd,
@@ -938,6 +940,9 @@ void tokenize(Buf *buf, Tokenization *out) {
                     case '/':
                         t.state = TokenizeStateSawSlash3;
                         break;
+                    case '!':
+                        t.state = TokenizeStateSawSlashBang;
+                        break;
                     case '\n':
                         cancel_token(&t);
                         t.state = TokenizeStateStart;
@@ -962,6 +967,19 @@ void tokenize(Buf *buf, Tokenization *out) {
                     default:
                         set_token_id(&t, t.cur_tok, TokenIdDocComment);
                         t.state = TokenizeStateDocComment;
+                        break;
+                }
+                break;
+            case TokenizeStateSawSlashBang:
+                switch (c) {
+                    case '\n':
+                        set_token_id(&t, t.cur_tok, TokenIdContainerDocComment);
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
+                    default:
+                        set_token_id(&t, t.cur_tok, TokenIdContainerDocComment);
+                        t.state = TokenizeStateContainerDocComment;
                         break;
                 }
                 break;
@@ -1045,6 +1063,17 @@ void tokenize(Buf *buf, Tokenization *out) {
                 }
                 break;
             case TokenizeStateDocComment:
+                switch (c) {
+                    case '\n':
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
+                    default:
+                        // do nothing
+                        break;
+                }
+                break;
+            case TokenizeStateContainerDocComment:
                 switch (c) {
                     case '\n':
                         end_token(&t);
@@ -1545,6 +1574,7 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateSawBarBar:
         case TokenizeStateLBracket:
         case TokenizeStateDocComment:
+        case TokenizeStateContainerDocComment:
             end_token(&t);
             break;
         case TokenizeStateSawDotDot:
@@ -1559,6 +1589,7 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateLineComment:
         case TokenizeStateSawSlash2:
         case TokenizeStateSawSlash3:
+        case TokenizeStateSawSlashBang:
             break;
     }
     if (t.state != TokenizeStateError) {
@@ -1606,6 +1637,7 @@ const char * token_name(TokenId id) {
         case TokenIdDash: return "-";
         case TokenIdDivEq: return "/=";
         case TokenIdDocComment: return "DocComment";
+        case TokenIdContainerDocComment: return "ContainerDocComment";
         case TokenIdDot: return ".";
         case TokenIdDotStar: return ".*";
         case TokenIdEllipsis2: return "..";
