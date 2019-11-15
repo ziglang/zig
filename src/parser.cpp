@@ -493,7 +493,9 @@ static AstNode *ast_parse_root(ParseContext *pc) {
     node->data.container_decl.layout = ContainerLayoutAuto;
     node->data.container_decl.kind = ContainerKindStruct;
     node->data.container_decl.is_root = true;
-    node->data.container_decl.doc_comments = members.doc_comments;
+    if (buf_len(&members.doc_comments) != 0) {
+        node->data.container_decl.doc_comments = members.doc_comments;
+    }
 
     return node;
 }
@@ -2817,7 +2819,9 @@ static AstNode *ast_parse_container_decl_auto(ParseContext *pc) {
 
     res->data.container_decl.fields = members.fields;
     res->data.container_decl.decls = members.decls;
-    res->data.container_decl.doc_comments = members.doc_comments;
+    if (buf_len(&members.doc_comments) != 0) {
+        res->data.container_decl.doc_comments = members.doc_comments;
+    }
     return res;
 }
 

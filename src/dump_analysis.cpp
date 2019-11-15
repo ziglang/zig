@@ -1088,6 +1088,7 @@ static void anal_dump_node(AnalDumpCtx *ctx, const AstNode *node) {
             break;
         case NodeTypeContainerDecl:
             field_nodes = &node->data.container_decl.fields;
+            doc_comments_buf = &node->data.container_decl.doc_comments;
             break;
         default:
             break;
