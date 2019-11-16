@@ -8128,7 +8128,6 @@ static ZigType *get_error_set_union(CodeGen *g, ErrorTableEntry **errors, ZigTyp
         }
     }
     assert(index == count);
-    assert(count != 0);
 
     if (type_name == nullptr) {
         buf_appendf(&err_set_type->name, "}");
