@@ -273,6 +273,20 @@ pub fn LinearFifo(
             }
         }
 
+        /// Write a single item to the fifo
+        pub fn writeItem(self: *Self, item: T) !void {
+            try self.ensureUnusedCapacity(1);
+
+            var tail = self.head + self.count;
+            if (powers_of_two) {
+                tail &= self.buf.len - 1;
+            } else {
+                tail %= self.buf.len;
+            }
+            self.buf[tail] = byte;
+            self.update(1);
+        }
+
         /// Appends the data in `src` to the fifo.
         /// Allocates more memory as necessary
         pub fn write(self: *Self, src: []const T) !void {
