@@ -6,17 +6,18 @@ const math = std.math;
 const builtin = @import("builtin");
 
 /// Stable in-place sort. O(n) best case, O(pow(n, 2)) worst case. O(1) memory (no allocator required).
-pub fn insertionSort(comptime T: type, items: []T, lessThan: fn (lhs: T, rhs: T) bool) void {
-    {
-        var i: usize = 1;
-        while (i < items.len) : (i += 1) {
-            const x = items[i];
-            var j: usize = i;
-            while (j > 0 and lessThan(x, items[j - 1])) : (j -= 1) {
-                items[j] = items[j - 1];
-            }
-            items[j] = x;
-        }
+/// Uses binary search, which can be up to 2x better
+pub fn insertionSort(comptime T: type, items: []T, lessThan: fn (T, T) bool) void {
+    var i: usize = 1;
+    while (i < items.len) : (i += 1) {
+        // Skip search / copy on already sorted pairs
+        if (!lessThan(items[i], items[i - 1])) continue;
+
+        const val = items[i];
+        const ins = binaryLast(T, items, val, Range{ .start = 0, .end = i }, lessThan);
+        // TODO: switch to memmove once that's available
+        std.mem.copyBackwards(T, items[ins + 1 ..], items[ins..i]);
+        items[ins] = val;
     }
 }
 
