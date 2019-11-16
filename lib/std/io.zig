@@ -198,7 +198,7 @@ test "io.BufferedInStream" {
 
 /// Creates a stream which supports 'un-reading' data, so that it can be read again.
 /// This makes look-ahead style parsing much easier.
-pub fn PeekStream(comptime buffer_type: usize, comptime InStreamError: type) type {
+pub fn PeekStream(comptime buffer_type: std.fifo.LinearFifoBufferType, comptime InStreamError: type) type {
     return struct {
         const Self = @This();
         pub const Error = InStreamError;
@@ -207,18 +207,38 @@ pub fn PeekStream(comptime buffer_type: usize, comptime InStreamError: type) typ
         stream: Stream,
         base: *Stream,
 
-        // Right now the look-ahead space is statically allocated, but a version with dynamic allocation
-        // is not too difficult to derive from this.
-        const FifoType = std.fifo.LinearFifo(u8, .{ .Static = buffer_size });
+        const FifoType = std.fifo.LinearFifo(u8, buffer_type);
         fifo: FifoType,
 
-        pub fn init(base: *Stream) Self {
-            return .{
-                .base = base,
-                .fifo = FifoType.init(),
-                .stream = Stream{ .readFn = readFn },
-            };
-        }
+        pub usingnamespace switch (buffer_type) {
+            .Static => struct {
+                pub fn init(base: *Stream) Self {
+                    return .{
+                        .base = base,
+                        .fifo = FifoType.init(),
+                        .stream = Stream{ .readFn = readFn },
+                    };
+                }
+            },
+            .Slice => struct {
+                pub fn init(base: *Stream, buf: []u8) Self {
+                    return .{
+                        .base = base,
+                        .fifo = FifoType.init(buf),
+                        .stream = Stream{ .readFn = readFn },
+                    };
+                }
+            },
+            .Dynamic => struct {
+                pub fn init(base: *Stream, allocator: *mem.Allocator) Self {
+                    return .{
+                        .base = base,
+                        .fifo = FifoType.init(allocator),
+                        .stream = Stream{ .readFn = readFn },
+                    };
+                }
+            },
+        };
 
         pub fn putBackByte(self: *Self, byte: u8) !void {
             try self.putBack(@ptrCast([*]const u8, &byte)[0..1]);
