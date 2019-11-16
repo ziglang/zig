@@ -160,6 +160,10 @@ fn testErrToIntWithOnePossibleValue(
     }
 }
 
+test "empty error union" {
+    const x = error{} || error{};
+}
+
 test "error union peer type resolution" {
     testErrorUnionPeerTypeResolution(1);
 }
