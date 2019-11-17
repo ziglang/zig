@@ -16,6 +16,7 @@ pub const kernel32 = @import("windows/kernel32.zig");
 pub const ntdll = @import("windows/ntdll.zig");
 pub const ole32 = @import("windows/ole32.zig");
 pub const shell32 = @import("windows/shell32.zig");
+pub const ws2_32 = @import("windows/ws2_32.zig");
 
 pub usingnamespace @import("windows/bits.zig");
 
@@ -94,6 +95,42 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
             else => |err| return unexpectedError(err),
         }
     }
+}
+
+pub fn DeviceIoControl(
+    h: HANDLE,
+    ioControlCode: DWORD,
+    in: ?[]const u8,
+    out: ?[]u8,
+    overlapped: ?*OVERLAPPED,
+) !DWORD {
+    var bytes: DWORD = undefined;
+    if (kernel32.DeviceIoControl(
+        h,
+        ioControlCode,
+        if (in) |i| i.ptr else null,
+        if (in) |i| @intCast(u32, i.len) else 0,
+        if (out) |o| o.ptr else null,
+        if (out) |o| @intCast(u32, o.len) else 0,
+        &bytes,
+        overlapped,
+    ) == 0) {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+    return bytes;
+}
+
+pub fn GetOverlappedResult(h: HANDLE, overlapped: *OVERLAPPED, wait: bool) !DWORD {
+    var bytes: DWORD = undefined;
+    if (kernel32.GetOverlappedResult(h, overlapped, &bytes, wait) == 0) {
+        switch (kernel32.GetLastError()) {
+            ERROR_IO_INCOMPLETE => if (!wait) return error.WouldBlock else unreachable,
+            else => |err| return unexpectedError(err),
+        }
+    }
+    return bytes;
 }
 
 pub const SetHandleInformationError = error{Unexpected};
@@ -571,6 +608,74 @@ pub fn GetFileAttributesW(lpFileName: [*]const u16) GetFileAttributesError!DWORD
     return rc;
 }
 
+pub fn WSAStartup(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
+    var wsadata: ws2_32.WSADATA = undefined;
+    return switch (ws2_32.WSAStartup((@as(WORD, minorVersion) << 8) | majorVersion, &wsadata)) {
+        0 => wsadata,
+        else => |err| unexpectedWSAError(err),
+    };
+}
+
+pub fn WSACleanup() !void {
+    return switch (ws2_32.WSACleanup()) {
+        0 => {},
+        ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
+            else => |err| return unexpectedWSAError(err),
+        },
+        else => unreachable,
+    };
+}
+
+pub fn WSASocketW(
+    af: i32,
+    socket_type: i32,
+    protocol: i32,
+    protocolInfo: ?*ws2_32.WSAPROTOCOL_INFOW,
+    g: ws2_32.GROUP,
+    dwFlags: DWORD,
+) !ws2_32.SOCKET {
+    const rc = ws2_32.WSASocketW(af, socket_type, protocol, protocolInfo, g, dwFlags);
+    if (rc == ws2_32.INVALID_SOCKET) {
+        switch (ws2_32.WSAGetLastError()) {
+            ws2_32.WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+            ws2_32.WSAEMFILE => return error.ProcessFdQuotaExceeded,
+            ws2_32.WSAENOBUFS => return error.SystemResources,
+            ws2_32.WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,
+            else => |err| return unexpectedWSAError(err),
+        }
+    }
+    return rc;
+}
+
+pub fn WSAIoctl(
+    s: ws2_32.SOCKET,
+    dwIoControlCode: DWORD,
+    inBuffer: ?[]const u8,
+    outBuffer: []u8,
+    overlapped: ?*ws2_32.WSAOVERLAPPED,
+    completionRoutine: ?*ws2_32.WSAOVERLAPPED_COMPLETION_ROUTINE,
+) !DWORD {
+    var bytes: DWORD = undefined;
+    switch (ws2_32.WSAIoctl(
+        s,
+        dwIoControlCode,
+        if (inBuffer) |i| i.ptr else null,
+        if (inBuffer) |i| @intCast(DWORD, i.len) else 0,
+        outBuffer.ptr,
+        @intCast(DWORD, outBuffer.len),
+        &bytes,
+        overlapped,
+        completionRoutine,
+    )) {
+        0 => {},
+        ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
+            else => |err| return unexpectedWSAError(err),
+        },
+        else => unreachable,
+    }
+    return bytes;
+}
+
 const GetModuleFileNameError = error{Unexpected};
 
 pub fn GetModuleFileNameW(hModule: ?HMODULE, buf_ptr: [*]u16, buf_len: DWORD) GetModuleFileNameError![]u16 {
@@ -866,6 +971,10 @@ pub fn unexpectedError(err: DWORD) std.os.UnexpectedError {
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
+}
+
+pub fn unexpectedWSAError(err: c_int) std.os.UnexpectedError {
+    return unexpectedError(@intCast(DWORD, err));
 }
 
 /// Call this when you made a windows NtDll call
