@@ -125,7 +125,7 @@ const CountResult = struct {
 };
 
 pub fn countLeaks() CountResult {
-    var res = CountResult{
+    var res: CountResult = .{
         .leaked = 0,
         .dubious = 0,
         .reachable = 0,
@@ -136,7 +136,7 @@ pub fn countLeaks() CountResult {
 }
 
 pub fn countLeakBlocks() CountResult {
-    var res = CountResult{
+    var res: CountResult = .{
         .leaked = 0,
         .dubious = 0,
         .reachable = 0,
