@@ -17695,6 +17695,8 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
             peer_parent->resolved_type = ir_resolve_peer_types(ira,
                     peer_parent->base.source_instruction->source_node, expected_type, instructions,
                     peer_parent->peers.length);
+            if (type_is_invalid(peer_parent->resolved_type))
+                return ira->codegen->invalid_instruction;
 
             // the logic below assumes there are no instructions in the new current basic block yet
             ir_assert(ira->new_irb.current_basic_block->instruction_list.length == 0, &phi_instruction->base);
