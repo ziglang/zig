@@ -2025,7 +2025,12 @@ static AstNode *ast_parse_field_init(ParseContext *pc) {
     if (first == nullptr)
         return nullptr;
 
-    Token *name = expect_token(pc, TokenIdSymbol);
+    Token *name = eat_token_if(pc, TokenIdSymbol);
+    if (name == nullptr) {
+        // Because of anon literals ".{" is also valid.
+        put_back_token(pc);
+        return nullptr;
+    }
     if (eat_token_if(pc, TokenIdEq) == nullptr) {
         // Because ".Name" can also be intepreted as an enum literal, we should put back
         // those two tokens again so that the parser can try to parse them as the enum
