@@ -142,6 +142,7 @@ pub const Token = struct {
         FloatLiteral,
         LineComment,
         DocComment,
+        ContainerDocComment,
         BracketStarBracket,
         BracketStarCBracket,
         ShebangLine,
@@ -211,6 +212,7 @@ pub const Token = struct {
                 .FloatLiteral => "FloatLiteral",
                 .LineComment => "LineComment",
                 .DocComment => "DocComment",
+                .ContainerDocComment => "ContainerDocComment",
                 .ShebangLine => "ShebangLine",
 
                 .Bang => "!",
@@ -387,6 +389,7 @@ pub const Tokenizer = struct {
         LineComment,
         DocCommentStart,
         DocComment,
+        ContainerDocComment,
         Zero,
         IntegerLiteral,
         IntegerLiteralWithRadix,
@@ -1076,6 +1079,10 @@ pub const Tokenizer = struct {
                     '/' => {
                         state = State.DocCommentStart;
                     },
+                    '!' => {
+                        result.id = Token.Id.ContainerDocComment;
+                        state = State.ContainerDocComment;
+                    },
                     '\n' => break,
                     else => {
                         state = State.LineComment;
@@ -1096,7 +1103,7 @@ pub const Tokenizer = struct {
                         self.checkLiteralCharacter();
                     },
                 },
-                State.LineComment, State.DocComment => switch (c) {
+                State.LineComment, State.DocComment, State.ContainerDocComment => switch (c) {
                     '\n' => break,
                     else => self.checkLiteralCharacter(),
                 },
@@ -1233,6 +1240,9 @@ pub const Tokenizer = struct {
                 },
                 State.DocComment, State.DocCommentStart => {
                     result.id = Token.Id.DocComment;
+                },
+                State.ContainerDocComment => {
+                    result.id = Token.Id.ContainerDocComment;
                 },
 
                 State.NumberDot,
@@ -1601,6 +1611,8 @@ test "tokenizer - line comment and doc comment" {
     testTokenize("/// a", [_]Token.Id{Token.Id.DocComment});
     testTokenize("///", [_]Token.Id{Token.Id.DocComment});
     testTokenize("////", [_]Token.Id{Token.Id.LineComment});
+    testTokenize("//!", [_]Token.Id{Token.Id.ContainerDocComment});
+    testTokenize("//!!", [_]Token.Id{Token.Id.ContainerDocComment});
 }
 
 test "tokenizer - line comment followed by identifier" {

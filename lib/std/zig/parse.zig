@@ -58,13 +58,6 @@ fn parseRoot(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error
     node.* = Node.Root{
         .base = Node{ .id = .Root },
         .decls = undefined,
-        // TODO: Because zig fmt collapses consecutive comments separated by blank lines into
-        //       a single multi-line comment, it is currently impossible to have a container-level
-        //       doc comment and NO doc comment on the first decl. For now, simply
-        //       ignore the problem and assume that there will be no container-level
-        //       doc comments.
-        //       See: https://github.com/ziglang/zig/issues/2288
-        .doc_comments = null,
         .eof_token = undefined,
     };
     node.decls = parseContainerMembers(arena, it, tree) catch |err| {
@@ -94,6 +87,11 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
     var list = Node.Root.DeclList.init(arena);
 
     while (true) {
+        if (try parseContainerDocComments(arena, it, tree)) |node| {
+            try list.push(node);
+            continue;
+        }
+
         const doc_comments = try parseDocComment(arena, it, tree);
 
         if (try parseTestDecl(arena, it, tree)) |node| {
@@ -155,10 +153,33 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
             continue;
         }
 
+        // Dangling doc comment
+        if (doc_comments != null) {
+            try tree.errors.push(AstError{
+                .UnattachedDocComment = AstError.UnattachedDocComment{ .token = doc_comments.?.firstToken() },
+            });
+        }
         break;
     }
 
     return list;
+}
+
+/// Eat a multiline container doc comment
+fn parseContainerDocComments(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+    var lines = Node.DocComment.LineList.init(arena);
+    while (eatToken(it, .ContainerDocComment)) |line| {
+        try lines.push(line);
+    }
+
+    if (lines.len == 0) return null;
+
+    const node = try arena.create(Node.DocComment);
+    node.* = Node.DocComment{
+        .base = Node{ .id = .DocComment },
+        .lines = lines,
+    };
+    return &node.base;
 }
 
 /// TestDecl <- KEYWORD_test STRINGLITERAL Block

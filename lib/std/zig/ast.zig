@@ -576,7 +576,6 @@ pub const Node = struct {
 
     pub const Root = struct {
         base: Node,
-        doc_comments: ?*DocComment,
         decls: DeclList,
         eof_token: TokenIndex,
 
@@ -2254,7 +2253,6 @@ pub const Node = struct {
 test "iterate" {
     var root = Node.Root{
         .base = Node{ .id = Node.Id.Root },
-        .doc_comments = null,
         .decls = Node.Root.DeclList.init(std.debug.global_allocator),
         .eof_token = 0,
     };

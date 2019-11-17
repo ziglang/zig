@@ -856,6 +856,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
 
             .LineComment,
             .DocComment,
+            .ContainerDocComment,
             .ShebangLine,
             => {
                 try out.write("<span class=\"tok-comment\">");

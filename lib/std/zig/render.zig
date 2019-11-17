@@ -299,6 +299,17 @@ fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, i
             assert(!decl.requireSemiColon());
             try renderExpression(allocator, stream, tree, indent, start_col, decl, Space.Newline);
         },
+
+        ast.Node.Id.DocComment => {
+            const comment = @fieldParentPtr(ast.Node.DocComment, "base", decl);
+            var it = comment.lines.iterator(0);
+            while (it.next()) |line_token_index| {
+                try renderToken(tree, stream, line_token_index.*, indent, start_col, Space.Newline);
+                if (it.peek()) |_| {
+                    try stream.writeByteNTimes(' ', indent);
+                }
+            }
+        },
         else => unreachable,
     }
 }

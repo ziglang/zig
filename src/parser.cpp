@@ -493,6 +493,9 @@ static AstNode *ast_parse_root(ParseContext *pc) {
     node->data.container_decl.layout = ContainerLayoutAuto;
     node->data.container_decl.kind = ContainerKindStruct;
     node->data.container_decl.is_root = true;
+    if (buf_len(&members.doc_comments) != 0) {
+        node->data.container_decl.doc_comments = members.doc_comments;
+    }
 
     return node;
 }
@@ -514,6 +517,21 @@ static Token *ast_parse_doc_comments(ParseContext *pc, Buf *buf) {
     return first_doc_token;
 }
 
+static void ast_parse_container_doc_comments(ParseContext *pc, Buf *buf) {
+    if (buf_len(buf) != 0 && peek_token(pc)->id == TokenIdContainerDocComment) {
+        buf_append_char(buf, '\n');
+    }
+    Token *doc_token = nullptr;
+    while ((doc_token = eat_token_if(pc, TokenIdContainerDocComment))) {
+        if (buf->list.length == 0) {
+            buf_resize(buf, 0);
+        }
+        // chops off '//!' but leaves '\n'
+        buf_append_mem(buf, buf_ptr(pc->buf) + doc_token->start_pos + 3,
+                doc_token->end_pos - doc_token->start_pos - 3);
+    }
+}
+
 // ContainerMembers
 //     <- TestDecl ContainerMembers
 //      / TopLevelComptime ContainerMembers
@@ -523,7 +541,11 @@ static Token *ast_parse_doc_comments(ParseContext *pc, Buf *buf) {
 //      /
 static AstNodeContainerDecl ast_parse_container_members(ParseContext *pc) {
     AstNodeContainerDecl res = {};
+    Buf tld_doc_comment_buf = BUF_INIT;
+    buf_resize(&tld_doc_comment_buf, 0);
     for (;;) {
+        ast_parse_container_doc_comments(pc, &tld_doc_comment_buf);
+
         AstNode *test_decl = ast_parse_test_decl(pc);
         if (test_decl != nullptr) {
             res.decls.append(test_decl);
@@ -566,7 +588,7 @@ static AstNodeContainerDecl ast_parse_container_members(ParseContext *pc) {
 
         break;
     }
-
+    res.doc_comments = tld_doc_comment_buf;
     return res;
 }
 
@@ -2802,6 +2824,9 @@ static AstNode *ast_parse_container_decl_auto(ParseContext *pc) {
 
     res->data.container_decl.fields = members.fields;
     res->data.container_decl.decls = members.decls;
+    if (buf_len(&members.doc_comments) != 0) {
+        res->data.container_decl.doc_comments = members.doc_comments;
+    }
     return res;
 }
 
