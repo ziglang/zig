@@ -131,7 +131,14 @@ pub fn countLeaks() CountResult {
         .reachable = 0,
         .suppressed = 0,
     };
-    doMemCheckClientRequestStmt(.CountLeaks, &res.leaked, &res.dubious, &res.reachable, &res.suppressed, 0);
+    doMemCheckClientRequestStmt(
+        .CountLeaks,
+        @ptrToInt(&res.leaked),
+        @ptrToInt(&res.dubious),
+        @ptrToInt(&res.reachable),
+        @ptrToInt(&res.suppressed),
+        0,
+    );
     return res;
 }
 
@@ -142,7 +149,14 @@ pub fn countLeakBlocks() CountResult {
         .reachable = 0,
         .suppressed = 0,
     };
-    doMemCheckClientRequestStmt(.CountLeakBlocks, &res.leaked, &res.dubious, &res.reachable, &res.suppressed, 0);
+    doMemCheckClientRequestStmt(
+        .CountLeakBlocks,
+        @ptrToInt(&res.leaked),
+        @ptrToInt(&res.dubious),
+        @ptrToInt(&res.reachable),
+        @ptrToInt(&res.suppressed),
+        0,
+    );
     return res;
 }
 
