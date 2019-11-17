@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const testing = std.testing;
 const valgrind = std.valgrind;
 
 pub const MemCheckClientRequest = extern enum {
@@ -142,6 +143,18 @@ pub fn countLeaks() CountResult {
     return res;
 }
 
+test "countLeaks" {
+    testing.expectEqual(
+        @as(CountResult, .{
+            .leaked = 0,
+            .dubious = 0,
+            .reachable = 0,
+            .suppressed = 0,
+        }),
+        countLeaks(),
+    );
+}
+
 pub fn countLeakBlocks() CountResult {
     var res: CountResult = .{
         .leaked = 0,
@@ -158,6 +171,18 @@ pub fn countLeakBlocks() CountResult {
         0,
     );
     return res;
+}
+
+test "countLeakBlocks" {
+    testing.expectEqual(
+        @as(CountResult, .{
+            .leaked = 0,
+            .dubious = 0,
+            .reachable = 0,
+            .suppressed = 0,
+        }),
+        countLeakBlocks(),
+    );
 }
 
 /// Get the validity data for addresses zza and copy it

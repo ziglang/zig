@@ -99,6 +99,10 @@ pub fn runningOnValgrind() usize {
     return doClientRequestExpr(0, .RunningOnValgrind, 0, 0, 0, 0, 0);
 }
 
+test "works whether running on valgrind or not" {
+    _ = runningOnValgrind();
+}
+
 /// Discard translation of code in the slice qzz.  Useful if you are debugging
 /// a JITter or some such, since it provides a way to make sure valgrind will
 /// retranslate the invalidated area.  Returns no value.
@@ -266,3 +270,8 @@ pub fn monitorCommand(command: [*]u8) bool {
 
 pub const memcheck = @import("valgrind/memcheck.zig");
 pub const callgrind = @import("valgrind/callgrind.zig");
+
+test "" {
+    _ = @import("valgrind/memcheck.zig");
+    _ = @import("valgrind/callgrind.zig");
+}
