@@ -1814,6 +1814,15 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\
     );
 
+    if (builtin.os != builtin.Os.windows) {
+        // sysv_abi not currently supported on windows
+        cases.add("Macro qualified functions",
+            \\void __attribute__((sysv_abi)) foo(void);
+        ,
+            \\pub extern fn foo() void;
+        );
+    }
+
     /////////////// Cases for only stage1 because stage2 behavior is better ////////////////
     cases.addC("Parameterless function prototypes",
         \\void foo() {}
