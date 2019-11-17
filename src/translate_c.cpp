@@ -1213,6 +1213,11 @@ static AstNode *trans_type(Context *c, const ZigClangType *ty, ZigClangSourceLoc
                 const ZigClangAttributedType *attributed_ty = reinterpret_cast<const ZigClangAttributedType *>(ty);
                 return trans_qual_type(c, ZigClangAttributedType_getEquivalentType(attributed_ty), source_loc);
             }
+        case ZigClangType_MacroQualified:
+            {
+                const ZigClangMacroQualifiedType *macroqualified_ty = reinterpret_cast<const ZigClangMacroQualifiedType *>(ty);
+                return trans_qual_type(c, ZigClangMacroQualifiedType_getModifiedType(macroqualified_ty), source_loc);
+            }
         case ZigClangType_IncompleteArray:
             {
                 const ZigClangIncompleteArrayType *incomplete_array_ty = reinterpret_cast<const ZigClangIncompleteArrayType *>(ty);
@@ -1262,7 +1267,6 @@ static AstNode *trans_type(Context *c, const ZigClangType *ty, ZigClangSourceLoc
         case ZigClangType_DeducedTemplateSpecialization:
         case ZigClangType_DependentAddressSpace:
         case ZigClangType_DependentVector:
-        case ZigClangType_MacroQualified:
             emit_warning(c, source_loc, "unsupported type: '%s'", ZigClangType_getTypeClassName(ty));
             return nullptr;
     }

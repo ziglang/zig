@@ -42,6 +42,7 @@ pub const struct_ZigClangImplicitCastExpr = @OpaqueType();
 pub const struct_ZigClangIncompleteArrayType = @OpaqueType();
 pub const struct_ZigClangIntegerLiteral = @OpaqueType();
 pub const struct_ZigClangMacroDefinitionRecord = @OpaqueType();
+pub const struct_ZigClangMacroQualifiedType = @OpaqueType();
 pub const struct_ZigClangMemberExpr = @OpaqueType();
 pub const struct_ZigClangNamedDecl = @OpaqueType();
 pub const struct_ZigClangNone = @OpaqueType();
@@ -831,6 +832,7 @@ pub const ZigClangImplicitCastExpr = struct_ZigClangImplicitCastExpr;
 pub const ZigClangIncompleteArrayType = struct_ZigClangIncompleteArrayType;
 pub const ZigClangIntegerLiteral = struct_ZigClangIntegerLiteral;
 pub const ZigClangMacroDefinitionRecord = struct_ZigClangMacroDefinitionRecord;
+pub const ZigClangMacroQualifiedType = struct_ZigClangMacroQualifiedType;
 pub const ZigClangMemberExpr = struct_ZigClangMemberExpr;
 pub const ZigClangNamedDecl = struct_ZigClangNamedDecl;
 pub const ZigClangNone = struct_ZigClangNone;
@@ -936,6 +938,8 @@ pub extern fn ZigClangParenType_getInnerType(*const ZigClangParenType) ZigClangQ
 pub extern fn ZigClangElaboratedType_getNamedType(*const ZigClangElaboratedType) ZigClangQualType;
 
 pub extern fn ZigClangAttributedType_getEquivalentType(*const ZigClangAttributedType) ZigClangQualType;
+
+pub extern fn ZigClangMacroQualifiedType_getModifiedType(*const ZigClangMacroQualifiedType) ZigClangQualType;
 
 pub extern fn ZigClangCStyleCastExpr_getBeginLoc(*const ZigClangCStyleCastExpr) ZigClangSourceLocation;
 pub extern fn ZigClangCStyleCastExpr_getSubExpr(*const ZigClangCStyleCastExpr) *const ZigClangExpr;
