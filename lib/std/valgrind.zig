@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
-const math = @import("index.zig").math;
+const std = @import("std.zig");
+const math = std.math;
 
 pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize) usize {
     if (!builtin.valgrind_support) {
@@ -13,7 +14,7 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
                 \\ roll $29, %%edi ; roll $19, %%edi
                 \\ xchgl %%ebx,%%ebx
                 : [_] "={edx}" (-> usize)
-                : [_] "{eax}" (&[]usize{ request, a1, a2, a3, a4, a5 }),
+                : [_] "{eax}" (&[_]usize{ request, a1, a2, a3, a4, a5 }),
                   [_] "0" (default)
                 : "cc", "memory"
             );
@@ -24,7 +25,7 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
                 \\ rolq $61, %%rdi ; rolq $51, %%rdi
                 \\ xchgq %%rbx,%%rbx
                 : [_] "={rdx}" (-> usize)
-                : [_] "{rax}" (&[]usize{ request, a1, a2, a3, a4, a5 }),
+                : [_] "{rax}" (&[_]usize{ request, a1, a2, a3, a4, a5 }),
                   [_] "0" (default)
                 : "cc", "memory"
             );
@@ -263,5 +264,5 @@ pub fn monitorCommand(command: [*]u8) bool {
     return doClientRequestExpr(0, ClientRequest.GdbMonitorCommand, @ptrToInt(command.ptr), 0, 0, 0, 0) != 0;
 }
 
-pub const memcheck = @import("memcheck.zig");
-pub const callgrind = @import("callgrind.zig");
+pub const memcheck = @import("valgrind/memcheck.zig");
+pub const callgrind = @import("valgrind/callgrind.zig");

@@ -1,4 +1,4 @@
-const std = @import("../index.zig");
+const std = @import("../std.zig");
 const valgrind = std.valgrind;
 
 pub const CallgrindClientRequest = extern enum {
