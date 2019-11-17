@@ -312,3 +312,24 @@ test "anonymous list literal syntax" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "anonymous literal in array" {
+    const S = struct {
+        const Foo = struct {
+            a: usize = 2,
+            b: usize = 4,
+        };
+        fn doTheTest() void {
+            var array: [2]Foo = .{
+                .{.a = 3},
+                .{.b = 3},
+            };
+            expect(array[0].a == 3);
+            expect(array[0].b == 4);
+            expect(array[1].a == 2);
+            expect(array[1].b == 3);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

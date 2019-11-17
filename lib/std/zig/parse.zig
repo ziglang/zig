@@ -1630,7 +1630,11 @@ fn parseBlockLabel(arena: *Allocator, it: *TokenIterator, tree: *Tree) ?TokenInd
 /// FieldInit <- DOT IDENTIFIER EQUAL Expr
 fn parseFieldInit(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const period_token = eatToken(it, .Period) orelse return null;
-    const name_token = try expectToken(it, tree, .Identifier);
+    const name_token = eatToken(it, .Identifier) orelse {
+        // Because of anon literals `.{` is also valid.
+        putBackToken(it, period_token);
+        return null;
+    };
     const eq_token = eatToken(it, .Equal) orelse {
         // `.Name` may also be an enum literal, which is a later rule.
         putBackToken(it, name_token);

@@ -1,3 +1,13 @@
+test "zig fmt: anon literal in array" {
+    try testCanonical(
+        \\var arr: [2]Foo = .{
+        \\    .{ .a = 2 },
+        \\    .{ .b = 3 },
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: anon struct literal syntax" {
     try testCanonical(
         \\const x = .{
