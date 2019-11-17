@@ -3,6 +3,18 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "missing result type for phi node",
+        \\fn foo() !void {
+        \\    return anyerror.Foo;
+        \\}
+        \\export fn entry() void {
+        \\    foo() catch 0;
+        \\}
+    ,
+        "tmp.zig:5:17: error: integer value 0 cannot be coerced to type 'void'",
+    );
+
+    cases.add(
         "atomicrmw with enum op not .Xchg",
         \\export fn entry() void {
         \\    const E = enum(u8) {
