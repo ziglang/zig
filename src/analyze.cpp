@@ -752,11 +752,12 @@ ZigType *get_error_union_type(CodeGen *g, ZigType *err_set_type, ZigType *payloa
     return entry;
 }
 
-ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size) {
+ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, bool is_null_terminated) {
     TypeId type_id = {};
     type_id.id = ZigTypeIdArray;
     type_id.data.array.child_type = child_type;
     type_id.data.array.size = array_size;
+    type_id.data.array.is_null_terminated = is_null_terminated;
     auto existing_entry = g->type_table.maybe_get(type_id);
     if (existing_entry) {
         return existing_entry->value;
@@ -769,12 +770,14 @@ ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size) {
     buf_resize(&entry->name, 0);
     buf_appendf(&entry->name, "[%" ZIG_PRI_u64 "]%s", array_size, buf_ptr(&child_type->name));
 
-    entry->size_in_bits = child_type->size_in_bits * array_size;
+    size_t full_array_size = array_size + (is_null_terminated ? 1 : 0);
+    entry->size_in_bits = child_type->size_in_bits * full_array_size;
     entry->abi_align = child_type->abi_align;
-    entry->abi_size = child_type->abi_size * array_size;
+    entry->abi_size = child_type->abi_size * full_array_size;
 
     entry->data.array.child_type = child_type;
     entry->data.array.len = array_size;
+    entry->data.array.is_null_terminated = is_null_terminated;
 
     g->type_table.put(type_id, entry);
     return entry;
@@ -782,7 +785,7 @@ ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size) {
 
 ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
     assert(ptr_type->id == ZigTypeIdPointer);
-    assert(ptr_type->data.pointer.ptr_len == PtrLenUnknown);
+    assert(ptr_type->data.pointer.ptr_len == PtrLenUnknown || ptr_type->data.pointer.ptr_len == PtrLenNull);
 
     ZigType **parent_pointer = &ptr_type->data.pointer.slice_parent;
     if (*parent_pointer) {
@@ -5615,7 +5618,7 @@ void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
     }
 
     const_val->special = ConstValSpecialStatic;
-    const_val->type = get_array_type(g, g->builtin_types.entry_u8, buf_len(str));
+    const_val->type = get_array_type(g, g->builtin_types.entry_u8, buf_len(str), false);
     const_val->data.x_array.special = ConstArraySpecialBuf;
     const_val->data.x_array.data.s_buf = str;
 
@@ -5633,7 +5636,7 @@ void init_const_c_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
     size_t len_with_null = buf_len(str) + 1;
     ConstExprValue *array_val = create_const_vals(1);
     array_val->special = ConstValSpecialStatic;
-    array_val->type = get_array_type(g, g->builtin_types.entry_u8, len_with_null);
+    array_val->type = get_array_type(g, g->builtin_types.entry_u8, len_with_null, false);
     // TODO buf optimization
     array_val->data.x_array.data.s_none.elements = create_const_vals(len_with_null);
     for (size_t i = 0; i < buf_len(str); i += 1) {
@@ -6071,7 +6074,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
 
             fields.append({"@stack_trace", get_stack_trace_type(g), 0});
             fields.append({"@instruction_addresses",
-                    get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count), 0});
+                    get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count, false), 0});
         }
 
         frame_type->data.frame.locals_struct = get_struct_type(g, buf_ptr(&frame_type->name),
@@ -6279,7 +6282,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     if (codegen_fn_has_err_ret_tracing_stack(g, fn, true)) {
         fields.append({"@stack_trace", get_stack_trace_type(g), 0});
         fields.append({"@instruction_addresses",
-                get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count), 0});
+                get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count, false), 0});
     }
 
     for (size_t alloca_i = 0; alloca_i < fn->alloca_gen_list.length; alloca_i += 1) {
@@ -7043,8 +7046,9 @@ uint32_t type_id_hash(TypeId x) {
                 (((uint32_t)x.data.pointer.vector_index) ^ (uint32_t)0x19199716) +
                 (((uint32_t)x.data.pointer.host_int_bytes) ^ (uint32_t)529908881);
         case ZigTypeIdArray:
-            return hash_ptr(x.data.array.child_type) +
-                ((uint32_t)x.data.array.size ^ (uint32_t)2122979968);
+            return hash_ptr(x.data.array.child_type) *
+                ((uint32_t)x.data.array.size ^ (uint32_t)2122979968) *
+                ((uint32_t)x.data.array.is_null_terminated ^ (uint32_t)2048352596);
         case ZigTypeIdInt:
             return (x.data.integer.is_signed ? (uint32_t)2652528194 : (uint32_t)163929201) +
                     (((uint32_t)x.data.integer.bit_count) ^ (uint32_t)2998081557);
@@ -7106,7 +7110,8 @@ bool type_id_eql(TypeId a, TypeId b) {
                 );
         case ZigTypeIdArray:
             return a.data.array.child_type == b.data.array.child_type &&
-                a.data.array.size == b.data.array.size;
+                a.data.array.size == b.data.array.size &&
+                a.data.array.is_null_terminated == b.data.array.is_null_terminated;
         case ZigTypeIdInt:
             return a.data.integer.is_signed == b.data.integer.is_signed &&
                 a.data.integer.bit_count == b.data.integer.bit_count;
@@ -8292,7 +8297,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
         size_t padding_bytes = union_type->data.unionation.union_abi_size - most_aligned_union_member->type_entry->abi_size;
         if (padding_bytes > 0) {
             ZigType *u8_type = get_int_type(g, false, 8);
-            ZigType *padding_array = get_array_type(g, u8_type, padding_bytes);
+            ZigType *padding_array = get_array_type(g, u8_type, padding_bytes, false);
             LLVMTypeRef union_element_types[] = {
                 most_aligned_union_member->type_entry->llvm_type,
                 get_llvm_type(g, padding_array),
@@ -8326,7 +8331,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
         union_type_ref = get_llvm_type(g, most_aligned_union_member->type_entry);
     } else {
         ZigType *u8_type = get_int_type(g, false, 8);
-        ZigType *padding_array = get_array_type(g, u8_type, padding_bytes);
+        ZigType *padding_array = get_array_type(g, u8_type, padding_bytes, false);
         LLVMTypeRef union_element_types[] = {
             get_llvm_type(g, most_aligned_union_member->type_entry),
             get_llvm_type(g, padding_array),

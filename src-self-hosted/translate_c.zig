@@ -1118,6 +1118,7 @@ fn transCreateNodePtrType(
                 .align_info = null,
                 .const_token = if (is_const) try appendToken(c, .Keyword_const, "const") else null,
                 .volatile_token = if (is_volatile) try appendToken(c, .Keyword_volatile, "volatile") else null,
+                .null_token = null,
             },
         },
         .rhs = undefined, // translate and set afterward

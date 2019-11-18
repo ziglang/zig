@@ -358,6 +358,7 @@ struct LazyValueSliceType {
     bool is_const;
     bool is_volatile;
     bool is_allowzero;
+    bool is_null_terminated;
 };
 
 struct LazyValuePtrType {
@@ -1234,6 +1235,7 @@ struct ZigTypeFloat {
 struct ZigTypeArray {
     ZigType *child_type;
     uint64_t len;
+    bool is_null_terminated;
 };
 
 struct TypeStructField {
@@ -1775,6 +1777,7 @@ struct TypeId {
         struct {
             ZigType *child_type;
             uint64_t size;
+            bool is_null_terminated;
         } array;
         struct {
             bool is_signed;
@@ -2986,6 +2989,7 @@ struct IrInstructionArrayType {
 
     IrInstruction *size;
     IrInstruction *child_type;
+    bool is_null_terminated;
 };
 
 struct IrInstructionPtrType {
@@ -3015,6 +3019,7 @@ struct IrInstructionSliceType {
     bool is_const;
     bool is_volatile;
     bool is_allow_zero;
+    bool is_null_terminated;
 };
 
 struct IrInstructionGlobalAsm {

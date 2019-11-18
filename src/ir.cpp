@@ -1772,11 +1772,12 @@ static IrInstruction *ir_build_set_float_mode(IrBuilder *irb, Scope *scope, AstN
 }
 
 static IrInstruction *ir_build_array_type(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *size,
-        IrInstruction *child_type)
+        IrInstruction *child_type, bool is_null_terminated)
 {
     IrInstructionArrayType *instruction = ir_build_instruction<IrInstructionArrayType>(irb, scope, source_node);
     instruction->size = size;
     instruction->child_type = child_type;
+    instruction->is_null_terminated = is_null_terminated;
 
     ir_ref_instruction(size, irb->current_basic_block);
     ir_ref_instruction(child_type, irb->current_basic_block);
@@ -1795,7 +1796,8 @@ static IrInstruction *ir_build_anyframe_type(IrBuilder *irb, Scope *scope, AstNo
     return &instruction->base;
 }
 static IrInstruction *ir_build_slice_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *child_type, bool is_const, bool is_volatile, IrInstruction *align_value, bool is_allow_zero)
+        IrInstruction *child_type, bool is_const, bool is_volatile, IrInstruction *align_value, bool is_allow_zero,
+        bool is_null_terminated)
 {
     IrInstructionSliceType *instruction = ir_build_instruction<IrInstructionSliceType>(irb, scope, source_node);
     instruction->is_const = is_const;
@@ -1803,6 +1805,7 @@ static IrInstruction *ir_build_slice_type(IrBuilder *irb, Scope *scope, AstNode 
     instruction->child_type = child_type;
     instruction->align_value = align_value;
     instruction->is_allow_zero = is_allow_zero;
+    instruction->is_null_terminated = is_null_terminated;
 
     ir_ref_instruction(child_type, irb->current_basic_block);
     if (align_value) ir_ref_instruction(align_value, irb->current_basic_block);
@@ -6216,7 +6219,7 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                 return elem_type;
             size_t item_count = container_init_expr->entries.length;
             IrInstruction *item_count_inst = ir_build_const_usize(irb, scope, node, item_count);
-            container_type = ir_build_array_type(irb, scope, node, item_count_inst, elem_type);
+            container_type = ir_build_array_type(irb, scope, node, item_count_inst, elem_type, false);
         } else {
             container_type = ir_gen_node(irb, container_init_expr->type, scope);
             if (container_type == irb->codegen->invalid_instruction)
@@ -6944,6 +6947,7 @@ static IrInstruction *ir_gen_array_type(IrBuilder *irb, Scope *scope, AstNode *n
     bool is_const = node->data.array_type.is_const;
     bool is_volatile = node->data.array_type.is_volatile;
     bool is_allow_zero = node->data.array_type.allow_zero_token != nullptr;
+    bool is_null_terminated = node->data.array_type.is_null_terminated;
     AstNode *align_expr = node->data.array_type.align_expr;
 
     Scope *comptime_scope = create_comptime_scope(irb->codegen, node, scope);
@@ -6973,7 +6977,7 @@ static IrInstruction *ir_gen_array_type(IrBuilder *irb, Scope *scope, AstNode *n
         if (child_type == irb->codegen->invalid_instruction)
             return child_type;
 
-        return ir_build_array_type(irb, scope, node, size_value, child_type);
+        return ir_build_array_type(irb, scope, node, size_value, child_type, is_null_terminated);
     } else {
         IrInstruction *align_value;
         if (align_expr != nullptr) {
@@ -6988,7 +6992,8 @@ static IrInstruction *ir_gen_array_type(IrBuilder *irb, Scope *scope, AstNode *n
         if (child_type == irb->codegen->invalid_instruction)
             return child_type;
 
-        return ir_build_slice_type(irb, scope, node, child_type, is_const, is_volatile, align_value, is_allow_zero);
+        return ir_build_slice_type(irb, scope, node, child_type, is_const, is_volatile, align_value, is_allow_zero,
+                is_null_terminated);
     }
 }
 
@@ -10631,6 +10636,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
         // *[N]T to []T
         // *[N]T to E![]T
         if (cur_type->id == ZigTypeIdPointer &&
+            cur_type->data.pointer.ptr_len == PtrLenSingle &&
             cur_type->data.pointer.child_type->id == ZigTypeIdArray &&
             ((prev_type->id == ZigTypeIdErrorUnion && is_slice(prev_type->data.error_union.payload_type)) ||
                 is_slice(prev_type)))
@@ -10639,7 +10645,8 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             ZigType *slice_type = (prev_type->id == ZigTypeIdErrorUnion) ?
                 prev_type->data.error_union.payload_type : prev_type;
             ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index]->type_entry;
-            if ((slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0) &&
+            if ((slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0 ||
+                        !cur_type->data.pointer.is_const) &&
                 types_match_const_cast_only(ira,
                     slice_ptr_type->data.pointer.child_type,
                     array_type->data.array.child_type, source_node, false).id == ConstCastResultIdOk)
@@ -10653,6 +10660,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
         // *[N]T to E![]T
         if (prev_type->id == ZigTypeIdPointer &&
             prev_type->data.pointer.child_type->id == ZigTypeIdArray &&
+            prev_type->data.pointer.ptr_len == PtrLenSingle &&
             ((cur_type->id == ZigTypeIdErrorUnion && is_slice(cur_type->data.error_union.payload_type)) ||
                 is_slice(cur_type)))
         {
@@ -10660,7 +10668,8 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             ZigType *slice_type = (cur_type->id == ZigTypeIdErrorUnion) ?
                 cur_type->data.error_union.payload_type : cur_type;
             ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index]->type_entry;
-            if ((slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0) &&
+            if ((slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0 ||
+                        !prev_type->data.pointer.is_const) &&
                 types_match_const_cast_only(ira,
                     slice_ptr_type->data.pointer.child_type,
                     array_type->data.array.child_type, source_node, false).id == ConstCastResultIdOk)
@@ -14893,7 +14902,7 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
     ConstExprValue *out_array_val;
     size_t new_len = (op1_array_end - op1_array_index) + (op2_array_end - op2_array_index);
     if (op1_type->id == ZigTypeIdArray || op2_type->id == ZigTypeIdArray) {
-        result->value.type = get_array_type(ira->codegen, child_type, new_len);
+        result->value.type = get_array_type(ira->codegen, child_type, new_len, false);
 
         out_array_val = out_val;
     } else if (is_slice(op1_type) || is_slice(op2_type)) {
@@ -14902,7 +14911,7 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         result->value.type = get_slice_type(ira->codegen, ptr_type);
         out_array_val = create_const_vals(1);
         out_array_val->special = ConstValSpecialStatic;
-        out_array_val->type = get_array_type(ira->codegen, child_type, new_len);
+        out_array_val->type = get_array_type(ira->codegen, child_type, new_len, false);
 
         out_val->data.x_struct.fields = alloc_const_vals_ptrs(2);
 
@@ -14923,7 +14932,7 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
 
         out_array_val = create_const_vals(1);
         out_array_val->special = ConstValSpecialStatic;
-        out_array_val->type = get_array_type(ira->codegen, child_type, new_len);
+        out_array_val->type = get_array_type(ira->codegen, child_type, new_len, false);
         out_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
         out_val->data.x_ptr.data.base_array.is_cstr = true;
         out_val->data.x_ptr.data.base_array.array_val = out_array_val;
@@ -14994,7 +15003,7 @@ static IrInstruction *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp *
     ZigType *child_type = array_type->data.array.child_type;
 
     IrInstruction *result = ir_const(ira, &instruction->base,
-        get_array_type(ira->codegen, child_type, new_array_len));
+        get_array_type(ira->codegen, child_type, new_array_len, false));
     ConstExprValue *out_val = &result->value;
     if (array_val->data.x_array.special == ConstArraySpecialUndef) {
         out_val->data.x_array.special = ConstArraySpecialUndef;
@@ -19311,6 +19320,7 @@ static IrInstruction *ir_analyze_instruction_slice_type(IrAnalyze *ira,
     lazy_slice_type->is_const = slice_type_instruction->is_const;
     lazy_slice_type->is_volatile = slice_type_instruction->is_volatile;
     lazy_slice_type->is_allowzero = slice_type_instruction->is_allow_zero;
+    lazy_slice_type->is_null_terminated = slice_type_instruction->is_null_terminated;
 
     return result;
 }
@@ -19420,7 +19430,8 @@ static IrInstruction *ir_analyze_instruction_array_type(IrAnalyze *ira,
             {
                 if ((err = type_resolve(ira->codegen, child_type, ResolveStatusSizeKnown)))
                     return ira->codegen->invalid_instruction;
-                ZigType *result_type = get_array_type(ira->codegen, child_type, size);
+                ZigType *result_type = get_array_type(ira->codegen, child_type, size,
+                        array_type_instruction->is_null_terminated);
                 return ir_const_type(ira, &array_type_instruction->base, result_type);
             }
     }
@@ -20496,7 +20507,7 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
     if (container_type->id == ZigTypeIdArray) {
         ZigType *child_type = container_type->data.array.child_type;
         if (container_type->data.array.len != elem_count) {
-            ZigType *literal_type = get_array_type(ira->codegen, child_type, elem_count);
+            ZigType *literal_type = get_array_type(ira->codegen, child_type, elem_count, false);
 
             ir_add_error(ira, &instruction->base,
                 buf_sprintf("expected %s literal, found %s literal",
@@ -20983,7 +20994,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
 
     ConstExprValue *declaration_array = create_const_vals(1);
     declaration_array->special = ConstValSpecialStatic;
-    declaration_array->type = get_array_type(ira->codegen, type_info_declaration_type, declaration_count);
+    declaration_array->type = get_array_type(ira->codegen, type_info_declaration_type, declaration_count, false);
     declaration_array->data.x_array.special = ConstArraySpecialNone;
     declaration_array->data.x_array.data.s_none.elements = create_const_vals(declaration_count);
     init_const_slice(ira->codegen, out_val, declaration_array, 0, declaration_count, false);
@@ -21128,7 +21139,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
                     ConstExprValue *fn_arg_name_array = create_const_vals(1);
                     fn_arg_name_array->special = ConstValSpecialStatic;
                     fn_arg_name_array->type = get_array_type(ira->codegen,
-                            get_slice_type(ira->codegen, u8_ptr), fn_arg_count);
+                            get_slice_type(ira->codegen, u8_ptr), fn_arg_count, false);
                     fn_arg_name_array->data.x_array.special = ConstArraySpecialNone;
                     fn_arg_name_array->data.x_array.data.s_none.elements = create_const_vals(fn_arg_count);
 
@@ -21376,7 +21387,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Array", nullptr);
 
-                ConstExprValue **fields = alloc_const_vals_ptrs(2);
+                ConstExprValue **fields = alloc_const_vals_ptrs(3);
                 result->data.x_struct.fields = fields;
 
                 // len: usize
@@ -21389,6 +21400,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 fields[1]->special = ConstValSpecialStatic;
                 fields[1]->type = ira->codegen->builtin_types.entry_type;
                 fields[1]->data.x_type = type_entry->data.array.child_type;
+                // is_null_terminated: bool
+                ensure_field_index(result->type, "is_null_terminated", 2);
+                fields[2]->special = ConstValSpecialStatic;
+                fields[2]->type = ira->codegen->builtin_types.entry_bool;
+                fields[2]->data.x_bool = type_entry->data.array.is_null_terminated;
 
                 break;
             }
@@ -21476,7 +21492,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
 
                 ConstExprValue *enum_field_array = create_const_vals(1);
                 enum_field_array->special = ConstValSpecialStatic;
-                enum_field_array->type = get_array_type(ira->codegen, type_info_enum_field_type, enum_field_count);
+                enum_field_array->type = get_array_type(ira->codegen, type_info_enum_field_type, enum_field_count, false);
                 enum_field_array->data.x_array.special = ConstArraySpecialNone;
                 enum_field_array->data.x_array.data.s_none.elements = create_const_vals(enum_field_count);
 
@@ -21524,7 +21540,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 uint32_t error_count = type_entry->data.error_set.err_count;
                 ConstExprValue *error_array = create_const_vals(1);
                 error_array->special = ConstValSpecialStatic;
-                error_array->type = get_array_type(ira->codegen, type_info_error_type, error_count);
+                error_array->type = get_array_type(ira->codegen, type_info_error_type, error_count, false);
                 error_array->data.x_array.special = ConstArraySpecialNone;
                 error_array->data.x_array.data.s_none.elements = create_const_vals(error_count);
 
@@ -21620,7 +21636,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
 
                 ConstExprValue *union_field_array = create_const_vals(1);
                 union_field_array->special = ConstValSpecialStatic;
-                union_field_array->type = get_array_type(ira->codegen, type_info_union_field_type, union_field_count);
+                union_field_array->type = get_array_type(ira->codegen, type_info_union_field_type, union_field_count, false);
                 union_field_array->data.x_array.special = ConstArraySpecialNone;
                 union_field_array->data.x_array.data.s_none.elements = create_const_vals(union_field_count);
 
@@ -21700,7 +21716,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
 
                 ConstExprValue *struct_field_array = create_const_vals(1);
                 struct_field_array->special = ConstValSpecialStatic;
-                struct_field_array->type = get_array_type(ira->codegen, type_info_struct_field_type, struct_field_count);
+                struct_field_array->type = get_array_type(ira->codegen, type_info_struct_field_type, struct_field_count, false);
                 struct_field_array->data.x_array.special = ConstArraySpecialNone;
                 struct_field_array->data.x_array.data.s_none.elements = create_const_vals(struct_field_count);
 
@@ -21803,7 +21819,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
 
                 ConstExprValue *fn_arg_array = create_const_vals(1);
                 fn_arg_array->special = ConstValSpecialStatic;
-                fn_arg_array->type = get_array_type(ira->codegen, type_info_fn_arg_type, fn_arg_count);
+                fn_arg_array->type = get_array_type(ira->codegen, type_info_fn_arg_type, fn_arg_count, false);
                 fn_arg_array->data.x_array.special = ConstArraySpecialNone;
                 fn_arg_array->data.x_array.data.s_none.elements = create_const_vals(fn_arg_count);
 
@@ -21983,7 +21999,8 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInstruction *instruction, Zi
             assert(payload->type == ir_type_info_get_type(ira, "Array", nullptr));
             return get_array_type(ira->codegen,
                 get_const_field_meta_type(ira, payload, "child", 1),
-                bigint_as_u64(get_const_field_lit_int(ira, payload, "len", 0))
+                bigint_as_u64(get_const_field_lit_int(ira, payload, "len", 0)),
+                get_const_field_bool(ira, payload, "is_null_terminated", 2)
             );
         case ZigTypeIdComptimeFloat:
             return ira->codegen->builtin_types.entry_num_lit_float;
@@ -22366,7 +22383,7 @@ static IrInstruction *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstru
     }
 
     ZigType *result_type = get_array_type(ira->codegen,
-            ira->codegen->builtin_types.entry_u8, buf_len(file_contents));
+            ira->codegen->builtin_types.entry_u8, buf_len(file_contents), false);
     IrInstruction *result = ir_const(ira, &instruction->base, result_type);
     init_const_str_lit(ira->codegen, &result->value, file_contents);
     return result;
@@ -27581,7 +27598,9 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ConstExprValue *val) {
             if ((err = type_resolve(ira->codegen, elem_type, needed_status)))
                 return err;
             ZigType *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, elem_type,
-                    lazy_slice_type->is_const, lazy_slice_type->is_volatile, PtrLenUnknown, align_bytes,
+                    lazy_slice_type->is_const, lazy_slice_type->is_volatile,
+                    lazy_slice_type->is_null_terminated ? PtrLenNull : PtrLenUnknown,
+                    align_bytes,
                     0, 0, lazy_slice_type->is_allowzero);
             val->special = ConstValSpecialStatic;
             assert(val->type->id == ZigTypeIdMetaType);

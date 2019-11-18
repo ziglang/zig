@@ -161,6 +161,7 @@ pub const TypeInfo = union(enum) {
     pub const Array = struct {
         len: comptime_int,
         child: type,
+        is_null_terminated: bool,
     };
 
     /// This data structure is used by the Zig language code generation and

@@ -7465,7 +7465,7 @@ static void do_code_gen(CodeGen *g) {
             !is_async && !have_err_ret_trace_arg;
         LLVMValueRef err_ret_array_val = nullptr;
         if (have_err_ret_trace_stack) {
-            ZigType *array_type = get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count);
+            ZigType *array_type = get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count, false);
             err_ret_array_val = build_alloca(g, array_type, "error_return_trace_addresses", get_abi_alignment(g, array_type));
 
             (void)get_llvm_type(g, get_stack_trace_type(g));
@@ -9067,7 +9067,7 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
         zig_unreachable();
 
     ConstExprValue *test_fn_array = create_const_vals(1);
-    test_fn_array->type = get_array_type(g, struct_type, g->test_fns.length);
+    test_fn_array->type = get_array_type(g, struct_type, g->test_fns.length, false);
     test_fn_array->special = ConstValSpecialStatic;
     test_fn_array->data.x_array.data.s_none.elements = create_const_vals(g->test_fns.length);
 

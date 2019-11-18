@@ -1085,7 +1085,7 @@ fn parseInitList(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node.Suf
     const node = try arena.create(Node.SuffixOp);
     node.* = Node.SuffixOp{
         .base = Node{ .id = .SuffixOp },
-        .lhs = .{.node = undefined}, // set by caller
+        .lhs = .{ .node = undefined }, // set by caller
         .op = op,
         .rtoken = try expectToken(it, tree, .RBrace),
     };
@@ -1138,7 +1138,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
         while (try parseSuffixOp(arena, it, tree)) |node| {
             switch (node.id) {
-                .SuffixOp => node.cast(Node.SuffixOp).?.lhs = .{.node = res},
+                .SuffixOp => node.cast(Node.SuffixOp).?.lhs = .{ .node = res },
                 .InfixOp => node.cast(Node.InfixOp).?.lhs = res,
                 else => unreachable,
             }
@@ -1154,7 +1154,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         const node = try arena.create(Node.SuffixOp);
         node.* = Node.SuffixOp{
             .base = Node{ .id = .SuffixOp },
-            .lhs = .{.node = res},
+            .lhs = .{ .node = res },
             .op = Node.SuffixOp.Op{
                 .Call = Node.SuffixOp.Op.Call{
                     .params = params.list,
@@ -1171,7 +1171,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         while (true) {
             if (try parseSuffixOp(arena, it, tree)) |node| {
                 switch (node.id) {
-                    .SuffixOp => node.cast(Node.SuffixOp).?.lhs = .{.node = res},
+                    .SuffixOp => node.cast(Node.SuffixOp).?.lhs = .{ .node = res },
                     .InfixOp => node.cast(Node.InfixOp).?.lhs = res,
                     else => unreachable,
                 }
@@ -1182,7 +1182,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
                 const call = try arena.create(Node.SuffixOp);
                 call.* = Node.SuffixOp{
                     .base = Node{ .id = .SuffixOp },
-                    .lhs = .{.node = res},
+                    .lhs = .{ .node = res },
                     .op = Node.SuffixOp.Op{
                         .Call = Node.SuffixOp.Op.Call{
                             .params = params.list,
@@ -1531,7 +1531,7 @@ fn parseAnonLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
 
     // anon container literal
     if (try parseInitList(arena, it, tree)) |node| {
-        node.lhs = .{.dot = dot};
+        node.lhs = .{ .dot = dot };
         return &node.base;
     }
 
@@ -2252,6 +2252,16 @@ fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
             .SliceType => |*slice_type| {
                 // Collect pointer qualifiers in any order, but disallow duplicates
                 while (true) {
+                    if (eatToken(it, .Keyword_null)) |null_token| {
+                        if (slice_type.null_token != null) {
+                            try tree.errors.push(AstError{
+                                .ExtraNullQualifier = AstError.ExtraNullQualifier{ .token = it.index },
+                            });
+                            return error.ParseError;
+                        }
+                        slice_type.null_token = null_token;
+                        continue;
+                    }
                     if (try parseByteAlign(arena, it, tree)) |align_expr| {
                         if (slice_type.align_info != null) {
                             try tree.errors.push(AstError{
@@ -2313,6 +2323,10 @@ fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
             &prefix_op.op.PtrType;
 
         while (true) {
+            if (eatToken(it, .Keyword_null)) |null_token| {
+                ptr_info.null_token = null_token;
+                continue;
+            }
             if (eatToken(it, .Keyword_align)) |align_token| {
                 const lparen = try expectToken(it, tree, .LParen);
                 const expr_node = try expectNode(arena, it, tree, parseExpr, AstError{
@@ -2460,9 +2474,15 @@ fn parseArrayTypeStart(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
     const lbracket = eatToken(it, .LBracket) orelse return null;
     const expr = try parseExpr(arena, it, tree);
     const rbracket = try expectToken(it, tree, .RBracket);
+    const null_token = eatToken(it, .Keyword_null);
 
-    const op = if (expr) |element_type|
-        Node.PrefixOp.Op{ .ArrayType = element_type }
+    const op = if (expr) |len_expr|
+        Node.PrefixOp.Op{
+            .ArrayType = .{
+                .len_expr = len_expr,
+                .null_token = null_token,
+            },
+        }
     else
         Node.PrefixOp.Op{
             .SliceType = Node.PrefixOp.PtrInfo{
@@ -2470,6 +2490,7 @@ fn parseArrayTypeStart(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
                 .align_info = null,
                 .const_token = null,
                 .volatile_token = null,
+                .null_token = null,
             },
         };
 
@@ -2505,6 +2526,7 @@ fn parsePtrTypeStart(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
                 .align_info = null,
                 .const_token = null,
                 .volatile_token = null,
+                .null_token = null,
             },
         },
         .rhs = undefined, // set by caller
@@ -2522,6 +2544,7 @@ fn parsePtrTypeStart(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
                     .align_info = null,
                     .const_token = null,
                     .volatile_token = null,
+                    .null_token = null,
                 },
             },
             .rhs = undefined, // set by caller

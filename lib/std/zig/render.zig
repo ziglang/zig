@@ -423,6 +423,9 @@ fn renderExpression(
                         else => @as(usize, 0),
                     };
                     try renderTokenOffset(tree, stream, prefix_op_node.op_token, indent, start_col, Space.None, star_offset); // *
+                    if (ptr_info.null_token) |null_token| {
+                        try renderToken(tree, stream, null_token, indent, start_col, Space.Space); // null
+                    }
                     if (ptr_info.allowzero_token) |allowzero_token| {
                         try renderToken(tree, stream, allowzero_token, indent, start_col, Space.Space); // allowzero
                     }
@@ -499,9 +502,9 @@ fn renderExpression(
                     }
                 },
 
-                ast.Node.PrefixOp.Op.ArrayType => |array_index| {
+                ast.Node.PrefixOp.Op.ArrayType => |array_info| {
                     const lbracket = prefix_op_node.op_token;
-                    const rbracket = tree.nextToken(array_index.lastToken());
+                    const rbracket = tree.nextToken(array_info.len_expr.lastToken());
 
                     try renderToken(tree, stream, lbracket, indent, start_col, Space.None); // [
 
@@ -509,7 +512,7 @@ fn renderExpression(
                     const ends_with_comment = tree.tokens.at(rbracket - 1).id == .LineComment;
                     const new_indent = if (ends_with_comment) indent + indent_delta else indent;
                     const new_space = if (ends_with_comment) Space.Newline else Space.None;
-                    try renderExpression(allocator, stream, tree, new_indent, start_col, array_index, new_space);
+                    try renderExpression(allocator, stream, tree, new_indent, start_col, array_info.len_expr, new_space);
                     if (starts_with_comment) {
                         try stream.writeByte('\n');
                     }
@@ -517,6 +520,9 @@ fn renderExpression(
                         try stream.writeByteNTimes(' ', indent);
                     }
                     try renderToken(tree, stream, rbracket, indent, start_col, Space.None); // ]
+                    if (array_info.null_token) |null_token| {
+                        try renderToken(tree, stream, null_token, indent, start_col, Space.Space); // null
+                    }
                 },
                 ast.Node.PrefixOp.Op.BitNot,
                 ast.Node.PrefixOp.Op.BoolNot,
