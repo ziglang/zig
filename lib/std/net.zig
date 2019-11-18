@@ -1360,14 +1360,22 @@ pub const StreamServer = struct {
         BlockedByFirewall,
     } || os.UnexpectedError;
 
-    /// If this function succeeds, the returned `fs.File` is a caller-managed resource.
-    pub fn accept(self: *StreamServer) AcceptError!fs.File {
+    pub const Connection = struct {
+        file: fs.File,
+        address: Address
+    };
+
+    /// If this function succeeds, the returned `Connection` is a caller-managed resource.
+    pub fn accept(self: *StreamServer) AcceptError!Connection {
         const nonblock = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
         const accept_flags = nonblock | os.SOCK_CLOEXEC;
         var accepted_addr: Address = undefined;
         var adr_len: os.socklen_t = @sizeOf(Address);
         if (os.accept4(self.sockfd.?, &accepted_addr.any, &adr_len, accept_flags)) |fd| {
-            return fs.File.openHandle(fd);
+            return Connection{
+                .file = fs.File.openHandle(fd),
+                .address = accepted_addr,
+            };
         } else |err| switch (err) {
             // We only give SOCK_NONBLOCK when I/O mode is async, in which case this error
             // is handled by os.accept4.
