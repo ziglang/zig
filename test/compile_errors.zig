@@ -97,6 +97,19 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "function call assigned to incorrect type",
+        \\export fn entry() void {
+        \\    var arr: [4]f32 = undefined;
+        \\    arr = concat();
+        \\}
+        \\fn concat() [16]f32 {
+        \\    return [1]f32{0}**16;
+        \\}
+    ,
+        "tmp.zig:3:17: error: expected type '[4]f32', found '[16]f32'"
+    );
+
+    cases.add(
         "asigning to struct or union fields that are not optionals with a function that returns an optional",
         \\fn maybe(is: bool) ?u8 {
         \\    if (is) return @as(u8, 10) else return null;
