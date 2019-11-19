@@ -207,6 +207,16 @@ pub extern "kernel32" stdcallcc fn WaitForSingleObject(hHandle: HANDLE, dwMillis
 
 pub extern "kernel32" stdcallcc fn WaitForSingleObjectEx(hHandle: HANDLE, dwMilliseconds: DWORD, bAlertable: BOOL) DWORD;
 
+pub extern "kernel32" stdcallcc fn WaitForMultipleObjects(nCount: DWORD, lpHandle: [*]const HANDLE, bWaitAll:BOOL, dwMilliseconds: DWORD) DWORD;
+
+pub extern "kernel32" stdcallcc fn WaitForMultipleObjectsEx(
+    nCount: DWORD,
+    lpHandle: [*]const HANDLE,
+    bWaitAll:BOOL,
+    dwMilliseconds: DWORD,
+    bAlertable: BOOL,
+) DWORD;
+
 pub extern "kernel32" stdcallcc fn WriteFile(
     in_hFile: HANDLE,
     in_lpBuffer: [*]const u8,

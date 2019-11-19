@@ -183,6 +183,34 @@ pub fn WaitForSingleObjectEx(handle: HANDLE, milliseconds: DWORD, alertable: boo
     }
 }
 
+pub fn WaitForMultipleObjectsEx(handles: []const HANDLE, waitAll: bool, milliseconds: DWORD, alertable: bool) !u32 {
+    assert(handles.len < MAXIMUM_WAIT_OBJECTS);
+    const nCount: DWORD = @intCast(DWORD, handles.len);
+    switch (kernel32.WaitForMultipleObjectsEx(
+        nCount,
+        handles.ptr,
+        @boolToInt(waitAll),
+        milliseconds,
+        @boolToInt(alertable),
+    )) {
+        WAIT_OBJECT_0...WAIT_OBJECT_0 + MAXIMUM_WAIT_OBJECTS => |n| {
+            const handle_index = n - WAIT_OBJECT_0;
+            assert(handle_index < nCount);
+            return handle_index;
+        },
+        WAIT_ABANDONED_0...WAIT_ABANDONED_0 + MAXIMUM_WAIT_OBJECTS => |n| {
+            const handle_index = n - WAIT_ABANDONED_0;
+            assert(handle_index < nCount);
+            return error.WaitAbandoned;
+        },
+        WAIT_TIMEOUT => return error.WaitTimeOut,
+        WAIT_FAILED => switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        },
+        else => return error.Unexpected,
+    }
+}
+
 pub const FindFirstFileError = error{
     FileNotFound,
     InvalidUtf8,
