@@ -3,6 +3,25 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "regression test #2980: base type u32 is not type checked properly when assigning a value within a struct",
+        \\const Foo = struct {
+        \\    ptr: ?*usize,
+        \\    uval: u32,
+        \\};
+        \\fn get_uval(x: u32) !u32 {
+        \\    return error.NotFound;
+        \\}
+        \\export fn entry() void {
+        \\    const afoo = Foo{
+        \\        .ptr = null,
+        \\        .uval = get_uval(42),
+        \\    };
+        \\}
+    ,
+        "tmp.zig:11:25: error: expected type 'u32', found '@typeOf(get_uval).ReturnType.ErrorSet!u32'",
+    );
+
+    cases.add(
         "asigning to struct or union fields that are not optionals with a function that returns an optional",
         \\fn maybe(is: bool) ?u8 {
         \\    if (is) return @as(u8, 10) else return null;
