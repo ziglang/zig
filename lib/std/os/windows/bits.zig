@@ -489,6 +489,13 @@ pub const FILE_ATTRIBUTE_SYSTEM = 0x4;
 pub const FILE_ATTRIBUTE_TEMPORARY = 0x100;
 pub const FILE_ATTRIBUTE_VIRTUAL = 0x10000;
 
+// flags for CreateEvent
+pub const CREATE_EVENT_INITIAL_SET = 0x00000002;
+pub const CREATE_EVENT_MANUAL_RESET = 0x00000001;
+
+pub const EVENT_ALL_ACCESS = 0x1F0003;
+pub const EVENT_MODIFY_STATE = 0x0002;
+
 pub const PROCESS_INFORMATION = extern struct {
     hProcess: HANDLE,
     hThread: HANDLE,

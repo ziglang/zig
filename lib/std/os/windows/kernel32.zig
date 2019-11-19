@@ -9,6 +9,13 @@ pub extern "kernel32" stdcallcc fn CloseHandle(hObject: HANDLE) BOOL;
 
 pub extern "kernel32" stdcallcc fn CreateDirectoryW(lpPathName: [*]const u16, lpSecurityAttributes: ?*SECURITY_ATTRIBUTES) BOOL;
 
+pub extern "kernel32" stdcallcc fn CreateEventExW(
+    lpEventAttributes: ?*SECURITY_ATTRIBUTES,
+    lpName: [*:0]const u16,
+    dwFlags: DWORD,
+    dwDesiredAccess: DWORD,
+) ?HANDLE;
+
 pub extern "kernel32" stdcallcc fn CreateFileW(
     lpFileName: [*]const u16, // TODO null terminated pointer type
     dwDesiredAccess: DWORD,
