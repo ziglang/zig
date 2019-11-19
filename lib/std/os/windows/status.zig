@@ -11,8 +11,13 @@ pub const ABANDONED_WAIT_0 = 0x00000080;
 pub const ABANDONED_WAIT_63 = 0x000000BF;
 pub const USER_APC = 0x000000C0;
 pub const ALERTED = 0x00000101;
+
+/// The given Timeout interval expired.
 pub const TIMEOUT = 0x00000102;
+
+/// The operation that was requested is pending completion.
 pub const PENDING = 0x00000103;
+
 pub const REPARSE = 0x00000104;
 pub const MORE_ENTRIES = 0x00000105;
 pub const NOT_ALL_ASSIGNED = 0x00000106;
@@ -128,6 +133,8 @@ pub const GUARD_PAGE_VIOLATION = 0x80000001;
 pub const DATATYPE_MISALIGNMENT = 0x80000002;
 pub const BREAKPOINT = 0x80000003;
 pub const SINGLE_STEP = 0x80000004;
+
+/// The data was too large to fit into the specified buffer.
 pub const BUFFER_OVERFLOW = 0x80000005;
 pub const NO_MORE_FILES = 0x80000006;
 pub const WAKE_SYSTEM_DEBUGGER = 0x80000007;
