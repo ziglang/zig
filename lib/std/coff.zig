@@ -179,7 +179,7 @@ pub const Coff = struct {
         if (byte != 0 and i == buffer.len)
             return error.NameTooLong;
 
-        return i;
+        return @as(usize, i);
     }
 
     pub fn loadSections(self: *Coff) !void {
