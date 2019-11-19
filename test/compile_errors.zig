@@ -13,6 +13,27 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
+        "incorrect return type",
+        \\ pub export fn entry() void{
+        \\     _ = foo();
+        \\ }
+        \\ const A = struct {
+        \\     a: u32,
+        \\ };
+        \\ fn foo() A {
+        \\     return bar();
+        \\ }
+        \\ const B = struct {
+        \\     a: u32,
+        \\ };
+        \\ fn bar() B {
+        \\     unreachable;
+        \\ }
+    ,
+        "tmp.zig:8:16: error: expected type 'A', found 'B'",
+    );
+
+    cases.add(
         "regression test #2980: base type u32 is not type checked properly when assigning a value within a struct",
         \\const Foo = struct {
         \\    ptr: ?*usize,
