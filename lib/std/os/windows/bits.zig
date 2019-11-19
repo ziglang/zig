@@ -236,7 +236,11 @@ pub const FILE_NAME_INFORMATION = extern struct {
 };
 
 pub const IO_STATUS_BLOCK = extern struct {
-    Status: usize,
+    // "DUMMYUNIONNAME" expands to "u"
+    u: extern union {
+        Status: NTSTATUS,
+        Pointer: ?*c_void,
+    },
     Information: ULONG_PTR,
 };
 
