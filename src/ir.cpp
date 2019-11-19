@@ -17209,6 +17209,11 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
             if (!handle_is_ptr(result_loc->value.type->data.pointer.child_type)) {
                 ir_reset_result(call_instruction->result_loc);
                 result_loc = nullptr;
+            } else {
+                call_instruction->base.value.type = return_type;
+                IrInstruction *casted_value = ir_implicit_cast(ira, &call_instruction->base, result_loc->value.type->data.pointer.child_type);
+                if (type_is_invalid(casted_value->value.type))
+                    return casted_value;
             }
         }
     } else if (call_instruction->is_async_call_builtin) {
