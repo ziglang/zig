@@ -132,6 +132,7 @@ pub fn DeviceIoControl(
         overlapped,
     ) == 0) {
         switch (kernel32.GetLastError()) {
+            ERROR.IO_PENDING => if (overlapped == null) unreachable,
             else => |err| return unexpectedError(err),
         }
     }

@@ -59,7 +59,7 @@ pub extern "kernel32" stdcallcc fn DeviceIoControl(
     nInBufferSize: DWORD,
     lpOutBuffer: ?LPVOID,
     nOutBufferSize: DWORD,
-    lpBytesReturned: LPDWORD,
+    lpBytesReturned: ?*DWORD,
     lpOverlapped: ?*OVERLAPPED,
 ) BOOL;
 
