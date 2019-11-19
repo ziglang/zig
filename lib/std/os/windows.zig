@@ -141,9 +141,9 @@ pub fn DeviceIoControl(
 
 pub fn GetOverlappedResult(h: HANDLE, overlapped: *OVERLAPPED, wait: bool) !DWORD {
     var bytes: DWORD = undefined;
-    if (kernel32.GetOverlappedResult(h, overlapped, &bytes, wait) == 0) {
+    if (kernel32.GetOverlappedResult(h, overlapped, &bytes, @boolToInt(wait)) == 0) {
         switch (kernel32.GetLastError()) {
-            ERROR_IO_INCOMPLETE => if (!wait) return error.WouldBlock else unreachable,
+            ERROR.IO_INCOMPLETE => if (!wait) return error.WouldBlock else unreachable,
             else => |err| return unexpectedError(err),
         }
     }
