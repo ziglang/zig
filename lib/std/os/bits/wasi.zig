@@ -298,6 +298,7 @@ pub const subscription_t = extern struct {
 };
 
 pub const timestamp_t = u64;
+pub const time_t = i64; // match https://github.com/CraneStation/wasi-libc
 
 pub const userdata_t = u64;
 
@@ -305,3 +306,8 @@ pub const whence_t = u8;
 pub const WHENCE_CUR: whence_t = 0;
 pub const WHENCE_END: whence_t = 1;
 pub const WHENCE_SET: whence_t = 2;
+
+pub const timespec = extern struct {
+    tv_sec: time_t,
+    tv_nsec: isize,
+};
