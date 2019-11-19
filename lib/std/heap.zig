@@ -33,7 +33,7 @@ fn cShrink(self: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new
 
 /// This allocator makes a syscall directly for every allocation and free.
 /// Thread-safe and lock-free.
-pub const direct_allocator = &direct_allocator_state;
+pub const direct_allocator = if (builtin.arch == .wasm32) wasm_allocator else &direct_allocator_state;
 var direct_allocator_state = Allocator{
     .reallocFn = DirectAllocator.realloc,
     .shrinkFn = DirectAllocator.shrink,
