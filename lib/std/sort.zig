@@ -868,39 +868,35 @@ fn findLastBackward(comptime T: type, items: []T, value: T, range: Range, lessTh
 }
 
 fn binaryFirst(comptime T: type, items: []T, value: T, range: Range, lessThan: fn (T, T) bool) usize {
-    var start = range.start;
-    var end = range.end - 1;
+    var curr = range.start;
+    var size = range.length();
     if (range.start >= range.end) return range.end;
-    while (start < end) {
-        const mid = start + (end - start) / 2;
-        if (lessThan(items[mid], value)) {
-            start = mid + 1;
-        } else {
-            end = mid;
+    while (size > 0) {
+        const offset = size % 2;
+
+        size /= 2;
+        const mid = items[curr + size];
+        if (lessThan(mid, value)) {
+            curr += size + offset;
         }
     }
-    if (start == range.end - 1 and lessThan(items[start], value)) {
-        start += 1;
-    }
-    return start;
+    return curr;
 }
 
 fn binaryLast(comptime T: type, items: []T, value: T, range: Range, lessThan: fn (T, T) bool) usize {
-    var start = range.start;
-    var end = range.end - 1;
+    var curr = range.start;
+    var size = range.length();
     if (range.start >= range.end) return range.end;
-    while (start < end) {
-        const mid = start + (end - start) / 2;
-        if (!lessThan(value, items[mid])) {
-            start = mid + 1;
-        } else {
-            end = mid;
+    while (size > 0) {
+        const offset = size % 2;
+
+        size /= 2;
+        const mid = items[curr + size];
+        if (!lessThan(value, mid)) {
+            curr += size + offset;
         }
     }
-    if (start == range.end - 1 and !lessThan(value, items[start])) {
-        start += 1;
-    }
-    return start;
+    return curr;
 }
 
 fn mergeInto(comptime T: type, from: []T, A: Range, B: Range, lessThan: fn (T, T) bool, into: []T) void {
