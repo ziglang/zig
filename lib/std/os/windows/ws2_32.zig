@@ -240,6 +240,7 @@ pub extern "ws2_32" stdcallcc fn WSASocketW(
     g: GROUP,
     dwFlags: DWORD,
 ) SOCKET;
+pub extern "ws2_32" stdcallcc fn closesocket(s: SOCKET) c_int;
 pub extern "ws2_32" stdcallcc fn WSAIoctl(
     s: SOCKET,
     dwIoControlCode: DWORD,

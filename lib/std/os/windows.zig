@@ -692,6 +692,16 @@ pub fn WSASocketW(
     return rc;
 }
 
+pub fn closesocket(s: ws2_32.SOCKET) !void {
+    switch (ws2_32.closesocket(s)) {
+        0 => {},
+        ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
+            else => |err| return unexpectedWSAError(err),
+        },
+        else => unreachable,
+    }
+}
+
 pub fn WSAIoctl(
     s: ws2_32.SOCKET,
     dwIoControlCode: DWORD,
