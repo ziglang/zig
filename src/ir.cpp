@@ -13535,16 +13535,6 @@ static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructio
     if (type_is_invalid(operand->value.type))
         return ir_unreach_error(ira);
 
-    if (!instr_is_comptime(operand) && ira->explicit_return_type != nullptr &&
-            handle_is_ptr(ira->explicit_return_type))
-    {
-        // result location mechanism took care of it.
-        IrInstruction *result = ir_build_return(&ira->new_irb, instruction->base.scope,
-                instruction->base.source_node, nullptr);
-        result->value.type = ira->codegen->builtin_types.entry_unreachable;
-        return ir_finish_anal(ira, result);
-    }
-
     IrInstruction *casted_operand = ir_implicit_cast(ira, operand, ira->explicit_return_type);
     if (type_is_invalid(casted_operand->value.type)) {
         AstNode *source_node = ira->explicit_return_type_source_node;
@@ -13554,6 +13544,16 @@ static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructio
                 buf_sprintf("return type declared here"));
         }
         return ir_unreach_error(ira);
+    }
+
+    if (!instr_is_comptime(operand) && ira->explicit_return_type != nullptr &&
+            handle_is_ptr(ira->explicit_return_type))
+    {
+        // result location mechanism took care of it.
+        IrInstruction *result = ir_build_return(&ira->new_irb, instruction->base.scope,
+                instruction->base.source_node, nullptr);
+        result->value.type = ira->codegen->builtin_types.entry_unreachable;
+        return ir_finish_anal(ira, result);
     }
 
     if (casted_operand->value.special == ConstValSpecialRuntime &&
