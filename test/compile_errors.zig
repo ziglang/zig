@@ -2,6 +2,10 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add(
+        \\export async fn foo() void {}
+    , "tmp.zig:1:1: error: exported function cannot be async");
+
     cases.addCase(x: {
         var tc = cases.create("@newStackCall on unsupported target",
             \\export fn entry() void {
