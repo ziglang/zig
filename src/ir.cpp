@@ -68,6 +68,7 @@ enum ConstCastResultId {
     ConstCastResultIdBadAllowsZero,
     ConstCastResultIdArrayChild,
     ConstCastResultIdBadNullTermArrays,
+    ConstCastResultIdPtrLens,
 };
 
 struct ConstCastOnly;
@@ -92,6 +93,7 @@ struct ConstCastTypeMismatch;
 struct ConstCastArrayMismatch;
 struct ConstCastBadAllowsZero;
 struct ConstCastBadNullTermArrays;
+struct ConstCastBadPtrLens;
 
 struct ConstCastOnly {
     ConstCastResultId id;
@@ -110,6 +112,7 @@ struct ConstCastOnly {
         ConstCastArgNoAlias arg_no_alias;
         ConstCastBadAllowsZero *bad_allows_zero;
         ConstCastBadNullTermArrays *bad_null_term_arrays;
+        ConstCastBadPtrLens *bad_ptr_lens;
     } data;
 };
 
@@ -165,6 +168,11 @@ struct ConstCastBadAllowsZero {
 
 struct ConstCastBadNullTermArrays {
     ConstCastOnly child;
+    ZigType *wanted_type;
+    ZigType *actual_type;
+};
+
+struct ConstCastBadPtrLens {
     ZigType *wanted_type;
     ZigType *actual_type;
 };
@@ -9843,6 +9851,18 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
     bool actual_opt_or_ptr = actual_ptr_type != nullptr &&
         (actual_type->id == ZigTypeIdPointer || actual_type->id == ZigTypeIdOptional);
     if (wanted_opt_or_ptr && actual_opt_or_ptr) {
+        bool ptr_lens_equal = actual_ptr_type->data.pointer.ptr_len == wanted_ptr_type->data.pointer.ptr_len;
+        bool ok_null_term_ptrs =
+            actual_ptr_type->data.pointer.ptr_len == PtrLenNull ||
+            wanted_ptr_type->data.pointer.ptr_len == PtrLenUnknown;
+        if (!(ptr_lens_equal || wanted_is_c_ptr || actual_is_c_ptr || ok_null_term_ptrs)) {
+            result.id = ConstCastResultIdPtrLens;
+            result.data.bad_ptr_lens = allocate_nonzero<ConstCastBadPtrLens>(1);
+            result.data.bad_ptr_lens->wanted_type = wanted_type;
+            result.data.bad_ptr_lens->actual_type = actual_type;
+            return result;
+        }
+
         ConstCastOnly child = types_match_const_cast_only(ira, wanted_ptr_type->data.pointer.child_type,
                 actual_ptr_type->data.pointer.child_type, source_node, !wanted_ptr_type->data.pointer.is_const);
         if (child.id == ConstCastResultIdInvalid)
@@ -9881,12 +9901,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             result.id = ConstCastResultIdInvalid;
             return result;
         }
-        bool ptr_lens_equal = actual_ptr_type->data.pointer.ptr_len == wanted_ptr_type->data.pointer.ptr_len;
-        bool ok_null_term_ptrs =
-            actual_ptr_type->data.pointer.ptr_len == PtrLenNull ||
-            wanted_ptr_type->data.pointer.ptr_len == PtrLenUnknown;
-        if ((ptr_lens_equal || wanted_is_c_ptr || actual_is_c_ptr || ok_null_term_ptrs) &&
-            type_has_bits(wanted_type) == type_has_bits(actual_type) &&
+        if (type_has_bits(wanted_type) == type_has_bits(actual_type) &&
             (!actual_ptr_type->data.pointer.is_const || wanted_ptr_type->data.pointer.is_const) &&
             (!actual_ptr_type->data.pointer.is_volatile || wanted_ptr_type->data.pointer.is_volatile) &&
             actual_ptr_type->data.pointer.bit_offset_in_host == wanted_ptr_type->data.pointer.bit_offset_in_host &&
@@ -12566,6 +12581,17 @@ static void report_recursive_error(IrAnalyze *ira, AstNode *source_node, ConstCa
                         buf_sprintf("mutable '%s' allows illegal null values stored to type '%s'",
                             buf_ptr(&wanted_type->name),
                             buf_ptr(&actual_type->name)));
+            }
+            break;
+        }
+        case ConstCastResultIdPtrLens: {
+            ZigType *wanted_type = cast_result->data.bad_ptr_lens->wanted_type;
+            ZigType *actual_type = cast_result->data.bad_ptr_lens->actual_type;
+            bool wanted_null_term = wanted_type->data.pointer.ptr_len == PtrLenNull;
+            bool actual_null_term = actual_type->data.pointer.ptr_len == PtrLenNull;
+            if (wanted_null_term && !actual_null_term) {
+                add_error_note(ira->codegen, parent_msg, source_node,
+                        buf_sprintf("destination type requires null termination"));
             }
             break;
         }

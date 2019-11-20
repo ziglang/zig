@@ -63,7 +63,7 @@ pub extern "c" fn fclose(stream: *FILE) c_int;
 pub extern "c" fn fwrite(ptr: [*]const u8, size_of_type: usize, item_count: usize, stream: *FILE) usize;
 pub extern "c" fn fread(ptr: [*]u8, size_of_type: usize, item_count: usize, stream: *FILE) usize;
 
-pub extern "c" fn printf(format: [*]const u8, ...) c_int;
+pub extern "c" fn printf(format: [*]null const u8, ...) c_int;
 pub extern "c" fn abort() noreturn;
 pub extern "c" fn exit(code: c_int) noreturn;
 pub extern "c" fn isatty(fd: fd_t) c_int;
