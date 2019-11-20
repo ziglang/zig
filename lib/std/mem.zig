@@ -1555,3 +1555,94 @@ test "isAligned" {
     testing.expect(!isAligned(4, 8));
     testing.expect(!isAligned(4, 16));
 }
+
+/// Creates a copy of haystack with all occurances of needle replaced
+/// with the replacement. The caller owns the returned slice.
+pub fn replace(allocator: *Allocator, comptime T: type,
+        haystack: []const T, needle: []const T, replacement: []const T) ![]T {
+    const first_match = indexOf(T, haystack, needle);
+    if (first_match == null or eql(T, needle, replacement)) {
+        return dupe(allocator, T, haystack);
+    }
+
+    var end = first_match;
+    var start: usize = 0;
+    const total_len: usize = blk: {
+        if (needle.len == replacement.len) {
+            break :blk haystack.len;
+        }
+        // TODO: Is it faster to search or use an expanding buffer?
+        const diff = @intCast(isize, replacement.len) - @intCast(isize, needle.len);
+        var sum = @intCast(isize, haystack.len);
+        while (end != null) {
+            sum += diff;
+            start = end.? + needle.len;
+            end = indexOfPos(T, haystack, start, needle);
+        }
+        break :blk @intCast(usize, sum);
+    };
+    if (total_len == 0) return &[0]T{};
+
+    const buf = try allocator.alloc(T, total_len);
+    errdefer allocator.free(buf);
+
+    // Reset
+    start = 0;
+    end = first_match;
+
+    var buf_index: usize = 0;
+    var slice: []T = undefined;
+    while (end != null) {
+        slice = haystack[start..end.?];
+        copy(T, buf[buf_index..], slice);
+        buf_index += slice.len;
+
+        // Copy replacment if needed
+        if (replacement.len > 0) {
+            copy(T, buf[buf_index..], replacement);
+            buf_index += replacement.len;
+        }
+
+        // Skip needle and find next
+        start = end.? + needle.len;
+        end = indexOfPos(T, haystack, start, needle);
+    }
+
+    // Copy rest
+    if (start < haystack.len) {
+        copy(T, buf[buf_index..], haystack[start..]);
+    }
+
+    // No need for shrink since buf is exactly the correct size.
+    return buf;
+}
+
+test "replace" {
+    var buf: [1024]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(&buf).allocator;
+    const x = "value='true'";
+
+    // Swap
+    var result = try replace(allocator, u8, x, "'", "\"");
+    testing.expectEqualSlices(u8, result, "value=\"true\"");
+
+    // No matches
+    result = try replace(allocator, u8, x, ":", "=");
+    testing.expectEqualSlices(u8, result, x);
+
+    // Bigger replace
+    result = try replace(allocator, u8, x, "true", "false");
+    testing.expectEqualSlices(u8, result, "value='false'");
+
+    // Multi replace
+    result = try replace(allocator, u8, "===", "=", "|");
+    testing.expectEqualSlices(u8, result, "|||");
+
+    // Equal replace
+    result = try replace(allocator, u8, "===", "=", "=");
+    testing.expectEqualSlices(u8, result, "===");
+
+    // Empty result
+    result = try replace(allocator, u8, "===", "=", "");
+    testing.expectEqualSlices(u8, result, "");
+}
