@@ -3333,21 +3333,15 @@ void add_var_export(CodeGen *g, ZigVar *var, const char *symbol_name, GlobalLink
     global_export->linkage = linkage;
 }
 
-void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, const char *symbol_name, GlobalLinkageId linkage, bool ccc) {
-    if (ccc) {
-        if (strcmp(symbol_name, "main") == 0 && g->libc_link_lib != nullptr) {
-            g->have_c_main = true;
-        } else if (strcmp(symbol_name, "WinMain") == 0 &&
-            g->zig_target->os == OsWindows)
-        {
+void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, const char *symbol_name, GlobalLinkageId linkage, CallingConvention cc) {
+    if (cc == CallingConventionC && strcmp(symbol_name, "main") == 0 && g->libc_link_lib != nullptr) {
+        g->have_c_main = true;
+    } else if (cc == CallingConventionStdcall && g->zig_target->os == OsWindows) {
+        if (strcmp(symbol_name, "WinMain") == 0) {
             g->have_winmain = true;
-        } else if (strcmp(symbol_name, "WinMainCRTStartup") == 0 &&
-            g->zig_target->os == OsWindows)
-        {
+        } else if (strcmp(symbol_name, "WinMainCRTStartup") == 0) {
             g->have_winmain_crt_startup = true;
-        } else if (strcmp(symbol_name, "DllMainCRTStartup") == 0 &&
-            g->zig_target->os == OsWindows)
-        {
+        } else if (strcmp(symbol_name, "DllMainCRTStartup") == 0) {
             g->have_dllmain_crt_startup = true;
         }
     }
@@ -3377,8 +3371,24 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         }
 
         if (fn_proto->is_export) {
-            bool ccc = (fn_proto->cc == CallingConventionUnspecified || fn_proto->cc == CallingConventionC);
-            add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name), GlobalLinkageIdStrong, ccc);
+            switch (fn_proto->cc) {
+                case CallingConventionAsync: {
+                    add_node_error(g, fn_def_node,
+                        buf_sprintf("exported function cannot be async"));
+                } break;
+                case CallingConventionC:
+                case CallingConventionNaked:
+                case CallingConventionCold:
+                case CallingConventionStdcall:
+                case CallingConventionUnspecified:
+                    // An exported function without a specific calling
+                    // convention defaults to C
+                    CallingConvention cc = (fn_proto->cc != CallingConventionUnspecified) ?
+                        fn_proto->cc : CallingConventionC;
+                    add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name),
+                                  GlobalLinkageIdStrong, cc);
+                    break;
+            }
         }
 
         if (!is_extern) {

@@ -16134,8 +16134,7 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
                 case CallingConventionNaked:
                 case CallingConventionCold:
                 case CallingConventionStdcall:
-                    add_fn_export(ira->codegen, fn_entry, buf_ptr(symbol_name), global_linkage_id,
-                            cc == CallingConventionC);
+                    add_fn_export(ira->codegen, fn_entry, buf_ptr(symbol_name), global_linkage_id, cc);
                     break;
             }
         } break;
