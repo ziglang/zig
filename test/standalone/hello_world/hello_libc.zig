@@ -5,7 +5,7 @@ const c = @cImport({
     @cInclude("string.h");
 });
 
-const msg = c"Hello, world!\n";
+const msg = "Hello, world!\n";
 
 export fn main(argc: c_int, argv: **u8) c_int {
     if (c.printf(msg) != @intCast(c_int, c.strlen(msg))) return -1;

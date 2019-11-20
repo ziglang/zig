@@ -1240,7 +1240,7 @@ pub const OpenSelfExeError = os.OpenError || os.windows.CreateFileError || SelfE
 
 pub fn openSelfExe() OpenSelfExeError!File {
     if (builtin.os == .linux) {
-        return File.openReadC(c"/proc/self/exe");
+        return File.openReadC("/proc/self/exe");
     }
     if (builtin.os == .windows) {
         const wide_slice = selfExePathW();
@@ -1280,7 +1280,7 @@ pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]u8 {
         return mem.toSlice(u8, out_buffer);
     }
     switch (builtin.os) {
-        .linux => return os.readlinkC(c"/proc/self/exe", out_buffer),
+        .linux => return os.readlinkC("/proc/self/exe", out_buffer),
         .freebsd, .dragonfly => {
             var mib = [4]c_int{ os.CTL_KERN, os.KERN_PROC, os.KERN_PROC_PATHNAME, -1 };
             var out_len: usize = out_buffer.len;
@@ -1326,7 +1326,7 @@ pub fn selfExeDirPath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]const 
         // the file path looks something like `/a/b/c/exe (deleted)`
         // This path cannot be opened, but it's valid for determining the directory
         // the executable was in when it was run.
-        const full_exe_path = try os.readlinkC(c"/proc/self/exe", out_buffer);
+        const full_exe_path = try os.readlinkC("/proc/self/exe", out_buffer);
         // Assume that /proc/self/exe has an absolute path, and therefore dirname
         // will not return null.
         return path.dirname(full_exe_path).?;

@@ -66,14 +66,14 @@ extern fn strncmp(_l: [*]const u8, _r: [*]const u8, _n: usize) c_int {
 }
 
 extern fn strerror(errnum: c_int) [*]const u8 {
-    return c"TODO strerror implementation";
+    return "TODO strerror implementation";
 }
 
 test "strncmp" {
-    std.testing.expect(strncmp(c"a", c"b", 1) == -1);
-    std.testing.expect(strncmp(c"a", c"c", 1) == -2);
-    std.testing.expect(strncmp(c"b", c"a", 1) == 1);
-    std.testing.expect(strncmp(c"\xff", c"\x02", 1) == 253);
+    std.testing.expect(strncmp("a", "b", 1) == -1);
+    std.testing.expect(strncmp("a", "c", 1) == -2);
+    std.testing.expect(strncmp("b", "a", 1) == 1);
+    std.testing.expect(strncmp("\xff", "\x02", 1) == 253);
 }
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,

@@ -15,7 +15,7 @@ fn testDerefPtr() void {
 }
 
 test "pointer arithmetic" {
-    var ptr = c"abcd";
+    var ptr: [*]const u8 = "abcd";
 
     expect(ptr[0] == 'a');
     ptr += 1;

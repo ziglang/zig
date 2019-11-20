@@ -328,7 +328,7 @@ pub const ChildProcess = struct {
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
         const dev_null_fd = if (any_ignore)
-            os.openC(c"/dev/null", os.O_RDWR, 0) catch |err| switch (err) {
+            os.openC("/dev/null", os.O_RDWR, 0) catch |err| switch (err) {
                 error.PathAlreadyExists => unreachable,
                 error.NoSpaceLeft => unreachable,
                 error.FileTooBig => unreachable,

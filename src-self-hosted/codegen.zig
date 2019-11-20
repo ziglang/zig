@@ -52,7 +52,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
         u32(c.ZIG_VERSION_MINOR),
         u32(c.ZIG_VERSION_PATCH),
     );
-    const flags = c"";
+    const flags = "";
     const runtime_version = 0;
     const compile_unit_file = llvm.CreateFile(
         dibuilder,
@@ -68,7 +68,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
         is_optimized,
         flags,
         runtime_version,
-        c"",
+        "",
         0,
         !comp.strip,
     ) orelse return error.OutOfMemory;
@@ -402,7 +402,7 @@ pub fn getHandleValue(ofile: *ObjectFile, ptr: *llvm.Value, ptr_type: *Type.Poin
     if (child_type.handleIsPtr()) {
         return ptr;
     }
-    return try renderLoad(ofile, ptr, ptr_type, c"");
+    return try renderLoad(ofile, ptr, ptr_type, "");
 }
 
 pub fn renderStoreUntyped(

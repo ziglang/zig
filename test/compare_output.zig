@@ -7,7 +7,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addC("hello world with libc",
         \\const c = @cImport(@cInclude("stdio.h"));
         \\export fn main(argc: c_int, argv: [*][*]u8) c_int {
-        \\    _ = c.puts(c"Hello, world!");
+        \\    _ = c.puts("Hello, world!");
         \\    return 0;
         \\}
     , "Hello, world!" ++ std.cstr.line_sep);
@@ -144,75 +144,75 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\        // we want actual \n, not \r\n
         \\        _ = c._setmode(1, c._O_BINARY);
         \\    }
-        \\    _ = c.printf(c"0: %llu\n",
+        \\    _ = c.printf("0: %llu\n",
         \\             @as(u64, 0));
-        \\    _ = c.printf(c"320402575052271: %llu\n",
+        \\    _ = c.printf("320402575052271: %llu\n",
         \\         @as(u64, 320402575052271));
-        \\    _ = c.printf(c"0x01236789abcdef: %llu\n",
+        \\    _ = c.printf("0x01236789abcdef: %llu\n",
         \\         @as(u64, 0x01236789abcdef));
-        \\    _ = c.printf(c"0xffffffffffffffff: %llu\n",
+        \\    _ = c.printf("0xffffffffffffffff: %llu\n",
         \\         @as(u64, 0xffffffffffffffff));
-        \\    _ = c.printf(c"0x000000ffffffffffffffff: %llu\n",
+        \\    _ = c.printf("0x000000ffffffffffffffff: %llu\n",
         \\         @as(u64, 0x000000ffffffffffffffff));
-        \\    _ = c.printf(c"0o1777777777777777777777: %llu\n",
+        \\    _ = c.printf("0o1777777777777777777777: %llu\n",
         \\         @as(u64, 0o1777777777777777777777));
-        \\    _ = c.printf(c"0o0000001777777777777777777777: %llu\n",
+        \\    _ = c.printf("0o0000001777777777777777777777: %llu\n",
         \\         @as(u64, 0o0000001777777777777777777777));
-        \\    _ = c.printf(c"0b1111111111111111111111111111111111111111111111111111111111111111: %llu\n",
+        \\    _ = c.printf("0b1111111111111111111111111111111111111111111111111111111111111111: %llu\n",
         \\         @as(u64, 0b1111111111111111111111111111111111111111111111111111111111111111));
-        \\    _ = c.printf(c"0b0000001111111111111111111111111111111111111111111111111111111111111111: %llu\n",
+        \\    _ = c.printf("0b0000001111111111111111111111111111111111111111111111111111111111111111: %llu\n",
         \\         @as(u64, 0b0000001111111111111111111111111111111111111111111111111111111111111111));
         \\
-        \\    _ = c.printf(c"\n");
+        \\    _ = c.printf("\n");
         \\
-        \\    _ = c.printf(c"0.0: %.013a\n",
+        \\    _ = c.printf("0.0: %.013a\n",
         \\         @as(f64, 0.0));
-        \\    _ = c.printf(c"0e0: %.013a\n",
+        \\    _ = c.printf("0e0: %.013a\n",
         \\         @as(f64, 0e0));
-        \\    _ = c.printf(c"0.0e0: %.013a\n",
+        \\    _ = c.printf("0.0e0: %.013a\n",
         \\         @as(f64, 0.0e0));
-        \\    _ = c.printf(c"000000000000000000000000000000000000000000000000000000000.0e0: %.013a\n",
+        \\    _ = c.printf("000000000000000000000000000000000000000000000000000000000.0e0: %.013a\n",
         \\         @as(f64, 000000000000000000000000000000000000000000000000000000000.0e0));
-        \\    _ = c.printf(c"0.000000000000000000000000000000000000000000000000000000000e0: %.013a\n",
+        \\    _ = c.printf("0.000000000000000000000000000000000000000000000000000000000e0: %.013a\n",
         \\         @as(f64, 0.000000000000000000000000000000000000000000000000000000000e0));
-        \\    _ = c.printf(c"0.0e000000000000000000000000000000000000000000000000000000000: %.013a\n",
+        \\    _ = c.printf("0.0e000000000000000000000000000000000000000000000000000000000: %.013a\n",
         \\         @as(f64, 0.0e000000000000000000000000000000000000000000000000000000000));
-        \\    _ = c.printf(c"1.0: %.013a\n",
+        \\    _ = c.printf("1.0: %.013a\n",
         \\         @as(f64, 1.0));
-        \\    _ = c.printf(c"10.0: %.013a\n",
+        \\    _ = c.printf("10.0: %.013a\n",
         \\         @as(f64, 10.0));
-        \\    _ = c.printf(c"10.5: %.013a\n",
+        \\    _ = c.printf("10.5: %.013a\n",
         \\         @as(f64, 10.5));
-        \\    _ = c.printf(c"10.5e5: %.013a\n",
+        \\    _ = c.printf("10.5e5: %.013a\n",
         \\         @as(f64, 10.5e5));
-        \\    _ = c.printf(c"10.5e+5: %.013a\n",
+        \\    _ = c.printf("10.5e+5: %.013a\n",
         \\         @as(f64, 10.5e+5));
-        \\    _ = c.printf(c"50.0e-2: %.013a\n",
+        \\    _ = c.printf("50.0e-2: %.013a\n",
         \\         @as(f64, 50.0e-2));
-        \\    _ = c.printf(c"50e-2: %.013a\n",
+        \\    _ = c.printf("50e-2: %.013a\n",
         \\         @as(f64, 50e-2));
         \\
-        \\    _ = c.printf(c"\n");
+        \\    _ = c.printf("\n");
         \\
-        \\    _ = c.printf(c"0x1.0: %.013a\n",
+        \\    _ = c.printf("0x1.0: %.013a\n",
         \\         @as(f64, 0x1.0));
-        \\    _ = c.printf(c"0x10.0: %.013a\n",
+        \\    _ = c.printf("0x10.0: %.013a\n",
         \\         @as(f64, 0x10.0));
-        \\    _ = c.printf(c"0x100.0: %.013a\n",
+        \\    _ = c.printf("0x100.0: %.013a\n",
         \\         @as(f64, 0x100.0));
-        \\    _ = c.printf(c"0x103.0: %.013a\n",
+        \\    _ = c.printf("0x103.0: %.013a\n",
         \\         @as(f64, 0x103.0));
-        \\    _ = c.printf(c"0x103.7: %.013a\n",
+        \\    _ = c.printf("0x103.7: %.013a\n",
         \\         @as(f64, 0x103.7));
-        \\    _ = c.printf(c"0x103.70: %.013a\n",
+        \\    _ = c.printf("0x103.70: %.013a\n",
         \\         @as(f64, 0x103.70));
-        \\    _ = c.printf(c"0x103.70p4: %.013a\n",
+        \\    _ = c.printf("0x103.70p4: %.013a\n",
         \\         @as(f64, 0x103.70p4));
-        \\    _ = c.printf(c"0x103.70p5: %.013a\n",
+        \\    _ = c.printf("0x103.70p5: %.013a\n",
         \\         @as(f64, 0x103.70p5));
-        \\    _ = c.printf(c"0x103.70p+5: %.013a\n",
+        \\    _ = c.printf("0x103.70p+5: %.013a\n",
         \\         @as(f64, 0x103.70p+5));
-        \\    _ = c.printf(c"0x103.70p-5: %.013a\n",
+        \\    _ = c.printf("0x103.70p-5: %.013a\n",
         \\         @as(f64, 0x103.70p-5));
         \\
         \\    return 0;
@@ -323,7 +323,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    const x: f64 = small;
         \\    const y = @floatToInt(i32, x);
         \\    const z = @intToFloat(f64, y);
-        \\    _ = c.printf(c"%.2f\n%d\n%.2f\n%.2f\n", x, y, z, @as(f64, -0.4));
+        \\    _ = c.printf("%.2f\n%d\n%.2f\n%.2f\n", x, y, z, @as(f64, -0.4));
         \\    return 0;
         \\}
     , "3.25\n3\n3.00\n-0.40\n");

@@ -36,7 +36,7 @@ fn assertLenIsZero(msg: []const u8) void {
 }
 
 test "C pointer" {
-    var buf: [*c]const u8 = c"kjdhfkjdhfdkjhfkfjhdfkjdhfkdjhfdkjhf";
+    var buf: [*c]const u8 = "kjdhfkjdhfdkjhfkfjhdfkjdhfkdjhfdkjhf";
     var len: u32 = 10;
     var slice = buf[0..len];
     expectEqualSlices(u8, "kjdhfkjdhf", slice);

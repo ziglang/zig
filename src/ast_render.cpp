@@ -619,9 +619,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             break;
         case NodeTypeStringLiteral:
             {
-                if (node->data.string_literal.c) {
-                    fprintf(ar->f, "c");
-                }
                 Buf tmp_buf = BUF_INIT;
                 string_literal_escape(node->data.string_literal.buf, &tmp_buf);
                 fprintf(ar->f, "\"%s\"", buf_ptr(&tmp_buf));

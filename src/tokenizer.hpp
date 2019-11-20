@@ -149,7 +149,6 @@ struct TokenIntLit {
 
 struct TokenStrLit {
     Buf str;
-    bool is_c_str;
 };
 
 struct TokenCharLit {

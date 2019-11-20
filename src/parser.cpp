@@ -1718,7 +1718,6 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
     if (string_lit != nullptr) {
         AstNode *res = ast_create_node(pc, NodeTypeStringLiteral, string_lit);
         res->data.string_literal.buf = token_buf(string_lit);
-        res->data.string_literal.c = string_lit->data.str_lit.is_c_str;
         return res;
     }
 

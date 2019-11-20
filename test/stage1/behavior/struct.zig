@@ -493,7 +493,7 @@ test "non-byte-aligned array inside packed struct" {
         fn doTheTest() void {
             var foo = Foo{
                 .a = true,
-                .b = "abcdefghijklmnopqurstu",
+                .b = "abcdefghijklmnopqurstu".*,
             };
             bar(foo.b);
         }

@@ -331,7 +331,7 @@ pub const Inst = struct {
                 @intCast(c_uint, args.len),
                 llvm_cc,
                 fn_inline,
-                c"",
+                "",
             ) orelse error.OutOfMemory;
         }
     };
@@ -1410,7 +1410,7 @@ pub const Builder = struct {
         if (block.label) |label| {
             block_scope.incoming_values = std.ArrayList(*Inst).init(irb.arena());
             block_scope.incoming_blocks = std.ArrayList(*BasicBlock).init(irb.arena());
-            block_scope.end_block = try irb.createBasicBlock(parent_scope, c"BlockEnd");
+            block_scope.end_block = try irb.createBasicBlock(parent_scope, "BlockEnd");
             block_scope.is_comptime = try irb.buildConstBool(
                 parent_scope,
                 Span.token(block.lbrace),
@@ -1542,8 +1542,8 @@ pub const Builder = struct {
                 const defer_counts = irb.countDefers(scope, outer_scope);
                 const have_err_defers = defer_counts.error_exit != 0;
                 if (have_err_defers or irb.comp.have_err_ret_tracing) {
-                    const err_block = try irb.createBasicBlock(scope, c"ErrRetErr");
-                    const ok_block = try irb.createBasicBlock(scope, c"ErrRetOk");
+                    const err_block = try irb.createBasicBlock(scope, "ErrRetErr");
+                    const ok_block = try irb.createBasicBlock(scope, "ErrRetOk");
                     if (!have_err_defers) {
                         _ = try await (async irb.genDefersForBlock(scope, outer_scope, Scope.Defer.Kind.ScopeExit) catch unreachable);
                     }
@@ -1564,7 +1564,7 @@ pub const Builder = struct {
                         .is_comptime = err_is_comptime,
                     });
 
-                    const ret_stmt_block = try irb.createBasicBlock(scope, c"RetStmt");
+                    const ret_stmt_block = try irb.createBasicBlock(scope, "RetStmt");
 
                     try irb.setCursorAtEndAndAppendBlock(err_block);
                     if (have_err_defers) {
@@ -2530,7 +2530,7 @@ pub async fn gen(
     var irb = try Builder.init(comp, tree_scope, scope);
     errdefer irb.abort();
 
-    const entry_block = try irb.createBasicBlock(scope, c"Entry");
+    const entry_block = try irb.createBasicBlock(scope, "Entry");
     entry_block.ref(&irb); // Entry block gets a reference because we enter it to begin.
     try irb.setCursorAtEndAndAppendBlock(entry_block);
 

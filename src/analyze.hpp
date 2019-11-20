@@ -126,9 +126,6 @@ ScopeExpr *create_expr_scope(CodeGen *g, AstNode *node, Scope *parent);
 void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str);
 ConstExprValue *create_const_str_lit(CodeGen *g, Buf *str);
 
-void init_const_c_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *c_str);
-ConstExprValue *create_const_c_str_lit(CodeGen *g, Buf *c_str);
-
 void init_const_bigint(ConstExprValue *const_val, ZigType *type, const BigInt *bigint);
 ConstExprValue *create_const_bigint(ZigType *type, const BigInt *bigint);
 
@@ -175,6 +172,9 @@ ConstExprValue *create_const_slice(CodeGen *g, ConstExprValue *array_val, size_t
 
 void init_const_arg_tuple(CodeGen *g, ConstExprValue *const_val, size_t arg_index_start, size_t arg_index_end);
 ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_t arg_index_end);
+
+void init_const_null(ConstExprValue *const_val, ZigType *type);
+ConstExprValue *create_const_null(ZigType *type);
 
 ConstExprValue *create_const_vals(size_t count);
 ConstExprValue **alloc_const_vals_ptrs(size_t count);
@@ -275,5 +275,6 @@ IrInstruction *ir_create_alloca(CodeGen *g, Scope *scope, AstNode *source_node, 
         ZigType *var_type, const char *name_hint);
 Error analyze_import(CodeGen *codegen, ZigType *source_import, Buf *import_target_str,
         ZigType **out_import, Buf **out_import_target_path, Buf *out_full_path);
-
+ConstExprValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry);
+ConstExprValue *get_null_value(ZigType *ty);
 #endif

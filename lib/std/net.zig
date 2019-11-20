@@ -666,35 +666,35 @@ const Policy = struct {
 
 const defined_policies = [_]Policy{
     Policy{
-        .addr = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01",
+        .addr = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01".*,
         .len = 15,
         .mask = 0xff,
         .prec = 50,
         .label = 0,
     },
     Policy{
-        .addr = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff\x00\x00\x00\x00",
+        .addr = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff\x00\x00\x00\x00".*,
         .len = 11,
         .mask = 0xff,
         .prec = 35,
         .label = 4,
     },
     Policy{
-        .addr = "\x20\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+        .addr = "\x20\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00".*,
         .len = 1,
         .mask = 0xff,
         .prec = 30,
         .label = 2,
     },
     Policy{
-        .addr = "\x20\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+        .addr = "\x20\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00".*,
         .len = 3,
         .mask = 0xff,
         .prec = 5,
         .label = 5,
     },
     Policy{
-        .addr = "\xfc\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+        .addr = "\xfc\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00".*,
         .len = 0,
         .mask = 0xfe,
         .prec = 3,
@@ -708,7 +708,7 @@ const defined_policies = [_]Policy{
     // { "\x3f\xfe", 1, 0xff, 1, 12 },
     // Last rule must match all addresses to stop loop.
     Policy{
-        .addr = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+        .addr = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00".*,
         .len = 0,
         .mask = 0,
         .prec = 40,
@@ -812,7 +812,7 @@ fn linuxLookupNameFromHosts(
     family: os.sa_family_t,
     port: u16,
 ) !void {
-    const file = fs.File.openReadC(c"/etc/hosts") catch |err| switch (err) {
+    const file = fs.File.openReadC("/etc/hosts") catch |err| switch (err) {
         error.FileNotFound,
         error.NotDir,
         error.AccessDenied,
@@ -1006,7 +1006,7 @@ fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
     };
     errdefer rc.deinit();
 
-    const file = fs.File.openReadC(c"/etc/resolv.conf") catch |err| switch (err) {
+    const file = fs.File.openReadC("/etc/resolv.conf") catch |err| switch (err) {
         error.FileNotFound,
         error.NotDir,
         error.AccessDenied,

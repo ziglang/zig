@@ -132,9 +132,16 @@ test "single-item pointer to array indexing and slicing" {
 }
 
 fn testSingleItemPtrArrayIndexSlice() void {
-    var array = "aaaa";
-    doSomeMangling(&array);
-    expect(mem.eql(u8, "azya", array));
+    {
+        var array: [4]u8 = "aaaa".*;
+        doSomeMangling(&array);
+        expect(mem.eql(u8, "azya", &array));
+    }
+    {
+        var array = "aaaa".*;
+        doSomeMangling(&array);
+        expect(mem.eql(u8, "azya", &array));
+    }
 }
 
 fn doSomeMangling(array: *[4]u8) void {
@@ -294,9 +301,16 @@ test "read/write through global variable array of struct fields initialized via 
 }
 
 test "implicit cast zero sized array ptr to slice" {
-    var b = "";
-    const c: []const u8 = &b;
-    expect(c.len == 0);
+    {
+        var b = "".*;
+        const c: []const u8 = &b;
+        expect(c.len == 0);
+    }
+    {
+        var b: [0]u8 = "".*;
+        const c: []const u8 = &b;
+        expect(c.len == 0);
+    }
 }
 
 test "anonymous list literal syntax" {
@@ -328,6 +342,19 @@ test "anonymous literal in array" {
             expect(array[0].b == 4);
             expect(array[1].a == 2);
             expect(array[1].b == 3);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "access the null element of a null terminated array" {
+    const S = struct {
+        fn doTheTest() void {
+            var array: [4]null u8 = .{'a', 'o', 'e', 'u'};
+            comptime expect(array[4] == 0);
+            var len: usize = 4;
+            expect(array[len] == 0);
         }
     };
     S.doTheTest();

@@ -511,8 +511,8 @@ pub const Compilation = struct {
         comp.target_machine = llvm.CreateTargetMachine(
             comp.llvm_target,
             comp.llvm_triple.ptr(),
-            target_specific_cpu_args orelse c"",
-            target_specific_cpu_features orelse c"",
+            target_specific_cpu_args orelse "",
+            target_specific_cpu_features orelse "",
             opt_level,
             reloc_mode,
             llvm.CodeModelDefault,

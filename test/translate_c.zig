@@ -47,7 +47,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn foo() void {
         \\    var a: c_int = undefined;
         \\    _ = 1;
-        \\    _ = c"hey";
+        \\    _ = "hey";
         \\    _ = (1 + 1);
         \\    _ = (1 - 1);
         \\    a = 1;
@@ -213,9 +213,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     ,
         \\pub fn foo() void {
-        \\    _ = c"foo";
-        \\    _ = c"foo";
-        \\    _ = c"void foo(void)";
+        \\    _ = "foo";
+        \\    _ = "foo";
+        \\    _ = "void foo(void)";
         \\}
     );
 
@@ -232,7 +232,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn foo() void {
         \\    var a: c_int = undefined;
         \\    _ = 1;
-        \\    _ = c"hey";
+        \\    _ = "hey";
         \\    _ = (1 + 1);
         \\    _ = (1 - 1);
         \\    a = 1;
@@ -543,7 +543,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("#define string",
         \\#define  foo  "a string"
     ,
-        \\pub const foo = c"a string";
+        \\pub const foo = "a string";
     );
 
     cases.add("__cdecl doesn't mess up function pointers",
@@ -617,9 +617,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO2 "aoeu\x0007a derp"
         \\#define FOO_CHAR '\xfF'
     ,
-        \\pub const FOO = c"aoeu\xab derp";
+        \\pub const FOO = "aoeu\xab derp";
     ,
-        \\pub const FOO2 = c"aoeuz derp";
+        \\pub const FOO2 = "aoeuz derp";
     ,
         \\pub const FOO_CHAR = 255;
     );
@@ -629,9 +629,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO2 "aoeu\0234 derp"
         \\#define FOO_CHAR '\077'
     ,
-        \\pub const FOO = c"aoeu\x13 derp";
+        \\pub const FOO = "aoeu\x13 derp";
     ,
-        \\pub const FOO2 = c"aoeu\x134 derp";
+        \\pub const FOO2 = "aoeu\x134 derp";
     ,
         \\pub const FOO_CHAR = 63;
     );
@@ -1351,7 +1351,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     ,
         \\pub fn foo() [*c]const u8 {
-        \\    return c"bar";
+        \\    return "bar";
         \\}
     );
 
@@ -1523,7 +1523,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("const ptr initializer",
         \\static const char *v0 = "0.0.0";
     ,
-        \\pub var v0: [*c]const u8 = c"0.0.0";
+        \\pub var v0: [*c]const u8 = "0.0.0";
     );
 
     cases.add("static incomplete array inside function",
@@ -1532,7 +1532,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     ,
         \\pub fn foo() void {
-        \\    const v2: [*c]const u8 = c"2.2.2";
+        \\    const v2: [*c]const u8 = "2.2.2";
         \\}
     );
 
@@ -1809,7 +1809,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var i: u8 = @as(u8, '\x0b');
         \\    var j: u8 = @as(u8, '\x00');
         \\    var k: u8 = @as(u8, '\"');
-        \\    return c"\'\\\x07\x08\x0c\n\r\t\x0b\x00\"";
+        \\    return "\'\\\x07\x08\x0c\n\r\t\x0b\x00\"";
         \\}
         \\
     );

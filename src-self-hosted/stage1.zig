@@ -28,7 +28,7 @@ comptime {
 // ABI warning
 export fn stage2_zen(ptr: *[*]const u8, len: *usize) void {
     const info_zen = @import("main.zig").info_zen;
-    ptr.* = &info_zen;
+    ptr.* = info_zen;
     len.* = info_zen.len;
 }
 

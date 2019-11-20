@@ -3,7 +3,7 @@ const testing = std.testing;
 const valgrind = std.valgrind;
 
 pub const MemCheckClientRequest = extern enum {
-    MakeMemNoAccess = valgrind.ToolBase("MC"),
+    MakeMemNoAccess = valgrind.ToolBase("MC".*),
     MakeMemUndefined,
     MakeMemDefined,
     Discard,

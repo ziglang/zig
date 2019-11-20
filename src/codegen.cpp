@@ -949,7 +949,7 @@ static LLVMValueRef get_panic_msg_ptr_val(CodeGen *g, PanicMsgId msg_id) {
     if (!val->global_refs->llvm_global) {
 
         Buf *buf_msg = panic_msg_buf(msg_id);
-        ConstExprValue *array_val = create_const_str_lit(g, buf_msg);
+        ConstExprValue *array_val = create_const_str_lit(g, buf_msg)->data.x_ptr.data.ref.pointee;
         init_const_slice(g, val, array_val, 0, buf_len(buf_msg), true);
 
         render_const_val(g, val, "");
@@ -2784,14 +2784,6 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
     IrInstruction *op1 = bin_op_instruction->op1;
     IrInstruction *op2 = bin_op_instruction->op2;
 
-    assert(op1->value.type == op2->value.type || op_id == IrBinOpBitShiftLeftLossy ||
-        op_id == IrBinOpBitShiftLeftExact || op_id == IrBinOpBitShiftRightLossy ||
-        op_id == IrBinOpBitShiftRightExact ||
-        (op1->value.type->id == ZigTypeIdErrorSet && op2->value.type->id == ZigTypeIdErrorSet) ||
-        (op1->value.type->id == ZigTypeIdPointer &&
-            (op_id == IrBinOpAdd || op_id == IrBinOpSub) &&
-            op1->value.type->data.pointer.ptr_len != PtrLenSingle)
-    );
     ZigType *operand_type = op1->value.type;
     ZigType *scalar_type = (operand_type->id == ZigTypeIdVector) ? operand_type->data.vector.elem_type : operand_type;
 
@@ -2848,7 +2840,6 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                 AddSubMulMul;
 
             if (scalar_type->id == ZigTypeIdPointer) {
-                assert(scalar_type->data.pointer.ptr_len != PtrLenSingle);
                 LLVMValueRef subscript_value;
                 if (operand_type->id == ZigTypeIdVector)
                     zig_panic("TODO: Implement vector operations on pointers.");
@@ -3077,7 +3068,14 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
         case CastOpNumLitToConcrete:
             zig_unreachable();
         case CastOpNoop:
-            return expr_val;
+            if (actual_type->id == ZigTypeIdPointer && wanted_type->id == ZigTypeIdPointer &&
+                actual_type->data.pointer.child_type->id == ZigTypeIdArray &&
+                wanted_type->data.pointer.child_type->id == ZigTypeIdArray)
+            {
+                return LLVMBuildBitCast(g->builder, expr_val, get_llvm_type(g, wanted_type), "");
+            } else {
+                return expr_val;
+            }
         case CastOpIntToFloat:
             assert(actual_type->id == ZigTypeIdInt);
             if (actual_type->data.integral.is_signed) {
@@ -3709,8 +3707,9 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
             array_type = array_type->data.pointer.child_type;
         }
         if (safety_check_on) {
-            LLVMValueRef end = LLVMConstInt(g->builtin_types.entry_usize->llvm_type,
-                    array_type->data.array.len, false);
+            uint64_t extra_len_from_null = array_type->data.array.is_null_terminated ? 1 : 0;
+            uint64_t full_len = array_type->data.array.len + extra_len_from_null;
+            LLVMValueRef end = LLVMConstInt(g->builtin_types.entry_usize->llvm_type, full_len, false);
             add_bounds_check(g, subscript_value, LLVMIntEQ, nullptr, LLVMIntULT, end);
         }
         if (array_ptr_type->data.pointer.host_int_bytes != 0) {
@@ -6637,11 +6636,20 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, con
                 ConstExprValue *array_const_val = const_val->data.x_ptr.data.base_array.array_val;
                 assert(array_const_val->type->id == ZigTypeIdArray);
                 if (!type_has_bits(array_const_val->type)) {
-                    // make this a null pointer
-                    ZigType *usize = g->builtin_types.entry_usize;
-                    const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->llvm_type),
-                            get_llvm_type(g, const_val->type));
-                    return const_val->global_refs->llvm_value;
+                    if (array_const_val->type->data.array.is_null_terminated) {
+                        ConstExprValue *pointee = get_null_value(array_const_val->type->data.array.child_type);
+                        render_const_val(g, pointee, "");
+                        render_const_val_global(g, pointee, "");
+                        const_val->global_refs->llvm_value = LLVMConstBitCast(pointee->global_refs->llvm_global,
+                                get_llvm_type(g, const_val->type));
+                        return const_val->global_refs->llvm_value;
+                    } else {
+                        // make this a null pointer
+                        ZigType *usize = g->builtin_types.entry_usize;
+                        const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->llvm_type),
+                                get_llvm_type(g, const_val->type));
+                        return const_val->global_refs->llvm_value;
+                    }
                 }
                 size_t elem_index = const_val->data.x_ptr.data.base_array.elem_index;
                 LLVMValueRef uncasted_ptr_val = gen_const_ptr_array_recursive(g, array_const_val, elem_index);
@@ -6955,7 +6963,9 @@ check: switch (const_val->special) {
                     case ConstArraySpecialUndef:
                         return LLVMGetUndef(get_llvm_type(g, type_entry));
                     case ConstArraySpecialNone: {
-                        LLVMValueRef *values = allocate<LLVMValueRef>(len);
+                        uint64_t extra_len_from_null = type_entry->data.array.is_null_terminated ? 1 : 0;
+                        uint64_t full_len = len + extra_len_from_null;
+                        LLVMValueRef *values = allocate<LLVMValueRef>(full_len);
                         LLVMTypeRef element_type_ref = get_llvm_type(g, type_entry->data.array.child_type);
                         bool make_unnamed_struct = false;
                         for (uint64_t i = 0; i < len; i += 1) {
@@ -6964,15 +6974,19 @@ check: switch (const_val->special) {
                             values[i] = val;
                             make_unnamed_struct = make_unnamed_struct || is_llvm_value_unnamed_type(g, elem_value->type, val);
                         }
+                        if (type_entry->data.array.is_null_terminated) {
+                            values[len] = LLVMConstNull(element_type_ref);
+                        }
                         if (make_unnamed_struct) {
-                            return LLVMConstStruct(values, len, true);
+                            return LLVMConstStruct(values, full_len, true);
                         } else {
-                            return LLVMConstArray(element_type_ref, values, (unsigned)len);
+                            return LLVMConstArray(element_type_ref, values, (unsigned)full_len);
                         }
                     }
                     case ConstArraySpecialBuf: {
                         Buf *buf = const_val->data.x_array.data.s_buf;
-                        return LLVMConstString(buf_ptr(buf), (unsigned)buf_len(buf), true);
+                        return LLVMConstString(buf_ptr(buf), (unsigned)buf_len(buf),
+                                !type_entry->data.array.is_null_terminated);
                     }
                 }
                 zig_unreachable();
@@ -9092,7 +9106,7 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
         this_val->data.x_struct.fields = alloc_const_vals_ptrs(2);
 
         ConstExprValue *name_field = this_val->data.x_struct.fields[0];
-        ConstExprValue *name_array_val = create_const_str_lit(g, &test_fn_entry->symbol_name);
+        ConstExprValue *name_array_val = create_const_str_lit(g, &test_fn_entry->symbol_name)->data.x_ptr.data.ref.pointee;
         init_const_slice(g, name_field, name_array_val, 0, buf_len(&test_fn_entry->symbol_name), true);
 
         ConstExprValue *fn_field = this_val->data.x_struct.fields[1];
@@ -10415,6 +10429,7 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     g->external_prototypes.init(8);
     g->string_literals_table.init(16);
     g->type_info_cache.init(32);
+    g->one_possible_values.init(32);
     g->is_test_build = is_test_build;
     g->is_single_threaded = false;
     buf_resize(&g->global_asm, 0);

@@ -102,6 +102,10 @@ struct IrExecutable {
     bool is_inline;
     bool is_generic_instantiation;
     bool need_err_code_spill;
+
+    // This is a function for use in the debugger to print
+    // the source location.
+    void src();
 };
 
 enum OutType {
@@ -237,9 +241,6 @@ struct ConstPtrValue {
         struct {
             ConstExprValue *array_val;
             size_t elem_index;
-            // This helps us preserve the null byte when performing compile-time
-            // concatenation on C strings.
-            bool is_cstr;
         } base_array;
         struct {
             ConstExprValue *struct_val;
@@ -1001,7 +1002,6 @@ struct AstNodeStructField {
 
 struct AstNodeStringLiteral {
     Buf *buf;
-    bool c;
 };
 
 struct AstNodeCharLiteral {
@@ -1956,6 +1956,7 @@ struct CodeGen {
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
     HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> string_literals_table;
     HashMap<const ZigType *, ConstExprValue *, type_ptr_hash, type_ptr_eql> type_info_cache;
+    HashMap<const ZigType *, ConstExprValue *, type_ptr_hash, type_ptr_eql> one_possible_values;
 
     ZigList<Tld *> resolve_queue;
     size_t resolve_queue_index;

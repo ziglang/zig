@@ -767,10 +767,18 @@ ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, bo
 
     ZigType *entry = new_type_table_entry(ZigTypeIdArray);
 
-    buf_resize(&entry->name, 0);
-    buf_appendf(&entry->name, "[%" ZIG_PRI_u64 "]%s", array_size, buf_ptr(&child_type->name));
+    const char *null_str = is_null_terminated ? "null " : "";
 
-    size_t full_array_size = array_size + (is_null_terminated ? 1 : 0);
+    buf_resize(&entry->name, 0);
+    buf_appendf(&entry->name, "[%" ZIG_PRI_u64 "]%s%s", array_size, null_str, buf_ptr(&child_type->name));
+
+    size_t full_array_size;
+    if (array_size == 0) {
+        full_array_size = 0;
+    } else {
+        full_array_size = array_size + (is_null_terminated ? 1 : 0);
+    }
+
     entry->size_in_bits = child_type->size_in_bits * full_array_size;
     entry->abi_align = child_type->abi_align;
     entry->abi_size = child_type->abi_size * full_array_size;
@@ -5046,7 +5054,6 @@ static uint32_t hash_const_val_ptr(ConstExprValue *const_val) {
             hash_val += (uint32_t)1764906839;
             hash_val += hash_ptr(const_val->data.x_ptr.data.base_array.array_val);
             hash_val += hash_size(const_val->data.x_ptr.data.base_array.elem_index);
-            hash_val += const_val->data.x_ptr.data.base_array.is_cstr ? 1297263887 : 200363492;
             return hash_val;
         case ConstPtrSpecialBaseStruct:
             hash_val += (uint32_t)3518317043;
@@ -5550,6 +5557,18 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
     zig_unreachable();
 }
 
+ConstExprValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
+    auto entry = g->one_possible_values.maybe_get(type_entry);
+    if (entry != nullptr) {
+        return entry->value;
+    }
+    ConstExprValue *result = create_const_vals(1);
+    result->type = type_entry;
+    result->special = ConstValSpecialStatic;
+    g->one_possible_values.put(type_entry, result);
+    return result;
+}
+
 ReqCompTime type_requires_comptime(CodeGen *g, ZigType *ty) {
     Error err;
     switch (ty->id) {
@@ -5617,10 +5636,19 @@ void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
         return;
     }
 
+    // first we build the underlying array
+    ConstExprValue *array_val = create_const_vals(1);
+    array_val->special = ConstValSpecialStatic;
+    array_val->type = get_array_type(g, g->builtin_types.entry_u8, buf_len(str), true);
+    array_val->data.x_array.special = ConstArraySpecialBuf;
+    array_val->data.x_array.data.s_buf = str;
+
+    // then make the pointer point to it
     const_val->special = ConstValSpecialStatic;
-    const_val->type = get_array_type(g, g->builtin_types.entry_u8, buf_len(str), false);
-    const_val->data.x_array.special = ConstArraySpecialBuf;
-    const_val->data.x_array.data.s_buf = str;
+    const_val->type = get_pointer_to_type_extra2(g, array_val->type, true, false,
+            PtrLenSingle, 0, 0, 0, false, VECTOR_INDEX_NONE, nullptr);
+    const_val->data.x_ptr.special = ConstPtrSpecialRef;
+    const_val->data.x_ptr.data.ref.pointee = array_val;
 
     g->string_literals_table.put(str, const_val);
 }
@@ -5628,41 +5656,6 @@ void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
 ConstExprValue *create_const_str_lit(CodeGen *g, Buf *str) {
     ConstExprValue *const_val = create_const_vals(1);
     init_const_str_lit(g, const_val, str);
-    return const_val;
-}
-
-void init_const_c_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
-    // first we build the underlying array
-    size_t len_with_null = buf_len(str) + 1;
-    ConstExprValue *array_val = create_const_vals(1);
-    array_val->special = ConstValSpecialStatic;
-    array_val->type = get_array_type(g, g->builtin_types.entry_u8, len_with_null, false);
-    // TODO buf optimization
-    array_val->data.x_array.data.s_none.elements = create_const_vals(len_with_null);
-    for (size_t i = 0; i < buf_len(str); i += 1) {
-        ConstExprValue *this_char = &array_val->data.x_array.data.s_none.elements[i];
-        this_char->special = ConstValSpecialStatic;
-        this_char->type = g->builtin_types.entry_u8;
-        bigint_init_unsigned(&this_char->data.x_bigint, (uint8_t)buf_ptr(str)[i]);
-    }
-    ConstExprValue *null_char = &array_val->data.x_array.data.s_none.elements[len_with_null - 1];
-    null_char->special = ConstValSpecialStatic;
-    null_char->type = g->builtin_types.entry_u8;
-    bigint_init_unsigned(&null_char->data.x_bigint, 0);
-
-    // then make the pointer point to it
-    const_val->special = ConstValSpecialStatic;
-    // TODO make this `[*]null u8` instead of `[*]u8`
-    const_val->type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
-            PtrLenUnknown, 0, 0, 0, false);
-    const_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
-    const_val->data.x_ptr.data.base_array.array_val = array_val;
-    const_val->data.x_ptr.data.base_array.elem_index = 0;
-    const_val->data.x_ptr.data.base_array.is_cstr = true;
-}
-ConstExprValue *create_const_c_str_lit(CodeGen *g, Buf *str) {
-    ConstExprValue *const_val = create_const_vals(1);
-    init_const_c_str_lit(g, const_val, str);
     return const_val;
 }
 
@@ -5709,6 +5702,18 @@ void init_const_signed(ConstExprValue *const_val, ZigType *type, int64_t x) {
 ConstExprValue *create_const_signed(ZigType *type, int64_t x) {
     ConstExprValue *const_val = create_const_vals(1);
     init_const_signed(const_val, type, x);
+    return const_val;
+}
+
+void init_const_null(ConstExprValue *const_val, ZigType *type) {
+    const_val->special = ConstValSpecialStatic;
+    const_val->type = type;
+    const_val->data.x_optional = nullptr;
+}
+
+ConstExprValue *create_const_null(ZigType *type) {
+    ConstExprValue *const_val = create_const_vals(1);
+    init_const_null(const_val, type);
     return const_val;
 }
 
@@ -6446,8 +6451,6 @@ bool ir_get_var_is_comptime(ZigVar *var) {
 bool const_values_equal_ptr(ConstExprValue *a, ConstExprValue *b) {
     if (a->data.x_ptr.special != b->data.x_ptr.special)
         return false;
-    if (a->data.x_ptr.mut != b->data.x_ptr.mut)
-        return false;
     switch (a->data.x_ptr.special) {
         case ConstPtrSpecialInvalid:
             zig_unreachable();
@@ -6463,8 +6466,6 @@ bool const_values_equal_ptr(ConstExprValue *a, ConstExprValue *b) {
                 return false;
             }
             if (a->data.x_ptr.data.base_array.elem_index != b->data.x_ptr.data.base_array.elem_index)
-                return false;
-            if (a->data.x_ptr.data.base_array.is_cstr != b->data.x_ptr.data.base_array.is_cstr)
                 return false;
             return true;
         case ConstPtrSpecialBaseStruct:
@@ -6544,6 +6545,16 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
     assert(a->type->id == b->type->id);
     assert(a->special == ConstValSpecialStatic);
     assert(b->special == ConstValSpecialStatic);
+    if (a->type == b->type) {
+        switch (type_has_one_possible_value(g, a->type)) {
+            case OnePossibleValueInvalid:
+                zig_unreachable();
+            case OnePossibleValueNo:
+                break;
+            case OnePossibleValueYes:
+                return true;
+        }
+    }
     switch (a->type->id) {
         case ZigTypeIdOpaque:
             zig_unreachable();
@@ -6709,15 +6720,10 @@ static void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val
             render_const_value(g, buf, const_ptr_pointee(nullptr, g, const_val, nullptr));
             return;
         case ConstPtrSpecialBaseArray:
-            if (const_val->data.x_ptr.data.base_array.is_cstr) {
-                buf_appendf(buf, "*(c str lit)");
-                return;
-            } else {
-                buf_appendf(buf, "*");
-                // TODO we need a source node for const_ptr_pointee because it can generate compile errors
-                render_const_value(g, buf, const_ptr_pointee(nullptr, g, const_val, nullptr));
-                return;
-            }
+            buf_appendf(buf, "*");
+            // TODO we need a source node for const_ptr_pointee because it can generate compile errors
+            render_const_value(g, buf, const_ptr_pointee(nullptr, g, const_val, nullptr));
+            return;
         case ConstPtrSpecialHardCodedAddr:
             buf_appendf(buf, "(%s)(%" ZIG_PRI_x64 ")", buf_ptr(&type_entry->name),
                     const_val->data.x_ptr.data.hard_coded_addr.addr);
@@ -8653,14 +8659,16 @@ static void resolve_llvm_types_array(CodeGen *g, ZigType *type) {
 
     ZigType *elem_type = type->data.array.child_type;
 
+    uint64_t extra_len_from_null = type->data.array.is_null_terminated ? 1 : 0;
+    uint64_t full_len = type->data.array.len + extra_len_from_null;
     // TODO https://github.com/ziglang/zig/issues/1424
-    type->llvm_type = LLVMArrayType(get_llvm_type(g, elem_type), (unsigned)type->data.array.len);
+    type->llvm_type = LLVMArrayType(get_llvm_type(g, elem_type), (unsigned)full_len);
 
     uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, type->llvm_type);
     uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, type->llvm_type);
 
     type->llvm_di_type = ZigLLVMCreateDebugArrayType(g->dbuilder, debug_size_in_bits,
-            debug_align_in_bits, get_llvm_di_type(g, elem_type), (int)type->data.array.len);
+            debug_align_in_bits, get_llvm_di_type(g, elem_type), (int)full_len);
 }
 
 static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
@@ -9150,3 +9158,24 @@ Error analyze_import(CodeGen *g, ZigType *source_import, Buf *import_target_str,
     *out_import = add_source_file(g, target_package, resolved_path, import_code, source_kind);
     return ErrorNone;
 }
+
+
+void IrExecutable::src() {
+    IrExecutable *it;
+    for (it = this; it != nullptr && it->source_node != nullptr; it = it->parent_exec) {
+        it->source_node->src();
+    }
+}
+
+ConstExprValue *get_null_value(ZigType *ty) {
+    if (ty->id == ZigTypeIdInt || ty->id == ZigTypeIdComptimeInt) {
+        return create_const_unsigned_negative(ty, 0, false);
+    } else if (ty->id == ZigTypeIdFloat || ty->id == ZigTypeIdComptimeFloat) {
+        return create_const_float(ty, NAN);
+    } else if (ty->id == ZigTypeIdOptional) {
+        return create_const_null(ty);
+    } else {
+        zig_unreachable();
+    }
+}
+

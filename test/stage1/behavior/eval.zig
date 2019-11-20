@@ -736,7 +736,7 @@ test "comptime pointer cast array and then slice" {
 
 test "slice bounds in comptime concatenation" {
     const bs = comptime blk: {
-        const b = c"........1........";
+        const b = "........1........";
         break :blk b[8..9];
     };
     const str = "" ++ bs;

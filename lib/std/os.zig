@@ -157,7 +157,7 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
 }
 
 fn getRandomBytesDevURandom(buf: []u8) !void {
-    const fd = try openC(c"/dev/urandom", O_RDONLY | O_CLOEXEC, 0);
+    const fd = try openC("/dev/urandom", O_RDONLY | O_CLOEXEC, 0);
     defer close(fd);
 
     const st = try fstat(fd);
@@ -2674,7 +2674,7 @@ pub fn dl_iterate_phdr(
     if (it.end()) {
         var info = dl_phdr_info{
             .dlpi_addr = elf_base,
-            .dlpi_name = c"/proc/self/exe",
+            .dlpi_name = "/proc/self/exe",
             .dlpi_phdr = phdrs.ptr,
             .dlpi_phnum = ehdr.e_phnum,
         };
