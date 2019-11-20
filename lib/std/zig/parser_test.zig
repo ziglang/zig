@@ -1725,11 +1725,6 @@ test "zig fmt: multiline string" {
         \\        \\two)
         \\        \\three
         \\    ;
-        \\    const s2 =
-        \\        c\\one
-        \\        c\\two)
-        \\        c\\three
-        \\    ;
         \\    const s3 = // hi
         \\        \\one
         \\        \\two)
@@ -1746,7 +1741,6 @@ test "zig fmt: values" {
         \\    1;
         \\    1.0;
         \\    "string";
-        \\    c"cstring";
         \\    'c';
         \\    true;
         \\    false;

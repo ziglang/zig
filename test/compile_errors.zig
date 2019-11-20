@@ -784,7 +784,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    strValue = strValue orelse "";
         \\}
     ,
-        "tmp.zig:3:32: error: cast discards const qualifier",
+        "tmp.zig:3:32: error: expected type '[*c]u8', found '*const [0]null u8'",
+        "tmp.zig:3:32: note: cast discards const qualifier",
     );
 
     cases.add(
@@ -1323,7 +1324,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    ptr_opt_many_ptr = c_ptr;
         \\}
         \\export fn entry2() void {
-        \\    var buf: [4]u8 = "aoeu";
+        \\    var buf: [4]u8 = "aoeu".*;
         \\    var slice: []u8 = &buf;
         \\    var opt_many_ptr: [*]u8 = slice.ptr;
         \\    var ptr_opt_many_ptr = &opt_many_ptr;
@@ -1518,7 +1519,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "reading past end of pointer casted array",
         \\comptime {
-        \\    const array = "aoeu";
+        \\    const array: [4]u8 = "aoeu".*;
         \\    const slice = array[1..];
         \\    const int_ptr = @ptrCast(*const u24, slice.ptr);
         \\    const deref = int_ptr.*;
@@ -3356,7 +3357,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return a;
         \\}
     ,
-        "tmp.zig:3:12: error: expected type 'i32', found '[*]const u8'",
+        "tmp.zig:3:12: error: expected type 'i32', found '*const [1]null u8'",
     );
 
     cases.add(
@@ -3827,12 +3828,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "array concatenation with wrong type",
         \\const src = "aoeu";
-        \\const derp = @as(usize, 1234);
+        \\const derp: usize = 1234;
         \\const a = derp ++ "foo";
         \\
         \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
     ,
-        "tmp.zig:3:11: error: expected array or C string literal, found 'usize'",
+        "tmp.zig:3:11: error: expected array, found 'usize'",
     );
 
     cases.add(
@@ -6207,11 +6208,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
         "calling var args extern function, passing array instead of pointer",
         \\export fn entry() void {
-        \\    foo("hello",);
+        \\    foo("hello".*,);
         \\}
         \\pub extern fn foo(format: *const u8, ...) void;
     ,
-        "tmp.zig:2:9: error: expected type '*const u8', found '[5]u8'",
+        "tmp.zig:2:16: error: expected type '*const u8', found '[5]null u8'",
     );
 
     cases.add(
@@ -6777,7 +6778,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:4:22: error: expected type '*[1]i32', found '*const i32'",
-        "tmp.zig:4:22: note: pointer type child 'i32' cannot cast into pointer type child '[1]i32'",
+        "tmp.zig:4:22: note: cast discards const qualifier",
     );
 
     cases.add(

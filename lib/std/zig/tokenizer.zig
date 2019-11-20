@@ -351,7 +351,6 @@ pub const Tokenizer = struct {
         Start,
         Identifier,
         Builtin,
-        C,
         StringLiteral,
         StringLiteralBackslash,
         MultilineStringLiteralLine,
@@ -427,10 +426,6 @@ pub const Tokenizer = struct {
                     ' ', '\n', '\t', '\r' => {
                         result.start = self.index + 1;
                     },
-                    'c' => {
-                        state = State.C;
-                        result.id = Token.Id.Identifier;
-                    },
                     '"' => {
                         state = State.StringLiteral;
                         result.id = Token.Id.StringLiteral;
@@ -438,7 +433,7 @@ pub const Tokenizer = struct {
                     '\'' => {
                         state = State.CharLiteral;
                     },
-                    'a'...'b', 'd'...'z', 'A'...'Z', '_' => {
+                    'a'...'z', 'A'...'Z', '_' => {
                         state = State.Identifier;
                         result.id = Token.Id.Identifier;
                     },
@@ -727,20 +722,6 @@ pub const Tokenizer = struct {
                 State.Backslash => switch (c) {
                     '\\' => {
                         state = State.MultilineStringLiteralLine;
-                    },
-                    else => break,
-                },
-                State.C => switch (c) {
-                    '\\' => {
-                        state = State.Backslash;
-                        result.id = Token.Id.MultilineStringLiteralLine;
-                    },
-                    '"' => {
-                        state = State.StringLiteral;
-                        result.id = Token.Id.StringLiteral;
-                    },
-                    'a'...'z', 'A'...'Z', '_', '0'...'9' => {
-                        state = State.Identifier;
                     },
                     else => break,
                 },
@@ -1204,7 +1185,6 @@ pub const Tokenizer = struct {
         } else if (self.index == self.buffer.len) {
             switch (state) {
                 State.Start,
-                State.C,
                 State.IntegerLiteral,
                 State.IntegerLiteralWithRadix,
                 State.IntegerLiteralWithRadixHex,

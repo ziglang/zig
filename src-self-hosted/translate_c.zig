@@ -698,10 +698,9 @@ fn transStringLiteral(
             len = 0;
             for (str) |c| len += escapeChar(c, &char_buf).len;
 
-            const buf = try rp.c.a().alloc(u8, len + "c\"\"".len);
-            buf[0] = 'c';
-            buf[1] = '"';
-            writeEscapedString(buf[2..], str);
+            const buf = try rp.c.a().alloc(u8, len + "\"\"".len);
+            buf[0] = '"';
+            writeEscapedString(buf[1..], str);
             buf[buf.len - 1] = '"';
 
             const token = try appendToken(rp.c, .StringLiteral, buf);

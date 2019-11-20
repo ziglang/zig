@@ -69,6 +69,7 @@ enum ConstCastResultId {
     ConstCastResultIdArrayChild,
     ConstCastResultIdBadNullTermArrays,
     ConstCastResultIdPtrLens,
+    ConstCastResultIdCV,
 };
 
 struct ConstCastOnly;
@@ -94,6 +95,7 @@ struct ConstCastArrayMismatch;
 struct ConstCastBadAllowsZero;
 struct ConstCastBadNullTermArrays;
 struct ConstCastBadPtrLens;
+struct ConstCastBadCV;
 
 struct ConstCastOnly {
     ConstCastResultId id;
@@ -113,6 +115,7 @@ struct ConstCastOnly {
         ConstCastBadAllowsZero *bad_allows_zero;
         ConstCastBadNullTermArrays *bad_null_term_arrays;
         ConstCastBadPtrLens *bad_ptr_lens;
+        ConstCastBadCV *bad_cv;
     } data;
 };
 
@@ -177,6 +180,10 @@ struct ConstCastBadPtrLens {
     ZigType *actual_type;
 };
 
+struct ConstCastBadCV {
+    ZigType *wanted_type;
+    ZigType *actual_type;
+};
 
 static IrInstruction *ir_gen_node(IrBuilder *irb, AstNode *node, Scope *scope);
 static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, Scope *scope, LVal lval,
@@ -9863,6 +9870,17 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             return result;
         }
 
+        bool ok_cv_qualifiers = 
+            (!actual_ptr_type->data.pointer.is_const || wanted_ptr_type->data.pointer.is_const) &&
+            (!actual_ptr_type->data.pointer.is_volatile || wanted_ptr_type->data.pointer.is_volatile);
+        if (!ok_cv_qualifiers) {
+            result.id = ConstCastResultIdCV;
+            result.data.bad_cv = allocate_nonzero<ConstCastBadCV>(1);
+            result.data.bad_cv->wanted_type = wanted_ptr_type;
+            result.data.bad_cv->actual_type = actual_ptr_type;
+            return result;
+        }
+
         ConstCastOnly child = types_match_const_cast_only(ira, wanted_ptr_type->data.pointer.child_type,
                 actual_ptr_type->data.pointer.child_type, source_node, !wanted_ptr_type->data.pointer.is_const);
         if (child.id == ConstCastResultIdInvalid)
@@ -9902,8 +9920,6 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             return result;
         }
         if (type_has_bits(wanted_type) == type_has_bits(actual_type) &&
-            (!actual_ptr_type->data.pointer.is_const || wanted_ptr_type->data.pointer.is_const) &&
-            (!actual_ptr_type->data.pointer.is_volatile || wanted_ptr_type->data.pointer.is_volatile) &&
             actual_ptr_type->data.pointer.bit_offset_in_host == wanted_ptr_type->data.pointer.bit_offset_in_host &&
             actual_ptr_type->data.pointer.host_int_bytes == wanted_ptr_type->data.pointer.host_int_bytes &&
             get_ptr_align(ira->codegen, actual_ptr_type) >= get_ptr_align(ira->codegen, wanted_ptr_type))
@@ -12595,6 +12611,20 @@ static void report_recursive_error(IrAnalyze *ira, AstNode *source_node, ConstCa
             }
             break;
         }
+        case ConstCastResultIdCV: {
+            ZigType *wanted_type = cast_result->data.bad_cv->wanted_type;
+            ZigType *actual_type = cast_result->data.bad_cv->actual_type;
+            bool ok_const = !actual_type->data.pointer.is_const || wanted_type->data.pointer.is_const;
+            bool ok_volatile = !actual_type->data.pointer.is_volatile || wanted_type->data.pointer.is_volatile;
+            if (!ok_const) {
+                add_error_note(ira->codegen, parent_msg, source_node, buf_sprintf("cast discards const qualifier"));
+            } else if (!ok_volatile) {
+                add_error_note(ira->codegen, parent_msg, source_node, buf_sprintf("cast discards volatile qualifier"));
+            } else {
+                zig_unreachable();
+            }
+            break;
+        }
         case ConstCastResultIdFnIsGeneric:
             add_error_note(ira->codegen, parent_msg, source_node,
                     buf_sprintf("only one of the functions is generic"));
@@ -12987,7 +13017,9 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
             wanted_type->data.pointer.ptr_len == PtrLenNull) &&
         actual_type->id == ZigTypeIdPointer &&
         actual_type->data.pointer.ptr_len == PtrLenSingle &&
-        actual_type->data.pointer.child_type->id == ZigTypeIdArray)
+        actual_type->data.pointer.child_type->id == ZigTypeIdArray &&
+        (!actual_type->data.pointer.is_const || wanted_type->data.pointer.is_const) &&
+        (!actual_type->data.pointer.is_volatile || wanted_type->data.pointer.is_volatile))
     {
         if (wanted_type->data.pointer.ptr_len != PtrLenNull ||
             actual_type->data.pointer.child_type->data.array.is_null_terminated)
