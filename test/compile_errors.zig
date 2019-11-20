@@ -3,6 +3,16 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "empty switch on an integer",
+        \\export fn entry() void {
+        \\    var x: u32 = 0;
+        \\    switch(x) {}
+        \\}
+    ,
+        "tmp.zig:3:5: error: switch must handle all possibilities",
+    );
+
+    cases.add(
         "regression test #2980: base type u32 is not type checked properly when assigning a value within a struct",
         \\const Foo = struct {
         \\    ptr: ?*usize,
