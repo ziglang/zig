@@ -213,7 +213,8 @@ pub fn assert(ok: bool) void {
 
 pub fn panic(comptime format: []const u8, args: ...) noreturn {
     @setCold(true);
-    const first_trace_addr = @returnAddress();
+    // TODO: remove conditional once wasi / LLVM defines __builtin_return_address
+    const first_trace_addr = if (builtin.os == .wasi) null else @returnAddress();
     panicExtra(null, first_trace_addr, format, args);
 }
 
