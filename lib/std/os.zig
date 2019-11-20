@@ -1522,7 +1522,7 @@ pub fn isatty(handle: fd_t) bool {
         return system.isatty(handle) != 0;
     }
     if (builtin.os == .wasi) {
-        @compileError("TODO implement std.os.isatty for WASI");
+        return system.isatty(handle);
     }
     if (builtin.os == .linux) {
         var wsz: linux.winsize = undefined;

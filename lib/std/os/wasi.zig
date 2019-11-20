@@ -108,3 +108,22 @@ pub fn clock_gettime(clock_id: i32, tp: *timespec) errno_t {
     };
     return 0;
 }
+
+pub fn isatty(fd: fd_t) bool {
+    var statbuf: fdstat_t = undefined;
+    const err = fd_fdstat_get(fd, &statbuf);
+    if (err != 0) {
+        // errno = err;
+        return false;
+    }
+
+    // A tty is a character device that we can't seek or tell on.
+    if (statbuf.fs_filetype != FILETYPE_CHARACTER_DEVICE or
+        (statbuf.fs_rights_base & (RIGHT_FD_SEEK | RIGHT_FD_TELL)) != 0)
+    {
+        // errno = ENOTTY;
+        return false;
+    }
+
+    return true;
+}

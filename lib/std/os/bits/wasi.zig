@@ -138,7 +138,7 @@ pub const FDFLAG_NONBLOCK: fdflags_t = 0x0004;
 pub const FDFLAG_RSYNC: fdflags_t = 0x0008;
 pub const FDFLAG_SYNC: fdflags_t = 0x0010;
 
-const fdstat_t = extern struct {
+pub const fdstat_t = extern struct {
     fs_filetype: filetype_t,
     fs_flags: fdflags_t,
     fs_rights_base: rights_t,
