@@ -338,26 +338,13 @@ pub const Tokenizer = struct {
     }
 
     pub fn init(buffer: []const u8) Tokenizer {
-        if (mem.startsWith(u8, buffer, "#!")) {
-            const src_start = if (mem.indexOfScalar(u8, buffer, '\n')) |i| i + 1 else buffer.len;
-            return Tokenizer{
-                .buffer = buffer,
-                .index = src_start,
-                .pending_invalid_token = Token{
-                    .id = Token.Id.ShebangLine,
-                    .start = 0,
-                    .end = src_start,
-                },
-            };
-        } else {
-            // Skip the UTF-8 BOM if present
-            const src_start = if (mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else @as(usize, 0);
-            return Tokenizer{
-                .buffer = buffer,
-                .index = src_start,
-                .pending_invalid_token = null,
-            };
-        }
+        // Skip the UTF-8 BOM if present
+        const src_start = if (mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else @as(usize, 0);
+        return Tokenizer{
+            .buffer = buffer,
+            .index = src_start,
+            .pending_invalid_token = null,
+        };
     }
 
     const State = enum {
