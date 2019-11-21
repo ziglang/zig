@@ -752,12 +752,12 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
-                    '\n' => break, // Look for this error later.
+                    '\n', '\r' => break, // Look for this error later.
                     else => self.checkLiteralCharacter(),
                 },
 
                 State.StringLiteralBackslash => switch (c) {
-                    '\n' => break, // Look for this error later.
+                    '\n', '\r' => break, // Look for this error later.
                     else => {
                         state = State.StringLiteral;
                     },
