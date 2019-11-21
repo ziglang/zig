@@ -927,6 +927,24 @@ pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE + 1]u16 {
     return sliceToPrefixedSuffixedFileW(s, [_]u16{0});
 }
 
+/// Assumes an absolute path.
+pub fn wToPrefixedFileW(s: []const u16) ![PATH_MAX_WIDE + 1]u16 {
+    // TODO https://github.com/ziglang/zig/issues/2765
+    var result: [PATH_MAX_WIDE + 1]u16 = undefined;
+
+    const start_index = if (mem.startsWith(u16, s, [_]u16{'\\', '?'})) 0 else blk: {
+        const prefix = [_]u16{ '\\', '?', '?', '\\' };
+        mem.copy(u16, result[0..], prefix);
+        break :blk prefix.len;
+    };
+    const end_index = start_index + s.len;
+    if (end_index + 1 > result.len) return error.NameTooLong;
+    mem.copy(u16, result[start_index..], s);
+    result[end_index] = 0;
+    return result;
+
+}
+
 pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16) ![PATH_MAX_WIDE + suffix.len]u16 {
     // TODO https://github.com/ziglang/zig/issues/2765
     var result: [PATH_MAX_WIDE + suffix.len]u16 = undefined;
@@ -948,7 +966,6 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
         break :blk prefix.len;
     };
     const end_index = start_index + try std.unicode.utf8ToUtf16Le(result[start_index..], s);
-    assert(end_index <= result.len);
     if (end_index + suffix.len > result.len) return error.NameTooLong;
     mem.copy(u16, result[end_index..], suffix);
     return result;

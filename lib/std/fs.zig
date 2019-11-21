@@ -1243,9 +1243,9 @@ pub fn openSelfExe() OpenSelfExeError!File {
         return File.openReadC(c"/proc/self/exe");
     }
     if (builtin.os == .windows) {
-        var buf: [os.windows.PATH_MAX_WIDE]u16 = undefined;
-        const wide_slice = try selfExePathW(&buf);
-        return File.openReadW(wide_slice.ptr);
+        const wide_slice = selfExePathW();
+        const prefixed_path_w = try os.windows.wToPrefixedFileW(wide_slice);
+        return Dir.cwd().openReadW(&prefixed_path_w);
     }
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     const self_exe_path = try selfExePath(&buf);
@@ -1296,8 +1296,7 @@ pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]u8 {
             return mem.toSlice(u8, out_buffer);
         },
         .windows => {
-            var utf16le_buf: [os.windows.PATH_MAX_WIDE]u16 = undefined;
-            const utf16le_slice = try selfExePathW(&utf16le_buf);
+            const utf16le_slice = selfExePathW();
             // Trust that Windows gives us valid UTF-16LE.
             const end_index = std.unicode.utf16leToUtf8(out_buffer, utf16le_slice) catch unreachable;
             return out_buffer[0..end_index];
@@ -1306,9 +1305,10 @@ pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]u8 {
     }
 }
 
-/// Same as `selfExePath` except the result is UTF16LE-encoded.
-pub fn selfExePathW(out_buffer: *[os.windows.PATH_MAX_WIDE]u16) SelfExePathError![]u16 {
-    return os.windows.GetModuleFileNameW(null, out_buffer, out_buffer.len);
+/// The result is UTF16LE-encoded.
+pub fn selfExePathW() []const u16 {
+    const image_path_name = &os.windows.peb().ProcessParameters.ImagePathName;
+    return mem.toSliceConst(u16, image_path_name.Buffer);
 }
 
 /// `selfExeDirPath` except allocates the result on the heap.
