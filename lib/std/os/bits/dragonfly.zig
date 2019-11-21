@@ -241,7 +241,6 @@ pub const KERN_MAXID = 37;
 
 pub const HOST_NAME_MAX = 255;
 
-pub const O_LARGEFILE = 0; // faked support
 pub const O_RDONLY = 0;
 pub const O_NDELAY = O_NONBLOCK;
 pub const O_WRONLY = 1;
