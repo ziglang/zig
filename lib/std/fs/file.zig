@@ -66,7 +66,8 @@ pub const File = struct {
             const path_w = try windows.cStrToPrefixedFileW(path);
             return openWriteModeW(&path_w, file_mode);
         }
-        const flags = os.O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_TRUNC;
+        const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
+        const flags = O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_TRUNC;
         const fd = try os.openC(path, flags, file_mode);
         return openHandle(fd);
     }
@@ -105,7 +106,8 @@ pub const File = struct {
             const path_w = try windows.cStrToPrefixedFileW(path);
             return openWriteNoClobberW(&path_w, file_mode);
         }
-        const flags = os.O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_EXCL;
+        const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
+        const flags = O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_EXCL;
         const fd = try os.openC(path, flags, file_mode);
         return openHandle(fd);
     }

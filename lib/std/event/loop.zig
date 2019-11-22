@@ -856,7 +856,8 @@ pub const Loop = struct {
                     },
                     .Close => |*msg| noasync os.close(msg.fd),
                     .WriteFile => |*msg| blk: {
-                        const flags = os.O_LARGEFILE | os.O_WRONLY | os.O_CREAT |
+                        const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
+                        const flags = O_LARGEFILE | os.O_WRONLY | os.O_CREAT |
                             os.O_CLOEXEC | os.O_TRUNC;
                         const fd = noasync os.openC(msg.path.ptr, flags, msg.mode) catch |err| {
                             msg.result = err;

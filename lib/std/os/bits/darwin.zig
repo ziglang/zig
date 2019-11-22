@@ -267,7 +267,6 @@ pub const SA_USERTRAMP = 0x0100;
 /// signal handler with SA_SIGINFO args with 64bit   regs information
 pub const SA_64REGSET = 0x0200;
 
-pub const O_LARGEFILE = 0x0000;
 pub const O_PATH = 0x0000;
 
 pub const F_OK = 0;

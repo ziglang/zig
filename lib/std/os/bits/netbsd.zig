@@ -292,7 +292,6 @@ pub const O_CLOEXEC = 0x00400000;
 
 pub const O_ASYNC = 0x0040;
 pub const O_DIRECT = 0x00080000;
-pub const O_LARGEFILE = 0;
 pub const O_NOATIME = 0;
 pub const O_PATH = 0;
 pub const O_TMPFILE = 0;
