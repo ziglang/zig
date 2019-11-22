@@ -350,7 +350,7 @@ pub fn deleteTree(full_path: []const u8) !void {
             CannotDeleteRootDirectory,
         }.CannotDeleteRootDirectory;
 
-        var dir = try Dir.open(dirname);
+        var dir = try Dir.cwd().openDirList(dirname);
         defer dir.close();
 
         return dir.deleteTree(path.basename(full_path));
@@ -1066,7 +1066,7 @@ pub const Dir = struct {
                 error.Unexpected,
                 => |e| return e,
             }
-            var dir = self.openDir(sub_path) catch |err| switch (err) {
+            var dir = self.openDirList(sub_path) catch |err| switch (err) {
                 error.NotDir => {
                     if (got_access_denied) {
                         return error.AccessDenied;
@@ -1131,7 +1131,7 @@ pub const Dir = struct {
                         => |e| return e,
                     }
 
-                    const new_dir = dir.openDir(entry.name) catch |err| switch (err) {
+                    const new_dir = dir.openDirList(entry.name) catch |err| switch (err) {
                         error.NotDir => {
                             if (got_access_denied) {
                                 return error.AccessDenied;
@@ -1222,7 +1222,7 @@ pub const Walker = struct {
                 try self.name_buffer.appendByte(path.sep);
                 try self.name_buffer.append(base.name);
                 if (base.kind == .Directory) {
-                    var new_dir = top.dir_it.dir.openDir(base.name) catch |err| switch (err) {
+                    var new_dir = top.dir_it.dir.openDirList(base.name) catch |err| switch (err) {
                         error.NameTooLong => unreachable, // no path sep in base.name
                         else => |e| return e,
                     };
@@ -1260,7 +1260,7 @@ pub const Walker = struct {
 pub fn walkPath(allocator: *Allocator, dir_path: []const u8) !Walker {
     assert(!mem.endsWith(u8, dir_path, path.sep_str));
 
-    var dir = try Dir.open(dir_path);
+    var dir = try Dir.cwd().openDirList(dir_path);
     errdefer dir.close();
 
     var name_buffer = try std.Buffer.init(allocator, dir_path);
