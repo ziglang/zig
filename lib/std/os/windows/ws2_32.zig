@@ -250,5 +250,5 @@ pub extern "ws2_32" stdcallcc fn WSAIoctl(
     cbOutBuffer: DWORD,
     lpcbBytesReturned: LPDWORD,
     lpOverlapped: ?*WSAOVERLAPPED,
-    lpCompletionRoutine: ?*WSAOVERLAPPED_COMPLETION_ROUTINE,
+    lpCompletionRoutine: ?WSAOVERLAPPED_COMPLETION_ROUTINE,
 ) c_int;
