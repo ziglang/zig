@@ -817,8 +817,13 @@ pub const Dir = struct {
 
     /// Same as `openDirTraverse` except the parameter is null-terminated.
     pub fn openDirTraverseC(self: Dir, sub_path_c: [*:0]const u8) OpenError!Dir {
-        // TODO: use O_PATH where supported
-        return self.openDirListC(sub_path_c);
+        if (builtin.os == .windows) {
+            const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
+            return self.openDirTraverseW(&sub_path_w);
+        } else {
+            const O_PATH = if (@hasDecl(os, "O_PATH")) os.O_PATH else 0;
+            return self.openDirFlagsC(sub_path_c, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | O_PATH);
+        }
     }
 
     /// Same as `openDirList` except the parameter is null-terminated.
@@ -826,9 +831,12 @@ pub const Dir = struct {
         if (builtin.os == .windows) {
             const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
             return self.openDirListW(&sub_path_w);
+        } else {
+            return self.openDirFlagsC(sub_path_c, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC);
         }
+    }
 
-        const flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC;
+    fn openDirFlagsC(self: Dir, sub_path_c: [*]const u8, flags: u32) OpenError!Dir {
         const fd = os.openatC(self.fd, sub_path_c, flags, 0) catch |err| switch (err) {
             error.FileTooBig => unreachable, // can't happen for directories
             error.IsDir => unreachable, // we're providing O_DIRECTORY
