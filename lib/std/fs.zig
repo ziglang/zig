@@ -850,12 +850,16 @@ pub const Dir = struct {
     /// Same as `openDirTraverse` except the path parameter is UTF16LE, NT-prefixed.
     /// This function is Windows-only.
     pub fn openDirTraverseW(self: Dir, sub_path_w: [*:0]const u16) OpenError!Dir {
+        const w = os.windows;
+
         return self.openDirAccessMaskW(sub_path_w, w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA | w.SYNCHRONIZE | w.FILE_TRAVERSE);
     }
 
     /// Same as `openDirList` except the path parameter is UTF16LE, NT-prefixed.
     /// This function is Windows-only.
     pub fn openDirListW(self: Dir, sub_path_w: [*:0]const u16) OpenError!Dir {
+        const w = os.windows;
+
         return self.openDirAccessMaskW(sub_path_w, w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA | w.SYNCHRONIZE | w.FILE_TRAVERSE | w.FILE_LIST_DIRECTORY);
     }
 
