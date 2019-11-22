@@ -279,7 +279,7 @@ fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void
     const source_code = io.readFileAlloc(fmt.allocator, file_path) catch |err| switch (err) {
         error.IsDir, error.AccessDenied => {
             // TODO make event based (and dir.next())
-            var dir = try fs.Dir.open(file_path);
+            var dir = try fs.Dir.cwd().openDirList(file_path);
             defer dir.close();
 
             var dir_it = dir.iterate();
