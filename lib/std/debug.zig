@@ -1711,7 +1711,12 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
         const ofile_path = mem.toSliceConst(u8, di.strings.ptr + ofile.n_strx);
 
         gop.kv.value = MachOFile{
-            .bytes = try std.io.readFileAllocAligned(di.ofiles.allocator, ofile_path, @alignOf(macho.mach_header_64)),
+            .bytes = try std.fs.Dir.cwd().readFileAllocAligned(
+                di.ofiles.allocator,
+                ofile_path,
+                maxInt(usize),
+                @alignOf(macho.mach_header_64),
+            ),
             .sect_debug_info = null,
             .sect_debug_line = null,
         };

@@ -69,24 +69,9 @@ pub fn writeFile(path: []const u8, data: []const u8) !void {
 }
 
 /// On success, caller owns returned buffer.
-/// TODO move this to `std.fs` and add a version to `std.fs.Dir`.
+/// This function is deprecated; use `std.fs.Dir.readFileAlloc`.
 pub fn readFileAlloc(allocator: *mem.Allocator, path: []const u8) ![]u8 {
-    return readFileAllocAligned(allocator, path, @alignOf(u8));
-}
-
-/// On success, caller owns returned buffer.
-/// TODO move this to `std.fs` and add a version to `std.fs.Dir`.
-pub fn readFileAllocAligned(allocator: *mem.Allocator, path: []const u8, comptime A: u29) ![]align(A) u8 {
-    var file = try File.openRead(path);
-    defer file.close();
-
-    const size = try math.cast(usize, try file.getEndPos());
-    const buf = try allocator.alignedAlloc(u8, A, size);
-    errdefer allocator.free(buf);
-
-    var adapter = file.inStream();
-    try adapter.stream.readNoEof(buf[0..size]);
-    return buf;
+    return fs.Dir.cwd().readFileAlloc(allocator, path, math.maxInt(usize));
 }
 
 pub fn BufferedInStream(comptime Error: type) type {
