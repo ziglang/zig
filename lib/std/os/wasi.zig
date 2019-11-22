@@ -90,8 +90,8 @@ pub fn clock_getres(clock_id: i32, res: *timespec) errno_t {
         return err;
     }
     res.* = .{
-        .tv_sec = @intCast(i64, ts / 1000000000),
-        .tv_nsec = @intCast(isize, ts % 1000000000),
+        .tv_sec = @intCast(i64, ts / std.time.ns_per_s),
+        .tv_nsec = @intCast(isize, ts % std.time.ns_per_s),
     };
     return 0;
 }
@@ -103,8 +103,8 @@ pub fn clock_gettime(clock_id: i32, tp: *timespec) errno_t {
         return err;
     }
     tp.* = .{
-        .tv_sec = @intCast(i64, ts / 1000000000),
-        .tv_nsec = @intCast(isize, ts % 1000000000),
+        .tv_sec = @intCast(i64, ts / std.time.ns_per_s),
+        .tv_nsec = @intCast(isize, ts % std.time.ns_per_s),
     };
     return 0;
 }
