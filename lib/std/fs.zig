@@ -889,7 +889,7 @@ pub const Dir = struct {
         var io: w.IO_STATUS_BLOCK = undefined;
         const rc = w.ntdll.NtCreateFile(
             &result.fd,
-            w.GENERIC_READ | w.SYNCHRONIZE,
+            w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA | w.SYNCHRONIZE | w.FILE_TRAVERSE | w.FILE_LIST_DIRECTORY,
             &attr,
             &io,
             null,
