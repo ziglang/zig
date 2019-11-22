@@ -7725,7 +7725,7 @@ static void do_code_gen(CodeGen *g) {
 
     char *error = nullptr;
     if (LLVMVerifyModule(g->module, LLVMReturnStatusAction, &error)) {
-        zig_panic("broken LLVM module found: %s", error);
+        zig_panic("broken LLVM module found: %s\nThis is a bug in the Zig compiler.", error);
     }
 }
 

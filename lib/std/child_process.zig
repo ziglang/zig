@@ -63,7 +63,7 @@ pub const ChildProcess = struct {
 
         /// Windows-only. `cwd` was provided, but the path did not exist when spawning the child process.
         CurrentWorkingDirectoryUnlinked,
-    } || os.ExecveError || os.SetIdError || os.ChangeCurDirError || windows.CreateProcessError;
+    } || os.ExecveError || os.SetIdError || os.ChangeCurDirError || windows.CreateProcessError || windows.WaitForSingleObjectError;
 
     pub const Term = union(enum) {
         Exited: u32,
