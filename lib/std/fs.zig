@@ -657,8 +657,8 @@ pub const Dir = struct {
         }
     }
 
-    /// Returns an open handle to the current working directory.
-    /// Closing the returned `Dir` is checked illegal behavior.
+    /// Returns an handle to the current working directory that is open for traversal.
+    /// Closing the returned `Dir` is checked illegal behavior. Iterating over the result is illegal behavior.
     /// On POSIX targets, this function is comptime-callable.
     pub fn cwd() Dir {
         if (builtin.os == .windows) {
@@ -683,14 +683,14 @@ pub const Dir = struct {
         DeviceBusy,
     } || os.UnexpectedError;
 
-    /// Call `close` to free the directory handle.
+    /// Deprecated; call `Dir.cwd().openDirList` directly.
     pub fn open(dir_path: []const u8) OpenError!Dir {
-        return cwd().openDir(dir_path);
+        return cwd().openDirList(dir_path);
     }
 
-    /// Same as `open` except the parameter is null-terminated.
+    /// Deprecated; call `Dir.cwd().openDirListC` directly.
     pub fn openC(dir_path_c: [*:0]const u8) OpenError!Dir {
-        return cwd().openDirC(dir_path_c);
+        return cwd().openDirListC(dir_path_c);
     }
 
     pub fn close(self: *Dir) void {
@@ -775,22 +775,57 @@ pub const Dir = struct {
         }
     }
 
-    /// Call `close` on the result when done.
+    /// Deprecated; call `openDirList` directly.
     pub fn openDir(self: Dir, sub_path: []const u8) OpenError!Dir {
+        return self.openDirList(sub_path);
+    }
+
+    /// Deprecated; call `openDirListC` directly.
+    pub fn openDirC(self: Dir, sub_path_c: [*:0]const u8) OpenError!Dir {
+        return self.openDirListC(sub_path_c);
+    }
+
+    /// Opens a directory at the given path with the ability to access subpaths
+    /// of the result. Calling `iterate` on the result is illegal behavior; to
+    /// list the contents of a directory, open it with `openDirList`.
+    ///
+    /// Call `close` on the result when done.
+    pub fn openDirTraverse(self: Dir, sub_path: []const u8) OpenError!Dir {
         if (builtin.os == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
-            return self.openDirW(&sub_path_w);
+            return self.openDirTraverseW(&sub_path_w);
         }
 
         const sub_path_c = try os.toPosixPath(sub_path);
-        return self.openDirC(&sub_path_c);
+        return self.openDirTraverseC(&sub_path_c);
     }
 
-    /// Same as `openDir` except the parameter is null-terminated.
-    pub fn openDirC(self: Dir, sub_path_c: [*:0]const u8) OpenError!Dir {
+    /// Opens a directory at the given path with the ability to access subpaths and list contents
+    /// of the result. If the ability to list contents is unneeded, `openDirTraverse` acts the
+    /// same and may be more efficient.
+    ///
+    /// Call `close` on the result when done.
+    pub fn openDirList(self: Dir, sub_path: []const u8) OpenError!Dir {
+        if (builtin.os == .windows) {
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            return self.openDirListW(&sub_path_w);
+        }
+
+        const sub_path_c = try os.toPosixPath(sub_path);
+        return self.openDirListC(&sub_path_c);
+    }
+
+    /// Same as `openDirTraverse` except the parameter is null-terminated.
+    pub fn openDirTraverseC(self: Dir, sub_path_c: [*:0]const u8) OpenError!Dir {
+        // TODO: use O_PATH where supported
+        return self.openDirListC(sub_path_c);
+    }
+
+    /// Same as `openDirList` except the parameter is null-terminated.
+    pub fn openDirListC(self: Dir, sub_path_c: [*:0]const u8) OpenError!Dir {
         if (builtin.os == .windows) {
             const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
-            return self.openDirW(&sub_path_w);
+            return self.openDirListW(&sub_path_w);
         }
 
         const flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC;
@@ -804,9 +839,16 @@ pub const Dir = struct {
         return Dir{ .fd = fd };
     }
 
-    /// Same as `openDir` except the path parameter is UTF16LE, NT-prefixed.
+    /// Same as `openDirTraverse` except the path parameter is UTF16LE, NT-prefixed.
     /// This function is Windows-only.
-    pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16) OpenError!Dir {
+    pub fn openDirTraverseW(self: Dir, sub_path_w: [*:0]const u16) OpenError!Dir {
+        // TODO: open without FILE_LIST_DIRECTORY
+        return self.openDirListW(sub_path_w);
+    }
+
+    /// Same as `openDirList` except the path parameter is UTF16LE, NT-prefixed.
+    /// This function is Windows-only.
+    pub fn openDirListW(self: Dir, sub_path_w: [*:0]const u16) OpenError!Dir {
         const w = os.windows;
 
         var result = Dir{
