@@ -108,6 +108,100 @@ pub const WSAOVERLAPPED = extern struct {
 
 pub const WSAOVERLAPPED_COMPLETION_ROUTINE = extern fn (dwError: DWORD, cbTransferred: DWORD, lpOverlapped: *WSAOVERLAPPED, dwFlags: DWORD) void;
 
+pub const ADDRESS_FAMILY = u16;
+
+pub const AF_UNSPEC = 0;
+pub const AF_UNIX = 1;
+pub const AF_INET = 2;
+pub const AF_IMPLINK = 3;
+pub const AF_PUP = 4;
+pub const AF_CHAOS = 5;
+pub const AF_NS = 6;
+pub const AF_IPX = AF_NS;
+pub const AF_ISO = 7;
+pub const AF_OSI = AF_ISO;
+pub const AF_ECMA = 8;
+pub const AF_DATAKIT = 9;
+pub const AF_CCITT = 10;
+pub const AF_SNA = 11;
+pub const AF_DECnet = 12;
+pub const AF_DLI = 13;
+pub const AF_LAT = 14;
+pub const AF_HYLINK = 15;
+pub const AF_APPLETALK = 16;
+pub const AF_NETBIOS = 17;
+pub const AF_VOICEVIEW = 18;
+pub const AF_FIREFOX = 19;
+pub const AF_UNKNOWN1 = 20;
+pub const AF_BAN = 21;
+pub const AF_ATM = 22;
+pub const AF_INET6 = 23;
+pub const AF_CLUSTER = 24;
+pub const AF_12844 = 25;
+pub const AF_IRDA = 26;
+pub const AF_NETDES = 28;
+pub const AF_TCNPROCESS = 29;
+pub const AF_TCNMESSAGE = 30;
+pub const AF_ICLFXBM = 31;
+pub const AF_BTH = 32;
+pub const AF_MAX = 33;
+
+pub const SOCK_STREAM = 1;
+pub const SOCK_DGRAM = 2;
+pub const SOCK_RAW = 3;
+pub const SOCK_RDM = 4;
+pub const SOCK_SEQPACKET = 5;
+
+pub const IPPROTO_ICMP = 1;
+pub const IPPROTO_IGMP = 2;
+pub const BTHPROTO_RFCOMM = 3;
+pub const IPPROTO_TCP = 6;
+pub const IPPROTO_UDP = 17;
+pub const IPPROTO_ICMPV6 = 58;
+pub const IPPROTO_RM = 113;
+
+pub const sockaddr = extern struct {
+    family: ADDRESS_FAMILY,
+    data: [14]u8,
+};
+
+/// IPv4 socket address
+pub const sockaddr_in = extern struct {
+    family: ADDRESS_FAMILY = AF_INET,
+    port: USHORT,
+    addr: u32,
+    zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
+};
+
+/// IPv6 socket address
+pub const sockaddr_in6 = extern struct {
+    family: ADDRESS_FAMILY = AF_INET6,
+    port: USHORT,
+    flowinfo: u32,
+    addr: [16]u8,
+    scope_id: u32,
+};
+
+/// UNIX domain socket address
+pub const sockaddr_un = extern struct {
+    family: ADDRESS_FAMILY = AF_UNIX,
+    path: [108]u8,
+};
+
+pub const WSABUF = extern struct {
+    len: ULONG,
+    buf: [*]u8,
+};
+
+pub const WSAMSG = extern struct {
+    name: *const sockaddr,
+    namelen: INT,
+    lpBuffers: [*]WSABUF,
+    dwBufferCount: DWORD,
+    Control: WSABUF,
+    dwFlags: DWORD,
+};
+
 pub const WSA_INVALID_HANDLE = 6;
 pub const WSA_NOT_ENOUGH_MEMORY = 8;
 pub const WSA_INVALID_PARAMETER = 87;

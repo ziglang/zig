@@ -1,6 +1,7 @@
 // The reference for these types and values is Microsoft Windows's ucrt (Universal C RunTime).
 
 usingnamespace @import("../windows/bits.zig");
+const ws2_32 = @import("../windows/ws2_32.zig");
 
 pub const fd_t = HANDLE;
 pub const pid_t = HANDLE;
@@ -163,80 +164,63 @@ pub const F_OK = 0;
 pub const AT_REMOVEDIR = 0x200;
 
 pub const in_port_t = u16;
-pub const sa_family_t = u16;
+pub const sa_family_t = ws2_32.ADDRESS_FAMILY;
 pub const socklen_t = u32;
 
-pub const sockaddr = extern struct {
-    family: sa_family_t,
-    data: [14]u8,
-};
-pub const sockaddr_in = extern struct {
-    family: sa_family_t = AF_INET,
-    port: in_port_t,
-    addr: in_addr,
-    zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
-};
-pub const sockaddr_in6 = extern struct {
-    family: sa_family_t = AF_INET6,
-    port: in_port_t,
-    flowinfo: u32,
-    addr: in6_addr,
-    scope_id: u32,
-};
+pub const sockaddr = ws2_32.sockaddr;
+pub const sockaddr_in = ws2_32.sockaddr_in;
+pub const sockaddr_in6 = ws2_32.sockaddr_in6;
+pub const sockaddr_un = ws2_32.sockaddr_un;
+
 pub const in6_addr = [16]u8;
 pub const in_addr = u32;
 
-pub const sockaddr_un = extern struct {
-    family: sa_family_t = AF_UNIX,
-    path: [108]u8,
-};
+pub const AF_UNSPEC = ws2_32.AF_UNSPEC;
+pub const AF_UNIX = ws2_32.AF_UNIX;
+pub const AF_INET = ws2_32.AF_INET;
+pub const AF_IMPLINK = ws2_32.AF_IMPLINK;
+pub const AF_PUP = ws2_32.AF_PUP;
+pub const AF_CHAOS = ws2_32.AF_CHAOS;
+pub const AF_NS = ws2_32.AF_NS;
+pub const AF_IPX = ws2_32.AF_IPX;
+pub const AF_ISO = ws2_32.AF_ISO;
+pub const AF_OSI = ws2_32.AF_OSI;
+pub const AF_ECMA = ws2_32.AF_ECMA;
+pub const AF_DATAKIT = ws2_32.AF_DATAKIT;
+pub const AF_CCITT = ws2_32.AF_CCITT;
+pub const AF_SNA = ws2_32.AF_SNA;
+pub const AF_DECnet = ws2_32.AF_DECnet;
+pub const AF_DLI = ws2_32.AF_DLI;
+pub const AF_LAT = ws2_32.AF_LAT;
+pub const AF_HYLINK = ws2_32.AF_HYLINK;
+pub const AF_APPLETALK = ws2_32.AF_APPLETALK;
+pub const AF_NETBIOS = ws2_32.AF_NETBIOS;
+pub const AF_VOICEVIEW = ws2_32.AF_VOICEVIEW;
+pub const AF_FIREFOX = ws2_32.AF_FIREFOX;
+pub const AF_UNKNOWN1 = ws2_32.AF_UNKNOWN1;
+pub const AF_BAN = ws2_32.AF_BAN;
+pub const AF_ATM = ws2_32.AF_ATM;
+pub const AF_INET6 = ws2_32.AF_INET6;
+pub const AF_CLUSTER = ws2_32.AF_CLUSTER;
+pub const AF_12844 = ws2_32.AF_12844;
+pub const AF_IRDA = ws2_32.AF_IRDA;
+pub const AF_NETDES = ws2_32.AF_NETDES;
+pub const AF_TCNPROCESS = ws2_32.AF_TCNPROCESS;
+pub const AF_TCNMESSAGE = ws2_32.AF_TCNMESSAGE;
+pub const AF_ICLFXBM = ws2_32.AF_ICLFXBM;
+pub const AF_BTH = ws2_32.AF_BTH;
+pub const AF_MAX = ws2_32.AF_MAX;
 
-pub const AF_UNSPEC = 0;
-pub const AF_UNIX = 1;
-pub const AF_INET = 2;
-pub const AF_IMPLINK = 3;
-pub const AF_PUP = 4;
-pub const AF_CHAOS = 5;
-pub const AF_NS = 6;
-pub const AF_IPX = AF_NS;
-pub const AF_ISO = 7;
-pub const AF_OSI = AF_ISO;
-pub const AF_ECMA = 8;
-pub const AF_DATAKIT = 9;
-pub const AF_CCITT = 10;
-pub const AF_SNA = 11;
-pub const AF_DECnet = 12;
-pub const AF_DLI = 13;
-pub const AF_LAT = 14;
-pub const AF_HYLINK = 15;
-pub const AF_APPLETALK = 16;
-pub const AF_NETBIOS = 17;
-pub const AF_VOICEVIEW = 18;
-pub const AF_FIREFOX = 19;
-pub const AF_UNKNOWN1 = 20;
-pub const AF_BAN = 21;
-pub const AF_ATM = 22;
-pub const AF_INET6 = 23;
-pub const AF_CLUSTER = 24;
-pub const AF_12844 = 25;
-pub const AF_IRDA = 26;
-pub const AF_NETDES = 28;
-pub const AF_TCNPROCESS = 29;
-pub const AF_TCNMESSAGE = 30;
-pub const AF_ICLFXBM = 31;
-pub const AF_BTH = 32;
-pub const AF_MAX = 33;
+pub const SOCK_STREAM = ws2_32.SOCK_STREAM;
+pub const SOCK_DGRAM = ws2_32.SOCK_DGRAM;
+pub const SOCK_RAW = ws2_32.SOCK_RAW;
+pub const SOCK_RDM = ws2_32.SOCK_RDM;
+pub const SOCK_SEQPACKET = ws2_32.SOCK_SEQPACKET;
 
-pub const SOCK_STREAM = 1;
-pub const SOCK_DGRAM = 2;
-pub const SOCK_RAW = 3;
-pub const SOCK_RDM = 4;
-pub const SOCK_SEQPACKET = 5;
-
-pub const IPPROTO_ICMP = 1;
-pub const IPPROTO_IGMP = 2;
-pub const BTHPROTO_RFCOMM = 3;
-pub const IPPROTO_TCP = 6;
-pub const IPPROTO_UDP = 17;
-pub const IPPROTO_ICMPV6 = 58;
-pub const IPPROTO_RM = 113;
+pub const IPPROTO_ICMP = ws2_32.IPPROTO_ICMP;
+pub const IPPROTO_IGMP = ws2_32.IPPROTO_IGMP;
+pub const BTHPROTO_RFCOMM = ws2_32.BTHPROTO_RFCOMM;
+pub const IPPROTO_TCP = ws2_32.IPPROTO_TCP;
+pub const IPPROTO_UDP = ws2_32.IPPROTO_UDP;
+pub const IPPROTO_ICMPV6 = ws2_32.IPPROTO_ICMPV6;
+pub const IPPROTO_RM = ws2_32.IPPROTO_RM;
