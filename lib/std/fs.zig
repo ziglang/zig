@@ -836,7 +836,7 @@ pub const Dir = struct {
         }
     }
 
-    fn openDirFlagsC(self: Dir, sub_path_c: [*]const u8, flags: u32) OpenError!Dir {
+    fn openDirFlagsC(self: Dir, sub_path_c: [*:0]const u8, flags: u32) OpenError!Dir {
         const fd = os.openatC(self.fd, sub_path_c, flags, 0) catch |err| switch (err) {
             error.FileTooBig => unreachable, // can't happen for directories
             error.IsDir => unreachable, // we're providing O_DIRECTORY
@@ -850,13 +850,16 @@ pub const Dir = struct {
     /// Same as `openDirTraverse` except the path parameter is UTF16LE, NT-prefixed.
     /// This function is Windows-only.
     pub fn openDirTraverseW(self: Dir, sub_path_w: [*:0]const u16) OpenError!Dir {
-        // TODO: open without FILE_LIST_DIRECTORY
-        return self.openDirListW(sub_path_w);
+        return self.openDirAccessMaskW(sub_path_w, w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA | w.SYNCHRONIZE | w.FILE_TRAVERSE);
     }
 
     /// Same as `openDirList` except the path parameter is UTF16LE, NT-prefixed.
     /// This function is Windows-only.
     pub fn openDirListW(self: Dir, sub_path_w: [*:0]const u16) OpenError!Dir {
+        return self.openDirAccessMaskW(sub_path_w, w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA | w.SYNCHRONIZE | w.FILE_TRAVERSE | w.FILE_LIST_DIRECTORY);
+    }
+
+    fn openDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32) OpenError!Dir {
         const w = os.windows;
 
         var result = Dir{
@@ -889,7 +892,7 @@ pub const Dir = struct {
         var io: w.IO_STATUS_BLOCK = undefined;
         const rc = w.ntdll.NtCreateFile(
             &result.fd,
-            w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA | w.SYNCHRONIZE | w.FILE_TRAVERSE | w.FILE_LIST_DIRECTORY,
+            access_mask,
             &attr,
             &io,
             null,
