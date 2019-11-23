@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (c) 2015 Andrew Kelley
  *
  * This file is part of zig, which is MIT licensed.
