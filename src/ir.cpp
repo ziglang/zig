@@ -8556,6 +8556,9 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             add_node_error(irb->codegen, node,
                 buf_sprintf("inferred array size invalid here"));
             return irb->codegen->invalid_instruction;
+        case NodeTypeVarFieldType:
+            return ir_lval_wrap(irb, scope,
+                    ir_build_const_type(irb, scope, node, irb->codegen->builtin_types.entry_var), lval, result_loc);
     }
     zig_unreachable();
 }
@@ -8715,6 +8718,9 @@ ConstExprValue *const_ptr_pointee(IrAnalyze *ira, CodeGen *codegen, ConstExprVal
     assert(val != nullptr);
     assert(const_val->type->id == ZigTypeIdPointer);
     ZigType *expected_type = const_val->type->data.pointer.child_type;
+    if (expected_type == codegen->builtin_types.entry_var) {
+        return val;
+    }
     switch (type_has_one_possible_value(codegen, expected_type)) {
         case OnePossibleValueInvalid:
             return nullptr;
@@ -13502,6 +13508,9 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
         }
         if (ptr->value.data.x_ptr.mut != ConstPtrMutRuntimeVar) {
             ConstExprValue *pointee = const_ptr_pointee_unchecked(ira->codegen, &ptr->value);
+            if (child_type == ira->codegen->builtin_types.entry_var) {
+                child_type = pointee->type;
+            }
             if (pointee->special != ConstValSpecialRuntime) {
                 IrInstruction *result = ir_const(ira, source_instruction, child_type);
 
@@ -19857,13 +19866,24 @@ static IrInstruction *ir_analyze_instruction_test_non_null(IrAnalyze *ira, IrIns
     return ir_analyze_test_non_null(ira, &instruction->base, value);
 }
 
+static ZigType *get_ptr_elem_type(CodeGen *g, IrInstruction *ptr) {
+    ir_assert(ptr->value.type->id == ZigTypeIdPointer, ptr);
+    ZigType *elem_type = ptr->value.type->data.pointer.child_type;
+    if (elem_type != g->builtin_types.entry_var)
+        return elem_type;
+
+    if (ir_resolve_lazy(g, ptr->source_node, &ptr->value))
+        return g->builtin_types.entry_invalid;
+
+    assert(value_is_comptime(&ptr->value));
+    ConstExprValue *pointee = const_ptr_pointee_unchecked(g, &ptr->value);
+    return pointee->type;
+}
+
 static IrInstruction *ir_analyze_unwrap_optional_payload(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *base_ptr, bool safety_check_on, bool initializing)
 {
-    ZigType *ptr_type = base_ptr->value.type;
-    assert(ptr_type->id == ZigTypeIdPointer);
-
-    ZigType *type_entry = ptr_type->data.pointer.child_type;
+    ZigType *type_entry = get_ptr_elem_type(ira->codegen, base_ptr);
     if (type_is_invalid(type_entry))
         return ira->codegen->invalid_instruction;
 
@@ -19901,7 +19921,8 @@ static IrInstruction *ir_analyze_unwrap_optional_payload(IrAnalyze *ira, IrInstr
 
     ZigType *child_type = type_entry->data.maybe.child_type;
     ZigType *result_type = get_pointer_to_type_extra(ira->codegen, child_type,
-            ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile, PtrLenSingle, 0, 0, 0, false);
+            base_ptr->value.type->data.pointer.is_const, base_ptr->value.type->data.pointer.is_volatile,
+            PtrLenSingle, 0, 0, 0, false);
 
     bool same_comptime_repr = types_have_same_zig_comptime_repr(ira->codegen, child_type, type_entry);
 
@@ -21627,20 +21648,15 @@ static ConstExprValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_ty
     fields[5]->special = ConstValSpecialStatic;
     fields[5]->type = ira->codegen->builtin_types.entry_bool;
     fields[5]->data.x_bool = attrs_type->data.pointer.allow_zero;
-    // sentinel: ?*const c_void
-    ZigType *ptr_type = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_c_void, true);
+    // sentinel: var
     ensure_field_index(result->type, "sentinel", 6);
     fields[6]->special = ConstValSpecialStatic;
-    fields[6]->type = get_optional_type(ira->codegen, ptr_type);
-    if (attrs_type->data.pointer.sentinel == nullptr) {
-        fields[6]->data.x_optional = nullptr;
+    if (attrs_type->data.pointer.sentinel != nullptr) {
+        fields[6]->type = get_optional_type(ira->codegen, attrs_type->data.pointer.child_type);
+        fields[6]->data.x_optional = attrs_type->data.pointer.sentinel;
     } else {
-        ConstExprValue *ptr_val = create_const_vals(1);
-        fields[6]->data.x_optional = ptr_val;
-        ptr_val->data.x_ptr.special = ConstPtrSpecialRef;
-        ptr_val->data.x_ptr.mut = ConstPtrMutComptimeConst;
-        ptr_val->data.x_ptr.data.ref.pointee = create_const_vals(1);
-        copy_const_val(ptr_val->data.x_ptr.data.ref.pointee, attrs_type->data.pointer.sentinel, false);
+        fields[6]->type = ira->codegen->builtin_types.entry_null;
+        fields[6]->data.x_optional = nullptr;
     }
 
     return result;
@@ -21762,23 +21778,10 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 fields[1]->special = ConstValSpecialStatic;
                 fields[1]->type = ira->codegen->builtin_types.entry_type;
                 fields[1]->data.x_type = type_entry->data.array.child_type;
-                // sentinel: ?*const c_void
+                // sentinel: var
                 fields[2]->special = ConstValSpecialStatic;
-                ZigType *ptr_type = get_pointer_to_type(ira->codegen,
-                        ira->codegen->builtin_types.entry_c_void, true);
-                fields[2]->type = get_optional_type(ira->codegen, ptr_type);
-                if (type_entry->data.array.sentinel == nullptr) {
-                    fields[2]->data.x_optional = nullptr;
-                } else {
-                    ConstExprValue *ptr_val = create_const_vals(1);
-                    fields[2]->data.x_optional = ptr_val;
-                    ptr_val->type = ptr_type;
-                    ptr_val->data.x_ptr.special = ConstPtrSpecialRef;
-                    ptr_val->data.x_ptr.mut = ConstPtrMutComptimeConst;
-                    ptr_val->data.x_ptr.data.ref.pointee = create_const_vals(1);
-                    copy_const_val(ptr_val->data.x_ptr.data.ref.pointee, type_entry->data.array.sentinel, false);
-                }
-
+                fields[2]->type = get_optional_type(ira->codegen, type_entry->data.array.child_type);
+                fields[2]->data.x_optional = type_entry->data.array.sentinel;
                 break;
             }
         case ZigTypeIdVector: {
@@ -22290,15 +22293,18 @@ static ConstExprValue *get_const_field(IrAnalyze *ira, ConstExprValue *struct_va
     return struct_value->data.x_struct.fields[field_index];
 }
 
-static ConstExprValue *get_const_field_variant(IrAnalyze *ira, ConstExprValue *struct_value,
-        const char *name, size_t field_index)
+static Error get_const_field_sentinel(IrAnalyze *ira, IrInstruction *source_instr, ConstExprValue *struct_value,
+        const char *name, size_t field_index, ZigType *elem_type, ConstExprValue **result)
 {
     ConstExprValue *field_val = get_const_field(ira, struct_value, name, field_index);
-    assert(field_val->type->id == ZigTypeIdOptional);
-    ConstExprValue *opt_val = field_val->data.x_optional;
-    if (opt_val == nullptr) return nullptr;
-    assert(opt_val->type->id == ZigTypeIdPointer);
-    return const_ptr_pointee_unchecked(ira->codegen, opt_val);
+    IrInstruction *field_inst = ir_const(ira, source_instr, field_val->type);
+    IrInstruction *casted_field_inst = ir_implicit_cast(ira, field_inst,
+            get_optional_type(ira->codegen, elem_type));
+    if (type_is_invalid(casted_field_inst->value.type))
+        return ErrorSemanticAnalyzeFail;
+
+    *result = casted_field_inst->value.data.x_optional;
+    return ErrorNone;
 }
 
 static bool get_const_field_bool(IrAnalyze *ira, ConstExprValue *struct_value, const char *name, size_t field_index)
@@ -22323,6 +22329,7 @@ static ZigType *get_const_field_meta_type(IrAnalyze *ira, ConstExprValue *struct
 }
 
 static ZigType *type_info_to_type(IrAnalyze *ira, IrInstruction *instruction, ZigTypeId tagTypeId, ConstExprValue *payload) {
+    Error err;
     switch (tagTypeId) {
         case ZigTypeIdInvalid:
             zig_unreachable();
@@ -22364,8 +22371,16 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInstruction *instruction, Zi
                 assert(size_value->type == ir_type_info_get_type(ira, "Size", type_info_pointer_type));
                 BuiltinPtrSize size_enum_index = (BuiltinPtrSize)bigint_as_u32(&size_value->data.x_enum_tag);
                 PtrLen ptr_len = size_enum_index_to_ptr_len(size_enum_index);
+                ZigType *elem_type = get_const_field_meta_type(ira, payload, "child", 4);
+                ConstExprValue *sentinel;
+                if ((err = get_const_field_sentinel(ira, instruction, payload, "sentinel", 6,
+                                elem_type, &sentinel)))
+                {
+                    return nullptr;
+                }
+
                 ZigType *ptr_type = get_pointer_to_type_extra2(ira->codegen,
-                    get_const_field_meta_type(ira, payload, "child", 4),
+                    elem_type,
                     get_const_field_bool(ira, payload, "is_const", 1),
                     get_const_field_bool(ira, payload, "is_volatile", 2),
                     ptr_len,
@@ -22373,22 +22388,26 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInstruction *instruction, Zi
                     0, // bit_offset_in_host
                     0, // host_int_bytes
                     get_const_field_bool(ira, payload, "is_allowzero", 5),
-                    VECTOR_INDEX_NONE,
-                    nullptr,
-                    get_const_field_variant(ira, payload, "sentinel", 6)
-                );
+                    VECTOR_INDEX_NONE, nullptr, sentinel);
                 if (size_enum_index != 2)
                     return ptr_type;
                 return get_slice_type(ira->codegen, ptr_type);
             }
-        case ZigTypeIdArray:
+        case ZigTypeIdArray: {
             assert(payload->special == ConstValSpecialStatic);
             assert(payload->type == ir_type_info_get_type(ira, "Array", nullptr));
+            ZigType *elem_type = get_const_field_meta_type(ira, payload, "child", 1);
+            ConstExprValue *sentinel;
+            if ((err = get_const_field_sentinel(ira, instruction, payload, "sentinel", 2,
+                            elem_type, &sentinel)))
+            {
+                return nullptr;
+            }
             return get_array_type(ira->codegen,
-                get_const_field_meta_type(ira, payload, "child", 1),
+                elem_type,
                 bigint_as_u64(get_const_field_lit_int(ira, payload, "len", 0)),
-                get_const_field_variant(ira, payload, "sentinel", 2)
-            );
+                sentinel);
+        }
         case ZigTypeIdComptimeFloat:
             return ira->codegen->builtin_types.entry_num_lit_float;
         case ZigTypeIdComptimeInt:

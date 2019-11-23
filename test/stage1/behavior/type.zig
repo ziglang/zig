@@ -112,7 +112,7 @@ test "Type.Array" {
         .Array = TypeInfo.Array{
             .len = 2,
             .child = u32,
-            .sentinel = &0,
+            .sentinel = 0,
         },
     }));
     testTypes([_]type{ [1]u8, [30]usize, [7]bool });

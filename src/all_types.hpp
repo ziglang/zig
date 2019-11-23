@@ -601,6 +601,7 @@ enum NodeType {
     NodeTypeSuspend,
     NodeTypeAnyFrameType,
     NodeTypeEnumLiteral,
+    NodeTypeVarFieldType,
 };
 
 enum CallingConvention {

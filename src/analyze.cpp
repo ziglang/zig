@@ -1179,6 +1179,10 @@ Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *
 Error type_val_resolve_is_opaque_type(CodeGen *g, ConstExprValue *type_val, bool *is_opaque_type) {
     if (type_val->special != ConstValSpecialLazy) {
         assert(type_val->special == ConstValSpecialStatic);
+        if (type_val->data.x_type == g->builtin_types.entry_var) {
+            *is_opaque_type = false;
+            return ErrorNone;
+        }
         *is_opaque_type = (type_val->data.x_type->id == ZigTypeIdOpaque);
         return ErrorNone;
     }
@@ -3667,6 +3671,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeEnumLiteral:
         case NodeTypeAnyFrameType:
         case NodeTypeErrorSetField:
+        case NodeTypeVarFieldType:
             zig_unreachable();
     }
 }
@@ -5587,6 +5592,9 @@ ConstExprValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
 
 ReqCompTime type_requires_comptime(CodeGen *g, ZigType *ty) {
     Error err;
+    if (ty == g->builtin_types.entry_var) {
+        return ReqCompTimeYes;
+    }
     switch (ty->id) {
         case ZigTypeIdInvalid:
             zig_unreachable();

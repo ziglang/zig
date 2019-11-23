@@ -268,6 +268,8 @@ static const char *node_type_str(NodeType node_type) {
             return "EnumLiteral";
         case NodeTypeErrorSetField:
             return "ErrorSetField";
+        case NodeTypeVarFieldType:
+            return "VarFieldType";
     }
     zig_unreachable();
 }
@@ -1184,6 +1186,10 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, ".%s", buf_ptr(&node->data.enum_literal.identifier->data.str_lit.str));
                 break;
             }
+        case NodeTypeVarFieldType: {
+            fprintf(ar->f, "var");
+            break;
+        }
         case NodeTypeParamDecl:
         case NodeTypeTestDecl:
         case NodeTypeStructField:

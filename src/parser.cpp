@@ -848,7 +848,12 @@ static AstNode *ast_parse_container_field(ParseContext *pc) {
 
     AstNode *type_expr = nullptr;
     if (eat_token_if(pc, TokenIdColon) != nullptr) {
-        type_expr = ast_expect(pc, ast_parse_type_expr);
+        Token *var_tok = eat_token_if(pc, TokenIdKeywordVar);
+        if (var_tok != nullptr) {
+            type_expr = ast_create_node(pc, NodeTypeVarFieldType, var_tok);
+        } else {
+            type_expr = ast_expect(pc, ast_parse_type_expr);
+        }
     }
     AstNode *align_expr = ast_parse_byte_align(pc);
     AstNode *expr = nullptr;
@@ -3163,6 +3168,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.suspend.block, visit, context);
             break;
         case NodeTypeEnumLiteral:
+        case NodeTypeVarFieldType:
             break;
     }
 }

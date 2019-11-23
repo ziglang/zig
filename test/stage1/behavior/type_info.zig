@@ -46,7 +46,7 @@ fn testPointer() void {
     expect(u32_ptr_info.Pointer.is_volatile == false);
     expect(u32_ptr_info.Pointer.alignment == @alignOf(u32));
     expect(u32_ptr_info.Pointer.child == u32);
-    expect(u32_ptr_info.Pointer.is_null_terminated == false);
+    expect(u32_ptr_info.Pointer.sentinel == null);
 }
 
 test "type info: unknown length pointer type info" {
@@ -60,7 +60,7 @@ fn testUnknownLenPtr() void {
     expect(u32_ptr_info.Pointer.size == TypeInfo.Pointer.Size.Many);
     expect(u32_ptr_info.Pointer.is_const == true);
     expect(u32_ptr_info.Pointer.is_volatile == true);
-    expect(u32_ptr_info.Pointer.is_null_terminated == false);
+    expect(u32_ptr_info.Pointer.sentinel == null);
     expect(u32_ptr_info.Pointer.alignment == @alignOf(f64));
     expect(u32_ptr_info.Pointer.child == f64);
 }
@@ -76,7 +76,7 @@ fn testNullTerminatedPtr() void {
     expect(ptr_info.Pointer.size == TypeInfo.Pointer.Size.Many);
     expect(ptr_info.Pointer.is_const == false);
     expect(ptr_info.Pointer.is_volatile == false);
-    expect(ptr_info.Pointer.is_null_terminated == true);
+    expect(ptr_info.Pointer.sentinel.? == 0);
 
     expect(@typeInfo([:0]u8).Pointer.sentinel != null);
     expect(@typeInfo([10:0]u8).Array.sentinel != null);
