@@ -631,7 +631,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         }
         if (flags.present("check")) {
             const anything_changed = try std.zig.render(allocator, io.null_out_stream, tree);
-            const code = if (anything_changed) u8(1) else u8(0);
+            const code: u8 = if (anything_changed) 1 else 0;
             process.exit(code);
         }
 

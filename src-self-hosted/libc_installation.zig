@@ -138,7 +138,7 @@ pub const LibCInstallation = struct {
             self.static_lib_dir orelse "",
             self.msvc_lib_dir orelse "",
             self.kernel32_lib_dir orelse "",
-            self.dynamic_linker_path orelse util.getDynamicLinkerPath(Target(Target.Native)),
+            self.dynamic_linker_path orelse util.getDynamicLinkerPath(Target{ .Native = {} }),
         );
     }
 
@@ -382,7 +382,7 @@ pub const LibCInstallation = struct {
 
     fn initEmpty(self: *LibCInstallation) void {
         self.* = LibCInstallation{
-            .include_dir = ([*]const u8)(undefined)[0..0],
+            .include_dir = @as([*]const u8, undefined)[0..0],
             .lib_dir = null,
             .static_lib_dir = null,
             .msvc_lib_dir = null,

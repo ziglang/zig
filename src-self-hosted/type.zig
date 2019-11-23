@@ -294,7 +294,7 @@ pub const Type = struct {
                 if (self.alignment) |self_align| {
                     if (self_align != other.alignment.?) return false;
                 }
-                if (@TagType(Data)(self.data) != @TagType(Data)(other.data)) return false;
+                if (@as(@TagType(Data), self.data) != @as(@TagType(Data), other.data)) return false;
                 switch (self.data) {
                     .Generic => |*self_generic| {
                         const other_generic = &other.data.Generic;
@@ -665,7 +665,7 @@ pub const Type = struct {
                     self.mut != other.mut or
                     self.vol != other.vol or
                     self.size != other.size or
-                    @TagType(Align)(self.alignment) != @TagType(Align)(other.alignment))
+                    @as(@TagType(Align), self.alignment) != @as(@TagType(Align), other.alignment))
                 {
                     return false;
                 }
@@ -1058,7 +1058,7 @@ fn hashAny(x: var, comptime seed: u64) u32 {
             comptime var rng = comptime std.rand.DefaultPrng.init(seed);
             const unsigned_x = @bitCast(@IntType(false, info.bits), x);
             if (info.bits <= 32) {
-                return u32(unsigned_x) *% comptime rng.random.scalar(u32);
+                return @as(u32, unsigned_x) *% comptime rng.random.scalar(u32);
             } else {
                 return @truncate(u32, unsigned_x *% comptime rng.random.scalar(@typeOf(unsigned_x)));
             }
@@ -1081,7 +1081,7 @@ fn hashAny(x: var, comptime seed: u64) u32 {
             if (x) |non_opt| {
                 return hashAny(non_opt, seed);
             } else {
-                return hashAny(u32(1), seed);
+                return hashAny(@as(u32, 1), seed);
             }
         },
         else => @compileError("implement hash function for " ++ @typeName(@typeOf(x))),

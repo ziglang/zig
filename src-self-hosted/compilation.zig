@@ -548,10 +548,11 @@ pub const Compilation = struct {
 
         comp.deinit_group.wait();
 
-        if (comp.tmp_dir.getOrNull()) |tmp_dir_result| if (tmp_dir_result.*) |tmp_dir| {
-            // TODO evented I/O?
-            std.fs.deleteTree(tmp_dir) catch {};
-        } else |_| {};
+        if (comp.tmp_dir.getOrNull()) |tmp_dir_result|
+            if (tmp_dir_result.*) |tmp_dir| {
+                // TODO evented I/O?
+                std.fs.deleteTree(tmp_dir) catch {};
+            } else |_| {};
     }
 
     /// it does ref the result because it could be an arbitrary integer size
