@@ -300,18 +300,18 @@ pub fn LinearFifo(
         else
             struct {};
 
-        /// Make `count` bytes available before the current read location
-        fn rewind(self: *Self, size: usize) void {
-            assert(self.writableLength() >= size);
+        /// Make `count` items available before the current read location
+        fn rewind(self: *Self, count: usize) void {
+            assert(self.writableLength() >= count);
 
-            var head = self.head + (self.buf.len - size);
+            var head = self.head + (self.buf.len - count);
             if (powers_of_two) {
                 head &= self.buf.len - 1;
             } else {
                 head %= self.buf.len;
             }
             self.head = head;
-            self.count += size;
+            self.count += count;
         }
 
         /// Place data back into the read stream
