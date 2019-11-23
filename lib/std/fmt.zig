@@ -167,6 +167,10 @@ pub fn format(
                 '}' => {
                     const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
 
+                    if (arg_to_print >= args.len) {
+                        @compileError("Too few arguments");
+                    }
+
                     try formatType(
                         args[arg_to_print],
                         fmt[0..0],
@@ -378,10 +382,10 @@ pub fn formatType(
             const info = @typeInfo(T).Union;
             if (info.tag_type) |UnionTagType| {
                 try output(context, "{ .");
-                try output(context, @tagName(UnionTagType(value)));
+                try output(context, @tagName(@as(UnionTagType, value)));
                 try output(context, " = ");
                 inline for (info.fields) |u_field| {
-                    if (@enumToInt(UnionTagType(value)) == u_field.enum_field.?.value) {
+                    if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
                         try formatType(@field(value, u_field.name), "", options, context, Errors, output, max_depth - 1);
                     }
                 }
@@ -499,7 +503,7 @@ pub fn formatIntValue(
 
     const int_value = if (@typeOf(value) == comptime_int) blk: {
         const Int = math.IntFittingRange(value, value);
-        break :blk Int(value);
+        break :blk @as(Int, value);
     } else
         value;
 
@@ -508,7 +512,7 @@ pub fn formatIntValue(
         uppercase = false;
     } else if (comptime std.mem.eql(u8, fmt, "c")) {
         if (@typeOf(int_value).bit_count <= 8) {
-            return formatAsciiChar(u8(int_value), options, context, Errors, output);
+            return formatAsciiChar(@as(u8, int_value), options, context, Errors, output);
         } else {
             @compileError("Cannot print integer that is larger than 8 bits as a ascii");
         }
@@ -574,7 +578,7 @@ pub fn formatAsciiChar(
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
 ) Errors!void {
-    return output(context, (*const [1]u8)(&c)[0..]);
+    return output(context, @as(*const [1]u8, &c)[0..]);
 }
 
 pub fn formatBuf(
@@ -590,7 +594,7 @@ pub fn formatBuf(
     var leftover_padding = if (width > buf.len) (width - buf.len) else return;
     const pad_byte: u8 = options.fill;
     while (leftover_padding > 0) : (leftover_padding -= 1) {
-        try output(context, (*const [1]u8)(&pad_byte)[0..1]);
+        try output(context, @as(*const [1]u8, &pad_byte)[0..1]);
     }
 }
 
@@ -664,7 +668,7 @@ pub fn formatFloatScientific(
         try output(context, float_decimal.digits[0..1]);
         try output(context, ".");
         if (float_decimal.digits.len > 1) {
-            const num_digits = if (@typeOf(value) == f32) math.min(usize(9), float_decimal.digits.len) else float_decimal.digits.len;
+            const num_digits = if (@typeOf(value) == f32) math.min(@as(usize, 9), float_decimal.digits.len) else float_decimal.digits.len;
 
             try output(context, float_decimal.digits[1..num_digits]);
         } else {
@@ -699,7 +703,7 @@ pub fn formatFloatDecimal(
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
 ) Errors!void {
-    var x = f64(value);
+    var x = @as(f64, value);
 
     // Errol doesn't handle these special cases.
     if (math.signbit(x)) {
@@ -888,7 +892,7 @@ pub fn formatInt(
 ) Errors!void {
     const int_value = if (@typeOf(value) == comptime_int) blk: {
         const Int = math.IntFittingRange(value, value);
-        break :blk Int(value);
+        break :blk @as(Int, value);
     } else
         value;
 
@@ -917,14 +921,14 @@ fn formatIntSigned(
     const uint = @IntType(false, @typeOf(value).bit_count);
     if (value < 0) {
         const minus_sign: u8 = '-';
-        try output(context, (*const [1]u8)(&minus_sign)[0..]);
+        try output(context, @as(*const [1]u8, &minus_sign)[0..]);
         const new_value = @intCast(uint, -(value + 1)) + 1;
         return formatIntUnsigned(new_value, base, uppercase, new_options, context, Errors, output);
     } else if (options.width == null or options.width.? == 0) {
         return formatIntUnsigned(@intCast(uint, value), base, uppercase, options, context, Errors, output);
     } else {
         const plus_sign: u8 = '+';
-        try output(context, (*const [1]u8)(&plus_sign)[0..]);
+        try output(context, @as(*const [1]u8, &plus_sign)[0..]);
         const new_value = @intCast(uint, value);
         return formatIntUnsigned(new_value, base, uppercase, new_options, context, Errors, output);
     }
@@ -962,7 +966,7 @@ fn formatIntUnsigned(
         const zero_byte: u8 = options.fill;
         var leftover_padding = padding - index;
         while (true) {
-            try output(context, (*const [1]u8)(&zero_byte)[0..]);
+            try output(context, @as(*const [1]u8, &zero_byte)[0..]);
             leftover_padding -= 1;
             if (leftover_padding == 0) break;
         }
@@ -994,7 +998,7 @@ fn formatIntCallback(context: *FormatIntBuf, bytes: []const u8) (error{}!void) {
 
 pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) !T {
     if (!T.is_signed) return parseUnsigned(T, buf, radix);
-    if (buf.len == 0) return T(0);
+    if (buf.len == 0) return @as(T, 0);
     if (buf[0] == '-') {
         return math.negate(try parseUnsigned(T, buf[1..], radix));
     } else if (buf[0] == '+') {
@@ -1084,7 +1088,7 @@ pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
 fn digitToChar(digit: u8, uppercase: bool) u8 {
     return switch (digit) {
         0...9 => digit + '0',
-        10...35 => digit + ((if (uppercase) u8('A') else u8('a')) - 10),
+        10...35 => digit + ((if (uppercase) @as(u8, 'A') else @as(u8, 'a')) - 10),
         else => unreachable,
     };
 }
@@ -1130,19 +1134,19 @@ fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
 test "bufPrintInt" {
     var buffer: [100]u8 = undefined;
     const buf = buffer[0..];
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 2, false, FormatOptions{}), "-101111000110000101001110"));
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 10, false, FormatOptions{}), "-12345678"));
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 16, false, FormatOptions{}), "-bc614e"));
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 16, true, FormatOptions{}), "-BC614E"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 2, false, FormatOptions{}), "-101111000110000101001110"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 10, false, FormatOptions{}), "-12345678"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 16, false, FormatOptions{}), "-bc614e"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 16, true, FormatOptions{}), "-BC614E"));
 
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, u32(12345678), 10, true, FormatOptions{}), "12345678"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 12345678), 10, true, FormatOptions{}), "12345678"));
 
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, u32(666), 10, false, FormatOptions{ .width = 6 }), "   666"));
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, u32(0x1234), 16, false, FormatOptions{ .width = 6 }), "  1234"));
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, u32(0x1234), 16, false, FormatOptions{ .width = 1 }), "1234"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 666), 10, false, FormatOptions{ .width = 6 }), "   666"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 6 }), "  1234"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 1 }), "1234"));
 
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(42), 10, false, FormatOptions{ .width = 3 }), "+42"));
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, i32(-42), 10, false, FormatOptions{ .width = 3 }), "-42"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, 42), 10, false, FormatOptions{ .width = 3 }), "+42"));
+    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -42), 10, false, FormatOptions{ .width = 3 }), "-42"));
 }
 
 fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, options: FormatOptions) []u8 {
@@ -1204,8 +1208,8 @@ test "int.specifier" {
 }
 
 test "int.padded" {
-    try testFmt("u8: '   1'", "u8: '{:4}'", u8(1));
-    try testFmt("u8: 'xxx1'", "u8: '{:x<4}'", u8(1));
+    try testFmt("u8: '   1'", "u8: '{:4}'", @as(u8, 1));
+    try testFmt("u8: 'xxx1'", "u8: '{:x<4}'", @as(u8, 1));
 }
 
 test "buffer" {
@@ -1283,8 +1287,8 @@ test "filesize" {
         // TODO https://github.com/ziglang/zig/issues/3289
         return error.SkipZigTest;
     }
-    try testFmt("file size: 63MiB\n", "file size: {Bi}\n", usize(63 * 1024 * 1024));
-    try testFmt("file size: 66.06MB\n", "file size: {B:.2}\n", usize(63 * 1024 * 1024));
+    try testFmt("file size: 63MiB\n", "file size: {Bi}\n", @as(usize, 63 * 1024 * 1024));
+    try testFmt("file size: 66.06MB\n", "file size: {B:.2}\n", @as(usize, 63 * 1024 * 1024));
 }
 
 test "struct" {
@@ -1321,10 +1325,10 @@ test "float.scientific" {
         // TODO https://github.com/ziglang/zig/issues/3289
         return error.SkipZigTest;
     }
-    try testFmt("f32: 1.34000003e+00", "f32: {e}", f32(1.34));
-    try testFmt("f32: 1.23400001e+01", "f32: {e}", f32(12.34));
-    try testFmt("f64: -1.234e+11", "f64: {e}", f64(-12.34e10));
-    try testFmt("f64: 9.99996e-40", "f64: {e}", f64(9.999960e-40));
+    try testFmt("f32: 1.34000003e+00", "f32: {e}", @as(f32, 1.34));
+    try testFmt("f32: 1.23400001e+01", "f32: {e}", @as(f32, 12.34));
+    try testFmt("f64: -1.234e+11", "f64: {e}", @as(f64, -12.34e10));
+    try testFmt("f64: 9.99996e-40", "f64: {e}", @as(f64, 9.999960e-40));
 }
 
 test "float.scientific.precision" {
@@ -1332,12 +1336,12 @@ test "float.scientific.precision" {
         // TODO https://github.com/ziglang/zig/issues/3289
         return error.SkipZigTest;
     }
-    try testFmt("f64: 1.40971e-42", "f64: {e:.5}", f64(1.409706e-42));
-    try testFmt("f64: 1.00000e-09", "f64: {e:.5}", f64(@bitCast(f32, u32(814313563))));
-    try testFmt("f64: 7.81250e-03", "f64: {e:.5}", f64(@bitCast(f32, u32(1006632960))));
+    try testFmt("f64: 1.40971e-42", "f64: {e:.5}", @as(f64, 1.409706e-42));
+    try testFmt("f64: 1.00000e-09", "f64: {e:.5}", @as(f64, @bitCast(f32, @as(u32, 814313563))));
+    try testFmt("f64: 7.81250e-03", "f64: {e:.5}", @as(f64, @bitCast(f32, @as(u32, 1006632960))));
     // libc rounds 1.000005e+05 to 1.00000e+05 but zig does 1.00001e+05.
     // In fact, libc doesn't round a lot of 5 cases up when one past the precision point.
-    try testFmt("f64: 1.00001e+05", "f64: {e:.5}", f64(@bitCast(f32, u32(1203982400))));
+    try testFmt("f64: 1.00001e+05", "f64: {e:.5}", @as(f64, @bitCast(f32, @as(u32, 1203982400))));
 }
 
 test "float.special" {
@@ -1360,21 +1364,21 @@ test "float.decimal" {
         // TODO https://github.com/ziglang/zig/issues/3289
         return error.SkipZigTest;
     }
-    try testFmt("f64: 152314000000000000000000000000", "f64: {d}", f64(1.52314e+29));
-    try testFmt("f32: 1.1", "f32: {d:.1}", f32(1.1234));
-    try testFmt("f32: 1234.57", "f32: {d:.2}", f32(1234.567));
+    try testFmt("f64: 152314000000000000000000000000", "f64: {d}", @as(f64, 1.52314e+29));
+    try testFmt("f32: 1.1", "f32: {d:.1}", @as(f32, 1.1234));
+    try testFmt("f32: 1234.57", "f32: {d:.2}", @as(f32, 1234.567));
     // -11.1234 is converted to f64 -11.12339... internally (errol3() function takes f64).
     // -11.12339... is rounded back up to -11.1234
-    try testFmt("f32: -11.1234", "f32: {d:.4}", f32(-11.1234));
-    try testFmt("f32: 91.12345", "f32: {d:.5}", f32(91.12345));
-    try testFmt("f64: 91.1234567890", "f64: {d:.10}", f64(91.12345678901235));
-    try testFmt("f64: 0.00000", "f64: {d:.5}", f64(0.0));
-    try testFmt("f64: 6", "f64: {d:.0}", f64(5.700));
-    try testFmt("f64: 10.0", "f64: {d:.1}", f64(9.999));
-    try testFmt("f64: 1.000", "f64: {d:.3}", f64(1.0));
-    try testFmt("f64: 0.00030000", "f64: {d:.8}", f64(0.0003));
-    try testFmt("f64: 0.00000", "f64: {d:.5}", f64(1.40130e-45));
-    try testFmt("f64: 0.00000", "f64: {d:.5}", f64(9.999960e-40));
+    try testFmt("f32: -11.1234", "f32: {d:.4}", @as(f32, -11.1234));
+    try testFmt("f32: 91.12345", "f32: {d:.5}", @as(f32, 91.12345));
+    try testFmt("f64: 91.1234567890", "f64: {d:.10}", @as(f64, 91.12345678901235));
+    try testFmt("f64: 0.00000", "f64: {d:.5}", @as(f64, 0.0));
+    try testFmt("f64: 6", "f64: {d:.0}", @as(f64, 5.700));
+    try testFmt("f64: 10.0", "f64: {d:.1}", @as(f64, 9.999));
+    try testFmt("f64: 1.000", "f64: {d:.3}", @as(f64, 1.0));
+    try testFmt("f64: 0.00030000", "f64: {d:.8}", @as(f64, 0.0003));
+    try testFmt("f64: 0.00000", "f64: {d:.5}", @as(f64, 1.40130e-45));
+    try testFmt("f64: 0.00000", "f64: {d:.5}", @as(f64, 9.999960e-40));
 }
 
 test "float.libc.sanity" {
@@ -1382,22 +1386,22 @@ test "float.libc.sanity" {
         // TODO https://github.com/ziglang/zig/issues/3289
         return error.SkipZigTest;
     }
-    try testFmt("f64: 0.00001", "f64: {d:.5}", f64(@bitCast(f32, u32(916964781))));
-    try testFmt("f64: 0.00001", "f64: {d:.5}", f64(@bitCast(f32, u32(925353389))));
-    try testFmt("f64: 0.10000", "f64: {d:.5}", f64(@bitCast(f32, u32(1036831278))));
-    try testFmt("f64: 1.00000", "f64: {d:.5}", f64(@bitCast(f32, u32(1065353133))));
-    try testFmt("f64: 10.00000", "f64: {d:.5}", f64(@bitCast(f32, u32(1092616192))));
+    try testFmt("f64: 0.00001", "f64: {d:.5}", @as(f64, @bitCast(f32, @as(u32, 916964781))));
+    try testFmt("f64: 0.00001", "f64: {d:.5}", @as(f64, @bitCast(f32, @as(u32, 925353389))));
+    try testFmt("f64: 0.10000", "f64: {d:.5}", @as(f64, @bitCast(f32, @as(u32, 1036831278))));
+    try testFmt("f64: 1.00000", "f64: {d:.5}", @as(f64, @bitCast(f32, @as(u32, 1065353133))));
+    try testFmt("f64: 10.00000", "f64: {d:.5}", @as(f64, @bitCast(f32, @as(u32, 1092616192))));
 
     // libc differences
     //
     // This is 0.015625 exactly according to gdb. We thus round down,
     // however glibc rounds up for some reason. This occurs for all
     // floats of the form x.yyyy25 on a precision point.
-    try testFmt("f64: 0.01563", "f64: {d:.5}", f64(@bitCast(f32, u32(1015021568))));
+    try testFmt("f64: 0.01563", "f64: {d:.5}", @as(f64, @bitCast(f32, @as(u32, 1015021568))));
     // errol3 rounds to ... 630 but libc rounds to ...632. Grisu3
     // also rounds to 630 so I'm inclined to believe libc is not
     // optimal here.
-    try testFmt("f64: 18014400656965630.00000", "f64: {d:.5}", f64(@bitCast(f32, u32(1518338049))));
+    try testFmt("f64: 18014400656965630.00000", "f64: {d:.5}", @as(f64, @bitCast(f32, @as(u32, 1518338049))));
 }
 
 test "custom" {
@@ -1673,17 +1677,17 @@ test "formatType max_depth" {
 }
 
 test "positional" {
-    try testFmt("2 1 0", "{2} {1} {0}", usize(0), usize(1), usize(2));
-    try testFmt("2 1 0", "{2} {1} {}", usize(0), usize(1), usize(2));
-    try testFmt("0 0", "{0} {0}", usize(0));
-    try testFmt("0 1", "{} {1}", usize(0), usize(1));
-    try testFmt("1 0 0 1", "{1} {} {0} {}", usize(0), usize(1));
+    try testFmt("2 1 0", "{2} {1} {0}", @as(usize, 0), @as(usize, 1), @as(usize, 2));
+    try testFmt("2 1 0", "{2} {1} {}", @as(usize, 0), @as(usize, 1), @as(usize, 2));
+    try testFmt("0 0", "{0} {0}", @as(usize, 0));
+    try testFmt("0 1", "{} {1}", @as(usize, 0), @as(usize, 1));
+    try testFmt("1 0 0 1", "{1} {} {0} {}", @as(usize, 0), @as(usize, 1));
 }
 
 test "positional with specifier" {
-    try testFmt("10.0", "{0d:.1}", f64(9.999));
+    try testFmt("10.0", "{0d:.1}", @as(f64, 9.999));
 }
 
 test "positional/alignment/width/precision" {
-    try testFmt("10.0", "{0d: >3.1}", f64(9.999));
+    try testFmt("10.0", "{0d: >3.1}", @as(f64, 9.999));
 }

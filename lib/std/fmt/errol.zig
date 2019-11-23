@@ -296,7 +296,7 @@ fn hpMul10(hp: *HP) void {
 ///  @buf: The output buffer.
 ///  &return: The exponent.
 fn errolInt(val: f64, buffer: []u8) FloatDecimal {
-    const pow19 = u128(1e19);
+    const pow19 = @as(u128, 1e19);
 
     assert((val > 9.007199254740992e15) and val < (3.40282366920938e38));
 
@@ -670,7 +670,7 @@ fn fpeint(from: f64) u128 {
     const bits = @bitCast(u64, from);
     assert((bits & ((1 << 52) - 1)) == 0);
 
-    return u128(1) << @truncate(u7, (bits >> 52) -% 1023);
+    return @as(u128, 1) << @truncate(u7, (bits >> 52) -% 1023);
 }
 
 /// Given two different integers with the same length in terms of the number

@@ -328,11 +328,11 @@ pub fn preadWindows(loop: *Loop, fd: fd_t, data: []u8, offset: u64) !usize {
             windows.ERROR.IO_PENDING => unreachable,
             windows.ERROR.OPERATION_ABORTED => return error.OperationAborted,
             windows.ERROR.BROKEN_PIPE => return error.BrokenPipe,
-            windows.ERROR.HANDLE_EOF => return usize(bytes_transferred),
+            windows.ERROR.HANDLE_EOF => return @as(usize, bytes_transferred),
             else => |err| return windows.unexpectedError(err),
         }
     }
-    return usize(bytes_transferred);
+    return @as(usize, bytes_transferred);
 }
 
 /// iovecs must live until preadv frame completes
@@ -415,7 +415,8 @@ pub fn openPosix(
 pub fn openRead(loop: *Loop, path: []const u8) File.OpenError!fd_t {
     switch (builtin.os) {
         .macosx, .linux, .freebsd, .netbsd, .dragonfly => {
-            const flags = os.O_LARGEFILE | os.O_RDONLY | os.O_CLOEXEC;
+            const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
+            const flags = O_LARGEFILE | os.O_RDONLY | os.O_CLOEXEC;
             return openPosix(loop, path, flags, File.default_mode);
         },
 
@@ -448,7 +449,8 @@ pub fn openWriteMode(loop: *Loop, path: []const u8, mode: File.Mode) File.OpenEr
         .netbsd,
         .dragonfly,
         => {
-            const flags = os.O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_TRUNC;
+            const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
+            const flags = O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_TRUNC;
             return openPosix(loop, path, flags, File.default_mode);
         },
         .windows => return windows.CreateFile(
@@ -472,7 +474,8 @@ pub fn openReadWrite(
 ) File.OpenError!fd_t {
     switch (builtin.os) {
         .macosx, .linux, .freebsd, .netbsd, .dragonfly => {
-            const flags = os.O_LARGEFILE | os.O_RDWR | os.O_CREAT | os.O_CLOEXEC;
+            const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
+            const flags = O_LARGEFILE | os.O_RDWR | os.O_CREAT | os.O_CLOEXEC;
             return openPosix(loop, path, flags, mode);
         },
 

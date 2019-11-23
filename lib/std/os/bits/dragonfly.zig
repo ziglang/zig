@@ -241,7 +241,6 @@ pub const KERN_MAXID = 37;
 
 pub const HOST_NAME_MAX = 255;
 
-pub const O_LARGEFILE = 0; // faked support
 pub const O_RDONLY = 0;
 pub const O_NDELAY = O_NONBLOCK;
 pub const O_WRONLY = 1;
@@ -315,7 +314,7 @@ pub const dirent = extern struct {
     d_name: [256]u8,
 
     pub fn reclen(self: dirent) u16 {
-        return (@byteOffsetOf(dirent, "d_name") + self.d_namlen + 1 + 7) & ~u16(7);
+        return (@byteOffsetOf(dirent, "d_name") + self.d_namlen + 1 + 7) & ~@as(u16, 7);
     }
 };
 
@@ -358,11 +357,6 @@ pub const Kevent = extern struct {
     fflags: c_uint,
     data: isize,
     udata: usize,
-};
-
-pub const pthread_attr_t = extern struct { // copied from freebsd
-    __size: [56]u8,
-    __align: c_long,
 };
 
 pub const EVFILT_FS = -10;
@@ -515,13 +509,13 @@ pub const sigset_t = extern struct {
 pub const sig_atomic_t = c_int;
 pub const Sigaction = extern struct {
     __sigaction_u: extern union {
-        __sa_handler: ?extern fn(c_int) void,
-        __sa_sigaction: ?extern fn(c_int, [*c]siginfo_t, ?*c_void) void,
+        __sa_handler: ?extern fn (c_int) void,
+        __sa_sigaction: ?extern fn (c_int, [*c]siginfo_t, ?*c_void) void,
     },
     sa_flags: c_int,
     sa_mask: sigset_t,
 };
-pub const sig_t = [*c]extern fn(c_int) void;
+pub const sig_t = [*c]extern fn (c_int) void;
 
 pub const sigvec = extern struct {
     sv_handler: [*c]__sighandler_t,

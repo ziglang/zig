@@ -93,7 +93,7 @@ pub const restore = restore_rt;
 pub nakedcc fn restore_rt() void {
     return asm volatile ("svc #0"
         :
-        : [number] "{x8}" (usize(SYS_rt_sigreturn))
+        : [number] "{x8}" (@as(usize, SYS_rt_sigreturn))
         : "memory", "cc"
     );
 }

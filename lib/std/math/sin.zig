@@ -88,9 +88,9 @@ test "math.sin" {
         // TODO https://github.com/ziglang/zig/issues/3289
         return error.SkipZigTest;
     }
-    expect(sin(f32(0.0)) == sin_(f32, 0.0));
-    expect(sin(f64(0.0)) == sin_(f64, 0.0));
-    expect(comptime (math.sin(f64(2))) == math.sin(f64(2)));
+    expect(sin(@as(f32, 0.0)) == sin_(f32, 0.0));
+    expect(sin(@as(f64, 0.0)) == sin_(f64, 0.0));
+    expect(comptime (math.sin(@as(f64, 2))) == math.sin(@as(f64, 2)));
 }
 
 test "math.sin32" {

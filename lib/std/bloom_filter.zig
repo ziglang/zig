@@ -28,7 +28,7 @@ pub fn BloomFilter(
     assert(n_items > 0);
     assert(math.isPowerOfTwo(n_items));
     assert(K > 0);
-    const cellEmpty = if (Cell == bool) false else Cell(0);
+    const cellEmpty = if (Cell == bool) false else @as(Cell, 0);
     const cellMax = if (Cell == bool) true else math.maxInt(Cell);
     const n_bytes = (n_items * comptime std.meta.bitCount(Cell)) / 8;
     assert(n_bytes > 0);
@@ -137,7 +137,7 @@ pub fn BloomFilter(
                 var i: usize = 0;
                 while (i < n_items) : (i += 1) {
                     const cell = self.getCell(@intCast(Index, i));
-                    n += if (if (Cell == bool) cell else cell > 0) Index(1) else Index(0);
+                    n += if (if (Cell == bool) cell else cell > 0) @as(Index, 1) else @as(Index, 0);
                 }
             }
             return n;
@@ -161,7 +161,7 @@ fn hashFunc(out: []u8, Ki: usize, in: []const u8) void {
 
 test "std.BloomFilter" {
     inline for ([_]type{ bool, u1, u2, u3, u4 }) |Cell| {
-        const emptyCell = if (Cell == bool) false else Cell(0);
+        const emptyCell = if (Cell == bool) false else @as(Cell, 0);
         const BF = BloomFilter(128 * 8, 8, Cell, builtin.endian, hashFunc);
         var bf = BF{};
         var i: usize = undefined;
@@ -170,8 +170,8 @@ test "std.BloomFilter" {
         while (i < BF.items) : (i += 1) {
             testing.expectEqual(emptyCell, bf.getCell(@intCast(BF.Index, i)));
         }
-        testing.expectEqual(BF.Index(0), bf.popCount());
-        testing.expectEqual(f64(0), bf.estimateItems());
+        testing.expectEqual(@as(BF.Index, 0), bf.popCount());
+        testing.expectEqual(@as(f64, 0), bf.estimateItems());
         // fill in a few items
         bf.incrementCell(42);
         bf.incrementCell(255);
@@ -196,8 +196,8 @@ test "std.BloomFilter" {
         while (i < BF.items) : (i += 1) {
             testing.expectEqual(emptyCell, bf.getCell(@intCast(BF.Index, i)));
         }
-        testing.expectEqual(BF.Index(0), bf.popCount());
-        testing.expectEqual(f64(0), bf.estimateItems());
+        testing.expectEqual(@as(BF.Index, 0), bf.popCount());
+        testing.expectEqual(@as(f64, 0), bf.estimateItems());
 
         // Lets add a string
         bf.add("foo");
@@ -218,8 +218,8 @@ test "std.BloomFilter" {
         while (i < BF.items) : (i += 1) {
             testing.expectEqual(emptyCell, bf.getCell(@intCast(BF.Index, i)));
         }
-        testing.expectEqual(BF.Index(0), bf.popCount());
-        testing.expectEqual(f64(0), bf.estimateItems());
+        testing.expectEqual(@as(BF.Index, 0), bf.popCount());
+        testing.expectEqual(@as(f64, 0), bf.estimateItems());
 
         comptime var teststrings = [_][]const u8{
             "foo",
@@ -246,12 +246,12 @@ test "std.BloomFilter" {
         inline for (teststrings) |str| {
             testing.expectEqual(true, larger_bf.contains(str));
         }
-        testing.expectEqual(u12(bf.popCount()) * (4096 / 1024), larger_bf.popCount());
+        testing.expectEqual(@as(u12, bf.popCount()) * (4096 / 1024), larger_bf.popCount());
 
         const smaller_bf = bf.resize(64);
         inline for (teststrings) |str| {
             testing.expectEqual(true, smaller_bf.contains(str));
         }
-        testing.expect(bf.popCount() <= u10(smaller_bf.popCount()) * (1024 / 64));
+        testing.expect(bf.popCount() <= @as(u10, smaller_bf.popCount()) * (1024 / 64));
     }
 }

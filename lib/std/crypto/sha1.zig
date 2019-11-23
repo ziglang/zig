@@ -146,10 +146,10 @@ pub const Sha1 = struct {
             Rp(0, 1, 2, 3, 4, 15),
         };
         inline for (round0a) |r| {
-            s[r.i] = (u32(b[r.i * 4 + 0]) << 24) | (u32(b[r.i * 4 + 1]) << 16) | (u32(b[r.i * 4 + 2]) << 8) | (u32(b[r.i * 4 + 3]) << 0);
+            s[r.i] = (@as(u32, b[r.i * 4 + 0]) << 24) | (@as(u32, b[r.i * 4 + 1]) << 16) | (@as(u32, b[r.i * 4 + 2]) << 8) | (@as(u32, b[r.i * 4 + 3]) << 0);
 
-            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], u32(5)) +% 0x5A827999 +% s[r.i & 0xf] +% ((v[r.b] & v[r.c]) | (~v[r.b] & v[r.d]));
-            v[r.b] = math.rotl(u32, v[r.b], u32(30));
+            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], @as(u32, 5)) +% 0x5A827999 +% s[r.i & 0xf] +% ((v[r.b] & v[r.c]) | (~v[r.b] & v[r.d]));
+            v[r.b] = math.rotl(u32, v[r.b], @as(u32, 30));
         }
 
         const round0b = comptime [_]RoundParam{
@@ -160,10 +160,10 @@ pub const Sha1 = struct {
         };
         inline for (round0b) |r| {
             const t = s[(r.i - 3) & 0xf] ^ s[(r.i - 8) & 0xf] ^ s[(r.i - 14) & 0xf] ^ s[(r.i - 16) & 0xf];
-            s[r.i & 0xf] = math.rotl(u32, t, u32(1));
+            s[r.i & 0xf] = math.rotl(u32, t, @as(u32, 1));
 
-            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], u32(5)) +% 0x5A827999 +% s[r.i & 0xf] +% ((v[r.b] & v[r.c]) | (~v[r.b] & v[r.d]));
-            v[r.b] = math.rotl(u32, v[r.b], u32(30));
+            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], @as(u32, 5)) +% 0x5A827999 +% s[r.i & 0xf] +% ((v[r.b] & v[r.c]) | (~v[r.b] & v[r.d]));
+            v[r.b] = math.rotl(u32, v[r.b], @as(u32, 30));
         }
 
         const round1 = comptime [_]RoundParam{
@@ -190,10 +190,10 @@ pub const Sha1 = struct {
         };
         inline for (round1) |r| {
             const t = s[(r.i - 3) & 0xf] ^ s[(r.i - 8) & 0xf] ^ s[(r.i - 14) & 0xf] ^ s[(r.i - 16) & 0xf];
-            s[r.i & 0xf] = math.rotl(u32, t, u32(1));
+            s[r.i & 0xf] = math.rotl(u32, t, @as(u32, 1));
 
-            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], u32(5)) +% 0x6ED9EBA1 +% s[r.i & 0xf] +% (v[r.b] ^ v[r.c] ^ v[r.d]);
-            v[r.b] = math.rotl(u32, v[r.b], u32(30));
+            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], @as(u32, 5)) +% 0x6ED9EBA1 +% s[r.i & 0xf] +% (v[r.b] ^ v[r.c] ^ v[r.d]);
+            v[r.b] = math.rotl(u32, v[r.b], @as(u32, 30));
         }
 
         const round2 = comptime [_]RoundParam{
@@ -220,10 +220,10 @@ pub const Sha1 = struct {
         };
         inline for (round2) |r| {
             const t = s[(r.i - 3) & 0xf] ^ s[(r.i - 8) & 0xf] ^ s[(r.i - 14) & 0xf] ^ s[(r.i - 16) & 0xf];
-            s[r.i & 0xf] = math.rotl(u32, t, u32(1));
+            s[r.i & 0xf] = math.rotl(u32, t, @as(u32, 1));
 
-            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], u32(5)) +% 0x8F1BBCDC +% s[r.i & 0xf] +% ((v[r.b] & v[r.c]) ^ (v[r.b] & v[r.d]) ^ (v[r.c] & v[r.d]));
-            v[r.b] = math.rotl(u32, v[r.b], u32(30));
+            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], @as(u32, 5)) +% 0x8F1BBCDC +% s[r.i & 0xf] +% ((v[r.b] & v[r.c]) ^ (v[r.b] & v[r.d]) ^ (v[r.c] & v[r.d]));
+            v[r.b] = math.rotl(u32, v[r.b], @as(u32, 30));
         }
 
         const round3 = comptime [_]RoundParam{
@@ -250,10 +250,10 @@ pub const Sha1 = struct {
         };
         inline for (round3) |r| {
             const t = s[(r.i - 3) & 0xf] ^ s[(r.i - 8) & 0xf] ^ s[(r.i - 14) & 0xf] ^ s[(r.i - 16) & 0xf];
-            s[r.i & 0xf] = math.rotl(u32, t, u32(1));
+            s[r.i & 0xf] = math.rotl(u32, t, @as(u32, 1));
 
-            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], u32(5)) +% 0xCA62C1D6 +% s[r.i & 0xf] +% (v[r.b] ^ v[r.c] ^ v[r.d]);
-            v[r.b] = math.rotl(u32, v[r.b], u32(30));
+            v[r.e] = v[r.e] +% math.rotl(u32, v[r.a], @as(u32, 5)) +% 0xCA62C1D6 +% s[r.i & 0xf] +% (v[r.b] ^ v[r.c] ^ v[r.d]);
+            v[r.b] = math.rotl(u32, v[r.b], @as(u32, 30));
         }
 
         d.s[0] +%= v[0];

@@ -1,9 +1,26 @@
-// TODO remove `use` keyword eventually: https://github.com/ziglang/zig/issues/2591
-test "zig fmt: change use to usingnamespace" {
-    try testTransform(
-        \\use @import("std");
-    ,
-        \\usingnamespace @import("std");
+test "zig fmt: anon literal in array" {
+    try testCanonical(
+        \\var arr: [2]Foo = .{
+        \\    .{ .a = 2 },
+        \\    .{ .b = 3 },
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: anon struct literal syntax" {
+    try testCanonical(
+        \\const x = .{
+        \\    .a = b,
+        \\    .c = d,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: anon list literal syntax" {
+    try testCanonical(
+        \\const x = .{ a, b, c };
         \\
     );
 }
@@ -37,7 +54,7 @@ test "zig fmt: while else err prong with no block" {
         \\test "" {
         \\    const result = while (returnError()) |value| {
         \\        break value;
-        \\    } else |err| i32(2);
+        \\    } else |err| @as(i32, 2);
         \\    expect(result == 2);
         \\}
         \\
@@ -1444,11 +1461,11 @@ test "zig fmt: preserve spacing" {
         \\const std = @import("std");
         \\
         \\pub fn main() !void {
-        \\    var stdout_file = try std.io.getStdOut;
-        \\    var stdout_file = try std.io.getStdOut;
+        \\    var stdout_file = std.io.getStdOut;
+        \\    var stdout_file = std.io.getStdOut;
         \\
-        \\    var stdout_file = try std.io.getStdOut;
-        \\    var stdout_file = try std.io.getStdOut;
+        \\    var stdout_file = std.io.getStdOut;
+        \\    var stdout_file = std.io.getStdOut;
         \\}
         \\
     );
@@ -2549,6 +2566,62 @@ test "zig fmt: comments at several places in struct init" {
     );
 }
 
+test "zig fmt: top level doc comments" {
+    try testCanonical(
+        \\//! tld 1
+        \\//! tld 2
+        \\//! tld 3
+        \\
+        \\// comment
+        \\
+        \\/// A doc
+        \\const A = struct {
+        \\    //! A tld 1
+        \\    //! A tld 2
+        \\    //! A tld 3
+        \\};
+        \\
+        \\/// B doc
+        \\const B = struct {
+        \\    //! B tld 1
+        \\    //! B tld 2
+        \\    //! B tld 3
+        \\
+        \\    /// b doc
+        \\    b: u32,
+        \\};
+        \\
+        \\/// C doc
+        \\const C = struct {
+        \\    //! C tld 1
+        \\    //! C tld 2
+        \\    //! C tld 3
+        \\
+        \\    /// c1 doc
+        \\    c1: u32,
+        \\
+        \\    //! C tld 4
+        \\    //! C tld 5
+        \\    //! C tld 6
+        \\
+        \\    /// c2 doc
+        \\    c2: u32,
+        \\};
+        \\
+    );
+    try testCanonical(
+        \\//! Top-level documentation.
+        \\
+        \\/// This is A
+        \\pub const A = usize;
+        \\
+    );
+    try testCanonical(
+        \\//! Nothing here
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
@@ -2558,8 +2631,7 @@ const maxInt = std.math.maxInt;
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *bool) ![]u8 {
-    var stderr_file = try io.getStdErr();
-    var stderr = &stderr_file.outStream().stream;
+    const stderr = &io.getStdErr().outStream().stream;
 
     const tree = try std.zig.parse(allocator, source);
     defer tree.deinit();

@@ -2214,6 +2214,11 @@ struct ZigClangQualType ZigClangAttributedType_getEquivalentType(const struct Zi
     return bitcast(casted->getEquivalentType());
 }
 
+struct ZigClangQualType ZigClangMacroQualifiedType_getModifiedType(const struct ZigClangMacroQualifiedType *self) {
+    auto casted = reinterpret_cast<const clang::MacroQualifiedType *>(self);
+    return bitcast(casted->getModifiedType());
+}
+
 struct ZigClangQualType ZigClangElaboratedType_getNamedType(const struct ZigClangElaboratedType *self) {
     auto casted = reinterpret_cast<const clang::ElaboratedType *>(self);
     return bitcast(casted->getNamedType());

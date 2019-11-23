@@ -215,8 +215,8 @@ pub const ElfLib = struct {
 
         var i: usize = 0;
         while (i < self.hashtab[1]) : (i += 1) {
-            if (0 == (u32(1) << @intCast(u5, self.syms[i].st_info & 0xf) & OK_TYPES)) continue;
-            if (0 == (u32(1) << @intCast(u5, self.syms[i].st_info >> 4) & OK_BINDS)) continue;
+            if (0 == (@as(u32, 1) << @intCast(u5, self.syms[i].st_info & 0xf) & OK_TYPES)) continue;
+            if (0 == (@as(u32, 1) << @intCast(u5, self.syms[i].st_info >> 4) & OK_BINDS)) continue;
             if (0 == self.syms[i].st_shndx) continue;
             if (!mem.eql(u8, name, mem.toSliceConst(u8, self.strings + self.syms[i].st_name))) continue;
             if (maybe_versym) |versym| {

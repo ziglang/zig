@@ -112,6 +112,7 @@ struct ZigClangImplicitCastExpr;
 struct ZigClangIncompleteArrayType;
 struct ZigClangIntegerLiteral;
 struct ZigClangMacroDefinitionRecord;
+struct ZigClangMacroQualifiedType;
 struct ZigClangMemberExpr;
 struct ZigClangNamedDecl;
 struct ZigClangNone;
@@ -1003,6 +1004,8 @@ ZIG_EXTERN_C const struct ZigClangNamedDecl *ZigClangDeclRefExpr_getFoundDecl(co
 ZIG_EXTERN_C struct ZigClangQualType ZigClangParenType_getInnerType(const struct ZigClangParenType *);
 
 ZIG_EXTERN_C struct ZigClangQualType ZigClangAttributedType_getEquivalentType(const struct ZigClangAttributedType *);
+
+ZIG_EXTERN_C struct ZigClangQualType ZigClangMacroQualifiedType_getModifiedType(const struct ZigClangMacroQualifiedType *);
 
 ZIG_EXTERN_C struct ZigClangQualType ZigClangElaboratedType_getNamedType(const struct ZigClangElaboratedType *);
 ZIG_EXTERN_C enum ZigClangElaboratedTypeKeyword ZigClangElaboratedType_getKeyword(const struct ZigClangElaboratedType *);

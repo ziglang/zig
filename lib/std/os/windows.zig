@@ -16,6 +16,7 @@ pub const kernel32 = @import("windows/kernel32.zig");
 pub const ntdll = @import("windows/ntdll.zig");
 pub const ole32 = @import("windows/ole32.zig");
 pub const shell32 = @import("windows/shell32.zig");
+pub const ws2_32 = @import("windows/ws2_32.zig");
 
 pub usingnamespace @import("windows/bits.zig");
 
@@ -94,6 +95,42 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
             else => |err| return unexpectedError(err),
         }
     }
+}
+
+pub fn DeviceIoControl(
+    h: HANDLE,
+    ioControlCode: DWORD,
+    in: ?[]const u8,
+    out: ?[]u8,
+    overlapped: ?*OVERLAPPED,
+) !DWORD {
+    var bytes: DWORD = undefined;
+    if (kernel32.DeviceIoControl(
+        h,
+        ioControlCode,
+        if (in) |i| i.ptr else null,
+        if (in) |i| @intCast(u32, i.len) else 0,
+        if (out) |o| o.ptr else null,
+        if (out) |o| @intCast(u32, o.len) else 0,
+        &bytes,
+        overlapped,
+    ) == 0) {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+    return bytes;
+}
+
+pub fn GetOverlappedResult(h: HANDLE, overlapped: *OVERLAPPED, wait: bool) !DWORD {
+    var bytes: DWORD = undefined;
+    if (kernel32.GetOverlappedResult(h, overlapped, &bytes, wait) == 0) {
+        switch (kernel32.GetLastError()) {
+            ERROR_IO_INCOMPLETE => if (!wait) return error.WouldBlock else unreachable,
+            else => |err| return unexpectedError(err),
+        }
+    }
+    return bytes;
 }
 
 pub const SetHandleInformationError = error{Unexpected};
@@ -262,7 +299,7 @@ pub const ReadFileError = error{Unexpected};
 pub fn ReadFile(in_hFile: HANDLE, buffer: []u8) ReadFileError!usize {
     var index: usize = 0;
     while (index < buffer.len) {
-        const want_read_count = @intCast(DWORD, math.min(DWORD(maxInt(DWORD)), buffer.len - index));
+        const want_read_count = @intCast(DWORD, math.min(@as(DWORD, maxInt(DWORD)), buffer.len - index));
         var amt_read: DWORD = undefined;
         if (kernel32.ReadFile(in_hFile, buffer.ptr + index, want_read_count, &amt_read, null) == 0) {
             switch (kernel32.GetLastError()) {
@@ -571,6 +608,74 @@ pub fn GetFileAttributesW(lpFileName: [*]const u16) GetFileAttributesError!DWORD
     return rc;
 }
 
+pub fn WSAStartup(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
+    var wsadata: ws2_32.WSADATA = undefined;
+    return switch (ws2_32.WSAStartup((@as(WORD, minorVersion) << 8) | majorVersion, &wsadata)) {
+        0 => wsadata,
+        else => |err| unexpectedWSAError(err),
+    };
+}
+
+pub fn WSACleanup() !void {
+    return switch (ws2_32.WSACleanup()) {
+        0 => {},
+        ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
+            else => |err| return unexpectedWSAError(err),
+        },
+        else => unreachable,
+    };
+}
+
+pub fn WSASocketW(
+    af: i32,
+    socket_type: i32,
+    protocol: i32,
+    protocolInfo: ?*ws2_32.WSAPROTOCOL_INFOW,
+    g: ws2_32.GROUP,
+    dwFlags: DWORD,
+) !ws2_32.SOCKET {
+    const rc = ws2_32.WSASocketW(af, socket_type, protocol, protocolInfo, g, dwFlags);
+    if (rc == ws2_32.INVALID_SOCKET) {
+        switch (ws2_32.WSAGetLastError()) {
+            ws2_32.WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+            ws2_32.WSAEMFILE => return error.ProcessFdQuotaExceeded,
+            ws2_32.WSAENOBUFS => return error.SystemResources,
+            ws2_32.WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,
+            else => |err| return unexpectedWSAError(err),
+        }
+    }
+    return rc;
+}
+
+pub fn WSAIoctl(
+    s: ws2_32.SOCKET,
+    dwIoControlCode: DWORD,
+    inBuffer: ?[]const u8,
+    outBuffer: []u8,
+    overlapped: ?*ws2_32.WSAOVERLAPPED,
+    completionRoutine: ?*ws2_32.WSAOVERLAPPED_COMPLETION_ROUTINE,
+) !DWORD {
+    var bytes: DWORD = undefined;
+    switch (ws2_32.WSAIoctl(
+        s,
+        dwIoControlCode,
+        if (inBuffer) |i| i.ptr else null,
+        if (inBuffer) |i| @intCast(DWORD, i.len) else 0,
+        outBuffer.ptr,
+        @intCast(DWORD, outBuffer.len),
+        &bytes,
+        overlapped,
+        completionRoutine,
+    )) {
+        0 => {},
+        ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
+            else => |err| return unexpectedWSAError(err),
+        },
+        else => unreachable,
+    }
+    return bytes;
+}
+
 const GetModuleFileNameError = error{Unexpected};
 
 pub fn GetModuleFileNameW(hModule: ?HMODULE, buf_ptr: [*]u16, buf_len: DWORD) GetModuleFileNameError![]u16 {
@@ -801,7 +906,7 @@ pub fn toSysTime(ns: i64) i64 {
 }
 
 pub fn fileTimeToNanoSeconds(ft: FILETIME) i64 {
-    const hns = @bitCast(i64, (u64(ft.dwHighDateTime) << 32) | ft.dwLowDateTime);
+    const hns = @bitCast(i64, (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime);
     return fromSysTime(hns);
 }
 
@@ -820,6 +925,24 @@ pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {
 
 pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE + 1]u16 {
     return sliceToPrefixedSuffixedFileW(s, [_]u16{0});
+}
+
+/// Assumes an absolute path.
+pub fn wToPrefixedFileW(s: []const u16) ![PATH_MAX_WIDE + 1]u16 {
+    // TODO https://github.com/ziglang/zig/issues/2765
+    var result: [PATH_MAX_WIDE + 1]u16 = undefined;
+
+    const start_index = if (mem.startsWith(u16, s, [_]u16{'\\', '?'})) 0 else blk: {
+        const prefix = [_]u16{ '\\', '?', '?', '\\' };
+        mem.copy(u16, result[0..], prefix);
+        break :blk prefix.len;
+    };
+    const end_index = start_index + s.len;
+    if (end_index + 1 > result.len) return error.NameTooLong;
+    mem.copy(u16, result[start_index..], s);
+    result[end_index] = 0;
+    return result;
+
 }
 
 pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16) ![PATH_MAX_WIDE + suffix.len]u16 {
@@ -843,7 +966,6 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
         break :blk prefix.len;
     };
     const end_index = start_index + try std.unicode.utf8ToUtf16Le(result[start_index..], s);
-    assert(end_index <= result.len);
     if (end_index + suffix.len > result.len) return error.NameTooLong;
     mem.copy(u16, result[end_index..], suffix);
     return result;
@@ -866,6 +988,10 @@ pub fn unexpectedError(err: DWORD) std.os.UnexpectedError {
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
+}
+
+pub fn unexpectedWSAError(err: c_int) std.os.UnexpectedError {
+    return unexpectedError(@intCast(DWORD, err));
 }
 
 /// Call this when you made a windows NtDll call

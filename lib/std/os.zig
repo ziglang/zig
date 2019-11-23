@@ -472,7 +472,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
 
     var index: usize = 0;
     while (index < bytes.len) {
-        const amt_to_write = math.min(bytes.len - index, usize(max_bytes_len));
+        const amt_to_write = math.min(bytes.len - index, @as(usize, max_bytes_len));
         const rc = system.write(fd, bytes.ptr + index, amt_to_write);
         switch (errno(rc)) {
             0 => {
@@ -1126,9 +1126,9 @@ pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*]const u16, flags: u32) UnlinkatErro
 
     const want_rmdir_behavior = (flags & AT_REMOVEDIR) != 0;
     const create_options_flags = if (want_rmdir_behavior)
-        w.ULONG(w.FILE_DELETE_ON_CLOSE)
+        @as(w.ULONG, w.FILE_DELETE_ON_CLOSE)
     else
-        w.ULONG(w.FILE_DELETE_ON_CLOSE | w.FILE_NON_DIRECTORY_FILE);
+        @as(w.ULONG, w.FILE_DELETE_ON_CLOSE | w.FILE_NON_DIRECTORY_FILE);
 
     const path_len_bytes = @intCast(u16, mem.toSliceConst(u16, sub_path_w).len * 2);
     var nt_name = w.UNICODE_STRING{
@@ -1526,7 +1526,7 @@ pub fn isatty(handle: fd_t) bool {
     }
     if (builtin.os == .linux) {
         var wsz: linux.winsize = undefined;
-        return linux.syscall3(linux.SYS_ioctl, @bitCast(usize, isize(handle)), linux.TIOCGWINSZ, @ptrToInt(&wsz)) == 0;
+        return linux.syscall3(linux.SYS_ioctl, @bitCast(usize, @as(isize, handle)), linux.TIOCGWINSZ, @ptrToInt(&wsz)) == 0;
     }
     unreachable;
 }
@@ -1547,7 +1547,7 @@ pub fn isCygwinPty(handle: fd_t) bool {
     }
 
     const name_info = @ptrCast(*const windows.FILE_NAME_INFO, &name_info_bytes[0]);
-    const name_bytes = name_info_bytes[size .. size + usize(name_info.FileNameLength)];
+    const name_bytes = name_info_bytes[size .. size + @as(usize, name_info.FileNameLength)];
     const name_wide = @bytesToSlice(u16, name_bytes);
     return mem.indexOf(u16, name_wide, [_]u16{ 'm', 's', 'y', 's', '-' }) != null or
         mem.indexOf(u16, name_wide, [_]u16{ '-', 'p', 't', 'y' }) != null;
@@ -2897,7 +2897,7 @@ pub fn res_mkquery(
     // Construct query template - ID will be filled later
     var q: [280]u8 = undefined;
     @memset(&q, 0, n);
-    q[2] = u8(op) * 8 + 1;
+    q[2] = @as(u8, op) * 8 + 1;
     q[5] = 1;
     mem.copy(u8, q[13..], name);
     var i: usize = 13;
@@ -3143,7 +3143,7 @@ pub fn dn_expand(
         // loop invariants: p<end, dest<dend
         if ((p[0] & 0xc0) != 0) {
             if (p + 1 == end) return error.InvalidDnsPacket;
-            var j = ((p[0] & usize(0x3f)) << 8) | p[1];
+            var j = ((p[0] & @as(usize, 0x3f)) << 8) | p[1];
             if (len == std.math.maxInt(usize)) len = @ptrToInt(p) + 2 - @ptrToInt(comp_dn.ptr);
             if (j >= msg.len) return error.InvalidDnsPacket;
             p = msg.ptr + j;
@@ -3170,4 +3170,23 @@ pub fn dn_expand(
         }
     }
     return error.InvalidDnsPacket;
+}
+
+pub const SchedYieldError = error{
+    /// The system is not configured to allow yielding
+    SystemCannotYield,
+};
+
+pub fn sched_yield() SchedYieldError!void {
+    if (builtin.os == .windows) {
+        // The return value has to do with how many other threads there are; it is not
+        // an error condition on Windows.
+        _ = windows.kernel32.SwitchToThread();
+        return;
+    }
+    switch (errno(system.sched_yield())) {
+        0 => return,
+        ENOSYS => return error.SystemCannotYield,
+        else => return error.SystemCannotYield,
+    }
 }

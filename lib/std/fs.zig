@@ -6,6 +6,7 @@ const base64 = std.base64;
 const crypto = std.crypto;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const math = std.math;
 
 pub const path = @import("fs/path.zig");
 pub const File = @import("fs/file.zig").File;
@@ -584,7 +585,7 @@ pub const Dir = struct {
                             .FileBothDirectoryInformation,
                             w.FALSE,
                             null,
-                            if (self.first) w.BOOLEAN(w.TRUE) else w.BOOLEAN(w.FALSE),
+                            if (self.first) @as(w.BOOLEAN, w.TRUE) else @as(w.BOOLEAN, w.FALSE),
                         );
                         self.first = false;
                         if (io.Information == 0) return null;
@@ -698,15 +699,79 @@ pub const Dir = struct {
 
     /// Call `File.close` on the result when done.
     pub fn openRead(self: Dir, sub_path: []const u8) File.OpenError!File {
+        if (builtin.os == .windows) {
+            const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            return self.openReadW(&path_w);
+        }
         const path_c = try os.toPosixPath(sub_path);
         return self.openReadC(&path_c);
     }
 
     /// Call `File.close` on the result when done.
     pub fn openReadC(self: Dir, sub_path: [*]const u8) File.OpenError!File {
-        const flags = os.O_LARGEFILE | os.O_RDONLY | os.O_CLOEXEC;
+        if (builtin.os == .windows) {
+            const path_w = try os.windows.cStrToPrefixedFileW(sub_path);
+            return self.openReadW(&path_w);
+        }
+        const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
+        const flags = O_LARGEFILE | os.O_RDONLY | os.O_CLOEXEC;
         const fd = try os.openatC(self.fd, sub_path, flags, 0);
         return File.openHandle(fd);
+    }
+
+    pub fn openReadW(self: Dir, sub_path_w: [*]const u16) File.OpenError!File {
+        const w = os.windows;
+
+        var result = File{ .handle = undefined };
+
+        const path_len_bytes = math.cast(u16, mem.toSliceConst(u16, sub_path_w).len * 2) catch |err| switch (err) {
+            error.Overflow => return error.NameTooLong,
+        };
+        var nt_name = w.UNICODE_STRING{
+            .Length = path_len_bytes,
+            .MaximumLength = path_len_bytes,
+            .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
+        };
+        var attr = w.OBJECT_ATTRIBUTES{
+            .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
+            .RootDirectory = if (path.isAbsoluteW(sub_path_w)) null else self.fd,
+            .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+            .ObjectName = &nt_name,
+            .SecurityDescriptor = null,
+            .SecurityQualityOfService = null,
+        };
+        if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+            return error.IsDir;
+        }
+        if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
+            return error.IsDir;
+        }
+        var io: w.IO_STATUS_BLOCK = undefined;
+        const rc = w.ntdll.NtCreateFile(
+            &result.handle,
+            w.GENERIC_READ | w.SYNCHRONIZE,
+            &attr,
+            &io,
+            null,
+            w.FILE_ATTRIBUTE_NORMAL,
+            w.FILE_SHARE_READ,
+            w.FILE_OPEN,
+            w.FILE_NON_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT,
+            null,
+            0,
+        );
+        switch (rc) {
+            w.STATUS.SUCCESS => return result,
+            w.STATUS.OBJECT_NAME_INVALID => unreachable,
+            w.STATUS.OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+            w.STATUS.OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            w.STATUS.INVALID_PARAMETER => unreachable,
+            w.STATUS.SHARING_VIOLATION => return error.SharingViolation,
+            w.STATUS.ACCESS_DENIED => return error.AccessDenied,
+            w.STATUS.PIPE_BUSY => return error.PipeBusy,
+            w.STATUS.OBJECT_PATH_SYNTAX_BAD => unreachable,
+            else => return w.unexpectedStatus(rc),
+        }
     }
 
     /// Call `close` on the result when done.
@@ -864,6 +929,34 @@ pub const Dir = struct {
     /// Same as `readLink`, except the `pathname` parameter is null-terminated.
     pub fn readLinkC(self: Dir, sub_path_c: [*]const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
         return os.readlinkatC(self.fd, sub_path_c, buffer);
+    }
+
+    /// On success, caller owns returned buffer.
+    /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
+    pub fn readFileAlloc(self: Dir, allocator: *mem.Allocator, file_path: []const u8, max_bytes: usize) ![]u8 {
+        return self.readFileAllocAligned(allocator, file_path, max_bytes, @alignOf(u8));
+    }
+
+    /// On success, caller owns returned buffer.
+    /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
+    pub fn readFileAllocAligned(
+        self: Dir,
+        allocator: *mem.Allocator,
+        file_path: []const u8,
+        max_bytes: usize,
+        comptime A: u29,
+    ) ![]align(A) u8 {
+        var file = try self.openRead(file_path);
+        defer file.close();
+
+        const size = math.cast(usize, try file.getEndPos()) catch math.maxInt(usize);
+        if (size > max_bytes) return error.FileTooBig;
+
+        const buf = try allocator.alignedAlloc(u8, A, size);
+        errdefer allocator.free(buf);
+
+        try file.inStream().stream.readNoEof(buf);
+        return buf;
     }
 
     pub const DeleteTreeError = error{
@@ -1100,7 +1193,7 @@ pub const Walker = struct {
     }
 
     pub fn deinit(self: *Walker) void {
-        while (self.stack.popOrNull()) |*item| item.dir_it.close();
+        while (self.stack.popOrNull()) |*item| item.dir_it.dir.close();
         self.stack.deinit();
         self.name_buffer.deinit();
     }
@@ -1150,9 +1243,9 @@ pub fn openSelfExe() OpenSelfExeError!File {
         return File.openReadC(c"/proc/self/exe");
     }
     if (builtin.os == .windows) {
-        var buf: [os.windows.PATH_MAX_WIDE]u16 = undefined;
-        const wide_slice = try selfExePathW(&buf);
-        return File.openReadW(wide_slice.ptr);
+        const wide_slice = selfExePathW();
+        const prefixed_path_w = try os.windows.wToPrefixedFileW(wide_slice);
+        return Dir.cwd().openReadW(&prefixed_path_w);
     }
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     const self_exe_path = try selfExePath(&buf);
@@ -1203,8 +1296,7 @@ pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]u8 {
             return mem.toSlice(u8, out_buffer);
         },
         .windows => {
-            var utf16le_buf: [os.windows.PATH_MAX_WIDE]u16 = undefined;
-            const utf16le_slice = try selfExePathW(&utf16le_buf);
+            const utf16le_slice = selfExePathW();
             // Trust that Windows gives us valid UTF-16LE.
             const end_index = std.unicode.utf16leToUtf8(out_buffer, utf16le_slice) catch unreachable;
             return out_buffer[0..end_index];
@@ -1213,9 +1305,10 @@ pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]u8 {
     }
 }
 
-/// Same as `selfExePath` except the result is UTF16LE-encoded.
-pub fn selfExePathW(out_buffer: *[os.windows.PATH_MAX_WIDE]u16) SelfExePathError![]u16 {
-    return os.windows.GetModuleFileNameW(null, out_buffer, out_buffer.len);
+/// The result is UTF16LE-encoded.
+pub fn selfExePathW() []const u16 {
+    const image_path_name = &os.windows.peb().ProcessParameters.ImagePathName;
+    return mem.toSliceConst(u16, image_path_name.Buffer);
 }
 
 /// `selfExeDirPath` except allocates the result on the heap.

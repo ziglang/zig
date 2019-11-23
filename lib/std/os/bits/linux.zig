@@ -559,10 +559,10 @@ pub const EPOLLMSG = 0x400;
 pub const EPOLLERR = 0x008;
 pub const EPOLLHUP = 0x010;
 pub const EPOLLRDHUP = 0x2000;
-pub const EPOLLEXCLUSIVE = (u32(1) << 28);
-pub const EPOLLWAKEUP = (u32(1) << 29);
-pub const EPOLLONESHOT = (u32(1) << 30);
-pub const EPOLLET = (u32(1) << 31);
+pub const EPOLLEXCLUSIVE = (@as(u32, 1) << 28);
+pub const EPOLLWAKEUP = (@as(u32, 1) << 29);
+pub const EPOLLONESHOT = (@as(u32, 1) << 30);
+pub const EPOLLET = (@as(u32, 1) << 31);
 
 pub const CLOCK_REALTIME = 0;
 pub const CLOCK_MONOTONIC = 1;
@@ -950,7 +950,7 @@ pub fn cap_valid(u8: x) bool {
 }
 
 pub fn CAP_TO_MASK(cap: u8) u32 {
-    return u32(1) << u5(cap & 31);
+    return @as(u32, 1) << u5(cap & 31);
 }
 
 pub fn CAP_TO_INDEX(cap: u8) u8 {
@@ -998,11 +998,6 @@ pub const dl_phdr_info = extern struct {
     dlpi_name: ?[*]const u8,
     dlpi_phdr: [*]std.elf.Phdr,
     dlpi_phnum: u16,
-};
-
-pub const pthread_attr_t = extern struct {
-    __size: [56]u8,
-    __align: c_long,
 };
 
 pub const CPU_SETSIZE = 128;

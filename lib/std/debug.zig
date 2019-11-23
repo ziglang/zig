@@ -45,23 +45,28 @@ var stderr_file_out_stream: File.OutStream = undefined;
 
 var stderr_stream: ?*io.OutStream(File.WriteError) = null;
 var stderr_mutex = std.Mutex.init();
+
 pub fn warn(comptime fmt: []const u8, args: ...) void {
     const held = stderr_mutex.acquire();
     defer held.release();
-    const stderr = getStderrStream() catch return;
+    const stderr = getStderrStream();
     stderr.print(fmt, args) catch return;
 }
 
-pub fn getStderrStream() !*io.OutStream(File.WriteError) {
+pub fn getStderrStream() *io.OutStream(File.WriteError) {
     if (stderr_stream) |st| {
         return st;
     } else {
-        stderr_file = try io.getStdErr();
+        stderr_file = io.getStdErr();
         stderr_file_out_stream = stderr_file.outStream();
         const st = &stderr_file_out_stream.stream;
         stderr_stream = st;
         return st;
     }
+}
+
+pub fn getStderrMutex() *std.Mutex {
+    return &stderr_mutex;
 }
 
 /// TODO multithreaded awareness
@@ -85,7 +90,7 @@ fn wantTtyColor() bool {
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
-    const stderr = getStderrStream() catch return;
+    const stderr = getStderrStream();
     if (builtin.strip_debug_info) {
         stderr.print("Unable to dump stack trace: debug info stripped\n") catch return;
         return;
@@ -104,7 +109,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 /// unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
-    const stderr = getStderrStream() catch return;
+    const stderr = getStderrStream();
     if (builtin.strip_debug_info) {
         stderr.print("Unable to dump stack trace: debug info stripped\n") catch return;
         return;
@@ -177,7 +182,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace
 /// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
-    const stderr = getStderrStream() catch return;
+    const stderr = getStderrStream();
     if (builtin.strip_debug_info) {
         stderr.print("Unable to dump stack trace: debug info stripped\n") catch return;
         return;
@@ -232,7 +237,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
         // which first called panic can finish printing a stack trace.
         os.abort();
     }
-    const stderr = getStderrStream() catch os.abort();
+    const stderr = getStderrStream();
     stderr.print(format ++ "\n", args) catch os.abort();
     if (trace) |t| {
         dumpStackTrace(t.*);
@@ -1003,7 +1008,7 @@ fn readSparseBitVector(stream: var, allocator: *mem.Allocator) ![]usize {
         const word = try stream.readIntLittle(u32);
         var bit_i: u5 = 0;
         while (true) : (bit_i += 1) {
-            if (word & (u32(1) << bit_i) != 0) {
+            if (word & (@as(u32, 1) << bit_i) != 0) {
                 try list.append(word_i * 32 + bit_i);
             }
             if (bit_i == maxInt(u5)) break;
@@ -1551,13 +1556,14 @@ fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: boo
 
 // TODO the noasyncs here are workarounds
 fn parseFormValueDwarfOffsetSize(in_stream: var, is_64: bool) !u64 {
-    return if (is_64) try noasync in_stream.readIntLittle(u64) else u64(try noasync in_stream.readIntLittle(u32));
+    return if (is_64) try noasync in_stream.readIntLittle(u64) else @as(u64, try noasync in_stream.readIntLittle(u32));
 }
 
 // TODO the noasyncs here are workarounds
 fn parseFormValueTargetAddrSize(in_stream: var) !u64 {
     if (@sizeOf(usize) == 4) {
-        return u64(try noasync in_stream.readIntLittle(u32));
+        // TODO this cast should not be needed
+        return @as(u64, try noasync in_stream.readIntLittle(u32));
     } else if (@sizeOf(usize) == 8) {
         return noasync in_stream.readIntLittle(u64);
     } else {
@@ -1705,7 +1711,12 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
         const ofile_path = mem.toSliceConst(u8, di.strings.ptr + ofile.n_strx);
 
         gop.kv.value = MachOFile{
-            .bytes = try std.io.readFileAllocAligned(di.ofiles.allocator, ofile_path, @alignOf(macho.mach_header_64)),
+            .bytes = try std.fs.Dir.cwd().readFileAllocAligned(
+                di.ofiles.allocator,
+                ofile_path,
+                maxInt(usize),
+                @alignOf(macho.mach_header_64),
+            ),
             .sect_debug_info = null,
             .sect_debug_line = null,
         };
@@ -1841,7 +1852,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
             // special opcodes
             const adjusted_opcode = opcode - opcode_base;
             const inc_addr = minimum_instruction_length * (adjusted_opcode / line_range);
-            const inc_line = i32(line_base) + i32(adjusted_opcode % line_range);
+            const inc_line = @as(i32, line_base) + @as(i32, adjusted_opcode % line_range);
             prog.line += inc_line;
             prog.address += inc_addr;
             if (try prog.checkLineMatch()) |info| return info;
@@ -1908,7 +1919,7 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_addr
     if (unit_length == 0) {
         return error.MissingDebugInfo;
     }
-    const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
+    const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
 
     const version = try di.dwarf_in_stream.readInt(u16, di.endian);
     // TODO support 3 and 5
@@ -2007,7 +2018,7 @@ fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_addr
             // special opcodes
             const adjusted_opcode = opcode - opcode_base;
             const inc_addr = minimum_instruction_length * (adjusted_opcode / line_range);
-            const inc_line = i32(line_base) + i32(adjusted_opcode % line_range);
+            const inc_line = @as(i32, line_base) + @as(i32, adjusted_opcode % line_range);
             prog.line += inc_line;
             prog.address += inc_addr;
             if (try prog.checkLineMatch()) |info| return info;
@@ -2088,7 +2099,7 @@ fn scanAllFunctions(di: *DwarfInfo) !void {
         var is_64: bool = undefined;
         const unit_length = try readInitialLength(@typeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
         if (unit_length == 0) return;
-        const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
+        const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
 
         const version = try di.dwarf_in_stream.readInt(u16, di.endian);
         if (version < 2 or version > 5) return error.InvalidDebugInfo;
@@ -2190,7 +2201,7 @@ fn scanAllCompileUnits(di: *DwarfInfo) !void {
         var is_64: bool = undefined;
         const unit_length = try readInitialLength(@typeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
         if (unit_length == 0) return;
-        const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
+        const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
 
         const version = try di.dwarf_in_stream.readInt(u16, di.endian);
         if (version < 2 or version > 5) return error.InvalidDebugInfo;
@@ -2307,7 +2318,8 @@ fn readInitialLengthMem(ptr: *[*]const u8, is_64: *bool) !u64 {
     } else {
         if (first_32_bits >= 0xfffffff0) return error.InvalidDebugInfo;
         ptr.* += 4;
-        return u64(first_32_bits);
+        // TODO this cast should not be needed
+        return @as(u64, first_32_bits);
     }
 }
 
@@ -2324,7 +2336,8 @@ fn readInitialLength(comptime E: type, in_stream: *io.InStream(E), is_64: *bool)
         return in_stream.readIntLittle(u64);
     } else {
         if (first_32_bits >= 0xfffffff0) return error.InvalidDebugInfo;
-        return u64(first_32_bits);
+        // TODO this cast should not be needed
+        return @as(u64, first_32_bits);
     }
 }
 

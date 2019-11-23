@@ -29,10 +29,10 @@ test "math.isNormal" {
     expect(!isNormal(math.nan(f16)));
     expect(!isNormal(math.nan(f32)));
     expect(!isNormal(math.nan(f64)));
-    expect(!isNormal(f16(0)));
-    expect(!isNormal(f32(0)));
-    expect(!isNormal(f64(0)));
-    expect(isNormal(f16(1.0)));
-    expect(isNormal(f32(1.0)));
-    expect(isNormal(f64(1.0)));
+    expect(!isNormal(@as(f16, 0)));
+    expect(!isNormal(@as(f32, 0)));
+    expect(!isNormal(@as(f64, 0)));
+    expect(isNormal(@as(f16, 1.0)));
+    expect(isNormal(@as(f32, 1.0)));
+    expect(isNormal(@as(f64, 1.0)));
 }

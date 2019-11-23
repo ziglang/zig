@@ -1,19 +1,13 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
-const AtomicOrder = builtin.AtomicOrder;
-const AtomicRmwOp = builtin.AtomicRmwOp;
 const testing = std.testing;
 const SpinLock = std.SpinLock;
-const linux = std.os.linux;
-const windows = std.os.windows;
+const ThreadParker = std.ThreadParker;
 
 /// Lock may be held only once. If the same thread
 /// tries to acquire the same mutex twice, it deadlocks.
-/// This type must be initialized at runtime, and then deinitialized when no
-/// longer needed, to free resources.
-/// If you need static initialization, use std.StaticallyInitializedMutex.
-/// The Linux implementation is based on mutex3 from
-/// https://www.akkadia.org/drepper/futex.pdf
+/// This type supports static initialization and is based off of Golang 1.13 runtime.lock_futex:
+/// https://github.com/golang/go/blob/master/src/runtime/lock_futex.go
 /// When an application is built in single threaded release mode, all the functions are
 /// no-ops. In single threaded debug mode, there is deadlock detection.
 pub const Mutex = if (builtin.single_threaded)
@@ -43,84 +37,85 @@ pub const Mutex = if (builtin.single_threaded)
             return Held{ .mutex = self };
         }
     }
-else switch (builtin.os) {
-    builtin.Os.linux => struct {
-        /// 0: unlocked
-        /// 1: locked, no waiters
-        /// 2: locked, one or more waiters
-        lock: i32,
+else
+    struct {
+        state: State, // TODO: make this an enum
+        parker: ThreadParker,
+
+        const State = enum(u32) {
+            Unlocked,
+            Sleeping,
+            Locked,
+        };
+
+        /// number of iterations to spin yielding the cpu
+        const SPIN_CPU = 4;
+
+        /// number of iterations to perform in the cpu yield loop
+        const SPIN_CPU_COUNT = 30;
+
+        /// number of iterations to spin yielding the thread
+        const SPIN_THREAD = 1;
+
+        pub fn init() Mutex {
+            return Mutex{
+                .state = .Unlocked,
+                .parker = ThreadParker.init(),
+            };
+        }
+
+        pub fn deinit(self: *Mutex) void {
+            self.parker.deinit();
+        }
 
         pub const Held = struct {
             mutex: *Mutex,
 
             pub fn release(self: Held) void {
-                const c = @atomicRmw(i32, &self.mutex.lock, AtomicRmwOp.Sub, 1, AtomicOrder.Release);
-                if (c != 1) {
-                    _ = @atomicRmw(i32, &self.mutex.lock, AtomicRmwOp.Xchg, 0, AtomicOrder.Release);
-                    const rc = linux.futex_wake(&self.mutex.lock, linux.FUTEX_WAKE | linux.FUTEX_PRIVATE_FLAG, 1);
-                    switch (linux.getErrno(rc)) {
-                        0 => {},
-                        linux.EINVAL => unreachable,
-                        else => unreachable,
-                    }
+                switch (@atomicRmw(State, &self.mutex.state, .Xchg, .Unlocked, .Release)) {
+                    .Locked => {},
+                    .Sleeping => self.mutex.parker.unpark(@ptrCast(*const u32,  &self.mutex.state)),
+                    .Unlocked => unreachable, // unlocking an unlocked mutex
+                    else => unreachable, // should never be anything else
                 }
             }
         };
 
-        pub fn init() Mutex {
-            return Mutex{ .lock = 0 };
-        }
-
-        pub fn deinit(self: *Mutex) void {}
-
         pub fn acquire(self: *Mutex) Held {
-            var c = @cmpxchgWeak(i32, &self.lock, 0, 1, AtomicOrder.Acquire, AtomicOrder.Monotonic) orelse
+            // Try and speculatively grab the lock.
+            // If it fails, the state is either Locked or Sleeping
+            // depending on if theres a thread stuck sleeping below.
+            var state = @atomicRmw(State, &self.state, .Xchg, .Locked, .Acquire);
+            if (state == .Unlocked)
                 return Held{ .mutex = self };
-            if (c != 2)
-                c = @atomicRmw(i32, &self.lock, AtomicRmwOp.Xchg, 2, AtomicOrder.Acquire);
-            while (c != 0) {
-                const rc = linux.futex_wait(&self.lock, linux.FUTEX_WAIT | linux.FUTEX_PRIVATE_FLAG, 2, null);
-                switch (linux.getErrno(rc)) {
-                    0, linux.EINTR, linux.EAGAIN => {},
-                    linux.EINVAL => unreachable,
-                    else => unreachable,
+
+            while (true) {
+                // try and acquire the lock using cpu spinning on failure
+                var spin: usize = 0;
+                while (spin < SPIN_CPU) : (spin += 1) {
+                    var value = @atomicLoad(State, &self.state, .Monotonic);
+                    while (value == .Unlocked)
+                        value = @cmpxchgWeak(State, &self.state, .Unlocked, state, .Acquire, .Monotonic) orelse return Held{ .mutex = self };
+                    SpinLock.yield(SPIN_CPU_COUNT);
                 }
-                c = @atomicRmw(i32, &self.lock, AtomicRmwOp.Xchg, 2, AtomicOrder.Acquire);
+
+                // try and acquire the lock using thread rescheduling on failure
+                spin = 0;
+                while (spin < SPIN_THREAD) : (spin += 1) {
+                    var value = @atomicLoad(State, &self.state, .Monotonic);
+                    while (value == .Unlocked)
+                        value = @cmpxchgWeak(State, &self.state, .Unlocked, state, .Acquire, .Monotonic) orelse return Held{ .mutex = self };
+                    std.os.sched_yield() catch std.time.sleep(1);
+                }
+
+                // failed to acquire the lock, go to sleep until woken up by `Held.release()`
+                if (@atomicRmw(State, &self.state, .Xchg, .Sleeping, .Acquire) == .Unlocked)
+                    return Held{ .mutex = self };
+                state = .Sleeping;
+                self.parker.park(@ptrCast(*const u32,  &self.state), @enumToInt(State.Sleeping));
             }
-            return Held{ .mutex = self };
         }
-    },
-    // TODO once https://github.com/ziglang/zig/issues/287 (copy elision) is solved, we can make a
-    // better implementation of this. The problem is we need the init() function to have access to
-    // the address of the CRITICAL_SECTION, and then have it not move.
-    builtin.Os.windows => std.StaticallyInitializedMutex,
-    else => struct {
-        /// TODO better implementation than spin lock.
-        /// When changing this, one must also change the corresponding
-        /// std.StaticallyInitializedMutex code, since it aliases this type,
-        /// under the assumption that it works both statically and at runtime.
-        lock: SpinLock,
-
-        pub const Held = struct {
-            mutex: *Mutex,
-
-            pub fn release(self: Held) void {
-                SpinLock.Held.release(SpinLock.Held{ .spinlock = &self.mutex.lock });
-            }
-        };
-
-        pub fn init() Mutex {
-            return Mutex{ .lock = SpinLock.init() };
-        }
-
-        pub fn deinit(self: *Mutex) void {}
-
-        pub fn acquire(self: *Mutex) Held {
-            _ = self.lock.acquire();
-            return Held{ .mutex = self };
-        }
-    },
-};
+    };
 
 const TestContext = struct {
     mutex: *Mutex,

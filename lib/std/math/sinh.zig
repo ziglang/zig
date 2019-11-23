@@ -93,8 +93,8 @@ fn sinh64(x: f64) f64 {
 }
 
 test "math.sinh" {
-    expect(sinh(f32(1.5)) == sinh32(1.5));
-    expect(sinh(f64(1.5)) == sinh64(1.5));
+    expect(sinh(@as(f32, 1.5)) == sinh32(1.5));
+    expect(sinh(@as(f64, 1.5)) == sinh64(1.5));
 }
 
 test "math.sinh32" {

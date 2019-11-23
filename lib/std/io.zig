@@ -34,28 +34,23 @@ else
     Mode.blocking;
 pub const is_async = mode != .blocking;
 
-pub const GetStdIoError = os.windows.GetStdHandleError;
-
-pub fn getStdOut() GetStdIoError!File {
+pub fn getStdOut() File {
     if (builtin.os == .windows) {
-        const handle = try os.windows.GetStdHandle(os.windows.STD_OUTPUT_HANDLE);
-        return File.openHandle(handle);
+        return File.openHandle(os.windows.peb().ProcessParameters.hStdOutput);
     }
     return File.openHandle(os.STDOUT_FILENO);
 }
 
-pub fn getStdErr() GetStdIoError!File {
+pub fn getStdErr() File {
     if (builtin.os == .windows) {
-        const handle = try os.windows.GetStdHandle(os.windows.STD_ERROR_HANDLE);
-        return File.openHandle(handle);
+        return File.openHandle(os.windows.peb().ProcessParameters.hStdError);
     }
     return File.openHandle(os.STDERR_FILENO);
 }
 
-pub fn getStdIn() GetStdIoError!File {
+pub fn getStdIn() File {
     if (builtin.os == .windows) {
-        const handle = try os.windows.GetStdHandle(os.windows.STD_INPUT_HANDLE);
-        return File.openHandle(handle);
+        return File.openHandle(os.windows.peb().ProcessParameters.hStdInput);
     }
     return File.openHandle(os.STDIN_FILENO);
 }
@@ -74,24 +69,9 @@ pub fn writeFile(path: []const u8, data: []const u8) !void {
 }
 
 /// On success, caller owns returned buffer.
-/// TODO move this to `std.fs` and add a version to `std.fs.Dir`.
+/// This function is deprecated; use `std.fs.Dir.readFileAlloc`.
 pub fn readFileAlloc(allocator: *mem.Allocator, path: []const u8) ![]u8 {
-    return readFileAllocAligned(allocator, path, @alignOf(u8));
-}
-
-/// On success, caller owns returned buffer.
-/// TODO move this to `std.fs` and add a version to `std.fs.Dir`.
-pub fn readFileAllocAligned(allocator: *mem.Allocator, path: []const u8, comptime A: u29) ![]align(A) u8 {
-    var file = try File.openRead(path);
-    defer file.close();
-
-    const size = try math.cast(usize, try file.getEndPos());
-    const buf = try allocator.alignedAlloc(u8, A, size);
-    errdefer allocator.free(buf);
-
-    var adapter = file.inStream();
-    try adapter.stream.readNoEof(buf[0..size]);
-    return buf;
+    return fs.Dir.cwd().readFileAlloc(allocator, path, math.maxInt(usize));
 }
 
 pub fn BufferedInStream(comptime Error: type) type {
@@ -353,21 +333,21 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
             const Buf = @IntType(false, buf_bit_count);
             const BufShift = math.Log2Int(Buf);
 
-            out_bits.* = usize(0);
+            out_bits.* = @as(usize, 0);
             if (U == u0 or bits == 0) return 0;
-            var out_buffer = Buf(0);
+            var out_buffer = @as(Buf, 0);
 
             if (self.bit_count > 0) {
                 const n = if (self.bit_count >= bits) @intCast(u3, bits) else self.bit_count;
                 const shift = u7_bit_count - n;
                 switch (endian) {
                     builtin.Endian.Big => {
-                        out_buffer = Buf(self.bit_buffer >> shift);
+                        out_buffer = @as(Buf, self.bit_buffer >> shift);
                         self.bit_buffer <<= n;
                     },
                     builtin.Endian.Little => {
                         const value = (self.bit_buffer << shift) >> shift;
-                        out_buffer = Buf(value);
+                        out_buffer = @as(Buf, value);
                         self.bit_buffer >>= n;
                     },
                 }
@@ -393,28 +373,28 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
                         if (n >= u8_bit_count) {
                             out_buffer <<= @intCast(u3, u8_bit_count - 1);
                             out_buffer <<= 1;
-                            out_buffer |= Buf(next_byte);
+                            out_buffer |= @as(Buf, next_byte);
                             out_bits.* += u8_bit_count;
                             continue;
                         }
 
                         const shift = @intCast(u3, u8_bit_count - n);
                         out_buffer <<= @intCast(BufShift, n);
-                        out_buffer |= Buf(next_byte >> shift);
+                        out_buffer |= @as(Buf, next_byte >> shift);
                         out_bits.* += n;
                         self.bit_buffer = @truncate(u7, next_byte << @intCast(u3, n - 1));
                         self.bit_count = shift;
                     },
                     builtin.Endian.Little => {
                         if (n >= u8_bit_count) {
-                            out_buffer |= Buf(next_byte) << @intCast(BufShift, out_bits.*);
+                            out_buffer |= @as(Buf, next_byte) << @intCast(BufShift, out_bits.*);
                             out_bits.* += u8_bit_count;
                             continue;
                         }
 
                         const shift = @intCast(u3, u8_bit_count - n);
                         const value = (next_byte << shift) >> shift;
-                        out_buffer |= Buf(value) << @intCast(BufShift, out_bits.*);
+                        out_buffer |= @as(Buf, value) << @intCast(BufShift, out_bits.*);
                         out_bits.* += n;
                         self.bit_buffer = @truncate(u7, next_byte >> @intCast(u3, n));
                         self.bit_count = shift;
@@ -434,7 +414,7 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
             var self = @fieldParentPtr(Self, "stream", self_stream);
 
             var out_bits: usize = undefined;
-            var out_bits_total = usize(0);
+            var out_bits_total = @as(usize, 0);
             //@NOTE: I'm not sure this is a good idea, maybe alignToByte should be forced
             if (self.bit_count > 0) {
                 for (buffer) |*b, i| {
@@ -598,7 +578,7 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
             self.index = 0;
         }
 
-        fn writeFn(out_stream: *Stream, bytes: []const u8) !void {
+        fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
             const self = @fieldParentPtr(Self, "stream", out_stream);
 
             if (bytes.len >= self.buffer.len) {
@@ -814,8 +794,7 @@ pub const BufferedAtomicFile = struct {
 };
 
 pub fn readLine(buf: *std.Buffer) ![]u8 {
-    var stdin = try getStdIn();
-    var stdin_stream = stdin.inStream();
+    var stdin_stream = getStdIn().inStream();
     return readLineFrom(&stdin_stream.stream, buf);
 }
 
@@ -856,8 +835,7 @@ test "io.readLineFrom" {
 }
 
 pub fn readLineSlice(slice: []u8) ![]u8 {
-    var stdin = try getStdIn();
-    var stdin_stream = stdin.inStream();
+    var stdin_stream = getStdIn().inStream();
     return readLineSliceFrom(&stdin_stream.stream, slice);
 }
 
@@ -949,14 +927,14 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                 return @truncate(T, @bitCast(PossiblySignedByte, buffer[0]));
             }
 
-            var result = U(0);
+            var result = @as(U, 0);
             for (buffer) |byte, i| {
                 switch (endian) {
                     builtin.Endian.Big => {
                         result = (result << u8_bit_count) | byte;
                     },
                     builtin.Endian.Little => {
-                        result |= U(byte) << @intCast(Log2U, u8_bit_count * i);
+                        result |= @as(U, byte) << @intCast(Log2U, u8_bit_count * i);
                     },
                 }
             }
@@ -1050,7 +1028,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                         return;
                     }
 
-                    ptr.* = OC(undefined); //make it non-null so the following .? is guaranteed safe
+                    ptr.* = @as(OC, undefined); //make it non-null so the following .? is guaranteed safe
                     const val_ptr = &ptr.*.?;
                     try self.deserializeInto(val_ptr);
                 },
@@ -1154,7 +1132,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
 
             switch (@typeId(T)) {
                 builtin.TypeId.Void => return,
-                builtin.TypeId.Bool => try self.serializeInt(u1(@boolToInt(value))),
+                builtin.TypeId.Bool => try self.serializeInt(@as(u1, @boolToInt(value))),
                 builtin.TypeId.Float, builtin.TypeId.Int => try self.serializeInt(value),
                 builtin.TypeId.Struct => {
                     const info = @typeInfo(T);
@@ -1197,10 +1175,10 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
                 },
                 builtin.TypeId.Optional => {
                     if (value == null) {
-                        try self.serializeInt(u1(@boolToInt(false)));
+                        try self.serializeInt(@as(u1, @boolToInt(false)));
                         return;
                     }
-                    try self.serializeInt(u1(@boolToInt(true)));
+                    try self.serializeInt(@as(u1, @boolToInt(true)));
 
                     const OC = comptime meta.Child(T);
                     const val_ptr = &value.?;

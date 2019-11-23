@@ -76,7 +76,7 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
         // K K
         // ---
         // K 0
-        sr = @bitCast(c_uint, c_int(@clz(SingleInt, d[high])) - c_int(@clz(SingleInt, n[high])));
+        sr = @bitCast(c_uint, @as(c_int, @clz(SingleInt, d[high])) - @as(c_int, @clz(SingleInt, n[high])));
         // 0 <= sr <= SingleInt.bit_count - 2 or sr large
         if (sr > SingleInt.bit_count - 2) {
             if (maybe_rem) |rem| {
@@ -114,7 +114,7 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
             // K X
             // ---
             // 0 K
-            sr = 1 + SingleInt.bit_count + c_uint(@clz(SingleInt, d[low])) - c_uint(@clz(SingleInt, n[high]));
+            sr = 1 + SingleInt.bit_count + @as(c_uint, @clz(SingleInt, d[low])) - @as(c_uint, @clz(SingleInt, n[high]));
             // 2 <= sr <= DoubleInt.bit_count - 1
             // q.all = a << (DoubleInt.bit_count - sr);
             // r.all = a >> sr;
@@ -140,7 +140,7 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
             // K X
             // ---
             // K K
-            sr = @bitCast(c_uint, c_int(@clz(SingleInt, d[high])) - c_int(@clz(SingleInt, n[high])));
+            sr = @bitCast(c_uint, @as(c_int, @clz(SingleInt, d[high])) - @as(c_int, @clz(SingleInt, n[high])));
             // 0 <= sr <= SingleInt.bit_count - 1 or sr large
             if (sr > SingleInt.bit_count - 1) {
                 if (maybe_rem) |rem| {

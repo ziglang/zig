@@ -25,42 +25,23 @@ pub const File = struct {
 
     pub const OpenError = windows.CreateFileError || os.OpenError;
 
-    /// Call close to clean up.
+    /// Deprecated; call `std.fs.Dir.openRead` directly.
     pub fn openRead(path: []const u8) OpenError!File {
-        if (builtin.os == .windows) {
-            const path_w = try windows.sliceToPrefixedFileW(path);
-            return openReadW(&path_w);
-        }
-        const path_c = try os.toPosixPath(path);
-        return openReadC(&path_c);
+        return std.fs.Dir.cwd().openRead(path);
     }
 
-    /// `openRead` except with a null terminated path
-    pub fn openReadC(path: [*]const u8) OpenError!File {
-        if (builtin.os == .windows) {
-            const path_w = try windows.cStrToPrefixedFileW(path);
-            return openReadW(&path_w);
-        }
-        const flags = os.O_LARGEFILE | os.O_RDONLY | os.O_CLOEXEC;
-        const fd = try os.openC(path, flags, 0);
-        return openHandle(fd);
+    /// Deprecated; call `std.fs.Dir.openReadC` directly.
+    pub fn openReadC(path_c: [*]const u8) OpenError!File {
+        return std.fs.Dir.cwd().openReadC(path_c);
     }
 
-    /// `openRead` except with a null terminated UTF16LE encoded path
+    /// Deprecated; call `std.fs.Dir.openReadW` directly.
     pub fn openReadW(path_w: [*]const u16) OpenError!File {
-        const handle = try windows.CreateFileW(
-            path_w,
-            windows.GENERIC_READ,
-            windows.FILE_SHARE_READ,
-            null,
-            windows.OPEN_EXISTING,
-            windows.FILE_ATTRIBUTE_NORMAL,
-            null,
-        );
-        return openHandle(handle);
+        return std.fs.Dir.cwd().openReadW(path_w);
     }
 
     /// Calls `openWriteMode` with `default_mode` for the mode.
+    /// TODO: deprecate this and move it to `std.fs.Dir`.
     pub fn openWrite(path: []const u8) OpenError!File {
         return openWriteMode(path, default_mode);
     }
@@ -68,6 +49,7 @@ pub const File = struct {
     /// If the path does not exist it will be created.
     /// If a file already exists in the destination it will be truncated.
     /// Call close to clean up.
+    /// TODO: deprecate this and move it to `std.fs.Dir`.
     pub fn openWriteMode(path: []const u8, file_mode: Mode) OpenError!File {
         if (builtin.os == .windows) {
             const path_w = try windows.sliceToPrefixedFileW(path);
@@ -78,17 +60,20 @@ pub const File = struct {
     }
 
     /// Same as `openWriteMode` except `path` is null-terminated.
+    /// TODO: deprecate this and move it to `std.fs.Dir`.
     pub fn openWriteModeC(path: [*]const u8, file_mode: Mode) OpenError!File {
         if (builtin.os == .windows) {
             const path_w = try windows.cStrToPrefixedFileW(path);
             return openWriteModeW(&path_w, file_mode);
         }
-        const flags = os.O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_TRUNC;
+        const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
+        const flags = O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_TRUNC;
         const fd = try os.openC(path, flags, file_mode);
         return openHandle(fd);
     }
 
     /// Same as `openWriteMode` except `path` is null-terminated and UTF16LE encoded
+    /// TODO: deprecate this and move it to `std.fs.Dir`.
     pub fn openWriteModeW(path_w: [*]const u16, file_mode: Mode) OpenError!File {
         const handle = try windows.CreateFileW(
             path_w,
@@ -105,6 +90,7 @@ pub const File = struct {
     /// If the path does not exist it will be created.
     /// If a file already exists in the destination this returns OpenError.PathAlreadyExists
     /// Call close to clean up.
+    /// TODO: deprecate this and move it to `std.fs.Dir`.
     pub fn openWriteNoClobber(path: []const u8, file_mode: Mode) OpenError!File {
         if (builtin.os == .windows) {
             const path_w = try windows.sliceToPrefixedFileW(path);
@@ -114,16 +100,19 @@ pub const File = struct {
         return openWriteNoClobberC(&path_c, file_mode);
     }
 
+    /// TODO: deprecate this and move it to `std.fs.Dir`.
     pub fn openWriteNoClobberC(path: [*]const u8, file_mode: Mode) OpenError!File {
         if (builtin.os == .windows) {
             const path_w = try windows.cStrToPrefixedFileW(path);
             return openWriteNoClobberW(&path_w, file_mode);
         }
-        const flags = os.O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_EXCL;
+        const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
+        const flags = O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_EXCL;
         const fd = try os.openC(path, flags, file_mode);
         return openHandle(fd);
     }
 
+    /// TODO: deprecate this and move it to `std.fs.Dir`.
     pub fn openWriteNoClobberW(path_w: [*]const u16, file_mode: Mode) OpenError!File {
         const handle = try windows.CreateFileW(
             path_w,
@@ -146,16 +135,19 @@ pub const File = struct {
     /// In general it is recommended to avoid this function. For example,
     /// instead of testing if a file exists and then opening it, just
     /// open it and handle the error for file not found.
+    /// TODO: deprecate this and move it to `std.fs.Dir`.
     pub fn access(path: []const u8) !void {
         return os.access(path, os.F_OK);
     }
 
     /// Same as `access` except the parameter is null-terminated.
+    /// TODO: deprecate this and move it to `std.fs.Dir`.
     pub fn accessC(path: [*]const u8) !void {
         return os.accessC(path, os.F_OK);
     }
 
     /// Same as `access` except the parameter is null-terminated UTF16LE-encoded.
+    /// TODO: deprecate this and move it to `std.fs.Dir`.
     pub fn accessW(path: [*]const u16) !void {
         return os.accessW(path, os.F_OK);
     }
@@ -272,9 +264,9 @@ pub const File = struct {
         return Stat{
             .size = @bitCast(u64, st.size),
             .mode = st.mode,
-            .atime = i64(atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
-            .mtime = i64(mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
-            .ctime = i64(ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
+            .atime = @as(i64, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
+            .mtime = @as(i64, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
+            .ctime = @as(i64, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
         };
     }
 

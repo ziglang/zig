@@ -405,19 +405,19 @@ test "float literal at compile time not lossy" {
 }
 
 test "f32 at compile time is lossy" {
-    expect(f32(1 << 24) + 1 == 1 << 24);
+    expect(@as(f32, 1 << 24) + 1 == 1 << 24);
 }
 
 test "f64 at compile time is lossy" {
-    expect(f64(1 << 53) + 1 == 1 << 53);
+    expect(@as(f64, 1 << 53) + 1 == 1 << 53);
 }
 
 test "f128 at compile time is lossy" {
-    expect(f128(10384593717069655257060992658440192.0) + 1 == 10384593717069655257060992658440192.0);
+    expect(@as(f128, 10384593717069655257060992658440192.0) + 1 == 10384593717069655257060992658440192.0);
 }
 
 comptime {
-    expect(f128(1 << 113) == 10384593717069655257060992658440192);
+    expect(@as(f128, 1 << 113) == 10384593717069655257060992658440192);
 }
 
 pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {
@@ -434,9 +434,9 @@ test "string literal used as comptime slice is memoized" {
 }
 
 test "comptime slice of undefined pointer of length 0" {
-    const slice1 = ([*]i32)(undefined)[0..0];
+    const slice1 = @as([*]i32, undefined)[0..0];
     expect(slice1.len == 0);
-    const slice2 = ([*]i32)(undefined)[100..100];
+    const slice2 = @as([*]i32, undefined)[100..100];
     expect(slice2.len == 0);
 }
 
@@ -444,10 +444,10 @@ fn copyWithPartialInline(s: []u32, b: []u8) void {
     comptime var i: usize = 0;
     inline while (i < 4) : (i += 1) {
         s[i] = 0;
-        s[i] |= u32(b[i * 4 + 0]) << 24;
-        s[i] |= u32(b[i * 4 + 1]) << 16;
-        s[i] |= u32(b[i * 4 + 2]) << 8;
-        s[i] |= u32(b[i * 4 + 3]) << 0;
+        s[i] |= @as(u32, b[i * 4 + 0]) << 24;
+        s[i] |= @as(u32, b[i * 4 + 1]) << 16;
+        s[i] |= @as(u32, b[i * 4 + 2]) << 8;
+        s[i] |= @as(u32, b[i * 4 + 3]) << 0;
     }
 }
 
@@ -557,14 +557,14 @@ test "array concat of slices gives slice" {
 
 test "comptime shlWithOverflow" {
     const ct_shifted: u64 = comptime amt: {
-        var amt = u64(0);
-        _ = @shlWithOverflow(u64, ~u64(0), 16, &amt);
+        var amt = @as(u64, 0);
+        _ = @shlWithOverflow(u64, ~@as(u64, 0), 16, &amt);
         break :amt amt;
     };
 
     const rt_shifted: u64 = amt: {
-        var amt = u64(0);
-        _ = @shlWithOverflow(u64, ~u64(0), 16, &amt);
+        var amt = @as(u64, 0);
+        _ = @shlWithOverflow(u64, ~@as(u64, 0), 16, &amt);
         break :amt amt;
     };
 
@@ -670,7 +670,7 @@ fn loopNTimes(comptime n: usize) void {
 }
 
 test "variable inside inline loop that has different types on different iterations" {
-    testVarInsideInlineLoop(true, u32(42));
+    testVarInsideInlineLoop(true, @as(u32, 42));
 }
 
 fn testVarInsideInlineLoop(args: ...) void {
@@ -757,11 +757,11 @@ test "comptime bitwise operators" {
         expect(-3 | -1 == -1);
         expect(3 ^ -1 == -4);
         expect(-3 ^ -1 == 2);
-        expect(~i8(-1) == 0);
-        expect(~i128(-1) == 0);
+        expect(~@as(i8, -1) == 0);
+        expect(~@as(i128, -1) == 0);
         expect(18446744073709551615 & 18446744073709551611 == 18446744073709551611);
         expect(-18446744073709551615 & -18446744073709551611 == -18446744073709551615);
-        expect(~u128(0) == 0xffffffffffffffffffffffffffffffff);
+        expect(~@as(u128, 0) == 0xffffffffffffffffffffffffffffffff);
     }
 }
 

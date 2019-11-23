@@ -324,6 +324,8 @@ const char* ir_instruction_type_str(IrInstructionId id) {
             return "AtomicRmw";
         case IrInstructionIdAtomicLoad:
             return "AtomicLoad";
+        case IrInstructionIdAtomicStore:
+            return "AtomicStore";
         case IrInstructionIdSaveErrRetAddr:
             return "SaveErrRetAddr";
         case IrInstructionIdAddImplicitReturnType:
@@ -601,6 +603,12 @@ static void ir_print_result_loc_bit_cast(IrPrint *irp, ResultLocBitCast *result_
     fprintf(irp->f, ")");
 }
 
+static void ir_print_result_loc_cast(IrPrint *irp, ResultLocCast *result_loc_cast) {
+    fprintf(irp->f, "cast(ty=");
+    ir_print_other_instruction(irp, result_loc_cast->base.source_instruction);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_result_loc(IrPrint *irp, ResultLoc *result_loc) {
     switch (result_loc->id) {
         case ResultLocIdInvalid:
@@ -619,6 +627,8 @@ static void ir_print_result_loc(IrPrint *irp, ResultLoc *result_loc) {
             return ir_print_result_loc_peer(irp, (ResultLocPeer *)result_loc);
         case ResultLocIdBitCast:
             return ir_print_result_loc_bit_cast(irp, (ResultLocBitCast *)result_loc);
+        case ResultLocIdCast:
+            return ir_print_result_loc_cast(irp, (ResultLocCast *)result_loc);
         case ResultLocIdPeerParent:
             fprintf(irp->f, "peer_parent");
             return;
@@ -723,7 +733,6 @@ static void ir_print_phi(IrPrint *irp, IrInstructionPhi *phi_instruction) {
 }
 
 static void ir_print_container_init_list(IrPrint *irp, IrInstructionContainerInitList *instruction) {
-    ir_print_other_instruction(irp, instruction->container_type);
     fprintf(irp->f, "{");
     if (instruction->item_count > 50) {
         fprintf(irp->f, "...(%" ZIG_PRI_usize " items)...", instruction->item_count);
@@ -735,11 +744,11 @@ static void ir_print_container_init_list(IrPrint *irp, IrInstructionContainerIni
             ir_print_other_instruction(irp, result_loc);
         }
     }
-    fprintf(irp->f, "}");
+    fprintf(irp->f, "}result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
 }
 
 static void ir_print_container_init_fields(IrPrint *irp, IrInstructionContainerInitFields *instruction) {
-    ir_print_other_instruction(irp, instruction->container_type);
     fprintf(irp->f, "{");
     for (size_t i = 0; i < instruction->field_count; i += 1) {
         IrInstructionContainerInitFieldsField *field = &instruction->fields[i];
@@ -747,7 +756,8 @@ static void ir_print_container_init_fields(IrPrint *irp, IrInstructionContainerI
         fprintf(irp->f, "%s.%s = ", comma, buf_ptr(field->name));
         ir_print_other_instruction(irp, field->result_loc);
     }
-    fprintf(irp->f, "} // container init");
+    fprintf(irp->f, "}result=");
+    ir_print_other_instruction(irp, instruction->result_loc);
 }
 
 static void ir_print_unreachable(IrPrint *irp, IrInstructionUnreachable *instruction) {
@@ -1484,6 +1494,13 @@ static void ir_print_ptr_cast_gen(IrPrint *irp, IrInstructionPtrCastGen *instruc
     fprintf(irp->f, ")");
 }
 
+static void ir_print_implicit_cast(IrPrint *irp, IrInstructionImplicitCast *instruction) {
+    fprintf(irp->f, "@implicitCast(");
+    ir_print_other_instruction(irp, instruction->operand);
+    fprintf(irp->f, ")result=");
+    ir_print_result_loc(irp, &instruction->result_loc_cast->base);
+}
+
 static void ir_print_bit_cast_src(IrPrint *irp, IrInstructionBitCastSrc *instruction) {
     fprintf(irp->f, "@bitCast(");
     ir_print_other_instruction(irp, instruction->operand);
@@ -1739,14 +1756,6 @@ static void ir_print_align_cast(IrPrint *irp, IrInstructionAlignCast *instructio
     fprintf(irp->f, ")");
 }
 
-static void ir_print_implicit_cast(IrPrint *irp, IrInstructionImplicitCast *instruction) {
-    fprintf(irp->f, "@implicitCast(");
-    ir_print_other_instruction(irp, instruction->dest_type);
-    fprintf(irp->f, ",");
-    ir_print_other_instruction(irp, instruction->target);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_resolve_result(IrPrint *irp, IrInstructionResolveResult *instruction) {
     fprintf(irp->f, "ResolveResult(");
     ir_print_result_loc(irp, instruction->result_loc);
@@ -1863,6 +1872,27 @@ static void ir_print_atomic_load(IrPrint *irp, IrInstructionAtomicLoad *instruct
     }
     fprintf(irp->f, ")");
 }
+
+static void ir_print_atomic_store(IrPrint *irp, IrInstructionAtomicStore *instruction) {
+    fprintf(irp->f, "@atomicStore(");
+    if (instruction->operand_type != nullptr) {
+        ir_print_other_instruction(irp, instruction->operand_type);
+    } else {
+        fprintf(irp->f, "[TODO print]");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ",");
+    if (instruction->ordering != nullptr) {
+        ir_print_other_instruction(irp, instruction->ordering);
+    } else {
+        fprintf(irp->f, "[TODO print]");
+    }
+    fprintf(irp->f, ")");
+}
+
 
 static void ir_print_save_err_ret_addr(IrPrint *irp, IrInstructionSaveErrRetAddr *instruction) {
     fprintf(irp->f, "@saveErrRetAddr()");
@@ -2424,6 +2454,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
         case IrInstructionIdAtomicLoad:
             ir_print_atomic_load(irp, (IrInstructionAtomicLoad *)instruction);
             break;
+        case IrInstructionIdAtomicStore:
+            ir_print_atomic_store(irp, (IrInstructionAtomicStore *)instruction);
+            break;
         case IrInstructionIdEnumToInt:
             ir_print_enum_to_int(irp, (IrInstructionEnumToInt *)instruction);
             break;
@@ -2541,4 +2574,19 @@ void ir_print_instruction(CodeGen *codegen, FILE *f, IrInstruction *instruction,
     irp->pending = {};
 
     ir_print_instruction(irp, instruction, false);
+}
+
+void ir_print_const_expr(CodeGen *codegen, FILE *f, ConstExprValue *value, int indent_size, IrPass pass) {
+    IrPrint ir_print = {};
+    IrPrint *irp = &ir_print;
+    irp->pass = pass;
+    irp->codegen = codegen;
+    irp->f = f;
+    irp->indent = indent_size;
+    irp->indent_size = indent_size;
+    irp->printed = {};
+    irp->printed.init(4);
+    irp->pending = {};
+
+    ir_print_const_value(irp, value);
 }

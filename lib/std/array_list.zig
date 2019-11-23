@@ -344,18 +344,18 @@ test "std.ArrayList.orderedRemove" {
     try list.append(7);
 
     //remove from middle
-    testing.expectEqual(i32(4), list.orderedRemove(3));
-    testing.expectEqual(i32(5), list.at(3));
-    testing.expectEqual(usize(6), list.len);
+    testing.expectEqual(@as(i32, 4), list.orderedRemove(3));
+    testing.expectEqual(@as(i32, 5), list.at(3));
+    testing.expectEqual(@as(usize, 6), list.len);
 
     //remove from end
-    testing.expectEqual(i32(7), list.orderedRemove(5));
-    testing.expectEqual(usize(5), list.len);
+    testing.expectEqual(@as(i32, 7), list.orderedRemove(5));
+    testing.expectEqual(@as(usize, 5), list.len);
 
     //remove from front
-    testing.expectEqual(i32(1), list.orderedRemove(0));
-    testing.expectEqual(i32(2), list.at(0));
-    testing.expectEqual(usize(4), list.len);
+    testing.expectEqual(@as(i32, 1), list.orderedRemove(0));
+    testing.expectEqual(@as(i32, 2), list.at(0));
+    testing.expectEqual(@as(usize, 4), list.len);
 }
 
 test "std.ArrayList.swapRemove" {

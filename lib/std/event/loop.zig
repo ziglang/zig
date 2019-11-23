@@ -266,7 +266,7 @@ pub const Loop = struct {
                     },
                 };
 
-                const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
+                const empty_kevs = &[0]os.Kevent{};
 
                 for (self.eventfd_resume_nodes) |*eventfd_node, i| {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
@@ -289,7 +289,7 @@ pub const Loop = struct {
                         .next = undefined,
                     };
                     self.available_eventfd_resume_nodes.push(eventfd_node);
-                    const kevent_array = (*const [1]os.Kevent)(&eventfd_node.data.kevent);
+                    const kevent_array = @as(*const [1]os.Kevent, &eventfd_node.data.kevent);
                     _ = try os.kevent(self.os_data.kqfd, kevent_array, empty_kevs, null);
                     eventfd_node.data.kevent.flags = os.EV_CLEAR | os.EV_ENABLE;
                     eventfd_node.data.kevent.fflags = os.NOTE_TRIGGER;
@@ -305,7 +305,7 @@ pub const Loop = struct {
                     .data = 0,
                     .udata = @ptrToInt(&self.final_resume_node),
                 };
-                const final_kev_arr = (*const [1]os.Kevent)(&self.os_data.final_kevent);
+                const final_kev_arr = @as(*const [1]os.Kevent, &self.os_data.final_kevent);
                 _ = try os.kevent(self.os_data.kqfd, final_kev_arr, empty_kevs, null);
                 self.os_data.final_kevent.flags = os.EV_ENABLE;
                 self.os_data.final_kevent.fflags = os.NOTE_TRIGGER;
@@ -572,8 +572,8 @@ pub const Loop = struct {
             eventfd_node.base.handle = next_tick_node.data;
             switch (builtin.os) {
                 .macosx, .freebsd, .netbsd, .dragonfly => {
-                    const kevent_array = (*const [1]os.Kevent)(&eventfd_node.kevent);
-                    const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
+                    const kevent_array = @as(*const [1]os.Kevent, &eventfd_node.kevent);
+                    const empty_kevs = &[0]os.Kevent{};
                     _ = os.kevent(self.os_data.kqfd, kevent_array, empty_kevs, null) catch {
                         self.next_tick_queue.unget(next_tick_node);
                         self.available_eventfd_resume_nodes.push(resume_stack_node);
@@ -645,12 +645,6 @@ pub const Loop = struct {
         }
     }
 
-    /// This is equivalent to function call, except it calls `startCpuBoundOperation` first.
-    pub fn call(comptime func: var, args: ...) @typeOf(func).ReturnType {
-        startCpuBoundOperation();
-        return func(args);
-    }
-
     /// Yielding lets the event loop run, starting any unstarted async operations.
     /// Note that async operations automatically start when a function yields for any other reason,
     /// for example, when async I/O is performed. This function is intended to be used only when
@@ -695,8 +689,8 @@ pub const Loop = struct {
                 },
                 .macosx, .freebsd, .netbsd, .dragonfly => {
                     self.posixFsRequest(&self.os_data.fs_end_request);
-                    const final_kevent = (*const [1]os.Kevent)(&self.os_data.final_kevent);
-                    const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
+                    const final_kevent = @as(*const [1]os.Kevent, &self.os_data.final_kevent);
+                    const empty_kevs = &[0]os.Kevent{};
                     // cannot fail because we already added it and this just enables it
                     _ = os.kevent(self.os_data.kqfd, final_kevent, empty_kevs, null) catch unreachable;
                     return;
@@ -753,7 +747,7 @@ pub const Loop = struct {
                 },
                 .macosx, .freebsd, .netbsd, .dragonfly => {
                     var eventlist: [1]os.Kevent = undefined;
-                    const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
+                    const empty_kevs = &[0]os.Kevent{};
                     const count = os.kevent(self.os_data.kqfd, empty_kevs, eventlist[0..], null) catch unreachable;
                     for (eventlist[0..count]) |ev| {
                         const resume_node = @intToPtr(*ResumeNode, ev.udata);
@@ -815,12 +809,12 @@ pub const Loop = struct {
         self.os_data.fs_queue.put(request_node);
         switch (builtin.os) {
             .macosx, .freebsd, .netbsd, .dragonfly => {
-                const fs_kevs = (*const [1]os.Kevent)(&self.os_data.fs_kevent_wake);
-                const empty_kevs = ([*]os.Kevent)(undefined)[0..0];
+                const fs_kevs = @as(*const [1]os.Kevent, &self.os_data.fs_kevent_wake);
+                const empty_kevs = &[0]os.Kevent{};
                 _ = os.kevent(self.os_data.fs_kqfd, fs_kevs, empty_kevs, null) catch unreachable;
             },
             .linux => {
-                _ = @atomicRmw(i32, &self.os_data.fs_queue_item, AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
+                @atomicStore(i32, &self.os_data.fs_queue_item, 1, AtomicOrder.SeqCst);
                 const rc = os.linux.futex_wake(&self.os_data.fs_queue_item, os.linux.FUTEX_WAKE, 1);
                 switch (os.linux.getErrno(rc)) {
                     0 => {},
@@ -843,7 +837,7 @@ pub const Loop = struct {
     fn posixFsRun(self: *Loop) void {
         while (true) {
             if (builtin.os == .linux) {
-                _ = @atomicRmw(i32, &self.os_data.fs_queue_item, .Xchg, 0, .SeqCst);
+                @atomicStore(i32, &self.os_data.fs_queue_item, 0, .SeqCst);
             }
             while (self.os_data.fs_queue.get()) |node| {
                 switch (node.data.msg) {
@@ -862,7 +856,8 @@ pub const Loop = struct {
                     },
                     .Close => |*msg| noasync os.close(msg.fd),
                     .WriteFile => |*msg| blk: {
-                        const flags = os.O_LARGEFILE | os.O_WRONLY | os.O_CREAT |
+                        const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
+                        const flags = O_LARGEFILE | os.O_WRONLY | os.O_CREAT |
                             os.O_CLOEXEC | os.O_TRUNC;
                         const fd = noasync os.openC(msg.path.ptr, flags, msg.mode) catch |err| {
                             msg.result = err;
@@ -890,7 +885,7 @@ pub const Loop = struct {
                     }
                 },
                 .macosx, .freebsd, .netbsd, .dragonfly => {
-                    const fs_kevs = (*const [1]os.Kevent)(&self.os_data.fs_kevent_wait);
+                    const fs_kevs = @as(*const [1]os.Kevent, &self.os_data.fs_kevent_wait);
                     var out_kevs: [1]os.Kevent = undefined;
                     _ = os.kevent(self.os_data.fs_kqfd, fs_kevs, out_kevs[0..], null) catch unreachable;
                 },
@@ -940,23 +935,6 @@ test "std.event.Loop - basic" {
     defer loop.deinit();
 
     loop.run();
-}
-
-test "std.event.Loop - call" {
-    // https://github.com/ziglang/zig/issues/1908
-    if (builtin.single_threaded) return error.SkipZigTest;
-
-    var loop: Loop = undefined;
-    try loop.initMultiThreaded();
-    defer loop.deinit();
-
-    var did_it = false;
-    var handle = async Loop.call(testEventLoop);
-    var handle2 = async Loop.call(testEventLoop2, &handle, &did_it);
-
-    loop.run();
-
-    testing.expect(did_it);
 }
 
 async fn testEventLoop() i32 {

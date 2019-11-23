@@ -53,7 +53,7 @@ pub const Builder = struct {
     release_mode: ?builtin.Mode,
     is_release: bool,
     override_lib_dir: ?[]const u8,
-
+    vcpkg_root: VcpkgRoot,
     pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
 
     const PkgConfigError = error{
@@ -159,6 +159,7 @@ pub const Builder = struct {
             .is_release = false,
             .override_lib_dir = null,
             .install_path = undefined,
+            .vcpkg_root = VcpkgRoot{ .Unattempted = {} },
         };
         try self.top_level_steps.append(&self.install_tls);
         try self.top_level_steps.append(&self.uninstall_tls);
@@ -957,6 +958,7 @@ pub const Builder = struct {
                 error.ProcessTerminated => error.PkgConfigCrashed,
                 error.ExitCodeFailure => error.PkgConfigFailed,
                 error.FileNotFound => error.PkgConfigNotInstalled,
+                error.InvalidName => error.PkgConfigNotInstalled,
                 error.PkgConfigInvalidOutput => error.PkgConfigInvalidOutput,
                 else => return err,
             };
@@ -1046,6 +1048,7 @@ pub const LibExeObjStep = struct {
     output_dir: ?[]const u8,
     need_system_paths: bool,
     is_linking_libc: bool = false,
+    vcpkg_bin_path: ?[]const u8 = null,
 
     installed_path: ?[]const u8,
     install_step: ?*InstallArtifactStep,
@@ -1264,6 +1267,11 @@ pub const LibExeObjStep = struct {
         // option is supplied.
         const run_step = RunStep.create(exe.builder, exe.builder.fmt("run {}", exe.step.name));
         run_step.addArtifactArg(exe);
+
+        if (exe.vcpkg_bin_path) |path| {
+            run_step.addPathDir(path);
+        }
+
         return run_step;
     }
 
@@ -1567,6 +1575,43 @@ pub const LibExeObjStep = struct {
             .name = name,
             .path = pkg_index_path,
         }) catch unreachable;
+    }
+
+    /// If Vcpkg was found on the system, it will be added to include and lib
+    /// paths for the specified target.
+    pub fn addVcpkgPaths(self: *LibExeObjStep, linkage: VcpkgLinkage) !void {
+        // Ideally in the Unattempted case we would call the function recursively
+        // after findVcpkgRoot and have only one switch statement, but the compiler
+        // cannot resolve the error set.
+        switch (self.builder.vcpkg_root) {
+            .Unattempted => {
+                self.builder.vcpkg_root = if (try findVcpkgRoot(self.builder.allocator)) |root|
+                    VcpkgRoot{ .Found = root }
+                else
+                    .NotFound;
+            },
+            .NotFound => return error.VcpkgNotFound,
+            .Found => {},
+        }
+
+        switch (self.builder.vcpkg_root) {
+            .Unattempted => unreachable,
+            .NotFound => return error.VcpkgNotFound,
+            .Found => |root| {
+                const allocator = self.builder.allocator;
+                const triplet = try Target.vcpkgTriplet(allocator, self.target, linkage);
+                defer self.builder.allocator.free(triplet);
+
+                const include_path = try fs.path.join(allocator, [_][]const u8{ root, "installed", triplet, "include" });
+                errdefer allocator.free(include_path);
+                try self.include_dirs.append(IncludeDir{ .RawPath = include_path });
+
+                const lib_path = try fs.path.join(allocator, [_][]const u8{ root, "installed", triplet, "lib" });
+                try self.lib_paths.append(lib_path);
+
+                self.vcpkg_bin_path = try fs.path.join(allocator, [_][]const u8{ root, "installed", triplet, "bin" });
+            },
+        }
     }
 
     pub fn setExecCmd(self: *LibExeObjStep, args: []const ?[]const u8) void {
@@ -2340,6 +2385,42 @@ fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_maj
         return err;
     };
 }
+
+/// Returned slice must be freed by the caller.
+fn findVcpkgRoot(allocator: *Allocator) !?[]const u8 {
+    const appdata_path = try fs.getAppDataDir(allocator, "vcpkg");
+    defer allocator.free(appdata_path);
+
+    const path_file = try fs.path.join(allocator, [_][]const u8{ appdata_path, "vcpkg.path.txt" });
+    defer allocator.free(path_file);
+
+    const file = fs.File.openRead(path_file) catch return null;
+    defer file.close();
+
+    const size = @intCast(usize, try file.getEndPos());
+    const vcpkg_path = try allocator.alloc(u8, size);
+    const size_read = try file.read(vcpkg_path);
+    std.debug.assert(size == size_read);
+
+    return vcpkg_path;
+}
+
+const VcpkgRoot = union(VcpkgRootStatus) {
+    Unattempted: void,
+    NotFound: void,
+    Found: []const u8,
+};
+
+const VcpkgRootStatus = enum {
+    Unattempted,
+    NotFound,
+    Found,
+};
+
+pub const VcpkgLinkage = enum {
+    Static,
+    Dynamic,
+};
 
 pub const InstallDir = enum {
     Prefix,

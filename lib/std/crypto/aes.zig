@@ -6,7 +6,7 @@ const testing = std.testing;
 
 // Apply sbox0 to each byte in w.
 fn subw(w: u32) u32 {
-    return u32(sbox0[w >> 24]) << 24 | u32(sbox0[w >> 16 & 0xff]) << 16 | u32(sbox0[w >> 8 & 0xff]) << 8 | u32(sbox0[w & 0xff]);
+    return @as(u32, sbox0[w >> 24]) << 24 | @as(u32, sbox0[w >> 16 & 0xff]) << 16 | @as(u32, sbox0[w >> 8 & 0xff]) << 8 | @as(u32, sbox0[w & 0xff]);
 }
 
 fn rotw(w: u32) u32 {
@@ -48,10 +48,10 @@ fn encryptBlock(xk: []const u32, dst: []u8, src: []const u8) void {
     }
 
     // Last round uses s-box directly and XORs to produce output.
-    s0 = u32(sbox0[t0 >> 24]) << 24 | u32(sbox0[t1 >> 16 & 0xff]) << 16 | u32(sbox0[t2 >> 8 & 0xff]) << 8 | u32(sbox0[t3 & 0xff]);
-    s1 = u32(sbox0[t1 >> 24]) << 24 | u32(sbox0[t2 >> 16 & 0xff]) << 16 | u32(sbox0[t3 >> 8 & 0xff]) << 8 | u32(sbox0[t0 & 0xff]);
-    s2 = u32(sbox0[t2 >> 24]) << 24 | u32(sbox0[t3 >> 16 & 0xff]) << 16 | u32(sbox0[t0 >> 8 & 0xff]) << 8 | u32(sbox0[t1 & 0xff]);
-    s3 = u32(sbox0[t3 >> 24]) << 24 | u32(sbox0[t0 >> 16 & 0xff]) << 16 | u32(sbox0[t1 >> 8 & 0xff]) << 8 | u32(sbox0[t2 & 0xff]);
+    s0 = @as(u32, sbox0[t0 >> 24]) << 24 | @as(u32, sbox0[t1 >> 16 & 0xff]) << 16 | @as(u32, sbox0[t2 >> 8 & 0xff]) << 8 | @as(u32, sbox0[t3 & 0xff]);
+    s1 = @as(u32, sbox0[t1 >> 24]) << 24 | @as(u32, sbox0[t2 >> 16 & 0xff]) << 16 | @as(u32, sbox0[t3 >> 8 & 0xff]) << 8 | @as(u32, sbox0[t0 & 0xff]);
+    s2 = @as(u32, sbox0[t2 >> 24]) << 24 | @as(u32, sbox0[t3 >> 16 & 0xff]) << 16 | @as(u32, sbox0[t0 >> 8 & 0xff]) << 8 | @as(u32, sbox0[t1 & 0xff]);
+    s3 = @as(u32, sbox0[t3 >> 24]) << 24 | @as(u32, sbox0[t0 >> 16 & 0xff]) << 16 | @as(u32, sbox0[t1 >> 8 & 0xff]) << 8 | @as(u32, sbox0[t2 & 0xff]);
 
     s0 ^= xk[k + 0];
     s1 ^= xk[k + 1];
@@ -99,10 +99,10 @@ pub fn decryptBlock(xk: []const u32, dst: []u8, src: []const u8) void {
     }
 
     // Last round uses s-box directly and XORs to produce output.
-    s0 = u32(sbox1[t0 >> 24]) << 24 | u32(sbox1[t3 >> 16 & 0xff]) << 16 | u32(sbox1[t2 >> 8 & 0xff]) << 8 | u32(sbox1[t1 & 0xff]);
-    s1 = u32(sbox1[t1 >> 24]) << 24 | u32(sbox1[t0 >> 16 & 0xff]) << 16 | u32(sbox1[t3 >> 8 & 0xff]) << 8 | u32(sbox1[t2 & 0xff]);
-    s2 = u32(sbox1[t2 >> 24]) << 24 | u32(sbox1[t1 >> 16 & 0xff]) << 16 | u32(sbox1[t0 >> 8 & 0xff]) << 8 | u32(sbox1[t3 & 0xff]);
-    s3 = u32(sbox1[t3 >> 24]) << 24 | u32(sbox1[t2 >> 16 & 0xff]) << 16 | u32(sbox1[t1 >> 8 & 0xff]) << 8 | u32(sbox1[t0 & 0xff]);
+    s0 = @as(u32, sbox1[t0 >> 24]) << 24 | @as(u32, sbox1[t3 >> 16 & 0xff]) << 16 | @as(u32, sbox1[t2 >> 8 & 0xff]) << 8 | @as(u32, sbox1[t1 & 0xff]);
+    s1 = @as(u32, sbox1[t1 >> 24]) << 24 | @as(u32, sbox1[t0 >> 16 & 0xff]) << 16 | @as(u32, sbox1[t3 >> 8 & 0xff]) << 8 | @as(u32, sbox1[t2 & 0xff]);
+    s2 = @as(u32, sbox1[t2 >> 24]) << 24 | @as(u32, sbox1[t1 >> 16 & 0xff]) << 16 | @as(u32, sbox1[t0 >> 8 & 0xff]) << 8 | @as(u32, sbox1[t3 & 0xff]);
+    s3 = @as(u32, sbox1[t3 >> 24]) << 24 | @as(u32, sbox1[t2 >> 16 & 0xff]) << 16 | @as(u32, sbox1[t1 >> 8 & 0xff]) << 8 | @as(u32, sbox1[t0 & 0xff]);
 
     s0 ^= xk[k + 0];
     s1 ^= xk[k + 1];
@@ -256,7 +256,7 @@ fn expandKey(key: []const u8, enc: []u32, dec: []u32) void {
     while (i < enc.len) : (i += 1) {
         var t = enc[i - 1];
         if (i % nk == 0) {
-            t = subw(rotw(t)) ^ (u32(powx[i / nk - 1]) << 24);
+            t = subw(rotw(t)) ^ (@as(u32, powx[i / nk - 1]) << 24);
         } else if (nk > 6 and i % nk == 4) {
             t = subw(t);
         }

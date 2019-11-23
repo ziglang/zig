@@ -218,6 +218,40 @@ pub const Target = union(enum) {
         );
     }
 
+    /// Returned slice must be freed by the caller.
+    pub fn vcpkgTriplet(allocator: *mem.Allocator, target: Target, linkage: std.build.VcpkgLinkage) ![]const u8 {
+        const arch = switch (target.getArch()) {
+            .i386 => "x86",
+            .x86_64 => "x64",
+
+            .arm,
+            .armeb,
+            .thumb,
+            .thumbeb,
+            .aarch64_32,
+            => "arm",
+
+            .aarch64,
+            .aarch64_be,
+            => "arm64",
+
+            else => return error.VcpkgNoSuchArchitecture,
+        };
+
+        const os = switch (target.getOs()) {
+            .windows => "windows",
+            .linux => "linux",
+            .macosx => "macos",
+            else => return error.VcpkgNoSuchOs,
+        };
+
+        if (linkage == .Static) {
+            return try mem.join(allocator, "-", [_][]const u8{ arch, os, "static" });
+        } else {
+            return try mem.join(allocator, "-", [_][]const u8{ arch, os });
+        }
+    }
+
     pub fn allocDescription(self: Target, allocator: *mem.Allocator) ![]u8 {
         // TODO is there anything else worthy of the description that is not
         // already captured in the triple?
@@ -319,7 +353,7 @@ pub const Target = union(enum) {
         inline for (info.Union.fields) |field| {
             if (mem.eql(u8, text, field.name)) {
                 if (field.field_type == void) {
-                    return (Arch)(@field(Arch, field.name));
+                    return @as(Arch, @field(Arch, field.name));
                 } else {
                     const sub_info = @typeInfo(field.field_type);
                     inline for (sub_info.Enum.fields) |sub_field| {
@@ -581,7 +615,7 @@ pub const Target = union(enum) {
     };
 
     pub fn getExternalExecutor(self: Target) Executor {
-        if (@TagType(Target)(self) == .Native) return .native;
+        if (@as(@TagType(Target), self) == .Native) return .native;
 
         // If the target OS matches the host OS, we can use QEMU to emulate a foreign architecture.
         if (self.getOs() == builtin.os) {

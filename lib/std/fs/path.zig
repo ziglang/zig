@@ -32,7 +32,7 @@ pub fn isSep(byte: u8) bool {
 /// This is different from mem.join in that the separator will not be repeated if
 /// it is found at the end or beginning of a pair of consecutive paths.
 fn joinSep(allocator: *Allocator, separator: u8, paths: []const []const u8) ![]u8 {
-    if (paths.len == 0) return (([*]u8)(undefined))[0..0];
+    if (paths.len == 0) return &[0]u8{};
 
     const total_len = blk: {
         var sum: usize = paths[0].len;

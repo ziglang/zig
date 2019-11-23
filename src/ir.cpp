@@ -200,6 +200,13 @@ static IrInstruction *ir_gen_union_init_expr(IrBuilder *irb, Scope *scope, AstNo
 static void ir_reset_result(ResultLoc *result_loc);
 static Buf *get_anon_type_name(CodeGen *codegen, IrExecutable *exec, const char *kind_name,
         Scope *scope, AstNode *source_node, Buf *out_bare_name);
+static ResultLocCast *ir_build_cast_result_loc(IrBuilder *irb, IrInstruction *dest_type,
+        ResultLoc *parent_result_loc);
+static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction *source_instr,
+        TypeStructField *field, IrInstruction *struct_ptr, ZigType *struct_type, bool initializing);
+static IrInstruction *ir_analyze_inferred_field_ptr(IrAnalyze *ira, Buf *field_name,
+    IrInstruction *source_instr, IrInstruction *container_ptr, ZigType *container_type);
+static ResultLoc *no_result_loc(void);
 
 static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -233,7 +240,7 @@ static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *c
         case ConstPtrSpecialBaseStruct: {
             ConstExprValue *struct_val = const_val->data.x_ptr.data.base_struct.struct_val;
             expand_undef_struct(g, struct_val);
-            result = &struct_val->data.x_struct.fields[const_val->data.x_ptr.data.base_struct.field_index];
+            result = struct_val->data.x_struct.fields[const_val->data.x_ptr.data.base_struct.field_index];
             break;
         }
         case ConstPtrSpecialBaseErrorUnionCode:
@@ -270,7 +277,7 @@ static bool is_slice(ZigType *type) {
 
 static bool slice_is_const(ZigType *type) {
     assert(is_slice(type));
-    return type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const;
+    return type->data.structure.fields[slice_ptr_index]->type_entry->data.pointer.is_const;
 }
 
 // This function returns true when you can change the type of a ConstExprValue and the
@@ -1003,6 +1010,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionAtomicLoad *) {
     return IrInstructionIdAtomicLoad;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionAtomicStore *) {
+    return IrInstructionIdAtomicStore;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionSaveErrRetAddr *) {
     return IrInstructionIdSaveErrRetAddr;
 }
@@ -1348,18 +1359,17 @@ static IrInstruction *ir_build_return_ptr(IrAnalyze *ira, IrInstruction *source_
 
 static IrInstruction *ir_build_elem_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *array_ptr, IrInstruction *elem_index, bool safety_check_on, PtrLen ptr_len,
-        IrInstruction *init_array_type)
+        AstNode *init_array_type_source_node)
 {
     IrInstructionElemPtr *instruction = ir_build_instruction<IrInstructionElemPtr>(irb, scope, source_node);
     instruction->array_ptr = array_ptr;
     instruction->elem_index = elem_index;
     instruction->safety_check_on = safety_check_on;
     instruction->ptr_len = ptr_len;
-    instruction->init_array_type = init_array_type;
+    instruction->init_array_type_source_node = init_array_type_source_node;
 
     ir_ref_instruction(array_ptr, irb->current_basic_block);
     ir_ref_instruction(elem_index, irb->current_basic_block);
-    if (init_array_type != nullptr) ir_ref_instruction(init_array_type, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -1573,17 +1583,16 @@ static IrInstruction *ir_build_un_op(IrBuilder *irb, Scope *scope, AstNode *sour
 }
 
 static IrInstruction *ir_build_container_init_list(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *container_type, size_t item_count, IrInstruction **elem_result_loc_list,
-        IrInstruction *result_loc)
+        size_t item_count, IrInstruction **elem_result_loc_list, IrInstruction *result_loc,
+        AstNode *init_array_type_source_node)
 {
     IrInstructionContainerInitList *container_init_list_instruction =
         ir_build_instruction<IrInstructionContainerInitList>(irb, scope, source_node);
-    container_init_list_instruction->container_type = container_type;
     container_init_list_instruction->item_count = item_count;
     container_init_list_instruction->elem_result_loc_list = elem_result_loc_list;
     container_init_list_instruction->result_loc = result_loc;
+    container_init_list_instruction->init_array_type_source_node = init_array_type_source_node;
 
-    ir_ref_instruction(container_type, irb->current_basic_block);
     for (size_t i = 0; i < item_count; i += 1) {
         ir_ref_instruction(elem_result_loc_list[i], irb->current_basic_block);
     }
@@ -1593,17 +1602,14 @@ static IrInstruction *ir_build_container_init_list(IrBuilder *irb, Scope *scope,
 }
 
 static IrInstruction *ir_build_container_init_fields(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *container_type, size_t field_count, IrInstructionContainerInitFieldsField *fields,
-        IrInstruction *result_loc)
+        size_t field_count, IrInstructionContainerInitFieldsField *fields, IrInstruction *result_loc)
 {
     IrInstructionContainerInitFields *container_init_fields_instruction =
         ir_build_instruction<IrInstructionContainerInitFields>(irb, scope, source_node);
-    container_init_fields_instruction->container_type = container_type;
     container_init_fields_instruction->field_count = field_count;
     container_init_fields_instruction->fields = fields;
     container_init_fields_instruction->result_loc = result_loc;
 
-    ir_ref_instruction(container_type, irb->current_basic_block);
     for (size_t i = 0; i < field_count; i += 1) {
         ir_ref_instruction(fields[i].result_loc, irb->current_basic_block);
     }
@@ -2766,6 +2772,18 @@ static IrInstruction *ir_build_load_ptr_gen(IrAnalyze *ira, IrInstruction *sourc
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_implicit_cast(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *operand, ResultLocCast *result_loc_cast)
+{
+    IrInstructionImplicitCast *instruction = ir_build_instruction<IrInstructionImplicitCast>(irb, scope, source_node);
+    instruction->operand = operand;
+    instruction->result_loc_cast = result_loc_cast;
+
+    ir_ref_instruction(operand, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_build_bit_cast_src(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *operand, ResultLocBitCast *result_loc_bit_cast)
 {
@@ -3063,20 +3081,6 @@ static IrInstruction *ir_build_align_cast(IrBuilder *irb, Scope *scope, AstNode 
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_implicit_cast(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *dest_type, IrInstruction *target, ResultLoc *result_loc)
-{
-    IrInstructionImplicitCast *instruction = ir_build_instruction<IrInstructionImplicitCast>(irb, scope, source_node);
-    instruction->dest_type = dest_type;
-    instruction->target = target;
-    instruction->result_loc = result_loc;
-
-    ir_ref_instruction(dest_type, irb->current_basic_block);
-    ir_ref_instruction(target, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
 static IrInstruction *ir_build_resolve_result(IrBuilder *irb, Scope *scope, AstNode *source_node,
         ResultLoc *result_loc, IrInstruction *ty)
 {
@@ -3084,7 +3088,7 @@ static IrInstruction *ir_build_resolve_result(IrBuilder *irb, Scope *scope, AstN
     instruction->result_loc = result_loc;
     instruction->ty = ty;
 
-    ir_ref_instruction(ty, irb->current_basic_block);
+    if (ty != nullptr) ir_ref_instruction(ty, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -3116,11 +3120,12 @@ static IrInstruction *ir_build_set_align_stack(IrBuilder *irb, Scope *scope, Ast
 }
 
 static IrInstruction *ir_build_arg_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *fn_type, IrInstruction *arg_index)
+        IrInstruction *fn_type, IrInstruction *arg_index, bool allow_var)
 {
     IrInstructionArgType *instruction = ir_build_instruction<IrInstructionArgType>(irb, scope, source_node);
     instruction->fn_type = fn_type;
     instruction->arg_index = arg_index;
+    instruction->allow_var = allow_var;
 
     ir_ref_instruction(fn_type, irb->current_basic_block);
     ir_ref_instruction(arg_index, irb->current_basic_block);
@@ -3182,6 +3187,25 @@ static IrInstruction *ir_build_atomic_load(IrBuilder *irb, Scope *scope, AstNode
 
     if (operand_type != nullptr) ir_ref_instruction(operand_type, irb->current_basic_block);
     ir_ref_instruction(ptr, irb->current_basic_block);
+    if (ordering != nullptr) ir_ref_instruction(ordering, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_atomic_store(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *operand_type, IrInstruction *ptr, IrInstruction *value,
+        IrInstruction *ordering, AtomicOrder resolved_ordering)
+{
+    IrInstructionAtomicStore *instruction = ir_build_instruction<IrInstructionAtomicStore>(irb, scope, source_node);
+    instruction->operand_type = operand_type;
+    instruction->ptr = ptr;
+    instruction->value = value;
+    instruction->ordering = ordering;
+    instruction->resolved_ordering = resolved_ordering;
+
+    if (operand_type != nullptr) ir_ref_instruction(operand_type, irb->current_basic_block);
+    ir_ref_instruction(ptr, irb->current_basic_block);
+    ir_ref_instruction(value, irb->current_basic_block);
     if (ordering != nullptr) ir_ref_instruction(ordering, irb->current_basic_block);
 
     return &instruction->base;
@@ -5374,6 +5398,24 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 IrInstruction *bitcast = ir_build_bit_cast_src(irb, scope, arg1_node, arg1_value, result_loc_bit_cast);
                 return ir_lval_wrap(irb, scope, bitcast, lval, result_loc);
             }
+        case BuiltinFnIdAs:
+            {
+                AstNode *dest_type_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *dest_type = ir_gen_node(irb, dest_type_node, scope);
+                if (dest_type == irb->codegen->invalid_instruction)
+                    return dest_type;
+
+                ResultLocCast *result_loc_cast = ir_build_cast_result_loc(irb, dest_type, result_loc);
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node_extra(irb, arg1_node, scope, LValNone,
+                        &result_loc_cast->base);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *result = ir_build_implicit_cast(irb, scope, node, arg1_value, result_loc_cast);
+                return ir_lval_wrap(irb, scope, result, lval, result_loc);
+            }
         case BuiltinFnIdIntToPtr:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
@@ -5630,7 +5672,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg1_value == irb->codegen->invalid_instruction)
                     return arg1_value;
 
-                IrInstruction *arg_type = ir_build_arg_type(irb, scope, node, arg0_value, arg1_value);
+                IrInstruction *arg_type = ir_build_arg_type(irb, scope, node, arg0_value, arg1_value, false);
                 return ir_lval_wrap(irb, scope, arg_type, lval, result_loc);
             }
         case BuiltinFnIdExport:
@@ -5709,6 +5751,33 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg2_value;
 
                 IrInstruction *inst = ir_build_atomic_load(irb, scope, node, arg0_value, arg1_value, arg2_value,
+                        // this value does not mean anything since we passed non-null values for other arg
+                        AtomicOrderMonotonic);
+                return ir_lval_wrap(irb, scope, inst, lval, result_loc);
+            }
+        case BuiltinFnIdAtomicStore:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
+                IrInstruction *arg2_value = ir_gen_node(irb, arg2_node, scope);
+                if (arg2_value == irb->codegen->invalid_instruction)
+                    return arg2_value;
+
+                AstNode *arg3_node = node->data.fn_call_expr.params.at(3);
+                IrInstruction *arg3_value = ir_gen_node(irb, arg3_node, scope);
+                if (arg3_value == irb->codegen->invalid_instruction)
+                    return arg3_value;
+
+                IrInstruction *inst = ir_build_atomic_store(irb, scope, node, arg0_value, arg1_value, arg2_value, arg3_value,
                         // this value does not mean anything since we passed non-null values for other arg
                         AtomicOrderMonotonic);
                 return ir_lval_wrap(irb, scope, inst, lval, result_loc);
@@ -5825,13 +5894,22 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
     if (fn_ref == irb->codegen->invalid_instruction)
         return fn_ref;
 
+    IrInstruction *fn_type = ir_build_typeof(irb, scope, node, fn_ref);
+
     size_t arg_count = node->data.fn_call_expr.params.length;
     IrInstruction **args = allocate<IrInstruction*>(arg_count);
     for (size_t i = 0; i < arg_count; i += 1) {
         AstNode *arg_node = node->data.fn_call_expr.params.at(i);
-        args[i] = ir_gen_node(irb, arg_node, scope);
-        if (args[i] == irb->codegen->invalid_instruction)
-            return args[i];
+
+        IrInstruction *arg_index = ir_build_const_usize(irb, scope, arg_node, i);
+        IrInstruction *arg_type = ir_build_arg_type(irb, scope, node, fn_type, arg_index, true);
+        ResultLocCast *result_loc_cast = ir_build_cast_result_loc(irb, arg_type, no_result_loc());
+
+        IrInstruction *arg = ir_gen_node_extra(irb, arg_node, scope, LValNone, &result_loc_cast->base);
+        if (arg == irb->codegen->invalid_instruction)
+            return arg;
+
+        args[i] = ir_build_implicit_cast(irb, scope, arg_node, arg, result_loc_cast);
     }
 
     IrInstruction *fn_call = ir_build_call_src(irb, scope, node, nullptr, fn_ref, arg_count, args, false,
@@ -6109,28 +6187,46 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
     AstNodeContainerInitExpr *container_init_expr = &node->data.container_init_expr;
     ContainerInitKind kind = container_init_expr->kind;
 
-    IrInstruction *container_type = nullptr;
-    IrInstruction *elem_type = nullptr;
-    if (container_init_expr->type->type == NodeTypeInferredArrayType) {
-        elem_type = ir_gen_node(irb, container_init_expr->type->data.inferred_array_type.child_type, scope);
-        if (elem_type == irb->codegen->invalid_instruction)
-            return elem_type;
-    } else {
-        container_type = ir_gen_node(irb, container_init_expr->type, scope);
-        if (container_type == irb->codegen->invalid_instruction)
-            return container_type;
-    }
-
-    switch (kind) {
-        case ContainerInitKindStruct: {
-            if (elem_type != nullptr) {
+    ResultLocCast *result_loc_cast = nullptr;
+    ResultLoc *child_result_loc;
+    AstNode *init_array_type_source_node;
+    if (container_init_expr->type != nullptr) {
+        IrInstruction *container_type;
+        if (container_init_expr->type->type == NodeTypeInferredArrayType) {
+            if (kind == ContainerInitKindStruct) {
                 add_node_error(irb->codegen, container_init_expr->type,
                         buf_sprintf("initializing array with struct syntax"));
                 return irb->codegen->invalid_instruction;
             }
+            IrInstruction *elem_type = ir_gen_node(irb,
+                    container_init_expr->type->data.inferred_array_type.child_type, scope);
+            if (elem_type == irb->codegen->invalid_instruction)
+                return elem_type;
+            size_t item_count = container_init_expr->entries.length;
+            IrInstruction *item_count_inst = ir_build_const_usize(irb, scope, node, item_count);
+            container_type = ir_build_array_type(irb, scope, node, item_count_inst, elem_type);
+        } else {
+            container_type = ir_gen_node(irb, container_init_expr->type, scope);
+            if (container_type == irb->codegen->invalid_instruction)
+                return container_type;
+        }
 
-            IrInstruction *container_ptr = ir_build_resolve_result(irb, scope, node, parent_result_loc,
-                    container_type);
+        result_loc_cast = ir_build_cast_result_loc(irb, container_type, parent_result_loc);
+        child_result_loc = &result_loc_cast->base;
+        init_array_type_source_node = container_type->source_node;
+    } else {
+        child_result_loc = parent_result_loc;
+        if (parent_result_loc->source_instruction != nullptr) {
+            init_array_type_source_node = parent_result_loc->source_instruction->source_node;
+        } else {
+            init_array_type_source_node = node;
+        }
+    }
+
+    switch (kind) {
+        case ContainerInitKindStruct: {
+            IrInstruction *container_ptr = ir_build_resolve_result(irb, scope, node, child_result_loc,
+                    nullptr);
 
             size_t field_count = container_init_expr->entries.length;
             IrInstructionContainerInitFieldsField *fields = allocate<IrInstructionContainerInitFieldsField>(field_count);
@@ -6158,29 +6254,27 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                 fields[i].source_node = entry_node;
                 fields[i].result_loc = field_ptr;
             }
-            IrInstruction *init_fields = ir_build_container_init_fields(irb, scope, node, container_type,
-                    field_count, fields, container_ptr);
+            IrInstruction *result = ir_build_container_init_fields(irb, scope, node, field_count,
+                    fields, container_ptr);
 
-            return ir_lval_wrap(irb, scope, init_fields, lval, parent_result_loc);
+            if (result_loc_cast != nullptr) {
+                result = ir_build_implicit_cast(irb, scope, node, result, result_loc_cast);
+            }
+            return ir_lval_wrap(irb, scope, result, lval, parent_result_loc);
         }
         case ContainerInitKindArray: {
             size_t item_count = container_init_expr->entries.length;
 
-            if (container_type == nullptr) {
-                IrInstruction *item_count_inst = ir_build_const_usize(irb, scope, node, item_count);
-                container_type = ir_build_array_type(irb, scope, node, item_count_inst, elem_type);
-            }
-
-            IrInstruction *container_ptr = ir_build_resolve_result(irb, scope, node, parent_result_loc,
-                    container_type);
+            IrInstruction *container_ptr = ir_build_resolve_result(irb, scope, node, child_result_loc,
+                    nullptr);
 
             IrInstruction **result_locs = allocate<IrInstruction *>(item_count);
             for (size_t i = 0; i < item_count; i += 1) {
                 AstNode *expr_node = container_init_expr->entries.at(i);
 
                 IrInstruction *elem_index = ir_build_const_usize(irb, scope, expr_node, i);
-                IrInstruction *elem_ptr = ir_build_elem_ptr(irb, scope, expr_node, container_ptr, elem_index,
-                        false, PtrLenSingle, container_type);
+                IrInstruction *elem_ptr = ir_build_elem_ptr(irb, scope, expr_node, container_ptr,
+                        elem_index, false, PtrLenSingle, init_array_type_source_node);
                 ResultLocInstruction *result_loc_inst = allocate<ResultLocInstruction>(1);
                 result_loc_inst->base.id = ResultLocIdInstruction;
                 result_loc_inst->base.source_instruction = elem_ptr;
@@ -6195,9 +6289,12 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
 
                 result_locs[i] = elem_ptr;
             }
-            IrInstruction *init_list = ir_build_container_init_list(irb, scope, node, container_type,
-                    item_count, result_locs, container_ptr);
-            return ir_lval_wrap(irb, scope, init_list, lval, parent_result_loc);
+            IrInstruction *result = ir_build_container_init_list(irb, scope, node, item_count,
+                    result_locs, container_ptr, init_array_type_source_node);
+            if (result_loc_cast != nullptr) {
+                result = ir_build_implicit_cast(irb, scope, node, result, result_loc_cast);
+            }
+            return ir_lval_wrap(irb, scope, result, lval, parent_result_loc);
         }
     }
     zig_unreachable();
@@ -6212,6 +6309,20 @@ static ResultLocVar *ir_build_var_result_loc(IrBuilder *irb, IrInstruction *allo
     ir_build_reset_result(irb, alloca->scope, alloca->source_node, &result_loc_var->base);
 
     return result_loc_var;
+}
+
+static ResultLocCast *ir_build_cast_result_loc(IrBuilder *irb, IrInstruction *dest_type,
+        ResultLoc *parent_result_loc)
+{
+    ResultLocCast *result_loc_cast = allocate<ResultLocCast>(1);
+    result_loc_cast->base.id = ResultLocIdCast;
+    result_loc_cast->base.source_instruction = dest_type;
+    ir_ref_instruction(dest_type, irb->current_basic_block);
+    result_loc_cast->parent = parent_result_loc;
+
+    ir_build_reset_result(irb, dest_type->scope, dest_type->source_node, &result_loc_cast->base);
+
+    return result_loc_cast;
 }
 
 static void build_decl_var_and_init(IrBuilder *irb, Scope *scope, AstNode *source_node, ZigVar *var,
@@ -6282,7 +6393,15 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
 
     // Create a result location for the initialization expression.
     ResultLocVar *result_loc_var = ir_build_var_result_loc(irb, alloca, var);
-    ResultLoc *init_result_loc = (type_instruction == nullptr) ? &result_loc_var->base : nullptr;
+    ResultLoc *init_result_loc;
+    ResultLocCast *result_loc_cast;
+    if (type_instruction != nullptr) {
+        result_loc_cast = ir_build_cast_result_loc(irb, type_instruction, &result_loc_var->base);
+        init_result_loc = &result_loc_cast->base;
+    } else {
+        result_loc_cast = nullptr;
+        init_result_loc = &result_loc_var->base;
+    }
 
     Scope *init_scope = is_comptime_scalar ?
         create_comptime_scope(irb->codegen, variable_declaration->expr, scope) : scope;
@@ -6298,9 +6417,9 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
     if (init_value == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    if (type_instruction != nullptr) {
-        IrInstruction *implicit_cast = ir_build_implicit_cast(irb, scope, node, type_instruction, init_value,
-                &result_loc_var->base);
+    if (result_loc_cast != nullptr) {
+        IrInstruction *implicit_cast = ir_build_implicit_cast(irb, scope, init_value->source_node,
+                init_value, result_loc_cast);
         ir_build_end_expr(irb, scope, node, implicit_cast, &result_loc_var->base);
     }
 
@@ -7895,14 +8014,14 @@ static bool render_instance_name_recursive(CodeGen *codegen, Buf *name, Scope *o
 static Buf *get_anon_type_name(CodeGen *codegen, IrExecutable *exec, const char *kind_name,
         Scope *scope, AstNode *source_node, Buf *out_bare_name)
 {
-    if (exec->name) {
+    if (exec != nullptr && exec->name) {
         ZigType *import = get_scope_import(scope);
         Buf *namespace_name = buf_alloc();
         append_namespace_qualification(codegen, namespace_name, import);
         buf_append_buf(namespace_name, exec->name);
         buf_init_from_buf(out_bare_name, exec->name);
         return namespace_name;
-    } else if (exec->name_fn != nullptr) {
+    } else if (exec != nullptr && exec->name_fn != nullptr) {
         Buf *name = buf_alloc();
         buf_append_buf(name, &exec->name_fn->symbol_name);
         buf_appendf(name, "(");
@@ -8009,7 +8128,6 @@ static ZigType *get_error_set_union(CodeGen *g, ErrorTableEntry **errors, ZigTyp
         }
     }
     assert(index == count);
-    assert(count != 0);
 
     if (type_name == nullptr) {
         buf_appendf(&err_set_type->name, "}");
@@ -9571,7 +9689,7 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
     }
 
     ir_add_error(ira, instruction,
-        buf_sprintf("%s value %s cannot be implicitly casted to type '%s'",
+        buf_sprintf("%s value %s cannot be coerced to type '%s'",
             num_lit_str,
             buf_ptr(val_buf),
             buf_ptr(&other_type->name)));
@@ -9739,8 +9857,8 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
 
     // slice const
     if (is_slice(wanted_type) && is_slice(actual_type)) {
-        ZigType *actual_ptr_type = actual_type->data.structure.fields[slice_ptr_index].type_entry;
-        ZigType *wanted_ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *actual_ptr_type = actual_type->data.structure.fields[slice_ptr_index]->type_entry;
+        ZigType *wanted_ptr_type = wanted_type->data.structure.fields[slice_ptr_index]->type_entry;
         if ((err = type_resolve(g, actual_ptr_type->data.pointer.child_type, ResolveStatusAlignmentKnown))) {
             result.id = ConstCastResultIdInvalid;
             return result;
@@ -10494,22 +10612,67 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             continue;
         }
 
+        // *[N]T to []T
+        // *[N]T to E![]T
+        if (cur_type->id == ZigTypeIdPointer &&
+            cur_type->data.pointer.child_type->id == ZigTypeIdArray &&
+            ((prev_type->id == ZigTypeIdErrorUnion && is_slice(prev_type->data.error_union.payload_type)) ||
+                is_slice(prev_type)))
+        {
+            ZigType *array_type = cur_type->data.pointer.child_type;
+            ZigType *slice_type = (prev_type->id == ZigTypeIdErrorUnion) ?
+                prev_type->data.error_union.payload_type : prev_type;
+            ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index]->type_entry;
+            if ((slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0) &&
+                types_match_const_cast_only(ira,
+                    slice_ptr_type->data.pointer.child_type,
+                    array_type->data.array.child_type, source_node, false).id == ConstCastResultIdOk)
+            {
+                convert_to_const_slice = false;
+                continue;
+            }
+        }
+
+        // *[N]T to []T
+        // *[N]T to E![]T
+        if (prev_type->id == ZigTypeIdPointer &&
+            prev_type->data.pointer.child_type->id == ZigTypeIdArray &&
+            ((cur_type->id == ZigTypeIdErrorUnion && is_slice(cur_type->data.error_union.payload_type)) ||
+                is_slice(cur_type)))
+        {
+            ZigType *array_type = prev_type->data.pointer.child_type;
+            ZigType *slice_type = (cur_type->id == ZigTypeIdErrorUnion) ?
+                cur_type->data.error_union.payload_type : cur_type;
+            ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index]->type_entry;
+            if ((slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0) &&
+                types_match_const_cast_only(ira,
+                    slice_ptr_type->data.pointer.child_type,
+                    array_type->data.array.child_type, source_node, false).id == ConstCastResultIdOk)
+            {
+                prev_inst = cur_inst;
+                convert_to_const_slice = false;
+                continue;
+            }
+        }
+
+        // [N]T to []T
         if (cur_type->id == ZigTypeIdArray && is_slice(prev_type) &&
-            (prev_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const ||
+            (prev_type->data.structure.fields[slice_ptr_index]->type_entry->data.pointer.is_const ||
             cur_type->data.array.len == 0) &&
             types_match_const_cast_only(ira,
-                prev_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
+                prev_type->data.structure.fields[slice_ptr_index]->type_entry->data.pointer.child_type,
                 cur_type->data.array.child_type, source_node, false).id == ConstCastResultIdOk)
         {
             convert_to_const_slice = false;
             continue;
         }
 
+        // [N]T to []T
         if (prev_type->id == ZigTypeIdArray && is_slice(cur_type) &&
-            (cur_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const ||
+            (cur_type->data.structure.fields[slice_ptr_index]->type_entry->data.pointer.is_const ||
             prev_type->data.array.len == 0) &&
             types_match_const_cast_only(ira,
-                cur_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
+                cur_type->data.structure.fields[slice_ptr_index]->type_entry->data.pointer.child_type,
                 prev_type->data.array.child_type, source_node, false).id == ConstCastResultIdOk)
         {
             prev_inst = cur_inst;
@@ -10620,9 +10783,9 @@ static void copy_const_val(ConstExprValue *dest, ConstExprValue *src, bool same_
         if (src->special != ConstValSpecialStatic)
             return;
         if (dest->type->id == ZigTypeIdStruct) {
-            dest->data.x_struct.fields = create_const_vals(dest->type->data.structure.src_field_count);
+            dest->data.x_struct.fields = alloc_const_vals_ptrs(dest->type->data.structure.src_field_count);
             for (size_t i = 0; i < dest->type->data.structure.src_field_count; i += 1) {
-                copy_const_val(&dest->data.x_struct.fields[i], &src->data.x_struct.fields[i], false);
+                copy_const_val(dest->data.x_struct.fields[i], src->data.x_struct.fields[i], false);
             }
         }
     }
@@ -10814,12 +10977,11 @@ static IrInstruction *ir_resolve_ptr_of_array_to_slice(IrAnalyze *ira, IrInstruc
             assert(value->value.type->id == ZigTypeIdPointer);
             ZigType *array_type = value->value.type->data.pointer.child_type;
             assert(is_slice(wanted_type));
-            bool is_const = wanted_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const;
+            bool is_const = wanted_type->data.structure.fields[slice_ptr_index]->type_entry->data.pointer.is_const;
 
             IrInstruction *result = ir_const(ira, source_instr, wanted_type);
             init_const_slice(ira->codegen, &result->value, pointee, 0, array_type->data.array.len, is_const);
-            result->value.data.x_struct.fields[slice_ptr_index].data.x_ptr.mut =
-                value->value.data.x_ptr.mut;
+            result->value.data.x_struct.fields[slice_ptr_index]->data.x_ptr.mut = value->value.data.x_ptr.mut;
             result->value.type = wanted_type;
             return result;
         }
@@ -12401,6 +12563,27 @@ static IrInstruction *ir_analyze_enum_literal(IrAnalyze *ira, IrInstruction *sou
     return result;
 }
 
+static IrInstruction *ir_analyze_struct_literal_to_array(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *value, ZigType *wanted_type)
+{
+    ir_add_error(ira, source_instr, buf_sprintf("TODO: type coercion of anon list literal to array"));
+    return ira->codegen->invalid_instruction;
+}
+
+static IrInstruction *ir_analyze_struct_literal_to_struct(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *value, ZigType *wanted_type)
+{
+    ir_add_error(ira, source_instr, buf_sprintf("TODO: type coercion of anon struct literal to struct"));
+    return ira->codegen->invalid_instruction;
+}
+
+static IrInstruction *ir_analyze_struct_literal_to_union(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *value, ZigType *wanted_type)
+{
+    ir_add_error(ira, source_instr, buf_sprintf("TODO: type coercion of anon struct literal to union"));
+    return ira->codegen->invalid_instruction;
+}
+
 static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_instr,
     ZigType *wanted_type, IrInstruction *value, ResultLoc *result_loc)
 {
@@ -12410,6 +12593,11 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
 
     if (type_is_invalid(wanted_type) || type_is_invalid(actual_type)) {
         return ira->codegen->invalid_instruction;
+    }
+
+    // This means the wanted type is anything.
+    if (wanted_type == ira->codegen->builtin_types.entry_var) {
+        return value;
     }
 
     // perfect match or non-const to const
@@ -12586,7 +12774,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     // cast from [N]T to []const T
     // TODO: once https://github.com/ziglang/zig/issues/265 lands, remove this
     if (is_slice(wanted_type) && actual_type->id == ZigTypeIdArray) {
-        ZigType *ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *ptr_type = wanted_type->data.structure.fields[slice_ptr_index]->type_entry;
         assert(ptr_type->id == ZigTypeIdPointer);
         if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
             types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type,
@@ -12603,7 +12791,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         actual_type->id == ZigTypeIdArray)
     {
         ZigType *ptr_type =
-            wanted_type->data.maybe.child_type->data.structure.fields[slice_ptr_index].type_entry;
+            wanted_type->data.maybe.child_type->data.structure.fields[slice_ptr_index]->type_entry;
         assert(ptr_type->id == ZigTypeIdPointer);
         if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
             types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type,
@@ -12642,12 +12830,71 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     }
 
     // *[N]T to []T
-    if (is_slice(wanted_type) &&
+    // *[N]T to E![]T
+    if ((is_slice(wanted_type) ||
+            (wanted_type->id == ZigTypeIdErrorUnion &&
+            is_slice(wanted_type->data.error_union.payload_type))) &&
         actual_type->id == ZigTypeIdPointer &&
         actual_type->data.pointer.ptr_len == PtrLenSingle &&
         actual_type->data.pointer.child_type->id == ZigTypeIdArray)
     {
-        ZigType *slice_ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *slice_type = (wanted_type->id == ZigTypeIdErrorUnion) ?
+            wanted_type->data.error_union.payload_type : wanted_type;
+        ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index]->type_entry;
+        assert(slice_ptr_type->id == ZigTypeIdPointer);
+        ZigType *array_type = actual_type->data.pointer.child_type;
+        bool const_ok = (slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0
+                || !actual_type->data.pointer.is_const);
+        if (const_ok && types_match_const_cast_only(ira, slice_ptr_type->data.pointer.child_type,
+            array_type->data.array.child_type, source_node,
+            !slice_ptr_type->data.pointer.is_const).id == ConstCastResultIdOk)
+        {
+            // If the pointers both have ABI align, it works.
+            // Or if the array length is 0, alignment doesn't matter.
+            bool ok_align = array_type->data.array.len == 0 ||
+                (slice_ptr_type->data.pointer.explicit_alignment == 0 &&
+                actual_type->data.pointer.explicit_alignment == 0);
+            if (!ok_align) {
+                // If either one has non ABI align, we have to resolve them both
+                if ((err = type_resolve(ira->codegen, actual_type->data.pointer.child_type,
+                                ResolveStatusAlignmentKnown)))
+                {
+                    return ira->codegen->invalid_instruction;
+                }
+                if ((err = type_resolve(ira->codegen, slice_ptr_type->data.pointer.child_type,
+                                ResolveStatusAlignmentKnown)))
+                {
+                    return ira->codegen->invalid_instruction;
+                }
+                ok_align = get_ptr_align(ira->codegen, actual_type) >= get_ptr_align(ira->codegen, slice_ptr_type);
+            }
+            if (ok_align) {
+                if (wanted_type->id == ZigTypeIdErrorUnion) {
+                    IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, slice_type, value, nullptr);
+                    if (type_is_invalid(cast1->value.type))
+                        return ira->codegen->invalid_instruction;
+
+                    IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1, result_loc);
+                    if (type_is_invalid(cast2->value.type))
+                        return ira->codegen->invalid_instruction;
+
+                    return cast2;
+                } else {
+                    return ir_resolve_ptr_of_array_to_slice(ira, source_instr, value, slice_type, result_loc);
+                }
+            }
+        }
+    }
+
+    // *[N]T to E![]T
+    if (wanted_type->id == ZigTypeIdErrorUnion &&
+        is_slice(wanted_type->data.error_union.payload_type) &&
+        actual_type->id == ZigTypeIdPointer &&
+        actual_type->data.pointer.ptr_len == PtrLenSingle &&
+        actual_type->data.pointer.child_type->id == ZigTypeIdArray)
+    {
+        ZigType *slice_type = wanted_type->data.error_union.payload_type;
+        ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index]->type_entry;
         assert(slice_ptr_type->id == ZigTypeIdPointer);
         ZigType *array_type = actual_type->data.pointer.child_type;
         bool const_ok = (slice_ptr_type->data.pointer.is_const || array_type->data.array.len == 0
@@ -12674,7 +12921,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
                 ok_align = get_ptr_align(ira->codegen, actual_type) >= get_ptr_align(ira->codegen, slice_ptr_type);
             }
             if (ok_align) {
-                return ir_resolve_ptr_of_array_to_slice(ira, source_instr, value, wanted_type, result_loc);
+                return ir_resolve_ptr_of_array_to_slice(ira, source_instr, value, slice_type, result_loc);
             }
         }
     }
@@ -12724,7 +12971,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         actual_type->id == ZigTypeIdArray)
     {
         ZigType *ptr_type =
-            wanted_type->data.error_union.payload_type->data.structure.fields[slice_ptr_index].type_entry;
+            wanted_type->data.error_union.payload_type->data.structure.fields[slice_ptr_index]->type_entry;
         assert(ptr_type->id == ZigTypeIdPointer);
         if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
             types_match_const_cast_only(ira, ptr_type->data.pointer.child_type, actual_type->data.array.child_type,
@@ -12909,6 +13156,25 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         return ir_analyze_int_to_c_ptr(ira, source_instr, value, wanted_type);
     }
 
+    // cast from inferred struct type to array, union, or struct
+    if (actual_type->id == ZigTypeIdStruct && actual_type->data.structure.is_inferred) {
+        AstNode *decl_node = actual_type->data.structure.decl_node;
+        ir_assert(decl_node->type == NodeTypeContainerInitExpr, source_instr);
+        ContainerInitKind init_kind = decl_node->data.container_init_expr.kind;
+        uint32_t field_count = actual_type->data.structure.src_field_count;
+        if (wanted_type->id == ZigTypeIdArray && (init_kind == ContainerInitKindArray || field_count == 0) &&
+            wanted_type->data.array.len == field_count)
+        {
+            return ir_analyze_struct_literal_to_array(ira, source_instr, value, wanted_type);
+        } else if (wanted_type->id == ZigTypeIdStruct &&
+                (init_kind == ContainerInitKindStruct || field_count == 0))
+        {
+            return ir_analyze_struct_literal_to_struct(ira, source_instr, value, wanted_type);
+        } else if (wanted_type->id == ZigTypeIdUnion && init_kind == ContainerInitKindStruct && field_count == 1) {
+            return ir_analyze_struct_literal_to_union(ira, source_instr, value, wanted_type);
+        }
+    }
+
     // cast from undefined to anything
     if (actual_type->id == ZigTypeIdUndefined) {
         return ir_analyze_undefined_to_anything(ira, source_instr, value, wanted_type);
@@ -12922,8 +13188,8 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     return ira->codegen->invalid_instruction;
 }
 
-static IrInstruction *ir_implicit_cast_with_result(IrAnalyze *ira, IrInstruction *value, ZigType *expected_type,
-        ResultLoc *result_loc)
+static IrInstruction *ir_implicit_cast_with_result(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *value, ZigType *expected_type, ResultLoc *result_loc)
 {
     assert(value);
     assert(value != ira->codegen->invalid_instruction);
@@ -12937,11 +13203,11 @@ static IrInstruction *ir_implicit_cast_with_result(IrAnalyze *ira, IrInstruction
     if (value->value.type->id == ZigTypeIdUnreachable)
         return value;
 
-    return ir_analyze_cast(ira, value, expected_type, value, result_loc);
+    return ir_analyze_cast(ira, source_instr, expected_type, value, result_loc);
 }
 
 static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, ZigType *expected_type) {
-    return ir_implicit_cast_with_result(ira, value, expected_type, nullptr);
+    return ir_implicit_cast_with_result(ira, value, value, expected_type, nullptr);
 }
 
 static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruction, IrInstruction *ptr,
@@ -13223,8 +13489,8 @@ static Buf *ir_resolve_str(IrAnalyze *ira, IrInstruction *value) {
     if (!const_val)
         return nullptr;
 
-    ConstExprValue *ptr_field = &const_val->data.x_struct.fields[slice_ptr_index];
-    ConstExprValue *len_field = &const_val->data.x_struct.fields[slice_len_index];
+    ConstExprValue *ptr_field = const_val->data.x_struct.fields[slice_ptr_index];
+    ConstExprValue *len_field = const_val->data.x_struct.fields[slice_len_index];
 
     assert(ptr_field->data.x_ptr.special == ConstPtrSpecialBaseArray);
     ConstExprValue *array_val = ptr_field->data.x_ptr.data.base_array.array_val;
@@ -13269,16 +13535,6 @@ static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructio
     if (type_is_invalid(operand->value.type))
         return ir_unreach_error(ira);
 
-    if (!instr_is_comptime(operand) && ira->explicit_return_type != nullptr &&
-            handle_is_ptr(ira->explicit_return_type))
-    {
-        // result location mechanism took care of it.
-        IrInstruction *result = ir_build_return(&ira->new_irb, instruction->base.scope,
-                instruction->base.source_node, nullptr);
-        result->value.type = ira->codegen->builtin_types.entry_unreachable;
-        return ir_finish_anal(ira, result);
-    }
-
     IrInstruction *casted_operand = ir_implicit_cast(ira, operand, ira->explicit_return_type);
     if (type_is_invalid(casted_operand->value.type)) {
         AstNode *source_node = ira->explicit_return_type_source_node;
@@ -13288,6 +13544,16 @@ static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructio
                 buf_sprintf("return type declared here"));
         }
         return ir_unreach_error(ira);
+    }
+
+    if (!instr_is_comptime(operand) && ira->explicit_return_type != nullptr &&
+            handle_is_ptr(ira->explicit_return_type))
+    {
+        // result location mechanism took care of it.
+        IrInstruction *result = ir_build_return(&ira->new_irb, instruction->base.scope,
+                instruction->base.source_node, nullptr);
+        result->value.type = ira->codegen->builtin_types.entry_unreachable;
+        return ir_finish_anal(ira, result);
     }
 
     if (casted_operand->value.special == ConstValSpecialRuntime &&
@@ -14550,13 +14816,13 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         op1_array_index = op1_val->data.x_ptr.data.base_array.elem_index;
         op1_array_end = op1_array_val->type->data.array.len - 1;
     } else if (is_slice(op1_type)) {
-        ZigType *ptr_type = op1_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *ptr_type = op1_type->data.structure.fields[slice_ptr_index]->type_entry;
         child_type = ptr_type->data.pointer.child_type;
-        ConstExprValue *ptr_val = &op1_val->data.x_struct.fields[slice_ptr_index];
+        ConstExprValue *ptr_val = op1_val->data.x_struct.fields[slice_ptr_index];
         assert(ptr_val->data.x_ptr.special == ConstPtrSpecialBaseArray);
         op1_array_val = ptr_val->data.x_ptr.data.base_array.array_val;
         op1_array_index = ptr_val->data.x_ptr.data.base_array.elem_index;
-        ConstExprValue *len_val = &op1_val->data.x_struct.fields[slice_len_index];
+        ConstExprValue *len_val = op1_val->data.x_struct.fields[slice_len_index];
         op1_array_end = op1_array_index + bigint_as_usize(&len_val->data.x_bigint);
     } else {
         ir_add_error(ira, op1,
@@ -14583,13 +14849,13 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         op2_array_index = op2_val->data.x_ptr.data.base_array.elem_index;
         op2_array_end = op2_array_val->type->data.array.len - 1;
     } else if (is_slice(op2_type)) {
-        ZigType *ptr_type = op2_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *ptr_type = op2_type->data.structure.fields[slice_ptr_index]->type_entry;
         op2_type_valid = ptr_type->data.pointer.child_type == child_type;
-        ConstExprValue *ptr_val = &op2_val->data.x_struct.fields[slice_ptr_index];
+        ConstExprValue *ptr_val = op2_val->data.x_struct.fields[slice_ptr_index];
         assert(ptr_val->data.x_ptr.special == ConstPtrSpecialBaseArray);
         op2_array_val = ptr_val->data.x_ptr.data.base_array.array_val;
         op2_array_index = ptr_val->data.x_ptr.data.base_array.elem_index;
-        ConstExprValue *len_val = &op2_val->data.x_struct.fields[slice_len_index];
+        ConstExprValue *len_val = op2_val->data.x_struct.fields[slice_len_index];
         op2_array_end = op2_array_index + bigint_as_usize(&len_val->data.x_bigint);
     } else {
         ir_add_error(ira, op2,
@@ -14621,17 +14887,17 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         out_array_val->special = ConstValSpecialStatic;
         out_array_val->type = get_array_type(ira->codegen, child_type, new_len);
 
-        out_val->data.x_struct.fields = create_const_vals(2);
+        out_val->data.x_struct.fields = alloc_const_vals_ptrs(2);
 
-        out_val->data.x_struct.fields[slice_ptr_index].type = ptr_type;
-        out_val->data.x_struct.fields[slice_ptr_index].special = ConstValSpecialStatic;
-        out_val->data.x_struct.fields[slice_ptr_index].data.x_ptr.special = ConstPtrSpecialBaseArray;
-        out_val->data.x_struct.fields[slice_ptr_index].data.x_ptr.data.base_array.array_val = out_array_val;
-        out_val->data.x_struct.fields[slice_ptr_index].data.x_ptr.data.base_array.elem_index = 0;
+        out_val->data.x_struct.fields[slice_ptr_index]->type = ptr_type;
+        out_val->data.x_struct.fields[slice_ptr_index]->special = ConstValSpecialStatic;
+        out_val->data.x_struct.fields[slice_ptr_index]->data.x_ptr.special = ConstPtrSpecialBaseArray;
+        out_val->data.x_struct.fields[slice_ptr_index]->data.x_ptr.data.base_array.array_val = out_array_val;
+        out_val->data.x_struct.fields[slice_ptr_index]->data.x_ptr.data.base_array.elem_index = 0;
 
-        out_val->data.x_struct.fields[slice_len_index].type = ira->codegen->builtin_types.entry_usize;
-        out_val->data.x_struct.fields[slice_len_index].special = ConstValSpecialStatic;
-        bigint_init_unsigned(&out_val->data.x_struct.fields[slice_len_index].data.x_bigint, new_len);
+        out_val->data.x_struct.fields[slice_len_index]->type = ira->codegen->builtin_types.entry_usize;
+        out_val->data.x_struct.fields[slice_len_index]->special = ConstValSpecialStatic;
+        bigint_init_unsigned(&out_val->data.x_struct.fields[slice_len_index]->data.x_bigint, new_len);
     } else {
         new_len += 1; // null byte
 
@@ -15295,15 +15561,16 @@ static IrInstruction *ir_analyze_alloca(IrAnalyze *ira, IrInstruction *source_in
     result->base.value.data.x_ptr.mut = force_comptime ? ConstPtrMutComptimeVar : ConstPtrMutInfer;
     result->base.value.data.x_ptr.data.ref.pointee = pointee;
 
-    if ((err = type_resolve(ira->codegen, var_type, ResolveStatusZeroBitsKnown)))
+    bool var_type_has_bits;
+    if ((err = type_has_bits2(ira->codegen, var_type, &var_type_has_bits)))
         return ira->codegen->invalid_instruction;
     if (align != 0) {
         if ((err = type_resolve(ira->codegen, var_type, ResolveStatusAlignmentKnown)))
             return ira->codegen->invalid_instruction;
-        if (!type_has_bits(var_type)) {
-                ir_add_error(ira, source_inst,
-                    buf_sprintf("variable '%s' of zero-bit type '%s' has no in-memory representation, it cannot be aligned",
-                        name_hint, buf_ptr(&var_type->name)));
+        if (!var_type_has_bits) {
+            ir_add_error(ira, source_inst,
+                buf_sprintf("variable '%s' of zero-bit type '%s' has no in-memory representation, it cannot be aligned",
+                    name_hint, buf_ptr(&var_type->name)));
             return ira->codegen->invalid_instruction;
         }
     }
@@ -15331,6 +15598,7 @@ static ZigType *ir_result_loc_expected_type(IrAnalyze *ira, IrInstruction *suspe
         case ResultLocIdNone:
         case ResultLocIdVar:
         case ResultLocIdBitCast:
+        case ResultLocIdCast:
             return nullptr;
         case ResultLocIdInstruction:
             return result_loc->source_instruction->child->value.type;
@@ -15374,22 +15642,49 @@ static void set_up_result_loc_for_inferred_comptime(IrInstruction *ptr) {
     ptr->value.data.x_ptr.data.ref.pointee = undef_child;
 }
 
-static bool ir_result_has_type(ResultLoc *result_loc) {
+static Error ir_result_has_type(IrAnalyze *ira, ResultLoc *result_loc, bool *out) {
     switch (result_loc->id) {
         case ResultLocIdInvalid:
         case ResultLocIdPeerParent:
             zig_unreachable();
         case ResultLocIdNone:
         case ResultLocIdPeer:
-            return false;
+            *out = false;
+            return ErrorNone;
         case ResultLocIdReturn:
         case ResultLocIdInstruction:
         case ResultLocIdBitCast:
-            return true;
+            *out = true;
+            return ErrorNone;
+        case ResultLocIdCast: {
+            ResultLocCast *result_cast = reinterpret_cast<ResultLocCast *>(result_loc);
+            ZigType *dest_type = ir_resolve_type(ira, result_cast->base.source_instruction->child);
+            if (type_is_invalid(dest_type))
+                return ErrorSemanticAnalyzeFail;
+            *out = (dest_type != ira->codegen->builtin_types.entry_var);
+            return ErrorNone;
+        }
         case ResultLocIdVar:
-            return reinterpret_cast<ResultLocVar *>(result_loc)->var->decl_node->data.variable_declaration.type != nullptr;
+            *out = reinterpret_cast<ResultLocVar *>(result_loc)->var->decl_node->data.variable_declaration.type != nullptr;
+            return ErrorNone;
     }
     zig_unreachable();
+}
+
+static IrInstruction *ir_resolve_no_result_loc(IrAnalyze *ira, IrInstruction *suspend_source_instr,
+    ResultLoc *result_loc, ZigType *value_type, bool force_runtime, bool non_null_comptime)
+{
+    IrInstructionAllocaGen *alloca_gen = ir_build_alloca_gen(ira, suspend_source_instr, 0, "");
+    alloca_gen->base.value.type = get_pointer_to_type_extra(ira->codegen, value_type, false, false,
+            PtrLenSingle, 0, 0, 0, false);
+    set_up_result_loc_for_inferred_comptime(&alloca_gen->base);
+    ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    if (fn_entry != nullptr && get_scope_typeof(suspend_source_instr->scope) == nullptr) {
+        fn_entry->alloca_gen_list.append(alloca_gen);
+    }
+    result_loc->written = true;
+    result_loc->resolved_loc = &alloca_gen->base;
+    return result_loc->resolved_loc;
 }
 
 // when calling this function, at the callsite must check for result type noreturn and propagate it up
@@ -15414,19 +15709,8 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                 return nullptr;
             }
             // need to return a result location and don't have one. use a stack allocation
-            IrInstructionAllocaGen *alloca_gen = ir_build_alloca_gen(ira, suspend_source_instr, 0, "");
-            if ((err = type_resolve(ira->codegen, value_type, ResolveStatusZeroBitsKnown)))
-                return ira->codegen->invalid_instruction;
-            alloca_gen->base.value.type = get_pointer_to_type_extra(ira->codegen, value_type, false, false,
-                    PtrLenSingle, 0, 0, 0, false);
-            set_up_result_loc_for_inferred_comptime(&alloca_gen->base);
-            ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
-            if (fn_entry != nullptr && get_scope_typeof(suspend_source_instr->scope) == nullptr) {
-                fn_entry->alloca_gen_list.append(alloca_gen);
-            }
-            result_loc->written = true;
-            result_loc->resolved_loc = &alloca_gen->base;
-            return result_loc->resolved_loc;
+            return ir_resolve_no_result_loc(ira, suspend_source_instr, result_loc, value_type,
+                    force_runtime, non_null_comptime);
         }
         case ResultLocIdVar: {
             ResultLocVar *result_loc_var = reinterpret_cast<ResultLocVar *>(result_loc);
@@ -15529,7 +15813,10 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                 }
                 return nullptr;
             }
-            if (ir_result_has_type(peer_parent->parent)) {
+            bool peer_parent_has_type;
+            if ((err = ir_result_has_type(ira, peer_parent->parent, &peer_parent_has_type)))
+                return ira->codegen->invalid_instruction;
+            if (peer_parent_has_type) {
                 if (peer_parent->parent->id == ResultLocIdReturn && value != nullptr) {
                     reinterpret_cast<ResultLocReturn *>(peer_parent->parent)->implicit_return_type_done = true;
                     ira->src_implicit_return_type_list.append(value);
@@ -15562,6 +15849,89 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             parent_result_loc->value.special = ConstValSpecialRuntime;
             result_loc->written = true;
             result_loc->resolved_loc = parent_result_loc;
+            return result_loc->resolved_loc;
+        }
+        case ResultLocIdCast: {
+            if (value != nullptr && value->value.special != ConstValSpecialRuntime)
+                return nullptr;
+            ResultLocCast *result_cast = reinterpret_cast<ResultLocCast *>(result_loc);
+            ZigType *dest_type = ir_resolve_type(ira, result_cast->base.source_instruction->child);
+            if (type_is_invalid(dest_type))
+                return ira->codegen->invalid_instruction;
+
+            if (dest_type == ira->codegen->builtin_types.entry_var) {
+                return ir_resolve_no_result_loc(ira, suspend_source_instr, result_loc, value_type,
+                        force_runtime, non_null_comptime);
+            }
+
+            ConstCastOnly const_cast_result = types_match_const_cast_only(ira, dest_type, value_type,
+                    result_cast->base.source_instruction->source_node, false);
+            if (const_cast_result.id == ConstCastResultIdInvalid)
+                return ira->codegen->invalid_instruction;
+            if (const_cast_result.id != ConstCastResultIdOk) {
+                // We will not be able to provide a result location for this value. Create
+                // a new result location.
+                return ir_resolve_no_result_loc(ira, suspend_source_instr, result_loc, value_type,
+                        force_runtime, non_null_comptime);
+            }
+
+            // In this case we can pointer cast the result location.
+            IrInstruction *casted_value;
+            if (value != nullptr) {
+                casted_value = ir_implicit_cast(ira, value, dest_type);
+            } else {
+                casted_value = nullptr;
+            }
+
+            if (casted_value != nullptr && type_is_invalid(casted_value->value.type)) {
+                return casted_value;
+            }
+
+            bool old_parent_result_loc_written = result_cast->parent->written;
+            IrInstruction *parent_result_loc = ir_resolve_result(ira, suspend_source_instr, result_cast->parent,
+                    dest_type, casted_value, force_runtime, non_null_comptime, true);
+            if (parent_result_loc == nullptr || type_is_invalid(parent_result_loc->value.type) ||
+                parent_result_loc->value.type->id == ZigTypeIdUnreachable)
+            {
+                return parent_result_loc;
+            }
+            ZigType *parent_ptr_type = parent_result_loc->value.type;
+            assert(parent_ptr_type->id == ZigTypeIdPointer);
+            if ((err = type_resolve(ira->codegen, parent_ptr_type->data.pointer.child_type,
+                            ResolveStatusAlignmentKnown)))
+            {
+                return ira->codegen->invalid_instruction;
+            }
+            uint64_t parent_ptr_align = get_ptr_align(ira->codegen, parent_ptr_type);
+            if ((err = type_resolve(ira->codegen, value_type, ResolveStatusAlignmentKnown))) {
+                return ira->codegen->invalid_instruction;
+            }
+            if (!type_has_bits(value_type)) {
+                parent_ptr_align = 0;
+            }
+            ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, value_type,
+                    parent_ptr_type->data.pointer.is_const, parent_ptr_type->data.pointer.is_volatile, PtrLenSingle,
+                    parent_ptr_align, 0, 0, parent_ptr_type->data.pointer.allow_zero);
+
+            {
+                // we also need to check that this cast is OK.
+                ConstCastOnly const_cast_result = types_match_const_cast_only(ira,
+                        parent_result_loc->value.type, ptr_type,
+                        result_cast->base.source_instruction->source_node, false);
+                if (const_cast_result.id == ConstCastResultIdInvalid)
+                    return ira->codegen->invalid_instruction;
+                if (const_cast_result.id != ConstCastResultIdOk) {
+                    // We will not be able to provide a result location for this value. Create
+                    // a new result location.
+                    result_cast->parent->written = old_parent_result_loc_written;
+                    return ir_resolve_no_result_loc(ira, suspend_source_instr, result_loc, value_type,
+                            force_runtime, non_null_comptime);
+                }
+            }
+
+            result_loc->written = true;
+            result_loc->resolved_loc = ir_analyze_ptr_cast(ira, suspend_source_instr, parent_result_loc,
+                    ptr_type, result_cast->base.source_instruction, false);
             return result_loc->resolved_loc;
         }
         case ResultLocIdBitCast: {
@@ -15686,22 +16056,40 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
     return result_loc;
 }
 
-static IrInstruction *ir_analyze_instruction_implicit_cast(IrAnalyze *ira, IrInstructionImplicitCast *instruction) {
-    ZigType *dest_type = ir_resolve_type(ira, instruction->dest_type->child);
-    if (type_is_invalid(dest_type))
-        return ira->codegen->invalid_instruction;
+static IrInstruction *ir_analyze_instruction_resolve_result(IrAnalyze *ira,
+        IrInstructionResolveResult *instruction)
+{
+    ZigType *implicit_elem_type;
+    if (instruction->ty == nullptr) {
+        if (instruction->result_loc->id == ResultLocIdCast) {
+            implicit_elem_type = ir_resolve_type(ira,
+                    instruction->result_loc->source_instruction->child);
+            if (type_is_invalid(implicit_elem_type))
+                return ira->codegen->invalid_instruction;
+        } else if (instruction->result_loc->id == ResultLocIdReturn) {
+            implicit_elem_type = ira->explicit_return_type;
+            if (type_is_invalid(implicit_elem_type))
+                return ira->codegen->invalid_instruction;
+        } else {
+            implicit_elem_type = ira->codegen->builtin_types.entry_var;
+        }
+        if (implicit_elem_type == ira->codegen->builtin_types.entry_var) {
+            Buf *bare_name = buf_alloc();
+            Buf *name = get_anon_type_name(ira->codegen, nullptr, container_string(ContainerKindStruct),
+                    instruction->base.scope, instruction->base.source_node, bare_name);
 
-    IrInstruction *target = instruction->target->child;
-    if (type_is_invalid(target->value.type))
-        return ira->codegen->invalid_instruction;
-
-    return ir_implicit_cast_with_result(ira, target, dest_type, instruction->result_loc);
-}
-
-static IrInstruction *ir_analyze_instruction_resolve_result(IrAnalyze *ira, IrInstructionResolveResult *instruction) {
-    ZigType *implicit_elem_type = ir_resolve_type(ira, instruction->ty->child);
-    if (type_is_invalid(implicit_elem_type))
-        return ira->codegen->invalid_instruction;
+            ZigType *inferred_struct_type = get_partial_container_type(ira->codegen,
+                    instruction->base.scope, ContainerKindStruct, instruction->base.source_node,
+                    buf_ptr(name), bare_name, ContainerLayoutAuto);
+            inferred_struct_type->data.structure.is_inferred = true;
+            inferred_struct_type->data.structure.resolve_status = ResolveStatusBeingInferred;
+            implicit_elem_type = inferred_struct_type;
+        }
+    } else {
+        implicit_elem_type = ir_resolve_type(ira, instruction->ty->child);
+        if (type_is_invalid(implicit_elem_type))
+            return ira->codegen->invalid_instruction;
+    }
     IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
             implicit_elem_type, nullptr, false, true, true);
     if (result_loc != nullptr)
@@ -15760,6 +16148,7 @@ static void ir_reset_result(ResultLoc *result_loc) {
         case ResultLocIdNone:
         case ResultLocIdInstruction:
         case ResultLocIdBitCast:
+        case ResultLocIdCast:
             break;
     }
 }
@@ -16062,13 +16451,63 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
         return ir_const_void(ira, source_instr);
     }
 
-    ZigType *child_type = ptr->value.type->data.pointer.child_type;
+    InferredStructField *isf = ptr->value.type->data.pointer.inferred_struct_field;
+    if (allow_write_through_const && isf != nullptr) {
+        // Now it's time to add the field to the struct type.
+        uint32_t old_field_count = isf->inferred_struct_type->data.structure.src_field_count;
+        uint32_t new_field_count = old_field_count + 1;
+        isf->inferred_struct_type->data.structure.src_field_count = new_field_count;
+        isf->inferred_struct_type->data.structure.fields = realloc_type_struct_fields(
+                isf->inferred_struct_type->data.structure.fields, old_field_count, new_field_count);
+
+        TypeStructField *field = isf->inferred_struct_type->data.structure.fields[old_field_count];
+        field->name = isf->field_name;
+        field->type_entry = uncasted_value->value.type;
+        field->type_val = create_const_type(ira->codegen, field->type_entry);
+        field->src_index = old_field_count;
+        field->decl_node = uncasted_value->source_node;
+
+        ZigType *struct_ptr_type = get_pointer_to_type(ira->codegen, isf->inferred_struct_type, false);
+        IrInstruction *casted_ptr;
+        if (instr_is_comptime(ptr)) {
+            casted_ptr = ir_const(ira, source_instr, struct_ptr_type);
+            copy_const_val(&casted_ptr->value, &ptr->value, false);
+            casted_ptr->value.type = struct_ptr_type;
+        } else {
+            casted_ptr = ir_build_cast(&ira->new_irb, source_instr->scope,
+                    source_instr->source_node, struct_ptr_type, ptr, CastOpNoop);
+            casted_ptr->value.type = struct_ptr_type;
+        }
+        if (instr_is_comptime(casted_ptr)) {
+            ConstExprValue *ptr_val = ir_resolve_const(ira, casted_ptr, UndefBad);
+            if (!ptr_val)
+                return ira->codegen->invalid_instruction;
+            if (ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
+                ConstExprValue *struct_val = const_ptr_pointee(ira, ira->codegen, ptr_val,
+                        source_instr->source_node);
+                struct_val->special = ConstValSpecialStatic;
+                struct_val->data.x_struct.fields = realloc_const_vals_ptrs(struct_val->data.x_struct.fields,
+                        old_field_count, new_field_count);
+
+                ConstExprValue *field_val = struct_val->data.x_struct.fields[old_field_count];
+                field_val->special = ConstValSpecialUndef;
+                field_val->type = field->type_entry;
+                field_val->parent.id = ConstParentIdStruct;
+                field_val->parent.data.p_struct.struct_val = struct_val;
+                field_val->parent.data.p_struct.field_index = old_field_count;
+            }
+        }
+
+        ptr = ir_analyze_struct_field_ptr(ira, source_instr, field, casted_ptr,
+                isf->inferred_struct_type, true);
+    }
 
     if (ptr->value.type->data.pointer.is_const && !allow_write_through_const) {
         ir_add_error(ira, source_instr, buf_sprintf("cannot assign to constant"));
         return ira->codegen->invalid_instruction;
     }
 
+    ZigType *child_type = ptr->value.type->data.pointer.child_type;
     IrInstruction *value = ir_implicit_cast(ira, uncasted_value, child_type);
     if (value == ira->codegen->invalid_instruction)
         return ira->codegen->invalid_instruction;
@@ -16799,25 +17238,14 @@ static IrInstruction *ir_analyze_instruction_call(IrAnalyze *ira, IrInstructionC
 
     if (is_comptime || instr_is_comptime(fn_ref)) {
         if (fn_ref->value.type->id == ZigTypeIdMetaType) {
-            ZigType *dest_type = ir_resolve_type(ira, fn_ref);
-            if (type_is_invalid(dest_type))
+            ZigType *ty = ir_resolve_type(ira, fn_ref);
+            if (ty == nullptr)
                 return ira->codegen->invalid_instruction;
-
-            size_t actual_param_count = call_instruction->arg_count;
-
-            if (actual_param_count != 1) {
-                ir_add_error_node(ira, call_instruction->base.source_node,
-                        buf_sprintf("cast expression expects exactly one parameter"));
-                return ira->codegen->invalid_instruction;
-            }
-
-            IrInstruction *arg = call_instruction->args[0]->child;
-
-            IrInstruction *cast_instruction = ir_analyze_cast(ira, &call_instruction->base, dest_type, arg,
-                    call_instruction->result_loc);
-            if (type_is_invalid(cast_instruction->value.type))
-                return ira->codegen->invalid_instruction;
-            return ir_finish_anal(ira, cast_instruction);
+            ErrorMsg *msg = ir_add_error_node(ira, fn_ref->source_node,
+                buf_sprintf("type '%s' not a function", buf_ptr(&ty->name)));
+            add_error_note(ira->codegen, msg, call_instruction->base.source_node,
+                buf_sprintf("use @as builtin for type coercion"));
+            return ira->codegen->invalid_instruction;
         } else if (fn_ref->value.type->id == ZigTypeIdFn) {
             ZigFn *fn_table_entry = ir_resolve_fn(ira, fn_ref);
             ZigType *fn_type = fn_table_entry ? fn_table_entry->type_entry : fn_ref->value.type;
@@ -17215,6 +17643,8 @@ static IrInstruction *ir_analyze_instruction_unreachable(IrAnalyze *ira,
 }
 
 static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPhi *phi_instruction) {
+    Error err;
+
     if (ira->const_predecessor_bb) {
         for (size_t i = 0; i < phi_instruction->incoming_count; i += 1) {
             IrBasicBlock *predecessor = phi_instruction->incoming_blocks[i];
@@ -17264,6 +17694,8 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
             peer_parent->resolved_type = ir_resolve_peer_types(ira,
                     peer_parent->base.source_instruction->source_node, expected_type, instructions,
                     peer_parent->peers.length);
+            if (type_is_invalid(peer_parent->resolved_type))
+                return ira->codegen->invalid_instruction;
 
             // the logic below assumes there are no instructions in the new current basic block yet
             ir_assert(ira->new_irb.current_basic_block->instruction_list.length == 0, &phi_instruction->base);
@@ -17346,20 +17778,32 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
     }
 
     ZigType *resolved_type;
-    if (peer_parent != nullptr && ir_result_has_type(peer_parent->parent)) {
-        if (peer_parent->parent->id == ResultLocIdReturn) {
-            resolved_type = ira->explicit_return_type;
-        } else {
-            ZigType *resolved_loc_ptr_type = peer_parent->parent->resolved_loc->value.type;
-            ir_assert(resolved_loc_ptr_type->id == ZigTypeIdPointer, &phi_instruction->base);
-            resolved_type = resolved_loc_ptr_type->data.pointer.child_type;
+    if (peer_parent != nullptr) {
+        bool peer_parent_has_type;
+        if ((err = ir_result_has_type(ira, peer_parent->parent, &peer_parent_has_type)))
+            return ira->codegen->invalid_instruction;
+        if (peer_parent_has_type) {
+            if (peer_parent->parent->id == ResultLocIdReturn) {
+                resolved_type = ira->explicit_return_type;
+            } else if (peer_parent->parent->id == ResultLocIdCast) {
+                resolved_type = ir_resolve_type(ira, peer_parent->parent->source_instruction->child);
+                if (type_is_invalid(resolved_type))
+                    return ira->codegen->invalid_instruction;
+            } else {
+                ZigType *resolved_loc_ptr_type = peer_parent->parent->resolved_loc->value.type;
+                ir_assert(resolved_loc_ptr_type->id == ZigTypeIdPointer, &phi_instruction->base);
+                resolved_type = resolved_loc_ptr_type->data.pointer.child_type;
+            }
+            goto skip_resolve_peer_types;
         }
-    } else {
+    }
+    {
         resolved_type = ir_resolve_peer_types(ira, phi_instruction->base.source_node, nullptr,
                 new_incoming_values.items, new_incoming_values.length);
         if (type_is_invalid(resolved_type))
             return ira->codegen->invalid_instruction;
     }
+skip_resolve_peer_types:
 
     switch (type_has_one_possible_value(ira->codegen, resolved_type)) {
     case OnePossibleValueInvalid:
@@ -17449,7 +17893,7 @@ static ZigType *adjust_ptr_align(CodeGen *g, ZigType *ptr_type, uint32_t new_ali
 
 static ZigType *adjust_slice_align(CodeGen *g, ZigType *slice_type, uint32_t new_align) {
     assert(is_slice(slice_type));
-    ZigType *ptr_type = adjust_ptr_align(g, slice_type->data.structure.fields[slice_ptr_index].type_entry,
+    ZigType *ptr_type = adjust_ptr_align(g, slice_type->data.structure.fields[slice_ptr_index]->type_entry,
         new_align);
     return get_slice_type(g, ptr_type);
 }
@@ -17535,7 +17979,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
         }
         return_type = adjust_ptr_len(ira->codegen, array_type, elem_ptr_instruction->ptr_len);
     } else if (is_slice(array_type)) {
-        return_type = adjust_ptr_len(ira->codegen, array_type->data.structure.fields[slice_ptr_index].type_entry,
+        return_type = adjust_ptr_len(ira->codegen, array_type->data.structure.fields[slice_ptr_index]->type_entry,
                 elem_ptr_instruction->ptr_len);
     } else if (array_type->id == ZigTypeIdArgTuple) {
         ConstExprValue *ptr_val = ir_resolve_const(ira, array_ptr, UndefBad);
@@ -17571,6 +18015,19 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
     } else if (array_type->id == ZigTypeIdVector) {
         // This depends on whether the element index is comptime, so it is computed later.
         return_type = nullptr;
+    } else if (elem_ptr_instruction->init_array_type_source_node != nullptr &&
+        array_type->id == ZigTypeIdStruct &&
+        array_type->data.structure.resolve_status == ResolveStatusBeingInferred)
+    {
+        ZigType *usize = ira->codegen->builtin_types.entry_usize;
+        IrInstruction *casted_elem_index = ir_implicit_cast(ira, elem_index, usize);
+        if (casted_elem_index == ira->codegen->invalid_instruction)
+            return ira->codegen->invalid_instruction;
+        ir_assert(instr_is_comptime(casted_elem_index), &elem_ptr_instruction->base);
+        Buf *field_name = buf_alloc();
+        bigint_append_buf(field_name, &casted_elem_index->value.data.x_bigint, 10);
+        return ir_analyze_inferred_field_ptr(ira, field_name, &elem_ptr_instruction->base,
+                array_ptr, array_type);
     } else {
         ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
                 buf_sprintf("array access of non-array type '%s'", buf_ptr(&array_type->name)));
@@ -17601,7 +18058,8 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
             return_type = get_pointer_to_type_extra2(ira->codegen, elem_type,
                 ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
                 elem_ptr_instruction->ptr_len,
-                get_ptr_align(ira->codegen, ptr_type), 0, host_vec_len, false, (uint32_t)index);
+                get_ptr_align(ira->codegen, ptr_type), 0, host_vec_len, false, (uint32_t)index,
+                nullptr);
         } else if (return_type->data.pointer.explicit_alignment != 0) {
             // figure out the largest alignment possible
 
@@ -17639,7 +18097,9 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
             if (array_ptr_val == nullptr)
                 return ira->codegen->invalid_instruction;
 
-            if (array_ptr_val->special == ConstValSpecialUndef && elem_ptr_instruction->init_array_type != nullptr) {
+            if (array_ptr_val->special == ConstValSpecialUndef &&
+                elem_ptr_instruction->init_array_type_source_node != nullptr)
+            {
                 if (array_type->id == ZigTypeIdArray || array_type->id == ZigTypeIdVector) {
                     array_ptr_val->data.x_array.special = ConstArraySpecialNone;
                     array_ptr_val->data.x_array.data.s_none.elements = create_const_vals(array_type->data.array.len);
@@ -17653,11 +18113,13 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                         elem_val->parent.data.p_array.elem_index = i;
                     }
                 } else if (is_slice(array_type)) {
-                    ZigType *actual_array_type = ir_resolve_type(ira, elem_ptr_instruction->init_array_type->child);
+                    ir_assert(array_ptr->value.type->id == ZigTypeIdPointer, &elem_ptr_instruction->base);
+                    ZigType *actual_array_type = array_ptr->value.type->data.pointer.child_type;
+
                     if (type_is_invalid(actual_array_type))
                         return ira->codegen->invalid_instruction;
                     if (actual_array_type->id != ZigTypeIdArray) {
-                        ir_add_error(ira, elem_ptr_instruction->init_array_type,
+                        ir_add_error_node(ira, elem_ptr_instruction->init_array_type_source_node,
                             buf_sprintf("expected array type or [_], found slice"));
                         return ira->codegen->invalid_instruction;
                     }
@@ -17679,9 +18141,9 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
 
                     init_const_slice(ira->codegen, array_ptr_val, array_init_val, 0, actual_array_type->data.array.len,
                             false);
-                    array_ptr_val->data.x_struct.fields[slice_ptr_index].data.x_ptr.mut = ConstPtrMutInfer;
+                    array_ptr_val->data.x_struct.fields[slice_ptr_index]->data.x_ptr.mut = ConstPtrMutInfer;
                 } else {
-                    ir_add_error(ira, elem_ptr_instruction->init_array_type,
+                    ir_add_error_node(ira, elem_ptr_instruction->init_array_type_source_node,
                         buf_sprintf("expected array type or [_], found '%s'",
                             buf_ptr(&array_type->name)));
                     return ira->codegen->invalid_instruction;
@@ -17751,7 +18213,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                     }
                     return result;
                 } else if (is_slice(array_type)) {
-                    ConstExprValue *ptr_field = &array_ptr_val->data.x_struct.fields[slice_ptr_index];
+                    ConstExprValue *ptr_field = array_ptr_val->data.x_struct.fields[slice_ptr_index];
                     ir_assert(ptr_field != nullptr, &elem_ptr_instruction->base);
                     if (ptr_field->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
                         IrInstruction *result = ir_build_elem_ptr(&ira->new_irb, elem_ptr_instruction->base.scope,
@@ -17760,7 +18222,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                         result->value.type = return_type;
                         return result;
                     }
-                    ConstExprValue *len_field = &array_ptr_val->data.x_struct.fields[slice_len_index];
+                    ConstExprValue *len_field = array_ptr_val->data.x_struct.fields[slice_len_index];
                     IrInstruction *result = ir_const(ira, &elem_ptr_instruction->base, return_type);
                     ConstExprValue *out_val = &result->value;
                     uint64_t slice_len = bigint_as_u64(&len_field->data.x_bigint);
@@ -17814,7 +18276,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                     if (orig_array_ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
                         result = ir_build_elem_ptr(&ira->new_irb, elem_ptr_instruction->base.scope,
                                 elem_ptr_instruction->base.source_node, array_ptr, casted_elem_index,
-                                false, elem_ptr_instruction->ptr_len, elem_ptr_instruction->init_array_type);
+                                false, elem_ptr_instruction->ptr_len, nullptr);
                         result->value.type = return_type;
                         result->value.special = ConstValSpecialStatic;
                     } else {
@@ -17838,7 +18300,8 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
         return_type = get_pointer_to_type_extra2(ira->codegen, elem_type,
             ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
             elem_ptr_instruction->ptr_len,
-            get_ptr_align(ira->codegen, ptr_type), 0, host_vec_len, false, VECTOR_INDEX_RUNTIME);
+            get_ptr_align(ira->codegen, ptr_type), 0, host_vec_len, false, VECTOR_INDEX_RUNTIME,
+            nullptr);
     } else {
         // runtime known element index
         switch (type_requires_comptime(ira->codegen, return_type)) {
@@ -17875,7 +18338,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
 
     IrInstruction *result = ir_build_elem_ptr(&ira->new_irb, elem_ptr_instruction->base.scope,
             elem_ptr_instruction->base.source_node, array_ptr, casted_elem_index, safety_check_on,
-            elem_ptr_instruction->ptr_len, elem_ptr_instruction->init_array_type);
+            elem_ptr_instruction->ptr_len, nullptr);
     result->value.type = return_type;
     return result;
 }
@@ -17954,43 +18417,47 @@ static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction 
         case OnePossibleValueNo:
             break;
     }
-    ResolveStatus needed_resolve_status =
-        (struct_type->data.structure.layout == ContainerLayoutAuto) ?
-            ResolveStatusZeroBitsKnown : ResolveStatusSizeKnown;
-    if ((err = type_resolve(ira->codegen, struct_type, needed_resolve_status)))
-        return ira->codegen->invalid_instruction;
-    assert(struct_ptr->value.type->id == ZigTypeIdPointer);
-    uint32_t ptr_bit_offset = struct_ptr->value.type->data.pointer.bit_offset_in_host;
-    uint32_t ptr_host_int_bytes = struct_ptr->value.type->data.pointer.host_int_bytes;
-    uint32_t host_int_bytes_for_result_type = (ptr_host_int_bytes == 0) ?
-        get_host_int_bytes(ira->codegen, struct_type, field) : ptr_host_int_bytes;
     bool is_const = struct_ptr->value.type->data.pointer.is_const;
     bool is_volatile = struct_ptr->value.type->data.pointer.is_volatile;
-    ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, field_type,
-            is_const, is_volatile, PtrLenSingle, field->align,
-            (uint32_t)(ptr_bit_offset + field->bit_offset_in_host),
-            (uint32_t)host_int_bytes_for_result_type, false);
+    ZigType *ptr_type;
+    if (struct_type->data.structure.is_inferred) {
+        ptr_type = get_pointer_to_type_extra(ira->codegen, field_type,
+                is_const, is_volatile, PtrLenSingle, 0, 0, 0, false);
+    } else {
+        ResolveStatus needed_resolve_status =
+            (struct_type->data.structure.layout == ContainerLayoutAuto) ?
+                ResolveStatusZeroBitsKnown : ResolveStatusSizeKnown;
+        if ((err = type_resolve(ira->codegen, struct_type, needed_resolve_status)))
+            return ira->codegen->invalid_instruction;
+        assert(struct_ptr->value.type->id == ZigTypeIdPointer);
+        uint32_t ptr_bit_offset = struct_ptr->value.type->data.pointer.bit_offset_in_host;
+        uint32_t ptr_host_int_bytes = struct_ptr->value.type->data.pointer.host_int_bytes;
+        uint32_t host_int_bytes_for_result_type = (ptr_host_int_bytes == 0) ?
+            get_host_int_bytes(ira->codegen, struct_type, field) : ptr_host_int_bytes;
+        ptr_type = get_pointer_to_type_extra(ira->codegen, field_type,
+                is_const, is_volatile, PtrLenSingle, field->align,
+                (uint32_t)(ptr_bit_offset + field->bit_offset_in_host),
+                (uint32_t)host_int_bytes_for_result_type, false);
+    }
     if (instr_is_comptime(struct_ptr)) {
         ConstExprValue *ptr_val = ir_resolve_const(ira, struct_ptr, UndefBad);
         if (!ptr_val)
             return ira->codegen->invalid_instruction;
 
         if (ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
-            if ((err = type_resolve(ira->codegen, struct_type, ResolveStatusSizeKnown)))
-                return ira->codegen->invalid_instruction;
-
             ConstExprValue *struct_val = const_ptr_pointee(ira, ira->codegen, ptr_val, source_instr->source_node);
             if (struct_val == nullptr)
                 return ira->codegen->invalid_instruction;
             if (type_is_invalid(struct_val->type))
                 return ira->codegen->invalid_instruction;
             if (initializing && struct_val->special == ConstValSpecialUndef) {
-                struct_val->data.x_struct.fields = create_const_vals(struct_type->data.structure.src_field_count);
+                struct_val->data.x_struct.fields = alloc_const_vals_ptrs(struct_type->data.structure.src_field_count);
                 struct_val->special = ConstValSpecialStatic;
                 for (size_t i = 0; i < struct_type->data.structure.src_field_count; i += 1) {
-                    ConstExprValue *field_val = &struct_val->data.x_struct.fields[i];
+                    ConstExprValue *field_val = struct_val->data.x_struct.fields[i];
                     field_val->special = ConstValSpecialUndef;
-                    field_val->type = struct_type->data.structure.fields[i].type_entry;
+                    field_val->type = resolve_struct_field_type(ira->codegen,
+                            struct_type->data.structure.fields[i]);
                     field_val->parent.id = ConstParentIdStruct;
                     field_val->parent.data.p_struct.struct_val = struct_val;
                     field_val->parent.data.p_struct.field_index = i;
@@ -18019,12 +18486,53 @@ static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction 
     return result;
 }
 
+static IrInstruction *ir_analyze_inferred_field_ptr(IrAnalyze *ira, Buf *field_name,
+    IrInstruction *source_instr, IrInstruction *container_ptr, ZigType *container_type)
+{
+    // The type of the field is not available until a store using this pointer happens.
+    // So, here we create a special pointer type which has the inferred struct type and
+    // field name encoded in the type. Later, when there is a store via this pointer,
+    // the field type will then be available, and the field will be added to the inferred
+    // struct.
+
+    ZigType *container_ptr_type = container_ptr->value.type;
+    ir_assert(container_ptr_type->id == ZigTypeIdPointer, source_instr);
+
+    InferredStructField *inferred_struct_field = allocate<InferredStructField>(1, "InferredStructField");
+    inferred_struct_field->inferred_struct_type = container_type;
+    inferred_struct_field->field_name = field_name;
+
+    ZigType *elem_type = ira->codegen->builtin_types.entry_var;
+    ZigType *field_ptr_type = get_pointer_to_type_extra2(ira->codegen, elem_type,
+        container_ptr_type->data.pointer.is_const, container_ptr_type->data.pointer.is_volatile,
+        PtrLenSingle, 0, 0, 0, false, VECTOR_INDEX_NONE, inferred_struct_field);
+
+    if (instr_is_comptime(container_ptr)) {
+        IrInstruction *result = ir_const(ira, source_instr, field_ptr_type);
+        copy_const_val(&result->value, &container_ptr->value, false);
+        result->value.type = field_ptr_type;
+        return result;
+    }
+
+    IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, field_ptr_type, container_ptr, CastOpNoop);
+    result->value.type = field_ptr_type;
+    return result;
+}
+
 static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name,
     IrInstruction *source_instr, IrInstruction *container_ptr, ZigType *container_type, bool initializing)
 {
     Error err;
 
     ZigType *bare_type = container_ref_type(container_type);
+
+    if (initializing && bare_type->id == ZigTypeIdStruct &&
+        bare_type->data.structure.resolve_status == ResolveStatusBeingInferred)
+    {
+        return ir_analyze_inferred_field_ptr(ira, field_name, source_instr, container_ptr, bare_type);
+    }
+
     if ((err = type_resolve(ira->codegen, bare_type, ResolveStatusZeroBitsKnown)))
         return ira->codegen->invalid_instruction;
 
@@ -18065,7 +18573,8 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
             if (!ptr_val)
                 return ira->codegen->invalid_instruction;
 
-            if (ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
+            if (ptr_val->data.x_ptr.mut != ConstPtrMutRuntimeVar &&
+                ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
                 ConstExprValue *union_val = const_ptr_pointee(ira, ira->codegen, ptr_val, source_instr->source_node);
                 if (union_val == nullptr)
                     return ira->codegen->invalid_instruction;
@@ -18096,7 +18605,6 @@ static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_
                 }
 
                 ConstExprValue *payload_val = union_val->data.x_union.payload;
-
 
                 IrInstruction *result;
                 if (ptr_val->data.x_ptr.mut == ConstPtrMutInfer) {
@@ -19799,6 +20307,11 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
         return ira->codegen->invalid_instruction;
     }
 
+    if (container_type->data.structure.resolve_status == ResolveStatusBeingInferred) {
+        // We're now done inferring the type.
+        container_type->data.structure.resolve_status = ResolveStatusUnstarted;
+    }
+
     if ((err = type_resolve(ira->codegen, container_type, ResolveStatusSizeKnown)))
         return ira->codegen->invalid_instruction;
 
@@ -19865,14 +20378,18 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
         if (field_assign_nodes[i] != nullptr) continue;
 
         // look for a default field value
-        TypeStructField *field = &container_type->data.structure.fields[i];
+        TypeStructField *field = container_type->data.structure.fields[i];
         if (field->init_val == nullptr) {
             // it's not memoized. time to go analyze it
-            assert(field->decl_node->type == NodeTypeStructField);
-            AstNode *init_node = field->decl_node->data.struct_field.value;
+            AstNode *init_node;
+            if (field->decl_node->type == NodeTypeStructField) {
+                init_node = field->decl_node->data.struct_field.value;
+            } else {
+                init_node = nullptr;
+            }
             if (init_node == nullptr) {
                 ir_add_error_node(ira, instruction->source_node,
-                    buf_sprintf("missing field: '%s'", buf_ptr(container_type->data.structure.fields[i].name)));
+                    buf_sprintf("missing field: '%s'", buf_ptr(container_type->data.structure.fields[i]->name)));
                 any_missing = true;
                 continue;
             }
@@ -19926,14 +20443,18 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
 static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         IrInstructionContainerInitList *instruction)
 {
-    ZigType *container_type = ir_resolve_type(ira, instruction->container_type->child);
-    if (type_is_invalid(container_type))
-        return ira->codegen->invalid_instruction;
+    ir_assert(instruction->result_loc != nullptr, &instruction->base);
+    IrInstruction *result_loc = instruction->result_loc->child;
+    if (type_is_invalid(result_loc->value.type))
+        return result_loc;
+    ir_assert(result_loc->value.type->id == ZigTypeIdPointer, &instruction->base);
+
+    ZigType *container_type = result_loc->value.type->data.pointer.child_type;
 
     size_t elem_count = instruction->item_count;
 
     if (is_slice(container_type)) {
-        ir_add_error(ira, instruction->container_type,
+        ir_add_error_node(ira, instruction->init_array_type_source_node,
             buf_sprintf("expected array type or [_], found slice"));
         return ira->codegen->invalid_instruction;
     }
@@ -19955,26 +20476,25 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         return ir_analyze_container_init_fields(ira, &instruction->base, container_type, 0, nullptr, result_loc);
     }
 
-    if (container_type->id != ZigTypeIdArray) {
+    if (container_type->id == ZigTypeIdArray) {
+        ZigType *child_type = container_type->data.array.child_type;
+        if (container_type->data.array.len != elem_count) {
+            ZigType *literal_type = get_array_type(ira->codegen, child_type, elem_count);
+
+            ir_add_error(ira, &instruction->base,
+                buf_sprintf("expected %s literal, found %s literal",
+                    buf_ptr(&container_type->name), buf_ptr(&literal_type->name)));
+            return ira->codegen->invalid_instruction;
+        }
+    } else if (container_type->id == ZigTypeIdStruct &&
+         container_type->data.structure.resolve_status == ResolveStatusBeingInferred)
+    {
+        // We're now done inferring the type.
+        container_type->data.structure.resolve_status = ResolveStatusUnstarted;
+    } else {
         ir_add_error_node(ira, instruction->base.source_node,
             buf_sprintf("type '%s' does not support array initialization",
                 buf_ptr(&container_type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    ir_assert(instruction->result_loc != nullptr, &instruction->base);
-    IrInstruction *result_loc = instruction->result_loc->child;
-    if (type_is_invalid(result_loc->value.type))
-        return result_loc;
-    ir_assert(result_loc->value.type->id == ZigTypeIdPointer, &instruction->base);
-
-    ZigType *child_type = container_type->data.array.child_type;
-    if (container_type->data.array.len != elem_count) {
-        ZigType *literal_type = get_array_type(ira->codegen, child_type, elem_count);
-
-        ir_add_error(ira, &instruction->base,
-            buf_sprintf("expected %s literal, found %s literal",
-                buf_ptr(&container_type->name), buf_ptr(&literal_type->name)));
         return ira->codegen->invalid_instruction;
     }
 
@@ -20064,15 +20584,13 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
 static IrInstruction *ir_analyze_instruction_container_init_fields(IrAnalyze *ira,
         IrInstructionContainerInitFields *instruction)
 {
-    IrInstruction *container_type_value = instruction->container_type->child;
-    ZigType *container_type = ir_resolve_type(ira, container_type_value);
-    if (type_is_invalid(container_type))
-        return ira->codegen->invalid_instruction;
-
     ir_assert(instruction->result_loc != nullptr, &instruction->base);
     IrInstruction *result_loc = instruction->result_loc->child;
     if (type_is_invalid(result_loc->value.type))
         return result_loc;
+
+    ir_assert(result_loc->value.type->id == ZigTypeIdPointer, &instruction->base);
+    ZigType *container_type = result_loc->value.type->data.pointer.child_type;
 
     return ir_analyze_container_init_fields(ira, &instruction->base, container_type,
         instruction->field_count, instruction->fields, result_loc);
@@ -20472,17 +20990,17 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
         declaration_val->special = ConstValSpecialStatic;
         declaration_val->type = type_info_declaration_type;
 
-        ConstExprValue *inner_fields = create_const_vals(3);
+        ConstExprValue **inner_fields = alloc_const_vals_ptrs(3);
         ConstExprValue *name = create_const_str_lit(ira->codegen, curr_entry->key);
-        init_const_slice(ira->codegen, &inner_fields[0], name, 0, buf_len(curr_entry->key), true);
-        inner_fields[1].special = ConstValSpecialStatic;
-        inner_fields[1].type = ira->codegen->builtin_types.entry_bool;
-        inner_fields[1].data.x_bool = curr_entry->value->visib_mod == VisibModPub;
-        inner_fields[2].special = ConstValSpecialStatic;
-        inner_fields[2].type = type_info_declaration_data_type;
-        inner_fields[2].parent.id = ConstParentIdStruct;
-        inner_fields[2].parent.data.p_struct.struct_val = declaration_val;
-        inner_fields[2].parent.data.p_struct.field_index = 1;
+        init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(curr_entry->key), true);
+        inner_fields[1]->special = ConstValSpecialStatic;
+        inner_fields[1]->type = ira->codegen->builtin_types.entry_bool;
+        inner_fields[1]->data.x_bool = curr_entry->value->visib_mod == VisibModPub;
+        inner_fields[2]->special = ConstValSpecialStatic;
+        inner_fields[2]->type = type_info_declaration_data_type;
+        inner_fields[2]->parent.id = ConstParentIdStruct;
+        inner_fields[2]->parent.data.p_struct.struct_val = declaration_val;
+        inner_fields[2]->parent.data.p_struct.field_index = 1;
 
         switch (curr_entry->value->id) {
             case TldIdVar:
@@ -20494,19 +21012,19 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
                     if (var->const_value->type->id == ZigTypeIdMetaType) {
                         // We have a variable of type 'type', so it's actually a type declaration.
                         // 0: Data.Type: type
-                        bigint_init_unsigned(&inner_fields[2].data.x_union.tag, 0);
-                        inner_fields[2].data.x_union.payload = var->const_value;
+                        bigint_init_unsigned(&inner_fields[2]->data.x_union.tag, 0);
+                        inner_fields[2]->data.x_union.payload = var->const_value;
                     } else {
                         // We have a variable of another type, so we store the type of the variable.
                         // 1: Data.Var: type
-                        bigint_init_unsigned(&inner_fields[2].data.x_union.tag, 1);
+                        bigint_init_unsigned(&inner_fields[2]->data.x_union.tag, 1);
 
                         ConstExprValue *payload = create_const_vals(1);
                         payload->special = ConstValSpecialStatic;
                         payload->type = ira->codegen->builtin_types.entry_type;
                         payload->data.x_type = var->const_value->type;
 
-                        inner_fields[2].data.x_union.payload = payload;
+                        inner_fields[2]->data.x_union.payload = payload;
                     }
 
                     break;
@@ -20514,7 +21032,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
             case TldIdFn:
                 {
                     // 2: Data.Fn: Data.FnDecl
-                    bigint_init_unsigned(&inner_fields[2].data.x_union.tag, 2);
+                    bigint_init_unsigned(&inner_fields[2]->data.x_union.tag, 2);
 
                     ZigFn *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
                     assert(!fn_entry->is_test);
@@ -20530,63 +21048,63 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
                     fn_decl_val->special = ConstValSpecialStatic;
                     fn_decl_val->type = type_info_fn_decl_type;
                     fn_decl_val->parent.id = ConstParentIdUnion;
-                    fn_decl_val->parent.data.p_union.union_val = &inner_fields[2];
+                    fn_decl_val->parent.data.p_union.union_val = inner_fields[2];
 
-                    ConstExprValue *fn_decl_fields = create_const_vals(9);
+                    ConstExprValue **fn_decl_fields = alloc_const_vals_ptrs(9);
                     fn_decl_val->data.x_struct.fields = fn_decl_fields;
 
                     // fn_type: type
                     ensure_field_index(fn_decl_val->type, "fn_type", 0);
-                    fn_decl_fields[0].special = ConstValSpecialStatic;
-                    fn_decl_fields[0].type = ira->codegen->builtin_types.entry_type;
-                    fn_decl_fields[0].data.x_type = fn_entry->type_entry;
+                    fn_decl_fields[0]->special = ConstValSpecialStatic;
+                    fn_decl_fields[0]->type = ira->codegen->builtin_types.entry_type;
+                    fn_decl_fields[0]->data.x_type = fn_entry->type_entry;
                     // inline_type: Data.FnDecl.Inline
                     ensure_field_index(fn_decl_val->type, "inline_type", 1);
-                    fn_decl_fields[1].special = ConstValSpecialStatic;
-                    fn_decl_fields[1].type = type_info_fn_decl_inline_type;
-                    bigint_init_unsigned(&fn_decl_fields[1].data.x_enum_tag, fn_entry->fn_inline);
+                    fn_decl_fields[1]->special = ConstValSpecialStatic;
+                    fn_decl_fields[1]->type = type_info_fn_decl_inline_type;
+                    bigint_init_unsigned(&fn_decl_fields[1]->data.x_enum_tag, fn_entry->fn_inline);
                     // calling_convention: TypeInfo.CallingConvention
                     ensure_field_index(fn_decl_val->type, "calling_convention", 2);
-                    fn_decl_fields[2].special = ConstValSpecialStatic;
-                    fn_decl_fields[2].type = ir_type_info_get_type(ira, "CallingConvention", nullptr);
-                    bigint_init_unsigned(&fn_decl_fields[2].data.x_enum_tag, fn_node->cc);
+                    fn_decl_fields[2]->special = ConstValSpecialStatic;
+                    fn_decl_fields[2]->type = ir_type_info_get_type(ira, "CallingConvention", nullptr);
+                    bigint_init_unsigned(&fn_decl_fields[2]->data.x_enum_tag, fn_node->cc);
                     // is_var_args: bool
                     ensure_field_index(fn_decl_val->type, "is_var_args", 3);
                     bool is_varargs = fn_node->is_var_args;
-                    fn_decl_fields[3].special = ConstValSpecialStatic;
-                    fn_decl_fields[3].type = ira->codegen->builtin_types.entry_bool;
-                    fn_decl_fields[3].data.x_bool = is_varargs;
+                    fn_decl_fields[3]->special = ConstValSpecialStatic;
+                    fn_decl_fields[3]->type = ira->codegen->builtin_types.entry_bool;
+                    fn_decl_fields[3]->data.x_bool = is_varargs;
                     // is_extern: bool
                     ensure_field_index(fn_decl_val->type, "is_extern", 4);
-                    fn_decl_fields[4].special = ConstValSpecialStatic;
-                    fn_decl_fields[4].type = ira->codegen->builtin_types.entry_bool;
-                    fn_decl_fields[4].data.x_bool = fn_node->is_extern;
+                    fn_decl_fields[4]->special = ConstValSpecialStatic;
+                    fn_decl_fields[4]->type = ira->codegen->builtin_types.entry_bool;
+                    fn_decl_fields[4]->data.x_bool = fn_node->is_extern;
                     // is_export: bool
                     ensure_field_index(fn_decl_val->type, "is_export", 5);
-                    fn_decl_fields[5].special = ConstValSpecialStatic;
-                    fn_decl_fields[5].type = ira->codegen->builtin_types.entry_bool;
-                    fn_decl_fields[5].data.x_bool = fn_node->is_export;
+                    fn_decl_fields[5]->special = ConstValSpecialStatic;
+                    fn_decl_fields[5]->type = ira->codegen->builtin_types.entry_bool;
+                    fn_decl_fields[5]->data.x_bool = fn_node->is_export;
                     // lib_name: ?[]const u8
                     ensure_field_index(fn_decl_val->type, "lib_name", 6);
-                    fn_decl_fields[6].special = ConstValSpecialStatic;
+                    fn_decl_fields[6]->special = ConstValSpecialStatic;
                     ZigType *u8_ptr = get_pointer_to_type_extra(
                         ira->codegen, ira->codegen->builtin_types.entry_u8,
                         true, false, PtrLenUnknown,
                         0, 0, 0, false);
-                    fn_decl_fields[6].type = get_optional_type(ira->codegen, get_slice_type(ira->codegen, u8_ptr));
+                    fn_decl_fields[6]->type = get_optional_type(ira->codegen, get_slice_type(ira->codegen, u8_ptr));
                     if (fn_node->is_extern && fn_node->lib_name != nullptr && buf_len(fn_node->lib_name) > 0) {
-                        fn_decl_fields[6].data.x_optional = create_const_vals(1);
+                        fn_decl_fields[6]->data.x_optional = create_const_vals(1);
                         ConstExprValue *lib_name = create_const_str_lit(ira->codegen, fn_node->lib_name);
-                        init_const_slice(ira->codegen, fn_decl_fields[6].data.x_optional, lib_name, 0,
+                        init_const_slice(ira->codegen, fn_decl_fields[6]->data.x_optional, lib_name, 0,
                                 buf_len(fn_node->lib_name), true);
                     } else {
-                        fn_decl_fields[6].data.x_optional = nullptr;
+                        fn_decl_fields[6]->data.x_optional = nullptr;
                     }
                     // return_type: type
                     ensure_field_index(fn_decl_val->type, "return_type", 7);
-                    fn_decl_fields[7].special = ConstValSpecialStatic;
-                    fn_decl_fields[7].type = ira->codegen->builtin_types.entry_type;
-                    fn_decl_fields[7].data.x_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
+                    fn_decl_fields[7]->special = ConstValSpecialStatic;
+                    fn_decl_fields[7]->type = ira->codegen->builtin_types.entry_type;
+                    fn_decl_fields[7]->data.x_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
                     // arg_names: [][] const u8
                     ensure_field_index(fn_decl_val->type, "arg_names", 8);
                     size_t fn_arg_count = fn_entry->variable_list.length;
@@ -20597,7 +21115,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
                     fn_arg_name_array->data.x_array.special = ConstArraySpecialNone;
                     fn_arg_name_array->data.x_array.data.s_none.elements = create_const_vals(fn_arg_count);
 
-                    init_const_slice(ira->codegen, &fn_decl_fields[8], fn_arg_name_array, 0, fn_arg_count, false);
+                    init_const_slice(ira->codegen, fn_decl_fields[8], fn_arg_name_array, 0, fn_arg_count, false);
 
                     for (size_t fn_arg_index = 0; fn_arg_index < fn_arg_count; fn_arg_index++) {
                         ZigVar *arg_var = fn_entry->variable_list.at(fn_arg_index);
@@ -20610,7 +21128,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
                         fn_arg_name_val->parent.data.p_array.elem_index = fn_arg_index;
                     }
 
-                    inner_fields[2].data.x_union.payload = fn_decl_val;
+                    inner_fields[2]->data.x_union.payload = fn_decl_val;
                     break;
                 }
             case TldIdContainer:
@@ -20620,14 +21138,14 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
                         return ErrorSemanticAnalyzeFail;
 
                     // This is a type.
-                    bigint_init_unsigned(&inner_fields[2].data.x_union.tag, 0);
+                    bigint_init_unsigned(&inner_fields[2]->data.x_union.tag, 0);
 
                     ConstExprValue *payload = create_const_vals(1);
                     payload->special = ConstValSpecialStatic;
                     payload->type = ira->codegen->builtin_types.entry_type;
                     payload->data.x_type = type_entry;
 
-                    inner_fields[2].data.x_union.payload = payload;
+                    inner_fields[2]->data.x_union.payload = payload;
 
                     break;
                 }
@@ -20636,7 +21154,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
         }
 
         declaration_val->data.x_struct.fields = inner_fields;
-        declaration_index++;
+        declaration_index += 1;
     }
 
     assert(declaration_index == declaration_count);
@@ -20673,7 +21191,7 @@ static ConstExprValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_ty
     ZigType *attrs_type;
     BuiltinPtrSize size_enum_index;
     if (is_slice(ptr_type_entry)) {
-        attrs_type = ptr_type_entry->data.structure.fields[slice_ptr_index].type_entry;
+        attrs_type = ptr_type_entry->data.structure.fields[slice_ptr_index]->type_entry;
         size_enum_index = BuiltinPtrSizeSlice;
     } else if (ptr_type_entry->id == ZigTypeIdPointer) {
         attrs_type = ptr_type_entry;
@@ -20692,42 +21210,42 @@ static ConstExprValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_ty
     result->special = ConstValSpecialStatic;
     result->type = type_info_pointer_type;
 
-    ConstExprValue *fields = create_const_vals(6);
+    ConstExprValue **fields = alloc_const_vals_ptrs(6);
     result->data.x_struct.fields = fields;
 
     // size: Size
     ensure_field_index(result->type, "size", 0);
     ZigType *type_info_pointer_size_type = ir_type_info_get_type(ira, "Size", type_info_pointer_type);
     assertNoError(type_resolve(ira->codegen, type_info_pointer_size_type, ResolveStatusSizeKnown));
-    fields[0].special = ConstValSpecialStatic;
-    fields[0].type = type_info_pointer_size_type;
-    bigint_init_unsigned(&fields[0].data.x_enum_tag, size_enum_index);
+    fields[0]->special = ConstValSpecialStatic;
+    fields[0]->type = type_info_pointer_size_type;
+    bigint_init_unsigned(&fields[0]->data.x_enum_tag, size_enum_index);
 
     // is_const: bool
     ensure_field_index(result->type, "is_const", 1);
-    fields[1].special = ConstValSpecialStatic;
-    fields[1].type = ira->codegen->builtin_types.entry_bool;
-    fields[1].data.x_bool = attrs_type->data.pointer.is_const;
+    fields[1]->special = ConstValSpecialStatic;
+    fields[1]->type = ira->codegen->builtin_types.entry_bool;
+    fields[1]->data.x_bool = attrs_type->data.pointer.is_const;
     // is_volatile: bool
     ensure_field_index(result->type, "is_volatile", 2);
-    fields[2].special = ConstValSpecialStatic;
-    fields[2].type = ira->codegen->builtin_types.entry_bool;
-    fields[2].data.x_bool = attrs_type->data.pointer.is_volatile;
+    fields[2]->special = ConstValSpecialStatic;
+    fields[2]->type = ira->codegen->builtin_types.entry_bool;
+    fields[2]->data.x_bool = attrs_type->data.pointer.is_volatile;
     // alignment: u32
     ensure_field_index(result->type, "alignment", 3);
-    fields[3].special = ConstValSpecialStatic;
-    fields[3].type = ira->codegen->builtin_types.entry_num_lit_int;
-    bigint_init_unsigned(&fields[3].data.x_bigint, get_ptr_align(ira->codegen, attrs_type));
+    fields[3]->special = ConstValSpecialStatic;
+    fields[3]->type = ira->codegen->builtin_types.entry_num_lit_int;
+    bigint_init_unsigned(&fields[3]->data.x_bigint, get_ptr_align(ira->codegen, attrs_type));
     // child: type
     ensure_field_index(result->type, "child", 4);
-    fields[4].special = ConstValSpecialStatic;
-    fields[4].type = ira->codegen->builtin_types.entry_type;
-    fields[4].data.x_type = attrs_type->data.pointer.child_type;
+    fields[4]->special = ConstValSpecialStatic;
+    fields[4]->type = ira->codegen->builtin_types.entry_type;
+    fields[4]->data.x_type = attrs_type->data.pointer.child_type;
     // is_allowzero: bool
     ensure_field_index(result->type, "is_allowzero", 5);
-    fields[5].special = ConstValSpecialStatic;
-    fields[5].type = ira->codegen->builtin_types.entry_bool;
-    fields[5].data.x_bool = attrs_type->data.pointer.allow_zero;
+    fields[5]->special = ConstValSpecialStatic;
+    fields[5]->type = ira->codegen->builtin_types.entry_bool;
+    fields[5]->data.x_bool = attrs_type->data.pointer.allow_zero;
 
     return result;
 };
@@ -20738,14 +21256,14 @@ static void make_enum_field_val(IrAnalyze *ira, ConstExprValue *enum_field_val, 
     enum_field_val->special = ConstValSpecialStatic;
     enum_field_val->type = type_info_enum_field_type;
 
-    ConstExprValue *inner_fields = create_const_vals(2);
-    inner_fields[1].special = ConstValSpecialStatic;
-    inner_fields[1].type = ira->codegen->builtin_types.entry_num_lit_int;
+    ConstExprValue **inner_fields = alloc_const_vals_ptrs(2);
+    inner_fields[1]->special = ConstValSpecialStatic;
+    inner_fields[1]->type = ira->codegen->builtin_types.entry_num_lit_int;
 
     ConstExprValue *name = create_const_str_lit(ira->codegen, enum_field->name);
-    init_const_slice(ira->codegen, &inner_fields[0], name, 0, buf_len(enum_field->name), true);
+    init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(enum_field->name), true);
 
-    bigint_init_bigint(&inner_fields[1].data.x_bigint, &enum_field->value);
+    bigint_init_bigint(&inner_fields[1]->data.x_bigint, &enum_field->value);
 
     enum_field_val->data.x_struct.fields = inner_fields;
 }
@@ -20789,19 +21307,19 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Int", nullptr);
 
-                ConstExprValue *fields = create_const_vals(2);
+                ConstExprValue **fields = alloc_const_vals_ptrs(2);
                 result->data.x_struct.fields = fields;
 
                 // is_signed: bool
                 ensure_field_index(result->type, "is_signed", 0);
-                fields[0].special = ConstValSpecialStatic;
-                fields[0].type = ira->codegen->builtin_types.entry_bool;
-                fields[0].data.x_bool = type_entry->data.integral.is_signed;
+                fields[0]->special = ConstValSpecialStatic;
+                fields[0]->type = ira->codegen->builtin_types.entry_bool;
+                fields[0]->data.x_bool = type_entry->data.integral.is_signed;
                 // bits: u8
                 ensure_field_index(result->type, "bits", 1);
-                fields[1].special = ConstValSpecialStatic;
-                fields[1].type = ira->codegen->builtin_types.entry_num_lit_int;
-                bigint_init_unsigned(&fields[1].data.x_bigint, type_entry->data.integral.bit_count);
+                fields[1]->special = ConstValSpecialStatic;
+                fields[1]->type = ira->codegen->builtin_types.entry_num_lit_int;
+                bigint_init_unsigned(&fields[1]->data.x_bigint, type_entry->data.integral.bit_count);
 
                 break;
             }
@@ -20811,14 +21329,14 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Float", nullptr);
 
-                ConstExprValue *fields = create_const_vals(1);
+                ConstExprValue **fields = alloc_const_vals_ptrs(1);
                 result->data.x_struct.fields = fields;
 
                 // bits: u8
                 ensure_field_index(result->type, "bits", 0);
-                fields[0].special = ConstValSpecialStatic;
-                fields[0].type = ira->codegen->builtin_types.entry_num_lit_int;
-                bigint_init_unsigned(&fields->data.x_bigint, type_entry->data.floating.bit_count);
+                fields[0]->special = ConstValSpecialStatic;
+                fields[0]->type = ira->codegen->builtin_types.entry_num_lit_int;
+                bigint_init_unsigned(&fields[0]->data.x_bigint, type_entry->data.floating.bit_count);
 
                 break;
             }
@@ -20835,19 +21353,19 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Array", nullptr);
 
-                ConstExprValue *fields = create_const_vals(2);
+                ConstExprValue **fields = alloc_const_vals_ptrs(2);
                 result->data.x_struct.fields = fields;
 
                 // len: usize
                 ensure_field_index(result->type, "len", 0);
-                fields[0].special = ConstValSpecialStatic;
-                fields[0].type = ira->codegen->builtin_types.entry_num_lit_int;
-                bigint_init_unsigned(&fields[0].data.x_bigint, type_entry->data.array.len);
+                fields[0]->special = ConstValSpecialStatic;
+                fields[0]->type = ira->codegen->builtin_types.entry_num_lit_int;
+                bigint_init_unsigned(&fields[0]->data.x_bigint, type_entry->data.array.len);
                 // child: type
                 ensure_field_index(result->type, "child", 1);
-                fields[1].special = ConstValSpecialStatic;
-                fields[1].type = ira->codegen->builtin_types.entry_type;
-                fields[1].data.x_type = type_entry->data.array.child_type;
+                fields[1]->special = ConstValSpecialStatic;
+                fields[1]->type = ira->codegen->builtin_types.entry_type;
+                fields[1]->data.x_type = type_entry->data.array.child_type;
 
                 break;
             }
@@ -20856,19 +21374,19 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
             result->special = ConstValSpecialStatic;
             result->type = ir_type_info_get_type(ira, "Vector", nullptr);
 
-            ConstExprValue *fields = create_const_vals(2);
+            ConstExprValue **fields = alloc_const_vals_ptrs(2);
             result->data.x_struct.fields = fields;
 
             // len: usize
             ensure_field_index(result->type, "len", 0);
-            fields[0].special = ConstValSpecialStatic;
-            fields[0].type = ira->codegen->builtin_types.entry_num_lit_int;
-            bigint_init_unsigned(&fields[0].data.x_bigint, type_entry->data.vector.len);
+            fields[0]->special = ConstValSpecialStatic;
+            fields[0]->type = ira->codegen->builtin_types.entry_num_lit_int;
+            bigint_init_unsigned(&fields[0]->data.x_bigint, type_entry->data.vector.len);
             // child: type
             ensure_field_index(result->type, "child", 1);
-            fields[1].special = ConstValSpecialStatic;
-            fields[1].type = ira->codegen->builtin_types.entry_type;
-            fields[1].data.x_type = type_entry->data.vector.elem_type;
+            fields[1]->special = ConstValSpecialStatic;
+            fields[1]->type = ira->codegen->builtin_types.entry_type;
+            fields[1]->data.x_type = type_entry->data.vector.elem_type;
 
             break;
         }
@@ -20878,14 +21396,14 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Optional", nullptr);
 
-                ConstExprValue *fields = create_const_vals(1);
+                ConstExprValue **fields = alloc_const_vals_ptrs(1);
                 result->data.x_struct.fields = fields;
 
                 // child: type
                 ensure_field_index(result->type, "child", 0);
-                fields[0].special = ConstValSpecialStatic;
-                fields[0].type = ira->codegen->builtin_types.entry_type;
-                fields[0].data.x_type = type_entry->data.maybe.child_type;
+                fields[0]->special = ConstValSpecialStatic;
+                fields[0]->type = ira->codegen->builtin_types.entry_type;
+                fields[0]->data.x_type = type_entry->data.maybe.child_type;
 
                 break;
             }
@@ -20894,14 +21412,14 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
             result->special = ConstValSpecialStatic;
             result->type = ir_type_info_get_type(ira, "AnyFrame", nullptr);
 
-            ConstExprValue *fields = create_const_vals(1);
+            ConstExprValue **fields = alloc_const_vals_ptrs(1);
             result->data.x_struct.fields = fields;
 
             // child: ?type
             ensure_field_index(result->type, "child", 0);
-            fields[0].special = ConstValSpecialStatic;
-            fields[0].type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
-            fields[0].data.x_optional = (type_entry->data.any_frame.result_type == nullptr) ? nullptr :
+            fields[0]->special = ConstValSpecialStatic;
+            fields[0]->type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
+            fields[0]->data.x_optional = (type_entry->data.any_frame.result_type == nullptr) ? nullptr :
                 create_const_type(ira->codegen, type_entry->data.any_frame.result_type);
             break;
         }
@@ -20911,19 +21429,19 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Enum", nullptr);
 
-                ConstExprValue *fields = create_const_vals(4);
+                ConstExprValue **fields = alloc_const_vals_ptrs(4);
                 result->data.x_struct.fields = fields;
 
                 // layout: ContainerLayout
                 ensure_field_index(result->type, "layout", 0);
-                fields[0].special = ConstValSpecialStatic;
-                fields[0].type = ir_type_info_get_type(ira, "ContainerLayout", nullptr);
-                bigint_init_unsigned(&fields[0].data.x_enum_tag, type_entry->data.enumeration.layout);
+                fields[0]->special = ConstValSpecialStatic;
+                fields[0]->type = ir_type_info_get_type(ira, "ContainerLayout", nullptr);
+                bigint_init_unsigned(&fields[0]->data.x_enum_tag, type_entry->data.enumeration.layout);
                 // tag_type: type
                 ensure_field_index(result->type, "tag_type", 1);
-                fields[1].special = ConstValSpecialStatic;
-                fields[1].type = ira->codegen->builtin_types.entry_type;
-                fields[1].data.x_type = type_entry->data.enumeration.tag_int_type;
+                fields[1]->special = ConstValSpecialStatic;
+                fields[1]->type = ira->codegen->builtin_types.entry_type;
+                fields[1]->data.x_type = type_entry->data.enumeration.tag_int_type;
                 // fields: []TypeInfo.EnumField
                 ensure_field_index(result->type, "fields", 2);
 
@@ -20939,7 +21457,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 enum_field_array->data.x_array.special = ConstArraySpecialNone;
                 enum_field_array->data.x_array.data.s_none.elements = create_const_vals(enum_field_count);
 
-                init_const_slice(ira->codegen, &fields[2], enum_field_array, 0, enum_field_count, false);
+                init_const_slice(ira->codegen, fields[2], enum_field_array, 0, enum_field_count, false);
 
                 for (uint32_t enum_field_index = 0; enum_field_index < enum_field_count; enum_field_index++)
                 {
@@ -20952,7 +21470,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 }
                 // decls: []TypeInfo.Declaration
                 ensure_field_index(result->type, "decls", 3);
-                if ((err = ir_make_type_info_decls(ira, source_instr, &fields[3],
+                if ((err = ir_make_type_info_decls(ira, source_instr, fields[3],
                             type_entry->data.enumeration.decls_scope)))
                 {
                     return err;
@@ -20995,17 +21513,17 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                     error_val->special = ConstValSpecialStatic;
                     error_val->type = type_info_error_type;
 
-                    ConstExprValue *inner_fields = create_const_vals(2);
-                    inner_fields[1].special = ConstValSpecialStatic;
-                    inner_fields[1].type = ira->codegen->builtin_types.entry_num_lit_int;
+                    ConstExprValue **inner_fields = alloc_const_vals_ptrs(2);
+                    inner_fields[1]->special = ConstValSpecialStatic;
+                    inner_fields[1]->type = ira->codegen->builtin_types.entry_num_lit_int;
 
                     ConstExprValue *name = nullptr;
                     if (error->cached_error_name_val != nullptr)
                         name = error->cached_error_name_val;
                     if (name == nullptr)
                         name = create_const_str_lit(ira->codegen, &error->name);
-                    init_const_slice(ira->codegen, &inner_fields[0], name, 0, buf_len(&error->name), true);
-                    bigint_init_unsigned(&inner_fields[1].data.x_bigint, error->value);
+                    init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(&error->name), true);
+                    bigint_init_unsigned(&inner_fields[1]->data.x_bigint, error->value);
 
                     error_val->data.x_struct.fields = inner_fields;
                     error_val->parent.id = ConstParentIdArray;
@@ -21021,20 +21539,20 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "ErrorUnion", nullptr);
 
-                ConstExprValue *fields = create_const_vals(2);
+                ConstExprValue **fields = alloc_const_vals_ptrs(2);
                 result->data.x_struct.fields = fields;
 
                 // error_set: type
                 ensure_field_index(result->type, "error_set", 0);
-                fields[0].special = ConstValSpecialStatic;
-                fields[0].type = ira->codegen->builtin_types.entry_type;
-                fields[0].data.x_type = type_entry->data.error_union.err_set_type;
+                fields[0]->special = ConstValSpecialStatic;
+                fields[0]->type = ira->codegen->builtin_types.entry_type;
+                fields[0]->data.x_type = type_entry->data.error_union.err_set_type;
 
                 // payload: type
                 ensure_field_index(result->type, "payload", 1);
-                fields[1].special = ConstValSpecialStatic;
-                fields[1].type = ira->codegen->builtin_types.entry_type;
-                fields[1].data.x_type = type_entry->data.error_union.payload_type;
+                fields[1]->special = ConstValSpecialStatic;
+                fields[1]->type = ira->codegen->builtin_types.entry_type;
+                fields[1]->data.x_type = type_entry->data.error_union.payload_type;
 
                 break;
             }
@@ -21044,18 +21562,18 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Union", nullptr);
 
-                ConstExprValue *fields = create_const_vals(4);
+                ConstExprValue **fields = alloc_const_vals_ptrs(4);
                 result->data.x_struct.fields = fields;
 
                 // layout: ContainerLayout
                 ensure_field_index(result->type, "layout", 0);
-                fields[0].special = ConstValSpecialStatic;
-                fields[0].type = ir_type_info_get_type(ira, "ContainerLayout", nullptr);
-                bigint_init_unsigned(&fields[0].data.x_enum_tag, type_entry->data.unionation.layout);
+                fields[0]->special = ConstValSpecialStatic;
+                fields[0]->type = ir_type_info_get_type(ira, "ContainerLayout", nullptr);
+                bigint_init_unsigned(&fields[0]->data.x_enum_tag, type_entry->data.unionation.layout);
                 // tag_type: ?type
                 ensure_field_index(result->type, "tag_type", 1);
-                fields[1].special = ConstValSpecialStatic;
-                fields[1].type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
+                fields[1]->special = ConstValSpecialStatic;
+                fields[1]->type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
 
                 AstNode *union_decl_node = type_entry->data.unionation.decl_node;
                 if (union_decl_node->data.container_decl.auto_enum ||
@@ -21065,9 +21583,9 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                     tag_type->special = ConstValSpecialStatic;
                     tag_type->type = ira->codegen->builtin_types.entry_type;
                     tag_type->data.x_type = type_entry->data.unionation.tag_type;
-                    fields[1].data.x_optional = tag_type;
+                    fields[1]->data.x_optional = tag_type;
                 } else {
-                    fields[1].data.x_optional = nullptr;
+                    fields[1]->data.x_optional = nullptr;
                 }
                 // fields: []TypeInfo.UnionField
                 ensure_field_index(result->type, "fields", 2);
@@ -21083,7 +21601,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 union_field_array->data.x_array.special = ConstArraySpecialNone;
                 union_field_array->data.x_array.data.s_none.elements = create_const_vals(union_field_count);
 
-                init_const_slice(ira->codegen, &fields[2], union_field_array, 0, union_field_count, false);
+                init_const_slice(ira->codegen, fields[2], union_field_array, 0, union_field_count, false);
 
                 ZigType *type_info_enum_field_type = ir_type_info_get_type(ira, "EnumField", nullptr);
 
@@ -21094,23 +21612,23 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                     union_field_val->special = ConstValSpecialStatic;
                     union_field_val->type = type_info_union_field_type;
 
-                    ConstExprValue *inner_fields = create_const_vals(3);
-                    inner_fields[1].special = ConstValSpecialStatic;
-                    inner_fields[1].type = get_optional_type(ira->codegen, type_info_enum_field_type);
+                    ConstExprValue **inner_fields = alloc_const_vals_ptrs(3);
+                    inner_fields[1]->special = ConstValSpecialStatic;
+                    inner_fields[1]->type = get_optional_type(ira->codegen, type_info_enum_field_type);
 
-                    if (fields[1].data.x_optional == nullptr) {
-                        inner_fields[1].data.x_optional = nullptr;
+                    if (fields[1]->data.x_optional == nullptr) {
+                        inner_fields[1]->data.x_optional = nullptr;
                     } else {
-                        inner_fields[1].data.x_optional = create_const_vals(1);
-                        make_enum_field_val(ira, inner_fields[1].data.x_optional, union_field->enum_field, type_info_enum_field_type);
+                        inner_fields[1]->data.x_optional = create_const_vals(1);
+                        make_enum_field_val(ira, inner_fields[1]->data.x_optional, union_field->enum_field, type_info_enum_field_type);
                     }
 
-                    inner_fields[2].special = ConstValSpecialStatic;
-                    inner_fields[2].type = ira->codegen->builtin_types.entry_type;
-                    inner_fields[2].data.x_type = union_field->type_entry;
+                    inner_fields[2]->special = ConstValSpecialStatic;
+                    inner_fields[2]->type = ira->codegen->builtin_types.entry_type;
+                    inner_fields[2]->data.x_type = union_field->type_entry;
 
                     ConstExprValue *name = create_const_str_lit(ira->codegen, union_field->name);
-                    init_const_slice(ira->codegen, &inner_fields[0], name, 0, buf_len(union_field->name), true);
+                    init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(union_field->name), true);
 
                     union_field_val->data.x_struct.fields = inner_fields;
                     union_field_val->parent.id = ConstParentIdArray;
@@ -21119,7 +21637,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 }
                 // decls: []TypeInfo.Declaration
                 ensure_field_index(result->type, "decls", 3);
-                if ((err = ir_make_type_info_decls(ira, source_instr, &fields[3],
+                if ((err = ir_make_type_info_decls(ira, source_instr, fields[3],
                                 type_entry->data.unionation.decls_scope)))
                 {
                     return err;
@@ -21140,14 +21658,14 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Struct", nullptr);
 
-                ConstExprValue *fields = create_const_vals(3);
+                ConstExprValue **fields = alloc_const_vals_ptrs(3);
                 result->data.x_struct.fields = fields;
 
                 // layout: ContainerLayout
                 ensure_field_index(result->type, "layout", 0);
-                fields[0].special = ConstValSpecialStatic;
-                fields[0].type = ir_type_info_get_type(ira, "ContainerLayout", nullptr);
-                bigint_init_unsigned(&fields[0].data.x_enum_tag, type_entry->data.structure.layout);
+                fields[0]->special = ConstValSpecialStatic;
+                fields[0]->type = ir_type_info_get_type(ira, "ContainerLayout", nullptr);
+                bigint_init_unsigned(&fields[0]->data.x_enum_tag, type_entry->data.structure.layout);
                 // fields: []TypeInfo.StructField
                 ensure_field_index(result->type, "fields", 1);
 
@@ -21163,18 +21681,18 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 struct_field_array->data.x_array.special = ConstArraySpecialNone;
                 struct_field_array->data.x_array.data.s_none.elements = create_const_vals(struct_field_count);
 
-                init_const_slice(ira->codegen, &fields[1], struct_field_array, 0, struct_field_count, false);
+                init_const_slice(ira->codegen, fields[1], struct_field_array, 0, struct_field_count, false);
 
                 for (uint32_t struct_field_index = 0; struct_field_index < struct_field_count; struct_field_index++) {
-                    TypeStructField *struct_field = &type_entry->data.structure.fields[struct_field_index];
+                    TypeStructField *struct_field = type_entry->data.structure.fields[struct_field_index];
                     ConstExprValue *struct_field_val = &struct_field_array->data.x_array.data.s_none.elements[struct_field_index];
 
                     struct_field_val->special = ConstValSpecialStatic;
                     struct_field_val->type = type_info_struct_field_type;
 
-                    ConstExprValue *inner_fields = create_const_vals(3);
-                    inner_fields[1].special = ConstValSpecialStatic;
-                    inner_fields[1].type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_num_lit_int);
+                    ConstExprValue **inner_fields = alloc_const_vals_ptrs(3);
+                    inner_fields[1]->special = ConstValSpecialStatic;
+                    inner_fields[1]->type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_num_lit_int);
 
                     ZigType *field_type = resolve_struct_field_type(ira->codegen, struct_field);
                     if (field_type == nullptr)
@@ -21182,21 +21700,21 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                     if ((err = type_resolve(ira->codegen, field_type, ResolveStatusZeroBitsKnown)))
                         return err;
                     if (!type_has_bits(struct_field->type_entry)) {
-                        inner_fields[1].data.x_optional = nullptr;
+                        inner_fields[1]->data.x_optional = nullptr;
                     } else {
                         size_t byte_offset = struct_field->offset;
-                        inner_fields[1].data.x_optional = create_const_vals(1);
-                        inner_fields[1].data.x_optional->special = ConstValSpecialStatic;
-                        inner_fields[1].data.x_optional->type = ira->codegen->builtin_types.entry_num_lit_int;
-                        bigint_init_unsigned(&inner_fields[1].data.x_optional->data.x_bigint, byte_offset);
+                        inner_fields[1]->data.x_optional = create_const_vals(1);
+                        inner_fields[1]->data.x_optional->special = ConstValSpecialStatic;
+                        inner_fields[1]->data.x_optional->type = ira->codegen->builtin_types.entry_num_lit_int;
+                        bigint_init_unsigned(&inner_fields[1]->data.x_optional->data.x_bigint, byte_offset);
                     }
 
-                    inner_fields[2].special = ConstValSpecialStatic;
-                    inner_fields[2].type = ira->codegen->builtin_types.entry_type;
-                    inner_fields[2].data.x_type = struct_field->type_entry;
+                    inner_fields[2]->special = ConstValSpecialStatic;
+                    inner_fields[2]->type = ira->codegen->builtin_types.entry_type;
+                    inner_fields[2]->data.x_type = struct_field->type_entry;
 
                     ConstExprValue *name = create_const_str_lit(ira->codegen, struct_field->name);
-                    init_const_slice(ira->codegen, &inner_fields[0], name, 0, buf_len(struct_field->name), true);
+                    init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(struct_field->name), true);
 
                     struct_field_val->data.x_struct.fields = inner_fields;
                     struct_field_val->parent.id = ConstParentIdArray;
@@ -21205,7 +21723,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 }
                 // decls: []TypeInfo.Declaration
                 ensure_field_index(result->type, "decls", 2);
-                if ((err = ir_make_type_info_decls(ira, source_instr, &fields[2],
+                if ((err = ir_make_type_info_decls(ira, source_instr, fields[2],
                                 type_entry->data.structure.decls_scope)))
                 {
                     return err;
@@ -21219,38 +21737,38 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Fn", nullptr);
 
-                ConstExprValue *fields = create_const_vals(5);
+                ConstExprValue **fields = alloc_const_vals_ptrs(5);
                 result->data.x_struct.fields = fields;
 
                 // calling_convention: TypeInfo.CallingConvention
                 ensure_field_index(result->type, "calling_convention", 0);
-                fields[0].special = ConstValSpecialStatic;
-                fields[0].type = ir_type_info_get_type(ira, "CallingConvention", nullptr);
-                bigint_init_unsigned(&fields[0].data.x_enum_tag, type_entry->data.fn.fn_type_id.cc);
+                fields[0]->special = ConstValSpecialStatic;
+                fields[0]->type = ir_type_info_get_type(ira, "CallingConvention", nullptr);
+                bigint_init_unsigned(&fields[0]->data.x_enum_tag, type_entry->data.fn.fn_type_id.cc);
                 // is_generic: bool
                 ensure_field_index(result->type, "is_generic", 1);
                 bool is_generic = type_entry->data.fn.is_generic;
-                fields[1].special = ConstValSpecialStatic;
-                fields[1].type = ira->codegen->builtin_types.entry_bool;
-                fields[1].data.x_bool = is_generic;
+                fields[1]->special = ConstValSpecialStatic;
+                fields[1]->type = ira->codegen->builtin_types.entry_bool;
+                fields[1]->data.x_bool = is_generic;
                 // is_varargs: bool
                 ensure_field_index(result->type, "is_var_args", 2);
                 bool is_varargs = type_entry->data.fn.fn_type_id.is_var_args;
-                fields[2].special = ConstValSpecialStatic;
-                fields[2].type = ira->codegen->builtin_types.entry_bool;
-                fields[2].data.x_bool = type_entry->data.fn.fn_type_id.is_var_args;
+                fields[2]->special = ConstValSpecialStatic;
+                fields[2]->type = ira->codegen->builtin_types.entry_bool;
+                fields[2]->data.x_bool = type_entry->data.fn.fn_type_id.is_var_args;
                 // return_type: ?type
                 ensure_field_index(result->type, "return_type", 3);
-                fields[3].special = ConstValSpecialStatic;
-                fields[3].type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
+                fields[3]->special = ConstValSpecialStatic;
+                fields[3]->type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
                 if (type_entry->data.fn.fn_type_id.return_type == nullptr)
-                    fields[3].data.x_optional = nullptr;
+                    fields[3]->data.x_optional = nullptr;
                 else {
                     ConstExprValue *return_type = create_const_vals(1);
                     return_type->special = ConstValSpecialStatic;
                     return_type->type = ira->codegen->builtin_types.entry_type;
                     return_type->data.x_type = type_entry->data.fn.fn_type_id.return_type;
-                    fields[3].data.x_optional = return_type;
+                    fields[3]->data.x_optional = return_type;
                 }
                 // args: []TypeInfo.FnArg
                 ZigType *type_info_fn_arg_type = ir_type_info_get_type(ira, "FnArg", nullptr);
@@ -21266,7 +21784,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 fn_arg_array->data.x_array.special = ConstArraySpecialNone;
                 fn_arg_array->data.x_array.data.s_none.elements = create_const_vals(fn_arg_count);
 
-                init_const_slice(ira->codegen, &fields[4], fn_arg_array, 0, fn_arg_count, false);
+                init_const_slice(ira->codegen, fields[4], fn_arg_array, 0, fn_arg_count, false);
 
                 for (size_t fn_arg_index = 0; fn_arg_index < fn_arg_count; fn_arg_index++) {
                     FnTypeParamInfo *fn_param_info = &type_entry->data.fn.fn_type_id.param_info[fn_arg_index];
@@ -21278,24 +21796,24 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                     bool arg_is_generic = fn_param_info->type == nullptr;
                     if (arg_is_generic) assert(is_generic);
 
-                    ConstExprValue *inner_fields = create_const_vals(3);
-                    inner_fields[0].special = ConstValSpecialStatic;
-                    inner_fields[0].type = ira->codegen->builtin_types.entry_bool;
-                    inner_fields[0].data.x_bool = arg_is_generic;
-                    inner_fields[1].special = ConstValSpecialStatic;
-                    inner_fields[1].type = ira->codegen->builtin_types.entry_bool;
-                    inner_fields[1].data.x_bool = fn_param_info->is_noalias;
-                    inner_fields[2].special = ConstValSpecialStatic;
-                    inner_fields[2].type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
+                    ConstExprValue **inner_fields = alloc_const_vals_ptrs(3);
+                    inner_fields[0]->special = ConstValSpecialStatic;
+                    inner_fields[0]->type = ira->codegen->builtin_types.entry_bool;
+                    inner_fields[0]->data.x_bool = arg_is_generic;
+                    inner_fields[1]->special = ConstValSpecialStatic;
+                    inner_fields[1]->type = ira->codegen->builtin_types.entry_bool;
+                    inner_fields[1]->data.x_bool = fn_param_info->is_noalias;
+                    inner_fields[2]->special = ConstValSpecialStatic;
+                    inner_fields[2]->type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_type);
 
                     if (arg_is_generic)
-                        inner_fields[2].data.x_optional = nullptr;
+                        inner_fields[2]->data.x_optional = nullptr;
                     else {
                         ConstExprValue *arg_type = create_const_vals(1);
                         arg_type->special = ConstValSpecialStatic;
                         arg_type->type = ira->codegen->builtin_types.entry_type;
                         arg_type->data.x_type = fn_param_info->type;
-                        inner_fields[2].data.x_optional = arg_type;
+                        inner_fields[2]->data.x_optional = arg_type;
                     }
 
                     fn_arg_val->data.x_struct.fields = inner_fields;
@@ -21356,8 +21874,8 @@ static IrInstruction *ir_analyze_instruction_type_info(IrAnalyze *ira,
 static ConstExprValue *get_const_field(IrAnalyze *ira, ConstExprValue *struct_value, const char *name, size_t field_index)
 {
     ensure_field_index(struct_value->type, name, field_index);
-    assert(struct_value->data.x_struct.fields[field_index].special == ConstValSpecialStatic);
-    return &struct_value->data.x_struct.fields[field_index];
+    assert(struct_value->data.x_struct.fields[field_index]->special == ConstValSpecialStatic);
+    return struct_value->data.x_struct.fields[field_index];
 }
 
 static bool get_const_field_bool(IrAnalyze *ira, ConstExprValue *struct_value, const char *name, size_t field_index)
@@ -21656,15 +22174,15 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
             }
             for (size_t i = 0; i < errors_len; i += 1) {
                 Stage2ErrorMsg *clang_err = &errors_ptr[i];
-		// Clang can emit "too many errors, stopping now", in which case `source` and `filename_ptr` are null
-		if (clang_err->source && clang_err->filename_ptr) {
+                // Clang can emit "too many errors, stopping now", in which case `source` and `filename_ptr` are null
+                if (clang_err->source && clang_err->filename_ptr) {
                     ErrorMsg *err_msg = err_msg_create_with_offset(
                         clang_err->filename_ptr ?
                             buf_create_from_mem(clang_err->filename_ptr, clang_err->filename_len) : buf_alloc(),
                         clang_err->line, clang_err->column, clang_err->offset, clang_err->source,
                         buf_create_from_mem(clang_err->msg_ptr, clang_err->msg_len));
                     err_msg_add_note(parent_err_msg, err_msg);
-		}
+                }
             }
 
             return ira->codegen->invalid_instruction;
@@ -22122,7 +22640,7 @@ static IrInstruction *ir_analyze_instruction_from_bytes(IrAnalyze *ira, IrInstru
         if ((err = resolve_ptr_align(ira, target->value.type, &src_ptr_align)))
             return ira->codegen->invalid_instruction;
     } else if (is_slice(target->value.type)) {
-        ZigType *src_ptr_type = target->value.type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *src_ptr_type = target->value.type->data.structure.fields[slice_ptr_index]->type_entry;
         src_ptr_const = src_ptr_type->data.pointer.is_const;
         src_ptr_volatile = src_ptr_type->data.pointer.is_volatile;
 
@@ -22165,7 +22683,7 @@ static IrInstruction *ir_analyze_instruction_from_bytes(IrAnalyze *ira, IrInstru
         if (!val)
             return ira->codegen->invalid_instruction;
 
-        ConstExprValue *len_val = &val->data.x_struct.fields[slice_len_index];
+        ConstExprValue *len_val = val->data.x_struct.fields[slice_len_index];
         if (value_is_comptime(len_val)) {
             known_len = bigint_as_u64(&len_val->data.x_bigint);
             have_known_len = true;
@@ -22215,7 +22733,7 @@ static IrInstruction *ir_analyze_instruction_to_bytes(IrAnalyze *ira, IrInstruct
         return ira->codegen->invalid_instruction;
     }
 
-    ZigType *src_ptr_type = target->value.type->data.structure.fields[slice_ptr_index].type_entry;
+    ZigType *src_ptr_type = target->value.type->data.structure.fields[slice_ptr_index]->type_entry;
 
     uint32_t alignment;
     if ((err = resolve_ptr_align(ira, src_ptr_type, &alignment)))
@@ -22232,17 +22750,17 @@ static IrInstruction *ir_analyze_instruction_to_bytes(IrAnalyze *ira, IrInstruct
             return ira->codegen->invalid_instruction;
 
         IrInstruction *result = ir_const(ira, &instruction->base, dest_slice_type);
-        result->value.data.x_struct.fields = create_const_vals(2);
+        result->value.data.x_struct.fields = alloc_const_vals_ptrs(2);
 
-        ConstExprValue *ptr_val = &result->value.data.x_struct.fields[slice_ptr_index];
-        ConstExprValue *target_ptr_val = &target_val->data.x_struct.fields[slice_ptr_index];
+        ConstExprValue *ptr_val = result->value.data.x_struct.fields[slice_ptr_index];
+        ConstExprValue *target_ptr_val = target_val->data.x_struct.fields[slice_ptr_index];
         copy_const_val(ptr_val, target_ptr_val, false);
         ptr_val->type = dest_ptr_type;
 
-        ConstExprValue *len_val = &result->value.data.x_struct.fields[slice_len_index];
+        ConstExprValue *len_val = result->value.data.x_struct.fields[slice_len_index];
         len_val->special = ConstValSpecialStatic;
         len_val->type = ira->codegen->builtin_types.entry_usize;
-        ConstExprValue *target_len_val = &target_val->data.x_struct.fields[slice_len_index];
+        ConstExprValue *target_len_val = target_val->data.x_struct.fields[slice_len_index];
         ZigType *elem_type = src_ptr_type->data.pointer.child_type;
         BigInt elem_size_bigint;
         bigint_init_unsigned(&elem_size_bigint, type_size(ira->codegen, elem_type));
@@ -23023,7 +23541,7 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
             }
         }
     } else if (is_slice(array_type)) {
-        ZigType *ptr_type = array_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *ptr_type = array_type->data.structure.fields[slice_ptr_index]->type_entry;
         return_type = get_slice_type(ira->codegen, ptr_type);
     } else {
         ir_add_error(ira, &instruction->base,
@@ -23131,13 +23649,13 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
                 return ira->codegen->invalid_instruction;
             }
 
-            parent_ptr = &slice_ptr->data.x_struct.fields[slice_ptr_index];
+            parent_ptr = slice_ptr->data.x_struct.fields[slice_ptr_index];
             if (parent_ptr->special == ConstValSpecialUndef) {
                 ir_add_error(ira, &instruction->base, buf_sprintf("slice of undefined"));
                 return ira->codegen->invalid_instruction;
             }
 
-            ConstExprValue *len_val = &slice_ptr->data.x_struct.fields[slice_len_index];
+            ConstExprValue *len_val = slice_ptr->data.x_struct.fields[slice_len_index];
 
             switch (parent_ptr->data.x_ptr.special) {
                 case ConstPtrSpecialInvalid:
@@ -23209,9 +23727,9 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
 
         IrInstruction *result = ir_const(ira, &instruction->base, return_type);
         ConstExprValue *out_val = &result->value;
-        out_val->data.x_struct.fields = create_const_vals(2);
+        out_val->data.x_struct.fields = alloc_const_vals_ptrs(2);
 
-        ConstExprValue *ptr_val = &out_val->data.x_struct.fields[slice_ptr_index];
+        ConstExprValue *ptr_val = out_val->data.x_struct.fields[slice_ptr_index];
 
         if (array_val) {
             size_t index = abs_offset + start_scalar;
@@ -23258,7 +23776,7 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
                 zig_panic("TODO");
         }
 
-        ConstExprValue *len_val = &out_val->data.x_struct.fields[slice_len_index];
+        ConstExprValue *len_val = out_val->data.x_struct.fields[slice_len_index];
         init_const_usize(ira->codegen, len_val, end_scalar - start_scalar);
 
         return result;
@@ -23332,7 +23850,7 @@ static IrInstruction *ir_analyze_instruction_member_type(IrAnalyze *ira, IrInstr
                     member_index, buf_ptr(&container_type->name), container_type->data.structure.src_field_count));
             return ira->codegen->invalid_instruction;
         }
-        TypeStructField *field = &container_type->data.structure.fields[member_index];
+        TypeStructField *field = container_type->data.structure.fields[member_index];
 
         return ir_const_type(ira, &instruction->base, field->type_entry);
     } else if (container_type->id == ZigTypeIdUnion) {
@@ -23374,7 +23892,7 @@ static IrInstruction *ir_analyze_instruction_member_name(IrAnalyze *ira, IrInstr
                     member_index, buf_ptr(&container_type->name), container_type->data.structure.src_field_count));
             return ira->codegen->invalid_instruction;
         }
-        TypeStructField *field = &container_type->data.structure.fields[member_index];
+        TypeStructField *field = container_type->data.structure.fields[member_index];
 
         IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
         init_const_str_lit(ira->codegen, &result->value, field->name);
@@ -24360,7 +24878,7 @@ static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint3
         ZigType *fn_type = get_fn_type(ira->codegen, &fn_type_id);
         result_type = get_optional_type(ira->codegen, fn_type);
     } else if (is_slice(target_type)) {
-        ZigType *slice_ptr_type = target_type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *slice_ptr_type = target_type->data.structure.fields[slice_ptr_index]->type_entry;
         if ((err = resolve_ptr_align(ira, slice_ptr_type, &old_align_bytes)))
             return ira->codegen->invalid_instruction;
         ZigType *result_ptr_type = adjust_ptr_align(ira->codegen, slice_ptr_type, align_bytes);
@@ -24408,6 +24926,10 @@ static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_
 
     ZigType *src_type = ptr->value.type;
     assert(!type_is_invalid(src_type));
+
+    if (src_type == dest_type) {
+        return ptr;
+    }
 
     // We have a check for zero bits later so we use get_src_ptr_type to
     // validate src_type and dest_type.
@@ -24458,6 +24980,9 @@ static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_
         IrInstruction *result;
         if (ptr->value.data.x_ptr.mut == ConstPtrMutInfer) {
             result = ir_build_ptr_cast_gen(ira, source_instr, dest_type, ptr, safety_check_on);
+
+            if ((err = type_resolve(ira->codegen, dest_type, ResolveStatusZeroBitsKnown)))
+                return ira->codegen->invalid_instruction;
         } else {
             result = ir_const(ira, source_instr, dest_type);
         }
@@ -24598,10 +25123,10 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
                 case ContainerLayoutExtern: {
                     size_t src_field_count = val->type->data.structure.src_field_count;
                     for (size_t field_i = 0; field_i < src_field_count; field_i += 1) {
-                        TypeStructField *struct_field = &val->type->data.structure.fields[field_i];
+                        TypeStructField *struct_field = val->type->data.structure.fields[field_i];
                         if (struct_field->gen_index == SIZE_MAX)
                             continue;
-                        ConstExprValue *field_val = &val->data.x_struct.fields[field_i];
+                        ConstExprValue *field_val = val->data.x_struct.fields[field_i];
                         size_t offset = struct_field->offset;
                         buf_write_value_bytes(codegen, buf + offset, field_val);
                     }
@@ -24627,12 +25152,12 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
                         bigint_init_unsigned(&big_int, 0);
                         size_t used_bits = 0;
                         while (src_i < src_field_count) {
-                            TypeStructField *field = &val->type->data.structure.fields[src_i];
+                            TypeStructField *field = val->type->data.structure.fields[src_i];
                             assert(field->gen_index != SIZE_MAX);
                             if (field->gen_index != gen_i)
                                 break;
                             uint32_t packed_bits_size = type_size_bits(codegen, field->type_entry);
-                            buf_write_value_bytes(codegen, child_buf, &val->data.x_struct.fields[src_i]);
+                            buf_write_value_bytes(codegen, child_buf, val->data.x_struct.fields[src_i]);
                             BigInt child_val;
                             bigint_read_twos_complement(&child_val, child_buf, packed_bits_size, is_big_endian,
                                     false);
@@ -24770,11 +25295,11 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                 }
                 case ContainerLayoutExtern: {
                     size_t src_field_count = val->type->data.structure.src_field_count;
-                    val->data.x_struct.fields = create_const_vals(src_field_count);
+                    val->data.x_struct.fields = alloc_const_vals_ptrs(src_field_count);
                     for (size_t field_i = 0; field_i < src_field_count; field_i += 1) {
-                        ConstExprValue *field_val = &val->data.x_struct.fields[field_i];
+                        ConstExprValue *field_val = val->data.x_struct.fields[field_i];
                         field_val->special = ConstValSpecialStatic;
-                        TypeStructField *struct_field = &val->type->data.structure.fields[field_i];
+                        TypeStructField *struct_field = val->type->data.structure.fields[field_i];
                         field_val->type = struct_field->type_entry;
                         if (struct_field->gen_index == SIZE_MAX)
                             continue;
@@ -24787,7 +25312,7 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                 }
                 case ContainerLayoutPacked: {
                     size_t src_field_count = val->type->data.structure.src_field_count;
-                    val->data.x_struct.fields = create_const_vals(src_field_count);
+                    val->data.x_struct.fields = alloc_const_vals_ptrs(src_field_count);
                     size_t gen_field_count = val->type->data.structure.gen_field_count;
                     size_t gen_i = 0;
                     size_t src_i = 0;
@@ -24805,11 +25330,11 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                         BigInt big_int;
                         bigint_read_twos_complement(&big_int, buf + offset, big_int_byte_count * 8, is_big_endian, false);
                         while (src_i < src_field_count) {
-                            TypeStructField *field = &val->type->data.structure.fields[src_i];
+                            TypeStructField *field = val->type->data.structure.fields[src_i];
                             src_assert(field->gen_index != SIZE_MAX, source_node);
                             if (field->gen_index != gen_i)
                                 break;
-                            ConstExprValue *field_val = &val->data.x_struct.fields[src_i];
+                            ConstExprValue *field_val = val->data.x_struct.fields[src_i];
                             field_val->special = ConstValSpecialStatic;
                             field_val->type = field->type_entry;
                             uint32_t packed_bits_size = type_size_bits(codegen, field->type_entry);
@@ -24992,6 +25517,7 @@ static IrInstruction *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
 }
 
 static IrInstruction *ir_analyze_instruction_ptr_to_int(IrAnalyze *ira, IrInstructionPtrToInt *instruction) {
+    Error err;
     IrInstruction *target = instruction->target->child;
     if (type_is_invalid(target->value.type))
         return ira->codegen->invalid_instruction;
@@ -25005,6 +25531,8 @@ static IrInstruction *ir_analyze_instruction_ptr_to_int(IrAnalyze *ira, IrInstru
         return ira->codegen->invalid_instruction;
     }
 
+    if ((err = type_resolve(ira->codegen, target->value.type, ResolveStatusZeroBitsKnown)))
+        return ira->codegen->invalid_instruction;
     if (!type_has_bits(target->value.type)) {
         ir_add_error(ira, target,
                 buf_sprintf("pointer to size 0 type has no address"));
@@ -25065,7 +25593,7 @@ static IrInstruction *ir_analyze_instruction_align_cast(IrAnalyze *ira, IrInstru
 
     ZigType *elem_type = nullptr;
     if (is_slice(target->value.type)) {
-        ZigType *slice_ptr_type = target->value.type->data.structure.fields[slice_ptr_index].type_entry;
+        ZigType *slice_ptr_type = target->value.type->data.structure.fields[slice_ptr_index]->type_entry;
         elem_type = slice_ptr_type->data.pointer.child_type;
     } else if (target->value.type->id == ZigTypeIdPointer) {
         elem_type = target->value.type->data.pointer.child_type;
@@ -25142,6 +25670,10 @@ static IrInstruction *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstruct
     if (!ir_resolve_usize(ira, arg_index_inst, &arg_index))
         return ira->codegen->invalid_instruction;
 
+    if (fn_type->id == ZigTypeIdBoundFn) {
+        fn_type = fn_type->data.bound_fn.fn_type;
+        arg_index += 1;
+    }
     if (fn_type->id != ZigTypeIdFn) {
         ir_add_error(ira, fn_type_inst, buf_sprintf("expected function, found '%s'", buf_ptr(&fn_type->name)));
         return ira->codegen->invalid_instruction;
@@ -25149,6 +25681,10 @@ static IrInstruction *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstruct
 
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     if (arg_index >= fn_type_id->param_count) {
+        if (instruction->allow_var) {
+            // TODO remove this with var args
+            return ir_const_type(ira, &instruction->base, ira->codegen->builtin_types.entry_var);
+        }
         ir_add_error(ira, arg_index_inst,
                 buf_sprintf("arg index %" ZIG_PRI_u64 " out of bounds; '%s' has %" ZIG_PRI_usize " arguments",
                     arg_index, buf_ptr(&fn_type->name), fn_type_id->param_count));
@@ -25160,10 +25696,14 @@ static IrInstruction *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstruct
         // Args are only unresolved if our function is generic.
         ir_assert(fn_type->data.fn.is_generic, &instruction->base);
 
-        ir_add_error(ira, arg_index_inst,
-            buf_sprintf("@ArgType could not resolve the type of arg %" ZIG_PRI_u64 " because '%s' is generic",
-                arg_index, buf_ptr(&fn_type->name)));
-        return ira->codegen->invalid_instruction;
+        if (instruction->allow_var) {
+            return ir_const_type(ira, &instruction->base, ira->codegen->builtin_types.entry_var);
+        } else {
+            ir_add_error(ira, arg_index_inst,
+                buf_sprintf("@ArgType could not resolve the type of arg %" ZIG_PRI_u64 " because '%s' is generic",
+                    arg_index, buf_ptr(&fn_type->name)));
+            return ira->codegen->invalid_instruction;
+        }
     }
     return ir_const_type(ira, &instruction->base, result_type);
 }
@@ -25216,9 +25756,29 @@ static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstruction *op
                 buf_sprintf("%" PRIu32 "-bit integer type is not a power of 2", operand_type->data.integral.bit_count));
             return ira->codegen->builtin_types.entry_invalid;
         }
+    } else if (operand_type->id == ZigTypeIdEnum) {
+        ZigType *int_type = operand_type->data.enumeration.tag_int_type;
+        if (int_type->data.integral.bit_count < 8) {
+            ir_add_error(ira, op,
+                buf_sprintf("expected enum tag type 8 bits or larger, found %" PRIu32 "-bit tag type",
+                    int_type->data.integral.bit_count));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        uint32_t max_atomic_bits = target_arch_largest_atomic_bits(ira->codegen->zig_target->arch);
+        if (int_type->data.integral.bit_count > max_atomic_bits) {
+            ir_add_error(ira, op,
+                buf_sprintf("expected %" PRIu32 "-bit enum tag type or smaller, found %" PRIu32 "-bit tag type",
+                    max_atomic_bits, int_type->data.integral.bit_count));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        if (!is_power_of_2(int_type->data.integral.bit_count)) {
+            ir_add_error(ira, op,
+                buf_sprintf("%" PRIu32 "-bit enum tag type is not a power of 2", int_type->data.integral.bit_count));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
     } else if (get_codegen_ptr_type(operand_type) == nullptr) {
         ir_add_error(ira, op,
-            buf_sprintf("expected integer or pointer type, found '%s'", buf_ptr(&operand_type->name)));
+            buf_sprintf("expected integer, enum or pointer type, found '%s'", buf_ptr(&operand_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 
@@ -25247,6 +25807,12 @@ static IrInstruction *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstru
         if (!ir_resolve_atomic_rmw_op(ira, instruction->op->child, &op)) {
             return ira->codegen->invalid_instruction;
         }
+    }
+
+    if (operand_type->id == ZigTypeIdEnum && op != AtomicRmwOp_xchg) {
+        ir_add_error(ira, instruction->op,
+            buf_sprintf("@atomicRmw on enum only works with .Xchg"));
+        return ira->codegen->invalid_instruction;
     }
 
     IrInstruction *operand = instruction->operand->child;
@@ -25320,6 +25886,56 @@ static IrInstruction *ir_analyze_instruction_atomic_load(IrAnalyze *ira, IrInstr
     IrInstruction *result = ir_build_atomic_load(&ira->new_irb, instruction->base.scope,
             instruction->base.source_node, nullptr, casted_ptr, nullptr, ordering);
     result->value.type = operand_type;
+    return result;
+}
+
+static IrInstruction *ir_analyze_instruction_atomic_store(IrAnalyze *ira, IrInstructionAtomicStore *instruction) {
+    ZigType *operand_type = ir_resolve_atomic_operand_type(ira, instruction->operand_type->child);
+    if (type_is_invalid(operand_type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *ptr_inst = instruction->ptr->child;
+    if (type_is_invalid(ptr_inst->value.type))
+        return ira->codegen->invalid_instruction;
+
+    ZigType *ptr_type = get_pointer_to_type(ira->codegen, operand_type, false);
+    IrInstruction *casted_ptr = ir_implicit_cast(ira, ptr_inst, ptr_type);
+    if (type_is_invalid(casted_ptr->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *value = instruction->value->child;
+    if (type_is_invalid(value->value.type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, operand_type);
+    if (type_is_invalid(casted_value->value.type))
+        return ira->codegen->invalid_instruction;
+
+
+    AtomicOrder ordering;
+    if (instruction->ordering == nullptr) {
+        ordering = instruction->resolved_ordering;
+    } else {
+        if (!ir_resolve_atomic_order(ira, instruction->ordering->child, &ordering))
+            return ira->codegen->invalid_instruction;
+    }
+
+    if (ordering == AtomicOrderAcquire || ordering == AtomicOrderAcqRel) {
+        ir_assert(instruction->ordering != nullptr, &instruction->base);
+        ir_add_error(ira, instruction->ordering,
+            buf_sprintf("@atomicStore atomic ordering must not be Acquire or AcqRel"));
+        return ira->codegen->invalid_instruction;
+    }
+
+    if (instr_is_comptime(casted_value) && instr_is_comptime(casted_ptr)) {
+        IrInstruction *result = ir_analyze_store_ptr(ira, &instruction->base, casted_ptr, value, false);
+        result->value.type = ira->codegen->builtin_types.entry_void;
+        return result;
+    }
+
+    IrInstruction *result = ir_build_atomic_store(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, nullptr, casted_ptr, casted_value, nullptr, ordering);
+    result->value.type = ira->codegen->builtin_types.entry_void;
     return result;
 }
 
@@ -25854,6 +26470,26 @@ static IrInstruction *ir_analyze_instruction_end_expr(IrAnalyze *ira, IrInstruct
     return ir_const_void(ira, &instruction->base);
 }
 
+static IrInstruction *ir_analyze_instruction_implicit_cast(IrAnalyze *ira, IrInstructionImplicitCast *instruction) {
+    IrInstruction *operand = instruction->operand->child;
+    if (type_is_invalid(operand->value.type))
+        return operand;
+
+    IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base,
+            &instruction->result_loc_cast->base, operand->value.type, operand, false, false, true);
+    if (result_loc != nullptr && (type_is_invalid(result_loc->value.type) || instr_is_unreachable(result_loc)))
+        return result_loc;
+
+    if (instruction->result_loc_cast->parent->gen_instruction != nullptr) {
+        return instruction->result_loc_cast->parent->gen_instruction;
+    }
+
+    ZigType *dest_type = ir_resolve_type(ira, instruction->result_loc_cast->base.source_instruction->child);
+    if (type_is_invalid(dest_type))
+        return ira->codegen->invalid_instruction;
+    return ir_implicit_cast_with_result(ira, &instruction->base, operand, dest_type, nullptr);
+}
+
 static IrInstruction *ir_analyze_instruction_bit_cast_src(IrAnalyze *ira, IrInstructionBitCastSrc *instruction) {
     IrInstruction *operand = instruction->operand->child;
     if (type_is_invalid(operand->value.type))
@@ -26337,6 +26973,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_atomic_rmw(ira, (IrInstructionAtomicRmw *)instruction);
         case IrInstructionIdAtomicLoad:
             return ir_analyze_instruction_atomic_load(ira, (IrInstructionAtomicLoad *)instruction);
+        case IrInstructionIdAtomicStore:
+            return ir_analyze_instruction_atomic_store(ira, (IrInstructionAtomicStore *)instruction);
         case IrInstructionIdSaveErrRetAddr:
             return ir_analyze_instruction_save_err_ret_addr(ira, (IrInstructionSaveErrRetAddr *)instruction);
         case IrInstructionIdAddImplicitReturnType:
@@ -26517,6 +27155,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSaveErrRetAddr:
         case IrInstructionIdAddImplicitReturnType:
         case IrInstructionIdAtomicRmw:
+        case IrInstructionIdAtomicStore:
         case IrInstructionIdCmpxchgGen:
         case IrInstructionIdCmpxchgSrc:
         case IrInstructionIdAssertZero:

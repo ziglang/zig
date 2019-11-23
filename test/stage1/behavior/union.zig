@@ -14,7 +14,7 @@ const Agg = struct {
 const v1 = Value{ .Int = 1234 };
 const v2 = Value{ .Array = [_]u8{3} ** 9 };
 
-const err = (anyerror!Agg)(Agg{
+const err = @as(anyerror!Agg, Agg{
     .val1 = v1,
     .val2 = v2,
 });
@@ -110,11 +110,11 @@ fn doTest() void {
 }
 
 fn bar(value: Payload) i32 {
-    expect(Letter(value) == Letter.A);
+    expect(@as(Letter, value) == Letter.A);
     return switch (value) {
         Payload.A => |x| return x - 1244,
-        Payload.B => |x| if (x == 12.34) i32(20) else 21,
-        Payload.C => |x| if (x) i32(30) else 31,
+        Payload.B => |x| if (x == 12.34) @as(i32, 20) else 21,
+        Payload.C => |x| if (x) @as(i32, 30) else 31,
     };
 }
 
@@ -127,7 +127,7 @@ const MultipleChoice = union(enum(u32)) {
 test "simple union(enum(u32))" {
     var x = MultipleChoice.C;
     expect(x == MultipleChoice.C);
-    expect(@enumToInt(@TagType(MultipleChoice)(x)) == 60);
+    expect(@enumToInt(@as(@TagType(MultipleChoice), x)) == 60);
 }
 
 const MultipleChoice2 = union(enum(u32)) {
@@ -149,11 +149,11 @@ test "union(enum(u32)) with specified and unspecified tag values" {
 }
 
 fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
-    expect(@enumToInt(@TagType(MultipleChoice2)(x)) == 60);
+    expect(@enumToInt(@as(@TagType(MultipleChoice2), x)) == 60);
     expect(1123 == switch (x) {
         MultipleChoice2.A => 1,
         MultipleChoice2.B => 2,
-        MultipleChoice2.C => |v| i32(1000) + v,
+        MultipleChoice2.C => |v| @as(i32, 1000) + v,
         MultipleChoice2.D => 4,
         MultipleChoice2.Unspecified1 => 5,
         MultipleChoice2.Unspecified2 => 6,
@@ -208,12 +208,12 @@ test "cast union to tag type of union" {
 }
 
 fn testCastUnionToTagType(x: TheUnion) void {
-    expect(TheTag(x) == TheTag.B);
+    expect(@as(TheTag, x) == TheTag.B);
 }
 
 test "cast tag type of union to union" {
     var x: Value2 = Letter2.B;
-    expect(Letter2(x) == Letter2.B);
+    expect(@as(Letter2, x) == Letter2.B);
 }
 const Letter2 = enum {
     A,
@@ -297,7 +297,7 @@ const TaggedUnionWithAVoid = union(enum) {
 
 fn testTaggedUnionInit(x: var) bool {
     const y = TaggedUnionWithAVoid{ .A = x };
-    return @TagType(TaggedUnionWithAVoid)(y) == TaggedUnionWithAVoid.A;
+    return @as(@TagType(TaggedUnionWithAVoid), y) == TaggedUnionWithAVoid.A;
 }
 
 pub const UnionEnumNoPayloads = union(enum) {
@@ -326,7 +326,7 @@ test "union with only 1 field casted to its enum type" {
     var e = Expr{ .Literal = Literal{ .Bool = true } };
     const Tag = @TagType(Expr);
     comptime expect(@TagType(Tag) == u0);
-    var t = Tag(e);
+    var t = @as(Tag, e);
     expect(t == Expr.Literal);
 }
 
@@ -346,7 +346,7 @@ test "union with only 1 field casted to its enum type which has enum value speci
 
     var e = Expr{ .Literal = Literal{ .Bool = true } };
     comptime expect(@TagType(Tag) == comptime_int);
-    var t = Tag(e);
+    var t = @as(Tag, e);
     expect(t == Expr.Literal);
     expect(@enumToInt(t) == 33);
     comptime expect(@enumToInt(t) == 33);
@@ -534,4 +534,51 @@ test "global union with single field is correctly initialized" {
         .f = @memberType(Foo1, 0){ .x = 123 },
     };
     expect(glbl.f.x == 123);
+}
+
+pub const FooUnion = union(enum) {
+    U0: usize,
+    U1: u8,
+};
+
+var glbl_array: [2]FooUnion = undefined;
+
+test "initialize global array of union" {
+    glbl_array[1] = FooUnion{ .U1 = 2 };
+    glbl_array[0] = FooUnion{ .U0 = 1 };
+    expect(glbl_array[0].U0 == 1);
+    expect(glbl_array[1].U1 == 2);
+}
+
+test "anonymous union literal syntax" {
+    const S = struct {
+        const Number = union {
+            int: i32,
+            float: f64,
+        };
+
+        fn doTheTest() void {
+            var i: Number = .{ .int = 42 };
+            var f = makeNumber();
+            expect(i.int == 42);
+            expect(f.float == 12.34);
+        }
+
+        fn makeNumber() Number {
+            return .{ .float = 12.34 };
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "update the tag value for zero-sized unions" {
+    const S = union(enum) {
+        U0: void,
+        U1: void,
+    };
+    var x = S{ .U0 = {} };
+    expect(x == .U0);
+    x = S{ .U1 = {} };
+    expect(x == .U1);
 }

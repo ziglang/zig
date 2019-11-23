@@ -268,7 +268,7 @@ static void tree_print_struct(FILE *f, ZigType *struct_type, size_t indent) {
     ZigList<ZigType *> children = {};
     uint64_t sum_from_fields = 0;
     for (size_t i = 0; i < struct_type->data.structure.src_field_count; i += 1) {
-        TypeStructField *field = &struct_type->data.structure.fields[i];
+        TypeStructField *field = struct_type->data.structure.fields[i];
         children.append(field->type_entry);
         sum_from_fields += field->type_entry->abi_size;
     }
@@ -747,7 +747,7 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
             if (ty->data.structure.is_slice) {
                 jw_object_field(jw, "len");
                 jw_int(jw, 2);
-                anal_dump_pointer_attrs(ctx, ty->data.structure.fields[slice_ptr_index].type_entry);
+                anal_dump_pointer_attrs(ctx, ty->data.structure.fields[slice_ptr_index]->type_entry);
                 break;
             }
 
@@ -803,7 +803,7 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
 
                 for(size_t i = 0; i < ty->data.structure.src_field_count; i += 1) {
                     jw_array_elem(jw);
-                    anal_dump_type_ref(ctx, ty->data.structure.fields[i].type_entry);
+                    anal_dump_type_ref(ctx, ty->data.structure.fields[i]->type_entry);
                 }
                 jw_end_array(jw);
             }
@@ -1088,6 +1088,7 @@ static void anal_dump_node(AnalDumpCtx *ctx, const AstNode *node) {
             break;
         case NodeTypeContainerDecl:
             field_nodes = &node->data.container_decl.fields;
+            doc_comments_buf = &node->data.container_decl.doc_comments;
             break;
         default:
             break;

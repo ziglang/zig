@@ -122,7 +122,7 @@ const Context = struct {
     fn locStr(c: *Context, loc: ZigClangSourceLocation) ![]u8 {
         const spelling_loc = ZigClangSourceManager_getSpellingLoc(c.source_manager, loc);
         const filename_c = ZigClangSourceManager_getFilename(c.source_manager, spelling_loc);
-        const filename = if (filename_c) |s| try c.str(s) else ([]const u8)("(no file)");
+        const filename = if (filename_c) |s| try c.str(s) else @as([]const u8, "(no file)");
 
         const line = ZigClangSourceManager_getSpellingLineNumber(c.source_manager, spelling_loc);
         const column = ZigClangSourceManager_getSpellingColumnNumber(c.source_manager, spelling_loc);
@@ -173,7 +173,6 @@ pub fn translate(
     tree.root_node.* = ast.Node.Root{
         .base = ast.Node{ .id = ast.Node.Id.Root },
         .decls = ast.Node.Root.DeclList.init(arena),
-        .doc_comments = null,
         // initialized with the eof token at the end
         .eof_token = undefined,
     };
@@ -773,12 +772,14 @@ fn transCCast(
     if (qualTypeIsPtr(dst_type) and qualTypeIsPtr(src_type))
         return transCPtrCast(rp, loc, dst_type, src_type, expr);
     if (cIsUnsignedInteger(dst_type) and qualTypeIsPtr(src_type)) {
-        const cast_node = try transCreateNodeFnCall(rp.c, try transQualType(rp, dst_type, loc));
+        const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@as");
+        try cast_node.params.push(try transQualType(rp, dst_type, loc));
+        _ = try appendToken(rp.c, .Comma, ",");
         const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@ptrToInt");
         try builtin_node.params.push(expr);
         builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-        try cast_node.op.Call.params.push(&builtin_node.base);
-        cast_node.rtoken = try appendToken(rp.c, .RParen, ")");
+        try cast_node.params.push(&builtin_node.base);
+        cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
         return &cast_node.base;
     }
     if (cIsUnsignedInteger(src_type) and qualTypeIsPtr(dst_type)) {
@@ -792,9 +793,11 @@ fn transCCast(
     // TODO: maybe widen to increase size
     // TODO: maybe bitcast to change sign
     // TODO: maybe truncate to reduce size
-    const cast_node = try transCreateNodeFnCall(rp.c, try transQualType(rp, dst_type, loc));
-    try cast_node.op.Call.params.push(expr);
-    cast_node.rtoken = try appendToken(rp.c, .RParen, ")");
+    const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@as");
+    try cast_node.params.push(try transQualType(rp, dst_type, loc));
+    _ = try appendToken(rp.c, .Comma, ",");
+    try cast_node.params.push(expr);
+    cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
     return &cast_node.base;
 }
 

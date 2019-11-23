@@ -171,8 +171,8 @@ pub const TestContext = struct {
                     return error.OutputMismatch;
                 }
             },
-            .Error => |err| return err,
-            .Fail => |msgs| {
+            Compilation.Event.Error => |err| return err,
+            Compilation.Event.Fail => |msgs| {
                 var stderr = try std.io.getStdErr();
                 try stderr.write("build incorrectly failed:\n");
                 for (msgs) |msg| {
@@ -223,7 +223,7 @@ pub const TestContext = struct {
                     text,
                 );
                 std.debug.warn("\n====found:========\n");
-                var stderr = try std.io.getStdErr();
+                const stderr = std.io.getStdErr();
                 for (msgs) |msg| {
                     defer msg.destroy();
                     try msg.printToFile(stderr, errmsg.Color.Auto);

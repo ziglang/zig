@@ -31,10 +31,10 @@ pub fn ln(x: var) @typeOf(x) {
             };
         },
         TypeId.ComptimeInt => {
-            return @typeOf(1)(math.floor(ln_64(f64(x))));
+            return @typeOf(1)(math.floor(ln_64(@as(f64, x))));
         },
         TypeId.Int => {
-            return T(math.floor(ln_64(f64(x))));
+            return @as(T, math.floor(ln_64(@as(f64, x))));
         },
         else => @compileError("ln not implemented for " ++ @typeName(T)),
     }
@@ -132,7 +132,7 @@ pub fn ln_64(x_: f64) f64 {
     hx += 0x3FF00000 - 0x3FE6A09E;
     k += @intCast(i32, hx >> 20) - 0x3FF;
     hx = (hx & 0x000FFFFF) + 0x3FE6A09E;
-    ix = (u64(hx) << 32) | (ix & 0xFFFFFFFF);
+    ix = (@as(u64, hx) << 32) | (ix & 0xFFFFFFFF);
     x = @bitCast(f64, ix);
 
     const f = x - 1.0;
@@ -149,8 +149,8 @@ pub fn ln_64(x_: f64) f64 {
 }
 
 test "math.ln" {
-    expect(ln(f32(0.2)) == ln_32(0.2));
-    expect(ln(f64(0.2)) == ln_64(0.2));
+    expect(ln(@as(f32, 0.2)) == ln_32(0.2));
+    expect(ln(@as(f64, 0.2)) == ln_64(0.2));
 }
 
 test "math.ln32" {

@@ -34,9 +34,9 @@ pub const State = struct {
 
     pub fn permute(self: *Self) void {
         const state = &self.data;
-        var round = u32(24);
+        var round = @as(u32, 24);
         while (round > 0) : (round -= 1) {
-            var column = usize(0);
+            var column = @as(usize, 0);
             while (column < 4) : (column += 1) {
                 const x = math.rotl(u32, state[column], 24);
                 const y = math.rotl(u32, state[4 + column], 9);
@@ -61,7 +61,7 @@ pub const State = struct {
     }
 
     pub fn squeeze(self: *Self, out: []u8) void {
-        var i = usize(0);
+        var i = @as(usize, 0);
         while (i + RATE <= out.len) : (i += RATE) {
             self.permute();
             mem.copy(u8, out[i..], self.toSliceConst()[0..RATE]);
@@ -79,7 +79,7 @@ test "permute" {
     var state = State{
         .data = blk: {
             var input: [12]u32 = undefined;
-            var i = u32(0);
+            var i = @as(u32, 0);
             while (i < 12) : (i += 1) {
                 input[i] = i * i * i + i *% 0x9e3779b9;
             }

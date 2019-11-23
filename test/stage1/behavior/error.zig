@@ -51,7 +51,7 @@ test "error binary operator" {
     expect(b == 10);
 }
 fn errBinaryOperatorG(x: bool) anyerror!isize {
-    return if (x) error.ItBroke else isize(10);
+    return if (x) error.ItBroke else @as(isize, 10);
 }
 
 test "unwrap simple value from error" {
@@ -158,6 +158,10 @@ fn testErrToIntWithOnePossibleValue(
     if (@errorToInt(x) != value) {
         @compileError("bad");
     }
+}
+
+test "empty error union" {
+    const x = error{} || error{};
 }
 
 test "error union peer type resolution" {
@@ -295,7 +299,7 @@ test "nested error union function call in optional unwrap" {
 test "widen cast integer payload of error union function call" {
     const S = struct {
         fn errorable() !u64 {
-            var x = u64(try number());
+            var x = @as(u64, try number());
             return x;
         }
 

@@ -58,13 +58,6 @@ fn parseRoot(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error
     node.* = Node.Root{
         .base = Node{ .id = .Root },
         .decls = undefined,
-        // TODO: Because zig fmt collapses consecutive comments separated by blank lines into
-        //       a single multi-line comment, it is currently impossible to have a container-level
-        //       doc comment and NO doc comment on the first decl. For now, simply
-        //       ignore the problem and assume that there will be no container-level
-        //       doc comments.
-        //       See: https://github.com/ziglang/zig/issues/2288
-        .doc_comments = null,
         .eof_token = undefined,
     };
     node.decls = parseContainerMembers(arena, it, tree) catch |err| {
@@ -94,6 +87,11 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
     var list = Node.Root.DeclList.init(arena);
 
     while (true) {
+        if (try parseContainerDocComments(arena, it, tree)) |node| {
+            try list.push(node);
+            continue;
+        }
+
         const doc_comments = try parseDocComment(arena, it, tree);
 
         if (try parseTestDecl(arena, it, tree)) |node| {
@@ -155,10 +153,33 @@ fn parseContainerMembers(arena: *Allocator, it: *TokenIterator, tree: *Tree) !No
             continue;
         }
 
+        // Dangling doc comment
+        if (doc_comments != null) {
+            try tree.errors.push(AstError{
+                .UnattachedDocComment = AstError.UnattachedDocComment{ .token = doc_comments.?.firstToken() },
+            });
+        }
         break;
     }
 
     return list;
+}
+
+/// Eat a multiline container doc comment
+fn parseContainerDocComments(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+    var lines = Node.DocComment.LineList.init(arena);
+    while (eatToken(it, .ContainerDocComment)) |line| {
+        try lines.push(line);
+    }
+
+    if (lines.len == 0) return null;
+
+    const node = try arena.create(Node.DocComment);
+    node.* = Node.DocComment{
+        .base = Node{ .id = .DocComment },
+        .lines = lines,
+    };
+    return &node.base;
 }
 
 /// TestDecl <- KEYWORD_test STRINGLITERAL Block
@@ -1026,16 +1047,16 @@ fn parseWhileExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 /// CurlySuffixExpr <- TypeExpr InitList?
 fn parseCurlySuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const type_expr = (try parseTypeExpr(arena, it, tree)) orelse return null;
-    const init_list = (try parseInitList(arena, it, tree)) orelse return type_expr;
-    init_list.cast(Node.SuffixOp).?.lhs = type_expr;
-    return init_list;
+    const suffix_op = (try parseInitList(arena, it, tree)) orelse return type_expr;
+    suffix_op.lhs.node = type_expr;
+    return &suffix_op.base;
 }
 
 /// InitList
 ///     <- LBRACE FieldInit (COMMA FieldInit)* COMMA? RBRACE
 ///      / LBRACE Expr (COMMA Expr)* COMMA? RBRACE
 ///      / LBRACE RBRACE
-fn parseInitList(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseInitList(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node.SuffixOp {
     const lbrace = eatToken(it, .LBrace) orelse return null;
     var init_list = Node.SuffixOp.Op.InitList.init(arena);
 
@@ -1064,11 +1085,11 @@ fn parseInitList(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const node = try arena.create(Node.SuffixOp);
     node.* = Node.SuffixOp{
         .base = Node{ .id = .SuffixOp },
-        .lhs = undefined, // set by caller
+        .lhs = .{.node = undefined}, // set by caller
         .op = op,
         .rtoken = try expectToken(it, tree, .RBrace),
     };
-    return &node.base;
+    return node;
 }
 
 /// TypeExpr <- PrefixTypeOp* ErrorUnionExpr
@@ -1117,7 +1138,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
         while (try parseSuffixOp(arena, it, tree)) |node| {
             switch (node.id) {
-                .SuffixOp => node.cast(Node.SuffixOp).?.lhs = res,
+                .SuffixOp => node.cast(Node.SuffixOp).?.lhs = .{.node = res},
                 .InfixOp => node.cast(Node.InfixOp).?.lhs = res,
                 else => unreachable,
             }
@@ -1133,7 +1154,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         const node = try arena.create(Node.SuffixOp);
         node.* = Node.SuffixOp{
             .base = Node{ .id = .SuffixOp },
-            .lhs = res,
+            .lhs = .{.node = res},
             .op = Node.SuffixOp.Op{
                 .Call = Node.SuffixOp.Op.Call{
                     .params = params.list,
@@ -1150,7 +1171,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         while (true) {
             if (try parseSuffixOp(arena, it, tree)) |node| {
                 switch (node.id) {
-                    .SuffixOp => node.cast(Node.SuffixOp).?.lhs = res,
+                    .SuffixOp => node.cast(Node.SuffixOp).?.lhs = .{.node = res},
                     .InfixOp => node.cast(Node.InfixOp).?.lhs = res,
                     else => unreachable,
                 }
@@ -1161,7 +1182,7 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
                 const call = try arena.create(Node.SuffixOp);
                 call.* = Node.SuffixOp{
                     .base = Node{ .id = .SuffixOp },
-                    .lhs = res,
+                    .lhs = .{.node = res},
                     .op = Node.SuffixOp.Op{
                         .Call = Node.SuffixOp.Op.Call{
                             .params = params.list,
@@ -1215,7 +1236,7 @@ fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
         return &node.base;
     }
     if (try parseContainerDecl(arena, it, tree)) |node| return node;
-    if (try parseEnumLiteral(arena, it, tree)) |node| return node;
+    if (try parseAnonLiteral(arena, it, tree)) |node| return node;
     if (try parseErrorSetDecl(arena, it, tree)) |node| return node;
     if (try parseFloatLiteral(arena, it, tree)) |node| return node;
     if (try parseFnProto(arena, it, tree)) |node| return node;
@@ -1494,16 +1515,28 @@ fn parseAsmExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// DOT IDENTIFIER
-fn parseEnumLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseAnonLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const dot = eatToken(it, .Period) orelse return null;
-    const name = try expectToken(it, tree, .Identifier);
-    const node = try arena.create(Node.EnumLiteral);
-    node.* = Node.EnumLiteral{
-        .base = Node{ .id = .EnumLiteral },
-        .dot = dot,
-        .name = name,
-    };
-    return &node.base;
+
+    // anon enum literal
+    if (eatToken(it, .Identifier)) |name| {
+        const node = try arena.create(Node.EnumLiteral);
+        node.* = Node.EnumLiteral{
+            .base = Node{ .id = .EnumLiteral },
+            .dot = dot,
+            .name = name,
+        };
+        return &node.base;
+    }
+
+    // anon container literal
+    if (try parseInitList(arena, it, tree)) |node| {
+        node.lhs = .{.dot = dot};
+        return &node.base;
+    }
+
+    putBackToken(it, dot);
+    return null;
 }
 
 /// AsmOutput <- COLON AsmOutputList AsmInput?
@@ -1618,7 +1651,11 @@ fn parseBlockLabel(arena: *Allocator, it: *TokenIterator, tree: *Tree) ?TokenInd
 /// FieldInit <- DOT IDENTIFIER EQUAL Expr
 fn parseFieldInit(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const period_token = eatToken(it, .Period) orelse return null;
-    const name_token = try expectToken(it, tree, .Identifier);
+    const name_token = eatToken(it, .Identifier) orelse {
+        // Because of anon literals `.{` is also valid.
+        putBackToken(it, period_token);
+        return null;
+    };
     const eq_token = eatToken(it, .Equal) orelse {
         // `.Name` may also be an enum literal, which is a later rule.
         putBackToken(it, name_token);

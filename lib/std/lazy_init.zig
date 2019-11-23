@@ -1,23 +1,25 @@
 const std = @import("std.zig");
-const builtin = @import("builtin");
 const assert = std.debug.assert;
 const testing = std.testing;
-const AtomicRmwOp = builtin.AtomicRmwOp;
-const AtomicOrder = builtin.AtomicOrder;
 
 /// Thread-safe initialization of global data.
 /// TODO use a mutex instead of a spinlock
 pub fn lazyInit(comptime T: type) LazyInit(T) {
     return LazyInit(T){
         .data = undefined,
-        .state = 0,
     };
 }
 
 fn LazyInit(comptime T: type) type {
     return struct {
-        state: u8, // TODO make this an enum
+        state: State = .NotResolved,
         data: Data,
+
+        const State = enum(u8) {
+            NotResolved,
+            Resolving,
+            Resolved,
+        };
 
         const Self = @This();
 
@@ -30,16 +32,16 @@ fn LazyInit(comptime T: type) type {
         /// perform the initialization and then call resolve().
         pub fn get(self: *Self) ?Ptr {
             while (true) {
-                var state = @cmpxchgWeak(u8, &self.state, 0, 1, AtomicOrder.SeqCst, AtomicOrder.SeqCst) orelse return null;
+                var state = @cmpxchgWeak(State, &self.state, .NotResolved, .Resolving, .SeqCst, .SeqCst) orelse return null;
                 switch (state) {
-                    0 => continue,
-                    1 => {
+                    .NotResolved => continue,
+                    .Resolving => {
                         // TODO mutex instead of a spinlock
                         continue;
                     },
-                    2 => {
+                    .Resolved => {
                         if (@sizeOf(T) == 0) {
-                            return T(undefined);
+                            return @as(T, undefined);
                         } else {
                             return &self.data;
                         }
@@ -50,8 +52,8 @@ fn LazyInit(comptime T: type) type {
         }
 
         pub fn resolve(self: *Self) void {
-            const prev = @atomicRmw(u8, &self.state, AtomicRmwOp.Xchg, 2, AtomicOrder.SeqCst);
-            assert(prev == 1); // resolve() called twice
+            const prev = @atomicRmw(State, &self.state, .Xchg, .Resolved, .SeqCst);
+            assert(prev != .Resolved); // resolve() called twice
         }
     };
 }

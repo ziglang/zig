@@ -821,7 +821,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 break;
             }
         case NodeTypeContainerInitExpr:
-            render_node_ungrouped(ar, node->data.container_init_expr.type);
+            if (node->data.container_init_expr.type != nullptr) {
+                render_node_ungrouped(ar, node->data.container_init_expr.type);
+            }
             if (node->data.container_init_expr.kind == ContainerInitKindStruct) {
                 fprintf(ar->f, "{\n");
                 ar->indent += ar->indent_size;
@@ -1137,10 +1139,20 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
 
                 for (size_t i = 0; i < node->data.err_set_decl.decls.length; i += 1) {
                     AstNode *field_node = node->data.err_set_decl.decls.at(i);
-                    assert(field_node->type == NodeTypeSymbol);
-                    print_indent(ar);
-                    print_symbol(ar, field_node->data.symbol_expr.symbol);
-                    fprintf(ar->f, ",\n");
+                    switch (field_node->type) {
+                        case NodeTypeSymbol:
+                            print_indent(ar);
+                            print_symbol(ar, field_node->data.symbol_expr.symbol);
+                            fprintf(ar->f, ",\n");
+                            break;
+                        case NodeTypeErrorSetField:
+                            print_indent(ar);
+                            print_symbol(ar, field_node->data.err_set_field.field_name->data.symbol_expr.symbol);
+                            fprintf(ar->f, ",\n");
+                            break;
+                        default:
+                            zig_unreachable();
+                    }
                 }
 
                 ar->indent -= ar->indent_size;

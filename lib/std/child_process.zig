@@ -50,8 +50,20 @@ pub const ChildProcess = struct {
     err_pipe: if (builtin.os == .windows) void else [2]os.fd_t,
     llnode: if (builtin.os == .windows) void else TailQueue(*ChildProcess).Node,
 
-    pub const SpawnError = error{OutOfMemory} || os.ExecveError || os.SetIdError ||
-        os.ChangeCurDirError || windows.CreateProcessError;
+    pub const SpawnError = error{
+        OutOfMemory,
+
+        /// POSIX-only. `StdIo.Ignore` was selected and opening `/dev/null` returned ENODEV.
+        NoDevice,
+
+        /// Windows-only. One of:
+        /// * `cwd` was provided and it could not be re-encoded into UTF16LE, or
+        /// * The `PATH` or `PATHEXT` environment variable contained invalid UTF-8.
+        InvalidUtf8,
+
+        /// Windows-only. `cwd` was provided, but the path did not exist when spawning the child process.
+        CurrentWorkingDirectoryUnlinked,
+    } || os.ExecveError || os.SetIdError || os.ChangeCurDirError || windows.CreateProcessError || windows.WaitForSingleObjectError;
 
     pub const Term = union(enum) {
         Exited: u32,
@@ -102,7 +114,7 @@ pub const ChildProcess = struct {
     }
 
     /// On success must call `kill` or `wait`.
-    pub fn spawn(self: *ChildProcess) !void {
+    pub fn spawn(self: *ChildProcess) SpawnError!void {
         if (builtin.os == .windows) {
             return self.spawnWindows();
         } else {
@@ -110,7 +122,7 @@ pub const ChildProcess = struct {
         }
     }
 
-    pub fn spawnAndWait(self: *ChildProcess) !Term {
+    pub fn spawnAndWait(self: *ChildProcess) SpawnError!Term {
         try self.spawn();
         return self.wait();
     }
@@ -162,7 +174,13 @@ pub const ChildProcess = struct {
 
     /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
     /// If it succeeds, the caller owns result.stdout and result.stderr memory.
-    pub fn exec(allocator: *mem.Allocator, argv: []const []const u8, cwd: ?[]const u8, env_map: ?*const BufMap, max_output_size: usize) !ExecResult {
+    pub fn exec(
+        allocator: *mem.Allocator,
+        argv: []const []const u8,
+        cwd: ?[]const u8,
+        env_map: ?*const BufMap,
+        max_output_size: usize,
+    ) !ExecResult {
         const child = try ChildProcess.init(argv, allocator);
         defer child.deinit();
 
@@ -219,7 +237,7 @@ pub const ChildProcess = struct {
     fn waitUnwrappedWindows(self: *ChildProcess) !void {
         const result = windows.WaitForSingleObject(self.handle, windows.INFINITE);
 
-        self.term = (SpawnError!Term)(x: {
+        self.term = @as(SpawnError!Term, x: {
             var exit_code: windows.DWORD = undefined;
             if (windows.kernel32.GetExitCodeProcess(self.handle, &exit_code) == 0) {
                 break :x Term{ .Unknown = 0 };
@@ -292,7 +310,7 @@ pub const ChildProcess = struct {
             Term{ .Unknown = status };
     }
 
-    fn spawnPosix(self: *ChildProcess) !void {
+    fn spawnPosix(self: *ChildProcess) SpawnError!void {
         const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try os.pipe() else undefined;
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
             destroyPipe(stdin_pipe);
@@ -309,7 +327,16 @@ pub const ChildProcess = struct {
         };
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
-        const dev_null_fd = if (any_ignore) try os.openC(c"/dev/null", os.O_RDWR, 0) else undefined;
+        const dev_null_fd = if (any_ignore)
+            os.openC(c"/dev/null", os.O_RDWR, 0) catch |err| switch (err) {
+                error.PathAlreadyExists => unreachable,
+                error.NoSpaceLeft => unreachable,
+                error.FileTooBig => unreachable,
+                error.DeviceBusy => unreachable,
+                else => |e| return e,
+            }
+        else
+            undefined;
         defer {
             if (any_ignore) os.close(dev_null_fd);
         }
@@ -403,7 +430,7 @@ pub const ChildProcess = struct {
         }
     }
 
-    fn spawnWindows(self: *ChildProcess) !void {
+    fn spawnWindows(self: *ChildProcess) SpawnError!void {
         const saAttr = windows.SECURITY_ATTRIBUTES{
             .nLength = @sizeOf(windows.SECURITY_ATTRIBUTES),
             .bInheritHandle = windows.TRUE,
@@ -412,11 +439,28 @@ pub const ChildProcess = struct {
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
 
-        const nul_handle = if (any_ignore) blk: {
-            break :blk try windows.CreateFile("NUL", windows.GENERIC_READ, windows.FILE_SHARE_READ, null, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, null);
-        } else blk: {
-            break :blk undefined;
-        };
+        const nul_handle = if (any_ignore)
+            windows.CreateFile(
+                "NUL",
+                windows.GENERIC_READ,
+                windows.FILE_SHARE_READ,
+                null,
+                windows.OPEN_EXISTING,
+                windows.FILE_ATTRIBUTE_NORMAL,
+                null,
+            ) catch |err| switch (err) {
+                error.SharingViolation => unreachable, // not possible for "NUL"
+                error.PathAlreadyExists => unreachable, // not possible for "NUL"
+                error.PipeBusy => unreachable, // not possible for "NUL"
+                error.InvalidUtf8 => unreachable, // not possible for "NUL"
+                error.BadPathName => unreachable, // not possible for "NUL"
+                error.FileNotFound => unreachable, // not possible for "NUL"
+                error.AccessDenied => unreachable, // not possible for "NUL"
+                error.NameTooLong => unreachable, // not possible for "NUL"
+                else => |e| return e,
+            }
+        else
+            undefined;
         defer {
             if (any_ignore) os.close(nul_handle);
         }
@@ -542,10 +586,25 @@ pub const ChildProcess = struct {
         windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
             if (no_path_err != error.FileNotFound) return no_path_err;
 
-            const PATH = try process.getEnvVarOwned(self.allocator, "PATH");
-            defer self.allocator.free(PATH);
-            const PATHEXT = try process.getEnvVarOwned(self.allocator, "PATHEXT");
-            defer self.allocator.free(PATHEXT);
+            var free_path = true;
+            const PATH = process.getEnvVarOwned(self.allocator, "PATH") catch |err| switch (err) {
+                error.EnvironmentVariableNotFound => blk: {
+                    free_path = false;
+                    break :blk "";
+                },
+                else => |e| return e,
+            };
+            defer if (free_path) self.allocator.free(PATH);
+
+            var free_path_ext = true;
+            const PATHEXT = process.getEnvVarOwned(self.allocator, "PATHEXT") catch |err| switch (err) {
+                error.EnvironmentVariableNotFound => blk: {
+                    free_path_ext = false;
+                    break :blk "";
+                },
+                else => |e| return e,
+            };
+            defer if (free_path_ext) self.allocator.free(PATHEXT);
 
             var it = mem.tokenize(PATH, ";");
             retry: while (it.next()) |search_path| {
@@ -717,7 +776,7 @@ fn destroyPipe(pipe: [2]os.fd_t) void {
 // Child of fork calls this to report an error to the fork parent.
 // Then the child exits.
 fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
-    writeIntFd(fd, ErrInt(@errorToInt(err))) catch {};
+    writeIntFd(fd, @as(ErrInt, @errorToInt(err))) catch {};
     os.exit(1);
 }
 

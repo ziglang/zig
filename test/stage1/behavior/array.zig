@@ -12,7 +12,7 @@ test "arrays" {
     }
 
     i = 0;
-    var accumulator = u32(0);
+    var accumulator = @as(u32, 0);
     while (i < 5) {
         accumulator += array[i];
 
@@ -149,7 +149,7 @@ test "implicit cast single-item pointer" {
 
 fn testImplicitCastSingleItemPtr() void {
     var byte: u8 = 100;
-    const slice = (*[1]u8)(&byte)[0..];
+    const slice = @as(*[1]u8, &byte)[0..];
     slice[0] += 1;
     expect(byte == 101);
 }
@@ -297,4 +297,39 @@ test "implicit cast zero sized array ptr to slice" {
     var b = "";
     const c: []const u8 = &b;
     expect(c.len == 0);
+}
+
+test "anonymous list literal syntax" {
+    const S = struct {
+        fn doTheTest() void {
+            var array: [4]u8 = .{1, 2, 3, 4};
+            expect(array[0] == 1);
+            expect(array[1] == 2);
+            expect(array[2] == 3);
+            expect(array[3] == 4);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "anonymous literal in array" {
+    const S = struct {
+        const Foo = struct {
+            a: usize = 2,
+            b: usize = 4,
+        };
+        fn doTheTest() void {
+            var array: [2]Foo = .{
+                .{.a = 3},
+                .{.b = 3},
+            };
+            expect(array[0].a == 3);
+            expect(array[0].b == 4);
+            expect(array[1].a == 2);
+            expect(array[1].b == 3);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }

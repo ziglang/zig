@@ -1,8 +1,8 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
-const AtomicOrder = builtin.AtomicOrder;
-const AtomicRmwOp = builtin.AtomicRmwOp;
 const assert = std.debug.assert;
+const time = std.time;
+const os = std.os;
 
 pub const SpinLock = struct {
     lock: u8, // TODO use a bool or enum
@@ -11,7 +11,7 @@ pub const SpinLock = struct {
         spinlock: *SpinLock,
 
         pub fn release(self: Held) void {
-            assert(@atomicRmw(u8, &self.spinlock.lock, builtin.AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst) == 1);
+            @atomicStore(u8, &self.spinlock.lock, 0, .Release);
         }
     };
 
@@ -20,9 +20,46 @@ pub const SpinLock = struct {
     }
 
     pub fn acquire(self: *SpinLock) Held {
-        while (@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) != 0) {}
+        var backoff = Backoff.init();
+        while (@atomicRmw(u8, &self.lock, .Xchg, 1, .Acquire) != 0)
+            backoff.yield();
         return Held{ .spinlock = self };
     }
+
+    pub fn yield(iterations: usize) void {
+        var i = iterations;
+        while (i != 0) : (i -= 1) {
+            switch (builtin.arch) {
+                .i386, .x86_64 => asm volatile ("pause"),
+                .arm, .aarch64 => asm volatile ("yield"),
+                else => time.sleep(0),
+            }
+        }
+    }
+
+    /// Provides a method to incrementally yield longer each time its called.
+    pub const Backoff = struct {
+        iteration: usize,
+
+        pub fn init() @This() {
+            return @This(){ .iteration = 0 };
+        }
+
+        /// Modified hybrid yielding from
+        /// http://www.1024cores.net/home/lock-free-algorithms/tricks/spinning
+        pub fn yield(self: *@This()) void {
+            defer self.iteration +%= 1;
+            if (self.iteration < 20) {
+                SpinLock.yield(self.iteration);
+            } else if (self.iteration < 24) {
+                os.sched_yield() catch time.sleep(1);
+            } else if (self.iteration < 26) {
+                time.sleep(1 * time.millisecond);
+            } else {
+                time.sleep(10 * time.millisecond);
+            }
+        }
+    };
 };
 
 test "spinlock" {

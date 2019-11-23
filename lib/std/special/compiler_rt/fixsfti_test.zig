@@ -6,7 +6,7 @@ const warn = std.debug.warn;
 
 fn test__fixsfti(a: f32, expected: i128) void {
     const x = __fixsfti(a);
-    //warn("a={}:{x} x={}:{x} expected={}:{x}:u128({x})\n", a, @bitCast(u32, a), x, x, expected, expected, @bitCast(u128, expected));
+    //warn("a={}:{x} x={}:{x} expected={}:{x}:@as(u128, {x})\n", a, @bitCast(u32, a), x, x, expected, expected, @bitCast(u128, expected));
     testing.expect(x == expected);
 }
 

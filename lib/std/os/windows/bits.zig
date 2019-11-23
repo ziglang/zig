@@ -67,9 +67,116 @@ pub const va_list = *@OpaqueType();
 pub const TRUE = 1;
 pub const FALSE = 0;
 
+pub const DEVICE_TYPE = ULONG;
+pub const FILE_DEVICE_BEEP: DEVICE_TYPE = 0x0001;
+pub const FILE_DEVICE_CD_ROM: DEVICE_TYPE = 0x0002;
+pub const FILE_DEVICE_CD_ROM_FILE_SYSTEM: DEVICE_TYPE = 0x0003;
+pub const FILE_DEVICE_CONTROLLER: DEVICE_TYPE = 0x0004;
+pub const FILE_DEVICE_DATALINK: DEVICE_TYPE = 0x0005;
+pub const FILE_DEVICE_DFS: DEVICE_TYPE = 0x0006;
+pub const FILE_DEVICE_DISK: DEVICE_TYPE = 0x0007;
+pub const FILE_DEVICE_DISK_FILE_SYSTEM: DEVICE_TYPE = 0x0008;
+pub const FILE_DEVICE_FILE_SYSTEM: DEVICE_TYPE = 0x0009;
+pub const FILE_DEVICE_INPORT_PORT: DEVICE_TYPE = 0x000a;
+pub const FILE_DEVICE_KEYBOARD: DEVICE_TYPE = 0x000b;
+pub const FILE_DEVICE_MAILSLOT: DEVICE_TYPE = 0x000c;
+pub const FILE_DEVICE_MIDI_IN: DEVICE_TYPE = 0x000d;
+pub const FILE_DEVICE_MIDI_OUT: DEVICE_TYPE = 0x000e;
+pub const FILE_DEVICE_MOUSE: DEVICE_TYPE = 0x000f;
+pub const FILE_DEVICE_MULTI_UNC_PROVIDER: DEVICE_TYPE = 0x0010;
+pub const FILE_DEVICE_NAMED_PIPE: DEVICE_TYPE = 0x0011;
+pub const FILE_DEVICE_NETWORK: DEVICE_TYPE = 0x0012;
+pub const FILE_DEVICE_NETWORK_BROWSER: DEVICE_TYPE = 0x0013;
+pub const FILE_DEVICE_NETWORK_FILE_SYSTEM: DEVICE_TYPE = 0x0014;
+pub const FILE_DEVICE_NULL: DEVICE_TYPE = 0x0015;
+pub const FILE_DEVICE_PARALLEL_PORT: DEVICE_TYPE = 0x0016;
+pub const FILE_DEVICE_PHYSICAL_NETCARD: DEVICE_TYPE = 0x0017;
+pub const FILE_DEVICE_PRINTER: DEVICE_TYPE = 0x0018;
+pub const FILE_DEVICE_SCANNER: DEVICE_TYPE = 0x0019;
+pub const FILE_DEVICE_SERIAL_MOUSE_PORT: DEVICE_TYPE = 0x001a;
+pub const FILE_DEVICE_SERIAL_PORT: DEVICE_TYPE = 0x001b;
+pub const FILE_DEVICE_SCREEN: DEVICE_TYPE = 0x001c;
+pub const FILE_DEVICE_SOUND: DEVICE_TYPE = 0x001d;
+pub const FILE_DEVICE_STREAMS: DEVICE_TYPE = 0x001e;
+pub const FILE_DEVICE_TAPE: DEVICE_TYPE = 0x001f;
+pub const FILE_DEVICE_TAPE_FILE_SYSTEM: DEVICE_TYPE = 0x0020;
+pub const FILE_DEVICE_TRANSPORT: DEVICE_TYPE = 0x0021;
+pub const FILE_DEVICE_UNKNOWN: DEVICE_TYPE = 0x0022;
+pub const FILE_DEVICE_VIDEO: DEVICE_TYPE = 0x0023;
+pub const FILE_DEVICE_VIRTUAL_DISK: DEVICE_TYPE = 0x0024;
+pub const FILE_DEVICE_WAVE_IN: DEVICE_TYPE = 0x0025;
+pub const FILE_DEVICE_WAVE_OUT: DEVICE_TYPE = 0x0026;
+pub const FILE_DEVICE_8042_PORT: DEVICE_TYPE = 0x0027;
+pub const FILE_DEVICE_NETWORK_REDIRECTOR: DEVICE_TYPE = 0x0028;
+pub const FILE_DEVICE_BATTERY: DEVICE_TYPE = 0x0029;
+pub const FILE_DEVICE_BUS_EXTENDER: DEVICE_TYPE = 0x002a;
+pub const FILE_DEVICE_MODEM: DEVICE_TYPE = 0x002b;
+pub const FILE_DEVICE_VDM: DEVICE_TYPE = 0x002c;
+pub const FILE_DEVICE_MASS_STORAGE: DEVICE_TYPE = 0x002d;
+pub const FILE_DEVICE_SMB: DEVICE_TYPE = 0x002e;
+pub const FILE_DEVICE_KS: DEVICE_TYPE = 0x002f;
+pub const FILE_DEVICE_CHANGER: DEVICE_TYPE = 0x0030;
+pub const FILE_DEVICE_SMARTCARD: DEVICE_TYPE = 0x0031;
+pub const FILE_DEVICE_ACPI: DEVICE_TYPE = 0x0032;
+pub const FILE_DEVICE_DVD: DEVICE_TYPE = 0x0033;
+pub const FILE_DEVICE_FULLSCREEN_VIDEO: DEVICE_TYPE = 0x0034;
+pub const FILE_DEVICE_DFS_FILE_SYSTEM: DEVICE_TYPE = 0x0035;
+pub const FILE_DEVICE_DFS_VOLUME: DEVICE_TYPE = 0x0036;
+pub const FILE_DEVICE_SERENUM: DEVICE_TYPE = 0x0037;
+pub const FILE_DEVICE_TERMSRV: DEVICE_TYPE = 0x0038;
+pub const FILE_DEVICE_KSEC: DEVICE_TYPE = 0x0039;
+pub const FILE_DEVICE_FIPS: DEVICE_TYPE = 0x003a;
+pub const FILE_DEVICE_INFINIBAND: DEVICE_TYPE = 0x003b;
+// TODO: missing values?
+pub const FILE_DEVICE_VMBUS: DEVICE_TYPE = 0x003e;
+pub const FILE_DEVICE_CRYPT_PROVIDER: DEVICE_TYPE = 0x003f;
+pub const FILE_DEVICE_WPD: DEVICE_TYPE = 0x0040;
+pub const FILE_DEVICE_BLUETOOTH: DEVICE_TYPE = 0x0041;
+pub const FILE_DEVICE_MT_COMPOSITE: DEVICE_TYPE = 0x0042;
+pub const FILE_DEVICE_MT_TRANSPORT: DEVICE_TYPE = 0x0043;
+pub const FILE_DEVICE_BIOMETRIC: DEVICE_TYPE = 0x0044;
+pub const FILE_DEVICE_PMI: DEVICE_TYPE = 0x0045;
+pub const FILE_DEVICE_EHSTOR: DEVICE_TYPE = 0x0046;
+pub const FILE_DEVICE_DEVAPI: DEVICE_TYPE = 0x0047;
+pub const FILE_DEVICE_GPIO: DEVICE_TYPE = 0x0048;
+pub const FILE_DEVICE_USBEX: DEVICE_TYPE = 0x0049;
+pub const FILE_DEVICE_CONSOLE: DEVICE_TYPE = 0x0050;
+pub const FILE_DEVICE_NFP: DEVICE_TYPE = 0x0051;
+pub const FILE_DEVICE_SYSENV: DEVICE_TYPE = 0x0052;
+pub const FILE_DEVICE_VIRTUAL_BLOCK: DEVICE_TYPE = 0x0053;
+pub const FILE_DEVICE_POINT_OF_SERVICE: DEVICE_TYPE = 0x0054;
+pub const FILE_DEVICE_STORAGE_REPLICATION: DEVICE_TYPE = 0x0055;
+pub const FILE_DEVICE_TRUST_ENV: DEVICE_TYPE = 0x0056;
+pub const FILE_DEVICE_UCM: DEVICE_TYPE = 0x0057;
+pub const FILE_DEVICE_UCMTCPCI: DEVICE_TYPE = 0x0058;
+pub const FILE_DEVICE_PERSISTENT_MEMORY: DEVICE_TYPE = 0x0059;
+pub const FILE_DEVICE_NVDIMM: DEVICE_TYPE = 0x005a;
+pub const FILE_DEVICE_HOLOGRAPHIC: DEVICE_TYPE = 0x005b;
+pub const FILE_DEVICE_SDFXHCI: DEVICE_TYPE = 0x005c;
+
+/// https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/buffer-descriptions-for-i-o-control-codes
+pub const TransferType = enum(u2) {
+    METHOD_BUFFERED = 0,
+    METHOD_IN_DIRECT = 1,
+    METHOD_OUT_DIRECT = 2,
+    METHOD_NEITHER = 3,
+};
+
+pub const FILE_ANY_ACCESS = 0;
+pub const FILE_READ_ACCESS = 1;
+pub const FILE_WRITE_ACCESS = 2;
+
+/// https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/defining-i-o-control-codes
+pub fn CTL_CODE(deviceType: u16, function: u12, method: TransferType, access: u2) DWORD {
+    return (@as(DWORD, deviceType) << 16) |
+        (@as(DWORD, access) << 14) |
+        (@as(DWORD, function) << 2) |
+        @enumToInt(method);
+}
+
 pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, maxInt(usize));
 
-pub const INVALID_FILE_ATTRIBUTES = DWORD(maxInt(DWORD));
+pub const INVALID_FILE_ATTRIBUTES = @as(DWORD, maxInt(DWORD));
 
 pub const FILE_ALL_INFORMATION = extern struct {
     BasicInformation: FILE_BASIC_INFORMATION,
@@ -571,16 +678,16 @@ pub const KF_FLAG_SIMPLE_IDLIST = 256;
 pub const KF_FLAG_ALIAS_ONLY = -2147483648;
 
 pub const S_OK = 0;
-pub const E_NOTIMPL = @bitCast(c_long, c_ulong(0x80004001));
-pub const E_NOINTERFACE = @bitCast(c_long, c_ulong(0x80004002));
-pub const E_POINTER = @bitCast(c_long, c_ulong(0x80004003));
-pub const E_ABORT = @bitCast(c_long, c_ulong(0x80004004));
-pub const E_FAIL = @bitCast(c_long, c_ulong(0x80004005));
-pub const E_UNEXPECTED = @bitCast(c_long, c_ulong(0x8000FFFF));
-pub const E_ACCESSDENIED = @bitCast(c_long, c_ulong(0x80070005));
-pub const E_HANDLE = @bitCast(c_long, c_ulong(0x80070006));
-pub const E_OUTOFMEMORY = @bitCast(c_long, c_ulong(0x8007000E));
-pub const E_INVALIDARG = @bitCast(c_long, c_ulong(0x80070057));
+pub const E_NOTIMPL = @bitCast(c_long, @as(c_ulong, 0x80004001));
+pub const E_NOINTERFACE = @bitCast(c_long, @as(c_ulong, 0x80004002));
+pub const E_POINTER = @bitCast(c_long, @as(c_ulong, 0x80004003));
+pub const E_ABORT = @bitCast(c_long, @as(c_ulong, 0x80004004));
+pub const E_FAIL = @bitCast(c_long, @as(c_ulong, 0x80004005));
+pub const E_UNEXPECTED = @bitCast(c_long, @as(c_ulong, 0x8000FFFF));
+pub const E_ACCESSDENIED = @bitCast(c_long, @as(c_ulong, 0x80070005));
+pub const E_HANDLE = @bitCast(c_long, @as(c_ulong, 0x80070006));
+pub const E_OUTOFMEMORY = @bitCast(c_long, @as(c_ulong, 0x8007000E));
+pub const E_INVALIDARG = @bitCast(c_long, @as(c_ulong, 0x80070057));
 
 pub const FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
 pub const FILE_FLAG_DELETE_ON_CLOSE = 0x04000000;

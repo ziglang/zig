@@ -214,7 +214,7 @@ pub const CityHash64 = struct {
     }
 
     fn hashLen0To16(str: []const u8) u64 {
-        const len: u64 = u64(str.len);
+        const len: u64 = @as(u64, str.len);
         if (len >= 8) {
             const mul: u64 = k2 +% len *% 2;
             const a: u64 = fetch64(str.ptr) +% k2;
@@ -240,7 +240,7 @@ pub const CityHash64 = struct {
     }
 
     fn hashLen17To32(str: []const u8) u64 {
-        const len: u64 = u64(str.len);
+        const len: u64 = @as(u64, str.len);
         const mul: u64 = k2 +% len *% 2;
         const a: u64 = fetch64(str.ptr) *% k1;
         const b: u64 = fetch64(str.ptr + 8);
@@ -251,7 +251,7 @@ pub const CityHash64 = struct {
     }
 
     fn hashLen33To64(str: []const u8) u64 {
-        const len: u64 = u64(str.len);
+        const len: u64 = @as(u64, str.len);
         const mul: u64 = k2 +% len *% 2;
         const a: u64 = fetch64(str.ptr) *% k2;
         const b: u64 = fetch64(str.ptr + 8);
@@ -305,7 +305,7 @@ pub const CityHash64 = struct {
             return hashLen33To64(str);
         }
 
-        var len: u64 = u64(str.len);
+        var len: u64 = @as(u64, str.len);
 
         var x: u64 = fetch64(str.ptr + str.len - 40);
         var y: u64 = fetch64(str.ptr + str.len - 16) +% fetch64(str.ptr + str.len - 56);

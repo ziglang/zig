@@ -12,12 +12,13 @@ pub fn Future(comptime T: type) type {
     return struct {
         lock: Lock,
         data: T,
+        available: Available,
 
-        /// TODO make this an enum
-        /// 0 - not started
-        /// 1 - started
-        /// 2 - finished
-        available: u8,
+        const Available = enum(u8) {
+            NotStarted,
+            Started,
+            Finished,
+        };
 
         const Self = @This();
         const Queue = std.atomic.Queue(anyframe);
@@ -34,7 +35,7 @@ pub fn Future(comptime T: type) type {
         /// available.
         /// Thread-safe.
         pub async fn get(self: *Self) *T {
-            if (@atomicLoad(u8, &self.available, .SeqCst) == 2) {
+            if (@atomicLoad(Available, &self.available, .SeqCst) == .Finished) {
                 return &self.data;
             }
             const held = self.lock.acquire();
@@ -46,7 +47,7 @@ pub fn Future(comptime T: type) type {
         /// Gets the data without waiting for it. If it's available, a pointer is
         /// returned. Otherwise, null is returned.
         pub fn getOrNull(self: *Self) ?*T {
-            if (@atomicLoad(u8, &self.available, .SeqCst) == 2) {
+            if (@atomicLoad(Available, &self.available, .SeqCst) == .Finished) {
                 return &self.data;
             } else {
                 return null;
@@ -59,14 +60,14 @@ pub fn Future(comptime T: type) type {
         /// It's not required to call start() before resolve() but it can be useful since
         /// this method is thread-safe.
         pub async fn start(self: *Self) ?*T {
-            const state = @cmpxchgStrong(u8, &self.available, 0, 1, .SeqCst, .SeqCst) orelse return null;
+            const state = @cmpxchgStrong(Available, &self.available, .NotStarted, .Started, .SeqCst, .SeqCst) orelse return null;
             switch (state) {
-                1 => {
+                .Started => {
                     const held = self.lock.acquire();
                     held.release();
                     return &self.data;
                 },
-                2 => return &self.data,
+                .Finished => return &self.data,
                 else => unreachable,
             }
         }
@@ -74,8 +75,8 @@ pub fn Future(comptime T: type) type {
         /// Make the data become available. May be called only once.
         /// Before calling this, modify the `data` property.
         pub fn resolve(self: *Self) void {
-            const prev = @atomicRmw(u8, &self.available, .Xchg, 2, .SeqCst);
-            assert(prev == 0 or prev == 1); // resolve() called twice
+            const prev = @atomicRmw(Available, &self.available, .Xchg, .Finished, .SeqCst);
+            assert(prev != .Finished); // resolve() called twice
             Lock.Held.release(Lock.Held{ .lock = &self.lock });
         }
     };

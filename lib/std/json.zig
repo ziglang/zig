@@ -1012,119 +1012,39 @@ pub const Value = union(enum) {
     Object: ObjectMap,
 
     pub fn dump(self: Value) void {
-        switch (self) {
-            Value.Null => {
-                debug.warn("null");
-            },
-            Value.Bool => |inner| {
-                debug.warn("{}", inner);
-            },
-            Value.Integer => |inner| {
-                debug.warn("{}", inner);
-            },
-            Value.Float => |inner| {
-                debug.warn("{:.5}", inner);
-            },
-            Value.String => |inner| {
-                debug.warn("\"{}\"", inner);
-            },
-            Value.Array => |inner| {
-                var not_first = false;
-                debug.warn("[");
-                for (inner.toSliceConst()) |value| {
-                    if (not_first) {
-                        debug.warn(",");
-                    }
-                    not_first = true;
-                    value.dump();
-                }
-                debug.warn("]");
-            },
-            Value.Object => |inner| {
-                var not_first = false;
-                debug.warn("{{");
-                var it = inner.iterator();
+        var held = std.debug.getStderrMutex().acquire();
+        defer held.release();
 
-                while (it.next()) |entry| {
-                    if (not_first) {
-                        debug.warn(",");
-                    }
-                    not_first = true;
-                    debug.warn("\"{}\":", entry.key);
-                    entry.value.dump();
-                }
-                debug.warn("}}");
-            },
-        }
+        const stderr = std.debug.getStderrStream();
+        self.dumpStream(stderr, 1024) catch return;
     }
 
-    pub fn dumpIndent(self: Value, indent: usize) void {
+    pub fn dumpIndent(self: Value, comptime indent: usize) void {
         if (indent == 0) {
             self.dump();
         } else {
-            self.dumpIndentLevel(indent, 0);
+            var held = std.debug.getStderrMutex().acquire();
+            defer held.release();
+
+            const stderr = std.debug.getStderrStream();
+            self.dumpStreamIndent(indent, stderr, 1024) catch return;
         }
     }
 
-    fn dumpIndentLevel(self: Value, indent: usize, level: usize) void {
-        switch (self) {
-            Value.Null => {
-                debug.warn("null");
-            },
-            Value.Bool => |inner| {
-                debug.warn("{}", inner);
-            },
-            Value.Integer => |inner| {
-                debug.warn("{}", inner);
-            },
-            Value.Float => |inner| {
-                debug.warn("{:.5}", inner);
-            },
-            Value.String => |inner| {
-                debug.warn("\"{}\"", inner);
-            },
-            Value.Array => |inner| {
-                var not_first = false;
-                debug.warn("[\n");
-
-                for (inner.toSliceConst()) |value| {
-                    if (not_first) {
-                        debug.warn(",\n");
-                    }
-                    not_first = true;
-                    padSpace(level + indent);
-                    value.dumpIndentLevel(indent, level + indent);
-                }
-                debug.warn("\n");
-                padSpace(level);
-                debug.warn("]");
-            },
-            Value.Object => |inner| {
-                var not_first = false;
-                debug.warn("{{\n");
-                var it = inner.iterator();
-
-                while (it.next()) |entry| {
-                    if (not_first) {
-                        debug.warn(",\n");
-                    }
-                    not_first = true;
-                    padSpace(level + indent);
-                    debug.warn("\"{}\": ", entry.key);
-                    entry.value.dumpIndentLevel(indent, level + indent);
-                }
-                debug.warn("\n");
-                padSpace(level);
-                debug.warn("}}");
-            },
-        }
+    pub fn dumpStream(self: @This(), stream: var, comptime max_depth: usize) !void {
+        var w = std.json.WriteStream(@typeOf(stream).Child, max_depth).init(stream);
+        w.newline = "";
+        w.one_indent = "";
+        w.space = "";
+        try w.emitJson(self);
     }
 
-    fn padSpace(indent: usize) void {
-        var i: usize = 0;
-        while (i < indent) : (i += 1) {
-            debug.warn(" ");
-        }
+    pub fn dumpStreamIndent(self: @This(), comptime indent: usize, stream: var, comptime max_depth: usize) !void {
+        var one_indent = " " ** indent;
+
+        var w = std.json.WriteStream(@typeOf(stream).Child, max_depth).init(stream);
+        w.one_indent = one_indent;
+        try w.emitJson(self);
     }
 };
 
@@ -1423,7 +1343,7 @@ test "write json then parse it" {
     try jw.emitBool(true);
 
     try jw.objectField("int");
-    try jw.emitNumber(i32(1234));
+    try jw.emitNumber(@as(i32, 1234));
 
     try jw.objectField("array");
     try jw.beginArray();
@@ -1432,7 +1352,7 @@ test "write json then parse it" {
     try jw.emitNull();
 
     try jw.arrayElem();
-    try jw.emitNumber(f64(12.34));
+    try jw.emitNumber(@as(f64, 12.34));
 
     try jw.endArray();
 

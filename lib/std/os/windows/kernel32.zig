@@ -45,6 +45,17 @@ pub extern "kernel32" stdcallcc fn CreateIoCompletionPort(FileHandle: HANDLE, Ex
 
 pub extern "kernel32" stdcallcc fn CreateThread(lpThreadAttributes: ?LPSECURITY_ATTRIBUTES, dwStackSize: SIZE_T, lpStartAddress: LPTHREAD_START_ROUTINE, lpParameter: ?LPVOID, dwCreationFlags: DWORD, lpThreadId: ?LPDWORD) ?HANDLE;
 
+pub extern "kernel32" stdcallcc fn DeviceIoControl(
+    h: HANDLE,
+    dwIoControlCode: DWORD,
+    lpInBuffer: ?*const c_void,
+    nInBufferSize: DWORD,
+    lpOutBuffer: ?LPVOID,
+    nOutBufferSize: DWORD,
+    lpBytesReturned: LPDWORD,
+    lpOverlapped: ?*OVERLAPPED,
+) BOOL;
+
 pub extern "kernel32" stdcallcc fn DeleteFileW(lpFileName: [*]const u16) BOOL;
 
 pub extern "kernel32" stdcallcc fn DuplicateHandle(hSourceProcessHandle: HANDLE, hSourceHandle: HANDLE, hTargetProcessHandle: HANDLE, lpTargetHandle: *HANDLE, dwDesiredAccess: DWORD, bInheritHandle: BOOL, dwOptions: DWORD) BOOL;
@@ -183,6 +194,8 @@ pub extern "kernel32" stdcallcc fn SetFileTime(
 pub extern "kernel32" stdcallcc fn SetHandleInformation(hObject: HANDLE, dwMask: DWORD, dwFlags: DWORD) BOOL;
 
 pub extern "kernel32" stdcallcc fn Sleep(dwMilliseconds: DWORD) void;
+
+pub extern "kernel32" stdcallcc fn SwitchToThread() BOOL;
 
 pub extern "kernel32" stdcallcc fn TerminateProcess(hProcess: HANDLE, uExitCode: UINT) BOOL;
 

@@ -191,7 +191,7 @@ async fn testSuspendBlock() void {
 
     // Test to make sure that @frame() works as advertised (issue #1296)
     // var our_handle: anyframe = @frame();
-    expect(a_promise == anyframe(@frame()));
+    expect(a_promise == @as(anyframe, @frame()));
 
     global_result = true;
 }
@@ -543,7 +543,7 @@ test "pass string literal to async function" {
         fn hello(msg: []const u8) void {
             frame = @frame();
             suspend;
-            expectEqual(([]const u8)("hello"), msg);
+            expectEqual(@as([]const u8, "hello"), msg);
             ok = true;
         }
     };
@@ -1048,7 +1048,7 @@ test "using @typeOf on a generic function call" {
             return await @asyncCall(frame, {}, amain, x - 1);
         }
     };
-    _ = async S.amain(u32(1));
+    _ = async S.amain(@as(u32, 1));
     resume S.global_frame;
     expect(S.global_ok);
 }
@@ -1080,8 +1080,8 @@ test "recursive call of await @asyncCall with struct return type" {
         };
     };
     var res: S.Foo = undefined;
-    var frame: @typeOf(async S.amain(u32(1))) = undefined;
-    _ = @asyncCall(&frame, &res, S.amain, u32(1));
+    var frame: @typeOf(async S.amain(@as(u32, 1))) = undefined;
+    _ = @asyncCall(&frame, &res, S.amain, @as(u32, 1));
     resume S.global_frame;
     expect(S.global_ok);
     expect(res.x == 1);
@@ -1214,7 +1214,7 @@ test "spill target expr in a for loop" {
         }
 
         const Foo = struct {
-            slice: []i32,
+            slice: []const i32,
         };
 
         fn atest(foo: *Foo) i32 {
@@ -1245,7 +1245,7 @@ test "spill target expr in a for loop, with a var decl in the loop body" {
         }
 
         const Foo = struct {
-            slice: []i32,
+            slice: []const i32,
         };
 
         fn atest(foo: *Foo) i32 {

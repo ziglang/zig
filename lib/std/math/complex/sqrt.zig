@@ -52,8 +52,8 @@ fn sqrt32(z: Complex(f32)) Complex(f32) {
     // y = nan special case is handled fine below
 
     // double-precision avoids overflow with correct rounding.
-    const dx = f64(x);
-    const dy = f64(y);
+    const dx = @as(f64, x);
+    const dy = @as(f64, y);
 
     if (dx >= 0) {
         const t = math.sqrt((dx + math.hypot(f64, dx, dy)) * 0.5);

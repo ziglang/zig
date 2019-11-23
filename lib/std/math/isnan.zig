@@ -20,8 +20,8 @@ test "math.isNan" {
     expect(isNan(math.nan(f32)));
     expect(isNan(math.nan(f64)));
     expect(isNan(math.nan(f128)));
-    expect(!isNan(f16(1.0)));
-    expect(!isNan(f32(1.0)));
-    expect(!isNan(f64(1.0)));
-    expect(!isNan(f128(1.0)));
+    expect(!isNan(@as(f16, 1.0)));
+    expect(!isNan(@as(f32, 1.0)));
+    expect(!isNan(@as(f64, 1.0)));
+    expect(!isNan(@as(f128, 1.0)));
 }

@@ -402,7 +402,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         }
 
         fn keyToIndex(hm: Self, key: K) usize {
-            return hm.constrainIndex(usize(hash(key)));
+            return hm.constrainIndex(@as(usize, hash(key)));
         }
 
         fn constrainIndex(hm: Self, i: usize) usize {

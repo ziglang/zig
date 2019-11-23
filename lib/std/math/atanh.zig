@@ -84,8 +84,8 @@ fn atanh_64(x: f64) f64 {
 }
 
 test "math.atanh" {
-    expect(atanh(f32(0.0)) == atanh_32(0.0));
-    expect(atanh(f64(0.0)) == atanh_64(0.0));
+    expect(atanh(@as(f32, 0.0)) == atanh_32(0.0));
+    expect(atanh(@as(f64, 0.0)) == atanh_64(0.0));
 }
 
 test "math.atanh_32" {

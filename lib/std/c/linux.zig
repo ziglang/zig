@@ -75,3 +75,26 @@ pub const dl_iterate_phdr_callback = extern fn (info: *dl_phdr_info, size: usize
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*c_void) c_int;
 
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
+
+pub const pthread_attr_t = extern struct {
+    __size: [56]u8,
+    __align: c_long,
+};
+
+pub const pthread_mutex_t = extern struct {
+    size: [__SIZEOF_PTHREAD_MUTEX_T]u8 align(@alignOf(usize)) = [_]u8{0} ** __SIZEOF_PTHREAD_MUTEX_T,
+};
+pub const pthread_cond_t = extern struct {
+    size: [__SIZEOF_PTHREAD_COND_T]u8 align(@alignOf(usize)) = [_]u8{0} ** __SIZEOF_PTHREAD_COND_T,
+};
+const __SIZEOF_PTHREAD_COND_T = 48;
+const __SIZEOF_PTHREAD_MUTEX_T = if (builtin.os == .fuchsia) 40 else switch (builtin.abi) {
+    .musl, .musleabi, .musleabihf => if (@sizeOf(usize) == 8) 40 else 24,
+    .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => switch (builtin.arch) {
+        .aarch64 => 48,
+        .x86_64 => if (builtin.abi == .gnux32) 40 else 32,
+        .mips64, .powerpc64, .powerpc64le, .sparcv9 => 40,
+        else => if (@sizeOf(usize) == 8) 40 else 24,
+    },
+    else => unreachable,
+};

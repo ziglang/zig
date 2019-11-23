@@ -81,7 +81,7 @@ static AstNode *ast_parse_for_type_expr(ParseContext *pc);
 static AstNode *ast_parse_while_type_expr(ParseContext *pc);
 static AstNode *ast_parse_switch_expr(ParseContext *pc);
 static AstNode *ast_parse_asm_expr(ParseContext *pc);
-static AstNode *ast_parse_enum_lit(ParseContext *pc);
+static AstNode *ast_parse_anon_lit(ParseContext *pc);
 static AstNode *ast_parse_asm_output(ParseContext *pc);
 static AsmOutput *ast_parse_asm_output_item(ParseContext *pc);
 static AstNode *ast_parse_asm_input(ParseContext *pc);
@@ -493,6 +493,9 @@ static AstNode *ast_parse_root(ParseContext *pc) {
     node->data.container_decl.layout = ContainerLayoutAuto;
     node->data.container_decl.kind = ContainerKindStruct;
     node->data.container_decl.is_root = true;
+    if (buf_len(&members.doc_comments) != 0) {
+        node->data.container_decl.doc_comments = members.doc_comments;
+    }
 
     return node;
 }
@@ -514,6 +517,21 @@ static Token *ast_parse_doc_comments(ParseContext *pc, Buf *buf) {
     return first_doc_token;
 }
 
+static void ast_parse_container_doc_comments(ParseContext *pc, Buf *buf) {
+    if (buf_len(buf) != 0 && peek_token(pc)->id == TokenIdContainerDocComment) {
+        buf_append_char(buf, '\n');
+    }
+    Token *doc_token = nullptr;
+    while ((doc_token = eat_token_if(pc, TokenIdContainerDocComment))) {
+        if (buf->list.length == 0) {
+            buf_resize(buf, 0);
+        }
+        // chops off '//!' but leaves '\n'
+        buf_append_mem(buf, buf_ptr(pc->buf) + doc_token->start_pos + 3,
+                doc_token->end_pos - doc_token->start_pos - 3);
+    }
+}
+
 // ContainerMembers
 //     <- TestDecl ContainerMembers
 //      / TopLevelComptime ContainerMembers
@@ -523,7 +541,11 @@ static Token *ast_parse_doc_comments(ParseContext *pc, Buf *buf) {
 //      /
 static AstNodeContainerDecl ast_parse_container_members(ParseContext *pc) {
     AstNodeContainerDecl res = {};
+    Buf tld_doc_comment_buf = BUF_INIT;
+    buf_resize(&tld_doc_comment_buf, 0);
     for (;;) {
+        ast_parse_container_doc_comments(pc, &tld_doc_comment_buf);
+
         AstNode *test_decl = ast_parse_test_decl(pc);
         if (test_decl != nullptr) {
             res.decls.append(test_decl);
@@ -566,7 +588,7 @@ static AstNodeContainerDecl ast_parse_container_members(ParseContext *pc) {
 
         break;
     }
-
+    res.doc_comments = tld_doc_comment_buf;
     return res;
 }
 
@@ -1600,9 +1622,9 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
     if (container_decl != nullptr)
         return container_decl;
 
-    AstNode *enum_lit = ast_parse_enum_lit(pc);
-    if (enum_lit != nullptr)
-        return enum_lit;
+    AstNode *anon_lit = ast_parse_anon_lit(pc);
+    if (anon_lit != nullptr)
+        return anon_lit;
 
     AstNode *error_set_decl = ast_parse_error_set_decl(pc);
     if (error_set_decl != nullptr)
@@ -1876,16 +1898,22 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc) {
     return res;
 }
 
-static AstNode *ast_parse_enum_lit(ParseContext *pc) {
+static AstNode *ast_parse_anon_lit(ParseContext *pc) {
     Token *period = eat_token_if(pc, TokenIdDot);
     if (period == nullptr)
         return nullptr;
 
-    Token *identifier = expect_token(pc, TokenIdSymbol);
-    AstNode *res = ast_create_node(pc, NodeTypeEnumLiteral, period);
-    res->data.enum_literal.period = period;
-    res->data.enum_literal.identifier = identifier;
-    return res;
+    // anon enum literal
+    Token *identifier = eat_token_if(pc, TokenIdSymbol);
+    if (identifier != nullptr) {
+        AstNode *res = ast_create_node(pc, NodeTypeEnumLiteral, period);
+        res->data.enum_literal.period = period;
+        res->data.enum_literal.identifier = identifier;
+        return res;
+    }
+
+    // anon container literal
+    return ast_parse_init_list(pc);
 }
 
 // AsmOutput <- COLON AsmOutputList AsmInput?
@@ -2019,7 +2047,12 @@ static AstNode *ast_parse_field_init(ParseContext *pc) {
     if (first == nullptr)
         return nullptr;
 
-    Token *name = expect_token(pc, TokenIdSymbol);
+    Token *name = eat_token_if(pc, TokenIdSymbol);
+    if (name == nullptr) {
+        // Because of anon literals ".{" is also valid.
+        put_back_token(pc);
+        return nullptr;
+    }
     if (eat_token_if(pc, TokenIdEq) == nullptr) {
         // Because ".Name" can also be intepreted as an enum literal, we should put back
         // those two tokens again so that the parser can try to parse them as the enum
@@ -2791,6 +2824,9 @@ static AstNode *ast_parse_container_decl_auto(ParseContext *pc) {
 
     res->data.container_decl.fields = members.fields;
     res->data.container_decl.decls = members.decls;
+    if (buf_len(&members.doc_comments) != 0) {
+        res->data.container_decl.doc_comments = members.doc_comments;
+    }
     return res;
 }
 

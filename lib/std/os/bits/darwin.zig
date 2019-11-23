@@ -133,11 +133,6 @@ pub const dirent = extern struct {
     }
 };
 
-pub const pthread_attr_t = extern struct {
-    __sig: c_long,
-    __opaque: [56]u8,
-};
-
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
 pub const Kevent = extern struct {
     ident: usize,
@@ -272,7 +267,6 @@ pub const SA_USERTRAMP = 0x0100;
 /// signal handler with SA_SIGINFO args with 64bit   regs information
 pub const SA_64REGSET = 0x0200;
 
-pub const O_LARGEFILE = 0x0000;
 pub const O_PATH = 0x0000;
 
 pub const F_OK = 0;

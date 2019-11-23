@@ -134,11 +134,11 @@ test "extendsftf2" {
 }
 
 fn makeQNaN64() f64 {
-    return @bitCast(f64, u64(0x7ff8000000000000));
+    return @bitCast(f64, @as(u64, 0x7ff8000000000000));
 }
 
 fn makeInf64() f64 {
-    return @bitCast(f64, u64(0x7ff0000000000000));
+    return @bitCast(f64, @as(u64, 0x7ff0000000000000));
 }
 
 fn makeNaN64(rand: u64) f64 {
@@ -146,7 +146,7 @@ fn makeNaN64(rand: u64) f64 {
 }
 
 fn makeQNaN32() f32 {
-    return @bitCast(f32, u32(0x7fc00000));
+    return @bitCast(f32, @as(u32, 0x7fc00000));
 }
 
 fn makeNaN32(rand: u32) f32 {
@@ -154,5 +154,5 @@ fn makeNaN32(rand: u32) f32 {
 }
 
 fn makeInf32() f32 {
-    return @bitCast(f32, u32(0x7f800000));
+    return @bitCast(f32, @as(u32, 0x7f800000));
 }

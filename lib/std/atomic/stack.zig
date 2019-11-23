@@ -11,7 +11,7 @@ pub fn Stack(comptime T: type) type {
         root: ?*Node,
         lock: @typeOf(lock_init),
 
-        const lock_init = if (builtin.single_threaded) {} else u8(0);
+        const lock_init = if (builtin.single_threaded) {} else @as(u8, 0);
 
         pub const Self = @This();
 
@@ -128,7 +128,7 @@ test "std.atomic.stack" {
 
         for (putters) |t|
             t.wait();
-        _ = @atomicRmw(u8, &context.puts_done, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
+        @atomicStore(u8, &context.puts_done, 1, AtomicOrder.SeqCst);
         for (getters) |t|
             t.wait();
     }
@@ -141,8 +141,8 @@ test "std.atomic.stack" {
         std.debug.panic(
             "failure\nget_count:{} != puts_per_thread:{} * put_thread_count:{}",
             context.get_count,
-            u32(puts_per_thread),
-            u32(put_thread_count),
+            @as(u32, puts_per_thread),
+            @as(u32, put_thread_count),
         );
     }
 }

@@ -164,15 +164,17 @@
     <div id="contents">
       {#header_open|Introduction#}
       <p>
-      Zig is a general-purpose programming language designed for <strong>robustness</strong>,
-      <strong>optimality</strong>, and <strong>maintainability</strong>.
+      Zig is a general-purpose programming language for maintaining <strong>robust</strong>,
+      <strong>optimal</strong>, and <strong>reusable</strong> code.
       </p>
       <ul>
         <li><strong>Robust</strong> - behavior is correct even for edge cases such as out of memory.</li>
         <li><strong>Optimal</strong> - write programs the best way they can behave and perform.</li>
-        <li><strong>Maintainable</strong> - precisely communicate intent to the compiler and other programmers.
-            The language imposes a low overhead to reading code and is resilient to changing requirements
-            and environments.</li>
+        <li><strong>Reusable</strong> - the same code works in many environments which have different
+          constraints.</li>
+        <li><strong>Maintainable</strong> - precisely communicate intent to the compiler and
+          other programmers. The language imposes a low overhead to reading code and is
+          resilient to changing requirements and environments.</li>
       </ul>
       <p>
       Often the most efficient way to learn something new is to see examples, so
@@ -202,11 +204,8 @@
 const std = @import("std");
 
 pub fn main() !void {
-    // If this program is run without stdout attached, exit with an error.
-    const stdout_file = try std.io.getStdOut();
-    // If this program encounters pipe failure when printing to stdout, exit
-    // with an error.
-    try stdout_file.write("Hello, world!\n");
+    const stdout = &std.io.getStdOut().outStream().stream;
+    try stdout.print("Hello, {}!\n", "world");
 }
       {#code_end#}
       <p>
@@ -712,7 +711,7 @@ test "init with undefined" {
 }
       {#code_end#}
       <p>
-      {#syntax#}undefined{#endsyntax#} can be {#link|implicitly cast|Implicit Casts#} to any type.
+      {#syntax#}undefined{#endsyntax#} can be {#link|coerced|Type Coercion#} to any type.
           Once this happens, it is no longer possible to detect that the value is {#syntax#}undefined{#endsyntax#}.
               {#syntax#}undefined{#endsyntax#} means the value could be anything, even something that is nonsense
                   according to the type. Translated into English, {#syntax#}undefined{#endsyntax#} means "Not a meaningful
@@ -920,7 +919,7 @@ fn divide(a: i32, b: i32) i32 {
       {#syntax#}f128{#endsyntax#}.
       </p>
       <p>
-      Float literals {#link|implicitly cast|Implicit Casts#} to any floating point type,
+      Float literals {#link|coerce|Type Coercion#} to any floating point type,
       and to any {#link|integer|Integers#} type when there is no fractional component.
       </p>
       {#code_begin|syntax#}
@@ -950,7 +949,7 @@ const nan = std.math.nan(f128);
       {#code_begin|obj|foo#}
       {#code_release_fast#}
 const builtin = @import("builtin");
-const big = f64(1 << 40);
+const big = @as(f64, 1 << 40);
 
 export fn foo_strict(x: f64) f64 {
     return x + big - big;
@@ -1652,7 +1651,7 @@ test "iterate over an array" {
     for (message) |byte| {
         sum += byte;
     }
-    assert(sum == usize('h') + usize('e') + usize('l') * 2 + usize('o'));
+    assert(sum == 'h' + 'e' + 'l' * 2 + 'o');
 }
 
 // modifiable array
@@ -1733,6 +1732,43 @@ test "array initialization with function calls" {
 }
       {#code_end#}
       {#see_also|for|Slices#}
+
+      {#header_open|Anonymous List Literals#}
+      <p>Similar to {#link|Enum Literals#} and {#link|Anonymous Struct Literals#}
+      the type can be omitted from array literals:</p>
+      {#code_begin|test|anon_list#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "anonymous list literal syntax" {
+    var array: [4]u8 = .{11, 22, 33, 44};
+    assert(array[0] == 11);
+    assert(array[1] == 22);
+    assert(array[2] == 33);
+    assert(array[3] == 44);
+}
+      {#code_end#}
+      <p>
+      If there is no type in the result location then an anonymous list literal actually
+      turns into a {#link|struct#} with numbered field names:
+      </p>
+      {#code_begin|test|infer_list_literal#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "fully anonymous list literal" {
+    dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi"});
+}
+
+fn dump(args: var) void {
+    assert(args.@"0" == 1234);
+    assert(args.@"1" == 12.34);
+    assert(args.@"2");
+    assert(args.@"3"[0] == 'h');
+    assert(args.@"3"[1] == 'i');
+}
+      {#code_end#}
+      {#header_close#}
 
       {#header_open|Multidimensional Arrays#}
       <p>
@@ -2003,7 +2039,7 @@ test "variable alignment" {
     }
 }
       {#code_end#}
-      <p>In the same way that a {#syntax#}*i32{#endsyntax#} can be {#link|implicitly cast|Implicit Casts#} to a
+      <p>In the same way that a {#syntax#}*i32{#endsyntax#} can be {#link|coerced|Type Coercion#} to a
           {#syntax#}*const i32{#endsyntax#}, a pointer with a larger alignment can be implicitly
       cast to a pointer with a smaller alignment, but not vice versa.
       </p>
@@ -2019,7 +2055,7 @@ var foo: u8 align(4) = 100;
 test "global variable alignment" {
     assert(@typeOf(&foo).alignment == 4);
     assert(@typeOf(&foo) == *align(4) u8);
-    const slice = (*[1]u8)(&foo)[0..];
+    const slice = @as(*[1]u8, &foo)[0..];
     assert(@typeOf(slice) == []align(4) u8);
 }
 
@@ -2114,7 +2150,7 @@ const fmt = @import("std").fmt;
 test "using slices for strings" {
     // Zig has no concept of strings. String literals are arrays of u8, and
     // in general the string type is []u8 (slice of u8).
-    // Here we implicitly cast [5]u8 to []const u8
+    // Here we coerce [5]u8 to []const u8
     const hello: []const u8 = "hello";
     const world: []const u8 = "世界";
 
@@ -2526,7 +2562,8 @@ test "overaligned pointer to packed struct" {
       Don't worry, there will be a good solution for this use case in zig.
       </p>
       {#header_close#}
-      {#header_open|struct Naming#}
+
+      {#header_open|Struct Naming#}
       <p>Since all structs are anonymous, Zig infers the type name based on a few rules.</p>
       <ul>
           <li>If the struct is in the initialization expression of a variable, it gets named after
@@ -2549,6 +2586,53 @@ fn List(comptime T: type) type {
     return struct {
         x: T,
     };
+}
+      {#code_end#}
+      {#header_close#}
+
+      {#header_open|Anonymous Struct Literals#}
+      <p>
+      Zig allows omitting the struct type of a literal. When the result is {#link|coerced|Type Coercion#},
+      the struct literal will directly instantiate the result location, with no copy:
+      </p>
+      {#code_begin|test|struct_result#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const Point = struct {x: i32, y: i32};
+
+test "anonymous struct literal" {
+    var pt: Point = .{
+        .x = 13,
+        .y = 67,
+    };
+    assert(pt.x == 13);
+    assert(pt.y == 67);
+}
+      {#code_end#}
+      <p>
+      The struct type can be inferred. Here the result location does not include a type, and
+      so Zig infers the type:
+      </p>
+      {#code_begin|test|struct_anon#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "fully anonymous struct" {
+    dump(.{
+        .int = @as(u32, 1234),
+        .float = @as(f64, 12.34),
+        .b = true,
+        .s = "hi",
+    });
+}
+
+fn dump(args: var) void {
+    assert(args.int == 1234);
+    assert(args.float == 12.34);
+    assert(args.b);
+    assert(args.s[0] == 'h');
+    assert(args.s[1] == 'i');
 }
       {#code_end#}
       {#header_close#}
@@ -2778,7 +2862,7 @@ test "simple union" {
       This turns the union into a <em>tagged</em> union, which makes it eligible
       to use with {#link|switch#} expressions. One can use {#link|@TagType#} to
       obtain the enum type from the union type.
-      Tagged unions implicitly cast to their enum {#link|Implicit Cast: unions and enums#}
+      Tagged unions coerce to their enum {#link|Type Coercion: unions and enums#}
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -2795,7 +2879,7 @@ const ComplexType = union(ComplexTypeTag) {
 
 test "switch on tagged union" {
     const c = ComplexType{ .Ok = 42 };
-    assert(ComplexTypeTag(c) == ComplexTypeTag.Ok);
+    assert(@as(ComplexTypeTag, c) == ComplexTypeTag.Ok);
 
     switch (c) {
         ComplexTypeTag.Ok => |value| assert(value == 42),
@@ -2807,7 +2891,7 @@ test "@TagType" {
     assert(@TagType(ComplexType) == ComplexTypeTag);
 }
 
-test "implicit cast to enum" {
+test "coerce to enum" {
     const c1 = ComplexType{ .Ok = 42 };
     const c2 = ComplexType.NotOk;
 
@@ -2833,7 +2917,7 @@ const ComplexType = union(ComplexTypeTag) {
 
 test "modify tagged union in switch" {
     var c = ComplexType{ .Ok = 42 };
-    assert(ComplexTypeTag(c) == ComplexTypeTag.Ok);
+    assert(@as(ComplexTypeTag, c) == ComplexTypeTag.Ok);
 
     switch (c) {
         ComplexTypeTag.Ok => |*value| value.* += 1,
@@ -2906,6 +2990,32 @@ test "@tagName" {
       <p>A {#syntax#}packed union{#endsyntax#} has well-defined in-memory layout and is eligible
       to be in a {#link|packed struct#}.
       {#header_close#}
+
+      {#header_open|Anonymous Union Literals#}
+      <p>{#link|Anonymous Struct Literals#} syntax can be used to initialize unions without specifying
+      the type:</p>
+      {#code_begin|test|anon_union#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const Number = union {
+    int: i32,
+    float: f64,
+};
+
+test "anonymous union literal syntax" {
+    var i: Number = .{.int = 42};
+    var f = makeNumber();
+    assert(i.int == 42);
+    assert(f.float == 12.34);
+}
+
+fn makeNumber() Number {
+    return .{.float = 12.34};
+}
+      {#code_end#}
+      {#header_close#}
+
       {#header_close#}
 
       {#header_open|blocks#}
@@ -3943,7 +4053,7 @@ test "fn reflection" {
       However right now it is hard coded to be a {#syntax#}u16{#endsyntax#}. See <a href="https://github.com/ziglang/zig/issues/786">#768</a>.
       </p>
       <p>
-      You can {#link|implicitly cast|Implicit Casts#} an error from a subset to a superset:
+      You can {#link|coerce|Type Coercion#} an error from a subset to a superset:
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -3958,7 +4068,7 @@ const AllocationError = error {
     OutOfMemory,
 };
 
-test "implicit cast subset to superset" {
+test "coerce subset to superset" {
     const err = foo(AllocationError.OutOfMemory);
     std.debug.assert(err == FileOpenError.OutOfMemory);
 }
@@ -3968,7 +4078,7 @@ fn foo(err: AllocationError) FileOpenError {
 }
       {#code_end#}
       <p>
-      But you cannot implicitly cast an error from a superset to a subset:
+      But you cannot {#link|coerce|Type Coercion#} an error from a superset to a subset:
       </p>
       {#code_begin|test_err|not a member of destination error set#}
 const FileOpenError = error {
@@ -3981,7 +4091,7 @@ const AllocationError = error {
     OutOfMemory,
 };
 
-test "implicit cast superset to subset" {
+test "coerce superset to subset" {
     foo(FileOpenError.OutOfMemory) catch {};
 }
 
@@ -4008,7 +4118,7 @@ const err = (error {FileNotFound}).FileNotFound;
       It is a superset of all other error sets and a subset of none of them.
       </p>
       <p>
-      You can implicitly cast any error set to the global one, and you can explicitly
+      You can {#link|coerce|Type Coercion#} any error set to the global one, and you can explicitly
       cast an error of the global error set to a non-global one. This inserts a language-level
       assert to make sure the error value is in fact in the destination error set.
       </p>
@@ -4079,7 +4189,7 @@ test "parse u64" {
       <p>
       Within the function definition, you can see some return statements that return
       an error, and at the bottom a return statement that returns a {#syntax#}u64{#endsyntax#}.
-          Both types {#link|implicitly cast|Implicit Casts#} to {#syntax#}anyerror!u64{#endsyntax#}.
+          Both types {#link|coerce|Type Coercion#} to {#syntax#}anyerror!u64{#endsyntax#}.
       </p>
       <p>
       What it looks like to use this function varies depending on what you're
@@ -4218,10 +4328,10 @@ const assert = @import("std").debug.assert;
 test "error union" {
     var foo: anyerror!i32 = undefined;
 
-    // Implicitly cast from child type of an error union:
+    // Coerce from child type of an error union:
     foo = 1234;
 
-    // Implicitly cast from an error set:
+    // Coerce from an error set:
     foo = error.SomeError;
 
     // Use compile-time reflection to access the payload type of an error union:
@@ -4598,10 +4708,10 @@ fn doAThing(optional_foo: ?*Foo) void {
 const assert = @import("std").debug.assert;
 
 test "optional type" {
-    // Declare an optional and implicitly cast from null:
+    // Declare an optional and coerce from null:
     var foo: ?i32 = null;
 
-    // Implicitly cast from child type of an optional
+    // Coerce from child type of an optional
     foo = 1234;
 
     // Use compile-time reflection to access the child type of the optional:
@@ -4644,38 +4754,38 @@ test "optional pointers" {
       {#header_open|Casting#}
       <p>
       A <strong>type cast</strong> converts a value of one type to another.
-      Zig has {#link|Implicit Casts#} for conversions that are known to be completely safe and unambiguous,
+      Zig has {#link|Type Coercion#} for conversions that are known to be completely safe and unambiguous,
       and {#link|Explicit Casts#} for conversions that one would not want to happen on accident.
       There is also a third kind of type conversion called {#link|Peer Type Resolution#} for
       the case when a result type must be decided given multiple operand types.
       </p>
-      {#header_open|Implicit Casts#}
+      {#header_open|Type Coercion#}
       <p>
-      An implicit cast occurs when one type is expected, but different type is provided:
+      Type coercion occurs when one type is expected, but different type is provided:
       </p>
       {#code_begin|test#}
-test "implicit cast - variable declaration" {
+test "type coercion - variable declaration" {
     var a: u8 = 1;
     var b: u16 = a;
 }
 
-test "implicit cast - function call" {
+test "type coercion - function call" {
     var a: u8 = 1;
     foo(a);
 }
 
 fn foo(b: u16) void {}
 
-test "implicit cast - invoke a type as a function" {
+test "type coercion - @as builtin" {
     var a: u8 = 1;
-    var b = u16(a);
+    var b = @as(u16, a);
 }
       {#code_end#}
       <p>
-      Implicit casts are only allowed when it is completely unambiguous how to get from one type to another,
+      Type coercions are only allowed when it is completely unambiguous how to get from one type to another,
       and the transformation is guaranteed to be safe. There is one exception, which is {#link|C Pointers#}.
       </p>
-      {#header_open|Implicit Cast: Stricter Qualification#}
+      {#header_open|Type Coercion: Stricter Qualification#}
       <p>
       Values which have the same representation at runtime can be cast to increase the strictness
       of the qualifiers, no matter how nested the qualifiers are:
@@ -4690,7 +4800,7 @@ test "implicit cast - invoke a type as a function" {
       These casts are no-ops at runtime since the value representation does not change.
       </p>
       {#code_begin|test#}
-test "implicit cast - const qualification" {
+test "type coercion - const qualification" {
     var a: i32 = 1;
     var b: *i32 = &a;
     foo(b);
@@ -4699,7 +4809,7 @@ test "implicit cast - const qualification" {
 fn foo(a: *const i32) void {}
       {#code_end#}
       <p>
-      In addition, pointers implicitly cast to const optional pointers:
+      In addition, pointers coerce to const optional pointers:
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -4713,10 +4823,10 @@ test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
 }
       {#code_end#}
       {#header_close#}
-      {#header_open|Implicit Cast: Integer and Float Widening#}
+      {#header_open|Type Coercion: Integer and Float Widening#}
       <p>
-      {#link|Integers#} implicitly cast to integer types which can represent every value of the old type, and likewise
-      {#link|Floats#} implicitly cast to float types which can represent every value of the old type.
+      {#link|Integers#} coerce to integer types which can represent every value of the old type, and likewise
+      {#link|Floats#} coerce to float types which can represent every value of the old type.
       </p>
       {#code_begin|test#}
 const std = @import("std");
@@ -4748,7 +4858,7 @@ test "float widening" {
 }
       {#code_end#}
       {#header_close#}
-      {#header_open|Implicit Cast: Arrays and Pointers#}
+      {#header_open|Type Coercion: Arrays and Pointers#}
       {#code_begin|test#}
 const std = @import("std");
 const assert = std.debug.assert;
@@ -4797,7 +4907,7 @@ test "*[N]T to []T" {
     assert(std.mem.eql(f32, x2, [2]f32{ 1.2, 3.4 }));
 }
 
-// Single-item pointers to arrays can be implicitly casted to
+// Single-item pointers to arrays can be coerced to
 // unknown length pointers.
 test "*[N]T to [*]T" {
     var buf: [5]u8 = "hello";
@@ -4823,15 +4933,15 @@ test "*T to *[1]T" {
       {#code_end#}
       {#see_also|C Pointers#}
       {#header_close#}
-      {#header_open|Implicit Cast: Optionals#}
+      {#header_open|Type Coercion: Optionals#}
       <p>
-      The payload type of {#link|Optionals#}, as well as {#link|null#}, implicitly cast to the optional type.
+      The payload type of {#link|Optionals#}, as well as {#link|null#}, coerce to the optional type.
       </p>
       {#code_begin|test#}
 const std = @import("std");
 const assert = std.debug.assert;
 
-test "implicit casting to optionals" {
+test "coerce to optionals" {
     const x: ?i32 = 1234;
     const y: ?i32 = null;
 
@@ -4844,7 +4954,7 @@ test "implicit casting to optionals" {
 const std = @import("std");
 const assert = std.debug.assert;
 
-test "implicit casting to optionals wrapped in error union" {
+test "coerce to optionals wrapped in error union" {
     const x: anyerror!?i32 = 1234;
     const y: anyerror!?i32 = null;
 
@@ -4853,15 +4963,15 @@ test "implicit casting to optionals wrapped in error union" {
 }
       {#code_end#}
       {#header_close#}
-      {#header_open|Implicit Cast: Error Unions#}
+      {#header_open|Type Coercion: Error Unions#}
       <p>The payload type of an {#link|Error Union Type#} as well as the {#link|Error Set Type#}
-      implicitly cast to the error union type:
+      coerce to the error union type:
       </p>
       {#code_begin|test#}
 const std = @import("std");
 const assert = std.debug.assert;
 
-test "implicit casting to error unions" {
+test "coercion to error unions" {
     const x: anyerror!i32 = 1234;
     const y: anyerror!i32 = error.Failure;
 
@@ -4870,23 +4980,23 @@ test "implicit casting to error unions" {
 }
       {#code_end#}
       {#header_close#}
-      {#header_open|Implicit Cast: Compile-Time Known Numbers#}
+      {#header_open|Type Coercion: Compile-Time Known Numbers#}
       <p>When a number is {#link|comptime#}-known to be representable in the destination type,
-      it may be implicitly casted:
+      it may be coerced:
       </p>
       {#code_begin|test#}
 const std = @import("std");
 const assert = std.debug.assert;
 
-test "implicit casting large integer type to smaller one when value is comptime known to fit" {
+test "coercing large integer type to smaller one when value is comptime known to fit" {
     const x: u64 = 255;
     const y: u8 = x;
     assert(y == 255);
 }
       {#code_end#}
       {#header_close#}
-      {#header_open|Implicit Cast: unions and enums#}
-      <p>Tagged unions can be implicitly cast to enums, and enums can be implicitly casted to tagged unions
+      {#header_open|Type Coercion: unions and enums#}
+      <p>Tagged unions can be coerced to enums, and enums can be coerced to tagged unions
       when they are {#link|comptime#}-known to be a field of the union that has only one possible value, such as
       {#link|void#}:
       </p>
@@ -4906,7 +5016,7 @@ const U = union(E) {
     Three,
 };
 
-test "implicit casting between unions and enums" {
+test "coercion between unions and enums" {
     var u = U{ .Two = 12.34 };
     var e: E = u;
     assert(e == E.Two);
@@ -4918,20 +5028,20 @@ test "implicit casting between unions and enums" {
       {#code_end#}
       {#see_also|union|enum#}
       {#header_close#}
-      {#header_open|Implicit Cast: Zero Bit Types#}
-      <p>{#link|Zero Bit Types#} may be implicitly casted to single-item {#link|Pointers#},
+      {#header_open|Type Coercion: Zero Bit Types#}
+      <p>{#link|Zero Bit Types#} may be coerced to single-item {#link|Pointers#},
       regardless of const.</p>
       <p>TODO document the reasoning for this</p>
       <p>TODO document whether vice versa should work and why</p>
       {#code_begin|test#}
-test "implicit casting of zero bit types" {
+test "coercion of zero bit types" {
     var x: void = {};
     var y: *void = x;
     //var z: void = y; // TODO
 }
       {#code_end#}
       {#header_close#}
-      {#header_open|Implicit Cast: undefined#}
+      {#header_open|Type Coercion: undefined#}
       <p>{#link|undefined#} can be cast to any type.</p>
       {#header_close#}
       {#header_close#}
@@ -4976,7 +5086,7 @@ test "implicit casting of zero bit types" {
         <li>Some {#link|binary operations|Table of Operators#}</li>
       </ul>
       <p>
-      This kind of type resolution chooses a type that all peer types can implicitly cast into. Here are
+      This kind of type resolution chooses a type that all peer types can coerce into. Here are
       some examples:
       </p>
       {#code_begin|test#}
@@ -5007,8 +5117,8 @@ test "peer resolve array and const slice" {
     comptime testPeerResolveArrayConstSlice(true);
 }
 fn testPeerResolveArrayConstSlice(b: bool) void {
-    const value1 = if (b) "aoeu" else ([]const u8)("zz");
-    const value2 = if (b) ([]const u8)("zz") else "aoeu";
+    const value1 = if (b) "aoeu" else @as([]const u8, "zz");
+    const value2 = if (b) @as([]const u8, "zz") else "aoeu";
     assert(mem.eql(u8, value1, "aoeu"));
     assert(mem.eql(u8, value2, "zz"));
 }
@@ -5023,10 +5133,10 @@ test "peer type resolution: ?T and T" {
 }
 fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
     if (c) {
-        return if (b) null else usize(0);
+        return if (b) null else @as(usize, 0);
     }
 
-    return usize(3);
+    return @as(usize, 3);
 }
 
 test "peer type resolution: [0]u8 and []const u8" {
@@ -5293,7 +5403,7 @@ fn gimmeTheBiggerInteger(a: u64, b: u64) u64 {
       <p>
       For example, if we were to introduce another function to the above snippet:
       </p>
-      {#code_begin|test_err|cannot store runtime value in type 'type'#}
+      {#code_begin|test_err|values of type 'type' must be comptime known#}
 fn max(comptime T: type, a: T, b: T) T {
     return if (a > b) a else b;
 }
@@ -5815,7 +5925,7 @@ test "printf too many arguments" {
       </p>
       <p>
       Zig doesn't care whether the format argument is a string literal,
-      only that it is a compile-time known value that is implicitly castable to a {#syntax#}[]const u8{#endsyntax#}:
+      only that it is a compile-time known value that can be coerced to a {#syntax#}[]const u8{#endsyntax#}:
       </p>
       {#code_begin|exe|printf#}
 const warn = @import("std").debug.warn;
@@ -6185,7 +6295,7 @@ fn func() void {
       </p>
       <p>
       {#syntax#}await{#endsyntax#} is a suspend point, and takes as an operand anything that
-      implicitly casts to {#syntax#}anyframe->T{#endsyntax#}.
+      coerces to {#syntax#}anyframe->T{#endsyntax#}.
       </p>
       <p>
       There is a common misconception that {#syntax#}await{#endsyntax#} resumes the target function.
@@ -6445,6 +6555,14 @@ comptime {
       </p>
       {#header_close#}
 
+      {#header_open|@as#}
+      <pre>{#syntax#}@as(comptime T: type, expression) T{#endsyntax#}</pre>
+      <p>
+      Performs {#link|Type Coercion#}. This cast is allowed when the conversion is unambiguous and safe,
+      and is the preferred way to convert between types, whenever possible.
+      </p>
+      {#header_close#}
+
       {#header_open|@asyncCall#}
       <pre>{#syntax#}@asyncCall(frame_buffer: []align(@alignOf(@Frame(anyAsyncFunction))) u8, result_ptr, function_ptr, args: ...) anyframe->T{#endsyntax#}</pre>
       <p>
@@ -6493,14 +6611,14 @@ async fn func(y: *i32) void {
       This builtin function atomically dereferences a pointer and returns the value.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#},
-      or an integer whose bit count meets these requirements:
+      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#}
+      an integer whose bit count meets these requirements:
       </p>
       <ul>
           <li>At least 8</li>
           <li>At most the same as usize</li>
           <li>Power of 2</li>
-      </ul>
+      </ul> or an enum with a valid integer tag type.
       <p>
       TODO right now bool is not accepted. Also I think we could make non powers of 2 work fine, maybe
       we can remove this restriction
@@ -6540,6 +6658,25 @@ async fn func(y: *i32) void {
         <li>{#syntax#}.Max{#endsyntax#} - stores the operand if it is larger. Supports integers and floats.</li>
         <li>{#syntax#}.Min{#endsyntax#} - stores the operand if it is smaller. Supports integers and floats.</li>
       </ul>
+      {#header_close#}
+      {#header_open|@atomicStore#}
+      <pre>{#syntax#}@atomicStore(comptime T: type, ptr: *T, value: T, comptime ordering: builtin.AtomicOrder) void{#endsyntax#}</pre>
+      <p>
+      This builtin function atomically stores a value.
+      </p>
+      <p>
+      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#}
+      an integer whose bit count meets these requirements:
+      </p>
+      <ul>
+          <li>At least 8</li>
+          <li>At most the same as usize</li>
+          <li>Power of 2</li>
+      </ul> or an enum with a valid integer tag type.
+      <p>
+      TODO right now bool is not accepted. Also I think we could make non powers of 2 work fine, maybe
+      we can remove this restriction
+      </p>
       {#header_close#}
       {#header_open|@bitCast#}
       <pre>{#syntax#}@bitCast(comptime DestType: type, value: var) DestType{#endsyntax#}</pre>
@@ -7108,7 +7245,7 @@ test "field access by string" {
       <pre>{#syntax#}@frame() *@Frame(func){#endsyntax#}</pre>
       <p>
       This function returns a pointer to the frame for a given function. This type
-      can be {#link|implicitly cast|Implicit Casts#} to {#syntax#}anyframe->T{#endsyntax#} and
+      can be {#link|coerced|Type Coercion#} to {#syntax#}anyframe->T{#endsyntax#} and
       to {#syntax#}anyframe{#endsyntax#}, where {#syntax#}T{#endsyntax#} is the return type
       of the function in scope.
       </p>
@@ -7827,7 +7964,7 @@ test "vector @splat" {
     const scalar: u32 = 5;
     const result = @splat(4, scalar);
     comptime assert(@typeOf(result) == @Vector(4, u32));
-    assert(std.mem.eql(u32, ([4]u32)(result), [_]u32{ 5, 5, 5, 5 }));
+    assert(std.mem.eql(u32, @as([4]u32, result), [_]u32{ 5, 5, 5, 5 }));
 }
       {#code_end#}
       <p>
@@ -8025,7 +8162,7 @@ test "integer truncation" {
       </p>
       <p>
       If {#syntax#}T{#endsyntax#} is {#syntax#}comptime_int{#endsyntax#},
-      then this is semantically equivalent to an {#link|implicit cast|Implicit Casts#}.
+      then this is semantically equivalent to {#link|Type Coercion#}.
       </p>
       {#header_close#}
 
@@ -8529,7 +8666,7 @@ pub fn main() void {
       {#header_close#}
       {#header_open|Cast Truncates Data#}
       <p>At compile-time:</p>
-      {#code_begin|test_err|integer value 300 cannot be implicitly casted to type 'u8'#}
+      {#code_begin|test_err|integer value 300 cannot be coerced to type 'u8'#}
 comptime {
     const spartan_count: u16 = 300;
     const byte = @intCast(u8, spartan_count);
@@ -8665,7 +8802,7 @@ test "wraparound addition and subtraction" {
       <p>At compile-time:</p>
       {#code_begin|test_err|operation caused overflow#}
 comptime {
-    const x = @shlExact(u8(0b01010101), 2);
+    const x = @shlExact(@as(u8, 0b01010101), 2);
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -8683,7 +8820,7 @@ pub fn main() void {
       <p>At compile-time:</p>
       {#code_begin|test_err|exact shift shifted out 1 bits#}
 comptime {
-    const x = @shrExact(u8(0b10101010), 2);
+    const x = @shrExact(@as(u8, 0b10101010), 2);
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -9535,8 +9672,8 @@ const c = @cImport({
       <p>{#syntax#}[*c]T{#endsyntax#} - C pointer.</p>
       <ul>
         <li>Supports all the syntax of the other two pointer types.</li>
-        <li>Implicitly casts to other pointer types, as well as {#link|Optional Pointers#}.
-            When a C pointer is implicitly casted to a non-optional pointer, safety-checked
+        <li>Coerces to other pointer types, as well as {#link|Optional Pointers#}.
+            When a C pointer is coerced to a non-optional pointer, safety-checked
             {#link|Undefined Behavior#} occurs if the address is 0.
         </li>
         <li>Allows address 0. On non-freestanding targets, dereferencing address 0 is safety-checked
@@ -9544,7 +9681,7 @@ const c = @cImport({
             null, just like {#syntax#}?usize{#endsyntax#}. Note that creating an optional C pointer
             is unnecessary as one can use normal {#link|Optional Pointers#}.
         </li>
-        <li>Supports {#link|implicit casting|Implicit Casts#} to and from integers.</li>
+        <li>Supports {#link|Type Coercion#} to and from integers.</li>
         <li>Supports comparison with integers.</li>
         <li>Does not support Zig-only pointer attributes such as alignment. Use normal {#link|Pointers#}
         please!</li>

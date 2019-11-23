@@ -199,7 +199,7 @@ test "std.atomic.Queue" {
 
         for (putters) |t|
             t.wait();
-        _ = @atomicRmw(u8, &context.puts_done, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
+        @atomicStore(u8, &context.puts_done, 1, AtomicOrder.SeqCst);
         for (getters) |t|
             t.wait();
 
@@ -214,8 +214,8 @@ test "std.atomic.Queue" {
         std.debug.panic(
             "failure\nget_count:{} != puts_per_thread:{} * put_thread_count:{}",
             context.get_count,
-            u32(puts_per_thread),
-            u32(put_thread_count),
+            @as(u32, puts_per_thread),
+            @as(u32, put_thread_count),
         );
     }
 }

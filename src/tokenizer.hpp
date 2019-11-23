@@ -43,6 +43,7 @@ enum TokenId {
     TokenIdDash,
     TokenIdDivEq,
     TokenIdDocComment,
+    TokenIdContainerDocComment,
     TokenIdDot,
     TokenIdDotStar,
     TokenIdEllipsis2,

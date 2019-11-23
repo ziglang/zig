@@ -59,7 +59,6 @@ pub const Token = struct {
         Keyword{ .bytes = "undefined", .id = Id.Keyword_undefined },
         Keyword{ .bytes = "union", .id = Id.Keyword_union },
         Keyword{ .bytes = "unreachable", .id = Id.Keyword_unreachable },
-        Keyword{ .bytes = "use", .id = Id.Keyword_usingnamespace },
         Keyword{ .bytes = "usingnamespace", .id = Id.Keyword_usingnamespace },
         Keyword{ .bytes = "var", .id = Id.Keyword_var },
         Keyword{ .bytes = "volatile", .id = Id.Keyword_volatile },
@@ -143,6 +142,7 @@ pub const Token = struct {
         FloatLiteral,
         LineComment,
         DocComment,
+        ContainerDocComment,
         BracketStarBracket,
         BracketStarCBracket,
         ShebangLine,
@@ -212,6 +212,7 @@ pub const Token = struct {
                 .FloatLiteral => "FloatLiteral",
                 .LineComment => "LineComment",
                 .DocComment => "DocComment",
+                .ContainerDocComment => "ContainerDocComment",
                 .ShebangLine => "ShebangLine",
 
                 .Bang => "!",
@@ -337,26 +338,13 @@ pub const Tokenizer = struct {
     }
 
     pub fn init(buffer: []const u8) Tokenizer {
-        if (mem.startsWith(u8, buffer, "#!")) {
-            const src_start = if (mem.indexOfScalar(u8, buffer, '\n')) |i| i + 1 else buffer.len;
-            return Tokenizer{
-                .buffer = buffer,
-                .index = src_start,
-                .pending_invalid_token = Token{
-                    .id = Token.Id.ShebangLine,
-                    .start = 0,
-                    .end = src_start,
-                },
-            };
-        } else {
-            // Skip the UTF-8 BOM if present
-            const src_start = if (mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else usize(0);
-            return Tokenizer{
-                .buffer = buffer,
-                .index = src_start,
-                .pending_invalid_token = null,
-            };
-        }
+        // Skip the UTF-8 BOM if present
+        const src_start = if (mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else @as(usize, 0);
+        return Tokenizer{
+            .buffer = buffer,
+            .index = src_start,
+            .pending_invalid_token = null,
+        };
     }
 
     const State = enum {
@@ -388,6 +376,7 @@ pub const Tokenizer = struct {
         LineComment,
         DocCommentStart,
         DocComment,
+        ContainerDocComment,
         Zero,
         IntegerLiteral,
         IntegerLiteralWithRadix,
@@ -763,12 +752,12 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
-                    '\n' => break, // Look for this error later.
+                    '\n', '\r' => break, // Look for this error later.
                     else => self.checkLiteralCharacter(),
                 },
 
                 State.StringLiteralBackslash => switch (c) {
-                    '\n' => break, // Look for this error later.
+                    '\n', '\r' => break, // Look for this error later.
                     else => {
                         state = State.StringLiteral;
                     },
@@ -1077,6 +1066,10 @@ pub const Tokenizer = struct {
                     '/' => {
                         state = State.DocCommentStart;
                     },
+                    '!' => {
+                        result.id = Token.Id.ContainerDocComment;
+                        state = State.ContainerDocComment;
+                    },
                     '\n' => break,
                     else => {
                         state = State.LineComment;
@@ -1097,7 +1090,7 @@ pub const Tokenizer = struct {
                         self.checkLiteralCharacter();
                     },
                 },
-                State.LineComment, State.DocComment => switch (c) {
+                State.LineComment, State.DocComment, State.ContainerDocComment => switch (c) {
                     '\n' => break,
                     else => self.checkLiteralCharacter(),
                 },
@@ -1234,6 +1227,9 @@ pub const Tokenizer = struct {
                 },
                 State.DocComment, State.DocCommentStart => {
                     result.id = Token.Id.DocComment;
+                },
+                State.ContainerDocComment => {
+                    result.id = Token.Id.ContainerDocComment;
                 },
 
                 State.NumberDot,
@@ -1602,6 +1598,8 @@ test "tokenizer - line comment and doc comment" {
     testTokenize("/// a", [_]Token.Id{Token.Id.DocComment});
     testTokenize("///", [_]Token.Id{Token.Id.DocComment});
     testTokenize("////", [_]Token.Id{Token.Id.LineComment});
+    testTokenize("//!", [_]Token.Id{Token.Id.ContainerDocComment});
+    testTokenize("//!!", [_]Token.Id{Token.Id.ContainerDocComment});
 }
 
 test "tokenizer - line comment followed by identifier" {
@@ -1621,6 +1619,16 @@ test "tokenizer - line comment followed by identifier" {
 test "tokenizer - UTF-8 BOM is recognized and skipped" {
     testTokenize("\xEF\xBB\xBFa;\n", [_]Token.Id{
         Token.Id.Identifier,
+        Token.Id.Semicolon,
+    });
+}
+
+test "correctly parse pointer assignment" {
+    testTokenize("b.*=3;\n", [_]Token.Id{
+        Token.Id.Identifier,
+        Token.Id.PeriodAsterisk,
+        Token.Id.Equal,
+        Token.Id.IntegerLiteral,
         Token.Id.Semicolon,
     });
 }

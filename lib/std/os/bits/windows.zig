@@ -186,6 +186,11 @@ pub const sockaddr_in6 = extern struct {
 pub const in6_addr = [16]u8;
 pub const in_addr = u32;
 
+pub const sockaddr_un = extern struct {
+    family: sa_family_t = AF_UNIX,
+    path: [108]u8,
+};
+
 pub const AF_UNSPEC = 0;
 pub const AF_UNIX = 1;
 pub const AF_INET = 2;
@@ -221,3 +226,17 @@ pub const AF_TCNMESSAGE = 30;
 pub const AF_ICLFXBM = 31;
 pub const AF_BTH = 32;
 pub const AF_MAX = 33;
+
+pub const SOCK_STREAM = 1;
+pub const SOCK_DGRAM = 2;
+pub const SOCK_RAW = 3;
+pub const SOCK_RDM = 4;
+pub const SOCK_SEQPACKET = 5;
+
+pub const IPPROTO_ICMP = 1;
+pub const IPPROTO_IGMP = 2;
+pub const BTHPROTO_RFCOMM = 3;
+pub const IPPROTO_TCP = 6;
+pub const IPPROTO_UDP = 17;
+pub const IPPROTO_ICMPV6 = 58;
+pub const IPPROTO_RM = 113;
