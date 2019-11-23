@@ -71,17 +71,17 @@ test "type info: null terminated pointer type info" {
 }
 
 fn testNullTerminatedPtr() void {
-    const ptr_info = @typeInfo([*]null u8);
+    const ptr_info = @typeInfo([*:0]u8);
     expect(@as(TypeId, ptr_info) == TypeId.Pointer);
     expect(ptr_info.Pointer.size == TypeInfo.Pointer.Size.Many);
     expect(ptr_info.Pointer.is_const == false);
     expect(ptr_info.Pointer.is_volatile == false);
     expect(ptr_info.Pointer.is_null_terminated == true);
 
-    expect(@typeInfo([]null u8).Pointer.is_null_terminated == true);
-    expect(@typeInfo([10]null u8).Array.is_null_terminated == true);
-    expect(@typeInfo([10]null u8).Array.len == 10);
-    expect(@sizeOf([10]null u8) == 11);
+    expect(@typeInfo([:0]u8).Pointer.sentinel != null);
+    expect(@typeInfo([10:0]u8).Array.sentinel != null);
+    expect(@typeInfo([10:0]u8).Array.len == 10);
+    expect(@sizeOf([10:0]u8) == 11);
 }
 
 test "type info: C pointer type info" {

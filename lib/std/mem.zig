@@ -1409,7 +1409,7 @@ fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
     const size = @as(usize, @sizeOf(T));
 
     if (comptime !trait.is(builtin.TypeId.Pointer)(B) or
-        (meta.Child(B) != [size]u8 and meta.Child(B) != [size]null u8))
+        (meta.Child(B) != [size]u8 and meta.Child(B) != [size:0]u8))
     {
         @compileError("expected *[N]u8 " ++ ", passed " ++ @typeName(B));
     }

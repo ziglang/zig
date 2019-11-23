@@ -147,9 +147,9 @@ static const char *token_to_ptr_len_str(Token *tok) {
         case TokenIdStar:
         case TokenIdStarStar:
             return "*";
-        case TokenIdBracketStarBracket:
+        case TokenIdLBracket:
             return "[*]";
-        case TokenIdBracketStarCBracket:
+        case TokenIdSymbol:
             return "[*c]";
         default:
             zig_unreachable();

@@ -55,7 +55,6 @@ enum PtrLen {
     PtrLenUnknown,
     PtrLenSingle,
     PtrLenC,
-    PtrLenNull,
 };
 
 // This one corresponds to the builtin.zig enum.
@@ -353,19 +352,20 @@ struct LazyValueSliceType {
     LazyValue base;
 
     IrAnalyze *ira;
+    IrInstruction *sentinel; // can be null
     IrInstruction *elem_type;
     IrInstruction *align_inst; // can be null
 
     bool is_const;
     bool is_volatile;
     bool is_allowzero;
-    bool is_null_terminated;
 };
 
 struct LazyValuePtrType {
     LazyValue base;
 
     IrAnalyze *ira;
+    IrInstruction *sentinel; // can be null
     IrInstruction *elem_type;
     IrInstruction *align_inst; // can be null
 
@@ -821,6 +821,7 @@ struct AstNodePrefixOpExpr {
 
 struct AstNodePointerType {
     Token *star_token;
+    AstNode *sentinel;
     AstNode *align_expr;
     BigInt *bit_offset_start;
     BigInt *host_int_bytes;
@@ -828,21 +829,21 @@ struct AstNodePointerType {
     Token *allow_zero_token;
     bool is_const;
     bool is_volatile;
-    bool is_null_terminated;
 };
 
 struct AstNodeInferredArrayType {
+    AstNode *sentinel; // can be null
     AstNode *child_type;
 };
 
 struct AstNodeArrayType {
     AstNode *size;
+    AstNode *sentinel;
     AstNode *child_type;
     AstNode *align_expr;
     Token *allow_zero_token;
     bool is_const;
     bool is_volatile;
-    bool is_null_terminated;
 };
 
 struct AstNodeUsingNamespace {
@@ -1208,6 +1209,11 @@ struct ZigTypePointer {
     // struct.
     InferredStructField *inferred_struct_field;
 
+    // This can be null. If it is non-null, it means the pointer is terminated by this
+    // sentinel value. This is most commonly used for C-style strings, with a 0 byte
+    // to specify the length of the memory pointed to.
+    ConstExprValue *sentinel;
+
     PtrLen ptr_len;
     uint32_t explicit_alignment; // 0 means use ABI alignment
 
@@ -1235,7 +1241,7 @@ struct ZigTypeFloat {
 struct ZigTypeArray {
     ZigType *child_type;
     uint64_t len;
-    bool is_null_terminated;
+    ConstExprValue *sentinel;
 };
 
 struct TypeStructField {
@@ -1761,8 +1767,10 @@ struct TypeId {
 
     union {
         struct {
+            CodeGen *codegen;
             ZigType *child_type;
             InferredStructField *inferred_struct_field;
+            ConstExprValue *sentinel;
             PtrLen ptr_len;
             uint32_t alignment;
 
@@ -1775,9 +1783,10 @@ struct TypeId {
             bool allow_zero;
         } pointer;
         struct {
+            CodeGen *codegen;
             ZigType *child_type;
             uint64_t size;
-            bool is_null_terminated;
+            ConstExprValue *sentinel;
         } array;
         struct {
             bool is_signed;
@@ -2033,6 +2042,7 @@ struct CodeGen {
     IrInstruction *invalid_instruction;
     IrInstruction *unreach_instruction;
 
+    ConstExprValue const_zero_byte;
     ConstExprValue const_void_val;
     ConstExprValue panic_msg_vals[PanicMsgIdCount];
 
@@ -2989,13 +2999,14 @@ struct IrInstructionArrayType {
     IrInstruction base;
 
     IrInstruction *size;
+    IrInstruction *sentinel;
     IrInstruction *child_type;
-    bool is_null_terminated;
 };
 
 struct IrInstructionPtrType {
     IrInstruction base;
 
+    IrInstruction *sentinel;
     IrInstruction *align_value;
     IrInstruction *child_type;
     uint32_t bit_offset_start;
@@ -3015,12 +3026,12 @@ struct IrInstructionAnyFrameType {
 struct IrInstructionSliceType {
     IrInstruction base;
 
+    IrInstruction *sentinel;
     IrInstruction *align_value;
     IrInstruction *child_type;
     bool is_const;
     bool is_volatile;
     bool is_allow_zero;
-    bool is_null_terminated;
 };
 
 struct IrInstructionGlobalAsm {

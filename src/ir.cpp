@@ -67,9 +67,10 @@ enum ConstCastResultId {
     ConstCastResultIdAsyncAllocatorType,
     ConstCastResultIdBadAllowsZero,
     ConstCastResultIdArrayChild,
-    ConstCastResultIdBadNullTermArrays,
+    ConstCastResultIdSentinelArrays,
     ConstCastResultIdPtrLens,
     ConstCastResultIdCV,
+    ConstCastResultIdPtrSentinel,
 };
 
 struct ConstCastOnly;
@@ -94,8 +95,8 @@ struct ConstCastTypeMismatch;
 struct ConstCastArrayMismatch;
 struct ConstCastBadAllowsZero;
 struct ConstCastBadNullTermArrays;
-struct ConstCastBadPtrLens;
 struct ConstCastBadCV;
+struct ConstCastPtrSentinel;
 
 struct ConstCastOnly {
     ConstCastResultId id;
@@ -113,9 +114,9 @@ struct ConstCastOnly {
         ConstCastArg fn_arg;
         ConstCastArgNoAlias arg_no_alias;
         ConstCastBadAllowsZero *bad_allows_zero;
-        ConstCastBadNullTermArrays *bad_null_term_arrays;
-        ConstCastBadPtrLens *bad_ptr_lens;
+        ConstCastBadNullTermArrays *sentinel_arrays;
         ConstCastBadCV *bad_cv;
+        ConstCastPtrSentinel *bad_ptr_sentinel;
     } data;
 };
 
@@ -175,14 +176,13 @@ struct ConstCastBadNullTermArrays {
     ZigType *actual_type;
 };
 
-struct ConstCastBadPtrLens {
+struct ConstCastBadCV {
     ZigType *wanted_type;
     ZigType *actual_type;
 };
 
-struct ConstCastBadCV {
+struct ConstCastPtrSentinel {
     ZigType *wanted_type;
-    ZigType *actual_type;
 };
 
 static IrInstruction *ir_gen_node(IrBuilder *irb, AstNode *node, Scope *scope);
@@ -264,8 +264,7 @@ static ConstExprValue *const_ptr_pointee_unchecked(CodeGen *g, ConstExprValue *c
         case ConstPtrSpecialBaseArray: {
             ConstExprValue *array_val = const_val->data.x_ptr.data.base_array.array_val;
             if (const_val->data.x_ptr.data.base_array.elem_index == array_val->type->data.array.len) {
-                assert(array_val->type->data.array.is_null_terminated);
-                result = get_null_value(array_val->type->data.array.child_type);
+                result = array_val->type->data.array.sentinel;
             } else {
                 expand_undef_array(g, array_val);
                 result = &array_val->data.x_array.data.s_none.elements[const_val->data.x_ptr.data.base_array.elem_index];
@@ -317,7 +316,7 @@ static bool slice_is_const(ZigType *type) {
 
 // This function returns true when you can change the type of a ConstExprValue and the
 // value remains meaningful.
-static bool types_have_same_zig_comptime_repr(ZigType *expected, ZigType *actual) {
+static bool types_have_same_zig_comptime_repr(CodeGen *codegen, ZigType *expected, ZigType *actual) {
     if (expected == actual)
         return true;
 
@@ -366,7 +365,8 @@ static bool types_have_same_zig_comptime_repr(ZigType *expected, ZigType *actual
         case ZigTypeIdArray:
             return expected->data.array.len == actual->data.array.len &&
                 expected->data.array.child_type == actual->data.array.child_type &&
-                (!expected->data.array.is_null_terminated || actual->data.array.is_null_terminated);
+                (expected->data.array.sentinel == nullptr || (actual->data.array.sentinel != nullptr &&
+                     const_values_equal(codegen, expected->data.array.sentinel, actual->data.array.sentinel)));
     }
     zig_unreachable();
 }
@@ -1576,9 +1576,11 @@ static IrInstruction *ir_build_br(IrBuilder *irb, Scope *scope, AstNode *source_
 
 static IrInstruction *ir_build_ptr_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *child_type, bool is_const, bool is_volatile, PtrLen ptr_len,
-        IrInstruction *align_value, uint32_t bit_offset_start, uint32_t host_int_bytes, bool is_allow_zero)
+        IrInstruction *sentinel, IrInstruction *align_value,
+        uint32_t bit_offset_start, uint32_t host_int_bytes, bool is_allow_zero)
 {
     IrInstructionPtrType *ptr_type_of_instruction = ir_build_instruction<IrInstructionPtrType>(irb, scope, source_node);
+    ptr_type_of_instruction->sentinel = sentinel;
     ptr_type_of_instruction->align_value = align_value;
     ptr_type_of_instruction->child_type = child_type;
     ptr_type_of_instruction->is_const = is_const;
@@ -1588,6 +1590,7 @@ static IrInstruction *ir_build_ptr_type(IrBuilder *irb, Scope *scope, AstNode *s
     ptr_type_of_instruction->host_int_bytes = host_int_bytes;
     ptr_type_of_instruction->is_allow_zero = is_allow_zero;
 
+    if (sentinel) ir_ref_instruction(sentinel, irb->current_basic_block);
     if (align_value) ir_ref_instruction(align_value, irb->current_basic_block);
     ir_ref_instruction(child_type, irb->current_basic_block);
 
@@ -1804,14 +1807,15 @@ static IrInstruction *ir_build_set_float_mode(IrBuilder *irb, Scope *scope, AstN
 }
 
 static IrInstruction *ir_build_array_type(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *size,
-        IrInstruction *child_type, bool is_null_terminated)
+        IrInstruction *sentinel, IrInstruction *child_type)
 {
     IrInstructionArrayType *instruction = ir_build_instruction<IrInstructionArrayType>(irb, scope, source_node);
     instruction->size = size;
+    instruction->sentinel = sentinel;
     instruction->child_type = child_type;
-    instruction->is_null_terminated = is_null_terminated;
 
     ir_ref_instruction(size, irb->current_basic_block);
+    if (sentinel != nullptr) ir_ref_instruction(sentinel, irb->current_basic_block);
     ir_ref_instruction(child_type, irb->current_basic_block);
 
     return &instruction->base;
@@ -1827,20 +1831,22 @@ static IrInstruction *ir_build_anyframe_type(IrBuilder *irb, Scope *scope, AstNo
 
     return &instruction->base;
 }
+
 static IrInstruction *ir_build_slice_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *child_type, bool is_const, bool is_volatile, IrInstruction *align_value, bool is_allow_zero,
-        bool is_null_terminated)
+        IrInstruction *child_type, bool is_const, bool is_volatile,
+        IrInstruction *sentinel, IrInstruction *align_value, bool is_allow_zero)
 {
     IrInstructionSliceType *instruction = ir_build_instruction<IrInstructionSliceType>(irb, scope, source_node);
     instruction->is_const = is_const;
     instruction->is_volatile = is_volatile;
     instruction->child_type = child_type;
+    instruction->sentinel = sentinel;
     instruction->align_value = align_value;
     instruction->is_allow_zero = is_allow_zero;
-    instruction->is_null_terminated = is_null_terminated;
 
+    if (sentinel != nullptr) ir_ref_instruction(sentinel, irb->current_basic_block);
+    if (align_value != nullptr) ir_ref_instruction(align_value, irb->current_basic_block);
     ir_ref_instruction(child_type, irb->current_basic_block);
-    if (align_value) ir_ref_instruction(align_value, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -6067,9 +6073,9 @@ static PtrLen star_token_to_ptr_len(TokenId token_id) {
         case TokenIdStar:
         case TokenIdStarStar:
             return PtrLenSingle;
-        case TokenIdBracketStarBracket:
+        case TokenIdLBracket:
             return PtrLenUnknown;
-        case TokenIdBracketStarCBracket:
+        case TokenIdSymbol:
             return PtrLenC;
         default:
             zig_unreachable();
@@ -6080,22 +6086,22 @@ static IrInstruction *ir_gen_pointer_type(IrBuilder *irb, Scope *scope, AstNode 
     assert(node->type == NodeTypePointerType);
 
     PtrLen ptr_len = star_token_to_ptr_len(node->data.pointer_type.star_token->id);
-    if (node->data.pointer_type.is_null_terminated) {
-        if (ptr_len == PtrLenUnknown) {
-            ptr_len = PtrLenNull;
-        } else {
-            exec_add_error_node(irb->codegen, irb->exec, node,
-                    buf_sprintf("null-terminated pointer must be specified with [*] token"));
-            return irb->codegen->invalid_instruction;
-        }
-    }
 
     bool is_const = node->data.pointer_type.is_const;
     bool is_volatile = node->data.pointer_type.is_volatile;
     bool is_allow_zero = node->data.pointer_type.allow_zero_token != nullptr;
+    AstNode *sentinel_expr = node->data.pointer_type.sentinel;
     AstNode *expr_node = node->data.pointer_type.op_expr;
     AstNode *align_expr = node->data.pointer_type.align_expr;
 
+    IrInstruction *sentinel;
+    if (sentinel_expr != nullptr) {
+        sentinel = ir_gen_node(irb, sentinel_expr, scope);
+        if (sentinel == irb->codegen->invalid_instruction)
+            return sentinel;
+    } else {
+        sentinel = nullptr;
+    }
 
     IrInstruction *align_value;
     if (align_expr != nullptr) {
@@ -6141,7 +6147,7 @@ static IrInstruction *ir_gen_pointer_type(IrBuilder *irb, Scope *scope, AstNode 
     }
 
     return ir_build_ptr_type(irb, scope, node, child_type, is_const, is_volatile,
-            ptr_len, align_value, bit_offset_start, host_int_bytes, is_allow_zero);
+            ptr_len, sentinel, align_value, bit_offset_start, host_int_bytes, is_allow_zero);
 }
 
 static IrInstruction *ir_gen_catch_unreachable(IrBuilder *irb, Scope *scope, AstNode *source_node,
@@ -6245,13 +6251,22 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, Scope *scope, A
                         buf_sprintf("initializing array with struct syntax"));
                 return irb->codegen->invalid_instruction;
             }
+            IrInstruction *sentinel;
+            if (container_init_expr->type->data.inferred_array_type.sentinel != nullptr) {
+                sentinel = ir_gen_node(irb, container_init_expr->type->data.inferred_array_type.sentinel, scope);
+                if (sentinel == irb->codegen->invalid_instruction)
+                    return sentinel;
+            } else {
+                sentinel = nullptr;
+            }
+
             IrInstruction *elem_type = ir_gen_node(irb,
                     container_init_expr->type->data.inferred_array_type.child_type, scope);
             if (elem_type == irb->codegen->invalid_instruction)
                 return elem_type;
             size_t item_count = container_init_expr->entries.length;
             IrInstruction *item_count_inst = ir_build_const_usize(irb, scope, node, item_count);
-            container_type = ir_build_array_type(irb, scope, node, item_count_inst, elem_type, false);
+            container_type = ir_build_array_type(irb, scope, node, item_count_inst, sentinel, elem_type);
         } else {
             container_type = ir_gen_node(irb, container_init_expr->type, scope);
             if (container_type == irb->codegen->invalid_instruction)
@@ -6975,10 +6990,20 @@ static IrInstruction *ir_gen_array_type(IrBuilder *irb, Scope *scope, AstNode *n
     bool is_const = node->data.array_type.is_const;
     bool is_volatile = node->data.array_type.is_volatile;
     bool is_allow_zero = node->data.array_type.allow_zero_token != nullptr;
-    bool is_null_terminated = node->data.array_type.is_null_terminated;
+    AstNode *sentinel_expr = node->data.array_type.sentinel;
     AstNode *align_expr = node->data.array_type.align_expr;
 
     Scope *comptime_scope = create_comptime_scope(irb->codegen, node, scope);
+
+    IrInstruction *sentinel;
+    if (sentinel_expr != nullptr) {
+        sentinel = ir_gen_node(irb, sentinel_expr, comptime_scope);
+        if (sentinel == irb->codegen->invalid_instruction)
+            return sentinel;
+    } else {
+        sentinel = nullptr;
+    }
+
     if (size_node) {
         if (is_const) {
             add_node_error(irb->codegen, node, buf_create_from_str("const qualifier invalid on array type"));
@@ -7005,7 +7030,7 @@ static IrInstruction *ir_gen_array_type(IrBuilder *irb, Scope *scope, AstNode *n
         if (child_type == irb->codegen->invalid_instruction)
             return child_type;
 
-        return ir_build_array_type(irb, scope, node, size_value, child_type, is_null_terminated);
+        return ir_build_array_type(irb, scope, node, size_value, sentinel, child_type);
     } else {
         IrInstruction *align_value;
         if (align_expr != nullptr) {
@@ -7020,8 +7045,8 @@ static IrInstruction *ir_gen_array_type(IrBuilder *irb, Scope *scope, AstNode *n
         if (child_type == irb->codegen->invalid_instruction)
             return child_type;
 
-        return ir_build_slice_type(irb, scope, node, child_type, is_const, is_volatile, align_value, is_allow_zero,
-                is_null_terminated);
+        return ir_build_slice_type(irb, scope, node, child_type, is_const, is_volatile, sentinel,
+                align_value, is_allow_zero);
     }
 }
 
@@ -8698,7 +8723,7 @@ ConstExprValue *const_ptr_pointee(IrAnalyze *ira, CodeGen *codegen, ConstExprVal
         case OnePossibleValueYes:
             return get_the_one_possible_value(codegen, expected_type);
     }
-    if (!types_have_same_zig_comptime_repr(expected_type, val->type)) {
+    if (!types_have_same_zig_comptime_repr(codegen, expected_type, val->type)) {
         if ((err = eval_comptime_ptr_reinterpret(ira, codegen, source_node, const_val)))
             return nullptr;
         return const_ptr_pointee_unchecked(codegen, const_val);
@@ -9846,7 +9871,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
     // alignment can be decreased
     // bit offset attributes must match exactly
     // PtrLenSingle/PtrLenUnknown must match exactly, but PtrLenC matches either one
-    // PtrLenNull can coerce into PtrLenUnknown
+    // sentinel-terminated pointers can coerce into PtrLenUnknown
     ZigType *wanted_ptr_type = get_src_ptr_type(wanted_type);
     ZigType *actual_ptr_type = get_src_ptr_type(actual_type);
     bool wanted_allows_zero = ptr_allows_addr_zero(wanted_type);
@@ -9858,15 +9883,20 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
     bool actual_opt_or_ptr = actual_ptr_type != nullptr &&
         (actual_type->id == ZigTypeIdPointer || actual_type->id == ZigTypeIdOptional);
     if (wanted_opt_or_ptr && actual_opt_or_ptr) {
-        bool ptr_lens_equal = actual_ptr_type->data.pointer.ptr_len == wanted_ptr_type->data.pointer.ptr_len;
         bool ok_null_term_ptrs =
-            actual_ptr_type->data.pointer.ptr_len == PtrLenNull ||
-            wanted_ptr_type->data.pointer.ptr_len == PtrLenUnknown;
-        if (!(ptr_lens_equal || wanted_is_c_ptr || actual_is_c_ptr || ok_null_term_ptrs)) {
+            wanted_ptr_type->data.pointer.sentinel == nullptr ||
+            (actual_ptr_type->data.pointer.sentinel != nullptr &&
+             const_values_equal(ira->codegen, wanted_ptr_type->data.pointer.sentinel,
+                 actual_ptr_type->data.pointer.sentinel));
+        if (!ok_null_term_ptrs) {
+            result.id = ConstCastResultIdPtrSentinel;
+            result.data.bad_ptr_sentinel = allocate_nonzero<ConstCastPtrSentinel>(1);
+            result.data.bad_ptr_sentinel->wanted_type = wanted_type;
+            return result;
+        }
+        bool ptr_lens_equal = actual_ptr_type->data.pointer.ptr_len == wanted_ptr_type->data.pointer.ptr_len;
+        if (!(ptr_lens_equal || wanted_is_c_ptr || actual_is_c_ptr)) {
             result.id = ConstCastResultIdPtrLens;
-            result.data.bad_ptr_lens = allocate_nonzero<ConstCastBadPtrLens>(1);
-            result.data.bad_ptr_lens->wanted_type = wanted_type;
-            result.data.bad_ptr_lens->actual_type = actual_type;
             return result;
         }
 
@@ -9944,14 +9974,15 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             result.data.array_mismatch->actual_child = actual_type->data.array.child_type;
             return result;
         }
-        bool ok_null_terminated = !wanted_type->data.array.is_null_terminated ||
-            actual_type->data.array.is_null_terminated;
+        bool ok_null_terminated = (wanted_type->data.array.sentinel == nullptr) ||
+            (actual_type->data.array.sentinel != nullptr &&
+            const_values_equal(ira->codegen, wanted_type->data.array.sentinel, actual_type->data.array.sentinel));
         if (!ok_null_terminated) {
-            result.id = ConstCastResultIdBadNullTermArrays;
-            result.data.bad_null_term_arrays = allocate_nonzero<ConstCastBadNullTermArrays>(1);
-            result.data.bad_null_term_arrays->child = child;
-            result.data.bad_null_term_arrays->wanted_type = wanted_type;
-            result.data.bad_null_term_arrays->actual_type = actual_type;
+            result.id = ConstCastResultIdSentinelArrays;
+            result.data.sentinel_arrays = allocate_nonzero<ConstCastBadNullTermArrays>(1);
+            result.data.sentinel_arrays->child = child;
+            result.data.sentinel_arrays->wanted_type = wanted_type;
+            result.data.sentinel_arrays->actual_type = actual_type;
             return result;
         }
         return result;
@@ -10781,8 +10812,12 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
                 prev_type->data.pointer.child_type->id == ZigTypeIdArray &&
             (cur_type->data.pointer.is_const || !prev_type->data.pointer.is_const ||
                 prev_type->data.pointer.child_type->data.array.len == 0) &&
-            (cur_type->data.pointer.child_type->data.array.is_null_terminated ||
-                !prev_type->data.pointer.child_type->data.array.is_null_terminated) &&
+            (
+                prev_type->data.pointer.child_type->data.array.sentinel == nullptr ||
+                (cur_type->data.pointer.child_type->data.array.sentinel != nullptr &&
+                const_values_equal(ira->codegen, prev_type->data.pointer.child_type->data.array.sentinel,
+                    cur_type->data.pointer.child_type->data.array.sentinel))
+            ) &&
             types_match_const_cast_only(ira,
                 cur_type->data.pointer.child_type->data.array.child_type,
                 prev_type->data.pointer.child_type->data.array.child_type,
@@ -10798,8 +10833,12 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
                 cur_type->data.pointer.child_type->id == ZigTypeIdArray &&
             (prev_type->data.pointer.is_const || !cur_type->data.pointer.is_const ||
                 cur_type->data.pointer.child_type->data.array.len == 0) &&
-            (prev_type->data.pointer.child_type->data.array.is_null_terminated ||
-                !cur_type->data.pointer.child_type->data.array.is_null_terminated) &&
+            (
+                cur_type->data.pointer.child_type->data.array.sentinel == nullptr ||
+                (prev_type->data.pointer.child_type->data.array.sentinel != nullptr &&
+                const_values_equal(ira->codegen, cur_type->data.pointer.child_type->data.array.sentinel,
+                    prev_type->data.pointer.child_type->data.array.sentinel))
+            ) &&
             types_match_const_cast_only(ira,
                 prev_type->data.pointer.child_type->data.array.child_type,
                 cur_type->data.pointer.child_type->data.array.child_type,
@@ -10871,11 +10910,12 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
         } else if (prev_inst->value.type->id == ZigTypeIdPointer) {
             ZigType *array_type = prev_inst->value.type->data.pointer.child_type;
             src_assert(array_type->id == ZigTypeIdArray, source_node);
-            ZigType *ptr_type = get_pointer_to_type_extra(
+            ZigType *ptr_type = get_pointer_to_type_extra2(
                     ira->codegen, array_type->data.array.child_type,
                     prev_inst->value.type->data.pointer.is_const, false,
-                    array_type->data.array.is_null_terminated ? PtrLenNull : PtrLenUnknown,
-                    0, 0, 0, false);
+                    PtrLenUnknown,
+                    0, 0, 0, false,
+                    VECTOR_INDEX_NONE, nullptr, array_type->data.array.sentinel);
             ZigType *slice_type = get_slice_type(ira->codegen, ptr_type);
             if (err_set_type != nullptr) {
                 return get_error_union_type(ira->codegen, err_set_type, slice_type);
@@ -11682,7 +11722,7 @@ static IrInstruction *ir_analyze_optional_wrap(IrAnalyze *ira, IrInstruction *so
         IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
                 source_instr->scope, source_instr->source_node);
         const_instruction->base.value.special = ConstValSpecialStatic;
-        if (types_have_same_zig_comptime_repr(wanted_type, payload_type)) {
+        if (types_have_same_zig_comptime_repr(ira->codegen, wanted_type, payload_type)) {
             copy_const_val(&const_instruction->base.value, val, val->data.x_ptr.mut == ConstPtrMutComptimeConst);
         } else {
             const_instruction->base.value.data.x_optional = val;
@@ -12601,14 +12641,24 @@ static void report_recursive_error(IrAnalyze *ira, AstNode *source_node, ConstCa
             break;
         }
         case ConstCastResultIdPtrLens: {
-            ZigType *wanted_type = cast_result->data.bad_ptr_lens->wanted_type;
-            ZigType *actual_type = cast_result->data.bad_ptr_lens->actual_type;
-            bool wanted_null_term = wanted_type->data.pointer.ptr_len == PtrLenNull;
-            bool actual_null_term = actual_type->data.pointer.ptr_len == PtrLenNull;
-            if (wanted_null_term && !actual_null_term) {
-                add_error_note(ira->codegen, parent_msg, source_node,
-                        buf_sprintf("destination type requires null termination"));
-            }
+            add_error_note(ira->codegen, parent_msg, source_node,
+                    buf_sprintf("pointer length mismatch"));
+            break;
+        }
+        case ConstCastResultIdPtrSentinel: {
+            ZigType *wanted_type = cast_result->data.bad_ptr_sentinel->wanted_type;
+            Buf *msg = buf_sprintf("destination pointer requires a terminating '");
+            render_const_value(ira->codegen, msg, wanted_type->data.pointer.sentinel);
+            buf_appendf(msg, "' sentinel value");
+            add_error_note(ira->codegen, parent_msg, source_node, msg);
+            break;
+        }
+        case ConstCastResultIdSentinelArrays: {
+            ZigType *wanted_type = cast_result->data.sentinel_arrays->wanted_type;
+            Buf *msg = buf_sprintf("destination array requires a terminating '");
+            render_const_value(ira->codegen, msg, wanted_type->data.pointer.sentinel);
+            buf_appendf(msg, "' sentinel value");
+            add_error_note(ira->codegen, parent_msg, source_node, msg);
             break;
         }
         case ConstCastResultIdCV: {
@@ -12642,7 +12692,6 @@ static void report_recursive_error(IrAnalyze *ira, AstNode *source_node, ConstCa
         case ConstCastResultIdUnresolvedInferredErrSet: // TODO
         case ConstCastResultIdAsyncAllocatorType: // TODO
         case ConstCastResultIdArrayChild: // TODO
-        case ConstCastResultIdBadNullTermArrays: // TODO
             break;
     }
 }
@@ -13013,16 +13062,18 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
 
     // *[N]T to [*]T and [*c]T
     if (wanted_type->id == ZigTypeIdPointer &&
-        (wanted_type->data.pointer.ptr_len == PtrLenUnknown || wanted_type->data.pointer.ptr_len == PtrLenC ||
-            wanted_type->data.pointer.ptr_len == PtrLenNull) &&
+        (wanted_type->data.pointer.ptr_len == PtrLenUnknown || wanted_type->data.pointer.ptr_len == PtrLenC) &&
         actual_type->id == ZigTypeIdPointer &&
         actual_type->data.pointer.ptr_len == PtrLenSingle &&
         actual_type->data.pointer.child_type->id == ZigTypeIdArray &&
         (!actual_type->data.pointer.is_const || wanted_type->data.pointer.is_const) &&
         (!actual_type->data.pointer.is_volatile || wanted_type->data.pointer.is_volatile))
     {
-        if (wanted_type->data.pointer.ptr_len != PtrLenNull ||
-            actual_type->data.pointer.child_type->data.array.is_null_terminated)
+        ZigType *actual_array_type = actual_type->data.pointer.child_type;
+        if (wanted_type->data.pointer.sentinel == nullptr ||
+            (actual_array_type->data.array.sentinel != nullptr &&
+             const_values_equal(ira->codegen, wanted_type->data.pointer.sentinel,
+                 actual_array_type->data.array.sentinel)))
         {
             if ((err = type_resolve(ira->codegen, actual_type->data.pointer.child_type, ResolveStatusAlignmentKnown)))
                 return ira->codegen->invalid_instruction;
@@ -14741,7 +14792,6 @@ static bool is_pointer_arithmetic_allowed(ZigType *lhs_type, IrBinOp op) {
         case PtrLenSingle:
             return lhs_type->data.pointer.child_type->id == ZigTypeIdArray;
         case PtrLenUnknown:
-        case PtrLenNull:
         case PtrLenC:
             return true;
     }
@@ -15007,7 +15057,7 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
     if (!op2_val)
         return ira->codegen->invalid_instruction;
 
-    bool is_null_terminated = false;
+    ConstExprValue *sentinel1 = nullptr;
     ConstExprValue *op1_array_val;
     size_t op1_array_index;
     size_t op1_array_end;
@@ -15017,16 +15067,17 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         op1_array_val = op1_val;
         op1_array_index = 0;
         op1_array_end = op1_type->data.array.len;
+        sentinel1 = op1_type->data.array.sentinel;
     } else if (op1_type->id == ZigTypeIdPointer &&
         op1_type->data.pointer.child_type == ira->codegen->builtin_types.entry_u8 &&
-        op1_type->data.pointer.ptr_len == PtrLenNull &&
+        op1_type->data.pointer.sentinel != nullptr &&
         op1_val->data.x_ptr.special == ConstPtrSpecialBaseArray)
     {
         child_type = op1_type->data.pointer.child_type;
         op1_array_val = op1_val->data.x_ptr.data.base_array.array_val;
         op1_array_index = op1_val->data.x_ptr.data.base_array.elem_index;
         op1_array_end = op1_array_val->type->data.array.len;
-        is_null_terminated = true;
+        sentinel1 = op1_type->data.pointer.sentinel;
     } else if (is_slice(op1_type)) {
         ZigType *ptr_type = op1_type->data.structure.fields[slice_ptr_index]->type_entry;
         child_type = ptr_type->data.pointer.child_type;
@@ -15036,6 +15087,7 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         op1_array_index = ptr_val->data.x_ptr.data.base_array.elem_index;
         ConstExprValue *len_val = op1_val->data.x_struct.fields[slice_len_index];
         op1_array_end = op1_array_index + bigint_as_usize(&len_val->data.x_bigint);
+        sentinel1 = ptr_type->data.pointer.sentinel;
     } else if (op1_type->id == ZigTypeIdPointer && op1_type->data.pointer.ptr_len == PtrLenSingle &&
             op1_type->data.pointer.child_type->id == ZigTypeIdArray)
     {
@@ -15046,13 +15098,14 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
             return ira->codegen->invalid_instruction;
         op1_array_index = 0;
         op1_array_end = array_type->data.array.len;
-        is_null_terminated = is_null_terminated || array_type->data.array.is_null_terminated;
+        sentinel1 = array_type->data.array.sentinel;
     } else {
         ir_add_error(ira, op1,
             buf_sprintf("expected array, found '%s'", buf_ptr(&op1->value.type->name)));
         return ira->codegen->invalid_instruction;
     }
 
+    ConstExprValue *sentinel2 = nullptr;
     ConstExprValue *op2_array_val;
     size_t op2_array_index;
     size_t op2_array_end;
@@ -15062,15 +15115,17 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         op2_array_val = op2_val;
         op2_array_index = 0;
         op2_array_end = op2_array_val->type->data.array.len;
+        sentinel2 = op2_type->data.array.sentinel;
     } else if (op2_type->id == ZigTypeIdPointer &&
-        op2_type->data.pointer.ptr_len == PtrLenNull &&
+        op2_type->data.pointer.sentinel != nullptr &&
         op2_val->data.x_ptr.special == ConstPtrSpecialBaseArray)
     {
         op2_type_valid = op2_type->data.pointer.child_type == child_type;
         op2_array_val = op2_val->data.x_ptr.data.base_array.array_val;
         op2_array_index = op2_val->data.x_ptr.data.base_array.elem_index;
         op2_array_end = op2_array_val->type->data.array.len;
-        is_null_terminated = true;
+
+        sentinel2 = op2_type->data.pointer.sentinel;
     } else if (is_slice(op2_type)) {
         ZigType *ptr_type = op2_type->data.structure.fields[slice_ptr_index]->type_entry;
         op2_type_valid = ptr_type->data.pointer.child_type == child_type;
@@ -15080,6 +15135,8 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         op2_array_index = ptr_val->data.x_ptr.data.base_array.elem_index;
         ConstExprValue *len_val = op2_val->data.x_struct.fields[slice_len_index];
         op2_array_end = op2_array_index + bigint_as_usize(&len_val->data.x_bigint);
+
+        sentinel2 = ptr_type->data.pointer.sentinel;
     } else if (op2_type->id == ZigTypeIdPointer && op2_type->data.pointer.ptr_len == PtrLenSingle &&
             op2_type->data.pointer.child_type->id == ZigTypeIdArray)
     {
@@ -15090,7 +15147,8 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
             return ira->codegen->invalid_instruction;
         op2_array_index = 0;
         op2_array_end = array_type->data.array.len;
-        is_null_terminated = is_null_terminated || array_type->data.array.is_null_terminated;
+
+        sentinel2 = array_type->data.array.sentinel;
     } else {
         ir_add_error(ira, op2,
             buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op2->value.type->name)));
@@ -15103,6 +15161,19 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         return ira->codegen->invalid_instruction;
     }
 
+    ConstExprValue *sentinel;
+    if (sentinel1 != nullptr && sentinel2 != nullptr) {
+        // When there is a sentinel mismatch, no sentinel on the result. The type system
+        // will catch this if it is a problem.
+        sentinel = const_values_equal(ira->codegen, sentinel1, sentinel2) ? sentinel1 : nullptr;
+    } else if (sentinel1 != nullptr) {
+        sentinel = sentinel1;
+    } else if (sentinel2 != nullptr) {
+        sentinel = sentinel2;
+    } else {
+        sentinel = nullptr;
+    }
+
     // The type of result is populated in the following if blocks
     IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
     ConstExprValue *out_val = &result->value;
@@ -15110,24 +15181,25 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
     ConstExprValue *out_array_val;
     size_t new_len = (op1_array_end - op1_array_index) + (op2_array_end - op2_array_index);
     if (op1_type->id == ZigTypeIdArray || op2_type->id == ZigTypeIdArray) {
-        result->value.type = get_array_type(ira->codegen, child_type, new_len, false);
+        result->value.type = get_array_type(ira->codegen, child_type, new_len, sentinel);
 
         out_array_val = out_val;
     } else if (op1_type->id == ZigTypeIdPointer || op2_type->id == ZigTypeIdPointer) {
         out_array_val = create_const_vals(1);
         out_array_val->special = ConstValSpecialStatic;
-        out_array_val->type = get_array_type(ira->codegen, child_type, new_len, is_null_terminated);
+        out_array_val->type = get_array_type(ira->codegen, child_type, new_len, sentinel);
 
         out_val->data.x_ptr.special = ConstPtrSpecialRef;
         out_val->data.x_ptr.data.ref.pointee = out_array_val;
         out_val->type = get_pointer_to_type(ira->codegen, out_array_val->type, true);
     } else if (is_slice(op1_type) || is_slice(op2_type)) {
-        ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, child_type,
-                true, false, PtrLenUnknown, 0, 0, 0, false);
+        ZigType *ptr_type = get_pointer_to_type_extra2(ira->codegen, child_type,
+                true, false, PtrLenUnknown, 0, 0, 0, false,
+                VECTOR_INDEX_NONE, nullptr, sentinel);
         result->value.type = get_slice_type(ira->codegen, ptr_type);
         out_array_val = create_const_vals(1);
         out_array_val->special = ConstValSpecialStatic;
-        out_array_val->type = get_array_type(ira->codegen, child_type, new_len, false);
+        out_array_val->type = get_array_type(ira->codegen, child_type, new_len, sentinel);
 
         out_val->data.x_struct.fields = alloc_const_vals_ptrs(2);
 
@@ -15141,12 +15213,12 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         out_val->data.x_struct.fields[slice_len_index]->special = ConstValSpecialStatic;
         bigint_init_unsigned(&out_val->data.x_struct.fields[slice_len_index]->data.x_bigint, new_len);
     } else {
-        result->value.type = get_pointer_to_type_extra(ira->codegen, child_type, true, false, PtrLenNull,
-                0, 0, 0, false);
+        result->value.type = get_pointer_to_type_extra2(ira->codegen, child_type, true, false, PtrLenUnknown,
+                0, 0, 0, false, VECTOR_INDEX_NONE, nullptr, sentinel);
 
         out_array_val = create_const_vals(1);
         out_array_val->special = ConstValSpecialStatic;
-        out_array_val->type = get_array_type(ira->codegen, child_type, new_len, false);
+        out_array_val->type = get_array_type(ira->codegen, child_type, new_len, sentinel);
         out_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
         out_val->data.x_ptr.data.base_array.array_val = out_array_val;
         out_val->data.x_ptr.data.base_array.elem_index = 0;
@@ -15159,26 +15231,36 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
         return result;
     }
 
-    out_array_val->data.x_array.data.s_none.elements = create_const_vals(new_len);
+    uint64_t full_len = new_len + ((sentinel != nullptr) ? 1 : 0);
+    out_array_val->data.x_array.data.s_none.elements = create_const_vals(full_len);
     // TODO handle the buf case here for an optimization
     expand_undef_array(ira->codegen, op1_array_val);
     expand_undef_array(ira->codegen, op2_array_val);
 
     size_t next_index = 0;
     for (size_t i = op1_array_index; i < op1_array_end; i += 1, next_index += 1) {
-        copy_const_val(&out_array_val->data.x_array.data.s_none.elements[next_index],
-                &op1_array_val->data.x_array.data.s_none.elements[i], true);
+        ConstExprValue *elem_dest_val = &out_array_val->data.x_array.data.s_none.elements[next_index];
+        copy_const_val(elem_dest_val, &op1_array_val->data.x_array.data.s_none.elements[i], false);
+        elem_dest_val->parent.id = ConstParentIdArray;
+        elem_dest_val->parent.data.p_array.array_val = out_array_val;
+        elem_dest_val->parent.data.p_array.elem_index = next_index;
     }
     for (size_t i = op2_array_index; i < op2_array_end; i += 1, next_index += 1) {
-        copy_const_val(&out_array_val->data.x_array.data.s_none.elements[next_index],
-                &op2_array_val->data.x_array.data.s_none.elements[i], true);
+        ConstExprValue *elem_dest_val = &out_array_val->data.x_array.data.s_none.elements[next_index];
+        copy_const_val(elem_dest_val, &op2_array_val->data.x_array.data.s_none.elements[i], false);
+        elem_dest_val->parent.id = ConstParentIdArray;
+        elem_dest_val->parent.data.p_array.array_val = out_array_val;
+        elem_dest_val->parent.data.p_array.elem_index = next_index;
     }
-    if (next_index < new_len) {
-        ConstExprValue *null_byte = &out_array_val->data.x_array.data.s_none.elements[next_index];
-        init_const_unsigned_negative(null_byte, child_type, 0, false);
+    if (next_index < full_len) {
+        ConstExprValue *elem_dest_val = &out_array_val->data.x_array.data.s_none.elements[next_index];
+        copy_const_val(elem_dest_val, sentinel, false);
+        elem_dest_val->parent.id = ConstParentIdArray;
+        elem_dest_val->parent.data.p_array.array_val = out_array_val;
+        elem_dest_val->parent.data.p_array.elem_index = next_index;
         next_index += 1;
     }
-    assert(next_index == new_len);
+    assert(next_index == full_len);
 
     return result;
 }
@@ -15230,7 +15312,7 @@ static IrInstruction *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp *
 
     ZigType *child_type = array_type->data.array.child_type;
     ZigType *result_array_type = get_array_type(ira->codegen, child_type, new_array_len,
-            array_type->data.array.is_null_terminated);
+            array_type->data.array.sentinel);
 
     IrInstruction *array_result;
     if (array_val->special == ConstValSpecialUndef || array_val->data.x_array.special == ConstArraySpecialUndef) {
@@ -15250,7 +15332,7 @@ static IrInstruction *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp *
 
         // TODO optimize the buf case
         expand_undef_array(ira->codegen, array_val);
-        size_t extra_null_term = array_type->data.array.is_null_terminated ? 1 : 0;
+        size_t extra_null_term = (array_type->data.array.sentinel != nullptr) ? 1 : 0;
         out_val->data.x_array.data.s_none.elements = create_const_vals(new_array_len + extra_null_term);
 
         uint64_t i = 0;
@@ -15266,10 +15348,9 @@ static IrInstruction *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp *
         }
         assert(i == new_array_len);
 
-        if (array_type->data.array.is_null_terminated) {
-            ConstExprValue *null_value = get_null_value(array_type->data.array.child_type);
+        if (array_type->data.array.sentinel != nullptr) {
             ConstExprValue *elem_dest_val = &out_val->data.x_array.data.s_none.elements[i];
-            copy_const_val(elem_dest_val, null_value, false);
+            copy_const_val(elem_dest_val, array_type->data.array.sentinel, false);
             elem_dest_val->parent.id = ConstParentIdArray;
             elem_dest_val->parent.data.p_array.array_val = out_val;
             elem_dest_val->parent.data.p_array.elem_index = i;
@@ -17565,7 +17646,7 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
     size_t dst_size = type_size(codegen, out_val->type);
 
     if (dst_size <= src_size) {
-        if (src_size == dst_size && types_have_same_zig_comptime_repr(out_val->type, pointee->type)) {
+        if (src_size == dst_size && types_have_same_zig_comptime_repr(codegen, out_val->type, pointee->type)) {
             copy_const_val(out_val, pointee, ptr_val->data.x_ptr.mut != ConstPtrMutComptimeVar);
             return ErrorNone;
         }
@@ -18316,11 +18397,11 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
         uint64_t index = bigint_as_u64(&casted_elem_index->value.data.x_bigint);
         if (array_type->id == ZigTypeIdArray) {
             uint64_t array_len = array_type->data.array.len;
-            if (index == array_len && array_type->data.array.is_null_terminated) {
+            if (index == array_len && array_type->data.array.sentinel != nullptr) {
                 ZigType *elem_type = array_type->data.array.child_type;
-                IrInstruction *null_element = ir_const(ira, &elem_ptr_instruction->base, elem_type);
-                null_element->value = *get_null_value(elem_type);
-                return ir_get_ref(ira, &elem_ptr_instruction->base, null_element, true, false);
+                IrInstruction *sentinel_elem = ir_const(ira, &elem_ptr_instruction->base, elem_type);
+                copy_const_val(&sentinel_elem->value, array_type->data.array.sentinel, false);
+                return ir_get_ref(ira, &elem_ptr_instruction->base, sentinel_elem, true, false);
             }
             if (index >= array_len) {
                 ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
@@ -18337,7 +18418,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                 ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
                 elem_ptr_instruction->ptr_len,
                 get_ptr_align(ira->codegen, ptr_type), 0, host_vec_len, false, (uint32_t)index,
-                nullptr);
+                nullptr, nullptr);
         } else if (return_type->data.pointer.explicit_alignment != 0) {
             // figure out the largest alignment possible
 
@@ -18457,7 +18538,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                                 new_index = offset + index;
                                 ZigType *array_type = array_ptr_val->data.x_ptr.data.base_array.array_val->type;
                                 mem_size = array_type->data.array.len;
-                                if (array_type->data.array.is_null_terminated) {
+                                if (array_type->data.array.sentinel != nullptr) {
                                     mem_size += 1;
                                 }
                                 old_size = mem_size - offset;
@@ -18579,7 +18660,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
             ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
             elem_ptr_instruction->ptr_len,
             get_ptr_align(ira->codegen, ptr_type), 0, host_vec_len, false, VECTOR_INDEX_RUNTIME,
-            nullptr);
+            nullptr, nullptr);
     } else {
         // runtime known element index
         switch (type_requires_comptime(ira->codegen, return_type)) {
@@ -18783,7 +18864,7 @@ static IrInstruction *ir_analyze_inferred_field_ptr(IrAnalyze *ira, Buf *field_n
     ZigType *elem_type = ira->codegen->builtin_types.entry_var;
     ZigType *field_ptr_type = get_pointer_to_type_extra2(ira->codegen, elem_type,
         container_ptr_type->data.pointer.is_const, container_ptr_type->data.pointer.is_volatile,
-        PtrLenSingle, 0, 0, 0, false, VECTOR_INDEX_NONE, inferred_struct_field);
+        PtrLenSingle, 0, 0, 0, false, VECTOR_INDEX_NONE, inferred_struct_field, nullptr);
 
     if (instr_is_comptime(container_ptr)) {
         IrInstruction *result = ir_const(ira, source_instr, field_ptr_type);
@@ -19565,6 +19646,12 @@ static IrInstruction *ir_analyze_instruction_slice_type(IrAnalyze *ira,
             return ira->codegen->invalid_instruction;
     }
 
+    if (slice_type_instruction->sentinel != nullptr) {
+        lazy_slice_type->sentinel = slice_type_instruction->sentinel->child;
+        if (ir_resolve_const(ira, lazy_slice_type->sentinel, LazyOk) == nullptr)
+            return ira->codegen->invalid_instruction;
+    }
+
     lazy_slice_type->elem_type = slice_type_instruction->child_type->child;
     if (ir_resolve_type_lazy(ira, lazy_slice_type->elem_type) == nullptr)
         return ira->codegen->invalid_instruction;
@@ -19572,7 +19659,6 @@ static IrInstruction *ir_analyze_instruction_slice_type(IrAnalyze *ira,
     lazy_slice_type->is_const = slice_type_instruction->is_const;
     lazy_slice_type->is_volatile = slice_type_instruction->is_volatile;
     lazy_slice_type->is_allowzero = slice_type_instruction->is_allow_zero;
-    lazy_slice_type->is_null_terminated = slice_type_instruction->is_null_terminated;
 
     return result;
 }
@@ -19647,6 +19733,22 @@ static IrInstruction *ir_analyze_instruction_array_type(IrAnalyze *ira,
     ZigType *child_type = ir_resolve_type(ira, child_type_value);
     if (type_is_invalid(child_type))
         return ira->codegen->invalid_instruction;
+
+    ConstExprValue *sentinel_val;
+    if (array_type_instruction->sentinel != nullptr) {
+        IrInstruction *uncasted_sentinel = array_type_instruction->sentinel->child;
+        if (type_is_invalid(uncasted_sentinel->value.type))
+            return ira->codegen->invalid_instruction;
+        IrInstruction *sentinel = ir_implicit_cast(ira, uncasted_sentinel, child_type);
+        if (type_is_invalid(sentinel->value.type))
+            return ira->codegen->invalid_instruction;
+        sentinel_val = ir_resolve_const(ira, sentinel, UndefBad);
+        if (sentinel_val == nullptr)
+            return ira->codegen->invalid_instruction;
+    } else {
+        sentinel_val = nullptr;
+    }
+
     switch (child_type->id) {
         case ZigTypeIdInvalid: // handled above
             zig_unreachable();
@@ -19682,8 +19784,7 @@ static IrInstruction *ir_analyze_instruction_array_type(IrAnalyze *ira,
             {
                 if ((err = type_resolve(ira->codegen, child_type, ResolveStatusSizeKnown)))
                     return ira->codegen->invalid_instruction;
-                ZigType *result_type = get_array_type(ira->codegen, child_type, size,
-                        array_type_instruction->is_null_terminated);
+                ZigType *result_type = get_array_type(ira->codegen, child_type, size, sentinel_val);
                 return ir_const_type(ira, &array_type_instruction->base, result_type);
             }
     }
@@ -19802,7 +19903,7 @@ static IrInstruction *ir_analyze_unwrap_optional_payload(IrAnalyze *ira, IrInstr
     ZigType *result_type = get_pointer_to_type_extra(ira->codegen, child_type,
             ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile, PtrLenSingle, 0, 0, 0, false);
 
-    bool same_comptime_repr = types_have_same_zig_comptime_repr(child_type, type_entry);
+    bool same_comptime_repr = types_have_same_zig_comptime_repr(ira->codegen, child_type, type_entry);
 
     if (instr_is_comptime(base_ptr)) {
         ConstExprValue *ptr_val = ir_resolve_const(ira, base_ptr, UndefBad);
@@ -20759,7 +20860,7 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
     if (container_type->id == ZigTypeIdArray) {
         ZigType *child_type = container_type->data.array.child_type;
         if (container_type->data.array.len != elem_count) {
-            ZigType *literal_type = get_array_type(ira->codegen, child_type, elem_count, false);
+            ZigType *literal_type = get_array_type(ira->codegen, child_type, elem_count, nullptr);
 
             ir_add_error(ira, &instruction->base,
                 buf_sprintf("expected %s literal, found %s literal",
@@ -21246,7 +21347,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
 
     ConstExprValue *declaration_array = create_const_vals(1);
     declaration_array->special = ConstValSpecialStatic;
-    declaration_array->type = get_array_type(ira->codegen, type_info_declaration_type, declaration_count, false);
+    declaration_array->type = get_array_type(ira->codegen, type_info_declaration_type, declaration_count, nullptr);
     declaration_array->data.x_array.special = ConstArraySpecialNone;
     declaration_array->data.x_array.data.s_none.elements = create_const_vals(declaration_count);
     init_const_slice(ira->codegen, out_val, declaration_array, 0, declaration_count, false);
@@ -21391,7 +21492,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
                     ConstExprValue *fn_arg_name_array = create_const_vals(1);
                     fn_arg_name_array->special = ConstValSpecialStatic;
                     fn_arg_name_array->type = get_array_type(ira->codegen,
-                            get_slice_type(ira->codegen, u8_ptr), fn_arg_count, false);
+                            get_slice_type(ira->codegen, u8_ptr), fn_arg_count, nullptr);
                     fn_arg_name_array->data.x_array.special = ConstArraySpecialNone;
                     fn_arg_name_array->data.x_array.data.s_none.elements = create_const_vals(fn_arg_count);
 
@@ -21446,7 +21547,6 @@ static BuiltinPtrSize ptr_len_to_size_enum_index(PtrLen ptr_len) {
         case PtrLenSingle:
             return BuiltinPtrSizeOne;
         case PtrLenUnknown:
-        case PtrLenNull:
             return BuiltinPtrSizeMany;
         case PtrLenC:
             return BuiltinPtrSizeC;
@@ -21527,11 +21627,21 @@ static ConstExprValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_ty
     fields[5]->special = ConstValSpecialStatic;
     fields[5]->type = ira->codegen->builtin_types.entry_bool;
     fields[5]->data.x_bool = attrs_type->data.pointer.allow_zero;
-    // is_null_terminated: bool
-    ensure_field_index(result->type, "is_null_terminated", 6);
+    // sentinel: ?*const c_void
+    ZigType *ptr_type = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_c_void, true);
+    ensure_field_index(result->type, "sentinel", 6);
     fields[6]->special = ConstValSpecialStatic;
-    fields[6]->type = ira->codegen->builtin_types.entry_bool;
-    fields[6]->data.x_bool = attrs_type->data.pointer.ptr_len == PtrLenNull;
+    fields[6]->type = get_optional_type(ira->codegen, ptr_type);
+    if (attrs_type->data.pointer.sentinel == nullptr) {
+        fields[6]->data.x_optional = nullptr;
+    } else {
+        ConstExprValue *ptr_val = create_const_vals(1);
+        fields[6]->data.x_optional = ptr_val;
+        ptr_val->data.x_ptr.special = ConstPtrSpecialRef;
+        ptr_val->data.x_ptr.mut = ConstPtrMutComptimeConst;
+        ptr_val->data.x_ptr.data.ref.pointee = create_const_vals(1);
+        copy_const_val(ptr_val->data.x_ptr.data.ref.pointee, attrs_type->data.pointer.sentinel, false);
+    }
 
     return result;
 };
@@ -21652,11 +21762,22 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 fields[1]->special = ConstValSpecialStatic;
                 fields[1]->type = ira->codegen->builtin_types.entry_type;
                 fields[1]->data.x_type = type_entry->data.array.child_type;
-                // is_null_terminated: bool
-                ensure_field_index(result->type, "is_null_terminated", 2);
+                // sentinel: ?*const c_void
                 fields[2]->special = ConstValSpecialStatic;
-                fields[2]->type = ira->codegen->builtin_types.entry_bool;
-                fields[2]->data.x_bool = type_entry->data.array.is_null_terminated;
+                ZigType *ptr_type = get_pointer_to_type(ira->codegen,
+                        ira->codegen->builtin_types.entry_c_void, true);
+                fields[2]->type = get_optional_type(ira->codegen, ptr_type);
+                if (type_entry->data.array.sentinel == nullptr) {
+                    fields[2]->data.x_optional = nullptr;
+                } else {
+                    ConstExprValue *ptr_val = create_const_vals(1);
+                    fields[2]->data.x_optional = ptr_val;
+                    ptr_val->type = ptr_type;
+                    ptr_val->data.x_ptr.special = ConstPtrSpecialRef;
+                    ptr_val->data.x_ptr.mut = ConstPtrMutComptimeConst;
+                    ptr_val->data.x_ptr.data.ref.pointee = create_const_vals(1);
+                    copy_const_val(ptr_val->data.x_ptr.data.ref.pointee, type_entry->data.array.sentinel, false);
+                }
 
                 break;
             }
@@ -21744,7 +21865,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
 
                 ConstExprValue *enum_field_array = create_const_vals(1);
                 enum_field_array->special = ConstValSpecialStatic;
-                enum_field_array->type = get_array_type(ira->codegen, type_info_enum_field_type, enum_field_count, false);
+                enum_field_array->type = get_array_type(ira->codegen, type_info_enum_field_type, enum_field_count, nullptr);
                 enum_field_array->data.x_array.special = ConstArraySpecialNone;
                 enum_field_array->data.x_array.data.s_none.elements = create_const_vals(enum_field_count);
 
@@ -21792,7 +21913,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 uint32_t error_count = type_entry->data.error_set.err_count;
                 ConstExprValue *error_array = create_const_vals(1);
                 error_array->special = ConstValSpecialStatic;
-                error_array->type = get_array_type(ira->codegen, type_info_error_type, error_count, false);
+                error_array->type = get_array_type(ira->codegen, type_info_error_type, error_count, nullptr);
                 error_array->data.x_array.special = ConstArraySpecialNone;
                 error_array->data.x_array.data.s_none.elements = create_const_vals(error_count);
 
@@ -21888,7 +22009,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
 
                 ConstExprValue *union_field_array = create_const_vals(1);
                 union_field_array->special = ConstValSpecialStatic;
-                union_field_array->type = get_array_type(ira->codegen, type_info_union_field_type, union_field_count, false);
+                union_field_array->type = get_array_type(ira->codegen, type_info_union_field_type, union_field_count, nullptr);
                 union_field_array->data.x_array.special = ConstArraySpecialNone;
                 union_field_array->data.x_array.data.s_none.elements = create_const_vals(union_field_count);
 
@@ -21968,7 +22089,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
 
                 ConstExprValue *struct_field_array = create_const_vals(1);
                 struct_field_array->special = ConstValSpecialStatic;
-                struct_field_array->type = get_array_type(ira->codegen, type_info_struct_field_type, struct_field_count, false);
+                struct_field_array->type = get_array_type(ira->codegen, type_info_struct_field_type, struct_field_count, nullptr);
                 struct_field_array->data.x_array.special = ConstArraySpecialNone;
                 struct_field_array->data.x_array.data.s_none.elements = create_const_vals(struct_field_count);
 
@@ -22071,7 +22192,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
 
                 ConstExprValue *fn_arg_array = create_const_vals(1);
                 fn_arg_array->special = ConstValSpecialStatic;
-                fn_arg_array->type = get_array_type(ira->codegen, type_info_fn_arg_type, fn_arg_count, false);
+                fn_arg_array->type = get_array_type(ira->codegen, type_info_fn_arg_type, fn_arg_count, nullptr);
                 fn_arg_array->data.x_array.special = ConstArraySpecialNone;
                 fn_arg_array->data.x_array.data.s_none.elements = create_const_vals(fn_arg_count);
 
@@ -22169,6 +22290,17 @@ static ConstExprValue *get_const_field(IrAnalyze *ira, ConstExprValue *struct_va
     return struct_value->data.x_struct.fields[field_index];
 }
 
+static ConstExprValue *get_const_field_variant(IrAnalyze *ira, ConstExprValue *struct_value,
+        const char *name, size_t field_index)
+{
+    ConstExprValue *field_val = get_const_field(ira, struct_value, name, field_index);
+    assert(field_val->type->id == ZigTypeIdOptional);
+    ConstExprValue *opt_val = field_val->data.x_optional;
+    if (opt_val == nullptr) return nullptr;
+    assert(opt_val->type->id == ZigTypeIdPointer);
+    return const_ptr_pointee_unchecked(ira->codegen, opt_val);
+}
+
 static bool get_const_field_bool(IrAnalyze *ira, ConstExprValue *struct_value, const char *name, size_t field_index)
 {
     ConstExprValue *value = get_const_field(ira, struct_value, name, field_index);
@@ -22232,7 +22364,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInstruction *instruction, Zi
                 assert(size_value->type == ir_type_info_get_type(ira, "Size", type_info_pointer_type));
                 BuiltinPtrSize size_enum_index = (BuiltinPtrSize)bigint_as_u32(&size_value->data.x_enum_tag);
                 PtrLen ptr_len = size_enum_index_to_ptr_len(size_enum_index);
-                ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen,
+                ZigType *ptr_type = get_pointer_to_type_extra2(ira->codegen,
                     get_const_field_meta_type(ira, payload, "child", 4),
                     get_const_field_bool(ira, payload, "is_const", 1),
                     get_const_field_bool(ira, payload, "is_volatile", 2),
@@ -22240,7 +22372,10 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInstruction *instruction, Zi
                     bigint_as_u32(get_const_field_lit_int(ira, payload, "alignment", 3)),
                     0, // bit_offset_in_host
                     0, // host_int_bytes
-                    get_const_field_bool(ira, payload, "is_allowzero", 5)
+                    get_const_field_bool(ira, payload, "is_allowzero", 5),
+                    VECTOR_INDEX_NONE,
+                    nullptr,
+                    get_const_field_variant(ira, payload, "sentinel", 6)
                 );
                 if (size_enum_index != 2)
                     return ptr_type;
@@ -22252,7 +22387,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInstruction *instruction, Zi
             return get_array_type(ira->codegen,
                 get_const_field_meta_type(ira, payload, "child", 1),
                 bigint_as_u64(get_const_field_lit_int(ira, payload, "len", 0)),
-                get_const_field_bool(ira, payload, "is_null_terminated", 2)
+                get_const_field_variant(ira, payload, "sentinel", 2)
             );
         case ZigTypeIdComptimeFloat:
             return ira->codegen->builtin_types.entry_num_lit_float;
@@ -22635,7 +22770,7 @@ static IrInstruction *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstru
     }
 
     ZigType *result_type = get_array_type(ira->codegen,
-            ira->codegen->builtin_types.entry_u8, buf_len(file_contents), false);
+            ira->codegen->builtin_types.entry_u8, buf_len(file_contents), nullptr);
     IrInstruction *result = ir_const(ira, &instruction->base, result_type);
     init_const_str_lit(ira->codegen, &result->value, file_contents);
     return result;
@@ -25858,6 +25993,12 @@ static IrInstruction *ir_analyze_instruction_ptr_type(IrAnalyze *ira, IrInstruct
     result->value.data.x_lazy = &lazy_ptr_type->base;
     lazy_ptr_type->base.id = LazyValueIdPtrType;
 
+    if (instruction->sentinel != nullptr) {
+        lazy_ptr_type->sentinel = instruction->sentinel->child;
+        if (ir_resolve_const(ira, lazy_ptr_type->sentinel, LazyOk) == nullptr)
+            return ira->codegen->invalid_instruction;
+    }
+
     lazy_ptr_type->elem_type = instruction->child_type->child;
     if (ir_resolve_type_lazy(ira, lazy_ptr_type->elem_type) == nullptr)
         return ira->codegen->invalid_instruction;
@@ -27804,6 +27945,20 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ConstExprValue *val) {
             if (type_is_invalid(elem_type))
                 return ErrorSemanticAnalyzeFail;
 
+            ConstExprValue *sentinel_val;
+            if (lazy_slice_type->sentinel != nullptr) {
+                if (type_is_invalid(lazy_slice_type->sentinel->value.type))
+                    return ErrorSemanticAnalyzeFail;
+                IrInstruction *sentinel = ir_implicit_cast(ira, lazy_slice_type->sentinel, elem_type);
+                if (type_is_invalid(sentinel->value.type))
+                    return ErrorSemanticAnalyzeFail;
+                sentinel_val = ir_resolve_const(ira, sentinel, UndefBad);
+                if (sentinel_val == nullptr)
+                    return ErrorSemanticAnalyzeFail;
+            } else {
+                sentinel_val = nullptr;
+            }
+
             uint32_t align_bytes = 0;
             if (lazy_slice_type->align_inst != nullptr) {
                 if (!ir_resolve_align(ira, lazy_slice_type->align_inst, elem_type, &align_bytes))
@@ -27849,11 +28004,12 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ConstExprValue *val) {
                 ResolveStatusZeroBitsKnown : ResolveStatusAlignmentKnown;
             if ((err = type_resolve(ira->codegen, elem_type, needed_status)))
                 return err;
-            ZigType *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, elem_type,
+            ZigType *slice_ptr_type = get_pointer_to_type_extra2(ira->codegen, elem_type,
                     lazy_slice_type->is_const, lazy_slice_type->is_volatile,
-                    lazy_slice_type->is_null_terminated ? PtrLenNull : PtrLenUnknown,
+                    PtrLenUnknown,
                     align_bytes,
-                    0, 0, lazy_slice_type->is_allowzero);
+                    0, 0, lazy_slice_type->is_allowzero,
+                    VECTOR_INDEX_NONE, nullptr, sentinel_val);
             val->special = ConstValSpecialStatic;
             assert(val->type->id == ZigTypeIdMetaType);
             val->data.x_type = get_slice_type(ira->codegen, slice_ptr_type);
@@ -27866,6 +28022,20 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ConstExprValue *val) {
             ZigType *elem_type = ir_resolve_type(ira, lazy_ptr_type->elem_type);
             if (type_is_invalid(elem_type))
                 return ErrorSemanticAnalyzeFail;
+
+            ConstExprValue *sentinel_val;
+            if (lazy_ptr_type->sentinel != nullptr) {
+                if (type_is_invalid(lazy_ptr_type->sentinel->value.type))
+                    return ErrorSemanticAnalyzeFail;
+                IrInstruction *sentinel = ir_implicit_cast(ira, lazy_ptr_type->sentinel, elem_type);
+                if (type_is_invalid(sentinel->value.type))
+                    return ErrorSemanticAnalyzeFail;
+                sentinel_val = ir_resolve_const(ira, sentinel, UndefBad);
+                if (sentinel_val == nullptr)
+                    return ErrorSemanticAnalyzeFail;
+            } else {
+                sentinel_val = nullptr;
+            }
 
             uint32_t align_bytes = 0;
             if (lazy_ptr_type->align_inst != nullptr) {
@@ -27909,10 +28079,10 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ConstExprValue *val) {
             }
             bool allow_zero = lazy_ptr_type->is_allowzero || lazy_ptr_type->ptr_len == PtrLenC;
             assert(val->type->id == ZigTypeIdMetaType);
-            val->data.x_type = get_pointer_to_type_extra(ira->codegen, elem_type,
+            val->data.x_type = get_pointer_to_type_extra2(ira->codegen, elem_type,
                     lazy_ptr_type->is_const, lazy_ptr_type->is_volatile, lazy_ptr_type->ptr_len, align_bytes,
                     lazy_ptr_type->bit_offset_in_host, lazy_ptr_type->host_int_bytes,
-                    allow_zero);
+                    allow_zero, VECTOR_INDEX_NONE, nullptr, sentinel_val);
             val->special = ConstValSpecialStatic;
             return ErrorNone;
         }

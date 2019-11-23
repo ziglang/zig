@@ -351,7 +351,7 @@ test "anonymous literal in array" {
 test "access the null element of a null terminated array" {
     const S = struct {
         fn doTheTest() void {
-            var array: [4]null u8 = .{'a', 'o', 'e', 'u'};
+            var array: [4:0]u8 = .{'a', 'o', 'e', 'u'};
             comptime expect(array[4] == 0);
             var len: usize = 4;
             expect(array[len] == 0);

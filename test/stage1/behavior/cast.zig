@@ -226,7 +226,7 @@ fn testCastConstArrayRefToConstSlice() void {
     {
         const blah = "aoeu".*;
         const const_array_ref = &blah;
-        expect(@typeOf(const_array_ref) == *const [4]null u8);
+        expect(@typeOf(const_array_ref) == *const [4:0]u8);
         const slice: []const u8 = const_array_ref;
         expect(mem.eql(u8, slice, "aoeu"));
     }

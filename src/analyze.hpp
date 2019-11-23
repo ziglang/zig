@@ -24,7 +24,8 @@ ZigType *get_pointer_to_type_extra(CodeGen *g, ZigType *child_type,
 ZigType *get_pointer_to_type_extra2(CodeGen *g, ZigType *child_type,
         bool is_const, bool is_volatile, PtrLen ptr_len,
         uint32_t byte_alignment, uint32_t bit_offset, uint32_t unaligned_bit_count,
-        bool allow_zero, uint32_t vector_index, InferredStructField *inferred_struct_field);
+        bool allow_zero, uint32_t vector_index, InferredStructField *inferred_struct_field,
+        ConstExprValue *sentinel);
 uint64_t type_size(CodeGen *g, ZigType *type_entry);
 uint64_t type_size_bits(CodeGen *g, ZigType *type_entry);
 ZigType *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
@@ -33,7 +34,7 @@ ZigType **get_c_int_type_ptr(CodeGen *g, CIntType c_int_type);
 ZigType *get_c_int_type(CodeGen *g, CIntType c_int_type);
 ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id);
 ZigType *get_optional_type(CodeGen *g, ZigType *child_type);
-ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, bool is_null_terminated);
+ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, ConstExprValue *sentinel);
 ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type);
 ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind,
         AstNode *decl_node, const char *full_name, Buf *bare_name, ContainerLayout layout);
@@ -276,5 +277,4 @@ IrInstruction *ir_create_alloca(CodeGen *g, Scope *scope, AstNode *source_node, 
 Error analyze_import(CodeGen *codegen, ZigType *source_import, Buf *import_target_str,
         ZigType **out_import, Buf **out_import_target_path, Buf *out_full_path);
 ConstExprValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry);
-ConstExprValue *get_null_value(ZigType *ty);
 #endif

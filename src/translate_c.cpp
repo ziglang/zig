@@ -291,10 +291,9 @@ static TokenId ptr_len_to_token_id(PtrLen ptr_len) {
         case PtrLenSingle:
             return TokenIdStar;
         case PtrLenUnknown:
-        case PtrLenNull:
-            return TokenIdBracketStarBracket;
+            return TokenIdLBracket;
         case PtrLenC:
-            return TokenIdBracketStarCBracket;
+            return TokenIdSymbol;
     }
     zig_unreachable();
 }
@@ -303,7 +302,6 @@ static AstNode *trans_create_node_ptr_type(Context *c, bool is_const, bool is_vo
     AstNode *node = trans_create_node(c, NodeTypePointerType);
     node->data.pointer_type.star_token = allocate<ZigToken>(1);
     node->data.pointer_type.star_token->id = ptr_len_to_token_id(ptr_len);
-    node->data.pointer_type.is_null_terminated = (ptr_len == PtrLenNull);
     node->data.pointer_type.is_const = is_const;
     node->data.pointer_type.is_volatile = is_volatile;
     node->data.pointer_type.op_expr = child_node;

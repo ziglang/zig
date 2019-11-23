@@ -3707,8 +3707,8 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
             array_type = array_type->data.pointer.child_type;
         }
         if (safety_check_on) {
-            uint64_t extra_len_from_null = array_type->data.array.is_null_terminated ? 1 : 0;
-            uint64_t full_len = array_type->data.array.len + extra_len_from_null;
+            uint64_t extra_len_from_sentinel = (array_type->data.array.sentinel != nullptr) ? 1 : 0;
+            uint64_t full_len = array_type->data.array.len + extra_len_from_sentinel;
             LLVMValueRef end = LLVMConstInt(g->builtin_types.entry_usize->llvm_type, full_len, false);
             add_bounds_check(g, subscript_value, LLVMIntEQ, nullptr, LLVMIntULT, end);
         }
@@ -6636,8 +6636,8 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ConstExprValue *const_val, con
                 ConstExprValue *array_const_val = const_val->data.x_ptr.data.base_array.array_val;
                 assert(array_const_val->type->id == ZigTypeIdArray);
                 if (!type_has_bits(array_const_val->type)) {
-                    if (array_const_val->type->data.array.is_null_terminated) {
-                        ConstExprValue *pointee = get_null_value(array_const_val->type->data.array.child_type);
+                    if (array_const_val->type->data.array.sentinel != nullptr) {
+                        ConstExprValue *pointee = array_const_val->type->data.array.sentinel;
                         render_const_val(g, pointee, "");
                         render_const_val_global(g, pointee, "");
                         const_val->global_refs->llvm_value = LLVMConstBitCast(pointee->global_refs->llvm_global,
@@ -6963,8 +6963,8 @@ check: switch (const_val->special) {
                     case ConstArraySpecialUndef:
                         return LLVMGetUndef(get_llvm_type(g, type_entry));
                     case ConstArraySpecialNone: {
-                        uint64_t extra_len_from_null = type_entry->data.array.is_null_terminated ? 1 : 0;
-                        uint64_t full_len = len + extra_len_from_null;
+                        uint64_t extra_len_from_sentinel = (type_entry->data.array.sentinel != nullptr) ? 1 : 0;
+                        uint64_t full_len = len + extra_len_from_sentinel;
                         LLVMValueRef *values = allocate<LLVMValueRef>(full_len);
                         LLVMTypeRef element_type_ref = get_llvm_type(g, type_entry->data.array.child_type);
                         bool make_unnamed_struct = false;
@@ -6974,8 +6974,8 @@ check: switch (const_val->special) {
                             values[i] = val;
                             make_unnamed_struct = make_unnamed_struct || is_llvm_value_unnamed_type(g, elem_value->type, val);
                         }
-                        if (type_entry->data.array.is_null_terminated) {
-                            values[len] = LLVMConstNull(element_type_ref);
+                        if (type_entry->data.array.sentinel != nullptr) {
+                            values[len] = gen_const_val(g, type_entry->data.array.sentinel, "");
                         }
                         if (make_unnamed_struct) {
                             return LLVMConstStruct(values, full_len, true);
@@ -6986,7 +6986,7 @@ check: switch (const_val->special) {
                     case ConstArraySpecialBuf: {
                         Buf *buf = const_val->data.x_array.data.s_buf;
                         return LLVMConstString(buf_ptr(buf), (unsigned)buf_len(buf),
-                                !type_entry->data.array.is_null_terminated);
+                                type_entry->data.array.sentinel == nullptr);
                     }
                 }
                 zig_unreachable();
@@ -7479,7 +7479,7 @@ static void do_code_gen(CodeGen *g) {
             !is_async && !have_err_ret_trace_arg;
         LLVMValueRef err_ret_array_val = nullptr;
         if (have_err_ret_trace_stack) {
-            ZigType *array_type = get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count, false);
+            ZigType *array_type = get_array_type(g, g->builtin_types.entry_usize, stack_trace_ptr_count, nullptr);
             err_ret_array_val = build_alloca(g, array_type, "error_return_trace_addresses", get_abi_alignment(g, array_type));
 
             (void)get_llvm_type(g, get_stack_trace_type(g));
@@ -8642,6 +8642,11 @@ static void init(CodeGen *g) {
     g->const_void_val.type = g->builtin_types.entry_void;
     g->const_void_val.global_refs = allocate<ConstGlobalRefs>(1);
 
+    g->const_zero_byte.special = ConstValSpecialStatic;
+    g->const_zero_byte.type = g->builtin_types.entry_u8;
+    g->const_zero_byte.global_refs = allocate<ConstGlobalRefs>(1);
+    bigint_init_unsigned(&g->const_zero_byte.data.x_bigint, 0);
+
     {
         ConstGlobalRefs *global_refs = allocate<ConstGlobalRefs>(PanicMsgIdCount);
         for (size_t i = 0; i < PanicMsgIdCount; i += 1) {
@@ -9081,7 +9086,7 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
         zig_unreachable();
 
     ConstExprValue *test_fn_array = create_const_vals(1);
-    test_fn_array->type = get_array_type(g, struct_type, g->test_fns.length, false);
+    test_fn_array->type = get_array_type(g, struct_type, g->test_fns.length, nullptr);
     test_fn_array->special = ConstValSpecialStatic;
     test_fn_array->data.x_array.data.s_none.elements = create_const_vals(g->test_fns.length);
 

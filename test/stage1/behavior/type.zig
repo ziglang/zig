@@ -98,21 +98,21 @@ test "Type.Array" {
         .Array = TypeInfo.Array{
             .len = 123,
             .child = u8,
-            .is_null_terminated = false,
+            .sentinel = null,
         },
     }));
     testing.expect([2]u32 == @Type(TypeInfo{
         .Array = TypeInfo.Array{
             .len = 2,
             .child = u32,
-            .is_null_terminated = false,
+            .sentinel = null,
         },
     }));
-    testing.expect([2]null u32 == @Type(TypeInfo{
+    testing.expect([2:0]u32 == @Type(TypeInfo{
         .Array = TypeInfo.Array{
             .len = 2,
             .child = u32,
-            .is_null_terminated = true,
+            .sentinel = &0,
         },
     }));
     testTypes([_]type{ [1]u8, [30]usize, [7]bool });

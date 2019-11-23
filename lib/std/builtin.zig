@@ -144,7 +144,12 @@ pub const TypeInfo = union(enum) {
         alignment: comptime_int,
         child: type,
         is_allowzero: bool,
-        is_null_terminated: bool,
+        /// The type of the sentinel is the element type of the pointer, which is
+        /// the value of the `child` field in this struct. However there is no way
+        /// to refer to that type here, so this is a pointer to an opaque value.
+        /// It will be known at compile-time to be the correct type. Dereferencing
+        /// this pointer will work at compile-time.
+        sentinel: ?*const c_void,
 
         /// This data structure is used by the Zig language code generation and
         /// therefore must be kept in sync with the compiler implementation.
@@ -161,7 +166,12 @@ pub const TypeInfo = union(enum) {
     pub const Array = struct {
         len: comptime_int,
         child: type,
-        is_null_terminated: bool,
+        /// The type of the sentinel is the element type of the array, which is
+        /// the value of the `child` field in this struct. However there is no way
+        /// to refer to that type here, so this is a pointer to an opaque value.
+        /// It will be known at compile-time to be the correct type. Dereferencing
+        /// this pointer will work at compile-time.
+        sentinel: ?*const c_void,
     };
 
     /// This data structure is used by the Zig language code generation and

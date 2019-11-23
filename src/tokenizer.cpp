@@ -222,10 +222,6 @@ enum TokenizeState {
     TokenizeStateSawAtSign,
     TokenizeStateCharCode,
     TokenizeStateError,
-    TokenizeStateLBracket,
-    TokenizeStateLBracketStar,
-    TokenizeStateLBracketStarC,
-    TokenizeStateLBracketUnderscore,
 };
 
 
@@ -480,8 +476,8 @@ void tokenize(Buf *buf, Tokenization *out) {
                         end_token(&t);
                         break;
                     case '[':
-                        t.state = TokenizeStateLBracket;
                         begin_token(&t, TokenIdLBracket);
+                        end_token(&t);
                         break;
                     case ']':
                         begin_token(&t, TokenIdRBracket);
@@ -773,62 +769,6 @@ void tokenize(Buf *buf, Tokenization *out) {
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         continue;
-                }
-                break;
-            case TokenizeStateLBracket:
-                switch (c) {
-                    case '*':
-                        t.state = TokenizeStateLBracketStar;
-                        break;
-                    case '_':
-                        t.state = TokenizeStateLBracketUnderscore;
-                        break;
-                    default:
-                        // reinterpret as just an lbracket
-                        t.pos -= 1;
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        continue;
-                }
-                break;
-            case TokenizeStateLBracketUnderscore:
-                switch (c) {
-                    case ']':
-                        set_token_id(&t, t.cur_tok, TokenIdBracketUnderscoreBracket);
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        break;
-                    default:
-                        // reinterpret as just an lbracket
-                        t.pos -= 2;
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        continue;
-                }
-                break;
-            case TokenizeStateLBracketStar:
-                switch (c) {
-                    case 'c':
-                        t.state = TokenizeStateLBracketStarC;
-                        set_token_id(&t, t.cur_tok, TokenIdBracketStarCBracket);
-                        break;
-                    case ']':
-                        set_token_id(&t, t.cur_tok, TokenIdBracketStarBracket);
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        break;
-                    default:
-                        invalid_char_error(&t, c);
-                }
-                break;
-            case TokenizeStateLBracketStarC:
-                switch (c) {
-                    case ']':
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        break;
-                    default:
-                        invalid_char_error(&t, c);
                 }
                 break;
             case TokenizeStateSawPlusPercent:
@@ -1525,7 +1465,6 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateLineString:
         case TokenizeStateLineStringEnd:
         case TokenizeStateSawBarBar:
-        case TokenizeStateLBracket:
         case TokenizeStateDocComment:
         case TokenizeStateContainerDocComment:
             end_token(&t);
@@ -1534,9 +1473,6 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateSawBackslash:
         case TokenizeStateLineStringContinue:
         case TokenizeStateLineStringContinueC:
-        case TokenizeStateLBracketStar:
-        case TokenizeStateLBracketStarC:
-        case TokenizeStateLBracketUnderscore:
             tokenize_error(&t, "unexpected EOF");
             break;
         case TokenizeStateLineComment:
@@ -1576,8 +1512,6 @@ const char * token_name(TokenId id) {
         case TokenIdBitShiftRight: return ">>";
         case TokenIdBitShiftRightEq: return ">>=";
         case TokenIdBitXorEq: return "^=";
-        case TokenIdBracketStarBracket: return "[*]";
-        case TokenIdBracketStarCBracket: return "[*c]";
         case TokenIdCharLiteral: return "CharLiteral";
         case TokenIdCmpEq: return "==";
         case TokenIdCmpGreaterOrEq: return ">=";
@@ -1681,7 +1615,6 @@ const char * token_name(TokenId id) {
         case TokenIdTimesPercent: return "*%";
         case TokenIdTimesPercentEq: return "*%=";
         case TokenIdBarBarEq: return "||=";
-        case TokenIdBracketUnderscoreBracket: return "[_]";
         case TokenIdCount:
             zig_unreachable();
     }
