@@ -26,7 +26,7 @@ pub fn Future(comptime T: type) type {
         pub fn init() Self {
             return Self{
                 .lock = Lock.initLocked(),
-                .available = 0,
+                .available = .NotStarted,
                 .data = undefined,
             };
         }
