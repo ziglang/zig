@@ -146,7 +146,7 @@ pub const LibCInstallation = struct {
     pub async fn findNative(self: *LibCInstallation, allocator: *Allocator) !void {
         self.initEmpty();
         var group = event.Group(FindError!void).init(allocator);
-        // errdefer group.deinit();
+        errdefer group.wait() catch {};
         var windows_sdk: ?*c.ZigWindowsSDK = null;
         errdefer if (windows_sdk) |sdk| c.zig_free_windows_sdk(@ptrCast(?[*]c.ZigWindowsSDK, sdk));
 

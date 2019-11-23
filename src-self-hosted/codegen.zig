@@ -6,6 +6,7 @@ const ir = @import("ir.zig");
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const Scope = @import("scope.zig").Scope;
+const util = @import("util.zig");
 const event = std.event;
 const assert = std.debug.assert;
 const DW = std.dwarf;
@@ -30,11 +31,11 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
     llvm.SetTarget(module, comp.llvm_triple.ptr());
     llvm.SetDataLayout(module, comp.target_layout_str);
 
-    // if (comp.target.getObjectFormat() == .coff) {
-    //     llvm.AddModuleCodeViewFlag(module);
-    // } else {
+    if (util.getObjectFormat(comp.target) == .coff) {
+        llvm.AddModuleCodeViewFlag(module);
+    } else {
         llvm.AddModuleDebugInfoFlag(module);
-    // }
+    }
 
     const builder = llvm.CreateBuilderInContext(context) orelse return error.OutOfMemory;
     defer llvm.DisposeBuilder(builder);

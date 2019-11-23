@@ -12,7 +12,6 @@ pub const Mode = enum {
     translate,
 };
 
-// TODO merge with Type.Fn.CallingConvention
 const CallingConvention = std.builtin.TypeInfo.CallingConvention;
 
 pub const ClangErrMsg = Stage2ErrorMsg;

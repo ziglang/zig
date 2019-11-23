@@ -260,47 +260,47 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
         process.exit(0);
     }
 
-    const build_mode = blk: {
+    const build_mode: std.builtin.Mode = blk: {
         if (flags.single("mode")) |mode_flag| {
             if (mem.eql(u8, mode_flag, "debug")) {
-                break :blk std.builtin.Mode.Debug;
+                break :blk .Debug;
             } else if (mem.eql(u8, mode_flag, "release-fast")) {
-                break :blk std.builtin.Mode.ReleaseFast;
+                break :blk .ReleaseFast;
             } else if (mem.eql(u8, mode_flag, "release-safe")) {
-                break :blk std.builtin.Mode.ReleaseSafe;
+                break :blk .ReleaseSafe;
             } else if (mem.eql(u8, mode_flag, "release-small")) {
-                break :blk std.builtin.Mode.ReleaseSmall;
+                break :blk .ReleaseSmall;
             } else unreachable;
         } else {
-            break :blk std.builtin.Mode.Debug;
+            break :blk .Debug;
         }
     };
 
-    const color = blk: {
+    const color: errmsg.Color = blk: {
         if (flags.single("color")) |color_flag| {
             if (mem.eql(u8, color_flag, "auto")) {
-                break :blk errmsg.Color.Auto;
+                break :blk .Auto;
             } else if (mem.eql(u8, color_flag, "on")) {
-                break :blk errmsg.Color.On;
+                break :blk .On;
             } else if (mem.eql(u8, color_flag, "off")) {
-                break :blk errmsg.Color.Off;
+                break :blk .Off;
             } else unreachable;
         } else {
-            break :blk errmsg.Color.Auto;
+            break :blk .Auto;
         }
     };
 
-    const emit_type = blk: {
+    const emit_type: Compilation.Emit = blk: {
         if (flags.single("emit")) |emit_flag| {
             if (mem.eql(u8, emit_flag, "asm")) {
-                break :blk Compilation.Emit.Assembly;
+                break :blk .Assembly;
             } else if (mem.eql(u8, emit_flag, "bin")) {
-                break :blk Compilation.Emit.Binary;
+                break :blk .Binary;
             } else if (mem.eql(u8, emit_flag, "llvm-ir")) {
-                break :blk Compilation.Emit.LlvmIr;
+                break :blk .LlvmIr;
             } else unreachable;
         } else {
-            break :blk Compilation.Emit.Binary;
+            break :blk .Binary;
         }
     };
 
@@ -587,17 +587,17 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         process.exit(0);
     }
 
-    const color = blk: {
+    const color: errmsg.Color = blk: {
         if (flags.single("color")) |color_flag| {
             if (mem.eql(u8, color_flag, "auto")) {
-                break :blk errmsg.Color.Auto;
+                break :blk .Auto;
             } else if (mem.eql(u8, color_flag, "on")) {
-                break :blk errmsg.Color.On;
+                break :blk .On;
             } else if (mem.eql(u8, color_flag, "off")) {
-                break :blk errmsg.Color.Off;
+                break :blk .Off;
             } else unreachable;
         } else {
-            break :blk errmsg.Color.Auto;
+            break :blk .Auto;
         }
     };
 

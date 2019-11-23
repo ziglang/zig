@@ -1,6 +1,5 @@
 const c = @import("c.zig");
-const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("std").debug.assert;
 
 // we wrap the c module for 3 reasons:
 // 1. to avoid accidentally calling the non-thread-safe functions

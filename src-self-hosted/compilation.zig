@@ -858,7 +858,6 @@ pub const Compilation = struct {
         defer locked_table.release();
 
         var decl_group = event.Group(BuildError!void).init(self.gpa());
-        defer decl_group.wait() catch {};
 
         try self.rebuildChangedDecls(
             &decl_group,

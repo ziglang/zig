@@ -399,8 +399,7 @@ pub const Type = struct {
                 .Generic => |generic| {
                     self.non_key = NonKey{ .Generic = {} };
                     const cc_str = ccFnTypeStr(generic.cc);
-                    try name_stream.write(cc_str);
-                    try name_stream.write("fn(");
+                    try name_stream.print("{}fn(", cc_str);
                     var param_i: usize = 0;
                     while (param_i < generic.param_count) : (param_i += 1) {
                         const arg = if (param_i == 0) "var" else ", var";
@@ -408,7 +407,7 @@ pub const Type = struct {
                     }
                     try name_stream.write(")");
                     if (key.alignment) |alignment| {
-                        try name_stream.print(" align<{}>", alignment);
+                        try name_stream.print(" align({})", alignment);
                     }
                     try name_stream.write(" var");
                 },
@@ -429,7 +428,7 @@ pub const Type = struct {
                     }
                     try name_stream.write(")");
                     if (key.alignment) |alignment| {
-                        try name_stream.print(" align<{}>", alignment);
+                        try name_stream.print(" align({})", alignment);
                     }
                     try name_stream.print(" {}", normal.return_type.name);
                 },

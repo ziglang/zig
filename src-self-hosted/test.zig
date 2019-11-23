@@ -16,7 +16,7 @@ test "stage2" {
     try @import("../test/stage2/compile_errors.zig").addCases(&ctx);
     try @import("../test/stage2/compare_output.zig").addCases(&ctx);
 
-    try ctx.run();
+    async ctx.run();
 }
 
 const file1 = "1.zig";
@@ -44,7 +44,7 @@ pub const TestContext = struct {
         errdefer self.zig_compiler.deinit();
 
         self.group = std.event.Group(anyerror!void).init(allocator);
-        errdefer self.group.wait();
+        errdefer self.group.wait() catch {};
 
         self.zig_lib_dir = try introspect.resolveZigLibDir(allocator);
         errdefer allocator.free(self.zig_lib_dir);
@@ -59,14 +59,10 @@ pub const TestContext = struct {
         self.zig_compiler.deinit();
     }
 
-    fn run(self: *TestContext) !void {
-        const handle = try std.event.Loop.instance.?.call(waitForGroup, self);
-        await handle;
-        return self.any_err;
-    }
-
-    async fn waitForGroup(self: *TestContext) void {
+    fn run(self: *TestContext) void {
+        std.event.Loop.instance.?.startCpuBoundOperation();
         self.any_err = self.group.wait();
+        return self.any_err;
     }
 
     fn testCompileError(
@@ -173,7 +169,7 @@ pub const TestContext = struct {
             },
             Compilation.Event.Error => |err| return err,
             Compilation.Event.Fail => |msgs| {
-                var stderr = try std.io.getStdErr();
+                const stderr = std.io.getStdErr();
                 try stderr.write("build incorrectly failed:\n");
                 for (msgs) |msg| {
                     defer msg.destroy();
