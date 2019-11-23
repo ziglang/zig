@@ -256,12 +256,8 @@ const Foo96Bits = packed struct {
 
 test "packed struct 24bits" {
     comptime {
-        expect(@sizeOf(Foo24Bits) == 4);
-        if (@sizeOf(usize) == 4) {
-            expect(@sizeOf(Foo96Bits) == 12);
-        } else {
-            expect(@sizeOf(Foo96Bits) == 16);
-        }
+        expect(@sizeOf(Foo24Bits) == 3);
+        expect(@sizeOf(Foo96Bits) == 12);
     }
 
     var value = Foo96Bits{

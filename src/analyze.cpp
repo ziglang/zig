@@ -2141,7 +2141,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
                 field->bit_offset_in_host = packed_bits_offset - first_packed_bits_offset_misalign;
 
                 size_t full_bit_count = next_packed_bits_offset - first_packed_bits_offset_misalign;
-                size_t full_abi_size = get_abi_size_bytes(full_bit_count, g->pointer_size_bytes);
+                size_t full_abi_size = get_abi_size_bytes(full_bit_count, 1);
                 if (full_abi_size * 8 == full_bit_count) {
                     // next field recovers ABI alignment
                     host_int_bytes[gen_field_index] = full_abi_size;
@@ -2152,7 +2152,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
 
                     first_packed_bits_offset_misalign = SIZE_MAX;
                 }
-            } else if (get_abi_size_bytes(field_type->size_in_bits, g->pointer_size_bytes) * 8 != field_size_in_bits) {
+            } else if (get_abi_size_bytes(field_type->size_in_bits, 1) * 8 != field_size_in_bits) {
                 first_packed_bits_offset_misalign = packed_bits_offset;
                 field->bit_offset_in_host = 0;
             } else {
@@ -2190,7 +2190,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
     }
     if (first_packed_bits_offset_misalign != SIZE_MAX) {
         size_t full_bit_count = packed_bits_offset - first_packed_bits_offset_misalign;
-        size_t full_abi_size = get_abi_size_bytes(full_bit_count, g->pointer_size_bytes);
+        size_t full_abi_size = get_abi_size_bytes(full_bit_count, packed ? 1 : g->pointer_size_bytes);
         next_offset = next_field_offset(next_offset, abi_align, full_abi_size, abi_align);
         host_int_bytes[gen_field_index] = full_abi_size;
         gen_field_index += 1;
@@ -7993,19 +7993,19 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
                 // this field is not byte-aligned; it is part of the previous field with a bit offset
 
                 size_t full_bit_count = next_packed_bits_offset - first_packed_bits_offset_misalign;
-                size_t full_abi_size = get_abi_size_bytes(full_bit_count, g->pointer_size_bytes);
+                size_t full_abi_size = get_abi_size_bytes(full_bit_count, 1);
                 if (full_abi_size * 8 == full_bit_count) {
                     // next field recovers ABI alignment
                     element_types[gen_field_index] = get_llvm_type_of_n_bytes(full_abi_size);
                     gen_field_index += 1;
                     first_packed_bits_offset_misalign = SIZE_MAX;
                 }
-            } else if (get_abi_size_bytes(field_type->size_in_bits, g->pointer_size_bytes) * 8 != field_size_in_bits) {
+            } else if (get_abi_size_bytes(field_type->size_in_bits, 1) * 8 != field_size_in_bits) {
                 first_packed_bits_offset_misalign = packed_bits_offset;
             } else {
                 // This is a byte-aligned field (both start and end) in a packed struct.
                 element_types[gen_field_index] = get_llvm_type(g, field_type);
-                assert(get_abi_size_bytes(field_type->size_in_bits, g->pointer_size_bytes) ==
+                assert(get_abi_size_bytes(field_type->size_in_bits, 1) ==
                        LLVMStoreSizeOfType(g->target_data_ref, element_types[gen_field_index]));
                 gen_field_index += 1;
             }
@@ -8068,7 +8068,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
 
     if (first_packed_bits_offset_misalign != SIZE_MAX) {
         size_t full_bit_count = packed_bits_offset - first_packed_bits_offset_misalign;
-        size_t full_abi_size = get_abi_size_bytes(full_bit_count, g->pointer_size_bytes);
+        size_t full_abi_size = get_abi_size_bytes(full_bit_count, packed ? 1 : g->pointer_size_bytes);
         element_types[gen_field_index] = get_llvm_type_of_n_bytes(full_abi_size);
         gen_field_index += 1;
     }
