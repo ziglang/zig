@@ -78,9 +78,8 @@ pub fn LinearFifo(
             },
         };
 
-        pub fn deinit(self: *Self) void {
+        pub fn deinit(self: Self) void {
             if (buffer_type == .Dynamic) self.allocator.free(self.buf);
-            self.* = undefined;
         }
 
         pub fn realign(self: *Self) void {
