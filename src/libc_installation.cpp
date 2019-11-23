@@ -389,7 +389,7 @@ static Error zig_libc_find_native_msvc_include_dir(ZigLibCInstallation *self, Zi
     }
     Buf search_path = BUF_INIT;
     buf_init_from_mem(&search_path, sdk->msvc_lib_dir_ptr, sdk->msvc_lib_dir_len);
-    buf_append_str(&search_path, "\\..\\..\\include");
+    buf_append_str(&search_path, "..\\..\\include");
 
     Buf *vcruntime_path = buf_sprintf("%s\\vcruntime.h", buf_ptr(&search_path));
     bool exists;
