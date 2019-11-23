@@ -145,16 +145,13 @@ pub fn LinearFifo(
         fn readableSliceMut(self: SliceSelfArg, offset: usize) []T {
             if (offset > self.count) return [_]T{};
 
-            const start = self.head + offset;
+            var start = self.head + offset;
             if (start >= self.buf.len) {
-                return self.buf[start - self.buf.len ..][0 .. self.count - offset];
+                start -= self.buf.len;
+                return self.buf[start..self.count - offset];
             } else {
-                const end: usize = self.head + self.count;
-                if (end >= self.buf.len) {
-                    return self.buf[start..self.buf.len];
-                } else {
-                    return self.buf[start..end];
-                }
+                const end = math.min(self.head + self.count, self.buf.len);
+                return self.buf[start..end];
             }
         }
 
