@@ -73,7 +73,8 @@ pub fn build(b: *Builder) !void {
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
     const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") orelse false;
-    if (!skip_self_hosted) {
+    if (!skip_self_hosted and builtin.os == .linux) {
+        // TODO evented I/O other OS'spu
         test_step.dependOn(&exe.step);
     }
 

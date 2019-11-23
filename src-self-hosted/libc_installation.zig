@@ -160,9 +160,9 @@ pub const LibCInstallation = struct {
                         if (sdk.msvc_lib_dir_ptr != 0) {
                             self.msvc_lib_dir = try std.mem.dupe(allocator, u8, sdk.msvc_lib_dir_ptr[0..sdk.msvc_lib_dir_len]);
                         }
-                        try group.call(findNativeKernel32LibDir, self, sdk);
-                        try group.call(findNativeIncludeDirWindows, self, sdk);
-                        try group.call(findNativeLibDirWindows, self, sdk);
+                        try group.call(findNativeKernel32LibDir, allocator, self, sdk);
+                        try group.call(findNativeIncludeDirWindows, self, allocator, sdk);
+                        try group.call(findNativeLibDirWindows, self, allocator, sdk);
                     },
                     c.ZigFindWindowsSdkError.OutOfMemory => return error.OutOfMemory,
                     c.ZigFindWindowsSdkError.NotFound => return error.NotFound,
