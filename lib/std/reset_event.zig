@@ -219,17 +219,23 @@ const WindowsEvent = AtomicEvent(struct {
             return SpinEvent.Futex.wait(ptr, expected, timeout);
         };
 
+        // NT uses timeouts in units of 100ns with negative value being relative
         var timeout_ptr: ?*windows.LARGE_INTEGER = null;
         var timeout_value: windows.LARGE_INTEGER = undefined;
         if (timeout) |timeout_ns| {
             timeout_ptr = &timeout_value;
-            timeout_value = @intCast(windows.LARGE_INTEGER, @divFloor(timeout_ns, time.millisecond)); 
+            timeout_value = -@intCast(windows.LARGE_INTEGER, timeout_ns / 100);
         }
 
-        const key = @ptrCast(*const c_void, ptr);
-        while (@atomicLoad(u32, ptr, .Acquire) == expected) {
+        // NtWaitForKeyedEvent doesnt have spurious wake-ups
+        if (@atomicLoad(u32, ptr, .Acquire) == expected) {
+            const key = @ptrCast(*const c_void, ptr);
             const rc = windows.ntdll.NtWaitForKeyedEvent(handle, key, windows.FALSE, timeout_ptr);
-            assert(rc == 0);
+            switch (rc) {
+                0 => {},
+                windows.WAIT_TIMEOUT => return ResetEvent.WaitError.TimedOut,
+                else => unreachable,
+            }
         }
     }
 
@@ -377,10 +383,13 @@ test "std.ResetEvent" {
 
     // test waiting timeout
     const delay = 100 * time.millisecond;
+    const error_margin = 50 * time.millisecond;
+
     var timer = time.Timer.start() catch unreachable;
     testing.expectError(ResetEvent.WaitError.TimedOut, event.wait(delay));
     const elapsed = timer.read();
-    testing.expect(elapsed >= delay and elapsed < delay * 2);
+    testing.expect(elapsed >= delay - error_margin);
+    testing.expect(elapsed <= delay + error_margin);
 
     // test cross thread signaling
     const Context = struct {
