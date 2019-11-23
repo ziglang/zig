@@ -10,13 +10,15 @@ const ZigCompiler = @import("compilation.zig").ZigCompiler;
 var ctx: TestContext = undefined;
 
 test "stage2" {
+    // TODO provide a way to run tests in evented I/O mode
+    if (!std.io.is_async) return error.SkipZigTest;
+
     try ctx.init();
     defer ctx.deinit();
 
-    try @import("../test/stage2/compile_errors.zig").addCases(&ctx);
-    try @import("../test/stage2/compare_output.zig").addCases(&ctx);
+    try @import("stage2_tests").addCases(&ctx);
 
-    async ctx.run();
+    _ = async ctx.run();
 }
 
 const file1 = "1.zig";
@@ -40,7 +42,7 @@ pub const TestContext = struct {
             .file_index = std.atomic.Int(usize).init(0),
         };
 
-        self.zig_compiler = try ZigCompiler.init();
+        self.zig_compiler = try ZigCompiler.init(allocator);
         errdefer self.zig_compiler.deinit();
 
         self.group = std.event.Group(anyerror!void).init(allocator);
@@ -75,7 +77,7 @@ pub const TestContext = struct {
     ) !void {
         var file_index_buf: [20]u8 = undefined;
         const file_index = try std.fmt.bufPrint(file_index_buf[0..], "{}", self.file_index.incr());
-        const file1_path = try std.fs.path.join(allocator, [][]const u8{ tmp_dir_name, file_index, file1 });
+        const file1_path = try std.fs.path.join(allocator, [_][]const u8{ tmp_dir_name, file_index, file1 });
 
         if (std.fs.path.dirname(file1_path)) |dirname| {
             try std.fs.makePath(allocator, dirname);
@@ -108,9 +110,9 @@ pub const TestContext = struct {
     ) !void {
         var file_index_buf: [20]u8 = undefined;
         const file_index = try std.fmt.bufPrint(file_index_buf[0..], "{}", self.file_index.incr());
-        const file1_path = try std.fs.path.join(allocator, [][]const u8{ tmp_dir_name, file_index, file1 });
+        const file1_path = try std.fs.path.join(allocator, [_][]const u8{ tmp_dir_name, file_index, file1 });
 
-        const output_file = try std.fmt.allocPrint(allocator, "{}-out{}", file1_path, Target(Target.Native).exeFileExt());
+        const output_file = try std.fmt.allocPrint(allocator, "{}-out{}", file1_path, (Target{.Native = {}}).exeFileExt());
         if (std.fs.path.dirname(file1_path)) |dirname| {
             try std.fs.makePath(allocator, dirname);
         }
@@ -141,7 +143,7 @@ pub const TestContext = struct {
         comp: *Compilation,
         exe_file: []const u8,
         expected_output: []const u8,
-    ) !void {
+    ) anyerror!void {
         // TODO this should not be necessary
         const exe_file_2 = try std.mem.dupe(allocator, u8, exe_file);
 
@@ -150,7 +152,7 @@ pub const TestContext = struct {
 
         switch (build_event) {
             .Ok => {
-                const argv = []const []const u8{exe_file_2};
+                const argv = [_][]const u8{exe_file_2};
                 // TODO use event loop
                 const child = try std.ChildProcess.exec(allocator, argv, null, null, 1024 * 1024);
                 switch (child.term) {
@@ -186,7 +188,7 @@ pub const TestContext = struct {
         line: usize,
         column: usize,
         text: []const u8,
-    ) !void {
+    ) anyerror!void {
         defer comp.destroy();
         const build_event = comp.events.get();
 
