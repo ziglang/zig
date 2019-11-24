@@ -204,13 +204,12 @@ test "assign null directly to C pointer and test null equality" {
 test "null terminated pointer" {
     const S = struct {
         fn doTheTest() void {
-            var array_with_zero = [_]u8{'h', 'e', 'l', 'l', 'o', 0};
+            var array_with_zero = [_:0]u8{'h', 'e', 'l', 'l', 'o'};
             var zero_ptr: [*:0]const u8 = @ptrCast([*:0]const u8, &array_with_zero);
             var no_zero_ptr: [*]const u8 = zero_ptr;
             expect(std.mem.eql(u8, std.mem.toSliceConst(u8, no_zero_ptr), "hello"));
         }
     };
     S.doTheTest();
-    // TODO test fails at comptime
-    //comptime S.doTheTest();
+    comptime S.doTheTest();
 }

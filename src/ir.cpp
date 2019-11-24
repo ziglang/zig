@@ -18585,12 +18585,27 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                         case ConstPtrSpecialDiscard:
                             zig_unreachable();
                         case ConstPtrSpecialRef:
-                            mem_size = 1;
-                            old_size = 1;
-                            new_index = index;
+                            if (array_ptr_val->data.x_ptr.data.ref.pointee->type->id == ZigTypeIdArray) {
+                                ConstExprValue *array_val = array_ptr_val->data.x_ptr.data.ref.pointee;
+                                new_index = index;
+                                ZigType *array_type = array_val->type;
+                                mem_size = array_type->data.array.len;
+                                if (array_type->data.array.sentinel != nullptr) {
+                                    mem_size += 1;
+                                }
+                                old_size = mem_size;
 
-                            out_val->data.x_ptr.special = ConstPtrSpecialRef;
-                            out_val->data.x_ptr.data.ref.pointee = array_ptr_val->data.x_ptr.data.ref.pointee;
+                                out_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
+                                out_val->data.x_ptr.data.base_array.array_val = array_val;
+                                out_val->data.x_ptr.data.base_array.elem_index = new_index;
+                            } else {
+                                mem_size = 1;
+                                old_size = 1;
+                                new_index = index;
+
+                                out_val->data.x_ptr.special = ConstPtrSpecialRef;
+                                out_val->data.x_ptr.data.ref.pointee = array_ptr_val->data.x_ptr.data.ref.pointee;
+                            }
                             break;
                         case ConstPtrSpecialBaseArray:
                             {
