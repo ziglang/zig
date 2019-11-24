@@ -621,3 +621,56 @@ test "peer resolution of string literals" {
     S.doTheTest(.b);
     comptime S.doTheTest(.b);
 }
+
+test "type coercion related to sentinel-termination" {
+    const S = struct {
+        fn doTheTest() void {
+            // [:x]T to []T
+            {
+                var array = [4:0]i32{1,2,3,4};
+                var slice: [:0]i32 = &array;
+                var dest: []i32 = slice;
+                expect(mem.eql(i32, dest, &[_]i32{1,2,3,4}));
+            }
+
+            // [*:x]T to [*]T
+            {
+                var array = [4:99]i32{1,2,3,4};
+                var dest: [*]i32 = &array;
+                expect(dest[0] == 1);
+                expect(dest[1] == 2);
+                expect(dest[2] == 3);
+                expect(dest[3] == 4);
+                expect(dest[4] == 99);
+            }
+
+            // [N:x]T to [N]T
+            {
+                var array = [4:0]i32{1,2,3,4};
+                var dest: [4]i32 = array;
+                expect(mem.eql(i32, dest, &[_]i32{1,2,3,4}));
+            }
+
+            // *[N:x]T to *[N]T
+            {
+                var array = [4:0]i32{1,2,3,4};
+                var dest: *[4]i32 = &array;
+                expect(mem.eql(i32, dest, &[_]i32{1,2,3,4}));
+            }
+
+            // [:x]T to [*:x]T
+            {
+                var array = [4:0]i32{1,2,3,4};
+                var slice: [:0]i32 = &array;
+                var dest: [*:0]i32 = slice;
+                expect(dest[0] == 1);
+                expect(dest[1] == 2);
+                expect(dest[2] == 3);
+                expect(dest[3] == 4);
+                expect(dest[4] == 0);
+            }
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
