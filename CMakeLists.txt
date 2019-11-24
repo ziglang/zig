@@ -438,6 +438,10 @@ set(ZIG_MAIN_SRC "${CMAKE_SOURCE_DIR}/src/main.cpp")
 # This is our shim which will be replaced by libuserland written in Zig.
 set(ZIG0_SHIM_SRC "${CMAKE_SOURCE_DIR}/src/userland.cpp")
 
+if(ZIG_ENABLE_MEM_PROFILE)
+    set(ZIG_SOURCES_MEM_PROFILE "${CMAKE_SOURCE_DIR}/src/memory_profiling.cpp")
+endif()
+
 set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/analyze.cpp"
     "${CMAKE_SOURCE_DIR}/src/ast_render.cpp"
@@ -456,7 +460,6 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/ir_print.cpp"
     "${CMAKE_SOURCE_DIR}/src/libc_installation.cpp"
     "${CMAKE_SOURCE_DIR}/src/link.cpp"
-    "${CMAKE_SOURCE_DIR}/src/memory_profiling.cpp"
     "${CMAKE_SOURCE_DIR}/src/os.cpp"
     "${CMAKE_SOURCE_DIR}/src/parser.cpp"
     "${CMAKE_SOURCE_DIR}/src/range_set.cpp"
@@ -464,6 +467,7 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
     "${CMAKE_SOURCE_DIR}/src/translate_c.cpp"
     "${CMAKE_SOURCE_DIR}/src/util.cpp"
+    "${ZIG_SOURCES_MEM_PROFILE}"
 )
 set(OPTIMIZED_C_SOURCES
     "${CMAKE_SOURCE_DIR}/src/blake2b.c"
