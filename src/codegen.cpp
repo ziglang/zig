@@ -3752,7 +3752,7 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
         LLVMValueRef array_ptr = get_handle_value(g, array_ptr_ptr, array_type, array_ptr_type);
         assert(array_type->data.structure.is_slice);
 
-        ZigType *ptr_type = instruction->base.value.type;
+        ZigType *ptr_type = array_type->data.structure.fields[slice_ptr_index]->type_entry;
         if (!type_has_bits(ptr_type)) {
             if (safety_check_on) {
                 assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMIntegerTypeKind);
@@ -3769,7 +3769,8 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
             assert(len_index != SIZE_MAX);
             LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, array_ptr, (unsigned)len_index, "");
             LLVMValueRef len = gen_load_untyped(g, len_ptr, 0, false, "");
-            add_bounds_check(g, subscript_value, LLVMIntEQ, nullptr, LLVMIntULT, len);
+            LLVMIntPredicate upper_op = (ptr_type->data.pointer.sentinel != nullptr) ? LLVMIntULE : LLVMIntULT;
+            add_bounds_check(g, subscript_value, LLVMIntEQ, nullptr, upper_op, len);
         }
 
         size_t ptr_index = array_type->data.structure.fields[slice_ptr_index]->gen_index;

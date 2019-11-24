@@ -18244,13 +18244,16 @@ static IrInstruction *ir_analyze_instruction_var_ptr(IrAnalyze *ira, IrInstructi
 
 static ZigType *adjust_ptr_align(CodeGen *g, ZigType *ptr_type, uint32_t new_align) {
     assert(ptr_type->id == ZigTypeIdPointer);
-    return get_pointer_to_type_extra(g,
+    return get_pointer_to_type_extra2(g,
             ptr_type->data.pointer.child_type,
             ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
             ptr_type->data.pointer.ptr_len,
             new_align,
             ptr_type->data.pointer.bit_offset_in_host, ptr_type->data.pointer.host_int_bytes,
-            ptr_type->data.pointer.allow_zero);
+            ptr_type->data.pointer.allow_zero,
+            ptr_type->data.pointer.vector_index,
+            ptr_type->data.pointer.inferred_struct_field,
+            ptr_type->data.pointer.sentinel);
 }
 
 static ZigType *adjust_slice_align(CodeGen *g, ZigType *slice_type, uint32_t new_align) {
@@ -18595,8 +18598,11 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                     ConstExprValue *len_field = array_ptr_val->data.x_struct.fields[slice_len_index];
                     IrInstruction *result = ir_const(ira, &elem_ptr_instruction->base, return_type);
                     ConstExprValue *out_val = &result->value;
+                    ZigType *slice_ptr_type = array_type->data.structure.fields[slice_ptr_index]->type_entry;
                     uint64_t slice_len = bigint_as_u64(&len_field->data.x_bigint);
-                    if (index >= slice_len) {
+                    uint64_t full_slice_len = slice_len +
+                        ((slice_ptr_type->data.pointer.sentinel != nullptr) ? 1 : 0);
+                    if (index >= full_slice_len) {
                         ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
                             buf_sprintf("index %" ZIG_PRI_u64 " outside slice of size %" ZIG_PRI_u64,
                                 index, slice_len));
@@ -18615,8 +18621,13 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                             {
                                 size_t offset = ptr_field->data.x_ptr.data.base_array.elem_index;
                                 uint64_t new_index = offset + index;
-                                ir_assert(new_index < ptr_field->data.x_ptr.data.base_array.array_val->type->data.array.len,
+                                if (ptr_field->data.x_ptr.data.base_array.array_val->data.x_array.special != 
+                                        ConstArraySpecialBuf)
+                                {
+                                    ir_assert(new_index <
+                                            ptr_field->data.x_ptr.data.base_array.array_val->type->data.array.len,
                                         &elem_ptr_instruction->base);
+                                }
                                 out_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
                                 out_val->data.x_ptr.data.base_array.array_val =
                                     ptr_field->data.x_ptr.data.base_array.array_val;

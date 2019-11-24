@@ -70,14 +70,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add(
         "disallow coercion from non-null-terminated pointer to null-terminated pointer",
-        \\extern fn puts(s: [*]null const u8) c_int;
+        \\extern fn puts(s: [*:0]const u8) c_int;
         \\pub fn main() void {
         \\    const no_zero_array = [_]u8{'h', 'e', 'l', 'l', 'o'};
         \\    const no_zero_ptr: [*]const u8 = &no_zero_array;
         \\    _ = puts(no_zero_ptr);
         \\}
     ,
-        "tmp.zig:5:14: error: expected type '[*]null const u8', found '[*]const u8'",
+        "tmp.zig:5:14: error: expected type '[*:0]const u8', found '[*]const u8'",
     );
 
     cases.add(
@@ -784,7 +784,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    strValue = strValue orelse "";
         \\}
     ,
-        "tmp.zig:3:32: error: expected type '[*c]u8', found '*const [0]null u8'",
+        "tmp.zig:3:32: error: expected type '[*c]u8', found '*const [0:0]u8'",
         "tmp.zig:3:32: note: cast discards const qualifier",
     );
 
@@ -2442,12 +2442,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "var not allowed in structs",
+        "var makes structs required to be comptime known",
         \\export fn entry() void {
-        \\   var s = (struct{v: var}){.v=@as(i32, 10)};
+        \\   const S = struct{v: var};
+        \\   var s = S{.v=@as(i32, 10)};
         \\}
     ,
-        "tmp.zig:2:23: error: invalid token: 'var'",
+        "tmp.zig:3:4: error: variable of type 'S' must be const or comptime",
     );
 
     cases.add(
@@ -3357,7 +3358,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return a;
         \\}
     ,
-        "tmp.zig:3:12: error: expected type 'i32', found '*const [1]null u8'",
+        "tmp.zig:3:12: error: expected type 'i32', found '*const [1:0]u8'",
     );
 
     cases.add(
@@ -6212,7 +6213,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\pub extern fn foo(format: *const u8, ...) void;
     ,
-        "tmp.zig:2:16: error: expected type '*const u8', found '[5]null u8'",
+        "tmp.zig:2:16: error: expected type '*const u8', found '[5:0]u8'",
     );
 
     cases.add(

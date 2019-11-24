@@ -496,7 +496,7 @@ static void append_ptr_type_attrs(Buf *type_name, ZigType *ptr_type) {
         } else if (ptr_type->data.pointer.vector_index != VECTOR_INDEX_NONE) {
             buf_appendf(type_name, ":%" PRIu32, ptr_type->data.pointer.vector_index);
         }
-        buf_appendf(type_name, ")");
+        buf_appendf(type_name, ") ");
     }
     buf_appendf(type_name, "%s%s%s", const_str, volatile_str, allow_zero_str);
     if (ptr_type->data.pointer.inferred_struct_field != nullptr) {
@@ -859,22 +859,6 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
         entry->data.structure.gen_field_count = 1;
         entry->data.structure.fields[slice_ptr_index]->gen_index = SIZE_MAX;
         entry->data.structure.fields[slice_len_index]->gen_index = 0;
-    }
-
-    ZigType *child_type = ptr_type->data.pointer.child_type;
-    if (ptr_type->data.pointer.is_const || ptr_type->data.pointer.is_volatile ||
-        ptr_type->data.pointer.explicit_alignment != 0 || ptr_type->data.pointer.allow_zero)
-    {
-        ZigType *peer_ptr_type = get_pointer_to_type_extra(g, child_type, false, false,
-                PtrLenUnknown, 0, 0, 0, false);
-        ZigType *peer_slice_type = get_slice_type(g, peer_ptr_type);
-
-        entry->size_in_bits = peer_slice_type->size_in_bits;
-        entry->abi_size = peer_slice_type->abi_size;
-        entry->abi_align = peer_slice_type->abi_align;
-
-        *parent_pointer = entry;
-        return entry;
     }
 
     if (type_has_bits(ptr_type)) {

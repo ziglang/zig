@@ -563,7 +563,7 @@ const mem = @import("std").mem;
 
 test "string literals" {
     const bytes = "hello";
-    assert(@typeOf(bytes) == *const [5]null u8);
+    assert(@typeOf(bytes) == *const [5:0]u8);
     assert(bytes.len == 5);
     assert(bytes[1] == 'e');
     assert(bytes[5] == 0);
@@ -1795,7 +1795,7 @@ test "null terminated array" {
 
     assert(@typeOf(array) == [4:0]u8);
     assert(array.len == 4);
-    assert(slice[4] == 0);
+    assert(array[4] == 0);
 }
       {#code_end#}
       {#see_also|Sentinel-Terminated Pointers|Sentinel-Terminated Slices#}
@@ -4863,7 +4863,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 
 test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
-    const window_name = [1][*]const u8{c"window name"};
+    const window_name = [1][*]const u8{"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
     assert(mem.eql(u8, std.mem.toSliceConst(u8, x[0].?), "window name"));
 }
@@ -4905,7 +4905,7 @@ test "float widening" {
       {#code_end#}
       {#header_close#}
       {#header_open|Type Coercion: Arrays and Pointers#}
-      {#code_begin|test#}
+      {#code_begin|test|coerce_arrays_and_ptrs#}
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -4944,7 +4944,7 @@ test "[N]T to ?[]const T" {
 
 // In this cast, the array length becomes the slice length.
 test "*[N]T to []T" {
-    var buf: [5]u8 = "hello";
+    var buf: [5]u8 = "hello".*;
     const x: []u8 = &buf;
     assert(std.mem.eql(u8, x, "hello"));
 
@@ -4956,7 +4956,7 @@ test "*[N]T to []T" {
 // Single-item pointers to arrays can be coerced to
 // unknown length pointers.
 test "*[N]T to [*]T" {
-    var buf: [5]u8 = "hello";
+    var buf: [5]u8 = "hello".*;
     const x: [*]u8 = &buf;
     assert(x[4] == 'o');
     // x[5] would be an uncaught out of bounds pointer dereference!
@@ -4964,7 +4964,7 @@ test "*[N]T to [*]T" {
 
 // Likewise, it works when the destination type is an optional.
 test "*[N]T to ?[*]T" {
-    var buf: [5]u8 = "hello";
+    var buf: [5]u8 = "hello".*;
     const x: ?[*]u8 = &buf;
     assert(x.?[4] == 'o');
 }
@@ -5135,7 +5135,7 @@ test "coercion of zero bit types" {
       This kind of type resolution chooses a type that all peer types can coerce into. Here are
       some examples:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|peer_type_resolution#}
 const std = @import("std");
 const assert = std.debug.assert;
 const mem = std.mem;
@@ -5202,13 +5202,13 @@ fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
 }
 test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
     {
-        var data = "hi";
+        var data = "hi".*;
         const slice = data[0..];
         assert((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
         assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
     comptime {
-        var data = "hi";
+        var data = "hi".*;
         const slice = data[0..];
         assert((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
         assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
@@ -8673,7 +8673,7 @@ pub fn main() void {
       <p>At compile-time:</p>
       {#code_begin|test_err|index 5 outside array of size 5#}
 comptime {
-    const array = "hello";
+    const array: [5]u8 = "hello".*;
     const garbage = array[5];
 }
       {#code_end#}
@@ -9649,22 +9649,6 @@ test "assert in release fast mode" {
       </ul>
       {#see_also|Primitive Types#}
       {#header_close#}
-      {#header_open|C String Literals#}
-      {#code_begin|exe#}
-      {#link_libc#}
-extern fn puts([*]const u8) void;
-
-pub fn main() void {
-    puts(c"this has a null terminator");
-    puts(
-        c\\and so
-        c\\does this
-        c\\multiline C string literal
-    );
-}
-      {#code_end#}
-      {#see_also|String Literals and Character Literals#}
-      {#header_close#}
 
       {#header_open|Import from C Header File#}
       <p>
@@ -9679,7 +9663,7 @@ const c = @cImport({
     @cInclude("stdio.h");
 });
 pub fn main() void {
-    _ = c.printf(c"hello\n");
+    _ = c.printf("hello\n");
 }
       {#code_end#}
       <p>
