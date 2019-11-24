@@ -549,7 +549,8 @@ pub fn main() void {
       String literals are single-item constant {#link|Pointers#} to null-terminated UTF-8 encoded byte arrays.
       The type of string literals encodes both the length, and the fact that they are null-terminated,
       and thus they can be {#link|coerced|Type Coercion#} to both {#link|Slices#} and
-      {#link|Null-Terminated Pointers#}. Dereferencing string literals converts them to {#link|Arrays#}.
+      {#link|Null-Terminated Pointers|Sentinel-Terminated Pointers#}.
+      Dereferencing string literals converts them to {#link|Arrays#}.
       </p>
       <p>
       Character literals have type {#syntax#}comptime_int{#endsyntax#}, the same as
@@ -1780,9 +1781,9 @@ test "multidimensional arrays" {
       {#code_end#}
       {#header_close#}
 
-      {#header_open|Null-Terminated Arrays#}
+      {#header_open|Sentinel-Terminated Arrays#}
       <p>
-      The syntax {#syntax#}[N]null T{#endsyntax#} describes an array which has a null element at the
+      The syntax {#syntax#}[N:x]T{#endsyntax#} describes an array which has a sentinel element at the
       index corresponding to {#syntax#}len{#endsyntax#}.
       </p>
       {#code_begin|test|null_terminated_array#}
@@ -1790,14 +1791,14 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 test "null terminated array" {
-    const array = [_]u8 null {1, 2, 3, 4};
+    const array = [_:0]u8 {1, 2, 3, 4};
 
-    assert(@typeOf(array) == [4]null u8);
+    assert(@typeOf(array) == [4:0]u8);
     assert(array.len == 4);
     assert(slice[4] == 0);
 }
       {#code_end#}
-      {#see_also|Null-Terminated Pointers|Null-Terminated Slices#}
+      {#see_also|Sentinel-Terminated Pointers|Sentinel-Terminated Slices#}
       {#header_close#}
       {#header_close#}
 
@@ -1899,7 +1900,7 @@ test "pointer array access" {
 }
       {#code_end#}
       <p>
-        In Zig, we prefer slices over pointers to null-terminated arrays.
+        In Zig, we generally prefer {#link|Slices#} rather than {#link|Sentinel-Terminated Pointers#}.
         You can turn an array or pointer into a slice using slice syntax.
       </p>
       <p>
@@ -2112,17 +2113,17 @@ test "allowzero" {
       {#code_end#}
       {#header_close#}
 
-      {#header_open|Null-Terminated Pointers#}
+      {#header_open|Sentinel-Terminated Pointers#}
       <p>
-      The syntax {#syntax#}[*]null T{#endsyntax#} describes a pointer that
-      has a length determined by a sentinel null value. This provides protection
+      The syntax {#syntax#}[*:x]T{#endsyntax#} describes a pointer that
+      has a length determined by a sentinel value. This provides protection
       against buffer overflow and overreads.
       </p>
       {#code_begin|exe_build_err#}
 const std = @import("std");
 
 // This is also available as `std.c.printf`.
-pub extern "c" fn printf(format: [*]null const u8, ...) c_int;
+pub extern "c" fn printf(format: [*:0]const u8, ...) c_int;
 
 pub fn main() anyerror!void {
     _ = printf("Hello, world!\n"); // OK
@@ -2132,7 +2133,7 @@ pub fn main() anyerror!void {
     _ = printf(&non_null_terminated_msg);
 }
       {#code_end#}
-      {#see_also|Null-Terminated Slices|Null-Terminated Arrays#}
+      {#see_also|Sentinel-Terminated Slices|Sentinel-Terminated Arrays#}
       {#header_close#}
       {#header_close#}
 
@@ -2218,11 +2219,11 @@ test "slice widening" {
       {#code_end#}
       {#see_also|Pointers|for|Arrays#}
 
-      {#header_open|Null-Terminated Slices#}
+      {#header_open|Sentinel-Terminated Slices#}
       <p>
-      The syntax {#syntax#}[]null T{#endsyntax#} is a slice which has a runtime known length
-      and also guarantees a null value at the element indexed by the length. The type does not
-      guarantee that there are no null elements before that. Null-terminated slices allow element
+      The syntax {#syntax#}[:x]T{#endsyntax#} is a slice which has a runtime known length
+      and also guarantees a sentinel value at the element indexed by the length. The type does not
+      guarantee that there are no sentinel elements before that. Sentinel-terminated slices allow element
       access to the {#syntax#}len{#endsyntax#} index.
       </p>
       {#code_begin|test|null_terminated_slice#}
@@ -2230,13 +2231,13 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 test "null terminated slice" {
-    const slice: []null const u8 = "hello";
+    const slice: [:0]const u8 = "hello";
 
     assert(slice.len == 5);
     assert(slice[5] == 0);
 }
       {#code_end#}
-      {#see_also|Null-Terminated Pointers|Null-Terminated Arrays#}
+      {#see_also|Sentinel-Terminated Pointers|Sentinel-Terminated Arrays#}
       {#header_close#}
       {#header_close#}
 
