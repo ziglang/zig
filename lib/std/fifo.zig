@@ -12,7 +12,7 @@ const testing = std.testing;
 pub fn FixedSizeFifo(comptime T: type) type {
     return struct {
         allocator: *Allocator,
-        buf: []u8,
+        buf: []T,
         head: usize,
         count: usize,
 
