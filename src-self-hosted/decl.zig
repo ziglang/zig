@@ -29,7 +29,7 @@ pub const Decl = struct {
 
     pub fn isExported(base: *const Decl, tree: *ast.Tree) bool {
         switch (base.id) {
-            Id.Fn => {
+            .Fn => {
                 const fn_decl = @fieldParentPtr(Fn, "base", base);
                 return fn_decl.isExported(tree);
             },
@@ -39,7 +39,7 @@ pub const Decl = struct {
 
     pub fn getSpan(base: *const Decl) errmsg.Span {
         switch (base.id) {
-            Id.Fn => {
+            .Fn => {
                 const fn_decl = @fieldParentPtr(Fn, "base", base);
                 const fn_proto = fn_decl.fn_proto;
                 const start = fn_proto.fn_token;
@@ -74,7 +74,7 @@ pub const Decl = struct {
 
         // TODO https://github.com/ziglang/zig/issues/683 and then make this anonymous
         pub const Val = union(enum) {
-            Unresolved: void,
+            Unresolved,
             Fn: *Value.Fn,
             FnProto: *Value.FnProto,
         };
@@ -83,7 +83,7 @@ pub const Decl = struct {
             return if (self.fn_proto.extern_export_inline_token) |tok_index| x: {
                 const token = tree.tokens.at(tok_index);
                 break :x switch (token.id) {
-                    Token.Id.Extern => tree.tokenSlicePtr(token),
+                    .Extern => tree.tokenSlicePtr(token),
                     else => null,
                 };
             } else null;
@@ -92,7 +92,7 @@ pub const Decl = struct {
         pub fn isExported(self: Fn, tree: *ast.Tree) bool {
             if (self.fn_proto.extern_export_inline_token) |tok_index| {
                 const token = tree.tokens.at(tok_index);
-                return token.id == Token.Id.Keyword_export;
+                return token.id == .Keyword_export;
             } else {
                 return false;
             }

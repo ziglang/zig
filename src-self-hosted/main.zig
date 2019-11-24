@@ -18,13 +18,15 @@ const Args = arg.Args;
 const Flag = arg.Flag;
 const ZigCompiler = @import("compilation.zig").ZigCompiler;
 const Compilation = @import("compilation.zig").Compilation;
-const Target = @import("target.zig").Target;
+const Target = std.Target;
 const errmsg = @import("errmsg.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
 var stderr_file: fs.File = undefined;
 var stderr: *io.OutStream(fs.File.WriteError) = undefined;
 var stdout: *io.OutStream(fs.File.WriteError) = undefined;
+
+pub const io_mode = .evented;
 
 pub const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
@@ -258,47 +260,47 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
         process.exit(0);
     }
 
-    const build_mode = blk: {
+    const build_mode: std.builtin.Mode = blk: {
         if (flags.single("mode")) |mode_flag| {
             if (mem.eql(u8, mode_flag, "debug")) {
-                break :blk builtin.Mode.Debug;
+                break :blk .Debug;
             } else if (mem.eql(u8, mode_flag, "release-fast")) {
-                break :blk builtin.Mode.ReleaseFast;
+                break :blk .ReleaseFast;
             } else if (mem.eql(u8, mode_flag, "release-safe")) {
-                break :blk builtin.Mode.ReleaseSafe;
+                break :blk .ReleaseSafe;
             } else if (mem.eql(u8, mode_flag, "release-small")) {
-                break :blk builtin.Mode.ReleaseSmall;
+                break :blk .ReleaseSmall;
             } else unreachable;
         } else {
-            break :blk builtin.Mode.Debug;
+            break :blk .Debug;
         }
     };
 
-    const color = blk: {
+    const color: errmsg.Color = blk: {
         if (flags.single("color")) |color_flag| {
             if (mem.eql(u8, color_flag, "auto")) {
-                break :blk errmsg.Color.Auto;
+                break :blk .Auto;
             } else if (mem.eql(u8, color_flag, "on")) {
-                break :blk errmsg.Color.On;
+                break :blk .On;
             } else if (mem.eql(u8, color_flag, "off")) {
-                break :blk errmsg.Color.Off;
+                break :blk .Off;
             } else unreachable;
         } else {
-            break :blk errmsg.Color.Auto;
+            break :blk .Auto;
         }
     };
 
-    const emit_type = blk: {
+    const emit_type: Compilation.Emit = blk: {
         if (flags.single("emit")) |emit_flag| {
             if (mem.eql(u8, emit_flag, "asm")) {
-                break :blk Compilation.Emit.Assembly;
+                break :blk .Assembly;
             } else if (mem.eql(u8, emit_flag, "bin")) {
-                break :blk Compilation.Emit.Binary;
+                break :blk .Binary;
             } else if (mem.eql(u8, emit_flag, "llvm-ir")) {
-                break :blk Compilation.Emit.LlvmIr;
+                break :blk .LlvmIr;
             } else unreachable;
         } else {
-            break :blk Compilation.Emit.Binary;
+            break :blk .Binary;
         }
     };
 
@@ -383,11 +385,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
 
     var override_libc: LibCInstallation = undefined;
 
-    var loop: event.Loop = undefined;
-    try loop.initMultiThreaded(allocator);
-    defer loop.deinit();
-
-    var zig_compiler = try ZigCompiler.init(&loop);
+    var zig_compiler = try ZigCompiler.init(allocator);
     defer zig_compiler.deinit();
 
     var comp = try Compilation.create(
@@ -403,7 +401,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     defer comp.destroy();
 
     if (flags.single("libc")) |libc_path| {
-        parseLibcPaths(loop.allocator, &override_libc, libc_path);
+        parseLibcPaths(allocator, &override_libc, libc_path);
         comp.override_libc = &override_libc;
     }
 
@@ -463,25 +461,24 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     comp.link_objects = link_objects;
 
     comp.start();
-    // TODO const process_build_events_handle = try async<loop.allocator> processBuildEvents(comp, color);
-    loop.run();
+    const frame = async processBuildEvents(comp, color);
 }
 
 async fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
     var count: usize = 0;
     while (true) {
         // TODO directly awaiting async should guarantee memory allocation elision
-        const build_event = await (async comp.events.get() catch unreachable);
+        const build_event = comp.events.get();
         count += 1;
 
         switch (build_event) {
-            Compilation.Event.Ok => {
+            .Ok => {
                 stderr.print("Build {} succeeded\n", count) catch process.exit(1);
             },
-            Compilation.Event.Error => |err| {
+            .Error => |err| {
                 stderr.print("Build {} failed: {}\n", count, @errorName(err)) catch process.exit(1);
             },
-            Compilation.Event.Fail => |msgs| {
+            .Fail => |msgs| {
                 stderr.print("Build {} compile errors:\n", count) catch process.exit(1);
                 for (msgs) |msg| {
                     defer msg.destroy();
@@ -536,7 +533,7 @@ const Fmt = struct {
     seen: event.Locked(SeenMap),
     any_error: bool,
     color: errmsg.Color,
-    loop: *event.Loop,
+    allocator: *Allocator,
 
     const SeenMap = std.StringHashMap(void);
 };
@@ -567,20 +564,14 @@ fn cmdLibC(allocator: *Allocator, args: []const []const u8) !void {
         },
     }
 
-    var loop: event.Loop = undefined;
-    try loop.initMultiThreaded(allocator);
-    defer loop.deinit();
-
-    var zig_compiler = try ZigCompiler.init(&loop);
+    var zig_compiler = try ZigCompiler.init(allocator);
     defer zig_compiler.deinit();
 
-    // TODO const handle = try async<loop.allocator> findLibCAsync(&zig_compiler);
-
-    loop.run();
+    const frame = async findLibCAsync(&zig_compiler);
 }
 
 async fn findLibCAsync(zig_compiler: *ZigCompiler) void {
-    const libc = (await (async zig_compiler.getNativeLibC() catch unreachable)) catch |err| {
+    const libc = zig_compiler.getNativeLibC() catch |err| {
         stderr.print("unable to find libc: {}\n", @errorName(err)) catch process.exit(1);
         process.exit(1);
     };
@@ -596,17 +587,17 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         process.exit(0);
     }
 
-    const color = blk: {
+    const color: errmsg.Color = blk: {
         if (flags.single("color")) |color_flag| {
             if (mem.eql(u8, color_flag, "auto")) {
-                break :blk errmsg.Color.Auto;
+                break :blk .Auto;
             } else if (mem.eql(u8, color_flag, "on")) {
-                break :blk errmsg.Color.On;
+                break :blk .On;
             } else if (mem.eql(u8, color_flag, "off")) {
-                break :blk errmsg.Color.Off;
+                break :blk .Off;
             } else unreachable;
         } else {
-            break :blk errmsg.Color.Auto;
+            break :blk .Auto;
         }
     };
 
@@ -640,7 +631,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         }
         if (flags.present("check")) {
             const anything_changed = try std.zig.render(allocator, io.null_out_stream, tree);
-            const code = if (anything_changed) u8(1) else u8(0);
+            const code: u8 = if (anything_changed) 1 else 0;
             process.exit(code);
         }
 
@@ -653,28 +644,11 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         process.exit(1);
     }
 
-    var loop: event.Loop = undefined;
-    try loop.initMultiThreaded(allocator);
-    defer loop.deinit();
-
-    var result: FmtError!void = undefined;
-    // TODO const main_handle = try async<allocator> asyncFmtMainChecked(
-    // TODO     &result,
-    // TODO     &loop,
-    // TODO     &flags,
-    // TODO     color,
-    // TODO );
-    loop.run();
-    return result;
-}
-
-async fn asyncFmtMainChecked(
-    result: *(FmtError!void),
-    loop: *event.Loop,
-    flags: *const Args,
-    color: errmsg.Color,
-) void {
-    result.* = await (async asyncFmtMain(loop, flags, color) catch unreachable);
+    return asyncFmtMain(
+        allocator,
+        &flags,
+        color,
+    );
 }
 
 const FmtError = error{
@@ -700,72 +674,69 @@ const FmtError = error{
 } || fs.File.OpenError;
 
 async fn asyncFmtMain(
-    loop: *event.Loop,
+    allocator: *Allocator,
     flags: *const Args,
     color: errmsg.Color,
 ) FmtError!void {
-    suspend {
-        resume @handle();
-    }
     var fmt = Fmt{
-        .seen = event.Locked(Fmt.SeenMap).init(loop, Fmt.SeenMap.init(loop.allocator)),
+        .allocator = allocator,
+        .seen = event.Locked(Fmt.SeenMap).init(Fmt.SeenMap.init(allocator)),
         .any_error = false,
         .color = color,
-        .loop = loop,
     };
 
     const check_mode = flags.present("check");
 
-    var group = event.Group(FmtError!void).init(loop);
+    var group = event.Group(FmtError!void).init(allocator);
     for (flags.positionals.toSliceConst()) |file_path| {
         try group.call(fmtPath, &fmt, file_path, check_mode);
     }
-    try await (async group.wait() catch unreachable);
+    try group.wait();
     if (fmt.any_error) {
         process.exit(1);
     }
 }
 
 async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void {
-    const file_path = try std.mem.dupe(fmt.loop.allocator, u8, file_path_ref);
-    defer fmt.loop.allocator.free(file_path);
+    const file_path = try std.mem.dupe(fmt.allocator, u8, file_path_ref);
+    defer fmt.allocator.free(file_path);
 
     {
-        const held = await (async fmt.seen.acquire() catch unreachable);
+        const held = fmt.seen.acquire();
         defer held.release();
 
         if (try held.value.put(file_path, {})) |_| return;
     }
 
-    const source_code = (await try async event.fs.readFile(
-        fmt.loop,
-        file_path,
-        max_src_size,
-    )) catch |err| switch (err) {
-        error.IsDir, error.AccessDenied => {
-            // TODO make event based (and dir.next())
-            var dir = try fs.Dir.open(file_path);
-            defer dir.close();
+    const source_code = "";
+    // const source_code =  event.fs.readFile(
+    //     file_path,
+    //     max_src_size,
+    // ) catch |err| switch (err) {
+    //     error.IsDir, error.AccessDenied => {
+    //         // TODO make event based (and dir.next())
+    //         var dir = try fs.Dir.open(file_path);
+    //         defer dir.close();
 
-            var group = event.Group(FmtError!void).init(fmt.loop);
-            while (try dir.next()) |entry| {
-                if (entry.kind == fs.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
-                    const full_path = try fs.path.join(fmt.loop.allocator, [_][]const u8{ file_path, entry.name });
-                    try group.call(fmtPath, fmt, full_path, check_mode);
-                }
-            }
-            return await (async group.wait() catch unreachable);
-        },
-        else => {
-            // TODO lock stderr printing
-            try stderr.print("unable to open '{}': {}\n", file_path, err);
-            fmt.any_error = true;
-            return;
-        },
-    };
-    defer fmt.loop.allocator.free(source_code);
+    //         var group = event.Group(FmtError!void).init(fmt.allocator);
+    //         while (try dir.next()) |entry| {
+    //             if (entry.kind == fs.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
+    //                 const full_path = try fs.path.join(fmt.allocator, [_][]const u8{ file_path, entry.name });
+    //                 try group.call(fmtPath, fmt, full_path, check_mode);
+    //             }
+    //         }
+    //         return group.wait();
+    //     },
+    //     else => {
+    //         // TODO lock stderr printing
+    //         try stderr.print("unable to open '{}': {}\n", file_path, err);
+    //         fmt.any_error = true;
+    //         return;
+    //     },
+    // };
+    // defer fmt.allocator.free(source_code);
 
-    const tree = std.zig.parse(fmt.loop.allocator, source_code) catch |err| {
+    const tree = std.zig.parse(fmt.allocator, source_code) catch |err| {
         try stderr.print("error parsing file '{}': {}\n", file_path, err);
         fmt.any_error = true;
         return;
@@ -774,8 +745,8 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
 
     var error_it = tree.errors.iterator(0);
     while (error_it.next()) |parse_error| {
-        const msg = try errmsg.Msg.createFromParseError(fmt.loop.allocator, parse_error, tree, file_path);
-        defer fmt.loop.allocator.destroy(msg);
+        const msg = try errmsg.Msg.createFromParseError(fmt.allocator, parse_error, tree, file_path);
+        defer fmt.allocator.destroy(msg);
 
         try msg.printToFile(stderr_file, fmt.color);
     }
@@ -785,17 +756,17 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
     }
 
     if (check_mode) {
-        const anything_changed = try std.zig.render(fmt.loop.allocator, io.null_out_stream, tree);
+        const anything_changed = try std.zig.render(fmt.allocator, io.null_out_stream, tree);
         if (anything_changed) {
             try stderr.print("{}\n", file_path);
             fmt.any_error = true;
         }
     } else {
         // TODO make this evented
-        const baf = try io.BufferedAtomicFile.create(fmt.loop.allocator, file_path);
+        const baf = try io.BufferedAtomicFile.create(fmt.allocator, file_path);
         defer baf.destroy();
 
-        const anything_changed = try std.zig.render(fmt.loop.allocator, baf.stream(), tree);
+        const anything_changed = try std.zig.render(fmt.allocator, baf.stream(), tree);
         if (anything_changed) {
             try stderr.print("{}\n", file_path);
             try baf.finish();
@@ -822,8 +793,8 @@ fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.write("Operating Systems:\n");
     {
         comptime var i: usize = 0;
-        inline while (i < @memberCount(builtin.Os)) : (i += 1) {
-            comptime const os_tag = @memberName(builtin.Os, i);
+        inline while (i < @memberCount(Target.Os)) : (i += 1) {
+            comptime const os_tag = @memberName(Target.Os, i);
             // NOTE: Cannot use empty string, see #918.
             comptime const native_str = if (comptime mem.eql(u8, os_tag, @tagName(builtin.os))) " (native)\n" else "\n";
 
@@ -835,8 +806,8 @@ fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.write("C ABIs:\n");
     {
         comptime var i: usize = 0;
-        inline while (i < @memberCount(builtin.Abi)) : (i += 1) {
-            comptime const abi_tag = @memberName(builtin.Abi, i);
+        inline while (i < @memberCount(Target.Abi)) : (i += 1) {
+            comptime const abi_tag = @memberName(Target.Abi, i);
             // NOTE: Cannot use empty string, see #918.
             comptime const native_str = if (comptime mem.eql(u8, abi_tag, @tagName(builtin.abi))) " (native)\n" else "\n";
 
@@ -911,21 +882,17 @@ fn cmdInternalBuildInfo(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.print(
         \\ZIG_CMAKE_BINARY_DIR {}
         \\ZIG_CXX_COMPILER     {}
-        \\ZIG_LLVM_CONFIG_EXE  {}
         \\ZIG_LLD_INCLUDE_PATH {}
         \\ZIG_LLD_LIBRARIES    {}
-        \\ZIG_STD_FILES        {}
-        \\ZIG_C_HEADER_FILES   {}
+        \\ZIG_LLVM_CONFIG_EXE  {}
         \\ZIG_DIA_GUIDS_LIB    {}
         \\
     ,
         std.mem.toSliceConst(u8, c.ZIG_CMAKE_BINARY_DIR),
         std.mem.toSliceConst(u8, c.ZIG_CXX_COMPILER),
-        std.mem.toSliceConst(u8, c.ZIG_LLVM_CONFIG_EXE),
         std.mem.toSliceConst(u8, c.ZIG_LLD_INCLUDE_PATH),
         std.mem.toSliceConst(u8, c.ZIG_LLD_LIBRARIES),
-        std.mem.toSliceConst(u8, c.ZIG_STD_FILES),
-        std.mem.toSliceConst(u8, c.ZIG_C_HEADER_FILES),
+        std.mem.toSliceConst(u8, c.ZIG_LLVM_CONFIG_EXE),
         std.mem.toSliceConst(u8, c.ZIG_DIA_GUIDS_LIB),
     );
 }

@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const Allocator = mem.Allocator;
 const Decl = @import("decl.zig").Decl;
 const Compilation = @import("compilation.zig").Compilation;
@@ -28,15 +27,15 @@ pub const Scope = struct {
         if (base.ref_count.decr() == 1) {
             if (base.parent) |parent| parent.deref(comp);
             switch (base.id) {
-                Id.Root => @fieldParentPtr(Root, "base", base).destroy(comp),
-                Id.Decls => @fieldParentPtr(Decls, "base", base).destroy(comp),
-                Id.Block => @fieldParentPtr(Block, "base", base).destroy(comp),
-                Id.FnDef => @fieldParentPtr(FnDef, "base", base).destroy(comp),
-                Id.CompTime => @fieldParentPtr(CompTime, "base", base).destroy(comp),
-                Id.Defer => @fieldParentPtr(Defer, "base", base).destroy(comp),
-                Id.DeferExpr => @fieldParentPtr(DeferExpr, "base", base).destroy(comp),
-                Id.Var => @fieldParentPtr(Var, "base", base).destroy(comp),
-                Id.AstTree => @fieldParentPtr(AstTree, "base", base).destroy(comp),
+                .Root => @fieldParentPtr(Root, "base", base).destroy(comp),
+                .Decls => @fieldParentPtr(Decls, "base", base).destroy(comp),
+                .Block => @fieldParentPtr(Block, "base", base).destroy(comp),
+                .FnDef => @fieldParentPtr(FnDef, "base", base).destroy(comp),
+                .CompTime => @fieldParentPtr(CompTime, "base", base).destroy(comp),
+                .Defer => @fieldParentPtr(Defer, "base", base).destroy(comp),
+                .DeferExpr => @fieldParentPtr(DeferExpr, "base", base).destroy(comp),
+                .Var => @fieldParentPtr(Var, "base", base).destroy(comp),
+                .AstTree => @fieldParentPtr(AstTree, "base", base).destroy(comp),
             }
         }
     }
@@ -46,7 +45,7 @@ pub const Scope = struct {
         while (scope.parent) |parent| {
             scope = parent;
         }
-        assert(scope.id == Id.Root);
+        assert(scope.id == .Root);
         return @fieldParentPtr(Root, "base", scope);
     }
 
@@ -54,17 +53,17 @@ pub const Scope = struct {
         var scope = base;
         while (true) {
             switch (scope.id) {
-                Id.FnDef => return @fieldParentPtr(FnDef, "base", scope),
-                Id.Root, Id.Decls => return null,
+                .FnDef => return @fieldParentPtr(FnDef, "base", scope),
+                .Root, .Decls => return null,
 
-                Id.Block,
-                Id.Defer,
-                Id.DeferExpr,
-                Id.CompTime,
-                Id.Var,
+                .Block,
+                .Defer,
+                .DeferExpr,
+                .CompTime,
+                .Var,
                 => scope = scope.parent.?,
 
-                Id.AstTree => unreachable,
+                .AstTree => unreachable,
             }
         }
     }
@@ -73,20 +72,20 @@ pub const Scope = struct {
         var scope = base;
         while (true) {
             switch (scope.id) {
-                Id.DeferExpr => return @fieldParentPtr(DeferExpr, "base", scope),
+                .DeferExpr => return @fieldParentPtr(DeferExpr, "base", scope),
 
-                Id.FnDef,
-                Id.Decls,
+                .FnDef,
+                .Decls,
                 => return null,
 
-                Id.Block,
-                Id.Defer,
-                Id.CompTime,
-                Id.Root,
-                Id.Var,
+                .Block,
+                .Defer,
+                .CompTime,
+                .Root,
+                .Var,
                 => scope = scope.parent orelse return null,
 
-                Id.AstTree => unreachable,
+                .AstTree => unreachable,
             }
         }
     }
@@ -123,7 +122,7 @@ pub const Scope = struct {
             const self = try comp.gpa().create(Root);
             self.* = Root{
                 .base = Scope{
-                    .id = Id.Root,
+                    .id = .Root,
                     .parent = null,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
@@ -155,7 +154,7 @@ pub const Scope = struct {
                 .base = undefined,
                 .tree = tree,
             };
-            self.base.init(Id.AstTree, &root_scope.base);
+            self.base.init(.AstTree, &root_scope.base);
 
             return self;
         }
@@ -184,9 +183,9 @@ pub const Scope = struct {
             const self = try comp.gpa().create(Decls);
             self.* = Decls{
                 .base = undefined,
-                .table = event.RwLocked(Decl.Table).init(comp.loop, Decl.Table.init(comp.gpa())),
+                .table = event.RwLocked(Decl.Table).init(Decl.Table.init(comp.gpa())),
             };
-            self.base.init(Id.Decls, parent);
+            self.base.init(.Decls, parent);
             return self;
         }
 
@@ -219,15 +218,15 @@ pub const Scope = struct {
 
             fn get(self: Safety, comp: *Compilation) bool {
                 return switch (self) {
-                    Safety.Auto => switch (comp.build_mode) {
-                        builtin.Mode.Debug,
-                        builtin.Mode.ReleaseSafe,
+                    .Auto => switch (comp.build_mode) {
+                        .Debug,
+                        .ReleaseSafe,
                         => true,
-                        builtin.Mode.ReleaseFast,
-                        builtin.Mode.ReleaseSmall,
+                        .ReleaseFast,
+                        .ReleaseSmall,
                         => false,
                     },
-                    @TagType(Safety).Manual => |man| man.enabled,
+                    .Manual => |man| man.enabled,
                 };
             }
         };
@@ -243,7 +242,7 @@ pub const Scope = struct {
                 .is_comptime = undefined,
                 .safety = Safety.Auto,
             };
-            self.base.init(Id.Block, parent);
+            self.base.init(.Block, parent);
             return self;
         }
 
@@ -266,7 +265,7 @@ pub const Scope = struct {
                 .base = undefined,
                 .fn_val = null,
             };
-            self.base.init(Id.FnDef, parent);
+            self.base.init(.FnDef, parent);
             return self;
         }
 
@@ -282,7 +281,7 @@ pub const Scope = struct {
         pub fn create(comp: *Compilation, parent: *Scope) !*CompTime {
             const self = try comp.gpa().create(CompTime);
             self.* = CompTime{ .base = undefined };
-            self.base.init(Id.CompTime, parent);
+            self.base.init(.CompTime, parent);
             return self;
         }
 
@@ -314,7 +313,7 @@ pub const Scope = struct {
                 .defer_expr_scope = defer_expr_scope,
                 .kind = kind,
             };
-            self.base.init(Id.Defer, parent);
+            self.base.init(.Defer, parent);
             defer_expr_scope.base.ref();
             return self;
         }
@@ -338,7 +337,7 @@ pub const Scope = struct {
                 .expr_node = expr_node,
                 .reported_err = false,
             };
-            self.base.init(Id.DeferExpr, parent);
+            self.base.init(.DeferExpr, parent);
             return self;
         }
 
@@ -404,14 +403,14 @@ pub const Scope = struct {
                 .src_node = src_node,
                 .data = undefined,
             };
-            self.base.init(Id.Var, parent);
+            self.base.init(.Var, parent);
             return self;
         }
 
         pub fn destroy(self: *Var, comp: *Compilation) void {
             switch (self.data) {
-                Data.Param => {},
-                Data.Const => |value| value.deref(comp),
+                .Param => {},
+                .Const => |value| value.deref(comp),
             }
             comp.gpa().destroy(self);
         }
