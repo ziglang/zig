@@ -16333,7 +16333,19 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             if (!type_has_bits(value_type)) {
                 parent_ptr_align = 0;
             }
-            ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, value_type,
+            // If we're casting from a sentinel-terminated array to a non-sentinel-terminated array,
+            // we actually need the result location pointer to *not* have a sentinel. Otherwise the generated
+            // memcpy will write an extra byte to the destination, and THAT'S NO GOOD.
+            ZigType *ptr_elem_type;
+            if (value_type->id == ZigTypeIdArray && value_type->data.array.sentinel != nullptr &&
+                dest_type->id == ZigTypeIdArray && dest_type->data.array.sentinel == nullptr)
+            {
+                ptr_elem_type = get_array_type(ira->codegen, value_type->data.array.child_type,
+                        value_type->data.array.len, nullptr);
+            } else {
+                ptr_elem_type = value_type;
+            }
+            ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, ptr_elem_type,
                     parent_ptr_type->data.pointer.is_const, parent_ptr_type->data.pointer.is_volatile, PtrLenSingle,
                     parent_ptr_align, 0, 0, parent_ptr_type->data.pointer.allow_zero);
 
