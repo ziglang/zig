@@ -137,7 +137,6 @@ pub const Error = union(enum) {
     ExpectedCallOrFnProto: ExpectedCallOrFnProto,
     ExpectedSliceOrRBracket: ExpectedSliceOrRBracket,
     ExtraAlignQualifier: ExtraAlignQualifier,
-    ExtraNullQualifier: ExtraNullQualifier,
     ExtraConstQualifier: ExtraConstQualifier,
     ExtraVolatileQualifier: ExtraVolatileQualifier,
     ExtraAllowZeroQualifier: ExtraAllowZeroQualifier,
@@ -185,7 +184,6 @@ pub const Error = union(enum) {
             .ExpectedCallOrFnProto => |*x| return x.render(tokens, stream),
             .ExpectedSliceOrRBracket => |*x| return x.render(tokens, stream),
             .ExtraAlignQualifier => |*x| return x.render(tokens, stream),
-            .ExtraNullQualifier => |*x| return x.render(tokens, stream),
             .ExtraConstQualifier => |*x| return x.render(tokens, stream),
             .ExtraVolatileQualifier => |*x| return x.render(tokens, stream),
             .ExtraAllowZeroQualifier => |*x| return x.render(tokens, stream),
@@ -235,7 +233,6 @@ pub const Error = union(enum) {
             .ExpectedCallOrFnProto => |x| return x.node.firstToken(),
             .ExpectedSliceOrRBracket => |x| return x.token,
             .ExtraAlignQualifier => |x| return x.token,
-            .ExtraNullQualifier => |x| return x.token,
             .ExtraConstQualifier => |x| return x.token,
             .ExtraVolatileQualifier => |x| return x.token,
             .ExtraAllowZeroQualifier => |x| return x.token,
@@ -296,7 +293,6 @@ pub const Error = union(enum) {
     pub const ExpectedPubItem = SimpleError("Expected function or variable declaration after pub");
     pub const UnattachedDocComment = SimpleError("Unattached documentation comment");
     pub const ExtraAlignQualifier = SimpleError("Extra align qualifier");
-    pub const ExtraNullQualifier = SimpleError("Extra null qualifier");
     pub const ExtraConstQualifier = SimpleError("Extra const qualifier");
     pub const ExtraVolatileQualifier = SimpleError("Extra volatile qualifier");
     pub const ExtraAllowZeroQualifier = SimpleError("Extra allowzero qualifier");
@@ -1535,7 +1531,7 @@ pub const Node = struct {
     };
 
     pub const PrefixOp = struct {
-        base: Node,
+        base: Node = Node{ .id = .PrefixOp },
         op_token: TokenIndex,
         op: Op,
         rhs: *Node,
@@ -1558,15 +1554,15 @@ pub const Node = struct {
 
         pub const ArrayInfo = struct {
             len_expr: *Node,
-            null_token: ?TokenIndex,
+            sentinel: ?*Node,
         };
 
         pub const PtrInfo = struct {
-            allowzero_token: ?TokenIndex,
-            align_info: ?Align,
-            const_token: ?TokenIndex,
-            volatile_token: ?TokenIndex,
-            null_token: ?TokenIndex,
+            allowzero_token: ?TokenIndex = null,
+            align_info: ?Align = null,
+            const_token: ?TokenIndex = null,
+            volatile_token: ?TokenIndex = null,
+            sentinel: ?*Node = null,
 
             pub const Align = struct {
                 node: *Node,
@@ -1585,6 +1581,11 @@ pub const Node = struct {
             switch (self.op) {
                 // TODO https://github.com/ziglang/zig/issues/1107
                 Op.SliceType => |addr_of_info| {
+                    if (addr_of_info.sentinel) |sentinel| {
+                        if (i < 1) return sentinel;
+                        i -= 1;
+                    }
+
                     if (addr_of_info.align_info) |align_info| {
                         if (i < 1) return align_info.node;
                         i -= 1;
@@ -1601,6 +1602,10 @@ pub const Node = struct {
                 Op.ArrayType => |array_info| {
                     if (i < 1) return array_info.len_expr;
                     i -= 1;
+                    if (array_info.sentinel) |sentinel| {
+                        if (i < 1) return sentinel;
+                        i -= 1;
+                    }
                 },
 
                 Op.AddressOf,

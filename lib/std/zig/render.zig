@@ -418,13 +418,26 @@ fn renderExpression(
 
             switch (prefix_op_node.op) {
                 ast.Node.PrefixOp.Op.PtrType => |ptr_info| {
-                    const star_offset = switch (tree.tokens.at(prefix_op_node.op_token).id) {
-                        Token.Id.AsteriskAsterisk => @as(usize, 1),
-                        else => @as(usize, 0),
-                    };
-                    try renderTokenOffset(tree, stream, prefix_op_node.op_token, indent, start_col, Space.None, star_offset); // *
-                    if (ptr_info.null_token) |null_token| {
-                        try renderToken(tree, stream, null_token, indent, start_col, Space.Space); // null
+                    const op_tok_id = tree.tokens.at(prefix_op_node.op_token).id;
+                    switch (op_tok_id) {
+                        .Asterisk, .AsteriskAsterisk => try stream.writeByte('*'),
+                        .Identifier => try stream.write("[*c]"),
+                        .LBracket => try stream.write("[*"),
+                        else => unreachable,
+                    }
+                    if (ptr_info.sentinel) |sentinel| {
+                        const colon_token = tree.prevToken(sentinel.firstToken());
+                        try renderToken(tree, stream, colon_token, indent, start_col, Space.None); // :
+                        const sentinel_space = switch (op_tok_id) {
+                            .LBracket => Space.None,
+                            else => Space.Space,
+                        };
+                        try renderExpression(allocator, stream, tree, indent, start_col, sentinel, sentinel_space);
+                    }
+                    switch (op_tok_id) {
+                        .Asterisk, .AsteriskAsterisk, .Identifier => {},
+                        .LBracket => try stream.writeByte(']'),
+                        else => unreachable,
                     }
                     if (ptr_info.allowzero_token) |allowzero_token| {
                         try renderToken(tree, stream, allowzero_token, indent, start_col, Space.Space); // allowzero
@@ -504,7 +517,10 @@ fn renderExpression(
 
                 ast.Node.PrefixOp.Op.ArrayType => |array_info| {
                     const lbracket = prefix_op_node.op_token;
-                    const rbracket = tree.nextToken(array_info.len_expr.lastToken());
+                    const rbracket = tree.nextToken(if (array_info.sentinel) |sentinel|
+                        sentinel.lastToken()
+                    else
+                        array_info.len_expr.lastToken());
 
                     try renderToken(tree, stream, lbracket, indent, start_col, Space.None); // [
 
@@ -519,10 +535,12 @@ fn renderExpression(
                     if (ends_with_comment or starts_with_comment) {
                         try stream.writeByteNTimes(' ', indent);
                     }
-                    try renderToken(tree, stream, rbracket, indent, start_col, Space.None); // ]
-                    if (array_info.null_token) |null_token| {
-                        try renderToken(tree, stream, null_token, indent, start_col, Space.Space); // null
+                    if (array_info.sentinel) |sentinel| {
+                        const colon_token = tree.prevToken(sentinel.firstToken());
+                        try renderToken(tree, stream, colon_token, indent, start_col, Space.None); // :
+                        try renderExpression(allocator, stream, tree, indent, start_col, sentinel, Space.None);
                     }
+                    try renderToken(tree, stream, rbracket, indent, start_col, Space.None); // ]
                 },
                 ast.Node.PrefixOp.Op.BitNot,
                 ast.Node.PrefixOp.Op.BoolNot,

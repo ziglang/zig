@@ -1105,19 +1105,32 @@ fn transCreateNodePtrType(
     is_const: bool,
     is_volatile: bool,
     op_tok_id: std.zig.Token.Id,
-    bytes: []const u8,
 ) !*ast.Node.PrefixOp {
     const node = try c.a().create(ast.Node.PrefixOp);
+    const op_token = switch (op_tok_id) {
+        .LBracket => blk: {
+            const lbracket = try appendToken(c, .LBracket, "[");
+            _ = try appendToken(c, .Asterisk, "*");
+            _ = try appendToken(c, .RBracket, "]");
+            break :blk lbracket;
+        },
+        .Identifier => blk: {
+            _ = try appendToken(c, .LBracket, "[");
+            _ = try appendToken(c, .Asterisk, "*");
+            const c_ident = try appendToken(c, .Identifier, "c");
+            _ = try appendToken(c, .RBracket, "]");
+            break :blk c_ident;
+        },
+        .Asterisk => try appendToken(c, .Asterisk, "*"),
+        else => unreachable,
+    };
     node.* = ast.Node.PrefixOp{
         .base = ast.Node{ .id = .PrefixOp },
-        .op_token = try appendToken(c, op_tok_id, bytes),
+        .op_token = op_token,
         .op = ast.Node.PrefixOp.Op{
-            .PtrType = ast.Node.PrefixOp.PtrInfo{
-                .allowzero_token = null,
-                .align_info = null,
+            .PtrType = .{
                 .const_token = if (is_const) try appendToken(c, .Keyword_const, "const") else null,
                 .volatile_token = if (is_volatile) try appendToken(c, .Keyword_volatile, "volatile") else null,
-                .null_token = null,
             },
         },
         .rhs = undefined, // translate and set afterward
@@ -1226,7 +1239,6 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
                     ZigClangQualType_isConstQualified(child_qt),
                     ZigClangQualType_isVolatileQualified(child_qt),
                     .Asterisk,
-                    "*",
                 );
                 optional_node.rhs = &pointer_node.base;
                 pointer_node.rhs = try transQualType(rp, child_qt, source_loc);
@@ -1236,8 +1248,7 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
                 rp.c,
                 ZigClangQualType_isConstQualified(child_qt),
                 ZigClangQualType_isVolatileQualified(child_qt),
-                .BracketStarCBracket,
-                "[*c]",
+                .Identifier,
             );
             pointer_node.rhs = try transQualType(rp, child_qt, source_loc);
             return &pointer_node.base;

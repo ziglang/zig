@@ -2246,22 +2246,70 @@ fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
         return &node.base;
     }
 
+    if (try parsePtrTypeStart(arena, it, tree)) |node| {
+        // If the token encountered was **, there will be two nodes instead of one.
+        // The attributes should be applied to the rightmost operator.
+        const prefix_op = node.cast(Node.PrefixOp).?;
+        var ptr_info = if (tree.tokens.at(prefix_op.op_token).id == .AsteriskAsterisk)
+            &prefix_op.rhs.cast(Node.PrefixOp).?.op.PtrType
+        else
+            &prefix_op.op.PtrType;
+
+        while (true) {
+            if (eatToken(it, .Keyword_align)) |align_token| {
+                const lparen = try expectToken(it, tree, .LParen);
+                const expr_node = try expectNode(arena, it, tree, parseExpr, AstError{
+                    .ExpectedExpr = AstError.ExpectedExpr{ .token = it.index },
+                });
+
+                // Optional bit range
+                const bit_range = if (eatToken(it, .Colon)) |_| bit_range_value: {
+                    const range_start = try expectNode(arena, it, tree, parseIntegerLiteral, AstError{
+                        .ExpectedIntegerLiteral = AstError.ExpectedIntegerLiteral{ .token = it.index },
+                    });
+                    _ = try expectToken(it, tree, .Colon);
+                    const range_end = try expectNode(arena, it, tree, parseIntegerLiteral, AstError{
+                        .ExpectedIntegerLiteral = AstError.ExpectedIntegerLiteral{ .token = it.index },
+                    });
+
+                    break :bit_range_value Node.PrefixOp.PtrInfo.Align.BitRange{
+                        .start = range_start,
+                        .end = range_end,
+                    };
+                } else null;
+                _ = try expectToken(it, tree, .RParen);
+
+                ptr_info.align_info = Node.PrefixOp.PtrInfo.Align{
+                    .node = expr_node,
+                    .bit_range = bit_range,
+                };
+
+                continue;
+            }
+            if (eatToken(it, .Keyword_const)) |const_token| {
+                ptr_info.const_token = const_token;
+                continue;
+            }
+            if (eatToken(it, .Keyword_volatile)) |volatile_token| {
+                ptr_info.volatile_token = volatile_token;
+                continue;
+            }
+            if (eatToken(it, .Keyword_allowzero)) |allowzero_token| {
+                ptr_info.allowzero_token = allowzero_token;
+                continue;
+            }
+            break;
+        }
+
+        return node;
+    }
+
     if (try parseArrayTypeStart(arena, it, tree)) |node| {
         switch (node.cast(Node.PrefixOp).?.op) {
             .ArrayType => {},
             .SliceType => |*slice_type| {
                 // Collect pointer qualifiers in any order, but disallow duplicates
                 while (true) {
-                    if (eatToken(it, .Keyword_null)) |null_token| {
-                        if (slice_type.null_token != null) {
-                            try tree.errors.push(AstError{
-                                .ExtraNullQualifier = AstError.ExtraNullQualifier{ .token = it.index },
-                            });
-                            return error.ParseError;
-                        }
-                        slice_type.null_token = null_token;
-                        continue;
-                    }
                     if (try parseByteAlign(arena, it, tree)) |align_expr| {
                         if (slice_type.align_info != null) {
                             try tree.errors.push(AstError{
@@ -2310,68 +2358,6 @@ fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
             },
             else => unreachable,
         }
-        return node;
-    }
-
-    if (try parsePtrTypeStart(arena, it, tree)) |node| {
-        // If the token encountered was **, there will be two nodes instead of one.
-        // The attributes should be applied to the rightmost operator.
-        const prefix_op = node.cast(Node.PrefixOp).?;
-        var ptr_info = if (tree.tokens.at(prefix_op.op_token).id == .AsteriskAsterisk)
-            &prefix_op.rhs.cast(Node.PrefixOp).?.op.PtrType
-        else
-            &prefix_op.op.PtrType;
-
-        while (true) {
-            if (eatToken(it, .Keyword_null)) |null_token| {
-                ptr_info.null_token = null_token;
-                continue;
-            }
-            if (eatToken(it, .Keyword_align)) |align_token| {
-                const lparen = try expectToken(it, tree, .LParen);
-                const expr_node = try expectNode(arena, it, tree, parseExpr, AstError{
-                    .ExpectedExpr = AstError.ExpectedExpr{ .token = it.index },
-                });
-
-                // Optional bit range
-                const bit_range = if (eatToken(it, .Colon)) |_| bit_range_value: {
-                    const range_start = try expectNode(arena, it, tree, parseIntegerLiteral, AstError{
-                        .ExpectedIntegerLiteral = AstError.ExpectedIntegerLiteral{ .token = it.index },
-                    });
-                    _ = try expectToken(it, tree, .Colon);
-                    const range_end = try expectNode(arena, it, tree, parseIntegerLiteral, AstError{
-                        .ExpectedIntegerLiteral = AstError.ExpectedIntegerLiteral{ .token = it.index },
-                    });
-
-                    break :bit_range_value Node.PrefixOp.PtrInfo.Align.BitRange{
-                        .start = range_start,
-                        .end = range_end,
-                    };
-                } else null;
-                _ = try expectToken(it, tree, .RParen);
-
-                ptr_info.align_info = Node.PrefixOp.PtrInfo.Align{
-                    .node = expr_node,
-                    .bit_range = bit_range,
-                };
-
-                continue;
-            }
-            if (eatToken(it, .Keyword_const)) |const_token| {
-                ptr_info.const_token = const_token;
-                continue;
-            }
-            if (eatToken(it, .Keyword_volatile)) |volatile_token| {
-                ptr_info.volatile_token = volatile_token;
-                continue;
-            }
-            if (eatToken(it, .Keyword_allowzero)) |allowzero_token| {
-                ptr_info.allowzero_token = allowzero_token;
-                continue;
-            }
-            break;
-        }
-
         return node;
     }
 
@@ -2473,14 +2459,19 @@ const AnnotatedParamList = struct {
 fn parseArrayTypeStart(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const lbracket = eatToken(it, .LBracket) orelse return null;
     const expr = try parseExpr(arena, it, tree);
+    const sentinel = if (eatToken(it, .Colon)) |_|
+        try expectNode(arena, it, tree, parseExpr, AstError{
+            .ExpectedExpr = .{ .token = it.index },
+        })
+    else
+        null;
     const rbracket = try expectToken(it, tree, .RBracket);
-    const null_token = eatToken(it, .Keyword_null);
 
     const op = if (expr) |len_expr|
         Node.PrefixOp.Op{
             .ArrayType = .{
                 .len_expr = len_expr,
-                .null_token = null_token,
+                .sentinel = sentinel,
             },
         }
     else
@@ -2490,7 +2481,7 @@ fn parseArrayTypeStart(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
                 .align_info = null,
                 .const_token = null,
                 .volatile_token = null,
-                .null_token = null,
+                .sentinel = sentinel,
             },
         };
 
@@ -2510,49 +2501,76 @@ fn parseArrayTypeStart(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 ///      / PTRUNKNOWN
 ///      / PTRC
 fn parsePtrTypeStart(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
-    const token = eatAnnotatedToken(it, .Asterisk) orelse
-        eatAnnotatedToken(it, .AsteriskAsterisk) orelse
-        eatAnnotatedToken(it, .BracketStarBracket) orelse
-        eatAnnotatedToken(it, .BracketStarCBracket) orelse
-        return null;
+    if (eatToken(it, .Asterisk)) |asterisk| {
+        const sentinel = if (eatToken(it, .Colon)) |_|
+            try expectNode(arena, it, tree, parseExpr, AstError{
+                .ExpectedExpr = .{ .token = it.index },
+            })
+        else
+            null;
+        const node = try arena.create(Node.PrefixOp);
+        node.* = .{
+            .op_token = asterisk,
+            .op = .{ .PtrType = .{ .sentinel = sentinel } },
+            .rhs = undefined, // set by caller
+        };
+        return &node.base;
+    }
 
-    const node = try arena.create(Node.PrefixOp);
-    node.* = Node.PrefixOp{
-        .base = Node{ .id = .PrefixOp },
-        .op_token = token.index,
-        .op = Node.PrefixOp.Op{
-            .PtrType = Node.PrefixOp.PtrInfo{
-                .allowzero_token = null,
-                .align_info = null,
-                .const_token = null,
-                .volatile_token = null,
-                .null_token = null,
-            },
-        },
-        .rhs = undefined, // set by caller
-    };
+    if (eatToken(it, .AsteriskAsterisk)) |double_asterisk| {
+        const node = try arena.create(Node.PrefixOp);
+        node.* = Node.PrefixOp{
+            .op_token = double_asterisk,
+            .op = Node.PrefixOp.Op{ .PtrType = .{} },
+            .rhs = undefined, // set by caller
+        };
 
-    // Special case for **, which is its own token
-    if (token.ptr.id == .AsteriskAsterisk) {
+        // Special case for **, which is its own token
         const child = try arena.create(Node.PrefixOp);
         child.* = Node.PrefixOp{
-            .base = Node{ .id = .PrefixOp },
-            .op_token = token.index,
-            .op = Node.PrefixOp.Op{
-                .PtrType = Node.PrefixOp.PtrInfo{
-                    .allowzero_token = null,
-                    .align_info = null,
-                    .const_token = null,
-                    .volatile_token = null,
-                    .null_token = null,
-                },
-            },
+            .op_token = double_asterisk,
+            .op = Node.PrefixOp.Op{ .PtrType = .{} },
             .rhs = undefined, // set by caller
         };
         node.rhs = &child.base;
-    }
 
-    return &node.base;
+        return &node.base;
+    }
+    if (eatToken(it, .LBracket)) |lbracket| {
+        const asterisk = eatToken(it, .Asterisk) orelse {
+            putBackToken(it, lbracket);
+            return null;
+        };
+        if (eatToken(it, .Identifier)) |ident| {
+            if (!std.mem.eql(u8, tree.tokenSlice(ident), "c")) {
+                putBackToken(it, ident);
+            } else {
+                _ = try expectToken(it, tree, .RBracket);
+                const node = try arena.create(Node.PrefixOp);
+                node.* = .{
+                    .op_token = ident,
+                    .op = .{ .PtrType = .{} },
+                    .rhs = undefined, // set by caller
+                };
+                return &node.base;
+            }
+        }
+        const sentinel = if (eatToken(it, .Colon)) |_|
+            try expectNode(arena, it, tree, parseExpr, AstError{
+                .ExpectedExpr = .{ .token = it.index },
+            })
+        else
+            null;
+        _ = try expectToken(it, tree, .RBracket);
+        const node = try arena.create(Node.PrefixOp);
+        node.* = .{
+            .op_token = lbracket,
+            .op = .{ .PtrType = .{ .sentinel = sentinel } },
+            .rhs = undefined, // set by caller
+        };
+        return &node.base;
+    }
+    return null;
 }
 
 /// ContainerDeclAuto <- ContainerDeclType LBRACE ContainerMembers RBRACE
