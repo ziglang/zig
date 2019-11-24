@@ -13,12 +13,16 @@ test "stage2" {
     // TODO provide a way to run tests in evented I/O mode
     if (!std.io.is_async) return error.SkipZigTest;
 
+    // TODO https://github.com/ziglang/zig/issues/1364
+    // TODO https://github.com/ziglang/zig/issues/3117
+    if (true) return error.SkipZigTest;
+
     try ctx.init();
     defer ctx.deinit();
 
     try @import("stage2_tests").addCases(&ctx);
 
-    _ = async ctx.run();
+    try ctx.run();
 }
 
 const file1 = "1.zig";
@@ -61,8 +65,8 @@ pub const TestContext = struct {
         self.zig_compiler.deinit();
     }
 
-    fn run(self: *TestContext) void {
-        std.event.Loop.instance.?.startCpuBoundOperation();
+    fn run(self: *TestContext) !void {
+        std.event.Loop.startCpuBoundOperation();
         self.any_err = self.group.wait();
         return self.any_err;
     }

@@ -74,7 +74,7 @@ pub fn build(b: *Builder) !void {
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
     const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") orelse false;
     if (!skip_self_hosted and builtin.os == .linux) {
-        // TODO evented I/O other OS'spu
+        // TODO evented I/O other OS's
         test_step.dependOn(&exe.step);
     }
 
@@ -232,6 +232,9 @@ fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
                 if (fs.path.isAbsolute(lib_arg)) {
                     try result.libs.append(lib_arg);
                 } else {
+                    if (mem.endsWith(u8, lib_arg, ".lib")) {
+                        lib_arg = lib_arg[0 .. lib_arg.len - 4];
+                    }
                     try result.system_libs.append(lib_arg);
                 }
             }

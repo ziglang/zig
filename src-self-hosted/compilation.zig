@@ -517,6 +517,9 @@ pub const Compilation = struct {
         comp.target_layout_str = llvm.CopyStringRepOfTargetData(comp.target_data_ref) orelse return error.OutOfMemory;
         defer llvm.DisposeMessage(comp.target_layout_str);
 
+        comp.events = try allocator.create(event.Channel(Event));
+        defer allocator.destroy(comp.events);
+
         comp.events.init([0]Event{});
         defer comp.events.deinit();
 
