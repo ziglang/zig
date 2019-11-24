@@ -11,10 +11,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return ptr;
         \\}
     ,
-        "tmp.zig:2:5: error: expected type '[*:0]u8', found '[*:255]u8'",
-        "tmp.zig:2:5: note: destination pointer requires a terminating '0' sentinel value, but source pointer has a terminating '255' sentinel value",
-        "tmp.zig:5:5: error: expected type '[*:0]u8', found '[*]u8'",
-        "tmp.zig:5:5: note: destination pointer requires a terminating '0' sentinel value",
+        "tmp.zig:2:12: error: expected type '[*:0]u8', found '[*:255]u8'",
+        "tmp.zig:2:12: note: destination pointer requires a terminating '0' sentinel value, but source pointer has a terminating '255' sentinel value",
+        "tmp.zig:5:12: error: expected type '[*:0]u8', found '[*]u8'",
+        "tmp.zig:5:12: note: destination pointer requires a terminating '0' sentinel value",
     );
 
     cases.add(
