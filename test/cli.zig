@@ -87,7 +87,7 @@ fn exec(cwd: []const u8, argv: []const []const u8) !ChildProcess.ExecResult {
 fn testZigInitLib(zig_exe: []const u8, dir_path: []const u8) !void {
     _ = try exec(dir_path, [_][]const u8{ zig_exe, "init-lib" });
     const test_result = try exec(dir_path, [_][]const u8{ zig_exe, "build", "test" });
-    testing.expect(std.mem.endsWith(u8, test_result.stderr, "All tests passed.\n"));
+    testing.expect(std.mem.endsWith(u8, test_result.stderr, "All 1 tests passed.\n"));
 }
 
 fn testZigInitExe(zig_exe: []const u8, dir_path: []const u8) !void {
