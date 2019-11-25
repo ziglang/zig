@@ -1,5 +1,6 @@
+const std = @import("std");
 const config = @import("builtin");
-const expect = @import("std").testing.expect;
+const expect = std.testing.expect;
 
 comptime {
     if (config.arch == config.Arch.x86_64 and config.os == config.Os.linux) {

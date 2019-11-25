@@ -17095,6 +17095,14 @@ static IrInstruction *analyze_casted_new_stack(IrAnalyze *ira, IrInstructionCall
     if (call_instruction->new_stack == nullptr)
         return nullptr;
 
+    if (!call_instruction->is_async_call_builtin &&
+        arch_stack_pointer_register_name(ira->codegen->zig_target->arch) == nullptr)
+    {
+        ir_add_error(ira, &call_instruction->base,
+            buf_sprintf("target arch '%s' does not support @newStackCall",
+                target_arch_name(ira->codegen->zig_target->arch)));
+    }
+
     IrInstruction *new_stack = call_instruction->new_stack->child;
     if (type_is_invalid(new_stack->value->type))
         return ira->codegen->invalid_instruction;

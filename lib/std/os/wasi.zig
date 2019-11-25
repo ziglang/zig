@@ -76,3 +76,8 @@ pub extern "wasi_unstable" fn sched_yield() errno_t;
 pub extern "wasi_unstable" fn sock_recv(sock: fd_t, ri_data: *const iovec_t, ri_data_len: usize, ri_flags: riflags_t, ro_datalen: *usize, ro_flags: *roflags_t) errno_t;
 pub extern "wasi_unstable" fn sock_send(sock: fd_t, si_data: *const ciovec_t, si_data_len: usize, si_flags: siflags_t, so_datalen: *usize) errno_t;
 pub extern "wasi_unstable" fn sock_shutdown(sock: fd_t, how: sdflags_t) errno_t;
+
+/// Get the errno from a syscall return value, or 0 for no error.
+pub fn getErrno(r: errno_t) usize {
+    return r;
+}

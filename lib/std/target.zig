@@ -607,10 +607,15 @@ pub const Target = union(enum) {
         }
     }
 
+    pub fn supportsNewStackCall(self: Target) bool {
+        return !self.isWasm();
+    }
+
     pub const Executor = union(enum) {
         native,
         qemu: []const u8,
         wine: []const u8,
+        wasmtime: []const u8,
         unavailable,
     };
 
@@ -645,6 +650,13 @@ pub const Target = union(enum) {
             switch (self.getArchPtrBitWidth()) {
                 32 => return Executor{ .wine = "wine" },
                 64 => return Executor{ .wine = "wine64" },
+                else => return .unavailable,
+            }
+        }
+
+        if (self.getOs() == .wasi) {
+            switch (self.getArchPtrBitWidth()) {
+                32 => return Executor{ .wasmtime = "wasmtime" },
                 else => return .unavailable,
             }
         }

@@ -12,6 +12,9 @@ test "calling a function with a new stack" {
         // TODO: https://github.com/ziglang/zig/issues/3338
         return error.SkipZigTest;
     }
+    if (comptime !std.Target.current.supportsNewStackCall()) {
+        return error.SkipZigTest;
+    }
 
     const arg = 1234;
 

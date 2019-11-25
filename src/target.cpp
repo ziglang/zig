@@ -1458,6 +1458,10 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_mipsel:
             return "sp";
 
+        case ZigLLVM_wasm32:
+        case ZigLLVM_wasm64:
+            return nullptr; // known to be not available
+
         case ZigLLVM_amdgcn:
         case ZigLLVM_amdil:
         case ZigLLVM_amdil64:
@@ -1491,8 +1495,6 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_systemz:
         case ZigLLVM_tce:
         case ZigLLVM_tcele:
-        case ZigLLVM_wasm32:
-        case ZigLLVM_wasm64:
         case ZigLLVM_xcore:
         case ZigLLVM_ppc:
         case ZigLLVM_ppc64:
