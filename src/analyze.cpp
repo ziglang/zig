@@ -1134,7 +1134,7 @@ Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
 
-            if (parent_type_val == &lazy_ptr_type->elem_type->value) {
+            if (parent_type_val == lazy_ptr_type->elem_type->value) {
                 // Does a struct which contains a pointer field to itself have bits? Yes.
                 *is_zero_bits = false;
                 return ErrorNone;
@@ -1142,7 +1142,7 @@ Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent
                 if (parent_type_val == nullptr) {
                     parent_type_val = type_val;
                 }
-                return type_val_resolve_zero_bits(g, &lazy_ptr_type->elem_type->value, parent_type,
+                return type_val_resolve_zero_bits(g, lazy_ptr_type->elem_type->value, parent_type,
                         parent_type_val, is_zero_bits);
             }
         }
@@ -1197,21 +1197,21 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ZigValue *type
             zig_unreachable();
         case LazyValueIdSliceType: {
             LazyValueSliceType *lazy_slice_type = reinterpret_cast<LazyValueSliceType *>(type_val->data.x_lazy);
-            return type_val_resolve_requires_comptime(g, &lazy_slice_type->elem_type->value);
+            return type_val_resolve_requires_comptime(g, lazy_slice_type->elem_type->value);
         }
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
-            return type_val_resolve_requires_comptime(g, &lazy_ptr_type->elem_type->value);
+            return type_val_resolve_requires_comptime(g, lazy_ptr_type->elem_type->value);
         }
         case LazyValueIdOptType: {
             LazyValueOptType *lazy_opt_type = reinterpret_cast<LazyValueOptType *>(type_val->data.x_lazy);
-            return type_val_resolve_requires_comptime(g, &lazy_opt_type->payload_type->value);
+            return type_val_resolve_requires_comptime(g, lazy_opt_type->payload_type->value);
         }
         case LazyValueIdFnType: {
             LazyValueFnType *lazy_fn_type = reinterpret_cast<LazyValueFnType *>(type_val->data.x_lazy);
             if (lazy_fn_type->is_generic)
                 return ReqCompTimeYes;
-            switch (type_val_resolve_requires_comptime(g, &lazy_fn_type->return_type->value)) {
+            switch (type_val_resolve_requires_comptime(g, lazy_fn_type->return_type->value)) {
                 case ReqCompTimeInvalid:
                     return ReqCompTimeInvalid;
                 case ReqCompTimeYes:
@@ -1224,7 +1224,7 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ZigValue *type
                 AstNode *param_node = lazy_fn_type->proto_node->data.fn_proto.params.at(i);
                 bool param_is_var_args = param_node->data.param_decl.is_var_args;
                 if (param_is_var_args) break;
-                switch (type_val_resolve_requires_comptime(g, &lazy_fn_type->param_types[i]->value)) {
+                switch (type_val_resolve_requires_comptime(g, lazy_fn_type->param_types[i]->value)) {
                     case ReqCompTimeInvalid:
                         return ReqCompTimeInvalid;
                     case ReqCompTimeYes:
@@ -1238,7 +1238,7 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ZigValue *type
         case LazyValueIdErrUnionType: {
             LazyValueErrUnionType *lazy_err_union_type =
                 reinterpret_cast<LazyValueErrUnionType *>(type_val->data.x_lazy);
-            return type_val_resolve_requires_comptime(g, &lazy_err_union_type->payload_type->value);
+            return type_val_resolve_requires_comptime(g, lazy_err_union_type->payload_type->value);
         }
     }
     zig_unreachable();
@@ -1267,7 +1267,7 @@ start_over:
         case LazyValueIdSliceType: {
             LazyValueSliceType *lazy_slice_type = reinterpret_cast<LazyValueSliceType *>(type_val->data.x_lazy);
             bool is_zero_bits;
-            if ((err = type_val_resolve_zero_bits(g, &lazy_slice_type->elem_type->value, nullptr,
+            if ((err = type_val_resolve_zero_bits(g, lazy_slice_type->elem_type->value, nullptr,
                 nullptr, &is_zero_bits)))
             {
                 return err;
@@ -1284,7 +1284,7 @@ start_over:
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
             bool is_zero_bits;
-            if ((err = type_val_resolve_zero_bits(g, &lazy_ptr_type->elem_type->value, nullptr,
+            if ((err = type_val_resolve_zero_bits(g, lazy_ptr_type->elem_type->value, nullptr,
                 nullptr, &is_zero_bits)))
             {
                 return err;
@@ -1337,13 +1337,13 @@ Error type_val_resolve_abi_align(CodeGen *g, ZigValue *type_val, uint32_t *abi_a
             return ErrorNone;
         case LazyValueIdOptType: {
             LazyValueOptType *lazy_opt_type = reinterpret_cast<LazyValueOptType *>(type_val->data.x_lazy);
-            return type_val_resolve_abi_align(g, &lazy_opt_type->payload_type->value, abi_align);
+            return type_val_resolve_abi_align(g, lazy_opt_type->payload_type->value, abi_align);
         }
         case LazyValueIdErrUnionType: {
             LazyValueErrUnionType *lazy_err_union_type =
                 reinterpret_cast<LazyValueErrUnionType *>(type_val->data.x_lazy);
             uint32_t payload_abi_align;
-            if ((err = type_val_resolve_abi_align(g, &lazy_err_union_type->payload_type->value,
+            if ((err = type_val_resolve_abi_align(g, lazy_err_union_type->payload_type->value,
                             &payload_abi_align)))
             {
                 return err;
@@ -1384,13 +1384,13 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, ZigV
         case LazyValueIdErrUnionType: {
             LazyValueErrUnionType *lazy_err_union_type =
                 reinterpret_cast<LazyValueErrUnionType *>(type_val->data.x_lazy);
-            switch (type_val_resolve_has_one_possible_value(g, &lazy_err_union_type->err_set_type->value)) {
+            switch (type_val_resolve_has_one_possible_value(g, lazy_err_union_type->err_set_type->value)) {
                 case OnePossibleValueInvalid:
                     return OnePossibleValueInvalid;
                 case OnePossibleValueNo:
                     return OnePossibleValueNo;
                 case OnePossibleValueYes:
-                    return type_val_resolve_has_one_possible_value(g, &lazy_err_union_type->payload_type->value);
+                    return type_val_resolve_has_one_possible_value(g, lazy_err_union_type->payload_type->value);
             }
         }
     }
@@ -3985,7 +3985,7 @@ static void preview_use_decl(CodeGen *g, TldUsingNamespace *using_namespace, Sco
     if (type_is_invalid(result->type)) {
         dest_decls_scope->any_imports_failed = true;
         using_namespace->base.resolution = TldResolutionInvalid;
-        using_namespace->using_namespace_value = &g->invalid_instruction->value;
+        using_namespace->using_namespace_value = g->invalid_instruction->value;
         return;
     }
 
@@ -3994,7 +3994,7 @@ static void preview_use_decl(CodeGen *g, TldUsingNamespace *using_namespace, Sco
             buf_sprintf("expected struct, enum, or union; found '%s'", buf_ptr(&result->data.x_type->name)));
         dest_decls_scope->any_imports_failed = true;
         using_namespace->base.resolution = TldResolutionInvalid;
-        using_namespace->using_namespace_value = &g->invalid_instruction->value;
+        using_namespace->using_namespace_value = g->invalid_instruction->value;
         return;
     }
 }
@@ -6106,7 +6106,8 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         alloca_gen->base.id = IrInstructionIdAllocaGen;
         alloca_gen->base.source_node = fn->proto_node;
         alloca_gen->base.scope = fn->child_scope;
-        alloca_gen->base.value.type = get_pointer_to_type(g, g->builtin_types.entry_global_error_set, false);
+        alloca_gen->base.value = allocate<ZigValue>(1, "ZigValue");
+        alloca_gen->base.value->type = get_pointer_to_type(g, g->builtin_types.entry_global_error_set, false);
         alloca_gen->base.ref_count = 1;
         alloca_gen->name_hint = "";
         fn->alloca_gen_list.append(alloca_gen);
@@ -6173,7 +6174,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         call->frame_result_loc = all_calls_alloca;
     }
     if (largest_call_frame_type != nullptr) {
-        all_calls_alloca->value.type = get_pointer_to_type(g, largest_call_frame_type, false);
+        all_calls_alloca->value->type = get_pointer_to_type(g, largest_call_frame_type, false);
     }
 
     // Since this frame is async, an await might represent a suspend point, and
@@ -6184,7 +6185,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         IrInstructionAwaitGen *await = fn->await_list.at(i);
         // TODO If this is a noasync await, it doesn't suspend
         // https://github.com/ziglang/zig/issues/3157
-        if (await->base.value.special != ConstValSpecialRuntime) {
+        if (await->base.value->special != ConstValSpecialRuntime) {
             // Known at comptime. No spill, no suspend.
             continue;
         }
@@ -6211,10 +6212,10 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         }
         if (await->base.ref_count == 0)
             continue;
-        if (!type_has_bits(await->base.value.type))
+        if (!type_has_bits(await->base.value->type))
             continue;
         await->result_loc = ir_create_alloca(g, await->base.scope, await->base.source_node, fn,
-                await->base.value.type, "");
+                await->base.value->type, "");
     }
     for (size_t block_i = 0; block_i < fn->analyzed_executable.basic_block_list.length; block_i += 1) {
         IrBasicBlock *block = fn->analyzed_executable.basic_block_list.at(block_i);
@@ -6239,17 +6240,17 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
                 // This instruction does its own spilling specially, or otherwise doesn't need it.
                 continue;
             }
-            if (instruction->value.special != ConstValSpecialRuntime)
+            if (instruction->value->special != ConstValSpecialRuntime)
                 continue;
             if (instruction->ref_count == 0)
                 continue;
-            if ((err = type_resolve(g, instruction->value.type, ResolveStatusZeroBitsKnown)))
+            if ((err = type_resolve(g, instruction->value->type, ResolveStatusZeroBitsKnown)))
                 return ErrorSemanticAnalyzeFail;
-            if (!type_has_bits(instruction->value.type))
+            if (!type_has_bits(instruction->value->type))
                 continue;
             if (scope_needs_spill(instruction->scope)) {
                 instruction->spill = ir_create_alloca(g, instruction->scope, instruction->source_node,
-                        fn, instruction->value.type, "");
+                        fn, instruction->value->type, "");
             }
         }
     }
@@ -6301,15 +6302,15 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     for (size_t alloca_i = 0; alloca_i < fn->alloca_gen_list.length; alloca_i += 1) {
         IrInstructionAllocaGen *instruction = fn->alloca_gen_list.at(alloca_i);
         instruction->field_index = SIZE_MAX;
-        ZigType *ptr_type = instruction->base.value.type;
+        ZigType *ptr_type = instruction->base.value->type;
         assert(ptr_type->id == ZigTypeIdPointer);
         ZigType *child_type = ptr_type->data.pointer.child_type;
         if (!type_has_bits(child_type))
             continue;
         if (instruction->base.ref_count == 0)
             continue;
-        if (instruction->base.value.special != ConstValSpecialRuntime) {
-            if (const_ptr_pointee(nullptr, g, &instruction->base.value, nullptr)->special !=
+        if (instruction->base.value->special != ConstValSpecialRuntime) {
+            if (const_ptr_pointee(nullptr, g, instruction->base.value, nullptr)->special !=
                     ConstValSpecialRuntime)
             {
                 continue;
@@ -6446,14 +6447,14 @@ bool ir_get_var_is_comptime(ZigVar *var) {
     // When the is_comptime field references an instruction that has to get analyzed, this
     // is the value.
     if (var->is_comptime->child != nullptr) {
-        assert(var->is_comptime->child->value.type->id == ZigTypeIdBool);
-        return var->is_comptime->child->value.data.x_bool;
+        assert(var->is_comptime->child->value->type->id == ZigTypeIdBool);
+        return var->is_comptime->child->value->data.x_bool;
     }
     // As an optimization, is_comptime values which are constant are allowed
     // to be omitted from analysis. In this case, there is no child instruction
     // and we simply look at the unanalyzed const parent instruction.
-    assert(var->is_comptime->value.type->id == ZigTypeIdBool);
-    return var->is_comptime->value.data.x_bool;
+    assert(var->is_comptime->value->type->id == ZigTypeIdBool);
+    return var->is_comptime->value->data.x_bool;
 }
 
 bool const_values_equal_ptr(ZigValue *a, ZigValue *b) {
@@ -9113,7 +9114,8 @@ IrInstruction *ir_create_alloca(CodeGen *g, Scope *scope, AstNode *source_node, 
     alloca_gen->base.id = IrInstructionIdAllocaGen;
     alloca_gen->base.source_node = source_node;
     alloca_gen->base.scope = scope;
-    alloca_gen->base.value.type = get_pointer_to_type(g, var_type, false);
+    alloca_gen->base.value = allocate<ZigValue>(1, "ZigValue");
+    alloca_gen->base.value->type = get_pointer_to_type(g, var_type, false);
     alloca_gen->base.ref_count = 1;
     alloca_gen->name_hint = name_hint;
     fn->alloca_gen_list.append(alloca_gen);

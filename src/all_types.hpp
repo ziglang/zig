@@ -2621,7 +2621,7 @@ struct IrInstruction {
     Scope *scope;
     AstNode *source_node;
     LLVMValueRef llvm_value;
-    ZigValue value;
+    ZigValue *value;
     uint32_t debug_id;
     // if ref_count is zero and the instruction has no side effects,
     // the instruction can be omitted in codegen
