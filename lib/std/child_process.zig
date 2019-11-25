@@ -441,6 +441,7 @@ pub const ChildProcess = struct {
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
 
+        // TODO use CreateFileW here since we are using a string literal for the path
         const nul_handle = if (any_ignore)
             windows.CreateFile(
                 "NUL",

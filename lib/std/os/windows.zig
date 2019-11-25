@@ -968,6 +968,7 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
     const end_index = start_index + try std.unicode.utf8ToUtf16Le(result[start_index..], s);
     if (end_index + suffix.len > result.len) return error.NameTooLong;
     mem.copy(u16, result[end_index..], suffix);
+    result[end_index + suffix.len] = 0;
     return result;
 }
 
