@@ -333,12 +333,20 @@ const PosixEvent = struct {
             return false;
 
         var ts: os.timespec = undefined;
-        var ts_ptr = &ts;
         if (timeout) |timeout_ns| {
-            var tv: os.timeval = undefined;
-            assert(c.gettimeofday(&tv, null) == 0);
-            ts.tv_sec = tv.tv_sec + @intCast(isize, timeout_ns / time.ns_per_s);
-            ts.tv_nsec = (tv.tv_usec * time.microsecond) + @intCast(isize, timeout_ns % time.ns_per_s);
+            var timeout_abs = timeout_ns;
+            if (comptime std.Target.current.isDarwin()) {
+                var tv: os.darwin.timeval = undefined;
+                assert(os.darwin.gettimeofday(&tv, null) == 0);
+                timeout_abs += @intCast(u64, tv.tv_sec) * time.second;
+                timeout_abs += @intCast(u64, tv.tv_usec) * time.microsecond;
+            } else {
+                os.clock_gettime(os.CLOCK_REALTIME, &ts) catch unreachable;
+                timeout_abs += @intCast(u64, ts.tv_sec) * time.second;
+                timeout_abs += @intCast(u64, ts.tv_nsec);
+            }
+            ts.tv_sec = @intCast(@typeOf(ts.tv_sec), @divFloor(timeout_abs, time.second));
+            ts.tv_nsec = @intCast(@typeOf(ts.tv_nsec), @mod(timeout_abs, time.second));
         }
 
         var dummy_value: u32 = undefined;
@@ -348,7 +356,7 @@ const PosixEvent = struct {
         while (self.state == wait_token) {
             const rc = switch (timeout == null) {
                 true => c.pthread_cond_wait(&self.cond, &self.mutex),
-                else => c.pthread_cond_timedwait(&self.cond, &self.mutex, ts_ptr),
+                else => c.pthread_cond_timedwait(&self.cond, &self.mutex, &ts),
             };
             // TODO: rc appears to be the positive error code making os.errno() always return 0 on linux
             switch (std.math.max(@as(c_int, os.errno(rc)), rc)) {
