@@ -125,14 +125,13 @@ fn posixCallMainAndExit() noreturn {
     const argc = starting_stack_ptr[0];
     const argv = @ptrCast([*][*:0]u8, starting_stack_ptr + 1);
 
-    const envp_optional = @ptrCast([*:null]?[*:0]u8, argv + argc + 1);
+    const envp = @ptrCast([*:null]?[*:0]u8, argv + argc + 1);
     var envp_count: usize = 0;
-    while (envp_optional[envp_count]) |_| : (envp_count += 1) {}
-    const envp = @ptrCast([*][*:0]u8, envp_optional)[0..envp_count];
+    while (envp[envp_count]) |_| : (envp_count += 1) {}
 
     if (builtin.os == .linux) {
         // Find the beginning of the auxiliary vector
-        const auxv = @ptrCast([*]std.elf.Auxv, envp.ptr + envp_count + 1);
+        const auxv = @ptrCast([*]std.elf.Auxv, envp + envp_count + 1);
         std.os.linux.elf_aux_maybe = auxv;
         // Initialize the TLS area
         const gnu_stack_phdr = std.os.linux.tls.initTLS() orelse @panic("ELF missing stack size");
@@ -165,12 +164,12 @@ fn posixCallMainAndExit() noreturn {
         //std.os.exit(@newStackCall(new_stack, callMainWithArgs, argc, argv, envp));
     }
 
-    std.os.exit(@inlineCall(callMainWithArgs, argc, argv, envp));
+    std.os.exit(@inlineCall(callMainWithArgs, argc, argv, envp[0..envp_count]));
 }
 
-fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
+fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [:null]?[*:0]u8) u8 {
     std.os.argv = argv[0..argc];
-    std.os.environ = envp;
+    std.os.environ = envp.ptr;
 
     std.debug.maybeEnableSegfaultHandler();
 
@@ -180,7 +179,7 @@ fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
 extern fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) i32 {
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
-    const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];
+    const envp = @ptrCast([*:null]?[*:0]u8, c_envp)[0..env_count];
     return @inlineCall(callMainWithArgs, @intCast(usize, c_argc), c_argv, envp);
 }
 

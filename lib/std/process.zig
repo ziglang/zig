@@ -98,7 +98,8 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
         }
         return result;
     } else {
-        for (os.environ) |ptr| {
+        var it = os.environIterator();
+        while (it.next()) |ptr| {
             var line_i: usize = 0;
             while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
             const key = ptr[0..line_i];

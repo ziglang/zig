@@ -65,8 +65,28 @@ pub const system = if (builtin.link_libc) std.c else switch (builtin.os) {
 
 pub usingnamespace @import("os/bits.zig");
 
-/// See also `getenv`. Populated by startup code before main().
-pub var environ: [][*:0]u8 = undefined;
+pub usingnamespace if (builtin.link_libc and builtin.os != .windows) struct {
+    pub extern "c" var environ: [*:null]?[*:0]u8;
+} else struct {
+    /// See also `getenv`. Populated by startup code before main().
+    pub var environ: [*:null]?[*:0]u8 = undefined;
+};
+
+const EnvironIterator = struct {
+    ptr: [*:null]?[*:0]u8,
+    pub fn next(self: *@This()) ?[*:0]u8 {
+        var p = self.ptr[0] orelse {
+            return null;
+        };
+        self.ptr += 1;
+        return p;
+    }
+};
+
+/// Return an iterator for all environment variables
+pub fn environIterator() EnvironIterator {
+    return EnvironIterator { .ptr = environ };
+}
 
 /// Populated by startup code before main().
 /// Not available on Windows. See `std.process.args`
@@ -885,7 +905,8 @@ pub fn freeNullDelimitedEnvMap(allocator: *mem.Allocator, envp_buf: []?[*:0]u8) 
 /// See also `getenvC`.
 /// TODO make this go through libc when we have it
 pub fn getenv(key: []const u8) ?[]const u8 {
-    for (environ) |ptr| {
+    var it = environIterator();
+    while (it.next()) |ptr| {
         var line_i: usize = 0;
         while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
         const this_key = ptr[0..line_i];
