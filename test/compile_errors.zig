@@ -2,6 +2,24 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addCase(x: {
+        var tc = cases.create("@newStackCall on unsupported target",
+            \\export fn entry() void {
+            \\    var buf: [10]u8 align(16) = undefined;
+            \\    @newStackCall(&buf, foo);
+            \\}
+            \\fn foo() void {}
+        , "tmp.zig:3:5: error: target arch 'wasm32' does not support @newStackCall");
+        tc.target = tests.Target{
+            .Cross = tests.CrossTarget{
+                .arch = .wasm32,
+                .os = .wasi,
+                .abi = .none,
+            },
+        };
+        break :x tc;
+    });
+
     cases.add(
         "incompatible sentinels",
         \\export fn entry1(ptr: [*:255]u8) [*:0]u8 {
@@ -26,7 +44,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:8:35: note: destination array requires a terminating '0' sentinel, but source array has a terminating '255' sentinel",
         "tmp.zig:11:31: error: expected type '[2:0]u8', found '[2]u8'",
         "tmp.zig:11:31: note: destination array requires a terminating '0' sentinel",
-
     );
 
     cases.add(

@@ -273,17 +273,17 @@ const WasmPageAllocator = struct {
         if (new_end_index > num_pages * mem.page_size) {
             const required_memory = new_end_index - (num_pages * mem.page_size);
 
-            var num_pages: usize = required_memory / mem.page_size;
+            var inner_num_pages: usize = required_memory / mem.page_size;
             if (required_memory % mem.page_size != 0) {
-                num_pages += 1;
+                inner_num_pages += 1;
             }
 
-            const prev_page = @"llvm.wasm.memory.grow.i32"(0, @intCast(u32, num_pages));
+            const prev_page = @"llvm.wasm.memory.grow.i32"(0, @intCast(u32, inner_num_pages));
             if (prev_page == -1) {
                 return error.OutOfMemory;
             }
 
-            num_pages += num_pages;
+            num_pages += inner_num_pages;
         }
 
         const result = start_ptr[adjusted_index..new_end_index];

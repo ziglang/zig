@@ -607,6 +607,10 @@ pub const Target = union(enum) {
         }
     }
 
+    pub fn supportsNewStackCall(self: Target) bool {
+        return !self.isWasm();
+    }
+
     pub const Executor = union(enum) {
         native,
         qemu: []const u8,
@@ -650,7 +654,7 @@ pub const Target = union(enum) {
             }
         }
 
-        if (self.isWasm()) {
+        if (self.getOs() == .wasi) {
             switch (self.getArchPtrBitWidth()) {
                 32 => return Executor{ .wasmtime = "wasmtime" },
                 else => return .unavailable,

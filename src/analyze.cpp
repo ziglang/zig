@@ -978,7 +978,8 @@ bool want_first_arg_sret(CodeGen *g, FnTypeId *fn_type_id) {
     if (g->zig_target->arch == ZigLLVM_x86 ||
         g->zig_target->arch == ZigLLVM_x86_64 ||
         target_is_arm(g->zig_target) ||
-        target_is_riscv(g->zig_target))
+        target_is_riscv(g->zig_target) ||
+        target_is_wasm(g->zig_target))
     {
         X64CABIClass abi_class = type_c_abi_x86_64_class(g, fn_type_id->return_type);
         return abi_class == X64CABIClass_MEMORY || abi_class == X64CABIClass_MEMORY_nobyval;
