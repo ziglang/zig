@@ -73,7 +73,7 @@ cd www.ziglang.org
 export MASTER_DATE="$(date +%Y-%m-%d)"
 "../$ZIG" run update-download-page.zig
 
-$S3CMD put -P --add-header="cache-control: public, max-age=31536000, immutable" "../$SRC_TARBALL" s3://ziglang.org/builds/
-$S3CMD put -P "../$LANGREF" s3://ziglang.org/documentation/master/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
-$S3CMD put -P www/download/index.html s3://ziglang.org/download/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
-$S3CMD put -P www/download/index.json s3://ziglang.org/download/index.json --add-header="Cache-Control: max-age=0, must-revalidate"
+$S3CMD put -P --no-mime-magic --add-header="cache-control: public, max-age=31536000, immutable" "../$SRC_TARBALL" s3://ziglang.org/builds/
+$S3CMD put -P --no-mime-magic "../$LANGREF" s3://ziglang.org/documentation/master/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
+$S3CMD put -P --no-mime-magic www/download/index.html s3://ziglang.org/download/index.html --add-header="Cache-Control: max-age=0, must-revalidate"
+$S3CMD put -P --no-mime-magic www/download/index.json s3://ziglang.org/download/index.json --add-header="Cache-Control: max-age=0, must-revalidate"
