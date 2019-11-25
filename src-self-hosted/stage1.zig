@@ -27,7 +27,7 @@ comptime {
 // ABI warning
 export fn stage2_zen(ptr: *[*]const u8, len: *usize) void {
     const info_zen = @import("main.zig").info_zen;
-    ptr.* = &info_zen;
+    ptr.* = info_zen;
     len.* = info_zen.len;
 }
 
@@ -144,7 +144,7 @@ export fn stage2_render_ast(tree: *ast.Tree, output_file: *FILE) Error {
 
 // TODO: just use the actual self-hosted zig fmt. Until https://github.com/ziglang/zig/issues/2377,
 // we use a blocking implementation.
-export fn stage2_fmt(argc: c_int, argv: [*]const [*]const u8) c_int {
+export fn stage2_fmt(argc: c_int, argv: [*]const [*:0]const u8) c_int {
     if (std.debug.runtime_safety) {
         fmtMain(argc, argv) catch unreachable;
     } else {
@@ -156,7 +156,7 @@ export fn stage2_fmt(argc: c_int, argv: [*]const [*]const u8) c_int {
     return 0;
 }
 
-fn fmtMain(argc: c_int, argv: [*]const [*]const u8) !void {
+fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
     const allocator = std.heap.c_allocator;
     var args_list = std.ArrayList([]const u8).init(allocator);
     const argc_usize = @intCast(usize, argc);

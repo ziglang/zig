@@ -77,7 +77,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
 
         // TODO: Verify that the documentation is incorrect
         // https://github.com/WebAssembly/WASI/issues/27
-        var environ = try allocator.alloc(?[*]u8, environ_count + 1);
+        var environ = try allocator.alloc(?[*:0]u8, environ_count + 1);
         defer allocator.free(environ);
         var environ_buf = try std.heap.wasm_allocator.alloc(u8, environ_buf_size);
         defer allocator.free(environ_buf);
@@ -397,7 +397,7 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
             return os.unexpectedErrno(args_sizes_get_ret);
         }
 
-        var argv = try allocator.alloc([*]u8, count);
+        var argv = try allocator.alloc([*:0]u8, count);
         defer allocator.free(argv);
 
         var argv_buf = try allocator.alloc(u8, buf_size);
@@ -473,14 +473,14 @@ pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const []u8) void {
 }
 
 test "windows arg parsing" {
-    testWindowsCmdLine(c"a   b\tc d", [_][]const u8{ "a", "b", "c", "d" });
-    testWindowsCmdLine(c"\"abc\" d e", [_][]const u8{ "abc", "d", "e" });
-    testWindowsCmdLine(c"a\\\\\\b d\"e f\"g h", [_][]const u8{ "a\\\\\\b", "de fg", "h" });
-    testWindowsCmdLine(c"a\\\\\\\"b c d", [_][]const u8{ "a\\\"b", "c", "d" });
-    testWindowsCmdLine(c"a\\\\\\\\\"b c\" d e", [_][]const u8{ "a\\\\b c", "d", "e" });
-    testWindowsCmdLine(c"a   b\tc \"d f", [_][]const u8{ "a", "b", "c", "\"d", "f" });
+    testWindowsCmdLine("a   b\tc d", [_][]const u8{ "a", "b", "c", "d" });
+    testWindowsCmdLine("\"abc\" d e", [_][]const u8{ "abc", "d", "e" });
+    testWindowsCmdLine("a\\\\\\b d\"e f\"g h", [_][]const u8{ "a\\\\\\b", "de fg", "h" });
+    testWindowsCmdLine("a\\\\\\\"b c d", [_][]const u8{ "a\\\"b", "c", "d" });
+    testWindowsCmdLine("a\\\\\\\\\"b c\" d e", [_][]const u8{ "a\\\\b c", "d", "e" });
+    testWindowsCmdLine("a   b\tc \"d f", [_][]const u8{ "a", "b", "c", "\"d", "f" });
 
-    testWindowsCmdLine(c"\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"", [_][]const u8{
+    testWindowsCmdLine("\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"", [_][]const u8{
         ".\\..\\zig-cache\\build",
         "bin\\zig.exe",
         ".\\..",

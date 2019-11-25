@@ -143,8 +143,6 @@ pub const Token = struct {
         LineComment,
         DocComment,
         ContainerDocComment,
-        BracketStarBracket,
-        BracketStarCBracket,
         ShebangLine,
         Keyword_align,
         Keyword_allowzero,
@@ -269,8 +267,6 @@ pub const Token = struct {
                 .AngleBracketAngleBracketRight => ">>",
                 .AngleBracketAngleBracketRightEqual => ">>=",
                 .Tilde => "~",
-                .BracketStarBracket => "[*]",
-                .BracketStarCBracket => "[*c]",
                 .Keyword_align => "align",
                 .Keyword_allowzero => "allowzero",
                 .Keyword_and => "and",
@@ -351,7 +347,6 @@ pub const Tokenizer = struct {
         Start,
         Identifier,
         Builtin,
-        C,
         StringLiteral,
         StringLiteralBackslash,
         MultilineStringLiteralLine,
@@ -401,9 +396,6 @@ pub const Tokenizer = struct {
         Period,
         Period2,
         SawAtSign,
-        LBracket,
-        LBracketStar,
-        LBracketStarC,
     };
 
     pub fn next(self: *Tokenizer) Token {
@@ -427,10 +419,6 @@ pub const Tokenizer = struct {
                     ' ', '\n', '\t', '\r' => {
                         result.start = self.index + 1;
                     },
-                    'c' => {
-                        state = State.C;
-                        result.id = Token.Id.Identifier;
-                    },
                     '"' => {
                         state = State.StringLiteral;
                         result.id = Token.Id.StringLiteral;
@@ -438,7 +426,7 @@ pub const Tokenizer = struct {
                     '\'' => {
                         state = State.CharLiteral;
                     },
-                    'a'...'b', 'd'...'z', 'A'...'Z', '_' => {
+                    'a'...'z', 'A'...'Z', '_' => {
                         state = State.Identifier;
                         result.id = Token.Id.Identifier;
                     },
@@ -465,7 +453,9 @@ pub const Tokenizer = struct {
                         break;
                     },
                     '[' => {
-                        state = State.LBracket;
+                        result.id = .LBracket;
+                        self.index += 1;
+                        break;
                     },
                     ']' => {
                         result.id = Token.Id.RBracket;
@@ -566,43 +556,6 @@ pub const Tokenizer = struct {
                         self.index -= 1;
                         state = State.Builtin;
                         result.id = Token.Id.Builtin;
-                    },
-                },
-
-                State.LBracket => switch (c) {
-                    '*' => {
-                        state = State.LBracketStar;
-                    },
-                    else => {
-                        result.id = Token.Id.LBracket;
-                        break;
-                    },
-                },
-
-                State.LBracketStar => switch (c) {
-                    'c' => {
-                        state = State.LBracketStarC;
-                    },
-                    ']' => {
-                        result.id = Token.Id.BracketStarBracket;
-                        self.index += 1;
-                        break;
-                    },
-                    else => {
-                        result.id = Token.Id.Invalid;
-                        break;
-                    },
-                },
-
-                State.LBracketStarC => switch (c) {
-                    ']' => {
-                        result.id = Token.Id.BracketStarCBracket;
-                        self.index += 1;
-                        break;
-                    },
-                    else => {
-                        result.id = Token.Id.Invalid;
-                        break;
                     },
                 },
 
@@ -727,20 +680,6 @@ pub const Tokenizer = struct {
                 State.Backslash => switch (c) {
                     '\\' => {
                         state = State.MultilineStringLiteralLine;
-                    },
-                    else => break,
-                },
-                State.C => switch (c) {
-                    '\\' => {
-                        state = State.Backslash;
-                        result.id = Token.Id.MultilineStringLiteralLine;
-                    },
-                    '"' => {
-                        state = State.StringLiteral;
-                        result.id = Token.Id.StringLiteral;
-                    },
-                    'a'...'z', 'A'...'Z', '_', '0'...'9' => {
-                        state = State.Identifier;
                     },
                     else => break,
                 },
@@ -1204,7 +1143,6 @@ pub const Tokenizer = struct {
         } else if (self.index == self.buffer.len) {
             switch (state) {
                 State.Start,
-                State.C,
                 State.IntegerLiteral,
                 State.IntegerLiteralWithRadix,
                 State.IntegerLiteralWithRadixHex,
@@ -1247,8 +1185,6 @@ pub const Tokenizer = struct {
                 State.CharLiteralEnd,
                 State.CharLiteralUnicode,
                 State.StringLiteralBackslash,
-                State.LBracketStar,
-                State.LBracketStarC,
                 => {
                     result.id = Token.Id.Invalid;
                 },
@@ -1264,9 +1200,6 @@ pub const Tokenizer = struct {
                 },
                 State.Slash => {
                     result.id = Token.Id.Slash;
-                },
-                State.LBracket => {
-                    result.id = Token.Id.LBracket;
                 },
                 State.Zero => {
                     result.id = Token.Id.IntegerLiteral;
@@ -1388,9 +1321,14 @@ test "tokenizer - unknown length pointer and then c pointer" {
         \\[*]u8
         \\[*c]u8
     , [_]Token.Id{
-        Token.Id.BracketStarBracket,
+        Token.Id.LBracket,
+        Token.Id.Asterisk,
+        Token.Id.RBracket,
         Token.Id.Identifier,
-        Token.Id.BracketStarCBracket,
+        Token.Id.LBracket,
+        Token.Id.Asterisk,
+        Token.Id.Identifier,
+        Token.Id.RBracket,
         Token.Id.Identifier,
     });
 }

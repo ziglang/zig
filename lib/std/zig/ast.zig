@@ -1531,14 +1531,14 @@ pub const Node = struct {
     };
 
     pub const PrefixOp = struct {
-        base: Node,
+        base: Node = Node{ .id = .PrefixOp },
         op_token: TokenIndex,
         op: Op,
         rhs: *Node,
 
         pub const Op = union(enum) {
             AddressOf,
-            ArrayType: *Node,
+            ArrayType: ArrayInfo,
             Await,
             BitNot,
             BoolNot,
@@ -1552,11 +1552,17 @@ pub const Node = struct {
             Try,
         };
 
+        pub const ArrayInfo = struct {
+            len_expr: *Node,
+            sentinel: ?*Node,
+        };
+
         pub const PtrInfo = struct {
-            allowzero_token: ?TokenIndex,
-            align_info: ?Align,
-            const_token: ?TokenIndex,
-            volatile_token: ?TokenIndex,
+            allowzero_token: ?TokenIndex = null,
+            align_info: ?Align = null,
+            const_token: ?TokenIndex = null,
+            volatile_token: ?TokenIndex = null,
+            sentinel: ?*Node = null,
 
             pub const Align = struct {
                 node: *Node,
@@ -1575,6 +1581,11 @@ pub const Node = struct {
             switch (self.op) {
                 // TODO https://github.com/ziglang/zig/issues/1107
                 Op.SliceType => |addr_of_info| {
+                    if (addr_of_info.sentinel) |sentinel| {
+                        if (i < 1) return sentinel;
+                        i -= 1;
+                    }
+
                     if (addr_of_info.align_info) |align_info| {
                         if (i < 1) return align_info.node;
                         i -= 1;
@@ -1588,9 +1599,13 @@ pub const Node = struct {
                     }
                 },
 
-                Op.ArrayType => |size_expr| {
-                    if (i < 1) return size_expr;
+                Op.ArrayType => |array_info| {
+                    if (i < 1) return array_info.len_expr;
                     i -= 1;
+                    if (array_info.sentinel) |sentinel| {
+                        if (i < 1) return sentinel;
+                        i -= 1;
+                    }
                 },
 
                 Op.AddressOf,

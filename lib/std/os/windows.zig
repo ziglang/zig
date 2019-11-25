@@ -192,7 +192,7 @@ pub const FindFirstFileError = error{
 };
 
 pub fn FindFirstFile(dir_path: []const u8, find_file_data: *WIN32_FIND_DATAW) FindFirstFileError!HANDLE {
-    const dir_path_w = try sliceToPrefixedSuffixedFileW(dir_path, [_]u16{ '\\', '*', 0 });
+    const dir_path_w = try sliceToPrefixedSuffixedFileW(dir_path, [_]u16{ '\\', '*'});
     const handle = kernel32.FindFirstFileW(&dir_path_w, find_file_data);
 
     if (handle == INVALID_HANDLE_VALUE) {
@@ -919,18 +919,18 @@ pub fn nanoSecondsToFileTime(ns: i64) FILETIME {
     };
 }
 
-pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {
+pub fn cStrToPrefixedFileW(s: [*:0]const u8) ![PATH_MAX_WIDE:0]u16 {
     return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
 }
 
-pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE + 1]u16 {
-    return sliceToPrefixedSuffixedFileW(s, [_]u16{0});
+pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE:0]u16 {
+    return sliceToPrefixedSuffixedFileW(s, &[_]u16{});
 }
 
 /// Assumes an absolute path.
-pub fn wToPrefixedFileW(s: []const u16) ![PATH_MAX_WIDE + 1]u16 {
+pub fn wToPrefixedFileW(s: []const u16) ![PATH_MAX_WIDE:0]u16 {
     // TODO https://github.com/ziglang/zig/issues/2765
-    var result: [PATH_MAX_WIDE + 1]u16 = undefined;
+    var result: [PATH_MAX_WIDE:0]u16 = undefined;
 
     const start_index = if (mem.startsWith(u16, s, [_]u16{'\\', '?'})) 0 else blk: {
         const prefix = [_]u16{ '\\', '?', '?', '\\' };
@@ -945,9 +945,9 @@ pub fn wToPrefixedFileW(s: []const u16) ![PATH_MAX_WIDE + 1]u16 {
 
 }
 
-pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16) ![PATH_MAX_WIDE + suffix.len]u16 {
+pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16) ![PATH_MAX_WIDE + suffix.len:0]u16 {
     // TODO https://github.com/ziglang/zig/issues/2765
-    var result: [PATH_MAX_WIDE + suffix.len]u16 = undefined;
+    var result: [PATH_MAX_WIDE + suffix.len:0]u16 = undefined;
     // > File I/O functions in the Windows API convert "/" to "\" as part of
     // > converting the name to an NT-style name, except when using the "\\?\"
     // > prefix as detailed in the following sections.
@@ -968,6 +968,7 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
     const end_index = start_index + try std.unicode.utf8ToUtf16Le(result[start_index..], s);
     if (end_index + suffix.len > result.len) return error.NameTooLong;
     mem.copy(u16, result[end_index..], suffix);
+    result[end_index + suffix.len] = 0;
     return result;
 }
 

@@ -356,17 +356,17 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     return true;
 }
 
-pub fn len(comptime T: type, ptr: [*]const T) usize {
+pub fn len(comptime T: type, ptr: [*:0]const T) usize {
     var count: usize = 0;
     while (ptr[count] != 0) : (count += 1) {}
     return count;
 }
 
-pub fn toSliceConst(comptime T: type, ptr: [*]const T) []const T {
+pub fn toSliceConst(comptime T: type, ptr: [*:0]const T) [:0]const T {
     return ptr[0..len(T, ptr)];
 }
 
-pub fn toSlice(comptime T: type, ptr: [*]T) []T {
+pub fn toSlice(comptime T: type, ptr: [*:0]T) [:0]T {
     return ptr[0..len(T, ptr)];
 }
 
@@ -1408,7 +1408,9 @@ test "toBytes" {
 fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
     const size = @as(usize, @sizeOf(T));
 
-    if (comptime !trait.is(builtin.TypeId.Pointer)(B) or meta.Child(B) != [size]u8) {
+    if (comptime !trait.is(builtin.TypeId.Pointer)(B) or
+        (meta.Child(B) != [size]u8 and meta.Child(B) != [size:0]u8))
+    {
         @compileError("expected *[N]u8 " ++ ", passed " ++ @typeName(B));
     }
 
@@ -1430,12 +1432,12 @@ test "bytesAsValue" {
         builtin.Endian.Little => "\xEF\xBE\xAD\xDE",
     };
 
-    testing.expect(deadbeef == bytesAsValue(u32, &deadbeef_bytes).*);
+    testing.expect(deadbeef == bytesAsValue(u32, deadbeef_bytes).*);
 
-    var codeface_bytes = switch (builtin.endian) {
+    var codeface_bytes: [4]u8 = switch (builtin.endian) {
         builtin.Endian.Big => "\xC0\xDE\xFA\xCE",
         builtin.Endian.Little => "\xCE\xFA\xDE\xC0",
-    };
+    }.*;
     var codeface = bytesAsValue(u32, &codeface_bytes);
     testing.expect(codeface.* == 0xC0DEFACE);
     codeface.* = 0;
@@ -1456,14 +1458,14 @@ test "bytesAsValue" {
         .d = 0xA1,
     };
     const inst_bytes = "\xBE\xEF\xDE\xA1";
-    const inst2 = bytesAsValue(S, &inst_bytes);
+    const inst2 = bytesAsValue(S, inst_bytes);
     testing.expect(meta.eql(inst, inst2.*));
 }
 
 ///Given a pointer to an array of bytes, returns a value of the specified type backed by a
 /// copy of those bytes.
 pub fn bytesToValue(comptime T: type, bytes: var) T {
-    return bytesAsValue(T, &bytes).*;
+    return bytesAsValue(T, bytes).*;
 }
 test "bytesToValue" {
     const deadbeef_bytes = switch (builtin.endian) {
@@ -1491,11 +1493,11 @@ pub fn subArrayPtr(ptr: var, comptime start: usize, comptime length: usize) SubA
 }
 
 test "subArrayPtr" {
-    const a1 = "abcdef";
+    const a1: [6]u8 = "abcdef".*;
     const sub1 = subArrayPtr(&a1, 2, 3);
     testing.expect(eql(u8, sub1.*, "cde"));
 
-    var a2 = "abcdef";
+    var a2: [6]u8 = "abcdef".*;
     var sub2 = subArrayPtr(&a2, 2, 3);
 
     testing.expect(eql(u8, sub2, "cde"));

@@ -1363,7 +1363,7 @@ pub const addrinfo = extern struct {
     protocol: i32,
     addrlen: socklen_t,
     addr: ?*sockaddr,
-    canonname: ?[*]u8,
+    canonname: ?[*:0]u8,
     next: ?*addrinfo,
 };
 

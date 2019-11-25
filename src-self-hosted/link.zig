@@ -55,7 +55,7 @@ pub async fn link(comp: *Compilation) !void {
 
     // even though we're calling LLD as a library it thinks the first
     // argument is its own exe name
-    try ctx.args.append(c"lld");
+    try ctx.args.append("lld");
 
     if (comp.haveLibC()) {
         ctx.libc = ctx.comp.override_libc orelse blk: {
@@ -145,7 +145,7 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     //    lj->args.append("-T");
     //    lj->args.append(g->linker_script);
     //}
-    try ctx.args.append(c"--gc-sections");
+    try ctx.args.append("--gc-sections");
 
     //lj->args.append("-m");
     //lj->args.append(getLDMOption(&g->zig_target));
@@ -155,9 +155,9 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     //Buf *soname = nullptr;
     if (ctx.comp.is_static) {
         if (util.isArmOrThumb(ctx.comp.target)) {
-            try ctx.args.append(c"-Bstatic");
+            try ctx.args.append("-Bstatic");
         } else {
-            try ctx.args.append(c"-static");
+            try ctx.args.append("-static");
         }
     }
     //} else if (shared) {
@@ -170,7 +170,7 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     //    soname = buf_sprintf("lib%s.so.%" ZIG_PRI_usize "", buf_ptr(g->root_out_name), g->version_major);
     //}
 
-    try ctx.args.append(c"-o");
+    try ctx.args.append("-o");
     try ctx.args.append(ctx.out_file_path.ptr());
 
     if (ctx.link_in_crt) {
@@ -213,10 +213,10 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     //}
 
     if (ctx.comp.haveLibC()) {
-        try ctx.args.append(c"-L");
+        try ctx.args.append("-L");
         try ctx.args.append((try std.cstr.addNullByte(&ctx.arena.allocator, ctx.libc.lib_dir.?)).ptr);
 
-        try ctx.args.append(c"-L");
+        try ctx.args.append("-L");
         try ctx.args.append((try std.cstr.addNullByte(&ctx.arena.allocator, ctx.libc.static_lib_dir.?)).ptr);
 
         if (!ctx.comp.is_static) {
@@ -225,7 +225,7 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
                 if (util.getDynamicLinkerPath(ctx.comp.target)) |dl| break :blk dl;
                 return error.LibCMissingDynamicLinker;
             };
-            try ctx.args.append(c"-dynamic-linker");
+            try ctx.args.append("-dynamic-linker");
             try ctx.args.append((try std.cstr.addNullByte(&ctx.arena.allocator, dl)).ptr);
         }
     }
@@ -272,23 +272,23 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     // libc dep
     if (ctx.comp.haveLibC()) {
         if (ctx.comp.is_static) {
-            try ctx.args.append(c"--start-group");
-            try ctx.args.append(c"-lgcc");
-            try ctx.args.append(c"-lgcc_eh");
-            try ctx.args.append(c"-lc");
-            try ctx.args.append(c"-lm");
-            try ctx.args.append(c"--end-group");
+            try ctx.args.append("--start-group");
+            try ctx.args.append("-lgcc");
+            try ctx.args.append("-lgcc_eh");
+            try ctx.args.append("-lc");
+            try ctx.args.append("-lm");
+            try ctx.args.append("--end-group");
         } else {
-            try ctx.args.append(c"-lgcc");
-            try ctx.args.append(c"--as-needed");
-            try ctx.args.append(c"-lgcc_s");
-            try ctx.args.append(c"--no-as-needed");
-            try ctx.args.append(c"-lc");
-            try ctx.args.append(c"-lm");
-            try ctx.args.append(c"-lgcc");
-            try ctx.args.append(c"--as-needed");
-            try ctx.args.append(c"-lgcc_s");
-            try ctx.args.append(c"--no-as-needed");
+            try ctx.args.append("-lgcc");
+            try ctx.args.append("--as-needed");
+            try ctx.args.append("-lgcc_s");
+            try ctx.args.append("--no-as-needed");
+            try ctx.args.append("-lc");
+            try ctx.args.append("-lm");
+            try ctx.args.append("-lgcc");
+            try ctx.args.append("--as-needed");
+            try ctx.args.append("-lgcc_s");
+            try ctx.args.append("--no-as-needed");
         }
     }
 
@@ -299,14 +299,14 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     }
 
     if (ctx.comp.target != Target.Native) {
-        try ctx.args.append(c"--allow-shlib-undefined");
+        try ctx.args.append("--allow-shlib-undefined");
     }
 
     if (ctx.comp.target.getOs() == .zen) {
-        try ctx.args.append(c"-e");
-        try ctx.args.append(c"_start");
+        try ctx.args.append("-e");
+        try ctx.args.append("_start");
 
-        try ctx.args.append(c"--image-base=0x10000000");
+        try ctx.args.append("--image-base=0x10000000");
     }
 }
 
@@ -317,23 +317,23 @@ fn addPathJoin(ctx: *Context, dirname: []const u8, basename: []const u8) !void {
 }
 
 fn constructLinkerArgsCoff(ctx: *Context) !void {
-    try ctx.args.append(c"-NOLOGO");
+    try ctx.args.append("-NOLOGO");
 
     if (!ctx.comp.strip) {
-        try ctx.args.append(c"-DEBUG");
+        try ctx.args.append("-DEBUG");
     }
 
     switch (ctx.comp.target.getArch()) {
-        .i386 => try ctx.args.append(c"-MACHINE:X86"),
-        .x86_64 => try ctx.args.append(c"-MACHINE:X64"),
-        .aarch64 => try ctx.args.append(c"-MACHINE:ARM"),
+        .i386 => try ctx.args.append("-MACHINE:X86"),
+        .x86_64 => try ctx.args.append("-MACHINE:X64"),
+        .aarch64 => try ctx.args.append("-MACHINE:ARM"),
         else => return error.UnsupportedLinkArchitecture,
     }
 
     if (ctx.comp.windows_subsystem_windows) {
-        try ctx.args.append(c"/SUBSYSTEM:windows");
+        try ctx.args.append("/SUBSYSTEM:windows");
     } else if (ctx.comp.windows_subsystem_console) {
-        try ctx.args.append(c"/SUBSYSTEM:console");
+        try ctx.args.append("/SUBSYSTEM:console");
     }
 
     const is_library = ctx.comp.kind == .Lib;
@@ -367,14 +367,14 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
 
         // Visual C++ 2015 Conformance Changes
         // https://msdn.microsoft.com/en-us/library/bb531344.aspx
-        try ctx.args.append(c"legacy_stdio_definitions.lib");
+        try ctx.args.append("legacy_stdio_definitions.lib");
 
         // msvcrt depends on kernel32
-        try ctx.args.append(c"kernel32.lib");
+        try ctx.args.append("kernel32.lib");
     } else {
-        try ctx.args.append(c"-NODEFAULTLIB");
+        try ctx.args.append("-NODEFAULTLIB");
         if (!is_library) {
-            try ctx.args.append(c"-ENTRY:WinMainCRTStartup");
+            try ctx.args.append("-ENTRY:WinMainCRTStartup");
             // TODO
             //if (g->have_winmain) {
             //    lj->args.append("-ENTRY:WinMain");
@@ -385,7 +385,7 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
     }
 
     if (is_library and !ctx.comp.is_static) {
-        try ctx.args.append(c"-DLL");
+        try ctx.args.append("-DLL");
     }
 
     //for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
@@ -463,18 +463,18 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
 }
 
 fn constructLinkerArgsMachO(ctx: *Context) !void {
-    try ctx.args.append(c"-demangle");
+    try ctx.args.append("-demangle");
 
     if (ctx.comp.linker_rdynamic) {
-        try ctx.args.append(c"-export_dynamic");
+        try ctx.args.append("-export_dynamic");
     }
 
     const is_lib = ctx.comp.kind == .Lib;
     const shared = !ctx.comp.is_static and is_lib;
     if (ctx.comp.is_static) {
-        try ctx.args.append(c"-static");
+        try ctx.args.append("-static");
     } else {
-        try ctx.args.append(c"-dynamic");
+        try ctx.args.append("-dynamic");
     }
 
     //if (is_lib) {
@@ -503,7 +503,7 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
     //    }
     //}
 
-    try ctx.args.append(c"-arch");
+    try ctx.args.append("-arch");
     const darwin_arch_str = try std.cstr.addNullByte(
         &ctx.arena.allocator,
         ctx.comp.target.getDarwinArchString(),
@@ -512,22 +512,22 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
 
     const platform = try DarwinPlatform.get(ctx.comp);
     switch (platform.kind) {
-        .MacOS => try ctx.args.append(c"-macosx_version_min"),
-        .IPhoneOS => try ctx.args.append(c"-iphoneos_version_min"),
-        .IPhoneOSSimulator => try ctx.args.append(c"-ios_simulator_version_min"),
+        .MacOS => try ctx.args.append("-macosx_version_min"),
+        .IPhoneOS => try ctx.args.append("-iphoneos_version_min"),
+        .IPhoneOSSimulator => try ctx.args.append("-ios_simulator_version_min"),
     }
     const ver_str = try std.fmt.allocPrint(&ctx.arena.allocator, "{}.{}.{}\x00", platform.major, platform.minor, platform.micro);
     try ctx.args.append(ver_str.ptr);
 
     if (ctx.comp.kind == .Exe) {
         if (ctx.comp.is_static) {
-            try ctx.args.append(c"-no_pie");
+            try ctx.args.append("-no_pie");
         } else {
-            try ctx.args.append(c"-pie");
+            try ctx.args.append("-pie");
         }
     }
 
-    try ctx.args.append(c"-o");
+    try ctx.args.append("-o");
     try ctx.args.append(ctx.out_file_path.ptr());
 
     //for (size_t i = 0; i < g->rpath_list.length; i += 1) {
@@ -537,27 +537,27 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
     //add_rpath(lj, &lj->out_file);
 
     if (shared) {
-        try ctx.args.append(c"-headerpad_max_install_names");
+        try ctx.args.append("-headerpad_max_install_names");
     } else if (ctx.comp.is_static) {
-        try ctx.args.append(c"-lcrt0.o");
+        try ctx.args.append("-lcrt0.o");
     } else {
         switch (platform.kind) {
             .MacOS => {
                 if (platform.versionLessThan(10, 5)) {
-                    try ctx.args.append(c"-lcrt1.o");
+                    try ctx.args.append("-lcrt1.o");
                 } else if (platform.versionLessThan(10, 6)) {
-                    try ctx.args.append(c"-lcrt1.10.5.o");
+                    try ctx.args.append("-lcrt1.10.5.o");
                 } else if (platform.versionLessThan(10, 8)) {
-                    try ctx.args.append(c"-lcrt1.10.6.o");
+                    try ctx.args.append("-lcrt1.10.6.o");
                 }
             },
             .IPhoneOS => {
                 if (ctx.comp.target.getArch() == .aarch64) {
                     // iOS does not need any crt1 files for arm64
                 } else if (platform.versionLessThan(3, 1)) {
-                    try ctx.args.append(c"-lcrt1.o");
+                    try ctx.args.append("-lcrt1.o");
                 } else if (platform.versionLessThan(6, 0)) {
-                    try ctx.args.append(c"-lcrt1.3.1.o");
+                    try ctx.args.append("-lcrt1.3.1.o");
                 }
             },
             .IPhoneOSSimulator => {}, // no crt1.o needed
@@ -589,7 +589,7 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
                 // to make syscalls because the syscall numbers are not documented
                 // and change between versions.
                 // so we always link against libSystem
-                try ctx.args.append(c"-lSystem");
+                try ctx.args.append("-lSystem");
             } else {
                 if (mem.indexOfScalar(u8, lib.name, '/') == null) {
                     const arg = try std.fmt.allocPrint(&ctx.arena.allocator, "-l{}\x00", lib.name);
@@ -601,15 +601,15 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
             }
         }
     } else {
-        try ctx.args.append(c"-undefined");
-        try ctx.args.append(c"dynamic_lookup");
+        try ctx.args.append("-undefined");
+        try ctx.args.append("dynamic_lookup");
     }
 
     if (platform.kind == .MacOS) {
         if (platform.versionLessThan(10, 5)) {
-            try ctx.args.append(c"-lgcc_s.10.4");
+            try ctx.args.append("-lgcc_s.10.4");
         } else if (platform.versionLessThan(10, 6)) {
-            try ctx.args.append(c"-lgcc_s.10.5");
+            try ctx.args.append("-lgcc_s.10.5");
         }
     } else {
         @panic("TODO");

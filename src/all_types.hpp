@@ -101,6 +101,10 @@ struct IrExecutable {
     bool is_inline;
     bool is_generic_instantiation;
     bool need_err_code_spill;
+
+    // This is a function for use in the debugger to print
+    // the source location.
+    void src();
 };
 
 enum OutType {
@@ -236,9 +240,6 @@ struct ConstPtrValue {
         struct {
             ConstExprValue *array_val;
             size_t elem_index;
-            // This helps us preserve the null byte when performing compile-time
-            // concatenation on C strings.
-            bool is_cstr;
         } base_array;
         struct {
             ConstExprValue *struct_val;
@@ -351,6 +352,7 @@ struct LazyValueSliceType {
     LazyValue base;
 
     IrAnalyze *ira;
+    IrInstruction *sentinel; // can be null
     IrInstruction *elem_type;
     IrInstruction *align_inst; // can be null
 
@@ -363,6 +365,7 @@ struct LazyValuePtrType {
     LazyValue base;
 
     IrAnalyze *ira;
+    IrInstruction *sentinel; // can be null
     IrInstruction *elem_type;
     IrInstruction *align_inst; // can be null
 
@@ -598,6 +601,7 @@ enum NodeType {
     NodeTypeSuspend,
     NodeTypeAnyFrameType,
     NodeTypeEnumLiteral,
+    NodeTypeVarFieldType,
 };
 
 enum CallingConvention {
@@ -818,6 +822,7 @@ struct AstNodePrefixOpExpr {
 
 struct AstNodePointerType {
     Token *star_token;
+    AstNode *sentinel;
     AstNode *align_expr;
     BigInt *bit_offset_start;
     BigInt *host_int_bytes;
@@ -828,11 +833,13 @@ struct AstNodePointerType {
 };
 
 struct AstNodeInferredArrayType {
+    AstNode *sentinel; // can be null
     AstNode *child_type;
 };
 
 struct AstNodeArrayType {
     AstNode *size;
+    AstNode *sentinel;
     AstNode *child_type;
     AstNode *align_expr;
     Token *allow_zero_token;
@@ -997,7 +1004,6 @@ struct AstNodeStructField {
 
 struct AstNodeStringLiteral {
     Buf *buf;
-    bool c;
 };
 
 struct AstNodeCharLiteral {
@@ -1204,6 +1210,11 @@ struct ZigTypePointer {
     // struct.
     InferredStructField *inferred_struct_field;
 
+    // This can be null. If it is non-null, it means the pointer is terminated by this
+    // sentinel value. This is most commonly used for C-style strings, with a 0 byte
+    // to specify the length of the memory pointed to.
+    ConstExprValue *sentinel;
+
     PtrLen ptr_len;
     uint32_t explicit_alignment; // 0 means use ABI alignment
 
@@ -1231,6 +1242,7 @@ struct ZigTypeFloat {
 struct ZigTypeArray {
     ZigType *child_type;
     uint64_t len;
+    ConstExprValue *sentinel;
 };
 
 struct TypeStructField {
@@ -1756,8 +1768,10 @@ struct TypeId {
 
     union {
         struct {
+            CodeGen *codegen;
             ZigType *child_type;
             InferredStructField *inferred_struct_field;
+            ConstExprValue *sentinel;
             PtrLen ptr_len;
             uint32_t alignment;
 
@@ -1770,8 +1784,10 @@ struct TypeId {
             bool allow_zero;
         } pointer;
         struct {
+            CodeGen *codegen;
             ZigType *child_type;
             uint64_t size;
+            ConstExprValue *sentinel;
         } array;
         struct {
             bool is_signed;
@@ -1950,6 +1966,7 @@ struct CodeGen {
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
     HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> string_literals_table;
     HashMap<const ZigType *, ConstExprValue *, type_ptr_hash, type_ptr_eql> type_info_cache;
+    HashMap<const ZigType *, ConstExprValue *, type_ptr_hash, type_ptr_eql> one_possible_values;
 
     ZigList<Tld *> resolve_queue;
     size_t resolve_queue_index;
@@ -2026,6 +2043,7 @@ struct CodeGen {
     IrInstruction *invalid_instruction;
     IrInstruction *unreach_instruction;
 
+    ConstExprValue const_zero_byte;
     ConstExprValue const_void_val;
     ConstExprValue panic_msg_vals[PanicMsgIdCount];
 
@@ -2982,12 +3000,14 @@ struct IrInstructionArrayType {
     IrInstruction base;
 
     IrInstruction *size;
+    IrInstruction *sentinel;
     IrInstruction *child_type;
 };
 
 struct IrInstructionPtrType {
     IrInstruction base;
 
+    IrInstruction *sentinel;
     IrInstruction *align_value;
     IrInstruction *child_type;
     uint32_t bit_offset_start;
@@ -3007,6 +3027,7 @@ struct IrInstructionAnyFrameType {
 struct IrInstructionSliceType {
     IrInstruction base;
 
+    IrInstruction *sentinel;
     IrInstruction *align_value;
     IrInstruction *child_type;
     bool is_const;

@@ -1053,7 +1053,7 @@ pub fn dl_iterate_phdr(comptime T: type, callback: extern fn (info: *dl_phdr_inf
     if (it.end()) {
         var info = dl_phdr_info{
             .dlpi_addr = elf_base,
-            .dlpi_name = c"/proc/self/exe",
+            .dlpi_name = "/proc/self/exe",
             .dlpi_phdr = @intToPtr([*]elf.Phdr, elf_base + __ehdr_start.e_phoff),
             .dlpi_phnum = __ehdr_start.e_phnum,
         };

@@ -15,7 +15,7 @@ fn testDerefPtr() void {
 }
 
 test "pointer arithmetic" {
-    var ptr = c"abcd";
+    var ptr: [*]const u8 = "abcd";
 
     expect(ptr[0] == 'a');
     ptr += 1;
@@ -199,4 +199,66 @@ test "assign null directly to C pointer and test null equality" {
         @compileError("fail");
     }
     comptime expect((y1 orelse &othery) == y1);
+}
+
+test "null terminated pointer" {
+    const S = struct {
+        fn doTheTest() void {
+            var array_with_zero = [_:0]u8{'h', 'e', 'l', 'l', 'o'};
+            var zero_ptr: [*:0]const u8 = @ptrCast([*:0]const u8, &array_with_zero);
+            var no_zero_ptr: [*]const u8 = zero_ptr;
+            var zero_ptr_again = @ptrCast([*:0]const u8, no_zero_ptr);
+            expect(std.mem.eql(u8, std.mem.toSliceConst(u8, zero_ptr_again), "hello"));
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "allow any sentinel" {
+    const S = struct {
+        fn doTheTest() void {
+            var array = [_:std.math.minInt(i32)]i32{1, 2, 3, 4};
+            var ptr: [*:std.math.minInt(i32)]i32 = &array;
+            expect(ptr[4] == std.math.minInt(i32));
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "pointer sentinel with enums" {
+    const S = struct {
+        const Number = enum{one, two, sentinel};
+
+        fn doTheTest() void {
+            var ptr: [*:.sentinel]Number = &[_:.sentinel]Number{.one, .two, .two, .one};
+            expect(ptr[4] == .sentinel); // TODO this should be comptime expect, see #3731
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "pointer sentinel with optional element" {
+    const S = struct {
+        fn doTheTest() void {
+            var ptr: [*:null]?i32 = &[_:null]?i32{1, 2, 3, 4};
+            expect(ptr[4] == null); // TODO this should be comptime expect, see #3731
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "pointer sentinel with +inf" {
+    const S = struct {
+        fn doTheTest() void {
+            const inf = std.math.inf_f32;
+            var ptr: [*:inf]f32 = &[_:inf]f32{1.1, 2.2, 3.3, 4.4};
+            expect(ptr[4] == inf); // TODO this should be comptime expect, see #3731
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }

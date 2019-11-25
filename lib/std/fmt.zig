@@ -1,8 +1,6 @@
 const std = @import("std.zig");
 const math = std.math;
-const debug = std.debug;
-const assert = debug.assert;
-const testing = std.testing;
+const assert = std.debug.assert;
 const mem = std.mem;
 const builtin = @import("builtin");
 const errol = @import("fmt/errol.zig");
@@ -36,7 +34,7 @@ fn nextArg(comptime used_pos_args: *u32, comptime maybe_pos_arg: ?comptime_int, 
 
 fn peekIsAlign(comptime fmt: []const u8) bool {
     // Should only be called during a state transition to the format segment.
-    std.debug.assert(fmt[0] == ':');
+    comptime assert(fmt[0] == ':');
 
     inline for (([_]u8{ 1, 2 })[0..]) |i| {
         if (fmt.len > i and (fmt[i] == '<' or fmt[i] == '^' or fmt[i] == '>')) {
@@ -1009,13 +1007,13 @@ pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) !T {
 }
 
 test "parseInt" {
-    testing.expect((parseInt(i32, "-10", 10) catch unreachable) == -10);
-    testing.expect((parseInt(i32, "+10", 10) catch unreachable) == 10);
-    testing.expect(if (parseInt(i32, " 10", 10)) |_| false else |err| err == error.InvalidCharacter);
-    testing.expect(if (parseInt(i32, "10 ", 10)) |_| false else |err| err == error.InvalidCharacter);
-    testing.expect(if (parseInt(u32, "-10", 10)) |_| false else |err| err == error.InvalidCharacter);
-    testing.expect((parseInt(u8, "255", 10) catch unreachable) == 255);
-    testing.expect(if (parseInt(u8, "256", 10)) |_| false else |err| err == error.Overflow);
+    std.testing.expect((parseInt(i32, "-10", 10) catch unreachable) == -10);
+    std.testing.expect((parseInt(i32, "+10", 10) catch unreachable) == 10);
+    std.testing.expect(if (parseInt(i32, " 10", 10)) |_| false else |err| err == error.InvalidCharacter);
+    std.testing.expect(if (parseInt(i32, "10 ", 10)) |_| false else |err| err == error.InvalidCharacter);
+    std.testing.expect(if (parseInt(u32, "-10", 10)) |_| false else |err| err == error.InvalidCharacter);
+    std.testing.expect((parseInt(u8, "255", 10) catch unreachable) == 255);
+    std.testing.expect(if (parseInt(u8, "256", 10)) |_| false else |err| err == error.Overflow);
 }
 
 const ParseUnsignedError = error{
@@ -1040,30 +1038,30 @@ pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseUnsigned
 }
 
 test "parseUnsigned" {
-    testing.expect((try parseUnsigned(u16, "050124", 10)) == 50124);
-    testing.expect((try parseUnsigned(u16, "65535", 10)) == 65535);
-    testing.expectError(error.Overflow, parseUnsigned(u16, "65536", 10));
+    std.testing.expect((try parseUnsigned(u16, "050124", 10)) == 50124);
+    std.testing.expect((try parseUnsigned(u16, "65535", 10)) == 65535);
+    std.testing.expectError(error.Overflow, parseUnsigned(u16, "65536", 10));
 
-    testing.expect((try parseUnsigned(u64, "0ffffffffffffffff", 16)) == 0xffffffffffffffff);
-    testing.expectError(error.Overflow, parseUnsigned(u64, "10000000000000000", 16));
+    std.testing.expect((try parseUnsigned(u64, "0ffffffffffffffff", 16)) == 0xffffffffffffffff);
+    std.testing.expectError(error.Overflow, parseUnsigned(u64, "10000000000000000", 16));
 
-    testing.expect((try parseUnsigned(u32, "DeadBeef", 16)) == 0xDEADBEEF);
+    std.testing.expect((try parseUnsigned(u32, "DeadBeef", 16)) == 0xDEADBEEF);
 
-    testing.expect((try parseUnsigned(u7, "1", 10)) == 1);
-    testing.expect((try parseUnsigned(u7, "1000", 2)) == 8);
+    std.testing.expect((try parseUnsigned(u7, "1", 10)) == 1);
+    std.testing.expect((try parseUnsigned(u7, "1000", 2)) == 8);
 
-    testing.expectError(error.InvalidCharacter, parseUnsigned(u32, "f", 10));
-    testing.expectError(error.InvalidCharacter, parseUnsigned(u8, "109", 8));
+    std.testing.expectError(error.InvalidCharacter, parseUnsigned(u32, "f", 10));
+    std.testing.expectError(error.InvalidCharacter, parseUnsigned(u8, "109", 8));
 
-    testing.expect((try parseUnsigned(u32, "NUMBER", 36)) == 1442151747);
+    std.testing.expect((try parseUnsigned(u32, "NUMBER", 36)) == 1442151747);
 
     // these numbers should fit even though the radix itself doesn't fit in the destination type
-    testing.expect((try parseUnsigned(u1, "0", 10)) == 0);
-    testing.expect((try parseUnsigned(u1, "1", 10)) == 1);
-    testing.expectError(error.Overflow, parseUnsigned(u1, "2", 10));
-    testing.expect((try parseUnsigned(u1, "001", 16)) == 1);
-    testing.expect((try parseUnsigned(u2, "3", 16)) == 3);
-    testing.expectError(error.Overflow, parseUnsigned(u2, "4", 16));
+    std.testing.expect((try parseUnsigned(u1, "0", 10)) == 0);
+    std.testing.expect((try parseUnsigned(u1, "1", 10)) == 1);
+    std.testing.expectError(error.Overflow, parseUnsigned(u1, "2", 10));
+    std.testing.expect((try parseUnsigned(u1, "001", 16)) == 1);
+    std.testing.expect((try parseUnsigned(u2, "3", 16)) == 3);
+    std.testing.expectError(error.Overflow, parseUnsigned(u2, "4", 16));
 }
 
 pub const parseFloat = @import("fmt/parse_float.zig").parseFloat;
@@ -1134,19 +1132,19 @@ fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
 test "bufPrintInt" {
     var buffer: [100]u8 = undefined;
     const buf = buffer[0..];
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 2, false, FormatOptions{}), "-101111000110000101001110"));
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 10, false, FormatOptions{}), "-12345678"));
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 16, false, FormatOptions{}), "-bc614e"));
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 16, true, FormatOptions{}), "-BC614E"));
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 2, false, FormatOptions{}), "-101111000110000101001110"));
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 10, false, FormatOptions{}), "-12345678"));
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 16, false, FormatOptions{}), "-bc614e"));
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 16, true, FormatOptions{}), "-BC614E"));
 
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 12345678), 10, true, FormatOptions{}), "12345678"));
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 12345678), 10, true, FormatOptions{}), "12345678"));
 
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 666), 10, false, FormatOptions{ .width = 6 }), "   666"));
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 6 }), "  1234"));
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 1 }), "1234"));
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 666), 10, false, FormatOptions{ .width = 6 }), "   666"));
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 6 }), "  1234"));
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 1 }), "1234"));
 
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, 42), 10, false, FormatOptions{ .width = 3 }), "+42"));
-    testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -42), 10, false, FormatOptions{ .width = 3 }), "-42"));
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, 42), 10, false, FormatOptions{ .width = 3 }), "+42"));
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -42), 10, false, FormatOptions{ .width = 3 }), "-42"));
 }
 
 fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, options: FormatOptions) []u8 {
@@ -1163,7 +1161,7 @@ test "parse u64 digit too big" {
 
 test "parse unsigned comptime" {
     comptime {
-        testing.expect((try parseUnsigned(usize, "2", 10)) == 2);
+        std.testing.expect((try parseUnsigned(usize, "2", 10)) == 2);
     }
 }
 
@@ -1218,23 +1216,23 @@ test "buffer" {
         var context = BufPrintContext{ .remaining = buf1[0..] };
         try formatType(1234, "", FormatOptions{}, &context, error{BufferTooSmall}, bufPrintWrite, default_max_depth);
         var res = buf1[0 .. buf1.len - context.remaining.len];
-        testing.expect(mem.eql(u8, res, "1234"));
+        std.testing.expect(mem.eql(u8, res, "1234"));
 
         context = BufPrintContext{ .remaining = buf1[0..] };
         try formatType('a', "c", FormatOptions{}, &context, error{BufferTooSmall}, bufPrintWrite, default_max_depth);
         res = buf1[0 .. buf1.len - context.remaining.len];
-        testing.expect(mem.eql(u8, res, "a"));
+        std.testing.expect(mem.eql(u8, res, "a"));
 
         context = BufPrintContext{ .remaining = buf1[0..] };
         try formatType(0b1100, "b", FormatOptions{}, &context, error{BufferTooSmall}, bufPrintWrite, default_max_depth);
         res = buf1[0 .. buf1.len - context.remaining.len];
-        testing.expect(mem.eql(u8, res, "1100"));
+        std.testing.expect(mem.eql(u8, res, "1100"));
     }
 }
 
 test "array" {
     {
-        const value: [3]u8 = "abc";
+        const value: [3]u8 = "abc".*;
         try testFmt("array: abc\n", "array: {}\n", value);
         try testFmt("array: abc\n", "array: {}\n", &value);
 
@@ -1278,8 +1276,8 @@ test "pointer" {
 }
 
 test "cstr" {
-    try testFmt("cstr: Test C\n", "cstr: {s}\n", c"Test C");
-    try testFmt("cstr: Test C    \n", "cstr: {s:10}\n", c"Test C");
+    try testFmt("cstr: Test C\n", "cstr: {s}\n", "Test C");
+    try testFmt("cstr: Test C    \n", "cstr: {s:10}\n", "Test C");
 }
 
 test "filesize" {
@@ -1479,10 +1477,10 @@ test "union" {
 
     var buf: [100]u8 = undefined;
     const uu_result = try bufPrint(buf[0..], "{}", uu_inst);
-    testing.expect(mem.eql(u8, uu_result[0..3], "UU@"));
+    std.testing.expect(mem.eql(u8, uu_result[0..3], "UU@"));
 
     const eu_result = try bufPrint(buf[0..], "{}", eu_inst);
-    testing.expect(mem.eql(u8, uu_result[0..3], "EU@"));
+    std.testing.expect(mem.eql(u8, uu_result[0..3], "EU@"));
 }
 
 test "enum" {
@@ -1569,11 +1567,11 @@ pub fn trim(buf: []const u8) []const u8 {
 }
 
 test "trim" {
-    testing.expect(mem.eql(u8, "abc", trim("\n  abc  \t")));
-    testing.expect(mem.eql(u8, "", trim("   ")));
-    testing.expect(mem.eql(u8, "", trim("")));
-    testing.expect(mem.eql(u8, "abc", trim(" abc")));
-    testing.expect(mem.eql(u8, "abc", trim("abc ")));
+    std.testing.expect(mem.eql(u8, "abc", trim("\n  abc  \t")));
+    std.testing.expect(mem.eql(u8, "", trim("   ")));
+    std.testing.expect(mem.eql(u8, "", trim("")));
+    std.testing.expect(mem.eql(u8, "abc", trim(" abc")));
+    std.testing.expect(mem.eql(u8, "abc", trim("abc ")));
 }
 
 pub fn isWhiteSpace(byte: u8) bool {
@@ -1607,7 +1605,7 @@ test "formatIntValue with comptime_int" {
 
     var buf = try std.Buffer.init(std.debug.global_allocator, "");
     try formatIntValue(value, "", FormatOptions{}, &buf, @typeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append);
-    assert(mem.eql(u8, buf.toSlice(), "123456789123456789"));
+    std.testing.expect(mem.eql(u8, buf.toSlice(), "123456789123456789"));
 }
 
 test "formatType max_depth" {
@@ -1661,19 +1659,19 @@ test "formatType max_depth" {
 
     var buf0 = try std.Buffer.init(std.debug.global_allocator, "");
     try formatType(inst, "", FormatOptions{}, &buf0, @typeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 0);
-    assert(mem.eql(u8, buf0.toSlice(), "S{ ... }"));
+    std.testing.expect(mem.eql(u8, buf0.toSlice(), "S{ ... }"));
 
     var buf1 = try std.Buffer.init(std.debug.global_allocator, "");
     try formatType(inst, "", FormatOptions{}, &buf1, @typeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 1);
-    assert(mem.eql(u8, buf1.toSlice(), "S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }"));
+    std.testing.expect(mem.eql(u8, buf1.toSlice(), "S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }"));
 
     var buf2 = try std.Buffer.init(std.debug.global_allocator, "");
     try formatType(inst, "", FormatOptions{}, &buf2, @typeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 2);
-    assert(mem.eql(u8, buf2.toSlice(), "S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }"));
+    std.testing.expect(mem.eql(u8, buf2.toSlice(), "S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }"));
 
     var buf3 = try std.Buffer.init(std.debug.global_allocator, "");
     try formatType(inst, "", FormatOptions{}, &buf3, @typeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 3);
-    assert(mem.eql(u8, buf3.toSlice(), "S{ .a = S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ .ptr = TU{ ... } } }, .e = E.Two, .vec = (10.200,2.220) }"));
+    std.testing.expect(mem.eql(u8, buf3.toSlice(), "S{ .a = S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ .ptr = TU{ ... } } }, .e = E.Two, .vec = (10.200,2.220) }"));
 }
 
 test "positional" {

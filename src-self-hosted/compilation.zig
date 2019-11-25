@@ -490,8 +490,8 @@ pub const Compilation = struct {
         // LLVM creates invalid binaries on Windows sometimes.
         // See https://github.com/ziglang/zig/issues/508
         // As a workaround we do not use target native features on Windows.
-        var target_specific_cpu_args: ?[*]u8 = null;
-        var target_specific_cpu_features: ?[*]u8 = null;
+        var target_specific_cpu_args: ?[*:0]u8 = null;
+        var target_specific_cpu_features: ?[*:0]u8 = null;
         defer llvm.DisposeMessage(target_specific_cpu_args);
         defer llvm.DisposeMessage(target_specific_cpu_features);
         if (target == Target.Native and !target.isWindows()) {
@@ -501,9 +501,9 @@ pub const Compilation = struct {
 
         comp.target_machine = llvm.CreateTargetMachine(
             comp.llvm_target,
-            comp.llvm_triple.ptr(),
-            target_specific_cpu_args orelse c"",
-            target_specific_cpu_features orelse c"",
+            comp.llvm_triple.toSliceConst(),
+            target_specific_cpu_args orelse "",
+            target_specific_cpu_features orelse "",
             opt_level,
             reloc_mode,
             llvm.CodeModelDefault,

@@ -147,9 +147,9 @@ static const char *token_to_ptr_len_str(Token *tok) {
         case TokenIdStar:
         case TokenIdStarStar:
             return "*";
-        case TokenIdBracketStarBracket:
+        case TokenIdLBracket:
             return "[*]";
-        case TokenIdBracketStarCBracket:
+        case TokenIdSymbol:
             return "[*c]";
         default:
             zig_unreachable();
@@ -268,6 +268,8 @@ static const char *node_type_str(NodeType node_type) {
             return "EnumLiteral";
         case NodeTypeErrorSetField:
             return "ErrorSetField";
+        case NodeTypeVarFieldType:
+            return "VarFieldType";
     }
     zig_unreachable();
 }
@@ -619,9 +621,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             break;
         case NodeTypeStringLiteral:
             {
-                if (node->data.string_literal.c) {
-                    fprintf(ar->f, "c");
-                }
                 Buf tmp_buf = BUF_INIT;
                 string_literal_escape(node->data.string_literal.buf, &tmp_buf);
                 fprintf(ar->f, "\"%s\"", buf_ptr(&tmp_buf));
@@ -1187,6 +1186,10 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, ".%s", buf_ptr(&node->data.enum_literal.identifier->data.str_lit.str));
                 break;
             }
+        case NodeTypeVarFieldType: {
+            fprintf(ar->f, "var");
+            break;
+        }
         case NodeTypeParamDecl:
         case NodeTypeTestDecl:
         case NodeTypeStructField:

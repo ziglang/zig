@@ -401,7 +401,7 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
                 const vaddr_start = coff_section.header.virtual_address + proc_sym.CodeOffset;
                 const vaddr_end = vaddr_start + proc_sym.CodeSize;
                 if (relative_address >= vaddr_start and relative_address < vaddr_end) {
-                    break mem.toSliceConst(u8, @ptrCast([*]u8, proc_sym) + @sizeOf(pdb.ProcSym));
+                    break mem.toSliceConst(u8, @ptrCast([*:0]u8, proc_sym) + @sizeOf(pdb.ProcSym));
                 }
             },
             else => {},
@@ -703,9 +703,9 @@ fn printSourceAtAddressMacOs(di: *DebugInfo, out_stream: var, address: usize, tt
         return;
     };
 
-    const symbol_name = mem.toSliceConst(u8, di.strings.ptr + symbol.nlist.n_strx);
+    const symbol_name = mem.toSliceConst(u8, @ptrCast([*:0]const u8, di.strings.ptr + symbol.nlist.n_strx));
     const compile_unit_name = if (symbol.ofile) |ofile| blk: {
-        const ofile_path = mem.toSliceConst(u8, di.strings.ptr + ofile.n_strx);
+        const ofile_path = mem.toSliceConst(u8, @ptrCast([*:0]const u8, di.strings.ptr + ofile.n_strx));
         break :blk fs.path.basename(ofile_path);
     } else "???";
     if (getLineNumberInfoMacOs(di, symbol.*, adjusted_addr)) |line_info| {
@@ -915,7 +915,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
         for (present) |_| {
             const name_offset = try pdb_stream.stream.readIntLittle(u32);
             const name_index = try pdb_stream.stream.readIntLittle(u32);
-            const name = mem.toSlice(u8, name_bytes.ptr + name_offset);
+            const name = mem.toSlice(u8, @ptrCast([*:0]u8, name_bytes.ptr + name_offset));
             if (mem.eql(u8, name, "/names")) {
                 break :str_tab_index name_index;
             }
@@ -1708,7 +1708,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
     const gop = try di.ofiles.getOrPut(ofile);
     const mach_o_file = if (gop.found_existing) &gop.kv.value else blk: {
         errdefer _ = di.ofiles.remove(ofile);
-        const ofile_path = mem.toSliceConst(u8, di.strings.ptr + ofile.n_strx);
+        const ofile_path = mem.toSliceConst(u8, @ptrCast([*:0]const u8, di.strings.ptr + ofile.n_strx));
 
         gop.kv.value = MachOFile{
             .bytes = try std.fs.Dir.cwd().readFileAllocAligned(
@@ -1741,7 +1741,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
             if (sect.flags & macho.SECTION_TYPE == macho.S_REGULAR and
                 (sect.flags & macho.SECTION_ATTRIBUTES) & macho.S_ATTR_DEBUG == macho.S_ATTR_DEBUG)
             {
-                const sect_name = mem.toSliceConst(u8, &sect.sectname);
+                const sect_name = mem.toSliceConst(u8, @ptrCast([*:0]const u8, &sect.sectname));
                 if (mem.eql(u8, sect_name, "__debug_line")) {
                     gop.kv.value.sect_debug_line = sect;
                 } else if (mem.eql(u8, sect_name, "__debug_info")) {
@@ -2323,8 +2323,8 @@ fn readInitialLengthMem(ptr: *[*]const u8, is_64: *bool) !u64 {
     }
 }
 
-fn readStringMem(ptr: *[*]const u8) []const u8 {
-    const result = mem.toSliceConst(u8, ptr.*);
+fn readStringMem(ptr: *[*]const u8) [:0]const u8 {
+    const result = mem.toSliceConst(u8, @ptrCast([*:0]const u8, ptr.*));
     ptr.* += result.len + 1;
     return result;
 }

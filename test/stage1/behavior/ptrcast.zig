@@ -60,7 +60,7 @@ test "comptime ptrcast keeps larger alignment" {
 }
 
 test "implicit optional pointer to optional c_void pointer" {
-    var buf: [4]u8 = "aoeu";
+    var buf: [4]u8 = "aoeu".*;
     var x: ?[*]u8 = &buf;
     var y: ?*c_void = x;
     var z = @ptrCast(*[4]u8, y);

@@ -65,7 +65,8 @@ pub fn lookup(vername: []const u8, name: []const u8) usize {
         if (0 == (@as(u32, 1) << @intCast(u5, syms[i].st_info & 0xf) & OK_TYPES)) continue;
         if (0 == (@as(u32, 1) << @intCast(u5, syms[i].st_info >> 4) & OK_BINDS)) continue;
         if (0 == syms[i].st_shndx) continue;
-        if (!mem.eql(u8, name, mem.toSliceConst(u8, strings + syms[i].st_name))) continue;
+        const sym_name = @ptrCast([*:0]const u8, strings + syms[i].st_name);
+        if (!mem.eql(u8, name, mem.toSliceConst(u8, sym_name))) continue;
         if (maybe_versym) |versym| {
             if (!checkver(maybe_verdef.?, versym[i], vername, strings))
                 continue;
@@ -87,5 +88,6 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
         def = @intToPtr(*elf.Verdef, @ptrToInt(def) + def.vd_next);
     }
     const aux = @intToPtr(*elf.Verdaux, @ptrToInt(def) + def.vd_aux);
-    return mem.eql(u8, vername, mem.toSliceConst(u8, strings + aux.vda_name));
+    const vda_name = @ptrCast([*:0]const u8, strings + aux.vda_name);
+    return mem.eql(u8, vername, mem.toSliceConst(u8, vda_name));
 }

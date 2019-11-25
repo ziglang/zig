@@ -46,6 +46,7 @@ fn testPointer() void {
     expect(u32_ptr_info.Pointer.is_volatile == false);
     expect(u32_ptr_info.Pointer.alignment == @alignOf(u32));
     expect(u32_ptr_info.Pointer.child == u32);
+    expect(u32_ptr_info.Pointer.sentinel == null);
 }
 
 test "type info: unknown length pointer type info" {
@@ -55,12 +56,32 @@ test "type info: unknown length pointer type info" {
 
 fn testUnknownLenPtr() void {
     const u32_ptr_info = @typeInfo([*]const volatile f64);
-    expect(@as(TypeId,u32_ptr_info) == TypeId.Pointer);
+    expect(@as(TypeId, u32_ptr_info) == TypeId.Pointer);
     expect(u32_ptr_info.Pointer.size == TypeInfo.Pointer.Size.Many);
     expect(u32_ptr_info.Pointer.is_const == true);
     expect(u32_ptr_info.Pointer.is_volatile == true);
+    expect(u32_ptr_info.Pointer.sentinel == null);
     expect(u32_ptr_info.Pointer.alignment == @alignOf(f64));
     expect(u32_ptr_info.Pointer.child == f64);
+}
+
+test "type info: null terminated pointer type info" {
+    testNullTerminatedPtr();
+    comptime testNullTerminatedPtr();
+}
+
+fn testNullTerminatedPtr() void {
+    const ptr_info = @typeInfo([*:0]u8);
+    expect(@as(TypeId, ptr_info) == TypeId.Pointer);
+    expect(ptr_info.Pointer.size == TypeInfo.Pointer.Size.Many);
+    expect(ptr_info.Pointer.is_const == false);
+    expect(ptr_info.Pointer.is_volatile == false);
+    expect(ptr_info.Pointer.sentinel.? == 0);
+
+    expect(@typeInfo([:0]u8).Pointer.sentinel != null);
+    expect(@typeInfo([10:0]u8).Array.sentinel != null);
+    expect(@typeInfo([10:0]u8).Array.len == 10);
+    expect(@sizeOf([10:0]u8) == 11);
 }
 
 test "type info: C pointer type info" {
@@ -70,7 +91,7 @@ test "type info: C pointer type info" {
 
 fn testCPtr() void {
     const ptr_info = @typeInfo([*c]align(4) const i8);
-    expect(@as(TypeId,ptr_info) == TypeId.Pointer);
+    expect(@as(TypeId, ptr_info) == TypeId.Pointer);
     expect(ptr_info.Pointer.size == TypeInfo.Pointer.Size.C);
     expect(ptr_info.Pointer.is_const);
     expect(!ptr_info.Pointer.is_volatile);
@@ -288,13 +309,13 @@ test "type info: anyframe and anyframe->T" {
 fn testAnyFrame() void {
     {
         const anyframe_info = @typeInfo(anyframe->i32);
-        expect(@as(TypeId,anyframe_info) == .AnyFrame);
+        expect(@as(TypeId, anyframe_info) == .AnyFrame);
         expect(anyframe_info.AnyFrame.child.? == i32);
     }
 
     {
         const anyframe_info = @typeInfo(anyframe);
-        expect(@as(TypeId,anyframe_info) == .AnyFrame);
+        expect(@as(TypeId, anyframe_info) == .AnyFrame);
         expect(anyframe_info.AnyFrame.child == null);
     }
 }
@@ -334,7 +355,7 @@ test "type info: extern fns with and without lib names" {
             if (std.mem.eql(u8, decl.name, "bar1")) {
                 expect(decl.data.Fn.lib_name == null);
             } else {
-                std.testing.expectEqual(@as([]const u8,"cool"), decl.data.Fn.lib_name.?);
+                std.testing.expectEqual(@as([]const u8, "cool"), decl.data.Fn.lib_name.?);
             }
         }
     }

@@ -56,7 +56,7 @@ test "statx" {
     }
 
     var statx_buf: linux.Statx = undefined;
-    switch (linux.getErrno(linux.statx(file.handle, c"", linux.AT_EMPTY_PATH, linux.STATX_BASIC_STATS, &statx_buf))) {
+    switch (linux.getErrno(linux.statx(file.handle, "", linux.AT_EMPTY_PATH, linux.STATX_BASIC_STATS, &statx_buf))) {
         0 => {},
         // The statx syscall was only introduced in linux 4.11
         linux.ENOSYS => return error.SkipZigTest,
@@ -64,7 +64,7 @@ test "statx" {
     }
 
     var stat_buf: linux.Stat = undefined;
-    switch (linux.getErrno(linux.fstatat(file.handle, c"", &stat_buf, linux.AT_EMPTY_PATH))) {
+    switch (linux.getErrno(linux.fstatat(file.handle, "", &stat_buf, linux.AT_EMPTY_PATH))) {
         0 => {},
         else => unreachable,
     }

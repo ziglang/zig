@@ -140,7 +140,7 @@ pub const LinuxDynLib = struct {
 };
 
 pub const ElfLib = struct {
-    strings: [*]u8,
+    strings: [*:0]u8,
     syms: [*]elf.Sym,
     hashtab: [*]os.Elf_Symndx,
     versym: ?[*]u16,
@@ -175,7 +175,7 @@ pub const ElfLib = struct {
         const dynv = maybe_dynv orelse return error.MissingDynamicLinkingInformation;
         if (base == maxInt(usize)) return error.BaseNotFound;
 
-        var maybe_strings: ?[*]u8 = null;
+        var maybe_strings: ?[*:0]u8 = null;
         var maybe_syms: ?[*]elf.Sym = null;
         var maybe_hashtab: ?[*]os.Elf_Symndx = null;
         var maybe_versym: ?[*]u16 = null;
@@ -186,7 +186,7 @@ pub const ElfLib = struct {
             while (dynv[i] != 0) : (i += 2) {
                 const p = base + dynv[i + 1];
                 switch (dynv[i]) {
-                    elf.DT_STRTAB => maybe_strings = @intToPtr([*]u8, p),
+                    elf.DT_STRTAB => maybe_strings = @intToPtr([*:0]u8, p),
                     elf.DT_SYMTAB => maybe_syms = @intToPtr([*]elf.Sym, p),
                     elf.DT_HASH => maybe_hashtab = @intToPtr([*]os.Elf_Symndx, p),
                     elf.DT_VERSYM => maybe_versym = @intToPtr([*]u16, p),
@@ -230,7 +230,7 @@ pub const ElfLib = struct {
     }
 };
 
-fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [*]u8) bool {
+fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [*:0]u8) bool {
     var def = def_arg;
     const vsym = @bitCast(u32, vsym_arg) & 0x7fff;
     while (true) {

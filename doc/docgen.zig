@@ -954,8 +954,6 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .AngleBracketAngleBracketRight,
             .AngleBracketAngleBracketRightEqual,
             .Tilde,
-            .BracketStarBracket,
-            .BracketStarCBracket,
             => try writeEscaped(out, src[token.start..token.end]),
 
             .Invalid, .Invalid_ampersands => return parseError(

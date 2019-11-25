@@ -31,7 +31,7 @@ pub const File = struct {
     }
 
     /// Deprecated; call `std.fs.Dir.openReadC` directly.
-    pub fn openReadC(path_c: [*]const u8) OpenError!File {
+    pub fn openReadC(path_c: [*:0]const u8) OpenError!File {
         return std.fs.Dir.cwd().openReadC(path_c);
     }
 
@@ -61,7 +61,7 @@ pub const File = struct {
 
     /// Same as `openWriteMode` except `path` is null-terminated.
     /// TODO: deprecate this and move it to `std.fs.Dir`.
-    pub fn openWriteModeC(path: [*]const u8, file_mode: Mode) OpenError!File {
+    pub fn openWriteModeC(path: [*:0]const u8, file_mode: Mode) OpenError!File {
         if (builtin.os == .windows) {
             const path_w = try windows.cStrToPrefixedFileW(path);
             return openWriteModeW(&path_w, file_mode);
@@ -74,7 +74,7 @@ pub const File = struct {
 
     /// Same as `openWriteMode` except `path` is null-terminated and UTF16LE encoded
     /// TODO: deprecate this and move it to `std.fs.Dir`.
-    pub fn openWriteModeW(path_w: [*]const u16, file_mode: Mode) OpenError!File {
+    pub fn openWriteModeW(path_w: [*:0]const u16, file_mode: Mode) OpenError!File {
         const handle = try windows.CreateFileW(
             path_w,
             windows.GENERIC_WRITE,
@@ -101,7 +101,7 @@ pub const File = struct {
     }
 
     /// TODO: deprecate this and move it to `std.fs.Dir`.
-    pub fn openWriteNoClobberC(path: [*]const u8, file_mode: Mode) OpenError!File {
+    pub fn openWriteNoClobberC(path: [*:0]const u8, file_mode: Mode) OpenError!File {
         if (builtin.os == .windows) {
             const path_w = try windows.cStrToPrefixedFileW(path);
             return openWriteNoClobberW(&path_w, file_mode);
@@ -113,7 +113,7 @@ pub const File = struct {
     }
 
     /// TODO: deprecate this and move it to `std.fs.Dir`.
-    pub fn openWriteNoClobberW(path_w: [*]const u16, file_mode: Mode) OpenError!File {
+    pub fn openWriteNoClobberW(path_w: [*:0]const u16, file_mode: Mode) OpenError!File {
         const handle = try windows.CreateFileW(
             path_w,
             windows.GENERIC_WRITE,
@@ -142,13 +142,13 @@ pub const File = struct {
 
     /// Same as `access` except the parameter is null-terminated.
     /// TODO: deprecate this and move it to `std.fs.Dir`.
-    pub fn accessC(path: [*]const u8) !void {
+    pub fn accessC(path: [*:0]const u8) !void {
         return os.accessC(path, os.F_OK);
     }
 
     /// Same as `access` except the parameter is null-terminated UTF16LE-encoded.
     /// TODO: deprecate this and move it to `std.fs.Dir`.
-    pub fn accessW(path: [*]const u16) !void {
+    pub fn accessW(path: [*:0]const u16) !void {
         return os.accessW(path, os.F_OK);
     }
 
@@ -172,7 +172,7 @@ pub const File = struct {
         if (self.isTty()) {
             if (self.handle == os.STDOUT_FILENO or self.handle == os.STDERR_FILENO) {
                 // Use getenvC to workaround https://github.com/ziglang/zig/issues/3511
-                if (os.getenvC(c"TERM")) |term| {
+                if (os.getenvC("TERM")) |term| {
                     if (std.mem.eql(u8, term, "dumb"))
                         return false;
                 }

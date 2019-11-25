@@ -204,11 +204,11 @@ test "multiline string" {
 
 test "multiline C string" {
     const s1 =
-        c\\one
-        c\\two)
-        c\\three
+        \\one
+        \\two)
+        \\three
     ;
-    const s2 = c"one\ntwo)\nthree";
+    const s2 = "one\ntwo)\nthree";
     expect(std.cstr.cmp(s1, s2) == 0);
 }
 
@@ -358,9 +358,12 @@ fn ptrEql(a: *const []const u8, b: *const []const u8) bool {
     return a == b;
 }
 
-test "C string concatenation" {
-    const a = c"OK" ++ c" IT " ++ c"WORKED";
-    const b = c"OK IT WORKED";
+test "string concatenation" {
+    const a = "OK" ++ " IT " ++ "WORKED";
+    const b = "OK IT WORKED";
+
+    comptime expect(@typeOf(a) == *const [12:0]u8);
+    comptime expect(@typeOf(b) == *const [12:0]u8);
 
     const len = mem.len(u8, b);
     const len_with_null = len + 1;

@@ -72,11 +72,11 @@ pub const Buffer = struct {
         self.list.deinit();
     }
 
-    pub fn toSlice(self: Buffer) []u8 {
+    pub fn toSlice(self: Buffer) [:0]u8 {
         return self.list.toSlice()[0..self.len()];
     }
 
-    pub fn toSliceConst(self: Buffer) []const u8 {
+    pub fn toSliceConst(self: Buffer) [:0]const u8 {
         return self.list.toSliceConst()[0..self.len()];
     }
 
@@ -130,11 +130,6 @@ pub const Buffer = struct {
     pub fn replaceContents(self: *Buffer, m: []const u8) !void {
         try self.resize(m.len);
         mem.copy(u8, self.list.toSlice(), m);
-    }
-
-    /// For passing to C functions.
-    pub fn ptr(self: Buffer) [*]u8 {
-        return self.list.items.ptr;
     }
 };
 

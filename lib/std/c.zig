@@ -63,7 +63,7 @@ pub extern "c" fn fclose(stream: *FILE) c_int;
 pub extern "c" fn fwrite(ptr: [*]const u8, size_of_type: usize, item_count: usize, stream: *FILE) usize;
 pub extern "c" fn fread(ptr: [*]u8, size_of_type: usize, item_count: usize, stream: *FILE) usize;
 
-pub extern "c" fn printf(format: [*]const u8, ...) c_int;
+pub extern "c" fn printf(format: [*:0]const u8, ...) c_int;
 pub extern "c" fn abort() noreturn;
 pub extern "c" fn exit(code: c_int) noreturn;
 pub extern "c" fn isatty(fd: fd_t) c_int;
@@ -102,7 +102,7 @@ pub extern "c" fn execve(path: [*]const u8, argv: [*]const ?[*]const u8, envp: [
 pub extern "c" fn dup(fd: fd_t) c_int;
 pub extern "c" fn dup2(old_fd: fd_t, new_fd: fd_t) c_int;
 pub extern "c" fn readlink(noalias path: [*]const u8, noalias buf: [*]u8, bufsize: usize) isize;
-pub extern "c" fn realpath(noalias file_name: [*]const u8, noalias resolved_name: [*]u8) ?[*]u8;
+pub extern "c" fn realpath(noalias file_name: [*]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
 pub extern "c" fn sigprocmask(how: c_int, noalias set: *const sigset_t, noalias oset: ?*sigset_t) c_int;
 pub extern "c" fn gettimeofday(noalias tv: ?*timeval, noalias tz: ?*timezone) c_int;
 pub extern "c" fn sigaction(sig: c_int, noalias act: *const Sigaction, noalias oact: ?*Sigaction) c_int;
@@ -110,7 +110,7 @@ pub extern "c" fn nanosleep(rqtp: *const timespec, rmtp: ?*timespec) c_int;
 pub extern "c" fn setreuid(ruid: c_uint, euid: c_uint) c_int;
 pub extern "c" fn setregid(rgid: c_uint, egid: c_uint) c_int;
 pub extern "c" fn rmdir(path: [*]const u8) c_int;
-pub extern "c" fn getenv(name: [*]const u8) ?[*]u8;
+pub extern "c" fn getenv(name: [*:0]const u8) ?[*:0]u8;
 pub extern "c" fn sysctl(name: [*]const c_int, namelen: c_uint, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) c_int;
 pub extern "c" fn sysctlbyname(name: [*]const u8, oldp: ?*c_void, oldlenp: ?*usize, newp: ?*c_void, newlen: usize) c_int;
 pub extern "c" fn sysctlnametomib(name: [*]const u8, mibp: ?*c_int, sizep: ?*usize) c_int;

@@ -394,7 +394,7 @@ pub fn resolveWindows(allocator: *Allocator, paths: []const []const u8) ![]u8 {
     }
 
     // determine which disk designator we will result with, if any
-    var result_drive_buf = "_:";
+    var result_drive_buf = "_:".*;
     var result_disk_designator: []const u8 = "";
     var have_drive_kind = WindowsPath.Kind.None;
     var have_abs_path = false;

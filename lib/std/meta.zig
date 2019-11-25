@@ -469,19 +469,19 @@ test "std.meta.eql" {
     const s_1 = S{
         .a = 134,
         .b = 123.3,
-        .c = "12345",
+        .c = "12345".*,
     };
 
     const s_2 = S{
         .a = 1,
         .b = 123.3,
-        .c = "54321",
+        .c = "54321".*,
     };
 
     const s_3 = S{
         .a = 134,
         .b = 123.3,
-        .c = "12345",
+        .c = "12345".*,
     };
 
     const u_1 = U{ .f = 24 };
@@ -494,9 +494,9 @@ test "std.meta.eql" {
     testing.expect(eql(u_1, u_3));
     testing.expect(!eql(u_1, u_2));
 
-    var a1 = "abcdef";
-    var a2 = "abcdef";
-    var a3 = "ghijkl";
+    var a1 = "abcdef".*;
+    var a2 = "abcdef".*;
+    var a3 = "ghijkl".*;
 
     testing.expect(eql(a1, a2));
     testing.expect(!eql(a1, a3));

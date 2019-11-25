@@ -144,6 +144,10 @@ pub const TypeInfo = union(enum) {
         alignment: comptime_int,
         child: type,
         is_allowzero: bool,
+        /// The type of the sentinel is the element type of the pointer, which is
+        /// the value of the `child` field in this struct. However there is no way
+        /// to refer to that type here, so we use `var`.
+        sentinel: var,
 
         /// This data structure is used by the Zig language code generation and
         /// therefore must be kept in sync with the compiler implementation.
@@ -160,6 +164,10 @@ pub const TypeInfo = union(enum) {
     pub const Array = struct {
         len: comptime_int,
         child: type,
+        /// The type of the sentinel is the element type of the array, which is
+        /// the value of the `child` field in this struct. However there is no way
+        /// to refer to that type here, so we use `var`.
+        sentinel: var,
     };
 
     /// This data structure is used by the Zig language code generation and

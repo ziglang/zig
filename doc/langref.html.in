@@ -546,7 +546,11 @@ pub fn main() void {
       {#header_close#}
       {#header_open|String Literals and Character Literals#}
       <p>
-      String literals are UTF-8 encoded byte arrays.
+      String literals are single-item constant {#link|Pointers#} to null-terminated UTF-8 encoded byte arrays.
+      The type of string literals encodes both the length, and the fact that they are null-terminated,
+      and thus they can be {#link|coerced|Type Coercion#} to both {#link|Slices#} and
+      {#link|Null-Terminated Pointers|Sentinel-Terminated Pointers#}.
+      Dereferencing string literals converts them to {#link|Arrays#}.
       </p>
       <p>
       Character literals have type {#syntax#}comptime_int{#endsyntax#}, the same as
@@ -558,20 +562,15 @@ const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
 test "string literals" {
-    // In Zig a string literal is an array of bytes.
-    const normal_bytes = "hello";
-    assert(@typeOf(normal_bytes) == [5]u8);
-    assert(normal_bytes.len == 5);
-    assert(normal_bytes[1] == 'e');
+    const bytes = "hello";
+    assert(@typeOf(bytes) == *const [5:0]u8);
+    assert(bytes.len == 5);
+    assert(bytes[1] == 'e');
+    assert(bytes[5] == 0);
     assert('e' == '\x65');
     assert('\u{1f4a9}' == 128169);
     assert('💯' == 128175);
     assert(mem.eql(u8, "hello", "h\x65llo"));
-
-    // A C string literal is a null terminated pointer.
-    const null_terminated_bytes = c"hello";
-    assert(@typeOf(null_terminated_bytes) == [*]const u8);
-    assert(null_terminated_bytes[5] == 0);
 }
       {#code_end#}
       {#see_also|Arrays|Zig Test|Source Encoding#}
@@ -641,23 +640,6 @@ const hello_world_in_c =
     \\}
 ;
       {#code_end#}
-      <p>
-      For a multiline C string literal, prepend <code>c</code> to each {#syntax#}\\{#endsyntax#}:
-      </p>
-      {#code_begin|syntax#}
-const c_string_literal =
-    c\\#include <stdio.h>
-    c\\
-    c\\int main(int argc, char **argv) {
-    c\\    printf("hello world\n");
-    c\\    return 0;
-    c\\}
-;
-      {#code_end#}
-      <p>
-      In this example the variable {#syntax#}c_string_literal{#endsyntax#} has type {#syntax#}[*]const u8{#endsyntax#} and
-      has a terminating null byte.
-      </p>
       {#see_also|@embedFile#}
       {#header_close#}
       {#header_close#}
@@ -1638,12 +1620,11 @@ comptime {
     assert(message.len == 5);
 }
 
-// a string literal is an array literal
-const same_message = "hello";
+// A string literal is a pointer to an array literal.
+const same_message = "hello".*;
 
 comptime {
     assert(mem.eql(u8, message, same_message));
-    assert(@typeOf(message) == @typeOf(same_message));
 }
 
 test "iterate over an array" {
@@ -1799,6 +1780,26 @@ test "multidimensional arrays" {
 }
       {#code_end#}
       {#header_close#}
+
+      {#header_open|Sentinel-Terminated Arrays#}
+      <p>
+      The syntax {#syntax#}[N:x]T{#endsyntax#} describes an array which has a sentinel element at the
+      index corresponding to {#syntax#}len{#endsyntax#}.
+      </p>
+      {#code_begin|test|null_terminated_array#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "null terminated array" {
+    const array = [_:0]u8 {1, 2, 3, 4};
+
+    assert(@typeOf(array) == [4:0]u8);
+    assert(array.len == 4);
+    assert(array[4] == 0);
+}
+      {#code_end#}
+      {#see_also|Sentinel-Terminated Pointers|Sentinel-Terminated Slices#}
+      {#header_close#}
       {#header_close#}
 
       {#header_open|Vectors#}
@@ -1899,7 +1900,7 @@ test "pointer array access" {
 }
       {#code_end#}
       <p>
-        In Zig, we prefer slices over pointers to null-terminated arrays.
+        In Zig, we generally prefer {#link|Slices#} rather than {#link|Sentinel-Terminated Pointers#}.
         You can turn an array or pointer into a slice using slice syntax.
       </p>
       <p>
@@ -2111,6 +2112,29 @@ test "allowzero" {
 }
       {#code_end#}
       {#header_close#}
+
+      {#header_open|Sentinel-Terminated Pointers#}
+      <p>
+      The syntax {#syntax#}[*:x]T{#endsyntax#} describes a pointer that
+      has a length determined by a sentinel value. This provides protection
+      against buffer overflow and overreads.
+      </p>
+      {#code_begin|exe_build_err#}
+const std = @import("std");
+
+// This is also available as `std.c.printf`.
+pub extern "c" fn printf(format: [*:0]const u8, ...) c_int;
+
+pub fn main() anyerror!void {
+    _ = printf("Hello, world!\n"); // OK
+
+    const msg = "Hello, world!\n";
+    const non_null_terminated_msg: [msg.len]u8 = msg.*;
+    _ = printf(&non_null_terminated_msg);
+}
+      {#code_end#}
+      {#see_also|Sentinel-Terminated Slices|Sentinel-Terminated Arrays#}
+      {#header_close#}
       {#header_close#}
 
       {#header_open|Slices#}
@@ -2194,7 +2218,29 @@ test "slice widening" {
 }
       {#code_end#}
       {#see_also|Pointers|for|Arrays#}
+
+      {#header_open|Sentinel-Terminated Slices#}
+      <p>
+      The syntax {#syntax#}[:x]T{#endsyntax#} is a slice which has a runtime known length
+      and also guarantees a sentinel value at the element indexed by the length. The type does not
+      guarantee that there are no sentinel elements before that. Sentinel-terminated slices allow element
+      access to the {#syntax#}len{#endsyntax#} index.
+      </p>
+      {#code_begin|test|null_terminated_slice#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "null terminated slice" {
+    const slice: [:0]const u8 = "hello";
+
+    assert(slice.len == 5);
+    assert(slice[5] == 0);
+}
+      {#code_end#}
+      {#see_also|Sentinel-Terminated Pointers|Sentinel-Terminated Arrays#}
       {#header_close#}
+      {#header_close#}
+
       {#header_open|struct#}
       {#code_begin|test|structs#}
 // Declare a struct.
@@ -4817,9 +4863,9 @@ const assert = std.debug.assert;
 const mem = std.mem;
 
 test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
-    const window_name = [1][*]const u8{c"window name"};
+    const window_name = [1][*]const u8{"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
-    assert(mem.eql(u8, std.mem.toSliceConst(u8, x[0].?), "window name"));
+    assert(mem.eql(u8, std.mem.toSliceConst(u8, @ptrCast([*:0]const u8, x[0].?)), "window name"));
 }
       {#code_end#}
       {#header_close#}
@@ -4859,7 +4905,7 @@ test "float widening" {
       {#code_end#}
       {#header_close#}
       {#header_open|Type Coercion: Arrays and Pointers#}
-      {#code_begin|test#}
+      {#code_begin|test|coerce_arrays_and_ptrs#}
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -4898,7 +4944,7 @@ test "[N]T to ?[]const T" {
 
 // In this cast, the array length becomes the slice length.
 test "*[N]T to []T" {
-    var buf: [5]u8 = "hello";
+    var buf: [5]u8 = "hello".*;
     const x: []u8 = &buf;
     assert(std.mem.eql(u8, x, "hello"));
 
@@ -4910,7 +4956,7 @@ test "*[N]T to []T" {
 // Single-item pointers to arrays can be coerced to
 // unknown length pointers.
 test "*[N]T to [*]T" {
-    var buf: [5]u8 = "hello";
+    var buf: [5]u8 = "hello".*;
     const x: [*]u8 = &buf;
     assert(x[4] == 'o');
     // x[5] would be an uncaught out of bounds pointer dereference!
@@ -4918,7 +4964,7 @@ test "*[N]T to [*]T" {
 
 // Likewise, it works when the destination type is an optional.
 test "*[N]T to ?[*]T" {
-    var buf: [5]u8 = "hello";
+    var buf: [5]u8 = "hello".*;
     const x: ?[*]u8 = &buf;
     assert(x.?[4] == 'o');
 }
@@ -5089,7 +5135,7 @@ test "coercion of zero bit types" {
       This kind of type resolution chooses a type that all peer types can coerce into. Here are
       some examples:
       </p>
-      {#code_begin|test#}
+      {#code_begin|test|peer_type_resolution#}
 const std = @import("std");
 const assert = std.debug.assert;
 const mem = std.mem;
@@ -5156,13 +5202,13 @@ fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
 }
 test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
     {
-        var data = "hi";
+        var data = "hi".*;
         const slice = data[0..];
         assert((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
         assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
     comptime {
-        var data = "hi";
+        var data = "hi".*;
         const slice = data[0..];
         assert((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
         assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
@@ -8627,7 +8673,7 @@ pub fn main() void {
       <p>At compile-time:</p>
       {#code_begin|test_err|index 5 outside array of size 5#}
 comptime {
-    const array = "hello";
+    const array: [5]u8 = "hello".*;
     const garbage = array[5];
 }
       {#code_end#}
@@ -9603,22 +9649,6 @@ test "assert in release fast mode" {
       </ul>
       {#see_also|Primitive Types#}
       {#header_close#}
-      {#header_open|C String Literals#}
-      {#code_begin|exe#}
-      {#link_libc#}
-extern fn puts([*]const u8) void;
-
-pub fn main() void {
-    puts(c"this has a null terminator");
-    puts(
-        c\\and so
-        c\\does this
-        c\\multiline C string literal
-    );
-}
-      {#code_end#}
-      {#see_also|String Literals and Character Literals#}
-      {#header_close#}
 
       {#header_open|Import from C Header File#}
       <p>
@@ -9633,7 +9663,7 @@ const c = @cImport({
     @cInclude("stdio.h");
 });
 pub fn main() void {
-    _ = c.printf(c"hello\n");
+    _ = c.printf("hello\n");
 }
       {#code_end#}
       <p>

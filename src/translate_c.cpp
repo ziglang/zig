@@ -291,9 +291,9 @@ static TokenId ptr_len_to_token_id(PtrLen ptr_len) {
         case PtrLenSingle:
             return TokenIdStar;
         case PtrLenUnknown:
-            return TokenIdBracketStarBracket;
+            return TokenIdLBracket;
         case PtrLenC:
-            return TokenIdBracketStarCBracket;
+            return TokenIdSymbol;
     }
     zig_unreachable();
 }
@@ -321,17 +321,9 @@ static AstNode *trans_create_node_bool(Context *c, bool value) {
     return bool_node;
 }
 
-static AstNode *trans_create_node_str_lit_c(Context *c, Buf *buf) {
+static AstNode *trans_create_node_str_lit(Context *c, Buf *buf) {
     AstNode *node = trans_create_node(c, NodeTypeStringLiteral);
     node->data.string_literal.buf = buf;
-    node->data.string_literal.c = true;
-    return node;
-}
-
-static AstNode *trans_create_node_str_lit_non_c(Context *c, Buf *buf) {
-    AstNode *node = trans_create_node(c, NodeTypeStringLiteral);
-    node->data.string_literal.buf = buf;
-    node->data.string_literal.c = false;
     return node;
 }
 
@@ -630,7 +622,7 @@ static AstNode *qual_type_to_log2_int_ref(Context *c, const ZigClangQualType qt,
 //        zig_type_node
 
     AstNode *import_fn_call = trans_create_node_builtin_fn_call_str(c, "import");
-    import_fn_call->data.fn_call_expr.params.append(trans_create_node_str_lit_non_c(c, buf_create_from_str("std")));
+    import_fn_call->data.fn_call_expr.params.append(trans_create_node_str_lit(c, buf_create_from_str("std")));
     AstNode *inner_field_access = trans_create_node_field_access_str(c, import_fn_call, "math");
     AstNode *outer_field_access = trans_create_node_field_access_str(c, inner_field_access, "Log2Int");
     AstNode *log2int_fn_call = trans_create_node_fn_call_1(c, outer_field_access, zig_type_node);
@@ -3389,7 +3381,7 @@ static AstNode *trans_string_literal(Context *c, ResultUsed result_used, TransSc
         case ZigClangStringLiteral_StringKind_UTF8: {
             size_t str_len;
             const char *str_ptr = ZigClangStringLiteral_getString_bytes_begin_size(stmt, &str_len);
-            AstNode *node = trans_create_node_str_lit_c(c, buf_create_from_mem(str_ptr, str_len));
+            AstNode *node = trans_create_node_str_lit(c, buf_create_from_mem(str_ptr, str_len));
             return maybe_suppress_result(c, result_used, node);
         }
         case ZigClangStringLiteral_StringKind_UTF16:
@@ -4888,7 +4880,7 @@ static AstNode *parse_ctok_primary_expr(Context *c, CTokenize *ctok, size_t *tok
             return trans_create_node_unsigned(c, tok->data.char_lit);
         case CTokIdStrLit:
             *tok_i += 1;
-            return trans_create_node_str_lit_c(c, buf_create_from_buf(&tok->data.str_lit));
+            return trans_create_node_str_lit(c, buf_create_from_buf(&tok->data.str_lit));
         case CTokIdMinus:
             *tok_i += 1;
             return parse_ctok_num_lit(c, ctok, tok_i, true);
@@ -4935,7 +4927,7 @@ static AstNode *parse_ctok_primary_expr(Context *c, CTokenize *ctok, size_t *tok
                 //    (dest)(x)
 
                 AstNode *import_builtin = trans_create_node_builtin_fn_call_str(c, "import");
-                import_builtin->data.fn_call_expr.params.append(trans_create_node_str_lit_non_c(c, buf_create_from_str("builtin")));
+                import_builtin->data.fn_call_expr.params.append(trans_create_node_str_lit(c, buf_create_from_str("builtin")));
                 AstNode *typeid_type = trans_create_node_field_access_str(c, import_builtin, "TypeId");
                 AstNode *typeid_pointer = trans_create_node_field_access_str(c, typeid_type, "Pointer");
                 AstNode *typeid_integer = trans_create_node_field_access_str(c, typeid_type, "Int");

@@ -473,7 +473,7 @@ pub const Value = struct {
                         dont_null_terminate,
                     ) orelse return error.OutOfMemory;
                     const str_init_type = llvm.TypeOf(llvm_str_init);
-                    const global = llvm.AddGlobal(ofile.module, str_init_type, c"") orelse return error.OutOfMemory;
+                    const global = llvm.AddGlobal(ofile.module, str_init_type, "") orelse return error.OutOfMemory;
                     llvm.SetInitializer(global, llvm_str_init);
                     llvm.SetLinkage(global, llvm.PrivateLinkage);
                     llvm.SetGlobalConstant(global, 1);

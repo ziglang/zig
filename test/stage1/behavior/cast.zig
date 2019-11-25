@@ -179,18 +179,24 @@ fn gimmeErrOrSlice() anyerror![]u8 {
 }
 
 test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
-    {
-        var data = "hi";
-        const slice = data[0..];
-        expect((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
-        expect((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
-    }
-    comptime {
-        var data = "hi";
-        const slice = data[0..];
-        expect((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
-        expect((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
-    }
+    const S = struct {
+        fn doTheTest() anyerror!void {
+            {
+                var data = "hi".*;
+                const slice = data[0..];
+                expect((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
+                expect((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+            }
+            {
+                var data: [2]u8 = "hi".*;
+                const slice = data[0..];
+                expect((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
+                expect((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+            }
+        }
+    };
+    try S.doTheTest();
+    try comptime S.doTheTest();
 }
 fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
     if (a) {
@@ -217,11 +223,20 @@ test "implicit cast from &const [N]T to []const T" {
 }
 
 fn testCastConstArrayRefToConstSlice() void {
-    const blah = "aoeu";
-    const const_array_ref = &blah;
-    expect(@typeOf(const_array_ref) == *const [4]u8);
-    const slice: []const u8 = const_array_ref;
-    expect(mem.eql(u8, slice, "aoeu"));
+    {
+        const blah = "aoeu".*;
+        const const_array_ref = &blah;
+        expect(@typeOf(const_array_ref) == *const [4:0]u8);
+        const slice: []const u8 = const_array_ref;
+        expect(mem.eql(u8, slice, "aoeu"));
+    }
+    {
+        const blah: [4]u8 = "aoeu".*;
+        const const_array_ref = &blah;
+        expect(@typeOf(const_array_ref) == *const [4]u8);
+        const slice: []const u8 = const_array_ref;
+        expect(mem.eql(u8, slice, "aoeu"));
+    }
 }
 
 test "peer type resolution: error and [N]T" {
@@ -310,19 +325,30 @@ test "single-item pointer of array to slice and to unknown length pointer" {
 }
 
 fn testCastPtrOfArrayToSliceAndPtr() void {
-    var array = "aoeu";
-    const x: [*]u8 = &array;
-    x[0] += 1;
-    expect(mem.eql(u8, array[0..], "boeu"));
-    const y: []u8 = &array;
-    y[0] += 1;
-    expect(mem.eql(u8, array[0..], "coeu"));
+    {
+        var array = "aoeu".*;
+        const x: [*]u8 = &array;
+        x[0] += 1;
+        expect(mem.eql(u8, array[0..], "boeu"));
+        const y: []u8 = &array;
+        y[0] += 1;
+        expect(mem.eql(u8, array[0..], "coeu"));
+    }
+    {
+        var array: [4]u8 = "aoeu".*;
+        const x: [*]u8 = &array;
+        x[0] += 1;
+        expect(mem.eql(u8, array[0..], "boeu"));
+        const y: []u8 = &array;
+        y[0] += 1;
+        expect(mem.eql(u8, array[0..], "coeu"));
+    }
 }
 
 test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
-    const window_name = [1][*]const u8{c"window name"};
+    const window_name = [1][*]const u8{"window name"};
     const x: [*]const ?[*]const u8 = &window_name;
-    expect(mem.eql(u8, std.mem.toSliceConst(u8, x[0].?), "window name"));
+    expect(mem.eql(u8, std.mem.toSliceConst(u8, @ptrCast([*:0]const u8, x[0].?)), "window name"));
 }
 
 test "@intCast comptime_int" {
@@ -545,7 +571,7 @@ test "implicit cast *[0]T to E![]const u8" {
 }
 
 test "peer cast *[0]T to E![]const T" {
-    var buffer: [5]u8 = "abcde";
+    var buffer: [5]u8 = "abcde".*;
     var buf: anyerror![]const u8 = buffer[0..];
     var b = false;
     var y = if (b) &[0]u8{} else buf;
@@ -553,7 +579,7 @@ test "peer cast *[0]T to E![]const T" {
 }
 
 test "peer cast *[0]T to []const T" {
-    var buffer: [5]u8 = "abcde";
+    var buffer: [5]u8 = "abcde".*;
     var buf: []const u8 = buffer[0..];
     var b = false;
     var y = if (b) &[0]u8{} else buf;
@@ -564,4 +590,87 @@ var global_array: [4]u8 = undefined;
 test "cast from array reference to fn" {
     const f = @ptrCast(extern fn () void, &global_array);
     expect(@ptrToInt(f) == @ptrToInt(&global_array));
+}
+
+test "*const [N]null u8 to ?[]const u8" {
+    const S = struct {
+        fn doTheTest() void {
+            var a = "Hello";
+            var b: ?[]const u8 = a;
+            expect(mem.eql(u8, b.?, "Hello"));
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "peer resolution of string literals" {
+    const S = struct {
+        const E = extern enum { a, b, c, d};
+
+        fn doTheTest(e: E) void {
+            const cmd = switch (e) {
+                .a => "one",
+                .b => "two",
+                .c => "three",
+                .d => "four",
+            };
+            expect(mem.eql(u8, cmd, "two"));
+        }
+    };
+    S.doTheTest(.b);
+    comptime S.doTheTest(.b);
+}
+
+test "type coercion related to sentinel-termination" {
+    const S = struct {
+        fn doTheTest() void {
+            // [:x]T to []T
+            {
+                var array = [4:0]i32{1,2,3,4};
+                var slice: [:0]i32 = &array;
+                var dest: []i32 = slice;
+                expect(mem.eql(i32, dest, &[_]i32{1,2,3,4}));
+            }
+
+            // [*:x]T to [*]T
+            {
+                var array = [4:99]i32{1,2,3,4};
+                var dest: [*]i32 = &array;
+                expect(dest[0] == 1);
+                expect(dest[1] == 2);
+                expect(dest[2] == 3);
+                expect(dest[3] == 4);
+                expect(dest[4] == 99);
+            }
+
+            // [N:x]T to [N]T
+            {
+                var array = [4:0]i32{1,2,3,4};
+                var dest: [4]i32 = array;
+                expect(mem.eql(i32, dest, &[_]i32{1,2,3,4}));
+            }
+
+            // *[N:x]T to *[N]T
+            {
+                var array = [4:0]i32{1,2,3,4};
+                var dest: *[4]i32 = &array;
+                expect(mem.eql(i32, dest, &[_]i32{1,2,3,4}));
+            }
+
+            // [:x]T to [*:x]T
+            {
+                var array = [4:0]i32{1,2,3,4};
+                var slice: [:0]i32 = &array;
+                var dest: [*:0]i32 = slice;
+                expect(dest[0] == 1);
+                expect(dest[1] == 2);
+                expect(dest[2] == 3);
+                expect(dest[3] == 4);
+                expect(dest[4] == 0);
+            }
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }

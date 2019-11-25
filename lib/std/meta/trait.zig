@@ -319,7 +319,6 @@ test "std.meta.trait.isNumber" {
     testing.expect(!isNumber(NotANumber));
 }
 
-///
 pub fn isConstPtr(comptime T: type) bool {
     if (!comptime is(builtin.TypeId.Pointer)(T)) return false;
     const info = @typeInfo(T);
@@ -335,7 +334,6 @@ test "std.meta.trait.isConstPtr" {
     testing.expect(!isConstPtr(@typeOf(6)));
 }
 
-///
 pub fn isContainer(comptime T: type) bool {
     const info = @typeInfo(T);
     return switch (info) {

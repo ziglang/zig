@@ -58,8 +58,7 @@ pub const Request = struct {
         };
 
         pub const Open = struct {
-            /// must be null terminated. TODO https://github.com/ziglang/zig/issues/265
-            path: []const u8,
+            path: [:0]const u8,
             flags: u32,
             mode: File.Mode,
             result: Error!fd_t,
@@ -68,8 +67,7 @@ pub const Request = struct {
         };
 
         pub const WriteFile = struct {
-            /// must be null terminated. TODO https://github.com/ziglang/zig/issues/265
-            path: []const u8,
+            path: [:0]const u8,
             contents: []const u8,
             mode: File.Mode,
             result: Error!void,

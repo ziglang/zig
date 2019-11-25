@@ -27,8 +27,8 @@ test "cstr fns" {
 }
 
 fn testCStrFnsImpl() void {
-    testing.expect(cmp(c"aoeu", c"aoez") == -1);
-    testing.expect(mem.len(u8, c"123456789") == 9);
+    testing.expect(cmp("aoeu", "aoez") == -1);
+    testing.expect(mem.len(u8, "123456789") == 9);
 }
 
 /// Returns a mutable slice with 1 more byte of length which is a null byte.

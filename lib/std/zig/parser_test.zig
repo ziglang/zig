@@ -1552,6 +1552,7 @@ test "zig fmt: pointer attributes" {
         \\extern fn f2(s: **align(1) *const *volatile u8) c_int;
         \\extern fn f3(s: *align(1) const *align(1) volatile *const volatile u8) c_int;
         \\extern fn f4(s: *align(1) const volatile u8) c_int;
+        \\extern fn f5(s: [*:0]align(1) const volatile u8) c_int;
         \\
     );
 }
@@ -1562,6 +1563,7 @@ test "zig fmt: slice attributes" {
         \\extern fn f2(s: **align(1) *const *volatile u8) c_int;
         \\extern fn f3(s: *align(1) const *align(1) volatile *const volatile u8) c_int;
         \\extern fn f4(s: *align(1) const volatile u8) c_int;
+        \\extern fn f5(s: [*:0]align(1) const volatile u8) c_int;
         \\
     );
 }
@@ -1723,11 +1725,6 @@ test "zig fmt: multiline string" {
         \\        \\two)
         \\        \\three
         \\    ;
-        \\    const s2 =
-        \\        c\\one
-        \\        c\\two)
-        \\        c\\three
-        \\    ;
         \\    const s3 = // hi
         \\        \\one
         \\        \\two)
@@ -1744,7 +1741,6 @@ test "zig fmt: values" {
         \\    1;
         \\    1.0;
         \\    "string";
-        \\    c"cstring";
         \\    'c';
         \\    true;
         \\    false;
@@ -1889,6 +1885,7 @@ test "zig fmt: arrays" {
         \\        2,
         \\    };
         \\    const a: [0]u8 = []u8{};
+        \\    const x: [4:0]u8 = undefined;
         \\}
         \\
     );

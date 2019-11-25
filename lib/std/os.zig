@@ -66,12 +66,12 @@ pub const system = if (builtin.link_libc) std.c else switch (builtin.os) {
 pub usingnamespace @import("os/bits.zig");
 
 /// See also `getenv`. Populated by startup code before main().
-pub var environ: [][*]u8 = undefined;
+pub var environ: [][*:0]u8 = undefined;
 
 /// Populated by startup code before main().
 /// Not available on Windows. See `std.process.args`
 /// for obtaining the process arguments.
-pub var argv: [][*]u8 = undefined;
+pub var argv: [][*:0]u8 = undefined;
 
 /// To obtain errno, call this function with the return value of the
 /// system function call. For some systems this will obtain the value directly
@@ -157,7 +157,7 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
 }
 
 fn getRandomBytesDevURandom(buf: []u8) !void {
-    const fd = try openC(c"/dev/urandom", O_RDONLY | O_CLOEXEC, 0);
+    const fd = try openC("/dev/urandom", O_RDONLY | O_CLOEXEC, 0);
     defer close(fd);
 
     const st = try fstat(fd);
@@ -655,8 +655,7 @@ pub fn open(file_path: []const u8, flags: u32, perm: usize) OpenError!fd_t {
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// See also `open`.
-/// TODO https://github.com/ziglang/zig/issues/265
-pub fn openC(file_path: [*]const u8, flags: u32, perm: usize) OpenError!fd_t {
+pub fn openC(file_path: [*:0]const u8, flags: u32, perm: usize) OpenError!fd_t {
     while (true) {
         const rc = system.open(file_path, flags, perm);
         switch (errno(rc)) {
@@ -697,7 +696,7 @@ pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: usize) Open
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// `file_path` is relative to the open directory handle `dir_fd`.
 /// See also `openat`.
-pub fn openatC(dir_fd: fd_t, file_path: [*]const u8, flags: u32, mode: usize) OpenError!fd_t {
+pub fn openatC(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: usize) OpenError!fd_t {
     while (true) {
         const rc = system.openat(dir_fd, file_path, flags, mode);
         switch (errno(rc)) {
@@ -757,7 +756,7 @@ pub const ExecveError = error{
 /// Like `execve` except the parameters are null-terminated,
 /// matching the syscall API on all targets. This removes the need for an allocator.
 /// This function ignores PATH environment variable. See `execvpeC` for that.
-pub fn execveC(path: [*]const u8, child_argv: [*]const ?[*]const u8, envp: [*]const ?[*]const u8) ExecveError {
+pub fn execveC(path: [*:0]const u8, child_argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) ExecveError {
     switch (errno(system.execve(path, child_argv, envp))) {
         0 => unreachable,
         EFAULT => unreachable,
@@ -784,7 +783,7 @@ pub fn execveC(path: [*]const u8, child_argv: [*]const ?[*]const u8, envp: [*]co
 /// matching the syscall API on all targets. This removes the need for an allocator.
 /// This function also uses the PATH environment variable to get the full path to the executable.
 /// If `file` is an absolute path, this is the same as `execveC`.
-pub fn execvpeC(file: [*]const u8, child_argv: [*]const ?[*]const u8, envp: [*]const ?[*]const u8) ExecveError {
+pub fn execvpeC(file: [*:0]const u8, child_argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) ExecveError {
     const file_slice = mem.toSliceConst(u8, file);
     if (mem.indexOfScalar(u8, file_slice, '/') != null) return execveC(file, child_argv, envp);
 
@@ -799,7 +798,8 @@ pub fn execvpeC(file: [*]const u8, child_argv: [*]const ?[*]const u8, envp: [*]c
         path_buf[search_path.len] = '/';
         mem.copy(u8, path_buf[search_path.len + 1 ..], file_slice);
         path_buf[search_path.len + file_slice.len + 1] = 0;
-        err = execveC(&path_buf, child_argv, envp);
+        // TODO avoid @ptrCast here using slice syntax with https://github.com/ziglang/zig/issues/3731
+        err = execveC(@ptrCast([*:0]u8, &path_buf), child_argv, envp);
         switch (err) {
             error.AccessDenied => seen_eacces = true,
             error.FileNotFound, error.NotDir => {},
@@ -820,8 +820,8 @@ pub fn execvpe(
     argv_slice: []const []const u8,
     env_map: *const std.BufMap,
 ) (ExecveError || error{OutOfMemory}) {
-    const argv_buf = try allocator.alloc(?[*]u8, argv_slice.len + 1);
-    mem.set(?[*]u8, argv_buf, null);
+    const argv_buf = try allocator.alloc(?[*:0]u8, argv_slice.len + 1);
+    mem.set(?[*:0]u8, argv_buf, null);
     defer {
         for (argv_buf) |arg| {
             const arg_buf = if (arg) |ptr| mem.toSlice(u8, ptr) else break;
@@ -834,20 +834,24 @@ pub fn execvpe(
         @memcpy(arg_buf.ptr, arg.ptr, arg.len);
         arg_buf[arg.len] = 0;
 
-        argv_buf[i] = arg_buf.ptr;
+        // TODO avoid @ptrCast using slice syntax with https://github.com/ziglang/zig/issues/3731
+        argv_buf[i] = @ptrCast([*:0]u8, arg_buf.ptr);
     }
     argv_buf[argv_slice.len] = null;
 
     const envp_buf = try createNullDelimitedEnvMap(allocator, env_map);
     defer freeNullDelimitedEnvMap(allocator, envp_buf);
 
-    return execvpeC(argv_buf.ptr[0].?, argv_buf.ptr, envp_buf.ptr);
+    // TODO avoid @ptrCast here using slice syntax with https://github.com/ziglang/zig/issues/3731
+    const argv_ptr = @ptrCast([*:null]?[*:0]u8, argv_buf.ptr);
+
+    return execvpeC(argv_buf.ptr[0].?, argv_ptr, envp_buf.ptr);
 }
 
-pub fn createNullDelimitedEnvMap(allocator: *mem.Allocator, env_map: *const std.BufMap) ![]?[*]u8 {
+pub fn createNullDelimitedEnvMap(allocator: *mem.Allocator, env_map: *const std.BufMap) ![:null]?[*:0]u8 {
     const envp_count = env_map.count();
-    const envp_buf = try allocator.alloc(?[*]u8, envp_count + 1);
-    mem.set(?[*]u8, envp_buf, null);
+    const envp_buf = try allocator.alloc(?[*:0]u8, envp_count + 1);
+    mem.set(?[*:0]u8, envp_buf, null);
     errdefer freeNullDelimitedEnvMap(allocator, envp_buf);
     {
         var it = env_map.iterator();
@@ -859,15 +863,17 @@ pub fn createNullDelimitedEnvMap(allocator: *mem.Allocator, env_map: *const std.
             @memcpy(env_buf.ptr + pair.key.len + 1, pair.value.ptr, pair.value.len);
             env_buf[env_buf.len - 1] = 0;
 
-            envp_buf[i] = env_buf.ptr;
+            // TODO avoid @ptrCast here using slice syntax with https://github.com/ziglang/zig/issues/3731
+            envp_buf[i] = @ptrCast([*:0]u8, env_buf.ptr);
         }
         assert(i == envp_count);
     }
+    // TODO avoid @ptrCast here using slice syntax with https://github.com/ziglang/zig/issues/3731
     assert(envp_buf[envp_count] == null);
-    return envp_buf;
+    return @ptrCast([*:null]?[*:0]u8, envp_buf.ptr)[0..envp_count];
 }
 
-pub fn freeNullDelimitedEnvMap(allocator: *mem.Allocator, envp_buf: []?[*]u8) void {
+pub fn freeNullDelimitedEnvMap(allocator: *mem.Allocator, envp_buf: []?[*:0]u8) void {
     for (envp_buf) |env| {
         const env_buf = if (env) |ptr| ptr[0 .. mem.len(u8, ptr) + 1] else break;
         allocator.free(env_buf);
@@ -896,8 +902,7 @@ pub fn getenv(key: []const u8) ?[]const u8 {
 
 /// Get an environment variable with a null-terminated name.
 /// See also `getenv`.
-/// TODO https://github.com/ziglang/zig/issues/265
-pub fn getenvC(key: [*]const u8) ?[]const u8 {
+pub fn getenvC(key: [*:0]const u8) ?[]const u8 {
     if (builtin.link_libc) {
         const value = system.getenv(key) orelse return null;
         return mem.toSliceConst(u8, value);
@@ -922,7 +927,7 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
         break :blk errno(system.getcwd(out_buffer.ptr, out_buffer.len));
     };
     switch (err) {
-        0 => return mem.toSlice(u8, out_buffer.ptr),
+        0 => return mem.toSlice(u8, @ptrCast([*:0]u8, out_buffer.ptr)),
         EFAULT => unreachable,
         EINVAL => unreachable,
         ENOENT => return error.CurrentWorkingDirectoryUnlinked,
@@ -966,7 +971,7 @@ pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!
 
 /// This is the same as `symlink` except the parameters are null-terminated pointers.
 /// See also `symlink`.
-pub fn symlinkC(target_path: [*]const u8, sym_link_path: [*]const u8) SymLinkError!void {
+pub fn symlinkC(target_path: [*:0]const u8, sym_link_path: [*:0]const u8) SymLinkError!void {
     if (builtin.os == .windows) {
         const target_path_w = try windows.cStrToPrefixedFileW(target_path);
         const sym_link_path_w = try windows.cStrToPrefixedFileW(sym_link_path);
@@ -998,7 +1003,7 @@ pub fn symlinkat(target_path: []const u8, newdirfd: fd_t, sym_link_path: []const
     return symlinkatC(target_path_c, newdirfd, sym_link_path_c);
 }
 
-pub fn symlinkatC(target_path: [*]const u8, newdirfd: fd_t, sym_link_path: [*]const u8) SymLinkError!void {
+pub fn symlinkatC(target_path: [*:0]const u8, newdirfd: fd_t, sym_link_path: [*:0]const u8) SymLinkError!void {
     switch (errno(system.symlinkat(target_path, newdirfd, sym_link_path))) {
         0 => return,
         EFAULT => unreachable,
@@ -1052,7 +1057,7 @@ pub fn unlink(file_path: []const u8) UnlinkError!void {
 }
 
 /// Same as `unlink` except the parameter is a null terminated UTF8-encoded string.
-pub fn unlinkC(file_path: [*]const u8) UnlinkError!void {
+pub fn unlinkC(file_path: [*:0]const u8) UnlinkError!void {
     if (builtin.os == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
         return windows.DeleteFileW(&file_path_w);
@@ -1092,7 +1097,7 @@ pub fn unlinkat(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!vo
 }
 
 /// Same as `unlinkat` but `file_path` is a null-terminated string.
-pub fn unlinkatC(dirfd: fd_t, file_path_c: [*]const u8, flags: u32) UnlinkatError!void {
+pub fn unlinkatC(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatError!void {
     if (builtin.os == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path_c);
         return unlinkatW(dirfd, &file_path_w, flags);
@@ -1121,7 +1126,7 @@ pub fn unlinkatC(dirfd: fd_t, file_path_c: [*]const u8, flags: u32) UnlinkatErro
 }
 
 /// Same as `unlinkat` but `sub_path_w` is UTF16LE, NT prefixed. Windows only.
-pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*]const u16, flags: u32) UnlinkatError!void {
+pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*:0]const u16, flags: u32) UnlinkatError!void {
     const w = windows;
 
     const want_rmdir_behavior = (flags & AT_REMOVEDIR) != 0;
@@ -1216,7 +1221,7 @@ pub fn rename(old_path: []const u8, new_path: []const u8) RenameError!void {
 }
 
 /// Same as `rename` except the parameters are null-terminated byte arrays.
-pub fn renameC(old_path: [*]const u8, new_path: [*]const u8) RenameError!void {
+pub fn renameC(old_path: [*:0]const u8, new_path: [*:0]const u8) RenameError!void {
     if (builtin.os == .windows) {
         const old_path_w = try windows.cStrToPrefixedFileW(old_path);
         const new_path_w = try windows.cStrToPrefixedFileW(new_path);
@@ -1248,7 +1253,7 @@ pub fn renameC(old_path: [*]const u8, new_path: [*]const u8) RenameError!void {
 
 /// Same as `rename` except the parameters are null-terminated UTF16LE encoded byte arrays.
 /// Assumes target is Windows.
-pub fn renameW(old_path: [*]const u16, new_path: [*]const u16) RenameError!void {
+pub fn renameW(old_path: [*:0]const u16, new_path: [*:0]const u16) RenameError!void {
     const flags = windows.MOVEFILE_REPLACE_EXISTING | windows.MOVEFILE_WRITE_THROUGH;
     return windows.MoveFileExW(old_path, new_path, flags);
 }
@@ -1282,7 +1287,7 @@ pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
 }
 
 /// Same as `mkdir` but the parameter is a null-terminated UTF8-encoded string.
-pub fn mkdirC(dir_path: [*]const u8, mode: u32) MakeDirError!void {
+pub fn mkdirC(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
     if (builtin.os == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
         return windows.CreateDirectoryW(&dir_path_w, null);
@@ -1332,7 +1337,7 @@ pub fn rmdir(dir_path: []const u8) DeleteDirError!void {
 }
 
 /// Same as `rmdir` except the parameter is null-terminated.
-pub fn rmdirC(dir_path: [*]const u8) DeleteDirError!void {
+pub fn rmdirC(dir_path: [*:0]const u8) DeleteDirError!void {
     if (builtin.os == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
         return windows.RemoveDirectoryW(&dir_path_w);
@@ -1379,7 +1384,7 @@ pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
 }
 
 /// Same as `chdir` except the parameter is null-terminated.
-pub fn chdirC(dir_path: [*]const u8) ChangeCurDirError!void {
+pub fn chdirC(dir_path: [*:0]const u8) ChangeCurDirError!void {
     if (builtin.os == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(dir_path);
         @compileError("TODO implement chdir for Windows");
@@ -1421,7 +1426,7 @@ pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
 }
 
 /// Same as `readlink` except `file_path` is null-terminated.
-pub fn readlinkC(file_path: [*]const u8, out_buffer: []u8) ReadLinkError![]u8 {
+pub fn readlinkC(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
         @compileError("TODO implement readlink for Windows");
@@ -1442,7 +1447,7 @@ pub fn readlinkC(file_path: [*]const u8, out_buffer: []u8) ReadLinkError![]u8 {
     }
 }
 
-pub fn readlinkatC(dirfd: fd_t, file_path: [*]const u8, out_buffer: []u8) ReadLinkError![]u8 {
+pub fn readlinkatC(dirfd: fd_t, file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(file_path);
         @compileError("TODO implement readlink for Windows");
@@ -2129,7 +2134,7 @@ pub fn inotify_add_watch(inotify_fd: i32, pathname: []const u8, mask: u32) INoti
 }
 
 /// Same as `inotify_add_watch` except pathname is null-terminated.
-pub fn inotify_add_watchC(inotify_fd: i32, pathname: [*]const u8, mask: u32) INotifyAddWatchError!i32 {
+pub fn inotify_add_watchC(inotify_fd: i32, pathname: [*:0]const u8, mask: u32) INotifyAddWatchError!i32 {
     const rc = system.inotify_add_watch(inotify_fd, pathname, mask);
     switch (errno(rc)) {
         0 => return @intCast(i32, rc),
@@ -2286,7 +2291,7 @@ pub fn access(path: []const u8, mode: u32) AccessError!void {
 }
 
 /// Same as `access` except `path` is null-terminated.
-pub fn accessC(path: [*]const u8, mode: u32) AccessError!void {
+pub fn accessC(path: [*:0]const u8, mode: u32) AccessError!void {
     if (builtin.os == .windows) {
         const path_w = try windows.cStrToPrefixedFileW(path);
         _ = try windows.GetFileAttributesW(&path_w);
@@ -2313,7 +2318,7 @@ pub fn accessC(path: [*]const u8, mode: u32) AccessError!void {
 /// Call from Windows-specific code if you already have a UTF-16LE encoded, null terminated string.
 /// Otherwise use `access` or `accessC`.
 /// TODO currently this ignores `mode`.
-pub fn accessW(path: [*]const u16, mode: u32) windows.GetFileAttributesError!void {
+pub fn accessW(path: [*:0]const u16, mode: u32) windows.GetFileAttributesError!void {
     const ret = try windows.GetFileAttributesW(path);
     if (ret != windows.INVALID_FILE_ATTRIBUTES) {
         return;
@@ -2380,7 +2385,7 @@ pub fn sysctl(
 }
 
 pub fn sysctlbynameC(
-    name: [*]const u8,
+    name: [*:0]const u8,
     oldp: ?*c_void,
     oldlenp: ?*usize,
     newp: ?*c_void,
@@ -2562,7 +2567,7 @@ pub fn realpath(pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathE
 }
 
 /// Same as `realpath` except `pathname` is null-terminated.
-pub fn realpathC(pathname: [*]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
+pub fn realpathC(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     if (builtin.os == .windows) {
         const pathname_w = try windows.cStrToPrefixedFileW(pathname);
         return realpathW(&pathname_w, out_buffer);
@@ -2571,10 +2576,10 @@ pub fn realpathC(pathname: [*]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPat
         const fd = try openC(pathname, linux.O_PATH | linux.O_NONBLOCK | linux.O_CLOEXEC, 0);
         defer close(fd);
 
-        var procfs_buf: ["/proc/self/fd/-2147483648\x00".len]u8 = undefined;
+        var procfs_buf: ["/proc/self/fd/-2147483648".len:0]u8 = undefined;
         const proc_path = std.fmt.bufPrint(procfs_buf[0..], "/proc/self/fd/{}\x00", fd) catch unreachable;
 
-        return readlinkC(proc_path.ptr, out_buffer);
+        return readlinkC(@ptrCast([*:0]const u8, proc_path.ptr), out_buffer);
     }
     const result_path = std.c.realpath(pathname, out_buffer) orelse switch (std.c._errno().*) {
         EINVAL => unreachable,
@@ -2593,7 +2598,7 @@ pub fn realpathC(pathname: [*]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPat
 }
 
 /// Same as `realpath` except `pathname` is null-terminated and UTF16LE-encoded.
-pub fn realpathW(pathname: [*]const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
+pub fn realpathW(pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     const h_file = try windows.CreateFileW(
         pathname,
         windows.GENERIC_READ,
@@ -2674,7 +2679,7 @@ pub fn dl_iterate_phdr(
     if (it.end()) {
         var info = dl_phdr_info{
             .dlpi_addr = elf_base,
-            .dlpi_name = c"/proc/self/exe",
+            .dlpi_name = "/proc/self/exe",
             .dlpi_phdr = phdrs.ptr,
             .dlpi_phnum = ehdr.e_phnum,
         };
@@ -2748,8 +2753,8 @@ pub fn sched_getaffinity(pid: pid_t) SchedGetAffinityError!cpu_set_t {
 
 /// Used to convert a slice to a null terminated slice on the stack.
 /// TODO https://github.com/ziglang/zig/issues/287
-pub fn toPosixPath(file_path: []const u8) ![PATH_MAX]u8 {
-    var path_with_null: [PATH_MAX]u8 = undefined;
+pub fn toPosixPath(file_path: []const u8) ![PATH_MAX-1:0]u8 {
+    var path_with_null: [PATH_MAX-1:0]u8 = undefined;
     // >= rather than > to make room for the null byte
     if (file_path.len >= PATH_MAX) return error.NameTooLong;
     mem.copy(u8, &path_with_null, file_path);
@@ -2854,7 +2859,7 @@ pub const GetHostNameError = error{PermissionDenied} || UnexpectedError;
 pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
     if (builtin.link_libc) {
         switch (errno(system.gethostname(name_buffer, name_buffer.len))) {
-            0 => return mem.toSlice(u8, name_buffer),
+            0 => return mem.toSlice(u8, @ptrCast([*:0]u8, name_buffer)),
             EFAULT => unreachable,
             ENAMETOOLONG => unreachable, // HOST_NAME_MAX prevents this
             EPERM => return error.PermissionDenied,
@@ -2865,7 +2870,7 @@ pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
         var uts: utsname = undefined;
         switch (errno(system.uname(&uts))) {
             0 => {
-                const hostname = mem.toSlice(u8, &uts.nodename);
+                const hostname = mem.toSlice(u8, @ptrCast([*:0]u8, &uts.nodename));
                 mem.copy(u8, name_buffer, hostname);
                 return name_buffer[0..hostname.len];
             },

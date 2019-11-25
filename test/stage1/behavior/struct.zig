@@ -493,7 +493,7 @@ test "non-byte-aligned array inside packed struct" {
         fn doTheTest() void {
             var foo = Foo{
                 .a = true,
-                .b = "abcdefghijklmnopqurstu",
+                .b = "abcdefghijklmnopqurstu".*,
             };
             bar(foo.b);
         }
@@ -776,4 +776,17 @@ test "anonymous struct literal assigned to variable" {
     expect(vec.@"2" == 99);
     vec.@"1" += 1;
     expect(vec.@"1" == 56);
+}
+
+test "struct with var field" {
+    const Point = struct {
+        x: var,
+        y: var,
+    };
+    const pt = Point {
+        .x = 1,
+        .y = 2,
+    };
+    expect(pt.x == 1);
+    expect(pt.y == 2);
 }
