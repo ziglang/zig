@@ -396,7 +396,7 @@ static void ir_print_prefix(IrPrint *irp, IrInstruction *instruction, bool trail
         ir_instruction_type_str(instruction->id), type_name, ref_count);
 }
 
-static void ir_print_const_value(IrPrint *irp, ConstExprValue *const_val) {
+static void ir_print_const_value(IrPrint *irp, ZigValue *const_val) {
     Buf buf = BUF_INIT;
     buf_resize(&buf, 0);
     render_const_value(irp->codegen, &buf, const_val);
@@ -2576,7 +2576,7 @@ void ir_print_instruction(CodeGen *codegen, FILE *f, IrInstruction *instruction,
     ir_print_instruction(irp, instruction, false);
 }
 
-void ir_print_const_expr(CodeGen *codegen, FILE *f, ConstExprValue *value, int indent_size, IrPass pass) {
+void ir_print_const_expr(CodeGen *codegen, FILE *f, ZigValue *value, int indent_size, IrPass pass) {
     IrPrint ir_print = {};
     IrPrint *irp = &ir_print;
     irp->pass = pass;

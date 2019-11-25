@@ -361,9 +361,9 @@ struct AnalDumpCtx {
 };
 
 static uint32_t anal_dump_get_type_id(AnalDumpCtx *ctx, ZigType *ty);
-static void anal_dump_value(AnalDumpCtx *ctx, AstNode *source_node, ZigType *ty, ConstExprValue *value);
+static void anal_dump_value(AnalDumpCtx *ctx, AstNode *source_node, ZigType *ty, ZigValue *value);
 
-static void anal_dump_poke_value(AnalDumpCtx *ctx, AstNode *source_node, ZigType *ty, ConstExprValue *value) {
+static void anal_dump_poke_value(AnalDumpCtx *ctx, AstNode *source_node, ZigType *ty, ZigValue *value) {
     Error err;
     if (value->type != ty) {
         return;
@@ -660,7 +660,7 @@ static void anal_dump_file(AnalDumpCtx *ctx, Buf *file) {
     jw_string(jw, buf_ptr(file));
 }
 
-static void anal_dump_value(AnalDumpCtx *ctx, AstNode *source_node, ZigType *ty, ConstExprValue *value) {
+static void anal_dump_value(AnalDumpCtx *ctx, AstNode *source_node, ZigType *ty, ZigValue *value) {
     Error err;
 
     if (value->type != ty) {
@@ -1249,7 +1249,7 @@ void zig_print_analysis_dump(CodeGen *g, FILE *f, const char *one_indent, const 
                 }
                 scope = scope->parent;
             }
-            ConstExprValue *result = entry->value;
+            ZigValue *result = entry->value;
 
             assert(fn != nullptr);
 
