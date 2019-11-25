@@ -12661,21 +12661,27 @@ static void report_recursive_error(IrAnalyze *ira, AstNode *source_node, ConstCa
             {
                 Buf *txt_msg = buf_sprintf("destination pointer requires a terminating '");
                 render_const_value(ira->codegen, txt_msg, wanted_type->data.pointer.sentinel);
-                buf_appendf(txt_msg, "' sentinel value");
+                buf_appendf(txt_msg, "' sentinel");
                 if (actual_type->data.pointer.sentinel != nullptr) {
                     buf_appendf(txt_msg, ", but source pointer has a terminating '");
                     render_const_value(ira->codegen, txt_msg, actual_type->data.pointer.sentinel);
-                    buf_appendf(txt_msg, "' sentinel value");
+                    buf_appendf(txt_msg, "' sentinel");
                 }
                 add_error_note(ira->codegen, parent_msg, source_node, txt_msg);
             }
             break;
         }
         case ConstCastResultIdSentinelArrays: {
+            ZigType *actual_type = cast_result->data.sentinel_arrays->actual_type;
             ZigType *wanted_type = cast_result->data.sentinel_arrays->wanted_type;
             Buf *txt_msg = buf_sprintf("destination array requires a terminating '");
-            render_const_value(ira->codegen, txt_msg, wanted_type->data.pointer.sentinel);
-            buf_appendf(txt_msg, "' sentinel value");
+            render_const_value(ira->codegen, txt_msg, wanted_type->data.array.sentinel);
+            buf_appendf(txt_msg, "' sentinel");
+            if (actual_type->data.array.sentinel != nullptr) {
+                buf_appendf(txt_msg, ", but source array has a terminating '");
+                render_const_value(ira->codegen, txt_msg, actual_type->data.array.sentinel);
+                buf_appendf(txt_msg, "' sentinel");
+            }
             add_error_note(ira->codegen, parent_msg, source_node, txt_msg);
             break;
         }

@@ -3,18 +3,30 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
-        "incompatible pointer sentinels",
+        "incompatible sentinels",
         \\export fn entry1(ptr: [*:255]u8) [*:0]u8 {
         \\    return ptr;
         \\}
         \\export fn entry2(ptr: [*]u8) [*:0]u8 {
         \\    return ptr;
         \\}
+        \\export fn entry3() void {
+        \\    var array: [2:0]u8 = [_:255]u8{1, 2};
+        \\}
+        \\export fn entry4() void {
+        \\    var array: [2:0]u8 = [_]u8{1, 2};
+        \\}
     ,
         "tmp.zig:2:12: error: expected type '[*:0]u8', found '[*:255]u8'",
-        "tmp.zig:2:12: note: destination pointer requires a terminating '0' sentinel value, but source pointer has a terminating '255' sentinel value",
+        "tmp.zig:2:12: note: destination pointer requires a terminating '0' sentinel, but source pointer has a terminating '255' sentinel",
         "tmp.zig:5:12: error: expected type '[*:0]u8', found '[*]u8'",
-        "tmp.zig:5:12: note: destination pointer requires a terminating '0' sentinel value",
+        "tmp.zig:5:12: note: destination pointer requires a terminating '0' sentinel",
+
+        "tmp.zig:8:35: error: expected type '[2:0]u8', found '[2:255]u8'",
+        "tmp.zig:8:35: note: destination array requires a terminating '0' sentinel, but source array has a terminating '255' sentinel",
+        "tmp.zig:11:31: error: expected type '[2:0]u8', found '[2]u8'",
+        "tmp.zig:11:31: note: destination array requires a terminating '0' sentinel",
+
     );
 
     cases.add(
