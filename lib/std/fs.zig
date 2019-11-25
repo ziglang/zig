@@ -822,7 +822,7 @@ pub const Dir = struct {
             return self.openDirTraverseW(&sub_path_w);
         } else {
             const O_PATH = if (@hasDecl(os, "O_PATH")) os.O_PATH else 0;
-            return self.openDirFlagsC(sub_path_c, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | O_PATH);
+            return self.openDirFlagsC(sub_path_c, os.O_RDONLY | os.O_CLOEXEC | O_PATH);
         }
     }
 
@@ -832,12 +832,12 @@ pub const Dir = struct {
             const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
             return self.openDirListW(&sub_path_w);
         } else {
-            return self.openDirFlagsC(sub_path_c, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC);
+            return self.openDirFlagsC(sub_path_c, os.O_RDONLY | os.O_CLOEXEC);
         }
     }
 
     fn openDirFlagsC(self: Dir, sub_path_c: [*:0]const u8, flags: u32) OpenError!Dir {
-        const fd = os.openatC(self.fd, sub_path_c, flags, 0) catch |err| switch (err) {
+        const fd = os.openatC(self.fd, sub_path_c, flags | os.O_DIRECTORY, 0) catch |err| switch (err) {
             error.FileTooBig => unreachable, // can't happen for directories
             error.IsDir => unreachable, // we're providing O_DIRECTORY
             error.NoSpaceLeft => unreachable, // not providing O_CREAT
