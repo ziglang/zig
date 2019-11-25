@@ -6550,7 +6550,7 @@ static bool const_values_equal_array(CodeGen *g, ConstExprValue *a, ConstExprVal
 }
 
 bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
-    assert(a->type->id == b->type->id);
+    if (a->type->id != b->type->id) return false;
     assert(a->special == ConstValSpecialStatic);
     assert(b->special == ConstValSpecialStatic);
     if (a->type == b->type) {

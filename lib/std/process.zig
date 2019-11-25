@@ -77,7 +77,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
 
         // TODO: Verify that the documentation is incorrect
         // https://github.com/WebAssembly/WASI/issues/27
-        var environ = try allocator.alloc(?[*]u8, environ_count + 1);
+        var environ = try allocator.alloc(?[*:0]u8, environ_count + 1);
         defer allocator.free(environ);
         var environ_buf = try std.heap.wasm_allocator.alloc(u8, environ_buf_size);
         defer allocator.free(environ_buf);
@@ -397,7 +397,7 @@ pub fn argsAlloc(allocator: *mem.Allocator) ![][]u8 {
             return os.unexpectedErrno(args_sizes_get_ret);
         }
 
-        var argv = try allocator.alloc([*]u8, count);
+        var argv = try allocator.alloc([*:0]u8, count);
         defer allocator.free(argv);
 
         var argv_buf = try allocator.alloc(u8, buf_size);
