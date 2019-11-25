@@ -2021,12 +2021,19 @@ struct CodeGen {
         ZigType *entry_any_frame;
     } builtin_types;
 
-    struct {
+    struct Intern {
         ZigValue x_undefined;
         ZigValue x_void;
         ZigValue x_null;
         ZigValue x_unreachable;
-    } intern_values;
+        ZigValue zero_byte;
+
+        ZigValue *for_undefined();
+        ZigValue *for_void();
+        ZigValue *for_null();
+        ZigValue *for_unreachable();
+        ZigValue *for_zero_byte();
+    } intern;
 
     ZigType *align_amt_type;
     ZigType *stack_trace_type;
@@ -2050,8 +2057,6 @@ struct CodeGen {
     IrInstruction *invalid_instruction;
     IrInstruction *unreach_instruction;
 
-    ZigValue const_zero_byte;
-    ZigValue const_void_val;
     ZigValue panic_msg_vals[PanicMsgIdCount];
 
     // The function definitions this module includes.

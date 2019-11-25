@@ -8010,28 +8010,35 @@ static void define_builtin_types(CodeGen *g) {
 
 static void define_intern_values(CodeGen *g) {
     {
-        auto& value = g->intern_values.x_undefined;
+        auto& value = g->intern.x_undefined;
         value.type = g->builtin_types.entry_undef;
         value.global_refs = allocate<ConstGlobalRefs>(1, "ConstGlobalRefs.undefined");
         value.special = ConstValSpecialStatic;
     }
     {
-        auto& value = g->intern_values.x_void;
+        auto& value = g->intern.x_void;
         value.type = g->builtin_types.entry_void;
         value.global_refs = allocate<ConstGlobalRefs>(1, "ConstGlobalRefs.void");
         value.special = ConstValSpecialStatic;
     }
     {
-        auto& value = g->intern_values.x_null;
+        auto& value = g->intern.x_null;
         value.type = g->builtin_types.entry_null;
         value.global_refs = allocate<ConstGlobalRefs>(1, "ConstGlobalRefs.null");
         value.special = ConstValSpecialStatic;
     }
     {
-        auto& value = g->intern_values.x_unreachable;
+        auto& value = g->intern.x_unreachable;
         value.type = g->builtin_types.entry_unreachable;
         value.global_refs = allocate<ConstGlobalRefs>(1, "ConstGlobalRefs.unreachable");
         value.special = ConstValSpecialStatic;
+    }
+    {
+        auto& value = g->intern.zero_byte;
+        value.type = g->builtin_types.entry_u8;
+        value.global_refs = allocate<ConstGlobalRefs>(1, "ConstGlobalRefs.zero_byte");
+        value.special = ConstValSpecialStatic;
+        bigint_init_unsigned(&value.data.x_bigint, 0);
     }
 }
 
@@ -8668,15 +8675,6 @@ static void init(CodeGen *g) {
     g->unreach_instruction->value = allocate<ZigValue>(1, "ZigValue");
     g->unreach_instruction->value->type = g->builtin_types.entry_unreachable;
     g->unreach_instruction->value->global_refs = allocate<ConstGlobalRefs>(1);
-
-    g->const_void_val.special = ConstValSpecialStatic;
-    g->const_void_val.type = g->builtin_types.entry_void;
-    g->const_void_val.global_refs = allocate<ConstGlobalRefs>(1);
-
-    g->const_zero_byte.special = ConstValSpecialStatic;
-    g->const_zero_byte.type = g->builtin_types.entry_u8;
-    g->const_zero_byte.global_refs = allocate<ConstGlobalRefs>(1);
-    bigint_init_unsigned(&g->const_zero_byte.data.x_bigint, 0);
 
     {
         ConstGlobalRefs *global_refs = allocate<ConstGlobalRefs>(PanicMsgIdCount);
@@ -10563,4 +10561,39 @@ void codegen_switch_sub_prog_node(CodeGen *g, Stage2ProgressNode *node) {
         stage2_progress_end(g->sub_progress_node);
     }
     g->sub_progress_node = node;
+}
+
+ZigValue *CodeGen::Intern::for_undefined() {
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    memprof_intern_count.x_undefined += 1;
+#endif
+    return &this->x_undefined;
+}
+
+ZigValue *CodeGen::Intern::for_void() {
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    memprof_intern_count.x_void += 1;
+#endif
+    return &this->x_void;
+}
+
+ZigValue *CodeGen::Intern::for_null() {
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    memprof_intern_count.x_null += 1;
+#endif
+    return &this->x_null;
+}
+
+ZigValue *CodeGen::Intern::for_unreachable() {
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    memprof_intern_count.x_unreachable += 1;
+#endif
+    return &this->x_unreachable;
+}
+
+ZigValue *CodeGen::Intern::for_zero_byte() {
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    memprof_intern_count.zero_byte += 1;
+#endif
+    return &this->zero_byte;
 }
