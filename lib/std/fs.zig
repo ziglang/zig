@@ -1288,14 +1288,14 @@ pub fn selfExePath(out_buffer: *[MAX_PATH_BYTES]u8) SelfExePathError![]u8 {
             var out_len: usize = out_buffer.len;
             try os.sysctl(&mib, out_buffer, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
-            return mem.toSlice(u8, out_buffer);
+            return mem.toSlice(u8, @ptrCast([*:0]u8, out_buffer));
         },
         .netbsd => {
             var mib = [4]c_int{ os.CTL_KERN, os.KERN_PROC_ARGS, -1, os.KERN_PROC_PATHNAME };
             var out_len: usize = out_buffer.len;
             try os.sysctl(&mib, out_buffer, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
-            return mem.toSlice(u8, out_buffer);
+            return mem.toSlice(u8, @ptrCast([*:0]u8, out_buffer));
         },
         .windows => {
             const utf16le_slice = selfExePathW();
