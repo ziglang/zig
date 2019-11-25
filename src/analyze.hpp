@@ -25,7 +25,7 @@ ZigType *get_pointer_to_type_extra2(CodeGen *g, ZigType *child_type,
         bool is_const, bool is_volatile, PtrLen ptr_len,
         uint32_t byte_alignment, uint32_t bit_offset, uint32_t unaligned_bit_count,
         bool allow_zero, uint32_t vector_index, InferredStructField *inferred_struct_field,
-        ConstExprValue *sentinel);
+        ZigValue *sentinel);
 uint64_t type_size(CodeGen *g, ZigType *type_entry);
 uint64_t type_size_bits(CodeGen *g, ZigType *type_entry);
 ZigType *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
@@ -34,7 +34,7 @@ ZigType **get_c_int_type_ptr(CodeGen *g, CIntType c_int_type);
 ZigType *get_c_int_type(CodeGen *g, CIntType c_int_type);
 ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id);
 ZigType *get_optional_type(CodeGen *g, ZigType *child_type);
-ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, ConstExprValue *sentinel);
+ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, ZigValue *sentinel);
 ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type);
 ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind,
         AstNode *decl_node, const char *full_name, Buf *bare_name, ContainerLayout layout);
@@ -95,7 +95,7 @@ ZigType *get_scope_import(Scope *scope);
 ScopeTypeOf *get_scope_typeof(Scope *scope);
 void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source_node, Scope *parent_scope);
 ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
-    bool is_const, ConstExprValue *init_value, Tld *src_tld, ZigType *var_type);
+    bool is_const, ZigValue *init_value, Tld *src_tld, ZigType *var_type);
 ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node);
 void append_namespace_qualification(CodeGen *g, Buf *buf, ZigType *container_type);
 ZigFn *create_fn(CodeGen *g, AstNode *proto_node);
@@ -105,11 +105,11 @@ AstNode *get_param_decl_node(ZigFn *fn_entry, size_t index);
 Error ATTRIBUTE_MUST_USE type_resolve(CodeGen *g, ZigType *type_entry, ResolveStatus status);
 void complete_enum(CodeGen *g, ZigType *enum_type);
 bool ir_get_var_is_comptime(ZigVar *var);
-bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b);
-void eval_min_max_value(CodeGen *g, ZigType *type_entry, ConstExprValue *const_val, bool is_max);
+bool const_values_equal(CodeGen *g, ZigValue *a, ZigValue *b);
+void eval_min_max_value(CodeGen *g, ZigType *type_entry, ZigValue *const_val, bool is_max);
 void eval_min_max_value_int(CodeGen *g, ZigType *int_type, BigInt *bigint, bool is_max);
 
-void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val);
+void render_const_value(CodeGen *g, Buf *buf, ZigValue *const_val);
 
 ScopeBlock *create_block_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeDefer *create_defer_scope(CodeGen *g, AstNode *node, Scope *parent);
@@ -124,70 +124,70 @@ Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstruct
 Scope *create_typeof_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeExpr *create_expr_scope(CodeGen *g, AstNode *node, Scope *parent);
 
-void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str);
-ConstExprValue *create_const_str_lit(CodeGen *g, Buf *str);
+void init_const_str_lit(CodeGen *g, ZigValue *const_val, Buf *str);
+ZigValue *create_const_str_lit(CodeGen *g, Buf *str);
 
-void init_const_bigint(ConstExprValue *const_val, ZigType *type, const BigInt *bigint);
-ConstExprValue *create_const_bigint(ZigType *type, const BigInt *bigint);
+void init_const_bigint(ZigValue *const_val, ZigType *type, const BigInt *bigint);
+ZigValue *create_const_bigint(ZigType *type, const BigInt *bigint);
 
-void init_const_unsigned_negative(ConstExprValue *const_val, ZigType *type, uint64_t x, bool negative);
-ConstExprValue *create_const_unsigned_negative(ZigType *type, uint64_t x, bool negative);
+void init_const_unsigned_negative(ZigValue *const_val, ZigType *type, uint64_t x, bool negative);
+ZigValue *create_const_unsigned_negative(ZigType *type, uint64_t x, bool negative);
 
-void init_const_signed(ConstExprValue *const_val, ZigType *type, int64_t x);
-ConstExprValue *create_const_signed(ZigType *type, int64_t x);
+void init_const_signed(ZigValue *const_val, ZigType *type, int64_t x);
+ZigValue *create_const_signed(ZigType *type, int64_t x);
 
-void init_const_usize(CodeGen *g, ConstExprValue *const_val, uint64_t x);
-ConstExprValue *create_const_usize(CodeGen *g, uint64_t x);
+void init_const_usize(CodeGen *g, ZigValue *const_val, uint64_t x);
+ZigValue *create_const_usize(CodeGen *g, uint64_t x);
 
-void init_const_float(ConstExprValue *const_val, ZigType *type, double value);
-ConstExprValue *create_const_float(ZigType *type, double value);
+void init_const_float(ZigValue *const_val, ZigType *type, double value);
+ZigValue *create_const_float(ZigType *type, double value);
 
-void init_const_enum(ConstExprValue *const_val, ZigType *type, const BigInt *tag);
-ConstExprValue *create_const_enum(ZigType *type, const BigInt *tag);
+void init_const_enum(ZigValue *const_val, ZigType *type, const BigInt *tag);
+ZigValue *create_const_enum(ZigType *type, const BigInt *tag);
 
-void init_const_bool(CodeGen *g, ConstExprValue *const_val, bool value);
-ConstExprValue *create_const_bool(CodeGen *g, bool value);
+void init_const_bool(CodeGen *g, ZigValue *const_val, bool value);
+ZigValue *create_const_bool(CodeGen *g, bool value);
 
-void init_const_type(CodeGen *g, ConstExprValue *const_val, ZigType *type_value);
-ConstExprValue *create_const_type(CodeGen *g, ZigType *type_value);
+void init_const_type(CodeGen *g, ZigValue *const_val, ZigType *type_value);
+ZigValue *create_const_type(CodeGen *g, ZigType *type_value);
 
-void init_const_runtime(ConstExprValue *const_val, ZigType *type);
-ConstExprValue *create_const_runtime(ZigType *type);
+void init_const_runtime(ZigValue *const_val, ZigType *type);
+ZigValue *create_const_runtime(ZigType *type);
 
-void init_const_ptr_ref(CodeGen *g, ConstExprValue *const_val, ConstExprValue *pointee_val, bool is_const);
-ConstExprValue *create_const_ptr_ref(CodeGen *g, ConstExprValue *pointee_val, bool is_const);
+void init_const_ptr_ref(CodeGen *g, ZigValue *const_val, ZigValue *pointee_val, bool is_const);
+ZigValue *create_const_ptr_ref(CodeGen *g, ZigValue *pointee_val, bool is_const);
 
-void init_const_ptr_hard_coded_addr(CodeGen *g, ConstExprValue *const_val, ZigType *pointee_type,
+void init_const_ptr_hard_coded_addr(CodeGen *g, ZigValue *const_val, ZigType *pointee_type,
         size_t addr, bool is_const);
-ConstExprValue *create_const_ptr_hard_coded_addr(CodeGen *g, ZigType *pointee_type,
+ZigValue *create_const_ptr_hard_coded_addr(CodeGen *g, ZigType *pointee_type,
         size_t addr, bool is_const);
 
-void init_const_ptr_array(CodeGen *g, ConstExprValue *const_val, ConstExprValue *array_val,
+void init_const_ptr_array(CodeGen *g, ZigValue *const_val, ZigValue *array_val,
         size_t elem_index, bool is_const, PtrLen ptr_len);
-ConstExprValue *create_const_ptr_array(CodeGen *g, ConstExprValue *array_val, size_t elem_index,
+ZigValue *create_const_ptr_array(CodeGen *g, ZigValue *array_val, size_t elem_index,
         bool is_const, PtrLen ptr_len);
 
-void init_const_slice(CodeGen *g, ConstExprValue *const_val, ConstExprValue *array_val,
+void init_const_slice(CodeGen *g, ZigValue *const_val, ZigValue *array_val,
         size_t start, size_t len, bool is_const);
-ConstExprValue *create_const_slice(CodeGen *g, ConstExprValue *array_val, size_t start, size_t len, bool is_const);
+ZigValue *create_const_slice(CodeGen *g, ZigValue *array_val, size_t start, size_t len, bool is_const);
 
-void init_const_arg_tuple(CodeGen *g, ConstExprValue *const_val, size_t arg_index_start, size_t arg_index_end);
-ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_t arg_index_end);
+void init_const_arg_tuple(CodeGen *g, ZigValue *const_val, size_t arg_index_start, size_t arg_index_end);
+ZigValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_t arg_index_end);
 
-void init_const_null(ConstExprValue *const_val, ZigType *type);
-ConstExprValue *create_const_null(ZigType *type);
+void init_const_null(ZigValue *const_val, ZigType *type);
+ZigValue *create_const_null(ZigType *type);
 
-ConstExprValue *create_const_vals(size_t count);
-ConstExprValue **alloc_const_vals_ptrs(size_t count);
-ConstExprValue **realloc_const_vals_ptrs(ConstExprValue **ptr, size_t old_count, size_t new_count);
+ZigValue *create_const_vals(size_t count);
+ZigValue **alloc_const_vals_ptrs(size_t count);
+ZigValue **realloc_const_vals_ptrs(ZigValue **ptr, size_t old_count, size_t new_count);
 
 TypeStructField **alloc_type_struct_fields(size_t count);
 TypeStructField **realloc_type_struct_fields(TypeStructField **ptr, size_t old_count, size_t new_count);
 
 ZigType *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
-void expand_undef_array(CodeGen *g, ConstExprValue *const_val);
-void expand_undef_struct(CodeGen *g, ConstExprValue *const_val);
-void update_compile_var(CodeGen *g, Buf *name, ConstExprValue *value);
+void expand_undef_array(CodeGen *g, ZigValue *const_val);
+void expand_undef_struct(CodeGen *g, ZigValue *const_val);
+void update_compile_var(CodeGen *g, Buf *name, ZigValue *value);
 
 const char *type_id_name(ZigTypeId id);
 ZigTypeId type_id_at_index(size_t index);
@@ -201,12 +201,12 @@ uint32_t get_abi_alignment(CodeGen *g, ZigType *type_entry);
 ZigType *get_align_amt_type(CodeGen *g);
 ZigPackage *new_anonymous_package(void);
 
-Buf *const_value_to_buffer(ConstExprValue *const_val);
+Buf *const_value_to_buffer(ZigValue *const_val);
 void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, const char *symbol_name, GlobalLinkageId linkage, bool ccc);
 void add_var_export(CodeGen *g, ZigVar *fn_table_entry, const char *symbol_name, GlobalLinkageId linkage);
 
 
-ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name);
+ZigValue *get_builtin_value(CodeGen *codegen, const char *name);
 ZigType *get_stack_trace_type(CodeGen *g);
 bool resolve_inferred_error_set(CodeGen *g, ZigType *err_set_type, AstNode *source_node);
 
@@ -242,7 +242,7 @@ ReqCompTime type_requires_comptime(CodeGen *g, ZigType *type_entry);
 OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry);
 
 Error ensure_const_val_repr(IrAnalyze *ira, CodeGen *codegen, AstNode *source_node,
-        ConstExprValue *const_val, ZigType *wanted_type);
+        ZigValue *const_val, ZigType *wanted_type);
 
 void typecheck_panic_fn(CodeGen *g, TldFn *tld_fn, ZigFn *panic_fn);
 Buf *type_bare_name(ZigType *t);
@@ -256,17 +256,17 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
 
 void src_assert(bool ok, AstNode *source_node);
 bool is_container(ZigType *type_entry);
-ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry,
+ZigValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry,
         Buf *type_name, UndefAllowed undef);
 
 void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn);
 bool fn_is_async(ZigFn *fn);
 
-Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t *abi_align);
-Error type_val_resolve_abi_size(CodeGen *g, AstNode *source_node, ConstExprValue *type_val,
+Error type_val_resolve_abi_align(CodeGen *g, ZigValue *type_val, uint32_t *abi_align);
+Error type_val_resolve_abi_size(CodeGen *g, AstNode *source_node, ZigValue *type_val,
         size_t *abi_size, size_t *size_in_bits);
-Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *parent_type,
-        ConstExprValue *parent_type_val, bool *is_zero_bits);
+Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent_type,
+        ZigValue *parent_type_val, bool *is_zero_bits);
 ZigType *resolve_union_field_type(CodeGen *g, TypeUnionField *union_field);
 ZigType *resolve_struct_field_type(CodeGen *g, TypeStructField *struct_field);
 
@@ -276,5 +276,5 @@ IrInstruction *ir_create_alloca(CodeGen *g, Scope *scope, AstNode *source_node, 
         ZigType *var_type, const char *name_hint);
 Error analyze_import(CodeGen *codegen, ZigType *source_import, Buf *import_target_str,
         ZigType **out_import, Buf **out_import_target_path, Buf *out_full_path);
-ConstExprValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry);
+ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry);
 #endif

@@ -32,7 +32,7 @@ struct ErrorTableEntry;
 struct BuiltinFnEntry;
 struct TypeStructField;
 struct CodeGen;
-struct ConstExprValue;
+struct ZigValue;
 struct IrInstruction;
 struct IrInstructionCast;
 struct IrInstructionAllocaGen;
@@ -130,38 +130,38 @@ struct ConstParent {
 
     union {
         struct {
-            ConstExprValue *array_val;
+            ZigValue *array_val;
             size_t elem_index;
         } p_array;
         struct {
-            ConstExprValue *struct_val;
+            ZigValue *struct_val;
             size_t field_index;
         } p_struct;
         struct {
-            ConstExprValue *err_union_val;
+            ZigValue *err_union_val;
         } p_err_union_code;
         struct {
-            ConstExprValue *err_union_val;
+            ZigValue *err_union_val;
         } p_err_union_payload;
         struct {
-            ConstExprValue *optional_val;
+            ZigValue *optional_val;
         } p_optional_payload;
         struct {
-            ConstExprValue *union_val;
+            ZigValue *union_val;
         } p_union;
         struct {
-            ConstExprValue *scalar_val;
+            ZigValue *scalar_val;
         } p_scalar;
     } data;
 };
 
 struct ConstStructValue {
-    ConstExprValue **fields;
+    ZigValue **fields;
 };
 
 struct ConstUnionValue {
     BigInt tag;
-    ConstExprValue *payload;
+    ZigValue *payload;
 };
 
 enum ConstArraySpecial {
@@ -174,7 +174,7 @@ struct ConstArrayValue {
     ConstArraySpecial special;
     union {
         struct {
-            ConstExprValue *elements;
+            ZigValue *elements;
         } s_none;
         Buf *s_buf;
     } data;
@@ -235,24 +235,24 @@ struct ConstPtrValue {
 
     union {
         struct {
-            ConstExprValue *pointee;
+            ZigValue *pointee;
         } ref;
         struct {
-            ConstExprValue *array_val;
+            ZigValue *array_val;
             size_t elem_index;
         } base_array;
         struct {
-            ConstExprValue *struct_val;
+            ZigValue *struct_val;
             size_t field_index;
         } base_struct;
         struct {
-            ConstExprValue *err_union_val;
+            ZigValue *err_union_val;
         } base_err_union_code;
         struct {
-            ConstExprValue *err_union_val;
+            ZigValue *err_union_val;
         } base_err_union_payload;
         struct {
-            ConstExprValue *optional_val;
+            ZigValue *optional_val;
         } base_optional_payload;
         struct {
             uint64_t addr;
@@ -264,8 +264,8 @@ struct ConstPtrValue {
 };
 
 struct ConstErrValue {
-    ConstExprValue *error_set;
-    ConstExprValue *payload;
+    ZigValue *error_set;
+    ZigValue *payload;
 };
 
 struct ConstBoundFnValue {
@@ -406,7 +406,7 @@ struct LazyValueErrUnionType {
     Buf *type_name;
 };
 
-struct ConstExprValue {
+struct ZigValue {
     ZigType *type;
     ConstValSpecial special;
     ConstParent parent;
@@ -423,7 +423,7 @@ struct ConstExprValue {
         bool x_bool;
         ConstBoundFnValue x_bound_fn;
         ZigType *x_type;
-        ConstExprValue *x_optional;
+        ZigValue *x_optional;
         ConstErrValue x_err_union;
         ErrorTableEntry *x_err_set;
         BigInt x_enum_tag;
@@ -443,8 +443,8 @@ struct ConstExprValue {
     } data;
 
     // uncomment these to find bugs. can't leave them uncommented because of a gcc-9 warning
-    //ConstExprValue(const ConstExprValue &other) = delete; // plz zero initialize with {}
-    //ConstExprValue& operator= (const ConstExprValue &other) = delete; // use copy_const_val
+    //ZigValue(const ZigValue &other) = delete; // plz zero initialize with {}
+    //ZigValue& operator= (const ZigValue &other) = delete; // use copy_const_val
 };
 
 enum ReturnKnowledge {
@@ -525,7 +525,7 @@ struct TldCompTime {
 struct TldUsingNamespace {
     Tld base;
 
-    ConstExprValue *using_namespace_value;
+    ZigValue *using_namespace_value;
 };
 
 struct TypeEnumField {
@@ -538,7 +538,7 @@ struct TypeEnumField {
 struct TypeUnionField {
     Buf *name;
     ZigType *type_entry; // available after ResolveStatusSizeKnown
-    ConstExprValue *type_val; // available after ResolveStatusZeroBitsKnown
+    ZigValue *type_val; // available after ResolveStatusZeroBitsKnown
     TypeEnumField *enum_field;
     AstNode *decl_node;
     uint32_t gen_index;
@@ -1171,7 +1171,7 @@ struct FnTypeParamInfo {
 struct GenericFnTypeId {
     CodeGen *codegen;
     ZigFn *fn_entry;
-    ConstExprValue *params;
+    ZigValue *params;
     size_t param_count;
 };
 
@@ -1213,7 +1213,7 @@ struct ZigTypePointer {
     // This can be null. If it is non-null, it means the pointer is terminated by this
     // sentinel value. This is most commonly used for C-style strings, with a 0 byte
     // to specify the length of the memory pointed to.
-    ConstExprValue *sentinel;
+    ZigValue *sentinel;
 
     PtrLen ptr_len;
     uint32_t explicit_alignment; // 0 means use ABI alignment
@@ -1242,18 +1242,18 @@ struct ZigTypeFloat {
 struct ZigTypeArray {
     ZigType *child_type;
     uint64_t len;
-    ConstExprValue *sentinel;
+    ZigValue *sentinel;
 };
 
 struct TypeStructField {
     Buf *name;
     ZigType *type_entry; // available after ResolveStatusSizeKnown
-    ConstExprValue *type_val; // available after ResolveStatusZeroBitsKnown
+    ZigValue *type_val; // available after ResolveStatusZeroBitsKnown
     size_t src_index;
     size_t gen_index;
     size_t offset; // byte offset from beginning of struct
     AstNode *decl_node;
-    ConstExprValue *init_val; // null and then memoized
+    ZigValue *init_val; // null and then memoized
     uint32_t bit_offset_in_host; // offset from the memory at gen_index
     uint32_t host_int_bytes; // size of host integer
     uint32_t align;
@@ -1515,7 +1515,7 @@ struct ZigType {
     ZigType *any_frame_parent;
     // If we generate a constant name value for this type, we memoize it here.
     // The type of this is array
-    ConstExprValue *cached_const_name_val;
+    ZigValue *cached_const_name_val;
 
     OnePossibleValue one_possible_value;
     // Known after ResolveStatusAlignmentKnown.
@@ -1771,7 +1771,7 @@ struct TypeId {
             CodeGen *codegen;
             ZigType *child_type;
             InferredStructField *inferred_struct_field;
-            ConstExprValue *sentinel;
+            ZigValue *sentinel;
             PtrLen ptr_len;
             uint32_t alignment;
 
@@ -1787,7 +1787,7 @@ struct TypeId {
             CodeGen *codegen;
             ZigType *child_type;
             uint64_t size;
-            ConstExprValue *sentinel;
+            ZigValue *sentinel;
         } array;
         struct {
             bool is_signed;
@@ -1960,13 +1960,13 @@ struct CodeGen {
     HashMap<FnTypeId *, ZigType *, fn_type_id_hash, fn_type_id_eql> fn_type_table;
     HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
     HashMap<GenericFnTypeId *, ZigFn *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;
-    HashMap<Scope *, ConstExprValue *, fn_eval_hash, fn_eval_eql> memoized_fn_eval_table;
+    HashMap<Scope *, ZigValue *, fn_eval_hash, fn_eval_eql> memoized_fn_eval_table;
     HashMap<ZigLLVMFnKey, LLVMValueRef, zig_llvm_fn_key_hash, zig_llvm_fn_key_eql> llvm_fn_table;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> exported_symbol_names;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
-    HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> string_literals_table;
-    HashMap<const ZigType *, ConstExprValue *, type_ptr_hash, type_ptr_eql> type_info_cache;
-    HashMap<const ZigType *, ConstExprValue *, type_ptr_hash, type_ptr_eql> one_possible_values;
+    HashMap<Buf *, ZigValue *, buf_hash, buf_eql_buf> string_literals_table;
+    HashMap<const ZigType *, ZigValue *, type_ptr_hash, type_ptr_eql> type_info_cache;
+    HashMap<const ZigType *, ZigValue *, type_ptr_hash, type_ptr_eql> one_possible_values;
 
     ZigList<Tld *> resolve_queue;
     size_t resolve_queue_index;
@@ -2021,6 +2021,13 @@ struct CodeGen {
         ZigType *entry_any_frame;
     } builtin_types;
 
+    struct {
+        ZigValue x_undefined;
+        ZigValue x_void;
+        ZigValue x_null;
+        ZigValue x_unreachable;
+    } intern_values;
+
     ZigType *align_amt_type;
     ZigType *stack_trace_type;
     ZigType *err_tag_type;
@@ -2043,9 +2050,9 @@ struct CodeGen {
     IrInstruction *invalid_instruction;
     IrInstruction *unreach_instruction;
 
-    ConstExprValue const_zero_byte;
-    ConstExprValue const_void_val;
-    ConstExprValue panic_msg_vals[PanicMsgIdCount];
+    ZigValue const_zero_byte;
+    ZigValue const_void_val;
+    ZigValue panic_msg_vals[PanicMsgIdCount];
 
     // The function definitions this module includes.
     ZigList<ZigFn *> fn_defs;
@@ -2163,7 +2170,7 @@ struct CodeGen {
 
 struct ZigVar {
     const char *name;
-    ConstExprValue *const_value;
+    ZigValue *const_value;
     ZigType *var_type;
     LLVMValueRef value_ref;
     IrInstruction *is_comptime;
@@ -2202,7 +2209,7 @@ struct ErrorTableEntry {
     ZigType *set_with_only_this_in_it;
     // If we generate a constant error name value for this error, we memoize it here.
     // The type of this is array
-    ConstExprValue *cached_error_name_val;
+    ZigValue *cached_error_name_val;
 };
 
 enum ScopeId {
@@ -2621,7 +2628,7 @@ struct IrInstruction {
     Scope *scope;
     AstNode *source_node;
     LLVMValueRef llvm_value;
-    ConstExprValue value;
+    ZigValue *value;
     uint32_t debug_id;
     // if ref_count is zero and the instruction has no side effects,
     // the instruction can be omitted in codegen

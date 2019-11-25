@@ -121,18 +121,18 @@ SplitIterator memSplit(Slice<uint8_t> buffer, Slice<uint8_t> split_bytes) {
 
 void zig_pretty_print_bytes(FILE *f, double n) {
     if (n > 1024.0 * 1024.0 * 1024.0) {
-        fprintf(f, "%.02f GiB", n / 1024.0 / 1024.0 / 1024.0);
+        fprintf(f, "%.03f GiB", n / 1024.0 / 1024.0 / 1024.0);
         return;
     }
     if (n > 1024.0 * 1024.0) {
-        fprintf(f, "%.02f MiB", n / 1024.0 / 1024.0);
+        fprintf(f, "%.03f MiB", n / 1024.0 / 1024.0);
         return;
     }
     if (n > 1024.0) {
-        fprintf(f, "%.02f KiB", n / 1024.0);
+        fprintf(f, "%.03f KiB", n / 1024.0);
         return;
     }
-    fprintf(f, "%.02f bytes", n );
+    fprintf(f, "%.03f bytes", n );
     return;
 }
 

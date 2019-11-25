@@ -195,6 +195,11 @@ void bigint_init_bigint(BigInt *dest, const BigInt *src) {
     memcpy(dest->data.digits, src->data.digits, sizeof(uint64_t) * dest->digit_count);
 }
 
+void bigint_deinit(BigInt *bi) {
+    if (bi->digit_count > 1)
+        deallocate<uint64_t>(bi->data.digits, bi->digit_count);
+}
+
 void bigint_init_bigfloat(BigInt *dest, const BigFloat *op) {
     float128_t zero;
     ui32_to_f128M(0, &zero);

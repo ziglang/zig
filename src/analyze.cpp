@@ -511,7 +511,7 @@ static void append_ptr_type_attrs(Buf *type_name, ZigType *ptr_type) {
 ZigType *get_pointer_to_type_extra2(CodeGen *g, ZigType *child_type, bool is_const,
         bool is_volatile, PtrLen ptr_len, uint32_t byte_alignment,
         uint32_t bit_offset_in_host, uint32_t host_int_bytes, bool allow_zero,
-        uint32_t vector_index, InferredStructField *inferred_struct_field, ConstExprValue *sentinel)
+        uint32_t vector_index, InferredStructField *inferred_struct_field, ZigValue *sentinel)
 {
     assert(ptr_len != PtrLenC || allow_zero);
     assert(!type_is_invalid(child_type));
@@ -760,7 +760,7 @@ ZigType *get_error_union_type(CodeGen *g, ZigType *err_set_type, ZigType *payloa
     return entry;
 }
 
-ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, ConstExprValue *sentinel) {
+ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, ZigValue *sentinel) {
     TypeId type_id = {};
     type_id.id = ZigTypeIdArray;
     type_id.data.array.codegen = g;
@@ -956,7 +956,7 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
 
 ZigType *get_stack_trace_type(CodeGen *g) {
     if (g->stack_trace_type == nullptr) {
-        ConstExprValue *stack_trace_type_val = get_builtin_value(g, "StackTrace");
+        ZigValue *stack_trace_type_val = get_builtin_value(g, "StackTrace");
         assert(stack_trace_type_val->type->id == ZigTypeIdMetaType);
 
         g->stack_trace_type = stack_trace_type_val->data.x_type;
@@ -1095,7 +1095,7 @@ ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind
     return entry;
 }
 
-ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry,
+ZigValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry,
         Buf *type_name, UndefAllowed undef)
 {
     size_t backward_branch_count = 0;
@@ -1105,8 +1105,8 @@ ConstExprValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, Zig
             nullptr, nullptr, node, type_name, nullptr, nullptr, undef);
 }
 
-Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *parent_type,
-        ConstExprValue *parent_type_val, bool *is_zero_bits)
+Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent_type,
+        ZigValue *parent_type_val, bool *is_zero_bits)
 {
     Error err;
     if (type_val->special != ConstValSpecialLazy) {
@@ -1134,7 +1134,7 @@ Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
 
-            if (parent_type_val == &lazy_ptr_type->elem_type->value) {
+            if (parent_type_val == lazy_ptr_type->elem_type->value) {
                 // Does a struct which contains a pointer field to itself have bits? Yes.
                 *is_zero_bits = false;
                 return ErrorNone;
@@ -1142,7 +1142,7 @@ Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *
                 if (parent_type_val == nullptr) {
                     parent_type_val = type_val;
                 }
-                return type_val_resolve_zero_bits(g, &lazy_ptr_type->elem_type->value, parent_type,
+                return type_val_resolve_zero_bits(g, lazy_ptr_type->elem_type->value, parent_type,
                         parent_type_val, is_zero_bits);
             }
         }
@@ -1160,7 +1160,7 @@ Error type_val_resolve_zero_bits(CodeGen *g, ConstExprValue *type_val, ZigType *
     zig_unreachable();
 }
 
-Error type_val_resolve_is_opaque_type(CodeGen *g, ConstExprValue *type_val, bool *is_opaque_type) {
+Error type_val_resolve_is_opaque_type(CodeGen *g, ZigValue *type_val, bool *is_opaque_type) {
     if (type_val->special != ConstValSpecialLazy) {
         assert(type_val->special == ConstValSpecialStatic);
         if (type_val->data.x_type == g->builtin_types.entry_var) {
@@ -1186,7 +1186,7 @@ Error type_val_resolve_is_opaque_type(CodeGen *g, ConstExprValue *type_val, bool
     zig_unreachable();
 }
 
-static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue *type_val) {
+static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ZigValue *type_val) {
     if (type_val->special != ConstValSpecialLazy) {
         return type_requires_comptime(g, type_val->data.x_type);
     }
@@ -1197,21 +1197,21 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
             zig_unreachable();
         case LazyValueIdSliceType: {
             LazyValueSliceType *lazy_slice_type = reinterpret_cast<LazyValueSliceType *>(type_val->data.x_lazy);
-            return type_val_resolve_requires_comptime(g, &lazy_slice_type->elem_type->value);
+            return type_val_resolve_requires_comptime(g, lazy_slice_type->elem_type->value);
         }
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
-            return type_val_resolve_requires_comptime(g, &lazy_ptr_type->elem_type->value);
+            return type_val_resolve_requires_comptime(g, lazy_ptr_type->elem_type->value);
         }
         case LazyValueIdOptType: {
             LazyValueOptType *lazy_opt_type = reinterpret_cast<LazyValueOptType *>(type_val->data.x_lazy);
-            return type_val_resolve_requires_comptime(g, &lazy_opt_type->payload_type->value);
+            return type_val_resolve_requires_comptime(g, lazy_opt_type->payload_type->value);
         }
         case LazyValueIdFnType: {
             LazyValueFnType *lazy_fn_type = reinterpret_cast<LazyValueFnType *>(type_val->data.x_lazy);
             if (lazy_fn_type->is_generic)
                 return ReqCompTimeYes;
-            switch (type_val_resolve_requires_comptime(g, &lazy_fn_type->return_type->value)) {
+            switch (type_val_resolve_requires_comptime(g, lazy_fn_type->return_type->value)) {
                 case ReqCompTimeInvalid:
                     return ReqCompTimeInvalid;
                 case ReqCompTimeYes:
@@ -1224,7 +1224,7 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
                 AstNode *param_node = lazy_fn_type->proto_node->data.fn_proto.params.at(i);
                 bool param_is_var_args = param_node->data.param_decl.is_var_args;
                 if (param_is_var_args) break;
-                switch (type_val_resolve_requires_comptime(g, &lazy_fn_type->param_types[i]->value)) {
+                switch (type_val_resolve_requires_comptime(g, lazy_fn_type->param_types[i]->value)) {
                     case ReqCompTimeInvalid:
                         return ReqCompTimeInvalid;
                     case ReqCompTimeYes:
@@ -1238,13 +1238,13 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ConstExprValue
         case LazyValueIdErrUnionType: {
             LazyValueErrUnionType *lazy_err_union_type =
                 reinterpret_cast<LazyValueErrUnionType *>(type_val->data.x_lazy);
-            return type_val_resolve_requires_comptime(g, &lazy_err_union_type->payload_type->value);
+            return type_val_resolve_requires_comptime(g, lazy_err_union_type->payload_type->value);
         }
     }
     zig_unreachable();
 }
 
-Error type_val_resolve_abi_size(CodeGen *g, AstNode *source_node, ConstExprValue *type_val,
+Error type_val_resolve_abi_size(CodeGen *g, AstNode *source_node, ZigValue *type_val,
         size_t *abi_size, size_t *size_in_bits)
 {
     Error err;
@@ -1267,7 +1267,7 @@ start_over:
         case LazyValueIdSliceType: {
             LazyValueSliceType *lazy_slice_type = reinterpret_cast<LazyValueSliceType *>(type_val->data.x_lazy);
             bool is_zero_bits;
-            if ((err = type_val_resolve_zero_bits(g, &lazy_slice_type->elem_type->value, nullptr,
+            if ((err = type_val_resolve_zero_bits(g, lazy_slice_type->elem_type->value, nullptr,
                 nullptr, &is_zero_bits)))
             {
                 return err;
@@ -1284,7 +1284,7 @@ start_over:
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
             bool is_zero_bits;
-            if ((err = type_val_resolve_zero_bits(g, &lazy_ptr_type->elem_type->value, nullptr,
+            if ((err = type_val_resolve_zero_bits(g, lazy_ptr_type->elem_type->value, nullptr,
                 nullptr, &is_zero_bits)))
             {
                 return err;
@@ -1311,7 +1311,7 @@ start_over:
     zig_unreachable();
 }
 
-Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t *abi_align) {
+Error type_val_resolve_abi_align(CodeGen *g, ZigValue *type_val, uint32_t *abi_align) {
     Error err;
     if (type_val->special != ConstValSpecialLazy) {
         assert(type_val->special == ConstValSpecialStatic);
@@ -1337,13 +1337,13 @@ Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t 
             return ErrorNone;
         case LazyValueIdOptType: {
             LazyValueOptType *lazy_opt_type = reinterpret_cast<LazyValueOptType *>(type_val->data.x_lazy);
-            return type_val_resolve_abi_align(g, &lazy_opt_type->payload_type->value, abi_align);
+            return type_val_resolve_abi_align(g, lazy_opt_type->payload_type->value, abi_align);
         }
         case LazyValueIdErrUnionType: {
             LazyValueErrUnionType *lazy_err_union_type =
                 reinterpret_cast<LazyValueErrUnionType *>(type_val->data.x_lazy);
             uint32_t payload_abi_align;
-            if ((err = type_val_resolve_abi_align(g, &lazy_err_union_type->payload_type->value,
+            if ((err = type_val_resolve_abi_align(g, lazy_err_union_type->payload_type->value,
                             &payload_abi_align)))
             {
                 return err;
@@ -1356,7 +1356,7 @@ Error type_val_resolve_abi_align(CodeGen *g, ConstExprValue *type_val, uint32_t 
     zig_unreachable();
 }
 
-static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, ConstExprValue *type_val) {
+static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, ZigValue *type_val) {
     if (type_val->special != ConstValSpecialLazy) {
         return type_has_one_possible_value(g, type_val->data.x_type);
     }
@@ -1384,13 +1384,13 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, Cons
         case LazyValueIdErrUnionType: {
             LazyValueErrUnionType *lazy_err_union_type =
                 reinterpret_cast<LazyValueErrUnionType *>(type_val->data.x_lazy);
-            switch (type_val_resolve_has_one_possible_value(g, &lazy_err_union_type->err_set_type->value)) {
+            switch (type_val_resolve_has_one_possible_value(g, lazy_err_union_type->err_set_type->value)) {
                 case OnePossibleValueInvalid:
                     return OnePossibleValueInvalid;
                 case OnePossibleValueNo:
                     return OnePossibleValueNo;
                 case OnePossibleValueYes:
-                    return type_val_resolve_has_one_possible_value(g, &lazy_err_union_type->payload_type->value);
+                    return type_val_resolve_has_one_possible_value(g, lazy_err_union_type->payload_type->value);
             }
         }
     }
@@ -1398,7 +1398,7 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, Cons
 }
 
 ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
-    ConstExprValue *result = analyze_const_value(g, scope, node, g->builtin_types.entry_type,
+    ZigValue *result = analyze_const_value(g, scope, node, g->builtin_types.entry_type,
             nullptr, UndefBad);
     if (type_is_invalid(result->type))
         return g->builtin_types.entry_invalid;
@@ -1451,7 +1451,7 @@ void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_cou
 }
 
 static bool analyze_const_align(CodeGen *g, Scope *scope, AstNode *node, uint32_t *result) {
-    ConstExprValue *align_result = analyze_const_value(g, scope, node, get_align_amt_type(g),
+    ZigValue *align_result = analyze_const_value(g, scope, node, get_align_amt_type(g),
             nullptr, UndefBad);
     if (type_is_invalid(align_result->type))
         return false;
@@ -1474,15 +1474,15 @@ static bool analyze_const_string(CodeGen *g, Scope *scope, AstNode *node, Buf **
     ZigType *ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
             PtrLenUnknown, 0, 0, 0, false);
     ZigType *str_type = get_slice_type(g, ptr_type);
-    ConstExprValue *result_val = analyze_const_value(g, scope, node, str_type, nullptr, UndefBad);
+    ZigValue *result_val = analyze_const_value(g, scope, node, str_type, nullptr, UndefBad);
     if (type_is_invalid(result_val->type))
         return false;
 
-    ConstExprValue *ptr_field = result_val->data.x_struct.fields[slice_ptr_index];
-    ConstExprValue *len_field = result_val->data.x_struct.fields[slice_len_index];
+    ZigValue *ptr_field = result_val->data.x_struct.fields[slice_ptr_index];
+    ZigValue *len_field = result_val->data.x_struct.fields[slice_len_index];
 
     assert(ptr_field->data.x_ptr.special == ConstPtrSpecialBaseArray);
-    ConstExprValue *array_val = ptr_field->data.x_ptr.data.base_array.array_val;
+    ZigValue *array_val = ptr_field->data.x_ptr.data.base_array.array_val;
     if (array_val->data.x_array.special == ConstArraySpecialBuf) {
         *out_buffer = array_val->data.x_array.data.s_buf;
         return true;
@@ -1493,7 +1493,7 @@ static bool analyze_const_string(CodeGen *g, Scope *scope, AstNode *node, Buf **
     buf_resize(result, len);
     for (size_t i = 0; i < len; i += 1) {
         size_t new_index = ptr_field->data.x_ptr.data.base_array.elem_index + i;
-        ConstExprValue *char_val = &array_val->data.x_array.data.s_none.elements[new_index];
+        ZigValue *char_val = &array_val->data.x_array.data.s_none.elements[new_index];
         if (char_val->special == ConstValSpecialUndef) {
             add_node_error(g, node, buf_sprintf("use of undefined value"));
             return false;
@@ -2621,7 +2621,7 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 
         if (tag_value != nullptr) {
             // A user-specified value is available
-            ConstExprValue *result = analyze_const_value(g, scope, tag_value, tag_int_type,
+            ZigValue *result = analyze_const_value(g, scope, tag_value, tag_int_type,
                     nullptr, UndefBad);
             if (type_is_invalid(result->type)) {
                 enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
@@ -2756,7 +2756,7 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
             return ErrorSemanticAnalyzeFail;
         }
 
-        ConstExprValue *field_type_val;
+        ZigValue *field_type_val;
         if (decl_node->type == NodeTypeContainerDecl) {
             field_type_val = analyze_const_value(g, scope,
                     field_node->data.struct_field.type, g->builtin_types.entry_type, nullptr, LazyOkNoUndef);
@@ -3051,7 +3051,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
                 return ErrorSemanticAnalyzeFail;
             }
         } else {
-            ConstExprValue *field_type_val = analyze_const_value(g, scope,
+            ZigValue *field_type_val = analyze_const_value(g, scope,
                     field_node->data.struct_field.type, g->builtin_types.entry_type, nullptr, LazyOkNoUndef);
             if (type_is_invalid(field_type_val->type)) {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
@@ -3117,7 +3117,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
             // In a second pass we will fill in the unspecified ones.
             if (tag_value != nullptr) {
                 ZigType *tag_int_type = tag_type->data.enumeration.tag_int_type;
-                ConstExprValue *result = analyze_const_value(g, scope, tag_value, tag_int_type,
+                ZigValue *result = analyze_const_value(g, scope, tag_value, tag_int_type,
                         nullptr, UndefBad);
                 if (type_is_invalid(result->type)) {
                     union_type->data.unionation.resolve_status = ResolveStatusInvalid;
@@ -3545,7 +3545,7 @@ void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source
     tld->parent_scope = parent_scope;
 }
 
-void update_compile_var(CodeGen *g, Buf *name, ConstExprValue *value) {
+void update_compile_var(CodeGen *g, Buf *name, ZigValue *value) {
     Tld *tld = get_container_scope(g->compile_var_import)->decl_table.get(name);
     resolve_top_level_decl(g, tld, tld->source_node, false);
     assert(tld->id == TldIdVar);
@@ -3717,7 +3717,7 @@ ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry
 // Set name to nullptr to make the variable anonymous (not visible to programmer).
 // TODO merge with definition of add_local_var in ir.cpp
 ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
-    bool is_const, ConstExprValue *const_value, Tld *src_tld, ZigType *var_type)
+    bool is_const, ZigValue *const_value, Tld *src_tld, ZigType *var_type)
 {
     Error err;
     assert(const_value != nullptr);
@@ -3815,7 +3815,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
 
     assert(!is_export || !is_extern);
 
-    ConstExprValue *init_value = nullptr;
+    ZigValue *init_value = nullptr;
 
     // TODO more validation for types that can't be used for export/extern variables
     ZigType *implicit_type = nullptr;
@@ -3853,7 +3853,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     ZigType *type = explicit_type ? explicit_type : implicit_type;
     assert(type != nullptr); // should have been caught by the parser
 
-    ConstExprValue *init_val = (init_value != nullptr) ? init_value : create_const_runtime(type);
+    ZigValue *init_val = (init_value != nullptr) ? init_value : create_const_runtime(type);
 
     tld_var->var = add_variable(g, source_node, tld_var->base.parent_scope, var_decl->symbol,
             is_const, init_val, &tld_var->base, type);
@@ -3900,7 +3900,7 @@ static void add_symbols_from_container(CodeGen *g, TldUsingNamespace *src_using_
         }
     }
 
-    ConstExprValue *use_expr = src_using_namespace->using_namespace_value;
+    ZigValue *use_expr = src_using_namespace->using_namespace_value;
     if (type_is_invalid(use_expr->type)) {
         dest_decls_scope->any_imports_failed = true;
         return;
@@ -3977,7 +3977,7 @@ static void preview_use_decl(CodeGen *g, TldUsingNamespace *using_namespace, Sco
 
     using_namespace->base.resolution = TldResolutionResolving;
     assert(using_namespace->base.source_node->type == NodeTypeUsingNamespace);
-    ConstExprValue *result = analyze_const_value(g, &dest_decls_scope->base,
+    ZigValue *result = analyze_const_value(g, &dest_decls_scope->base,
         using_namespace->base.source_node->data.using_namespace.expr, g->builtin_types.entry_type,
         nullptr, UndefBad);
     using_namespace->using_namespace_value = result;
@@ -3985,7 +3985,7 @@ static void preview_use_decl(CodeGen *g, TldUsingNamespace *using_namespace, Sco
     if (type_is_invalid(result->type)) {
         dest_decls_scope->any_imports_failed = true;
         using_namespace->base.resolution = TldResolutionInvalid;
-        using_namespace->using_namespace_value = &g->invalid_instruction->value;
+        using_namespace->using_namespace_value = g->invalid_instruction->value;
         return;
     }
 
@@ -3994,7 +3994,7 @@ static void preview_use_decl(CodeGen *g, TldUsingNamespace *using_namespace, Sco
             buf_sprintf("expected struct, enum, or union; found '%s'", buf_ptr(&result->data.x_type->name)));
         dest_decls_scope->any_imports_failed = true;
         using_namespace->base.resolution = TldResolutionInvalid;
-        using_namespace->using_namespace_value = &g->invalid_instruction->value;
+        using_namespace->using_namespace_value = g->invalid_instruction->value;
         return;
     }
 }
@@ -5029,12 +5029,12 @@ bool fn_type_id_eql(FnTypeId *a, FnTypeId *b) {
     return true;
 }
 
-static uint32_t hash_const_val_error_set(ConstExprValue *const_val) {
+static uint32_t hash_const_val_error_set(ZigValue *const_val) {
     assert(const_val->data.x_err_set != nullptr);
     return const_val->data.x_err_set->value ^ 2630160122;
 }
 
-static uint32_t hash_const_val_ptr(ConstExprValue *const_val) {
+static uint32_t hash_const_val_ptr(ZigValue *const_val) {
     uint32_t hash_val = 0;
     switch (const_val->data.x_ptr.mut) {
         case ConstPtrMutRuntimeVar:
@@ -5095,7 +5095,7 @@ static uint32_t hash_const_val_ptr(ConstExprValue *const_val) {
     zig_unreachable();
 }
 
-static uint32_t hash_const_val(ConstExprValue *const_val) {
+static uint32_t hash_const_val(ZigValue *const_val) {
     assert(const_val->special == ConstValSpecialStatic);
     switch (const_val->type->id) {
         case ZigTypeIdOpaque:
@@ -5224,7 +5224,7 @@ uint32_t generic_fn_type_id_hash(GenericFnTypeId *id) {
     uint32_t result = 0;
     result += hash_ptr(id->fn_entry);
     for (size_t i = 0; i < id->param_count; i += 1) {
-        ConstExprValue *generic_param = &id->params[i];
+        ZigValue *generic_param = &id->params[i];
         if (generic_param->special != ConstValSpecialRuntime) {
             result += hash_const_val(generic_param);
             result += hash_ptr(generic_param->type);
@@ -5238,8 +5238,8 @@ bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b) {
     if (a->fn_entry != b->fn_entry) return false;
     if (a->param_count != b->param_count) return false;
     for (size_t i = 0; i < a->param_count; i += 1) {
-        ConstExprValue *a_val = &a->params[i];
-        ConstExprValue *b_val = &b->params[i];
+        ZigValue *a_val = &a->params[i];
+        ZigValue *b_val = &b->params[i];
         if (a_val->type != b_val->type) return false;
         if (a_val->special != ConstValSpecialRuntime && b_val->special != ConstValSpecialRuntime) {
             assert(a_val->special == ConstValSpecialStatic);
@@ -5254,7 +5254,7 @@ bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b) {
     return true;
 }
 
-static bool can_mutate_comptime_var_state(ConstExprValue *value) {
+static bool can_mutate_comptime_var_state(ZigValue *value) {
     assert(value != nullptr);
     switch (value->type->id) {
         case ZigTypeIdInvalid:
@@ -5562,12 +5562,12 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
     zig_unreachable();
 }
 
-ConstExprValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
+ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
     auto entry = g->one_possible_values.maybe_get(type_entry);
     if (entry != nullptr) {
         return entry->value;
     }
-    ConstExprValue *result = create_const_vals(1);
+    ZigValue *result = create_const_vals(1);
     result->type = type_entry;
     result->special = ConstValSpecialStatic;
     g->one_possible_values.put(type_entry, result);
@@ -5637,15 +5637,15 @@ ReqCompTime type_requires_comptime(CodeGen *g, ZigType *ty) {
     zig_unreachable();
 }
 
-void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
+void init_const_str_lit(CodeGen *g, ZigValue *const_val, Buf *str) {
     auto entry = g->string_literals_table.maybe_get(str);
     if (entry != nullptr) {
-        memcpy(const_val, entry->value, sizeof(ConstExprValue));
+        memcpy(const_val, entry->value, sizeof(ZigValue));
         return;
     }
 
     // first we build the underlying array
-    ConstExprValue *array_val = create_const_vals(1);
+    ZigValue *array_val = create_const_vals(1);
     array_val->special = ConstValSpecialStatic;
     array_val->type = get_array_type(g, g->builtin_types.entry_u8, buf_len(str), &g->const_zero_byte);
     array_val->data.x_array.special = ConstArraySpecialBuf;
@@ -5661,71 +5661,71 @@ void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
     g->string_literals_table.put(str, const_val);
 }
 
-ConstExprValue *create_const_str_lit(CodeGen *g, Buf *str) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_str_lit(CodeGen *g, Buf *str) {
+    ZigValue *const_val = create_const_vals(1);
     init_const_str_lit(g, const_val, str);
     return const_val;
 }
 
-void init_const_bigint(ConstExprValue *const_val, ZigType *type, const BigInt *bigint) {
+void init_const_bigint(ZigValue *const_val, ZigType *type, const BigInt *bigint) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
     bigint_init_bigint(&const_val->data.x_bigint, bigint);
 }
 
-ConstExprValue *create_const_bigint(ZigType *type, const BigInt *bigint) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_bigint(ZigType *type, const BigInt *bigint) {
+    ZigValue *const_val = create_const_vals(1);
     init_const_bigint(const_val, type, bigint);
     return const_val;
 }
 
 
-void init_const_unsigned_negative(ConstExprValue *const_val, ZigType *type, uint64_t x, bool negative) {
+void init_const_unsigned_negative(ZigValue *const_val, ZigType *type, uint64_t x, bool negative) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
     bigint_init_unsigned(&const_val->data.x_bigint, x);
     const_val->data.x_bigint.is_negative = negative;
 }
 
-ConstExprValue *create_const_unsigned_negative(ZigType *type, uint64_t x, bool negative) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_unsigned_negative(ZigType *type, uint64_t x, bool negative) {
+    ZigValue *const_val = create_const_vals(1);
     init_const_unsigned_negative(const_val, type, x, negative);
     return const_val;
 }
 
-void init_const_usize(CodeGen *g, ConstExprValue *const_val, uint64_t x) {
+void init_const_usize(CodeGen *g, ZigValue *const_val, uint64_t x) {
     return init_const_unsigned_negative(const_val, g->builtin_types.entry_usize, x, false);
 }
 
-ConstExprValue *create_const_usize(CodeGen *g, uint64_t x) {
+ZigValue *create_const_usize(CodeGen *g, uint64_t x) {
     return create_const_unsigned_negative(g->builtin_types.entry_usize, x, false);
 }
 
-void init_const_signed(ConstExprValue *const_val, ZigType *type, int64_t x) {
+void init_const_signed(ZigValue *const_val, ZigType *type, int64_t x) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
     bigint_init_signed(&const_val->data.x_bigint, x);
 }
 
-ConstExprValue *create_const_signed(ZigType *type, int64_t x) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_signed(ZigType *type, int64_t x) {
+    ZigValue *const_val = create_const_vals(1);
     init_const_signed(const_val, type, x);
     return const_val;
 }
 
-void init_const_null(ConstExprValue *const_val, ZigType *type) {
+void init_const_null(ZigValue *const_val, ZigType *type) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
     const_val->data.x_optional = nullptr;
 }
 
-ConstExprValue *create_const_null(ZigType *type) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_null(ZigType *type) {
+    ZigValue *const_val = create_const_vals(1);
     init_const_null(const_val, type);
     return const_val;
 }
 
-void init_const_float(ConstExprValue *const_val, ZigType *type, double value) {
+void init_const_float(ZigValue *const_val, ZigType *type, double value) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
     if (type->id == ZigTypeIdComptimeFloat) {
@@ -5752,61 +5752,61 @@ void init_const_float(ConstExprValue *const_val, ZigType *type, double value) {
     }
 }
 
-ConstExprValue *create_const_float(ZigType *type, double value) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_float(ZigType *type, double value) {
+    ZigValue *const_val = create_const_vals(1);
     init_const_float(const_val, type, value);
     return const_val;
 }
 
-void init_const_enum(ConstExprValue *const_val, ZigType *type, const BigInt *tag) {
+void init_const_enum(ZigValue *const_val, ZigType *type, const BigInt *tag) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
     bigint_init_bigint(&const_val->data.x_enum_tag, tag);
 }
 
-ConstExprValue *create_const_enum(ZigType *type, const BigInt *tag) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_enum(ZigType *type, const BigInt *tag) {
+    ZigValue *const_val = create_const_vals(1);
     init_const_enum(const_val, type, tag);
     return const_val;
 }
 
 
-void init_const_bool(CodeGen *g, ConstExprValue *const_val, bool value) {
+void init_const_bool(CodeGen *g, ZigValue *const_val, bool value) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = g->builtin_types.entry_bool;
     const_val->data.x_bool = value;
 }
 
-ConstExprValue *create_const_bool(CodeGen *g, bool value) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_bool(CodeGen *g, bool value) {
+    ZigValue *const_val = create_const_vals(1);
     init_const_bool(g, const_val, value);
     return const_val;
 }
 
-void init_const_runtime(ConstExprValue *const_val, ZigType *type) {
+void init_const_runtime(ZigValue *const_val, ZigType *type) {
     const_val->special = ConstValSpecialRuntime;
     const_val->type = type;
 }
 
-ConstExprValue *create_const_runtime(ZigType *type) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_runtime(ZigType *type) {
+    ZigValue *const_val = create_const_vals(1);
     init_const_runtime(const_val, type);
     return const_val;
 }
 
-void init_const_type(CodeGen *g, ConstExprValue *const_val, ZigType *type_value) {
+void init_const_type(CodeGen *g, ZigValue *const_val, ZigType *type_value) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = g->builtin_types.entry_type;
     const_val->data.x_type = type_value;
 }
 
-ConstExprValue *create_const_type(CodeGen *g, ZigType *type_value) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_type(CodeGen *g, ZigType *type_value) {
+    ZigValue *const_val = create_const_vals(1);
     init_const_type(g, const_val, type_value);
     return const_val;
 }
 
-void init_const_slice(CodeGen *g, ConstExprValue *const_val, ConstExprValue *array_val,
+void init_const_slice(CodeGen *g, ZigValue *const_val, ZigValue *array_val,
         size_t start, size_t len, bool is_const)
 {
     assert(array_val->type->id == ZigTypeIdArray);
@@ -5823,13 +5823,13 @@ void init_const_slice(CodeGen *g, ConstExprValue *const_val, ConstExprValue *arr
     init_const_usize(g, const_val->data.x_struct.fields[slice_len_index], len);
 }
 
-ConstExprValue *create_const_slice(CodeGen *g, ConstExprValue *array_val, size_t start, size_t len, bool is_const) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_slice(CodeGen *g, ZigValue *array_val, size_t start, size_t len, bool is_const) {
+    ZigValue *const_val = create_const_vals(1);
     init_const_slice(g, const_val, array_val, start, len, is_const);
     return const_val;
 }
 
-void init_const_ptr_array(CodeGen *g, ConstExprValue *const_val, ConstExprValue *array_val,
+void init_const_ptr_array(CodeGen *g, ZigValue *const_val, ZigValue *array_val,
         size_t elem_index, bool is_const, PtrLen ptr_len)
 {
     assert(array_val->type->id == ZigTypeIdArray);
@@ -5843,28 +5843,28 @@ void init_const_ptr_array(CodeGen *g, ConstExprValue *const_val, ConstExprValue 
     const_val->data.x_ptr.data.base_array.elem_index = elem_index;
 }
 
-ConstExprValue *create_const_ptr_array(CodeGen *g, ConstExprValue *array_val, size_t elem_index, bool is_const,
+ZigValue *create_const_ptr_array(CodeGen *g, ZigValue *array_val, size_t elem_index, bool is_const,
         PtrLen ptr_len)
 {
-    ConstExprValue *const_val = create_const_vals(1);
+    ZigValue *const_val = create_const_vals(1);
     init_const_ptr_array(g, const_val, array_val, elem_index, is_const, ptr_len);
     return const_val;
 }
 
-void init_const_ptr_ref(CodeGen *g, ConstExprValue *const_val, ConstExprValue *pointee_val, bool is_const) {
+void init_const_ptr_ref(CodeGen *g, ZigValue *const_val, ZigValue *pointee_val, bool is_const) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = get_pointer_to_type(g, pointee_val->type, is_const);
     const_val->data.x_ptr.special = ConstPtrSpecialRef;
     const_val->data.x_ptr.data.ref.pointee = pointee_val;
 }
 
-ConstExprValue *create_const_ptr_ref(CodeGen *g, ConstExprValue *pointee_val, bool is_const) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_ptr_ref(CodeGen *g, ZigValue *pointee_val, bool is_const) {
+    ZigValue *const_val = create_const_vals(1);
     init_const_ptr_ref(g, const_val, pointee_val, is_const);
     return const_val;
 }
 
-void init_const_ptr_hard_coded_addr(CodeGen *g, ConstExprValue *const_val, ZigType *pointee_type,
+void init_const_ptr_hard_coded_addr(CodeGen *g, ZigValue *const_val, ZigType *pointee_type,
         size_t addr, bool is_const)
 {
     const_val->special = ConstValSpecialStatic;
@@ -5873,47 +5873,47 @@ void init_const_ptr_hard_coded_addr(CodeGen *g, ConstExprValue *const_val, ZigTy
     const_val->data.x_ptr.data.hard_coded_addr.addr = addr;
 }
 
-ConstExprValue *create_const_ptr_hard_coded_addr(CodeGen *g, ZigType *pointee_type,
+ZigValue *create_const_ptr_hard_coded_addr(CodeGen *g, ZigType *pointee_type,
         size_t addr, bool is_const)
 {
-    ConstExprValue *const_val = create_const_vals(1);
+    ZigValue *const_val = create_const_vals(1);
     init_const_ptr_hard_coded_addr(g, const_val, pointee_type, addr, is_const);
     return const_val;
 }
 
-void init_const_arg_tuple(CodeGen *g, ConstExprValue *const_val, size_t arg_index_start, size_t arg_index_end) {
+void init_const_arg_tuple(CodeGen *g, ZigValue *const_val, size_t arg_index_start, size_t arg_index_end) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = g->builtin_types.entry_arg_tuple;
     const_val->data.x_arg_tuple.start_index = arg_index_start;
     const_val->data.x_arg_tuple.end_index = arg_index_end;
 }
 
-ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_t arg_index_end) {
-    ConstExprValue *const_val = create_const_vals(1);
+ZigValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_t arg_index_end) {
+    ZigValue *const_val = create_const_vals(1);
     init_const_arg_tuple(g, const_val, arg_index_start, arg_index_end);
     return const_val;
 }
 
 
-ConstExprValue *create_const_vals(size_t count) {
+ZigValue *create_const_vals(size_t count) {
     ConstGlobalRefs *global_refs = allocate<ConstGlobalRefs>(count, "ConstGlobalRefs");
-    ConstExprValue *vals = allocate<ConstExprValue>(count, "ConstExprValue");
+    ZigValue *vals = allocate<ZigValue>(count, "ZigValue");
     for (size_t i = 0; i < count; i += 1) {
         vals[i].global_refs = &global_refs[i];
     }
     return vals;
 }
 
-ConstExprValue **alloc_const_vals_ptrs(size_t count) {
+ZigValue **alloc_const_vals_ptrs(size_t count) {
     return realloc_const_vals_ptrs(nullptr, 0, count);
 }
 
-ConstExprValue **realloc_const_vals_ptrs(ConstExprValue **ptr, size_t old_count, size_t new_count) {
+ZigValue **realloc_const_vals_ptrs(ZigValue **ptr, size_t old_count, size_t new_count) {
     assert(new_count >= old_count);
 
     size_t new_item_count = new_count - old_count;
-    ConstExprValue **result = reallocate(ptr, old_count, new_count, "ConstExprValue*");
-    ConstExprValue *vals = create_const_vals(new_item_count);
+    ZigValue **result = reallocate(ptr, old_count, new_count, "ZigValue*");
+    ZigValue *vals = create_const_vals(new_item_count);
     for (size_t i = old_count; i < new_count; i += 1) {
         result[i] = &vals[i - old_count];
     }
@@ -6106,7 +6106,8 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         alloca_gen->base.id = IrInstructionIdAllocaGen;
         alloca_gen->base.source_node = fn->proto_node;
         alloca_gen->base.scope = fn->child_scope;
-        alloca_gen->base.value.type = get_pointer_to_type(g, g->builtin_types.entry_global_error_set, false);
+        alloca_gen->base.value = allocate<ZigValue>(1, "ZigValue");
+        alloca_gen->base.value->type = get_pointer_to_type(g, g->builtin_types.entry_global_error_set, false);
         alloca_gen->base.ref_count = 1;
         alloca_gen->name_hint = "";
         fn->alloca_gen_list.append(alloca_gen);
@@ -6173,7 +6174,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         call->frame_result_loc = all_calls_alloca;
     }
     if (largest_call_frame_type != nullptr) {
-        all_calls_alloca->value.type = get_pointer_to_type(g, largest_call_frame_type, false);
+        all_calls_alloca->value->type = get_pointer_to_type(g, largest_call_frame_type, false);
     }
 
     // Since this frame is async, an await might represent a suspend point, and
@@ -6184,7 +6185,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         IrInstructionAwaitGen *await = fn->await_list.at(i);
         // TODO If this is a noasync await, it doesn't suspend
         // https://github.com/ziglang/zig/issues/3157
-        if (await->base.value.special != ConstValSpecialRuntime) {
+        if (await->base.value->special != ConstValSpecialRuntime) {
             // Known at comptime. No spill, no suspend.
             continue;
         }
@@ -6211,10 +6212,10 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         }
         if (await->base.ref_count == 0)
             continue;
-        if (!type_has_bits(await->base.value.type))
+        if (!type_has_bits(await->base.value->type))
             continue;
         await->result_loc = ir_create_alloca(g, await->base.scope, await->base.source_node, fn,
-                await->base.value.type, "");
+                await->base.value->type, "");
     }
     for (size_t block_i = 0; block_i < fn->analyzed_executable.basic_block_list.length; block_i += 1) {
         IrBasicBlock *block = fn->analyzed_executable.basic_block_list.at(block_i);
@@ -6239,17 +6240,17 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
                 // This instruction does its own spilling specially, or otherwise doesn't need it.
                 continue;
             }
-            if (instruction->value.special != ConstValSpecialRuntime)
+            if (instruction->value->special != ConstValSpecialRuntime)
                 continue;
             if (instruction->ref_count == 0)
                 continue;
-            if ((err = type_resolve(g, instruction->value.type, ResolveStatusZeroBitsKnown)))
+            if ((err = type_resolve(g, instruction->value->type, ResolveStatusZeroBitsKnown)))
                 return ErrorSemanticAnalyzeFail;
-            if (!type_has_bits(instruction->value.type))
+            if (!type_has_bits(instruction->value->type))
                 continue;
             if (scope_needs_spill(instruction->scope)) {
                 instruction->spill = ir_create_alloca(g, instruction->scope, instruction->source_node,
-                        fn, instruction->value.type, "");
+                        fn, instruction->value->type, "");
             }
         }
     }
@@ -6301,15 +6302,15 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     for (size_t alloca_i = 0; alloca_i < fn->alloca_gen_list.length; alloca_i += 1) {
         IrInstructionAllocaGen *instruction = fn->alloca_gen_list.at(alloca_i);
         instruction->field_index = SIZE_MAX;
-        ZigType *ptr_type = instruction->base.value.type;
+        ZigType *ptr_type = instruction->base.value->type;
         assert(ptr_type->id == ZigTypeIdPointer);
         ZigType *child_type = ptr_type->data.pointer.child_type;
         if (!type_has_bits(child_type))
             continue;
         if (instruction->base.ref_count == 0)
             continue;
-        if (instruction->base.value.special != ConstValSpecialRuntime) {
-            if (const_ptr_pointee(nullptr, g, &instruction->base.value, nullptr)->special !=
+        if (instruction->base.value->special != ConstValSpecialRuntime) {
+            if (const_ptr_pointee(nullptr, g, instruction->base.value, nullptr)->special !=
                     ConstValSpecialRuntime)
             {
                 continue;
@@ -6446,17 +6447,17 @@ bool ir_get_var_is_comptime(ZigVar *var) {
     // When the is_comptime field references an instruction that has to get analyzed, this
     // is the value.
     if (var->is_comptime->child != nullptr) {
-        assert(var->is_comptime->child->value.type->id == ZigTypeIdBool);
-        return var->is_comptime->child->value.data.x_bool;
+        assert(var->is_comptime->child->value->type->id == ZigTypeIdBool);
+        return var->is_comptime->child->value->data.x_bool;
     }
     // As an optimization, is_comptime values which are constant are allowed
     // to be omitted from analysis. In this case, there is no child instruction
     // and we simply look at the unanalyzed const parent instruction.
-    assert(var->is_comptime->value.type->id == ZigTypeIdBool);
-    return var->is_comptime->value.data.x_bool;
+    assert(var->is_comptime->value->type->id == ZigTypeIdBool);
+    return var->is_comptime->value->data.x_bool;
 }
 
-bool const_values_equal_ptr(ConstExprValue *a, ConstExprValue *b) {
+bool const_values_equal_ptr(ZigValue *a, ZigValue *b) {
     if (a->data.x_ptr.special != b->data.x_ptr.special)
         return false;
     switch (a->data.x_ptr.special) {
@@ -6527,7 +6528,7 @@ bool const_values_equal_ptr(ConstExprValue *a, ConstExprValue *b) {
     zig_unreachable();
 }
 
-static bool const_values_equal_array(CodeGen *g, ConstExprValue *a, ConstExprValue *b, size_t len) {
+static bool const_values_equal_array(CodeGen *g, ZigValue *a, ZigValue *b, size_t len) {
     assert(a->data.x_array.special != ConstArraySpecialUndef);
     assert(b->data.x_array.special != ConstArraySpecialUndef);
     if (a->data.x_array.special == ConstArraySpecialBuf &&
@@ -6538,8 +6539,8 @@ static bool const_values_equal_array(CodeGen *g, ConstExprValue *a, ConstExprVal
     expand_undef_array(g, a);
     expand_undef_array(g, b);
 
-    ConstExprValue *a_elems = a->data.x_array.data.s_none.elements;
-    ConstExprValue *b_elems = b->data.x_array.data.s_none.elements;
+    ZigValue *a_elems = a->data.x_array.data.s_none.elements;
+    ZigValue *b_elems = b->data.x_array.data.s_none.elements;
 
     for (size_t i = 0; i < len; i += 1) {
         if (!const_values_equal(g, &a_elems[i], &b_elems[i]))
@@ -6549,7 +6550,7 @@ static bool const_values_equal_array(CodeGen *g, ConstExprValue *a, ConstExprVal
     return true;
 }
 
-bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
+bool const_values_equal(CodeGen *g, ZigValue *a, ZigValue *b) {
     if (a->type->id != b->type->id) return false;
     assert(a->special == ConstValSpecialStatic);
     assert(b->special == ConstValSpecialStatic);
@@ -6623,8 +6624,8 @@ bool const_values_equal(CodeGen *g, ConstExprValue *a, ConstExprValue *b) {
         }
         case ZigTypeIdStruct:
             for (size_t i = 0; i < a->type->data.structure.src_field_count; i += 1) {
-                ConstExprValue *field_a = a->data.x_struct.fields[i];
-                ConstExprValue *field_b = b->data.x_struct.fields[i];
+                ZigValue *field_a = a->data.x_struct.fields[i];
+                ZigValue *field_b = b->data.x_struct.fields[i];
                 if (!const_values_equal(g, field_a, field_b))
                     return false;
             }
@@ -6695,7 +6696,7 @@ void eval_min_max_value_int(CodeGen *g, ZigType *int_type, BigInt *bigint, bool 
     }
 }
 
-void eval_min_max_value(CodeGen *g, ZigType *type_entry, ConstExprValue *const_val, bool is_max) {
+void eval_min_max_value(CodeGen *g, ZigType *type_entry, ZigValue *const_val, bool is_max) {
     if (type_entry->id == ZigTypeIdInt) {
         const_val->special = ConstValSpecialStatic;
         eval_min_max_value_int(g, type_entry, &const_val->data.x_bigint, is_max);
@@ -6709,7 +6710,7 @@ void eval_min_max_value(CodeGen *g, ZigType *type_entry, ConstExprValue *const_v
     }
 }
 
-static void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigType *type_entry) {
+static void render_const_val_ptr(CodeGen *g, Buf *buf, ZigValue *const_val, ZigType *type_entry) {
     if (type_entry->id == ZigTypeIdPointer && type_entry->data.pointer.child_type->id == ZigTypeIdOpaque) {
         buf_append_buf(buf, &type_entry->name);
         return;
@@ -6752,7 +6753,7 @@ static void render_const_val_ptr(CodeGen *g, Buf *buf, ConstExprValue *const_val
     zig_unreachable();
 }
 
-static void render_const_val_err_set(CodeGen *g, Buf *buf, ConstExprValue *const_val, ZigType *type_entry) {
+static void render_const_val_err_set(CodeGen *g, Buf *buf, ZigValue *const_val, ZigType *type_entry) {
     if (const_val->data.x_err_set == nullptr) {
         buf_append_str(buf, "null");
     } else {
@@ -6760,7 +6761,7 @@ static void render_const_val_err_set(CodeGen *g, Buf *buf, ConstExprValue *const
     }
 }
 
-static void render_const_val_array(CodeGen *g, Buf *buf, Buf *type_name, ConstExprValue *const_val, uint64_t start, uint64_t len) {
+static void render_const_val_array(CodeGen *g, Buf *buf, Buf *type_name, ZigValue *const_val, uint64_t start, uint64_t len) {
     ConstArrayValue *array = &const_val->data.x_array;
     switch (array->special) {
         case ConstArraySpecialUndef:
@@ -6784,7 +6785,7 @@ static void render_const_val_array(CodeGen *g, Buf *buf, Buf *type_name, ConstEx
             return;
         }
         case ConstArraySpecialNone: {
-            ConstExprValue *base = &array->data.s_none.elements[start];
+            ZigValue *base = &array->data.s_none.elements[start];
             assert(start + len <= const_val->type->data.array.len);
 
             buf_appendf(buf, "%s{", buf_ptr(type_name));
@@ -6799,7 +6800,7 @@ static void render_const_val_array(CodeGen *g, Buf *buf, Buf *type_name, ConstEx
     zig_unreachable();
 }
 
-void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
+void render_const_value(CodeGen *g, Buf *buf, ZigValue *const_val) {
     switch (const_val->special) {
         case ConstValSpecialRuntime:
             buf_appendf(buf, "(runtime value)");
@@ -6927,17 +6928,17 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
         case ZigTypeIdStruct:
             {
                 if (is_slice(type_entry)) {
-                    ConstExprValue *len_val = const_val->data.x_struct.fields[slice_len_index];
+                    ZigValue *len_val = const_val->data.x_struct.fields[slice_len_index];
                     size_t len = bigint_as_usize(&len_val->data.x_bigint);
 
-                    ConstExprValue *ptr_val = const_val->data.x_struct.fields[slice_ptr_index];
+                    ZigValue *ptr_val = const_val->data.x_struct.fields[slice_ptr_index];
                     if (ptr_val->special == ConstValSpecialUndef) {
                         assert(len == 0);
                         buf_appendf(buf, "((%s)(undefined))[0..0]", buf_ptr(&type_entry->name));
                         return;
                     }
                     assert(ptr_val->data.x_ptr.special == ConstPtrSpecialBaseArray);
-                    ConstExprValue *array = ptr_val->data.x_ptr.data.base_array.array_val;
+                    ZigValue *array = ptr_val->data.x_ptr.data.base_array.array_val;
                     size_t start = ptr_val->data.x_ptr.data.base_array.elem_index;
 
                     render_const_val_array(g, buf, &type_entry->name, array, start, len);
@@ -7206,7 +7207,7 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
     zig_unreachable();
 }
 
-static void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
+static void init_const_undefined(CodeGen *g, ZigValue *const_val) {
     Error err;
     ZigType *wanted_type = const_val->type;
     if (wanted_type->id == ZigTypeIdArray) {
@@ -7221,7 +7222,7 @@ static void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
         size_t field_count = wanted_type->data.structure.src_field_count;
         const_val->data.x_struct.fields = alloc_const_vals_ptrs(field_count);
         for (size_t i = 0; i < field_count; i += 1) {
-            ConstExprValue *field_val = const_val->data.x_struct.fields[i];
+            ZigValue *field_val = const_val->data.x_struct.fields[i];
             field_val->type = resolve_struct_field_type(g, wanted_type->data.structure.fields[i]);
             assert(field_val->type);
             init_const_undefined(g, field_val);
@@ -7234,14 +7235,14 @@ static void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
     }
 }
 
-void expand_undef_struct(CodeGen *g, ConstExprValue *const_val) {
+void expand_undef_struct(CodeGen *g, ZigValue *const_val) {
     if (const_val->special == ConstValSpecialUndef) {
         init_const_undefined(g, const_val);
     }
 }
 
 // Canonicalize the array value as ConstArraySpecialNone
-void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
+void expand_undef_array(CodeGen *g, ZigValue *const_val) {
     size_t elem_count;
     ZigType *elem_type;
     if (const_val->type->id == ZigTypeIdArray) {
@@ -7264,7 +7265,7 @@ void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
             const_val->data.x_array.special = ConstArraySpecialNone;
             const_val->data.x_array.data.s_none.elements = create_const_vals(elem_count);
             for (size_t i = 0; i < elem_count; i += 1) {
-                ConstExprValue *element_val = &const_val->data.x_array.data.s_none.elements[i];
+                ZigValue *element_val = &const_val->data.x_array.data.s_none.elements[i];
                 element_val->type = elem_type;
                 init_const_undefined(g, element_val);
                 element_val->parent.id = ConstParentIdArray;
@@ -7283,7 +7284,7 @@ void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
             assert(elem_count == buf_len(buf));
             const_val->data.x_array.data.s_none.elements = create_const_vals(elem_count);
             for (size_t i = 0; i < elem_count; i += 1) {
-                ConstExprValue *this_char = &const_val->data.x_array.data.s_none.elements[i];
+                ZigValue *this_char = &const_val->data.x_array.data.s_none.elements[i];
                 this_char->special = ConstValSpecialStatic;
                 this_char->type = g->builtin_types.entry_u8;
                 bigint_init_unsigned(&this_char->data.x_bigint, (uint8_t)buf_ptr(buf)[i]);
@@ -7541,12 +7542,12 @@ bool err_ptr_eql(const ErrorTableEntry *a, const ErrorTableEntry *b) {
     return a == b;
 }
 
-ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
+ZigValue *get_builtin_value(CodeGen *codegen, const char *name) {
     Tld *tld = get_container_scope(codegen->compile_var_import)->decl_table.get(buf_create_from_str(name));
     resolve_top_level_decl(codegen, tld, nullptr, false);
     assert(tld->id == TldIdVar);
     TldVar *tld_var = (TldVar *)tld;
-    ConstExprValue *var_value = tld_var->var->const_value;
+    ZigValue *var_value = tld_var->var->const_value;
     assert(var_value != nullptr);
     return var_value;
 }
@@ -7733,9 +7734,9 @@ uint32_t get_host_int_bytes(CodeGen *g, ZigType *struct_type, TypeStructField *f
 }
 
 Error ensure_const_val_repr(IrAnalyze *ira, CodeGen *codegen, AstNode *source_node,
-        ConstExprValue *const_val, ZigType *wanted_type)
+        ZigValue *const_val, ZigType *wanted_type)
 {
-    ConstExprValue ptr_val = {};
+    ZigValue ptr_val = {};
     ptr_val.special = ConstValSpecialStatic;
     ptr_val.type = get_pointer_to_type(codegen, wanted_type, true);
     ptr_val.data.x_ptr.mut = ConstPtrMutComptimeConst;
@@ -9113,7 +9114,8 @@ IrInstruction *ir_create_alloca(CodeGen *g, Scope *scope, AstNode *source_node, 
     alloca_gen->base.id = IrInstructionIdAllocaGen;
     alloca_gen->base.source_node = source_node;
     alloca_gen->base.scope = scope;
-    alloca_gen->base.value.type = get_pointer_to_type(g, var_type, false);
+    alloca_gen->base.value = allocate<ZigValue>(1, "ZigValue");
+    alloca_gen->base.value->type = get_pointer_to_type(g, var_type, false);
     alloca_gen->base.ref_count = 1;
     alloca_gen->name_hint = name_hint;
     fn->alloca_gen_list.append(alloca_gen);

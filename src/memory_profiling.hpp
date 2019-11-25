@@ -13,6 +13,14 @@
 #include <stddef.h>
 #include <stdio.h>
 
+struct MemprofInternCount {
+    size_t x_undefined;
+    size_t x_void;
+    size_t x_null;
+    size_t x_unreachable;
+};
+extern MemprofInternCount memprof_intern_count;
+
 void memprof_init(void);
 
 void memprof_alloc(const char *name, size_t item_count, size_t type_size);

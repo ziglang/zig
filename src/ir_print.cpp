@@ -389,14 +389,14 @@ static void ir_print_indent(IrPrint *irp) {
 static void ir_print_prefix(IrPrint *irp, IrInstruction *instruction, bool trailing) {
     ir_print_indent(irp);
     const char mark = trailing ? ':' : '#';
-    const char *type_name = instruction->value.type ? buf_ptr(&instruction->value.type->name) : "(unknown)";
+    const char *type_name = instruction->value->type ? buf_ptr(&instruction->value->type->name) : "(unknown)";
     const char *ref_count = ir_has_side_effects(instruction) ?
         "-" : buf_ptr(buf_sprintf("%" PRIu32 "", instruction->ref_count));
     fprintf(irp->f, "%c%-3" PRIu32 "| %-22s| %-12s| %-2s| ", mark, instruction->debug_id,
         ir_instruction_type_str(instruction->id), type_name, ref_count);
 }
 
-static void ir_print_const_value(IrPrint *irp, ConstExprValue *const_val) {
+static void ir_print_const_value(IrPrint *irp, ZigValue *const_val) {
     Buf buf = BUF_INIT;
     buf_resize(&buf, 0);
     render_const_value(irp->codegen, &buf, const_val);
@@ -417,8 +417,8 @@ static void ir_print_other_instruction(IrPrint *irp, IrInstruction *instruction)
         return;
     }
 
-    if (instruction->value.special != ConstValSpecialRuntime) {
-        ir_print_const_value(irp, &instruction->value);
+    if (instruction->value->special != ConstValSpecialRuntime) {
+        ir_print_const_value(irp, instruction->value);
     } else {
         ir_print_var_instruction(irp, instruction);
     }
@@ -438,7 +438,7 @@ static void ir_print_return(IrPrint *irp, IrInstructionReturn *instruction) {
 }
 
 static void ir_print_const(IrPrint *irp, IrInstructionConst *const_instruction) {
-    ir_print_const_value(irp, &const_instruction->base.value);
+    ir_print_const_value(irp, const_instruction->base.value);
 }
 
 static const char *ir_bin_op_id_str(IrBinOp op_id) {
@@ -2576,7 +2576,7 @@ void ir_print_instruction(CodeGen *codegen, FILE *f, IrInstruction *instruction,
     ir_print_instruction(irp, instruction, false);
 }
 
-void ir_print_const_expr(CodeGen *codegen, FILE *f, ConstExprValue *value, int indent_size, IrPass pass) {
+void ir_print_const_expr(CodeGen *codegen, FILE *f, ZigValue *value, int indent_size, IrPass pass) {
     IrPrint ir_print = {};
     IrPrint *irp = &ir_print;
     irp->pass = pass;
