@@ -1,7 +1,6 @@
 // This is Zig code that is used by both stage1 and stage2.
 // The prototypes in src/userland.h must match these definitions.
 
-const builtin = @import("builtin");
 const std = @import("std");
 const io = std.io;
 const mem = std.mem;
@@ -354,9 +353,9 @@ fn printErrMsgToFile(
     color: errmsg.Color,
 ) !void {
     const color_on = switch (color) {
-        errmsg.Color.Auto => file.isTty(),
-        errmsg.Color.On => true,
-        errmsg.Color.Off => false,
+        .Auto => file.isTty(),
+        .On => true,
+        .Off => false,
     };
     const lok_token = parse_error.loc();
     const span = errmsg.Span{
@@ -421,8 +420,8 @@ export fn stage2_DepTokenizer_next(self: *stage2_DepTokenizer) stage2_DepNextRes
     const textz = std.Buffer.init(&self.handle.arena.allocator, token.bytes) catch @panic("failed to create .d tokenizer token text");
     return stage2_DepNextResult{
         .type_id = switch (token.id) {
-            .target => stage2_DepNextResult.TypeId.target,
-            .prereq => stage2_DepNextResult.TypeId.prereq,
+            .target => .target,
+            .prereq => .prereq,
         },
         .textz = textz.toSlice().ptr,
     };

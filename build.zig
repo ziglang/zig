@@ -54,6 +54,7 @@ pub fn build(b: *Builder) !void {
 
     var test_stage2 = b.addTest("src-self-hosted/test.zig");
     test_stage2.setBuildMode(builtin.Mode.Debug);
+    test_stage2.addPackagePath("stage2_tests", "test/stage2/test.zig");
 
     const fmt_build_zig = b.addFmt([_][]const u8{"build.zig"});
 
@@ -72,9 +73,9 @@ pub fn build(b: *Builder) !void {
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
     const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") orelse false;
-    if (!skip_self_hosted) {
-        // TODO re-enable this after https://github.com/ziglang/zig/issues/2377
-        //test_step.dependOn(&exe.step);
+    if (!skip_self_hosted and builtin.os == .linux) {
+        // TODO evented I/O other OS's
+        test_step.dependOn(&exe.step);
     }
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
@@ -98,11 +99,7 @@ pub fn build(b: *Builder) !void {
 
     const test_stage2_step = b.step("test-stage2", "Run the stage2 compiler tests");
     test_stage2_step.dependOn(&test_stage2.step);
-
-    // TODO see https://github.com/ziglang/zig/issues/1364
-    if (false) {
-        test_step.dependOn(test_stage2_step);
-    }
+    test_step.dependOn(test_stage2_step);
 
     var chosen_modes: [4]builtin.Mode = undefined;
     var chosen_mode_index: usize = 0;
@@ -235,6 +232,9 @@ fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
                 if (fs.path.isAbsolute(lib_arg)) {
                     try result.libs.append(lib_arg);
                 } else {
+                    if (mem.endsWith(u8, lib_arg, ".lib")) {
+                        lib_arg = lib_arg[0 .. lib_arg.len - 4];
+                    }
                     try result.system_libs.append(lib_arg);
                 }
             }

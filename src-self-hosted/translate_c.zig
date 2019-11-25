@@ -2,7 +2,6 @@
 // and stage2. Currently the only way it is used is with `zig translate-c-2`.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const assert = std.debug.assert;
 const ast = std.zig.ast;
 const Token = std.zig.Token;
@@ -13,8 +12,7 @@ pub const Mode = enum {
     translate,
 };
 
-// TODO merge with Type.Fn.CallingConvention
-const CallingConvention = builtin.TypeInfo.CallingConvention;
+const CallingConvention = std.builtin.TypeInfo.CallingConvention;
 
 pub const ClangErrMsg = Stage2ErrorMsg;
 

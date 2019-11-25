@@ -63,7 +63,7 @@ pub const ChildProcess = struct {
 
         /// Windows-only. `cwd` was provided, but the path did not exist when spawning the child process.
         CurrentWorkingDirectoryUnlinked,
-    } || os.ExecveError || os.SetIdError || os.ChangeCurDirError || windows.CreateProcessError;
+    } || os.ExecveError || os.SetIdError || os.ChangeCurDirError || windows.CreateProcessError || windows.WaitForSingleObjectError;
 
     pub const Term = union(enum) {
         Exited: u32,
@@ -259,7 +259,9 @@ pub const ChildProcess = struct {
     }
 
     fn handleWaitResult(self: *ChildProcess, status: u32) void {
-        self.term = self.cleanupAfterWait(status);
+        // TODO https://github.com/ziglang/zig/issues/3190 
+        var term = self.cleanupAfterWait(status);
+        self.term = term;
     }
 
     fn cleanupStreams(self: *ChildProcess) void {

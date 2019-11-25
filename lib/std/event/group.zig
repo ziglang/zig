@@ -66,11 +66,10 @@ pub fn Group(comptime ReturnType: type) type {
             node.* = AllocStack.Node{
                 .next = undefined,
                 .data = Node{
-                    .handle = frame,
-                    .bytes = @sliceToBytes((*[1]@Frame(func))(frame)[0..]),
+                    .handle = @asyncCall(frame, {}, func, args),
+                    .bytes = std.mem.asBytes(frame),
                 },
             };
-            frame.* = async func(args);
             self.alloc_stack.push(node);
         }
 

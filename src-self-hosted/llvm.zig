@@ -1,4 +1,3 @@
-const builtin = @import("builtin");
 const c = @import("c.zig");
 const assert = @import("std").debug.assert;
 
@@ -268,7 +267,7 @@ pub const FnInline = extern enum {
 };
 
 fn removeNullability(comptime T: type) type {
-    comptime assert(@typeInfo(T).Pointer.size == @import("builtin").TypeInfo.Pointer.Size.C);
+    comptime assert(@typeInfo(T).Pointer.size == .C);
     return *T.Child;
 }
 
