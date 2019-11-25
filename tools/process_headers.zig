@@ -56,113 +56,113 @@ const MultiAbi = union(enum) {
 const glibc_targets = [_]LibCTarget{
     LibCTarget{
         .name = "aarch64_be-linux-gnu",
-        .arch = MultiArch {.specific = Arch.aarch64_be},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.aarch64_be },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "aarch64-linux-gnu",
-        .arch = MultiArch {.specific = Arch.aarch64},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.aarch64 },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "armeb-linux-gnueabi",
-        .arch = MultiArch {.specific = Arch.armeb},
-        .abi = MultiAbi {.specific = Abi.gnueabi},
+        .arch = MultiArch{ .specific = Arch.armeb },
+        .abi = MultiAbi{ .specific = Abi.gnueabi },
     },
     LibCTarget{
         .name = "armeb-linux-gnueabihf",
-        .arch = MultiArch {.specific = Arch.armeb},
-        .abi = MultiAbi {.specific = Abi.gnueabihf},
+        .arch = MultiArch{ .specific = Arch.armeb },
+        .abi = MultiAbi{ .specific = Abi.gnueabihf },
     },
     LibCTarget{
         .name = "arm-linux-gnueabi",
-        .arch = MultiArch {.specific = Arch.arm},
-        .abi = MultiAbi {.specific = Abi.gnueabi},
+        .arch = MultiArch{ .specific = Arch.arm },
+        .abi = MultiAbi{ .specific = Abi.gnueabi },
     },
     LibCTarget{
         .name = "arm-linux-gnueabihf",
-        .arch = MultiArch {.specific = Arch.arm},
-        .abi = MultiAbi {.specific = Abi.gnueabihf},
+        .arch = MultiArch{ .specific = Arch.arm },
+        .abi = MultiAbi{ .specific = Abi.gnueabihf },
     },
     LibCTarget{
         .name = "i686-linux-gnu",
-        .arch = MultiArch {.specific = Arch.i386},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.i386 },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "mips64el-linux-gnu-n32",
-        .arch = MultiArch {.specific = Arch.mips64el},
-        .abi = MultiAbi {.specific = Abi.gnuabin32},
+        .arch = MultiArch{ .specific = Arch.mips64el },
+        .abi = MultiAbi{ .specific = Abi.gnuabin32 },
     },
     LibCTarget{
         .name = "mips64el-linux-gnu-n64",
-        .arch = MultiArch {.specific = Arch.mips64el},
-        .abi = MultiAbi {.specific = Abi.gnuabi64},
+        .arch = MultiArch{ .specific = Arch.mips64el },
+        .abi = MultiAbi{ .specific = Abi.gnuabi64 },
     },
     LibCTarget{
         .name = "mips64-linux-gnu-n32",
-        .arch = MultiArch {.specific = Arch.mips64},
-        .abi = MultiAbi {.specific = Abi.gnuabin32},
+        .arch = MultiArch{ .specific = Arch.mips64 },
+        .abi = MultiAbi{ .specific = Abi.gnuabin32 },
     },
     LibCTarget{
         .name = "mips64-linux-gnu-n64",
-        .arch = MultiArch {.specific = Arch.mips64},
-        .abi = MultiAbi {.specific = Abi.gnuabi64},
+        .arch = MultiArch{ .specific = Arch.mips64 },
+        .abi = MultiAbi{ .specific = Abi.gnuabi64 },
     },
     LibCTarget{
         .name = "mipsel-linux-gnu",
-        .arch = MultiArch {.specific = Arch.mipsel},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.mipsel },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "mips-linux-gnu",
-        .arch = MultiArch {.specific = Arch.mips},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.mips },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "powerpc64le-linux-gnu",
-        .arch = MultiArch {.specific = Arch.powerpc64le},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.powerpc64le },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "powerpc64-linux-gnu",
-        .arch = MultiArch {.specific = Arch.powerpc64},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.powerpc64 },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "powerpc-linux-gnu",
-        .arch = MultiArch {.specific = Arch.powerpc},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.powerpc },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "riscv64-linux-gnu-rv64imac-lp64",
-        .arch = MultiArch {.specific = Arch.riscv64},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.riscv64 },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "s390x-linux-gnu",
-        .arch = MultiArch {.specific = Arch.s390x},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.s390x },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "sparc64-linux-gnu",
-        .arch = MultiArch {.specific = Arch.sparc},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.sparc },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "sparcv9-linux-gnu",
-        .arch = MultiArch {.specific = Arch.sparcv9},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.sparcv9 },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "x86_64-linux-gnu",
-        .arch = MultiArch {.specific = Arch.x86_64},
-        .abi = MultiAbi {.specific = Abi.gnu},
+        .arch = MultiArch{ .specific = Arch.x86_64 },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "x86_64-linux-gnu-x32",
-        .arch = MultiArch {.specific = Arch.x86_64},
-        .abi = MultiAbi {.specific = Abi.gnux32},
+        .arch = MultiArch{ .specific = Arch.x86_64 },
+        .abi = MultiAbi{ .specific = Abi.gnux32 },
     },
 };
 
@@ -258,7 +258,7 @@ const LibCVendor = enum {
 };
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const allocator = &arena.allocator;
     const args = try std.process.argsAlloc(allocator);
     var search_paths = std.ArrayList([]const u8).init(allocator);

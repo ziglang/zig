@@ -410,8 +410,8 @@ test "heap allocated async function frame" {
         var x: i32 = 42;
 
         fn doTheTest() !void {
-            const frame = try std.heap.direct_allocator.create(@Frame(someFunc));
-            defer std.heap.direct_allocator.destroy(frame);
+            const frame = try std.heap.page_allocator.create(@Frame(someFunc));
+            defer std.heap.page_allocator.destroy(frame);
 
             expect(x == 42);
             frame.* = async someFunc();
@@ -671,7 +671,7 @@ fn testAsyncAwaitTypicalUsage(
         }
 
         fn amain() !void {
-            const allocator = std.heap.direct_allocator; // TODO once we have the debug allocator, use that, so that this can detect leaks
+            const allocator = std.heap.page_allocator; // TODO once we have the debug allocator, use that, so that this can detect leaks
             var download_frame = async fetchUrl(allocator, "https://example.com/");
             var download_awaited = false;
             errdefer if (!download_awaited) {
@@ -935,12 +935,12 @@ fn recursiveAsyncFunctionTest(comptime suspending_implementation: bool) type {
                 _ = async amain(&result);
                 return result;
             } else {
-                return fib(std.heap.direct_allocator, 10) catch unreachable;
+                return fib(std.heap.page_allocator, 10) catch unreachable;
             }
         }
 
         fn amain(result: *u32) void {
-            var x = async fib(std.heap.direct_allocator, 10);
+            var x = async fib(std.heap.page_allocator, 10);
             result.* = (await x) catch unreachable;
         }
     };
@@ -1132,7 +1132,9 @@ test "await used in expression after a fn call" {
         async fn add(a: i32, b: i32) i32 {
             return a + b;
         }
-        fn foo() i32 { return 1; }
+        fn foo() i32 {
+            return 1;
+        }
     };
     _ = async S.atest();
 }
@@ -1147,7 +1149,9 @@ test "async fn call used in expression after a fn call" {
         async fn add(a: i32, b: i32) i32 {
             return a + b;
         }
-        fn foo() i32 { return 1; }
+        fn foo() i32 {
+            return 1;
+        }
     };
     _ = async S.atest();
 }
@@ -1201,14 +1205,13 @@ test "correctly spill when returning the error union result of another async fn"
     resume S.global_frame;
 }
 
-
 test "spill target expr in a for loop" {
     const S = struct {
         var global_frame: anyframe = undefined;
 
         fn doTheTest() void {
             var foo = Foo{
-                .slice = [_]i32{1, 2},
+                .slice = [_]i32{ 1, 2 },
             };
             expect(atest(&foo) == 3);
         }
@@ -1239,7 +1242,7 @@ test "spill target expr in a for loop, with a var decl in the loop body" {
 
         fn doTheTest() void {
             var foo = Foo{
-                .slice = [_]i32{1, 2},
+                .slice = [_]i32{ 1, 2 },
             };
             expect(atest(&foo) == 3);
         }

@@ -129,7 +129,7 @@ pub const Loop = struct {
     /// max(thread_count - 1, 0)
     pub fn initThreadPool(self: *Loop, thread_count: usize) !void {
         // TODO: https://github.com/ziglang/zig/issues/3539
-        const allocator = std.heap.direct_allocator;
+        const allocator = std.heap.page_allocator;
         self.* = Loop{
             .pending_event_count = 1,
             .allocator = allocator,

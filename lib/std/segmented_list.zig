@@ -339,7 +339,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 }
 
 test "std.SegmentedList" {
-    var a = std.heap.direct_allocator;
+    var a = std.heap.page_allocator;
 
     try testSegmentedList(0, a);
     try testSegmentedList(1, a);

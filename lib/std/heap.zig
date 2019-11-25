@@ -33,13 +33,16 @@ fn cShrink(self: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new
 
 /// This allocator makes a syscall directly for every allocation and free.
 /// Thread-safe and lock-free.
-pub const direct_allocator = &direct_allocator_state;
-var direct_allocator_state = Allocator{
-    .reallocFn = DirectAllocator.realloc,
-    .shrinkFn = DirectAllocator.shrink,
+pub const page_allocator = &page_allocator_state;
+var page_allocator_state = Allocator{
+    .reallocFn = PageAllocator.realloc,
+    .shrinkFn = PageAllocator.shrink,
 };
 
-const DirectAllocator = struct {
+/// Deprecated. Use `page_allocator`.
+pub const direct_allocator = page_allocator;
+
+const PageAllocator = struct {
     fn alloc(allocator: *Allocator, n: usize, alignment: u29) error{OutOfMemory}![]u8 {
         if (n == 0) return &[0]u8{};
 
@@ -484,7 +487,7 @@ pub const FixedBufferAllocator = struct {
     }
 };
 
-// FIXME: Exposed LLVM intrinsics is a bug
+// TODO Exposed LLVM intrinsics is a bug
 // See: https://github.com/ziglang/zig/issues/2291
 extern fn @"llvm.wasm.memory.size.i32"(u32) u32;
 extern fn @"llvm.wasm.memory.grow.i32"(u32, u32) i32;
@@ -725,8 +728,8 @@ test "c_allocator" {
     }
 }
 
-test "DirectAllocator" {
-    const allocator = direct_allocator;
+test "PageAllocator" {
+    const allocator = page_allocator;
     try testAllocator(allocator);
     try testAllocatorAligned(allocator, 16);
     try testAllocatorLargeAlignment(allocator);
@@ -735,7 +738,7 @@ test "DirectAllocator" {
     if (builtin.os == .windows) {
         // Trying really large alignment. As mentionned in the implementation,
         // VirtualAlloc returns 64K aligned addresses. We want to make sure
-        // DirectAllocator works beyond that, as it's not tested by
+        // PageAllocator works beyond that, as it's not tested by
         // `testAllocatorLargeAlignment`.
         const slice = try allocator.alignedAlloc(u8, 1 << 20, 128);
         slice[0] = 0x12;
@@ -758,7 +761,7 @@ test "HeapAllocator" {
 }
 
 test "ArenaAllocator" {
-    var arena_allocator = ArenaAllocator.init(direct_allocator);
+    var arena_allocator = ArenaAllocator.init(page_allocator);
     defer arena_allocator.deinit();
 
     try testAllocator(&arena_allocator.allocator);

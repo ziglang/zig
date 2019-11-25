@@ -969,7 +969,7 @@ pub const Builder = struct {
 };
 
 test "builder.findProgram compiles" {
-    const builder = try Builder.create(std.heap.direct_allocator, "zig", "zig-cache", "zig-cache");
+    const builder = try Builder.create(std.heap.page_allocator, "zig", "zig-cache", "zig-cache");
     _ = builder.findProgram([_][]const u8{}, [_][]const u8{}) catch null;
 }
 

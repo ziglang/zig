@@ -16,7 +16,7 @@ const tmp_dir_name = "docgen_tmp";
 const test_out_path = tmp_dir_name ++ fs.path.sep_str ++ "test" ++ exe_ext;
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
     const allocator = &arena.allocator;

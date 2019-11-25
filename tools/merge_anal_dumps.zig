@@ -6,7 +6,7 @@ const fieldIndex = std.meta.fieldIndex;
 const TypeId = builtin.TypeId;
 
 pub fn main() anyerror!void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
     const allocator = &arena.allocator;

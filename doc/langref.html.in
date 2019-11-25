@@ -6428,7 +6428,7 @@ fn amainWrap() void {
 }
 
 fn amain() !void {
-    const allocator = std.heap.direct_allocator;
+    const allocator = std.heap.page_allocator;
     var download_frame = async fetchUrl(allocator, "https://example.com/");
     var awaited_download_frame = false;
     errdefer if (!awaited_download_frame) {
@@ -6498,7 +6498,7 @@ fn amainWrap() void {
 }
 
 fn amain() !void {
-    const allocator = std.heap.direct_allocator;
+    const allocator = std.heap.page_allocator;
     var download_frame = async fetchUrl(allocator, "https://example.com/");
     var awaited_download_frame = false;
     errdefer if (!awaited_download_frame) {
@@ -7315,7 +7315,7 @@ test "field access by string" {
 const std = @import("std");
 
 test "heap allocated frame" {
-    const frame = try std.heap.direct_allocator.create(@Frame(func));
+    const frame = try std.heap.page_allocator.create(@Frame(func));
     frame.* = async func();
 }
 
@@ -9341,7 +9341,7 @@ fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
 const std = @import("std");
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
     const allocator = &arena.allocator;

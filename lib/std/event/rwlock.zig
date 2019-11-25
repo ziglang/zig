@@ -220,7 +220,7 @@ test "std.event.RwLock" {
     var lock = RwLock.init();
     defer lock.deinit();
 
-    const handle = testLock(std.heap.direct_allocator, &lock);
+    const handle = testLock(std.heap.page_allocator, &lock);
 
     const expected_result = [1]i32{shared_it_count * @intCast(i32, shared_test_data.len)} ** shared_test_data.len;
     testing.expectEqualSlices(i32, expected_result, shared_test_data);

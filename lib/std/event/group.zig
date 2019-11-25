@@ -115,7 +115,7 @@ test "std.event.Group" {
     // TODO provide a way to run tests in evented I/O mode
     if (!std.io.is_async) return error.SkipZigTest;
 
-    const handle = async testGroup(std.heap.direct_allocator);
+    const handle = async testGroup(std.heap.page_allocator);
 }
 
 async fn testGroup(allocator: *Allocator) void {

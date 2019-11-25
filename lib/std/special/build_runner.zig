@@ -17,7 +17,7 @@ pub fn main() !void {
     // one shot program. We don't need to waste time freeing memory and finding places to squish
     // bytes into. So we free everything all at once at the very end.
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
     const allocator = &arena.allocator;

@@ -182,7 +182,7 @@ pub fn main() !void {
     const stdin_file = io.getStdIn();
     const stdout_file = io.getStdOut();
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
     global_allocator = &arena.allocator;

@@ -234,6 +234,6 @@ test "pipe" {
 }
 
 test "argsAlloc" {
-    var args = try std.process.argsAlloc(std.heap.direct_allocator);
-    std.heap.direct_allocator.free(args);
+    var args = try std.process.argsAlloc(std.heap.page_allocator);
+    std.process.argsFree(std.heap.page_allocator, args);
 }

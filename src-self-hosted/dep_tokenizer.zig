@@ -837,7 +837,7 @@ test "error prereq - continuation expecting end-of-line" {
 
 // - tokenize input, emit textual representation, and compare to expect
 fn depTokenizer(input: []const u8, expect: []const u8) !void {
-    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
+    var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const arena = &arena_allocator.allocator;
     defer arena_allocator.deinit();
 

@@ -4,7 +4,7 @@ const std = @import("std");
 pub fn main() !void {
     const stdout = &std.io.getStdOut().outStream().stream;
 
-    const args = try std.process.argsAlloc(std.heap.direct_allocator);
+    const args = try std.process.argsAlloc(std.heap.page_allocator);
 
     @fence(.SeqCst);
     var timer = try std.time.Timer.start();

@@ -125,8 +125,8 @@ const TestContext = struct {
 };
 
 test "std.Mutex" {
-    var plenty_of_memory = try std.heap.direct_allocator.alloc(u8, 300 * 1024);
-    defer std.heap.direct_allocator.free(plenty_of_memory);
+    var plenty_of_memory = try std.heap.page_allocator.alloc(u8, 300 * 1024);
+    defer std.heap.page_allocator.free(plenty_of_memory);
 
     var fixed_buffer_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(plenty_of_memory);
     var a = &fixed_buffer_allocator.allocator;

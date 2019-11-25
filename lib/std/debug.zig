@@ -2352,7 +2352,7 @@ var debug_info_arena_allocator: std.heap.ArenaAllocator = undefined;
 fn getDebugInfoAllocator() *mem.Allocator {
     if (debug_info_allocator) |a| return a;
 
-    debug_info_arena_allocator = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
+    debug_info_arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     debug_info_allocator = &debug_info_arena_allocator.allocator;
     return &debug_info_arena_allocator.allocator;
 }
