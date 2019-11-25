@@ -138,7 +138,7 @@ pub const FDFLAG_NONBLOCK: fdflags_t = 0x0004;
 pub const FDFLAG_RSYNC: fdflags_t = 0x0008;
 pub const FDFLAG_SYNC: fdflags_t = 0x0010;
 
-const fdstat_t = extern struct {
+pub const fdstat_t = extern struct {
     fs_filetype: filetype_t,
     fs_flags: fdflags_t,
     fs_rights_base: rights_t,
@@ -298,6 +298,7 @@ pub const subscription_t = extern struct {
 };
 
 pub const timestamp_t = u64;
+pub const time_t = i64; // match https://github.com/CraneStation/wasi-libc
 
 pub const userdata_t = u64;
 
@@ -305,3 +306,8 @@ pub const whence_t = u8;
 pub const WHENCE_CUR: whence_t = 0;
 pub const WHENCE_END: whence_t = 1;
 pub const WHENCE_SET: whence_t = 2;
+
+pub const timespec = extern struct {
+    tv_sec: time_t,
+    tv_nsec: isize,
+};

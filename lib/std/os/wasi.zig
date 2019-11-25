@@ -76,3 +76,54 @@ pub extern "wasi_unstable" fn sched_yield() errno_t;
 pub extern "wasi_unstable" fn sock_recv(sock: fd_t, ri_data: *const iovec_t, ri_data_len: usize, ri_flags: riflags_t, ro_datalen: *usize, ro_flags: *roflags_t) errno_t;
 pub extern "wasi_unstable" fn sock_send(sock: fd_t, si_data: *const ciovec_t, si_data_len: usize, si_flags: siflags_t, so_datalen: *usize) errno_t;
 pub extern "wasi_unstable" fn sock_shutdown(sock: fd_t, how: sdflags_t) errno_t;
+
+/// Get the errno from a syscall return value, or 0 for no error.
+pub fn getErrno(r: usize) usize {
+    const signed_r = @bitCast(isize, r);
+    return if (signed_r > -4096 and signed_r < 0) @intCast(usize, -signed_r) else 0;
+}
+
+pub fn clock_getres(clock_id: i32, res: *timespec) errno_t {
+    var ts: timestamp_t = undefined;
+    const err = clock_res_get(@bitCast(u32, clock_id), &ts);
+    if (err != 0) {
+        return err;
+    }
+    res.* = .{
+        .tv_sec = @intCast(i64, ts / std.time.ns_per_s),
+        .tv_nsec = @intCast(isize, ts % std.time.ns_per_s),
+    };
+    return 0;
+}
+
+pub fn clock_gettime(clock_id: i32, tp: *timespec) errno_t {
+    var ts: timestamp_t = undefined;
+    const err = clock_time_get(@bitCast(u32, clock_id), 1, &ts);
+    if (err != 0) {
+        return err;
+    }
+    tp.* = .{
+        .tv_sec = @intCast(i64, ts / std.time.ns_per_s),
+        .tv_nsec = @intCast(isize, ts % std.time.ns_per_s),
+    };
+    return 0;
+}
+
+pub fn isatty(fd: fd_t) bool {
+    var statbuf: fdstat_t = undefined;
+    const err = fd_fdstat_get(fd, &statbuf);
+    if (err != 0) {
+        // errno = err;
+        return false;
+    }
+
+    // A tty is a character device that we can't seek or tell on.
+    if (statbuf.fs_filetype != FILETYPE_CHARACTER_DEVICE or
+        (statbuf.fs_rights_base & (RIGHT_FD_SEEK | RIGHT_FD_TELL)) != 0)
+    {
+        // errno = ENOTTY;
+        return false;
+    }
+
+    return true;
+}
