@@ -1162,6 +1162,22 @@ static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_no
 }
 
 template<typename T>
+static T *ir_create_instruction_noval(IrBuilder *irb, Scope *scope, AstNode *source_node) {
+    const char *name = nullptr;
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    T *dummy = nullptr;
+    name = ir_instruction_type_str(ir_instruction_id(dummy));
+#endif
+    T *special_instruction = allocate<T>(1, name);
+    special_instruction->base.id = ir_instruction_id(special_instruction);
+    special_instruction->base.scope = scope;
+    special_instruction->base.source_node = source_node;
+    special_instruction->base.debug_id = exec_next_debug_id(irb->exec);
+    special_instruction->base.owner_bb = irb->current_basic_block;
+    return special_instruction;
+}
+
+template<typename T>
 static T *ir_build_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = ir_create_instruction<T>(irb, scope, source_node);
     ir_instruction_append(irb->current_basic_block, &special_instruction->base);
@@ -1214,16 +1230,22 @@ static IrInstruction *ir_build_return(IrBuilder *irb, Scope *scope, AstNode *sou
 }
 
 static IrInstruction *ir_build_const_void(IrBuilder *irb, Scope *scope, AstNode *source_node) {
-    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
-    const_instruction->base.value->type = irb->codegen->builtin_types.entry_void;
-    const_instruction->base.value->special = ConstValSpecialStatic;
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    memprof_intern_count.x_void += 1;
+#endif
+    IrInstructionConst *const_instruction = ir_create_instruction_noval<IrInstructionConst>(irb, scope, source_node);
+    ir_instruction_append(irb->current_basic_block, &const_instruction->base);
+    const_instruction->base.value = &irb->codegen->intern_values.x_void;
     return &const_instruction->base;
 }
 
 static IrInstruction *ir_build_const_undefined(IrBuilder *irb, Scope *scope, AstNode *source_node) {
-    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
-    const_instruction->base.value->special = ConstValSpecialUndef;
-    const_instruction->base.value->type = irb->codegen->builtin_types.entry_undef;
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    memprof_intern_count.x_undefined += 1;
+#endif
+    IrInstructionConst *const_instruction = ir_create_instruction_noval<IrInstructionConst>(irb, scope, source_node);
+    ir_instruction_append(irb->current_basic_block, &const_instruction->base);
+    const_instruction->base.value = &irb->codegen->intern_values.x_undefined;
     return &const_instruction->base;
 }
 
@@ -1252,9 +1274,12 @@ static IrInstruction *ir_build_const_bigfloat(IrBuilder *irb, Scope *scope, AstN
 }
 
 static IrInstruction *ir_build_const_null(IrBuilder *irb, Scope *scope, AstNode *source_node) {
-    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
-    const_instruction->base.value->type = irb->codegen->builtin_types.entry_null;
-    const_instruction->base.value->special = ConstValSpecialStatic;
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    memprof_intern_count.x_null += 1;
+#endif
+    IrInstructionConst *const_instruction = ir_create_instruction_noval<IrInstructionConst>(irb, scope, source_node);
+    ir_instruction_append(irb->current_basic_block, &const_instruction->base);
+    const_instruction->base.value = &irb->codegen->intern_values.x_null;
     return &const_instruction->base;
 }
 
@@ -11113,6 +11138,12 @@ static IrInstruction *ir_const(IrAnalyze *ira, IrInstruction *old_instruction, Z
     return new_instruction;
 }
 
+static IrInstruction *ir_const_noval(IrAnalyze *ira, IrInstruction *old_instruction) {
+    IrInstructionConst *const_instruction = ir_create_instruction_noval<IrInstructionConst>(&ira->new_irb,
+            old_instruction->scope, old_instruction->source_node);
+    return &const_instruction->base;
+}
+
 static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         ZigType *wanted_type, CastOp cast_op)
 {
@@ -11429,13 +11460,21 @@ static IrInstruction *ir_const_undef(IrAnalyze *ira, IrInstruction *source_instr
 }
 
 static IrInstruction *ir_const_unreachable(IrAnalyze *ira, IrInstruction *source_instruction) {
-    IrInstruction *result = ir_const(ira, source_instruction, ira->codegen->builtin_types.entry_unreachable);
-    result->value->special = ConstValSpecialStatic;
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    memprof_intern_count.x_unreachable += 1;
+#endif
+    IrInstruction *result = ir_const_noval(ira, source_instruction);
+    result->value = &ira->codegen->intern_values.x_unreachable;
     return result;
 }
 
 static IrInstruction *ir_const_void(IrAnalyze *ira, IrInstruction *source_instruction) {
-    return ir_const(ira, source_instruction, ira->codegen->builtin_types.entry_void);
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    memprof_intern_count.x_void += 1;
+#endif
+    IrInstruction *result = ir_const_noval(ira, source_instruction);
+    result->value = &ira->codegen->intern_values.x_void;
+    return result;
 }
 
 static IrInstruction *ir_const_unsigned(IrAnalyze *ira, IrInstruction *source_instruction, uint64_t value) {

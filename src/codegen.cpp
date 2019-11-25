@@ -8008,6 +8008,33 @@ static void define_builtin_types(CodeGen *g) {
     }
 }
 
+static void define_intern_values(CodeGen *g) {
+    {
+        auto& value = g->intern_values.x_undefined;
+        value.type = g->builtin_types.entry_undef;
+        value.global_refs = allocate<ConstGlobalRefs>(1, "ConstGlobalRefs.undefined");
+        value.special = ConstValSpecialStatic;
+    }
+    {
+        auto& value = g->intern_values.x_void;
+        value.type = g->builtin_types.entry_void;
+        value.global_refs = allocate<ConstGlobalRefs>(1, "ConstGlobalRefs.void");
+        value.special = ConstValSpecialStatic;
+    }
+    {
+        auto& value = g->intern_values.x_null;
+        value.type = g->builtin_types.entry_null;
+        value.global_refs = allocate<ConstGlobalRefs>(1, "ConstGlobalRefs.null");
+        value.special = ConstValSpecialStatic;
+    }
+    {
+        auto& value = g->intern_values.x_unreachable;
+        value.type = g->builtin_types.entry_unreachable;
+        value.global_refs = allocate<ConstGlobalRefs>(1, "ConstGlobalRefs.unreachable");
+        value.special = ConstValSpecialStatic;
+    }
+}
+
 static BuiltinFnEntry *create_builtin_fn(CodeGen *g, BuiltinFnId id, const char *name, size_t count) {
     BuiltinFnEntry *builtin_fn = allocate<BuiltinFnEntry>(1);
     buf_init_from_str(&builtin_fn->name, name);
@@ -8629,6 +8656,7 @@ static void init(CodeGen *g) {
     g->dummy_di_file = nullptr;
 
     define_builtin_types(g);
+    define_intern_values(g);
 
     IrInstruction *sentinel_instructions = allocate<IrInstruction>(2);
     g->invalid_instruction = &sentinel_instructions[0];

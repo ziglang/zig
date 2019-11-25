@@ -23,10 +23,10 @@ public:
     }
 
     struct Entry {
-        bool used;
-        int distance_from_start_index;
         K key;
         V value;
+        bool used;
+        int distance_from_start_index;
     };
 
     void clear() {
@@ -187,10 +187,10 @@ private:
                     if (distance_from_start_index > _max_distance_from_start_index)
                         _max_distance_from_start_index = distance_from_start_index;
                     *entry = {
-                        true,
-                        distance_from_start_index,
                         key,
                         value,
+                        true,
+                        distance_from_start_index,
                     };
                     key = tmp.key;
                     value = tmp.value;
@@ -208,10 +208,10 @@ private:
             if (distance_from_start_index > _max_distance_from_start_index)
                 _max_distance_from_start_index = distance_from_start_index;
             *entry = {
-                true,
-                distance_from_start_index,
                 key,
                 value,
+                true,
+                distance_from_start_index,
             };
             return;
         }

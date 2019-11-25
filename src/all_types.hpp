@@ -2021,6 +2021,13 @@ struct CodeGen {
         ZigType *entry_any_frame;
     } builtin_types;
 
+    struct {
+        ZigValue x_undefined;
+        ZigValue x_void;
+        ZigValue x_null;
+        ZigValue x_unreachable;
+    } intern_values;
+
     ZigType *align_amt_type;
     ZigType *stack_trace_type;
     ZigType *err_tag_type;

@@ -6,6 +6,8 @@
 
 #ifdef ZIG_ENABLE_MEM_PROFILE
 
+MemprofInternCount memprof_intern_count;
+
 static bool str_eql_str(const char *a, const char *b) {
     return strcmp(a, b) == 0;
 }
@@ -28,7 +30,6 @@ struct CountAndSize {
 ZigList<const char *> unknown_names = {};
 HashMap<const char *, CountAndSize, str_hash, str_eql_str> usage_table = {};
 bool table_active = false;
-
 
 static const char *get_default_name(const char *name_or_null, size_t type_size) {
     if (name_or_null != nullptr) return name_or_null;
@@ -134,6 +135,12 @@ void memprof_dump_stats(FILE *file) {
 
     list.deinit();
     table_active = true;
+
+    fprintf(stderr, "\n");
+    fprintf(stderr, "undefined: interned %zu times\n", memprof_intern_count.x_undefined);
+    fprintf(stderr, "void: interned %zu times\n", memprof_intern_count.x_void);
+    fprintf(stderr, "null: interned %zu times\n", memprof_intern_count.x_null);
+    fprintf(stderr, "unreachable: interned %zu times\n", memprof_intern_count.x_unreachable);
 }
 
 #endif

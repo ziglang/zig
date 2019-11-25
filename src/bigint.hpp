@@ -34,6 +34,7 @@ void bigint_init_signed(BigInt *dest, int64_t x);
 void bigint_init_bigint(BigInt *dest, const BigInt *src);
 void bigint_init_bigfloat(BigInt *dest, const BigFloat *op);
 void bigint_init_data(BigInt *dest, const uint64_t *digits, size_t digit_count, bool is_negative);
+void bigint_deinit(BigInt *bi);
 
 // panics if number won't fit
 uint64_t bigint_as_u64(const BigInt *bigint);
