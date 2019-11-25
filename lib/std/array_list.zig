@@ -58,7 +58,7 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             return self.items[0..self.len];
         }
 
-        /// Safely access index i of the list. 
+        /// Safely access index i of the list.
         pub fn at(self: Self, i: usize) T {
             return self.toSliceConst()[i];
         }

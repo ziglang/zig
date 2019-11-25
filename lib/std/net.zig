@@ -1362,7 +1362,7 @@ pub const StreamServer = struct {
 
     pub const Connection = struct {
         file: fs.File,
-        address: Address
+        address: Address,
     };
 
     /// If this function succeeds, the returned `Connection` is a caller-managed resource.

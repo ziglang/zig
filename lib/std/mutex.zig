@@ -74,7 +74,7 @@ else
             pub fn release(self: Held) void {
                 switch (@atomicRmw(State, &self.mutex.state, .Xchg, .Unlocked, .Release)) {
                     .Locked => {},
-                    .Sleeping => self.mutex.parker.unpark(@ptrCast(*const u32,  &self.mutex.state)),
+                    .Sleeping => self.mutex.parker.unpark(@ptrCast(*const u32, &self.mutex.state)),
                     .Unlocked => unreachable, // unlocking an unlocked mutex
                     else => unreachable, // should never be anything else
                 }
@@ -112,7 +112,7 @@ else
                 if (@atomicRmw(State, &self.state, .Xchg, .Sleeping, .Acquire) == .Unlocked)
                     return Held{ .mutex = self };
                 state = .Sleeping;
-                self.parker.park(@ptrCast(*const u32,  &self.state), @enumToInt(State.Sleeping));
+                self.parker.park(@ptrCast(*const u32, &self.state), @enumToInt(State.Sleeping));
             }
         }
     };

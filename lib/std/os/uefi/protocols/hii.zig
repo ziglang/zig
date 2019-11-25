@@ -26,6 +26,7 @@ pub const HIIPackageHeader = packed struct {
 /// The header found at the start of each package list.
 pub const HIIPackageList = extern struct {
     package_list_guid: Guid,
+
     /// The size of the package list (in bytes), including the header.
     package_list_length: u32,
 

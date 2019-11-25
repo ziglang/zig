@@ -259,7 +259,7 @@ pub const ChildProcess = struct {
     }
 
     fn handleWaitResult(self: *ChildProcess, status: u32) void {
-        // TODO https://github.com/ziglang/zig/issues/3190 
+        // TODO https://github.com/ziglang/zig/issues/3190
         var term = self.cleanupAfterWait(status);
         self.term = term;
     }

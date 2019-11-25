@@ -1266,7 +1266,7 @@ pub fn Watch(comptime V: type) type {
                             if (ev.mask & os.linux.IN_CLOSE_WRITE == os.linux.IN_CLOSE_WRITE) {
                                 const basename_ptr = ptr + @sizeOf(os.linux.inotify_event);
                                 // `ev.len` counts all bytes in `ev.name` including terminating null byte.
-                                const basename_with_null = basename_ptr[0 .. ev.len];
+                                const basename_with_null = basename_ptr[0..ev.len];
                                 const user_value = blk: {
                                     const held = self.os_data.table_lock.acquire();
                                     defer held.release();

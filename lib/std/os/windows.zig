@@ -192,7 +192,7 @@ pub const FindFirstFileError = error{
 };
 
 pub fn FindFirstFile(dir_path: []const u8, find_file_data: *WIN32_FIND_DATAW) FindFirstFileError!HANDLE {
-    const dir_path_w = try sliceToPrefixedSuffixedFileW(dir_path, [_]u16{ '\\', '*'});
+    const dir_path_w = try sliceToPrefixedSuffixedFileW(dir_path, [_]u16{ '\\', '*' });
     const handle = kernel32.FindFirstFileW(&dir_path_w, find_file_data);
 
     if (handle == INVALID_HANDLE_VALUE) {
@@ -932,7 +932,7 @@ pub fn wToPrefixedFileW(s: []const u16) ![PATH_MAX_WIDE:0]u16 {
     // TODO https://github.com/ziglang/zig/issues/2765
     var result: [PATH_MAX_WIDE:0]u16 = undefined;
 
-    const start_index = if (mem.startsWith(u16, s, [_]u16{'\\', '?'})) 0 else blk: {
+    const start_index = if (mem.startsWith(u16, s, [_]u16{ '\\', '?' })) 0 else blk: {
         const prefix = [_]u16{ '\\', '?', '?', '\\' };
         mem.copy(u16, result[0..], prefix);
         break :blk prefix.len;
@@ -942,7 +942,6 @@ pub fn wToPrefixedFileW(s: []const u16) ![PATH_MAX_WIDE:0]u16 {
     mem.copy(u16, result[start_index..], s);
     result[end_index] = 0;
     return result;
-
 }
 
 pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16) ![PATH_MAX_WIDE + suffix.len:0]u16 {

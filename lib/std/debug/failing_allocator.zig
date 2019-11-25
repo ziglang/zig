@@ -5,10 +5,10 @@ const mem = std.mem;
 /// memory conditions are handled correctly.
 ///
 /// To use this, first initialize it and get an allocator with
-/// 
+///
 /// `const failing_allocator = &FailingAllocator.init(<allocator>,
 ///                                                   <fail_index>).allocator;`
-/// 
+///
 /// Then use `failing_allocator` anywhere you would have used a
 /// different allocator.
 pub const FailingAllocator = struct {

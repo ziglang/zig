@@ -148,7 +148,7 @@ pub fn LinearFifo(
             var start = self.head + offset;
             if (start >= self.buf.len) {
                 start -= self.buf.len;
-                return self.buf[start..self.count - offset];
+                return self.buf[start .. self.count - offset];
             } else {
                 const end = math.min(self.head + self.count, self.buf.len);
                 return self.buf[start..end];

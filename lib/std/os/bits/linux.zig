@@ -1124,7 +1124,6 @@ pub const io_uring_params = extern struct {
 
 pub const IORING_FEAT_SINGLE_MMAP = 1 << 0;
 
-
 // io_uring_params.flags
 
 /// io_context is polled

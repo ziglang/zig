@@ -106,12 +106,7 @@ pub const WSAOVERLAPPED = extern struct {
     hEvent: ?WSAEVENT,
 };
 
-pub const WSAOVERLAPPED_COMPLETION_ROUTINE = extern fn (
-    dwError: DWORD,
-    cbTransferred: DWORD,
-    lpOverlapped: *WSAOVERLAPPED,
-    dwFlags: DWORD
-) void;
+pub const WSAOVERLAPPED_COMPLETION_ROUTINE = extern fn (dwError: DWORD, cbTransferred: DWORD, lpOverlapped: *WSAOVERLAPPED, dwFlags: DWORD) void;
 
 pub const WSA_INVALID_HANDLE = 6;
 pub const WSA_NOT_ENOUGH_MEMORY = 8;
@@ -209,11 +204,12 @@ pub const WSA_QOS_ESDMODEOBJ = 11029;
 pub const WSA_QOS_ESHAPERATEOBJ = 11030;
 pub const WSA_QOS_RESERVED_PETYPE = 11031;
 
-
 /// no parameters
 const IOC_VOID = 0x80000000;
+
 /// copy out parameters
 const IOC_OUT = 0x40000000;
+
 /// copy in parameters
 const IOC_IN = 0x80000000;
 
