@@ -123,12 +123,12 @@ fn posixCallMainAndExit() noreturn {
         @setAlignStack(16);
     }
     const argc = starting_stack_ptr[0];
-    const argv = @ptrCast([*][*]u8, starting_stack_ptr + 1);
+    const argv = @ptrCast([*][*:0]u8, starting_stack_ptr + 1);
 
-    const envp_optional = @ptrCast([*]?[*]u8, argv + argc + 1);
+    const envp_optional = @ptrCast([*:null]?[*:0]u8, argv + argc + 1);
     var envp_count: usize = 0;
     while (envp_optional[envp_count]) |_| : (envp_count += 1) {}
-    const envp = @ptrCast([*][*]u8, envp_optional)[0..envp_count];
+    const envp = @ptrCast([*][*:0]u8, envp_optional)[0..envp_count];
 
     if (builtin.os == .linux) {
         // Find the beginning of the auxiliary vector
@@ -168,7 +168,7 @@ fn posixCallMainAndExit() noreturn {
     std.os.exit(@inlineCall(callMainWithArgs, argc, argv, envp));
 }
 
-fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
+fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     std.os.argv = argv[0..argc];
     std.os.environ = envp;
 
@@ -177,10 +177,10 @@ fn callMainWithArgs(argc: usize, argv: [*][*]u8, envp: [][*]u8) u8 {
     return initEventLoopAndCallMain();
 }
 
-extern fn main(c_argc: i32, c_argv: [*][*]u8, c_envp: [*]?[*]u8) i32 {
+extern fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) i32 {
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
-    const envp = @ptrCast([*][*]u8, c_envp)[0..env_count];
+    const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];
     return @inlineCall(callMainWithArgs, @intCast(usize, c_argc), c_argv, envp);
 }
 

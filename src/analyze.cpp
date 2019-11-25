@@ -7792,7 +7792,8 @@ static void resolve_llvm_types_slice(CodeGen *g, ZigType *type, ResolveStatus wa
 
     bool done = false;
     if (ptr_type->data.pointer.is_const || ptr_type->data.pointer.is_volatile ||
-        ptr_type->data.pointer.explicit_alignment != 0 || ptr_type->data.pointer.allow_zero)
+        ptr_type->data.pointer.explicit_alignment != 0 || ptr_type->data.pointer.allow_zero ||
+        ptr_type->data.pointer.sentinel != nullptr)
     {
         ZigType *peer_ptr_type = get_pointer_to_type_extra(g, child_type, false, false,
                 PtrLenUnknown, 0, 0, 0, false);
@@ -7811,7 +7812,8 @@ static void resolve_llvm_types_slice(CodeGen *g, ZigType *type, ResolveStatus wa
         ZigType *child_ptr_type = child_type->data.structure.fields[slice_ptr_index]->type_entry;
         assert(child_ptr_type->id == ZigTypeIdPointer);
         if (child_ptr_type->data.pointer.is_const || child_ptr_type->data.pointer.is_volatile ||
-            child_ptr_type->data.pointer.explicit_alignment != 0 || child_ptr_type->data.pointer.allow_zero)
+            child_ptr_type->data.pointer.explicit_alignment != 0 || child_ptr_type->data.pointer.allow_zero ||
+            child_ptr_type->data.pointer.sentinel != nullptr)
         {
             ZigType *grand_child_type = child_ptr_type->data.pointer.child_type;
             ZigType *bland_child_ptr_type = get_pointer_to_type_extra(g, grand_child_type, false, false,

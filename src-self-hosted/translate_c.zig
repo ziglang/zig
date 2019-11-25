@@ -113,7 +113,7 @@ const Context = struct {
     }
 
     /// Convert a null-terminated C string to a slice allocated in the arena
-    fn str(c: *Context, s: [*]const u8) ![]u8 {
+    fn str(c: *Context, s: [*:0]const u8) ![]u8 {
         return std.mem.dupe(c.a(), u8, std.mem.toSliceConst(u8, s));
     }
 

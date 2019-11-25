@@ -360,7 +360,7 @@ pub const Address = extern union {
                     unreachable;
                 }
 
-                const path_len = std.mem.len(u8, &self.un.path);
+                const path_len = std.mem.len(u8, @ptrCast([*:0]const u8, &self.un.path));
                 return @intCast(os.socklen_t, @sizeOf(os.sockaddr_un) - self.un.path.len + path_len);
             },
             else => unreachable,
@@ -1271,7 +1271,7 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
             var tmp: [256]u8 = undefined;
             // Returns len of compressed name. strlen to get canon name.
             _ = try os.dn_expand(packet, data, &tmp);
-            const canon_name = mem.toSliceConst(u8, &tmp);
+            const canon_name = mem.toSliceConst(u8, @ptrCast([*:0]const u8, &tmp));
             if (isValidHostName(canon_name)) {
                 try ctx.canon.replaceContents(canon_name);
             }

@@ -66,12 +66,12 @@ pub const system = if (builtin.link_libc) std.c else switch (builtin.os) {
 pub usingnamespace @import("os/bits.zig");
 
 /// See also `getenv`. Populated by startup code before main().
-pub var environ: [][*]u8 = undefined;
+pub var environ: [][*:0]u8 = undefined;
 
 /// Populated by startup code before main().
 /// Not available on Windows. See `std.process.args`
 /// for obtaining the process arguments.
-pub var argv: [][*]u8 = undefined;
+pub var argv: [][*:0]u8 = undefined;
 
 /// To obtain errno, call this function with the return value of the
 /// system function call. For some systems this will obtain the value directly
@@ -784,7 +784,7 @@ pub fn execveC(path: [*]const u8, child_argv: [*]const ?[*]const u8, envp: [*]co
 /// matching the syscall API on all targets. This removes the need for an allocator.
 /// This function also uses the PATH environment variable to get the full path to the executable.
 /// If `file` is an absolute path, this is the same as `execveC`.
-pub fn execvpeC(file: [*]const u8, child_argv: [*]const ?[*]const u8, envp: [*]const ?[*]const u8) ExecveError {
+pub fn execvpeC(file: [*:0]const u8, child_argv: [*]const ?[*:0]const u8, envp: [*]const ?[*:0]const u8) ExecveError {
     const file_slice = mem.toSliceConst(u8, file);
     if (mem.indexOfScalar(u8, file_slice, '/') != null) return execveC(file, child_argv, envp);
 
@@ -820,8 +820,8 @@ pub fn execvpe(
     argv_slice: []const []const u8,
     env_map: *const std.BufMap,
 ) (ExecveError || error{OutOfMemory}) {
-    const argv_buf = try allocator.alloc(?[*]u8, argv_slice.len + 1);
-    mem.set(?[*]u8, argv_buf, null);
+    const argv_buf = try allocator.alloc(?[*:0]u8, argv_slice.len + 1);
+    mem.set(?[*:0]u8, argv_buf, null);
     defer {
         for (argv_buf) |arg| {
             const arg_buf = if (arg) |ptr| mem.toSlice(u8, ptr) else break;
@@ -834,7 +834,8 @@ pub fn execvpe(
         @memcpy(arg_buf.ptr, arg.ptr, arg.len);
         arg_buf[arg.len] = 0;
 
-        argv_buf[i] = arg_buf.ptr;
+        // TODO avoid @ptrCast using slice syntax with https://github.com/ziglang/zig/issues/3731
+        argv_buf[i] = @ptrCast([*:0]u8, arg_buf.ptr);
     }
     argv_buf[argv_slice.len] = null;
 
@@ -844,10 +845,10 @@ pub fn execvpe(
     return execvpeC(argv_buf.ptr[0].?, argv_buf.ptr, envp_buf.ptr);
 }
 
-pub fn createNullDelimitedEnvMap(allocator: *mem.Allocator, env_map: *const std.BufMap) ![]?[*]u8 {
+pub fn createNullDelimitedEnvMap(allocator: *mem.Allocator, env_map: *const std.BufMap) ![]?[*:0]u8 {
     const envp_count = env_map.count();
-    const envp_buf = try allocator.alloc(?[*]u8, envp_count + 1);
-    mem.set(?[*]u8, envp_buf, null);
+    const envp_buf = try allocator.alloc(?[*:0]u8, envp_count + 1);
+    mem.set(?[*:0]u8, envp_buf, null);
     errdefer freeNullDelimitedEnvMap(allocator, envp_buf);
     {
         var it = env_map.iterator();
@@ -859,7 +860,8 @@ pub fn createNullDelimitedEnvMap(allocator: *mem.Allocator, env_map: *const std.
             @memcpy(env_buf.ptr + pair.key.len + 1, pair.value.ptr, pair.value.len);
             env_buf[env_buf.len - 1] = 0;
 
-            envp_buf[i] = env_buf.ptr;
+            // TODO avoid @ptrCast using slice syntax with https://github.com/ziglang/zig/issues/3731
+            envp_buf[i] = @ptrCast([*:0]u8, env_buf.ptr);
         }
         assert(i == envp_count);
     }
@@ -867,7 +869,7 @@ pub fn createNullDelimitedEnvMap(allocator: *mem.Allocator, env_map: *const std.
     return envp_buf;
 }
 
-pub fn freeNullDelimitedEnvMap(allocator: *mem.Allocator, envp_buf: []?[*]u8) void {
+pub fn freeNullDelimitedEnvMap(allocator: *mem.Allocator, envp_buf: []?[*:0]u8) void {
     for (envp_buf) |env| {
         const env_buf = if (env) |ptr| ptr[0 .. mem.len(u8, ptr) + 1] else break;
         allocator.free(env_buf);
@@ -896,8 +898,7 @@ pub fn getenv(key: []const u8) ?[]const u8 {
 
 /// Get an environment variable with a null-terminated name.
 /// See also `getenv`.
-/// TODO https://github.com/ziglang/zig/issues/265
-pub fn getenvC(key: [*]const u8) ?[]const u8 {
+pub fn getenvC(key: [*:0]const u8) ?[]const u8 {
     if (builtin.link_libc) {
         const value = system.getenv(key) orelse return null;
         return mem.toSliceConst(u8, value);
@@ -922,7 +923,7 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
         break :blk errno(system.getcwd(out_buffer.ptr, out_buffer.len));
     };
     switch (err) {
-        0 => return mem.toSlice(u8, out_buffer.ptr),
+        0 => return mem.toSlice(u8, @ptrCast([*:0]u8, out_buffer.ptr)),
         EFAULT => unreachable,
         EINVAL => unreachable,
         ENOENT => return error.CurrentWorkingDirectoryUnlinked,
@@ -2865,7 +2866,7 @@ pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
         var uts: utsname = undefined;
         switch (errno(system.uname(&uts))) {
             0 => {
-                const hostname = mem.toSlice(u8, &uts.nodename);
+                const hostname = mem.toSlice(u8, @ptrCast([*:0]u8, &uts.nodename));
                 mem.copy(u8, name_buffer, hostname);
                 return name_buffer[0..hostname.len];
             },

@@ -356,17 +356,17 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     return true;
 }
 
-pub fn len(comptime T: type, ptr: [*]const T) usize {
+pub fn len(comptime T: type, ptr: [*:0]const T) usize {
     var count: usize = 0;
     while (ptr[count] != 0) : (count += 1) {}
     return count;
 }
 
-pub fn toSliceConst(comptime T: type, ptr: [*]const T) []const T {
+pub fn toSliceConst(comptime T: type, ptr: [*:0]const T) [:0]const T {
     return ptr[0..len(T, ptr)];
 }
 
-pub fn toSlice(comptime T: type, ptr: [*]T) []T {
+pub fn toSlice(comptime T: type, ptr: [*:0]T) [:0]T {
     return ptr[0..len(T, ptr)];
 }
 

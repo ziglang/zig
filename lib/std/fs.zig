@@ -533,7 +533,7 @@ pub const Dir = struct {
                     const next_index = self.index + linux_entry.reclen();
                     self.index = next_index;
 
-                    const name = mem.toSlice(u8, @ptrCast([*]u8, &linux_entry.d_name));
+                    const name = mem.toSlice(u8, @ptrCast([*:0]u8, &linux_entry.d_name));
 
                     // skip . and .. entries
                     if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
