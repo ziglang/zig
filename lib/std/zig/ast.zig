@@ -2204,7 +2204,7 @@ pub const Node = struct {
     };
 
     pub const VarType = struct {
-        base: Node,
+        base: Node = Node{ .id = .VarType },
         token: TokenIndex,
 
         pub fn iterate(self: *VarType, index: usize) ?*Node {

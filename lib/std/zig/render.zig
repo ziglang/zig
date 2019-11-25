@@ -477,7 +477,14 @@ fn renderExpression(
 
                 ast.Node.PrefixOp.Op.SliceType => |ptr_info| {
                     try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.None); // [
-                    try renderToken(tree, stream, tree.nextToken(prefix_op_node.op_token), indent, start_col, Space.None); // ]
+                    if (ptr_info.sentinel) |sentinel| {
+                        const colon_token = tree.prevToken(sentinel.firstToken());
+                        try renderToken(tree, stream, colon_token, indent, start_col, Space.None); // :
+                        try renderExpression(allocator, stream, tree, indent, start_col, sentinel, Space.None);
+                        try renderToken(tree, stream, tree.nextToken(sentinel.lastToken()), indent, start_col, Space.None); // ]
+                    } else {
+                        try renderToken(tree, stream, tree.nextToken(prefix_op_node.op_token), indent, start_col, Space.None); // ]
+                    }
 
                     if (ptr_info.allowzero_token) |allowzero_token| {
                         try renderToken(tree, stream, allowzero_token, indent, start_col, Space.Space); // allowzero

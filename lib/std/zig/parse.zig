@@ -410,10 +410,16 @@ fn parseContainerField(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
     var align_expr: ?*Node = null;
     var type_expr: ?*Node = null;
     if (eatToken(it, .Colon)) |_| {
-        type_expr = try expectNode(arena, it, tree, parseTypeExpr, AstError{
-            .ExpectedTypeExpr = AstError.ExpectedTypeExpr{ .token = it.index },
-        });
-        align_expr = try parseByteAlign(arena, it, tree);
+        if (eatToken(it, .Keyword_var)) |var_tok| {
+            const node = try arena.create(ast.Node.VarType);
+            node.* = .{ .token = var_tok };
+            type_expr = &node.base;
+        } else {
+            type_expr = try expectNode(arena, it, tree, parseTypeExpr, AstError{
+                .ExpectedTypeExpr = AstError.ExpectedTypeExpr{ .token = it.index },
+            });
+            align_expr = try parseByteAlign(arena, it, tree);
+        }
     }
 
     const value_expr = if (eatToken(it, .Equal)) |_|
@@ -576,7 +582,8 @@ fn parseIfStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
 
 /// LabeledStatement <- BlockLabel? (Block / LoopStatement)
 fn parseLabeledStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
-    const label_token = parseBlockLabel(arena, it, tree);
+    var colon: TokenIndex = undefined;
+    const label_token = parseBlockLabel(arena, it, tree, &colon);
 
     if (try parseBlock(arena, it, tree)) |node| {
         node.cast(Node.Block).?.label = label_token;
@@ -757,7 +764,8 @@ fn parseBlockExprStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !
 
 /// BlockExpr <- BlockLabel? Block
 fn parseBlockExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*Node {
-    const label_token = parseBlockLabel(arena, it, tree);
+    var colon: TokenIndex = undefined;
+    const label_token = parseBlockLabel(arena, it, tree, &colon);
     const block_node = (try parseBlock(arena, it, tree)) orelse {
         if (label_token) |label| {
             putBackToken(it, label + 1); // ":"
@@ -913,7 +921,8 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         return &node.base;
     }
 
-    const label = parseBlockLabel(arena, it, tree);
+    var colon: TokenIndex = undefined;
+    const label = parseBlockLabel(arena, it, tree, &colon);
     if (try parseLoopExpr(arena, it, tree)) |node| {
         if (node.cast(Node.For)) |for_node| {
             for_node.label = label;
@@ -1354,7 +1363,8 @@ fn parseIfTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 ///     <- BlockLabel Block
 ///      / BlockLabel? LoopTypeExpr
 fn parseLabeledTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
-    const label = parseBlockLabel(arena, it, tree);
+    var colon: TokenIndex = undefined;
+    const label = parseBlockLabel(arena, it, tree, &colon);
 
     if (label) |token| {
         if (try parseBlock(arena, it, tree)) |node| {
@@ -1372,12 +1382,9 @@ fn parseLabeledTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
         return node;
     }
 
-    if (label != null) {
-        // If we saw a label, there should have been a block next
-        try tree.errors.push(AstError{
-            .ExpectedLBrace = AstError.ExpectedLBrace{ .token = it.index },
-        });
-        return error.ParseError;
+    if (label) |token| {
+        putBackToken(it, colon);
+        putBackToken(it, token);
     }
     return null;
 }
@@ -1641,9 +1648,12 @@ fn parseBreakLabel(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 }
 
 /// BlockLabel <- IDENTIFIER COLON
-fn parseBlockLabel(arena: *Allocator, it: *TokenIterator, tree: *Tree) ?TokenIndex {
+fn parseBlockLabel(arena: *Allocator, it: *TokenIterator, tree: *Tree, colon_token: *TokenIndex) ?TokenIndex {
     const identifier = eatToken(it, .Identifier) orelse return null;
-    if (eatToken(it, .Colon) != null) return identifier;
+    if (eatToken(it, .Colon)) |colon| {
+        colon_token.* = colon;
+        return identifier;
+    }
     putBackToken(it, identifier);
     return null;
 }

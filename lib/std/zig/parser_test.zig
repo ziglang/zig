@@ -1,3 +1,30 @@
+test "zig fmt: var struct field" {
+    try testCanonical(
+        \\pub const Pointer = struct {
+        \\    sentinel: var,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: sentinel-terminated array type" {
+    try testCanonical(
+        \\pub fn cStrToPrefixedFileW(s: [*:0]const u8) ![PATH_MAX_WIDE:0]u16 {
+        \\    return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: sentinel-terminated slice type" {
+    try testCanonical(
+        \\pub fn toSlice(self: Buffer) [:0]u8 {
+        \\    return self.list.toSlice()[0..self.len()];
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: anon literal in array" {
     try testCanonical(
         \\var arr: [2]Foo = .{
