@@ -116,7 +116,7 @@ pub const TestContext = struct {
         const file_index = try std.fmt.bufPrint(file_index_buf[0..], "{}", self.file_index.incr());
         const file1_path = try std.fs.path.join(allocator, [_][]const u8{ tmp_dir_name, file_index, file1 });
 
-        const output_file = try std.fmt.allocPrint(allocator, "{}-out{}", file1_path, (Target{.Native = {}}).exeFileExt());
+        const output_file = try std.fmt.allocPrint(allocator, "{}-out{}", file1_path, (Target{ .Native = {} }).exeFileExt());
         if (std.fs.path.dirname(file1_path)) |dirname| {
             try std.fs.makePath(allocator, dirname);
         }
@@ -148,15 +148,12 @@ pub const TestContext = struct {
         exe_file: []const u8,
         expected_output: []const u8,
     ) anyerror!void {
-        // TODO this should not be necessary
-        const exe_file_2 = try std.mem.dupe(allocator, u8, exe_file);
-
         defer comp.destroy();
         const build_event = comp.events.get();
 
         switch (build_event) {
             .Ok => {
-                const argv = [_][]const u8{exe_file_2};
+                const argv = [_][]const u8{exe_file};
                 // TODO use event loop
                 const child = try std.ChildProcess.exec(allocator, argv, null, null, 1024 * 1024);
                 switch (child.term) {
@@ -173,8 +170,8 @@ pub const TestContext = struct {
                     return error.OutputMismatch;
                 }
             },
-            Compilation.Event.Error => |err| return err,
-            Compilation.Event.Fail => |msgs| {
+            .Error => |err| return err,
+            .Fail => |msgs| {
                 const stderr = std.io.getStdErr();
                 try stderr.write("build incorrectly failed:\n");
                 for (msgs) |msg| {

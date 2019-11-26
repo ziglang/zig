@@ -69,15 +69,12 @@ pub const Decl = struct {
 
     pub const Fn = struct {
         base: Decl,
-        value: Val,
-        fn_proto: *ast.Node.FnProto,
-
-        // TODO https://github.com/ziglang/zig/issues/683 and then make this anonymous
-        pub const Val = union(enum) {
+        value: union(enum) {
             Unresolved,
             Fn: *Value.Fn,
             FnProto: *Value.FnProto,
-        };
+        },
+        fn_proto: *ast.Node.FnProto,
 
         pub fn externLibName(self: Fn, tree: *ast.Tree) ?[]const u8 {
             return if (self.fn_proto.extern_export_inline_token) |tok_index| x: {

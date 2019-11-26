@@ -143,7 +143,7 @@ pub const LibCInstallation = struct {
     }
 
     /// Finds the default, native libc.
-    pub async fn findNative(self: *LibCInstallation, allocator: *Allocator) !void {
+    pub fn findNative(self: *LibCInstallation, allocator: *Allocator) !void {
         self.initEmpty();
         var group = event.Group(FindError!void).init(allocator);
         errdefer group.wait() catch {};
@@ -393,7 +393,7 @@ pub const LibCInstallation = struct {
 };
 
 /// caller owns returned memory
-async fn ccPrintFileName(allocator: *Allocator, o_file: []const u8, want_dirname: bool) ![]u8 {
+fn ccPrintFileName(allocator: *Allocator, o_file: []const u8, want_dirname: bool) ![]u8 {
     const cc_exe = std.os.getenv("CC") orelse "cc";
     const arg1 = try std.fmt.allocPrint(allocator, "-print-file-name={}", o_file);
     defer allocator.free(arg1);

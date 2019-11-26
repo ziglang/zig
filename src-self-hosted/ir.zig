@@ -110,7 +110,7 @@ pub const Inst = struct {
         unreachable;
     }
 
-    pub async fn analyze(base: *Inst, ira: *Analyze) Analyze.Error!*Inst {
+    pub fn analyze(base: *Inst, ira: *Analyze) Analyze.Error!*Inst {
         switch (base.id) {
             .Return => return @fieldParentPtr(Return, "base", base).analyze(ira),
             .Const => return @fieldParentPtr(Const, "base", base).analyze(ira),
@@ -422,7 +422,7 @@ pub const Inst = struct {
             return false;
         }
 
-        pub async fn analyze(self: *const Ref, ira: *Analyze) !*Inst {
+        pub fn analyze(self: *const Ref, ira: *Analyze) !*Inst {
             const target = try self.params.target.getAsParam();
 
             if (ira.getCompTimeValOrNullUndefOk(target)) |val| {
@@ -472,7 +472,7 @@ pub const Inst = struct {
             return false;
         }
 
-        pub async fn analyze(self: *const DeclRef, ira: *Analyze) !*Inst {
+        pub fn analyze(self: *const DeclRef, ira: *Analyze) !*Inst {
             (ira.irb.comp.resolveDecl(self.params.decl)) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 else => return error.SemanticAnalysisFailed,
@@ -516,7 +516,7 @@ pub const Inst = struct {
             return false;
         }
 
-        pub async fn analyze(self: *const VarPtr, ira: *Analyze) !*Inst {
+        pub fn analyze(self: *const VarPtr, ira: *Analyze) !*Inst {
             switch (self.params.var_scope.data) {
                 .Const => @panic("TODO"),
                 .Param => |param| {
@@ -563,7 +563,7 @@ pub const Inst = struct {
             return false;
         }
 
-        pub async fn analyze(self: *const LoadPtr, ira: *Analyze) !*Inst {
+        pub fn analyze(self: *const LoadPtr, ira: *Analyze) !*Inst {
             const target = try self.params.target.getAsParam();
             const target_type = target.getKnownType();
             if (target_type.id != .Pointer) {
@@ -645,7 +645,7 @@ pub const Inst = struct {
             return false;
         }
 
-        pub async fn analyze(self: *const PtrType, ira: *Analyze) !*Inst {
+        pub fn analyze(self: *const PtrType, ira: *Analyze) !*Inst {
             const child_type = try self.params.child_type.getAsConstType(ira);
             // if (child_type->id == TypeTableEntryIdUnreachable) {
             //     ir_add_error(ira, &instruction->base, buf_sprintf("pointer to noreturn not allowed"));
@@ -927,7 +927,7 @@ pub const Variable = struct {
 
 pub const BasicBlock = struct {
     ref_count: usize,
-    name_hint: [*]const u8, // must be a C string literal
+    name_hint: [*:0]const u8,
     debug_id: usize,
     scope: *Scope,
     instruction_list: std.ArrayList(*Inst),
@@ -1051,7 +1051,7 @@ pub const Builder = struct {
     }
 
     /// No need to clean up resources thanks to the arena allocator.
-    pub fn createBasicBlock(self: *Builder, scope: *Scope, name_hint: [*]const u8) !*BasicBlock {
+    pub fn createBasicBlock(self: *Builder, scope: *Scope, name_hint: [*:0]const u8) !*BasicBlock {
         const basic_block = try self.arena().create(BasicBlock);
         basic_block.* = BasicBlock{
             .ref_count = 0,
@@ -1186,6 +1186,7 @@ pub const Builder = struct {
         }
     }
 
+    fn genCall(irb: *Builder, suffix_op: *ast.Node.SuffixOp, call: *ast.Node.SuffixOp.Op.Call, scope: *Scope) !*Inst {
     async fn genCall(irb: *Builder, suffix_op: *ast.Node.SuffixOp, call: *ast.Node.SuffixOp.Op.Call, scope: *Scope) !*Inst {
         const fn_ref = try irb.genNode(suffix_op.lhs, scope, .None);
 
@@ -1214,7 +1215,7 @@ pub const Builder = struct {
         //return ir_lval_wrap(irb, scope, fn_call, lval);
     }
 
-    async fn genPtrType(
+    fn genPtrType(
         irb: *Builder,
         prefix_op: *ast.Node.PrefixOp,
         ptr_info: ast.Node.PrefixOp.PtrInfo,
@@ -1307,9 +1308,9 @@ pub const Builder = struct {
         var rest: []const u8 = undefined;
         if (int_token.len >= 3 and int_token[0] == '0') {
             base = switch (int_token[1]) {
-                'b' => u8(2),
-                'o' => u8(8),
-                'x' => u8(16),
+                'b' => 2,
+                'o' => 8,
+                'x' => 16,
                 else => unreachable,
             };
             rest = int_token[2..];
@@ -1339,7 +1340,7 @@ pub const Builder = struct {
         return inst;
     }
 
-    pub async fn genStrLit(irb: *Builder, str_lit: *ast.Node.StringLiteral, scope: *Scope) !*Inst {
+    pub fn genStrLit(irb: *Builder, str_lit: *ast.Node.StringLiteral, scope: *Scope) !*Inst {
         const str_token = irb.code.tree_scope.tree.tokenSlice(str_lit.token);
         const src_span = Span.token(str_lit.token);
 
@@ -1389,7 +1390,7 @@ pub const Builder = struct {
         }
     }
 
-    pub async fn genBlock(irb: *Builder, block: *ast.Node.Block, parent_scope: *Scope) !*Inst {
+    pub fn genBlock(irb: *Builder, block: *ast.Node.Block, parent_scope: *Scope) !*Inst {
         const block_scope = try Scope.Block.create(irb.comp, parent_scope);
 
         const outer_block_scope = &block_scope.base;
@@ -1499,7 +1500,7 @@ pub const Builder = struct {
         return irb.buildConstVoid(child_scope, Span.token(block.rbrace), true);
     }
 
-    pub async fn genControlFlowExpr(
+    pub fn genControlFlowExpr(
         irb: *Builder,
         control_flow_expr: *ast.Node.ControlFlowExpression,
         scope: *Scope,
@@ -1596,7 +1597,7 @@ pub const Builder = struct {
         }
     }
 
-    pub async fn genIdentifier(irb: *Builder, identifier: *ast.Node.Identifier, scope: *Scope, lval: LVal) !*Inst {
+    pub fn genIdentifier(irb: *Builder, identifier: *ast.Node.Identifier, scope: *Scope, lval: LVal) !*Inst {
         const src_span = Span.token(identifier.token);
         const name = irb.code.tree_scope.tree.tokenSlice(identifier.token);
 
@@ -1694,7 +1695,7 @@ pub const Builder = struct {
         return result;
     }
 
-    async fn genDefersForBlock(
+    fn genDefersForBlock(
         irb: *Builder,
         inner_scope: *Scope,
         outer_scope: *Scope,
@@ -1797,7 +1798,7 @@ pub const Builder = struct {
         // Look at the params and ref() other instructions
         comptime var i = 0;
         inline while (i < @memberCount(I.Params)) : (i += 1) {
-            const FieldType = comptime @typeOf(@field(I.Params(undefined), @memberName(I.Params, i)));
+            const FieldType = comptime @typeOf(@field(@as(I.Params, undefined), @memberName(I.Params, i)));
             switch (FieldType) {
                 *Inst => @field(inst.params, @memberName(I.Params, i)).ref(self),
                 *BasicBlock => @field(inst.params, @memberName(I.Params, i)).ref(self),
@@ -1909,7 +1910,7 @@ pub const Builder = struct {
         VarScope: *Scope.Var,
     };
 
-    async fn findIdent(irb: *Builder, scope: *Scope, name: []const u8) Ident {
+    fn findIdent(irb: *Builder, scope: *Scope, name: []const u8) Ident {
         var s = scope;
         while (true) {
             switch (s.id) {
@@ -2519,7 +2520,7 @@ const Analyze = struct {
     }
 };
 
-pub async fn gen(
+pub fn gen(
     comp: *Compilation,
     body_node: *ast.Node,
     tree_scope: *Scope.AstTree,
@@ -2541,7 +2542,7 @@ pub async fn gen(
     return irb.finish();
 }
 
-pub async fn analyze(comp: *Compilation, old_code: *Code, expected_type: ?*Type) !*Code {
+pub fn analyze(comp: *Compilation, old_code: *Code, expected_type: ?*Type) !*Code {
     const old_entry_bb = old_code.basic_block_list.at(0);
 
     var ira = try Analyze.init(comp, old_code.tree_scope, expected_type);
