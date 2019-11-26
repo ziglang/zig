@@ -9324,8 +9324,6 @@ fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
           </li>
           <li>Are you linking libc? In this case, {#syntax#}std.heap.c_allocator{#endsyntax#} is likely
               the right choice, at least for your main allocator.</li>
-          <li>Are you building for WebAssembly? In this case, {#syntax#}std.heap.wasm_allocator{#endsyntax#} is likely
-              the right choice for your main allocator as it uses WebAssembly's memory instructions.</li>
           <li>
               Is the maximum number of bytes that you will need bounded by a number known at
               {#link|comptime#}? In this case, use {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#} or
@@ -9841,8 +9839,7 @@ all your base are belong to us</code></pre>
       {#header_close#}
       {#header_close#}
       {#header_open|WebAssembly#}
-      <p>Zig supports building for WebAssembly out of the box. There is also a specialized {#syntax#}std.heap.wasm_allocator{#endsyntax#}
-      memory allocator for WebAssembly environments.</p>
+      <p>Zig supports building for WebAssembly out of the box.</p>
       {#header_open|Freestanding#}
       <p>For host environments like the web browser and nodejs, build as a library using the freestanding OS target.
       Here's an example of running Zig code compiled to WebAssembly with nodejs.</p>
@@ -9876,8 +9873,9 @@ The result is 3</code></pre>
 const std = @import("std");
 
 pub fn main() !void {
-    const args = try std.process.argsAlloc(std.heap.wasm_allocator);
-    defer std.process.argsFree(std.heap.wasm_allocator, args);
+    // TODO a better default allocator that isn't as wasteful!
+    const args = try std.process.argsAlloc(std.heap.page_allocator);
+    defer std.process.argsFree(std.heap.page_allocator, args);
 
     for (args) |arg, i| {
         std.debug.warn("{}: {}\n", i, arg);

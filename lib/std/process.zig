@@ -79,7 +79,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
         // https://github.com/WebAssembly/WASI/issues/27
         var environ = try allocator.alloc(?[*:0]u8, environ_count + 1);
         defer allocator.free(environ);
-        var environ_buf = try std.heap.wasm_allocator.alloc(u8, environ_buf_size);
+        var environ_buf = try std.heap.page_allocator.alloc(u8, environ_buf_size);
         defer allocator.free(environ_buf);
 
         const environ_get_ret = os.wasi.environ_get(environ.ptr, environ_buf.ptr);
