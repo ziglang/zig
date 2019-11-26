@@ -389,16 +389,6 @@ test "std.ResetEvent" {
     testing.expect(event.isSet() == false);
     testing.expect(event.reset() == false);
 
-    // test waiting timeout
-    const delay = 100 * time.millisecond;
-    const error_margin = 50 * time.millisecond;
-
-    var timer = time.Timer.start() catch unreachable;
-    testing.expectError(ResetEvent.WaitError.TimedOut, event.wait(delay));
-    const elapsed = timer.read();
-    testing.expect(elapsed >= delay - error_margin);
-    testing.expect(elapsed <= delay + error_margin);
-
     // test cross thread signaling
     const Context = struct {
         event: ResetEvent,
