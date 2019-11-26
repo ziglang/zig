@@ -1230,9 +1230,6 @@ static IrInstruction *ir_build_return(IrBuilder *irb, Scope *scope, AstNode *sou
 }
 
 static IrInstruction *ir_build_const_void(IrBuilder *irb, Scope *scope, AstNode *source_node) {
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    memprof_intern_count.x_void += 1;
-#endif
     IrInstructionConst *const_instruction = ir_create_instruction_noval<IrInstructionConst>(irb, scope, source_node);
     ir_instruction_append(irb->current_basic_block, &const_instruction->base);
     const_instruction->base.value = irb->codegen->intern.for_void();
@@ -1240,9 +1237,6 @@ static IrInstruction *ir_build_const_void(IrBuilder *irb, Scope *scope, AstNode 
 }
 
 static IrInstruction *ir_build_const_undefined(IrBuilder *irb, Scope *scope, AstNode *source_node) {
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    memprof_intern_count.x_undefined += 1;
-#endif
     IrInstructionConst *const_instruction = ir_create_instruction_noval<IrInstructionConst>(irb, scope, source_node);
     ir_instruction_append(irb->current_basic_block, &const_instruction->base);
     const_instruction->base.value = irb->codegen->intern.for_undefined();
@@ -1274,9 +1268,6 @@ static IrInstruction *ir_build_const_bigfloat(IrBuilder *irb, Scope *scope, AstN
 }
 
 static IrInstruction *ir_build_const_null(IrBuilder *irb, Scope *scope, AstNode *source_node) {
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    memprof_intern_count.x_null += 1;
-#endif
     IrInstructionConst *const_instruction = ir_create_instruction_noval<IrInstructionConst>(irb, scope, source_node);
     ir_instruction_append(irb->current_basic_block, &const_instruction->base);
     const_instruction->base.value = irb->codegen->intern.for_null();
@@ -11460,18 +11451,12 @@ static IrInstruction *ir_const_undef(IrAnalyze *ira, IrInstruction *source_instr
 }
 
 static IrInstruction *ir_const_unreachable(IrAnalyze *ira, IrInstruction *source_instruction) {
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    memprof_intern_count.x_unreachable += 1;
-#endif
     IrInstruction *result = ir_const_noval(ira, source_instruction);
     result->value = ira->codegen->intern.for_unreachable();
     return result;
 }
 
 static IrInstruction *ir_const_void(IrAnalyze *ira, IrInstruction *source_instruction) {
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    memprof_intern_count.x_void += 1;
-#endif
     IrInstruction *result = ir_const_noval(ira, source_instruction);
     result->value = ira->codegen->intern.for_void();
     return result;
