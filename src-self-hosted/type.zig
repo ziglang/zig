@@ -726,8 +726,10 @@ pub const Type = struct {
             switch (key.alignment) {
                 .Abi => {},
                 .Override => |alignment| {
+                    // TODO https://github.com/ziglang/zig/issues/3190
+                    var align_spill = alignment;
                     const abi_align = try key.child_type.getAbiAlignment(comp);
-                    if (abi_align == alignment) {
+                    if (abi_align == align_spill) {
                         normal_key.alignment = .Abi;
                     }
                 },

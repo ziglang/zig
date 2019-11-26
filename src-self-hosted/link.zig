@@ -58,7 +58,8 @@ pub fn link(comp: *Compilation) !void {
     try ctx.args.append("lld");
 
     if (comp.haveLibC()) {
-        ctx.libc = ctx.comp.override_libc orelse blk: {
+        // TODO https://github.com/ziglang/zig/issues/3190
+        var libc = ctx.comp.override_libc orelse blk: {
             switch (comp.target) {
                 Target.Native => {
                     break :blk comp.zig_compiler.getNativeLibC() catch return error.LibCRequiredButNotProvidedOrFound;
@@ -66,6 +67,7 @@ pub fn link(comp: *Compilation) !void {
                 else => return error.LibCRequiredButNotProvidedOrFound,
             }
         };
+        ctx.libc = libc;
     }
 
     try constructLinkerArgs(&ctx);
