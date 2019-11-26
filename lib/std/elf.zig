@@ -306,41 +306,31 @@ pub const STT_ARM_16BIT = STT_HIPROC;
 pub const VER_FLG_BASE = 0x1;
 pub const VER_FLG_WEAK = 0x2;
 
-/// An unknown type.
-pub const ET_NONE = 0;
+/// File types
+pub const ET = extern enum(u16) {
+    /// No file type
+    NONE = 0,
 
-/// A relocatable file.
-pub const ET_REL = 1;
+    /// Relocatable file
+    REL = 1,
 
-/// An executable file.
-pub const ET_EXEC = 2;
+    /// Executable file
+    EXEC = 2,
 
-/// A shared object.
-pub const ET_DYN = 3;
+    /// Shared object file
+    DYN = 3,
 
-/// A core file.
-pub const ET_CORE = 4;
+    /// Core file
+    CORE = 4,
 
-pub const FileType = enum {
-    Relocatable,
-    Executable,
-    Shared,
-    Core,
+    /// Beginning of processor-specific codes
+    pub const LOPROC = 0xff00;
+
+    /// Processor-specific
+    pub const HIPROC = 0xffff;
 };
 
-pub const Arch = enum {
-    Sparc,
-    x86,
-    Mips,
-    PowerPc,
-    Arm,
-    SuperH,
-    IA_64,
-    x86_64,
-    AArch64,
-    RiscV,
-};
-
+/// TODO delete this in favor of Elf64_Shdr
 pub const SectionHeader = struct {
     name: u32,
     sh_type: u32,
@@ -359,8 +349,8 @@ pub const Elf = struct {
     in_stream: *io.InStream(anyerror),
     is_64: bool,
     endian: builtin.Endian,
-    file_type: FileType,
-    arch: Arch,
+    file_type: ET,
+    arch: EM,
     entry_addr: u64,
     program_header_offset: u64,
     section_header_offset: u64,
@@ -411,27 +401,8 @@ pub const Elf = struct {
         // skip over padding
         try seekable_stream.seekBy(9);
 
-        elf.file_type = switch (try in.readInt(u16, elf.endian)) {
-            1 => FileType.Relocatable,
-            2 => FileType.Executable,
-            3 => FileType.Shared,
-            4 => FileType.Core,
-            else => return error.InvalidFormat,
-        };
-
-        elf.arch = switch (try in.readInt(u16, elf.endian)) {
-            0x02 => Arch.Sparc,
-            0x03 => Arch.x86,
-            0x08 => Arch.Mips,
-            0x14 => Arch.PowerPc,
-            0x28 => Arch.Arm,
-            0x2A => Arch.SuperH,
-            0x32 => Arch.IA_64,
-            0x3E => Arch.x86_64,
-            0xb7 => Arch.AArch64,
-            0xf3 => Arch.RiscV,
-            else => return error.InvalidFormat,
-        };
+        elf.file_type = try in.readEnum(ET, elf.endian);
+        elf.arch = try in.readEnum(EM, elf.endian);
 
         const elf_version = try in.readInt(u32, elf.endian);
         if (elf_version != 1) return error.InvalidFormat;
@@ -577,8 +548,8 @@ pub const Elf32_Versym = Elf32_Half;
 pub const Elf64_Versym = Elf64_Half;
 pub const Elf32_Ehdr = extern struct {
     e_ident: [EI_NIDENT]u8,
-    e_type: Elf32_Half,
-    e_machine: Elf32_Half,
+    e_type: ET,
+    e_machine: EM,
     e_version: Elf32_Word,
     e_entry: Elf32_Addr,
     e_phoff: Elf32_Off,
@@ -593,8 +564,8 @@ pub const Elf32_Ehdr = extern struct {
 };
 pub const Elf64_Ehdr = extern struct {
     e_ident: [EI_NIDENT]u8,
-    e_type: Elf64_Half,
-    e_machine: Elf64_Half,
+    e_type: ET,
+    e_machine: EM,
     e_version: Elf64_Word,
     e_entry: Elf64_Addr,
     e_phoff: Elf64_Off,
@@ -902,3 +873,649 @@ pub const Verdaux = switch (@sizeOf(usize)) {
     8 => Elf64_Verdaux,
     else => @compileError("expected pointer size of 32 or 64"),
 };
+
+/// Machine architectures
+/// See current registered ELF machine architectures at:
+///    http://www.uxsglobal.com/developers/gabi/latest/ch4.eheader.html
+/// The underscore prefix is because many of these start with numbers.
+pub const EM = extern enum(u16) {
+    /// No machine
+    _NONE = 0,
+
+    /// AT&T WE 32100
+    _M32 = 1,
+
+    /// SPARC
+    _SPARC = 2,
+
+    /// Intel 386
+    _386 = 3,
+
+    /// Motorola 68000
+    _68K = 4,
+
+    /// Motorola 88000
+    _88K = 5,
+
+    /// Intel MCU
+    _IAMCU = 6,
+
+    /// Intel 80860
+    _860 = 7,
+
+    /// MIPS R3000
+    _MIPS = 8,
+
+    /// IBM System/370
+    _S370 = 9,
+
+    /// MIPS RS3000 Little-endian
+    _MIPS_RS3_LE = 10,
+
+    /// Hewlett-Packard PA-RISC
+    _PARISC = 15,
+
+    /// Fujitsu VPP500
+    _VPP500 = 17,
+
+    /// Enhanced instruction set SPARC
+    _SPARC32PLUS = 18,
+
+    /// Intel 80960
+    _960 = 19,
+
+    /// PowerPC
+    _PPC = 20,
+
+    /// PowerPC64
+    _PPC64 = 21,
+
+    /// IBM System/390
+    _S390 = 22,
+
+    /// IBM SPU/SPC
+    _SPU = 23,
+
+    /// NEC V800
+    _V800 = 36,
+
+    /// Fujitsu FR20
+    _FR20 = 37,
+
+    /// TRW RH-32
+    _RH32 = 38,
+
+    /// Motorola RCE
+    _RCE = 39,
+
+    /// ARM
+    _ARM = 40,
+
+    /// DEC Alpha
+    _ALPHA = 41,
+
+    /// Hitachi SH
+    _SH = 42,
+
+    /// SPARC V9
+    _SPARCV9 = 43,
+
+    /// Siemens TriCore
+    _TRICORE = 44,
+
+    /// Argonaut RISC Core
+    _ARC = 45,
+
+    /// Hitachi H8/300
+    _H8_300 = 46,
+
+    /// Hitachi H8/300H
+    _H8_300H = 47,
+
+    /// Hitachi H8S
+    _H8S = 48,
+
+    /// Hitachi H8/500
+    _H8_500 = 49,
+
+    /// Intel IA-64 processor architecture
+    _IA_64 = 50,
+
+    /// Stanford MIPS-X
+    _MIPS_X = 51,
+
+    /// Motorola ColdFire
+    _COLDFIRE = 52,
+
+    /// Motorola M68HC12
+    _68HC12 = 53,
+
+    /// Fujitsu MMA Multimedia Accelerator
+    _MMA = 54,
+
+    /// Siemens PCP
+    _PCP = 55,
+
+    /// Sony nCPU embedded RISC processor
+    _NCPU = 56,
+
+    /// Denso NDR1 microprocessor
+    _NDR1 = 57,
+
+    /// Motorola Star*Core processor
+    _STARCORE = 58,
+
+    /// Toyota ME16 processor
+    _ME16 = 59,
+
+    /// STMicroelectronics ST100 processor
+    _ST100 = 60,
+
+    /// Advanced Logic Corp. TinyJ embedded processor family
+    _TINYJ = 61,
+
+    /// AMD x86-64 architecture
+    _X86_64 = 62,
+
+    /// Sony DSP Processor
+    _PDSP = 63,
+
+    /// Digital Equipment Corp. PDP-10
+    _PDP10 = 64,
+
+    /// Digital Equipment Corp. PDP-11
+    _PDP11 = 65,
+
+    /// Siemens FX66 microcontroller
+    _FX66 = 66,
+
+    /// STMicroelectronics ST9+ 8/16 bit microcontroller
+    _ST9PLUS = 67,
+
+    /// STMicroelectronics ST7 8-bit microcontroller
+    _ST7 = 68,
+
+    /// Motorola MC68HC16 Microcontroller
+    _68HC16 = 69,
+
+    /// Motorola MC68HC11 Microcontroller
+    _68HC11 = 70,
+
+    /// Motorola MC68HC08 Microcontroller
+    _68HC08 = 71,
+
+    /// Motorola MC68HC05 Microcontroller
+    _68HC05 = 72,
+
+    /// Silicon Graphics SVx
+    _SVX = 73,
+
+    /// STMicroelectronics ST19 8-bit microcontroller
+    _ST19 = 74,
+
+    /// Digital VAX
+    _VAX = 75,
+
+    /// Axis Communications 32-bit embedded processor
+    _CRIS = 76,
+
+    /// Infineon Technologies 32-bit embedded processor
+    _JAVELIN = 77,
+
+    /// Element 14 64-bit DSP Processor
+    _FIREPATH = 78,
+
+    /// LSI Logic 16-bit DSP Processor
+    _ZSP = 79,
+
+    /// Donald Knuth's educational 64-bit processor
+    _MMIX = 80,
+
+    /// Harvard University machine-independent object files
+    _HUANY = 81,
+
+    /// SiTera Prism
+    _PRISM = 82,
+
+    /// Atmel AVR 8-bit microcontroller
+    _AVR = 83,
+
+    /// Fujitsu FR30
+    _FR30 = 84,
+
+    /// Mitsubishi D10V
+    _D10V = 85,
+
+    /// Mitsubishi D30V
+    _D30V = 86,
+
+    /// NEC v850
+    _V850 = 87,
+
+    /// Mitsubishi M32R
+    _M32R = 88,
+
+    /// Matsushita MN10300
+    _MN10300 = 89,
+
+    /// Matsushita MN10200
+    _MN10200 = 90,
+
+    /// picoJava
+    _PJ = 91,
+
+    /// OpenRISC 32-bit embedded processor
+    _OPENRISC = 92,
+
+    /// ARC International ARCompact processor (old spelling/synonym: EM_ARC_A5)
+    _ARC_COMPACT = 93,
+
+    /// Tensilica Xtensa Architecture
+    _XTENSA = 94,
+
+    /// Alphamosaic VideoCore processor
+    _VIDEOCORE = 95,
+
+    /// Thompson Multimedia General Purpose Processor
+    _TMM_GPP = 96,
+
+    /// National Semiconductor 32000 series
+    _NS32K = 97,
+
+    /// Tenor Network TPC processor
+    _TPC = 98,
+
+    /// Trebia SNP 1000 processor
+    _SNP1K = 99,
+
+    /// STMicroelectronics (www.st.com) ST200
+    _ST200 = 100,
+
+    /// Ubicom IP2xxx microcontroller family
+    _IP2K = 101,
+
+    /// MAX Processor
+    _MAX = 102,
+
+    /// National Semiconductor CompactRISC microprocessor
+    _CR = 103,
+
+    /// Fujitsu F2MC16
+    _F2MC16 = 104,
+
+    /// Texas Instruments embedded microcontroller msp430
+    _MSP430 = 105,
+
+    /// Analog Devices Blackfin (DSP) processor
+    _BLACKFIN = 106,
+
+    /// S1C33 Family of Seiko Epson processors
+    _SE_C33 = 107,
+
+    /// Sharp embedded microprocessor
+    _SEP = 108,
+
+    /// Arca RISC Microprocessor
+    _ARCA = 109,
+
+    /// Microprocessor series from PKU-Unity Ltd. and MPRC of Peking University
+    _UNICORE = 110,
+
+    /// eXcess: 16/32/64-bit configurable embedded CPU
+    _EXCESS = 111,
+
+    /// Icera Semiconductor Inc. Deep Execution Processor
+    _DXP = 112,
+
+    /// Altera Nios II soft-core processor
+    _ALTERA_NIOS2 = 113,
+
+    /// National Semiconductor CompactRISC CRX
+    _CRX = 114,
+
+    /// Motorola XGATE embedded processor
+    _XGATE = 115,
+
+    /// Infineon C16x/XC16x processor
+    _C166 = 116,
+
+    /// Renesas M16C series microprocessors
+    _M16C = 117,
+
+    /// Microchip Technology dsPIC30F Digital Signal Controller
+    _DSPIC30F = 118,
+
+    /// Freescale Communication Engine RISC core
+    _CE = 119,
+
+    /// Renesas M32C series microprocessors
+    _M32C = 120,
+
+    /// Altium TSK3000 core
+    _TSK3000 = 131,
+
+    /// Freescale RS08 embedded processor
+    _RS08 = 132,
+
+    /// Analog Devices SHARC family of 32-bit DSP processors
+    _SHARC = 133,
+
+    /// Cyan Technology eCOG2 microprocessor
+    _ECOG2 = 134,
+
+    /// Sunplus S+core7 RISC processor
+    _SCORE7 = 135,
+
+    /// New Japan Radio (NJR) 24-bit DSP Processor
+    _DSP24 = 136,
+
+    /// Broadcom VideoCore III processor
+    _VIDEOCORE3 = 137,
+
+    /// RISC processor for Lattice FPGA architecture
+    _LATTICEMICO32 = 138,
+
+    /// Seiko Epson C17 family
+    _SE_C17 = 139,
+
+    /// The Texas Instruments TMS320C6000 DSP family
+    _TI_C6000 = 140,
+
+    /// The Texas Instruments TMS320C2000 DSP family
+    _TI_C2000 = 141,
+
+    /// The Texas Instruments TMS320C55x DSP family
+    _TI_C5500 = 142,
+
+    /// STMicroelectronics 64bit VLIW Data Signal Processor
+    _MMDSP_PLUS = 160,
+
+    /// Cypress M8C microprocessor
+    _CYPRESS_M8C = 161,
+
+    /// Renesas R32C series microprocessors
+    _R32C = 162,
+
+    /// NXP Semiconductors TriMedia architecture family
+    _TRIMEDIA = 163,
+
+    /// Qualcomm Hexagon processor
+    _HEXAGON = 164,
+
+    /// Intel 8051 and variants
+    _8051 = 165,
+
+    /// STMicroelectronics STxP7x family of configurable and extensible RISC processors
+    _STXP7X = 166,
+
+    /// Andes Technology compact code size embedded RISC processor family
+    _NDS32 = 167,
+
+    /// Cyan Technology eCOG1X family
+    _ECOG1X = 168,
+
+    /// Dallas Semiconductor MAXQ30 Core Micro-controllers
+    _MAXQ30 = 169,
+
+    /// New Japan Radio (NJR) 16-bit DSP Processor
+    _XIMO16 = 170,
+
+    /// M2000 Reconfigurable RISC Microprocessor
+    _MANIK = 171,
+
+    /// Cray Inc. NV2 vector architecture
+    _CRAYNV2 = 172,
+
+    /// Renesas RX family
+    _RX = 173,
+
+    /// Imagination Technologies META processor architecture
+    _METAG = 174,
+
+    /// MCST Elbrus general purpose hardware architecture
+    _MCST_ELBRUS = 175,
+
+    /// Cyan Technology eCOG16 family
+    _ECOG16 = 176,
+
+    /// National Semiconductor CompactRISC CR16 16-bit microprocessor
+    _CR16 = 177,
+
+    /// Freescale Extended Time Processing Unit
+    _ETPU = 178,
+
+    /// Infineon Technologies SLE9X core
+    _SLE9X = 179,
+
+    /// Intel L10M
+    _L10M = 180,
+
+    /// Intel K10M
+    _K10M = 181,
+
+    /// ARM AArch64
+    _AARCH64 = 183,
+
+    /// Atmel Corporation 32-bit microprocessor family
+    _AVR32 = 185,
+
+    /// STMicroeletronics STM8 8-bit microcontroller
+    _STM8 = 186,
+
+    /// Tilera TILE64 multicore architecture family
+    _TILE64 = 187,
+
+    /// Tilera TILEPro multicore architecture family
+    _TILEPRO = 188,
+
+    /// NVIDIA CUDA architecture
+    _CUDA = 190,
+
+    /// Tilera TILE-Gx multicore architecture family
+    _TILEGX = 191,
+
+    /// CloudShield architecture family
+    _CLOUDSHIELD = 192,
+
+    /// KIPO-KAIST Core-A 1st generation processor family
+    _COREA_1ST = 193,
+
+    /// KIPO-KAIST Core-A 2nd generation processor family
+    _COREA_2ND = 194,
+
+    /// Synopsys ARCompact V2
+    _ARC_COMPACT2 = 195,
+
+    /// Open8 8-bit RISC soft processor core
+    _OPEN8 = 196,
+
+    /// Renesas RL78 family
+    _RL78 = 197,
+
+    /// Broadcom VideoCore V processor
+    _VIDEOCORE5 = 198,
+
+    /// Renesas 78KOR family
+    _78KOR = 199,
+
+    /// Freescale 56800EX Digital Signal Controller (DSC)
+    _56800EX = 200,
+
+    /// Beyond BA1 CPU architecture
+    _BA1 = 201,
+
+    /// Beyond BA2 CPU architecture
+    _BA2 = 202,
+
+    /// XMOS xCORE processor family
+    _XCORE = 203,
+
+    /// Microchip 8-bit PIC(r) family
+    _MCHP_PIC = 204,
+
+    /// Reserved by Intel
+    _INTEL205 = 205,
+
+    /// Reserved by Intel
+    _INTEL206 = 206,
+
+    /// Reserved by Intel
+    _INTEL207 = 207,
+
+    /// Reserved by Intel
+    _INTEL208 = 208,
+
+    /// Reserved by Intel
+    _INTEL209 = 209,
+
+    /// KM211 KM32 32-bit processor
+    _KM32 = 210,
+
+    /// KM211 KMX32 32-bit processor
+    _KMX32 = 211,
+
+    /// KM211 KMX16 16-bit processor
+    _KMX16 = 212,
+
+    /// KM211 KMX8 8-bit processor
+    _KMX8 = 213,
+
+    /// KM211 KVARC processor
+    _KVARC = 214,
+
+    /// Paneve CDP architecture family
+    _CDP = 215,
+
+    /// Cognitive Smart Memory Processor
+    _COGE = 216,
+
+    /// iCelero CoolEngine
+    _COOL = 217,
+
+    /// Nanoradio Optimized RISC
+    _NORC = 218,
+
+    /// CSR Kalimba architecture family
+    _CSR_KALIMBA = 219,
+
+    /// AMD GPU architecture
+    _AMDGPU = 224,
+
+    /// RISC-V
+    _RISCV = 243,
+
+    /// Lanai 32-bit processor
+    _LANAI = 244,
+
+    /// Linux kernel bpf virtual machine
+    _BPF = 247,
+};
+
+/// Section data should be writable during execution.
+pub const SHF_WRITE = 0x1;
+
+/// Section occupies memory during program execution.
+pub const SHF_ALLOC = 0x2;
+
+/// Section contains executable machine instructions.
+pub const SHF_EXECINSTR = 0x4;
+
+/// The data in this section may be merged.
+pub const SHF_MERGE = 0x10;
+
+/// The data in this section is null-terminated strings.
+pub const SHF_STRINGS = 0x20;
+
+/// A field in this section holds a section header table index.
+pub const SHF_INFO_LINK = 0x40;
+
+/// Adds special ordering requirements for link editors.
+pub const SHF_LINK_ORDER = 0x80;
+
+/// This section requires special OS-specific processing to avoid incorrect
+/// behavior.
+pub const SHF_OS_NONCONFORMING = 0x100;
+
+/// This section is a member of a section group.
+pub const SHF_GROUP = 0x200;
+
+/// This section holds Thread-Local Storage.
+pub const SHF_TLS = 0x400;
+
+/// Identifies a section containing compressed data.
+pub const SHF_COMPRESSED = 0x800;
+
+/// This section is excluded from the final executable or shared library.
+pub const SHF_EXCLUDE = 0x80000000;
+
+/// Start of target-specific flags.
+pub const SHF_MASKOS = 0x0ff00000;
+
+/// Bits indicating processor-specific flags.
+pub const SHF_MASKPROC = 0xf0000000;
+
+/// All sections with the "d" flag are grouped together by the linker to form
+/// the data section and the dp register is set to the start of the section by
+/// the boot code.
+pub const XCORE_SHF_DP_SECTION = 0x10000000;
+
+/// All sections with the "c" flag are grouped together by the linker to form
+/// the constant pool and the cp register is set to the start of the constant
+/// pool by the boot code.
+pub const XCORE_SHF_CP_SECTION = 0x20000000;
+
+/// If an object file section does not have this flag set, then it may not hold
+/// more than 2GB and can be freely referred to in objects using smaller code
+/// models. Otherwise, only objects using larger code models can refer to them.
+/// For example, a medium code model object can refer to data in a section that
+/// sets this flag besides being able to refer to data in a section that does
+/// not set it; likewise, a small code model object can refer only to code in a
+/// section that does not set this flag.
+pub const SHF_X86_64_LARGE = 0x10000000;
+
+/// All sections with the GPREL flag are grouped into a global data area
+/// for faster accesses
+pub const SHF_HEX_GPREL = 0x10000000;
+
+/// Section contains text/data which may be replicated in other sections.
+/// Linker must retain only one copy.
+pub const SHF_MIPS_NODUPES = 0x01000000;
+
+/// Linker must generate implicit hidden weak names.
+pub const SHF_MIPS_NAMES = 0x02000000;
+
+/// Section data local to process.
+pub const SHF_MIPS_LOCAL = 0x04000000;
+
+/// Do not strip this section.
+pub const SHF_MIPS_NOSTRIP = 0x08000000;
+
+/// Section must be part of global data area.
+pub const SHF_MIPS_GPREL = 0x10000000;
+
+/// This section should be merged.
+pub const SHF_MIPS_MERGE = 0x20000000;
+
+/// Address size to be inferred from section entry size.
+pub const SHF_MIPS_ADDR = 0x40000000;
+
+/// Section data is string data by default.
+pub const SHF_MIPS_STRING = 0x80000000;
+
+/// Make code section unreadable when in execute-only mode
+pub const SHF_ARM_PURECODE = 0x2000000;
+
+/// Execute
+pub const PF_X = 1;
+
+/// Write
+pub const PF_W = 2;
+
+/// Read
+pub const PF_R = 4;
+
+/// Bits for operating system-specific semantics.
+pub const PF_MASKOS = 0x0ff00000;
+
+/// Bits for processor-specific semantics.
+pub const PF_MASKPROC = 0xf0000000;

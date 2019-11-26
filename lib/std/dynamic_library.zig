@@ -151,7 +151,7 @@ pub const ElfLib = struct {
     pub fn init(bytes: []align(@alignOf(elf.Ehdr)) u8) !ElfLib {
         const eh = @ptrCast(*elf.Ehdr, bytes.ptr);
         if (!mem.eql(u8, eh.e_ident[0..4], "\x7fELF")) return error.NotElfFile;
-        if (eh.e_type != elf.ET_DYN) return error.NotDynamicLibrary;
+        if (eh.e_type != elf.ET.DYN) return error.NotDynamicLibrary;
 
         const elf_addr = @ptrToInt(bytes.ptr);
         var ph_addr: usize = elf_addr + eh.e_phoff;
