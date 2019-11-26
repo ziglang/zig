@@ -2175,7 +2175,7 @@ const InstallArtifactStep = struct {
 
         const full_dest_path = builder.getInstallPath(self.dest_dir, self.artifact.out_filename);
         try builder.updateFile(self.artifact.getOutputPath(), full_dest_path);
-        if (self.artifact.isDynamicLibrary()) {
+        if (self.artifact.isDynamicLibrary() and self.artifact.target.wantSharedLibSymLinks()) {
             try doAtomicSymLinks(builder.allocator, full_dest_path, self.artifact.major_only_filename, self.artifact.name_only_filename);
         }
         if (self.pdb_dir) |pdb_dir| {
