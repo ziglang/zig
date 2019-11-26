@@ -350,7 +350,7 @@ pub const Value = struct {
                 .mut = mut,
                 .vol = Type.Pointer.Vol.Non,
                 .size = size,
-                .alignment = Type.Pointer.Align.Abi,
+                .alignment = .Abi,
             });
             var ptr_type_consumed = false;
             errdefer if (!ptr_type_consumed) ptr_type.base.base.deref(comp);

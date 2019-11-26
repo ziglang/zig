@@ -658,7 +658,7 @@ pub const Inst = struct {
                 const amt = try align_inst.getAsConstAlign(ira);
                 break :blk Type.Pointer.Align{ .Override = amt };
             } else blk: {
-                break :blk Type.Pointer.Align{ .Abi = {} };
+                break :blk .Abi;
             };
             const ptr_type = try Type.Pointer.get(ira.irb.comp, Type.Pointer.Key{
                 .child_type = child_type,
@@ -1078,6 +1078,14 @@ pub const Builder = struct {
         self.current_basic_block = basic_block;
     }
 
+    pub fn genNodeRecursive(irb: *Builder, node: *ast.Node, scope: *Scope, lval: LVal) Error!*Inst {
+        const alloc = irb.comp.gpa();
+        var frame = try alloc.create(@Frame(genNode));
+        defer alloc.destroy(frame);
+        frame.* = async irb.genNode(node, scope, lval);
+        return await frame;
+    }
+
     pub async fn genNode(irb: *Builder, node: *ast.Node, scope: *Scope, lval: LVal) Error!*Inst {
         switch (node.id) {
             .Root => unreachable,
@@ -1157,7 +1165,7 @@ pub const Builder = struct {
             },
             .GroupedExpression => {
                 const grouped_expr = @fieldParentPtr(ast.Node.GroupedExpression, "base", node);
-                return irb.genNode(grouped_expr.expr, scope, lval);
+                return irb.genNodeRecursive(grouped_expr.expr, scope, lval);
             },
             .BuiltinCall => return error.Unimplemented,
             .ErrorSetDecl => return error.Unimplemented,
@@ -1187,14 +1195,13 @@ pub const Builder = struct {
     }
 
     fn genCall(irb: *Builder, suffix_op: *ast.Node.SuffixOp, call: *ast.Node.SuffixOp.Op.Call, scope: *Scope) !*Inst {
-    async fn genCall(irb: *Builder, suffix_op: *ast.Node.SuffixOp, call: *ast.Node.SuffixOp.Op.Call, scope: *Scope) !*Inst {
-        const fn_ref = try irb.genNode(suffix_op.lhs, scope, .None);
+        const fn_ref = try irb.genNodeRecursive(suffix_op.lhs.node, scope, .None);
 
         const args = try irb.arena().alloc(*Inst, call.params.len);
         var it = call.params.iterator(0);
         var i: usize = 0;
         while (it.next()) |arg_node_ptr| : (i += 1) {
-            args[i] = try irb.genNode(arg_node_ptr.*, scope, .None);
+            args[i] = try irb.genNodeRecursive(arg_node_ptr.*, scope, .None);
         }
 
         //bool is_async = node->data.fn_call_expr.is_async;
@@ -1239,7 +1246,7 @@ pub const Builder = struct {
         //} else {
         //    align_value = nullptr;
         //}
-        const child_type = try irb.genNode(prefix_op.rhs, scope, .None);
+        const child_type = try irb.genNodeRecursive(prefix_op.rhs, scope, .None);
 
         //uint32_t bit_offset_start = 0;
         //if (node->data.pointer_type.bit_offset_start != nullptr) {
@@ -1438,7 +1445,7 @@ pub const Builder = struct {
                 child_scope = &defer_child_scope.base;
                 continue;
             }
-            const statement_value = try irb.genNode(statement_node, child_scope, .None);
+            const statement_value = try irb.genNodeRecursive(statement_node, child_scope, .None);
 
             is_continuation_unreachable = statement_value.isNoReturn();
             if (is_continuation_unreachable) {
@@ -1534,7 +1541,7 @@ pub const Builder = struct {
 
                 const outer_scope = irb.begin_scope.?;
                 const return_value = if (control_flow_expr.rhs) |rhs| blk: {
-                    break :blk try irb.genNode(rhs, scope, .None);
+                    break :blk try irb.genNodeRecursive(rhs, scope, .None);
                 } else blk: {
                     break :blk try irb.buildConstVoid(scope, src_span, true);
                 };
@@ -1713,7 +1720,7 @@ pub const Builder = struct {
                     };
                     if (generate) {
                         const defer_expr_scope = defer_scope.defer_expr_scope;
-                        const instruction = try irb.genNode(
+                        const instruction = try irb.genNodeRecursive(
                             defer_expr_scope.expr_node,
                             &defer_expr_scope.base,
                             .None,

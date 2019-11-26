@@ -400,7 +400,7 @@ fn ccPrintFileName(allocator: *Allocator, o_file: []const u8, want_dirname: bool
     const argv = [_][]const u8{ cc_exe, arg1 };
 
     // TODO This simulates evented I/O for the child process exec
-    std.event.Loop.instance.?.yield();
+    event.Loop.startCpuBoundOperation();
     const errorable_result = std.ChildProcess.exec(allocator, argv, null, null, 1024 * 1024);
     const exec_result = if (std.debug.runtime_safety) blk: {
         break :blk errorable_result catch unreachable;

@@ -133,7 +133,7 @@ pub const Compilation = struct {
     zig_std_dir: []const u8,
 
     /// lazily created when we need it
-    tmp_dir: event.Future(BuildError![]u8),
+    tmp_dir: event.Future(BuildError![]u8) = event.Future(BuildError![]u8).init(),
 
     version_major: u32 = 0,
     version_minor: u32 = 0,
@@ -158,7 +158,7 @@ pub const Compilation = struct {
 
     /// functions that have their own objects that we need to link
     /// it uses an optional pointer so that tombstone removals are possible
-    fn_link_set: event.Locked(FnLinkSet),
+    fn_link_set: event.Locked(FnLinkSet) = event.Locked(FnLinkSet).init(FnLinkSet.init()),
 
     pub const FnLinkSet = std.TailQueue(?*Value.Fn);
 
@@ -227,9 +227,9 @@ pub const Compilation = struct {
     /// need to wait on this group before deinitializing
     deinit_group: event.Group(void),
 
-    // destroy_frame: @Frame(createAsync),
-    // main_loop_frame: @Frame(Compilation.mainLoop),
-    main_loop_future: event.Future(void),
+    destroy_frame: *@Frame(createAsync),
+    main_loop_frame: *@Frame(Compilation.mainLoop),
+    main_loop_future: event.Future(void) = event.Future(void).init(),
 
     have_err_ret_tracing: bool = false,
 
@@ -244,6 +244,8 @@ pub const Compilation = struct {
     c_int_types: [CInt.list.len]*Type.Int,
 
     fs_watch: *fs.Watch(*Scope.Root),
+
+    cancelled: bool = false,
 
     const IntTypeTable = std.HashMap(*const Type.Int.Key, *Type.Int, Type.Int.Key.hash, Type.Int.Key.eql);
     const ArrayTypeTable = std.HashMap(*const Type.Array.Key, *Type.Array, Type.Array.Key.hash, Type.Array.Key.eql);
@@ -348,7 +350,9 @@ pub const Compilation = struct {
         zig_lib_dir: []const u8,
     ) !*Compilation {
         var optional_comp: ?*Compilation = null;
-        var frame = async createAsync(
+        var frame = try zig_compiler.allocator.create(@Frame(createAsync));
+        errdefer zig_compiler.allocator.destroy(frame);
+        frame.* = async createAsync(
             &optional_comp,
             zig_compiler,
             name,
@@ -385,15 +389,12 @@ pub const Compilation = struct {
             .build_mode = build_mode,
             .zig_lib_dir = zig_lib_dir,
             .zig_std_dir = undefined,
-            .tmp_dir = event.Future(BuildError![]u8).init(),
-            // .destroy_frame = @frame(),
-            // .main_loop_frame = undefined,
-            .main_loop_future = event.Future(void).init(),
+            .destroy_frame = @frame(),
+            .main_loop_frame = undefined,
 
             .name = undefined,
             .llvm_triple = undefined,
             .is_static = is_static,
-            .fn_link_set = event.Locked(FnLinkSet).init(FnLinkSet.init()),
             .link_libs_list = undefined,
 
             .exported_symbol_names = event.Locked(Decl.Table).init(Decl.Table.init(allocator)),
@@ -505,7 +506,10 @@ pub const Compilation = struct {
         try comp.initTypes();
         defer comp.primitive_type_table.deinit();
 
-        // comp.main_loop_frame = async comp.mainLoop();
+        comp.main_loop_frame = try allocator.create(@Frame(mainLoop));
+        defer allocator.destroy(comp.main_loop_frame);
+
+        comp.main_loop_frame.* = async comp.mainLoop();
         // Set this to indicate that initialization completed successfully.
         // from here on out we must not return an error.
         // This must occur before the first suspend/await.
@@ -718,8 +722,11 @@ pub const Compilation = struct {
     }
 
     pub fn destroy(self: *Compilation) void {
-        // await self.main_loop_frame;
-        // resume self.destroy_frame;
+        const allocator = self.gpa();
+        self.cancelled = true;
+        await self.main_loop_frame;
+        resume self.destroy_frame;
+        allocator.destroy(self.destroy_frame);
     }
 
     fn start(self: *Compilation) void {
@@ -732,7 +739,7 @@ pub const Compilation = struct {
 
         var build_result = self.initialCompile();
 
-        while (true) {
+        while (!self.cancelled) {
             const link_result = if (build_result) blk: {
                 break :blk self.maybeLink();
             } else |err| err;
@@ -1130,11 +1137,10 @@ pub const Compilation = struct {
         return link_lib;
     }
 
-    /// cancels itself so no need to await or cancel the promise.
     async fn startFindingNativeLibC(self: *Compilation) void {
-        std.event.Loop.instance.?.yield();
+        event.Loop.startCpuBoundOperation();
         // we don't care if it fails, we're just trying to kick off the future resolution
-        _ = (self.zig_compiler.getNativeLibC()) catch return;
+        _ = self.zig_compiler.getNativeLibC() catch return;
     }
 
     /// General Purpose Allocator. Must free when done.
@@ -1215,7 +1221,10 @@ pub const Compilation = struct {
         node: *ast.Node,
         expected_type: *Type,
     ) !*Value {
-        const analyzed_code = try comp.genAndAnalyzeCode(tree_scope, scope, node, expected_type);
+        var frame = try comp.gpa().create(@Frame(genAndAnalyzeCode));
+        defer comp.gpa().destroy(frame);
+        frame.* = async comp.genAndAnalyzeCode(tree_scope, scope, node, expected_type);
+        const analyzed_code = try await frame;
         defer analyzed_code.destroy(comp.gpa());
 
         return analyzed_code.getCompTimeResult(comp);
@@ -1315,12 +1324,15 @@ fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
         try fn_type.non_key.Normal.variable_list.append(var_scope);
     }
 
-    const analyzed_code = try comp.genAndAnalyzeCode(
+    var frame = try comp.gpa().create(@Frame(Compilation.genAndAnalyzeCode));
+    defer comp.gpa().destroy(frame);
+    frame.* = async comp.genAndAnalyzeCode(
         tree_scope,
         fn_val.child_scope,
         body_node,
         fn_type.key.data.Normal.return_type,
     );
+    const analyzed_code = try await frame;
     errdefer analyzed_code.destroy(comp.gpa());
 
     assert(fn_val.block_scope != null);

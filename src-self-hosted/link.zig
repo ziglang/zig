@@ -623,16 +623,15 @@ fn constructLinkerArgsWasm(ctx: *Context) void {
 }
 
 fn addFnObjects(ctx: *Context) !void {
-    // at this point it's guaranteed nobody else has this lock, so we circumvent it
-    // and avoid having to be an async function
-    const fn_link_set = &ctx.comp.fn_link_set.private_data;
+    const held = ctx.comp.fn_link_set.acquire();
+    defer held.release();
 
-    var it = fn_link_set.first;
+    var it = held.value.first;
     while (it) |node| {
         const fn_val = node.data orelse {
             // handle the tombstone. See Value.Fn.destroy.
             it = node.next;
-            fn_link_set.remove(node);
+            held.value.remove(node);
             ctx.comp.gpa().destroy(node);
             continue;
         };

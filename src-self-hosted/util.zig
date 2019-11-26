@@ -167,7 +167,7 @@ pub fn getDarwinArchString(self: Target) [:0]const u8 {
         .powerpc64 => return "ppc64",
         .powerpc64le => return "ppc64le",
         // @tagName should be able to return sentinel terminated slice
-        else => @panic("TODO"), //return @tagName(arch),
+        else => @panic("TODO https://github.com/ziglang/zig/issues/3779"), //return @tagName(arch),
     }
 }
 

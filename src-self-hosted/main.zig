@@ -127,7 +127,7 @@ pub fn main() !void {
     try stderr.print("unknown command: {}\n\n", args[1]);
     try stderr.write(usage);
     process.argsFree(allocator, args);
-    defer process.exit(1);
+    process.exit(1);
 }
 
 const usage_build_generic =
@@ -467,7 +467,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
 
 fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
     var count: usize = 0;
-    while (true) { // TODO(Vexu)
+    while (!comp.cancelled) {
         const build_event = comp.events.get();
         count += 1;
 
@@ -545,7 +545,7 @@ fn parseLibcPaths(allocator: *Allocator, libc: *LibCInstallation, libc_paths_fil
                 "Try running `zig libc` to see an example for the native target.\n",
             libc_paths_file,
             @errorName(err),
-        ) catch process.exit(1);
+        ) catch {};
         process.exit(1);
     };
 }
@@ -568,7 +568,7 @@ fn cmdLibC(allocator: *Allocator, args: []const []const u8) !void {
     defer zig_compiler.deinit();
 
     const libc = zig_compiler.getNativeLibC() catch |err| {
-        stderr.print("unable to find libc: {}\n", @errorName(err)) catch process.exit(1);
+        stderr.print("unable to find libc: {}\n", @errorName(err)) catch {};
         process.exit(1);
     };
     libc.render(stdout) catch process.exit(1);
@@ -706,7 +706,8 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
             while (try it.next()) |entry| {
                 if (entry.kind == .Directory or mem.endsWith(u8, entry.name, ".zig")) {
                     const full_path = try fs.path.join(fmt.allocator, [_][]const u8{ file_path, entry.name });
-                    try group.call(fmtPath, fmt, full_path, check_mode);
+                    @panic("TODO https://github.com/ziglang/zig/issues/3777");
+                    // try group.call(fmtPath, fmt, full_path, check_mode);
                 }
             }
             return group.wait();
