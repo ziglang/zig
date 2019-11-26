@@ -350,7 +350,7 @@ pub fn deleteTree(full_path: []const u8) !void {
             CannotDeleteRootDirectory,
         }.CannotDeleteRootDirectory;
 
-        var dir = try Dir.open(dirname);
+        var dir = try Dir.cwd().openDirList(dirname);
         defer dir.close();
 
         return dir.deleteTree(path.basename(full_path));
@@ -657,8 +657,8 @@ pub const Dir = struct {
         }
     }
 
-    /// Returns an open handle to the current working directory.
-    /// Closing the returned `Dir` is checked illegal behavior.
+    /// Returns an handle to the current working directory that is open for traversal.
+    /// Closing the returned `Dir` is checked illegal behavior. Iterating over the result is illegal behavior.
     /// On POSIX targets, this function is comptime-callable.
     pub fn cwd() Dir {
         if (builtin.os == .windows) {
@@ -683,14 +683,14 @@ pub const Dir = struct {
         DeviceBusy,
     } || os.UnexpectedError;
 
-    /// Call `close` to free the directory handle.
+    /// Deprecated; call `Dir.cwd().openDirList` directly.
     pub fn open(dir_path: []const u8) OpenError!Dir {
-        return cwd().openDir(dir_path);
+        return cwd().openDirList(dir_path);
     }
 
-    /// Same as `open` except the parameter is null-terminated.
+    /// Deprecated; call `Dir.cwd().openDirListC` directly.
     pub fn openC(dir_path_c: [*:0]const u8) OpenError!Dir {
-        return cwd().openDirC(dir_path_c);
+        return cwd().openDirListC(dir_path_c);
     }
 
     pub fn close(self: *Dir) void {
@@ -775,26 +775,69 @@ pub const Dir = struct {
         }
     }
 
-    /// Call `close` on the result when done.
+    /// Deprecated; call `openDirList` directly.
     pub fn openDir(self: Dir, sub_path: []const u8) OpenError!Dir {
+        return self.openDirList(sub_path);
+    }
+
+    /// Deprecated; call `openDirListC` directly.
+    pub fn openDirC(self: Dir, sub_path_c: [*:0]const u8) OpenError!Dir {
+        return self.openDirListC(sub_path_c);
+    }
+
+    /// Opens a directory at the given path with the ability to access subpaths
+    /// of the result. Calling `iterate` on the result is illegal behavior; to
+    /// list the contents of a directory, open it with `openDirList`.
+    ///
+    /// Call `close` on the result when done.
+    pub fn openDirTraverse(self: Dir, sub_path: []const u8) OpenError!Dir {
         if (builtin.os == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
-            return self.openDirW(&sub_path_w);
+            return self.openDirTraverseW(&sub_path_w);
         }
 
         const sub_path_c = try os.toPosixPath(sub_path);
-        return self.openDirC(&sub_path_c);
+        return self.openDirTraverseC(&sub_path_c);
     }
 
-    /// Same as `openDir` except the parameter is null-terminated.
-    pub fn openDirC(self: Dir, sub_path_c: [*:0]const u8) OpenError!Dir {
+    /// Opens a directory at the given path with the ability to access subpaths and list contents
+    /// of the result. If the ability to list contents is unneeded, `openDirTraverse` acts the
+    /// same and may be more efficient.
+    ///
+    /// Call `close` on the result when done.
+    pub fn openDirList(self: Dir, sub_path: []const u8) OpenError!Dir {
         if (builtin.os == .windows) {
-            const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
-            return self.openDirW(&sub_path_w);
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            return self.openDirListW(&sub_path_w);
         }
 
-        const flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC;
-        const fd = os.openatC(self.fd, sub_path_c, flags, 0) catch |err| switch (err) {
+        const sub_path_c = try os.toPosixPath(sub_path);
+        return self.openDirListC(&sub_path_c);
+    }
+
+    /// Same as `openDirTraverse` except the parameter is null-terminated.
+    pub fn openDirTraverseC(self: Dir, sub_path_c: [*:0]const u8) OpenError!Dir {
+        if (builtin.os == .windows) {
+            const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
+            return self.openDirTraverseW(&sub_path_w);
+        } else {
+            const O_PATH = if (@hasDecl(os, "O_PATH")) os.O_PATH else 0;
+            return self.openDirFlagsC(sub_path_c, os.O_RDONLY | os.O_CLOEXEC | O_PATH);
+        }
+    }
+
+    /// Same as `openDirList` except the parameter is null-terminated.
+    pub fn openDirListC(self: Dir, sub_path_c: [*:0]const u8) OpenError!Dir {
+        if (builtin.os == .windows) {
+            const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
+            return self.openDirListW(&sub_path_w);
+        } else {
+            return self.openDirFlagsC(sub_path_c, os.O_RDONLY | os.O_CLOEXEC);
+        }
+    }
+
+    fn openDirFlagsC(self: Dir, sub_path_c: [*:0]const u8, flags: u32) OpenError!Dir {
+        const fd = os.openatC(self.fd, sub_path_c, flags | os.O_DIRECTORY, 0) catch |err| switch (err) {
             error.FileTooBig => unreachable, // can't happen for directories
             error.IsDir => unreachable, // we're providing O_DIRECTORY
             error.NoSpaceLeft => unreachable, // not providing O_CREAT
@@ -804,9 +847,23 @@ pub const Dir = struct {
         return Dir{ .fd = fd };
     }
 
-    /// Same as `openDir` except the path parameter is UTF16LE, NT-prefixed.
+    /// Same as `openDirTraverse` except the path parameter is UTF16LE, NT-prefixed.
     /// This function is Windows-only.
-    pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16) OpenError!Dir {
+    pub fn openDirTraverseW(self: Dir, sub_path_w: [*:0]const u16) OpenError!Dir {
+        const w = os.windows;
+
+        return self.openDirAccessMaskW(sub_path_w, w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA | w.SYNCHRONIZE | w.FILE_TRAVERSE);
+    }
+
+    /// Same as `openDirList` except the path parameter is UTF16LE, NT-prefixed.
+    /// This function is Windows-only.
+    pub fn openDirListW(self: Dir, sub_path_w: [*:0]const u16) OpenError!Dir {
+        const w = os.windows;
+
+        return self.openDirAccessMaskW(sub_path_w, w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA | w.SYNCHRONIZE | w.FILE_TRAVERSE | w.FILE_LIST_DIRECTORY);
+    }
+
+    fn openDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32) OpenError!Dir {
         const w = os.windows;
 
         var result = Dir{
@@ -839,7 +896,7 @@ pub const Dir = struct {
         var io: w.IO_STATUS_BLOCK = undefined;
         const rc = w.ntdll.NtCreateFile(
             &result.fd,
-            w.GENERIC_READ | w.SYNCHRONIZE,
+            access_mask,
             &attr,
             &io,
             null,
@@ -1013,7 +1070,7 @@ pub const Dir = struct {
                 error.Unexpected,
                 => |e| return e,
             }
-            var dir = self.openDir(sub_path) catch |err| switch (err) {
+            var dir = self.openDirList(sub_path) catch |err| switch (err) {
                 error.NotDir => {
                     if (got_access_denied) {
                         return error.AccessDenied;
@@ -1078,7 +1135,7 @@ pub const Dir = struct {
                         => |e| return e,
                     }
 
-                    const new_dir = dir.openDir(entry.name) catch |err| switch (err) {
+                    const new_dir = dir.openDirList(entry.name) catch |err| switch (err) {
                         error.NotDir => {
                             if (got_access_denied) {
                                 return error.AccessDenied;
@@ -1169,7 +1226,7 @@ pub const Walker = struct {
                 try self.name_buffer.appendByte(path.sep);
                 try self.name_buffer.append(base.name);
                 if (base.kind == .Directory) {
-                    var new_dir = top.dir_it.dir.openDir(base.name) catch |err| switch (err) {
+                    var new_dir = top.dir_it.dir.openDirList(base.name) catch |err| switch (err) {
                         error.NameTooLong => unreachable, // no path sep in base.name
                         else => |e| return e,
                     };
@@ -1207,7 +1264,7 @@ pub const Walker = struct {
 pub fn walkPath(allocator: *Allocator, dir_path: []const u8) !Walker {
     assert(!mem.endsWith(u8, dir_path, path.sep_str));
 
-    var dir = try Dir.open(dir_path);
+    var dir = try Dir.cwd().openDirList(dir_path);
     errdefer dir.close();
 
     var name_buffer = try std.Buffer.init(allocator, dir_path);

@@ -715,7 +715,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
     // ) catch |err| switch (err) {
     //     error.IsDir, error.AccessDenied => {
     //         // TODO make event based (and dir.next())
-    //         var dir = try fs.Dir.open(file_path);
+    //         var dir = try fs.Dir.cwd().openDirList(file_path);
     //         defer dir.close();
 
     //         var group = event.Group(FmtError!void).init(fmt.allocator);
