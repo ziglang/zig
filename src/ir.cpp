@@ -1235,7 +1235,7 @@ static IrInstruction *ir_build_const_void(IrBuilder *irb, Scope *scope, AstNode 
 #endif
     IrInstructionConst *const_instruction = ir_create_instruction_noval<IrInstructionConst>(irb, scope, source_node);
     ir_instruction_append(irb->current_basic_block, &const_instruction->base);
-    const_instruction->base.value = &irb->codegen->intern_values.x_void;
+    const_instruction->base.value = irb->codegen->intern.for_void();
     return &const_instruction->base;
 }
 
@@ -1245,7 +1245,7 @@ static IrInstruction *ir_build_const_undefined(IrBuilder *irb, Scope *scope, Ast
 #endif
     IrInstructionConst *const_instruction = ir_create_instruction_noval<IrInstructionConst>(irb, scope, source_node);
     ir_instruction_append(irb->current_basic_block, &const_instruction->base);
-    const_instruction->base.value = &irb->codegen->intern_values.x_undefined;
+    const_instruction->base.value = irb->codegen->intern.for_undefined();
     return &const_instruction->base;
 }
 
@@ -1279,7 +1279,7 @@ static IrInstruction *ir_build_const_null(IrBuilder *irb, Scope *scope, AstNode 
 #endif
     IrInstructionConst *const_instruction = ir_create_instruction_noval<IrInstructionConst>(irb, scope, source_node);
     ir_instruction_append(irb->current_basic_block, &const_instruction->base);
-    const_instruction->base.value = &irb->codegen->intern_values.x_null;
+    const_instruction->base.value = irb->codegen->intern.for_null();
     return &const_instruction->base;
 }
 
@@ -11464,7 +11464,7 @@ static IrInstruction *ir_const_unreachable(IrAnalyze *ira, IrInstruction *source
     memprof_intern_count.x_unreachable += 1;
 #endif
     IrInstruction *result = ir_const_noval(ira, source_instruction);
-    result->value = &ira->codegen->intern_values.x_unreachable;
+    result->value = ira->codegen->intern.for_unreachable();
     return result;
 }
 
@@ -11473,7 +11473,7 @@ static IrInstruction *ir_const_void(IrAnalyze *ira, IrInstruction *source_instru
     memprof_intern_count.x_void += 1;
 #endif
     IrInstruction *result = ir_const_noval(ira, source_instruction);
-    result->value = &ira->codegen->intern_values.x_void;
+    result->value = ira->codegen->intern.for_void();
     return result;
 }
 
@@ -18501,7 +18501,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
         if (var) {
             return ir_get_var_ptr(ira, &elem_ptr_instruction->base, var);
         } else {
-            return ir_get_const_ptr(ira, &elem_ptr_instruction->base, &ira->codegen->const_void_val,
+            return ir_get_const_ptr(ira, &elem_ptr_instruction->base, ira->codegen->intern.for_void(),
                     ira->codegen->builtin_types.entry_void, ConstPtrMutComptimeConst, is_const, is_volatile, 0);
         }
     } else if (array_type->id == ZigTypeIdVector) {
@@ -21864,7 +21864,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
         case ZigTypeIdNull:
         case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
-            result = &ira->codegen->const_void_val;
+            result = ira->codegen->intern.for_void();
             break;
         case ZigTypeIdInt:
             {

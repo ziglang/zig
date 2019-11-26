@@ -5648,7 +5648,7 @@ void init_const_str_lit(CodeGen *g, ZigValue *const_val, Buf *str) {
     // first we build the underlying array
     ZigValue *array_val = create_const_vals(1);
     array_val->special = ConstValSpecialStatic;
-    array_val->type = get_array_type(g, g->builtin_types.entry_u8, buf_len(str), &g->const_zero_byte);
+    array_val->type = get_array_type(g, g->builtin_types.entry_u8, buf_len(str), g->intern.for_zero_byte());
     array_val->data.x_array.special = ConstArraySpecialBuf;
     array_val->data.x_array.data.s_buf = str;
 

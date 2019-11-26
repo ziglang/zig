@@ -141,6 +141,7 @@ void memprof_dump_stats(FILE *file) {
     fprintf(stderr, "void: interned %zu times\n", memprof_intern_count.x_void);
     fprintf(stderr, "null: interned %zu times\n", memprof_intern_count.x_null);
     fprintf(stderr, "unreachable: interned %zu times\n", memprof_intern_count.x_unreachable);
+    fprintf(stderr, "zero_byte: interned %zu times\n", memprof_intern_count.zero_byte);
 }
 
 #endif
