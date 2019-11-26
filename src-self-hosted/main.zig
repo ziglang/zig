@@ -49,7 +49,7 @@ const usage =
 
 const Command = struct {
     name: []const u8,
-    exec: fn (*Allocator, []const []const u8) anyerror!void,
+    exec: async fn (*Allocator, []const []const u8) anyerror!void,
 };
 
 pub fn main() !void {
@@ -118,9 +118,12 @@ pub fn main() !void {
         },
     };
 
-    for (commands) |command| {
+    inline for (commands) |command| {
         if (mem.eql(u8, command.name, args[1])) {
-            return command.exec(allocator, args[2..]);
+            var frame = try allocator.create(@Frame(command.exec));
+            defer allocator.destroy(frame);
+            frame.* = async command.exec(allocator, args[2..]);
+            return await frame;
         }
     }
 
@@ -852,10 +855,12 @@ fn cmdInternal(allocator: *Allocator, args: []const []const u8) !void {
         .exec = cmdInternalBuildInfo,
     }};
 
-    for (sub_commands) |sub_command| {
+    inline for (sub_commands) |sub_command| {
         if (mem.eql(u8, sub_command.name, args[0])) {
-            try sub_command.exec(allocator, args[1..]);
-            return;
+            var frame = try allocator.create(@Frame(sub_command.exec));
+            defer allocator.destroy(frame);
+            frame.* = async sub_command.exec(allocator, args[1..]);
+            return await frame;
         }
     }
 
