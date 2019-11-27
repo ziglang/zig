@@ -26,7 +26,8 @@ test "stage2" {
 }
 
 const file1 = "1.zig";
-const allocator = std.heap.c_allocator;
+// TODO https://github.com/ziglang/zig/issues/3783
+const allocator = std.heap.page_allocator;
 
 pub const TestContext = struct {
     zig_compiler: ZigCompiler,
@@ -94,8 +95,8 @@ pub const TestContext = struct {
             &self.zig_compiler,
             "test",
             file1_path,
-            Target.Native,
-            Compilation.Kind.Obj,
+            .Native,
+            .Obj,
             .Debug,
             true, // is_static
             self.zig_lib_dir,
@@ -128,8 +129,8 @@ pub const TestContext = struct {
             &self.zig_compiler,
             "test",
             file1_path,
-            Target.Native,
-            Compilation.Kind.Exe,
+            .Native,
+            .Exe,
             .Debug,
             false,
             self.zig_lib_dir,
@@ -170,13 +171,13 @@ pub const TestContext = struct {
                     return error.OutputMismatch;
                 }
             },
-            .Error => |err| return err,
+            .Error => @panic("Cannot return error: https://github.com/ziglang/zig/issues/3190"), // |err| return err,
             .Fail => |msgs| {
                 const stderr = std.io.getStdErr();
                 try stderr.write("build incorrectly failed:\n");
                 for (msgs) |msg| {
                     defer msg.destroy();
-                    try msg.printToFile(stderr, errmsg.Color.Auto);
+                    try msg.printToFile(stderr, .Auto);
                 }
             },
         }

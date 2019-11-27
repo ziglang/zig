@@ -56,7 +56,8 @@ pub fn main() !void {
     // This allocator needs to be thread-safe because we use it for the event.Loop
     // which multiplexes async functions onto kernel threads.
     // libc allocator is guaranteed to have this property.
-    const allocator = std.heap.c_allocator;
+    // TODO https://github.com/ziglang/zig/issues/3783
+    const allocator = std.heap.page_allocator;
 
     stdout = &std.io.getStdOut().outStream().stream;
 

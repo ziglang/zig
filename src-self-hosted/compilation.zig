@@ -363,7 +363,11 @@ pub const Compilation = struct {
             is_static,
             zig_lib_dir,
         );
-        return optional_comp orelse if (await frame) |_| unreachable else |err| err;
+        // TODO causes segfault
+        // return optional_comp orelse if (await frame) |_| unreachable else |err| err;
+        if (optional_comp) |comp| {
+            return comp;
+        } else if (await frame) |_| unreachable else |err| return err;
     }
 
     async fn createAsync(

@@ -1293,7 +1293,7 @@ pub fn Watch(comptime V: type) type {
                     os.linux.EINVAL => unreachable,
                     os.linux.EFAULT => unreachable,
                     os.linux.EAGAIN => {
-                        global_event_loop.linuxWaitFd(self.os_data.inotify_fd, os.linux.EPOLLET | os.linux.EPOLLIN);
+                        global_event_loop.linuxWaitFd(self.os_data.inotify_fd, os.linux.EPOLLET | os.linux.EPOLLIN | os.EPOLLONESHOT);
                     },
                     else => unreachable,
                 }
