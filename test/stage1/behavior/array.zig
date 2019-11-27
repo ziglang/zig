@@ -20,7 +20,7 @@ test "arrays" {
     }
 
     expect(accumulator == 15);
-    expect(getArrayLen(array) == 5);
+    expect(getArrayLen(&array) == 5);
 }
 fn getArrayLen(a: []const u32) usize {
     return a.len;
@@ -182,29 +182,29 @@ fn plusOne(x: u32) u32 {
 
 test "runtime initialize array elem and then implicit cast to slice" {
     var two: i32 = 2;
-    const x: []const i32 = [_]i32{two};
+    const x: []const i32 = &[_]i32{two};
     expect(x[0] == 2);
 }
 
 test "array literal as argument to function" {
     const S = struct {
         fn entry(two: i32) void {
-            foo([_]i32{
+            foo(&[_]i32{
                 1,
                 2,
                 3,
             });
-            foo([_]i32{
+            foo(&[_]i32{
                 1,
                 two,
                 3,
             });
-            foo2(true, [_]i32{
+            foo2(true, &[_]i32{
                 1,
                 2,
                 3,
             });
-            foo2(true, [_]i32{
+            foo2(true, &[_]i32{
                 1,
                 two,
                 3,
@@ -230,17 +230,17 @@ test "double nested array to const slice cast in array literal" {
     const S = struct {
         fn entry(two: i32) void {
             const cases = [_][]const []const i32{
-                [_][]const i32{[_]i32{1}},
-                [_][]const i32{[_]i32{ 2, 3 }},
-                [_][]const i32{
-                    [_]i32{4},
-                    [_]i32{ 5, 6, 7 },
+                &[_][]const i32{&[_]i32{1}},
+                &[_][]const i32{&[_]i32{ 2, 3 }},
+                &[_][]const i32{
+                    &[_]i32{4},
+                    &[_]i32{ 5, 6, 7 },
                 },
             };
-            check(cases);
+            check(&cases);
 
             const cases2 = [_][]const i32{
-                [_]i32{1},
+                &[_]i32{1},
                 &[_]i32{ two, 3 },
             };
             expect(cases2.len == 2);
@@ -251,14 +251,14 @@ test "double nested array to const slice cast in array literal" {
             expect(cases2[1][1] == 3);
 
             const cases3 = [_][]const []const i32{
-                [_][]const i32{[_]i32{1}},
+                &[_][]const i32{&[_]i32{1}},
                 &[_][]const i32{&[_]i32{ two, 3 }},
-                [_][]const i32{
-                    [_]i32{4},
-                    [_]i32{ 5, 6, 7 },
+                &[_][]const i32{
+                    &[_]i32{4},
+                    &[_]i32{ 5, 6, 7 },
                 },
             };
-            check(cases3);
+            check(&cases3);
         }
 
         fn check(cases: []const []const []const i32) void {
@@ -316,7 +316,7 @@ test "implicit cast zero sized array ptr to slice" {
 test "anonymous list literal syntax" {
     const S = struct {
         fn doTheTest() void {
-            var array: [4]u8 = .{1, 2, 3, 4};
+            var array: [4]u8 = .{ 1, 2, 3, 4 };
             expect(array[0] == 1);
             expect(array[1] == 2);
             expect(array[2] == 3);
@@ -335,8 +335,8 @@ test "anonymous literal in array" {
         };
         fn doTheTest() void {
             var array: [2]Foo = .{
-                .{.a = 3},
-                .{.b = 3},
+                .{ .a = 3 },
+                .{ .b = 3 },
             };
             expect(array[0].a == 3);
             expect(array[0].b == 4);
@@ -351,7 +351,7 @@ test "anonymous literal in array" {
 test "access the null element of a null terminated array" {
     const S = struct {
         fn doTheTest() void {
-            var array: [4:0]u8 = .{'a', 'o', 'e', 'u'};
+            var array: [4:0]u8 = .{ 'a', 'o', 'e', 'u' };
             comptime expect(array[4] == 0);
             var len: usize = 4;
             expect(array[len] == 0);

@@ -31,7 +31,7 @@ pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataD
                         error.OutOfMemory => return error.OutOfMemory,
                     };
                     defer allocator.free(global_dir);
-                    return fs.path.join(allocator, [_][]const u8{ global_dir, appname });
+                    return fs.path.join(allocator, &[_][]const u8{ global_dir, appname });
                 },
                 os.windows.E_OUTOFMEMORY => return error.OutOfMemory,
                 else => return error.AppDataDirUnavailable,
@@ -42,14 +42,14 @@ pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataD
                 // TODO look in /etc/passwd
                 return error.AppDataDirUnavailable;
             };
-            return fs.path.join(allocator, [_][]const u8{ home_dir, "Library", "Application Support", appname });
+            return fs.path.join(allocator, &[_][]const u8{ home_dir, "Library", "Application Support", appname });
         },
         .linux, .freebsd, .netbsd, .dragonfly => {
             const home_dir = os.getenv("HOME") orelse {
                 // TODO look in /etc/passwd
                 return error.AppDataDirUnavailable;
             };
-            return fs.path.join(allocator, [_][]const u8{ home_dir, ".local", "share", appname });
+            return fs.path.join(allocator, &[_][]const u8{ home_dir, ".local", "share", appname });
         },
         else => @compileError("Unsupported OS"),
     }

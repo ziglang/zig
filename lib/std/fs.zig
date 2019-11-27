@@ -60,7 +60,7 @@ pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path:
     tmp_path[dirname.len] = path.sep;
     while (true) {
         try crypto.randomBytes(rand_buf[0..]);
-        b64_fs_encoder.encode(tmp_path[dirname.len + 1 ..], rand_buf);
+        b64_fs_encoder.encode(tmp_path[dirname.len + 1 ..], &rand_buf);
 
         if (symLink(existing_path, tmp_path)) {
             return rename(tmp_path, new_path);
@@ -226,7 +226,7 @@ pub const AtomicFile = struct {
 
         while (true) {
             try crypto.randomBytes(rand_buf[0..]);
-            b64_fs_encoder.encode(tmp_path_buf[dirname_component_len..tmp_path_len], rand_buf);
+            b64_fs_encoder.encode(tmp_path_buf[dirname_component_len..tmp_path_len], &rand_buf);
 
             const file = File.openWriteNoClobberC(@ptrCast([*:0]u8, &tmp_path_buf), mode) catch |err| switch (err) {
                 error.PathAlreadyExists => continue,
@@ -290,7 +290,7 @@ pub fn makeDirW(dir_path: [*:0]const u16) !void {
 /// have been modified regardless.
 /// TODO determine if we can remove the allocator requirement from this function
 pub fn makePath(allocator: *Allocator, full_path: []const u8) !void {
-    const resolved_path = try path.resolve(allocator, [_][]const u8{full_path});
+    const resolved_path = try path.resolve(allocator, &[_][]const u8{full_path});
     defer allocator.free(resolved_path);
 
     var end_index: usize = resolved_path.len;

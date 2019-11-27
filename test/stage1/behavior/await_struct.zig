@@ -16,7 +16,7 @@ test "coroutine await struct" {
     resume await_a_promise;
     await_seq('i');
     expect(await_final_result.x == 1234);
-    expect(std.mem.eql(u8, await_points, "abcdefghi"));
+    expect(std.mem.eql(u8, &await_points, "abcdefghi"));
 }
 async fn await_amain() void {
     await_seq('b');

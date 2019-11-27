@@ -218,12 +218,12 @@ test "crypto.chacha20 test vector sunscreen" {
     };
 
     chaCha20IETF(result[0..], input[0..], 1, key, nonce);
-    testing.expectEqualSlices(u8, expected_result, result);
+    testing.expectEqualSlices(u8, &expected_result, &result);
 
     // Chacha20 is self-reversing.
     var plaintext: [114]u8 = undefined;
     chaCha20IETF(plaintext[0..], result[0..], 1, key, nonce);
-    testing.expect(mem.compare(u8, input, plaintext) == mem.Compare.Equal);
+    testing.expect(mem.compare(u8, input, &plaintext) == mem.Compare.Equal);
 }
 
 // https://tools.ietf.org/html/draft-agl-tls-chacha20poly1305-04#section-7
@@ -258,7 +258,7 @@ test "crypto.chacha20 test vector 1" {
     const nonce = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 0 };
 
     chaCha20With64BitNonce(result[0..], input[0..], 0, key, nonce);
-    testing.expectEqualSlices(u8, expected_result, result);
+    testing.expectEqualSlices(u8, &expected_result, &result);
 }
 
 test "crypto.chacha20 test vector 2" {
@@ -292,7 +292,7 @@ test "crypto.chacha20 test vector 2" {
     const nonce = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 0 };
 
     chaCha20With64BitNonce(result[0..], input[0..], 0, key, nonce);
-    testing.expectEqualSlices(u8, expected_result, result);
+    testing.expectEqualSlices(u8, &expected_result, &result);
 }
 
 test "crypto.chacha20 test vector 3" {
@@ -326,7 +326,7 @@ test "crypto.chacha20 test vector 3" {
     const nonce = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 1 };
 
     chaCha20With64BitNonce(result[0..], input[0..], 0, key, nonce);
-    testing.expectEqualSlices(u8, expected_result, result);
+    testing.expectEqualSlices(u8, &expected_result, &result);
 }
 
 test "crypto.chacha20 test vector 4" {
@@ -360,7 +360,7 @@ test "crypto.chacha20 test vector 4" {
     const nonce = [_]u8{ 1, 0, 0, 0, 0, 0, 0, 0 };
 
     chaCha20With64BitNonce(result[0..], input[0..], 0, key, nonce);
-    testing.expectEqualSlices(u8, expected_result, result);
+    testing.expectEqualSlices(u8, &expected_result, &result);
 }
 
 test "crypto.chacha20 test vector 5" {
@@ -432,5 +432,5 @@ test "crypto.chacha20 test vector 5" {
     };
 
     chaCha20With64BitNonce(result[0..], input[0..], 0, key, nonce);
-    testing.expectEqualSlices(u8, expected_result, result);
+    testing.expectEqualSlices(u8, &expected_result, &result);
 }

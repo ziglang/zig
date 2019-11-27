@@ -184,7 +184,7 @@ fn testReturnEmptyStructFromFn() EmptyStruct2 {
 }
 
 test "pass slice of empty struct to fn" {
-    expect(testPassSliceOfEmptyStructToFn([_]EmptyStruct2{EmptyStruct2{}}) == 1);
+    expect(testPassSliceOfEmptyStructToFn(&[_]EmptyStruct2{EmptyStruct2{}}) == 1);
 }
 fn testPassSliceOfEmptyStructToFn(slice: []const EmptyStruct2) usize {
     return slice.len;
@@ -432,7 +432,7 @@ const Expr = union(enum) {
 };
 
 fn alloc(comptime T: type) []T {
-    return [_]T{};
+    return &[_]T{};
 }
 
 test "call method with mutable reference to struct with no fields" {
@@ -495,7 +495,8 @@ test "non-byte-aligned array inside packed struct" {
                 .a = true,
                 .b = "abcdefghijklmnopqurstu".*,
             };
-            bar(foo.b);
+            const value = foo.b;
+            bar(&value);
         }
     };
     S.doTheTest();
@@ -783,7 +784,7 @@ test "struct with var field" {
         x: var,
         y: var,
     };
-    const pt = Point {
+    const pt = Point{
         .x = 1,
         .y = 2,
     };

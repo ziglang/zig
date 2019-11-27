@@ -94,7 +94,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
 
         pub fn init(allocator: *Allocator) Self {
             return Self{
-                .entries = [_]Entry{},
+                .entries = &[_]Entry{},
                 .allocator = allocator,
                 .size = 0,
                 .max_distance_from_start_index = 0,

@@ -521,7 +521,7 @@ pub const usage_fmt =
 pub const args_fmt_spec = [_]Flag{
     Flag.Bool("--help"),
     Flag.Bool("--check"),
-    Flag.Option("--color", [_][]const u8{
+    Flag.Option("--color", &[_][]const u8{
         "auto",
         "off",
         "on",

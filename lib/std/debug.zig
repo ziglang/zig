@@ -1916,7 +1916,7 @@ const LineNumberProgram = struct {
                 return error.InvalidDebugInfo;
             } else
                 self.include_dirs[file_entry.dir_index];
-            const file_name = try fs.path.join(self.file_entries.allocator, [_][]const u8{ dir_name, file_entry.file_name });
+            const file_name = try fs.path.join(self.file_entries.allocator, &[_][]const u8{ dir_name, file_entry.file_name });
             errdefer self.file_entries.allocator.free(file_name);
             return LineInfo{
                 .line = if (self.prev_line >= 0) @intCast(u64, self.prev_line) else 0,

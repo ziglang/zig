@@ -325,7 +325,7 @@ pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const M
 
     const exe = b.addExecutable("test-cli", "test/cli.zig");
     const run_cmd = exe.run();
-    run_cmd.addArgs([_][]const u8{
+    run_cmd.addArgs(&[_][]const u8{
         fs.realpathAlloc(b.allocator, b.zig_exe) catch unreachable,
         b.pathFromRoot(b.cache_root),
     });
@@ -411,7 +411,7 @@ pub fn addPkgTests(
         const ArchTag = @TagType(builtin.Arch);
         if (test_target.disable_native and
             test_target.target.getOs() == builtin.os and
-            @as(ArchTag,test_target.target.getArch()) == @as(ArchTag,builtin.arch))
+            @as(ArchTag, test_target.target.getArch()) == @as(ArchTag, builtin.arch))
         {
             continue;
         }
@@ -429,7 +429,7 @@ pub fn addPkgTests(
             "bare";
 
         const triple_prefix = if (test_target.target == .Native)
-            @as([]const u8,"native")
+            @as([]const u8, "native")
         else
             test_target.target.zigTripleNoSubArch(b.allocator) catch unreachable;
 
@@ -626,7 +626,7 @@ pub const CompareOutputContext = struct {
 
             warn("Test {}/{} {}...", self.test_index + 1, self.context.test_index, self.name);
 
-            const child = std.ChildProcess.init([_][]const u8{full_exe_path}, b.allocator) catch unreachable;
+            const child = std.ChildProcess.init(&[_][]const u8{full_exe_path}, b.allocator) catch unreachable;
             defer child.deinit();
 
             child.env_map = b.env_map;
@@ -667,7 +667,7 @@ pub const CompareOutputContext = struct {
             .expected_output = expected_output,
             .link_libc = false,
             .special = special,
-            .cli_args = [_][]const u8{},
+            .cli_args = &[_][]const u8{},
         };
         const root_src_name = if (special == Special.Asm) "source.s" else "source.zig";
         tc.addSourceFile(root_src_name, source);
@@ -704,7 +704,7 @@ pub const CompareOutputContext = struct {
 
         const root_src = fs.path.join(
             b.allocator,
-            [_][]const u8{ b.cache_root, case.sources.items[0].filename },
+            &[_][]const u8{ b.cache_root, case.sources.items[0].filename },
         ) catch unreachable;
 
         switch (case.special) {
@@ -720,7 +720,7 @@ pub const CompareOutputContext = struct {
                 for (case.sources.toSliceConst()) |src_file| {
                     const expanded_src_path = fs.path.join(
                         b.allocator,
-                        [_][]const u8{ b.cache_root, src_file.filename },
+                        &[_][]const u8{ b.cache_root, src_file.filename },
                     ) catch unreachable;
                     const write_src = b.addWriteFile(expanded_src_path, src_file.source);
                     exe.step.dependOn(&write_src.step);
@@ -752,7 +752,7 @@ pub const CompareOutputContext = struct {
                     for (case.sources.toSliceConst()) |src_file| {
                         const expanded_src_path = fs.path.join(
                             b.allocator,
-                            [_][]const u8{ b.cache_root, src_file.filename },
+                            &[_][]const u8{ b.cache_root, src_file.filename },
                         ) catch unreachable;
                         const write_src = b.addWriteFile(expanded_src_path, src_file.source);
                         exe.step.dependOn(&write_src.step);
@@ -783,7 +783,7 @@ pub const CompareOutputContext = struct {
                 for (case.sources.toSliceConst()) |src_file| {
                     const expanded_src_path = fs.path.join(
                         b.allocator,
-                        [_][]const u8{ b.cache_root, src_file.filename },
+                        &[_][]const u8{ b.cache_root, src_file.filename },
                     ) catch unreachable;
                     const write_src = b.addWriteFile(expanded_src_path, src_file.source);
                     exe.step.dependOn(&write_src.step);
@@ -816,7 +816,7 @@ pub const StackTracesContext = struct {
 
         const source_pathname = fs.path.join(
             b.allocator,
-            [_][]const u8{ b.cache_root, "source.zig" },
+            &[_][]const u8{ b.cache_root, "source.zig" },
         ) catch unreachable;
 
         for (self.modes) |mode| {
@@ -1073,7 +1073,7 @@ pub const CompileErrorContext = struct {
 
             const root_src = fs.path.join(
                 b.allocator,
-                [_][]const u8{ b.cache_root, self.case.sources.items[0].filename },
+                &[_][]const u8{ b.cache_root, self.case.sources.items[0].filename },
             ) catch unreachable;
 
             var zig_args = ArrayList([]const u8).init(b.allocator);
@@ -1270,7 +1270,7 @@ pub const CompileErrorContext = struct {
         for (case.sources.toSliceConst()) |src_file| {
             const expanded_src_path = fs.path.join(
                 b.allocator,
-                [_][]const u8{ b.cache_root, src_file.filename },
+                &[_][]const u8{ b.cache_root, src_file.filename },
             ) catch unreachable;
             const write_src = b.addWriteFile(expanded_src_path, src_file.source);
             compile_and_cmp_errors.step.dependOn(&write_src.step);
@@ -1404,7 +1404,7 @@ pub const TranslateCContext = struct {
 
             const root_src = fs.path.join(
                 b.allocator,
-                [_][]const u8{ b.cache_root, self.case.sources.items[0].filename },
+                &[_][]const u8{ b.cache_root, self.case.sources.items[0].filename },
             ) catch unreachable;
 
             var zig_args = ArrayList([]const u8).init(b.allocator);
@@ -1577,7 +1577,7 @@ pub const TranslateCContext = struct {
         for (case.sources.toSliceConst()) |src_file| {
             const expanded_src_path = fs.path.join(
                 b.allocator,
-                [_][]const u8{ b.cache_root, src_file.filename },
+                &[_][]const u8{ b.cache_root, src_file.filename },
             ) catch unreachable;
             const write_src = b.addWriteFile(expanded_src_path, src_file.source);
             translate_c_and_cmp.step.dependOn(&write_src.step);
@@ -1700,7 +1700,7 @@ pub const GenHContext = struct {
         const b = self.b;
         const root_src = fs.path.join(
             b.allocator,
-            [_][]const u8{ b.cache_root, case.sources.items[0].filename },
+            &[_][]const u8{ b.cache_root, case.sources.items[0].filename },
         ) catch unreachable;
 
         const mode = builtin.Mode.Debug;
@@ -1715,7 +1715,7 @@ pub const GenHContext = struct {
         for (case.sources.toSliceConst()) |src_file| {
             const expanded_src_path = fs.path.join(
                 b.allocator,
-                [_][]const u8{ b.cache_root, src_file.filename },
+                &[_][]const u8{ b.cache_root, src_file.filename },
             ) catch unreachable;
             const write_src = b.addWriteFile(expanded_src_path, src_file.source);
             obj.step.dependOn(&write_src.step);

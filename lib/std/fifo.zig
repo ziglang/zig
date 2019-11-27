@@ -70,7 +70,7 @@ pub fn LinearFifo(
                 pub fn init(allocator: *Allocator) Self {
                     return .{
                         .allocator = allocator,
-                        .buf = [_]T{},
+                        .buf = &[_]T{},
                         .head = 0,
                         .count = 0,
                     };
@@ -143,7 +143,7 @@ pub fn LinearFifo(
 
         /// Returns a writable slice from the 'read' end of the fifo
         fn readableSliceMut(self: SliceSelfArg, offset: usize) []T {
-            if (offset > self.count) return [_]T{};
+            if (offset > self.count) return &[_]T{};
 
             var start = self.head + offset;
             if (start >= self.buf.len) {
@@ -223,7 +223,7 @@ pub fn LinearFifo(
         /// Returns the first section of writable buffer
         /// Note that this may be of length 0
         pub fn writableSlice(self: SliceSelfArg, offset: usize) []T {
-            if (offset > self.buf.len) return [_]T{};
+            if (offset > self.buf.len) return &[_]T{};
 
             const tail = self.head + offset + self.count;
             if (tail < self.buf.len) {
@@ -357,7 +357,7 @@ test "LinearFifo(u8, .Dynamic)" {
     {
         var i: usize = 0;
         while (i < 5) : (i += 1) {
-            try fifo.write([_]u8{try fifo.peekItem(i)});
+            try fifo.write(&[_]u8{try fifo.peekItem(i)});
         }
         testing.expectEqual(@as(usize, 10), fifo.readableLength());
         testing.expectEqualSlices(u8, "HELLOHELLO", fifo.readableSlice(0));
@@ -426,7 +426,7 @@ test "LinearFifo" {
             };
             defer fifo.deinit();
 
-            try fifo.write([_]T{ 0, 1, 1, 0, 1 });
+            try fifo.write(&[_]T{ 0, 1, 1, 0, 1 });
             testing.expectEqual(@as(usize, 5), fifo.readableLength());
 
             {

@@ -63,7 +63,7 @@ pub const X25519 = struct {
         var pos: isize = 254;
         while (pos >= 0) : (pos -= 1) {
             // constant time conditional swap before ladder step
-            const b = scalarBit(e, @intCast(usize, pos));
+            const b = scalarBit(&e, @intCast(usize, pos));
             swap ^= b; // xor trick avoids swapping at the end of the loop
             Fe.cswap(x2, x3, swap);
             Fe.cswap(z2, z3, swap);
@@ -117,7 +117,7 @@ pub const X25519 = struct {
 
     pub fn createPublicKey(public_key: []u8, private_key: []const u8) bool {
         var base_point = [_]u8{9} ++ [_]u8{0} ** 31;
-        return create(public_key, private_key, base_point);
+        return create(public_key, private_key, &base_point);
     }
 };
 
@@ -581,8 +581,8 @@ test "x25519 public key calculation from secret key" {
     var pk_calculated: [32]u8 = undefined;
     try fmt.hexToBytes(sk[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
     try fmt.hexToBytes(pk_expected[0..], "f1814f0e8ff1043d8a44d25babff3cedcae6c22c3edaa48f857ae70de2baae50");
-    std.testing.expect(X25519.createPublicKey(pk_calculated[0..], sk));
-    std.testing.expect(std.mem.eql(u8, pk_calculated, pk_expected));
+    std.testing.expect(X25519.createPublicKey(pk_calculated[0..], &sk));
+    std.testing.expect(std.mem.eql(u8, &pk_calculated, &pk_expected));
 }
 
 test "x25519 rfc7748 vector1" {
@@ -594,7 +594,7 @@ test "x25519 rfc7748 vector1" {
     var output: [32]u8 = undefined;
 
     std.testing.expect(X25519.create(output[0..], secret_key, public_key));
-    std.testing.expect(std.mem.eql(u8, output, expected_output));
+    std.testing.expect(std.mem.eql(u8, &output, expected_output));
 }
 
 test "x25519 rfc7748 vector2" {
@@ -606,12 +606,12 @@ test "x25519 rfc7748 vector2" {
     var output: [32]u8 = undefined;
 
     std.testing.expect(X25519.create(output[0..], secret_key, public_key));
-    std.testing.expect(std.mem.eql(u8, output, expected_output));
+    std.testing.expect(std.mem.eql(u8, &output, expected_output));
 }
 
 test "x25519 rfc7748 one iteration" {
     const initial_value = "\x09\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00".*;
-    const expected_output = "\x42\x2c\x8e\x7a\x62\x27\xd7\xbc\xa1\x35\x0b\x3e\x2b\xb7\x27\x9f\x78\x97\xb8\x7b\xb6\x85\x4b\x78\x3c\x60\xe8\x03\x11\xae\x30\x79".*;
+    const expected_output = "\x42\x2c\x8e\x7a\x62\x27\xd7\xbc\xa1\x35\x0b\x3e\x2b\xb7\x27\x9f\x78\x97\xb8\x7b\xb6\x85\x4b\x78\x3c\x60\xe8\x03\x11\xae\x30\x79";
 
     var k: [32]u8 = initial_value;
     var u: [32]u8 = initial_value;
@@ -619,7 +619,7 @@ test "x25519 rfc7748 one iteration" {
     var i: usize = 0;
     while (i < 1) : (i += 1) {
         var output: [32]u8 = undefined;
-        std.testing.expect(X25519.create(output[0..], k, u));
+        std.testing.expect(X25519.create(output[0..], &k, &u));
 
         std.mem.copy(u8, u[0..], k[0..]);
         std.mem.copy(u8, k[0..], output[0..]);
@@ -634,16 +634,16 @@ test "x25519 rfc7748 1,000 iterations" {
         return error.SkipZigTest;
     }
 
-    const initial_value = "\x09\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00".*;
-    const expected_output = "\x68\x4c\xf5\x9b\xa8\x33\x09\x55\x28\x00\xef\x56\x6f\x2f\x4d\x3c\x1c\x38\x87\xc4\x93\x60\xe3\x87\x5f\x2e\xb9\x4d\x99\x53\x2c\x51".*;
+    const initial_value = "\x09\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+    const expected_output = "\x68\x4c\xf5\x9b\xa8\x33\x09\x55\x28\x00\xef\x56\x6f\x2f\x4d\x3c\x1c\x38\x87\xc4\x93\x60\xe3\x87\x5f\x2e\xb9\x4d\x99\x53\x2c\x51";
 
-    var k: [32]u8 = initial_value;
-    var u: [32]u8 = initial_value;
+    var k: [32]u8 = initial_value.*;
+    var u: [32]u8 = initial_value.*;
 
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
         var output: [32]u8 = undefined;
-        std.testing.expect(X25519.create(output[0..], k, u));
+        std.testing.expect(X25519.create(output[0..], &k, &u));
 
         std.mem.copy(u8, u[0..], k[0..]);
         std.mem.copy(u8, k[0..], output[0..]);
@@ -657,16 +657,16 @@ test "x25519 rfc7748 1,000,000 iterations" {
         return error.SkipZigTest;
     }
 
-    const initial_value = "\x09\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00".*;
-    const expected_output = "\x7c\x39\x11\xe0\xab\x25\x86\xfd\x86\x44\x97\x29\x7e\x57\x5e\x6f\x3b\xc6\x01\xc0\x88\x3c\x30\xdf\x5f\x4d\xd2\xd2\x4f\x66\x54\x24".*;
+    const initial_value = "\x09\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+    const expected_output = "\x7c\x39\x11\xe0\xab\x25\x86\xfd\x86\x44\x97\x29\x7e\x57\x5e\x6f\x3b\xc6\x01\xc0\x88\x3c\x30\xdf\x5f\x4d\xd2\xd2\x4f\x66\x54\x24";
 
-    var k: [32]u8 = initial_value;
-    var u: [32]u8 = initial_value;
+    var k: [32]u8 = initial_value.*;
+    var u: [32]u8 = initial_value.*;
 
     var i: usize = 0;
     while (i < 1000000) : (i += 1) {
         var output: [32]u8 = undefined;
-        std.testing.expect(X25519.create(output[0..], k, u));
+        std.testing.expect(X25519.create(output[0..], &k, &u));
 
         std.mem.copy(u8, u[0..], k[0..]);
         std.mem.copy(u8, k[0..], output[0..]);

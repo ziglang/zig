@@ -241,7 +241,7 @@ pub const PackThis = union(enum) {
 };
 
 test "constant packed union" {
-    testConstPackedUnion([_]PackThis{PackThis{ .StringLiteral = 1 }});
+    testConstPackedUnion(&[_]PackThis{PackThis{ .StringLiteral = 1 }});
 }
 
 fn testConstPackedUnion(expected_tokens: []const PackThis) void {

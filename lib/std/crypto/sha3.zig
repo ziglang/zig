@@ -229,7 +229,7 @@ test "sha3-256 aligned final" {
     var out: [Sha3_256.digest_length]u8 = undefined;
 
     var h = Sha3_256.init();
-    h.update(block);
+    h.update(&block);
     h.final(out[0..]);
 }
 
@@ -300,6 +300,6 @@ test "sha3-512 aligned final" {
     var out: [Sha3_512.digest_length]u8 = undefined;
 
     var h = Sha3_512.init();
-    h.update(block);
+    h.update(&block);
     h.final(out[0..]);
 }

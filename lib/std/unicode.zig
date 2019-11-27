@@ -499,14 +499,14 @@ test "utf16leToUtf8" {
     {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 'A');
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 'a');
-        const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
+        const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, &utf16le);
         testing.expect(mem.eql(u8, utf8, "Aa"));
     }
 
     {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0x80);
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xffff);
-        const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
+        const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, &utf16le);
         testing.expect(mem.eql(u8, utf8, "\xc2\x80" ++ "\xef\xbf\xbf"));
     }
 
@@ -514,7 +514,7 @@ test "utf16leToUtf8" {
         // the values just outside the surrogate half range
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xd7ff);
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xe000);
-        const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
+        const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, &utf16le);
         testing.expect(mem.eql(u8, utf8, "\xed\x9f\xbf" ++ "\xee\x80\x80"));
     }
 
@@ -522,7 +522,7 @@ test "utf16leToUtf8" {
         // smallest surrogate pair
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xd800);
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdc00);
-        const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
+        const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, &utf16le);
         testing.expect(mem.eql(u8, utf8, "\xf0\x90\x80\x80"));
     }
 
@@ -530,14 +530,14 @@ test "utf16leToUtf8" {
         // largest surrogate pair
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xdbff);
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdfff);
-        const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
+        const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, &utf16le);
         testing.expect(mem.eql(u8, utf8, "\xf4\x8f\xbf\xbf"));
     }
 
     {
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[0..], 0xdbff);
         mem.writeIntSliceLittle(u16, utf16le_as_bytes[2..], 0xdc00);
-        const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, utf16le);
+        const utf8 = try utf16leToUtf8Alloc(std.debug.global_allocator, &utf16le);
         testing.expect(mem.eql(u8, utf8, "\xf4\x8f\xb0\x80"));
     }
 }

@@ -367,7 +367,7 @@ fn SMHasherTest(comptime hash_fn: var, comptime hashbits: u32) u32 {
         @memcpy(@ptrCast([*]u8, &hashes[i * hashbytes]), @ptrCast([*]u8, &h), hashbytes);
     }
 
-    return @truncate(u32, hash_fn(hashes, 0));
+    return @truncate(u32, hash_fn(&hashes, 0));
 }
 
 fn CityHash32hashIgnoreSeed(str: []const u8, seed: u32) u32 {
