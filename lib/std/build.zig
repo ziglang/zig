@@ -2062,14 +2062,28 @@ pub const RunStep = struct {
     }
 
     pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
-        const PATH = if (builtin.os == .windows) "Path" else "PATH";
         const env_map = self.getEnvMap();
-        const prev_path = env_map.get(PATH) orelse {
-            env_map.set(PATH, search_path) catch unreachable;
-            return;
-        };
-        const new_path = self.builder.fmt("{}" ++ [1]u8{fs.path.delimiter} ++ "{}", prev_path, search_path);
-        env_map.set(PATH, new_path) catch unreachable;
+
+        var key: []const u8 = undefined;
+        var prev_path: ?[]const u8 = undefined;
+        if (builtin.os == .windows) {
+            key = "Path";
+            prev_path = env_map.get(key);
+            if (prev_path == null) {
+                key = "PATH";
+                prev_path = env_map.get(key);
+            }
+        } else {
+            key = "PATH";
+            prev_path = env_map.get(key);
+        }
+
+        if (prev_path) |pp| {
+            const new_path = self.builder.fmt("{}" ++ [1]u8{fs.path.delimiter} ++ "{}", pp, search_path);
+            env_map.set(key, new_path) catch unreachable;
+        } else {
+            env_map.set(key, search_path) catch unreachable;
+        }
     }
 
     pub fn getEnvMap(self: *RunStep) *BufMap {
