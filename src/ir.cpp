@@ -71,6 +71,7 @@ enum ConstCastResultId {
     ConstCastResultIdPtrLens,
     ConstCastResultIdCV,
     ConstCastResultIdPtrSentinel,
+    ConstCastResultIdIntShorten,
 };
 
 struct ConstCastOnly;
@@ -97,6 +98,7 @@ struct ConstCastBadAllowsZero;
 struct ConstCastBadNullTermArrays;
 struct ConstCastBadCV;
 struct ConstCastPtrSentinel;
+struct ConstCastIntShorten;
 
 struct ConstCastOnly {
     ConstCastResultId id;
@@ -117,6 +119,7 @@ struct ConstCastOnly {
         ConstCastBadNullTermArrays *sentinel_arrays;
         ConstCastBadCV *bad_cv;
         ConstCastPtrSentinel *bad_ptr_sentinel;
+        ConstCastIntShorten *int_shorten;
     } data;
 };
 
@@ -182,6 +185,11 @@ struct ConstCastBadCV {
 };
 
 struct ConstCastPtrSentinel {
+    ZigType *wanted_type;
+    ZigType *actual_type;
+};
+
+struct ConstCastIntShorten {
     ZigType *wanted_type;
     ZigType *actual_type;
 };
@@ -10213,6 +10221,14 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
         return result;
     }
 
+    if (wanted_type->id == ZigTypeIdInt && actual_type->id == ZigTypeIdInt) {
+        result.id = ConstCastResultIdIntShorten;
+        result.data.int_shorten = allocate_nonzero<ConstCastIntShorten>(1);
+        result.data.int_shorten->wanted_type = wanted_type;
+        result.data.int_shorten->actual_type = actual_type;
+        return result;
+    }
+
     result.id = ConstCastResultIdType;
     result.data.type_mismatch = allocate_nonzero<ConstCastTypeMismatch>(1);
     result.data.type_mismatch->wanted_type = wanted_type;
@@ -12733,6 +12749,17 @@ static void report_recursive_error(IrAnalyze *ira, AstNode *source_node, ConstCa
             add_error_note(ira->codegen, parent_msg, source_node,
                     buf_sprintf("calling convention mismatch"));
             break;
+        case ConstCastResultIdIntShorten: {
+            ZigType *wanted_type = cast_result->data.int_shorten->wanted_type;
+            ZigType *actual_type = cast_result->data.int_shorten->actual_type;
+            const char *wanted_signed = wanted_type->data.integral.is_signed ? "signed" : "unsigned";
+            const char *actual_signed = wanted_type->data.integral.is_signed ? "signed" : "unsigned";
+            add_error_note(ira->codegen, parent_msg, source_node,
+                buf_sprintf("%s %" PRIu32 "-bit int cannot represent all possible %s %" PRIu32 "-bit values",
+                    wanted_signed, wanted_type->data.integral.bit_count,
+                    actual_signed, actual_type->data.integral.bit_count));
+            break;
+        }
         case ConstCastResultIdFnAlign: // TODO
         case ConstCastResultIdFnVarArgs: // TODO
         case ConstCastResultIdFnReturnType: // TODO
