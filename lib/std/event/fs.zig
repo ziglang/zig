@@ -735,22 +735,24 @@ pub fn Watch(comptime V: type) type {
         allocator: *Allocator,
 
         const OsData = switch (builtin.os) {
-            .macosx, .freebsd, .netbsd, .dragonfly => struct {
-                file_table: FileTable,
-                table_lock: event.Lock,
-
-                const FileTable = std.StringHashMap(*Put);
-                const Put = struct {
-                    putter_frame: @Frame(kqPutEvents),
-                    cancelled: bool = false,
-                    value: V,
-                };
-            },
-
+            // TODO https://github.com/ziglang/zig/issues/3778
+            .macosx, .freebsd, .netbsd, .dragonfly => KqOsData,
             .linux => LinuxOsData,
             .windows => WindowsOsData,
 
             else => @compileError("Unsupported OS"),
+        };
+
+        const KqOsData = struct {
+            file_table: FileTable,
+            table_lock: event.Lock,
+
+            const FileTable = std.StringHashMap(*Put);
+            const Put = struct {
+                putter_frame: @Frame(kqPutEvents),
+                cancelled: bool = false,
+                value: V,
+            };
         };
 
         const WindowsOsData = struct {
@@ -1291,7 +1293,7 @@ pub fn Watch(comptime V: type) type {
                     os.linux.EINVAL => unreachable,
                     os.linux.EFAULT => unreachable,
                     os.linux.EAGAIN => {
-                        global_event_loop.linuxWaitFd(self.os_data.inotify_fd, os.linux.EPOLLET | os.linux.EPOLLIN);
+                        global_event_loop.linuxWaitFd(self.os_data.inotify_fd, os.linux.EPOLLET | os.linux.EPOLLIN | os.EPOLLONESHOT);
                     },
                     else => unreachable,
                 }

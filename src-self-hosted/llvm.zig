@@ -86,7 +86,7 @@ pub const AddGlobal = LLVMAddGlobal;
 extern fn LLVMAddGlobal(M: *Module, Ty: *Type, Name: [*:0]const u8) ?*Value;
 
 pub const ConstStringInContext = LLVMConstStringInContext;
-extern fn LLVMConstStringInContext(C: *Context, Str: [*:0]const u8, Length: c_uint, DontNullTerminate: Bool) ?*Value;
+extern fn LLVMConstStringInContext(C: *Context, Str: [*]const u8, Length: c_uint, DontNullTerminate: Bool) ?*Value;
 
 pub const ConstInt = LLVMConstInt;
 extern fn LLVMConstInt(IntTy: *Type, N: c_ulonglong, SignExtend: Bool) ?*Value;

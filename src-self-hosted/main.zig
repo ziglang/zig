@@ -49,14 +49,15 @@ const usage =
 
 const Command = struct {
     name: []const u8,
-    exec: fn (*Allocator, []const []const u8) anyerror!void,
+    exec: async fn (*Allocator, []const []const u8) anyerror!void,
 };
 
 pub fn main() !void {
     // This allocator needs to be thread-safe because we use it for the event.Loop
     // which multiplexes async functions onto kernel threads.
     // libc allocator is guaranteed to have this property.
-    const allocator = std.heap.c_allocator;
+    // TODO https://github.com/ziglang/zig/issues/3783
+    const allocator = std.heap.page_allocator;
 
     stdout = &std.io.getStdOut().outStream().stream;
 
@@ -118,14 +119,18 @@ pub fn main() !void {
         },
     };
 
-    for (commands) |command| {
+    inline for (commands) |command| {
         if (mem.eql(u8, command.name, args[1])) {
-            return command.exec(allocator, args[2..]);
+            var frame = try allocator.create(@Frame(command.exec));
+            defer allocator.destroy(frame);
+            frame.* = async command.exec(allocator, args[2..]);
+            return await frame;
         }
     }
 
     try stderr.print("unknown command: {}\n\n", args[1]);
     try stderr.write(usage);
+    process.argsFree(allocator, args);
     process.exit(1);
 }
 
@@ -461,13 +466,12 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     comp.link_objects = link_objects;
 
     comp.start();
-    const frame = async processBuildEvents(comp, color);
+    processBuildEvents(comp, color);
 }
 
-async fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
+fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
     var count: usize = 0;
-    while (true) {
-        // TODO directly awaiting async should guarantee memory allocation elision
+    while (!comp.cancelled) {
         const build_event = comp.events.get();
         count += 1;
 
@@ -545,7 +549,7 @@ fn parseLibcPaths(allocator: *Allocator, libc: *LibCInstallation, libc_paths_fil
                 "Try running `zig libc` to see an example for the native target.\n",
             libc_paths_file,
             @errorName(err),
-        ) catch process.exit(1);
+        ) catch {};
         process.exit(1);
     };
 }
@@ -567,12 +571,8 @@ fn cmdLibC(allocator: *Allocator, args: []const []const u8) !void {
     var zig_compiler = try ZigCompiler.init(allocator);
     defer zig_compiler.deinit();
 
-    const frame = async findLibCAsync(&zig_compiler);
-}
-
-async fn findLibCAsync(zig_compiler: *ZigCompiler) void {
     const libc = zig_compiler.getNativeLibC() catch |err| {
-        stderr.print("unable to find libc: {}\n", @errorName(err)) catch process.exit(1);
+        stderr.print("unable to find libc: {}\n", @errorName(err)) catch {};
         process.exit(1);
     };
     libc.render(stdout) catch process.exit(1);
@@ -644,11 +644,23 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         process.exit(1);
     }
 
-    return asyncFmtMain(
-        allocator,
-        &flags,
-        color,
-    );
+    var fmt = Fmt{
+        .allocator = allocator,
+        .seen = event.Locked(Fmt.SeenMap).init(Fmt.SeenMap.init(allocator)),
+        .any_error = false,
+        .color = color,
+    };
+
+    const check_mode = flags.present("check");
+
+    var group = event.Group(FmtError!void).init(allocator);
+    for (flags.positionals.toSliceConst()) |file_path| {
+        try group.call(fmtPath, &fmt, file_path, check_mode);
+    }
+    try group.wait();
+    if (fmt.any_error) {
+        process.exit(1);
+    }
 }
 
 const FmtError = error{
@@ -673,30 +685,6 @@ const FmtError = error{
     CurrentWorkingDirectoryUnlinked,
 } || fs.File.OpenError;
 
-async fn asyncFmtMain(
-    allocator: *Allocator,
-    flags: *const Args,
-    color: errmsg.Color,
-) FmtError!void {
-    var fmt = Fmt{
-        .allocator = allocator,
-        .seen = event.Locked(Fmt.SeenMap).init(Fmt.SeenMap.init(allocator)),
-        .any_error = false,
-        .color = color,
-    };
-
-    const check_mode = flags.present("check");
-
-    var group = event.Group(FmtError!void).init(allocator);
-    for (flags.positionals.toSliceConst()) |file_path| {
-        try group.call(fmtPath, &fmt, file_path, check_mode);
-    }
-    try group.wait();
-    if (fmt.any_error) {
-        process.exit(1);
-    }
-}
-
 async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void {
     const file_path = try std.mem.dupe(fmt.allocator, u8, file_path_ref);
     defer fmt.allocator.free(file_path);
@@ -708,33 +696,34 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
         if (try held.value.put(file_path, {})) |_| return;
     }
 
-    const source_code = "";
-    // const source_code =  event.fs.readFile(
-    //     file_path,
-    //     max_src_size,
-    // ) catch |err| switch (err) {
-    //     error.IsDir, error.AccessDenied => {
-    //         // TODO make event based (and dir.next())
-    //         var dir = try fs.Dir.cwd().openDirList(file_path);
-    //         defer dir.close();
+    const source_code = event.fs.readFile(
+        fmt.allocator,
+        file_path,
+        max_src_size,
+    ) catch |err| switch (err) {
+        error.IsDir, error.AccessDenied => {
+            var dir = try fs.Dir.cwd().openDirList(file_path);
+            defer dir.close();
 
-    //         var group = event.Group(FmtError!void).init(fmt.allocator);
-    //         while (try dir.next()) |entry| {
-    //             if (entry.kind == fs.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
-    //                 const full_path = try fs.path.join(fmt.allocator, [_][]const u8{ file_path, entry.name });
-    //                 try group.call(fmtPath, fmt, full_path, check_mode);
-    //             }
-    //         }
-    //         return group.wait();
-    //     },
-    //     else => {
-    //         // TODO lock stderr printing
-    //         try stderr.print("unable to open '{}': {}\n", file_path, err);
-    //         fmt.any_error = true;
-    //         return;
-    //     },
-    // };
-    // defer fmt.allocator.free(source_code);
+            var group = event.Group(FmtError!void).init(fmt.allocator);
+            var it = dir.iterate();
+            while (try it.next()) |entry| {
+                if (entry.kind == .Directory or mem.endsWith(u8, entry.name, ".zig")) {
+                    const full_path = try fs.path.join(fmt.allocator, [_][]const u8{ file_path, entry.name });
+                    @panic("TODO https://github.com/ziglang/zig/issues/3777");
+                    // try group.call(fmtPath, fmt, full_path, check_mode);
+                }
+            }
+            return group.wait();
+        },
+        else => {
+            // TODO lock stderr printing
+            try stderr.print("unable to open '{}': {}\n", file_path, err);
+            fmt.any_error = true;
+            return;
+        },
+    };
+    defer fmt.allocator.free(source_code);
 
     const tree = std.zig.parse(fmt.allocator, source_code) catch |err| {
         try stderr.print("error parsing file '{}': {}\n", file_path, err);
@@ -867,10 +856,12 @@ fn cmdInternal(allocator: *Allocator, args: []const []const u8) !void {
         .exec = cmdInternalBuildInfo,
     }};
 
-    for (sub_commands) |sub_command| {
+    inline for (sub_commands) |sub_command| {
         if (mem.eql(u8, sub_command.name, args[0])) {
-            try sub_command.exec(allocator, args[1..]);
-            return;
+            var frame = try allocator.create(@Frame(sub_command.exec));
+            defer allocator.destroy(frame);
+            frame.* = async sub_command.exec(allocator, args[1..]);
+            return await frame;
         }
     }
 

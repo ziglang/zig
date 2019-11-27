@@ -25,10 +25,10 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
 
     const context = llvm_handle.node.data;
 
-    const module = llvm.ModuleCreateWithNameInContext(comp.name.ptr(), context) orelse return error.OutOfMemory;
+    const module = llvm.ModuleCreateWithNameInContext(comp.name.toSliceConst(), context) orelse return error.OutOfMemory;
     defer llvm.DisposeModule(module);
 
-    llvm.SetTarget(module, comp.llvm_triple.ptr());
+    llvm.SetTarget(module, comp.llvm_triple.toSliceConst());
     llvm.SetDataLayout(module, comp.target_layout_str);
 
     if (util.getObjectFormat(comp.target) == .coff) {
@@ -48,23 +48,23 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
     const producer = try std.Buffer.allocPrint(
         &code.arena.allocator,
         "zig {}.{}.{}",
-        u32(c.ZIG_VERSION_MAJOR),
-        u32(c.ZIG_VERSION_MINOR),
-        u32(c.ZIG_VERSION_PATCH),
+        @as(u32, c.ZIG_VERSION_MAJOR),
+        @as(u32, c.ZIG_VERSION_MINOR),
+        @as(u32, c.ZIG_VERSION_PATCH),
     );
     const flags = "";
     const runtime_version = 0;
     const compile_unit_file = llvm.CreateFile(
         dibuilder,
-        comp.name.ptr(),
-        comp.root_package.root_src_dir.ptr(),
+        comp.name.toSliceConst(),
+        comp.root_package.root_src_dir.toSliceConst(),
     ) orelse return error.OutOfMemory;
     const is_optimized = comp.build_mode != .Debug;
     const compile_unit = llvm.CreateCompileUnit(
         dibuilder,
         DW.LANG_C99,
         compile_unit_file,
-        producer.ptr(),
+        producer.toSliceConst(),
         is_optimized,
         flags,
         runtime_version,
@@ -99,7 +99,7 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
 
     // verify the llvm module when safety is on
     if (std.debug.runtime_safety) {
-        var error_ptr: ?[*]u8 = null;
+        var error_ptr: ?[*:0]u8 = null;
         _ = llvm.VerifyModule(ofile.module, llvm.AbortProcessAction, &error_ptr);
     }
 
@@ -108,12 +108,12 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
     const is_small = comp.build_mode == .ReleaseSmall;
     const is_debug = comp.build_mode == .Debug;
 
-    var err_msg: [*]u8 = undefined;
+    var err_msg: [*:0]u8 = undefined;
     // TODO integrate this with evented I/O
     if (llvm.TargetMachineEmitToFile(
         comp.target_machine,
         module,
-        output_path.ptr(),
+        output_path.toSliceConst(),
         llvm.EmitBinary,
         &err_msg,
         is_debug,
@@ -154,7 +154,7 @@ pub fn renderToLlvmModule(ofile: *ObjectFile, fn_val: *Value.Fn, code: *ir.Code)
     const llvm_fn_type = try fn_val.base.typ.getLlvmType(ofile.arena, ofile.context);
     const llvm_fn = llvm.AddFunction(
         ofile.module,
-        fn_val.symbol_name.ptr(),
+        fn_val.symbol_name.toSliceConst(),
         llvm_fn_type,
     ) orelse return error.OutOfMemory;
 
@@ -379,7 +379,7 @@ fn renderLoadUntyped(
     ptr: *llvm.Value,
     alignment: Type.Pointer.Align,
     vol: Type.Pointer.Vol,
-    name: [*]const u8,
+    name: [*:0]const u8,
 ) !*llvm.Value {
     const result = llvm.BuildLoad(ofile.builder, ptr, name) orelse return error.OutOfMemory;
     switch (vol) {
@@ -390,7 +390,7 @@ fn renderLoadUntyped(
     return result;
 }
 
-fn renderLoad(ofile: *ObjectFile, ptr: *llvm.Value, ptr_type: *Type.Pointer, name: [*]const u8) !*llvm.Value {
+fn renderLoad(ofile: *ObjectFile, ptr: *llvm.Value, ptr_type: *Type.Pointer, name: [*:0]const u8) !*llvm.Value {
     return renderLoadUntyped(ofile, ptr, ptr_type.key.alignment, ptr_type.key.vol, name);
 }
 
@@ -438,7 +438,7 @@ pub fn renderAlloca(
 ) !*llvm.Value {
     const llvm_var_type = try var_type.getLlvmType(ofile.arena, ofile.context);
     const name_with_null = try std.cstr.addNullByte(ofile.arena, name);
-    const result = llvm.BuildAlloca(ofile.builder, llvm_var_type, name_with_null.ptr) orelse return error.OutOfMemory;
+    const result = llvm.BuildAlloca(ofile.builder, llvm_var_type, @ptrCast([*:0]const u8, name_with_null.ptr)) orelse return error.OutOfMemory;
     llvm.SetAlignment(result, resolveAlign(ofile, alignment, llvm_var_type));
     return result;
 }

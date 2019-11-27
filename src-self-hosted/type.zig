@@ -53,7 +53,7 @@ pub const Type = struct {
         base: *Type,
         allocator: *Allocator,
         llvm_context: *llvm.Context,
-    ) (error{OutOfMemory}!*llvm.Type) {
+    ) error{OutOfMemory}!*llvm.Type {
         switch (base.id) {
             .Struct => return @fieldParentPtr(Struct, "base", base).getLlvmType(allocator, llvm_context),
             .Fn => return @fieldParentPtr(Fn, "base", base).getLlvmType(allocator, llvm_context),
@@ -184,7 +184,7 @@ pub const Type = struct {
 
     /// If you happen to have an llvm context handy, use getAbiAlignmentInContext instead.
     /// Otherwise, this one will grab one from the pool and then release it.
-    pub async fn getAbiAlignment(base: *Type, comp: *Compilation) !u32 {
+    pub fn getAbiAlignment(base: *Type, comp: *Compilation) !u32 {
         if (base.abi_alignment.start()) |ptr| return ptr.*;
 
         {
@@ -200,7 +200,7 @@ pub const Type = struct {
     }
 
     /// If you have an llvm conext handy, you can use it here.
-    pub async fn getAbiAlignmentInContext(base: *Type, comp: *Compilation, llvm_context: *llvm.Context) !u32 {
+    pub fn getAbiAlignmentInContext(base: *Type, comp: *Compilation, llvm_context: *llvm.Context) !u32 {
         if (base.abi_alignment.start()) |ptr| return ptr.*;
 
         base.abi_alignment.data = base.resolveAbiAlignment(comp, llvm_context);
@@ -209,7 +209,7 @@ pub const Type = struct {
     }
 
     /// Lower level function that does the work. See getAbiAlignment.
-    async fn resolveAbiAlignment(base: *Type, comp: *Compilation, llvm_context: *llvm.Context) !u32 {
+    fn resolveAbiAlignment(base: *Type, comp: *Compilation, llvm_context: *llvm.Context) !u32 {
         const llvm_type = try base.getLlvmType(comp.gpa(), llvm_context);
         return @intCast(u32, llvm.ABIAlignmentOfType(comp.target_data_ref, llvm_type));
     }
@@ -367,7 +367,7 @@ pub const Type = struct {
         }
 
         /// takes ownership of key.Normal.params on success
-        pub async fn get(comp: *Compilation, key: Key) !*Fn {
+        pub fn get(comp: *Compilation, key: Key) !*Fn {
             {
                 const held = comp.fn_type_table.acquire();
                 defer held.release();
@@ -564,7 +564,7 @@ pub const Type = struct {
             return comp.u8_type;
         }
 
-        pub async fn get(comp: *Compilation, key: Key) !*Int {
+        pub fn get(comp: *Compilation, key: Key) !*Int {
             {
                 const held = comp.int_type_table.acquire();
                 defer held.release();
@@ -606,7 +606,7 @@ pub const Type = struct {
             comp.registerGarbage(Int, &self.garbage_node);
         }
 
-        pub async fn gcDestroy(self: *Int, comp: *Compilation) void {
+        pub fn gcDestroy(self: *Int, comp: *Compilation) void {
             {
                 const held = comp.int_type_table.acquire();
                 defer held.release();
@@ -700,7 +700,7 @@ pub const Type = struct {
             comp.registerGarbage(Pointer, &self.garbage_node);
         }
 
-        pub async fn gcDestroy(self: *Pointer, comp: *Compilation) void {
+        pub fn gcDestroy(self: *Pointer, comp: *Compilation) void {
             {
                 const held = comp.ptr_type_table.acquire();
                 defer held.release();
@@ -711,14 +711,14 @@ pub const Type = struct {
             comp.gpa().destroy(self);
         }
 
-        pub async fn getAlignAsInt(self: *Pointer, comp: *Compilation) u32 {
+        pub fn getAlignAsInt(self: *Pointer, comp: *Compilation) u32 {
             switch (self.key.alignment) {
                 .Abi => return self.key.child_type.getAbiAlignment(comp),
                 .Override => |alignment| return alignment,
             }
         }
 
-        pub async fn get(
+        pub fn get(
             comp: *Compilation,
             key: Key,
         ) !*Pointer {
@@ -726,8 +726,10 @@ pub const Type = struct {
             switch (key.alignment) {
                 .Abi => {},
                 .Override => |alignment| {
+                    // TODO https://github.com/ziglang/zig/issues/3190
+                    var align_spill = alignment;
                     const abi_align = try key.child_type.getAbiAlignment(comp);
-                    if (abi_align == alignment) {
+                    if (abi_align == align_spill) {
                         normal_key.alignment = .Abi;
                     }
                 },
@@ -828,7 +830,7 @@ pub const Type = struct {
             comp.gpa().destroy(self);
         }
 
-        pub async fn get(comp: *Compilation, key: Key) !*Array {
+        pub fn get(comp: *Compilation, key: Key) !*Array {
             key.elem_type.base.ref();
             errdefer key.elem_type.base.deref(comp);
 

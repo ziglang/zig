@@ -93,7 +93,7 @@ pub const ZigCompiler = struct {
         return LlvmHandle{ .node = node };
     }
 
-    pub async fn getNativeLibC(self: *ZigCompiler) !*LibCInstallation {
+    pub fn getNativeLibC(self: *ZigCompiler) !*LibCInstallation {
         if (self.native_libc.start()) |ptr| return ptr;
         try self.native_libc.data.findNative(self.allocator);
         self.native_libc.resolve();
@@ -133,62 +133,62 @@ pub const Compilation = struct {
     zig_std_dir: []const u8,
 
     /// lazily created when we need it
-    tmp_dir: event.Future(BuildError![]u8),
+    tmp_dir: event.Future(BuildError![]u8) = event.Future(BuildError![]u8).init(),
 
-    version_major: u32,
-    version_minor: u32,
-    version_patch: u32,
+    version_major: u32 = 0,
+    version_minor: u32 = 0,
+    version_patch: u32 = 0,
 
-    linker_script: ?[]const u8,
-    out_h_path: ?[]const u8,
+    linker_script: ?[]const u8 = null,
+    out_h_path: ?[]const u8 = null,
 
-    is_test: bool,
-    each_lib_rpath: bool,
-    strip: bool,
+    is_test: bool = false,
+    each_lib_rpath: bool = false,
+    strip: bool = false,
     is_static: bool,
-    linker_rdynamic: bool,
+    linker_rdynamic: bool = false,
 
-    clang_argv: []const []const u8,
-    lib_dirs: []const []const u8,
-    rpath_list: []const []const u8,
-    assembly_files: []const []const u8,
+    clang_argv: []const []const u8 = [_][]const u8{},
+    lib_dirs: []const []const u8 = [_][]const u8{},
+    rpath_list: []const []const u8 = [_][]const u8{},
+    assembly_files: []const []const u8 = [_][]const u8{},
 
     /// paths that are explicitly provided by the user to link against
-    link_objects: []const []const u8,
+    link_objects: []const []const u8 = [_][]const u8{},
 
     /// functions that have their own objects that we need to link
     /// it uses an optional pointer so that tombstone removals are possible
-    fn_link_set: event.Locked(FnLinkSet),
+    fn_link_set: event.Locked(FnLinkSet) = event.Locked(FnLinkSet).init(FnLinkSet.init()),
 
     pub const FnLinkSet = std.TailQueue(?*Value.Fn);
 
-    windows_subsystem_windows: bool,
-    windows_subsystem_console: bool,
+    windows_subsystem_windows: bool = false,
+    windows_subsystem_console: bool = false,
 
     link_libs_list: ArrayList(*LinkLib),
-    libc_link_lib: ?*LinkLib,
+    libc_link_lib: ?*LinkLib = null,
 
-    err_color: errmsg.Color,
+    err_color: errmsg.Color = .Auto,
 
-    verbose_tokenize: bool,
-    verbose_ast_tree: bool,
-    verbose_ast_fmt: bool,
-    verbose_cimport: bool,
-    verbose_ir: bool,
-    verbose_llvm_ir: bool,
-    verbose_link: bool,
+    verbose_tokenize: bool = false,
+    verbose_ast_tree: bool = false,
+    verbose_ast_fmt: bool = false,
+    verbose_cimport: bool = false,
+    verbose_ir: bool = false,
+    verbose_llvm_ir: bool = false,
+    verbose_link: bool = false,
 
-    darwin_frameworks: []const []const u8,
-    darwin_version_min: DarwinVersionMin,
+    darwin_frameworks: []const []const u8 = [_][]const u8{},
+    darwin_version_min: DarwinVersionMin = .None,
 
-    test_filters: []const []const u8,
-    test_name_prefix: ?[]const u8,
+    test_filters: []const []const u8 = [_][]const u8{},
+    test_name_prefix: ?[]const u8 = null,
 
-    emit_file_type: Emit,
+    emit_file_type: Emit = .Binary,
 
     kind: Kind,
 
-    link_out_file: ?[]const u8,
+    link_out_file: ?[]const u8 = null,
     events: *event.Channel(Event),
 
     exported_symbol_names: event.Locked(Decl.Table),
@@ -213,7 +213,7 @@ pub const Compilation = struct {
 
     target_machine: *llvm.TargetMachine,
     target_data_ref: *llvm.TargetData,
-    target_layout_str: [*]u8,
+    target_layout_str: [*:0]u8,
     target_ptr_bits: u32,
 
     /// for allocating things which have the same lifetime as this Compilation
@@ -222,16 +222,16 @@ pub const Compilation = struct {
     root_package: *Package,
     std_package: *Package,
 
-    override_libc: ?*LibCInstallation,
+    override_libc: ?*LibCInstallation = null,
 
     /// need to wait on this group before deinitializing
     deinit_group: event.Group(void),
 
-    // destroy_frame: @Frame(createAsync),
-    // main_loop_frame: @Frame(Compilation.mainLoop),
-    main_loop_future: event.Future(void),
+    destroy_frame: *@Frame(createAsync),
+    main_loop_frame: *@Frame(Compilation.mainLoop),
+    main_loop_future: event.Future(void) = event.Future(void).init(),
 
-    have_err_ret_tracing: bool,
+    have_err_ret_tracing: bool = false,
 
     /// not locked because it is read-only
     primitive_type_table: TypeTable,
@@ -243,7 +243,9 @@ pub const Compilation = struct {
 
     c_int_types: [CInt.list.len]*Type.Int,
 
-    // fs_watch: *fs.Watch(*Scope.Root),
+    fs_watch: *fs.Watch(*Scope.Root),
+
+    cancelled: bool = false,
 
     const IntTypeTable = std.HashMap(*const Type.Int.Key, *Type.Int, Type.Int.Key.hash, Type.Int.Key.eql);
     const ArrayTypeTable = std.HashMap(*const Type.Array.Key, *Type.Array, Type.Array.Key.hash, Type.Array.Key.eql);
@@ -348,7 +350,9 @@ pub const Compilation = struct {
         zig_lib_dir: []const u8,
     ) !*Compilation {
         var optional_comp: ?*Compilation = null;
-        var frame = async createAsync(
+        var frame = try zig_compiler.allocator.create(@Frame(createAsync));
+        errdefer zig_compiler.allocator.destroy(frame);
+        frame.* = async createAsync(
             &optional_comp,
             zig_compiler,
             name,
@@ -359,7 +363,11 @@ pub const Compilation = struct {
             is_static,
             zig_lib_dir,
         );
-        return optional_comp orelse if (await frame) |_| unreachable else |err| err;
+        // TODO causes segfault
+        // return optional_comp orelse if (await frame) |_| unreachable else |err| err;
+        if (optional_comp) |comp| {
+            return comp;
+        } else if (await frame) |_| unreachable else |err| return err;
     }
 
     async fn createAsync(
@@ -385,50 +393,14 @@ pub const Compilation = struct {
             .build_mode = build_mode,
             .zig_lib_dir = zig_lib_dir,
             .zig_std_dir = undefined,
-            .tmp_dir = event.Future(BuildError![]u8).init(),
-            // .destroy_frame = @frame(),
-            // .main_loop_frame = undefined,
-            .main_loop_future = event.Future(void).init(),
+            .destroy_frame = @frame(),
+            .main_loop_frame = undefined,
 
             .name = undefined,
             .llvm_triple = undefined,
-
-            .version_major = 0,
-            .version_minor = 0,
-            .version_patch = 0,
-
-            .verbose_tokenize = false,
-            .verbose_ast_tree = false,
-            .verbose_ast_fmt = false,
-            .verbose_cimport = false,
-            .verbose_ir = false,
-            .verbose_llvm_ir = false,
-            .verbose_link = false,
-
-            .linker_script = null,
-            .out_h_path = null,
-            .is_test = false,
-            .each_lib_rpath = false,
-            .strip = false,
             .is_static = is_static,
-            .linker_rdynamic = false,
-            .clang_argv = [_][]const u8{},
-            .lib_dirs = [_][]const u8{},
-            .rpath_list = [_][]const u8{},
-            .assembly_files = [_][]const u8{},
-            .link_objects = [_][]const u8{},
-            .fn_link_set = event.Locked(FnLinkSet).init(FnLinkSet.init()),
-            .windows_subsystem_windows = false,
-            .windows_subsystem_console = false,
             .link_libs_list = undefined,
-            .libc_link_lib = null,
-            .err_color = errmsg.Color.Auto,
-            .darwin_frameworks = [_][]const u8{},
-            .darwin_version_min = DarwinVersionMin.None,
-            .test_filters = [_][]const u8{},
-            .test_name_prefix = null,
-            .emit_file_type = Emit.Binary,
-            .link_out_file = null,
+
             .exported_symbol_names = event.Locked(Decl.Table).init(Decl.Table.init(allocator)),
             .prelink_group = event.Group(BuildError!void).init(allocator),
             .deinit_group = event.Group(void).init(allocator),
@@ -458,11 +430,9 @@ pub const Compilation = struct {
             .root_package = undefined,
             .std_package = undefined,
 
-            .override_libc = null,
-            .have_err_ret_tracing = false,
             .primitive_type_table = undefined,
 
-            // .fs_watch = undefined,
+            .fs_watch = undefined,
         };
         comp.link_libs_list = ArrayList(*LinkLib).init(comp.arena());
         comp.primitive_type_table = TypeTable.init(comp.arena());
@@ -534,13 +504,16 @@ pub const Compilation = struct {
             comp.root_package = try Package.create(comp.arena(), ".", "");
         }
 
-        // comp.fs_watch = try fs.Watch(*Scope.Root).create(16);
-        // defer comp.fs_watch.destroy();
+        comp.fs_watch = try fs.Watch(*Scope.Root).init(allocator, 16);
+        defer comp.fs_watch.deinit();
 
         try comp.initTypes();
         defer comp.primitive_type_table.deinit();
 
-        // comp.main_loop_frame = async comp.mainLoop();
+        comp.main_loop_frame = try allocator.create(@Frame(mainLoop));
+        defer allocator.destroy(comp.main_loop_frame);
+
+        comp.main_loop_frame.* = async comp.mainLoop();
         // Set this to indicate that initialization completed successfully.
         // from here on out we must not return an error.
         // This must occur before the first suspend/await.
@@ -559,7 +532,7 @@ pub const Compilation = struct {
     }
 
     /// it does ref the result because it could be an arbitrary integer size
-    pub async fn getPrimitiveType(comp: *Compilation, name: []const u8) !?*Type {
+    pub fn getPrimitiveType(comp: *Compilation, name: []const u8) !?*Type {
         if (name.len >= 2) {
             switch (name[0]) {
                 'i', 'u' => blk: {
@@ -753,8 +726,11 @@ pub const Compilation = struct {
     }
 
     pub fn destroy(self: *Compilation) void {
-        // await self.main_loop_frame;
-        // resume self.destroy_frame;
+        const allocator = self.gpa();
+        self.cancelled = true;
+        await self.main_loop_frame;
+        resume self.destroy_frame;
+        allocator.destroy(self.destroy_frame);
     }
 
     fn start(self: *Compilation) void {
@@ -767,7 +743,7 @@ pub const Compilation = struct {
 
         var build_result = self.initialCompile();
 
-        while (true) {
+        while (!self.cancelled) {
             const link_result = if (build_result) blk: {
                 break :blk self.maybeLink();
             } else |err| err;
@@ -795,47 +771,47 @@ pub const Compilation = struct {
                 self.events.put(Event{ .Error = err });
             }
 
-            // // First, get an item from the watch channel, waiting on the channel.
-            // var group = event.Group(BuildError!void).init(self.gpa());
-            // {
-            //     const ev = (self.fs_watch.channel.get()) catch |err| {
-            //         build_result = err;
-            //         continue;
-            //     };
-            //     const root_scope = ev.data;
-            //     group.call(rebuildFile, self, root_scope) catch |err| {
-            //         build_result = err;
-            //         continue;
-            //     };
-            // }
-            // // Next, get all the items from the channel that are buffered up.
-            // while (self.fs_watch.channel.getOrNull()) |ev_or_err| {
-            //     if (ev_or_err) |ev| {
-            //         const root_scope = ev.data;
-            //         group.call(rebuildFile, self, root_scope) catch |err| {
-            //             build_result = err;
-            //             continue;
-            //         };
-            //     } else |err| {
-            //         build_result = err;
-            //         continue;
-            //     }
-            // }
-            // build_result = group.wait();
+            // First, get an item from the watch channel, waiting on the channel.
+            var group = event.Group(BuildError!void).init(self.gpa());
+            {
+                const ev = (self.fs_watch.channel.get()) catch |err| {
+                    build_result = err;
+                    continue;
+                };
+                const root_scope = ev.data;
+                group.call(rebuildFile, self, root_scope) catch |err| {
+                    build_result = err;
+                    continue;
+                };
+            }
+            // Next, get all the items from the channel that are buffered up.
+            while (self.fs_watch.channel.getOrNull()) |ev_or_err| {
+                if (ev_or_err) |ev| {
+                    const root_scope = ev.data;
+                    group.call(rebuildFile, self, root_scope) catch |err| {
+                        build_result = err;
+                        continue;
+                    };
+                } else |err| {
+                    build_result = err;
+                    continue;
+                }
+            }
+            build_result = group.wait();
         }
     }
 
-    async fn rebuildFile(self: *Compilation, root_scope: *Scope.Root) !void {
+    async fn rebuildFile(self: *Compilation, root_scope: *Scope.Root) BuildError!void {
         const tree_scope = blk: {
-            const source_code = "";
-            // const source_code = fs.readFile(
-            //     root_scope.realpath,
-            //     max_src_size,
-            // ) catch |err| {
-            //     try self.addCompileErrorCli(root_scope.realpath, "unable to open: {}", @errorName(err));
-            //     return;
-            // };
-            // errdefer self.gpa().free(source_code);
+            const source_code = fs.readFile(
+                self.gpa(),
+                root_scope.realpath,
+                max_src_size,
+            ) catch |err| {
+                try self.addCompileErrorCli(root_scope.realpath, "unable to open: {}", @errorName(err));
+                return;
+            };
+            errdefer self.gpa().free(source_code);
 
             const tree = try std.zig.parse(self.gpa(), source_code);
             errdefer {
@@ -873,7 +849,7 @@ pub const Compilation = struct {
         try decl_group.wait();
     }
 
-    async fn rebuildChangedDecls(
+    fn rebuildChangedDecls(
         self: *Compilation,
         group: *event.Group(BuildError!void),
         locked_table: *Decl.Table,
@@ -962,7 +938,7 @@ pub const Compilation = struct {
         }
     }
 
-    async fn initialCompile(self: *Compilation) !void {
+    fn initialCompile(self: *Compilation) !void {
         if (self.root_src_path) |root_src_path| {
             const root_scope = blk: {
                 // TODO async/await std.fs.realpath
@@ -981,7 +957,7 @@ pub const Compilation = struct {
         }
     }
 
-    async fn maybeLink(self: *Compilation) !void {
+    fn maybeLink(self: *Compilation) !void {
         (self.prelink_group.wait()) catch |err| switch (err) {
             error.SemanticAnalysisFailed => {},
             else => return err,
@@ -1165,11 +1141,10 @@ pub const Compilation = struct {
         return link_lib;
     }
 
-    /// cancels itself so no need to await or cancel the promise.
     async fn startFindingNativeLibC(self: *Compilation) void {
-        std.event.Loop.instance.?.yield();
+        event.Loop.startCpuBoundOperation();
         // we don't care if it fails, we're just trying to kick off the future resolution
-        _ = (self.zig_compiler.getNativeLibC()) catch return;
+        _ = self.zig_compiler.getNativeLibC() catch return;
     }
 
     /// General Purpose Allocator. Must free when done.
@@ -1184,7 +1159,7 @@ pub const Compilation = struct {
 
     /// If the temporary directory for this compilation has not been created, it creates it.
     /// Then it creates a random file name in that dir and returns it.
-    pub async fn createRandomOutputPath(self: *Compilation, suffix: []const u8) !Buffer {
+    pub fn createRandomOutputPath(self: *Compilation, suffix: []const u8) !Buffer {
         const tmp_dir = try self.getTmpDir();
         const file_prefix = self.getRandomFileName();
 
@@ -1200,14 +1175,14 @@ pub const Compilation = struct {
     /// If the temporary directory for this Compilation has not been created, creates it.
     /// Then returns it. The directory is unique to this Compilation and cleaned up when
     /// the Compilation deinitializes.
-    async fn getTmpDir(self: *Compilation) ![]const u8 {
+    fn getTmpDir(self: *Compilation) ![]const u8 {
         if (self.tmp_dir.start()) |ptr| return ptr.*;
         self.tmp_dir.data = self.getTmpDirImpl();
         self.tmp_dir.resolve();
         return self.tmp_dir.data;
     }
 
-    async fn getTmpDirImpl(self: *Compilation) ![]u8 {
+    fn getTmpDirImpl(self: *Compilation) ![]u8 {
         const comp_dir_name = self.getRandomFileName();
         const zig_dir_path = try getZigDir(self.gpa());
         defer self.gpa().free(zig_dir_path);
@@ -1217,7 +1192,7 @@ pub const Compilation = struct {
         return tmp_dir;
     }
 
-    async fn getRandomFileName(self: *Compilation) [12]u8 {
+    fn getRandomFileName(self: *Compilation) [12]u8 {
         // here we replace the standard +/ with -_ so that it can be used in a file name
         const b64_fs_encoder = std.base64.Base64Encoder.init(
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
@@ -1243,20 +1218,23 @@ pub const Compilation = struct {
     }
 
     /// Returns a value which has been ref()'d once
-    async fn analyzeConstValue(
+    fn analyzeConstValue(
         comp: *Compilation,
         tree_scope: *Scope.AstTree,
         scope: *Scope,
         node: *ast.Node,
         expected_type: *Type,
     ) !*Value {
-        const analyzed_code = try comp.genAndAnalyzeCode(tree_scope, scope, node, expected_type);
+        var frame = try comp.gpa().create(@Frame(genAndAnalyzeCode));
+        defer comp.gpa().destroy(frame);
+        frame.* = async comp.genAndAnalyzeCode(tree_scope, scope, node, expected_type);
+        const analyzed_code = try await frame;
         defer analyzed_code.destroy(comp.gpa());
 
         return analyzed_code.getCompTimeResult(comp);
     }
 
-    async fn analyzeTypeExpr(comp: *Compilation, tree_scope: *Scope.AstTree, scope: *Scope, node: *ast.Node) !*Type {
+    fn analyzeTypeExpr(comp: *Compilation, tree_scope: *Scope.AstTree, scope: *Scope, node: *ast.Node) !*Type {
         const meta_type = &Type.MetaType.get(comp).base;
         defer meta_type.base.deref(comp);
 
@@ -1287,7 +1265,7 @@ fn parseVisibToken(tree: *ast.Tree, optional_token_index: ?ast.TokenIndex) Visib
 }
 
 /// The function that actually does the generation.
-async fn generateDecl(comp: *Compilation, decl: *Decl) !void {
+fn generateDecl(comp: *Compilation, decl: *Decl) !void {
     switch (decl.id) {
         .Var => @panic("TODO"),
         .Fn => {
@@ -1298,7 +1276,7 @@ async fn generateDecl(comp: *Compilation, decl: *Decl) !void {
     }
 }
 
-async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
+fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
     const tree_scope = fn_decl.base.tree_scope;
 
     const body_node = fn_decl.fn_proto.body_node orelse return generateDeclFnProto(comp, fn_decl);
@@ -1315,7 +1293,7 @@ async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
 
     // The Decl.Fn owns the initial 1 reference count
     const fn_val = try Value.Fn.create(comp, fn_type, fndef_scope, symbol_name);
-    fn_decl.value = Decl.Fn.Val{ .Fn = fn_val };
+    fn_decl.value = .{ .Fn = fn_val };
     symbol_name_consumed = true;
 
     // Define local parameter variables
@@ -1350,12 +1328,15 @@ async fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
         try fn_type.non_key.Normal.variable_list.append(var_scope);
     }
 
-    const analyzed_code = try comp.genAndAnalyzeCode(
+    var frame = try comp.gpa().create(@Frame(Compilation.genAndAnalyzeCode));
+    defer comp.gpa().destroy(frame);
+    frame.* = async comp.genAndAnalyzeCode(
         tree_scope,
         fn_val.child_scope,
         body_node,
         fn_type.key.data.Normal.return_type,
     );
+    const analyzed_code = try await frame;
     errdefer analyzed_code.destroy(comp.gpa());
 
     assert(fn_val.block_scope != null);
@@ -1382,7 +1363,7 @@ fn getZigDir(allocator: *mem.Allocator) ![]u8 {
     return std.fs.getAppDataDir(allocator, "zig");
 }
 
-async fn analyzeFnType(
+fn analyzeFnType(
     comp: *Compilation,
     tree_scope: *Scope.AstTree,
     scope: *Scope,
@@ -1444,7 +1425,7 @@ async fn analyzeFnType(
     return fn_type;
 }
 
-async fn generateDeclFnProto(comp: *Compilation, fn_decl: *Decl.Fn) !void {
+fn generateDeclFnProto(comp: *Compilation, fn_decl: *Decl.Fn) !void {
     const fn_type = try analyzeFnType(
         comp,
         fn_decl.base.tree_scope,
@@ -1459,6 +1440,6 @@ async fn generateDeclFnProto(comp: *Compilation, fn_decl: *Decl.Fn) !void {
 
     // The Decl.Fn owns the initial 1 reference count
     const fn_proto_val = try Value.FnProto.create(comp, fn_type, symbol_name);
-    fn_decl.value = Decl.Fn.Val{ .FnProto = fn_proto_val };
+    fn_decl.value = .{ .FnProto = fn_proto_val };
     symbol_name_consumed = true;
 }

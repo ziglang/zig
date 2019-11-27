@@ -156,7 +156,7 @@ pub const Value = struct {
             const llvm_fn_type = try self.base.typ.getLlvmType(ofile.arena, ofile.context);
             const llvm_fn = llvm.AddFunction(
                 ofile.module,
-                self.symbol_name.ptr(),
+                self.symbol_name.toSliceConst(),
                 llvm_fn_type,
             ) orelse return error.OutOfMemory;
 
@@ -241,7 +241,7 @@ pub const Value = struct {
             const llvm_fn_type = try self.base.typ.getLlvmType(ofile.arena, ofile.context);
             const llvm_fn = llvm.AddFunction(
                 ofile.module,
-                self.symbol_name.ptr(),
+                self.symbol_name.toSliceConst(),
                 llvm_fn_type,
             ) orelse return error.OutOfMemory;
 
@@ -334,7 +334,7 @@ pub const Value = struct {
             field_index: usize,
         };
 
-        pub async fn createArrayElemPtr(
+        pub fn createArrayElemPtr(
             comp: *Compilation,
             array_val: *Array,
             mut: Type.Pointer.Mut,
@@ -350,7 +350,7 @@ pub const Value = struct {
                 .mut = mut,
                 .vol = Type.Pointer.Vol.Non,
                 .size = size,
-                .alignment = Type.Pointer.Align.Abi,
+                .alignment = .Abi,
             });
             var ptr_type_consumed = false;
             errdefer if (!ptr_type_consumed) ptr_type.base.base.deref(comp);
@@ -390,13 +390,13 @@ pub const Value = struct {
                     const array_llvm_value = (try base_array.val.getLlvmConst(ofile)).?;
                     const ptr_bit_count = ofile.comp.target_ptr_bits;
                     const usize_llvm_type = llvm.IntTypeInContext(ofile.context, ptr_bit_count) orelse return error.OutOfMemory;
-                    const indices = [_]*llvm.Value{
+                    var indices = [_]*llvm.Value{
                         llvm.ConstNull(usize_llvm_type) orelse return error.OutOfMemory,
                         llvm.ConstInt(usize_llvm_type, base_array.elem_index, 0) orelse return error.OutOfMemory,
                     };
                     return llvm.ConstInBoundsGEP(
                         array_llvm_value,
-                        &indices,
+                        @ptrCast([*]*llvm.Value, &indices),
                         @intCast(c_uint, indices.len),
                     ) orelse return error.OutOfMemory;
                 },
@@ -423,7 +423,7 @@ pub const Value = struct {
         };
 
         /// Takes ownership of buffer
-        pub async fn createOwnedBuffer(comp: *Compilation, buffer: []u8) !*Array {
+        pub fn createOwnedBuffer(comp: *Compilation, buffer: []u8) !*Array {
             const u8_type = Type.Int.get_u8(comp);
             defer u8_type.base.base.deref(comp);
 
