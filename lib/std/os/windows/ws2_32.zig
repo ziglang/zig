@@ -110,6 +110,9 @@ pub const WSAOVERLAPPED_COMPLETION_ROUTINE = extern fn (dwError: DWORD, cbTransf
 
 pub const ADDRESS_FAMILY = u16;
 
+// Microsoft use the signed c_int for this, but it should never be negative
+const socklen_t = u32;
+
 pub const AF_UNSPEC = 0;
 pub const AF_UNIX = 1;
 pub const AF_INET = 2;
@@ -349,12 +352,12 @@ pub extern "ws2_32" stdcallcc fn WSAIoctl(
 pub extern "ws2_32" stdcallcc fn accept(
     s: SOCKET,
     addr: ?*sockaddr,
-    addrlen: c_int,
+    addrlen: socklen_t,
 ) SOCKET;
 pub extern "ws2_32" stdcallcc fn connect(
     s: SOCKET,
     name: *const sockaddr,
-    namelen: c_int,
+    namelen: socklen_t,
 ) c_int;
 pub extern "ws2_32" stdcallcc fn WSARecv(
     s: SOCKET,
@@ -372,7 +375,7 @@ pub extern "ws2_32" stdcallcc fn WSARecvFrom(
     lpNumberOfBytesRecvd: ?*DWORD,
     lpFlags: *DWORD,
     lpFrom: ?*sockaddr,
-    lpFromlen: c_int,
+    lpFromlen: socklen_t,
     lpOverlapped: ?*WSAOVERLAPPED,
     lpCompletionRoutine: ?WSAOVERLAPPED_COMPLETION_ROUTINE,
 ) c_int;
@@ -392,7 +395,7 @@ pub extern "ws2_32" stdcallcc fn WSASendTo(
     lpNumberOfBytesSent: ?*DWORD,
     dwFlags: DWORD,
     lpTo: ?*const sockaddr,
-    iTolen: c_int,
+    iTolen: socklen_t,
     lpOverlapped: ?*WSAOVERLAPPED,
     lpCompletionRoutine: ?WSAOVERLAPPED_COMPLETION_ROUTINE,
 ) c_int;
