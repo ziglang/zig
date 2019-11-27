@@ -40,6 +40,14 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
                 .allocator = allocator,
             };
         }
+        
+        /// Initialize with capacity to hold at least num elements.
+        /// Deinitialize with `deinit` or use `toOwnedSlice`.
+        pub fn initCapacity(allocator: *Allocator, num: usize) !Self {
+            var self = Self.init(allocator);
+            try self.ensureCapacity(num);
+            return self;
+        }
 
         /// Release all allocated memory.
         pub fn deinit(self: Self) void {
@@ -269,6 +277,15 @@ test "std.ArrayList.init" {
 
     testing.expect(list.count() == 0);
     testing.expect(list.capacity() == 0);
+}
+
+test "std.ArrayList.initCapacity" {
+    var bytes: [1024]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+    var list = try ArrayList(i8).initCapacity(allocator, 200);
+    defer list.deinit();
+    testing.expect(list.count() == 0);
+    testing.expect(list.capacity() >= 200);
 }
 
 test "std.ArrayList.basic" {
