@@ -42,7 +42,7 @@ pub const Random = struct {
         return r.int(u1) != 0;
     }
 
-    /// Returns a random int `i` such that `0 <= i <= maxInt(T)`.
+    /// Returns a random int `i` such that `minInt(i) <= i <= maxInt(T)`.
     /// `i` is evenly distributed.
     pub fn int(r: *Random, comptime T: type) T {
         const UnsignedT = @IntType(false, T.bit_count);
