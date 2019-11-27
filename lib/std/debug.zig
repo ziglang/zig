@@ -38,14 +38,45 @@ const Module = struct {
     checksum_offset: ?usize,
 };
 
-/// Tries to write to stderr, unbuffered, and ignores any error returned.
+var stdout_file: File = undefined;
+var stdout_file_out_stream: File.OutStream = undefined;
+
+var stdout_stream: ?*io.OutStream(File.WriteError) = null;
+var stdout_mutex = std.Mutex.init();
+
+/// Tries to write to stdout, unbuffered, and ignores any error returned.
 /// Does not append a newline.
+pub fn print(comptime fmt: []const u8, args: ...) void {
+    const held = stdout_mutex.acquire();
+    defer held.release();
+    const stdout = getStdoutStream();
+    stdout.print(fmt, args) catch return;
+}
+
+pub fn getStdoutStream() *io.OutStream(File.WriteError) {
+    if (stdout_stream) |st| {
+        return st;
+    } else {
+        stdout_file = io.getStdErr();
+        stdout_file_out_stream = stdout_file.outStream();
+        const st = &stdout_file_out_stream.stream;
+        stdout_stream = st;
+        return st;
+    }
+}
+
+pub fn getStdoutMutex() *std.Mutex {
+    return &stdout_mutex;
+}
+
 var stderr_file: File = undefined;
 var stderr_file_out_stream: File.OutStream = undefined;
 
 var stderr_stream: ?*io.OutStream(File.WriteError) = null;
 var stderr_mutex = std.Mutex.init();
 
+/// Tries to write to stderr, unbuffered, and ignores any error returned.
+/// Does not append a newline.
 pub fn warn(comptime fmt: []const u8, args: ...) void {
     const held = stderr_mutex.acquire();
     defer held.release();
