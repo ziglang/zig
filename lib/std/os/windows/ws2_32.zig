@@ -346,3 +346,53 @@ pub extern "ws2_32" stdcallcc fn WSAIoctl(
     lpOverlapped: ?*WSAOVERLAPPED,
     lpCompletionRoutine: ?WSAOVERLAPPED_COMPLETION_ROUTINE,
 ) c_int;
+pub extern "ws2_32" stdcallcc fn accept(
+    s: SOCKET,
+    addr: ?*sockaddr,
+    addrlen: c_int,
+) SOCKET;
+pub extern "ws2_32" stdcallcc fn connect(
+    s: SOCKET,
+    name: *const sockaddr,
+    namelen: c_int,
+) c_int;
+pub extern "ws2_32" stdcallcc fn WSARecv(
+    s: SOCKET,
+    lpBuffers: [*]const WSABUF,
+    dwBufferCount: DWORD,
+    lpNumberOfBytesRecvd: ?*DWORD,
+    lpFlags: *DWORD,
+    lpOverlapped: ?*WSAOVERLAPPED,
+    lpCompletionRoutine: ?WSAOVERLAPPED_COMPLETION_ROUTINE,
+) c_int;
+pub extern "ws2_32" stdcallcc fn WSARecvFrom(
+    s: SOCKET,
+    lpBuffers: [*]const WSABUF,
+    dwBufferCount: DWORD,
+    lpNumberOfBytesRecvd: ?*DWORD,
+    lpFlags: *DWORD,
+    lpFrom: ?*sockaddr,
+    lpFromlen: c_int,
+    lpOverlapped: ?*WSAOVERLAPPED,
+    lpCompletionRoutine: ?WSAOVERLAPPED_COMPLETION_ROUTINE,
+) c_int;
+pub extern "ws2_32" stdcallcc fn WSASend(
+    s: SOCKET,
+    lpBuffers: [*]WSABUF,
+    dwBufferCount: DWORD,
+    lpNumberOfBytesSent: ?*DWORD,
+    dwFlags: DWORD,
+    lpOverlapped: ?*WSAOVERLAPPED,
+    lpCompletionRoutine: ?WSAOVERLAPPED_COMPLETION_ROUTINE,
+) c_int;
+pub extern "ws2_32" stdcallcc fn WSASendTo(
+    s: SOCKET,
+    lpBuffers: [*]WSABUF,
+    dwBufferCount: DWORD,
+    lpNumberOfBytesSent: ?*DWORD,
+    dwFlags: DWORD,
+    lpTo: ?*const sockaddr,
+    iTolen: c_int,
+    lpOverlapped: ?*WSAOVERLAPPED,
+    lpCompletionRoutine: ?WSAOVERLAPPED_COMPLETION_ROUTINE,
+) c_int;
