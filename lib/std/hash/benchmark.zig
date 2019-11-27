@@ -100,7 +100,7 @@ pub fn benchmarkHash(comptime H: var, bytes: usize) !Result {
     };
 
     var block: [block_size]u8 = undefined;
-    prng.random.bytes(block[0..]);
+    prng.bytes(block[0..]);
 
     var offset: usize = 0;
     var timer = try Timer.start();
@@ -122,7 +122,7 @@ pub fn benchmarkHash(comptime H: var, bytes: usize) !Result {
 pub fn benchmarkHashSmallKeys(comptime H: var, key_size: usize, bytes: usize) !Result {
     const key_count = bytes / key_size;
     var block: [block_size]u8 = undefined;
-    prng.random.bytes(block[0..]);
+    prng.bytes(block[0..]);
 
     var i: usize = 0;
     var timer = try Timer.start();

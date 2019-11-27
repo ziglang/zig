@@ -1,6 +1,9 @@
 const std = @import("std");
 const math = std.math;
-const Random = std.rand.Random;
+
+const Random = struct {
+    fillFn: fn (r: *Random, buf: []u8) void,
+};
 
 const ZigTable = struct {
     r: f64,

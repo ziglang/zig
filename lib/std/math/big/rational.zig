@@ -766,7 +766,7 @@ test "big.rational set/to Float round-trip" {
     var prng = std.rand.DefaultPrng.init(0x5EED);
     var i: usize = 0;
     while (i < 512) : (i += 1) {
-        const r = prng.random.float(f64);
+        const r = prng.float(f64);
         try a.setFloat(f64, r);
         testing.expect((try a.toFloat(f64)) == r);
     }

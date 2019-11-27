@@ -9,7 +9,7 @@
 //
 // var r = DefaultPrng.init(seed);
 //
-// const s = r.random.int(u64);
+// const s = r.int(u64);
 // ```
 //
 // TODO(tiehuis): Benchmark these against other reference implementations.
@@ -30,251 +30,251 @@ pub const DefaultPrng = Xoroshiro128;
 // When you need cryptographically secure random numbers
 pub const DefaultCsprng = Isaac64;
 
-pub const Random = struct {
-    fillFn: fn (r: *Random, buf: []u8) void,
-
-    /// Read random bytes into the specified buffer until full.
-    pub fn bytes(r: *Random, buf: []u8) void {
-        r.fillFn(r, buf);
-    }
-
-    pub fn boolean(r: *Random) bool {
-        return r.int(u1) != 0;
-    }
-
-    /// Returns a random int `i` such that `minInt(i) <= i <= maxInt(T)`.
-    /// `i` is evenly distributed.
-    pub fn int(r: *Random, comptime T: type) T {
-        const UnsignedT = @IntType(false, T.bit_count);
-        const ByteAlignedT = @IntType(false, @divTrunc(T.bit_count + 7, 8) * 8);
-
-        var rand_bytes: [@sizeOf(ByteAlignedT)]u8 = undefined;
-        r.bytes(rand_bytes[0..]);
-
-        // use LE instead of native endian for better portability maybe?
-        // TODO: endian portability is pointless if the underlying prng isn't endian portable.
-        // TODO: document the endian portability of this library.
-        const byte_aligned_result = mem.readIntSliceLittle(ByteAlignedT, rand_bytes);
-        const unsigned_result = @truncate(UnsignedT, byte_aligned_result);
-        return @bitCast(T, unsigned_result);
-    }
-
-    /// Constant-time implementation off ::uintLessThan.
-    /// The results of this function may be biased.
-    pub fn uintLessThanBiased(r: *Random, comptime T: type, less_than: T) T {
-        comptime assert(T.is_signed == false);
-        comptime assert(T.bit_count <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
-        assert(0 < less_than);
-        if (T.bit_count <= 32) {
-            return @intCast(T, limitRangeBiased(u32, r.int(u32), less_than));
-        } else {
-            return @intCast(T, limitRangeBiased(u64, r.int(u64), less_than));
+/// Random Source Mixin
+///
+/// Expects:
+///  - `pub fn bytes(self: var, buf: []u8) void) void`
+///    Should fill specified buffer with random bytes until full.
+pub fn Random(comptime Self: type) type {
+    return struct {
+        pub fn boolean(r: var) bool {
+            return r.int(u1) != 0;
         }
-    }
 
-    /// Returns an evenly distributed random unsigned integer `0 <= i < less_than`.
-    /// This function assumes that the underlying ::fillFn produces evenly distributed values.
-    /// Within this assumption, the runtime of this function is exponentially distributed.
-    /// If ::fillFn were backed by a true random generator,
-    /// the runtime of this function would technically be unbounded.
-    /// However, if ::fillFn is backed by any evenly distributed pseudo random number generator,
-    /// this function is guaranteed to return.
-    /// If you need deterministic runtime bounds, use `::uintLessThanBiased`.
-    pub fn uintLessThan(r: *Random, comptime T: type, less_than: T) T {
-        comptime assert(T.is_signed == false);
-        comptime assert(T.bit_count <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
-        assert(0 < less_than);
-        // Small is typically u32
-        const Small = @IntType(false, @divTrunc(T.bit_count + 31, 32) * 32);
-        // Large is typically u64
-        const Large = @IntType(false, Small.bit_count * 2);
+        /// Returns a random int `i` such that `minInt(0) <= i <= maxInt(T)`.
+        /// `i` is evenly distributed.
+        pub fn int(r: var, comptime T: type) T {
+            const UnsignedT = @IntType(false, T.bit_count);
+            const ByteAlignedT = @IntType(false, @divTrunc(T.bit_count + 7, 8) * 8);
 
-        // adapted from:
-        //   http://www.pcg-random.org/posts/bounded-rands.html
-        //   "Lemire's (with an extra tweak from me)"
-        var x: Small = r.int(Small);
-        var m: Large = @as(Large, x) * @as(Large, less_than);
-        var l: Small = @truncate(Small, m);
-        if (l < less_than) {
-            // TODO: workaround for https://github.com/ziglang/zig/issues/1770
-            // should be:
-            //   var t: Small = -%less_than;
-            var t: Small = @bitCast(Small, -%@bitCast(@IntType(true, Small.bit_count), @as(Small, less_than)));
+            var rand_bytes: [@sizeOf(ByteAlignedT)]u8 = undefined;
+            r.bytes(rand_bytes[0..]);
 
-            if (t >= less_than) {
-                t -= less_than;
+            // use LE instead of native endian for better portability maybe?
+            // TODO: endian portability is pointless if the underlying prng isn't endian portable.
+            // TODO: document the endian portability of this library.
+            const byte_aligned_result = mem.readIntSliceLittle(ByteAlignedT, rand_bytes);
+            const unsigned_result = @truncate(UnsignedT, byte_aligned_result);
+            return @bitCast(T, unsigned_result);
+        }
+
+        /// Constant-time implementation off ::uintLessThan.
+        /// The results of this function may be biased.
+        pub fn uintLessThanBiased(r: var, comptime T: type, less_than: T) T {
+            comptime assert(T.is_signed == false);
+            comptime assert(T.bit_count <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
+            assert(0 < less_than);
+            if (T.bit_count <= 32) {
+                return @intCast(T, limitRangeBiased(u32, r.int(u32), less_than));
+            } else {
+                return @intCast(T, limitRangeBiased(u64, r.int(u64), less_than));
+            }
+        }
+
+        /// Returns an evenly distributed random unsigned integer `0 <= i < less_than`.
+        /// This function assumes that the underlying `.bytes()` produces evenly distributed values.
+        /// Within this assumption, the runtime of this function is exponentially distributed.
+        /// If `.bytes()` were backed by a true random generator,
+        /// the runtime of this function would technically be unbounded.
+        /// However, if `.bytes()` is backed by any evenly distributed pseudo random number generator,
+        /// this function is guaranteed to return.
+        /// If you need deterministic runtime bounds, use `::uintLessThanBiased`.
+        pub fn uintLessThan(r: var, comptime T: type, less_than: T) T {
+            comptime assert(T.is_signed == false);
+            comptime assert(T.bit_count <= 64); // TODO: workaround: LLVM ERROR: Unsupported library call operation!
+            assert(0 < less_than);
+            // Small is typically u32
+            const Small = @IntType(false, @divTrunc(T.bit_count + 31, 32) * 32);
+            // Large is typically u64
+            const Large = @IntType(false, Small.bit_count * 2);
+
+            // adapted from:
+            //   http://www.pcg-random.org/posts/bounded-rands.html
+            //   "Lemire's (with an extra tweak from me)"
+            var x: Small = r.int(Small);
+            var m: Large = @as(Large, x) * @as(Large, less_than);
+            var l: Small = @truncate(Small, m);
+            if (l < less_than) {
+                // TODO: workaround for https://github.com/ziglang/zig/issues/1770
+                // should be:
+                //   var t: Small = -%less_than;
+                var t: Small = @bitCast(Small, -%@bitCast(@IntType(true, Small.bit_count), @as(Small, less_than)));
+
                 if (t >= less_than) {
-                    t %= less_than;
+                    t -= less_than;
+                    if (t >= less_than) {
+                        t %= less_than;
+                    }
+                }
+                while (l < t) {
+                    x = r.int(Small);
+                    m = @as(Large, x) * @as(Large, less_than);
+                    l = @truncate(Small, m);
                 }
             }
-            while (l < t) {
-                x = r.int(Small);
-                m = @as(Large, x) * @as(Large, less_than);
-                l = @truncate(Small, m);
+            return @intCast(T, m >> Small.bit_count);
+        }
+
+        /// Constant-time implementation off ::uintAtMost.
+        /// The results of this function may be biased.
+        pub fn uintAtMostBiased(r: var, comptime T: type, at_most: T) T {
+            assert(T.is_signed == false);
+            if (at_most == maxInt(T)) {
+                // have the full range
+                return r.int(T);
+            }
+            return r.uintLessThanBiased(T, at_most + 1);
+        }
+
+        /// Returns an evenly distributed random unsigned integer `0 <= i <= at_most`.
+        /// See ::uintLessThan, which this function uses in most cases,
+        /// for commentary on the runtime of this function.
+        pub fn uintAtMost(r: var, comptime T: type, at_most: T) T {
+            assert(T.is_signed == false);
+            if (at_most == maxInt(T)) {
+                // have the full range
+                return r.int(T);
+            }
+            return r.uintLessThan(T, at_most + 1);
+        }
+
+        /// Constant-time implementation off ::intRangeLessThan.
+        /// The results of this function may be biased.
+        pub fn intRangeLessThanBiased(r: var, comptime T: type, at_least: T, less_than: T) T {
+            assert(at_least < less_than);
+            if (T.is_signed) {
+                // Two's complement makes this math pretty easy.
+                const UnsignedT = @IntType(false, T.bit_count);
+                const lo = @bitCast(UnsignedT, at_least);
+                const hi = @bitCast(UnsignedT, less_than);
+                const result = lo +% r.uintLessThanBiased(UnsignedT, hi -% lo);
+                return @bitCast(T, result);
+            } else {
+                // The signed implementation would work fine, but we can use stricter arithmetic operators here.
+                return at_least + r.uintLessThanBiased(T, less_than - at_least);
             }
         }
-        return @intCast(T, m >> Small.bit_count);
-    }
 
-    /// Constant-time implementation off ::uintAtMost.
-    /// The results of this function may be biased.
-    pub fn uintAtMostBiased(r: *Random, comptime T: type, at_most: T) T {
-        assert(T.is_signed == false);
-        if (at_most == maxInt(T)) {
-            // have the full range
-            return r.int(T);
-        }
-        return r.uintLessThanBiased(T, at_most + 1);
-    }
-
-    /// Returns an evenly distributed random unsigned integer `0 <= i <= at_most`.
-    /// See ::uintLessThan, which this function uses in most cases,
-    /// for commentary on the runtime of this function.
-    pub fn uintAtMost(r: *Random, comptime T: type, at_most: T) T {
-        assert(T.is_signed == false);
-        if (at_most == maxInt(T)) {
-            // have the full range
-            return r.int(T);
-        }
-        return r.uintLessThan(T, at_most + 1);
-    }
-
-    /// Constant-time implementation off ::intRangeLessThan.
-    /// The results of this function may be biased.
-    pub fn intRangeLessThanBiased(r: *Random, comptime T: type, at_least: T, less_than: T) T {
-        assert(at_least < less_than);
-        if (T.is_signed) {
-            // Two's complement makes this math pretty easy.
-            const UnsignedT = @IntType(false, T.bit_count);
-            const lo = @bitCast(UnsignedT, at_least);
-            const hi = @bitCast(UnsignedT, less_than);
-            const result = lo +% r.uintLessThanBiased(UnsignedT, hi -% lo);
-            return @bitCast(T, result);
-        } else {
-            // The signed implementation would work fine, but we can use stricter arithmetic operators here.
-            return at_least + r.uintLessThanBiased(T, less_than - at_least);
-        }
-    }
-
-    /// Returns an evenly distributed random integer `at_least <= i < less_than`.
-    /// See ::uintLessThan, which this function uses in most cases,
-    /// for commentary on the runtime of this function.
-    pub fn intRangeLessThan(r: *Random, comptime T: type, at_least: T, less_than: T) T {
-        assert(at_least < less_than);
-        if (T.is_signed) {
-            // Two's complement makes this math pretty easy.
-            const UnsignedT = @IntType(false, T.bit_count);
-            const lo = @bitCast(UnsignedT, at_least);
-            const hi = @bitCast(UnsignedT, less_than);
-            const result = lo +% r.uintLessThan(UnsignedT, hi -% lo);
-            return @bitCast(T, result);
-        } else {
-            // The signed implementation would work fine, but we can use stricter arithmetic operators here.
-            return at_least + r.uintLessThan(T, less_than - at_least);
-        }
-    }
-
-    /// Constant-time implementation off ::intRangeAtMostBiased.
-    /// The results of this function may be biased.
-    pub fn intRangeAtMostBiased(r: *Random, comptime T: type, at_least: T, at_most: T) T {
-        assert(at_least <= at_most);
-        if (T.is_signed) {
-            // Two's complement makes this math pretty easy.
-            const UnsignedT = @IntType(false, T.bit_count);
-            const lo = @bitCast(UnsignedT, at_least);
-            const hi = @bitCast(UnsignedT, at_most);
-            const result = lo +% r.uintAtMostBiased(UnsignedT, hi -% lo);
-            return @bitCast(T, result);
-        } else {
-            // The signed implementation would work fine, but we can use stricter arithmetic operators here.
-            return at_least + r.uintAtMostBiased(T, at_most - at_least);
-        }
-    }
-
-    /// Returns an evenly distributed random integer `at_least <= i <= at_most`.
-    /// See ::uintLessThan, which this function uses in most cases,
-    /// for commentary on the runtime of this function.
-    pub fn intRangeAtMost(r: *Random, comptime T: type, at_least: T, at_most: T) T {
-        assert(at_least <= at_most);
-        if (T.is_signed) {
-            // Two's complement makes this math pretty easy.
-            const UnsignedT = @IntType(false, T.bit_count);
-            const lo = @bitCast(UnsignedT, at_least);
-            const hi = @bitCast(UnsignedT, at_most);
-            const result = lo +% r.uintAtMost(UnsignedT, hi -% lo);
-            return @bitCast(T, result);
-        } else {
-            // The signed implementation would work fine, but we can use stricter arithmetic operators here.
-            return at_least + r.uintAtMost(T, at_most - at_least);
-        }
-    }
-
-    /// TODO: deprecated. use ::boolean or ::int instead.
-    pub fn scalar(r: *Random, comptime T: type) T {
-        return if (T == bool) r.boolean() else r.int(T);
-    }
-
-    /// TODO: deprecated. renamed to ::intRangeLessThan
-    pub fn range(r: *Random, comptime T: type, start: T, end: T) T {
-        return r.intRangeLessThan(T, start, end);
-    }
-
-    /// Return a floating point value evenly distributed in the range [0, 1).
-    pub fn float(r: *Random, comptime T: type) T {
-        // Generate a uniform value between [1, 2) and scale down to [0, 1).
-        // Note: The lowest mantissa bit is always set to 0 so we only use half the available range.
-        switch (T) {
-            f32 => {
-                const s = r.int(u32);
-                const repr = (0x7f << 23) | (s >> 9);
-                return @bitCast(f32, repr) - 1.0;
-            },
-            f64 => {
-                const s = r.int(u64);
-                const repr = (0x3ff << 52) | (s >> 12);
-                return @bitCast(f64, repr) - 1.0;
-            },
-            else => @compileError("unknown floating point type"),
-        }
-    }
-
-    /// Return a floating point value normally distributed with mean = 0, stddev = 1.
-    ///
-    /// To use different parameters, use: floatNorm(...) * desiredStddev + desiredMean.
-    pub fn floatNorm(r: *Random, comptime T: type) T {
-        const value = ziggurat.next_f64(r, ziggurat.NormDist);
-        switch (T) {
-            f32 => return @floatCast(f32, value),
-            f64 => return value,
-            else => @compileError("unknown floating point type"),
-        }
-    }
-
-    /// Return an exponentially distributed float with a rate parameter of 1.
-    ///
-    /// To use a different rate parameter, use: floatExp(...) / desiredRate.
-    pub fn floatExp(r: *Random, comptime T: type) T {
-        const value = ziggurat.next_f64(r, ziggurat.ExpDist);
-        switch (T) {
-            f32 => return @floatCast(f32, value),
-            f64 => return value,
-            else => @compileError("unknown floating point type"),
-        }
-    }
-
-    /// Shuffle a slice into a random order.
-    pub fn shuffle(r: *Random, comptime T: type, buf: []T) void {
-        if (buf.len < 2) {
-            return;
+        /// Returns an evenly distributed random integer `at_least <= i < less_than`.
+        /// See ::uintLessThan, which this function uses in most cases,
+        /// for commentary on the runtime of this function.
+        pub fn intRangeLessThan(r: var, comptime T: type, at_least: T, less_than: T) T {
+            assert(at_least < less_than);
+            if (T.is_signed) {
+                // Two's complement makes this math pretty easy.
+                const UnsignedT = @IntType(false, T.bit_count);
+                const lo = @bitCast(UnsignedT, at_least);
+                const hi = @bitCast(UnsignedT, less_than);
+                const result = lo +% r.uintLessThan(UnsignedT, hi -% lo);
+                return @bitCast(T, result);
+            } else {
+                // The signed implementation would work fine, but we can use stricter arithmetic operators here.
+                return at_least + r.uintLessThan(T, less_than - at_least);
+            }
         }
 
-        var i: usize = 0;
-        while (i < buf.len - 1) : (i += 1) {
-            const j = r.intRangeLessThan(usize, i, buf.len);
-            mem.swap(T, &buf[i], &buf[j]);
+        /// Constant-time implementation off ::intRangeAtMostBiased.
+        /// The results of this function may be biased.
+        pub fn intRangeAtMostBiased(r: var, comptime T: type, at_least: T, at_most: T) T {
+            assert(at_least <= at_most);
+            if (T.is_signed) {
+                // Two's complement makes this math pretty easy.
+                const UnsignedT = @IntType(false, T.bit_count);
+                const lo = @bitCast(UnsignedT, at_least);
+                const hi = @bitCast(UnsignedT, at_most);
+                const result = lo +% r.uintAtMostBiased(UnsignedT, hi -% lo);
+                return @bitCast(T, result);
+            } else {
+                // The signed implementation would work fine, but we can use stricter arithmetic operators here.
+                return at_least + r.uintAtMostBiased(T, at_most - at_least);
+            }
         }
-    }
-};
+
+        /// Returns an evenly distributed random integer `at_least <= i <= at_most`.
+        /// See ::uintLessThan, which this function uses in most cases,
+        /// for commentary on the runtime of this function.
+        pub fn intRangeAtMost(r: var, comptime T: type, at_least: T, at_most: T) T {
+            assert(at_least <= at_most);
+            if (T.is_signed) {
+                // Two's complement makes this math pretty easy.
+                const UnsignedT = @IntType(false, T.bit_count);
+                const lo = @bitCast(UnsignedT, at_least);
+                const hi = @bitCast(UnsignedT, at_most);
+                const result = lo +% r.uintAtMost(UnsignedT, hi -% lo);
+                return @bitCast(T, result);
+            } else {
+                // The signed implementation would work fine, but we can use stricter arithmetic operators here.
+                return at_least + r.uintAtMost(T, at_most - at_least);
+            }
+        }
+
+        /// TODO: deprecated. use ::boolean or ::int instead.
+        pub fn scalar(r: var, comptime T: type) T {
+            return if (T == bool) r.boolean() else r.int(T);
+        }
+
+        /// TODO: deprecated. renamed to ::intRangeLessThan
+        pub fn range(r: var, comptime T: type, start: T, end: T) T {
+            return r.intRangeLessThan(T, start, end);
+        }
+
+        /// Return a floating point value evenly distributed in the range [0, 1).
+        pub fn float(r: var, comptime T: type) T {
+            // Generate a uniform value between [1, 2) and scale down to [0, 1).
+            // Note: The lowest mantissa bit is always set to 0 so we only use half the available range.
+            switch (T) {
+                f32 => {
+                    const s = r.int(u32);
+                    const repr = (0x7f << 23) | (s >> 9);
+                    return @bitCast(f32, repr) - 1.0;
+                },
+                f64 => {
+                    const s = r.int(u64);
+                    const repr = (0x3ff << 52) | (s >> 12);
+                    return @bitCast(f64, repr) - 1.0;
+                },
+                else => @compileError("unknown floating point type"),
+            }
+        }
+
+        /// Return a floating point value normally distributed with mean = 0, stddev = 1.
+        ///
+        /// To use different parameters, use: floatNorm(...) * desiredStddev + desiredMean.
+        pub fn floatNorm(r: var, comptime T: type) T {
+            const value = ziggurat.next_f64(r, ziggurat.NormDist);
+            switch (T) {
+                f32 => return @floatCast(f32, value),
+                f64 => return value,
+                else => @compileError("unknown floating point type"),
+            }
+        }
+
+        /// Return an exponentially distributed float with a rate parameter of 1.
+        ///
+        /// To use a different rate parameter, use: floatExp(...) / desiredRate.
+        pub fn floatExp(r: var, comptime T: type) T {
+            const value = ziggurat.next_f64(r, ziggurat.ExpDist);
+            switch (T) {
+                f32 => return @floatCast(f32, value),
+                f64 => return value,
+                else => @compileError("unknown floating point type"),
+            }
+        }
+
+        /// Shuffle a slice into a random order.
+        pub fn shuffle(r: var, comptime T: type, buf: []T) void {
+            if (buf.len < 2) {
+                return;
+            }
+
+            var i: usize = 0;
+            while (i < buf.len - 1) : (i += 1) {
+                const j = r.intRangeLessThan(usize, i, buf.len);
+                mem.swap(T, &buf[i], &buf[j]);
+            }
+        }
+    };
+}
 
 /// Convert a random integer 0 <= random_int <= maxValue(T),
 /// into an integer 0 <= result < less_than.
@@ -292,23 +292,22 @@ pub fn limitRangeBiased(comptime T: type, random_int: T, less_than: T) T {
 
 const SequentialPrng = struct {
     const Self = @This();
-    random: Random,
     next_value: u8,
 
     pub fn init() Self {
         return Self{
-            .random = Random{ .fillFn = fill },
             .next_value = 0,
         };
     }
 
-    fn fill(r: *Random, buf: []u8) void {
-        const self = @fieldParentPtr(Self, "random", r);
+    pub fn bytes(self: *Self, buf: []u8) void {
         for (buf) |*b| {
             b.* = self.next_value;
         }
         self.next_value +%= 1;
     }
+
+    pub usingnamespace Random(Self);
 };
 
 test "Random int" {
@@ -318,43 +317,43 @@ test "Random int" {
 fn testRandomInt() void {
     var r = SequentialPrng.init();
 
-    expect(r.random.int(u0) == 0);
+    expect(r.int(u0) == 0);
 
     r.next_value = 0;
-    expect(r.random.int(u1) == 0);
-    expect(r.random.int(u1) == 1);
-    expect(r.random.int(u2) == 2);
-    expect(r.random.int(u2) == 3);
-    expect(r.random.int(u2) == 0);
+    expect(r.int(u1) == 0);
+    expect(r.int(u1) == 1);
+    expect(r.int(u2) == 2);
+    expect(r.int(u2) == 3);
+    expect(r.int(u2) == 0);
 
     r.next_value = 0xff;
-    expect(r.random.int(u8) == 0xff);
+    expect(r.int(u8) == 0xff);
     r.next_value = 0x11;
-    expect(r.random.int(u8) == 0x11);
+    expect(r.int(u8) == 0x11);
 
     r.next_value = 0xff;
-    expect(r.random.int(u32) == 0xffffffff);
+    expect(r.int(u32) == 0xffffffff);
     r.next_value = 0x11;
-    expect(r.random.int(u32) == 0x11111111);
+    expect(r.int(u32) == 0x11111111);
 
     r.next_value = 0xff;
-    expect(r.random.int(i32) == -1);
+    expect(r.int(i32) == -1);
     r.next_value = 0x11;
-    expect(r.random.int(i32) == 0x11111111);
+    expect(r.int(i32) == 0x11111111);
 
     r.next_value = 0xff;
-    expect(r.random.int(i8) == -1);
+    expect(r.int(i8) == -1);
     r.next_value = 0x11;
-    expect(r.random.int(i8) == 0x11);
+    expect(r.int(i8) == 0x11);
 
     r.next_value = 0xff;
-    expect(r.random.int(u33) == 0x1ffffffff);
+    expect(r.int(u33) == 0x1ffffffff);
     r.next_value = 0xff;
-    expect(r.random.int(i1) == -1);
+    expect(r.int(i1) == -1);
     r.next_value = 0xff;
-    expect(r.random.int(i2) == -1);
+    expect(r.int(i2) == -1);
     r.next_value = 0xff;
-    expect(r.random.int(i33) == -1);
+    expect(r.int(i33) == -1);
 }
 
 test "Random boolean" {
@@ -363,10 +362,10 @@ test "Random boolean" {
 }
 fn testRandomBoolean() void {
     var r = SequentialPrng.init();
-    expect(r.random.boolean() == false);
-    expect(r.random.boolean() == true);
-    expect(r.random.boolean() == false);
-    expect(r.random.boolean() == true);
+    expect(r.boolean() == false);
+    expect(r.boolean() == true);
+    expect(r.boolean() == false);
+    expect(r.boolean() == true);
 }
 
 test "Random intLessThan" {
@@ -377,36 +376,36 @@ test "Random intLessThan" {
 fn testRandomIntLessThan() void {
     var r = SequentialPrng.init();
     r.next_value = 0xff;
-    expect(r.random.uintLessThan(u8, 4) == 3);
+    expect(r.uintLessThan(u8, 4) == 3);
     expect(r.next_value == 0);
-    expect(r.random.uintLessThan(u8, 4) == 0);
+    expect(r.uintLessThan(u8, 4) == 0);
     expect(r.next_value == 1);
 
     r.next_value = 0;
-    expect(r.random.uintLessThan(u64, 32) == 0);
+    expect(r.uintLessThan(u64, 32) == 0);
 
     // trigger the bias rejection code path
     r.next_value = 0;
-    expect(r.random.uintLessThan(u8, 3) == 0);
+    expect(r.uintLessThan(u8, 3) == 0);
     // verify we incremented twice
     expect(r.next_value == 2);
 
     r.next_value = 0xff;
-    expect(r.random.intRangeLessThan(u8, 0, 0x80) == 0x7f);
+    expect(r.intRangeLessThan(u8, 0, 0x80) == 0x7f);
     r.next_value = 0xff;
-    expect(r.random.intRangeLessThan(u8, 0x7f, 0xff) == 0xfe);
+    expect(r.intRangeLessThan(u8, 0x7f, 0xff) == 0xfe);
 
     r.next_value = 0xff;
-    expect(r.random.intRangeLessThan(i8, 0, 0x40) == 0x3f);
+    expect(r.intRangeLessThan(i8, 0, 0x40) == 0x3f);
     r.next_value = 0xff;
-    expect(r.random.intRangeLessThan(i8, -0x40, 0x40) == 0x3f);
+    expect(r.intRangeLessThan(i8, -0x40, 0x40) == 0x3f);
     r.next_value = 0xff;
-    expect(r.random.intRangeLessThan(i8, -0x80, 0) == -1);
+    expect(r.intRangeLessThan(i8, -0x80, 0) == -1);
 
     r.next_value = 0xff;
-    expect(r.random.intRangeLessThan(i3, -4, 0) == -1);
+    expect(r.intRangeLessThan(i3, -4, 0) == -1);
     r.next_value = 0xff;
-    expect(r.random.intRangeLessThan(i3, -2, 2) == 1);
+    expect(r.intRangeLessThan(i3, -2, 2) == 1);
 }
 
 test "Random intAtMost" {
@@ -417,34 +416,34 @@ test "Random intAtMost" {
 fn testRandomIntAtMost() void {
     var r = SequentialPrng.init();
     r.next_value = 0xff;
-    expect(r.random.uintAtMost(u8, 3) == 3);
+    expect(r.uintAtMost(u8, 3) == 3);
     expect(r.next_value == 0);
-    expect(r.random.uintAtMost(u8, 3) == 0);
+    expect(r.uintAtMost(u8, 3) == 0);
 
     // trigger the bias rejection code path
     r.next_value = 0;
-    expect(r.random.uintAtMost(u8, 2) == 0);
+    expect(r.uintAtMost(u8, 2) == 0);
     // verify we incremented twice
     expect(r.next_value == 2);
 
     r.next_value = 0xff;
-    expect(r.random.intRangeAtMost(u8, 0, 0x7f) == 0x7f);
+    expect(r.intRangeAtMost(u8, 0, 0x7f) == 0x7f);
     r.next_value = 0xff;
-    expect(r.random.intRangeAtMost(u8, 0x7f, 0xfe) == 0xfe);
+    expect(r.intRangeAtMost(u8, 0x7f, 0xfe) == 0xfe);
 
     r.next_value = 0xff;
-    expect(r.random.intRangeAtMost(i8, 0, 0x3f) == 0x3f);
+    expect(r.intRangeAtMost(i8, 0, 0x3f) == 0x3f);
     r.next_value = 0xff;
-    expect(r.random.intRangeAtMost(i8, -0x40, 0x3f) == 0x3f);
+    expect(r.intRangeAtMost(i8, -0x40, 0x3f) == 0x3f);
     r.next_value = 0xff;
-    expect(r.random.intRangeAtMost(i8, -0x80, -1) == -1);
+    expect(r.intRangeAtMost(i8, -0x80, -1) == -1);
 
     r.next_value = 0xff;
-    expect(r.random.intRangeAtMost(i3, -4, -1) == -1);
+    expect(r.intRangeAtMost(i3, -4, -1) == -1);
     r.next_value = 0xff;
-    expect(r.random.intRangeAtMost(i3, -2, 1) == 1);
+    expect(r.intRangeAtMost(i3, -2, 1) == 1);
 
-    expect(r.random.uintAtMost(u0, 0) == 0);
+    expect(r.uintAtMost(u0, 0) == 0);
 }
 
 test "Random Biased" {
@@ -452,30 +451,30 @@ test "Random Biased" {
     // Not thoroughly checking the logic here.
     // Just want to execute all the paths with different types.
 
-    expect(r.random.uintLessThanBiased(u1, 1) == 0);
-    expect(r.random.uintLessThanBiased(u32, 10) < 10);
-    expect(r.random.uintLessThanBiased(u64, 20) < 20);
+    expect(r.uintLessThanBiased(u1, 1) == 0);
+    expect(r.uintLessThanBiased(u32, 10) < 10);
+    expect(r.uintLessThanBiased(u64, 20) < 20);
 
-    expect(r.random.uintAtMostBiased(u0, 0) == 0);
-    expect(r.random.uintAtMostBiased(u1, 0) <= 0);
-    expect(r.random.uintAtMostBiased(u32, 10) <= 10);
-    expect(r.random.uintAtMostBiased(u64, 20) <= 20);
+    expect(r.uintAtMostBiased(u0, 0) == 0);
+    expect(r.uintAtMostBiased(u1, 0) <= 0);
+    expect(r.uintAtMostBiased(u32, 10) <= 10);
+    expect(r.uintAtMostBiased(u64, 20) <= 20);
 
-    expect(r.random.intRangeLessThanBiased(u1, 0, 1) == 0);
-    expect(r.random.intRangeLessThanBiased(i1, -1, 0) == -1);
-    expect(r.random.intRangeLessThanBiased(u32, 10, 20) >= 10);
-    expect(r.random.intRangeLessThanBiased(i32, 10, 20) >= 10);
-    expect(r.random.intRangeLessThanBiased(u64, 20, 40) >= 20);
-    expect(r.random.intRangeLessThanBiased(i64, 20, 40) >= 20);
+    expect(r.intRangeLessThanBiased(u1, 0, 1) == 0);
+    expect(r.intRangeLessThanBiased(i1, -1, 0) == -1);
+    expect(r.intRangeLessThanBiased(u32, 10, 20) >= 10);
+    expect(r.intRangeLessThanBiased(i32, 10, 20) >= 10);
+    expect(r.intRangeLessThanBiased(u64, 20, 40) >= 20);
+    expect(r.intRangeLessThanBiased(i64, 20, 40) >= 20);
 
     // uncomment for broken module error:
-    //expect(r.random.intRangeAtMostBiased(u0, 0, 0) == 0);
-    expect(r.random.intRangeAtMostBiased(u1, 0, 1) >= 0);
-    expect(r.random.intRangeAtMostBiased(i1, -1, 0) >= -1);
-    expect(r.random.intRangeAtMostBiased(u32, 10, 20) >= 10);
-    expect(r.random.intRangeAtMostBiased(i32, 10, 20) >= 10);
-    expect(r.random.intRangeAtMostBiased(u64, 20, 40) >= 20);
-    expect(r.random.intRangeAtMostBiased(i64, 20, 40) >= 20);
+    //expect(r.intRangeAtMostBiased(u0, 0, 0) == 0);
+    expect(r.intRangeAtMostBiased(u1, 0, 1) >= 0);
+    expect(r.intRangeAtMostBiased(i1, -1, 0) >= -1);
+    expect(r.intRangeAtMostBiased(u32, 10, 20) >= 10);
+    expect(r.intRangeAtMostBiased(i32, 10, 20) >= 10);
+    expect(r.intRangeAtMostBiased(u64, 20, 40) >= 20);
+    expect(r.intRangeAtMostBiased(i64, 20, 40) >= 20);
 }
 
 // Generator to extend 64-bit seed values into longer sequences.
@@ -522,14 +521,11 @@ test "splitmix64 sequence" {
 pub const Pcg = struct {
     const default_multiplier = 6364136223846793005;
 
-    random: Random,
-
     s: u64,
     i: u64,
 
     pub fn init(init_s: u64) Pcg {
         var pcg = Pcg{
-            .random = Random{ .fillFn = fill },
             .s = undefined,
             .i = undefined,
         };
@@ -562,9 +558,7 @@ pub const Pcg = struct {
         self.s = self.s *% default_multiplier +% self.i;
     }
 
-    fn fill(r: *Random, buf: []u8) void {
-        const self = @fieldParentPtr(Pcg, "random", r);
-
+    pub fn bytes(self: *Pcg, buf: []u8) void {
         var i: usize = 0;
         const aligned_len = buf.len - (buf.len & 7);
 
@@ -587,6 +581,8 @@ pub const Pcg = struct {
             }
         }
     }
+
+    pub usingnamespace Random(Pcg);
 };
 
 test "pcg sequence" {
@@ -613,13 +609,10 @@ test "pcg sequence" {
 //
 // PRNG
 pub const Xoroshiro128 = struct {
-    random: Random,
-
     s: [2]u64,
 
     pub fn init(init_s: u64) Xoroshiro128 {
         var x = Xoroshiro128{
-            .random = Random{ .fillFn = fill },
             .s = undefined,
         };
 
@@ -672,9 +665,7 @@ pub const Xoroshiro128 = struct {
         self.s[1] = gen.next();
     }
 
-    fn fill(r: *Random, buf: []u8) void {
-        const self = @fieldParentPtr(Xoroshiro128, "random", r);
-
+    pub fn bytes(self: *Xoroshiro128, buf: []u8) void {
         var i: usize = 0;
         const aligned_len = buf.len - (buf.len & 7);
 
@@ -697,6 +688,8 @@ pub const Xoroshiro128 = struct {
             }
         }
     }
+
+    pub usingnamespace Random(Xoroshiro128);
 };
 
 test "xoroshiro sequence" {
@@ -740,8 +733,6 @@ test "xoroshiro sequence" {
 // Follows the general idea of the implementation from here with a few shortcuts.
 // https://doc.rust-lang.org/rand/src/rand/prng/isaac64.rs.html
 pub const Isaac64 = struct {
-    random: Random,
-
     r: [256]u64,
     m: [256]u64,
     a: u64,
@@ -751,7 +742,6 @@ pub const Isaac64 = struct {
 
     pub fn init(init_s: u64) Isaac64 {
         var isaac = Isaac64{
-            .random = Random{ .fillFn = fill },
             .r = undefined,
             .m = undefined,
             .a = undefined,
@@ -881,9 +871,7 @@ pub const Isaac64 = struct {
         self.i = self.r.len; // trigger refill on first value
     }
 
-    fn fill(r: *Random, buf: []u8) void {
-        const self = @fieldParentPtr(Isaac64, "random", r);
-
+    pub fn bytes(self: *Isaac64, buf: []u8) void {
         var i: usize = 0;
         const aligned_len = buf.len - (buf.len & 7);
 
@@ -906,6 +894,8 @@ pub const Isaac64 = struct {
             }
         }
     }
+
+    pub usingnamespace Random(Isaac64);
 };
 
 test "isaac64 sequence" {
@@ -940,8 +930,6 @@ test "isaac64 sequence" {
 /// Fastest engine of pracrand and smallest footprint.
 /// See http://pracrand.sourceforge.net/
 pub const Sfc64 = struct {
-    random: Random,
-
     a: u64 = undefined,
     b: u64 = undefined,
     c: u64 = undefined,
@@ -952,10 +940,7 @@ pub const Sfc64 = struct {
     const LeftShift = 3;
 
     pub fn init(init_s: u64) Sfc64 {
-        var x = Sfc64{
-            .random = Random{ .fillFn = fill },
-        };
-
+        var x = Sfc64{};
         x.seed(init_s);
         return x;
     }
@@ -980,9 +965,7 @@ pub const Sfc64 = struct {
         }
     }
 
-    fn fill(r: *Random, buf: []u8) void {
-        const self = @fieldParentPtr(Sfc64, "random", r);
-
+    pub fn bytes(self: *Sfc64, buf: []u8) void {
         var i: usize = 0;
         const aligned_len = buf.len - (buf.len & 7);
 
@@ -1005,6 +988,8 @@ pub const Sfc64 = struct {
             }
         }
     }
+
+    pub usingnamespace Random(Sfc64);
 };
 
 test "Sfc64 sequence" {
@@ -1041,11 +1026,11 @@ test "Random float" {
 
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
-        const val1 = prng.random.float(f32);
+        const val1 = prng.float(f32);
         expect(val1 >= 0.0);
         expect(val1 < 1.0);
 
-        const val2 = prng.random.float(f64);
+        const val2 = prng.float(f64);
         expect(val2 >= 0.0);
         expect(val2 < 1.0);
     }
@@ -1059,7 +1044,7 @@ test "Random shuffle" {
 
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
-        prng.random.shuffle(u8, seq[0..]);
+        prng.shuffle(u8, seq[0..]);
         seen[seq[0]] = true;
         expect(sumArray(seq[0..]) == 10);
     }
@@ -1079,17 +1064,17 @@ fn sumArray(s: []const u8) u32 {
 
 test "Random range" {
     var prng = DefaultPrng.init(0);
-    testRange(&prng.random, -4, 3);
-    testRange(&prng.random, -4, -1);
-    testRange(&prng.random, 10, 14);
-    testRange(&prng.random, -0x80, 0x7f);
+    testRange(&prng, -4, 3);
+    testRange(&prng, -4, -1);
+    testRange(&prng, 10, 14);
+    testRange(&prng, -0x80, 0x7f);
 }
 
-fn testRange(r: *Random, start: i8, end: i8) void {
+fn testRange(r: var, start: i8, end: i8) void {
     testRangeBias(r, start, end, true);
     testRangeBias(r, start, end, false);
 }
-fn testRangeBias(r: *Random, start: i8, end: i8, biased: bool) void {
+fn testRangeBias(r: var, start: i8, end: i8, biased: bool) void {
     const count = @intCast(usize, @as(i32, end) - @as(i32, start));
     var values_buffer = [_]bool{false} ** 0x100;
     const values = values_buffer[0..count];

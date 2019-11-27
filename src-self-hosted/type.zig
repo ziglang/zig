@@ -1057,9 +1057,9 @@ fn hashAny(x: var, comptime seed: u64) u32 {
             comptime var rng = comptime std.rand.DefaultPrng.init(seed);
             const unsigned_x = @bitCast(@IntType(false, info.bits), x);
             if (info.bits <= 32) {
-                return @as(u32, unsigned_x) *% comptime rng.random.scalar(u32);
+                return @as(u32, unsigned_x) *% comptime rng.int(u32);
             } else {
-                return @truncate(u32, unsigned_x *% comptime rng.random.scalar(@typeOf(unsigned_x)));
+                return @truncate(u32, unsigned_x *% comptime rng.int(@typeOf(unsigned_x)));
             }
         },
         .Pointer => |info| {
@@ -1073,7 +1073,7 @@ fn hashAny(x: var, comptime seed: u64) u32 {
         .Enum => return hashAny(@enumToInt(x), seed),
         .Bool => {
             comptime var rng = comptime std.rand.DefaultPrng.init(seed);
-            const vals = comptime [2]u32{ rng.random.scalar(u32), rng.random.scalar(u32) };
+            const vals = comptime [2]u32{ rng.int(u32), rng.int(u32) };
             return vals[@boolToInt(x)];
         },
         .Optional => {

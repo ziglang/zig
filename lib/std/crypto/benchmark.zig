@@ -31,7 +31,7 @@ pub fn benchmarkHash(comptime Hash: var, comptime bytes: comptime_int) !u64 {
     var h = Hash.init();
 
     var block: [Hash.digest_length]u8 = undefined;
-    prng.random.bytes(block[0..]);
+    prng.bytes(block[0..]);
 
     var offset: usize = 0;
     var timer = try Timer.start();
@@ -58,10 +58,10 @@ pub fn benchmarkMac(comptime Mac: var, comptime bytes: comptime_int) !u64 {
     std.debug.assert(32 >= Mac.mac_length and 32 >= Mac.minimum_key_length);
 
     var in: [1 * MiB]u8 = undefined;
-    prng.random.bytes(in[0..]);
+    prng.bytes(in[0..]);
 
     var key: [32]u8 = undefined;
-    prng.random.bytes(key[0..]);
+    prng.bytes(key[0..]);
 
     var offset: usize = 0;
     var timer = try Timer.start();
@@ -83,10 +83,10 @@ pub fn benchmarkKeyExchange(comptime DhKeyExchange: var, comptime exchange_count
     std.debug.assert(DhKeyExchange.minimum_key_length >= DhKeyExchange.secret_length);
 
     var in: [DhKeyExchange.minimum_key_length]u8 = undefined;
-    prng.random.bytes(in[0..]);
+    prng.bytes(in[0..]);
 
     var out: [DhKeyExchange.minimum_key_length]u8 = undefined;
-    prng.random.bytes(out[0..]);
+    prng.bytes(out[0..]);
 
     var offset: usize = 0;
     var timer = try Timer.start();

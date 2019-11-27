@@ -1230,7 +1230,7 @@ pub const Compilation = struct {
             const held = self.zig_compiler.prng.acquire();
             defer held.release();
 
-            held.value.random.bytes(rand_bytes[0..]);
+            held.value.bytes(rand_bytes[0..]);
         }
 
         var result: [12]u8 = undefined;
