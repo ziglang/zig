@@ -90,7 +90,7 @@ pub fn expectEqual(expected: var, actual: @typeOf(expected)) void {
                 @compileError("Unable to compare untagged union values");
             }
 
-            const TagType = @TagType(@typeOf(actual));
+            const TagType = @TagType(@typeOf(expected));
 
             const expectedTag = @as(TagType, expected);
             const actualTag = @as(TagType, actual);
@@ -141,6 +141,19 @@ pub fn expectEqual(expected: var, actual: @typeOf(expected)) void {
             }
         },
     }
+}
+
+test "expectEqual.union(enum)"
+{
+    const T = union(enum) {
+        a: i32,
+        b: f32,
+    };
+
+    const a10 = T { .a = 10 };
+    const a20 = T { .a = 20 };
+
+    expectEqual(a10, a10);
 }
 
 /// This function is intended to be used only in tests. When the two slices are not
