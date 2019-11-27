@@ -19,7 +19,6 @@ pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
 /// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
 pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
 
-pub const SHORT = c_short;
 pub const BOOL = c_int;
 pub const BOOLEAN = BYTE;
 pub const BYTE = u8;
@@ -54,6 +53,8 @@ pub const UNICODE = false;
 pub const WCHAR = u16;
 pub const WORD = u16;
 pub const LARGE_INTEGER = i64;
+pub const USHORT = u16;
+pub const SHORT = i16;
 pub const ULONG = u32;
 pub const LONG = i32;
 pub const ULONGLONG = u64;
