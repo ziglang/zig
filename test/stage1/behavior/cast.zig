@@ -697,3 +697,16 @@ test "cast i8 fn call peers to i32 result" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "return u8 coercing into ?u32 return type" {
+    const S = struct {
+        fn doTheTest() void {
+            expect(foo(123).? == 123);
+        }
+        fn foo(arg: u8) ?u32 {
+            return arg;
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

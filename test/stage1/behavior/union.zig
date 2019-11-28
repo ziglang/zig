@@ -582,3 +582,32 @@ test "update the tag value for zero-sized unions" {
     x = S{ .U1 = {} };
     expect(x == .U1);
 }
+
+test "function call result coerces from tagged union to the tag" {
+    const S = struct {
+        const Arch = union(enum) {
+            One,
+            Two: usize,
+        };
+
+        const ArchTag = @TagType(Arch);
+
+        fn doTheTest() void {
+            var x: ArchTag = getArch1();
+            expect(x == .One);
+
+            var y: ArchTag = getArch2();
+            expect(y == .Two);
+        }
+
+        pub fn getArch1() Arch {
+            return .One;
+        }
+
+        pub fn getArch2() Arch {
+            return .{ .Two = 99 };
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
