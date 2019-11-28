@@ -11,7 +11,8 @@ pub usingnamespace switch (builtin.os) {
     .netbsd => @import("bits/netbsd.zig"),
     .wasi => @import("bits/wasi.zig"),
     .windows => @import("bits/windows.zig"),
-    else => struct {},
+    else => if (@hasDecl(@import("root"), "os") and @hasDecl(@import("root").os, "bits")) @import("root").os.bits
+    else struct {},
 };
 
 pub const iovec = extern struct {

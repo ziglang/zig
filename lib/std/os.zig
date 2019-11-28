@@ -51,7 +51,7 @@ test "" {
 }
 
 /// When linking libc, this is the C API. Otherwise, it is the OS-specific system interface.
-pub const system = if (builtin.link_libc) std.c else switch (builtin.os) {
+pub const system = if (@hasDecl(@import("root"), "os")) @import("root").os else if (builtin.link_libc) std.c else switch (builtin.os) {
     .macosx, .ios, .watchos, .tvos => darwin,
     .freebsd => freebsd,
     .linux => linux,
@@ -310,7 +310,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
+            EAGAIN => if (std.io.mode == .evented) if (std.io.mode == .evented) if (std.event.Loop.instance) |loop| {
                 loop.waitUntilFdReadable(fd);
                 continue;
             } else {
@@ -340,7 +340,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
+            EAGAIN => if (std.io.mode == .evented) if (std.event.Loop.instance) |loop| {
                 loop.waitUntilFdReadable(fd);
                 continue;
             } else {
@@ -388,7 +388,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) ReadError!usize {
                 EINVAL => unreachable,
                 EFAULT => unreachable,
                 ESPIPE => unreachable, // fd is not seekable
-                EAGAIN => if (std.event.Loop.instance) |loop| {
+                EAGAIN => if (std.io.mode == .evented) if (std.event.Loop.instance) |loop| {
                     loop.waitUntilFdReadable(fd);
                     continue;
                 } else {
@@ -411,7 +411,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) ReadError!usize {
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
+            EAGAIN => if (std.io.mode == .evented) if (std.event.Loop.instance) |loop| {
                 loop.waitUntilFdReadable(fd);
                 continue;
             } else {
@@ -484,7 +484,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
             EFAULT => unreachable,
             // TODO https://github.com/ziglang/zig/issues/3557
             EAGAIN => return error.WouldBlock,
-            //EAGAIN => if (std.event.Loop.instance) |loop| {
+            //EAGAIN => if (std.io.mode == .evented) if (std.event.Loop.instance) |loop| {
             //    loop.waitUntilFdWritable(fd);
             //    continue;
             //} else {
@@ -515,7 +515,7 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!void {
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
+            EAGAIN => if (std.io.mode == .evented) if (std.event.Loop.instance) |loop| {
                 loop.waitUntilFdWritable(fd);
                 continue;
             } else {
@@ -564,7 +564,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) WriteError!void 
                 ESPIPE => unreachable, // `fd` is not seekable.
                 EINVAL => unreachable,
                 EFAULT => unreachable,
-                EAGAIN => if (std.event.Loop.instance) |loop| {
+                EAGAIN => if (std.io.mode == .evented) if (std.event.Loop.instance) |loop| {
                     loop.waitUntilFdWritable(fd);
                     continue;
                 } else {
@@ -591,7 +591,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) WriteError!void 
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
+            EAGAIN => if (std.io.mode == .evented) if (std.event.Loop.instance) |loop| {
                 loop.waitUntilFdWritable(fd);
                 continue;
             } else {
@@ -1755,7 +1755,7 @@ pub fn accept4(
             0 => return @intCast(fd_t, rc),
             EINTR => continue,
 
-            EAGAIN => if (std.event.Loop.instance) |loop| {
+            EAGAIN => if (std.io.mode == .evented) if (std.event.Loop.instance) |loop| {
                 loop.waitUntilFdReadable(sockfd);
                 continue;
             } else {
@@ -3053,7 +3053,7 @@ pub fn sendto(
             0 => return @intCast(usize, rc),
 
             EACCES => return error.AccessDenied,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
+            EAGAIN => if (std.io.mode == .evented) if (std.event.Loop.instance) |loop| {
                 loop.waitUntilFdWritable(sockfd);
                 continue;
             } else {
@@ -3156,7 +3156,7 @@ pub fn recvfrom(
             ENOTCONN => unreachable,
             ENOTSOCK => unreachable,
             EINTR => continue,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
+            EAGAIN => if (std.io.mode == .evented) if (std.event.Loop.instance) |loop| {
                 loop.waitUntilFdReadable(sockfd);
                 continue;
             } else {

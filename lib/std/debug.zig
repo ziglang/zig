@@ -802,6 +802,14 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
     if (comptime std.Target.current.isDarwin()) {
         return noasync openSelfDebugInfoMacOs(allocator);
     }
+    if (builtin.os == .freestanding) {
+        if (@hasDecl(std.os.system, "openSelfDebugInfo")) {
+            return noasync std.os.system.openSelfDebugInfo(allocator);
+        }
+        else {
+            @compileError("Debug info not implemented in OS layer!");
+        }
+    }
     return noasync openSelfDebugInfoPosix(allocator);
 }
 
@@ -1722,7 +1730,7 @@ pub const DebugInfo = switch (builtin.os) {
         sect_contribs: []pdb.SectionContribEntry,
         modules: []Module,
     },
-    .linux, .freebsd, .netbsd, .dragonfly => DwarfInfo,
+    .linux, .freebsd, .netbsd, .dragonfly, .freestanding => DwarfInfo,
     else => @compileError("Unsupported OS"),
 };
 
@@ -2352,7 +2360,9 @@ var debug_info_allocator: ?*mem.Allocator = null;
 var debug_info_arena_allocator: std.heap.ArenaAllocator = undefined;
 fn getDebugInfoAllocator() *mem.Allocator {
     if (debug_info_allocator) |a| return a;
-
+    if (builtin.os == .freestanding) {
+        return std.os.system.getDebugInfoAllocator();
+    }
     debug_info_arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     debug_info_allocator = &debug_info_arena_allocator.allocator;
     return &debug_info_arena_allocator.allocator;

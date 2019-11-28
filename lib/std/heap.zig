@@ -52,6 +52,9 @@ pub const direct_allocator = page_allocator;
 
 const PageAllocator = struct {
     fn alloc(allocator: *Allocator, n: usize, alignment: u29) error{OutOfMemory}![]u8 {
+        if (builtin.os == .freestanding) {
+            @compileError("PageAllocator is unusable in freestanding mode!");
+        }
         if (n == 0) return &[0]u8{};
 
         if (builtin.os == .windows) {
