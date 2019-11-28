@@ -253,7 +253,7 @@ extern fn @"llvm.wasm.memory.size.i32"(u32) u32;
 extern fn @"llvm.wasm.memory.grow.i32"(u32, u32) i32;
 
 test "" {
-    _ = WasmPageAllocator.alloc;
+    _ = WasmPageAllocator.realloc;
 }
 
 const WasmPageAllocator = struct {
@@ -261,12 +261,24 @@ const WasmPageAllocator = struct {
         offset: usize = 0,
         data: []u8 = &[_]u8{},
 
-        fn alloc(self: FreeBlock, num_pages: usize) ?[]u8 {
+        fn initData(self: *FreeBlock, data: []u8) void {
+            std.mem.set(u8, data, 0);
+            self.data = data;
+        }
+
+        fn totalPages(self: FreeBlock) usize {
+            return self.data.len * @typeInfo(usize).Int.bits;
+        }
+
+        fn alloc(self: *FreeBlock, num_pages: usize) ?[]u8 {
             return null;
         }
+
+        fn reclaim(self: *FreeBlock, start_page: usize, end_page: usize) void {}
     };
-    var base = FreeBlock{};
-    var additional = FreeBlock{};
+
+    var conventional = FreeBlock{};
+    var extended = FreeBlock{};
 
     fn nPages(memsize: usize) usize {
         return std.mem.alignForward(memsize, std.mem.page_size) / std.mem.page_size;
@@ -278,7 +290,7 @@ const WasmPageAllocator = struct {
         }
 
         const n_pages = nPages(n);
-        return base.alloc(n_pages) orelse additional.alloc(n_pages) orelse {
+        return conventional.alloc(n_pages) orelse extended.alloc(n_pages) orelse {
             const prev_page_count = @"llvm.wasm.memory.grow.i32"(0, @intCast(u32, n_pages));
             if (prev_page_count < 0) {
                 return error.OutOfMemory;
@@ -305,13 +317,28 @@ const WasmPageAllocator = struct {
     }
 
     pub fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
-        var shrinkage = nPages(old_mem.len) - nPages(new_size);
-        if (shrinkage > 0) {
-            const success = base.recycle(old_mem[new_size..old_mem.len]);
-            if (!success) {
-                std.debug.assert(additional.recycle(old_mem[new_size..old_mem.len]));
+        const free_start = nPages(@ptrToInt(old_mem.ptr) + new_size);
+        var free_end = nPages(@ptrToInt(old_mem.ptr) + old_mem.len);
+
+        if (free_end > free_start) {
+            if (conventional.data.len == 0) {
+                conventional.initData(__heap_base[0..@intCast(usize, @"llvm.wasm.memory.size.i32"(0) * std.mem.page_size)]);
+            }
+
+            if (free_start < conventional.totalPages()) {
+                conventional.reclaim(free_start, free_end);
+            } else {
+                if (extended.data.len == 0) {
+                    extended.offset = conventional.totalPages();
+
+                    // Steal the last page from the memory currently being reclaimed
+                    free_end -= 1;
+                    extended.initData(@intToPtr([*]u8, free_end)[0..std.mem.page_size]);
+                }
+                conventional.reclaim(free_start, free_end);
             }
         }
+
         return old_mem[0..new_size];
     }
 };
