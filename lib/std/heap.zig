@@ -246,84 +246,72 @@ const PageAllocator = struct {
     }
 };
 
+extern const __heap_base: [*]u8;
 // TODO Exposed LLVM intrinsics is a bug
 // See: https://github.com/ziglang/zig/issues/2291
 extern fn @"llvm.wasm.memory.size.i32"(u32) u32;
 extern fn @"llvm.wasm.memory.grow.i32"(u32, u32) i32;
 
-/// TODO: make this re-use freed pages, and cooperate with other callers of these global intrinsics
-/// by better utilizing the return value of grow()
-const WasmPageAllocator = struct {
-    var start_ptr: [*]u8 = undefined;
-    var num_pages: usize = 0;
-    var end_index: usize = 0;
+test "" {
+    _ = WasmPageAllocator.alloc;
+}
 
-    comptime {
-        if (builtin.arch != .wasm32) {
-            @compileError("WasmPageAllocator is only available for wasm32 arch");
+const WasmPageAllocator = struct {
+    const FreeBlock = struct {
+        offset: usize = 0,
+        data: []u8 = &[_]u8{},
+
+        fn alloc(self: FreeBlock, num_pages: usize) ?[]u8 {
+            return null;
         }
+    };
+    var base = FreeBlock{};
+    var additional = FreeBlock{};
+
+    fn nPages(memsize: usize) usize {
+        return std.mem.alignForward(memsize, std.mem.page_size) / std.mem.page_size;
     }
 
-    fn alloc(allocator: *Allocator, size: usize, alignment: u29) ![]u8 {
-        const addr = @ptrToInt(start_ptr) + end_index;
-        const adjusted_addr = mem.alignForward(addr, alignment);
-        const adjusted_index = end_index + (adjusted_addr - addr);
-        const new_end_index = adjusted_index + size;
+    fn alloc(allocator: *Allocator, n: usize, alignment: u29) error{OutOfMemory}![]u8 {
+        if (alignment > std.mem.page_size) {
+            return error.OutOfMemory;
+        }
 
-        if (new_end_index > num_pages * mem.page_size) {
-            const required_memory = new_end_index - (num_pages * mem.page_size);
-
-            var inner_num_pages: usize = required_memory / mem.page_size;
-            if (required_memory % mem.page_size != 0) {
-                inner_num_pages += 1;
-            }
-
-            const prev_page = @"llvm.wasm.memory.grow.i32"(0, @intCast(u32, inner_num_pages));
-            if (prev_page == -1) {
+        const n_pages = nPages(n);
+        return base.alloc(n_pages) orelse additional.alloc(n_pages) orelse {
+            const prev_page_count = @"llvm.wasm.memory.grow.i32"(0, @intCast(u32, n_pages));
+            if (prev_page_count < 0) {
                 return error.OutOfMemory;
             }
 
-            num_pages += inner_num_pages;
-        }
-
-        const result = start_ptr[adjusted_index..new_end_index];
-        end_index = new_end_index;
-
-        return result;
+            const start_ptr = @intToPtr([*]u8, @intCast(usize, prev_page_count) * std.mem.page_size);
+            return start_ptr[0..n];
+        };
     }
 
-    // Check if memory is the last "item" and is aligned correctly
-    fn is_last_item(memory: []u8, alignment: u29) bool {
-        return memory.ptr == start_ptr + end_index - memory.len and mem.alignForward(@ptrToInt(memory.ptr), alignment) == @ptrToInt(memory.ptr);
-    }
-
-    fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
-        // Initialize start_ptr at the first realloc
-        if (num_pages == 0) {
-            start_ptr = @intToPtr([*]u8, @intCast(usize, @"llvm.wasm.memory.size.i32"(0)) * mem.page_size);
-        }
-
-        if (is_last_item(old_mem, new_align)) {
-            const start_index = end_index - old_mem.len;
-            const new_end_index = start_index + new_size;
-
-            if (new_end_index > num_pages * mem.page_size) {
-                _ = try alloc(allocator, new_end_index - end_index, new_align);
-            }
-            const result = start_ptr[start_index..new_end_index];
-
-            end_index = new_end_index;
-            return result;
-        } else if (new_size <= old_mem.len and new_align <= old_align) {
-            return error.OutOfMemory;
+    pub fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) Allocator.Error![]u8 {
+        if (old_mem.len == 0) {
+            return alloc(allocator, new_size, new_align);
+        } else if (new_size < old_mem.len) {
+            return shrink(allocator, old_mem, old_align, new_size, new_align);
+        } else if (nPages(new_size) == nPages(old_mem.len)) {
+            return old_mem.ptr[0..new_size];
         } else {
-            const result = try alloc(allocator, new_size, new_align);
-            mem.copy(u8, result, old_mem);
-            return result;
+            const new_mem = try alloc(allocator, new_size, new_align);
+            std.mem.copy(u8, new_mem, old_mem);
+            _ = shrink(allocator, old_mem, old_align, 0, 0);
+            return new_mem[0..new_size];
         }
     }
 
-    fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+    pub fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+        var shrinkage = nPages(old_mem.len) - nPages(new_size);
+        if (shrinkage > 0) {
+            const success = base.recycle(old_mem[new_size..old_mem.len]);
+            if (!success) {
+                std.debug.assert(additional.recycle(old_mem[new_size..old_mem.len]));
+            }
+        }
         return old_mem[0..new_size];
     }
 };
