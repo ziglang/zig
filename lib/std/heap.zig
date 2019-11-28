@@ -257,6 +257,9 @@ test "" {
 }
 
 const WasmPageAllocator = struct {
+    // TODO: figure out why __heap_base cannot be found
+    var heap_base_wannabe: [256]u8 = undefined;
+
     const FreeBlock = struct {
         offset: usize = 0,
         packed_data: std.PackedIntSlice(u1) = std.PackedIntSlice(u1).init(&[_]u8{}, 0),
@@ -349,7 +352,8 @@ const WasmPageAllocator = struct {
 
         if (free_end > free_start) {
             if (conventional.totalPages() == 0) {
-                conventional.initData(__heap_base[0..@intCast(usize, @"llvm.wasm.memory.size.i32"(0) * std.mem.page_size)]);
+                //conventional.initData(__heap_base[0..@intCast(usize, @"llvm.wasm.memory.size.i32"(0) * std.mem.page_size)]);
+                conventional.initData(heap_base_wannabe[0..]);
             }
 
             if (free_start < conventional.totalPages()) {
