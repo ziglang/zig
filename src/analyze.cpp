@@ -4791,7 +4791,12 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
         ast_print(stderr, root_node, 0);
     }
 
-    if (source_kind == SourceKindRoot) {
+    for (size_t decl_i = 0; decl_i < root_node->data.container_decl.decls.length; decl_i += 1) {
+        AstNode *top_level_decl = root_node->data.container_decl.decls.at(decl_i);
+        scan_decls(g, import_entry->data.structure.decls_scope, top_level_decl);
+    }
+
+    if (source_kind == SourceKindRoot && g->trace_err == nullptr) {
         // Look for main
         for (size_t decl_i = 0; decl_i < root_node->data.container_decl.decls.length; decl_i += 1) {
             AstNode *top_level_decl = root_node->data.container_decl.decls.at(decl_i);
@@ -4809,11 +4814,6 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
                 }
             }
         }
-    }
-
-    for (size_t decl_i = 0; decl_i < root_node->data.container_decl.decls.length; decl_i += 1) {
-        AstNode *top_level_decl = root_node->data.container_decl.decls.at(decl_i);
-        scan_decls(g, import_entry->data.structure.decls_scope, top_level_decl);
     }
 
     TldContainer *tld_container = allocate<TldContainer>(1);
