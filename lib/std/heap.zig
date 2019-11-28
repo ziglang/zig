@@ -259,22 +259,49 @@ test "" {
 const WasmPageAllocator = struct {
     const FreeBlock = struct {
         offset: usize = 0,
-        data: []u8 = &[_]u8{},
+        packed_data: std.PackedIntSlice(u1) = std.PackedIntSlice(u1).init(&[_]u8{}, 0),
 
         fn initData(self: *FreeBlock, data: []u8) void {
+            // 0 == used, 1 == free
             std.mem.set(u8, data, 0);
-            self.data = data;
+            self.packed_data = std.PackedIntSlice(u1).init(data, data.len * 8);
         }
 
         fn totalPages(self: FreeBlock) usize {
-            return self.data.len * @typeInfo(usize).Int.bits;
+            return self.packed_data.int_count;
         }
 
+        // TODO: optimize this terribleness
         fn alloc(self: *FreeBlock, num_pages: usize) ?[]u8 {
+            var found_idx: usize = 0;
+            var found_size: usize = 0;
+
+            var i: usize = 0;
+            while (i < self.packed_data.int_count) : (i += 1) {
+                if (self.packed_data.get(i) == 0) {
+                    found_size = 0;
+                } else {
+                    if (found_size == 0) {
+                        found_idx = i;
+                    }
+                    found_size += 1;
+
+                    if (found_size >= num_pages) {
+                        const page_ptr = @intToPtr([*]u8, (found_idx + self.offset) * std.mem.page_size);
+                        return page_ptr[0 .. found_size * std.mem.page_size];
+                    }
+                }
+            }
             return null;
         }
 
-        fn reclaim(self: *FreeBlock, start_page: usize, end_page: usize) void {}
+        fn reclaim(self: *FreeBlock, start_index: usize, end_index: usize) void {
+            var i = start_index - self.offset;
+            while (i < end_index - self.offset) : (i += 1) {
+                std.debug.assert(self.packed_data.get(i) == 0);
+                self.packed_data.set(i, 1);
+            }
+        }
     };
 
     var conventional = FreeBlock{};
@@ -321,14 +348,14 @@ const WasmPageAllocator = struct {
         var free_end = nPages(@ptrToInt(old_mem.ptr) + old_mem.len);
 
         if (free_end > free_start) {
-            if (conventional.data.len == 0) {
+            if (conventional.totalPages() == 0) {
                 conventional.initData(__heap_base[0..@intCast(usize, @"llvm.wasm.memory.size.i32"(0) * std.mem.page_size)]);
             }
 
             if (free_start < conventional.totalPages()) {
                 conventional.reclaim(free_start, free_end);
             } else {
-                if (extended.data.len == 0) {
+                if (extended.totalPages() == 0) {
                     extended.offset = conventional.totalPages();
 
                     // Steal the last page from the memory currently being reclaimed
