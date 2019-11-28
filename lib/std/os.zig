@@ -51,7 +51,7 @@ test "" {
 }
 
 /// When linking libc, this is the C API. Otherwise, it is the OS-specific system interface.
-pub const system = if (@hasDecl(@import("root"), "os")) @import("root").os else if (builtin.link_libc) std.c else switch (builtin.os) {
+pub const system = if (@import("root") != @import("std") and @hasDecl(@import("root"), "os")) @import("root").os else if (builtin.link_libc) std.c else switch (builtin.os) {
     .macosx, .ios, .watchos, .tvos => darwin,
     .freebsd => freebsd,
     .linux => linux,
