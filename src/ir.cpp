@@ -10373,10 +10373,12 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
                     continue;
                 }
                 ZigType *cur_err_set_type = cur_type->data.error_union.err_set_type;
-                if (!resolve_inferred_error_set(ira->codegen, cur_err_set_type, cur_inst->source_node)) {
+                bool allow_infer = cur_err_set_type->data.error_set.infer_fn != nullptr &&
+                    cur_err_set_type->data.error_set.infer_fn == ira->new_irb.exec->fn_entry;
+                if (!allow_infer && !resolve_inferred_error_set(ira->codegen, cur_err_set_type, cur_inst->source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
-                if (type_is_global_error_set(cur_err_set_type)) {
+                if (!allow_infer && type_is_global_error_set(cur_err_set_type)) {
                     err_set_type = ira->codegen->builtin_types.entry_global_error_set;
                     prev_inst = cur_inst;
                     continue;
@@ -16079,6 +16081,10 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                 } else {
                     alloca_gen = ir_analyze_alloca(ira, result_loc->source_instruction, value_type, align,
                             alloca_src->name_hint, force_comptime);
+                    if (force_runtime) {
+                        alloca_gen->value->data.x_ptr.mut = ConstPtrMutRuntimeVar;
+                        alloca_gen->value->special = ConstValSpecialRuntime;
+                    }
                 }
                 if (alloca_src->base.child != nullptr && !result_loc->written) {
                     alloca_src->base.child->ref_count = 0;
@@ -26992,10 +26998,6 @@ static IrInstruction *ir_analyze_instruction_implicit_cast(IrAnalyze *ira, IrIns
             &instruction->result_loc_cast->base, operand->value->type, operand, false, false, true);
     if (result_loc != nullptr && (type_is_invalid(result_loc->value->type) || instr_is_unreachable(result_loc)))
         return result_loc;
-
-    if (instruction->result_loc_cast->parent->gen_instruction != nullptr) {
-        return instruction->result_loc_cast->parent->gen_instruction;
-    }
 
     ZigType *dest_type = ir_resolve_type(ira, instruction->result_loc_cast->base.source_instruction->child);
     if (type_is_invalid(dest_type))
