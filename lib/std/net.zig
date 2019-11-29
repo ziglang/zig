@@ -1323,14 +1323,12 @@ pub const StreamServer = struct {
             self.sockfd = null;
         }
 
-        // TODO proper interface with errors in std.os
-        var optval: c_int = 1;
-
         if (self.options.reuse_address) {
-            _ = os.linux.setsockopt(
-                server.sockfd.?,
-                os.linux.SOL_SOCKET,
-                os.linux.SO_REUSEADDR,
+            var optval: c_int = 1;
+            try os.setsockopt(
+                self.sockfd.?,
+                os.SOL_SOCKET,
+                os.SO_REUSEADDR,
                 @ptrCast([*]const u8, &optval),
                 @sizeOf(c_int),
             );

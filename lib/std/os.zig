@@ -3250,3 +3250,23 @@ pub fn sched_yield() SchedYieldError!void {
         else => return error.SystemCannotYield,
     }
 }
+
+/// Set a socket's options.
+pub fn setsockopt(fd: fd_t, level: u32, optname: u32, optval: [*]const u8, optlen: socklen_t) SetSockOptError!void {
+    const rc = system.setsockopt();
+
+    switch (errno(system.setsockopt(fd, level, optname, optval, optlen))) {
+        0 => {},
+        EBADF => unreachable,
+        EINVAL => unreachable,
+        EDOM => return error.TimeoutTooBig,
+        EISCONN => return error.AlreadyConnected,
+        ENOPROTOOOPT => return error.InvalidProtocolOption,
+        ENOTSOCK => return error.NotSocket,
+
+        ENOMEM => return error.OutOfMemory,
+        ENOBUFS => return error.SystemResources,
+
+        else => |err| return std.os.unexpectedErrno(err),
+    }
+}
