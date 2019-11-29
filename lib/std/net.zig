@@ -1283,6 +1283,7 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
 pub const StreamServer = struct {
     /// Copied from `Options` on `init`.
     kernel_backlog: u32,
+    reuse_address: bool,
 
     /// `undefined` until `listen` returns successfully.
     listen_address: Address,
@@ -1305,6 +1306,7 @@ pub const StreamServer = struct {
         return StreamServer{
             .sockfd = null,
             .kernel_backlog = options.kernel_backlog,
+            .reuse_address = options.reuse_address,
             .listen_address = undefined,
         };
     }
@@ -1327,7 +1329,7 @@ pub const StreamServer = struct {
             self.sockfd = null;
         }
 
-        if (self.options.reuse_address) {
+        if (self.reuse_address) {
             var optval: c_int = 1;
             try os.setsockopt(
                 self.sockfd.?,
