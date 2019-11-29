@@ -1290,6 +1290,9 @@ pub const StreamServer = struct {
         /// If more than this many connections pool in the kernel, clients will start
         /// seeing "Connection refused".
         kernel_backlog: u32 = 128,
+
+        /// Enable SO_REUSEADDR on the socket.
+        reuse_address: bool = false,
     };
 
     /// After this call succeeds, resources have been acquired and must
@@ -1318,6 +1321,19 @@ pub const StreamServer = struct {
         errdefer {
             os.close(sockfd);
             self.sockfd = null;
+        }
+
+        // TODO proper interface with errors in std.os
+        var optval: c_int = 1;
+
+        if (self.options.reuse_address) {
+            _ = os.linux.setsockopt(
+                server.sockfd.?,
+                os.linux.SOL_SOCKET,
+                os.linux.SO_REUSEADDR,
+                @ptrCast([*]const u8, &optval),
+                @sizeOf(c_int),
+            );
         }
 
         var socklen = address.getOsSockLen();
