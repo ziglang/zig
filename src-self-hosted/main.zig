@@ -702,7 +702,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
         max_src_size,
     ) catch |err| switch (err) {
         error.IsDir, error.AccessDenied => {
-            var dir = try fs.Dir.cwd().openDirList(file_path);
+            var dir = try fs.cwd().openDirList(file_path);
             defer dir.close();
 
             var group = event.Group(FmtError!void).init(fmt.allocator);

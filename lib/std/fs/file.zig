@@ -51,42 +51,42 @@ pub const File = struct {
 
     /// Deprecated; call `std.fs.Dir.openFile` directly.
     pub fn openRead(path: []const u8) OpenError!File {
-        return std.fs.Dir.cwd().openFile(path, .{});
+        return std.fs.cwd().openFile(path, .{});
     }
 
     /// Deprecated; call `std.fs.Dir.openFileC` directly.
     pub fn openReadC(path_c: [*:0]const u8) OpenError!File {
-        return std.fs.Dir.cwd().openFileC(path_c, .{});
+        return std.fs.cwd().openFileC(path_c, .{});
     }
 
     /// Deprecated; call `std.fs.Dir.openFileW` directly.
     pub fn openReadW(path_w: [*]const u16) OpenError!File {
-        return std.fs.Dir.cwd().openFileW(path_w, .{});
+        return std.fs.cwd().openFileW(path_w, .{});
     }
 
     /// Deprecated; call `std.fs.Dir.createFile` directly.
     pub fn openWrite(path: []const u8) OpenError!File {
-        return std.fs.Dir.cwd().createFile(path, .{});
+        return std.fs.cwd().createFile(path, .{});
     }
 
     /// Deprecated; call `std.fs.Dir.createFile` directly.
     pub fn openWriteMode(path: []const u8, file_mode: Mode) OpenError!File {
-        return std.fs.Dir.cwd().createFile(path, .{ .mode = file_mode });
+        return std.fs.cwd().createFile(path, .{ .mode = file_mode });
     }
 
     /// Deprecated; call `std.fs.Dir.createFileC` directly.
     pub fn openWriteModeC(path_c: [*:0]const u8, file_mode: Mode) OpenError!File {
-        return std.fs.Dir.cwd().createFileC(path_c, .{ .mode = file_mode });
+        return std.fs.cwd().createFileC(path_c, .{ .mode = file_mode });
     }
 
     /// Deprecated; call `std.fs.Dir.createFileW` directly.
     pub fn openWriteModeW(path_w: [*:0]const u16, file_mode: Mode) OpenError!File {
-        return std.fs.Dir.cwd().createFileW(path_w, .{ .mode = file_mode });
+        return std.fs.cwd().createFileW(path_w, .{ .mode = file_mode });
     }
 
     /// Deprecated; call `std.fs.Dir.createFile` directly.
     pub fn openWriteNoClobber(path: []const u8, file_mode: Mode) OpenError!File {
-        return std.fs.Dir.cwd().createFile(path, .{
+        return std.fs.cwd().createFile(path, .{
             .mode = file_mode,
             .exclusive = true,
         });
@@ -94,7 +94,7 @@ pub const File = struct {
 
     /// Deprecated; call `std.fs.Dir.createFileC` directly.
     pub fn openWriteNoClobberC(path_c: [*:0]const u8, file_mode: Mode) OpenError!File {
-        return std.fs.Dir.cwd().createFileC(path_c, .{
+        return std.fs.cwd().createFileC(path_c, .{
             .mode = file_mode,
             .exclusive = true,
         });
@@ -102,7 +102,7 @@ pub const File = struct {
 
     /// Deprecated; call `std.fs.Dir.createFileW` directly.
     pub fn openWriteNoClobberW(path_w: [*:0]const u16, file_mode: Mode) OpenError!File {
-        return std.fs.Dir.cwd().createFileW(path_w, .{
+        return std.fs.cwd().createFileW(path_w, .{
             .mode = file_mode,
             .exclusive = true,
         });
