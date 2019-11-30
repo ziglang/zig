@@ -841,6 +841,7 @@ pub const Dir = struct {
             w.STATUS.ACCESS_DENIED => return error.AccessDenied,
             w.STATUS.PIPE_BUSY => return error.PipeBusy,
             w.STATUS.OBJECT_PATH_SYNTAX_BAD => unreachable,
+            w.STATUS.OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
             else => return w.unexpectedStatus(rc),
         }
     }

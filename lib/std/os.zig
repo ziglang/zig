@@ -2028,7 +2028,10 @@ pub fn waitpid(pid: i32, flags: u32) u32 {
     }
 }
 
-pub const FStatError = error{SystemResources} || UnexpectedError;
+pub const FStatError = error{
+    SystemResources,
+    AccessDenied,
+} || UnexpectedError;
 
 pub fn fstat(fd: fd_t) FStatError!Stat {
     var stat: Stat = undefined;
@@ -2038,6 +2041,7 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
             EINVAL => unreachable,
             EBADF => unreachable, // Always a race condition.
             ENOMEM => return error.SystemResources,
+            EACCES => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -2047,6 +2051,7 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
         EINVAL => unreachable,
         EBADF => unreachable, // Always a race condition.
         ENOMEM => return error.SystemResources,
+        EACCES => return error.AccessDenied,
         else => |err| return unexpectedErrno(err),
     }
 }

@@ -228,6 +228,7 @@ pub const File = struct {
                 windows.STATUS.SUCCESS => {},
                 windows.STATUS.BUFFER_OVERFLOW => {},
                 windows.STATUS.INVALID_PARAMETER => unreachable,
+                windows.STATUS.ACCESS_DENIED => return error.AccessDenied,
                 else => return windows.unexpectedStatus(rc),
             }
             return Stat{

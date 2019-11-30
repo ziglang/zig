@@ -634,7 +634,7 @@ test "File seek ops" {
 
 test "updateTimes" {
     const tmp_file_name = "just_a_temporary_file.txt";
-    var file = try fs.cwd().createFile(tmp_file_name, .{});
+    var file = try fs.cwd().createFile(tmp_file_name, .{ .read = true });
     defer {
         file.close();
         std.fs.cwd().deleteFile(tmp_file_name) catch {};
