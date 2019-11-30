@@ -5971,7 +5971,9 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
 
         IrInstruction *arg_index = ir_build_const_usize(irb, scope, arg_node, i);
         IrInstruction *arg_type = ir_build_arg_type(irb, scope, node, fn_type, arg_index, true);
-        ResultLocCast *result_loc_cast = ir_build_cast_result_loc(irb, arg_type, no_result_loc());
+        ResultLoc *no_result = no_result_loc();
+        ir_build_reset_result(irb, scope, node, no_result);
+        ResultLocCast *result_loc_cast = ir_build_cast_result_loc(irb, arg_type, no_result);
 
         IrInstruction *arg = ir_gen_node_extra(irb, arg_node, scope, LValNone, &result_loc_cast->base);
         if (arg == irb->codegen->invalid_instruction)
@@ -16278,8 +16280,10 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                         force_runtime, non_null_comptime);
             }
 
-            return ir_analyze_ptr_cast(ira, suspend_source_instr, parent_result_loc,
+            result_loc->written = true;
+            result_loc->resolved_loc = ir_analyze_ptr_cast(ira, suspend_source_instr, parent_result_loc,
                     ptr_type, result_cast->base.source_instruction, false);
+            return result_loc->resolved_loc;
         }
         case ResultLocIdBitCast: {
             ResultLocBitCast *result_bit_cast = reinterpret_cast<ResultLocBitCast *>(result_loc);
