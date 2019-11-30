@@ -1306,6 +1306,8 @@ const char *target_dynamic_linker(const ZigTarget *target) {
 
                 case ZigLLVM_mips:
                 case ZigLLVM_mipsel:
+                    return "/lib/ld.so.1";
+
                 case ZigLLVM_mips64:
                 case ZigLLVM_mips64el:
                     zig_panic("TODO implement target_dynamic_linker for mips");
