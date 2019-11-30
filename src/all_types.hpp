@@ -2061,7 +2061,6 @@ struct CodeGen {
     ZigList<TldVar *> global_vars;
 
     ZigFn *cur_fn;
-    ZigFn *main_fn;
     ZigFn *panic_fn;
 
     ZigFn *largest_frame_fn;
@@ -2081,7 +2080,6 @@ struct CodeGen {
     uint32_t target_abi_index;
     uint32_t target_oformat_index;
     bool is_big_endian;
-    bool have_pub_main;
     bool have_c_main;
     bool have_winmain;
     bool have_winmain_crt_startup;

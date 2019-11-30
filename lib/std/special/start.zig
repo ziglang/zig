@@ -19,19 +19,50 @@ const is_mips = switch (builtin.arch) {
 };
 
 comptime {
-    if (builtin.link_libc) {
-        @export("main", main, .Strong);
-    } else if (builtin.os == .windows) {
-        @export("WinMainCRTStartup", WinMainCRTStartup, .Strong);
-    } else if (is_wasm and builtin.os == .freestanding) {
-        @export("_start", wasm_freestanding_start, .Strong);
-    } else if (builtin.os == .uefi) {
-        @export("EfiMain", EfiMain, .Strong);
-    } else if (is_mips) {
-        if (!@hasDecl(root, "__start")) @export("__start", _start, .Strong);
-    } else {
-        if (!@hasDecl(root, "_start")) @export("_start", _start, .Strong);
+    switch (builtin.output_type) {
+        .Unknown => unreachable,
+        .Exe => {
+            if (builtin.link_libc) {
+                if (!@hasDecl(root, "main") or
+                    @typeInfo(@typeOf(root.main)).Fn.calling_convention != .C)
+                {
+                    @export("main", main, .Weak);
+                }
+            } else if (builtin.os == .windows) {
+                if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup")) {
+                    @export("WinMainCRTStartup", WinMainCRTStartup, .Strong);
+                }
+            } else if (is_wasm and builtin.os == .freestanding) {
+                if (!@hasDecl(root, "_start")) @export("_start", wasm_freestanding_start, .Strong);
+            } else if (builtin.os == .uefi) {
+                if (!@hasDecl(root, "EfiMain")) @export("EfiMain", EfiMain, .Strong);
+            } else if (is_mips) {
+                if (!@hasDecl(root, "__start")) @export("__start", _start, .Strong);
+            } else {
+                if (!@hasDecl(root, "_start")) @export("_start", _start, .Strong);
+            }
+        },
+        .Lib => {
+            if (builtin.os == .windows and builtin.link_type == .Dynamic and
+                !@hasDecl(root, "_DllMainCRTStartup"))
+            {
+                @export("_DllMainCRTStartup", _DllMainCRTStartup, .Strong);
+            }
+        },
+        .Obj => {},
     }
+}
+
+stdcallcc fn _DllMainCRTStartup(
+    hinstDLL: std.os.windows.HINSTANCE,
+    fdwReason: std.os.windows.DWORD,
+    lpReserved: std.os.windows.LPVOID,
+) std.os.windows.BOOL {
+    if (@hasDecl(root, "DllMain")) {
+        return root.DllMain(hinstDLL, fdwReason, lpReserved);
+    }
+
+    return std.os.windows.TRUE;
 }
 
 extern fn wasm_freestanding_start() void {

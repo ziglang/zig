@@ -3304,17 +3304,6 @@ ZigFn *create_fn(CodeGen *g, AstNode *proto_node) {
     return fn_entry;
 }
 
-static bool scope_is_root_decls(Scope *scope) {
-    while (scope) {
-        if (scope->id == ScopeIdDecls) {
-            ScopeDecls *scope_decls = (ScopeDecls *)scope;
-            return is_top_level_struct(scope_decls->container_type);
-        }
-        scope = scope->parent;
-    }
-    zig_unreachable();
-}
-
 ZigType *get_test_fn_type(CodeGen *g) {
     if (g->test_fn_type)
         return g->test_fn_type;
@@ -3353,7 +3342,6 @@ void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, const char *symbol_name, G
 }
 
 static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
-    ZigType *import = tld_fn->base.import;
     AstNode *source_node = tld_fn->base.source_node;
     if (source_node->type == NodeTypeFnProto) {
         AstNodeFnProto *fn_proto = &source_node->data.fn_proto;
@@ -3432,12 +3420,6 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         // compile errors for improperly calling async functions.
         if (fn_table_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync) {
             fn_table_entry->inferred_async_node = fn_table_entry->proto_node;
-        }
-
-        if (scope_is_root_decls(tld_fn->base.parent_scope) && import == g->root_import) {
-            if (g->have_pub_main && buf_eql_str(tld_fn->base.name, "main")) {
-                g->main_fn = fn_table_entry;
-            }
         }
     } else if (source_node->type == NodeTypeTestDecl) {
         ZigFn *fn_table_entry = create_fn_raw(g, FnInlineAuto);
@@ -4811,26 +4793,6 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
     import_entry->data.structure.decls_scope->base.source_node = root_node;
     if (g->verbose_ast) {
         ast_print(stderr, root_node, 0);
-    }
-
-    if (source_kind == SourceKindRoot) {
-        // Look for main
-        for (size_t decl_i = 0; decl_i < root_node->data.container_decl.decls.length; decl_i += 1) {
-            AstNode *top_level_decl = root_node->data.container_decl.decls.at(decl_i);
-
-            if (top_level_decl->type == NodeTypeFnDef) {
-                AstNode *proto_node = top_level_decl->data.fn_def.fn_proto;
-                assert(proto_node->type == NodeTypeFnProto);
-                Buf *proto_name = proto_node->data.fn_proto.name;
-
-                bool is_pub = (proto_node->data.fn_proto.visib_mod == VisibModPub);
-                if (is_pub) {
-                    if (buf_eql_str(proto_name, "main")) {
-                        g->have_pub_main = true;
-                    }
-                }
-            }
-        }
     }
 
     for (size_t decl_i = 0; decl_i < root_node->data.container_decl.decls.length; decl_i += 1) {
