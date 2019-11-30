@@ -8459,6 +8459,8 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_buf(&cache_hash, compiler_id);
     cache_int(&cache_hash, g->build_mode);
     cache_bool(&cache_hash, g->strip_debug_symbols);
+    cache_int(&cache_hash, g->out_type);
+    cache_bool(&cache_hash, g->is_dynamic);
     cache_bool(&cache_hash, g->is_test_build);
     cache_bool(&cache_hash, g->is_single_threaded);
     cache_int(&cache_hash, g->zig_target->is_native);
