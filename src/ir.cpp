@@ -12753,7 +12753,7 @@ static void report_recursive_error(IrAnalyze *ira, AstNode *source_node, ConstCa
             ZigType *wanted_type = cast_result->data.int_shorten->wanted_type;
             ZigType *actual_type = cast_result->data.int_shorten->actual_type;
             const char *wanted_signed = wanted_type->data.integral.is_signed ? "signed" : "unsigned";
-            const char *actual_signed = wanted_type->data.integral.is_signed ? "signed" : "unsigned";
+            const char *actual_signed = actual_type->data.integral.is_signed ? "signed" : "unsigned";
             add_error_note(ira->codegen, parent_msg, source_node,
                 buf_sprintf("%s %" PRIu32 "-bit int cannot represent all possible %s %" PRIu32 "-bit values",
                     wanted_signed, wanted_type->data.integral.bit_count,
