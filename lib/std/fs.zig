@@ -13,8 +13,6 @@ pub const File = @import("fs/file.zig").File;
 
 pub const symLink = os.symlink;
 pub const symLinkC = os.symlinkC;
-pub const deleteFile = os.unlink;
-pub const deleteFileC = os.unlinkC;
 pub const rename = os.rename;
 pub const renameC = os.renameC;
 pub const renameW = os.renameW;
@@ -88,13 +86,15 @@ pub fn updateFile(source_path: []const u8, dest_path: []const u8) !PrevStatus {
 /// If any of the directories do not exist for dest_path, they are created.
 /// TODO https://github.com/ziglang/zig/issues/2885
 pub fn updateFileMode(source_path: []const u8, dest_path: []const u8, mode: ?File.Mode) !PrevStatus {
-    var src_file = try File.openRead(source_path);
+    const my_cwd = cwd();
+
+    var src_file = try my_cwd.openFile(source_path, .{});
     defer src_file.close();
 
     const src_stat = try src_file.stat();
     check_dest_stat: {
         const dest_stat = blk: {
-            var dest_file = File.openRead(dest_path) catch |err| switch (err) {
+            var dest_file = my_cwd.openFile(dest_path, .{}) catch |err| switch (err) {
                 error.FileNotFound => break :check_dest_stat,
                 else => |e| return e,
             };
@@ -157,7 +157,7 @@ pub fn updateFileMode(source_path: []const u8, dest_path: []const u8, mode: ?Fil
 /// in the same directory as dest_path.
 /// Destination file will have the same mode as the source file.
 pub fn copyFile(source_path: []const u8, dest_path: []const u8) !void {
-    var in_file = try File.openRead(source_path);
+    var in_file = try cwd().openFile(source_path, .{});
     defer in_file.close();
 
     const mode = try in_file.mode();
@@ -180,7 +180,7 @@ pub fn copyFile(source_path: []const u8, dest_path: []const u8) !void {
 /// merged and readily available,
 /// there is a possibility of power loss or application termination leaving temporary files present
 pub fn copyFileMode(source_path: []const u8, dest_path: []const u8, mode: File.Mode) !void {
-    var in_file = try File.openRead(source_path);
+    var in_file = try cwd().openFile(source_path, .{});
     defer in_file.close();
 
     var atomic_file = try AtomicFile.init(dest_path, mode);
@@ -206,8 +206,6 @@ pub const AtomicFile = struct {
 
     /// dest_path must remain valid for the lifetime of AtomicFile
     /// call finish to atomically replace dest_path with contents
-    /// TODO once we have null terminated pointers, use the
-    /// openWriteNoClobberN function
     pub fn init(dest_path: []const u8, mode: File.Mode) InitError!AtomicFile {
         const dirname = path.dirname(dest_path);
         var rand_buf: [12]u8 = undefined;
@@ -224,15 +222,19 @@ pub const AtomicFile = struct {
 
         tmp_path_buf[tmp_path_len] = 0;
 
+        const my_cwd = cwd();
+
         while (true) {
             try crypto.randomBytes(rand_buf[0..]);
             b64_fs_encoder.encode(tmp_path_buf[dirname_component_len..tmp_path_len], rand_buf);
 
-            const file = File.openWriteNoClobberC(@ptrCast([*:0]u8, &tmp_path_buf), mode) catch |err| switch (err) {
+            // TODO https://github.com/ziglang/zig/issues/3770 to clean up this @ptrCast
+            const file = my_cwd.createFileC(
+                @ptrCast([*:0]u8, &tmp_path_buf),
+                .{ .mode = mode, .exclusive = true },
+            ) catch |err| switch (err) {
                 error.PathAlreadyExists => continue,
-                // TODO zig should figure out that this error set does not include PathAlreadyExists since
-                // it is handled in the above switch
-                else => return err,
+                else => |e| return e,
             };
 
             return AtomicFile{
@@ -248,7 +250,7 @@ pub const AtomicFile = struct {
     pub fn deinit(self: *AtomicFile) void {
         if (!self.finished) {
             self.file.close();
-            deleteFileC(@ptrCast([*:0]u8, &self.tmp_path_buf)) catch {};
+            cwd().deleteFileC(@ptrCast([*:0]u8, &self.tmp_path_buf)) catch {};
             self.finished = true;
         }
     }
@@ -350,12 +352,12 @@ pub fn deleteTree(full_path: []const u8) !void {
             CannotDeleteRootDirectory,
         }.CannotDeleteRootDirectory;
 
-        var dir = try Dir.cwd().openDirList(dirname);
+        var dir = try cwd().openDirList(dirname);
         defer dir.close();
 
         return dir.deleteTree(path.basename(full_path));
     } else {
-        return Dir.cwd().deleteTree(full_path);
+        return cwd().deleteTree(full_path);
     }
 }
 
@@ -657,17 +659,6 @@ pub const Dir = struct {
         }
     }
 
-    /// Returns an handle to the current working directory that is open for traversal.
-    /// Closing the returned `Dir` is checked illegal behavior. Iterating over the result is illegal behavior.
-    /// On POSIX targets, this function is comptime-callable.
-    pub fn cwd() Dir {
-        if (builtin.os == .windows) {
-            return Dir{ .fd = os.windows.peb().ProcessParameters.CurrentDirectory.Handle };
-        } else {
-            return Dir{ .fd = os.AT_FDCWD };
-        }
-    }
-
     pub const OpenError = error{
         FileNotFound,
         NotDir,
@@ -683,12 +674,12 @@ pub const Dir = struct {
         DeviceBusy,
     } || os.UnexpectedError;
 
-    /// Deprecated; call `Dir.cwd().openDirList` directly.
+    /// Deprecated; call `cwd().openDirList` directly.
     pub fn open(dir_path: []const u8) OpenError!Dir {
         return cwd().openDirList(dir_path);
     }
 
-    /// Deprecated; call `Dir.cwd().openDirListC` directly.
+    /// Deprecated; call `cwd().openDirListC` directly.
     pub fn openC(dir_path_c: [*:0]const u8) OpenError!Dir {
         return cwd().openDirListC(dir_path_c);
     }
@@ -698,29 +689,110 @@ pub const Dir = struct {
         self.* = undefined;
     }
 
-    /// Call `File.close` on the result when done.
-    pub fn openRead(self: Dir, sub_path: []const u8) File.OpenError!File {
+    /// Opens a file for reading or writing, without attempting to create a new file.
+    /// Call `File.close` to release the resource.
+    /// Asserts that the path parameter has no null bytes.
+    pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
+        if (std.debug.runtime_safety) for (sub_path) |byte| assert(byte != 0);
         if (builtin.os == .windows) {
             const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
-            return self.openReadW(&path_w);
+            return self.openFileW(&path_w, flags);
         }
         const path_c = try os.toPosixPath(sub_path);
-        return self.openReadC(&path_c);
+        return self.openFileC(&path_c, flags);
     }
 
-    /// Call `File.close` on the result when done.
-    pub fn openReadC(self: Dir, sub_path: [*:0]const u8) File.OpenError!File {
+    /// Same as `openFile` but the path parameter is null-terminated.
+    pub fn openFileC(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File.OpenError!File {
         if (builtin.os == .windows) {
             const path_w = try os.windows.cStrToPrefixedFileW(sub_path);
-            return self.openReadW(&path_w);
+            return self.openFileW(&path_w, flags);
         }
         const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
-        const flags = O_LARGEFILE | os.O_RDONLY | os.O_CLOEXEC;
-        const fd = try os.openatC(self.fd, sub_path, flags, 0);
-        return File.openHandle(fd);
+        const os_flags = O_LARGEFILE | os.O_CLOEXEC | if (flags.write and flags.read)
+            @as(u32, os.O_RDWR)
+        else if (flags.write)
+            @as(u32, os.O_WRONLY)
+        else
+            @as(u32, os.O_RDONLY);
+        const fd = try os.openatC(self.fd, sub_path, os_flags, 0);
+        return File{ .handle = fd };
     }
 
-    pub fn openReadW(self: Dir, sub_path_w: [*:0]const u16) File.OpenError!File {
+    /// Same as `openFile` but Windows-only and the path parameter is
+    /// [WTF-16](https://simonsapin.github.io/wtf-8/#potentially-ill-formed-utf-16) encoded.
+    pub fn openFileW(self: Dir, sub_path_w: [*:0]const u16, flags: File.OpenFlags) File.OpenError!File {
+        const w = os.windows;
+        const access_mask = w.SYNCHRONIZE |
+            (if (flags.read) @as(u32, w.GENERIC_READ) else 0) |
+            (if (flags.write) @as(u32, w.GENERIC_WRITE) else 0);
+        return self.openFileWindows(sub_path_w, access_mask, w.FILE_OPEN);
+    }
+
+    /// Creates, opens, or overwrites a file with write access.
+    /// Call `File.close` on the result when done.
+    /// Asserts that the path parameter has no null bytes.
+    pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
+        if (std.debug.runtime_safety) for (sub_path) |byte| assert(byte != 0);
+        if (builtin.os == .windows) {
+            const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            return self.createFileW(&path_w, flags);
+        }
+        const path_c = try os.toPosixPath(sub_path);
+        return self.createFileC(&path_c, flags);
+    }
+
+    /// Same as `createFile` but the path parameter is null-terminated.
+    pub fn createFileC(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags) File.OpenError!File {
+        if (builtin.os == .windows) {
+            const path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
+            return self.createFileW(&path_w, flags);
+        }
+        const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
+        const os_flags = O_LARGEFILE | os.O_CREAT | os.O_CLOEXEC |
+            (if (flags.truncate) @as(u32, os.O_TRUNC) else 0) |
+            (if (flags.read) @as(u32, os.O_RDWR) else os.O_WRONLY) |
+            (if (flags.exclusive) @as(u32, os.O_EXCL) else 0);
+        const fd = try os.openatC(self.fd, sub_path_c, os_flags, flags.mode);
+        return File{ .handle = fd };
+    }
+
+    /// Same as `createFile` but Windows-only and the path parameter is
+    /// [WTF-16](https://simonsapin.github.io/wtf-8/#potentially-ill-formed-utf-16) encoded.
+    pub fn createFileW(self: Dir, sub_path_w: [*:0]const u16, flags: File.CreateFlags) File.OpenError!File {
+        const w = os.windows;
+        const access_mask = w.SYNCHRONIZE | w.GENERIC_WRITE |
+            (if (flags.read) @as(u32, w.GENERIC_READ) else 0);
+        const creation = if (flags.exclusive)
+            @as(u32, w.FILE_CREATE)
+        else if (flags.truncate)
+            @as(u32, w.FILE_OVERWRITE_IF)
+        else
+            @as(u32, w.FILE_OPEN_IF);
+        return self.openFileWindows(sub_path_w, access_mask, creation);
+    }
+
+    /// Deprecated; call `openFile` directly.
+    pub fn openRead(self: Dir, sub_path: []const u8) File.OpenError!File {
+        return self.openFile(sub_path, .{});
+    }
+
+    /// Deprecated; call `openFileC` directly.
+    pub fn openReadC(self: Dir, sub_path: [*:0]const u8) File.OpenError!File {
+        return self.openFileC(sub_path, .{});
+    }
+
+    /// Deprecated; call `openFileW` directly.
+    pub fn openReadW(self: Dir, sub_path: [*:0]const u16) File.OpenError!File {
+        return self.openFileW(sub_path, .{});
+    }
+
+    pub fn openFileWindows(
+        self: Dir,
+        sub_path_w: [*:0]const u16,
+        access_mask: os.windows.ACCESS_MASK,
+        creation: os.windows.ULONG,
+    ) File.OpenError!File {
         const w = os.windows;
 
         var result = File{ .handle = undefined };
@@ -750,13 +822,13 @@ pub const Dir = struct {
         var io: w.IO_STATUS_BLOCK = undefined;
         const rc = w.ntdll.NtCreateFile(
             &result.handle,
-            w.GENERIC_READ | w.SYNCHRONIZE,
+            access_mask,
             &attr,
             &io,
             null,
             w.FILE_ATTRIBUTE_NORMAL,
-            w.FILE_SHARE_READ,
-            w.FILE_OPEN,
+            w.FILE_SHARE_WRITE | w.FILE_SHARE_READ | w.FILE_SHARE_DELETE,
+            creation,
             w.FILE_NON_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT,
             null,
             0,
@@ -771,6 +843,7 @@ pub const Dir = struct {
             w.STATUS.ACCESS_DENIED => return error.AccessDenied,
             w.STATUS.PIPE_BUSY => return error.PipeBusy,
             w.STATUS.OBJECT_PATH_SYNTAX_BAD => unreachable,
+            w.STATUS.OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
             else => return w.unexpectedStatus(rc),
         }
     }
@@ -790,7 +863,10 @@ pub const Dir = struct {
     /// list the contents of a directory, open it with `openDirList`.
     ///
     /// Call `close` on the result when done.
+    ///
+    /// Asserts that the path parameter has no null bytes.
     pub fn openDirTraverse(self: Dir, sub_path: []const u8) OpenError!Dir {
+        if (std.debug.runtime_safety) for (sub_path) |byte| assert(byte != 0);
         if (builtin.os == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.openDirTraverseW(&sub_path_w);
@@ -805,7 +881,10 @@ pub const Dir = struct {
     /// same and may be more efficient.
     ///
     /// Call `close` on the result when done.
+    ///
+    /// Asserts that the path parameter has no null bytes.
     pub fn openDirList(self: Dir, sub_path: []const u8) OpenError!Dir {
+        if (std.debug.runtime_safety) for (sub_path) |byte| assert(byte != 0);
         if (builtin.os == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.openDirListW(&sub_path_w);
@@ -920,14 +999,25 @@ pub const Dir = struct {
     pub const DeleteFileError = os.UnlinkError;
 
     /// Delete a file name and possibly the file it refers to, based on an open directory handle.
+    /// Asserts that the path parameter has no null bytes.
     pub fn deleteFile(self: Dir, sub_path: []const u8) DeleteFileError!void {
-        const sub_path_c = try os.toPosixPath(sub_path);
-        return self.deleteFileC(&sub_path_c);
+        os.unlinkat(self.fd, sub_path, 0) catch |err| switch (err) {
+            error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
+            else => |e| return e,
+        };
     }
 
     /// Same as `deleteFile` except the parameter is null-terminated.
     pub fn deleteFileC(self: Dir, sub_path_c: [*:0]const u8) DeleteFileError!void {
         os.unlinkatC(self.fd, sub_path_c, 0) catch |err| switch (err) {
+            error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
+            else => |e| return e,
+        };
+    }
+
+    /// Same as `deleteFile` except the parameter is WTF-16 encoded.
+    pub fn deleteFileW(self: Dir, sub_path_w: [*:0]const u16) DeleteFileError!void {
+        os.unlinkatW(self.fd, sub_path_w, 0) catch |err| switch (err) {
             error.DirNotEmpty => unreachable, // not passing AT_REMOVEDIR
             else => |e| return e,
         };
@@ -951,7 +1041,9 @@ pub const Dir = struct {
 
     /// Returns `error.DirNotEmpty` if the directory is not empty.
     /// To delete a directory recursively, see `deleteTree`.
+    /// Asserts that the path parameter has no null bytes.
     pub fn deleteDir(self: Dir, sub_path: []const u8) DeleteDirError!void {
+        if (std.debug.runtime_safety) for (sub_path) |byte| assert(byte != 0);
         if (builtin.os == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.deleteDirW(&sub_path_w);
@@ -979,7 +1071,9 @@ pub const Dir = struct {
 
     /// Read value of a symbolic link.
     /// The return value is a slice of `buffer`, from index `0`.
+    /// Asserts that the path parameter has no null bytes.
     pub fn readLink(self: Dir, sub_path: []const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+        if (std.debug.runtime_safety) for (sub_path) |byte| assert(byte != 0);
         const sub_path_c = try os.toPosixPath(sub_path);
         return self.readLinkC(&sub_path_c, buffer);
     }
@@ -1190,7 +1284,93 @@ pub const Dir = struct {
             }
         }
     }
+
+    /// Writes content to the file system, creating a new file if it does not exist, truncating
+    /// if it already exists.
+    pub fn writeFile(self: Dir, sub_path: []const u8, data: []const u8) !void {
+        var file = try self.createFile(sub_path, .{});
+        defer file.close();
+        try file.write(data);
+    }
 };
+
+/// Returns an handle to the current working directory that is open for traversal.
+/// Closing the returned `Dir` is checked illegal behavior. Iterating over the result is illegal behavior.
+/// On POSIX targets, this function is comptime-callable.
+pub fn cwd() Dir {
+    if (builtin.os == .windows) {
+        return Dir{ .fd = os.windows.peb().ProcessParameters.CurrentDirectory.Handle };
+    } else {
+        return Dir{ .fd = os.AT_FDCWD };
+    }
+}
+
+/// Opens a file for reading or writing, without attempting to create a new file, based on an absolute path.
+/// Call `File.close` to release the resource.
+/// Asserts that the path is absolute. See `Dir.openFile` for a function that
+/// operates on both absolute and relative paths.
+/// Asserts that the path parameter has no null bytes. See `openFileAbsoluteC` for a function
+/// that accepts a null-terminated path.
+pub fn openFileAbsolute(absolute_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
+    assert(path.isAbsolute(absolute_path));
+    return cwd().openFile(absolute_path, flags);
+}
+
+/// Same as `openFileAbsolute` but the path parameter is null-terminated.
+pub fn openFileAbsoluteC(absolute_path_c: [*:0]const u8, flags: File.OpenFlags) File.OpenError!File {
+    assert(path.isAbsoluteC(absolute_path_c));
+    return cwd().openFileC(absolute_path_c, flags);
+}
+
+/// Same as `openFileAbsolute` but the path parameter is WTF-16 encoded.
+pub fn openFileAbsoluteW(absolute_path_w: [*:0]const u16, flags: File.OpenFlags) File.OpenError!File {
+    assert(path.isAbsoluteW(absolute_path_w));
+    return cwd().openFileW(absolute_path_w, flags);
+}
+
+/// Creates, opens, or overwrites a file with write access, based on an absolute path.
+/// Call `File.close` to release the resource.
+/// Asserts that the path is absolute. See `Dir.createFile` for a function that
+/// operates on both absolute and relative paths.
+/// Asserts that the path parameter has no null bytes. See `createFileAbsoluteC` for a function
+/// that accepts a null-terminated path.
+pub fn createFileAbsolute(absolute_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
+    assert(path.isAbsolute(absolute_path));
+    return cwd().createFile(absolute_path, flags);
+}
+
+/// Same as `createFileAbsolute` but the path parameter is null-terminated.
+pub fn createFileAbsoluteC(absolute_path_c: [*:0]const u8, flags: File.CreateFlags) File.OpenError!File {
+    assert(path.isAbsoluteC(absolute_path_c));
+    return cwd().createFileC(absolute_path_c, flags);
+}
+
+/// Same as `createFileAbsolute` but the path parameter is WTF-16 encoded.
+pub fn createFileAbsoluteW(absolute_path_w: [*:0]const u16, flags: File.CreateFlags) File.OpenError!File {
+    assert(path.isAbsoluteW(absolute_path_w));
+    return cwd().createFileW(absolute_path_w, flags);
+}
+
+/// Delete a file name and possibly the file it refers to, based on an absolute path.
+/// Asserts that the path is absolute. See `Dir.deleteFile` for a function that
+/// operates on both absolute and relative paths.
+/// Asserts that the path parameter has no null bytes.
+pub fn deleteFileAbsolute(absolute_path: []const u8) DeleteFileError!void {
+    assert(path.isAbsolute(absolute_path));
+    return cwd().deleteFile(absolute_path);
+}
+
+/// Same as `deleteFileAbsolute` except the parameter is null-terminated.
+pub fn deleteFileAbsoluteC(absolute_path_c: [*:0]const u8) DeleteFileError!void {
+    assert(path.isAbsoluteC(absolute_path_c));
+    return cwd().deleteFileC(absolute_path_c);
+}
+
+/// Same as `deleteFileAbsolute` except the parameter is WTF-16 encoded.
+pub fn deleteFileAbsoluteW(absolute_path_w: [*:0]const u16) DeleteFileError!void {
+    assert(path.isAbsoluteW(absolute_path_w));
+    return cwd().deleteFileW(absolute_path_w);
+}
 
 pub const Walker = struct {
     stack: std.ArrayList(StackItem),
@@ -1264,7 +1444,7 @@ pub const Walker = struct {
 pub fn walkPath(allocator: *Allocator, dir_path: []const u8) !Walker {
     assert(!mem.endsWith(u8, dir_path, path.sep_str));
 
-    var dir = try Dir.cwd().openDirList(dir_path);
+    var dir = try cwd().openDirList(dir_path);
     errdefer dir.close();
 
     var name_buffer = try std.Buffer.init(allocator, dir_path);
@@ -1298,18 +1478,18 @@ pub const OpenSelfExeError = os.OpenError || os.windows.CreateFileError || SelfE
 
 pub fn openSelfExe() OpenSelfExeError!File {
     if (builtin.os == .linux) {
-        return File.openReadC("/proc/self/exe");
+        return openFileAbsoluteC("/proc/self/exe", .{});
     }
     if (builtin.os == .windows) {
         const wide_slice = selfExePathW();
         const prefixed_path_w = try os.windows.wToPrefixedFileW(wide_slice);
-        return Dir.cwd().openReadW(&prefixed_path_w);
+        return cwd().openReadW(&prefixed_path_w);
     }
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     const self_exe_path = try selfExePath(&buf);
     buf[self_exe_path.len] = 0;
-    // TODO avoid @ptrCast here using slice syntax with https://github.com/ziglang/zig/issues/3731
-    return File.openReadC(@ptrCast([*:0]u8, self_exe_path.ptr));
+    // TODO avoid @ptrCast here using slice syntax with https://github.com/ziglang/zig/issues/3770
+    return openFileAbsoluteC(@ptrCast([*:0]u8, self_exe_path.ptr), .{});
 }
 
 test "openSelfExe" {

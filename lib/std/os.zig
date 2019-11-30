@@ -798,7 +798,7 @@ pub fn execvpeC(file: [*:0]const u8, child_argv: [*:null]const ?[*:0]const u8, e
         path_buf[search_path.len] = '/';
         mem.copy(u8, path_buf[search_path.len + 1 ..], file_slice);
         path_buf[search_path.len + file_slice.len + 1] = 0;
-        // TODO avoid @ptrCast here using slice syntax with https://github.com/ziglang/zig/issues/3731
+        // TODO avoid @ptrCast here using slice syntax with https://github.com/ziglang/zig/issues/3770
         err = execveC(@ptrCast([*:0]u8, &path_buf), child_argv, envp);
         switch (err) {
             error.AccessDenied => seen_eacces = true,
@@ -834,7 +834,7 @@ pub fn execvpe(
         @memcpy(arg_buf.ptr, arg.ptr, arg.len);
         arg_buf[arg.len] = 0;
 
-        // TODO avoid @ptrCast using slice syntax with https://github.com/ziglang/zig/issues/3731
+        // TODO avoid @ptrCast using slice syntax with https://github.com/ziglang/zig/issues/3770
         argv_buf[i] = @ptrCast([*:0]u8, arg_buf.ptr);
     }
     argv_buf[argv_slice.len] = null;
@@ -842,7 +842,7 @@ pub fn execvpe(
     const envp_buf = try createNullDelimitedEnvMap(allocator, env_map);
     defer freeNullDelimitedEnvMap(allocator, envp_buf);
 
-    // TODO avoid @ptrCast here using slice syntax with https://github.com/ziglang/zig/issues/3731
+    // TODO avoid @ptrCast here using slice syntax with https://github.com/ziglang/zig/issues/3770
     const argv_ptr = @ptrCast([*:null]?[*:0]u8, argv_buf.ptr);
 
     return execvpeC(argv_buf.ptr[0].?, argv_ptr, envp_buf.ptr);
@@ -863,12 +863,12 @@ pub fn createNullDelimitedEnvMap(allocator: *mem.Allocator, env_map: *const std.
             @memcpy(env_buf.ptr + pair.key.len + 1, pair.value.ptr, pair.value.len);
             env_buf[env_buf.len - 1] = 0;
 
-            // TODO avoid @ptrCast here using slice syntax with https://github.com/ziglang/zig/issues/3731
+            // TODO avoid @ptrCast here using slice syntax with https://github.com/ziglang/zig/issues/3770
             envp_buf[i] = @ptrCast([*:0]u8, env_buf.ptr);
         }
         assert(i == envp_count);
     }
-    // TODO avoid @ptrCast here using slice syntax with https://github.com/ziglang/zig/issues/3731
+    // TODO avoid @ptrCast here using slice syntax with https://github.com/ziglang/zig/issues/3770
     assert(envp_buf[envp_count] == null);
     return @ptrCast([*:null]?[*:0]u8, envp_buf.ptr)[0..envp_count];
 }
@@ -1087,7 +1087,9 @@ pub const UnlinkatError = UnlinkError || error{
 };
 
 /// Delete a file name and possibly the file it refers to, based on an open directory handle.
+/// Asserts that the path parameter has no null bytes.
 pub fn unlinkat(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!void {
+    if (std.debug.runtime_safety) for (file_path) |byte| assert(byte != 0);
     if (builtin.os == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
         return unlinkatW(dirfd, &file_path_w, flags);
@@ -2026,7 +2028,10 @@ pub fn waitpid(pid: i32, flags: u32) u32 {
     }
 }
 
-pub const FStatError = error{SystemResources} || UnexpectedError;
+pub const FStatError = error{
+    SystemResources,
+    AccessDenied,
+} || UnexpectedError;
 
 pub fn fstat(fd: fd_t) FStatError!Stat {
     var stat: Stat = undefined;
@@ -2036,6 +2041,7 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
             EINVAL => unreachable,
             EBADF => unreachable, // Always a race condition.
             ENOMEM => return error.SystemResources,
+            EACCES => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -2045,6 +2051,7 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
         EINVAL => unreachable,
         EBADF => unreachable, // Always a race condition.
         ENOMEM => return error.SystemResources,
+        EACCES => return error.AccessDenied,
         else => |err| return unexpectedErrno(err),
     }
 }

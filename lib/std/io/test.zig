@@ -14,12 +14,14 @@ test "write a file, read it, then delete it" {
     var raw_bytes: [200 * 1024]u8 = undefined;
     var allocator = &std.heap.FixedBufferAllocator.init(raw_bytes[0..]).allocator;
 
+    const cwd = fs.cwd();
+
     var data: [1024]u8 = undefined;
     var prng = DefaultPrng.init(1234);
     prng.random.bytes(data[0..]);
     const tmp_file_name = "temp_test_file.txt";
     {
-        var file = try File.openWrite(tmp_file_name);
+        var file = try cwd.createFile(tmp_file_name, .{});
         defer file.close();
 
         var file_out_stream = file.outStream();
@@ -32,8 +34,8 @@ test "write a file, read it, then delete it" {
     }
 
     {
-        // make sure openWriteNoClobber doesn't harm the file
-        if (File.openWriteNoClobber(tmp_file_name, File.default_mode)) |file| {
+        // Make sure the exclusive flag is honored.
+        if (cwd.createFile(tmp_file_name, .{ .exclusive = true })) |file| {
             unreachable;
         } else |err| {
             std.debug.assert(err == File.OpenError.PathAlreadyExists);
@@ -41,7 +43,7 @@ test "write a file, read it, then delete it" {
     }
 
     {
-        var file = try File.openRead(tmp_file_name);
+        var file = try cwd.openFile(tmp_file_name, .{});
         defer file.close();
 
         const file_size = try file.getEndPos();
@@ -58,7 +60,7 @@ test "write a file, read it, then delete it" {
         expect(mem.eql(u8, contents["begin".len .. contents.len - "end".len], data));
         expect(mem.eql(u8, contents[contents.len - "end".len ..], "end"));
     }
-    try fs.deleteFile(tmp_file_name);
+    try cwd.deleteFile(tmp_file_name);
 }
 
 test "BufferOutStream" {
@@ -274,7 +276,7 @@ test "BitOutStream" {
 test "BitStreams with File Stream" {
     const tmp_file_name = "temp_test_file.txt";
     {
-        var file = try File.openWrite(tmp_file_name);
+        var file = try fs.cwd().createFile(tmp_file_name, .{});
         defer file.close();
 
         var file_out = file.outStream();
@@ -291,7 +293,7 @@ test "BitStreams with File Stream" {
         try bit_stream.flushBits();
     }
     {
-        var file = try File.openRead(tmp_file_name);
+        var file = try fs.cwd().openFile(tmp_file_name, .{});
         defer file.close();
 
         var file_in = file.inStream();
@@ -316,7 +318,7 @@ test "BitStreams with File Stream" {
 
         expectError(error.EndOfStream, bit_stream.readBitsNoEof(u1, 1));
     }
-    try fs.deleteFile(tmp_file_name);
+    try fs.cwd().deleteFile(tmp_file_name);
 }
 
 fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packing: io.Packing) !void {
@@ -599,7 +601,7 @@ test "c out stream" {
     const out_file = std.c.fopen(filename, "w") orelse return error.UnableToOpenTestFile;
     defer {
         _ = std.c.fclose(out_file);
-        fs.deleteFileC(filename) catch {};
+        fs.cwd().deleteFileC(filename) catch {};
     }
 
     const out_stream = &io.COutStream.init(out_file).stream;
@@ -608,10 +610,10 @@ test "c out stream" {
 
 test "File seek ops" {
     const tmp_file_name = "temp_test_file.txt";
-    var file = try File.openWrite(tmp_file_name);
+    var file = try fs.cwd().createFile(tmp_file_name, .{});
     defer {
         file.close();
-        fs.deleteFile(tmp_file_name) catch {};
+        fs.cwd().deleteFile(tmp_file_name) catch {};
     }
 
     try file.write([_]u8{0x55} ** 8192);
@@ -632,10 +634,10 @@ test "File seek ops" {
 
 test "updateTimes" {
     const tmp_file_name = "just_a_temporary_file.txt";
-    var file = try File.openWrite(tmp_file_name);
+    var file = try fs.cwd().createFile(tmp_file_name, .{ .read = true });
     defer {
         file.close();
-        std.fs.deleteFile(tmp_file_name) catch {};
+        std.fs.cwd().deleteFile(tmp_file_name) catch {};
     }
     var stat_old = try file.stat();
     // Set atime and mtime to 5s before

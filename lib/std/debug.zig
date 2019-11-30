@@ -1131,7 +1131,7 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
 }
 
 fn printLineFromFileAnyOs(out_stream: var, line_info: LineInfo) !void {
-    var f = try File.openRead(line_info.file_name);
+    var f = try fs.cwd().openFile(line_info.file_name, .{});
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 
@@ -2089,7 +2089,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
         const ofile_path = mem.toSliceConst(u8, @ptrCast([*:0]const u8, di.strings.ptr + ofile.n_strx));
 
         gop.kv.value = MachOFile{
-            .bytes = try std.fs.Dir.cwd().readFileAllocAligned(
+            .bytes = try std.fs.cwd().readFileAllocAligned(
                 di.ofiles.allocator,
                 ofile_path,
                 maxInt(usize),

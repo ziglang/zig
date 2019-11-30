@@ -25,105 +25,87 @@ pub const File = struct {
 
     pub const OpenError = windows.CreateFileError || os.OpenError;
 
-    /// Deprecated; call `std.fs.Dir.openRead` directly.
+    /// TODO https://github.com/ziglang/zig/issues/3802
+    pub const OpenFlags = struct {
+        read: bool = true,
+        write: bool = false,
+    };
+
+    /// TODO https://github.com/ziglang/zig/issues/3802
+    pub const CreateFlags = struct {
+        /// Whether the file will be created with read access.
+        read: bool = false,
+
+        /// If the file already exists, and is a regular file, and the access
+        /// mode allows writing, it will be truncated to length 0.
+        truncate: bool = true,
+
+        /// Ensures that this open call creates the file, otherwise causes
+        /// `error.FileAlreadyExists` to be returned.
+        exclusive: bool = false,
+
+        /// For POSIX systems this is the file system mode the file will
+        /// be created with.
+        mode: Mode = default_mode,
+    };
+
+    /// Deprecated; call `std.fs.Dir.openFile` directly.
     pub fn openRead(path: []const u8) OpenError!File {
-        return std.fs.Dir.cwd().openRead(path);
+        return std.fs.cwd().openFile(path, .{});
     }
 
-    /// Deprecated; call `std.fs.Dir.openReadC` directly.
+    /// Deprecated; call `std.fs.Dir.openFileC` directly.
     pub fn openReadC(path_c: [*:0]const u8) OpenError!File {
-        return std.fs.Dir.cwd().openReadC(path_c);
+        return std.fs.cwd().openFileC(path_c, .{});
     }
 
-    /// Deprecated; call `std.fs.Dir.openReadW` directly.
+    /// Deprecated; call `std.fs.Dir.openFileW` directly.
     pub fn openReadW(path_w: [*]const u16) OpenError!File {
-        return std.fs.Dir.cwd().openReadW(path_w);
+        return std.fs.cwd().openFileW(path_w, .{});
     }
 
-    /// Calls `openWriteMode` with `default_mode` for the mode.
-    /// TODO: deprecate this and move it to `std.fs.Dir`.
+    /// Deprecated; call `std.fs.Dir.createFile` directly.
     pub fn openWrite(path: []const u8) OpenError!File {
-        return openWriteMode(path, default_mode);
+        return std.fs.cwd().createFile(path, .{});
     }
 
-    /// If the path does not exist it will be created.
-    /// If a file already exists in the destination it will be truncated.
-    /// Call close to clean up.
-    /// TODO: deprecate this and move it to `std.fs.Dir`.
+    /// Deprecated; call `std.fs.Dir.createFile` directly.
     pub fn openWriteMode(path: []const u8, file_mode: Mode) OpenError!File {
-        if (builtin.os == .windows) {
-            const path_w = try windows.sliceToPrefixedFileW(path);
-            return openWriteModeW(&path_w, file_mode);
-        }
-        const path_c = try os.toPosixPath(path);
-        return openWriteModeC(&path_c, file_mode);
+        return std.fs.cwd().createFile(path, .{ .mode = file_mode });
     }
 
-    /// Same as `openWriteMode` except `path` is null-terminated.
-    /// TODO: deprecate this and move it to `std.fs.Dir`.
-    pub fn openWriteModeC(path: [*:0]const u8, file_mode: Mode) OpenError!File {
-        if (builtin.os == .windows) {
-            const path_w = try windows.cStrToPrefixedFileW(path);
-            return openWriteModeW(&path_w, file_mode);
-        }
-        const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
-        const flags = O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_TRUNC;
-        const fd = try os.openC(path, flags, file_mode);
-        return openHandle(fd);
+    /// Deprecated; call `std.fs.Dir.createFileC` directly.
+    pub fn openWriteModeC(path_c: [*:0]const u8, file_mode: Mode) OpenError!File {
+        return std.fs.cwd().createFileC(path_c, .{ .mode = file_mode });
     }
 
-    /// Same as `openWriteMode` except `path` is null-terminated and UTF16LE encoded
-    /// TODO: deprecate this and move it to `std.fs.Dir`.
+    /// Deprecated; call `std.fs.Dir.createFileW` directly.
     pub fn openWriteModeW(path_w: [*:0]const u16, file_mode: Mode) OpenError!File {
-        const handle = try windows.CreateFileW(
-            path_w,
-            windows.GENERIC_WRITE,
-            windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
-            null,
-            windows.CREATE_ALWAYS,
-            windows.FILE_ATTRIBUTE_NORMAL,
-            null,
-        );
-        return openHandle(handle);
+        return std.fs.cwd().createFileW(path_w, .{ .mode = file_mode });
     }
 
-    /// If the path does not exist it will be created.
-    /// If a file already exists in the destination this returns OpenError.PathAlreadyExists
-    /// Call close to clean up.
-    /// TODO: deprecate this and move it to `std.fs.Dir`.
+    /// Deprecated; call `std.fs.Dir.createFile` directly.
     pub fn openWriteNoClobber(path: []const u8, file_mode: Mode) OpenError!File {
-        if (builtin.os == .windows) {
-            const path_w = try windows.sliceToPrefixedFileW(path);
-            return openWriteNoClobberW(&path_w, file_mode);
-        }
-        const path_c = try os.toPosixPath(path);
-        return openWriteNoClobberC(&path_c, file_mode);
+        return std.fs.cwd().createFile(path, .{
+            .mode = file_mode,
+            .exclusive = true,
+        });
     }
 
-    /// TODO: deprecate this and move it to `std.fs.Dir`.
-    pub fn openWriteNoClobberC(path: [*:0]const u8, file_mode: Mode) OpenError!File {
-        if (builtin.os == .windows) {
-            const path_w = try windows.cStrToPrefixedFileW(path);
-            return openWriteNoClobberW(&path_w, file_mode);
-        }
-        const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
-        const flags = O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_EXCL;
-        const fd = try os.openC(path, flags, file_mode);
-        return openHandle(fd);
+    /// Deprecated; call `std.fs.Dir.createFileC` directly.
+    pub fn openWriteNoClobberC(path_c: [*:0]const u8, file_mode: Mode) OpenError!File {
+        return std.fs.cwd().createFileC(path_c, .{
+            .mode = file_mode,
+            .exclusive = true,
+        });
     }
 
-    /// TODO: deprecate this and move it to `std.fs.Dir`.
+    /// Deprecated; call `std.fs.Dir.createFileW` directly.
     pub fn openWriteNoClobberW(path_w: [*:0]const u16, file_mode: Mode) OpenError!File {
-        const handle = try windows.CreateFileW(
-            path_w,
-            windows.GENERIC_WRITE,
-            windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
-            null,
-            windows.CREATE_NEW,
-            windows.FILE_ATTRIBUTE_NORMAL,
-            null,
-        );
-        return openHandle(handle);
+        return std.fs.cwd().createFileW(path_w, .{
+            .mode = file_mode,
+            .exclusive = true,
+        });
     }
 
     pub fn openHandle(handle: os.fd_t) File {
@@ -246,6 +228,7 @@ pub const File = struct {
                 windows.STATUS.SUCCESS => {},
                 windows.STATUS.BUFFER_OVERFLOW => {},
                 windows.STATUS.INVALID_PARAMETER => unreachable,
+                windows.STATUS.ACCESS_DENIED => return error.AccessDenied,
                 else => return windows.unexpectedStatus(rc),
             }
             return Stat{

@@ -128,6 +128,14 @@ test "join" {
     testJoinPosix([_][]const u8{ "a/", "/c" }, "a/c");
 }
 
+pub fn isAbsoluteC(path_c: [*:0]const u8) bool {
+    if (builtin.os == .windows) {
+        return isAbsoluteWindowsC(path_c);
+    } else {
+        return isAbsolutePosixC(path_c);
+    }
+}
+
 pub fn isAbsolute(path: []const u8) bool {
     if (builtin.os == .windows) {
         return isAbsoluteWindows(path);
@@ -136,7 +144,7 @@ pub fn isAbsolute(path: []const u8) bool {
     }
 }
 
-pub fn isAbsoluteW(path_w: [*]const u16) bool {
+pub fn isAbsoluteW(path_w: [*:0]const u16) bool {
     if (path_w[0] == '/')
         return true;
 
@@ -174,8 +182,31 @@ pub fn isAbsoluteWindows(path: []const u8) bool {
     return false;
 }
 
+pub fn isAbsoluteWindowsC(path_c: [*:0]const u8) bool {
+    if (path_c[0] == '/')
+        return true;
+
+    if (path_c[0] == '\\') {
+        return true;
+    }
+    if (path_c[0] == 0 or path_c[1] == 0 or path_c[2] == 0) {
+        return false;
+    }
+    if (path_c[1] == ':') {
+        if (path_c[2] == '/')
+            return true;
+        if (path_c[2] == '\\')
+            return true;
+    }
+    return false;
+}
+
 pub fn isAbsolutePosix(path: []const u8) bool {
     return path[0] == sep_posix;
+}
+
+pub fn isAbsolutePosixC(path_c: [*:0]const u8) bool {
+    return path_c[0] == sep_posix;
 }
 
 test "isAbsoluteWindows" {
