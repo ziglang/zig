@@ -109,12 +109,38 @@ const TLSImage = struct {
     tcb_offset: usize,
     dtv_offset: usize,
     data_offset: usize,
+    // Only used on the i386 architecture
+    gdt_entry_number: usize,
 };
 
 pub var tls_image: ?TLSImage = null;
 
 pub fn setThreadPointer(addr: usize) void {
     switch (builtin.arch) {
+        .i386 => {
+            var user_desc = std.os.linux.user_desc{
+                .entry_number = tls_image.?.gdt_entry_number,
+                .base_addr = addr,
+                .limit = 0xfffff,
+                .seg_32bit = 1,
+                .contents = 0, // Data
+                .read_exec_only = 0,
+                .limit_in_pages = 1,
+                .seg_not_present = 0,
+                .useable = 1,
+            };
+            const rc = std.os.linux.syscall1(std.os.linux.SYS_set_thread_area, @ptrToInt(&user_desc));
+            assert(rc == 0);
+
+            const gdt_entry_number = user_desc.entry_number;
+            // We have to keep track of our slot as it's also needed for clone()
+            tls_image.?.gdt_entry_number = gdt_entry_number;
+            // Update the %gs selector
+            asm volatile ("movl %[gs_val], %%gs"
+                :
+                : [gs_val] "r" (gdt_entry_number << 3 | 3)
+            );
+        },
         .x86_64 => {
             const rc = std.os.linux.syscall2(std.os.linux.SYS_arch_prctl, std.os.linux.ARCH_SET_FS, addr);
             assert(rc == 0);
@@ -238,6 +264,7 @@ pub fn initTLS() ?*elf.Phdr {
             .tcb_offset = tcb_offset,
             .dtv_offset = dtv_offset,
             .data_offset = data_offset,
+            .gdt_entry_number = @bitCast(usize, @as(isize, -1)),
         };
     }
 
