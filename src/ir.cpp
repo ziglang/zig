@@ -16314,6 +16314,7 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             IrInstruction *bitcasted_value;
             if (value != nullptr) {
                 bitcasted_value = ir_analyze_bit_cast(ira, result_loc->source_instruction, value, dest_type);
+                dest_type = bitcasted_value->value->type;
             } else {
                 bitcasted_value = nullptr;
             }
@@ -16378,11 +16379,13 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
     ir_assert(result_loc->value->type->id == ZigTypeIdPointer, suspend_source_instr);
     ZigType *actual_elem_type = result_loc->value->type->data.pointer.child_type;
     if (actual_elem_type->id == ZigTypeIdOptional && value_type->id != ZigTypeIdOptional &&
-            value_type->id != ZigTypeIdNull && value == nullptr)
+            value_type->id != ZigTypeIdNull && type_has_bits(value_type))
     {
         result_loc_pass1->written = false;
         return ir_analyze_unwrap_optional_payload(ira, suspend_source_instr, result_loc, false, true);
-    } else if (actual_elem_type->id == ZigTypeIdErrorUnion && value_type->id != ZigTypeIdErrorUnion && value == nullptr) {
+    } else if (actual_elem_type->id == ZigTypeIdErrorUnion && value_type->id != ZigTypeIdErrorUnion &&
+            type_has_bits(value_type))
+    {
         if (value_type->id == ZigTypeIdErrorSet) {
             return ir_analyze_unwrap_err_code(ira, suspend_source_instr, result_loc, true);
         } else {
