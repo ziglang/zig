@@ -103,8 +103,8 @@ pub const ZigCompiler = struct {
     /// Must be called only once, ever. Sets global state.
     pub fn setLlvmArgv(allocator: *Allocator, llvm_argv: []const []const u8) !void {
         if (llvm_argv.len != 0) {
-            var c_compatible_args = try std.cstr.NullTerminated2DArray.fromSlices(allocator, [_][]const []const u8{
-                [_][]const u8{"zig (LLVM option parsing)"},
+            var c_compatible_args = try std.cstr.NullTerminated2DArray.fromSlices(allocator, &[_][]const []const u8{
+                &[_][]const u8{"zig (LLVM option parsing)"},
                 llvm_argv,
             });
             defer c_compatible_args.deinit();
@@ -359,7 +359,11 @@ pub const Compilation = struct {
             is_static,
             zig_lib_dir,
         );
-        return optional_comp orelse if (await frame) |_| unreachable else |err| err;
+        if (optional_comp) |comp| {
+            return comp;
+        } else {
+            if (await frame) |_| unreachable else |err| return err;
+        }
     }
 
     async fn createAsync(
@@ -412,20 +416,20 @@ pub const Compilation = struct {
             .strip = false,
             .is_static = is_static,
             .linker_rdynamic = false,
-            .clang_argv = [_][]const u8{},
-            .lib_dirs = [_][]const u8{},
-            .rpath_list = [_][]const u8{},
-            .assembly_files = [_][]const u8{},
-            .link_objects = [_][]const u8{},
+            .clang_argv = &[_][]const u8{},
+            .lib_dirs = &[_][]const u8{},
+            .rpath_list = &[_][]const u8{},
+            .assembly_files = &[_][]const u8{},
+            .link_objects = &[_][]const u8{},
             .fn_link_set = event.Locked(FnLinkSet).init(FnLinkSet.init()),
             .windows_subsystem_windows = false,
             .windows_subsystem_console = false,
             .link_libs_list = undefined,
             .libc_link_lib = null,
             .err_color = errmsg.Color.Auto,
-            .darwin_frameworks = [_][]const u8{},
+            .darwin_frameworks = &[_][]const u8{},
             .darwin_version_min = DarwinVersionMin.None,
-            .test_filters = [_][]const u8{},
+            .test_filters = &[_][]const u8{},
             .test_name_prefix = null,
             .emit_file_type = Emit.Binary,
             .link_out_file = null,
@@ -478,7 +482,7 @@ pub const Compilation = struct {
         comp.name = try Buffer.init(comp.arena(), name);
         comp.llvm_triple = try util.getTriple(comp.arena(), target);
         comp.llvm_target = try util.llvmTargetFromTriple(comp.llvm_triple);
-        comp.zig_std_dir = try std.fs.path.join(comp.arena(), [_][]const u8{ zig_lib_dir, "std" });
+        comp.zig_std_dir = try std.fs.path.join(comp.arena(), &[_][]const u8{ zig_lib_dir, "std" });
 
         const opt_level = switch (build_mode) {
             .Debug => llvm.CodeGenLevelNone,
@@ -520,7 +524,7 @@ pub const Compilation = struct {
         comp.events = try allocator.create(event.Channel(Event));
         defer allocator.destroy(comp.events);
 
-        comp.events.init([0]Event{});
+        comp.events.init(&[0]Event{});
         defer comp.events.deinit();
 
         if (root_src_path) |root_src| {

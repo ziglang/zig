@@ -191,12 +191,12 @@ const usage_build_generic =
 
 const args_build_generic = [_]Flag{
     Flag.Bool("--help"),
-    Flag.Option("--color", [_][]const u8{
+    Flag.Option("--color", &[_][]const u8{
         "auto",
         "off",
         "on",
     }),
-    Flag.Option("--mode", [_][]const u8{
+    Flag.Option("--mode", &[_][]const u8{
         "debug",
         "release-fast",
         "release-safe",
@@ -204,7 +204,7 @@ const args_build_generic = [_]Flag{
     }),
 
     Flag.ArgMergeN("--assembly", 1),
-    Flag.Option("--emit", [_][]const u8{
+    Flag.Option("--emit", &[_][]const u8{
         "asm",
         "bin",
         "llvm-ir",
@@ -252,7 +252,7 @@ const args_build_generic = [_]Flag{
 };
 
 fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Compilation.Kind) !void {
-    var flags = try Args.parse(allocator, args_build_generic, args);
+    var flags = try Args.parse(allocator, &args_build_generic, args);
     defer flags.deinit();
 
     if (flags.present("help")) {
@@ -579,7 +579,7 @@ async fn findLibCAsync(zig_compiler: *ZigCompiler) void {
 }
 
 fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
-    var flags = try Args.parse(allocator, args_fmt_spec, args);
+    var flags = try Args.parse(allocator, &args_fmt_spec, args);
     defer flags.deinit();
 
     if (flags.present("help")) {

@@ -178,7 +178,7 @@ pub const Args = struct {
                 else => @panic("attempted to retrieve flag with wrong type"),
             }
         } else {
-            return [_][]const u8{};
+            return &[_][]const u8{};
         }
     }
 };
