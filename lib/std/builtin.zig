@@ -350,6 +350,22 @@ pub const Endian = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const OutType = enum {
+    Unknown,
+    Exe,
+    Lib,
+    Obj,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const LinkType = enum {
+    Static,
+    Dynamic,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const Version = struct {
     major: u32,
     minor: u32,
