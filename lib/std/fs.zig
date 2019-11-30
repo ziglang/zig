@@ -698,29 +698,104 @@ pub const Dir = struct {
         self.* = undefined;
     }
 
-    /// Call `File.close` on the result when done.
-    pub fn openRead(self: Dir, sub_path: []const u8) File.OpenError!File {
+    /// Opens a file for reading or writing, without attempting to create a new file.
+    /// Call `File.close` to release the resource.
+    pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
         if (builtin.os == .windows) {
             const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
-            return self.openReadW(&path_w);
+            return self.openFileW(&path_w, flags);
         }
         const path_c = try os.toPosixPath(sub_path);
-        return self.openReadC(&path_c);
+        return self.openFileC(&path_c, flags);
     }
 
-    /// Call `File.close` on the result when done.
-    pub fn openReadC(self: Dir, sub_path: [*:0]const u8) File.OpenError!File {
+    /// Same as `openFile` but the path parameter is null-terminated.
+    pub fn openFileC(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File.OpenError!File {
         if (builtin.os == .windows) {
             const path_w = try os.windows.cStrToPrefixedFileW(sub_path);
-            return self.openReadW(&path_w);
+            return self.openFileW(&path_w, flags);
         }
         const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
-        const flags = O_LARGEFILE | os.O_RDONLY | os.O_CLOEXEC;
-        const fd = try os.openatC(self.fd, sub_path, flags, 0);
-        return File.openHandle(fd);
+        const os_flags = O_LARGEFILE | os.O_CLOEXEC | if (flags.write and flags.read)
+            @as(u32, os.O_RDWR)
+        else if (flags.write)
+            @as(u32, os.O_WRONLY)
+        else
+            @as(u32, os.O_RDONLY);
+        const fd = try os.openatC(self.fd, sub_path, os_flags, 0);
+        return File{ .handle = fd };
     }
 
-    pub fn openReadW(self: Dir, sub_path_w: [*:0]const u16) File.OpenError!File {
+    /// Same as `openFile` but the path parameter is WTF-16 encoded.
+    pub fn openFileW(self: Dir, sub_path_w: [*:0]const u16, flags: File.OpenFlags) File.OpenError!File {
+        const w = os.windows;
+        const access_mask = w.SYNCHRONIZE |
+            (if (flags.read) @as(u32, w.GENERIC_READ) else 0) |
+            (if (flags.write) @as(u32, w.GENERIC_WRITE) else 0);
+        return self.openFileWindows(sub_path_w, access_mask, w.FILE_OPEN);
+    }
+
+    /// Creates, opens, or overwrites a file with write access.
+    /// Call `File.close` on the result when done.
+    pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
+        if (builtin.os == .windows) {
+            const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            return self.createFileW(&path_w, flags);
+        }
+        const path_c = try os.toPosixPath(sub_path);
+        return self.createFileC(&path_c, flags);
+    }
+
+    /// Same as `createFile` but the path parameter is null-terminated.
+    pub fn createFileC(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags) File.OpenError!File {
+        if (builtin.os == .windows) {
+            const path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
+            return self.createFileW(&path_w, flags);
+        }
+        const O_LARGEFILE = if (@hasDecl(os, "O_LARGEFILE")) os.O_LARGEFILE else 0;
+        const os_flags = O_LARGEFILE | os.O_CREAT | os.O_CLOEXEC |
+            (if (flags.truncate) @as(u32, os.O_TRUNC) else 0) |
+            (if (flags.read) @as(u32, os.O_RDWR) else os.O_WRONLY) |
+            (if (flags.exclusive) @as(u32, os.O_EXCL) else 0);
+        const fd = try os.openatC(self.fd, sub_path_c, os_flags, flags.mode);
+        return File{ .handle = fd };
+    }
+
+    /// Same as `createFile` but the path parameter is WTF-16 encoded.
+    pub fn createFileW(self: Dir, sub_path_w: [*:0]const u16, flags: File.CreateFlags) File.OpenError!File {
+        const w = os.windows;
+        const access_mask = w.SYNCHRONIZE | w.GENERIC_WRITE |
+            (if (flags.read) @as(u32, w.GENERIC_READ) else 0);
+        const creation = if (flags.exclusive)
+            @as(u32, w.FILE_CREATE)
+        else if (flags.truncate)
+            @as(u32, w.FILE_OVERWRITE_IF)
+        else
+            @as(u32, w.FILE_OPEN_IF);
+        return self.openFileWindows(sub_path_w, access_mask, creation);
+    }
+
+    /// Deprecated; call `openFile` directly.
+    pub fn openRead(self: Dir, sub_path: []const u8) File.OpenError!File {
+        return self.openFile(sub_path, .{});
+    }
+
+    /// Deprecated; call `openFileC` directly.
+    pub fn openReadC(self: Dir, sub_path: [*:0]const u8) File.OpenError!File {
+        return self.openFileC(sub_path, .{});
+    }
+
+    /// Deprecated; call `openFileW` directly.
+    pub fn openReadW(self: Dir, sub_path: [*:0]const u16) File.OpenError!File {
+        return self.openFileW(sub_path, .{});
+    }
+
+    pub fn openFileWindows(
+        self: Dir,
+        sub_path_w: [*:0]const u16,
+        access_mask: os.windows.ACCESS_MASK,
+        creation: os.windows.ULONG,
+    ) File.OpenError!File {
         const w = os.windows;
 
         var result = File{ .handle = undefined };
@@ -750,13 +825,13 @@ pub const Dir = struct {
         var io: w.IO_STATUS_BLOCK = undefined;
         const rc = w.ntdll.NtCreateFile(
             &result.handle,
-            w.GENERIC_READ | w.SYNCHRONIZE,
+            access_mask,
             &attr,
             &io,
             null,
             w.FILE_ATTRIBUTE_NORMAL,
-            w.FILE_SHARE_READ,
-            w.FILE_OPEN,
+            w.FILE_SHARE_WRITE | w.FILE_SHARE_READ | w.FILE_SHARE_DELETE,
+            creation,
             w.FILE_NON_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT,
             null,
             0,
