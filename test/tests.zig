@@ -165,16 +165,6 @@ const test_targets = [_]TestTarget{
             .Cross = CrossTarget{
                 .os = .linux,
                 .arch = .mipsel,
-                .abi = .gnu,
-            },
-        },
-        .link_libc = true,
-    },
-    TestTarget{
-        .target = Target{
-            .Cross = CrossTarget{
-                .os = .linux,
-                .arch = .mipsel,
                 .abi = .musl,
             },
         },
