@@ -719,7 +719,8 @@ pub const Dir = struct {
         return File{ .handle = fd };
     }
 
-    /// Same as `openFile` but the path parameter is WTF-16 encoded.
+    /// Same as `openFile` but Windows-only and the path parameter is
+    /// [WTF-16](https://simonsapin.github.io/wtf-8/#potentially-ill-formed-utf-16) encoded.
     pub fn openFileW(self: Dir, sub_path_w: [*:0]const u16, flags: File.OpenFlags) File.OpenError!File {
         const w = os.windows;
         const access_mask = w.SYNCHRONIZE |
@@ -756,7 +757,8 @@ pub const Dir = struct {
         return File{ .handle = fd };
     }
 
-    /// Same as `createFile` but the path parameter is WTF-16 encoded.
+    /// Same as `createFile` but Windows-only and the path parameter is
+    /// [WTF-16](https://simonsapin.github.io/wtf-8/#potentially-ill-formed-utf-16) encoded.
     pub fn createFileW(self: Dir, sub_path_w: [*:0]const u16, flags: File.CreateFlags) File.OpenError!File {
         const w = os.windows;
         const access_mask = w.SYNCHRONIZE | w.GENERIC_WRITE |
