@@ -2633,7 +2633,7 @@ pub fn realpathW(pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BYTES]u8) Real
     // Windows returns \\?\ prepended to the path.
     // We strip it to make this function consistent across platforms.
     const prefix = [_]u16{ '\\', '\\', '?', '\\' };
-    const start_index = if (mem.startsWith(u16, wide_slice, prefix)) prefix.len else 0;
+    const start_index = if (mem.startsWith(u16, wide_slice, &prefix)) prefix.len else 0;
 
     // Trust that Windows gives us valid UTF-16LE.
     const end_index = std.unicode.utf16leToUtf8(out_buffer, wide_slice[start_index..]) catch unreachable;

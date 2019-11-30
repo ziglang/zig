@@ -261,7 +261,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
         \\pub fn main() void {
         \\    const a = [_]i32{1, 2, 3, 4};
-        \\    baz(bar(a));
+        \\    baz(bar(&a));
         \\}
         \\fn bar(a: []const i32) i32 {
         \\    return a[4];
@@ -471,7 +471,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @import("std").os.exit(126);
         \\}
         \\pub fn main() !void {
-        \\    const x = widenSlice([_]u8{1, 2, 3, 4, 5});
+        \\    const x = widenSlice(&[_]u8{1, 2, 3, 4, 5});
         \\    if (x.len == 0) return error.Whatever;
         \\}
         \\fn widenSlice(slice: []align(1) const u8) []align(1) const i32 {
