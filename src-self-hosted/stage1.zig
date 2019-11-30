@@ -427,11 +427,11 @@ export fn stage2_DepTokenizer_next(self: *stage2_DepTokenizer) stage2_DepNextRes
     };
 }
 
-export const stage2_DepTokenizer = extern struct {
+const stage2_DepTokenizer = extern struct {
     handle: *DepTokenizer,
 };
 
-export const stage2_DepNextResult = extern struct {
+const stage2_DepNextResult = extern struct {
     type_id: TypeId,
 
     // when type_id == error --> error text
@@ -440,7 +440,7 @@ export const stage2_DepNextResult = extern struct {
     // when type_id == prereq --> prereq pathname
     textz: [*]const u8,
 
-    export const TypeId = extern enum {
+    const TypeId = extern enum {
         error_,
         null_,
         target,

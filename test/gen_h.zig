@@ -10,9 +10,8 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\    B = 1,
         \\    C = 2
         \\};
-        \\
-        \\TEST_EXTERN_C void entry(enum Foo foo);
-        \\
+    ,
+        \\void entry(enum Foo foo);
     );
 
     cases.add("declare struct",
@@ -34,8 +33,8 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\    uint64_t E;
         \\    uint64_t F;
         \\};
-        \\
-        \\TEST_EXTERN_C void entry(struct Foo foo);
+    ,
+        \\void entry(struct Foo foo);
         \\
     );
 
@@ -69,19 +68,19 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\    bool C;
         \\    struct Big D;
         \\};
-        \\
-        \\TEST_EXTERN_C void entry(union Foo foo);
+    ,
+        \\void entry(union Foo foo);
         \\
     );
 
     cases.add("declare opaque type",
-        \\export const Foo = @OpaqueType();
+        \\const Foo = @OpaqueType();
         \\
         \\export fn entry(foo: ?*Foo) void { }
     ,
         \\struct Foo;
-        \\
-        \\TEST_EXTERN_C void entry(struct Foo * foo);
+    ,
+        \\void entry(struct Foo * foo);
     );
 
     cases.add("array field-type",
@@ -95,8 +94,8 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\    int32_t A[2];
         \\    uint32_t * B[4];
         \\};
-        \\
-        \\TEST_EXTERN_C void entry(struct Foo foo, uint8_t bar[]);
+    ,
+        \\void entry(struct Foo foo, uint8_t bar[]);
         \\
     );
 
@@ -110,7 +109,8 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\}
     ,
         \\struct S;
-        \\TEST_EXTERN_C uint8_t a(struct S * s);
+    ,
+        \\uint8_t a(struct S * s);
         \\
     );
 
@@ -125,7 +125,8 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\}
     ,
         \\union U;
-        \\TEST_EXTERN_C uint8_t a(union U * s);
+    ,
+        \\uint8_t a(union U * s);
         \\
     );
 
@@ -140,7 +141,8 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\}
     ,
         \\enum E;
-        \\TEST_EXTERN_C uint8_t a(enum E * s);
+    ,
+        \\uint8_t a(enum E * s);
         \\
     );
 }

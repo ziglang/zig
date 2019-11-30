@@ -9563,7 +9563,11 @@ static void prepend_c_type_to_decl_list(CodeGen *g, GenH *gen_h, ZigType *type_e
         case ZigTypeIdVoid:
         case ZigTypeIdUnreachable:
         case ZigTypeIdBool:
+            g->c_want_stdbool = true;
+            return;
         case ZigTypeIdInt:
+            g->c_want_stdint = true;
+            return;
         case ZigTypeIdFloat:
             return;
         case ZigTypeIdOpaque:
@@ -9644,7 +9648,6 @@ static void get_c_type(CodeGen *g, GenH *gen_h, ZigType *type_entry, Buf *out_bu
             break;
         case ZigTypeIdBool:
             buf_init_from_str(out_buf, "bool");
-            g->c_want_stdbool = true;
             break;
         case ZigTypeIdUnreachable:
             buf_init_from_str(out_buf, "__attribute__((__noreturn__)) void");
@@ -9668,7 +9671,6 @@ static void get_c_type(CodeGen *g, GenH *gen_h, ZigType *type_entry, Buf *out_bu
             }
             break;
         case ZigTypeIdInt:
-            g->c_want_stdint = true;
             buf_resize(out_buf, 0);
             buf_appendf(out_buf, "%sint%" PRIu32 "_t",
                     type_entry->data.integral.is_signed ? "" : "u",
@@ -9780,113 +9782,7 @@ static Buf *preprocessor_mangle(Buf *src) {
     return result;
 }
 
-static void gen_h_file(CodeGen *g) {
-    GenH gen_h_data = {0};
-    GenH *gen_h = &gen_h_data;
-
-    assert(!g->is_test_build);
-    assert(!g->disable_gen_h);
-
-    Buf *out_h_path = buf_sprintf("%s" OS_SEP "%s.h", buf_ptr(g->output_dir), buf_ptr(g->root_out_name));
-
-    FILE *out_h = fopen(buf_ptr(out_h_path), "wb");
-    if (!out_h)
-        zig_panic("unable to open %s: %s\n", buf_ptr(out_h_path), strerror(errno));
-
-    Buf *export_macro = nullptr;
-    if (g->is_dynamic) {
-        export_macro = preprocessor_mangle(buf_sprintf("%s_EXPORT", buf_ptr(g->root_out_name)));
-        buf_upcase(export_macro);
-    }
-
-    Buf *extern_c_macro = preprocessor_mangle(buf_sprintf("%s_EXTERN_C", buf_ptr(g->root_out_name)));
-    buf_upcase(extern_c_macro);
-
-    Buf h_buf = BUF_INIT;
-    buf_resize(&h_buf, 0);
-    for (size_t fn_def_i = 0; fn_def_i < g->fn_defs.length; fn_def_i += 1) {
-        ZigFn *fn_table_entry = g->fn_defs.at(fn_def_i);
-
-        if (fn_table_entry->export_list.length == 0)
-            continue;
-
-        FnTypeId *fn_type_id = &fn_table_entry->type_entry->data.fn.fn_type_id;
-
-        Buf return_type_c = BUF_INIT;
-        get_c_type(g, gen_h, fn_type_id->return_type, &return_type_c);
-
-        Buf *symbol_name;
-        if (fn_table_entry->export_list.length == 0) {
-            symbol_name = &fn_table_entry->symbol_name;
-        } else {
-            GlobalExport *fn_export = &fn_table_entry->export_list.items[0];
-            symbol_name = &fn_export->name;
-        }
-
-        buf_appendf(&h_buf, "%s %s %s(",
-            buf_ptr(g->is_dynamic ? export_macro : extern_c_macro),
-            buf_ptr(&return_type_c),
-            buf_ptr(symbol_name));
-
-        Buf param_type_c = BUF_INIT;
-        if (fn_type_id->param_count > 0) {
-            for (size_t param_i = 0; param_i < fn_type_id->param_count; param_i += 1) {
-                FnTypeParamInfo *param_info = &fn_type_id->param_info[param_i];
-                AstNode *param_decl_node = get_param_decl_node(fn_table_entry, param_i);
-                Buf *param_name = param_decl_node->data.param_decl.name;
-
-                const char *comma_str = (param_i == 0) ? "" : ", ";
-                const char *restrict_str = param_info->is_noalias ? "restrict" : "";
-                get_c_type(g, gen_h, param_info->type, &param_type_c);
-
-                if (param_info->type->id == ZigTypeIdArray) {
-                    // Arrays decay to pointers
-                    buf_appendf(&h_buf, "%s%s%s %s[]", comma_str, buf_ptr(&param_type_c),
-                            restrict_str, buf_ptr(param_name));
-                } else {
-                    buf_appendf(&h_buf, "%s%s%s %s", comma_str, buf_ptr(&param_type_c),
-                            restrict_str, buf_ptr(param_name));
-                }
-            }
-            buf_appendf(&h_buf, ")");
-        } else {
-            buf_appendf(&h_buf, "void)");
-        }
-
-        buf_appendf(&h_buf, ";\n");
-
-    }
-
-    Buf *ifdef_dance_name = preprocessor_mangle(buf_sprintf("%s_H", buf_ptr(g->root_out_name)));
-    buf_upcase(ifdef_dance_name);
-
-    fprintf(out_h, "#ifndef %s\n", buf_ptr(ifdef_dance_name));
-    fprintf(out_h, "#define %s\n\n", buf_ptr(ifdef_dance_name));
-
-    if (g->c_want_stdbool)
-        fprintf(out_h, "#include <stdbool.h>\n");
-    if (g->c_want_stdint)
-        fprintf(out_h, "#include <stdint.h>\n");
-
-    fprintf(out_h, "\n");
-
-    fprintf(out_h, "#ifdef __cplusplus\n");
-    fprintf(out_h, "#define %s extern \"C\"\n", buf_ptr(extern_c_macro));
-    fprintf(out_h, "#else\n");
-    fprintf(out_h, "#define %s\n", buf_ptr(extern_c_macro));
-    fprintf(out_h, "#endif\n");
-    fprintf(out_h, "\n");
-
-    if (g->is_dynamic) {
-        fprintf(out_h, "#if defined(_WIN32)\n");
-        fprintf(out_h, "#define %s %s __declspec(dllimport)\n", buf_ptr(export_macro), buf_ptr(extern_c_macro));
-        fprintf(out_h, "#else\n");
-        fprintf(out_h, "#define %s %s __attribute__((visibility (\"default\")))\n",
-            buf_ptr(export_macro), buf_ptr(extern_c_macro));
-        fprintf(out_h, "#endif\n");
-        fprintf(out_h, "\n");
-    }
-
+static void gen_h_file_types(CodeGen* g, GenH* gen_h, Buf* out_buf) {
     for (size_t type_i = 0; type_i < gen_h->types_to_declare.length; type_i += 1) {
         ZigType *type_entry = gen_h->types_to_declare.at(type_i);
         switch (type_entry->id) {
@@ -9917,25 +9813,25 @@ static void gen_h_file(CodeGen *g) {
 
             case ZigTypeIdEnum:
                 if (type_entry->data.enumeration.layout == ContainerLayoutExtern) {
-                    fprintf(out_h, "enum %s {\n", buf_ptr(type_h_name(type_entry)));
+                    buf_appendf(out_buf, "enum %s {\n", buf_ptr(type_h_name(type_entry)));
                     for (uint32_t field_i = 0; field_i < type_entry->data.enumeration.src_field_count; field_i += 1) {
                         TypeEnumField *enum_field = &type_entry->data.enumeration.fields[field_i];
                         Buf *value_buf = buf_alloc();
                         bigint_append_buf(value_buf, &enum_field->value, 10);
-                        fprintf(out_h, "    %s = %s", buf_ptr(enum_field->name), buf_ptr(value_buf));
+                        buf_appendf(out_buf, "    %s = %s", buf_ptr(enum_field->name), buf_ptr(value_buf));
                         if (field_i != type_entry->data.enumeration.src_field_count - 1) {
-                            fprintf(out_h, ",");
+                            buf_appendf(out_buf, ",");
                         }
-                        fprintf(out_h, "\n");
+                        buf_appendf(out_buf, "\n");
                     }
-                    fprintf(out_h, "};\n\n");
+                    buf_appendf(out_buf, "};\n\n");
                 } else {
-                    fprintf(out_h, "enum %s;\n", buf_ptr(type_h_name(type_entry)));
+                    buf_appendf(out_buf, "enum %s;\n\n", buf_ptr(type_h_name(type_entry)));
                 }
                 break;
             case ZigTypeIdStruct:
                 if (type_entry->data.structure.layout == ContainerLayoutExtern) {
-                    fprintf(out_h, "struct %s {\n", buf_ptr(type_h_name(type_entry)));
+                    buf_appendf(out_buf, "struct %s {\n", buf_ptr(type_h_name(type_entry)));
                     for (uint32_t field_i = 0; field_i < type_entry->data.structure.src_field_count; field_i += 1) {
                         TypeStructField *struct_field = type_entry->data.structure.fields[field_i];
 
@@ -9943,43 +9839,194 @@ static void gen_h_file(CodeGen *g) {
                         get_c_type(g, gen_h, struct_field->type_entry, type_name_buf);
 
                         if (struct_field->type_entry->id == ZigTypeIdArray) {
-                            fprintf(out_h, "    %s %s[%" ZIG_PRI_u64 "];\n", buf_ptr(type_name_buf),
+                            buf_appendf(out_buf, "    %s %s[%" ZIG_PRI_u64 "];\n", buf_ptr(type_name_buf),
                                     buf_ptr(struct_field->name),
                                     struct_field->type_entry->data.array.len);
                         } else {
-                            fprintf(out_h, "    %s %s;\n", buf_ptr(type_name_buf), buf_ptr(struct_field->name));
+                            buf_appendf(out_buf, "    %s %s;\n", buf_ptr(type_name_buf), buf_ptr(struct_field->name));
                         }
 
                     }
-                    fprintf(out_h, "};\n\n");
+                    buf_appendf(out_buf, "};\n\n");
                 } else {
-                    fprintf(out_h, "struct %s;\n", buf_ptr(type_h_name(type_entry)));
+                    buf_appendf(out_buf, "struct %s;\n\n", buf_ptr(type_h_name(type_entry)));
                 }
                 break;
             case ZigTypeIdUnion:
                 if (type_entry->data.unionation.layout == ContainerLayoutExtern) {
-                    fprintf(out_h, "union %s {\n", buf_ptr(type_h_name(type_entry)));
+                    buf_appendf(out_buf, "union %s {\n", buf_ptr(type_h_name(type_entry)));
                     for (uint32_t field_i = 0; field_i < type_entry->data.unionation.src_field_count; field_i += 1) {
                         TypeUnionField *union_field = &type_entry->data.unionation.fields[field_i];
 
                         Buf *type_name_buf = buf_alloc();
                         get_c_type(g, gen_h, union_field->type_entry, type_name_buf);
-                        fprintf(out_h, "    %s %s;\n", buf_ptr(type_name_buf), buf_ptr(union_field->name));
+                        buf_appendf(out_buf, "    %s %s;\n", buf_ptr(type_name_buf), buf_ptr(union_field->name));
                     }
-                    fprintf(out_h, "};\n\n");
+                    buf_appendf(out_buf, "};\n\n");
                 } else {
-                    fprintf(out_h, "union %s;\n", buf_ptr(type_h_name(type_entry)));
+                    buf_appendf(out_buf, "union %s;\n\n", buf_ptr(type_h_name(type_entry)));
                 }
                 break;
             case ZigTypeIdOpaque:
-                fprintf(out_h, "struct %s;\n\n", buf_ptr(type_h_name(type_entry)));
+                buf_appendf(out_buf, "struct %s;\n\n", buf_ptr(type_h_name(type_entry)));
                 break;
         }
     }
+}
 
-    fprintf(out_h, "%s", buf_ptr(&h_buf));
+static void gen_h_file_functions(CodeGen* g, GenH* gen_h, Buf* out_buf, Buf* export_macro) {
+    for (size_t fn_def_i = 0; fn_def_i < g->fn_defs.length; fn_def_i += 1) {
+        ZigFn *fn_table_entry = g->fn_defs.at(fn_def_i);
 
-    fprintf(out_h, "\n#endif\n");
+        if (fn_table_entry->export_list.length == 0)
+            continue;
+
+        FnTypeId *fn_type_id = &fn_table_entry->type_entry->data.fn.fn_type_id;
+
+        Buf return_type_c = BUF_INIT;
+        get_c_type(g, gen_h, fn_type_id->return_type, &return_type_c);
+
+        Buf *symbol_name;
+        if (fn_table_entry->export_list.length == 0) {
+            symbol_name = &fn_table_entry->symbol_name;
+        } else {
+            GlobalExport *fn_export = &fn_table_entry->export_list.items[0];
+            symbol_name = &fn_export->name;
+        }
+
+        if (export_macro != nullptr) {
+            buf_appendf(out_buf, "%s %s %s(",
+                buf_ptr(export_macro),
+                buf_ptr(&return_type_c),
+                buf_ptr(symbol_name));
+        } else {
+            buf_appendf(out_buf, "%s %s(",
+                buf_ptr(&return_type_c),
+                buf_ptr(symbol_name));
+        }
+
+        Buf param_type_c = BUF_INIT;
+        if (fn_type_id->param_count > 0) {
+            for (size_t param_i = 0; param_i < fn_type_id->param_count; param_i += 1) {
+                FnTypeParamInfo *param_info = &fn_type_id->param_info[param_i];
+                AstNode *param_decl_node = get_param_decl_node(fn_table_entry, param_i);
+                Buf *param_name = param_decl_node->data.param_decl.name;
+
+                const char *comma_str = (param_i == 0) ? "" : ", ";
+                const char *restrict_str = param_info->is_noalias ? "restrict" : "";
+                get_c_type(g, gen_h, param_info->type, &param_type_c);
+
+                if (param_info->type->id == ZigTypeIdArray) {
+                    // Arrays decay to pointers
+                    buf_appendf(out_buf, "%s%s%s %s[]", comma_str, buf_ptr(&param_type_c),
+                            restrict_str, buf_ptr(param_name));
+                } else {
+                    buf_appendf(out_buf, "%s%s%s %s", comma_str, buf_ptr(&param_type_c),
+                            restrict_str, buf_ptr(param_name));
+                }
+            }
+            buf_appendf(out_buf, ")");
+        } else {
+            buf_appendf(out_buf, "void)");
+        }
+
+        buf_appendf(out_buf, ";\n");
+    }
+}
+
+static void gen_h_file_variables(CodeGen* g, GenH* gen_h, Buf* h_buf, Buf* export_macro) {
+    for (size_t exp_var_i = 0; exp_var_i < g->global_vars.length; exp_var_i += 1) {
+        ZigVar* var = g->global_vars.at(exp_var_i)->var;
+        if (var->export_list.length == 0)
+            continue;
+
+        Buf var_type_c = BUF_INIT;
+        get_c_type(g, gen_h, var->var_type, &var_type_c);
+
+        if (export_macro != nullptr) {
+            buf_appendf(h_buf, "extern %s %s %s;\n",
+                buf_ptr(export_macro),
+                buf_ptr(&var_type_c),
+                var->name);
+        } else {
+            buf_appendf(h_buf, "extern %s %s;\n",
+                buf_ptr(&var_type_c),
+                var->name);
+        }
+    }
+}
+
+static void gen_h_file(CodeGen *g) {
+    GenH gen_h_data = {0};
+    GenH *gen_h = &gen_h_data;
+
+    assert(!g->is_test_build);
+    assert(!g->disable_gen_h);
+
+    Buf *out_h_path = buf_sprintf("%s" OS_SEP "%s.h", buf_ptr(g->output_dir), buf_ptr(g->root_out_name));
+
+    FILE *out_h = fopen(buf_ptr(out_h_path), "wb");
+    if (!out_h)
+        zig_panic("unable to open %s: %s\n", buf_ptr(out_h_path), strerror(errno));
+
+    Buf *export_macro = nullptr;
+    if (g->is_dynamic) {
+        export_macro = preprocessor_mangle(buf_sprintf("%s_EXPORT", buf_ptr(g->root_out_name)));
+        buf_upcase(export_macro);
+    }
+
+    Buf fns_buf = BUF_INIT;
+    buf_resize(&fns_buf, 0);
+    gen_h_file_functions(g, gen_h, &fns_buf, export_macro);
+
+    Buf vars_buf = BUF_INIT;
+    buf_resize(&vars_buf, 0);
+    gen_h_file_variables(g, gen_h, &vars_buf, export_macro);
+
+    // Types will be populated by exported functions and variables so it has to run last.
+    Buf types_buf = BUF_INIT;
+    buf_resize(&types_buf, 0);
+    gen_h_file_types(g, gen_h, &types_buf);
+
+    Buf *ifdef_dance_name = preprocessor_mangle(buf_sprintf("%s_H", buf_ptr(g->root_out_name)));
+    buf_upcase(ifdef_dance_name);
+
+    fprintf(out_h, "#ifndef %s\n", buf_ptr(ifdef_dance_name));
+    fprintf(out_h, "#define %s\n\n", buf_ptr(ifdef_dance_name));
+
+    if (g->c_want_stdbool)
+        fprintf(out_h, "#include <stdbool.h>\n");
+    if (g->c_want_stdint)
+        fprintf(out_h, "#include <stdint.h>\n");
+
+    fprintf(out_h, "\n");
+
+    if (g->is_dynamic) {
+        fprintf(out_h, "#if defined(_WIN32)\n");
+        fprintf(out_h, "#define %s __declspec(dllimport)\n", buf_ptr(export_macro));
+        fprintf(out_h, "#else\n");
+        fprintf(out_h, "#define %s __attribute__((visibility (\"default\")))\n",
+            buf_ptr(export_macro));
+        fprintf(out_h, "#endif\n");
+        fprintf(out_h, "\n");
+    }
+
+    fprintf(out_h, "%s", buf_ptr(&types_buf));
+
+    fprintf(out_h, "#ifdef __cplusplus\n");
+    fprintf(out_h, "extern \"C\" {\n");
+    fprintf(out_h, "#endif\n");
+    fprintf(out_h, "\n");
+
+    fprintf(out_h, "%s\n", buf_ptr(&fns_buf));
+
+    fprintf(out_h, "#ifdef __cplusplus\n");
+    fprintf(out_h, "} // extern \"C\"\n");
+    fprintf(out_h, "#endif\n\n");
+
+    fprintf(out_h, "%s\n", buf_ptr(&vars_buf));
+
+    fprintf(out_h, "#endif // %s\n", buf_ptr(ifdef_dance_name));
 
     if (fclose(out_h))
         zig_panic("unable to close h file: %s", strerror(errno));

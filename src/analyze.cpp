@@ -3792,6 +3792,16 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
     return variable_entry;
 }
 
+static void validate_export_var_type(CodeGen *g, ZigType* type, AstNode *source_node) {
+    switch (type->id) {
+        case ZigTypeIdMetaType:
+            add_node_error(g, source_node, buf_sprintf("cannot export variable of type 'type'"));
+            break;
+        default:
+            break;
+    }
+}
+
 static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     AstNode *source_node = tld_var->base.source_node;
     AstNodeVariableDeclaration *var_decl = &source_node->data.variable_declaration;
@@ -3881,6 +3891,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     }
 
     if (is_export) {
+        validate_export_var_type(g, type, source_node);
         add_var_export(g, tld_var->var, tld_var->var->name, GlobalLinkageIdStrong);
     }
 
