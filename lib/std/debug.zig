@@ -825,7 +825,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     const len = try di.coff.getPdbPath(path_buf[0..]);
     const raw_path = path_buf[0..len];
 
-    const path = try fs.path.resolve(allocator, [_][]const u8{raw_path});
+    const path = try fs.path.resolve(allocator, &[_][]const u8{raw_path});
 
     try di.pdb.openFile(di.coff, path);
 
@@ -834,10 +834,10 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     const signature = try pdb_stream.stream.readIntLittle(u32);
     const age = try pdb_stream.stream.readIntLittle(u32);
     var guid: [16]u8 = undefined;
-    try pdb_stream.stream.readNoEof(guid[0..]);
+    try pdb_stream.stream.readNoEof(&guid);
     if (version != 20000404) // VC70, only value observed by LLVM team
         return error.UnknownPDBVersion;
-    if (!mem.eql(u8, di.coff.guid, guid) or di.coff.age != age)
+    if (!mem.eql(u8, &di.coff.guid, &guid) or di.coff.age != age)
         return error.PDBMismatch;
     // We validated the executable and pdb match.
 

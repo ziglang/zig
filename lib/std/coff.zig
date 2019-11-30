@@ -61,7 +61,7 @@ pub const Coff = struct {
 
         var magic: [2]u8 = undefined;
         try in.readNoEof(magic[0..]);
-        if (!mem.eql(u8, magic, "MZ"))
+        if (!mem.eql(u8, &magic, "MZ"))
             return error.InvalidPEMagic;
 
         // Seek to PE File Header (coff header)
@@ -71,7 +71,7 @@ pub const Coff = struct {
 
         var pe_header_magic: [4]u8 = undefined;
         try in.readNoEof(pe_header_magic[0..]);
-        if (!mem.eql(u8, pe_header_magic, [_]u8{ 'P', 'E', 0, 0 }))
+        if (!mem.eql(u8, &pe_header_magic, &[_]u8{ 'P', 'E', 0, 0 }))
             return error.InvalidPEHeader;
 
         self.coff_header = CoffHeader{
@@ -163,7 +163,7 @@ pub const Coff = struct {
         var cv_signature: [4]u8 = undefined; // CodeView signature
         try in.readNoEof(cv_signature[0..]);
         // 'RSDS' indicates PDB70 format, used by lld.
-        if (!mem.eql(u8, cv_signature, "RSDS"))
+        if (!mem.eql(u8, &cv_signature, "RSDS"))
             return error.InvalidPEMagic;
         try in.readNoEof(self.guid[0..]);
         self.age = try in.readIntLittle(u32);

@@ -932,9 +932,9 @@ pub fn wToPrefixedFileW(s: []const u16) ![PATH_MAX_WIDE:0]u16 {
     // TODO https://github.com/ziglang/zig/issues/2765
     var result: [PATH_MAX_WIDE:0]u16 = undefined;
 
-    const start_index = if (mem.startsWith(u16, s, [_]u16{ '\\', '?' })) 0 else blk: {
+    const start_index = if (mem.startsWith(u16, s, &[_]u16{ '\\', '?' })) 0 else blk: {
         const prefix = [_]u16{ '\\', '?', '?', '\\' };
-        mem.copy(u16, result[0..], prefix);
+        mem.copy(u16, result[0..], &prefix);
         break :blk prefix.len;
     };
     const end_index = start_index + s.len;
@@ -961,7 +961,7 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
     }
     const start_index = if (mem.startsWith(u8, s, "\\?") or !std.fs.path.isAbsolute(s)) 0 else blk: {
         const prefix = [_]u16{ '\\', '?', '?', '\\' };
-        mem.copy(u16, result[0..], prefix);
+        mem.copy(u16, result[0..], &prefix);
         break :blk prefix.len;
     };
     const end_index = start_index + try std.unicode.utf8ToUtf16Le(result[start_index..], s);
