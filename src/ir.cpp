@@ -253,6 +253,353 @@ static IrInstruction *ir_analyze_inferred_field_ptr(IrAnalyze *ira, Buf *field_n
     IrInstruction *source_instr, IrInstruction *container_ptr, ZigType *container_type);
 static ResultLoc *no_result_loc(void);
 
+static void destroy_instruction(IrInstruction *inst) {
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    const char *name = ir_instruction_type_str(inst->id);
+#else
+    const char *name = nullptr;
+#endif
+    switch (inst->id) {
+        case IrInstructionIdInvalid:
+            zig_unreachable();
+        case IrInstructionIdReturn:
+            return destroy(reinterpret_cast<IrInstructionReturn *>(inst), name);
+        case IrInstructionIdConst:
+            return destroy(reinterpret_cast<IrInstructionConst *>(inst), name);
+        case IrInstructionIdBinOp:
+            return destroy(reinterpret_cast<IrInstructionBinOp *>(inst), name);
+        case IrInstructionIdMergeErrSets:
+            return destroy(reinterpret_cast<IrInstructionMergeErrSets *>(inst), name);
+        case IrInstructionIdDeclVarSrc:
+            return destroy(reinterpret_cast<IrInstructionDeclVarSrc *>(inst), name);
+        case IrInstructionIdCast:
+            return destroy(reinterpret_cast<IrInstructionCast *>(inst), name);
+        case IrInstructionIdCallSrc:
+            return destroy(reinterpret_cast<IrInstructionCallSrc *>(inst), name);
+        case IrInstructionIdCallGen:
+            return destroy(reinterpret_cast<IrInstructionCallGen *>(inst), name);
+        case IrInstructionIdUnOp:
+            return destroy(reinterpret_cast<IrInstructionUnOp *>(inst), name);
+        case IrInstructionIdCondBr:
+            return destroy(reinterpret_cast<IrInstructionCondBr *>(inst), name);
+        case IrInstructionIdBr:
+            return destroy(reinterpret_cast<IrInstructionBr *>(inst), name);
+        case IrInstructionIdPhi:
+            return destroy(reinterpret_cast<IrInstructionPhi *>(inst), name);
+        case IrInstructionIdContainerInitList:
+            return destroy(reinterpret_cast<IrInstructionContainerInitList *>(inst), name);
+        case IrInstructionIdContainerInitFields:
+            return destroy(reinterpret_cast<IrInstructionContainerInitFields *>(inst), name);
+        case IrInstructionIdUnreachable:
+            return destroy(reinterpret_cast<IrInstructionUnreachable *>(inst), name);
+        case IrInstructionIdElemPtr:
+            return destroy(reinterpret_cast<IrInstructionElemPtr *>(inst), name);
+        case IrInstructionIdVarPtr:
+            return destroy(reinterpret_cast<IrInstructionVarPtr *>(inst), name);
+        case IrInstructionIdReturnPtr:
+            return destroy(reinterpret_cast<IrInstructionReturnPtr *>(inst), name);
+        case IrInstructionIdLoadPtr:
+            return destroy(reinterpret_cast<IrInstructionLoadPtr *>(inst), name);
+        case IrInstructionIdLoadPtrGen:
+            return destroy(reinterpret_cast<IrInstructionLoadPtrGen *>(inst), name);
+        case IrInstructionIdStorePtr:
+            return destroy(reinterpret_cast<IrInstructionStorePtr *>(inst), name);
+        case IrInstructionIdVectorStoreElem:
+            return destroy(reinterpret_cast<IrInstructionVectorStoreElem *>(inst), name);
+        case IrInstructionIdTypeOf:
+            return destroy(reinterpret_cast<IrInstructionTypeOf *>(inst), name);
+        case IrInstructionIdFieldPtr:
+            return destroy(reinterpret_cast<IrInstructionFieldPtr *>(inst), name);
+        case IrInstructionIdStructFieldPtr:
+            return destroy(reinterpret_cast<IrInstructionStructFieldPtr *>(inst), name);
+        case IrInstructionIdUnionFieldPtr:
+            return destroy(reinterpret_cast<IrInstructionUnionFieldPtr *>(inst), name);
+        case IrInstructionIdSetCold:
+            return destroy(reinterpret_cast<IrInstructionSetCold *>(inst), name);
+        case IrInstructionIdSetRuntimeSafety:
+            return destroy(reinterpret_cast<IrInstructionSetRuntimeSafety *>(inst), name);
+        case IrInstructionIdSetFloatMode:
+            return destroy(reinterpret_cast<IrInstructionSetFloatMode *>(inst), name);
+        case IrInstructionIdArrayType:
+            return destroy(reinterpret_cast<IrInstructionArrayType *>(inst), name);
+        case IrInstructionIdSliceType:
+            return destroy(reinterpret_cast<IrInstructionSliceType *>(inst), name);
+        case IrInstructionIdAnyFrameType:
+            return destroy(reinterpret_cast<IrInstructionAnyFrameType *>(inst), name);
+        case IrInstructionIdGlobalAsm:
+            return destroy(reinterpret_cast<IrInstructionGlobalAsm *>(inst), name);
+        case IrInstructionIdAsm:
+            return destroy(reinterpret_cast<IrInstructionAsm *>(inst), name);
+        case IrInstructionIdSizeOf:
+            return destroy(reinterpret_cast<IrInstructionSizeOf *>(inst), name);
+        case IrInstructionIdTestNonNull:
+            return destroy(reinterpret_cast<IrInstructionTestNonNull *>(inst), name);
+        case IrInstructionIdOptionalUnwrapPtr:
+            return destroy(reinterpret_cast<IrInstructionOptionalUnwrapPtr *>(inst), name);
+        case IrInstructionIdPopCount:
+            return destroy(reinterpret_cast<IrInstructionPopCount *>(inst), name);
+        case IrInstructionIdClz:
+            return destroy(reinterpret_cast<IrInstructionClz *>(inst), name);
+        case IrInstructionIdCtz:
+            return destroy(reinterpret_cast<IrInstructionCtz *>(inst), name);
+        case IrInstructionIdBswap:
+            return destroy(reinterpret_cast<IrInstructionBswap *>(inst), name);
+        case IrInstructionIdBitReverse:
+            return destroy(reinterpret_cast<IrInstructionBitReverse *>(inst), name);
+        case IrInstructionIdSwitchBr:
+            return destroy(reinterpret_cast<IrInstructionSwitchBr *>(inst), name);
+        case IrInstructionIdSwitchVar:
+            return destroy(reinterpret_cast<IrInstructionSwitchVar *>(inst), name);
+        case IrInstructionIdSwitchElseVar:
+            return destroy(reinterpret_cast<IrInstructionSwitchElseVar *>(inst), name);
+        case IrInstructionIdSwitchTarget:
+            return destroy(reinterpret_cast<IrInstructionSwitchTarget *>(inst), name);
+        case IrInstructionIdUnionTag:
+            return destroy(reinterpret_cast<IrInstructionUnionTag *>(inst), name);
+        case IrInstructionIdImport:
+            return destroy(reinterpret_cast<IrInstructionImport *>(inst), name);
+        case IrInstructionIdRef:
+            return destroy(reinterpret_cast<IrInstructionRef *>(inst), name);
+        case IrInstructionIdRefGen:
+            return destroy(reinterpret_cast<IrInstructionRefGen *>(inst), name);
+        case IrInstructionIdCompileErr:
+            return destroy(reinterpret_cast<IrInstructionCompileErr *>(inst), name);
+        case IrInstructionIdCompileLog:
+            return destroy(reinterpret_cast<IrInstructionCompileLog *>(inst), name);
+        case IrInstructionIdErrName:
+            return destroy(reinterpret_cast<IrInstructionErrName *>(inst), name);
+        case IrInstructionIdCImport:
+            return destroy(reinterpret_cast<IrInstructionCImport *>(inst), name);
+        case IrInstructionIdCInclude:
+            return destroy(reinterpret_cast<IrInstructionCInclude *>(inst), name);
+        case IrInstructionIdCDefine:
+            return destroy(reinterpret_cast<IrInstructionCDefine *>(inst), name);
+        case IrInstructionIdCUndef:
+            return destroy(reinterpret_cast<IrInstructionCUndef *>(inst), name);
+        case IrInstructionIdEmbedFile:
+            return destroy(reinterpret_cast<IrInstructionEmbedFile *>(inst), name);
+        case IrInstructionIdCmpxchgSrc:
+            return destroy(reinterpret_cast<IrInstructionCmpxchgSrc *>(inst), name);
+        case IrInstructionIdCmpxchgGen:
+            return destroy(reinterpret_cast<IrInstructionCmpxchgGen *>(inst), name);
+        case IrInstructionIdFence:
+            return destroy(reinterpret_cast<IrInstructionFence *>(inst), name);
+        case IrInstructionIdTruncate:
+            return destroy(reinterpret_cast<IrInstructionTruncate *>(inst), name);
+        case IrInstructionIdIntCast:
+            return destroy(reinterpret_cast<IrInstructionIntCast *>(inst), name);
+        case IrInstructionIdFloatCast:
+            return destroy(reinterpret_cast<IrInstructionFloatCast *>(inst), name);
+        case IrInstructionIdErrSetCast:
+            return destroy(reinterpret_cast<IrInstructionErrSetCast *>(inst), name);
+        case IrInstructionIdFromBytes:
+            return destroy(reinterpret_cast<IrInstructionFromBytes *>(inst), name);
+        case IrInstructionIdToBytes:
+            return destroy(reinterpret_cast<IrInstructionToBytes *>(inst), name);
+        case IrInstructionIdIntToFloat:
+            return destroy(reinterpret_cast<IrInstructionIntToFloat *>(inst), name);
+        case IrInstructionIdFloatToInt:
+            return destroy(reinterpret_cast<IrInstructionFloatToInt *>(inst), name);
+        case IrInstructionIdBoolToInt:
+            return destroy(reinterpret_cast<IrInstructionBoolToInt *>(inst), name);
+        case IrInstructionIdIntType:
+            return destroy(reinterpret_cast<IrInstructionIntType *>(inst), name);
+        case IrInstructionIdVectorType:
+            return destroy(reinterpret_cast<IrInstructionVectorType *>(inst), name);
+        case IrInstructionIdShuffleVector:
+            return destroy(reinterpret_cast<IrInstructionShuffleVector *>(inst), name);
+        case IrInstructionIdSplatSrc:
+            return destroy(reinterpret_cast<IrInstructionSplatSrc *>(inst), name);
+        case IrInstructionIdSplatGen:
+            return destroy(reinterpret_cast<IrInstructionSplatGen *>(inst), name);
+        case IrInstructionIdBoolNot:
+            return destroy(reinterpret_cast<IrInstructionBoolNot *>(inst), name);
+        case IrInstructionIdMemset:
+            return destroy(reinterpret_cast<IrInstructionMemset *>(inst), name);
+        case IrInstructionIdMemcpy:
+            return destroy(reinterpret_cast<IrInstructionMemcpy *>(inst), name);
+        case IrInstructionIdSliceSrc:
+            return destroy(reinterpret_cast<IrInstructionSliceSrc *>(inst), name);
+        case IrInstructionIdSliceGen:
+            return destroy(reinterpret_cast<IrInstructionSliceGen *>(inst), name);
+        case IrInstructionIdMemberCount:
+            return destroy(reinterpret_cast<IrInstructionMemberCount *>(inst), name);
+        case IrInstructionIdMemberType:
+            return destroy(reinterpret_cast<IrInstructionMemberType *>(inst), name);
+        case IrInstructionIdMemberName:
+            return destroy(reinterpret_cast<IrInstructionMemberName *>(inst), name);
+        case IrInstructionIdBreakpoint:
+            return destroy(reinterpret_cast<IrInstructionBreakpoint *>(inst), name);
+        case IrInstructionIdReturnAddress:
+            return destroy(reinterpret_cast<IrInstructionReturnAddress *>(inst), name);
+        case IrInstructionIdFrameAddress:
+            return destroy(reinterpret_cast<IrInstructionFrameAddress *>(inst), name);
+        case IrInstructionIdFrameHandle:
+            return destroy(reinterpret_cast<IrInstructionFrameHandle *>(inst), name);
+        case IrInstructionIdFrameType:
+            return destroy(reinterpret_cast<IrInstructionFrameType *>(inst), name);
+        case IrInstructionIdFrameSizeSrc:
+            return destroy(reinterpret_cast<IrInstructionFrameSizeSrc *>(inst), name);
+        case IrInstructionIdFrameSizeGen:
+            return destroy(reinterpret_cast<IrInstructionFrameSizeGen *>(inst), name);
+        case IrInstructionIdAlignOf:
+            return destroy(reinterpret_cast<IrInstructionAlignOf *>(inst), name);
+        case IrInstructionIdOverflowOp:
+            return destroy(reinterpret_cast<IrInstructionOverflowOp *>(inst), name);
+        case IrInstructionIdTestErrSrc:
+            return destroy(reinterpret_cast<IrInstructionTestErrSrc *>(inst), name);
+        case IrInstructionIdTestErrGen:
+            return destroy(reinterpret_cast<IrInstructionTestErrGen *>(inst), name);
+        case IrInstructionIdUnwrapErrCode:
+            return destroy(reinterpret_cast<IrInstructionUnwrapErrCode *>(inst), name);
+        case IrInstructionIdUnwrapErrPayload:
+            return destroy(reinterpret_cast<IrInstructionUnwrapErrPayload *>(inst), name);
+        case IrInstructionIdOptionalWrap:
+            return destroy(reinterpret_cast<IrInstructionOptionalWrap *>(inst), name);
+        case IrInstructionIdErrWrapCode:
+            return destroy(reinterpret_cast<IrInstructionErrWrapCode *>(inst), name);
+        case IrInstructionIdErrWrapPayload:
+            return destroy(reinterpret_cast<IrInstructionErrWrapPayload *>(inst), name);
+        case IrInstructionIdFnProto:
+            return destroy(reinterpret_cast<IrInstructionFnProto *>(inst), name);
+        case IrInstructionIdTestComptime:
+            return destroy(reinterpret_cast<IrInstructionTestComptime *>(inst), name);
+        case IrInstructionIdPtrCastSrc:
+            return destroy(reinterpret_cast<IrInstructionPtrCastSrc *>(inst), name);
+        case IrInstructionIdPtrCastGen:
+            return destroy(reinterpret_cast<IrInstructionPtrCastGen *>(inst), name);
+        case IrInstructionIdBitCastSrc:
+            return destroy(reinterpret_cast<IrInstructionBitCastSrc *>(inst), name);
+        case IrInstructionIdBitCastGen:
+            return destroy(reinterpret_cast<IrInstructionBitCastGen *>(inst), name);
+        case IrInstructionIdWidenOrShorten:
+            return destroy(reinterpret_cast<IrInstructionWidenOrShorten *>(inst), name);
+        case IrInstructionIdPtrToInt:
+            return destroy(reinterpret_cast<IrInstructionPtrToInt *>(inst), name);
+        case IrInstructionIdIntToPtr:
+            return destroy(reinterpret_cast<IrInstructionIntToPtr *>(inst), name);
+        case IrInstructionIdIntToEnum:
+            return destroy(reinterpret_cast<IrInstructionIntToEnum *>(inst), name);
+        case IrInstructionIdIntToErr:
+            return destroy(reinterpret_cast<IrInstructionIntToErr *>(inst), name);
+        case IrInstructionIdErrToInt:
+            return destroy(reinterpret_cast<IrInstructionErrToInt *>(inst), name);
+        case IrInstructionIdCheckSwitchProngs:
+            return destroy(reinterpret_cast<IrInstructionCheckSwitchProngs *>(inst), name);
+        case IrInstructionIdCheckStatementIsVoid:
+            return destroy(reinterpret_cast<IrInstructionCheckStatementIsVoid *>(inst), name);
+        case IrInstructionIdTypeName:
+            return destroy(reinterpret_cast<IrInstructionTypeName *>(inst), name);
+        case IrInstructionIdTagName:
+            return destroy(reinterpret_cast<IrInstructionTagName *>(inst), name);
+        case IrInstructionIdPtrType:
+            return destroy(reinterpret_cast<IrInstructionPtrType *>(inst), name);
+        case IrInstructionIdDeclRef:
+            return destroy(reinterpret_cast<IrInstructionDeclRef *>(inst), name);
+        case IrInstructionIdPanic:
+            return destroy(reinterpret_cast<IrInstructionPanic *>(inst), name);
+        case IrInstructionIdFieldParentPtr:
+            return destroy(reinterpret_cast<IrInstructionFieldParentPtr *>(inst), name);
+        case IrInstructionIdByteOffsetOf:
+            return destroy(reinterpret_cast<IrInstructionByteOffsetOf *>(inst), name);
+        case IrInstructionIdBitOffsetOf:
+            return destroy(reinterpret_cast<IrInstructionBitOffsetOf *>(inst), name);
+        case IrInstructionIdTypeInfo:
+            return destroy(reinterpret_cast<IrInstructionTypeInfo *>(inst), name);
+        case IrInstructionIdType:
+            return destroy(reinterpret_cast<IrInstructionType *>(inst), name);
+        case IrInstructionIdHasField:
+            return destroy(reinterpret_cast<IrInstructionHasField *>(inst), name);
+        case IrInstructionIdTypeId:
+            return destroy(reinterpret_cast<IrInstructionTypeId *>(inst), name);
+        case IrInstructionIdSetEvalBranchQuota:
+            return destroy(reinterpret_cast<IrInstructionSetEvalBranchQuota *>(inst), name);
+        case IrInstructionIdAlignCast:
+            return destroy(reinterpret_cast<IrInstructionAlignCast *>(inst), name);
+        case IrInstructionIdImplicitCast:
+            return destroy(reinterpret_cast<IrInstructionImplicitCast *>(inst), name);
+        case IrInstructionIdResolveResult:
+            return destroy(reinterpret_cast<IrInstructionResolveResult *>(inst), name);
+        case IrInstructionIdResetResult:
+            return destroy(reinterpret_cast<IrInstructionResetResult *>(inst), name);
+        case IrInstructionIdOpaqueType:
+            return destroy(reinterpret_cast<IrInstructionOpaqueType *>(inst), name);
+        case IrInstructionIdSetAlignStack:
+            return destroy(reinterpret_cast<IrInstructionSetAlignStack *>(inst), name);
+        case IrInstructionIdArgType:
+            return destroy(reinterpret_cast<IrInstructionArgType *>(inst), name);
+        case IrInstructionIdTagType:
+            return destroy(reinterpret_cast<IrInstructionTagType *>(inst), name);
+        case IrInstructionIdExport:
+            return destroy(reinterpret_cast<IrInstructionExport *>(inst), name);
+        case IrInstructionIdErrorReturnTrace:
+            return destroy(reinterpret_cast<IrInstructionErrorReturnTrace *>(inst), name);
+        case IrInstructionIdErrorUnion:
+            return destroy(reinterpret_cast<IrInstructionErrorUnion *>(inst), name);
+        case IrInstructionIdAtomicRmw:
+            return destroy(reinterpret_cast<IrInstructionAtomicRmw *>(inst), name);
+        case IrInstructionIdSaveErrRetAddr:
+            return destroy(reinterpret_cast<IrInstructionSaveErrRetAddr *>(inst), name);
+        case IrInstructionIdAddImplicitReturnType:
+            return destroy(reinterpret_cast<IrInstructionAddImplicitReturnType *>(inst), name);
+        case IrInstructionIdFloatOp:
+            return destroy(reinterpret_cast<IrInstructionFloatOp *>(inst), name);
+        case IrInstructionIdMulAdd:
+            return destroy(reinterpret_cast<IrInstructionMulAdd *>(inst), name);
+        case IrInstructionIdAtomicLoad:
+            return destroy(reinterpret_cast<IrInstructionAtomicLoad *>(inst), name);
+        case IrInstructionIdAtomicStore:
+            return destroy(reinterpret_cast<IrInstructionAtomicStore *>(inst), name);
+        case IrInstructionIdEnumToInt:
+            return destroy(reinterpret_cast<IrInstructionEnumToInt *>(inst), name);
+        case IrInstructionIdCheckRuntimeScope:
+            return destroy(reinterpret_cast<IrInstructionCheckRuntimeScope *>(inst), name);
+        case IrInstructionIdDeclVarGen:
+            return destroy(reinterpret_cast<IrInstructionDeclVarGen *>(inst), name);
+        case IrInstructionIdArrayToVector:
+            return destroy(reinterpret_cast<IrInstructionArrayToVector *>(inst), name);
+        case IrInstructionIdVectorToArray:
+            return destroy(reinterpret_cast<IrInstructionVectorToArray *>(inst), name);
+        case IrInstructionIdPtrOfArrayToSlice:
+            return destroy(reinterpret_cast<IrInstructionPtrOfArrayToSlice *>(inst), name);
+        case IrInstructionIdAssertZero:
+            return destroy(reinterpret_cast<IrInstructionAssertZero *>(inst), name);
+        case IrInstructionIdAssertNonNull:
+            return destroy(reinterpret_cast<IrInstructionAssertNonNull *>(inst), name);
+        case IrInstructionIdResizeSlice:
+            return destroy(reinterpret_cast<IrInstructionResizeSlice *>(inst), name);
+        case IrInstructionIdHasDecl:
+            return destroy(reinterpret_cast<IrInstructionHasDecl *>(inst), name);
+        case IrInstructionIdUndeclaredIdent:
+            return destroy(reinterpret_cast<IrInstructionUndeclaredIdent *>(inst), name);
+        case IrInstructionIdAllocaSrc:
+            return destroy(reinterpret_cast<IrInstructionAllocaSrc *>(inst), name);
+        case IrInstructionIdAllocaGen:
+            return destroy(reinterpret_cast<IrInstructionAllocaGen *>(inst), name);
+        case IrInstructionIdEndExpr:
+            return destroy(reinterpret_cast<IrInstructionEndExpr *>(inst), name);
+        case IrInstructionIdUnionInitNamedField:
+            return destroy(reinterpret_cast<IrInstructionUnionInitNamedField *>(inst), name);
+        case IrInstructionIdSuspendBegin:
+            return destroy(reinterpret_cast<IrInstructionSuspendBegin *>(inst), name);
+        case IrInstructionIdSuspendFinish:
+            return destroy(reinterpret_cast<IrInstructionSuspendFinish *>(inst), name);
+        case IrInstructionIdResume:
+            return destroy(reinterpret_cast<IrInstructionResume *>(inst), name);
+        case IrInstructionIdAwaitSrc:
+            return destroy(reinterpret_cast<IrInstructionAwaitSrc *>(inst), name);
+        case IrInstructionIdAwaitGen:
+            return destroy(reinterpret_cast<IrInstructionAwaitGen *>(inst), name);
+        case IrInstructionIdSpillBegin:
+            return destroy(reinterpret_cast<IrInstructionSpillBegin *>(inst), name);
+        case IrInstructionIdSpillEnd:
+            return destroy(reinterpret_cast<IrInstructionSpillEnd *>(inst), name);
+        case IrInstructionIdVectorExtractElem:
+            return destroy(reinterpret_cast<IrInstructionVectorExtractElem *>(inst), name);
+    }
+    zig_unreachable();
+}
+
 static void ira_ref(IrAnalyze *ira) {
     ira->ref_count += 1;
 }
@@ -262,6 +609,22 @@ static void ira_deref(IrAnalyze *ira) {
         return;
     }
     assert(ira->ref_count != 0);
+
+    for (size_t bb_i = 0; bb_i < ira->old_irb.exec->basic_block_list.length; bb_i += 1) {
+        IrBasicBlock *pass1_bb = ira->old_irb.exec->basic_block_list.items[bb_i];
+        for (size_t inst_i = 0; inst_i < pass1_bb->instruction_list.length; inst_i += 1) {
+            IrInstruction *pass1_inst = pass1_bb->instruction_list.items[inst_i];
+            destroy_instruction(pass1_inst);
+        }
+        destroy(pass1_bb, "IrBasicBlock");
+    }
+    ira->old_irb.exec->basic_block_list.deinit();
+    ira->old_irb.exec->tld_list.deinit();
+    // cannot destroy here because of var->owner_exec
+    //destroy(ira->old_irb.exec, "IrExecutablePass1");
+    ira->src_implicit_return_type_list.deinit();
+    ira->resume_stack.deinit();
+    ira->exec_context.mem_slot_list.deinit();
     destroy(ira, "IrAnalyze");
 }
 
@@ -4202,7 +4565,7 @@ static IrInstruction *ir_gen_bool_and(IrBuilder *irb, Scope *scope, AstNode *nod
     IrInstruction **incoming_values = allocate<IrInstruction *>(2);
     incoming_values[0] = val1;
     incoming_values[1] = val2;
-    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
+    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2, "IrBasicBlock *");
     incoming_blocks[0] = post_val1_block;
     incoming_blocks[1] = post_val2_block;
 
@@ -4292,7 +4655,7 @@ static IrInstruction *ir_gen_orelse(IrBuilder *irb, Scope *parent_scope, AstNode
     IrInstruction **incoming_values = allocate<IrInstruction *>(2);
     incoming_values[0] = null_result;
     incoming_values[1] = unwrapped_payload;
-    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
+    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2, "IrBasicBlock *");
     incoming_blocks[0] = after_null_block;
     incoming_blocks[1] = after_ok_block;
     IrInstruction *phi = ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values, peer_parent);
@@ -6057,7 +6420,7 @@ static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode 
     IrInstruction **incoming_values = allocate<IrInstruction *>(2);
     incoming_values[0] = then_expr_result;
     incoming_values[1] = else_expr_result;
-    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
+    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2, "IrBasicBlock *");
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
@@ -7409,7 +7772,7 @@ static IrInstruction *ir_gen_if_optional_expr(IrBuilder *irb, Scope *scope, AstN
     IrInstruction **incoming_values = allocate<IrInstruction *>(2);
     incoming_values[0] = then_expr_result;
     incoming_values[1] = else_expr_result;
-    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
+    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2, "IrBasicBlock *");
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
@@ -7506,7 +7869,7 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
     IrInstruction **incoming_values = allocate<IrInstruction *>(2);
     incoming_values[0] = then_expr_result;
     incoming_values[1] = else_expr_result;
-    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
+    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2, "IrBasicBlock *");
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
@@ -8102,7 +8465,7 @@ static IrInstruction *ir_gen_catch(IrBuilder *irb, Scope *parent_scope, AstNode 
     IrInstruction **incoming_values = allocate<IrInstruction *>(2);
     incoming_values[0] = err_result;
     incoming_values[1] = unwrapped_payload;
-    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
+    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2, "IrBasicBlock *");
     incoming_blocks[0] = after_err_block;
     incoming_blocks[1] = after_ok_block;
     IrInstruction *phi = ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values, peer_parent);
@@ -8690,7 +9053,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
 bool ir_gen_fn(CodeGen *codegen, ZigFn *fn_entry) {
     assert(fn_entry);
 
-    IrExecutable *ir_executable = &fn_entry->ir_executable;
+    IrExecutable *ir_executable = fn_entry->ir_executable;
     AstNode *body_node = fn_entry->body_node;
 
     assert(fn_entry->child_scope);
@@ -11565,7 +11928,7 @@ ZigValue *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
     if (expected_type != nullptr && type_is_invalid(expected_type))
         return codegen->invalid_instruction->value;
 
-    IrExecutable *ir_executable = allocate<IrExecutable>(1);
+    IrExecutable *ir_executable = allocate<IrExecutable>(1, "IrExecutablePass1");
     ir_executable->source_node = source_node;
     ir_executable->parent_exec = parent_exec;
     ir_executable->name = exec_name;
@@ -11587,7 +11950,7 @@ ZigValue *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
         ir_print(codegen, stderr, ir_executable, 2, IrPassSrc);
         fprintf(stderr, "}\n");
     }
-    IrExecutable *analyzed_executable = allocate<IrExecutable>(1);
+    IrExecutable *analyzed_executable = allocate<IrExecutable>(1, "IrExecutablePass2");
     analyzed_executable->source_node = source_node;
     analyzed_executable->parent_exec = parent_exec;
     analyzed_executable->source_exec = ir_executable;
@@ -15752,6 +16115,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
             assert(var->mem_slot_index < ira->exec_context.mem_slot_list.length);
             ZigValue *mem_slot = ira->exec_context.mem_slot_list.at(var->mem_slot_index);
             copy_const_val(mem_slot, init_val, !is_comptime_var || var->gen_is_const);
+            ira_ref(var->owner_exec->analysis);
 
             if (is_comptime_var || (var_class_requires_const && var->gen_is_const)) {
                 return ir_const_void(ira, &decl_var_instruction->base);
@@ -17522,8 +17886,8 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
             if (type_is_invalid(impl_fn->type_entry))
                 return ira->codegen->invalid_instruction;
 
-            impl_fn->ir_executable.source_node = call_instruction->base.source_node;
-            impl_fn->ir_executable.parent_exec = ira->new_irb.exec;
+            impl_fn->ir_executable->source_node = call_instruction->base.source_node;
+            impl_fn->ir_executable->parent_exec = ira->new_irb.exec;
             impl_fn->analyzed_executable.source_node = call_instruction->base.source_node;
             impl_fn->analyzed_executable.parent_exec = ira->new_irb.exec;
             impl_fn->analyzed_executable.backward_branch_quota = ira->new_irb.exec->backward_branch_quota;

@@ -3275,14 +3275,15 @@ static void get_fully_qualified_decl_name(CodeGen *g, Buf *buf, Tld *tld, bool i
 }
 
 ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value) {
-    ZigFn *fn_entry = allocate<ZigFn>(1);
+    ZigFn *fn_entry = allocate<ZigFn>(1, "ZigFn");
+    fn_entry->ir_executable = allocate<IrExecutable>(1, "IrExecutablePass1");
 
     fn_entry->prealloc_backward_branch_quota = default_backward_branch_quota;
 
     fn_entry->analyzed_executable.backward_branch_count = &fn_entry->prealloc_bbc;
     fn_entry->analyzed_executable.backward_branch_quota = &fn_entry->prealloc_backward_branch_quota;
     fn_entry->analyzed_executable.fn_entry = fn_entry;
-    fn_entry->ir_executable.fn_entry = fn_entry;
+    fn_entry->ir_executable->fn_entry = fn_entry;
     fn_entry->fn_inline = inline_value;
 
     return fn_entry;
@@ -4610,7 +4611,7 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
     assert(!fn_type->data.fn.is_generic);
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
 
-    ZigType *block_return_type = ir_analyze(g, &fn->ir_executable,
+    ZigType *block_return_type = ir_analyze(g, fn->ir_executable,
             &fn->analyzed_executable, fn_type_id->return_type, return_type_node);
     fn->src_implicit_return_type = block_return_type;
 
@@ -4706,7 +4707,7 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
     assert(!fn_type->data.fn.is_generic);
 
     ir_gen_fn(g, fn_table_entry);
-    if (fn_table_entry->ir_executable.first_err_trace_msg != nullptr) {
+    if (fn_table_entry->ir_executable->first_err_trace_msg != nullptr) {
         fn_table_entry->anal_state = FnAnalStateInvalid;
         return;
     }
@@ -4714,7 +4715,7 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
         fprintf(stderr, "\n");
         ast_render(stderr, fn_table_entry->body_node, 4);
         fprintf(stderr, "\nfn %s() { // (IR)\n", buf_ptr(&fn_table_entry->symbol_name));
-        ir_print(g, stderr, &fn_table_entry->ir_executable, 4, IrPassSrc);
+        ir_print(g, stderr, fn_table_entry->ir_executable, 4, IrPassSrc);
         fprintf(stderr, "}\n");
     }
 
@@ -6453,20 +6454,31 @@ Error type_resolve(CodeGen *g, ZigType *ty, ResolveStatus status) {
 }
 
 bool ir_get_var_is_comptime(ZigVar *var) {
+    if (var->is_comptime_memoized)
+        return var->is_comptime_memoized_value;
+
+    var->is_comptime_memoized = true;
+
     // The is_comptime field can be left null, which means not comptime.
-    if (var->is_comptime == nullptr)
-        return false;
+    if (var->is_comptime == nullptr) {
+        var->is_comptime_memoized_value = false;
+        return var->is_comptime_memoized_value;
+    }
     // When the is_comptime field references an instruction that has to get analyzed, this
     // is the value.
     if (var->is_comptime->child != nullptr) {
         assert(var->is_comptime->child->value->type->id == ZigTypeIdBool);
-        return var->is_comptime->child->value->data.x_bool;
+        var->is_comptime_memoized_value = var->is_comptime->child->value->data.x_bool;
+        var->is_comptime = nullptr;
+        return var->is_comptime_memoized_value;
     }
     // As an optimization, is_comptime values which are constant are allowed
     // to be omitted from analysis. In this case, there is no child instruction
     // and we simply look at the unanalyzed const parent instruction.
     assert(var->is_comptime->value->type->id == ZigTypeIdBool);
-    return var->is_comptime->value->data.x_bool;
+    var->is_comptime_memoized_value = var->is_comptime->value->data.x_bool;
+    var->is_comptime = nullptr;
+    return var->is_comptime_memoized_value;
 }
 
 bool const_values_equal_ptr(ZigValue *a, ZigValue *b) {
