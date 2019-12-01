@@ -42,6 +42,7 @@ struct IrAnalyze {
     ZigList<IrSuspendPosition> resume_stack;
     IrBasicBlock *const_predecessor_bb;
     size_t ref_count;
+    size_t break_debug_id; // for debugging purposes
 
     // For the purpose of using in a debugger
     void dump();
@@ -197,6 +198,14 @@ struct ConstCastIntShorten {
     ZigType *wanted_type;
     ZigType *actual_type;
 };
+
+// for debugging purposes
+struct DbgIrBreakPoint {
+    const char *src_file;
+    uint32_t line;
+};
+DbgIrBreakPoint dbg_ir_breakpoints_buf[20];
+size_t dbg_ir_breakpoints_count = 0;
 
 static IrInstruction *ir_gen_node(IrBuilder *irb, AstNode *node, Scope *scope);
 static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, Scope *scope, LVal lval,
@@ -11355,8 +11364,12 @@ static void copy_const_val(ZigValue *dest, ZigValue *src) {
         dest->data.x_struct.fields = alloc_const_vals_ptrs(dest->type->data.structure.src_field_count);
         for (size_t i = 0; i < dest->type->data.structure.src_field_count; i += 1) {
             copy_const_val(dest->data.x_struct.fields[i], src->data.x_struct.fields[i]);
+            dest->data.x_struct.fields[i]->parent.id = ConstParentIdStruct;
+            dest->data.x_struct.fields[i]->parent.data.p_struct.struct_val = dest;
+            dest->data.x_struct.fields[i]->parent.data.p_struct.field_index = i;
         }
     }
+    dest->parent.id = ConstParentIdNone;
 }
 
 static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_instr,
@@ -11472,6 +11485,14 @@ static IrInstruction *ir_const_noval(IrAnalyze *ira, IrInstruction *old_instruct
     IrInstructionConst *const_instruction = ir_create_instruction_noval<IrInstructionConst>(&ira->new_irb,
             old_instruction->scope, old_instruction->source_node);
     return &const_instruction->base;
+}
+
+// This function initializes the new IrInstruction with the provided ZigValue,
+// rather than creating a new one.
+static IrInstruction *ir_const_move(IrAnalyze *ira, IrInstruction *old_instruction, ZigValue *val) {
+    IrInstruction *result = ir_const_noval(ira, old_instruction);
+    result->value = val;
+    return result;
 }
 
 static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
@@ -14216,9 +14237,7 @@ static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructio
 }
 
 static IrInstruction *ir_analyze_instruction_const(IrAnalyze *ira, IrInstructionConst *instruction) {
-    IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
-    copy_const_val(result->value, instruction->base.value);
-    return result;
+    return ir_const_move(ira, &instruction->base, instruction->base.value);
 }
 
 static IrInstruction *ir_analyze_bin_op_bool(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
@@ -16633,6 +16652,7 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
 
             ZigType *parent_ptr_type = parent_result_loc->value->type;
             assert(parent_ptr_type->id == ZigTypeIdPointer);
+
             if ((err = type_resolve(ira->codegen, parent_ptr_type->data.pointer.child_type,
                             ResolveStatusAlignmentKnown)))
             {
@@ -17283,6 +17303,7 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
                     return ira->codegen->invalid_instruction;
                 if (dest_val->special != ConstValSpecialRuntime) {
                     copy_const_val(dest_val, value->value);
+
                     if (ptr->value->data.x_ptr.mut == ConstPtrMutComptimeVar &&
                         !ira->new_irb.current_basic_block->must_be_comptime_source_instr)
                     {
@@ -17556,9 +17577,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
             }
         }
 
-        IrInstruction *new_instruction = ir_const(ira, &call_instruction->base, result->type);
-        copy_const_val(new_instruction->value, result);
-        new_instruction->value->type = return_type;
+        IrInstruction *new_instruction = ir_const_move(ira, &call_instruction->base, result);
         return ir_finish_anal(ira, new_instruction);
     }
 
@@ -27978,7 +27997,24 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
         }
 
         if (ira->codegen->verbose_ir) {
-            fprintf(stderr, "analyze #%" PRIu32 "\n", old_instruction->debug_id);
+            fprintf(stderr, "~ ");
+            old_instruction->src();
+            fprintf(stderr, "~ ");
+            ir_print_instruction(codegen, stderr, old_instruction, 0, IrPassSrc);
+            bool want_break = false;
+            if (ira->break_debug_id == old_instruction->debug_id) {
+                want_break = true;
+            } else if (old_instruction->source_node != nullptr) {
+                for (size_t i = 0; i < dbg_ir_breakpoints_count; i += 1) {
+                    if (dbg_ir_breakpoints_buf[i].line == old_instruction->source_node->line + 1 &&
+                        buf_ends_with_str(old_instruction->source_node->owner->data.structure.root_struct->path,
+                                dbg_ir_breakpoints_buf[i].src_file))
+                    {
+                        want_break = true;
+                    }
+                }
+            }
+            if (want_break) BREAKPOINT;
         }
         IrInstruction *new_instruction = ir_analyze_instruction_base(ira, old_instruction);
         if (new_instruction != nullptr) {
@@ -27986,6 +28022,10 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
             old_instruction->child = new_instruction;
 
             if (type_is_invalid(new_instruction->value->type)) {
+                if (ira->codegen->verbose_ir) {
+                    fprintf(stderr, "-> (invalid)");
+                }
+
                 if (new_exec->first_err_trace_msg != nullptr) {
                     ira->codegen->trace_err = new_exec->first_err_trace_msg;
                 } else {
@@ -27999,11 +28039,22 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
                             old_instruction->source_node, buf_create_from_str("referenced here"));
                 }
                 return ira->codegen->builtin_types.entry_invalid;
+            } else if (ira->codegen->verbose_ir) {
+                fprintf(stderr, "-> ");
+                if (instr_is_unreachable(new_instruction)) {
+                    fprintf(stderr, "(noreturn)\n");
+                } else {
+                    ir_print_instruction(codegen, stderr, new_instruction, 0, IrPassGen);
+                }
             }
 
             // unreachable instructions do their own control flow.
             if (new_instruction->value->type->id == ZigTypeIdUnreachable)
                 continue;
+        } else {
+            if (ira->codegen->verbose_ir) {
+                fprintf(stderr, "-> (null");
+            }
         }
 
         ira->instruction_index += 1;
@@ -28667,18 +28718,27 @@ Error ir_resolve_lazy(CodeGen *codegen, AstNode *source_node, ZigValue *val) {
     return ErrorNone;
 }
 
-void IrInstruction::dump() {
+void IrInstruction::src() {
     IrInstruction *inst = this;
     if (inst->source_node != nullptr) {
         inst->source_node->src();
     } else {
         fprintf(stderr, "(null source node)\n");
     }
+}
+
+void IrInstruction::dump() {
+    IrInstruction *inst = this;
+    inst->src();
     IrPass pass = (inst->child == nullptr) ? IrPassGen : IrPassSrc;
-    ir_print_instruction(inst->scope->codegen, stderr, inst, 0, pass);
-    if (pass == IrPassSrc) {
-        fprintf(stderr, "-> ");
-        ir_print_instruction(inst->scope->codegen, stderr, inst->child, 0, IrPassGen);
+    if (inst->scope == nullptr) {
+        fprintf(stderr, "(null scope)\n");
+    } else {
+        ir_print_instruction(inst->scope->codegen, stderr, inst, 0, pass);
+        if (pass == IrPassSrc) {
+            fprintf(stderr, "-> ");
+            ir_print_instruction(inst->scope->codegen, stderr, inst->child, 0, IrPassGen);
+        }
     }
 }
 
@@ -28688,4 +28748,12 @@ void IrAnalyze::dump() {
         fprintf(stderr, "Current basic block:\n");
         ir_print_basic_block(this->codegen, stderr, this->new_irb.current_basic_block, 1, IrPassGen);
     }
+}
+
+void dbg_ir_break(const char *src_file, uint32_t line) {
+    dbg_ir_breakpoints_buf[dbg_ir_breakpoints_count] = {src_file, line};
+    dbg_ir_breakpoints_count += 1;
+}
+void dbg_ir_clear(void) {
+    dbg_ir_breakpoints_count = 0;
 }
