@@ -9,11 +9,24 @@ const trait = meta.trait;
 const testing = std.testing;
 
 pub const min_page_size = switch (builtin.arch) {
+    .mips, .mipsel, .mips64, .mips64el => switch (builtin.os) {
+        else => 1024, // NEC VR41xx processors support as low as 1K page size
+        .linux => 4 * 1024, // Linux doesn't support < 4K pages
+    },
+    .sparcv9 => 8 * 1024,
     .wasm32, .wasm64 => 64 * 1024,
     else => 4 * 1024,
 };
 
 pub const max_page_size = switch (builtin.arch) {
+    .arm, .armeb => 16 * 1024 * 1024, // At least ARMv7 has optional support for 16M pages
+    .aarch64, .aarch64_be => 1 * 1024 * 1024 * 1024, // ARM64 supports 4K, 16K, 64K, 2M, 32M, 512M, 1G pages
+    .mips, .mipsel, .mips64, .mips64el => 64 * 1024, // Every MIPS III, MIPS IV, MIPS32 and MIPS64 processor supports 4K, 16K and 64K page sizes.
+    .powerpc64, .powerpc64le => 64 * 1024,
+    .s390x => 2 * 1024 * 1024 * 1024, // 4K, 1M, 2G pages
+    .sparcv9 => 16 * 1024 * 1024 * 1024, // 8K, 64K, 512K, 4M, 32M, 256M, 2G, 16G
+    .wasm32, .wasm64 => 64 * 1024,
+    .x86_64 => 1 * 1024 * 1024 * 1024, // 1G huge pages.
     else => min_page_size,
 };
 
