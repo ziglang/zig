@@ -2062,14 +2062,28 @@ pub const RunStep = struct {
     }
 
     pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
-        const PATH = if (builtin.os == .windows) "Path" else "PATH";
         const env_map = self.getEnvMap();
-        const prev_path = env_map.get(PATH) orelse {
-            env_map.set(PATH, search_path) catch unreachable;
-            return;
-        };
-        const new_path = self.builder.fmt("{}" ++ &[1]u8{fs.path.delimiter} ++ "{}", prev_path, search_path);
-        env_map.set(PATH, new_path) catch unreachable;
+
+        var key: []const u8 = undefined;
+        var prev_path: ?[]const u8 = undefined;
+        if (builtin.os == .windows) {
+            key = "Path";
+            prev_path = env_map.get(key);
+            if (prev_path == null) {
+                key = "PATH";
+                prev_path = env_map.get(key);
+            }
+        } else {
+            key = "PATH";
+            prev_path = env_map.get(key);
+        }
+
+        if (prev_path) |pp| {
+            const new_path = self.builder.fmt("{}" ++ [1]u8{fs.path.delimiter} ++ "{}", pp, search_path);
+            env_map.set(key, new_path) catch unreachable;
+        } else {
+            env_map.set(key, search_path) catch unreachable;
+        }
     }
 
     pub fn getEnvMap(self: *RunStep) *BufMap {
@@ -2178,7 +2192,7 @@ const InstallArtifactStep = struct {
 
         const full_dest_path = builder.getInstallPath(self.dest_dir, self.artifact.out_filename);
         try builder.updateFile(self.artifact.getOutputPath(), full_dest_path);
-        if (self.artifact.isDynamicLibrary()) {
+        if (self.artifact.isDynamicLibrary() and self.artifact.target.wantSharedLibSymLinks()) {
             try doAtomicSymLinks(builder.allocator, full_dest_path, self.artifact.major_only_filename, self.artifact.name_only_filename);
         }
         if (self.pdb_dir) |pdb_dir| {
@@ -2405,7 +2419,7 @@ fn findVcpkgRoot(allocator: *Allocator) !?[]const u8 {
     const path_file = try fs.path.join(allocator, &[_][]const u8{ appdata_path, "vcpkg.path.txt" });
     defer allocator.free(path_file);
 
-    const file = fs.File.openRead(path_file) catch return null;
+    const file = fs.cwd().openFile(path_file, .{}) catch return null;
     defer file.close();
 
     const size = @intCast(usize, try file.getEndPos());

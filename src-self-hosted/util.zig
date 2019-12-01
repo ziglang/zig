@@ -32,21 +32,21 @@ pub fn getFloatAbi(self: Target) FloatAbi {
     };
 }
 
-pub fn getObjectFormat(self: Target) Target.ObjectFormat {
-    return switch (self) {
-        .Native => @import("builtin").object_format,
-        .Cross => {
+pub fn getObjectFormat(target: Target) Target.ObjectFormat {
+    switch (target) {
+        .Native => return @import("builtin").object_format,
+        .Cross => blk: {
             if (target.isWindows() or target.isUefi()) {
-                break .coff;
+                return .coff;
             } else if (target.isDarwin()) {
-                break .macho;
+                return .macho;
             }
             if (target.isWasm()) {
-                break .wasm;
+                return .wasm;
             }
-            break .elf;
+            return .elf;
         },
-    };
+    }
 }
 
 pub fn getDynamicLinkerPath(self: Target) ?[]const u8 {
@@ -156,7 +156,7 @@ pub fn getDynamicLinkerPath(self: Target) ?[]const u8 {
     }
 }
 
-pub fn getDarwinArchString(self: Target) []const u8 {
+pub fn getDarwinArchString(self: Target) [:0]const u8 {
     const arch = self.getArch();
     switch (arch) {
         .aarch64 => return "arm64",
@@ -166,7 +166,8 @@ pub fn getDarwinArchString(self: Target) []const u8 {
         .powerpc => return "ppc",
         .powerpc64 => return "ppc64",
         .powerpc64le => return "ppc64le",
-        else => return @tagName(arch),
+        // @tagName should be able to return sentinel terminated slice
+        else => @panic("TODO https://github.com/ziglang/zig/issues/3779"), //return @tagName(arch),
     }
 }
 

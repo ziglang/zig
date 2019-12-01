@@ -812,7 +812,7 @@ fn linuxLookupNameFromHosts(
     family: os.sa_family_t,
     port: u16,
 ) !void {
-    const file = fs.File.openReadC("/etc/hosts") catch |err| switch (err) {
+    const file = fs.openFileAbsoluteC("/etc/hosts", .{}) catch |err| switch (err) {
         error.FileNotFound,
         error.NotDir,
         error.AccessDenied,
@@ -1006,7 +1006,7 @@ fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
     };
     errdefer rc.deinit();
 
-    const file = fs.File.openReadC("/etc/resolv.conf") catch |err| switch (err) {
+    const file = fs.openFileAbsoluteC("/etc/resolv.conf", .{}) catch |err| switch (err) {
         error.FileNotFound,
         error.NotDir,
         error.AccessDenied,

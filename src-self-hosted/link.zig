@@ -11,7 +11,7 @@ const util = @import("util.zig");
 const Context = struct {
     comp: *Compilation,
     arena: std.heap.ArenaAllocator,
-    args: std.ArrayList([*]const u8),
+    args: std.ArrayList([*:0]const u8),
     link_in_crt: bool,
 
     link_err: error{OutOfMemory}!void,
@@ -21,7 +21,7 @@ const Context = struct {
     out_file_path: std.Buffer,
 };
 
-pub async fn link(comp: *Compilation) !void {
+pub fn link(comp: *Compilation) !void {
     var ctx = Context{
         .comp = comp,
         .arena = std.heap.ArenaAllocator.init(comp.gpa()),
@@ -33,7 +33,7 @@ pub async fn link(comp: *Compilation) !void {
         .out_file_path = undefined,
     };
     defer ctx.arena.deinit();
-    ctx.args = std.ArrayList([*]const u8).init(&ctx.arena.allocator);
+    ctx.args = std.ArrayList([*:0]const u8).init(&ctx.arena.allocator);
     ctx.link_msg = std.Buffer.initNull(&ctx.arena.allocator);
 
     if (comp.link_out_file) |out_file| {
@@ -58,7 +58,8 @@ pub async fn link(comp: *Compilation) !void {
     try ctx.args.append("lld");
 
     if (comp.haveLibC()) {
-        ctx.libc = ctx.comp.override_libc orelse blk: {
+        // TODO https://github.com/ziglang/zig/issues/3190
+        var libc = ctx.comp.override_libc orelse blk: {
             switch (comp.target) {
                 Target.Native => {
                     break :blk comp.zig_compiler.getNativeLibC() catch return error.LibCRequiredButNotProvidedOrFound;
@@ -66,6 +67,7 @@ pub async fn link(comp: *Compilation) !void {
                 else => return error.LibCRequiredButNotProvidedOrFound,
             }
         };
+        ctx.libc = libc;
     }
 
     try constructLinkerArgs(&ctx);
@@ -171,7 +173,7 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     //}
 
     try ctx.args.append("-o");
-    try ctx.args.append(ctx.out_file_path.ptr());
+    try ctx.args.append(ctx.out_file_path.toSliceConst());
 
     if (ctx.link_in_crt) {
         const crt1o = if (ctx.comp.is_static) "crt1.o" else "Scrt1.o";
@@ -214,10 +216,11 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
 
     if (ctx.comp.haveLibC()) {
         try ctx.args.append("-L");
-        try ctx.args.append((try std.cstr.addNullByte(&ctx.arena.allocator, ctx.libc.lib_dir.?)).ptr);
+        // TODO addNullByte should probably return [:0]u8
+        try ctx.args.append(@ptrCast([*:0]const u8, (try std.cstr.addNullByte(&ctx.arena.allocator, ctx.libc.lib_dir.?)).ptr));
 
         try ctx.args.append("-L");
-        try ctx.args.append((try std.cstr.addNullByte(&ctx.arena.allocator, ctx.libc.static_lib_dir.?)).ptr);
+        try ctx.args.append(@ptrCast([*:0]const u8, (try std.cstr.addNullByte(&ctx.arena.allocator, ctx.libc.static_lib_dir.?)).ptr));
 
         if (!ctx.comp.is_static) {
             const dl = blk: {
@@ -226,7 +229,7 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
                 return error.LibCMissingDynamicLinker;
             };
             try ctx.args.append("-dynamic-linker");
-            try ctx.args.append((try std.cstr.addNullByte(&ctx.arena.allocator, dl)).ptr);
+            try ctx.args.append(@ptrCast([*:0]const u8, (try std.cstr.addNullByte(&ctx.arena.allocator, dl)).ptr));
         }
     }
 
@@ -238,7 +241,7 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     // .o files
     for (ctx.comp.link_objects) |link_object| {
         const link_obj_with_null = try std.cstr.addNullByte(&ctx.arena.allocator, link_object);
-        try ctx.args.append(link_obj_with_null.ptr);
+        try ctx.args.append(@ptrCast([*:0]const u8, link_obj_with_null.ptr));
     }
     try addFnObjects(ctx);
 
@@ -313,7 +316,7 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
 fn addPathJoin(ctx: *Context, dirname: []const u8, basename: []const u8) !void {
     const full_path = try std.fs.path.join(&ctx.arena.allocator, [_][]const u8{ dirname, basename });
     const full_path_with_null = try std.cstr.addNullByte(&ctx.arena.allocator, full_path);
-    try ctx.args.append(full_path_with_null.ptr);
+    try ctx.args.append(@ptrCast([*:0]const u8, full_path_with_null.ptr));
 }
 
 fn constructLinkerArgsCoff(ctx: *Context) !void {
@@ -339,12 +342,12 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
     const is_library = ctx.comp.kind == .Lib;
 
     const out_arg = try std.fmt.allocPrint(&ctx.arena.allocator, "-OUT:{}\x00", ctx.out_file_path.toSliceConst());
-    try ctx.args.append(out_arg.ptr);
+    try ctx.args.append(@ptrCast([*:0]const u8, out_arg.ptr));
 
     if (ctx.comp.haveLibC()) {
-        try ctx.args.append((try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", ctx.libc.msvc_lib_dir.?)).ptr);
-        try ctx.args.append((try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", ctx.libc.kernel32_lib_dir.?)).ptr);
-        try ctx.args.append((try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", ctx.libc.lib_dir.?)).ptr);
+        try ctx.args.append(@ptrCast([*:0]const u8, (try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", ctx.libc.msvc_lib_dir.?)).ptr));
+        try ctx.args.append(@ptrCast([*:0]const u8, (try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", ctx.libc.kernel32_lib_dir.?)).ptr));
+        try ctx.args.append(@ptrCast([*:0]const u8, (try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", ctx.libc.lib_dir.?)).ptr));
     }
 
     if (ctx.link_in_crt) {
@@ -353,17 +356,17 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
 
         if (ctx.comp.is_static) {
             const cmt_lib_name = try std.fmt.allocPrint(&ctx.arena.allocator, "libcmt{}.lib\x00", d_str);
-            try ctx.args.append(cmt_lib_name.ptr);
+            try ctx.args.append(@ptrCast([*:0]const u8, cmt_lib_name.ptr));
         } else {
             const msvcrt_lib_name = try std.fmt.allocPrint(&ctx.arena.allocator, "msvcrt{}.lib\x00", d_str);
-            try ctx.args.append(msvcrt_lib_name.ptr);
+            try ctx.args.append(@ptrCast([*:0]const u8, msvcrt_lib_name.ptr));
         }
 
         const vcruntime_lib_name = try std.fmt.allocPrint(&ctx.arena.allocator, "{}vcruntime{}.lib\x00", lib_str, d_str);
-        try ctx.args.append(vcruntime_lib_name.ptr);
+        try ctx.args.append(@ptrCast([*:0]const u8, vcruntime_lib_name.ptr));
 
         const crt_lib_name = try std.fmt.allocPrint(&ctx.arena.allocator, "{}ucrt{}.lib\x00", lib_str, d_str);
-        try ctx.args.append(crt_lib_name.ptr);
+        try ctx.args.append(@ptrCast([*:0]const u8, crt_lib_name.ptr));
 
         // Visual C++ 2015 Conformance Changes
         // https://msdn.microsoft.com/en-us/library/bb531344.aspx
@@ -395,7 +398,7 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
 
     for (ctx.comp.link_objects) |link_object| {
         const link_obj_with_null = try std.cstr.addNullByte(&ctx.arena.allocator, link_object);
-        try ctx.args.append(link_obj_with_null.ptr);
+        try ctx.args.append(@ptrCast([*:0]const u8, link_obj_with_null.ptr));
     }
     try addFnObjects(ctx);
 
@@ -504,11 +507,7 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
     //}
 
     try ctx.args.append("-arch");
-    const darwin_arch_str = try std.cstr.addNullByte(
-        &ctx.arena.allocator,
-        ctx.comp.target.getDarwinArchString(),
-    );
-    try ctx.args.append(darwin_arch_str.ptr);
+    try ctx.args.append(util.getDarwinArchString(ctx.comp.target));
 
     const platform = try DarwinPlatform.get(ctx.comp);
     switch (platform.kind) {
@@ -517,7 +516,7 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
         .IPhoneOSSimulator => try ctx.args.append("-ios_simulator_version_min"),
     }
     const ver_str = try std.fmt.allocPrint(&ctx.arena.allocator, "{}.{}.{}\x00", platform.major, platform.minor, platform.micro);
-    try ctx.args.append(ver_str.ptr);
+    try ctx.args.append(@ptrCast([*:0]const u8, ver_str.ptr));
 
     if (ctx.comp.kind == .Exe) {
         if (ctx.comp.is_static) {
@@ -528,7 +527,7 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
     }
 
     try ctx.args.append("-o");
-    try ctx.args.append(ctx.out_file_path.ptr());
+    try ctx.args.append(ctx.out_file_path.toSliceConst());
 
     //for (size_t i = 0; i < g->rpath_list.length; i += 1) {
     //    Buf *rpath = g->rpath_list.at(i);
@@ -572,7 +571,7 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
 
     for (ctx.comp.link_objects) |link_object| {
         const link_obj_with_null = try std.cstr.addNullByte(&ctx.arena.allocator, link_object);
-        try ctx.args.append(link_obj_with_null.ptr);
+        try ctx.args.append(@ptrCast([*:0]const u8, link_obj_with_null.ptr));
     }
     try addFnObjects(ctx);
 
@@ -593,10 +592,10 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
             } else {
                 if (mem.indexOfScalar(u8, lib.name, '/') == null) {
                     const arg = try std.fmt.allocPrint(&ctx.arena.allocator, "-l{}\x00", lib.name);
-                    try ctx.args.append(arg.ptr);
+                    try ctx.args.append(@ptrCast([*:0]const u8, arg.ptr));
                 } else {
                     const arg = try std.cstr.addNullByte(&ctx.arena.allocator, lib.name);
-                    try ctx.args.append(arg.ptr);
+                    try ctx.args.append(@ptrCast([*:0]const u8, arg.ptr));
                 }
             }
         }
@@ -626,20 +625,19 @@ fn constructLinkerArgsWasm(ctx: *Context) void {
 }
 
 fn addFnObjects(ctx: *Context) !void {
-    // at this point it's guaranteed nobody else has this lock, so we circumvent it
-    // and avoid having to be an async function
-    const fn_link_set = &ctx.comp.fn_link_set.private_data;
+    const held = ctx.comp.fn_link_set.acquire();
+    defer held.release();
 
-    var it = fn_link_set.first;
+    var it = held.value.first;
     while (it) |node| {
         const fn_val = node.data orelse {
             // handle the tombstone. See Value.Fn.destroy.
             it = node.next;
-            fn_link_set.remove(node);
+            held.value.remove(node);
             ctx.comp.gpa().destroy(node);
             continue;
         };
-        try ctx.args.append(fn_val.containing_object.ptr());
+        try ctx.args.append(fn_val.containing_object.toSliceConst());
         it = node.next;
     }
 }

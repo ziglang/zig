@@ -35,7 +35,9 @@ static const char *get_default_name(const char *name_or_null, size_t type_size) 
     if (name_or_null != nullptr) return name_or_null;
     if (type_size >= unknown_names.length) {
         table_active = false;
-        unknown_names.resize(type_size + 1);
+        while (type_size >= unknown_names.length) {
+            unknown_names.append(nullptr);
+        }
         table_active = true;
     }
     if (unknown_names.at(type_size) == nullptr) {
@@ -66,7 +68,8 @@ void memprof_dealloc(const char *name, size_t count, size_t type_size) {
     name = get_default_name(name, type_size);
     auto existing_entry = usage_table.maybe_get(name);
     if (existing_entry == nullptr) {
-        zig_panic("deallocated more than allocated; compromised memory usage stats");
+        zig_panic("deallocated name '%s' (size %zu) not found in allocated table; compromised memory usage stats",
+                name, type_size);
     }
     if (existing_entry->value.type_size != type_size) {
         zig_panic("deallocated name '%s' does not match expected type size %zu", name, type_size);

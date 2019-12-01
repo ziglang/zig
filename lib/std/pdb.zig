@@ -6,6 +6,7 @@ const mem = std.mem;
 const os = std.os;
 const warn = std.debug.warn;
 const coff = std.coff;
+const fs = std.fs;
 const File = std.fs.File;
 
 const ArrayList = std.ArrayList;
@@ -469,7 +470,7 @@ pub const Pdb = struct {
     msf: Msf,
 
     pub fn openFile(self: *Pdb, coff_ptr: *coff.Coff, file_name: []u8) !void {
-        self.in_file = try File.openRead(file_name);
+        self.in_file = try fs.cwd().openFile(file_name, .{});
         self.allocator = coff_ptr.allocator;
         self.coff = coff_ptr;
 

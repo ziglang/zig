@@ -7455,6 +7455,10 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       Attempting to convert a number which is out of range of the destination type results in
       safety-protected {#link|Undefined Behavior#}.
       </p>
+      <p>
+      If {#syntax#}T{#endsyntax#} is {#syntax#}comptime_int{#endsyntax#},
+      then this is semantically equivalent to {#link|Type Coercion#}.
+      </p>
       {#header_close#}
 
       {#header_open|@intToEnum#}
@@ -8205,10 +8209,6 @@ test "integer truncation" {
       <p>
       This function always truncates the significant bits of the integer, regardless
       of endianness on the target platform.
-      </p>
-      <p>
-      If {#syntax#}T{#endsyntax#} is {#syntax#}comptime_int{#endsyntax#},
-      then this is semantically equivalent to {#link|Type Coercion#}.
       </p>
       {#header_close#}
 

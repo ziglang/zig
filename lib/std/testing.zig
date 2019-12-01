@@ -89,7 +89,26 @@ pub fn expectEqual(expected: var, actual: @typeOf(expected)) void {
             if (union_info.tag_type == null) {
                 @compileError("Unable to compare untagged union values");
             }
-            @compileError("TODO implement testing.expectEqual for tagged unions");
+
+            const TagType = @TagType(@typeOf(expected));
+
+            const expectedTag = @as(TagType, expected);
+            const actualTag = @as(TagType, actual);
+
+            expectEqual(expectedTag, actualTag);
+
+            // we only reach this loop if the tags are equal
+            inline for (std.meta.fields(@typeOf(actual))) |fld| {
+                if (std.mem.eql(u8, fld.name, @tagName(actualTag))) {
+                    expectEqual(@field(expected, fld.name), @field(actual, fld.name));
+                    return;
+                }
+            }
+
+            // we iterate over *all* union fields
+            // => we should never get here as the loop above is 
+            //    including all possible values.
+            unreachable;
         },
 
         .Optional => {
@@ -122,6 +141,19 @@ pub fn expectEqual(expected: var, actual: @typeOf(expected)) void {
             }
         },
     }
+}
+
+test "expectEqual.union(enum)"
+{
+    const T = union(enum) {
+        a: i32,
+        b: f32,
+    };
+
+    const a10 = T { .a = 10 };
+    const a20 = T { .a = 20 };
+
+    expectEqual(a10, a10);
 }
 
 /// This function is intended to be used only in tests. When the two slices are not

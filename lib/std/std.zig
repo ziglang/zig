@@ -16,6 +16,7 @@ pub const PackedIntSlice = @import("packed_int_array.zig").PackedIntSlice;
 pub const PackedIntSliceEndian = @import("packed_int_array.zig").PackedIntSliceEndian;
 pub const PriorityQueue = @import("priority_queue.zig").PriorityQueue;
 pub const Progress = @import("progress.zig").Progress;
+pub const ResetEvent = @import("reset_event.zig").ResetEvent;
 pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const SinglyLinkedList = @import("linked_list.zig").SinglyLinkedList;
 pub const SpinLock = @import("spinlock.zig").SpinLock;
@@ -23,7 +24,6 @@ pub const StringHashMap = @import("hash_map.zig").StringHashMap;
 pub const TailQueue = @import("linked_list.zig").TailQueue;
 pub const Target = @import("target.zig").Target;
 pub const Thread = @import("thread.zig").Thread;
-pub const ThreadParker = @import("parker.zig").ThreadParker;
 
 pub const atomic = @import("atomic.zig");
 pub const base64 = @import("base64.zig");

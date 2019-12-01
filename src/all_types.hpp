@@ -1565,7 +1565,7 @@ struct ZigFn {
     // in the case of async functions this is the implicit return type according to the
     // zig source code, not according to zig ir
     ZigType *src_implicit_return_type;
-    IrExecutable ir_executable;
+    IrExecutable *ir_executable;
     IrExecutable analyzed_executable;
     size_t prealloc_bbc;
     size_t prealloc_backward_branch_quota;
@@ -2204,6 +2204,8 @@ struct ZigVar {
     bool src_is_const;
     bool gen_is_const;
     bool is_thread_local;
+    bool is_comptime_memoized;
+    bool is_comptime_memoized_value;
 };
 
 struct ErrorTableEntry {

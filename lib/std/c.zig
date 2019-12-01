@@ -220,6 +220,7 @@ pub extern "c" fn pthread_mutex_destroy(mutex: *pthread_mutex_t) c_int;
 
 pub const PTHREAD_COND_INITIALIZER = pthread_cond_t{};
 pub extern "c" fn pthread_cond_wait(noalias cond: *pthread_cond_t, noalias mutex: *pthread_mutex_t) c_int;
+pub extern "c" fn pthread_cond_timedwait(noalias cond: *pthread_cond_t, noalias mutex: *pthread_mutex_t, noalias abstime: *const timespec) c_int;
 pub extern "c" fn pthread_cond_signal(cond: *pthread_cond_t) c_int;
 pub extern "c" fn pthread_cond_destroy(cond: *pthread_cond_t) c_int;
 
