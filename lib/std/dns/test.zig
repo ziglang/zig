@@ -6,7 +6,7 @@ const OutError = io.SliceOutStream.Error;
 const InError = io.SliceInStream.Error;
 
 const dns = std.dns;
-const DNSPacket = dns.DNSPacket;
+const Packet = dns.Packet;
 
 test "toDNSName" {
     var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
@@ -26,13 +26,13 @@ const TEST_PKT_QUERY = "FEUBIAABAAAAAAAABmdvb2dsZQNjb20AAAEAAQ==";
 const TEST_PKT_RESPONSE = "RM2BgAABAAEAAAAABmdvb2dsZQNjb20AAAEAAcAMAAEAAQAAASwABNg6yo4=";
 const GOOGLE_COM_LABELS = [_][]const u8{ "google"[0..], "com"[0..] };
 
-test "DNSPacket serialize/deserialize" {
+test "Packet serialize/deserialize" {
     // setup a random id packet
     var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
     defer arena.deinit();
     const allocator = &arena.allocator;
 
-    var packet = dns.DNSPacket.init(allocator, ""[0..]);
+    var packet = dns.Packet.init(allocator, ""[0..]);
 
     var r = std.rand.DefaultPrng.init(std.time.timestamp());
     const random_id = r.random.int(u16);
@@ -126,7 +126,7 @@ fn encodeBase64(out: []const u8) []const u8 {
     return encoded;
 }
 
-fn encodePacket(pkt: DNSPacket) ![]const u8 {
+fn encodePacket(pkt: Packet) ![]const u8 {
     var out = try serialTest(pkt.allocator, pkt);
     return encodeBase64(out);
 }
@@ -137,7 +137,7 @@ test "serialization of google.com/A" {
     defer arena.deinit();
     const allocator = &arena.allocator;
 
-    var pkt = dns.DNSPacket.init(allocator, ""[0..]);
+    var pkt = dns.Packet.init(allocator, ""[0..]);
     pkt.header.id = 5189;
     pkt.header.rd = true;
     pkt.header.z = 2;
@@ -155,7 +155,7 @@ test "serialization of google.com/A" {
     var encoded = try encodePacket(pkt);
     testing.expectEqualSlices(u8, encoded, TEST_PKT_QUERY);
 }
-fn serialTest(allocator: *Allocator, packet: DNSPacket) ![]u8 {
+fn serialTest(allocator: *Allocator, packet: Packet) ![]u8 {
     var buf = try allocator.alloc(u8, packet.size());
 
     var out = io.SliceOutStream.init(buf);
@@ -167,11 +167,11 @@ fn serialTest(allocator: *Allocator, packet: DNSPacket) ![]u8 {
     return buf;
 }
 
-fn deserialTest(allocator: *Allocator, buf: []u8) !DNSPacket {
+fn deserialTest(allocator: *Allocator, buf: []u8) !Packet {
     var in = io.SliceInStream.init(buf);
     var stream = &in.stream;
     var deserializer = dns.DNSDeserializer.init(stream);
-    var pkt = DNSPacket.init(allocator, buf);
+    var pkt = Packet.init(allocator, buf);
     try deserializer.deserializeInto(&pkt);
     return pkt;
 }

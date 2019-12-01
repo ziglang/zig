@@ -111,7 +111,7 @@ pub fn typeToStr(qtype: u16) []const u8 {
 }
 
 /// Describes the header of a DNS packet.
-pub const DNSHeader = packed struct {
+pub const Header = packed struct {
     id: u16,
     qr_flag: bool,
     opcode: i4,
@@ -128,9 +128,9 @@ pub const DNSHeader = packed struct {
     nscount: u16,
     arcount: u16,
 
-    /// Initializes a DNSHeader with default values.
-    pub fn init() DNSHeader {
-        var self = DNSHeader{
+    /// Initializes a Header with default values.
+    pub fn init() Header {
+        var self = Header{
             .id = 0,
             .qr_flag = false,
             .opcode = 0,
@@ -151,11 +151,11 @@ pub const DNSHeader = packed struct {
 
     /// Returns a "human-friendly" representation of the header for
     /// debugging purposes
-    pub fn as_str(self: *DNSHeader) ![]u8 {
+    pub fn as_str(self: *Header) ![]u8 {
         var buf: [1024]u8 = undefined;
         return std.fmt.bufPrint(
             &buf,
-            "DNSHeader<{},{},{},{},{},{},{},{},{},{},{},{},{}>",
+            "Header<{},{},{},{},{},{},{},{},{},{},{},{},{}>",
             self.id,
             self.qr_flag,
             self.opcode,
@@ -322,25 +322,25 @@ fn inDeserial(deserializer: var, comptime T: type) DNSError!T {
 /// The serialization of DNS packets only serializes the question list. Be
 /// careful with adding things other than questions, as the header will be
 /// modified, but the lists won't appear in the final result.
-pub const DNSPacket = struct {
+pub const Packet = struct {
     const Self = @This();
     allocator: *Allocator,
 
     raw_bytes: []const u8,
 
-    header: DNSHeader,
+    header: Header,
     questions: QuestionList,
     answers: ResourceList,
     authority: ResourceList,
     additional: ResourceList,
 
-    /// Initialize a DNSPacket with an allocator (for internal parsing)
+    /// Initialize a Packet with an allocator (for internal parsing)
     /// and a raw_bytes slice for pointer deserialization purposes (as they
     /// point to an offset *inside* the existing DNS packet's binary)
     /// Caller owns the memory.
-    pub fn init(allocator: *Allocator, raw_bytes: []const u8) DNSPacket {
-        var self = DNSPacket{
-            .header = DNSHeader.init(),
+    pub fn init(allocator: *Allocator, raw_bytes: []const u8) Packet {
+        var self = Packet{
+            .header = Header.init(),
 
             // keeping the original packet bytes
             // for compression purposes
@@ -358,7 +358,7 @@ pub const DNSPacket = struct {
     /// Return if this packet makes sense, if the headers' provided lengths
     /// match the lengths of the given packets. This is not checked when
     /// serializing.
-    pub fn is_valid(self: *DNSPacket) bool {
+    pub fn is_valid(self: *Self) bool {
         return (self.questions.len == self.header.qdcount and
             self.answers.len == self.header.ancount and
             self.authority.len == self.header.nscount and
@@ -367,7 +367,7 @@ pub const DNSPacket = struct {
 
     /// Serialize a Resource list.
     fn serializeRList(
-        self: DNSPacket,
+        self: Packet,
         serializer: var,
         rlist: ResourceList,
     ) !void {
@@ -388,7 +388,7 @@ pub const DNSPacket = struct {
         }
     }
 
-    pub fn serialize(self: DNSPacket, serializer: var) !void {
+    pub fn serialize(self: Packet, serializer: var) !void {
         try serializer.serialize(self.header);
 
         for (self.questions.toSlice()) |question| {
@@ -413,7 +413,7 @@ pub const DNSPacket = struct {
     }
 
     fn deserializePointer(
-        self: *DNSPacket,
+        self: *Self,
         ptr_offset_1: u8,
         deserializer: var,
     ) (DNSError || Allocator.Error)![][]const u8 {
@@ -451,7 +451,7 @@ pub const DNSPacket = struct {
             // because of https://github.com/ziglang/zig/issues/1006
             // and the disallowance of recursive async fns, we heap-allocate this call
 
-            var frame = try self.allocator.create(@Frame(DNSPacket.deserializeName));
+            var frame = try self.allocator.create(@Frame(Packet.deserializeName));
             defer self.allocator.destroy(frame);
             frame.* = async self.deserializeName(&new_deserializer);
             var name = try await frame;
@@ -465,7 +465,7 @@ pub const DNSPacket = struct {
     /// Deserialize the given label into a LabelComponent, which can be either
     /// A Pointer or a full Label.
     fn deserializeLabel(
-        self: *DNSPacket,
+        self: *Self,
         deserializer: var,
     ) (DNSError || Allocator.Error)!?LabelComponent {
         // check if label is a pointer, this byte will contain 11 as the starting
@@ -497,7 +497,7 @@ pub const DNSPacket = struct {
 
     /// Deserializes a DNSName, which represents a slice of slice of u8 ([][]u8)
     pub fn deserializeName(
-        self: *DNSPacket,
+        self: *Self,
         deserial: *DNSDeserializer,
     ) (DNSError || Allocator.Error)!DNSName {
         if (std.io.mode == .evented) {
@@ -553,7 +553,7 @@ pub const DNSPacket = struct {
 
     /// Deserialises DNS RDATA information into an OpaqueDNSRData struct
     /// for later parsing/unparsing.
-    fn deserializeRData(self: *DNSPacket, deserializer: var) !OpaqueDNSRData {
+    fn deserializeRData(self: *Self, deserializer: var) !OpaqueDNSRData {
         var rdlength = try deserializer.deserialize(u16);
         var rdata = try self.allocator.alloc(u8, rdlength);
         var i: u16 = 0;
@@ -568,7 +568,7 @@ pub const DNSPacket = struct {
     /// Deserialize a list of Resource which sizes are controlled by the
     /// header's given count.
     fn deserialResourceList(
-        self: *DNSPacket,
+        self: *Self,
         deserializer: var,
         comptime header_field: []const u8,
         rs_list: *ResourceList,
@@ -597,8 +597,8 @@ pub const DNSPacket = struct {
         }
     }
 
-    pub fn deserialize(self: *DNSPacket, deserializer: var) !void {
-        self.header = try deserializer.deserialize(DNSHeader);
+    pub fn deserialize(self: *Self, deserializer: var) !void {
+        self.header = try deserializer.deserialize(Header);
 
         // deserialize our questions, but since they contain DNSName,
         // the deserialization is messier than what it should be..
@@ -625,12 +625,12 @@ pub const DNSPacket = struct {
         try self.deserialResourceList(deserializer, "arcount", &self.additional);
     }
 
-    pub fn addQuestion(self: *DNSPacket, question: Question) !void {
+    pub fn addQuestion(self: *Self, question: Question) !void {
         self.header.qdcount += 1;
         try self.questions.append(question);
     }
 
-    fn sliceSizes(self: DNSPacket) usize {
+    fn sliceSizes(self: Self) usize {
         var pkt_size: usize = 0;
 
         for (self.questions.toSlice()) |question| {
@@ -649,7 +649,7 @@ pub const DNSPacket = struct {
     }
 
     /// Returns the size in bytes of the binary representation of the packet.
-    pub fn size(self: DNSPacket) usize {
-        return @sizeOf(DNSHeader) + self.sliceSizes();
+    pub fn size(self: Self) usize {
+        return @sizeOf(Header) + self.sliceSizes();
     }
 };
