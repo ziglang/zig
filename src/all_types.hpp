@@ -313,12 +313,6 @@ struct RuntimeHintSlice {
     uint64_t len;
 };
 
-struct ConstGlobalRefs {
-    LLVMValueRef llvm_value;
-    LLVMValueRef llvm_global;
-    uint32_t align;
-};
-
 enum LazyValueId {
     LazyValueIdInvalid,
     LazyValueIdAlignOf,
@@ -409,8 +403,10 @@ struct LazyValueErrUnionType {
 struct ZigValue {
     ZigType *type;
     ConstValSpecial special;
+    uint32_t llvm_align;
     ConstParent parent;
-    ConstGlobalRefs *global_refs;
+    LLVMValueRef llvm_value;
+    LLVMValueRef llvm_global;
 
     union {
         // populated if special == ConstValSpecialStatic

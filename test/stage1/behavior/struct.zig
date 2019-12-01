@@ -783,7 +783,7 @@ test "struct with var field" {
         x: var,
         y: var,
     };
-    const pt = Point {
+    const pt = Point{
         .x = 1,
         .y = 2,
     };

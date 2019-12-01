@@ -10,6 +10,6 @@ fn checkAddress(s: []const u8) void {
 }
 
 test "slices pointing at the same address as global array." {
-    checkAddress(a);
-    comptime checkAddress(a);
+    checkAddress(&a);
+    comptime checkAddress(&a);
 }
