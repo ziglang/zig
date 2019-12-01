@@ -49,7 +49,7 @@ pub const DNSType = enum(u16) {
     pub fn fromStr(str: []const u8) !DNSType {
         if (str.len > 10) return error.Overflow;
 
-        var uppercased: [10]u8 = [_]u8{0} ** 16;
+        var uppercased = [_]u8{0} ** 10;
         toUpper(str, uppercased[0..]);
 
         var to_compare: [10]u8 = undefined;
@@ -62,6 +62,7 @@ pub const DNSType = enum(u16) {
             // might have used those zero bytes for itself.
             std.mem.secureZero(u8, to_compare[field.name.len..]);
 
+            std.debug.assert(uppercased.len == to_compare.len);
             if (std.mem.eql(u8, uppercased, to_compare)) {
                 return @intToEnum(DNSType, field.value);
             }
@@ -141,15 +142,15 @@ pub const DNSName = struct {
     /// over a socket.
     pub fn size(self: *const @This()) usize {
         // by default, add the null octet at the end of it
-        var size: usize = 1;
+        var total_size: usize = 1;
 
         for (self.labels) |label| {
             // length octet + the actual label octets
-            size += @sizeOf(u8);
-            size += label.len * @sizeOf(u8);
+            total_size += @sizeOf(u8);
+            total_size += label.len * @sizeOf(u8);
         }
 
-        return size;
+        return total_size;
     }
 
     /// Convert a DNSName to a human-friendly domain name.
@@ -295,7 +296,7 @@ pub const Packet = struct {
     /// Caller owns the memory.
     pub fn init(allocator: *Allocator, raw_bytes: []const u8) Packet {
         var self = Packet{
-            .header = Header.init(),
+            .header = Header{},
 
             // keeping the original packet bytes
             // for compression purposes

@@ -8,13 +8,13 @@ const InError = io.SliceInStream.Error;
 const dns = std.dns;
 const Packet = dns.Packet;
 
-test "toDNSName" {
+test "convert domain string to dns name" {
     var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
     defer arena.deinit();
     const allocator = &arena.allocator;
 
     const domain = "www.google.com";
-    var name = try dns.toDNSName(allocator, domain[0..]);
+    var name = try dns.DNSName.fromString(allocator, domain[0..]);
     std.debug.assert(name.labels.len == 3);
     testing.expect(std.mem.eql(u8, name.labels[0], "www"));
     testing.expect(std.mem.eql(u8, name.labels[1], "google"));
@@ -142,7 +142,7 @@ test "serialization of google.com/A" {
     pkt.header.rd = true;
     pkt.header.z = 2;
 
-    var qname = try dns.toDNSName(allocator, "google.com");
+    var qname = try dns.DNSName.fromString(allocator, "google.com");
 
     var question = dns.Question{
         .qname = qname,
@@ -178,5 +178,5 @@ fn deserialTest(allocator: *Allocator, buf: []u8) !Packet {
 
 test "string convert to type" {
     var parsed = try dns.DNSType.fromStr("AAAA");
-    testing.expectEqual(.AAAA, parsed);
+    testing.expectEqual(dns.DNSType.AAAA, parsed);
 }
