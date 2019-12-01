@@ -360,9 +360,3 @@ test "access the null element of a null terminated array" {
     S.doTheTest();
     comptime S.doTheTest();
 }
-
-test "type coerce sentinel-terminated array to non-sentinel-terminated array" {
-    var array: [2]u8 = [_:255]u8{1, 2};
-    expect(array[0] == 1);
-    expect(array[1] == 2);
-}
