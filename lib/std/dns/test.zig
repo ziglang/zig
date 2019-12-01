@@ -175,3 +175,8 @@ fn deserialTest(allocator: *Allocator, buf: []u8) !Packet {
     try deserializer.deserializeInto(&pkt);
     return pkt;
 }
+
+test "string convert to type" {
+    var parsed = try dns.DNSType.fromStr("AAAA");
+    testing.expectEqual(.AAAA, parsed);
+}

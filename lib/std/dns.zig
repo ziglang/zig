@@ -44,6 +44,31 @@ pub const DNSType = enum(u16) {
     //MAILB,
     //MAILA,
     //WILDCARD,
+
+    /// Convert a given string to an integer representing a DNSType.
+    pub fn fromStr(str: []const u8) !DNSType {
+        if (str.len > 10) return error.Overflow;
+
+        var uppercased: [10]u8 = [_]u8{0} ** 16;
+        toUpper(str, uppercased[0..]);
+
+        var to_compare: [10]u8 = undefined;
+        const type_info = @typeInfo(DNSType).Enum;
+
+        inline for (type_info.fields) |field| {
+            std.mem.copy(u8, to_compare[0..], field.name);
+
+            // we have to secureZero here because a previous comparison
+            // might have used those zero bytes for itself.
+            std.mem.secureZero(u8, to_compare[field.name.len..]);
+
+            if (std.mem.eql(u8, uppercased, to_compare)) {
+                return @intToEnum(DNSType, field.value);
+            }
+        }
+
+        return error.InvalidType;
+    }
 };
 
 pub const DNSClass = enum(u16) {
@@ -54,104 +79,33 @@ pub const DNSClass = enum(u16) {
     WILDCARD = 255,
 };
 
-/// Convert from a DNSClass to a friendly string
-pub fn classToStr(class: DNSClass) []const u8 {
-    var as_str = switch (class) {
-        .IN => "IN",
-        .CS => "CS",
-        .CH => "CH",
-        .HS => "HS",
-        else => "unknown",
-    };
-
-    return as_str[0..];
-}
-
 fn toUpper(str: []const u8, out: []u8) void {
     for (str) |c, i| {
         out[i] = std.ascii.toUpper(c);
     }
 }
 
-/// Convert a given string to an integer representing a DNSType.
-pub fn strToType(str: []const u8) !u16 {
-    var uppercased: [16]u8 = [_]u8{0} ** 16;
-    toUpper(str, uppercased[0..]);
-
-    var to_compare: [16]u8 = undefined;
-    const type_info = @typeInfo(DNSType).Enum;
-
-    inline for (type_info.fields) |field| {
-        std.mem.copy(u8, to_compare[0..], field.name);
-
-        // we have to secureZero here because a previous comparison
-        // might have used those zero bytes for itself.
-        std.mem.secureZero(u8, to_compare[field.name.len..]);
-
-        if (std.mem.eql(u8, uppercased, to_compare)) {
-            return field.value;
-        }
-    }
-
-    return error.UnknownDNSType;
-}
-
-/// Convert a DNSType u16 into a string representing it.
-pub fn typeToStr(qtype: u16) []const u8 {
-    const type_info = @typeInfo(DNSType).Enum;
-    var as_dns_type = @intToEnum(DNSType, qtype);
-
-    inline for (type_info.fields) |field| {
-        if (field.value == qtype) {
-            return field.name;
-        }
-    }
-
-    return "<unknown>";
-}
-
 /// Describes the header of a DNS packet.
 pub const Header = packed struct {
-    id: u16,
-    qr_flag: bool,
-    opcode: i4,
+    id: u16 = 0,
+    qr_flag: bool = false,
+    opcode: i4 = 0,
 
-    aa_flag: bool,
-    tc: bool,
-    rd: bool,
-    ra: bool,
-    z: u3,
-    rcode: u4,
+    aa_flag: bool = false,
+    tc: bool = false,
+    rd: bool = false,
+    ra: bool = false,
+    z: u3 = 0,
+    rcode: u4 = 0,
 
-    qdcount: u16,
-    ancount: u16,
-    nscount: u16,
-    arcount: u16,
-
-    /// Initializes a Header with default values.
-    pub fn init() Header {
-        var self = Header{
-            .id = 0,
-            .qr_flag = false,
-            .opcode = 0,
-            .aa_flag = false,
-            .tc = false,
-            .rd = false,
-            .ra = false,
-            .z = 0,
-            .rcode = 0,
-            .qdcount = 0,
-            .ancount = 0,
-            .nscount = 0,
-            .arcount = 0,
-        };
-
-        return self;
-    }
+    qdcount: u16 = 0,
+    ancount: u16 = 0,
+    nscount: u16 = 0,
+    arcount: u16 = 0,
 
     /// Returns a "human-friendly" representation of the header for
     /// debugging purposes
-    pub fn as_str(self: *Header) ![]u8 {
+    pub fn repr(self: *Header) ![]u8 {
         var buf: [1024]u8 = undefined;
         return std.fmt.bufPrint(
             &buf,
@@ -185,7 +139,7 @@ pub const DNSName = struct {
 
     /// Returns the total size in bytes of the DNSName as if it was sent
     /// over a socket.
-    pub fn totalSize(self: *const DNSName) usize {
+    pub fn size(self: *const @This()) usize {
         // by default, add the null octet at the end of it
         var size: usize = 1;
 
@@ -200,13 +154,32 @@ pub const DNSName = struct {
 
     /// Convert a DNSName to a human-friendly domain name.
     /// Does not add a period to the end of it.
-    pub fn toStr(self: *const DNSName, allocator: *Allocator) ![]u8 {
+    pub fn toStr(self: *const @This(), allocator: *Allocator) ![]u8 {
         return try std.mem.join(allocator, ".", self.labels);
+    }
+
+    /// Get a DNSName out of a domain name ("www.google.com", for example).
+    pub fn fromString(allocator: *Allocator, domain: []const u8) !@This() {
+        if (domain.len > 255) return error.Overflow;
+
+        var period_count = splitCount(domain, '.');
+        var labels: [][]const u8 = try allocator.alloc([]u8, period_count);
+
+        var it = std.mem.separate(domain, ".");
+        var labels_idx: usize = 0;
+
+        while (labels_idx < period_count) : (labels_idx += 1) {
+            var label = it.next().?;
+            labels[labels_idx] = label;
+        }
+
+        return DNSName{ .labels = labels[0..] };
     }
 };
 
 /// Return the amount of elements as if they were split by `delim`.
 fn splitCount(data: []const u8, delim: u8) usize {
+    // TODO maybe some std.mem.count function?
     var size: usize = 0;
 
     for (data) |byte| {
@@ -216,24 +189,6 @@ fn splitCount(data: []const u8, delim: u8) usize {
     size += 1;
 
     return size;
-}
-
-/// Get a DNSName out of a domain name ("www.google.com", for example).
-pub fn toDNSName(allocator: *Allocator, domain: []const u8) !DNSName {
-    std.debug.assert(domain.len <= 255);
-
-    var period_count = splitCount(domain, '.');
-    var labels: [][]const u8 = try allocator.alloc([]u8, period_count);
-
-    var it = std.mem.separate(domain, ".");
-    var labels_idx: usize = 0;
-
-    while (labels_idx < period_count) : (labels_idx += 1) {
-        var label = it.next().?;
-        labels[labels_idx] = label;
-    }
-
-    return DNSName{ .labels = labels[0..] };
 }
 
 /// Represents a DNS question sent on the packet's question list.
@@ -291,7 +246,7 @@ fn resourceSize(resource: Resource) usize {
     var res_size: usize = 0;
 
     // name for the resource
-    res_size += resource.name.totalSize();
+    res_size += resource.name.size();
 
     // rr_type, class, ttl, rdlength are 3 u16's and one u32.
     res_size += @sizeOf(u16) * 3;
@@ -634,7 +589,7 @@ pub const Packet = struct {
         var pkt_size: usize = 0;
 
         for (self.questions.toSlice()) |question| {
-            pkt_size += question.qname.totalSize();
+            pkt_size += question.qname.size();
 
             // add both qtype and qclass (both u16's)
             pkt_size += @sizeOf(u16);
