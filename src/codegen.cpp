@@ -946,7 +946,7 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
 
 static LLVMValueRef get_panic_msg_ptr_val(CodeGen *g, PanicMsgId msg_id) {
     ZigValue *val = &g->panic_msg_vals[msg_id];
-    if (!val->global_refs->llvm_global) {
+    if (!val->llvm_global) {
 
         Buf *buf_msg = panic_msg_buf(msg_id);
         ZigValue *array_val = create_const_str_lit(g, buf_msg)->data.x_ptr.data.ref.pointee;
@@ -955,13 +955,13 @@ static LLVMValueRef get_panic_msg_ptr_val(CodeGen *g, PanicMsgId msg_id) {
         render_const_val(g, val, "");
         render_const_val_global(g, val, "");
 
-        assert(val->global_refs->llvm_global);
+        assert(val->llvm_global);
     }
 
     ZigType *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
             PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0, false);
     ZigType *str_type = get_slice_type(g, u8_ptr_type);
-    return LLVMConstBitCast(val->global_refs->llvm_global, LLVMPointerType(get_llvm_type(g, str_type), 0));
+    return LLVMConstBitCast(val->llvm_global, LLVMPointerType(get_llvm_type(g, str_type), 0));
 }
 
 static ZigType *ptr_to_stack_trace_type(CodeGen *g) {
@@ -1727,9 +1727,9 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
         if (handle_is_ptr(instruction->value->type)) {
             render_const_val_global(g, instruction->value, "");
             ZigType *ptr_type = get_pointer_to_type(g, instruction->value->type, true);
-            instruction->llvm_value = LLVMBuildBitCast(g->builder, instruction->value->global_refs->llvm_global, get_llvm_type(g, ptr_type), "");
+            instruction->llvm_value = LLVMBuildBitCast(g->builder, instruction->value->llvm_global, get_llvm_type(g, ptr_type), "");
         } else {
-            instruction->llvm_value = LLVMBuildBitCast(g->builder, instruction->value->global_refs->llvm_value,
+            instruction->llvm_value = LLVMBuildBitCast(g->builder, instruction->value->llvm_value,
                     get_llvm_type(g, instruction->value->type), "");
         }
         assert(instruction->llvm_value);
@@ -6374,7 +6374,7 @@ static LLVMValueRef gen_parent_ptr(CodeGen *g, ZigValue *val, ConstParent *paren
         case ConstParentIdNone:
             render_const_val(g, val, "");
             render_const_val_global(g, val, "");
-            return val->global_refs->llvm_global;
+            return val->llvm_global;
         case ConstParentIdStruct:
             return gen_const_ptr_struct_recursive(g, parent->data.p_struct.struct_val,
                     parent->data.p_struct.field_index);
@@ -6392,7 +6392,7 @@ static LLVMValueRef gen_parent_ptr(CodeGen *g, ZigValue *val, ConstParent *paren
         case ConstParentIdScalar:
             render_const_val(g, parent->data.p_scalar.scalar_val, "");
             render_const_val_global(g, parent->data.p_scalar.scalar_val, "");
-            return parent->data.p_scalar.scalar_val->global_refs->llvm_global;
+            return parent->data.p_scalar.scalar_val->llvm_global;
     }
     zig_unreachable();
 }
@@ -6623,17 +6623,15 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ZigValue *const_val, const cha
             zig_unreachable();
         case ConstPtrSpecialRef:
             {
-                assert(const_val->global_refs != nullptr);
                 ZigValue *pointee = const_val->data.x_ptr.data.ref.pointee;
                 render_const_val(g, pointee, "");
                 render_const_val_global(g, pointee, "");
-                const_val->global_refs->llvm_value = LLVMConstBitCast(pointee->global_refs->llvm_global,
+                const_val->llvm_value = LLVMConstBitCast(pointee->llvm_global,
                         get_llvm_type(g, const_val->type));
-                return const_val->global_refs->llvm_value;
+                return const_val->llvm_value;
             }
         case ConstPtrSpecialBaseArray:
             {
-                assert(const_val->global_refs != nullptr);
                 ZigValue *array_const_val = const_val->data.x_ptr.data.base_array.array_val;
                 assert(array_const_val->type->id == ZigTypeIdArray);
                 if (!type_has_bits(array_const_val->type)) {
@@ -6641,102 +6639,97 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ZigValue *const_val, const cha
                         ZigValue *pointee = array_const_val->type->data.array.sentinel;
                         render_const_val(g, pointee, "");
                         render_const_val_global(g, pointee, "");
-                        const_val->global_refs->llvm_value = LLVMConstBitCast(pointee->global_refs->llvm_global,
+                        const_val->llvm_value = LLVMConstBitCast(pointee->llvm_global,
                                 get_llvm_type(g, const_val->type));
-                        return const_val->global_refs->llvm_value;
+                        return const_val->llvm_value;
                     } else {
                         // make this a null pointer
                         ZigType *usize = g->builtin_types.entry_usize;
-                        const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->llvm_type),
+                        const_val->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->llvm_type),
                                 get_llvm_type(g, const_val->type));
-                        return const_val->global_refs->llvm_value;
+                        return const_val->llvm_value;
                     }
                 }
                 size_t elem_index = const_val->data.x_ptr.data.base_array.elem_index;
                 LLVMValueRef uncasted_ptr_val = gen_const_ptr_array_recursive(g, array_const_val, elem_index);
                 LLVMValueRef ptr_val = LLVMConstBitCast(uncasted_ptr_val, get_llvm_type(g, const_val->type));
-                const_val->global_refs->llvm_value = ptr_val;
+                const_val->llvm_value = ptr_val;
                 return ptr_val;
             }
         case ConstPtrSpecialBaseStruct:
             {
-                assert(const_val->global_refs != nullptr);
                 ZigValue *struct_const_val = const_val->data.x_ptr.data.base_struct.struct_val;
                 assert(struct_const_val->type->id == ZigTypeIdStruct);
                 if (!type_has_bits(struct_const_val->type)) {
                     // make this a null pointer
                     ZigType *usize = g->builtin_types.entry_usize;
-                    const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->llvm_type),
+                    const_val->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->llvm_type),
                             get_llvm_type(g, const_val->type));
-                    return const_val->global_refs->llvm_value;
+                    return const_val->llvm_value;
                 }
                 size_t src_field_index = const_val->data.x_ptr.data.base_struct.field_index;
                 size_t gen_field_index = struct_const_val->type->data.structure.fields[src_field_index]->gen_index;
                 LLVMValueRef uncasted_ptr_val = gen_const_ptr_struct_recursive(g, struct_const_val,
                         gen_field_index);
                 LLVMValueRef ptr_val = LLVMConstBitCast(uncasted_ptr_val, get_llvm_type(g, const_val->type));
-                const_val->global_refs->llvm_value = ptr_val;
+                const_val->llvm_value = ptr_val;
                 return ptr_val;
             }
         case ConstPtrSpecialBaseErrorUnionCode:
             {
-                assert(const_val->global_refs != nullptr);
                 ZigValue *err_union_const_val = const_val->data.x_ptr.data.base_err_union_code.err_union_val;
                 assert(err_union_const_val->type->id == ZigTypeIdErrorUnion);
                 if (!type_has_bits(err_union_const_val->type)) {
                     // make this a null pointer
                     ZigType *usize = g->builtin_types.entry_usize;
-                    const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->llvm_type),
+                    const_val->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->llvm_type),
                             get_llvm_type(g, const_val->type));
-                    return const_val->global_refs->llvm_value;
+                    return const_val->llvm_value;
                 }
                 LLVMValueRef uncasted_ptr_val = gen_const_ptr_err_union_code_recursive(g, err_union_const_val);
                 LLVMValueRef ptr_val = LLVMConstBitCast(uncasted_ptr_val, get_llvm_type(g, const_val->type));
-                const_val->global_refs->llvm_value = ptr_val;
+                const_val->llvm_value = ptr_val;
                 return ptr_val;
             }
         case ConstPtrSpecialBaseErrorUnionPayload:
             {
-                assert(const_val->global_refs != nullptr);
                 ZigValue *err_union_const_val = const_val->data.x_ptr.data.base_err_union_payload.err_union_val;
                 assert(err_union_const_val->type->id == ZigTypeIdErrorUnion);
                 if (!type_has_bits(err_union_const_val->type)) {
                     // make this a null pointer
                     ZigType *usize = g->builtin_types.entry_usize;
-                    const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->llvm_type),
+                    const_val->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->llvm_type),
                             get_llvm_type(g, const_val->type));
-                    return const_val->global_refs->llvm_value;
+                    return const_val->llvm_value;
                 }
                 LLVMValueRef uncasted_ptr_val = gen_const_ptr_err_union_payload_recursive(g, err_union_const_val);
                 LLVMValueRef ptr_val = LLVMConstBitCast(uncasted_ptr_val, get_llvm_type(g, const_val->type));
-                const_val->global_refs->llvm_value = ptr_val;
+                const_val->llvm_value = ptr_val;
                 return ptr_val;
             }
         case ConstPtrSpecialBaseOptionalPayload:
             {
-                assert(const_val->global_refs != nullptr);
                 ZigValue *optional_const_val = const_val->data.x_ptr.data.base_optional_payload.optional_val;
                 assert(optional_const_val->type->id == ZigTypeIdOptional);
                 if (!type_has_bits(optional_const_val->type)) {
                     // make this a null pointer
                     ZigType *usize = g->builtin_types.entry_usize;
-                    const_val->global_refs->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->llvm_type),
+                    const_val->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize->llvm_type),
                             get_llvm_type(g, const_val->type));
-                    return const_val->global_refs->llvm_value;
+                    return const_val->llvm_value;
                 }
                 LLVMValueRef uncasted_ptr_val = gen_const_ptr_optional_payload_recursive(g, optional_const_val);
                 LLVMValueRef ptr_val = LLVMConstBitCast(uncasted_ptr_val, get_llvm_type(g, const_val->type));
-                const_val->global_refs->llvm_value = ptr_val;
+                const_val->llvm_value = ptr_val;
                 return ptr_val;
             }
         case ConstPtrSpecialHardCodedAddr:
             {
-                assert(const_val->global_refs != nullptr);
                 uint64_t addr_value = const_val->data.x_ptr.data.hard_coded_addr.addr;
                 ZigType *usize = g->builtin_types.entry_usize;
-                const_val->global_refs->llvm_value = LLVMConstIntToPtr(
+                const_val->llvm_value = LLVMConstIntToPtr(
                         LLVMConstInt(usize->llvm_type, addr_value, false), get_llvm_type(g, const_val->type));
-                return const_val->global_refs->llvm_value;
+                return const_val->llvm_value;
             }
         case ConstPtrSpecialFunction:
             return LLVMConstBitCast(fn_llvm_value(g, const_val->data.x_ptr.data.fn.fn_entry),
@@ -7175,34 +7168,29 @@ check: switch (const_val->special) {
 }
 
 static void render_const_val(CodeGen *g, ZigValue *const_val, const char *name) {
-    if (!const_val->global_refs)
-        const_val->global_refs = allocate<ConstGlobalRefs>(1);
-    if (!const_val->global_refs->llvm_value)
-        const_val->global_refs->llvm_value = gen_const_val(g, const_val, name);
+    if (!const_val->llvm_value)
+        const_val->llvm_value = gen_const_val(g, const_val, name);
 
-    if (const_val->global_refs->llvm_global)
-        LLVMSetInitializer(const_val->global_refs->llvm_global, const_val->global_refs->llvm_value);
+    if (const_val->llvm_global)
+        LLVMSetInitializer(const_val->llvm_global, const_val->llvm_value);
 }
 
 static void render_const_val_global(CodeGen *g, ZigValue *const_val, const char *name) {
-    if (!const_val->global_refs)
-        const_val->global_refs = allocate<ConstGlobalRefs>(1);
-
-    if (!const_val->global_refs->llvm_global) {
-        LLVMTypeRef type_ref = const_val->global_refs->llvm_value ?
-            LLVMTypeOf(const_val->global_refs->llvm_value) : get_llvm_type(g, const_val->type);
+    if (!const_val->llvm_global) {
+        LLVMTypeRef type_ref = const_val->llvm_value ?
+            LLVMTypeOf(const_val->llvm_value) : get_llvm_type(g, const_val->type);
         LLVMValueRef global_value = LLVMAddGlobal(g->module, type_ref, name);
         LLVMSetLinkage(global_value, LLVMInternalLinkage);
         LLVMSetGlobalConstant(global_value, true);
         LLVMSetUnnamedAddr(global_value, true);
-        LLVMSetAlignment(global_value, (const_val->global_refs->align == 0) ?
-                get_abi_alignment(g, const_val->type) : const_val->global_refs->align);
+        LLVMSetAlignment(global_value, (const_val->llvm_align == 0) ?
+                get_abi_alignment(g, const_val->type) : const_val->llvm_align);
 
-        const_val->global_refs->llvm_global = global_value;
+        const_val->llvm_global = global_value;
     }
 
-    if (const_val->global_refs->llvm_value)
-        LLVMSetInitializer(const_val->global_refs->llvm_global, const_val->global_refs->llvm_value);
+    if (const_val->llvm_value)
+        LLVMSetInitializer(const_val->llvm_global, const_val->llvm_value);
 }
 
 static void generate_error_name_table(CodeGen *g) {
@@ -7403,7 +7391,7 @@ static void do_code_gen(CodeGen *g) {
             bool exported = (linkage != GlobalLinkageIdInternal);
             render_const_val(g, var->const_value, symbol_name);
             render_const_val_global(g, var->const_value, symbol_name);
-            global_value = var->const_value->global_refs->llvm_global;
+            global_value = var->const_value->llvm_global;
 
             if (exported) {
                 LLVMSetLinkage(global_value, to_llvm_linkage(linkage));
@@ -7418,7 +7406,7 @@ static void do_code_gen(CodeGen *g) {
             // Here we use const_value->type because that's the type of the llvm global,
             // which we const ptr cast upon use to whatever it needs to be.
             if (var->gen_is_const && var->const_value->type->id != ZigTypeIdFn) {
-                gen_global_var(g, var, var->const_value->global_refs->llvm_value, var->const_value->type);
+                gen_global_var(g, var, var->const_value->llvm_value, var->const_value->type);
             }
 
             LLVMSetGlobalConstant(global_value, var->gen_is_const);
@@ -8012,31 +8000,26 @@ static void define_intern_values(CodeGen *g) {
     {
         auto& value = g->intern.x_undefined;
         value.type = g->builtin_types.entry_undef;
-        value.global_refs = allocate<ConstGlobalRefs>(1, "ConstGlobalRefs.undefined");
         value.special = ConstValSpecialStatic;
     }
     {
         auto& value = g->intern.x_void;
         value.type = g->builtin_types.entry_void;
-        value.global_refs = allocate<ConstGlobalRefs>(1, "ConstGlobalRefs.void");
         value.special = ConstValSpecialStatic;
     }
     {
         auto& value = g->intern.x_null;
         value.type = g->builtin_types.entry_null;
-        value.global_refs = allocate<ConstGlobalRefs>(1, "ConstGlobalRefs.null");
         value.special = ConstValSpecialStatic;
     }
     {
         auto& value = g->intern.x_unreachable;
         value.type = g->builtin_types.entry_unreachable;
-        value.global_refs = allocate<ConstGlobalRefs>(1, "ConstGlobalRefs.unreachable");
         value.special = ConstValSpecialStatic;
     }
     {
         auto& value = g->intern.zero_byte;
         value.type = g->builtin_types.entry_u8;
-        value.global_refs = allocate<ConstGlobalRefs>(1, "ConstGlobalRefs.zero_byte");
         value.special = ConstValSpecialStatic;
         bigint_init_unsigned(&value.data.x_bigint, 0);
     }
@@ -8669,19 +8652,10 @@ static void init(CodeGen *g) {
     g->invalid_instruction = &sentinel_instructions[0];
     g->invalid_instruction->value = allocate<ZigValue>(1, "ZigValue");
     g->invalid_instruction->value->type = g->builtin_types.entry_invalid;
-    g->invalid_instruction->value->global_refs = allocate<ConstGlobalRefs>(1);
 
     g->unreach_instruction = &sentinel_instructions[1];
     g->unreach_instruction->value = allocate<ZigValue>(1, "ZigValue");
     g->unreach_instruction->value->type = g->builtin_types.entry_unreachable;
-    g->unreach_instruction->value->global_refs = allocate<ConstGlobalRefs>(1);
-
-    {
-        ConstGlobalRefs *global_refs = allocate<ConstGlobalRefs>(PanicMsgIdCount);
-        for (size_t i = 0; i < PanicMsgIdCount; i += 1) {
-            g->panic_msg_vals[i].global_refs = &global_refs[i];
-        }
-    }
 
     define_builtin_fns(g);
     Error err;
