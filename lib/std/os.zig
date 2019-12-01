@@ -3239,8 +3239,8 @@ pub fn sched_yield() SchedYieldError!void {
 }
 
 /// Set a socket's options.
-pub fn setsockopt(fd: fd_t, level: u32, optname: u32, optval: [*]const u8, optlen: socklen_t) !void {
-    switch (errno(system.setsockopt(fd, level, optname, optval, optlen))) {
+pub fn setsockopt(fd: fd_t, level: u32, optname: u32, opt: []const u8) !void {
+    switch (errno(system.setsockopt(fd, level, optname, opt.ptr, @intCast(socklen_t, opt.len)))) {
         0 => {},
         EBADF => unreachable,
         EINVAL => unreachable,
@@ -3248,7 +3248,6 @@ pub fn setsockopt(fd: fd_t, level: u32, optname: u32, optval: [*]const u8, optle
         EISCONN => return error.AlreadyConnected,
         ENOPROTOOPT => return error.InvalidProtocolOption,
         ENOTSOCK => return error.NotSocket,
-
         ENOMEM => return error.OutOfMemory,
         ENOBUFS => return error.SystemResources,
 
