@@ -144,7 +144,7 @@ test "serialization of google.com/A" {
 
     var qname = try dns.toDNSName(allocator, "google.com");
 
-    var question = dns.DNSQuestion{
+    var question = dns.Question{
         .qname = qname,
         .qtype = dns.DNSType.A,
         .qclass = dns.DNSClass.IN,
@@ -175,4 +175,3 @@ fn deserialTest(allocator: *Allocator, buf: []u8) !DNSPacket {
     try deserializer.deserializeInto(&pkt);
     return pkt;
 }
-

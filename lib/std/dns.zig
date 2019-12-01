@@ -3,8 +3,8 @@ const Allocator = std.mem.Allocator;
 
 // TODO rename to Packet, Resource, Question, Header
 
-pub const QuestionList = std.ArrayList(DNSQuestion);
-pub const ResourceList = std.ArrayList(DNSResource);
+pub const QuestionList = std.ArrayList(Question);
+pub const ResourceList = std.ArrayList(Resource);
 pub const DNSDeserializer = std.io.Deserializer(.Big, .Bit, std.io.SliceInStream.Error);
 pub const DNSError = error{
     UnknownDNSType,
@@ -237,7 +237,7 @@ pub fn toDNSName(allocator: *Allocator, domain: []const u8) !DNSName {
 }
 
 /// Represents a DNS question sent on the packet's question list.
-pub const DNSQuestion = struct {
+pub const Question = struct {
     qname: DNSName,
     qtype: DNSType,
     qclass: DNSClass,
@@ -254,7 +254,7 @@ pub const OpaqueDNSRData = struct {
 
 /// Represents a single DNS resource. Appears on the answer, authority,
 /// and additional lists
-pub const DNSResource = struct {
+pub const Resource = struct {
     name: DNSName,
 
     rr_type: DNSType,
@@ -287,7 +287,7 @@ const LabelComponent = union(LabelComponentTag) {
 };
 
 /// Give the size, in bytes, of the binary representation of a resource.
-fn resourceSize(resource: DNSResource) usize {
+fn resourceSize(resource: Resource) usize {
     var res_size: usize = 0;
 
     // name for the resource
@@ -365,7 +365,7 @@ pub const DNSPacket = struct {
             self.additional.len == self.header.arcount);
     }
 
-    /// Serialize a DNSResource list.
+    /// Serialize a Resource list.
     fn serializeRList(
         self: DNSPacket,
         serializer: var,
@@ -565,7 +565,7 @@ pub const DNSPacket = struct {
         return OpaqueDNSRData{ .len = rdlength, .value = rdata };
     }
 
-    /// Deserialize a list of DNSResource which sizes are controlled by the
+    /// Deserialize a list of Resource which sizes are controlled by the
     /// header's given count.
     fn deserialResourceList(
         self: *DNSPacket,
@@ -585,7 +585,7 @@ pub const DNSPacket = struct {
             // rdlength and rdata are under deserializeRData
             var rdata = try self.deserializeRData(deserializer);
 
-            var resource = DNSResource{
+            var resource = Resource{
                 .name = name,
                 .rr_type = @intToEnum(DNSType, rr_type),
                 .class = @intToEnum(DNSClass, class),
@@ -610,7 +610,7 @@ pub const DNSPacket = struct {
             var qtype = try deserializer.deserialize(u16);
             var qclass = try deserializer.deserialize(u16);
 
-            var question = DNSQuestion{
+            var question = Question{
                 .qname = name,
                 .qtype = @intToEnum(DNSType, qtype),
                 .qclass = @intToEnum(DNSClass, qclass),
@@ -625,7 +625,7 @@ pub const DNSPacket = struct {
         try self.deserialResourceList(deserializer, "arcount", &self.additional);
     }
 
-    pub fn addQuestion(self: *DNSPacket, question: DNSQuestion) !void {
+    pub fn addQuestion(self: *DNSPacket, question: Question) !void {
         self.header.qdcount += 1;
         try self.questions.append(question);
     }
