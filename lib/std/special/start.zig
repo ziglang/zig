@@ -143,6 +143,17 @@ fn posixCallMainAndExit() noreturn {
             std.os.linux.tls.setThreadPointer(tp);
         }
 
+        var page_size:?usize = null;
+        var i: usize = 0;
+        while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
+            if (auxv[i].a_type == std.elf.AT_PAGESZ) {
+                page_size = auxv[i].a_un.a_val;
+                assert(page_size.? >= std.mem.min_page_size);
+                assert(page_size.? <= std.mem.max_page_size);
+                break;
+            }
+        }
+
         // TODO This is disabled because what should we do when linking libc and this code
         // does not execute? And also it's causing a test failure in stack traces in release modes.
 
