@@ -11401,8 +11401,12 @@ static void copy_const_val(ZigValue *dest, ZigValue *src) {
         dest->data.x_struct.fields = alloc_const_vals_ptrs(dest->type->data.structure.src_field_count);
         for (size_t i = 0; i < dest->type->data.structure.src_field_count; i += 1) {
             copy_const_val(dest->data.x_struct.fields[i], src->data.x_struct.fields[i]);
-        }
-    }
+            dest->data.x_struct.fields[i]->parent.id = ConstParentIdStruct;
+            dest->data.x_struct.fields[i]->parent.data.p_struct.struct_val = dest;
+            dest->data.x_struct.fields[i]->parent.data.p_struct.field_index = i;
+         }
+     }
+    dest->parent.id = ConstParentIdNone;
 }
 
 static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_instr,
@@ -17672,7 +17676,6 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
 
         IrInstruction *new_instruction = ir_const(ira, &call_instruction->base, result->type);
         copy_const_val(new_instruction->value, result);
-        new_instruction->value->type = return_type;
         return ir_finish_anal(ira, new_instruction);
     }
 
