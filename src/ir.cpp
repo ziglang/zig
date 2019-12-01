@@ -11356,10 +11356,24 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
     }
 }
 
+// Returns whether the x_optional field of ZigValue is active.
+static bool type_has_optional_repr(ZigType *ty) {
+    if (ty->id != ZigTypeIdOptional) {
+        return false;
+    } else if (get_codegen_ptr_type(ty) != nullptr) {
+        return false;
+    } else if (is_opt_err_set(ty)) {
+        return false;
+    } else {
+        return true;
+    }
+}
+
 static void copy_const_val(ZigValue *dest, ZigValue *src) {
     memcpy(dest, src, sizeof(ZigValue));
     if (src->special != ConstValSpecialStatic)
         return;
+    dest->parent.id = ConstParentIdNone;
     if (dest->type->id == ZigTypeIdStruct) {
         dest->data.x_struct.fields = alloc_const_vals_ptrs(dest->type->data.structure.src_field_count);
         for (size_t i = 0; i < dest->type->data.structure.src_field_count; i += 1) {
@@ -11368,8 +11382,12 @@ static void copy_const_val(ZigValue *dest, ZigValue *src) {
             dest->data.x_struct.fields[i]->parent.data.p_struct.struct_val = dest;
             dest->data.x_struct.fields[i]->parent.data.p_struct.field_index = i;
         }
+    } else if (type_has_optional_repr(dest->type) && dest->data.x_optional != nullptr) {
+        dest->data.x_optional = create_const_vals(1);
+        copy_const_val(dest->data.x_optional, src->data.x_optional);
+        dest->data.x_optional->parent.id = ConstParentIdOptionalPayload;
+        dest->data.x_optional->parent.data.p_optional_payload.optional_val = dest;
     }
-    dest->parent.id = ConstParentIdNone;
 }
 
 static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_instr,
