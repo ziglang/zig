@@ -72,6 +72,18 @@ test "Type.Pointer" {
         [*]allowzero volatile u8,          [*]allowzero const volatile u8,
         [*]allowzero align(4) u8,          [*]allowzero align(4) const u8,
         [*]allowzero align(4) volatile u8, [*]allowzero align(4) const volatile u8,
+        // The following test cases aren't working
+        //[*:0]u8,                             [*:0]const u8,
+        //[*:0]volatile u8,                    [*:0]const volatile u8,
+        //[*:0]align(4) u8,                    [*:0]align(4) const u8,
+        //[*:0]align(4) volatile u8,           [*:0]align(4) const volatile u8,
+        //[*:0]align(8) u8,                    [*:0]align(8) const u8,
+        //[*:0]align(8) volatile u8,           [*:0]align(8) const volatile u8,
+        //[*:0]allowzero u8,                   [*:0]allowzero const u8,
+        //[*:0]allowzero volatile u8,          [*:0]allowzero const volatile u8,
+        //[*:0]allowzero align(4) u8,          [*:0]allowzero align(4) const u8,
+        //[*:0]allowzero align(4) volatile u8, [*:0]allowzero align(4) const volatile u8,
+        //[*:5]allowzero align(4) volatile u8, [*:5]allowzero align(4) const volatile u8,
         // Slice Types
         []u8,                              []const u8,
         []volatile u8,                     []const volatile u8,
@@ -83,6 +95,18 @@ test "Type.Pointer" {
         []allowzero volatile u8,           []allowzero const volatile u8,
         []allowzero align(4) u8,           []allowzero align(4) const u8,
         []allowzero align(4) volatile u8,  []allowzero align(4) const volatile u8,
+        // The following test cases aren't working
+        //[:0]u8,                              [:0]const u8,
+        //[:0]volatile u8,                     [:0]const volatile u8,
+        //[:0]align(4) u8,                     [:0]align(4) const u8,
+        //[:0]align(4) volatile u8,            [:0]align(4) const volatile u8,
+        //[:0]align(8) u8,                     [:0]align(8) const u8,
+        //[:0]align(8) volatile u8,            [:0]align(8) const volatile u8,
+        //[:0]allowzero u8,                    [:0]allowzero const u8,
+        //[:0]allowzero volatile u8,           [:0]allowzero const volatile u8,
+        //[:0]allowzero align(4) u8,           [:0]allowzero align(4) const u8,
+        //[:0]allowzero align(4) volatile u8,  [:0]allowzero align(4) const volatile u8,
+        //[:4]allowzero align(4) volatile u8,  [:4]allowzero align(4) const volatile u8,
         // C Pointer Types
         [*c]u8,                            [*c]const u8,
         [*c]volatile u8,                   [*c]const volatile u8,
@@ -116,6 +140,8 @@ test "Type.Array" {
         },
     }));
     testTypes(&[_]type{ [1]u8, [30]usize, [7]bool });
+    // these array types with sentinels are not currently working
+    //testTypes(&[_]type{ [11:0]u8, [4:10]u8 });
 }
 
 test "Type.ComptimeFloat" {

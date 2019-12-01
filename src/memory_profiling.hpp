@@ -19,6 +19,7 @@ struct MemprofInternCount {
     size_t x_null;
     size_t x_unreachable;
     size_t zero_byte;
+    size_t optional_zero_byte;
 };
 extern MemprofInternCount memprof_intern_count;
 

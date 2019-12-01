@@ -2023,12 +2023,14 @@ struct CodeGen {
         ZigValue x_null;
         ZigValue x_unreachable;
         ZigValue zero_byte;
+        ZigValue optional_zero_byte;
 
         ZigValue *for_undefined();
         ZigValue *for_void();
         ZigValue *for_null();
         ZigValue *for_unreachable();
         ZigValue *for_zero_byte();
+        ZigValue *for_optional_zero_byte();
     } intern;
 
     ZigType *align_amt_type;

@@ -533,9 +533,10 @@ ZigType *get_pointer_to_type_extra2(CodeGen *g, ZigType *child_type, bool is_con
 
     TypeId type_id = {};
     ZigType **parent_pointer = nullptr;
+    ZigValue *sentinel_unwrapped = get_sentinel_value(sentinel);
     if (host_int_bytes != 0 || is_volatile || byte_alignment != 0 || ptr_len != PtrLenSingle ||
         allow_zero || vector_index != VECTOR_INDEX_NONE || inferred_struct_field != nullptr ||
-        sentinel != nullptr)
+        sentinel_unwrapped != nullptr)
     {
         type_id.id = ZigTypeIdPointer;
         type_id.data.pointer.codegen = g;
@@ -577,13 +578,13 @@ ZigType *get_pointer_to_type_extra2(CodeGen *g, ZigType *child_type, bool is_con
             buf_appendf(&entry->name, "[*");
             break;
         case PtrLenC:
-            assert(sentinel == nullptr);
+            assert(sentinel_unwrapped == nullptr);
             buf_appendf(&entry->name, "[*c]");
             break;
     }
-    if (sentinel != nullptr) {
+    if (sentinel_unwrapped != nullptr) {
         buf_appendf(&entry->name, ":");
-        render_const_value(g, &entry->name, sentinel);
+        render_const_value(g, &entry->name, sentinel_unwrapped);
     }
     switch (ptr_len) {
         case PtrLenSingle:
@@ -775,12 +776,14 @@ ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, Zi
     assert(type_is_resolved(child_type, ResolveStatusSizeKnown));
 
     ZigType *entry = new_type_table_entry(ZigTypeIdArray);
+    ZigValue *sentinel_unwrapped = get_sentinel_value(sentinel);
 
     buf_resize(&entry->name, 0);
     buf_appendf(&entry->name, "[%" ZIG_PRI_u64, array_size);
-    if (sentinel != nullptr) {
+    if (sentinel_unwrapped != nullptr) {
+      assert(sentinel_unwrapped->type == child_type);
         buf_appendf(&entry->name, ":");
-        render_const_value(g, &entry->name, sentinel);
+        render_const_value(g, &entry->name, sentinel_unwrapped);
     }
     buf_appendf(&entry->name, "]%s", buf_ptr(&child_type->name));
 
@@ -788,7 +791,7 @@ ZigType *get_array_type(CodeGen *g, ZigType *child_type, uint64_t array_size, Zi
     if (array_size == 0) {
         full_array_size = 0;
     } else {
-        full_array_size = array_size + ((sentinel != nullptr) ? 1 : 0);
+        full_array_size = array_size + ((sentinel_unwrapped != nullptr) ? 1 : 0);
     }
 
     entry->size_in_bits = child_type->size_in_bits * full_array_size;
@@ -816,9 +819,12 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
 
     buf_resize(&entry->name, 0);
     buf_appendf(&entry->name, "[");
-    if (ptr_type->data.pointer.sentinel != nullptr) {
-        buf_appendf(&entry->name, ":");
-        render_const_value(g, &entry->name, ptr_type->data.pointer.sentinel);
+    {
+        ZigValue *sentinel = get_sentinel_value(ptr_type->data.pointer.sentinel);
+        if (sentinel != nullptr) {
+            buf_appendf(&entry->name, ":");
+            render_const_value(g, &entry->name, sentinel);
+        }
     }
     buf_appendf(&entry->name, "]");
     append_ptr_type_attrs(&entry->name, ptr_type);
@@ -5660,7 +5666,7 @@ void init_const_str_lit(CodeGen *g, ZigValue *const_val, Buf *str) {
     // first we build the underlying array
     ZigValue *array_val = create_const_vals(1);
     array_val->special = ConstValSpecialStatic;
-    array_val->type = get_array_type(g, g->builtin_types.entry_u8, buf_len(str), g->intern.for_zero_byte());
+    array_val->type = get_array_type(g, g->builtin_types.entry_u8, buf_len(str), g->intern.for_optional_zero_byte());
     array_val->data.x_array.special = ConstArraySpecialBuf;
     array_val->data.x_array.data.s_buf = str;
 
@@ -7067,11 +7073,13 @@ uint32_t type_id_hash(TypeId x) {
                 (((uint32_t)x.data.pointer.bit_offset_in_host) ^ (uint32_t)2639019452) +
                 (((uint32_t)x.data.pointer.vector_index) ^ (uint32_t)0x19199716) +
                 (((uint32_t)x.data.pointer.host_int_bytes) ^ (uint32_t)529908881) *
-                (x.data.pointer.sentinel ? hash_const_val(x.data.pointer.sentinel) : (uint32_t)2955491856);
+                (get_sentinel_value(x.data.pointer.sentinel) ?
+                    hash_const_val(get_sentinel_value(x.data.pointer.sentinel)) : (uint32_t)2955491856);
         case ZigTypeIdArray:
             return hash_ptr(x.data.array.child_type) *
                 ((uint32_t)x.data.array.size ^ (uint32_t)2122979968) *
-                (x.data.array.sentinel ? hash_const_val(x.data.array.sentinel) : (uint32_t)1927201585);
+                (get_sentinel_value(x.data.array.sentinel) ?
+                    hash_const_val(get_sentinel_value(x.data.array.sentinel)) : (uint32_t)1927201585);
         case ZigTypeIdInt:
             return (x.data.integer.is_signed ? (uint32_t)2652528194 : (uint32_t)163929201) +
                     (((uint32_t)x.data.integer.bit_count) ^ (uint32_t)2998081557);
@@ -8687,7 +8695,9 @@ static void resolve_llvm_types_array(CodeGen *g, ZigType *type) {
 
     ZigType *elem_type = type->data.array.child_type;
 
-    uint64_t extra_len_from_sentinel = (type->data.array.sentinel != nullptr) ? 1 : 0;
+    // TODO: should this size be 1 or sizeof sentinel?
+    ZigValue *sentinel = get_sentinel_value(type->data.array.sentinel);
+    uint64_t extra_len_from_sentinel = (sentinel != nullptr) ? 1 : 0;
     uint64_t full_len = type->data.array.len + extra_len_from_sentinel;
     // TODO https://github.com/ziglang/zig/issues/1424
     type->llvm_type = LLVMArrayType(get_llvm_type(g, elem_type), (unsigned)full_len);

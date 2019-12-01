@@ -3707,7 +3707,9 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
             array_type = array_type->data.pointer.child_type;
         }
         if (safety_check_on) {
-            uint64_t extra_len_from_sentinel = (array_type->data.array.sentinel != nullptr) ? 1 : 0;
+            ZigValue *sentinel = get_sentinel_value(array_type->data.array.sentinel);
+            // TODO: should this size be 1 or the size of the child element?
+            uint64_t extra_len_from_sentinel = (sentinel != nullptr) ? 1 : 0;
             uint64_t full_len = array_type->data.array.len + extra_len_from_sentinel;
             LLVMValueRef end = LLVMConstInt(g->builtin_types.entry_usize->llvm_type, full_len, false);
             add_bounds_check(g, subscript_value, LLVMIntEQ, nullptr, LLVMIntULT, end);
@@ -3769,7 +3771,8 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
             assert(len_index != SIZE_MAX);
             LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, array_ptr, (unsigned)len_index, "");
             LLVMValueRef len = gen_load_untyped(g, len_ptr, 0, false, "");
-            LLVMIntPredicate upper_op = (ptr_type->data.pointer.sentinel != nullptr) ? LLVMIntULE : LLVMIntULT;
+            LLVMIntPredicate upper_op = (get_sentinel_value(ptr_type->data.pointer.sentinel) != nullptr) ?
+                LLVMIntULE : LLVMIntULT;
             add_bounds_check(g, subscript_value, LLVMIntEQ, nullptr, upper_op, len);
         }
 
@@ -6635,8 +6638,8 @@ static LLVMValueRef gen_const_val_ptr(CodeGen *g, ZigValue *const_val, const cha
                 ZigValue *array_const_val = const_val->data.x_ptr.data.base_array.array_val;
                 assert(array_const_val->type->id == ZigTypeIdArray);
                 if (!type_has_bits(array_const_val->type)) {
-                    if (array_const_val->type->data.array.sentinel != nullptr) {
-                        ZigValue *pointee = array_const_val->type->data.array.sentinel;
+                    ZigValue *pointee = get_sentinel_value(array_const_val->type->data.array.sentinel);
+                    if (pointee != nullptr) {
                         render_const_val(g, pointee, "");
                         render_const_val_global(g, pointee, "");
                         const_val->llvm_value = LLVMConstBitCast(pointee->llvm_global,
@@ -6957,7 +6960,9 @@ check: switch (const_val->special) {
                     case ConstArraySpecialUndef:
                         return LLVMGetUndef(get_llvm_type(g, type_entry));
                     case ConstArraySpecialNone: {
-                        uint64_t extra_len_from_sentinel = (type_entry->data.array.sentinel != nullptr) ? 1 : 0;
+                        ZigValue *sentinel = get_sentinel_value(type_entry->data.array.sentinel);
+                        // TODO: is this supposed to be 1 or sizeof(sentinel)?
+                        uint64_t extra_len_from_sentinel = (sentinel != nullptr) ? 1 : 0;
                         uint64_t full_len = len + extra_len_from_sentinel;
                         LLVMValueRef *values = allocate<LLVMValueRef>(full_len);
                         LLVMTypeRef element_type_ref = get_llvm_type(g, type_entry->data.array.child_type);
@@ -6968,8 +6973,8 @@ check: switch (const_val->special) {
                             values[i] = val;
                             make_unnamed_struct = make_unnamed_struct || is_llvm_value_unnamed_type(g, elem_value->type, val);
                         }
-                        if (type_entry->data.array.sentinel != nullptr) {
-                            values[len] = gen_const_val(g, type_entry->data.array.sentinel, "");
+                        if (sentinel != nullptr) {
+                            values[len] = gen_const_val(g, sentinel, "");
                         }
                         if (make_unnamed_struct) {
                             return LLVMConstStruct(values, full_len, true);
@@ -6980,7 +6985,7 @@ check: switch (const_val->special) {
                     case ConstArraySpecialBuf: {
                         Buf *buf = const_val->data.x_array.data.s_buf;
                         return LLVMConstString(buf_ptr(buf), (unsigned)buf_len(buf),
-                                type_entry->data.array.sentinel == nullptr);
+                                get_sentinel_value(type_entry->data.array.sentinel) == nullptr);
                     }
                 }
                 zig_unreachable();
@@ -8022,6 +8027,12 @@ static void define_intern_values(CodeGen *g) {
         value.type = g->builtin_types.entry_u8;
         value.special = ConstValSpecialStatic;
         bigint_init_unsigned(&value.data.x_bigint, 0);
+    }
+    {
+        auto& value = g->intern.optional_zero_byte;
+        value.type = get_optional_type(g, g->builtin_types.entry_u8);
+        value.special = ConstValSpecialStatic;
+        value.data.x_optional = &g->intern.zero_byte;
     }
 }
 
@@ -10617,4 +10628,11 @@ ZigValue *CodeGen::Intern::for_zero_byte() {
     memprof_intern_count.zero_byte += 1;
 #endif
     return &this->zero_byte;
+}
+
+ZigValue *CodeGen::Intern::for_optional_zero_byte() {
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    memprof_intern_count.optional_zero_byte += 1;
+#endif
+    return &this->optional_zero_byte;
 }
