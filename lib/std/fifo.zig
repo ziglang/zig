@@ -88,7 +88,7 @@ pub fn LinearFifo(
                 mem.copy(T, self.buf[0..self.count], self.buf[self.head..][0..self.count]);
                 self.head = 0;
             } else {
-                var tmp: [mem.page_size / 2 / @sizeOf(T)]T = undefined;
+                var tmp: [mem.bufsiz / @sizeOf(T)]T = undefined;
 
                 while (self.head != 0) {
                     const n = math.min(self.head, tmp.len);

@@ -139,7 +139,7 @@ pub fn updateFileMode(source_path: []const u8, dest_path: []const u8, mode: ?Fil
 
     const in_stream = &src_file.inStream().stream;
 
-    var buf: [mem.page_size * 6]u8 = undefined;
+    var buf: [mem.bufsiz]u8 = undefined;
     while (true) {
         const amt = try in_stream.readFull(buf[0..]);
         try atomic_file.file.write(buf[0..amt]);
@@ -166,7 +166,7 @@ pub fn copyFile(source_path: []const u8, dest_path: []const u8) !void {
     var atomic_file = try AtomicFile.init(dest_path, mode);
     defer atomic_file.deinit();
 
-    var buf: [mem.page_size]u8 = undefined;
+    var buf: [mem.bufsiz]u8 = undefined;
     while (true) {
         const amt = try in_stream.readFull(buf[0..]);
         try atomic_file.file.write(buf[0..amt]);
@@ -186,7 +186,7 @@ pub fn copyFileMode(source_path: []const u8, dest_path: []const u8, mode: File.M
     var atomic_file = try AtomicFile.init(dest_path, mode);
     defer atomic_file.deinit();
 
-    var buf: [mem.page_size * 6]u8 = undefined;
+    var buf: [mem.bufsiz]u8 = undefined;
     while (true) {
         const amt = try in_file.read(buf[0..]);
         try atomic_file.file.write(buf[0..amt]);

@@ -2197,8 +2197,8 @@ pub const MProtectError = error{
 } || UnexpectedError;
 
 /// `memory.len` must be page-aligned.
-pub fn mprotect(memory: []align(mem.page_size) u8, protection: u32) MProtectError!void {
-    assert(mem.isAligned(memory.len, mem.page_size));
+pub fn mprotect(memory: []align(mem.min_page_size) u8, protection: u32) MProtectError!void {
+    assert(mem.isAligned(memory.len, mem.min_page_size));
     switch (errno(system.mprotect(memory.ptr, memory.len, protection))) {
         0 => return,
         EINVAL => unreachable,
@@ -2242,21 +2242,21 @@ pub const MMapError = error{
 /// * SIGSEGV - Attempted write into a region mapped as read-only.
 /// * SIGBUS - Attempted  access to a portion of the buffer that does not correspond to the file
 pub fn mmap(
-    ptr: ?[*]align(mem.page_size) u8,
+    ptr: ?[*]align(mem.min_page_size) u8,
     length: usize,
     prot: u32,
     flags: u32,
     fd: fd_t,
     offset: u64,
-) MMapError![]align(mem.page_size) u8 {
+) MMapError![]align(mem.min_page_size) u8 {
     const err = if (builtin.link_libc) blk: {
         const rc = std.c.mmap(ptr, length, prot, flags, fd, offset);
-        if (rc != std.c.MAP_FAILED) return @ptrCast([*]align(mem.page_size) u8, @alignCast(mem.page_size, rc))[0..length];
+        if (rc != std.c.MAP_FAILED) return @ptrCast([*]align(mem.min_page_size) u8, @alignCast(mem.min_page_size, rc))[0..length];
         break :blk @intCast(usize, system._errno().*);
     } else blk: {
         const rc = system.mmap(ptr, length, prot, flags, fd, offset);
         const err = errno(rc);
-        if (err == 0) return @intToPtr([*]align(mem.page_size) u8, rc)[0..length];
+        if (err == 0) return @intToPtr([*]align(mem.min_page_size) u8, rc)[0..length];
         break :blk err;
     };
     switch (err) {
@@ -2279,7 +2279,7 @@ pub fn mmap(
 /// Zig's munmap function does not, for two reasons:
 /// * It violates the Zig principle that resource deallocation must succeed.
 /// * The Windows function, VirtualFree, has this restriction.
-pub fn munmap(memory: []align(mem.page_size) u8) void {
+pub fn munmap(memory: []align(mem.min_page_size) u8) void {
     switch (errno(system.munmap(memory.ptr, memory.len))) {
         0 => return,
         EINVAL => unreachable, // Invalid parameters.

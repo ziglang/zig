@@ -150,9 +150,9 @@ fn posixCallMainAndExit() noreturn {
         //// problem is that it uses PROT_GROWSDOWN which prevents stores to addresses too far down
         //// the stack and requires "probing". So here we allocate our own stack.
         //const wanted_stack_size = gnu_stack_phdr.p_memsz;
-        //assert(wanted_stack_size % std.mem.page_size == 0);
+        //assert(wanted_stack_size % page_size == 0);
         //// Allocate an extra page as the guard page.
-        //const total_size = wanted_stack_size + std.mem.page_size;
+        //const total_size = wanted_stack_size + page_size;
         //const new_stack = std.os.mmap(
         //    null,
         //    total_size,
@@ -161,7 +161,7 @@ fn posixCallMainAndExit() noreturn {
         //    -1,
         //    0,
         //) catch @panic("out of memory");
-        //std.os.mprotect(new_stack[0..std.mem.page_size], std.os.PROT_NONE) catch {};
+        //std.os.mprotect(new_stack[0..page_size], std.os.PROT_NONE) catch {};
         //std.os.exit(@newStackCall(new_stack, callMainWithArgs, argc, argv, envp));
     }
 

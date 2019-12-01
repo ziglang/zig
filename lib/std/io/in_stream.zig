@@ -78,7 +78,7 @@ pub fn InStream(comptime ReadError: type) type {
                     return;
                 }
 
-                const new_buf_size = math.min(max_size, actual_buf_len + mem.page_size);
+                const new_buf_size = math.min(max_size, actual_buf_len + mem.bufsiz);
                 if (new_buf_size == actual_buf_len) return error.StreamTooLong;
                 try buffer.resize(new_buf_size);
             }

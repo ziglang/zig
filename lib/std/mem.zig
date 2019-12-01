@@ -8,10 +8,17 @@ const meta = std.meta;
 const trait = meta.trait;
 const testing = std.testing;
 
-pub const page_size = switch (builtin.arch) {
+pub const min_page_size = switch (builtin.arch) {
     .wasm32, .wasm64 => 64 * 1024,
     else => 4 * 1024,
 };
+
+pub const max_page_size = switch (builtin.arch) {
+    else => min_page_size,
+};
+
+/// A good default size for buffers
+pub const bufsiz = min_page_size;
 
 pub const Allocator = struct {
     pub const Error = error{OutOfMemory};

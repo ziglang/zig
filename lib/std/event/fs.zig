@@ -692,7 +692,7 @@ pub fn readFile(allocator: *Allocator, file_path: []const u8, max_size: usize) !
     defer list.deinit();
 
     while (true) {
-        try list.ensureCapacity(list.len + mem.page_size);
+        try list.ensureCapacity(list.len + mem.bufsiz);
         const buf = list.items[list.len..];
         const buf_array = [_][]u8{buf};
         const amt = try preadv(allocator, fd, buf_array, list.len);

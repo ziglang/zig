@@ -618,12 +618,12 @@ test "PackedIntArray at end of available memory" {
 
     const allocator = std.heap.page_allocator;
 
-    const pages = try allocator.alignedAlloc(u8, std.mem.page_size * 2, std.mem.page_size);
+    const pages = try allocator.alignedAlloc(u8, std.mem.min_page_size * 2, std.mem.min_page_size);
     defer allocator.free(pages);
 
-    try std.os.mprotect(pages[std.mem.page_size..], std.os.PROT_NONE);
+    try std.os.mprotect(pages[std.mem.min_page_size..], std.os.PROT_NONE);
 
-    const pad = @ptrCast(*PackedArray, &pages[std.mem.page_size - @sizeOf(PackedArray)]);
+    const pad = @ptrCast(*PackedArray, &pages[std.mem.min_page_size - @sizeOf(PackedArray)]);
     pad.set(7, std.math.maxInt(u3));
 }
 
@@ -636,9 +636,9 @@ test "PackedIntSlice at end of available memory" {
 
     const allocator = std.heap.page_allocator;
 
-    var page = try allocator.alloc(u8, std.mem.page_size);
+    var page = try allocator.alloc(u8, std.mem.min_page_size);
     defer allocator.free(page);
 
-    var p = PackedSlice.init(page[std.mem.page_size - 2 ..], 1);
+    var p = PackedSlice.init(page[std.mem.min_page_size - 2 ..], 1);
     p.set(0, std.math.maxInt(u11));
 }

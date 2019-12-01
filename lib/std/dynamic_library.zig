@@ -101,7 +101,7 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
 pub const LinuxDynLib = struct {
     elf_lib: ElfLib,
     fd: i32,
-    memory: []align(mem.page_size) u8,
+    memory: []align(mem.min_page_size) u8,
 
     /// Trusts the file
     pub fn open(path: []const u8) !DynLib {
@@ -113,7 +113,7 @@ pub const LinuxDynLib = struct {
 
         const bytes = try os.mmap(
             null,
-            mem.alignForward(size, mem.page_size),
+            mem.alignForward(size, mem.min_page_size),
             os.PROT_READ | os.PROT_EXEC,
             os.MAP_PRIVATE,
             fd,

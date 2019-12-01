@@ -72,7 +72,7 @@ pub fn readFileAlloc(allocator: *mem.Allocator, path: []const u8) ![]u8 {
 }
 
 pub fn BufferedInStream(comptime Error: type) type {
-    return BufferedInStreamCustom(mem.page_size, Error);
+    return BufferedInStreamCustom(mem.bufsiz, Error);
 }
 
 pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type) type {
@@ -545,7 +545,7 @@ test "io.CountingOutStream" {
 }
 
 pub fn BufferedOutStream(comptime Error: type) type {
-    return BufferedOutStreamCustom(mem.page_size, Error);
+    return BufferedOutStreamCustom(mem.bufsiz, Error);
 }
 
 pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamError: type) type {

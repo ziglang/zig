@@ -1031,7 +1031,7 @@ fn openSelfDebugInfoPosix(allocator: *mem.Allocator) !DwarfInfo {
     errdefer S.self_exe_file.close();
 
     const self_exe_len = math.cast(usize, try S.self_exe_file.getEndPos()) catch return error.DebugInfoTooLarge;
-    const self_exe_mmap_len = mem.alignForward(self_exe_len, mem.page_size);
+    const self_exe_mmap_len = mem.alignForward(self_exe_len, mem.min_page_size);
     const self_exe_mmap = try os.mmap(
         null,
         self_exe_mmap_len,
@@ -1135,7 +1135,7 @@ fn printLineFromFileAnyOs(out_stream: var, line_info: LineInfo) !void {
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 
-    var buf: [mem.page_size]u8 = undefined;
+    var buf: [mem.bufsiz]u8 = undefined;
     var line: usize = 1;
     var column: usize = 1;
     var abs_index: usize = 0;

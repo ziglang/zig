@@ -33,12 +33,12 @@ pub const Thread = struct {
     pub const Data = if (use_pthreads)
         struct {
             handle: Thread.Handle,
-            memory: []align(mem.page_size) u8,
+            memory: []align(mem.min_page_size) u8,
         }
     else switch (builtin.os) {
         .linux => struct {
             handle: Thread.Handle,
-            memory: []align(mem.page_size) u8,
+            memory: []align(mem.min_page_size) u8,
         },
         .windows => struct {
             handle: Thread.Handle,
@@ -229,11 +229,11 @@ pub const Thread = struct {
         var context_start_offset: usize = undefined;
         var tls_start_offset: usize = undefined;
         const mmap_len = blk: {
-            var l: usize = mem.page_size;
+            var l: usize = mem.min_page_size;
             // Allocate a guard page right after the end of the stack region
             guard_end_offset = l;
             // The stack itself, which grows downwards.
-            l = mem.alignForward(l + default_stack_size, mem.page_size);
+            l = mem.alignForward(l + default_stack_size, mem.min_page_size);
             stack_end_offset = l;
             // Above the stack, so that it can be in the same mmap call, put the Thread object.
             l = mem.alignForward(l, @alignOf(Thread));
@@ -259,7 +259,7 @@ pub const Thread = struct {
         // whole region right away
         const mmap_slice = os.mmap(
             null,
-            mem.alignForward(mmap_len, mem.page_size),
+            mem.alignForward(mmap_len, mem.min_page_size),
             os.PROT_NONE,
             os.MAP_PRIVATE | os.MAP_ANONYMOUS,
             -1,

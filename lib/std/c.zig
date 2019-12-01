@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const page_size = std.mem.page_size;
+const min_page_size = std.mem.min_page_size;
 
 pub usingnamespace @import("os/bits.zig");
 
@@ -83,9 +83,9 @@ pub extern "c" fn pwritev(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint, 
 pub extern "c" fn stat(noalias path: [*]const u8, noalias buf: *Stat) c_int;
 pub extern "c" fn write(fd: fd_t, buf: [*]const u8, nbyte: usize) isize;
 pub extern "c" fn pwrite(fd: fd_t, buf: [*]const u8, nbyte: usize, offset: u64) isize;
-pub extern "c" fn mmap(addr: ?*align(page_size) c_void, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: u64) *c_void;
-pub extern "c" fn munmap(addr: *align(page_size) c_void, len: usize) c_int;
-pub extern "c" fn mprotect(addr: *align(page_size) c_void, len: usize, prot: c_uint) c_int;
+pub extern "c" fn mmap(addr: ?*align(min_page_size) c_void, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: u64) *c_void;
+pub extern "c" fn munmap(addr: *align(min_page_size) c_void, len: usize) c_int;
+pub extern "c" fn mprotect(addr: *align(min_page_size) c_void, len: usize, prot: c_uint) c_int;
 pub extern "c" fn unlink(path: [*]const u8) c_int;
 pub extern "c" fn unlinkat(dirfd: fd_t, path: [*]const u8, flags: c_uint) c_int;
 pub extern "c" fn getcwd(buf: [*]u8, size: usize) ?[*]u8;
