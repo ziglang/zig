@@ -11524,6 +11524,14 @@ static IrInstruction *ir_const_noval(IrAnalyze *ira, IrInstruction *old_instruct
     return &const_instruction->base;
 }
 
+// This function initializes the new IrInstruction with the provided ZigValue,
+// rather than creating a new one.
+static IrInstruction *ir_const_move(IrAnalyze *ira, IrInstruction *old_instruction, ZigValue *val) {
+    IrInstruction *result = ir_const_noval(ira, old_instruction);
+    result->value = val;
+    return result;
+}
+
 static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         ZigType *wanted_type, CastOp cast_op)
 {
@@ -14335,9 +14343,7 @@ static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructio
 }
 
 static IrInstruction *ir_analyze_instruction_const(IrAnalyze *ira, IrInstructionConst *instruction) {
-    IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
-    copy_const_val(result->value, instruction->base.value);
-    return result;
+    return ir_const_move(ira, &instruction->base, instruction->base.value);
 }
 
 static IrInstruction *ir_analyze_bin_op_bool(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
@@ -17674,8 +17680,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
             }
         }
 
-        IrInstruction *new_instruction = ir_const(ira, &call_instruction->base, result->type);
-        copy_const_val(new_instruction->value, result);
+        IrInstruction *new_instruction = ir_const_move(ira, &call_instruction->base, result);
         return ir_finish_anal(ira, new_instruction);
     }
 
