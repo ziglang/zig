@@ -23,7 +23,7 @@ comptime {
         .Unknown => unreachable,
         .Exe => {
             if (builtin.link_libc) {
-                if (!@hasDecl(root, "main") or
+                if (@hasDecl(root, "main") and
                     @typeInfo(@typeOf(root.main)).Fn.calling_convention != .C)
                 {
                     @export("main", main, .Weak);

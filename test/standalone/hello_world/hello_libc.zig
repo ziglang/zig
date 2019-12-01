@@ -7,7 +7,7 @@ const c = @cImport({
 
 const msg = "Hello, world!\n";
 
-export fn main(argc: c_int, argv: **u8) c_int {
+pub export fn main(argc: c_int, argv: **u8) c_int {
     if (c.printf(msg) != @intCast(c_int, c.strlen(msg))) return -1;
     return 0;
 }

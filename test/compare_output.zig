@@ -6,7 +6,7 @@ const tests = @import("tests.zig");
 pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addC("hello world with libc",
         \\const c = @cImport(@cInclude("stdio.h"));
-        \\export fn main(argc: c_int, argv: [*][*]u8) c_int {
+        \\pub export fn main(argc: c_int, argv: [*][*]u8) c_int {
         \\    _ = c.puts("Hello, world!");
         \\    return 0;
         \\}
@@ -139,7 +139,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @cInclude("stdio.h");
         \\});
         \\
-        \\export fn main(argc: c_int, argv: [*][*]u8) c_int {
+        \\pub export fn main(argc: c_int, argv: [*][*]u8) c_int {
         \\    if (is_windows) {
         \\        // we want actual \n, not \r\n
         \\        _ = c._setmode(1, c._O_BINARY);
@@ -286,7 +286,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    }
         \\}
         \\
-        \\export fn main() c_int {
+        \\pub export fn main() c_int {
         \\    var array = [_]u32{ 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
         \\
         \\    c.qsort(@ptrCast(?*c_void, array[0..].ptr), @intCast(c_ulong, array.len), @sizeOf(i32), compare_fn);
@@ -314,7 +314,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @cInclude("stdio.h");
         \\});
         \\
-        \\export fn main(argc: c_int, argv: [*][*]u8) c_int {
+        \\pub export fn main(argc: c_int, argv: [*][*]u8) c_int {
         \\    if (is_windows) {
         \\        // we want actual \n, not \r\n
         \\        _ = c._setmode(1, c._O_BINARY);
