@@ -607,9 +607,8 @@ test "PackedInt(Array/Slice)Endian" {
 
 //These tests prove we aren't accidentally accessing memory past
 // the end of the array/slice by placing it at the end of a page
-// and reading the last element. The assumption is that the page
-// after this one is not mapped and will cause a segfault if we
-// don't account for the bounds.
+// and reading the last element. The page after is unmapped, so
+// it will cause a segfault if bounds are not respected.
 test "PackedIntArray at end of available memory" {
     switch (builtin.os) {
         .linux, .macosx, .ios, .freebsd, .netbsd, .windows => {},
@@ -617,16 +616,15 @@ test "PackedIntArray at end of available memory" {
     }
     const PackedArray = PackedIntArray(u3, 8);
 
-    const Padded = struct {
-        _: [std.mem.page_size - @sizeOf(PackedArray)]u8,
-        p: PackedArray,
-    };
-
     const allocator = std.heap.page_allocator;
 
-    var pad = try allocator.create(Padded);
-    defer allocator.destroy(pad);
-    pad.p.set(7, std.math.maxInt(u3));
+    const pages = try allocator.alignedAlloc(u8, std.mem.page_size * 2, std.mem.page_size);
+    defer allocator.free(pages);
+
+    try std.os.mprotect(pages[std.mem.page_size..], std.os.PROT_NONE);
+
+    const pad = @ptrCast(*PackedArray, &pages[std.mem.page_size - @sizeOf(PackedArray)]);
+    pad.set(7, std.math.maxInt(u3));
 }
 
 test "PackedIntSlice at end of available memory" {
