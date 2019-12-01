@@ -1326,12 +1326,11 @@ pub const StreamServer = struct {
         }
 
         if (self.reuse_address) {
-            var opt = [_]u8{1} ** @sizeOf(c_int);
             try os.setsockopt(
                 self.sockfd.?,
                 os.SOL_SOCKET,
                 os.SO_REUSEADDR,
-                &opt,
+                &mem.toBytes(@as(c_int, 1)),
             );
         }
 
