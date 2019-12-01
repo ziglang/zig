@@ -165,7 +165,7 @@ static inline void deallocate(T *old, size_t count, const char *name = nullptr) 
 
 template<typename T>
 static inline void destroy(T *old, const char *name = nullptr) {
-    return deallocate(old, 1);
+    return deallocate(old, 1, name);
 }
 
 template <typename T, size_t n>

@@ -41,6 +41,7 @@ struct IrAnalyze {
     ZigList<IrInstruction *> src_implicit_return_type_list;
     ZigList<IrSuspendPosition> resume_stack;
     IrBasicBlock *const_predecessor_bb;
+    size_t ref_count;
 };
 
 enum ConstCastResultId {
@@ -251,6 +252,18 @@ static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction 
 static IrInstruction *ir_analyze_inferred_field_ptr(IrAnalyze *ira, Buf *field_name,
     IrInstruction *source_instr, IrInstruction *container_ptr, ZigType *container_type);
 static ResultLoc *no_result_loc(void);
+
+static void ira_ref(IrAnalyze *ira) {
+    ira->ref_count += 1;
+}
+static void ira_deref(IrAnalyze *ira) {
+    if (ira->ref_count > 1) {
+        ira->ref_count -= 1;
+        return;
+    }
+    assert(ira->ref_count != 0);
+    destroy(ira, "IrAnalyze");
+}
 
 static ZigValue *const_ptr_pointee_unchecked(CodeGen *g, ZigValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
@@ -16011,8 +16024,8 @@ static IrInstruction *ir_analyze_instruction_error_union(IrAnalyze *ira,
     IrInstruction *result = ir_const(ira, &instruction->base, ira->codegen->builtin_types.entry_type);
     result->value->special = ConstValSpecialLazy;
 
-    LazyValueErrUnionType *lazy_err_union_type = allocate<LazyValueErrUnionType>(1);
-    lazy_err_union_type->ira = ira;
+    LazyValueErrUnionType *lazy_err_union_type = allocate<LazyValueErrUnionType>(1, "LazyValueErrUnionType");
+    lazy_err_union_type->ira = ira; ira_ref(ira);
     result->value->data.x_lazy = &lazy_err_union_type->base;
     lazy_err_union_type->base.id = LazyValueIdErrUnionType;
 
@@ -17863,8 +17876,8 @@ static IrInstruction *ir_analyze_optional_type(IrAnalyze *ira, IrInstructionUnOp
     IrInstruction *result = ir_const(ira, &instruction->base, ira->codegen->builtin_types.entry_type);
     result->value->special = ConstValSpecialLazy;
 
-    LazyValueOptType *lazy_opt_type = allocate<LazyValueOptType>(1);
-    lazy_opt_type->ira = ira;
+    LazyValueOptType *lazy_opt_type = allocate<LazyValueOptType>(1, "LazyValueOptType");
+    lazy_opt_type->ira = ira; ira_ref(ira);
     result->value->data.x_lazy = &lazy_opt_type->base;
     lazy_opt_type->base.id = LazyValueIdOptType;
 
@@ -19809,8 +19822,8 @@ static IrInstruction *ir_analyze_instruction_slice_type(IrAnalyze *ira,
     IrInstruction *result = ir_const(ira, &slice_type_instruction->base, ira->codegen->builtin_types.entry_type);
     result->value->special = ConstValSpecialLazy;
 
-    LazyValueSliceType *lazy_slice_type = allocate<LazyValueSliceType>(1);
-    lazy_slice_type->ira = ira;
+    LazyValueSliceType *lazy_slice_type = allocate<LazyValueSliceType>(1, "LazyValueSliceType");
+    lazy_slice_type->ira = ira; ira_ref(ira);
     result->value->data.x_lazy = &lazy_slice_type->base;
     lazy_slice_type->base.id = LazyValueIdSliceType;
 
@@ -19969,8 +19982,8 @@ static IrInstruction *ir_analyze_instruction_size_of(IrAnalyze *ira, IrInstructi
     IrInstruction *result = ir_const(ira, &instruction->base, ira->codegen->builtin_types.entry_num_lit_int);
     result->value->special = ConstValSpecialLazy;
 
-    LazyValueSizeOf *lazy_size_of = allocate<LazyValueSizeOf>(1);
-    lazy_size_of->ira = ira;
+    LazyValueSizeOf *lazy_size_of = allocate<LazyValueSizeOf>(1, "LazyValueSizeOf");
+    lazy_size_of->ira = ira; ira_ref(ira);
     result->value->data.x_lazy = &lazy_size_of->base;
     lazy_size_of->base.id = LazyValueIdSizeOf;
 
@@ -24647,8 +24660,8 @@ static IrInstruction *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstruct
     IrInstruction *result = ir_const(ira, &instruction->base, ira->codegen->builtin_types.entry_num_lit_int);
     result->value->special = ConstValSpecialLazy;
 
-    LazyValueAlignOf *lazy_align_of = allocate<LazyValueAlignOf>(1);
-    lazy_align_of->ira = ira;
+    LazyValueAlignOf *lazy_align_of = allocate<LazyValueAlignOf>(1, "LazyValueAlignOf");
+    lazy_align_of->ira = ira; ira_ref(ira);
     result->value->data.x_lazy = &lazy_align_of->base;
     lazy_align_of->base.id = LazyValueIdAlignOf;
 
@@ -25131,8 +25144,8 @@ static IrInstruction *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruct
     IrInstruction *result = ir_const(ira, &instruction->base, ira->codegen->builtin_types.entry_type);
     result->value->special = ConstValSpecialLazy;
 
-    LazyValueFnType *lazy_fn_type = allocate<LazyValueFnType>(1);
-    lazy_fn_type->ira = ira;
+    LazyValueFnType *lazy_fn_type = allocate<LazyValueFnType>(1, "LazyValueFnType");
+    lazy_fn_type->ira = ira; ira_ref(ira);
     result->value->data.x_lazy = &lazy_fn_type->base;
     lazy_fn_type->base.id = LazyValueIdFnType;
 
@@ -26172,8 +26185,8 @@ static IrInstruction *ir_analyze_instruction_ptr_type(IrAnalyze *ira, IrInstruct
     IrInstruction *result = ir_const(ira, &instruction->base, ira->codegen->builtin_types.entry_type);
     result->value->special = ConstValSpecialLazy;
 
-    LazyValuePtrType *lazy_ptr_type = allocate<LazyValuePtrType>(1);
-    lazy_ptr_type->ira = ira;
+    LazyValuePtrType *lazy_ptr_type = allocate<LazyValuePtrType>(1, "LazyValuePtrType");
+    lazy_ptr_type->ira = ira; ira_ref(ira);
     result->value->data.x_lazy = &lazy_ptr_type->base;
     lazy_ptr_type->base.id = LazyValueIdPtrType;
 
@@ -27646,7 +27659,8 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
     assert(old_exec->first_err_trace_msg == nullptr);
     assert(expected_type == nullptr || !type_is_invalid(expected_type));
 
-    IrAnalyze *ira = allocate<IrAnalyze>(1);
+    IrAnalyze *ira = allocate<IrAnalyze>(1, "IrAnalyze");
+    ira->ref_count = 1;
     old_exec->analysis = ira;
     ira->codegen = codegen;
 
@@ -27713,6 +27727,7 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
         ira->instruction_index += 1;
     }
 
+    ZigType *res_type;
     if (new_exec->first_err_trace_msg != nullptr) {
         codegen->trace_err = new_exec->first_err_trace_msg;
         if (codegen->trace_err != nullptr && new_exec->source_node != nullptr &&
@@ -27722,13 +27737,18 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_
             codegen->trace_err = add_error_note(codegen, codegen->trace_err,
                     new_exec->source_node, buf_create_from_str("referenced here"));
         }
-        return ira->codegen->builtin_types.entry_invalid;
+        res_type = ira->codegen->builtin_types.entry_invalid;
     } else if (ira->src_implicit_return_type_list.length == 0) {
-        return codegen->builtin_types.entry_unreachable;
+        res_type = codegen->builtin_types.entry_unreachable;
     } else {
-        return ir_resolve_peer_types(ira, expected_type_source_node, expected_type, ira->src_implicit_return_type_list.items,
+        res_type = ir_resolve_peer_types(ira, expected_type_source_node, expected_type, ira->src_implicit_return_type_list.items,
                 ira->src_implicit_return_type_list.length);
     }
+
+    // It is now safe to free Pass 1 IR instructions.
+    ira_deref(ira);
+
+    return res_type;
 }
 
 bool ir_has_side_effects(IrInstruction *instruction) {
@@ -28064,6 +28084,8 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
             val->special = ConstValSpecialStatic;
             assert(val->type->id == ZigTypeIdComptimeInt || val->type->id == ZigTypeIdInt);
             bigint_init_unsigned(&val->data.x_bigint, align_in_bytes);
+
+            // We can't free the lazy value here, because multiple other ZigValues might be pointing to it.
             return ErrorNone;
         }
         case LazyValueIdSizeOf: {
@@ -28119,6 +28141,8 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
             val->special = ConstValSpecialStatic;
             assert(val->type->id == ZigTypeIdComptimeInt || val->type->id == ZigTypeIdInt);
             bigint_init_unsigned(&val->data.x_bigint, abi_size);
+
+            // We can't free the lazy value here, because multiple other ZigValues might be pointing to it.
             return ErrorNone;
         }
         case LazyValueIdSliceType: {
@@ -28197,6 +28221,8 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
             val->special = ConstValSpecialStatic;
             assert(val->type->id == ZigTypeIdMetaType);
             val->data.x_type = get_slice_type(ira->codegen, slice_ptr_type);
+
+            // We can't free the lazy value here, because multiple other ZigValues might be pointing to it.
             return ErrorNone;
         }
         case LazyValueIdPtrType: {
@@ -28268,6 +28294,8 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
                     lazy_ptr_type->bit_offset_in_host, lazy_ptr_type->host_int_bytes,
                     allow_zero, VECTOR_INDEX_NONE, nullptr, sentinel_val);
             val->special = ConstValSpecialStatic;
+
+            // We can't free the lazy value here, because multiple other ZigValues might be pointing to it.
             return ErrorNone;
         }
         case LazyValueIdOptType: {
@@ -28290,16 +28318,21 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
             assert(val->type->id == ZigTypeIdMetaType);
             val->data.x_type = get_optional_type(ira->codegen, payload_type);
             val->special = ConstValSpecialStatic;
+
+            // We can't free the lazy value here, because multiple other ZigValues might be pointing to it.
             return ErrorNone;
         }
         case LazyValueIdFnType: {
             LazyValueFnType *lazy_fn_type = reinterpret_cast<LazyValueFnType *>(val->data.x_lazy);
-            ZigType *fn_type = ir_resolve_lazy_fn_type(lazy_fn_type->ira, source_node, lazy_fn_type);
+            IrAnalyze *ira = lazy_fn_type->ira;
+            ZigType *fn_type = ir_resolve_lazy_fn_type(ira, source_node, lazy_fn_type);
             if (fn_type == nullptr)
                 return ErrorSemanticAnalyzeFail;
             val->special = ConstValSpecialStatic;
             assert(val->type->id == ZigTypeIdMetaType);
             val->data.x_type = fn_type;
+
+            // We can't free the lazy value here, because multiple other ZigValues might be pointing to it.
             return ErrorNone;
         }
         case LazyValueIdErrUnionType: {
@@ -28328,6 +28361,8 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
             assert(val->type->id == ZigTypeIdMetaType);
             val->data.x_type = get_error_union_type(ira->codegen, err_set_type, payload_type);
             val->special = ConstValSpecialStatic;
+
+            // We can't free the lazy value here, because multiple other ZigValues might be pointing to it.
             return ErrorNone;
         }
     }
