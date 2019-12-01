@@ -9,6 +9,7 @@ pub usingnamespace switch (builtin.arch) {
 };
 
 pub usingnamespace switch (builtin.arch) {
+    .i386 => @import("linux/i386.zig"),
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64 => @import("linux/arm64.zig"),
     .arm => @import("linux/arm-eabi.zig"),

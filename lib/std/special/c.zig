@@ -197,6 +197,49 @@ extern fn __stack_chk_fail() noreturn {
 // across .o file boundaries. fix comptime @ptrCast of nakedcc functions.
 nakedcc fn clone() void {
     switch (builtin.arch) {
+        .i386 => {
+            // __clone(func, stack, flags, arg, ptid, tls, ctid)
+            //         +8,   +12,   +16,   +20, +24,  +28, +32
+            // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+            //         eax,       ebx,   ecx,   edx,  esi, edi
+            asm volatile (
+                \\  push %%ebp
+                \\  mov %%esp,%%ebp
+                \\  push %%ebx
+                \\  push %%esi
+                \\  push %%edi
+                \\  // Setup the arguments
+                \\  mov 16(%%ebp),%%ebx
+                \\  mov 12(%%ebp),%%ecx
+                \\  and $-16,%%ecx
+                \\  sub $20,%%ecx
+                \\  mov 20(%%ebp),%%eax
+                \\  mov %%eax,4(%%ecx)
+                \\  mov 8(%%ebp),%%eax
+                \\  mov %%eax,0(%%ecx)
+                \\  mov 24(%%ebp),%%edx
+                \\  mov 28(%%ebp),%%esi
+                \\  mov 32(%%ebp),%%edi
+                \\  mov $120,%%eax
+                \\  int $128
+                \\  test %%eax,%%eax
+                \\  jnz 1f
+                \\  pop %%eax
+                \\  xor %%ebp,%%ebp
+                \\  call *%%eax
+                \\  mov %%eax,%%ebx
+                \\  xor %%eax,%%eax
+                \\  inc %%eax
+                \\  int $128
+                \\  hlt
+                \\1:
+                \\  pop %%edi
+                \\  pop %%esi
+                \\  pop %%ebx
+                \\  pop %%ebp
+                \\  ret
+            );
+        },
         .x86_64 => {
             asm volatile (
                 \\      xor %%eax,%%eax

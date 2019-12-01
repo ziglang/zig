@@ -454,7 +454,6 @@ pub const SO_PEERSEC = 30;
 pub const SO_SNDBUFFORCE = 31;
 pub const SO_RCVBUFFORCE = 33;
 
-pub const VDSO_USEFUL = true;
 pub const VDSO_CGT_SYM = "__kernel_clock_gettime";
 pub const VDSO_CGT_VER = "LINUX_2.6.39";
 

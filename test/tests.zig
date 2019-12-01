@@ -74,6 +74,26 @@ const test_targets = [_]TestTarget{
         .target = Target{
             .Cross = CrossTarget{
                 .os = .linux,
+                .arch = .i386,
+                .abi = .none,
+            },
+        },
+    },
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
+                .os = .linux,
+                .arch = .i386,
+                .abi = .musl,
+            },
+        },
+        .link_libc = true,
+    },
+
+    TestTarget{
+        .target = Target{
+            .Cross = CrossTarget{
+                .os = .linux,
                 .arch = builtin.Arch{ .aarch64 = builtin.Arch.Arm64.v8_5a },
                 .abi = .none,
             },
@@ -411,7 +431,7 @@ pub fn addPkgTests(
         const ArchTag = @TagType(builtin.Arch);
         if (test_target.disable_native and
             test_target.target.getOs() == builtin.os and
-            @as(ArchTag,test_target.target.getArch()) == @as(ArchTag,builtin.arch))
+            @as(ArchTag, test_target.target.getArch()) == @as(ArchTag, builtin.arch))
         {
             continue;
         }
@@ -429,7 +449,7 @@ pub fn addPkgTests(
             "bare";
 
         const triple_prefix = if (test_target.target == .Native)
-            @as([]const u8,"native")
+            @as([]const u8, "native")
         else
             test_target.target.zigTripleNoSubArch(b.allocator) catch unreachable;
 
