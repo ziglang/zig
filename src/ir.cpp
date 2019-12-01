@@ -220,7 +220,7 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
 static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *ptr,
         ZigType *dest_type, IrInstruction *dest_type_src, bool safety_check_on);
 static ZigValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value, UndefAllowed undef_allowed);
-static void copy_const_val(ZigValue *dest, ZigValue *src, bool same_global_refs);
+static void copy_const_val(ZigValue *dest, ZigValue *src);
 static Error resolve_ptr_align(IrAnalyze *ira, ZigType *ty, uint32_t *result_align);
 static IrInstruction *ir_analyze_int_to_ptr(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *target,
         ZigType *ptr_type);
@@ -1541,7 +1541,6 @@ static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_no
     special_instruction->base.debug_id = exec_next_debug_id(irb->exec);
     special_instruction->base.owner_bb = irb->current_basic_block;
     special_instruction->base.value = allocate<ZigValue>(1, "ZigValue");
-    special_instruction->base.value->global_refs = allocate<ConstGlobalRefs>(1, "ConstGlobalRefs");
     return special_instruction;
 }
 
@@ -9111,7 +9110,7 @@ static Error eval_comptime_ptr_reinterpret(IrAnalyze *ira, CodeGen *codegen, Ast
     if ((err = ir_read_const_ptr(ira, codegen, source_node, &tmp, ptr_val)))
         return err;
     ZigValue *child_val = const_ptr_pointee_unchecked(codegen, ptr_val);
-    copy_const_val(child_val, &tmp, false);
+    copy_const_val(child_val, &tmp);
     return ErrorNone;
 }
 
@@ -11394,18 +11393,14 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
     }
 }
 
-static void copy_const_val(ZigValue *dest, ZigValue *src, bool same_global_refs) {
-    ConstGlobalRefs *global_refs = dest->global_refs;
+static void copy_const_val(ZigValue *dest, ZigValue *src) {
     memcpy(dest, src, sizeof(ZigValue));
-    if (!same_global_refs) {
-        dest->global_refs = global_refs;
-        if (src->special != ConstValSpecialStatic)
-            return;
-        if (dest->type->id == ZigTypeIdStruct) {
-            dest->data.x_struct.fields = alloc_const_vals_ptrs(dest->type->data.structure.src_field_count);
-            for (size_t i = 0; i < dest->type->data.structure.src_field_count; i += 1) {
-                copy_const_val(dest->data.x_struct.fields[i], src->data.x_struct.fields[i], false);
-            }
+    if (src->special != ConstValSpecialStatic)
+        return;
+    if (dest->type->id == ZigTypeIdStruct) {
+        dest->data.x_struct.fields = alloc_const_vals_ptrs(dest->type->data.structure.src_field_count);
+        for (size_t i = 0; i < dest->type->data.structure.src_field_count; i += 1) {
+            copy_const_val(dest->data.x_struct.fields[i], src->data.x_struct.fields[i]);
         }
     }
 }
@@ -11424,13 +11419,11 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInstruction *source_
         case CastOpErrSet:
         case CastOpBitCast:
             zig_panic("TODO");
-        case CastOpNoop:
-            {
-                bool same_global_refs = other_val->special == ConstValSpecialStatic;
-                copy_const_val(const_val, other_val, same_global_refs);
-                const_val->type = new_type;
-                break;
-            }
+        case CastOpNoop: {
+            copy_const_val(const_val, other_val);
+            const_val->type = new_type;
+            break;
+        }
         case CastOpNumLitToConcrete:
             if (other_val->type->id == ZigTypeIdComptimeFloat) {
                 assert(new_type->id == ZigTypeIdFloat);
@@ -12151,7 +12144,7 @@ static IrInstruction *ir_analyze_optional_wrap(IrAnalyze *ira, IrInstruction *so
                 source_instr->scope, source_instr->source_node);
         const_instruction->base.value->special = ConstValSpecialStatic;
         if (types_have_same_zig_comptime_repr(ira->codegen, wanted_type, payload_type)) {
-            copy_const_val(const_instruction->base.value, val, val->data.x_ptr.mut == ConstPtrMutComptimeConst);
+            copy_const_val(const_instruction->base.value, val);
         } else {
             const_instruction->base.value->data.x_optional = val;
         }
@@ -13155,7 +13148,7 @@ static IrInstruction *ir_analyze_array_to_vector(IrAnalyze *ira, IrInstruction *
     if (instr_is_comptime(array)) {
         // arrays and vectors have the same ZigValue representation
         IrInstruction *result = ir_const(ira, source_instr, vector_type);
-        copy_const_val(result->value, array->value, false);
+        copy_const_val(result->value, array->value);
         result->value->type = vector_type;
         return result;
     }
@@ -13168,7 +13161,7 @@ static IrInstruction *ir_analyze_vector_to_array(IrAnalyze *ira, IrInstruction *
     if (instr_is_comptime(vector)) {
         // arrays and vectors have the same ZigValue representation
         IrInstruction *result = ir_const(ira, source_instr, array_type);
-        copy_const_val(result->value, vector->value, false);
+        copy_const_val(result->value, vector->value);
         result->value->type = array_type;
         return result;
     }
@@ -13456,7 +13449,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
             if (wanted_type->id == ZigTypeIdComptimeInt || wanted_type->id == ZigTypeIdInt) {
                 IrInstruction *result = ir_const(ira, source_instr, wanted_type);
                 if (actual_type->id == ZigTypeIdComptimeInt || actual_type->id == ZigTypeIdInt) {
-                    copy_const_val(result->value, value->value, false);
+                    copy_const_val(result->value, value->value);
                     result->value->type = wanted_type;
                 } else {
                     float_init_bigint(&result->value->data.x_bigint, value->value);
@@ -14339,7 +14332,7 @@ static IrInstruction *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructio
 
 static IrInstruction *ir_analyze_instruction_const(IrAnalyze *ira, IrInstructionConst *instruction) {
     IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
-    copy_const_val(result->value, instruction->base.value, true);
+    copy_const_val(result->value, instruction->base.value);
     return result;
 }
 
@@ -14878,7 +14871,7 @@ never_mind_just_calculate_it_normally:
                 &op1_val->data.x_array.data.s_none.elements[i],
                 &op2_val->data.x_array.data.s_none.elements[i],
                 bin_op_instruction, op_id, one_possible_value);
-            copy_const_val(&result->value->data.x_array.data.s_none.elements[i], cur_res->value, false);
+            copy_const_val(&result->value->data.x_array.data.s_none.elements[i], cur_res->value);
         }
         return result;
     }
@@ -15744,21 +15737,21 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
     size_t next_index = 0;
     for (size_t i = op1_array_index; i < op1_array_end; i += 1, next_index += 1) {
         ZigValue *elem_dest_val = &out_array_val->data.x_array.data.s_none.elements[next_index];
-        copy_const_val(elem_dest_val, &op1_array_val->data.x_array.data.s_none.elements[i], false);
+        copy_const_val(elem_dest_val, &op1_array_val->data.x_array.data.s_none.elements[i]);
         elem_dest_val->parent.id = ConstParentIdArray;
         elem_dest_val->parent.data.p_array.array_val = out_array_val;
         elem_dest_val->parent.data.p_array.elem_index = next_index;
     }
     for (size_t i = op2_array_index; i < op2_array_end; i += 1, next_index += 1) {
         ZigValue *elem_dest_val = &out_array_val->data.x_array.data.s_none.elements[next_index];
-        copy_const_val(elem_dest_val, &op2_array_val->data.x_array.data.s_none.elements[i], false);
+        copy_const_val(elem_dest_val, &op2_array_val->data.x_array.data.s_none.elements[i]);
         elem_dest_val->parent.id = ConstParentIdArray;
         elem_dest_val->parent.data.p_array.array_val = out_array_val;
         elem_dest_val->parent.data.p_array.elem_index = next_index;
     }
     if (next_index < full_len) {
         ZigValue *elem_dest_val = &out_array_val->data.x_array.data.s_none.elements[next_index];
-        copy_const_val(elem_dest_val, sentinel, false);
+        copy_const_val(elem_dest_val, sentinel);
         elem_dest_val->parent.id = ConstParentIdArray;
         elem_dest_val->parent.data.p_array.array_val = out_array_val;
         elem_dest_val->parent.data.p_array.elem_index = next_index;
@@ -15843,7 +15836,7 @@ static IrInstruction *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp *
         for (uint64_t x = 0; x < mult_amt; x += 1) {
             for (uint64_t y = 0; y < old_array_len; y += 1) {
                 ZigValue *elem_dest_val = &out_val->data.x_array.data.s_none.elements[i];
-                copy_const_val(elem_dest_val, &array_val->data.x_array.data.s_none.elements[y], false);
+                copy_const_val(elem_dest_val, &array_val->data.x_array.data.s_none.elements[y]);
                 elem_dest_val->parent.id = ConstParentIdArray;
                 elem_dest_val->parent.data.p_array.array_val = out_val;
                 elem_dest_val->parent.data.p_array.elem_index = i;
@@ -15854,7 +15847,7 @@ static IrInstruction *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp *
 
         if (array_type->data.array.sentinel != nullptr) {
             ZigValue *elem_dest_val = &out_val->data.x_array.data.s_none.elements[i];
-            copy_const_val(elem_dest_val, array_type->data.array.sentinel, false);
+            copy_const_val(elem_dest_val, array_type->data.array.sentinel);
             elem_dest_val->parent.id = ConstParentIdArray;
             elem_dest_val->parent.data.p_array.array_val = out_val;
             elem_dest_val->parent.data.p_array.elem_index = i;
@@ -16004,7 +15997,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
                 var->const_value = init_val;
             } else {
                 var->const_value = create_const_vals(1);
-                copy_const_val(var->const_value, init_val, false);
+                copy_const_val(var->const_value, init_val);
             }
         }
     }
@@ -16114,7 +16107,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
         if (instr_is_comptime(var_ptr) && var->mem_slot_index != SIZE_MAX) {
             assert(var->mem_slot_index < ira->exec_context.mem_slot_list.length);
             ZigValue *mem_slot = ira->exec_context.mem_slot_list.at(var->mem_slot_index);
-            copy_const_val(mem_slot, init_val, !is_comptime_var || var->gen_is_const);
+            copy_const_val(mem_slot, init_val);
             ira_ref(var->owner_exec->analysis);
 
             if (is_comptime_var || (var_class_requires_const && var->gen_is_const)) {
@@ -16594,8 +16587,8 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                 }
                 IrInstruction *alloca_gen;
                 if (is_comptime && value != nullptr) {
-                    if (align > value->value->global_refs->align) {
-                        value->value->global_refs->align = align;
+                    if (align > value->value->llvm_align) {
+                        value->value->llvm_align = align;
                     }
                     alloca_gen = ir_get_ref(ira, result_loc->source_instruction, value, true, false);
                 } else {
@@ -17159,7 +17152,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
         arg_val = create_const_runtime(casted_arg->value->type);
     }
     if (arg_part_of_generic_id) {
-        copy_const_val(&generic_id->params[generic_id->param_count], arg_val, true);
+        copy_const_val(&generic_id->params[generic_id->param_count], arg_val);
         generic_id->param_count += 1;
     }
 
@@ -17340,7 +17333,7 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
         IrInstruction *casted_ptr;
         if (instr_is_comptime(ptr)) {
             casted_ptr = ir_const(ira, source_instr, struct_ptr_type);
-            copy_const_val(casted_ptr->value, ptr->value, false);
+            copy_const_val(casted_ptr->value, ptr->value);
             casted_ptr->value->type = struct_ptr_type;
         } else {
             casted_ptr = ir_build_cast(&ira->new_irb, source_instr->scope,
@@ -17403,14 +17396,7 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
                 if (dest_val == nullptr)
                     return ira->codegen->invalid_instruction;
                 if (dest_val->special != ConstValSpecialRuntime) {
-                    // TODO this allows a value stored to have the original value modified and then
-                    // have that affect what should be a copy. We need some kind of advanced copy-on-write
-                    // system to make these two tests pass at the same time:
-                    // * "string literal used as comptime slice is memoized"
-                    // * "comptime modification of const struct field" - except modified to avoid
-                    //   ConstPtrMutComptimeVar, thus defeating the logic below.
-                    bool same_global_refs = ptr->value->data.x_ptr.mut != ConstPtrMutComptimeVar;
-                    copy_const_val(dest_val, value->value, same_global_refs);
+                    copy_const_val(dest_val, value->value);
                     if (ptr->value->data.x_ptr.mut == ConstPtrMutComptimeVar &&
                         !ira->new_irb.current_basic_block->must_be_comptime_source_instr)
                     {
@@ -17685,7 +17671,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
         }
 
         IrInstruction *new_instruction = ir_const(ira, &call_instruction->base, result->type);
-        copy_const_val(new_instruction->value, result, true);
+        copy_const_val(new_instruction->value, result);
         new_instruction->value->type = return_type;
         return ir_finish_anal(ira, new_instruction);
     }
@@ -17842,7 +17828,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCallSrc *c
                     nullptr, UndefBad);
             IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
                     impl_fn->child_scope, fn_proto_node->data.fn_proto.align_expr);
-            copy_const_val(const_instruction->base.value, align_result, true);
+            copy_const_val(const_instruction->base.value, align_result);
 
             uint32_t align_bytes = 0;
             ir_resolve_align(ira, &const_instruction->base, nullptr, &align_bytes);
@@ -18172,7 +18158,7 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
 
     if (dst_size <= src_size) {
         if (src_size == dst_size && types_have_same_zig_comptime_repr(codegen, out_val->type, pointee->type)) {
-            copy_const_val(out_val, pointee, ptr_val->data.x_ptr.mut != ConstPtrMutComptimeVar);
+            copy_const_val(out_val, pointee);
             return ErrorNone;
         }
         Buf buf = BUF_INIT;
@@ -18535,7 +18521,7 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
 
             if (value->value->special != ConstValSpecialRuntime) {
                 IrInstruction *result = ir_const(ira, &phi_instruction->base, nullptr);
-                copy_const_val(result->value, value->value, true);
+                copy_const_val(result->value, value->value);
                 return result;
             } else {
                 return value;
@@ -18928,7 +18914,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
             if (index == array_len && array_type->data.array.sentinel != nullptr) {
                 ZigType *elem_type = array_type->data.array.child_type;
                 IrInstruction *sentinel_elem = ir_const(ira, &elem_ptr_instruction->base, elem_type);
-                copy_const_val(sentinel_elem->value, array_type->data.array.sentinel, false);
+                copy_const_val(sentinel_elem->value, array_type->data.array.sentinel);
                 return ir_get_ref(ira, &elem_ptr_instruction->base, sentinel_elem, true, false);
             }
             if (index >= array_len) {
@@ -19419,7 +19405,7 @@ static IrInstruction *ir_analyze_inferred_field_ptr(IrAnalyze *ira, Buf *field_n
 
     if (instr_is_comptime(container_ptr)) {
         IrInstruction *result = ir_const(ira, source_instr, field_ptr_type);
-        copy_const_val(result->value, container_ptr->value, false);
+        copy_const_val(result->value, container_ptr->value);
         result->value->type = field_ptr_type;
         return result;
     }
@@ -20851,7 +20837,7 @@ static IrInstruction *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case ZigTypeIdErrorSet: {
             if (pointee_val) {
                 IrInstruction *result = ir_const(ira, &switch_target_instruction->base, nullptr);
-                copy_const_val(result->value, pointee_val, true);
+                copy_const_val(result->value, pointee_val);
                 result->value->type = target_type;
                 return result;
             }
@@ -21347,7 +21333,7 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
             return ira->codegen->invalid_instruction;
 
         IrInstruction *runtime_inst = ir_const(ira, instruction, field->init_val->type);
-        copy_const_val(runtime_inst->value, field->init_val, true);
+        copy_const_val(runtime_inst->value, field->init_val);
 
         IrInstruction *field_ptr = ir_analyze_struct_field_ptr(ira, instruction, field, result_loc,
                 container_type, true);
@@ -21605,7 +21591,7 @@ static IrInstruction *ir_analyze_instruction_err_name(IrAnalyze *ira, IrInstruct
             err->cached_error_name_val = create_const_slice(ira->codegen, array_val, 0, buf_len(&err->name), true);
         }
         IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
-        copy_const_val(result->value, err->cached_error_name_val, true);
+        copy_const_val(result->value, err->cached_error_name_val);
         result->value->type = str_type;
         return result;
     }
@@ -23042,7 +23028,7 @@ static IrInstruction *ir_analyze_instruction_type_name(IrAnalyze *ira, IrInstruc
         type_entry->cached_const_name_val = create_const_str_lit(ira->codegen, type_bare_name(type_entry));
     }
     IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
-    copy_const_val(result->value, type_entry->cached_const_name_val, true);
+    copy_const_val(result->value, type_entry->cached_const_name_val);
     return result;
 }
 
@@ -23742,7 +23728,7 @@ static IrInstruction *ir_analyze_instruction_to_bytes(IrAnalyze *ira, IrInstruct
 
         ZigValue *ptr_val = result->value->data.x_struct.fields[slice_ptr_index];
         ZigValue *target_ptr_val = target_val->data.x_struct.fields[slice_ptr_index];
-        copy_const_val(ptr_val, target_ptr_val, false);
+        copy_const_val(ptr_val, target_ptr_val);
         ptr_val->type = dest_ptr_type;
 
         ZigValue *len_val = result->value->data.x_struct.fields[slice_len_index];
@@ -24035,7 +24021,7 @@ static IrInstruction *ir_analyze_shuffle_vector(IrAnalyze *ira, IrInstruction *s
             ZigValue *src_elem_val = (v >= 0) ?
                 &a->value->data.x_array.data.s_none.elements[v] :
                 &b->value->data.x_array.data.s_none.elements[~v];
-            copy_const_val(result_elem_val, src_elem_val, false);
+            copy_const_val(result_elem_val, src_elem_val);
 
             ir_assert(result_elem_val->special == ConstValSpecialStatic, source_instr);
         }
@@ -24130,7 +24116,7 @@ static IrInstruction *ir_analyze_instruction_splat(IrAnalyze *ira, IrInstruction
         IrInstruction *result = ir_const(ira, &instruction->base, return_type);
         result->value->data.x_array.data.s_none.elements = create_const_vals(len_int);
         for (uint32_t i = 0; i < len_int; i += 1) {
-            copy_const_val(&result->value->data.x_array.data.s_none.elements[i], scalar_val, false);
+            copy_const_val(&result->value->data.x_array.data.s_none.elements[i], scalar_val);
         }
         return result;
     }
@@ -24271,7 +24257,7 @@ static IrInstruction *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructio
             }
 
             for (size_t i = start; i < end; i += 1) {
-                copy_const_val(&dest_elements[i], byte_val, true);
+                copy_const_val(&dest_elements[i], byte_val);
             }
 
             return ir_const_void(ira, &instruction->base);
@@ -24450,7 +24436,7 @@ static IrInstruction *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructio
             // TODO check for noalias violations - this should be generalized to work for any function
 
             for (size_t i = 0; i < count; i += 1) {
-                copy_const_val(&dest_elements[dest_start + i], &src_elements[src_start + i], true);
+                copy_const_val(&dest_elements[dest_start + i], &src_elements[src_start + i]);
             }
 
             return ir_const_void(ira, &instruction->base);
@@ -25892,7 +25878,7 @@ static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint3
         }
 
         IrInstruction *result = ir_const(ira, target, result_type);
-        copy_const_val(result->value, val, true);
+        copy_const_val(result->value, val);
         result->value->type = result_type;
         return result;
     }
@@ -25974,7 +25960,7 @@ static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_
         } else {
             result = ir_const(ira, source_instr, dest_type);
         }
-        copy_const_val(result->value, val, true);
+        copy_const_val(result->value, val);
         result->value->type = dest_type;
 
         // Keep the bigger alignment, it can only help-

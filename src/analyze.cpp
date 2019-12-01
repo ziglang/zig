@@ -5909,12 +5909,7 @@ ZigValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_t arg_
 
 
 ZigValue *create_const_vals(size_t count) {
-    ConstGlobalRefs *global_refs = allocate<ConstGlobalRefs>(count, "ConstGlobalRefs");
-    ZigValue *vals = allocate<ZigValue>(count, "ZigValue");
-    for (size_t i = 0; i < count; i += 1) {
-        vals[i].global_refs = &global_refs[i];
-    }
-    return vals;
+    return allocate<ZigValue>(count, "ZigValue");
 }
 
 ZigValue **alloc_const_vals_ptrs(size_t count) {
@@ -6492,20 +6487,14 @@ bool const_values_equal_ptr(ZigValue *a, ZigValue *b) {
                 return false;
             return true;
         case ConstPtrSpecialBaseArray:
-            if (a->data.x_ptr.data.base_array.array_val != b->data.x_ptr.data.base_array.array_val &&
-                a->data.x_ptr.data.base_array.array_val->global_refs !=
-                b->data.x_ptr.data.base_array.array_val->global_refs)
-            {
+            if (a->data.x_ptr.data.base_array.array_val != b->data.x_ptr.data.base_array.array_val) {
                 return false;
             }
             if (a->data.x_ptr.data.base_array.elem_index != b->data.x_ptr.data.base_array.elem_index)
                 return false;
             return true;
         case ConstPtrSpecialBaseStruct:
-            if (a->data.x_ptr.data.base_struct.struct_val != b->data.x_ptr.data.base_struct.struct_val &&
-                a->data.x_ptr.data.base_struct.struct_val->global_refs !=
-                b->data.x_ptr.data.base_struct.struct_val->global_refs)
-            {
+            if (a->data.x_ptr.data.base_struct.struct_val != b->data.x_ptr.data.base_struct.struct_val) {
                 return false;
             }
             if (a->data.x_ptr.data.base_struct.field_index != b->data.x_ptr.data.base_struct.field_index)
@@ -6513,27 +6502,21 @@ bool const_values_equal_ptr(ZigValue *a, ZigValue *b) {
             return true;
         case ConstPtrSpecialBaseErrorUnionCode:
             if (a->data.x_ptr.data.base_err_union_code.err_union_val !=
-                b->data.x_ptr.data.base_err_union_code.err_union_val &&
-                a->data.x_ptr.data.base_err_union_code.err_union_val->global_refs !=
-                b->data.x_ptr.data.base_err_union_code.err_union_val->global_refs)
+                b->data.x_ptr.data.base_err_union_code.err_union_val)
             {
                 return false;
             }
             return true;
         case ConstPtrSpecialBaseErrorUnionPayload:
             if (a->data.x_ptr.data.base_err_union_payload.err_union_val !=
-                b->data.x_ptr.data.base_err_union_payload.err_union_val &&
-                a->data.x_ptr.data.base_err_union_payload.err_union_val->global_refs !=
-                b->data.x_ptr.data.base_err_union_payload.err_union_val->global_refs)
+                b->data.x_ptr.data.base_err_union_payload.err_union_val)
             {
                 return false;
             }
             return true;
         case ConstPtrSpecialBaseOptionalPayload:
             if (a->data.x_ptr.data.base_optional_payload.optional_val !=
-                b->data.x_ptr.data.base_optional_payload.optional_val &&
-                a->data.x_ptr.data.base_optional_payload.optional_val->global_refs !=
-                b->data.x_ptr.data.base_optional_payload.optional_val->global_refs)
+                b->data.x_ptr.data.base_optional_payload.optional_val)
             {
                 return false;
             }
