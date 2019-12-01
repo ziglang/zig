@@ -1,4 +1,114 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+// TODO rename to Packet, Resource, Question, Header
+
+pub const QuestionList = std.ArrayList(DNSQuestion);
+pub const ResourceList = std.ArrayList(DNSResource);
+pub const DNSDeserializer = std.io.Deserializer(.Big, .Bit, std.io.SliceInStream.Error);
+pub const DNSError = error{
+    UnknownDNSType,
+    RDATANotSupported,
+    DeserialFail,
+    ParseFail,
+};
+
+/// Represents a DNS type.
+pub const DNSType = enum(u16) {
+    A = 1,
+    NS,
+    MD,
+    MF,
+    CNAME = 5,
+    SOA,
+    MB,
+    MG,
+    MR,
+    NULL,
+    WKS,
+    PTR,
+    HINFO,
+    MINFO,
+    MX,
+    TXT,
+
+    AAAA = 28,
+    //LOC,
+    //SRV,
+
+    // QTYPE only, but merging under DNSType
+    // for nicer API
+
+    // TODO: add them back, maybe?
+    //AXFR = 252,
+    //MAILB,
+    //MAILA,
+    //WILDCARD,
+};
+
+pub const DNSClass = enum(u16) {
+    IN = 1,
+    CS,
+    CH,
+    HS,
+    WILDCARD = 255,
+};
+
+/// Convert from a DNSClass to a friendly string
+pub fn classToStr(class: DNSClass) []const u8 {
+    var as_str = switch (class) {
+        .IN => "IN",
+        .CS => "CS",
+        .CH => "CH",
+        .HS => "HS",
+        else => "unknown",
+    };
+
+    return as_str[0..];
+}
+
+fn toUpper(str: []const u8, out: []u8) void {
+    for (str) |c, i| {
+        out[i] = std.ascii.toUpper(c);
+    }
+}
+
+/// Convert a given string to an integer representing a DNSType.
+pub fn strToType(str: []const u8) !u16 {
+    var uppercased: [16]u8 = [_]u8{0} ** 16;
+    toUpper(str, uppercased[0..]);
+
+    var to_compare: [16]u8 = undefined;
+    const type_info = @typeInfo(DNSType).Enum;
+
+    inline for (type_info.fields) |field| {
+        std.mem.copy(u8, to_compare[0..], field.name);
+
+        // we have to secureZero here because a previous comparison
+        // might have used those zero bytes for itself.
+        std.mem.secureZero(u8, to_compare[field.name.len..]);
+
+        if (std.mem.eql(u8, uppercased, to_compare)) {
+            return field.value;
+        }
+    }
+
+    return error.UnknownDNSType;
+}
+
+/// Convert a DNSType u16 into a string representing it.
+pub fn typeToStr(qtype: u16) []const u8 {
+    const type_info = @typeInfo(DNSType).Enum;
+    var as_dns_type = @intToEnum(DNSType, qtype);
+
+    inline for (type_info.fields) |field| {
+        if (field.value == qtype) {
+            return field.name;
+        }
+    }
+
+    return "<unknown>";
+}
 
 /// Describes the header of a DNS packet.
 pub const DNSHeader = packed struct {
@@ -43,7 +153,7 @@ pub const DNSHeader = packed struct {
     /// debugging purposes
     pub fn as_str(self: *DNSHeader) ![]u8 {
         var buf: [1024]u8 = undefined;
-        return fmt.bufPrint(
+        return std.fmt.bufPrint(
             &buf,
             "DNSHeader<{},{},{},{},{},{},{},{},{},{},{},{},{}>",
             self.id,
@@ -194,6 +304,19 @@ fn resourceSize(resource: DNSResource) usize {
     return res_size;
 }
 
+/// Deserialize a type, but send any error to stderr (if compiled in Debug mode)
+/// This is required due to the recusive requirements of DNSName parsing as
+/// explained in LabelComponent. Zig as of right now does not allow recursion
+/// on functions with infferred error sets, and enforcing an error set
+/// (which is the only solution) caused even more problems due to
+/// io.Deserializer not giving a stable error set at compile-time.
+fn inDeserial(deserializer: var, comptime T: type) DNSError!T {
+    return deserializer.deserialize(T) catch |deserial_error| {
+        // debugWarn("got error: {}\n", deserial_error);
+        return DNSError.DeserialFail;
+    };
+}
+
 /// Represents a full DNS packet, including all conversion to and from binary.
 /// This struct supports the io.Serializer and io.Deserializer interfaces.
 /// The serialization of DNS packets only serializes the question list. Be
@@ -278,7 +401,7 @@ pub const DNSPacket = struct {
             }
 
             // null-octet for the end of labels
-            try serializer.serialize(u8(0));
+            try serializer.serialize(@as(u8, 0));
 
             try serializer.serialize(question.qtype);
             try serializer.serialize(@enumToInt(question.qclass));
@@ -306,8 +429,8 @@ pub const DNSPacket = struct {
 
         // set first two bits of ptr_offset to zero as they're the
         // pointer prefix bits (which are always 1, which brings problems)
-        ptr_offset &= ~u16(1 << 15);
-        ptr_offset &= ~u16(1 << 14);
+        ptr_offset &= ~@as(u16, 1 << 15);
+        ptr_offset &= ~@as(u16, 1 << 14);
 
         // we need to make a proper [][]const u8 which means
         // re-deserializing labels but using start_slice instead
@@ -316,7 +439,7 @@ pub const DNSPacket = struct {
         if (offset_size_opt) |offset_size| {
             var start_slice = self.raw_bytes[ptr_offset .. ptr_offset + (offset_size + 1)];
 
-            var in = io.SliceInStream.init(start_slice);
+            var in = std.io.SliceInStream.init(start_slice);
             var in_stream = &in.stream;
             var new_deserializer = DNSDeserializer.init(in_stream);
 

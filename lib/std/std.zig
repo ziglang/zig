@@ -34,6 +34,7 @@ pub const coff = @import("coff.zig");
 pub const crypto = @import("crypto.zig");
 pub const cstr = @import("cstr.zig");
 pub const debug = @import("debug.zig");
+pub const dns = @import("dns.zig");
 pub const dwarf = @import("dwarf.zig");
 pub const elf = @import("elf.zig");
 pub const event = @import("event.zig");
