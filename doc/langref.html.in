@@ -1518,7 +1518,7 @@ value == null{#endsyntax#}</pre>
 const array1 = [_]u32{1,2};
 const array2 = [_]u32{3,4};
 const together = array1 ++ array2;
-mem.eql(u32, together, [_]u32{1,2,3,4}){#endsyntax#}</pre>
+mem.eql(u32, together, &[_]u32{1,2,3,4}){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1621,10 +1621,10 @@ comptime {
 }
 
 // A string literal is a pointer to an array literal.
-const same_message = "hello".*;
+const same_message = "hello";
 
 comptime {
-    assert(mem.eql(u8, message, same_message));
+    assert(mem.eql(u8, &message, same_message));
 }
 
 test "iterate over an array" {
@@ -1652,7 +1652,7 @@ const part_one = [_]i32{ 1, 2, 3, 4 };
 const part_two = [_]i32{ 5, 6, 7, 8 };
 const all_of_it = part_one ++ part_two;
 comptime {
-    assert(mem.eql(i32, all_of_it, [_]i32{ 1, 2, 3, 4, 5, 6, 7, 8 }));
+    assert(mem.eql(i32, &all_of_it, &[_]i32{ 1, 2, 3, 4, 5, 6, 7, 8 }));
 }
 
 // remember that string literals are arrays
@@ -4915,30 +4915,30 @@ const assert = std.debug.assert;
 // https://github.com/ziglang/zig/issues/265 is implemented.
 test "[N]T to []const T" {
     var x1: []const u8 = "hello";
-    var x2: []const u8 = [5]u8{ 'h', 'e', 'l', 'l', 111 };
+    var x2: []const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
     assert(std.mem.eql(u8, x1, x2));
 
-    var y: []const f32 = [2]f32{ 1.2, 3.4 };
+    var y: []const f32 = &[2]f32{ 1.2, 3.4 };
     assert(y[0] == 1.2);
 }
 
 // Likewise, it works when the destination type is an error union.
 test "[N]T to E![]const T" {
     var x1: anyerror![]const u8 = "hello";
-    var x2: anyerror![]const u8 = [5]u8{ 'h', 'e', 'l', 'l', 111 };
+    var x2: anyerror![]const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
     assert(std.mem.eql(u8, try x1, try x2));
 
-    var y: anyerror![]const f32 = [2]f32{ 1.2, 3.4 };
+    var y: anyerror![]const f32 = &[2]f32{ 1.2, 3.4 };
     assert((try y)[0] == 1.2);
 }
 
 // Likewise, it works when the destination type is an optional.
 test "[N]T to ?[]const T" {
     var x1: ?[]const u8 = "hello";
-    var x2: ?[]const u8 = [5]u8{ 'h', 'e', 'l', 'l', 111 };
+    var x2: ?[]const u8 = &[5]u8{ 'h', 'e', 'l', 'l', 111 };
     assert(std.mem.eql(u8, x1.?, x2.?));
 
-    var y: ?[]const f32 = [2]f32{ 1.2, 3.4 };
+    var y: ?[]const f32 = &[2]f32{ 1.2, 3.4 };
     assert(y.?[0] == 1.2);
 }
 
@@ -4950,7 +4950,7 @@ test "*[N]T to []T" {
 
     const buf2 = [2]f32{ 1.2, 3.4 };
     const x2: []const f32 = &buf2;
-    assert(std.mem.eql(f32, x2, [2]f32{ 1.2, 3.4 }));
+    assert(std.mem.eql(f32, x2, &[2]f32{ 1.2, 3.4 }));
 }
 
 // Single-item pointers to arrays can be coerced to
@@ -5185,7 +5185,7 @@ fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
     return @as(usize, 3);
 }
 
-test "peer type resolution: [0]u8 and []const u8" {
+test "peer type resolution: *[0]u8 and []const u8" {
     assert(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
     assert(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
     comptime {
@@ -5195,12 +5195,12 @@ test "peer type resolution: [0]u8 and []const u8" {
 }
 fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
     if (a) {
-        return [_]u8{};
+        return &[_]u8{};
     }
 
     return slice[0..1];
 }
-test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
+test "peer type resolution: *[0]u8, []const u8, and anyerror![]u8" {
     {
         var data = "hi".*;
         const slice = data[0..];
@@ -5216,7 +5216,7 @@ test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
 }
 fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
     if (a) {
-        return [_]u8{};
+        return &[_]u8{};
     }
 
     return slice[0..1];
@@ -5746,7 +5746,7 @@ test "fibonacci" {
       </p>
       {#code_begin|test#}
 const first_25_primes = firstNPrimes(25);
-const sum_of_first_25_primes = sum(first_25_primes);
+const sum_of_first_25_primes = sum(&first_25_primes);
 
 fn firstNPrimes(comptime n: usize) [n]i32 {
     var prime_list: [n]i32 = undefined;
@@ -6364,7 +6364,7 @@ test "async function await" {
     resume the_frame;
     seq('i');
     assert(final_result == 1234);
-    assert(std.mem.eql(u8, seq_points, "abcdefghi"));
+    assert(std.mem.eql(u8, &seq_points, "abcdefghi"));
 }
 fn amain() void {
     seq('b');
@@ -8014,7 +8014,7 @@ test "vector @splat" {
     const scalar: u32 = 5;
     const result = @splat(4, scalar);
     comptime assert(@typeOf(result) == @Vector(4, u32));
-    assert(std.mem.eql(u32, @as([4]u32, result), [_]u32{ 5, 5, 5, 5 }));
+    assert(std.mem.eql(u32, &@as([4]u32, result), &[_]u32{ 5, 5, 5, 5 }));
 }
       {#code_end#}
       <p>
@@ -8948,7 +8948,7 @@ pub fn main() void {
       {#code_begin|test_err|unable to convert#}
 comptime {
     var bytes = [5]u8{ 1, 2, 3, 4, 5 };
-    var slice = @bytesToSlice(u32, bytes);
+    var slice = @bytesToSlice(u32, bytes[0..]);
 }
       {#code_end#}
       <p>At runtime:</p>
@@ -9760,7 +9760,7 @@ pub fn build(b: *Builder) void {
     const lib = b.addSharedLibrary("mathtest", "mathtest.zig", b.version(1, 0, 0));
 
     const exe = b.addExecutable("test", null);
-    exe.addCSourceFile("test.c", [_][]const u8{"-std=c99"});
+    exe.addCSourceFile("test.c", &[_][]const u8{"-std=c99"});
     exe.linkLibrary(lib);
     exe.linkSystemLibrary("c");
 
@@ -9825,7 +9825,7 @@ pub fn build(b: *Builder) void {
     const obj = b.addObject("base64", "base64.zig");
 
     const exe = b.addExecutable("test", null);
-    exe.addCSourceFile("test.c", [_][]const u8{"-std=c99"});
+    exe.addCSourceFile("test.c", &[_][]const u8{"-std=c99"});
     exe.addObject(obj);
     exe.linkSystemLibrary("c");
     exe.install();

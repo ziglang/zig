@@ -23646,6 +23646,7 @@ static IrInstruction *ir_analyze_instruction_from_bytes(IrAnalyze *ira, IrInstru
     }
 
     if (target->value->type->id == ZigTypeIdPointer &&
+        target->value->type->data.pointer.ptr_len == PtrLenSingle &&
         target->value->type->data.pointer.child_type->id == ZigTypeIdArray)
     {
         known_len = target->value->type->data.pointer.child_type->data.array.len;
