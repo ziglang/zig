@@ -252,10 +252,6 @@ extern const __heap_base: [*]u8;
 extern fn @"llvm.wasm.memory.size.i32"(u32) u32;
 extern fn @"llvm.wasm.memory.grow.i32"(u32, u32) i32;
 
-test "" {
-    _ = WasmPageAllocator.realloc;
-}
-
 const WasmPageAllocator = struct {
     // TODO: figure out why __heap_base cannot be found
     var heap_base_wannabe: [256]u8 = undefined;
@@ -275,7 +271,7 @@ const WasmPageAllocator = struct {
         }
 
         // TODO: optimize this terribleness
-        fn alloc(self: *FreeBlock, num_pages: usize) ?[]u8 {
+        fn useRecycled(self: *FreeBlock, num_pages: usize) ?[*]u8 {
             var found_idx: usize = 0;
             var found_size: usize = 0;
 
@@ -290,15 +286,18 @@ const WasmPageAllocator = struct {
                     found_size += 1;
 
                     if (found_size >= num_pages) {
-                        const page_ptr = @intToPtr([*]u8, (found_idx + self.offset) * std.mem.page_size);
-                        return page_ptr[0 .. found_size * std.mem.page_size];
+                        while (found_size > 0) {
+                            found_size -= 1;
+                            self.packed_data.set(found_idx + found_size, 0);
+                        }
+                        return @intToPtr([*]u8, (found_idx + self.offset) * std.mem.page_size);
                     }
                 }
             }
             return null;
         }
 
-        fn reclaim(self: *FreeBlock, start_index: usize, end_index: usize) void {
+        fn recycle(self: *FreeBlock, start_index: usize, end_index: usize) void {
             var i = start_index - self.offset;
             while (i < end_index - self.offset) : (i += 1) {
                 std.debug.assert(self.packed_data.get(i) == 0);
@@ -315,23 +314,24 @@ const WasmPageAllocator = struct {
     }
 
     fn alloc(allocator: *Allocator, n: usize, alignment: u29) error{OutOfMemory}![]u8 {
-        if (alignment > std.mem.page_size) {
-            return error.OutOfMemory;
-        }
-
         const n_pages = nPages(n);
-        return conventional.alloc(n_pages) orelse extended.alloc(n_pages) orelse {
+        const page = conventional.useRecycled(n_pages) orelse extended.useRecycled(n_pages) orelse blk: {
             const prev_page_count = @"llvm.wasm.memory.grow.i32"(0, @intCast(u32, n_pages));
             if (prev_page_count < 0) {
                 return error.OutOfMemory;
             }
 
-            const start_ptr = @intToPtr([*]u8, @intCast(usize, prev_page_count) * std.mem.page_size);
-            return start_ptr[0..n];
+            break :blk @intToPtr([*]u8, @intCast(usize, prev_page_count) * std.mem.page_size);
         };
+
+        return page[0..n];
     }
 
     pub fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) Allocator.Error![]u8 {
+        if (new_align > std.mem.page_size) {
+            return error.OutOfMemory;
+        }
+
         if (old_mem.len == 0) {
             return alloc(allocator, new_size, new_align);
         } else if (new_size < old_mem.len) {
@@ -352,21 +352,22 @@ const WasmPageAllocator = struct {
 
         if (free_end > free_start) {
             if (conventional.totalPages() == 0) {
+                conventional.offset = 0;
                 //conventional.initData(__heap_base[0..@intCast(usize, @"llvm.wasm.memory.size.i32"(0) * std.mem.page_size)]);
                 conventional.initData(heap_base_wannabe[0..]);
             }
 
             if (free_start < conventional.totalPages()) {
-                conventional.reclaim(free_start, free_end);
+                conventional.recycle(free_start, free_end);
             } else {
                 if (extended.totalPages() == 0) {
-                    extended.offset = conventional.totalPages();
+                    extended.offset = conventional.offset + conventional.totalPages();
 
-                    // Steal the last page from the memory currently being reclaimed
+                    // Steal the last page from the memory currently being recycled
                     free_end -= 1;
-                    extended.initData(@intToPtr([*]u8, free_end)[0..std.mem.page_size]);
+                    extended.initData(@intToPtr([*]u8, free_end * std.mem.page_size)[0..std.mem.page_size]);
                 }
-                conventional.reclaim(free_start, free_end);
+                extended.recycle(free_start, free_end);
             }
         }
 
@@ -932,7 +933,8 @@ fn testAllocatorAligned(allocator: *mem.Allocator, comptime alignment: u29) !voi
 fn testAllocatorLargeAlignment(allocator: *mem.Allocator) mem.Allocator.Error!void {
     //Maybe a platform's page_size is actually the same as or
     //  very near usize?
-    if (mem.page_size << 2 > maxInt(usize)) return;
+    //if (mem.page_size << 2 > maxInt(usize)) return;
+    if (mem.page_size << 2 > 32768) return;
 
     const USizeShift = @IntType(false, std.math.log2(usize.bit_count));
     const large_align = @as(u29, mem.page_size << 2);
