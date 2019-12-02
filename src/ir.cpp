@@ -18916,7 +18916,8 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                         return ira->codegen->invalid_instruction;
                     if (actual_array_type->id != ZigTypeIdArray) {
                         ir_add_error_node(ira, elem_ptr_instruction->init_array_type_source_node,
-                            buf_sprintf("expected array type or [_], found slice"));
+                            buf_sprintf("array literal requires address-of operator to coerce to slice type '%s'",
+                                buf_ptr(&actual_array_type->name)));
                         return ira->codegen->invalid_instruction;
                     }
 
@@ -21308,7 +21309,8 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
 
     if (is_slice(container_type)) {
         ir_add_error_node(ira, instruction->init_array_type_source_node,
-            buf_sprintf("expected array type or [_], found slice"));
+            buf_sprintf("array literal requires address-of operator to coerce to slice type '%s'",
+                buf_ptr(&container_type->name)));
         return ira->codegen->invalid_instruction;
     }
 
@@ -22835,7 +22837,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInstruction *instruction, Zi
                 }
                 ir_add_error(ira, instruction,
                     buf_sprintf("%d-bit float unsupported", bits));
-                return nullptr;
+                return ira->codegen->invalid_instruction->value->type;
             }
         case ZigTypeIdPointer:
             {
@@ -23643,7 +23645,12 @@ static IrInstruction *ir_analyze_instruction_from_bytes(IrAnalyze *ira, IrInstru
         return result_loc;
     }
 
-    if (casted_value->value->data.rh_slice.id == RuntimeHintSliceIdLen) {
+    if (target->value->type->id == ZigTypeIdPointer &&
+        target->value->type->data.pointer.child_type->id == ZigTypeIdArray)
+    {
+        known_len = target->value->type->data.pointer.child_type->data.array.len;
+        have_known_len = true;
+    } else if (casted_value->value->data.rh_slice.id == RuntimeHintSliceIdLen) {
         known_len = casted_value->value->data.rh_slice.len;
         have_known_len = true;
     }
