@@ -39,20 +39,20 @@ comptime {
 
 extern var _fltused: c_int = 1;
 
-extern fn main(argc: c_int, argv: [*][*]u8) c_int;
+extern fn main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 extern fn wasm_start() void {
     _ = main(0, undefined);
 }
 
-extern fn strcmp(s1: [*]const u8, s2: [*]const u8) c_int {
+extern fn strcmp(s1: [*:0]const u8, s2: [*:0]const u8) c_int {
     return std.cstr.cmp(s1, s2);
 }
 
-extern fn strlen(s: [*]const u8) usize {
+extern fn strlen(s: [*:0]const u8) usize {
     return std.mem.len(u8, s);
 }
 
-extern fn strncmp(_l: [*]const u8, _r: [*]const u8, _n: usize) c_int {
+extern fn strncmp(_l: [*:0]const u8, _r: [*:0]const u8, _n: usize) c_int {
     if (_n == 0) return 0;
     var l = _l;
     var r = _r;
@@ -65,7 +65,7 @@ extern fn strncmp(_l: [*]const u8, _r: [*]const u8, _n: usize) c_int {
     return @as(c_int, l[0]) - @as(c_int, r[0]);
 }
 
-extern fn strerror(errnum: c_int) [*]const u8 {
+extern fn strerror(errnum: c_int) [*:0]const u8 {
     return "TODO strerror implementation";
 }
 
