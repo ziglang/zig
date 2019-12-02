@@ -304,13 +304,6 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     if (ctx.comp.target != Target.Native) {
         try ctx.args.append("--allow-shlib-undefined");
     }
-
-    if (ctx.comp.target.getOs() == .zen) {
-        try ctx.args.append("-e");
-        try ctx.args.append("_start");
-
-        try ctx.args.append("--image-base=0x10000000");
-    }
 }
 
 fn addPathJoin(ctx: *Context, dirname: []const u8, basename: []const u8) !void {

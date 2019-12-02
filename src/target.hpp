@@ -49,7 +49,6 @@ enum Os {
     OsHurd,
     OsWASI,
     OsEmscripten,
-    OsZen,
     OsUefi,
 };
 

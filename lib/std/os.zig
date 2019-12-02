@@ -31,7 +31,6 @@ pub const linux = @import("os/linux.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
 pub const windows = @import("os/windows.zig");
-pub const zen = @import("os/zen.zig");
 
 comptime {
     assert(@import("std") == std); // std lib tests require --override-lib-dir
@@ -45,7 +44,6 @@ test "" {
     _ = uefi;
     _ = wasi;
     _ = windows;
-    _ = zen;
 
     _ = @import("os/test.zig");
 }
@@ -59,7 +57,6 @@ pub const system = if (builtin.link_libc) std.c else switch (builtin.os) {
     .dragonfly => dragonfly,
     .wasi => wasi,
     .windows => windows,
-    .zen => zen,
     else => struct {},
 };
 
