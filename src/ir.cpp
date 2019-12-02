@@ -16797,6 +16797,7 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
         ResultLoc *result_loc_pass1, ZigType *value_type, IrInstruction *value, bool force_runtime,
         bool non_null_comptime, bool allow_discard)
 {
+    Error err;
     if (!allow_discard && result_loc_pass1->id == ResultLocIdInstruction &&
         instr_is_comptime(result_loc_pass1->source_instruction) &&
         result_loc_pass1->source_instruction->value->type->id == ZigTypeIdPointer &&
@@ -16818,24 +16819,32 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
     ir_assert(result_loc->value->type->id == ZigTypeIdPointer, suspend_source_instr);
     ZigType *actual_elem_type = result_loc->value->type->data.pointer.child_type;
     if (actual_elem_type->id == ZigTypeIdOptional && value_type->id != ZigTypeIdOptional &&
-            value_type->id != ZigTypeIdNull && type_has_bits(value_type))
+            value_type->id != ZigTypeIdNull)
     {
-        result_loc_pass1->written = false;
-        return ir_analyze_unwrap_optional_payload(ira, suspend_source_instr, result_loc, false, true);
-    } else if (actual_elem_type->id == ZigTypeIdErrorUnion && value_type->id != ZigTypeIdErrorUnion &&
-            type_has_bits(value_type))
-    {
-        if (value_type->id == ZigTypeIdErrorSet) {
-            return ir_analyze_unwrap_err_code(ira, suspend_source_instr, result_loc, true);
-        } else {
-            IrInstruction *unwrapped_err_ptr = ir_analyze_unwrap_error_payload(ira, suspend_source_instr,
-                    result_loc, false, true);
-            ZigType *actual_payload_type = actual_elem_type->data.error_union.payload_type;
-            if (actual_payload_type->id == ZigTypeIdOptional && value_type->id != ZigTypeIdOptional &&
-                value_type->id != ZigTypeIdNull) {
-                return ir_analyze_unwrap_optional_payload(ira, suspend_source_instr, unwrapped_err_ptr, false, true);
+        bool has_bits;
+        if ((err = type_has_bits2(ira->codegen, value_type, &has_bits)))
+            return ira->codegen->invalid_instruction;
+        if (has_bits) {
+            result_loc_pass1->written = false;
+            return ir_analyze_unwrap_optional_payload(ira, suspend_source_instr, result_loc, false, true);
+        }
+    } else if (actual_elem_type->id == ZigTypeIdErrorUnion && value_type->id != ZigTypeIdErrorUnion) {
+        bool has_bits;
+        if ((err = type_has_bits2(ira->codegen, value_type, &has_bits)))
+            return ira->codegen->invalid_instruction;
+        if (has_bits) {
+            if (value_type->id == ZigTypeIdErrorSet) {
+                return ir_analyze_unwrap_err_code(ira, suspend_source_instr, result_loc, true);
             } else {
-                return unwrapped_err_ptr;
+                IrInstruction *unwrapped_err_ptr = ir_analyze_unwrap_error_payload(ira, suspend_source_instr,
+                        result_loc, false, true);
+                ZigType *actual_payload_type = actual_elem_type->data.error_union.payload_type;
+                if (actual_payload_type->id == ZigTypeIdOptional && value_type->id != ZigTypeIdOptional &&
+                    value_type->id != ZigTypeIdNull) {
+                    return ir_analyze_unwrap_optional_payload(ira, suspend_source_instr, unwrapped_err_ptr, false, true);
+                } else {
+                    return unwrapped_err_ptr;
+                }
             }
         }
     }
