@@ -796,6 +796,9 @@ pub const OpenSelfDebugInfoError = error{
 pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
     if (builtin.strip_debug_info)
         return error.MissingDebugInfo;
+    if (@hasDecl(root, "os") and @hasDecl(root.os, "debug") and @hasDecl(root.os.debug, "openSelfDebugInfo")) {
+        return noasync root.os.debug.openSelfDebugInfo(allocator);
+    }
     if (builtin.os == .windows) {
         return noasync openSelfDebugInfoWindows(allocator);
     }
@@ -1722,8 +1725,7 @@ pub const DebugInfo = switch (builtin.os) {
         sect_contribs: []pdb.SectionContribEntry,
         modules: []Module,
     },
-    .linux, .freebsd, .netbsd, .dragonfly => DwarfInfo,
-    else => @compileError("Unsupported OS"),
+    else => DwarfInfo,
 };
 
 const PcRange = struct {

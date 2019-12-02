@@ -1,7 +1,10 @@
-// Platform-dependent types and values that are used along with OS-specific APIs.
-// These are imported into `std.c`, `std.os`, and `std.os.linux`.
+//! Platform-dependent types and values that are used along with OS-specific APIs.
+//! These are imported into `std.c`, `std.os`, and `std.os.linux`.
+//! Root source files can define `os.bits` and these will additionally be added
+//! to the namespace.
 
 const builtin = @import("builtin");
+const root = @import("root");
 
 pub usingnamespace switch (builtin.os) {
     .macosx, .ios, .tvos, .watchos => @import("bits/darwin.zig"),
@@ -13,6 +16,8 @@ pub usingnamespace switch (builtin.os) {
     .windows => @import("bits/windows.zig"),
     else => struct {},
 };
+
+pub usingnamespace if (@hasDecl(root, "os") and @hasDecl(root.os, "bits")) root.os.bits else struct {};
 
 pub const iovec = extern struct {
     iov_base: [*]u8,

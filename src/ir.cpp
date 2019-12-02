@@ -9015,7 +9015,6 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, Scope *sc
         if (irb->exec->first_err_trace_msg == nullptr) {
             irb->exec->first_err_trace_msg = irb->codegen->trace_err;
         }
-        src_assert(irb->exec->first_err_trace_msg != nullptr, node);
     }
     return result;
 }
@@ -10709,10 +10708,12 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
                 if (type_is_global_error_set(err_set_type)) {
                     continue;
                 }
-                if (!resolve_inferred_error_set(ira->codegen, cur_type, cur_inst->source_node)) {
+                bool allow_infer = cur_type->data.error_set.infer_fn != nullptr &&
+                        cur_type->data.error_set.infer_fn == ira->new_irb.exec->fn_entry;
+                if (!allow_infer && !resolve_inferred_error_set(ira->codegen, cur_type, cur_inst->source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
-                if (type_is_global_error_set(cur_type)) {
+                if (!allow_infer && type_is_global_error_set(cur_type)) {
                     err_set_type = ira->codegen->builtin_types.entry_global_error_set;
                     prev_inst = cur_inst;
                     continue;
@@ -10830,10 +10831,12 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
         }
 
         if (cur_type->id == ZigTypeIdErrorSet) {
-            if (!resolve_inferred_error_set(ira->codegen, cur_type, cur_inst->source_node)) {
+            bool allow_infer = cur_type->data.error_set.infer_fn != nullptr &&
+                    cur_type->data.error_set.infer_fn == ira->new_irb.exec->fn_entry;
+            if (!allow_infer && !resolve_inferred_error_set(ira->codegen, cur_type, cur_inst->source_node)) {
                 return ira->codegen->builtin_types.entry_invalid;
             }
-            if (type_is_global_error_set(cur_type)) {
+            if (!allow_infer && type_is_global_error_set(cur_type)) {
                 err_set_type = ira->codegen->builtin_types.entry_global_error_set;
                 continue;
             }
@@ -10844,17 +10847,20 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             update_errors_helper(ira->codegen, &errors, &errors_count);
 
             if (err_set_type == nullptr) {
+                bool allow_infer = false;
                 if (prev_type->id == ZigTypeIdErrorUnion) {
                     err_set_type = prev_type->data.error_union.err_set_type;
+                    allow_infer = err_set_type->data.error_set.infer_fn != nullptr &&
+                        err_set_type->data.error_set.infer_fn == ira->new_irb.exec->fn_entry;
                 } else {
                     err_set_type = cur_type;
                 }
 
-                if (!resolve_inferred_error_set(ira->codegen, err_set_type, cur_inst->source_node)) {
+                if (!allow_infer && !resolve_inferred_error_set(ira->codegen, err_set_type, cur_inst->source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
 
-                if (type_is_global_error_set(err_set_type)) {
+                if (!allow_infer && type_is_global_error_set(err_set_type)) {
                     err_set_type = ira->codegen->builtin_types.entry_global_error_set;
                     continue;
                 }
@@ -10908,15 +10914,22 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
                 if (prev_err_set_type == cur_err_set_type)
                     continue;
 
-                if (!resolve_inferred_error_set(ira->codegen, prev_err_set_type, cur_inst->source_node)) {
+                bool allow_infer_prev = prev_err_set_type->data.error_set.infer_fn != nullptr &&
+                        prev_err_set_type->data.error_set.infer_fn == ira->new_irb.exec->fn_entry;
+                bool allow_infer_cur = cur_err_set_type->data.error_set.infer_fn != nullptr &&
+                        cur_err_set_type->data.error_set.infer_fn == ira->new_irb.exec->fn_entry;
+
+                if (!allow_infer_prev && !resolve_inferred_error_set(ira->codegen, prev_err_set_type, cur_inst->source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
 
-                if (!resolve_inferred_error_set(ira->codegen, cur_err_set_type, cur_inst->source_node)) {
+                if (!allow_infer_cur && !resolve_inferred_error_set(ira->codegen, cur_err_set_type, cur_inst->source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
 
-                if (type_is_global_error_set(prev_err_set_type) || type_is_global_error_set(cur_err_set_type)) {
+                if ((!allow_infer_prev && type_is_global_error_set(prev_err_set_type)) ||
+                    (!allow_infer_cur && type_is_global_error_set(cur_err_set_type)))
+                {
                     err_set_type = ira->codegen->builtin_types.entry_global_error_set;
                     continue;
                 }
@@ -11085,10 +11098,14 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
         {
             if (err_set_type != nullptr) {
                 ZigType *cur_err_set_type = cur_type->data.error_union.err_set_type;
-                if (!resolve_inferred_error_set(ira->codegen, cur_err_set_type, cur_inst->source_node)) {
+                bool allow_infer = cur_err_set_type->data.error_set.infer_fn != nullptr &&
+                    cur_err_set_type->data.error_set.infer_fn == ira->new_irb.exec->fn_entry;
+                if (!allow_infer && !resolve_inferred_error_set(ira->codegen, cur_err_set_type, cur_inst->source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
-                if (type_is_global_error_set(cur_err_set_type) || type_is_global_error_set(err_set_type)) {
+                if ((!allow_infer && type_is_global_error_set(cur_err_set_type)) ||
+                    type_is_global_error_set(err_set_type))
+                {
                     err_set_type = ira->codegen->builtin_types.entry_global_error_set;
                     prev_inst = cur_inst;
                     continue;

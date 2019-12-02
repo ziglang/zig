@@ -61,7 +61,7 @@ pub const Loop = struct {
                 base: ResumeNode,
                 completion_key: usize,
             },
-            else => @compileError("unsupported OS"),
+            else => struct {},
         };
 
         const KEventFd = struct {

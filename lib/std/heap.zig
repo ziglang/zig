@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const root = @import("root");
 const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
@@ -35,6 +36,8 @@ fn cShrink(self: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new
 /// Thread-safe and lock-free.
 pub const page_allocator = if (std.Target.current.isWasm())
     &wasm_page_allocator_state
+else if (std.Target.current.getOs() == .freestanding)
+    root.os.heap.page_allocator
 else
     &page_allocator_state;
 
