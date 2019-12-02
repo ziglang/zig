@@ -235,7 +235,7 @@ pub const ChildProcess = struct {
     }
 
     fn waitUnwrappedWindows(self: *ChildProcess) !void {
-        const result = windows.WaitForSingleObject(self.handle, windows.INFINITE);
+        const result = windows.WaitForSingleObjectEx(self.handle, windows.INFINITE, false);
 
         self.term = @as(SpawnError!Term, x: {
             var exit_code: windows.DWORD = undefined;

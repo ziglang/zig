@@ -24,8 +24,8 @@ pub extern "NtDll" stdcallcc fn NtCreateFile(
 pub extern "NtDll" stdcallcc fn NtDeviceIoControlFile(
     FileHandle: HANDLE,
     Event: ?HANDLE,
-    ApcRoutine: ?*IO_APC_ROUTINE,
-    ApcContext: usize,
+    ApcRoutine: ?IO_APC_ROUTINE,
+    ApcContext: ?*c_void,
     IoStatusBlock: *IO_STATUS_BLOCK,
     IoControlCode: ULONG,
     InputBuffer: ?*const c_void,

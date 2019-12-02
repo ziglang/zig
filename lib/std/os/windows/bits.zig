@@ -19,7 +19,6 @@ pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
 /// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
 pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
 
-pub const SHORT = c_short;
 pub const BOOL = c_int;
 pub const BOOLEAN = BYTE;
 pub const BYTE = u8;
@@ -54,6 +53,8 @@ pub const UNICODE = false;
 pub const WCHAR = u16;
 pub const WORD = u16;
 pub const LARGE_INTEGER = i64;
+pub const USHORT = u16;
+pub const SHORT = i16;
 pub const ULONG = u32;
 pub const LONG = i32;
 pub const ULONGLONG = u64;
@@ -236,7 +237,11 @@ pub const FILE_NAME_INFORMATION = extern struct {
 };
 
 pub const IO_STATUS_BLOCK = extern struct {
-    Status: usize,
+    // "DUMMYUNIONNAME" expands to "u"
+    u: extern union {
+        Status: NTSTATUS,
+        Pointer: ?*c_void,
+    },
     Information: ULONG_PTR,
 };
 
@@ -489,6 +494,13 @@ pub const FILE_ATTRIBUTE_SYSTEM = 0x4;
 pub const FILE_ATTRIBUTE_TEMPORARY = 0x100;
 pub const FILE_ATTRIBUTE_VIRTUAL = 0x10000;
 
+// flags for CreateEvent
+pub const CREATE_EVENT_INITIAL_SET = 0x00000002;
+pub const CREATE_EVENT_MANUAL_RESET = 0x00000001;
+
+pub const EVENT_ALL_ACCESS = 0x1F0003;
+pub const EVENT_MODIFY_STATE = 0x0002;
+
 pub const PROCESS_INFORMATION = extern struct {
     hProcess: HANDLE,
     hThread: HANDLE,
@@ -534,7 +546,10 @@ pub const STARTF_USESTDHANDLES = 0x00000100;
 
 pub const INFINITE = 4294967295;
 
+pub const MAXIMUM_WAIT_OBJECTS = 64;
+
 pub const WAIT_ABANDONED = 0x00000080;
+pub const WAIT_ABANDONED_0 = WAIT_ABANDONED + 0;
 pub const WAIT_OBJECT_0 = 0x00000000;
 pub const WAIT_TIMEOUT = 0x00000102;
 pub const WAIT_FAILED = 0xFFFFFFFF;

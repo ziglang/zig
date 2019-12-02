@@ -99,7 +99,7 @@ pub const Thread = struct {
                 os.munmap(self.data.memory);
             },
             .windows => {
-                windows.WaitForSingleObject(self.data.handle, windows.INFINITE) catch unreachable;
+                windows.WaitForSingleObjectEx(self.data.handle, windows.INFINITE, false) catch unreachable;
                 windows.CloseHandle(self.data.handle);
                 windows.HeapFree(self.data.heap_handle, 0, self.data.alloc_start);
             },
