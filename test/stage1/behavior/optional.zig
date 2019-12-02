@@ -119,3 +119,14 @@ test "self-referential struct through a slice of optional" {
     var n = S.Node.new();
     expect(n.data == null);
 }
+
+test "assigning to an unwrapped optional field in an inline loop" {
+    comptime var maybe_pos_arg: ?comptime_int = null;
+    inline for ("ab") |x| {
+        maybe_pos_arg = 0;
+        if (maybe_pos_arg.? != 0) {
+            @compileError("bad");
+        }
+        maybe_pos_arg.? = 10;
+    }
+}

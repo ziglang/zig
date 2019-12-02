@@ -143,7 +143,7 @@ test "coroutine suspend, resume" {
             resume frame;
             seq('h');
 
-            expect(std.mem.eql(u8, points, "abcdefgh"));
+            expect(std.mem.eql(u8, &points, "abcdefgh"));
         }
 
         fn amain() void {
@@ -206,7 +206,7 @@ test "coroutine await" {
     resume await_a_promise;
     await_seq('i');
     expect(await_final_result == 1234);
-    expect(std.mem.eql(u8, await_points, "abcdefghi"));
+    expect(std.mem.eql(u8, &await_points, "abcdefghi"));
 }
 async fn await_amain() void {
     await_seq('b');
@@ -240,7 +240,7 @@ test "coroutine await early return" {
     var p = async early_amain();
     early_seq('f');
     expect(early_final_result == 1234);
-    expect(std.mem.eql(u8, early_points, "abcdef"));
+    expect(std.mem.eql(u8, &early_points, "abcdef"));
 }
 async fn early_amain() void {
     early_seq('b');
@@ -1166,7 +1166,7 @@ test "suspend in for loop" {
         }
 
         fn atest() void {
-            expect(func([_]u8{ 1, 2, 3 }) == 6);
+            expect(func(&[_]u8{ 1, 2, 3 }) == 6);
         }
         fn func(stuff: []const u8) u32 {
             global_frame = @frame();
@@ -1211,7 +1211,7 @@ test "spill target expr in a for loop" {
 
         fn doTheTest() void {
             var foo = Foo{
-                .slice = [_]i32{ 1, 2 },
+                .slice = &[_]i32{ 1, 2 },
             };
             expect(atest(&foo) == 3);
         }
@@ -1242,7 +1242,7 @@ test "spill target expr in a for loop, with a var decl in the loop body" {
 
         fn doTheTest() void {
             var foo = Foo{
-                .slice = [_]i32{ 1, 2 },
+                .slice = &[_]i32{ 1, 2 },
             };
             expect(atest(&foo) == 3);
         }

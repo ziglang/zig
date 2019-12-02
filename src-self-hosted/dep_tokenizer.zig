@@ -992,7 +992,7 @@ fn printHexValue(out: var, value: u64, width: u8) !void {
 
 fn printCharValues(out: var, bytes: []const u8) !void {
     for (bytes) |b| {
-        try out.write([_]u8{printable_char_tab[b]});
+        try out.write(&[_]u8{printable_char_tab[b]});
     }
 }
 
@@ -1001,7 +1001,7 @@ fn printUnderstandableChar(out: var, char: u8) !void {
         std.fmt.format(out.context, anyerror, out.output, "\\x{X:2}", char) catch {};
     } else {
         try out.write("'");
-        try out.write([_]u8{printable_char_tab[char]});
+        try out.write(&[_]u8{printable_char_tab[char]});
         try out.write("'");
     }
 }

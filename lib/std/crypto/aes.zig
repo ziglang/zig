@@ -136,7 +136,7 @@ fn AES(comptime keysize: usize) type {
 
         pub fn init(key: [keysize / 8]u8) Self {
             var ctx: Self = undefined;
-            expandKey(key, ctx.enc[0..], ctx.dec[0..]);
+            expandKey(&key, ctx.enc[0..], ctx.dec[0..]);
             return ctx;
         }
 
@@ -157,7 +157,7 @@ fn AES(comptime keysize: usize) type {
                 var ctr_i = std.mem.readIntSliceBig(u128, ctrbuf[0..]);
                 std.mem.writeIntSliceBig(u128, ctrbuf[0..], ctr_i +% 1);
 
-                n += xorBytes(dst[n..], src[n..], keystream);
+                n += xorBytes(dst[n..], src[n..], &keystream);
             }
         }
     };

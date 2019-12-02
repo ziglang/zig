@@ -256,7 +256,7 @@ test "blake2s256 aligned final" {
     var out: [Blake2s256.digest_length]u8 = undefined;
 
     var h = Blake2s256.init();
-    h.update(block);
+    h.update(&block);
     h.final(out[0..]);
 }
 
@@ -490,6 +490,6 @@ test "blake2b512 aligned final" {
     var out: [Blake2b512.digest_length]u8 = undefined;
 
     var h = Blake2b512.init();
-    h.update(block);
+    h.update(&block);
     h.final(out[0..]);
 }

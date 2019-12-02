@@ -150,7 +150,7 @@ test "peer type resolution: [0]u8 and []const u8" {
 }
 fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) []const u8 {
     if (a) {
-        return [_]u8{};
+        return &[_]u8{};
     }
 
     return slice[0..1];
@@ -175,7 +175,7 @@ fn testCastZeroArrayToErrSliceMut() void {
 }
 
 fn gimmeErrOrSlice() anyerror![]u8 {
-    return [_]u8{};
+    return &[_]u8{};
 }
 
 test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
@@ -200,7 +200,7 @@ test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
 }
 fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
     if (a) {
-        return [_]u8{};
+        return &[_]u8{};
     }
 
     return slice[0..1];
@@ -457,7 +457,7 @@ fn incrementVoidPtrValue(value: ?*c_void) void {
 test "implicit cast from [*]T to ?*c_void" {
     var a = [_]u8{ 3, 2, 1 };
     incrementVoidPtrArray(a[0..].ptr, 3);
-    expect(std.mem.eql(u8, a, [_]u8{ 4, 3, 2 }));
+    expect(std.mem.eql(u8, &a, &[_]u8{ 4, 3, 2 }));
 }
 
 fn incrementVoidPtrArray(array: ?*c_void, len: usize) void {
@@ -606,7 +606,12 @@ test "*const [N]null u8 to ?[]const u8" {
 
 test "peer resolution of string literals" {
     const S = struct {
-        const E = extern enum { a, b, c, d};
+        const E = extern enum {
+            a,
+            b,
+            c,
+            d,
+        };
 
         fn doTheTest(e: E) void {
             const cmd = switch (e) {
@@ -627,15 +632,15 @@ test "type coercion related to sentinel-termination" {
         fn doTheTest() void {
             // [:x]T to []T
             {
-                var array = [4:0]i32{1,2,3,4};
+                var array = [4:0]i32{ 1, 2, 3, 4 };
                 var slice: [:0]i32 = &array;
                 var dest: []i32 = slice;
-                expect(mem.eql(i32, dest, &[_]i32{1,2,3,4}));
+                expect(mem.eql(i32, dest, &[_]i32{ 1, 2, 3, 4 }));
             }
 
             // [*:x]T to [*]T
             {
-                var array = [4:99]i32{1,2,3,4};
+                var array = [4:99]i32{ 1, 2, 3, 4 };
                 var dest: [*]i32 = &array;
                 expect(dest[0] == 1);
                 expect(dest[1] == 2);
@@ -646,21 +651,21 @@ test "type coercion related to sentinel-termination" {
 
             // [N:x]T to [N]T
             {
-                var array = [4:0]i32{1,2,3,4};
+                var array = [4:0]i32{ 1, 2, 3, 4 };
                 var dest: [4]i32 = array;
-                expect(mem.eql(i32, dest, &[_]i32{1,2,3,4}));
+                expect(mem.eql(i32, &dest, &[_]i32{ 1, 2, 3, 4 }));
             }
 
             // *[N:x]T to *[N]T
             {
-                var array = [4:0]i32{1,2,3,4};
+                var array = [4:0]i32{ 1, 2, 3, 4 };
                 var dest: *[4]i32 = &array;
-                expect(mem.eql(i32, dest, &[_]i32{1,2,3,4}));
+                expect(mem.eql(i32, dest, &[_]i32{ 1, 2, 3, 4 }));
             }
 
             // [:x]T to [*:x]T
             {
-                var array = [4:0]i32{1,2,3,4};
+                var array = [4:0]i32{ 1, 2, 3, 4 };
                 var slice: [:0]i32 = &array;
                 var dest: [*:0]i32 = slice;
                 expect(dest[0] == 1);
@@ -669,6 +674,37 @@ test "type coercion related to sentinel-termination" {
                 expect(dest[3] == 4);
                 expect(dest[4] == 0);
             }
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "cast i8 fn call peers to i32 result" {
+    const S = struct {
+        fn doTheTest() void {
+            var cond = true;
+            const value: i32 = if (cond) smallBoi() else bigBoi();
+            expect(value == 123);
+        }
+        fn smallBoi() i8 {
+            return 123;
+        }
+        fn bigBoi() i16 {
+            return 1234;
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "return u8 coercing into ?u32 return type" {
+    const S = struct {
+        fn doTheTest() void {
+            expect(foo(123).? == 123);
+        }
+        fn foo(arg: u8) ?u32 {
+            return arg;
         }
     };
     S.doTheTest();

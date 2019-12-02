@@ -8,7 +8,7 @@ pub fn assertEqualHash(comptime Hasher: var, comptime expected: []const u8, inpu
     var h: [expected.len / 2]u8 = undefined;
     Hasher.hash(input, h[0..]);
 
-    assertEqual(expected, h);
+    assertEqual(expected, &h);
 }
 
 // Assert `expected` == `input` where `input` is a bytestring.
@@ -18,5 +18,5 @@ pub fn assertEqual(comptime expected: []const u8, input: []const u8) void {
         r.* = fmt.parseInt(u8, expected[2 * i .. 2 * i + 2], 16) catch unreachable;
     }
 
-    testing.expectEqualSlices(u8, expected_bytes, input);
+    testing.expectEqualSlices(u8, &expected_bytes, input);
 }

@@ -22,7 +22,7 @@ pub fn PriorityQueue(comptime T: type) type {
         /// `fn lessThan(a: T, b: T) bool { return a < b; }`
         pub fn init(allocator: *Allocator, compareFn: fn (a: T, b: T) bool) Self {
             return Self{
-                .items = [_]T{},
+                .items = &[_]T{},
                 .len = 0,
                 .allocator = allocator,
                 .compareFn = compareFn,

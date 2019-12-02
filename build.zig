@@ -20,10 +20,10 @@ pub fn build(b: *Builder) !void {
     const rel_zig_exe = try fs.path.relative(b.allocator, b.build_root, b.zig_exe);
     const langref_out_path = fs.path.join(
         b.allocator,
-        [_][]const u8{ b.cache_root, "langref.html" },
+        &[_][]const u8{ b.cache_root, "langref.html" },
     ) catch unreachable;
     var docgen_cmd = docgen_exe.run();
-    docgen_cmd.addArgs([_][]const u8{
+    docgen_cmd.addArgs(&[_][]const u8{
         rel_zig_exe,
         "doc" ++ fs.path.sep_str ++ "langref.html.in",
         langref_out_path,
@@ -36,7 +36,7 @@ pub fn build(b: *Builder) !void {
     const test_step = b.step("test", "Run all the tests");
 
     // find the stage0 build artifacts because we're going to re-use config.h and zig_cpp library
-    const build_info = try b.exec([_][]const u8{
+    const build_info = try b.exec(&[_][]const u8{
         b.zig_exe,
         "BUILD_INFO",
     });
@@ -56,7 +56,7 @@ pub fn build(b: *Builder) !void {
     test_stage2.setBuildMode(builtin.Mode.Debug);
     test_stage2.addPackagePath("stage2_tests", "test/stage2/test.zig");
 
-    const fmt_build_zig = b.addFmt([_][]const u8{"build.zig"});
+    const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});
 
     var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
     exe.setBuildMode(mode);
@@ -88,7 +88,7 @@ pub fn build(b: *Builder) !void {
         .source_dir = "lib",
         .install_dir = .Lib,
         .install_subdir = "zig",
-        .exclude_extensions = [_][]const u8{ "test.zig", "README.md" },
+        .exclude_extensions = &[_][]const u8{ "test.zig", "README.md" },
     });
 
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
@@ -148,7 +148,7 @@ fn dependOnLib(b: *Builder, lib_exe_obj: var, dep: LibraryDep) void {
     }
     const lib_dir = fs.path.join(
         b.allocator,
-        [_][]const u8{ dep.prefix, "lib" },
+        &[_][]const u8{ dep.prefix, "lib" },
     ) catch unreachable;
     for (dep.system_libs.toSliceConst()) |lib| {
         const static_bare_name = if (mem.eql(u8, lib, "curses"))
@@ -157,7 +157,7 @@ fn dependOnLib(b: *Builder, lib_exe_obj: var, dep: LibraryDep) void {
             b.fmt("lib{}.a", lib);
         const static_lib_name = fs.path.join(
             b.allocator,
-            [_][]const u8{ lib_dir, static_bare_name },
+            &[_][]const u8{ lib_dir, static_bare_name },
         ) catch unreachable;
         const have_static = fileExists(static_lib_name) catch unreachable;
         if (have_static) {
@@ -183,7 +183,7 @@ fn fileExists(filename: []const u8) !bool {
 }
 
 fn addCppLib(b: *Builder, lib_exe_obj: var, cmake_binary_dir: []const u8, lib_name: []const u8) void {
-    lib_exe_obj.addObjectFile(fs.path.join(b.allocator, [_][]const u8{
+    lib_exe_obj.addObjectFile(fs.path.join(b.allocator, &[_][]const u8{
         cmake_binary_dir,
         "zig_cpp",
         b.fmt("{}{}{}", lib_exe_obj.target.libPrefix(), lib_name, lib_exe_obj.target.staticLibSuffix()),
@@ -199,22 +199,22 @@ const LibraryDep = struct {
 };
 
 fn findLLVM(b: *Builder, llvm_config_exe: []const u8) !LibraryDep {
-    const shared_mode = try b.exec([_][]const u8{ llvm_config_exe, "--shared-mode" });
+    const shared_mode = try b.exec(&[_][]const u8{ llvm_config_exe, "--shared-mode" });
     const is_static = mem.startsWith(u8, shared_mode, "static");
     const libs_output = if (is_static)
-        try b.exec([_][]const u8{
+        try b.exec(&[_][]const u8{
             llvm_config_exe,
             "--libfiles",
             "--system-libs",
         })
     else
-        try b.exec([_][]const u8{
+        try b.exec(&[_][]const u8{
             llvm_config_exe,
             "--libs",
         });
-    const includes_output = try b.exec([_][]const u8{ llvm_config_exe, "--includedir" });
-    const libdir_output = try b.exec([_][]const u8{ llvm_config_exe, "--libdir" });
-    const prefix_output = try b.exec([_][]const u8{ llvm_config_exe, "--prefix" });
+    const includes_output = try b.exec(&[_][]const u8{ llvm_config_exe, "--includedir" });
+    const libdir_output = try b.exec(&[_][]const u8{ llvm_config_exe, "--libdir" });
+    const prefix_output = try b.exec(&[_][]const u8{ llvm_config_exe, "--prefix" });
 
     var result = LibraryDep{
         .prefix = mem.tokenize(prefix_output, " \r\n").next().?,
@@ -341,7 +341,7 @@ fn addCxxKnownPath(
     objname: []const u8,
     errtxt: ?[]const u8,
 ) !void {
-    const path_padded = try b.exec([_][]const u8{
+    const path_padded = try b.exec(&[_][]const u8{
         ctx.cxx_compiler,
         b.fmt("-print-file-name={}", objname),
     });

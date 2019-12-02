@@ -717,7 +717,7 @@ test "@bytesToslice on a packed struct" {
     };
 
     var b = [1]u8{9};
-    var f = @bytesToSlice(F, b);
+    var f = @bytesToSlice(F, &b);
     expect(f[0].a == 9);
 }
 
@@ -774,12 +774,12 @@ test "*align(1) u16 is the same as *align(1:0:2) u16" {
 
 test "array concatenation forces comptime" {
     var a = oneItem(3) ++ oneItem(4);
-    expect(std.mem.eql(i32, a, [_]i32{ 3, 4 }));
+    expect(std.mem.eql(i32, &a, &[_]i32{ 3, 4 }));
 }
 
 test "array multiplication forces comptime" {
     var a = oneItem(3) ** scalar(2);
-    expect(std.mem.eql(i32, a, [_]i32{ 3, 3 }));
+    expect(std.mem.eql(i32, &a, &[_]i32{ 3, 3 }));
 }
 
 fn oneItem(x: i32) [1]i32 {

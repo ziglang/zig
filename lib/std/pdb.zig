@@ -501,7 +501,7 @@ const Msf = struct {
         const superblock = try in.readStruct(SuperBlock);
 
         // Sanity checks
-        if (!mem.eql(u8, superblock.FileMagic, SuperBlock.file_magic))
+        if (!mem.eql(u8, &superblock.FileMagic, SuperBlock.file_magic))
             return error.InvalidDebugInfo;
         if (superblock.FreeBlockMapBlock != 1 and superblock.FreeBlockMapBlock != 2)
             return error.InvalidDebugInfo;
@@ -547,7 +547,7 @@ const Msf = struct {
             const size = stream_sizes[i];
             if (size == 0) {
                 stream.* = MsfStream{
-                    .blocks = [_]u32{},
+                    .blocks = &[_]u32{},
                 };
             } else {
                 var blocks = try allocator.alloc(u32, size);

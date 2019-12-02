@@ -57,7 +57,7 @@ test "write a file, read it, then delete it" {
         defer allocator.free(contents);
 
         expect(mem.eql(u8, contents[0.."begin".len], "begin"));
-        expect(mem.eql(u8, contents["begin".len .. contents.len - "end".len], data));
+        expect(mem.eql(u8, contents["begin".len .. contents.len - "end".len], &data));
         expect(mem.eql(u8, contents[contents.len - "end".len ..], "end"));
     }
     try cwd.deleteFile(tmp_file_name);
@@ -79,7 +79,7 @@ test "BufferOutStream" {
 
 test "SliceInStream" {
     const bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7 };
-    var ss = io.SliceInStream.init(bytes);
+    var ss = io.SliceInStream.init(&bytes);
 
     var dest: [4]u8 = undefined;
 
@@ -97,7 +97,7 @@ test "SliceInStream" {
 
 test "PeekStream" {
     const bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
-    var ss = io.SliceInStream.init(bytes);
+    var ss = io.SliceInStream.init(&bytes);
     var ps = io.PeekStream(2, io.SliceInStream.Error).init(&ss.stream);
 
     var dest: [4]u8 = undefined;
@@ -616,7 +616,7 @@ test "File seek ops" {
         fs.cwd().deleteFile(tmp_file_name) catch {};
     }
 
-    try file.write([_]u8{0x55} ** 8192);
+    try file.write(&([_]u8{0x55} ** 8192));
 
     // Seek to the end
     try file.seekFromEnd(0);

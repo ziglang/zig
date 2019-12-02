@@ -37,7 +37,7 @@ fn testReinterpretBytesAsExternStruct() void {
 
 test "reinterpret struct field at comptime" {
     const numLittle = comptime Bytes.init(0x12345678);
-    expect(std.mem.eql(u8, [_]u8{ 0x78, 0x56, 0x34, 0x12 }, numLittle.bytes));
+    expect(std.mem.eql(u8, &[_]u8{ 0x78, 0x56, 0x34, 0x12 }, &numLittle.bytes));
 }
 
 const Bytes = struct {

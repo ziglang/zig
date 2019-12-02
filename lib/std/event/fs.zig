@@ -695,7 +695,7 @@ pub fn readFile(allocator: *Allocator, file_path: []const u8, max_size: usize) !
         try list.ensureCapacity(list.len + mem.page_size);
         const buf = list.items[list.len..];
         const buf_array = [_][]u8{buf};
-        const amt = try preadv(allocator, fd, buf_array, list.len);
+        const amt = try preadv(allocator, fd, &buf_array, list.len);
         list.len += amt;
         if (list.len > max_size) {
             return error.FileTooBig;

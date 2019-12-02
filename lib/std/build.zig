@@ -186,7 +186,7 @@ pub const Builder = struct {
     pub fn resolveInstallPrefix(self: *Builder) void {
         if (self.dest_dir) |dest_dir| {
             const install_prefix = self.install_prefix orelse "/usr";
-            self.install_path = fs.path.join(self.allocator, [_][]const u8{ dest_dir, install_prefix }) catch unreachable;
+            self.install_path = fs.path.join(self.allocator, &[_][]const u8{ dest_dir, install_prefix }) catch unreachable;
         } else {
             const install_prefix = self.install_prefix orelse blk: {
                 const p = self.cache_root;
@@ -195,8 +195,8 @@ pub const Builder = struct {
             };
             self.install_path = install_prefix;
         }
-        self.lib_dir = fs.path.join(self.allocator, [_][]const u8{ self.install_path, "lib" }) catch unreachable;
-        self.exe_dir = fs.path.join(self.allocator, [_][]const u8{ self.install_path, "bin" }) catch unreachable;
+        self.lib_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "lib" }) catch unreachable;
+        self.exe_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "bin" }) catch unreachable;
     }
 
     pub fn addExecutable(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
@@ -803,7 +803,7 @@ pub const Builder = struct {
     }
 
     fn pathFromRoot(self: *Builder, rel_path: []const u8) []u8 {
-        return fs.path.resolve(self.allocator, [_][]const u8{ self.build_root, rel_path }) catch unreachable;
+        return fs.path.resolve(self.allocator, &[_][]const u8{ self.build_root, rel_path }) catch unreachable;
     }
 
     pub fn fmt(self: *Builder, comptime format: []const u8, args: ...) []u8 {
@@ -818,7 +818,7 @@ pub const Builder = struct {
                 if (fs.path.isAbsolute(name)) {
                     return name;
                 }
-                const full_path = try fs.path.join(self.allocator, [_][]const u8{ search_prefix, "bin", self.fmt("{}{}", name, exe_extension) });
+                const full_path = try fs.path.join(self.allocator, &[_][]const u8{ search_prefix, "bin", self.fmt("{}{}", name, exe_extension) });
                 return fs.realpathAlloc(self.allocator, full_path) catch continue;
             }
         }
@@ -827,9 +827,9 @@ pub const Builder = struct {
                 if (fs.path.isAbsolute(name)) {
                     return name;
                 }
-                var it = mem.tokenize(PATH, [_]u8{fs.path.delimiter});
+                var it = mem.tokenize(PATH, &[_]u8{fs.path.delimiter});
                 while (it.next()) |path| {
-                    const full_path = try fs.path.join(self.allocator, [_][]const u8{ path, self.fmt("{}{}", name, exe_extension) });
+                    const full_path = try fs.path.join(self.allocator, &[_][]const u8{ path, self.fmt("{}{}", name, exe_extension) });
                     return fs.realpathAlloc(self.allocator, full_path) catch continue;
                 }
             }
@@ -839,7 +839,7 @@ pub const Builder = struct {
                 return name;
             }
             for (paths) |path| {
-                const full_path = try fs.path.join(self.allocator, [_][]const u8{ path, self.fmt("{}{}", name, exe_extension) });
+                const full_path = try fs.path.join(self.allocator, &[_][]const u8{ path, self.fmt("{}{}", name, exe_extension) });
                 return fs.realpathAlloc(self.allocator, full_path) catch continue;
             }
         }
@@ -926,12 +926,12 @@ pub const Builder = struct {
         };
         return fs.path.resolve(
             self.allocator,
-            [_][]const u8{ base_dir, dest_rel_path },
+            &[_][]const u8{ base_dir, dest_rel_path },
         ) catch unreachable;
     }
 
     fn execPkgConfigList(self: *Builder, out_code: *u8) ![]const PkgConfigPkg {
-        const stdout = try self.execAllowFail([_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
+        const stdout = try self.execAllowFail(&[_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
         var list = ArrayList(PkgConfigPkg).init(self.allocator);
         var line_it = mem.tokenize(stdout, "\r\n");
         while (line_it.next()) |line| {
@@ -970,7 +970,7 @@ pub const Builder = struct {
 
 test "builder.findProgram compiles" {
     const builder = try Builder.create(std.heap.page_allocator, "zig", "zig-cache", "zig-cache");
-    _ = builder.findProgram([_][]const u8{}, [_][]const u8{}) catch null;
+    _ = builder.findProgram(&[_][]const u8{}, &[_][]const u8{}) catch null;
 }
 
 /// Deprecated. Use `builtin.Version`.
@@ -1384,7 +1384,7 @@ pub const LibExeObjStep = struct {
         };
 
         var code: u8 = undefined;
-        const stdout = if (self.builder.execAllowFail([_][]const u8{
+        const stdout = if (self.builder.execAllowFail(&[_][]const u8{
             "pkg-config",
             pkg_name,
             "--cflags",
@@ -1504,7 +1504,7 @@ pub const LibExeObjStep = struct {
     pub fn getOutputPath(self: *LibExeObjStep) []const u8 {
         return fs.path.join(
             self.builder.allocator,
-            [_][]const u8{ self.output_dir.?, self.out_filename },
+            &[_][]const u8{ self.output_dir.?, self.out_filename },
         ) catch unreachable;
     }
 
@@ -1514,7 +1514,7 @@ pub const LibExeObjStep = struct {
         assert(self.kind == Kind.Lib);
         return fs.path.join(
             self.builder.allocator,
-            [_][]const u8{ self.output_dir.?, self.out_lib_filename },
+            &[_][]const u8{ self.output_dir.?, self.out_lib_filename },
         ) catch unreachable;
     }
 
@@ -1525,7 +1525,7 @@ pub const LibExeObjStep = struct {
         assert(!self.disable_gen_h);
         return fs.path.join(
             self.builder.allocator,
-            [_][]const u8{ self.output_dir.?, self.out_h_filename },
+            &[_][]const u8{ self.output_dir.?, self.out_h_filename },
         ) catch unreachable;
     }
 
@@ -1535,7 +1535,7 @@ pub const LibExeObjStep = struct {
         assert(self.target.isWindows() or self.target.isUefi());
         return fs.path.join(
             self.builder.allocator,
-            [_][]const u8{ self.output_dir.?, self.out_pdb_filename },
+            &[_][]const u8{ self.output_dir.?, self.out_pdb_filename },
         ) catch unreachable;
     }
 
@@ -1605,14 +1605,14 @@ pub const LibExeObjStep = struct {
                 const triplet = try Target.vcpkgTriplet(allocator, self.target, linkage);
                 defer self.builder.allocator.free(triplet);
 
-                const include_path = try fs.path.join(allocator, [_][]const u8{ root, "installed", triplet, "include" });
+                const include_path = try fs.path.join(allocator, &[_][]const u8{ root, "installed", triplet, "include" });
                 errdefer allocator.free(include_path);
                 try self.include_dirs.append(IncludeDir{ .RawPath = include_path });
 
-                const lib_path = try fs.path.join(allocator, [_][]const u8{ root, "installed", triplet, "lib" });
+                const lib_path = try fs.path.join(allocator, &[_][]const u8{ root, "installed", triplet, "lib" });
                 try self.lib_paths.append(lib_path);
 
-                self.vcpkg_bin_path = try fs.path.join(allocator, [_][]const u8{ root, "installed", triplet, "bin" });
+                self.vcpkg_bin_path = try fs.path.join(allocator, &[_][]const u8{ root, "installed", triplet, "bin" });
             },
         }
     }
@@ -1725,7 +1725,7 @@ pub const LibExeObjStep = struct {
         if (self.build_options_contents.len() > 0) {
             const build_options_file = try fs.path.join(
                 builder.allocator,
-                [_][]const u8{ builder.cache_root, builder.fmt("{}_build_options.zig", self.name) },
+                &[_][]const u8{ builder.cache_root, builder.fmt("{}_build_options.zig", self.name) },
             );
             try std.io.writeFile(build_options_file, self.build_options_contents.toSliceConst());
             try zig_args.append("--pkg-begin");
@@ -1849,7 +1849,7 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("--test-cmd");
                 try zig_args.append(bin_name);
                 if (glibc_dir_arg) |dir| {
-                    const full_dir = try fs.path.join(builder.allocator, [_][]const u8{
+                    const full_dir = try fs.path.join(builder.allocator, &[_][]const u8{
                         dir,
                         try self.target.linuxTriple(builder.allocator),
                     });
@@ -1994,7 +1994,7 @@ pub const LibExeObjStep = struct {
             const output_path = mem.trimRight(u8, output_path_nl, "\r\n");
 
             if (self.output_dir) |output_dir| {
-                const full_dest = try fs.path.join(builder.allocator, [_][]const u8{
+                const full_dest = try fs.path.join(builder.allocator, &[_][]const u8{
                     output_dir,
                     fs.path.basename(output_path),
                 });
@@ -2176,6 +2176,9 @@ const InstallArtifactStep = struct {
         if (self.artifact.isDynamicLibrary()) {
             builder.pushInstalledFile(.Lib, artifact.major_only_filename);
             builder.pushInstalledFile(.Lib, artifact.name_only_filename);
+            if (self.artifact.target.isWindows()) {
+                builder.pushInstalledFile(.Lib, artifact.out_lib_filename);
+            }
         }
         if (self.pdb_dir) |pdb_dir| {
             builder.pushInstalledFile(pdb_dir, artifact.out_pdb_filename);
@@ -2268,7 +2271,7 @@ pub const InstallDirStep = struct {
             };
 
             const rel_path = entry.path[full_src_dir.len + 1 ..];
-            const dest_path = try fs.path.join(self.builder.allocator, [_][]const u8{ dest_prefix, rel_path });
+            const dest_path = try fs.path.join(self.builder.allocator, &[_][]const u8{ dest_prefix, rel_path });
             switch (entry.kind) {
                 .Directory => try fs.makePath(self.builder.allocator, dest_path),
                 .File => try self.builder.updateFile(entry.path, dest_path),
@@ -2391,7 +2394,7 @@ fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_maj
     // sym link for libfoo.so.1 to libfoo.so.1.2.3
     const major_only_path = fs.path.join(
         allocator,
-        [_][]const u8{ out_dir, filename_major_only },
+        &[_][]const u8{ out_dir, filename_major_only },
     ) catch unreachable;
     fs.atomicSymLink(allocator, out_basename, major_only_path) catch |err| {
         warn("Unable to symlink {} -> {}\n", major_only_path, out_basename);
@@ -2400,7 +2403,7 @@ fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_maj
     // sym link for libfoo.so to libfoo.so.1
     const name_only_path = fs.path.join(
         allocator,
-        [_][]const u8{ out_dir, filename_name_only },
+        &[_][]const u8{ out_dir, filename_name_only },
     ) catch unreachable;
     fs.atomicSymLink(allocator, filename_major_only, name_only_path) catch |err| {
         warn("Unable to symlink {} -> {}\n", name_only_path, filename_major_only);
@@ -2413,7 +2416,7 @@ fn findVcpkgRoot(allocator: *Allocator) !?[]const u8 {
     const appdata_path = try fs.getAppDataDir(allocator, "vcpkg");
     defer allocator.free(appdata_path);
 
-    const path_file = try fs.path.join(allocator, [_][]const u8{ appdata_path, "vcpkg.path.txt" });
+    const path_file = try fs.path.join(allocator, &[_][]const u8{ appdata_path, "vcpkg.path.txt" });
     defer allocator.free(path_file);
 
     const file = fs.cwd().openFile(path_file, .{}) catch return null;

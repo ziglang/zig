@@ -193,7 +193,7 @@ pub const LibCInstallation = struct {
             "/dev/null",
         };
         // TODO make this use event loop
-        const errorable_result = std.ChildProcess.exec(allocator, argv, null, null, 1024 * 1024);
+        const errorable_result = std.ChildProcess.exec(allocator, &argv, null, null, 1024 * 1024);
         const exec_result = if (std.debug.runtime_safety) blk: {
             break :blk errorable_result catch unreachable;
         } else blk: {
@@ -233,7 +233,7 @@ pub const LibCInstallation = struct {
         while (path_i < search_paths.len) : (path_i += 1) {
             const search_path_untrimmed = search_paths.at(search_paths.len - path_i - 1);
             const search_path = std.mem.trimLeft(u8, search_path_untrimmed, " ");
-            const stdlib_path = try fs.path.join(allocator, [_][]const u8{ search_path, "stdlib.h" });
+            const stdlib_path = try fs.path.join(allocator, &[_][]const u8{ search_path, "stdlib.h" });
             defer allocator.free(stdlib_path);
 
             if (try fileExists(stdlib_path)) {
@@ -401,7 +401,7 @@ fn ccPrintFileName(allocator: *Allocator, o_file: []const u8, want_dirname: bool
 
     // TODO This simulates evented I/O for the child process exec
     event.Loop.startCpuBoundOperation();
-    const errorable_result = std.ChildProcess.exec(allocator, argv, null, null, 1024 * 1024);
+    const errorable_result = std.ChildProcess.exec(allocator, &argv, null, null, 1024 * 1024);
     const exec_result = if (std.debug.runtime_safety) blk: {
         break :blk errorable_result catch unreachable;
     } else blk: {

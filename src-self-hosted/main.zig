@@ -196,12 +196,12 @@ const usage_build_generic =
 
 const args_build_generic = [_]Flag{
     Flag.Bool("--help"),
-    Flag.Option("--color", [_][]const u8{
+    Flag.Option("--color", &[_][]const u8{
         "auto",
         "off",
         "on",
     }),
-    Flag.Option("--mode", [_][]const u8{
+    Flag.Option("--mode", &[_][]const u8{
         "debug",
         "release-fast",
         "release-safe",
@@ -209,7 +209,7 @@ const args_build_generic = [_]Flag{
     }),
 
     Flag.ArgMergeN("--assembly", 1),
-    Flag.Option("--emit", [_][]const u8{
+    Flag.Option("--emit", &[_][]const u8{
         "asm",
         "bin",
         "llvm-ir",
@@ -257,7 +257,7 @@ const args_build_generic = [_]Flag{
 };
 
 fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Compilation.Kind) !void {
-    var flags = try Args.parse(allocator, args_build_generic, args);
+    var flags = try Args.parse(allocator, &args_build_generic, args);
     defer flags.deinit();
 
     if (flags.present("help")) {
@@ -525,7 +525,7 @@ pub const usage_fmt =
 pub const args_fmt_spec = [_]Flag{
     Flag.Bool("--help"),
     Flag.Bool("--check"),
-    Flag.Option("--color", [_][]const u8{
+    Flag.Option("--color", &[_][]const u8{
         "auto",
         "off",
         "on",
@@ -579,7 +579,7 @@ fn cmdLibC(allocator: *Allocator, args: []const []const u8) !void {
 }
 
 fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
-    var flags = try Args.parse(allocator, args_fmt_spec, args);
+    var flags = try Args.parse(allocator, &args_fmt_spec, args);
     defer flags.deinit();
 
     if (flags.present("help")) {
@@ -709,7 +709,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
             var it = dir.iterate();
             while (try it.next()) |entry| {
                 if (entry.kind == .Directory or mem.endsWith(u8, entry.name, ".zig")) {
-                    const full_path = try fs.path.join(fmt.allocator, [_][]const u8{ file_path, entry.name });
+                    const full_path = try fs.path.join(fmt.allocator, &[_][]const u8{ file_path, entry.name });
                     @panic("TODO https://github.com/ziglang/zig/issues/3777");
                     // try group.call(fmtPath, fmt, full_path, check_mode);
                 }

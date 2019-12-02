@@ -465,7 +465,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\
         );
 
-        tc.setCommandLineArgs([_][]const u8{
+        tc.setCommandLineArgs(&[_][]const u8{
             "first arg",
             "'a' 'b' \\",
             "bare",
@@ -506,7 +506,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\
         );
 
-        tc.setCommandLineArgs([_][]const u8{
+        tc.setCommandLineArgs(&[_][]const u8{
             "first arg",
             "'a' 'b' \\",
             "bare",

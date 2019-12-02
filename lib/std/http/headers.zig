@@ -514,8 +514,8 @@ test "Headers.getIndices" {
     try h.append("set-cookie", "y=2", null);
 
     testing.expect(null == h.getIndices("not-present"));
-    testing.expectEqualSlices(usize, [_]usize{0}, h.getIndices("foo").?.toSliceConst());
-    testing.expectEqualSlices(usize, [_]usize{ 1, 2 }, h.getIndices("set-cookie").?.toSliceConst());
+    testing.expectEqualSlices(usize, &[_]usize{0}, h.getIndices("foo").?.toSliceConst());
+    testing.expectEqualSlices(usize, &[_]usize{ 1, 2 }, h.getIndices("set-cookie").?.toSliceConst());
 }
 
 test "Headers.get" {

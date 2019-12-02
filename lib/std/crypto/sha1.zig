@@ -297,6 +297,6 @@ test "sha1 aligned final" {
     var out: [Sha1.digest_length]u8 = undefined;
 
     var h = Sha1.init();
-    h.update(block);
+    h.update(&block);
     h.final(out[0..]);
 }

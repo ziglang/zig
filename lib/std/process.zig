@@ -473,14 +473,14 @@ pub fn argsFree(allocator: *mem.Allocator, args_alloc: []const []u8) void {
 }
 
 test "windows arg parsing" {
-    testWindowsCmdLine("a   b\tc d", [_][]const u8{ "a", "b", "c", "d" });
-    testWindowsCmdLine("\"abc\" d e", [_][]const u8{ "abc", "d", "e" });
-    testWindowsCmdLine("a\\\\\\b d\"e f\"g h", [_][]const u8{ "a\\\\\\b", "de fg", "h" });
-    testWindowsCmdLine("a\\\\\\\"b c d", [_][]const u8{ "a\\\"b", "c", "d" });
-    testWindowsCmdLine("a\\\\\\\\\"b c\" d e", [_][]const u8{ "a\\\\b c", "d", "e" });
-    testWindowsCmdLine("a   b\tc \"d f", [_][]const u8{ "a", "b", "c", "\"d", "f" });
+    testWindowsCmdLine("a   b\tc d", &[_][]const u8{ "a", "b", "c", "d" });
+    testWindowsCmdLine("\"abc\" d e", &[_][]const u8{ "abc", "d", "e" });
+    testWindowsCmdLine("a\\\\\\b d\"e f\"g h", &[_][]const u8{ "a\\\\\\b", "de fg", "h" });
+    testWindowsCmdLine("a\\\\\\\"b c d", &[_][]const u8{ "a\\\"b", "c", "d" });
+    testWindowsCmdLine("a\\\\\\\\\"b c\" d e", &[_][]const u8{ "a\\\\b c", "d", "e" });
+    testWindowsCmdLine("a   b\tc \"d f", &[_][]const u8{ "a", "b", "c", "\"d", "f" });
 
-    testWindowsCmdLine("\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"", [_][]const u8{
+    testWindowsCmdLine("\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"", &[_][]const u8{
         ".\\..\\zig-cache\\build",
         "bin\\zig.exe",
         ".\\..",

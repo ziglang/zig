@@ -35,4 +35,8 @@ ZigValue *const_ptr_pointee(IrAnalyze *ira, CodeGen *codegen, ZigValue *const_va
         AstNode *source_node);
 const char *float_op_to_name(BuiltinFnId op, bool llvm_name);
 
+// for debugging purposes
+void dbg_ir_break(const char *src_file, uint32_t line);
+void dbg_ir_clear(void);
+
 #endif
