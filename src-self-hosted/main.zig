@@ -709,7 +709,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
             var it = dir.iterate();
             while (try it.next()) |entry| {
                 if (entry.kind == .Directory or mem.endsWith(u8, entry.name, ".zig")) {
-                    const full_path = try fs.path.join(fmt.allocator, [_][]const u8{ file_path, entry.name });
+                    const full_path = try fs.path.join(fmt.allocator, &[_][]const u8{ file_path, entry.name });
                     @panic("TODO https://github.com/ziglang/zig/issues/3777");
                     // try group.call(fmtPath, fmt, full_path, check_mode);
                 }
