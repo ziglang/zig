@@ -4437,7 +4437,7 @@ static size_t find_asm_index(CodeGen *g, AstNode *node, AsmToken *tok, Buf *src_
     return SIZE_MAX;
 }
 
-static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstructionAsm *instruction) {
+static LLVMValueRef ir_render_asm_gen(CodeGen *g, IrExecutable *executable, IrInstructionAsmGen *instruction) {
     AstNode *asm_node = instruction->base.source_node;
     assert(asm_node->type == NodeTypeAsmExpr);
     AstNodeAsmExpr *asm_expr = &asm_node->data.asm_expr;
@@ -6135,7 +6135,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdPtrCastSrc:
         case IrInstructionIdCmpxchgSrc:
         case IrInstructionIdLoadPtr:
-        case IrInstructionIdGlobalAsm:
         case IrInstructionIdHasDecl:
         case IrInstructionIdUndeclaredIdent:
         case IrInstructionIdCallSrc:
@@ -6156,6 +6155,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdAwaitSrc:
         case IrInstructionIdSplatSrc:
         case IrInstructionIdMergeErrSets:
+        case IrInstructionIdAsmSrc:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -6192,8 +6192,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_struct_field_ptr(g, executable, (IrInstructionStructFieldPtr *)instruction);
         case IrInstructionIdUnionFieldPtr:
             return ir_render_union_field_ptr(g, executable, (IrInstructionUnionFieldPtr *)instruction);
-        case IrInstructionIdAsm:
-            return ir_render_asm(g, executable, (IrInstructionAsm *)instruction);
+        case IrInstructionIdAsmGen:
+            return ir_render_asm_gen(g, executable, (IrInstructionAsmGen *)instruction);
         case IrInstructionIdTestNonNull:
             return ir_render_test_non_null(g, executable, (IrInstructionTestNonNull *)instruction);
         case IrInstructionIdOptionalUnwrapPtr:

@@ -1495,13 +1495,13 @@ fn parseSwitchExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return &node.base;
 }
 
-/// AsmExpr <- KEYWORD_asm KEYWORD_volatile? LPAREN STRINGLITERAL AsmOutput? RPAREN
+/// AsmExpr <- KEYWORD_asm KEYWORD_volatile? LPAREN Expr AsmOutput? RPAREN
 fn parseAsmExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const asm_token = eatToken(it, .Keyword_asm) orelse return null;
     const volatile_token = eatToken(it, .Keyword_volatile);
     _ = try expectToken(it, tree, .LParen);
-    const template = try expectNode(arena, it, tree, parseStringLiteral, AstError{
-        .ExpectedStringLiteral = AstError.ExpectedStringLiteral{ .token = it.index },
+    const template = try expectNode(arena, it, tree, parseExpr, AstError{
+        .ExpectedExpr = AstError.ExpectedExpr{ .token = it.index },
     });
 
     const node = try arena.create(Node.Asm);
