@@ -884,7 +884,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 AstNodeAsmExpr *asm_expr = &node->data.asm_expr;
                 const char *volatile_str = (asm_expr->volatile_token != nullptr) ? " volatile" : "";
-                fprintf(ar->f, "asm%s (\"%s\"\n", volatile_str, buf_ptr(&asm_expr->asm_template->data.str_lit.str));
+                fprintf(ar->f, "asm%s (", volatile_str);
+                render_node_ungrouped(ar, asm_expr->asm_template);
+                fprintf(ar->f, ")");
                 print_indent(ar);
                 fprintf(ar->f, ": ");
                 for (size_t i = 0; i < asm_expr->output_list.length; i += 1) {

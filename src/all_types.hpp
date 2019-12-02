@@ -949,7 +949,7 @@ struct AsmToken {
 
 struct AstNodeAsmExpr {
     Token *volatile_token;
-    Token *asm_template;
+    AstNode *asm_template;
     ZigList<AsmOutput*> output_list;
     ZigList<AsmInput*> input_list;
     ZigList<Buf*> clobber_list;
@@ -2496,8 +2496,8 @@ enum IrInstructionId {
     IrInstructionIdArrayType,
     IrInstructionIdAnyFrameType,
     IrInstructionIdSliceType,
-    IrInstructionIdGlobalAsm,
-    IrInstructionIdAsm,
+    IrInstructionIdAsmSrc,
+    IrInstructionIdAsmGen,
     IrInstructionIdSizeOf,
     IrInstructionIdTestNonNull,
     IrInstructionIdOptionalUnwrapPtr,
@@ -3049,13 +3049,19 @@ struct IrInstructionSliceType {
     bool is_allow_zero;
 };
 
-struct IrInstructionGlobalAsm {
+struct IrInstructionAsmSrc {
     IrInstruction base;
 
-    Buf *asm_code;
+    IrInstruction *asm_template;
+    IrInstruction **input_list;
+    IrInstruction **output_types;
+    ZigVar **output_vars;
+    size_t return_count;
+    bool has_side_effects;
+    bool is_global;
 };
 
-struct IrInstructionAsm {
+struct IrInstructionAsmGen {
     IrInstruction base;
 
     Buf *asm_template;

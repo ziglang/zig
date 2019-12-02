@@ -1,3 +1,26 @@
+test "zig fmt: asm expression with comptime content" {
+    try testCanonical(
+        \\comptime {
+        \\    asm ("foo" ++ "bar");
+        \\}
+        \\pub fn main() void {
+        \\    asm volatile ("foo" ++ "bar");
+        \\    asm volatile ("foo" ++ "bar"
+        \\        : [_] "" (x)
+        \\    );
+        \\    asm volatile ("foo" ++ "bar"
+        \\        : [_] "" (x)
+        \\        : [_] "" (y)
+        \\    );
+        \\    asm volatile ("foo" ++ "bar"
+        \\        : [_] "" (x)
+        \\        : [_] "" (y)
+        \\        : "h", "e", "l", "l", "o"
+        \\    );
+        \\}
+        \\
+    );
+}
 test "zig fmt: var struct field" {
     try testCanonical(
         \\pub const Pointer = struct {

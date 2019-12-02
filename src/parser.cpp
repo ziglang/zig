@@ -1891,7 +1891,7 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc) {
 
     Token *volatile_token = eat_token_if(pc, TokenIdKeywordVolatile);
     expect_token(pc, TokenIdLParen);
-    Token *asm_template = expect_token(pc, TokenIdStringLiteral);
+    AstNode *asm_template = ast_expect(pc, ast_parse_expr);
     AstNode *res = ast_parse_asm_output(pc);
     if (res == nullptr)
         res = ast_create_node_no_line_info(pc, NodeTypeAsmExpr);
