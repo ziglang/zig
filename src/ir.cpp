@@ -15945,7 +15945,7 @@ static IrInstruction *ir_analyze_instruction_decl_var(IrAnalyze *ira,
                 result_type = ira->codegen->builtin_types.entry_invalid;
             } else if (init_val->type->id == ZigTypeIdFn &&
                 init_val->special != ConstValSpecialUndef &&
-                init_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr &&
+                init_val->data.x_ptr.special == ConstPtrSpecialFunction &&
                 init_val->data.x_ptr.data.fn.fn_entry->fn_inline == FnInlineAlways)
             {
                 var_class_requires_const = true;
