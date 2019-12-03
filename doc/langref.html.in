@@ -1019,7 +1019,7 @@ a +%= b{#endsyntax#}</pre></td>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}u32(std.math.maxInt(u32)) +% 1 == 0{#endsyntax#}</pre>
+            <pre>{#syntax#}@as(u32, std.math.maxInt(u32)) +% 1 == 0{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1058,7 +1058,7 @@ a -%= b{#endsyntax#}</pre></td>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}u32(0) -% 1 == std.math.maxInt(u32){#endsyntax#}</pre>
+            <pre>{#syntax#}@as(u32, 0) -% 1 == std.math.maxInt(u32){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1093,7 +1093,7 @@ a -%= b{#endsyntax#}</pre></td>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}-%i32(std.math.minInt(i32)) == std.math.minInt(i32){#endsyntax#}</pre>
+            <pre>{#syntax#}-%@as(i32, std.math.minInt(i32)) == std.math.minInt(i32){#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1132,7 +1132,7 @@ a *%= b{#endsyntax#}</pre></td>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}u8(200) *% 2 == 144{#endsyntax#}</pre>
+            <pre>{#syntax#}@as(u8, 200) *% 2 == 144{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -1284,7 +1284,7 @@ a ^= b{#endsyntax#}</pre></td>
             Bitwise NOT.
           </td>
           <td>
-            <pre>{#syntax#}~u8(0b10101111) == 0b01010000{#endsyntax#}</pre>
+            <pre>{#syntax#}~@as(u8, 0b10101111) == 0b01010000{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -7947,7 +7947,7 @@ test "@setRuntimeSafety" {
       {#syntax#}b{#endsyntax#}. Positive numbers select from {#syntax#}a{#endsyntax#} starting at 0.
       Negative values select from {#syntax#}b{#endsyntax#}, starting at {#syntax#}-1{#endsyntax#} and going down.
       It is recommended to use the {#syntax#}~{#endsyntax#} operator from indexes from {#syntax#}b{#endsyntax#}
-      so that both indexes can start from {#syntax#}0{#endsyntax#} (i.e. {#syntax#}~i32(0){#endsyntax#} is
+      so that both indexes can start from {#syntax#}0{#endsyntax#} (i.e. {#syntax#}~@as(i32, 0){#endsyntax#} is
       {#syntax#}-1{#endsyntax#}).
       </p>
       <p>
