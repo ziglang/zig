@@ -143,14 +143,6 @@ pub fn parseRData(
     return rdata;
 }
 
-/// Serialize a DNSName
-fn serialName(serializer: var, name: dns.DNSName) !void {
-    try serializer.serialize(name.labels.len);
-    for (name.labels) |label| {
-        try serializer.serialize(label);
-    }
-}
-
 /// Serialize a given DNSRData into OpaqueDNSRData.
 pub fn serializeRData(
     pkt: *dns.DNSPacket,
@@ -170,17 +162,11 @@ pub fn serializeRData(
     ).init(out_stream);
 
     switch (rdata) {
-        .NS => try serializer.serialize(rdata.NS),
-        .MD => try serialName(serializer, rdata.MD),
-        .MF => try serialName(serializer, rdata.MF),
-        .MB => try serialName(serializer, rdata.MB),
-        .MG => try serialName(serializer, rdata.MG),
-        .MR => try serialName(serializer, rdata.MR),
-        .CNAME => try serialName(serializer, rdata.CNAME),
+        .NS, .MD, .MF, .MB, .MG, .MR, .CNAME, .PTR => |name| try serializer.serialize(name),
 
         .SOA => |soa_data| blk: {
-            try serialName(serializer, soa_data.mname);
-            try serialName(serializer, soa_data.rname);
+            try serializer.serialize(soa_data.mname);
+            try serializer.serialize(soa_data.rname);
 
             try serializer.serialize(soa_data.serial);
             try serializer.serialize(soa_data.refresh);
@@ -189,11 +175,9 @@ pub fn serializeRData(
             try serializer.serialize(soa_data.minimum);
         },
 
-        .PTR => try serialName(serializer, rdata.PTR),
-
         .MX => |mxdata| blk: {
             try serializer.serialize(mxdata.preference);
-            try serialName(serializer, mxdata.exchange);
+            try serializer.serialize(mxdata.exchange);
         },
 
         else => return DNSError.RDATANotSupported,
