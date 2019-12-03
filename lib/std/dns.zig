@@ -470,6 +470,9 @@ pub const Packet = struct {
         self: *Self,
         deserial: *DNSDeserializer,
     ) (DNSError || Allocator.Error)!DNSName {
+
+        // Removing this causes the compiler to send a
+        // 'error: recursive function cannot be async'
         if (std.io.mode == .evented) {
             _ = @frame();
         }
