@@ -222,6 +222,24 @@ pub const Resource = struct {
     // NOTE: maybe we re-deserialize this one specifically on
     // another section of the source dedicated to specific RDATA
     rdata: OpaqueDNSRData,
+
+    /// Give the size, in bytes, of the binary representation of a resource.
+    pub fn size(resource: @This()) usize {
+        var res_size: usize = 0;
+
+        // name for the resource
+        res_size += resource.name.size();
+
+        // rr_type, class, ttl, rdlength are 3 u16's and one u32.
+        res_size += @sizeOf(u16) * 3;
+        res_size += @sizeOf(u32);
+
+        // rdata
+        res_size += @sizeOf(u16);
+        res_size += resource.rdata.len * @sizeOf(u8);
+
+        return res_size;
+    }
 };
 
 const LabelComponentTag = enum {
@@ -241,24 +259,6 @@ const LabelComponent = union(LabelComponentTag) {
     Pointer: [][]const u8,
     Label: []u8,
 };
-
-/// Give the size, in bytes, of the binary representation of a resource.
-fn resourceSize(resource: Resource) usize {
-    var res_size: usize = 0;
-
-    // name for the resource
-    res_size += resource.name.size();
-
-    // rr_type, class, ttl, rdlength are 3 u16's and one u32.
-    res_size += @sizeOf(u16) * 3;
-    res_size += @sizeOf(u32);
-
-    // rdata
-    res_size += @sizeOf(u16);
-    res_size += resource.rdata.len * @sizeOf(u8);
-
-    return res_size;
-}
 
 /// Deserialize a type, but turn any error caused by it into DNSError.DeserialFail.
 /// This is required due to the recusive requirements of DNSName parsing as
@@ -598,7 +598,7 @@ pub const Packet = struct {
         }
 
         for (self.answers.toSlice()) |answer| {
-            pkt_size += resourceSize(answer);
+            pkt_size += answer.size();
         }
 
         return pkt_size;
