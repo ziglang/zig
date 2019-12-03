@@ -26,7 +26,8 @@ pub const subsystem: ?SubSystem = blk: {
             if (is_test) {
                 break :blk SubSystem.Console;
             }
-            if (@hasDecl(root, "WinMain") or
+            if (@hasDecl(root, "main") or
+                @hasDecl(root, "WinMain") or
                 @hasDecl(root, "wWinMain") or
                 @hasDecl(root, "WinMainCRTStartup") or
                 @hasDecl(root, "wWinMainCRTStartup"))
@@ -346,6 +347,21 @@ pub const FloatMode = enum {
 pub const Endian = enum {
     Big,
     Little,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const OutputMode = enum {
+    Exe,
+    Lib,
+    Obj,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const LinkMode = enum {
+    Static,
+    Dynamic,
 };
 
 /// This data structure is used by the Zig language code generation and
