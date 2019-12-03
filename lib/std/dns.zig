@@ -597,8 +597,16 @@ pub const Packet = struct {
             pkt_size += @sizeOf(u16);
         }
 
-        for (self.answers.toSlice()) |answer| {
-            pkt_size += answer.size();
+        for (self.answers.toSlice()) |resource| {
+            pkt_size += resource.size();
+        }
+
+        for (self.authority.toSlice()) |resource| {
+            pkt_size += resource.size();
+        }
+
+        for (self.additional.toSlice()) |resource| {
+            pkt_size += resource.size();
         }
 
         return pkt_size;
