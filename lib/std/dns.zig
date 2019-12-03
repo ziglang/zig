@@ -1,7 +1,9 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-// TODO rename to Packet, Resource, Question, Header
+// TODO Rename DNSPacketRCode to ResponseCode
+// TODO use ResponseCode in Header instead of u4
+// TODO port zigdig's rdata module to std.dns.rdata
 
 pub const QuestionList = std.ArrayList(Question);
 pub const ResourceList = std.ArrayList(Resource);
@@ -11,6 +13,16 @@ pub const DNSError = error{
     RDATANotSupported,
     DeserialFail,
     ParseFail,
+};
+
+/// The response code of a packet.
+pub const DNSPacketRCode = enum(u4) {
+    NoError = 0,
+    FmtError = 1,
+    ServFail = 2,
+    NameErr = 3,
+    NotImpl = 4,
+    Refused = 5,
 };
 
 /// Represents a DNS type.
@@ -63,7 +75,7 @@ pub const DNSType = enum(u16) {
             std.mem.secureZero(u8, to_compare[field.name.len..]);
 
             std.debug.assert(uppercased.len == to_compare.len);
-            if (std.mem.eql(u8, uppercased, to_compare)) {
+            if (std.mem.eql(u8, &uppercased, &to_compare)) {
                 return @intToEnum(DNSType, field.value);
             }
         }
@@ -97,6 +109,8 @@ pub const Header = packed struct {
     rd: bool = false,
     ra: bool = false,
     z: u3 = 0,
+
+    // TODO: make this ResponseCode
     rcode: u4 = 0,
 
     qdcount: u16 = 0,
