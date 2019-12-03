@@ -241,7 +241,7 @@ fn memFree(comptime T: type, memory: []T) void {}
 
 test "cast undefined" {
     const array: [100]u8 = undefined;
-    const slice = @as([]const u8, array);
+    const slice = @as([]const u8, &array);
     testCastUndefined(slice);
 }
 fn testCastUndefined(x: []const u8) void {}
@@ -614,7 +614,7 @@ test "slicing zero length array" {
     expect(s1.len == 0);
     expect(s2.len == 0);
     expect(mem.eql(u8, s1, ""));
-    expect(mem.eql(u32, s2, [_]u32{}));
+    expect(mem.eql(u32, s2, &[_]u32{}));
 }
 
 const addr1 = @ptrCast(*const u8, emptyFn);
@@ -710,7 +710,7 @@ test "result location zero sized array inside struct field implicit cast to slic
     const E = struct {
         entries: []u32,
     };
-    var foo = E{ .entries = [_]u32{} };
+    var foo = E{ .entries = &[_]u32{} };
     expect(foo.entries.len == 0);
 }
 

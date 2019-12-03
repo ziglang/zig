@@ -61,7 +61,7 @@ pub const Loop = struct {
                 base: ResumeNode,
                 completion_key: usize,
             },
-            else => @compileError("unsupported OS"),
+            else => struct {},
         };
 
         const KEventFd = struct {
@@ -237,7 +237,7 @@ pub const Loop = struct {
                 var extra_thread_index: usize = 0;
                 errdefer {
                     // writing 8 bytes to an eventfd cannot fail
-                    os.write(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
+                    os.write(self.os_data.final_eventfd, &wakeup_bytes) catch unreachable;
                     while (extra_thread_index != 0) {
                         extra_thread_index -= 1;
                         self.extra_threads[extra_thread_index].wait();
@@ -684,7 +684,7 @@ pub const Loop = struct {
                 .linux => {
                     self.posixFsRequest(&self.os_data.fs_end_request);
                     // writing 8 bytes to an eventfd cannot fail
-                    noasync os.write(self.os_data.final_eventfd, wakeup_bytes) catch unreachable;
+                    noasync os.write(self.os_data.final_eventfd, &wakeup_bytes) catch unreachable;
                     return;
                 },
                 .macosx, .freebsd, .netbsd, .dragonfly => {

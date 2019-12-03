@@ -1104,7 +1104,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
                 byte.* = if (t_bit_count < u8_bit_count) v else @truncate(u8, v);
             }
 
-            try self.out_stream.write(buffer);
+            try self.out_stream.write(&buffer);
         }
 
         /// Serializes the passed value into the stream

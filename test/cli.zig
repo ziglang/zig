@@ -26,9 +26,9 @@ pub fn main() !void {
         std.debug.warn("Expected second argument to be cache root directory path\n");
         return error.InvalidArgs;
     });
-    const zig_exe = try fs.path.resolve(a, [_][]const u8{zig_exe_rel});
+    const zig_exe = try fs.path.resolve(a, &[_][]const u8{zig_exe_rel});
 
-    const dir_path = try fs.path.join(a, [_][]const u8{ cache_root, "clitest" });
+    const dir_path = try fs.path.join(a, &[_][]const u8{ cache_root, "clitest" });
     const TestFn = fn ([]const u8, []const u8) anyerror!void;
     const test_fns = [_]TestFn{
         testZigInitLib,
@@ -85,22 +85,22 @@ fn exec(cwd: []const u8, argv: []const []const u8) !ChildProcess.ExecResult {
 }
 
 fn testZigInitLib(zig_exe: []const u8, dir_path: []const u8) !void {
-    _ = try exec(dir_path, [_][]const u8{ zig_exe, "init-lib" });
-    const test_result = try exec(dir_path, [_][]const u8{ zig_exe, "build", "test" });
+    _ = try exec(dir_path, &[_][]const u8{ zig_exe, "init-lib" });
+    const test_result = try exec(dir_path, &[_][]const u8{ zig_exe, "build", "test" });
     testing.expect(std.mem.endsWith(u8, test_result.stderr, "All 1 tests passed.\n"));
 }
 
 fn testZigInitExe(zig_exe: []const u8, dir_path: []const u8) !void {
-    _ = try exec(dir_path, [_][]const u8{ zig_exe, "init-exe" });
-    const run_result = try exec(dir_path, [_][]const u8{ zig_exe, "build", "run" });
+    _ = try exec(dir_path, &[_][]const u8{ zig_exe, "init-exe" });
+    const run_result = try exec(dir_path, &[_][]const u8{ zig_exe, "build", "run" });
     testing.expect(std.mem.eql(u8, run_result.stderr, "All your base are belong to us.\n"));
 }
 
 fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
     if (builtin.os != .linux or builtin.arch != .x86_64) return;
 
-    const example_zig_path = try fs.path.join(a, [_][]const u8{ dir_path, "example.zig" });
-    const example_s_path = try fs.path.join(a, [_][]const u8{ dir_path, "example.s" });
+    const example_zig_path = try fs.path.join(a, &[_][]const u8{ dir_path, "example.zig" });
+    const example_s_path = try fs.path.join(a, &[_][]const u8{ dir_path, "example.s" });
 
     try std.io.writeFile(example_zig_path,
         \\// Type your code here, or load an example.
@@ -123,7 +123,7 @@ fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
         "--strip",        "--release-fast",
         example_zig_path, "--disable-gen-h",
     };
-    _ = try exec(dir_path, args);
+    _ = try exec(dir_path, &args);
 
     const out_asm = try std.io.readFileAlloc(a, example_s_path);
     testing.expect(std.mem.indexOf(u8, out_asm, "square:") != null);
@@ -132,10 +132,10 @@ fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
 }
 
 fn testMissingOutputPath(zig_exe: []const u8, dir_path: []const u8) !void {
-    _ = try exec(dir_path, [_][]const u8{ zig_exe, "init-exe" });
-    const output_path = try fs.path.join(a, [_][]const u8{ "does", "not", "exist" });
-    const source_path = try fs.path.join(a, [_][]const u8{ "src", "main.zig" });
-    _ = try exec(dir_path, [_][]const u8{
+    _ = try exec(dir_path, &[_][]const u8{ zig_exe, "init-exe" });
+    const output_path = try fs.path.join(a, &[_][]const u8{ "does", "not", "exist" });
+    const source_path = try fs.path.join(a, &[_][]const u8{ "src", "main.zig" });
+    _ = try exec(dir_path, &[_][]const u8{
         zig_exe, "build-exe", source_path, "--output-dir", output_path,
     });
 }

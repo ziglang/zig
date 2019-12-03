@@ -62,7 +62,7 @@ pub fn BloomFilter(
         }
 
         pub fn getCell(self: Self, cell: Index) Cell {
-            return Io.get(self.data, cell, 0);
+            return Io.get(&self.data, cell, 0);
         }
 
         pub fn incrementCell(self: *Self, cell: Index) void {
@@ -70,7 +70,7 @@ pub fn BloomFilter(
                 // skip the 'get' operation
                 Io.set(&self.data, cell, 0, cellMax);
             } else {
-                const old = Io.get(self.data, cell, 0);
+                const old = Io.get(&self.data, cell, 0);
                 if (old != cellMax) {
                     Io.set(&self.data, cell, 0, old + 1);
                 }
@@ -120,7 +120,7 @@ pub fn BloomFilter(
             } else if (newsize > n_items) {
                 var copied: usize = 0;
                 while (copied < r.data.len) : (copied += self.data.len) {
-                    std.mem.copy(u8, r.data[copied .. copied + self.data.len], self.data);
+                    std.mem.copy(u8, r.data[copied .. copied + self.data.len], &self.data);
                 }
             }
             return r;

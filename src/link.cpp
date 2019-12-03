@@ -1831,12 +1831,6 @@ static void construct_linker_job_elf(LinkJob *lj) {
     if (!g->zig_target->is_native) {
         lj->args.append("--allow-shlib-undefined");
     }
-
-    if (g->zig_target->os == OsZen) {
-        lj->args.append("-e");
-        lj->args.append("_start");
-        lj->args.append("--image-base=0x10000000");
-    }
 }
 
 static void construct_linker_job_wasm(LinkJob *lj) {

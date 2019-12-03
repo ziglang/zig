@@ -19,7 +19,7 @@ pub const Thread = struct {
     else switch (builtin.os) {
         .linux => i32,
         .windows => windows.HANDLE,
-        else => @compileError("Unsupported OS"),
+        else => void,
     };
 
     /// Represents a unique ID per thread.
@@ -45,7 +45,7 @@ pub const Thread = struct {
             alloc_start: *c_void,
             heap_handle: windows.HANDLE,
         },
-        else => @compileError("Unsupported OS"),
+        else => struct {},
     };
 
     /// Returns the ID of the calling thread.
@@ -99,7 +99,7 @@ pub const Thread = struct {
                 os.munmap(self.data.memory);
             },
             .windows => {
-                windows.WaitForSingleObject(self.data.handle, windows.INFINITE) catch unreachable;
+                windows.WaitForSingleObjectEx(self.data.handle, windows.INFINITE, false) catch unreachable;
                 windows.CloseHandle(self.data.handle);
                 windows.HeapFree(self.data.heap_handle, 0, self.data.alloc_start);
             },

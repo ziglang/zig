@@ -112,7 +112,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
                 .allocator = allocator,
                 .len = 0,
                 .prealloc_segment = undefined,
-                .dynamic_segments = [_][*]T{},
+                .dynamic_segments = &[_][*]T{},
             };
         }
 
@@ -192,7 +192,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
                 const len = @intCast(ShelfIndex, self.dynamic_segments.len);
                 self.freeShelves(len, 0);
                 self.allocator.free(self.dynamic_segments);
-                self.dynamic_segments = [_][*]T{};
+                self.dynamic_segments = &[_][*]T{};
                 return;
             }
 
@@ -385,18 +385,14 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
     testing.expect(list.pop().? == 100);
     testing.expect(list.len == 99);
 
-    try list.pushMany([_]i32{
-        1,
-        2,
-        3,
-    });
+    try list.pushMany(&[_]i32{ 1, 2, 3 });
     testing.expect(list.len == 102);
     testing.expect(list.pop().? == 3);
     testing.expect(list.pop().? == 2);
     testing.expect(list.pop().? == 1);
     testing.expect(list.len == 99);
 
-    try list.pushMany([_]i32{});
+    try list.pushMany(&[_]i32{});
     testing.expect(list.len == 99);
 
     var i: i32 = 99;

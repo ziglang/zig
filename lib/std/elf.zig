@@ -381,7 +381,7 @@ pub const Elf = struct {
 
         var magic: [4]u8 = undefined;
         try in.readNoEof(magic[0..]);
-        if (!mem.eql(u8, magic, "\x7fELF")) return error.InvalidFormat;
+        if (!mem.eql(u8, &magic, "\x7fELF")) return error.InvalidFormat;
 
         elf.is_64 = switch (try in.readByte()) {
             1 => false,

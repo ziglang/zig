@@ -9,6 +9,13 @@ pub extern "kernel32" stdcallcc fn CloseHandle(hObject: HANDLE) BOOL;
 
 pub extern "kernel32" stdcallcc fn CreateDirectoryW(lpPathName: [*]const u16, lpSecurityAttributes: ?*SECURITY_ATTRIBUTES) BOOL;
 
+pub extern "kernel32" stdcallcc fn CreateEventExW(
+    lpEventAttributes: ?*SECURITY_ATTRIBUTES,
+    lpName: [*:0]const u16,
+    dwFlags: DWORD,
+    dwDesiredAccess: DWORD,
+) ?HANDLE;
+
 pub extern "kernel32" stdcallcc fn CreateFileW(
     lpFileName: [*]const u16, // TODO null terminated pointer type
     dwDesiredAccess: DWORD,
@@ -52,7 +59,7 @@ pub extern "kernel32" stdcallcc fn DeviceIoControl(
     nInBufferSize: DWORD,
     lpOutBuffer: ?LPVOID,
     nOutBufferSize: DWORD,
-    lpBytesReturned: LPDWORD,
+    lpBytesReturned: ?*DWORD,
     lpOverlapped: ?*OVERLAPPED,
 ) BOOL;
 
@@ -204,6 +211,18 @@ pub extern "kernel32" stdcallcc fn TlsAlloc() DWORD;
 pub extern "kernel32" stdcallcc fn TlsFree(dwTlsIndex: DWORD) BOOL;
 
 pub extern "kernel32" stdcallcc fn WaitForSingleObject(hHandle: HANDLE, dwMilliseconds: DWORD) DWORD;
+
+pub extern "kernel32" stdcallcc fn WaitForSingleObjectEx(hHandle: HANDLE, dwMilliseconds: DWORD, bAlertable: BOOL) DWORD;
+
+pub extern "kernel32" stdcallcc fn WaitForMultipleObjects(nCount: DWORD, lpHandle: [*]const HANDLE, bWaitAll:BOOL, dwMilliseconds: DWORD) DWORD;
+
+pub extern "kernel32" stdcallcc fn WaitForMultipleObjectsEx(
+    nCount: DWORD,
+    lpHandle: [*]const HANDLE,
+    bWaitAll:BOOL,
+    dwMilliseconds: DWORD,
+    bAlertable: BOOL,
+) DWORD;
 
 pub extern "kernel32" stdcallcc fn WriteFile(
     in_hFile: HANDLE,

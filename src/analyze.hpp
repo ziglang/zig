@@ -202,7 +202,7 @@ ZigType *get_align_amt_type(CodeGen *g);
 ZigPackage *new_anonymous_package(void);
 
 Buf *const_value_to_buffer(ZigValue *const_val);
-void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, const char *symbol_name, GlobalLinkageId linkage, bool ccc);
+void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, const char *symbol_name, GlobalLinkageId linkage, CallingConvention cc);
 void add_var_export(CodeGen *g, ZigVar *fn_table_entry, const char *symbol_name, GlobalLinkageId linkage);
 
 

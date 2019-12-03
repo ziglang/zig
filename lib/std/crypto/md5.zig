@@ -276,6 +276,6 @@ test "md5 aligned final" {
     var out: [Md5.digest_length]u8 = undefined;
 
     var h = Md5.init();
-    h.update(block);
+    h.update(&block);
     h.final(out[0..]);
 }

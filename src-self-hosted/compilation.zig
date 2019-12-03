@@ -103,8 +103,8 @@ pub const ZigCompiler = struct {
     /// Must be called only once, ever. Sets global state.
     pub fn setLlvmArgv(allocator: *Allocator, llvm_argv: []const []const u8) !void {
         if (llvm_argv.len != 0) {
-            var c_compatible_args = try std.cstr.NullTerminated2DArray.fromSlices(allocator, [_][]const []const u8{
-                [_][]const u8{"zig (LLVM option parsing)"},
+            var c_compatible_args = try std.cstr.NullTerminated2DArray.fromSlices(allocator, &[_][]const []const u8{
+                &[_][]const u8{"zig (LLVM option parsing)"},
                 llvm_argv,
             });
             defer c_compatible_args.deinit();
@@ -148,13 +148,13 @@ pub const Compilation = struct {
     is_static: bool,
     linker_rdynamic: bool = false,
 
-    clang_argv: []const []const u8 = [_][]const u8{},
-    lib_dirs: []const []const u8 = [_][]const u8{},
-    rpath_list: []const []const u8 = [_][]const u8{},
-    assembly_files: []const []const u8 = [_][]const u8{},
+    clang_argv: []const []const u8 = &[_][]const u8{},
+    lib_dirs: []const []const u8 = &[_][]const u8{},
+    rpath_list: []const []const u8 = &[_][]const u8{},
+    assembly_files: []const []const u8 = &[_][]const u8{},
 
     /// paths that are explicitly provided by the user to link against
-    link_objects: []const []const u8 = [_][]const u8{},
+    link_objects: []const []const u8 = &[_][]const u8{},
 
     /// functions that have their own objects that we need to link
     /// it uses an optional pointer so that tombstone removals are possible
@@ -178,10 +178,10 @@ pub const Compilation = struct {
     verbose_llvm_ir: bool = false,
     verbose_link: bool = false,
 
-    darwin_frameworks: []const []const u8 = [_][]const u8{},
+    darwin_frameworks: []const []const u8 = &[_][]const u8{},
     darwin_version_min: DarwinVersionMin = .None,
 
-    test_filters: []const []const u8 = [_][]const u8{},
+    test_filters: []const []const u8 = &[_][]const u8{},
     test_name_prefix: ?[]const u8 = null,
 
     emit_file_type: Emit = .Binary,
@@ -400,7 +400,6 @@ pub const Compilation = struct {
             .llvm_triple = undefined,
             .is_static = is_static,
             .link_libs_list = undefined,
-
             .exported_symbol_names = event.Locked(Decl.Table).init(Decl.Table.init(allocator)),
             .prelink_group = event.Group(BuildError!void).init(allocator),
             .deinit_group = event.Group(void).init(allocator),
@@ -448,7 +447,7 @@ pub const Compilation = struct {
         comp.name = try Buffer.init(comp.arena(), name);
         comp.llvm_triple = try util.getTriple(comp.arena(), target);
         comp.llvm_target = try util.llvmTargetFromTriple(comp.llvm_triple);
-        comp.zig_std_dir = try std.fs.path.join(comp.arena(), [_][]const u8{ zig_lib_dir, "std" });
+        comp.zig_std_dir = try std.fs.path.join(comp.arena(), &[_][]const u8{ zig_lib_dir, "std" });
 
         const opt_level = switch (build_mode) {
             .Debug => llvm.CodeGenLevelNone,
@@ -490,7 +489,7 @@ pub const Compilation = struct {
         comp.events = try allocator.create(event.Channel(Event));
         defer allocator.destroy(comp.events);
 
-        comp.events.init([0]Event{});
+        comp.events.init(&[0]Event{});
         defer comp.events.deinit();
 
         if (root_src_path) |root_src| {
@@ -1166,7 +1165,7 @@ pub const Compilation = struct {
         const file_name = try std.fmt.allocPrint(self.gpa(), "{}{}", file_prefix[0..], suffix);
         defer self.gpa().free(file_name);
 
-        const full_path = try std.fs.path.join(self.gpa(), [_][]const u8{ tmp_dir, file_name[0..] });
+        const full_path = try std.fs.path.join(self.gpa(), &[_][]const u8{ tmp_dir, file_name[0..] });
         errdefer self.gpa().free(full_path);
 
         return Buffer.fromOwnedSlice(self.gpa(), full_path);
@@ -1187,7 +1186,7 @@ pub const Compilation = struct {
         const zig_dir_path = try getZigDir(self.gpa());
         defer self.gpa().free(zig_dir_path);
 
-        const tmp_dir = try std.fs.path.join(self.arena(), [_][]const u8{ zig_dir_path, comp_dir_name[0..] });
+        const tmp_dir = try std.fs.path.join(self.arena(), &[_][]const u8{ zig_dir_path, comp_dir_name[0..] });
         try std.fs.makePath(self.gpa(), tmp_dir);
         return tmp_dir;
     }
@@ -1209,7 +1208,7 @@ pub const Compilation = struct {
         }
 
         var result: [12]u8 = undefined;
-        b64_fs_encoder.encode(result[0..], rand_bytes);
+        b64_fs_encoder.encode(result[0..], &rand_bytes);
         return result;
     }
 

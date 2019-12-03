@@ -124,10 +124,10 @@ const char* ir_instruction_type_str(IrInstructionId id) {
             return "AnyFrameType";
         case IrInstructionIdSliceType:
             return "SliceType";
-        case IrInstructionIdGlobalAsm:
-            return "GlobalAsm";
-        case IrInstructionIdAsm:
-            return "Asm";
+        case IrInstructionIdAsmSrc:
+            return "AsmSrc";
+        case IrInstructionIdAsmGen:
+            return "AsmGen";
         case IrInstructionIdSizeOf:
             return "SizeOf";
         case IrInstructionIdTestNonNull:
@@ -888,11 +888,50 @@ static void ir_print_any_frame_type(IrPrint *irp, IrInstructionAnyFrameType *ins
     }
 }
 
-static void ir_print_global_asm(IrPrint *irp, IrInstructionGlobalAsm *instruction) {
-    fprintf(irp->f, "asm(\"%s\")", buf_ptr(instruction->asm_code));
+static void ir_print_asm_src(IrPrint *irp, IrInstructionAsmSrc *instruction) {
+    assert(instruction->base.source_node->type == NodeTypeAsmExpr);
+    AstNodeAsmExpr *asm_expr = &instruction->base.source_node->data.asm_expr;
+    const char *volatile_kw = instruction->has_side_effects ? " volatile" : "";
+    fprintf(irp->f, "asm%s (", volatile_kw);
+    ir_print_other_instruction(irp, instruction->asm_template);
+
+    for (size_t i = 0; i < asm_expr->output_list.length; i += 1) {
+        AsmOutput *asm_output = asm_expr->output_list.at(i);
+        if (i != 0) fprintf(irp->f, ", ");
+
+        fprintf(irp->f, "[%s] \"%s\" (",
+                buf_ptr(asm_output->asm_symbolic_name),
+                buf_ptr(asm_output->constraint));
+        if (asm_output->return_type) {
+            fprintf(irp->f, "-> ");
+            ir_print_other_instruction(irp, instruction->output_types[i]);
+        } else {
+            fprintf(irp->f, "%s", buf_ptr(asm_output->variable_name));
+        }
+        fprintf(irp->f, ")");
+    }
+
+    fprintf(irp->f, " : ");
+    for (size_t i = 0; i < asm_expr->input_list.length; i += 1) {
+        AsmInput *asm_input = asm_expr->input_list.at(i);
+
+        if (i != 0) fprintf(irp->f, ", ");
+        fprintf(irp->f, "[%s] \"%s\" (",
+                buf_ptr(asm_input->asm_symbolic_name),
+                buf_ptr(asm_input->constraint));
+        ir_print_other_instruction(irp, instruction->input_list[i]);
+        fprintf(irp->f, ")");
+    }
+    fprintf(irp->f, " : ");
+    for (size_t i = 0; i < asm_expr->clobber_list.length; i += 1) {
+        Buf *reg_name = asm_expr->clobber_list.at(i);
+        if (i != 0) fprintf(irp->f, ", ");
+        fprintf(irp->f, "\"%s\"", buf_ptr(reg_name));
+    }
+    fprintf(irp->f, ")");
 }
 
-static void ir_print_asm(IrPrint *irp, IrInstructionAsm *instruction) {
+static void ir_print_asm_gen(IrPrint *irp, IrInstructionAsmGen *instruction) {
     assert(instruction->base.source_node->type == NodeTypeAsmExpr);
     AstNodeAsmExpr *asm_expr = &instruction->base.source_node->data.asm_expr;
     const char *volatile_kw = instruction->has_side_effects ? " volatile" : "";
@@ -2121,11 +2160,11 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
         case IrInstructionIdAnyFrameType:
             ir_print_any_frame_type(irp, (IrInstructionAnyFrameType *)instruction);
             break;
-        case IrInstructionIdGlobalAsm:
-            ir_print_global_asm(irp, (IrInstructionGlobalAsm *)instruction);
+        case IrInstructionIdAsmSrc:
+            ir_print_asm_src(irp, (IrInstructionAsmSrc *)instruction);
             break;
-        case IrInstructionIdAsm:
-            ir_print_asm(irp, (IrInstructionAsm *)instruction);
+        case IrInstructionIdAsmGen:
+            ir_print_asm_gen(irp, (IrInstructionAsmGen *)instruction);
             break;
         case IrInstructionIdSizeOf:
             ir_print_size_of(irp, (IrInstructionSizeOf *)instruction);
@@ -2530,6 +2569,37 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
     fprintf(irp->f, "\n");
 }
 
+static void irp_print_basic_block(IrPrint *irp, IrBasicBlock *current_block) {
+    fprintf(irp->f, "%s_%" ZIG_PRI_usize ":\n", current_block->name_hint, current_block->debug_id);
+    for (size_t instr_i = 0; instr_i < current_block->instruction_list.length; instr_i += 1) {
+        IrInstruction *instruction = current_block->instruction_list.at(instr_i);
+        if (irp->pass != IrPassSrc) {
+            irp->printed.put(instruction, 0);
+            irp->pending.clear();
+        }
+        ir_print_instruction(irp, instruction, false);
+        for (size_t j = 0; j < irp->pending.length; ++j)
+            ir_print_instruction(irp, irp->pending.at(j), true);
+    }
+}
+
+void ir_print_basic_block(CodeGen *codegen, FILE *f, IrBasicBlock *bb, int indent_size, IrPass pass) {
+    IrPrint ir_print = {};
+    ir_print.pass = pass;
+    ir_print.codegen = codegen;
+    ir_print.f = f;
+    ir_print.indent = indent_size;
+    ir_print.indent_size = indent_size;
+    ir_print.printed = {};
+    ir_print.printed.init(64);
+    ir_print.pending = {};
+
+    irp_print_basic_block(&ir_print, bb);
+
+    ir_print.pending.deinit();
+    ir_print.printed.deinit();
+}
+
 void ir_print(CodeGen *codegen, FILE *f, IrExecutable *executable, int indent_size, IrPass pass) {
     IrPrint ir_print = {};
     IrPrint *irp = &ir_print;
@@ -2543,18 +2613,7 @@ void ir_print(CodeGen *codegen, FILE *f, IrExecutable *executable, int indent_si
     irp->pending = {};
 
     for (size_t bb_i = 0; bb_i < executable->basic_block_list.length; bb_i += 1) {
-        IrBasicBlock *current_block = executable->basic_block_list.at(bb_i);
-        fprintf(irp->f, "%s_%" ZIG_PRI_usize ":\n", current_block->name_hint, current_block->debug_id);
-        for (size_t instr_i = 0; instr_i < current_block->instruction_list.length; instr_i += 1) {
-            IrInstruction *instruction = current_block->instruction_list.at(instr_i);
-            if (irp->pass != IrPassSrc) {
-                irp->printed.put(instruction, 0);
-                irp->pending.clear();
-            }
-            ir_print_instruction(irp, instruction, false);
-            for (size_t j = 0; j < irp->pending.length; ++j)
-                ir_print_instruction(irp, irp->pending.at(j), true);
-        }
+        irp_print_basic_block(irp, executable->basic_block_list.at(bb_i));
     }
 
     irp->pending.deinit();

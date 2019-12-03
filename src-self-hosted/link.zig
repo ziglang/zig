@@ -304,17 +304,10 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     if (ctx.comp.target != Target.Native) {
         try ctx.args.append("--allow-shlib-undefined");
     }
-
-    if (ctx.comp.target.getOs() == .zen) {
-        try ctx.args.append("-e");
-        try ctx.args.append("_start");
-
-        try ctx.args.append("--image-base=0x10000000");
-    }
 }
 
 fn addPathJoin(ctx: *Context, dirname: []const u8, basename: []const u8) !void {
-    const full_path = try std.fs.path.join(&ctx.arena.allocator, [_][]const u8{ dirname, basename });
+    const full_path = try std.fs.path.join(&ctx.arena.allocator, &[_][]const u8{ dirname, basename });
     const full_path_with_null = try std.cstr.addNullByte(&ctx.arena.allocator, full_path);
     try ctx.args.append(@ptrCast([*:0]const u8, full_path_with_null.ptr));
 }

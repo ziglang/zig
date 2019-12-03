@@ -105,7 +105,6 @@ pub const CInt = struct {
             .macosx,
             .freebsd,
             .openbsd,
-            .zen,
             => switch (cint.id) {
                 .Short,
                 .UShort,

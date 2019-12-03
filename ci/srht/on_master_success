@@ -16,11 +16,12 @@ OAUTH_TOKEN="$2"
 YML_FILE="tmp.yml"
 
 cat <<EOF >"$YML_FILE"
-image: alpine/edge
+image: alpine/latest
 packages:
   - py3-pip
   - curl
   - jq
+  - xz
 secrets:
   - 6c60aaee-92e7-4e7d-812c-114817689b4d
 sources:

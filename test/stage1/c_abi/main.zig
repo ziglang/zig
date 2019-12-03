@@ -124,7 +124,7 @@ test "C ABI array" {
 }
 
 export fn zig_array(x: [10]u8) void {
-    expect(std.mem.eql(u8, x, "1234567890"));
+    expect(std.mem.eql(u8, &x, "1234567890"));
 }
 
 const BigStruct = extern struct {

@@ -46,7 +46,7 @@ test "std.meta.trait.multiTrait" {
         }
     };
 
-    const isVector = multiTrait([_]TraitFn{
+    const isVector = multiTrait(&[_]TraitFn{
         hasFn("add"),
         hasField("x"),
         hasField("y"),

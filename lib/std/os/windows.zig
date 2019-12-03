@@ -97,6 +97,22 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
     }
 }
 
+pub fn CreateEventEx(attributes: ?*SECURITY_ATTRIBUTES, name: []const u8, flags: DWORD, desired_access: DWORD) !HANDLE {
+    const nameW = try sliceToPrefixedFileW(name);
+    return CreateEventExW(attributes, &nameW, flags, desired_access);
+}
+
+pub fn CreateEventExW(attributes: ?*SECURITY_ATTRIBUTES, nameW: [*:0]const u16, flags: DWORD, desired_access: DWORD) !HANDLE {
+    const handle = kernel32.CreateEventExW(attributes, nameW, flags, desired_access);
+    if (handle) |h| {
+        return h;
+    } else {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+}
+
 pub fn DeviceIoControl(
     h: HANDLE,
     ioControlCode: DWORD,
@@ -116,6 +132,7 @@ pub fn DeviceIoControl(
         overlapped,
     ) == 0) {
         switch (kernel32.GetLastError()) {
+            ERROR.IO_PENDING => if (overlapped == null) unreachable,
             else => |err| return unexpectedError(err),
         }
     }
@@ -124,9 +141,9 @@ pub fn DeviceIoControl(
 
 pub fn GetOverlappedResult(h: HANDLE, overlapped: *OVERLAPPED, wait: bool) !DWORD {
     var bytes: DWORD = undefined;
-    if (kernel32.GetOverlappedResult(h, overlapped, &bytes, wait) == 0) {
+    if (kernel32.GetOverlappedResult(h, overlapped, &bytes, @boolToInt(wait)) == 0) {
         switch (kernel32.GetLastError()) {
-            ERROR_IO_INCOMPLETE => if (!wait) return error.WouldBlock else unreachable,
+            ERROR.IO_INCOMPLETE => if (!wait) return error.WouldBlock else unreachable,
             else => |err| return unexpectedError(err),
         }
     }
@@ -171,10 +188,38 @@ pub const WaitForSingleObjectError = error{
     Unexpected,
 };
 
-pub fn WaitForSingleObject(handle: HANDLE, milliseconds: DWORD) WaitForSingleObjectError!void {
-    switch (kernel32.WaitForSingleObject(handle, milliseconds)) {
+pub fn WaitForSingleObjectEx(handle: HANDLE, milliseconds: DWORD, alertable: bool) WaitForSingleObjectError!void {
+    switch (kernel32.WaitForSingleObjectEx(handle, milliseconds, @boolToInt(alertable))) {
         WAIT_ABANDONED => return error.WaitAbandoned,
         WAIT_OBJECT_0 => return,
+        WAIT_TIMEOUT => return error.WaitTimeOut,
+        WAIT_FAILED => switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        },
+        else => return error.Unexpected,
+    }
+}
+
+pub fn WaitForMultipleObjectsEx(handles: []const HANDLE, waitAll: bool, milliseconds: DWORD, alertable: bool) !u32 {
+    assert(handles.len < MAXIMUM_WAIT_OBJECTS);
+    const nCount: DWORD = @intCast(DWORD, handles.len);
+    switch (kernel32.WaitForMultipleObjectsEx(
+        nCount,
+        handles.ptr,
+        @boolToInt(waitAll),
+        milliseconds,
+        @boolToInt(alertable),
+    )) {
+        WAIT_OBJECT_0...WAIT_OBJECT_0 + MAXIMUM_WAIT_OBJECTS => |n| {
+            const handle_index = n - WAIT_OBJECT_0;
+            assert(handle_index < nCount);
+            return handle_index;
+        },
+        WAIT_ABANDONED_0...WAIT_ABANDONED_0 + MAXIMUM_WAIT_OBJECTS => |n| {
+            const handle_index = n - WAIT_ABANDONED_0;
+            assert(handle_index < nCount);
+            return error.WaitAbandoned;
+        },
         WAIT_TIMEOUT => return error.WaitTimeOut,
         WAIT_FAILED => switch (kernel32.GetLastError()) {
             else => |err| return unexpectedError(err),
@@ -647,13 +692,23 @@ pub fn WSASocketW(
     return rc;
 }
 
+pub fn closesocket(s: ws2_32.SOCKET) !void {
+    switch (ws2_32.closesocket(s)) {
+        0 => {},
+        ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
+            else => |err| return unexpectedWSAError(err),
+        },
+        else => unreachable,
+    }
+}
+
 pub fn WSAIoctl(
     s: ws2_32.SOCKET,
     dwIoControlCode: DWORD,
     inBuffer: ?[]const u8,
     outBuffer: []u8,
     overlapped: ?*ws2_32.WSAOVERLAPPED,
-    completionRoutine: ?*ws2_32.WSAOVERLAPPED_COMPLETION_ROUTINE,
+    completionRoutine: ?ws2_32.WSAOVERLAPPED_COMPLETION_ROUTINE,
 ) !DWORD {
     var bytes: DWORD = undefined;
     switch (ws2_32.WSAIoctl(
@@ -932,9 +987,9 @@ pub fn wToPrefixedFileW(s: []const u16) ![PATH_MAX_WIDE:0]u16 {
     // TODO https://github.com/ziglang/zig/issues/2765
     var result: [PATH_MAX_WIDE:0]u16 = undefined;
 
-    const start_index = if (mem.startsWith(u16, s, [_]u16{ '\\', '?' })) 0 else blk: {
+    const start_index = if (mem.startsWith(u16, s, &[_]u16{ '\\', '?' })) 0 else blk: {
         const prefix = [_]u16{ '\\', '?', '?', '\\' };
-        mem.copy(u16, result[0..], prefix);
+        mem.copy(u16, result[0..], &prefix);
         break :blk prefix.len;
     };
     const end_index = start_index + s.len;
@@ -961,7 +1016,7 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
     }
     const start_index = if (mem.startsWith(u8, s, "\\?") or !std.fs.path.isAbsolute(s)) 0 else blk: {
         const prefix = [_]u16{ '\\', '?', '?', '\\' };
-        mem.copy(u16, result[0..], prefix);
+        mem.copy(u16, result[0..], &prefix);
         break :blk prefix.len;
     };
     const end_index = start_index + try std.unicode.utf8ToUtf16Le(result[start_index..], s);

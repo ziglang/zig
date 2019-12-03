@@ -451,13 +451,18 @@ pub fn formatType(
             },
         },
         .Array => |info| {
-            if (info.child == u8) {
-                return formatText(value, fmt, options, context, Errors, output);
-            }
-            if (value.len == 0) {
-                return format(context, Errors, output, "[0]{}", @typeName(T.Child));
-            }
-            return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(&value));
+            const Slice = @Type(builtin.TypeInfo{
+                .Pointer = .{
+                    .size = .Slice,
+                    .is_const = true,
+                    .is_volatile = false,
+                    .is_allowzero = false,
+                    .alignment = @alignOf(info.child),
+                    .child = info.child,
+                    .sentinel = null,
+                },
+            });
+            return formatType(@as(Slice, &value), fmt, options, context, Errors, output, max_depth);
         },
         .Fn => {
             return format(context, Errors, output, "{}@{x}", @typeName(T), @ptrToInt(value));
@@ -872,8 +877,8 @@ pub fn formatBytes(
     }
 
     const buf = switch (radix) {
-        1000 => [_]u8{ suffix, 'B' },
-        1024 => [_]u8{ suffix, 'i', 'B' },
+        1000 => &[_]u8{ suffix, 'B' },
+        1024 => &[_]u8{ suffix, 'i', 'B' },
         else => unreachable,
     };
     return output(context, buf);
@@ -969,7 +974,7 @@ fn formatIntUnsigned(
             if (leftover_padding == 0) break;
         }
         mem.set(u8, buf[0..index], options.fill);
-        return output(context, buf);
+        return output(context, &buf);
     } else {
         const padded_buf = buf[index - padding ..];
         mem.set(u8, padded_buf[0..padding], options.fill);

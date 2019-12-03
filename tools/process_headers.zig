@@ -226,8 +226,8 @@ const DestTarget = struct {
 
     fn hash(a: DestTarget) u32 {
         return @enumToInt(a.arch) +%
-            (@enumToInt(a.os) *% u32(4202347608)) +%
-            (@enumToInt(a.abi) *% u32(4082223418));
+            (@enumToInt(a.os) *% @as(u32, 4202347608)) +%
+            (@enumToInt(a.abi) *% @as(u32, 4082223418));
     }
 
     fn eql(a: DestTarget, b: DestTarget) bool {

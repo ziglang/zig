@@ -179,7 +179,6 @@ static const Os os_list[] = {
     OsHurd,
     OsWASI,
     OsEmscripten,
-    OsZen,
     OsUefi,
 };
 
@@ -269,7 +268,6 @@ Os target_os_enum(size_t index) {
 ZigLLVM_OSType get_llvm_os_type(Os os_type) {
     switch (os_type) {
         case OsFreestanding:
-        case OsZen:
             return ZigLLVM_UnknownOS;
         case OsAnanas:
             return ZigLLVM_Ananas;
@@ -425,8 +423,6 @@ const char *target_os_name(Os os_type) {
     switch (os_type) {
         case OsFreestanding:
             return "freestanding";
-        case OsZen:
-            return "zen";
         case OsUefi:
             return "uefi";
         case OsAnanas:
@@ -1047,7 +1043,6 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
             }
         case OsLinux:
         case OsMacOSX:
-        case OsZen:
         case OsFreeBSD:
         case OsNetBSD:
         case OsDragonFly:
@@ -1404,7 +1399,6 @@ const char *target_dynamic_linker(const ZigTarget *target) {
         case OsMesa3D:
         case OsContiki:
         case OsAMDPAL:
-        case OsZen:
         case OsHermitCore:
         case OsHurd:
         case OsWASI:
@@ -1655,7 +1649,6 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsMesa3D:
         case OsContiki:
         case OsAMDPAL:
-        case OsZen:
         case OsHermitCore:
             return ZigLLVM_EABI;
         case OsOpenBSD:

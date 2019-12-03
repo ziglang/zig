@@ -137,7 +137,7 @@ test "getrandom" {
     try os.getrandom(&buf_b);
     // If this test fails the chance is significantly higher that there is a bug than
     // that two sets of 50 bytes were equal.
-    expect(!mem.eql(u8, buf_a, buf_b));
+    expect(!mem.eql(u8, &buf_a, &buf_b));
 }
 
 test "getcwd" {

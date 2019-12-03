@@ -45,7 +45,6 @@ pub const Target = union(enum) {
         hurd,
         wasi,
         emscripten,
-        zen,
         uefi,
     };
 
@@ -432,7 +431,6 @@ pub const Target = union(enum) {
             .mesa3d,
             .contiki,
             .amdpal,
-            .zen,
             .hermit,
             => return .eabi,
             .openbsd,

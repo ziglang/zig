@@ -170,7 +170,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
     stderr = &stderr_file.outStream().stream;
 
     const args = args_list.toSliceConst();
-    var flags = try Args.parse(allocator, self_hosted_main.args_fmt_spec, args[2..]);
+    var flags = try Args.parse(allocator, &self_hosted_main.args_fmt_spec, args[2..]);
     defer flags.deinit();
 
     if (flags.present("help")) {
@@ -286,7 +286,7 @@ fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void
 
             while (try dir_it.next()) |entry| {
                 if (entry.kind == .Directory or mem.endsWith(u8, entry.name, ".zig")) {
-                    const full_path = try fs.path.join(fmt.allocator, [_][]const u8{ file_path, entry.name });
+                    const full_path = try fs.path.join(fmt.allocator, &[_][]const u8{ file_path, entry.name });
                     try fmtPath(fmt, full_path, check_mode);
                 }
             }
