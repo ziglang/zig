@@ -16,21 +16,21 @@ pub const DNSError = error{
 /// Represents a DNS type.
 pub const DNSType = enum(u16) {
     A = 1,
-    NS,
-    MD,
-    MF,
+    NS = 2,
+    MD = 3,
+    MF = 4,
     CNAME = 5,
-    SOA,
-    MB,
-    MG,
-    MR,
-    NULL,
-    WKS,
-    PTR,
-    HINFO,
-    MINFO,
-    MX,
-    TXT,
+    SOA = 6,
+    MB = 7,
+    MG = 8,
+    MR = 9,
+    NULL = 10,
+    WKS = 11,
+    PTR = 12,
+    HINFO = 13,
+    MINFO = 14,
+    MX = 15,
+    TXT = 16,
 
     AAAA = 28,
     //LOC,
@@ -74,9 +74,9 @@ pub const DNSType = enum(u16) {
 
 pub const DNSClass = enum(u16) {
     IN = 1,
-    CS,
-    CH,
-    HS,
+    CS = 2,
+    CH = 3,
+    HS = 4,
     WILDCARD = 255,
 };
 
