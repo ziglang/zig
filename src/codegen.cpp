@@ -8377,8 +8377,6 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     }
     const char *out_type = nullptr;
     switch (g->out_type) {
-        case OutTypeUnknown:
-            zig_unreachable();
         case OutTypeExe:
             out_type = "Exe";
             break;
@@ -8386,6 +8384,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             out_type = "Lib";
             break;
         case OutTypeObj:
+        case OutTypeUnknown: // This happens when running the `zig builtin` command.
             out_type = "Obj";
             break;
     }
