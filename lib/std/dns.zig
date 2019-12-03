@@ -3,13 +3,12 @@ const Allocator = std.mem.Allocator;
 
 pub const RData = @import("dns/rdata.zig");
 
-// TODO Rename DNSPacketRCode to ResponseCode
-// TODO use ResponseCode in Header instead of u4
 // TODO port zigdig's rdata module to std.dns.rdata
 
 pub const QuestionList = std.ArrayList(Question);
 pub const ResourceList = std.ArrayList(Resource);
-pub const DNSDeserializer = std.io.Deserializer(.Big, .Bit, std.io.SliceInStream.Error);
+const InError = std.io.SliceInStream.Error;
+pub const DNSDeserializer = std.io.Deserializer(.Big, .Bit, InError);
 pub const DNSError = error{
     UnknownDNSType,
     RDATANotSupported,
@@ -18,7 +17,7 @@ pub const DNSError = error{
 };
 
 /// The response code of a packet.
-pub const DNSPacketRCode = enum(u4) {
+pub const ResponseCode = enum(u4) {
     NoError = 0,
     FmtError = 1,
     ServFail = 2,
@@ -111,13 +110,18 @@ pub const Header = packed struct {
     rd: bool = false,
     ra: bool = false,
     z: u3 = 0,
+    rcode: ResponseCode = .NoError,
 
-    // TODO: make this ResponseCode
-    rcode: u4 = 0,
-
+    /// Amount of questions in the packet.
     qdcount: u16 = 0,
+
+    /// Amount of answers in the packet.
     ancount: u16 = 0,
+
+    /// Amount of nameservers in the packet.
     nscount: u16 = 0,
+
+    /// Amount of additional recordsin the packet.
     arcount: u16 = 0,
 
     /// Returns a "human-friendly" representation of the header for
@@ -144,14 +148,17 @@ pub const Header = packed struct {
     }
 };
 
-/// Represents a single DNS domain-name, which is a slice of strings. The
-/// "www.google.com" friendly domain name would be represented in DNS as a
+/// Represents a single DNS domain-name, which is a slice of strings.
+///
+/// The "www.google.com" friendly domain name can be represented in DNS as a
 /// sequence of labels: first "www", then "google", then "com", with a length
 /// prefix for all of them, ending in a null byte.
 ///
-/// Due to DNS pointers, it becomes easier to process [][]const u8 instead of
-/// []u8 or []const u8 as you can merge things easily internally.
+/// Keep in mind DNSName's are not singularly deserializeable, as the names
+/// could be pointers to different bytes in the packet.
+/// (RFC1035, section 4.1.4 Message Compression)
 pub const DNSName = struct {
+    /// The name's labels.
     labels: [][]const u8,
 
     /// Returns the total size in bytes of the DNSName as if it was sent
@@ -231,14 +238,14 @@ pub const Question = struct {
 /// Represents any RDATA information. This is opaque (as a []u8) because RDATA
 /// is very different than parsing the packet, as there can be many kinds of
 /// DNS types, each with their own RDATA structure. Look over the rdata module
-/// for parsing of OpaqueDNSRData into a nicer DNSRData.
+/// for parsing of OpaqueDNSRData.
 pub const OpaqueDNSRData = struct {
     len: u16,
     value: []u8,
 };
 
 /// Represents a single DNS resource. Appears on the answer, authority,
-/// and additional lists
+/// and additional lists of the packet.
 pub const Resource = struct {
     name: DNSName,
 
@@ -246,10 +253,6 @@ pub const Resource = struct {
     class: DNSClass,
     ttl: i32,
 
-    // NOTE: this is DIFFERENT from DNSName due to rdlength being an u16,
-    // instead of an u8.
-    // NOTE: maybe we re-deserialize this one specifically on
-    // another section of the source dedicated to specific RDATA
     rdata: OpaqueDNSRData,
 
     /// Give the size, in bytes, of the binary representation of a resource.
@@ -269,11 +272,14 @@ pub const Resource = struct {
 
         return res_size;
     }
-};
-
-const LabelComponentTag = enum {
-    Pointer,
-    Label,
+    pub fn serialize(self: @This(), serializer: var) !void {
+        try serializer.serialize(self.name);
+        try serializer.serialize(self.rr_type);
+        try serializer.serialize(self.class);
+        try serializer.serialize(self.ttl);
+        try serializer.serialize(self.rdata.len);
+        try serializer.serialize(self.rdata.value);
+    }
 };
 
 /// Represents a Label if it is a pointer to a set of labels OR a single label.
@@ -282,22 +288,20 @@ const LabelComponentTag = enum {
 ///  - As a set of labels, with a pointer to another set of labels,
 ///     ending with null.
 ///  - As a pointer to another set of labels.
-/// Recursive parsing is used to convert all pointers into proper labels
-/// for nicer usage of the library.
-const LabelComponent = union(LabelComponentTag) {
+///
+/// Recursive parsing is used to convert all pointers into proper labels.
+const LabelComponent = union(enum) {
     Pointer: [][]const u8,
     Label: []u8,
 };
 
 /// Deserialize a type, but turn any error caused by it into DNSError.DeserialFail.
-/// This is required due to the recusive requirements of DNSName parsing as
-/// explained in LabelComponent. Zig as of right now does not allow recursion
-/// on functions with infferred error sets, and enforcing an error set
-/// (which is the only solution) caused even more problems due to
-/// io.Deserializer not giving a stable error set at compile-time.
+///
+/// This is required because of the following facts:
+///  - nonasync stack-allocated recursive functions must have explicit error sets.
+///  - std.io.Deserializer's error set is not stable.
 fn inDeserial(deserializer: var, comptime T: type) DNSError!T {
-    return deserializer.deserialize(T) catch |deserial_error| {
-        // debugWarn("got error: {}\n", deserial_error);
+    return deserializer.deserialize(T) catch |_| {
         return DNSError.DeserialFail;
     };
 }
@@ -350,23 +354,23 @@ pub const Packet = struct {
             self.additional.len == self.header.arcount);
     }
 
-    /// Serialize a Resource list.
+    /// Serialize a ResourceList.
     fn serializeRList(
         self: Packet,
         serializer: var,
         rlist: ResourceList,
     ) !void {
         for (rlist.toSlice()) |resource| {
-            try serializer.serialize(resource.name);
-            try serializer.serialize(resource.rr_type);
-            try serializer.serialize(resource.class);
-            try serializer.serialize(resource.ttl);
-            try serializer.serialize(resource.rdata.len);
-            try serializer.serialize(resource.rdata.value);
+            try serializer.serialize(resource);
         }
     }
 
     pub fn serialize(self: Packet, serializer: var) !void {
+        std.debug.assert(self.header.qdcount == self.questions.len);
+        std.debug.assert(self.header.ancount == self.answers.len);
+        std.debug.assert(self.header.nscount == self.authority.len);
+        std.debug.assert(self.header.arcount == self.additional.len);
+
         try serializer.serialize(self.header);
 
         for (self.questions.toSlice()) |question| {
@@ -389,8 +393,8 @@ pub const Packet = struct {
         // u8 we read into an u16
 
         // the final offset is u14, but we keep it as u16 to prevent having
-        // to do too many complicated things.
-        var ptr_offset_2 = try inDeserial(deserializer, u8);
+        // to do too many complicated things in regards to deserializer state.
+        const ptr_offset_2 = try inDeserial(deserializer, u8);
 
         // merge them together
         var ptr_offset: u16 = (ptr_offset_1 << 7) | ptr_offset_2;
