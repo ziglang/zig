@@ -24,10 +24,10 @@ comptime {
             @export("_DllMainCRTStartup", _DllMainCRTStartup, .Strong);
         }
     } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
-        if (builtin.link_libc and @hasDecl(root, "main") and
-            @typeInfo(@typeOf(root.main)).Fn.calling_convention != .C)
-        {
-            @export("main", main, .Weak);
+        if (builtin.link_libc and @hasDecl(root, "main")) {
+            if (@typeInfo(@typeOf(root.main)).Fn.calling_convention != .C) {
+                @export("main", main, .Weak);
+            }
         } else if (builtin.os == .windows) {
             if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup")) {
                 @export("WinMainCRTStartup", WinMainCRTStartup, .Strong);
