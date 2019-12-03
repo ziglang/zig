@@ -194,11 +194,16 @@ pub const DNSName = struct {
     }
 
     pub fn serialize(self: @This(), serializer: var) !void {
-        try serializer.serialize(self.labels.len);
-
-        for (name.labels) |label| {
-            try serializer.serialize(label);
+        for (self.labels) |label| {
+            std.debug.assert(label.len < 255);
+            try serializer.serialize(@intCast(u8, label.len));
+            for (label) |byte| {
+                try serializer.serialize(byte);
+            }
         }
+
+        // null-octet for the end of labels for this name
+        try serializer.serialize(@as(u8, 0));
     }
 };
 
@@ -352,17 +357,10 @@ pub const Packet = struct {
         rlist: ResourceList,
     ) !void {
         for (rlist.toSlice()) |resource| {
-            // serialize the name for the given resource
-            try serializer.serialize(resource.name.labels.len);
-
-            for (resource.name.labels) |label| {
-                try serializer.serialize(label);
-            }
-
+            try serializer.serialize(resource.name);
             try serializer.serialize(resource.rr_type);
             try serializer.serialize(resource.class);
             try serializer.serialize(resource.ttl);
-
             try serializer.serialize(resource.rdata.len);
             try serializer.serialize(resource.rdata.value);
         }
@@ -372,17 +370,7 @@ pub const Packet = struct {
         try serializer.serialize(self.header);
 
         for (self.questions.toSlice()) |question| {
-            for (question.qname.labels) |label| {
-                try serializer.serialize(@intCast(u8, label.len));
-
-                for (label) |byte| {
-                    try serializer.serialize(byte);
-                }
-            }
-
-            // null-octet for the end of labels
-            try serializer.serialize(@as(u8, 0));
-
+            try serializer.serialize(question.qname);
             try serializer.serialize(question.qtype);
             try serializer.serialize(@enumToInt(question.qclass));
         }
