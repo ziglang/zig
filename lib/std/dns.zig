@@ -260,7 +260,7 @@ fn resourceSize(resource: Resource) usize {
     return res_size;
 }
 
-/// Deserialize a type, but send any error to stderr (if compiled in Debug mode)
+/// Deserialize a type, but turn any error caused by it into DNSError.DeserialFail.
 /// This is required due to the recusive requirements of DNSName parsing as
 /// explained in LabelComponent. Zig as of right now does not allow recursion
 /// on functions with infferred error sets, and enforcing an error set
