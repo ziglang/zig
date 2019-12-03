@@ -1,6 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+pub const RData = @import("dns/rdata.zig");
+
 // TODO Rename DNSPacketRCode to ResponseCode
 // TODO use ResponseCode in Header instead of u4
 // TODO port zigdig's rdata module to std.dns.rdata
@@ -189,6 +191,14 @@ pub const DNSName = struct {
         }
 
         return DNSName{ .labels = labels[0..] };
+    }
+
+    pub fn serialize(self: @This(), serializer: var) !void {
+        try serializer.serialize(self.labels.len);
+
+        for (name.labels) |label| {
+            try serializer.serialize(label);
+        }
     }
 };
 
