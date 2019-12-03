@@ -272,6 +272,13 @@ const WasmPageAllocator = struct {
             return self.packed_data.int_count;
         }
 
+        fn setBits(self: *FreeBlock, start_idx: usize, len: usize, val: u1) void {
+            var i: usize = 0;
+            while (i < len) : (i += 1) {
+                self.packed_data.set(i + start_idx + self.offset, val);
+            }
+        }
+
         fn useRecycled(self: *FreeBlock, num_pages: usize) ?[*]u8 {
             var found_idx: usize = 0;
             var found_size: usize = 0;
@@ -296,10 +303,7 @@ const WasmPageAllocator = struct {
                         found_size += 1;
 
                         if (found_size >= num_pages) {
-                            while (found_size > 0) {
-                                found_size -= 1;
-                                self.packed_data.set(found_idx + found_size, 0);
-                            }
+                            self.setBits(found_idx, found_size, 0);
                             return @intToPtr([*]u8, (found_idx + self.offset) * std.mem.page_size);
                         }
                     }
@@ -308,12 +312,8 @@ const WasmPageAllocator = struct {
             return null;
         }
 
-        fn recycle(self: *FreeBlock, start_index: usize, end_index: usize) void {
-            var i = start_index - self.offset;
-            while (i < end_index - self.offset) : (i += 1) {
-                std.debug.assert(self.packed_data.get(i) == 0);
-                self.packed_data.set(i, 1);
-            }
+        fn recycle(self: *FreeBlock, start_idx: usize, len: usize) void {
+            self.setBits(start_idx, len, 1);
         }
     };
 
@@ -369,7 +369,7 @@ const WasmPageAllocator = struct {
             }
 
             if (free_start < conventional.totalPages()) {
-                conventional.recycle(free_start, free_end);
+                conventional.recycle(free_start, free_end - free_start);
             } else {
                 if (extended.totalPages() == 0) {
                     extended.offset = conventional.offset + conventional.totalPages();
@@ -378,7 +378,7 @@ const WasmPageAllocator = struct {
                     free_end -= 1;
                     extended.initData(@intToPtr([*]align(16) u8, free_end * std.mem.page_size)[0..std.mem.page_size]);
                 }
-                extended.recycle(free_start, free_end);
+                extended.recycle(free_start, free_end - free_start);
             }
         }
 
