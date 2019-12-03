@@ -254,43 +254,54 @@ extern fn @"llvm.wasm.memory.grow.i32"(u32, u32) i32;
 
 const WasmPageAllocator = struct {
     // TODO: figure out why __heap_base cannot be found
-    var heap_base_wannabe: [256]u8 = undefined;
+    var heap_base_wannabe: [256]u8 align(16) = undefined;
 
     const FreeBlock = struct {
         offset: usize = 0,
         packed_data: std.PackedIntSlice(u1) = std.PackedIntSlice(u1).init(&[_]u8{}, 0),
+        block_data: []u128 = &[_]u128{},
 
-        fn initData(self: *FreeBlock, data: []u8) void {
+        fn initData(self: *FreeBlock, data: []align(16) u8) void {
             // 0 == used, 1 == free
             std.mem.set(u8, data, 0);
             self.packed_data = std.PackedIntSlice(u1).init(data, data.len * 8);
+            self.block_data = @bytesToSlice(u128, data);
         }
 
         fn totalPages(self: FreeBlock) usize {
             return self.packed_data.int_count;
         }
 
-        // TODO: optimize this terribleness
         fn useRecycled(self: *FreeBlock, num_pages: usize) ?[*]u8 {
             var found_idx: usize = 0;
             var found_size: usize = 0;
 
-            var i: usize = 0;
-            while (i < self.packed_data.int_count) : (i += 1) {
-                if (self.packed_data.get(i) == 0) {
-                    found_size = 0;
-                } else {
-                    if (found_size == 0) {
-                        found_idx = i;
-                    }
-                    found_size += 1;
+            for (self.block_data) |segment, i| {
+                const spills_into_next = @bitCast(i128, segment) < 0;
+                const has_enough_bits = @popCount(u128, segment) >= num_pages;
 
-                    if (found_size >= num_pages) {
-                        while (found_size > 0) {
-                            found_size -= 1;
-                            self.packed_data.set(found_idx + found_size, 0);
+                if (!spills_into_next and !has_enough_bits) continue;
+
+                var j: usize = i * 128;
+                while (j < self.packed_data.int_count) : (j += 1) {
+                    if (self.packed_data.get(j) == 0) {
+                        found_size = 0;
+                        if (j > (i + 1) * 128) {
+                            break;
                         }
-                        return @intToPtr([*]u8, (found_idx + self.offset) * std.mem.page_size);
+                    } else {
+                        if (found_size == 0) {
+                            found_idx = j;
+                        }
+                        found_size += 1;
+
+                        if (found_size >= num_pages) {
+                            while (found_size > 0) {
+                                found_size -= 1;
+                                self.packed_data.set(found_idx + found_size, 0);
+                            }
+                            return @intToPtr([*]u8, (found_idx + self.offset) * std.mem.page_size);
+                        }
                     }
                 }
             }
@@ -365,7 +376,7 @@ const WasmPageAllocator = struct {
 
                     // Steal the last page from the memory currently being recycled
                     free_end -= 1;
-                    extended.initData(@intToPtr([*]u8, free_end * std.mem.page_size)[0..std.mem.page_size]);
+                    extended.initData(@intToPtr([*]align(16) u8, free_end * std.mem.page_size)[0..std.mem.page_size]);
                 }
                 extended.recycle(free_start, free_end);
             }
