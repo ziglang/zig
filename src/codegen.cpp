@@ -8378,8 +8378,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     const char *out_type = nullptr;
     switch (g->out_type) {
         case OutTypeUnknown:
-            out_type = "Unknown";
-            break;
+            zig_unreachable();
         case OutTypeExe:
             out_type = "Exe";
             break;
@@ -8390,9 +8389,9 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             out_type = "Obj";
             break;
     }
-    buf_appendf(contents, "pub const output_type = OutType.%s;\n", out_type);
+    buf_appendf(contents, "pub const output_mode = OutputMode.%s;\n", out_type);
     const char *link_type = g->is_dynamic ? "Dynamic" : "Static"; 
-    buf_appendf(contents, "pub const link_type = LinkType.%s;\n", link_type);
+    buf_appendf(contents, "pub const link_mode = LinkMode.%s;\n", link_type);
     buf_appendf(contents, "pub const is_test = %s;\n", bool_to_str(g->is_test_build));
     buf_appendf(contents, "pub const single_threaded = %s;\n", bool_to_str(g->is_single_threaded));
     buf_appendf(contents, "pub const os = Os.%s;\n", cur_os);

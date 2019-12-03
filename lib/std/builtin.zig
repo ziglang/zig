@@ -350,8 +350,7 @@ pub const Endian = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const OutType = enum {
-    Unknown,
+pub const OutputMode = enum {
     Exe,
     Lib,
     Obj,
@@ -359,7 +358,7 @@ pub const OutType = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const LinkType = enum {
+pub const LinkMode = enum {
     Static,
     Dynamic,
 };

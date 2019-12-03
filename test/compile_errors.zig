@@ -156,7 +156,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:9:27: error: @atomicRmw on enum only works with .Xchg",
     );
 
-    cases.addExe(
+    cases.add(
         "disallow coercion from non-null-terminated pointer to null-terminated pointer",
         \\extern fn puts(s: [*:0]const u8) c_int;
         \\pub fn main() void {
@@ -876,7 +876,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:32: note: cast discards const qualifier",
     );
 
-    cases.addExe(
+    cases.add(
         "overflow in enum value allocation",
         \\const Moo = enum(u8) {
         \\    Last = 255,
@@ -3000,14 +3000,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:9: error: encountered @panic at compile-time",
     );
 
-    cases.addExe(
+    cases.add(
         "wrong return type for main",
         \\pub fn main() f32 { }
     ,
         "error: expected return type of main to be 'void', '!void', 'noreturn', 'u8', or '!u8'",
     );
 
-    cases.addExe(
+    cases.add(
         "double ?? on main return value",
         \\pub fn main() ??void {
         \\}
@@ -4900,7 +4900,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:13: error: cannot assign to constant",
     );
 
-    cases.addExe(
+    cases.add(
         "main function with bogus args type",
         \\pub fn main(args: [][]bogus) !void {}
     ,
@@ -5718,7 +5718,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:4:13: error: cannot continue out of defer expression",
     );
 
-    cases.addExe(
+    cases.add(
         "calling a var args function only known at runtime",
         \\var foos = [_]fn(...) void { foo1, foo2 };
         \\
@@ -5732,7 +5732,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:7:9: error: calling a generic function requires compile-time known function value",
     );
 
-    cases.addExe(
+    cases.add(
         "calling a generic function only known at runtime",
         \\var foos = [_]fn(var) void { foo1, foo2 };
         \\
@@ -6850,7 +6850,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:23: error: vector element type must be integer, float, bool, or pointer; 'comptime_int' is invalid",
     );
 
-    cases.addExe("compileLog of tagged enum doesn't crash the compiler",
+    cases.add("compileLog of tagged enum doesn't crash the compiler",
         \\const Bar = union(enum(u32)) {
         \\    X: i32 = 1
         \\};

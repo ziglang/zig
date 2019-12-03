@@ -19,37 +19,28 @@ const is_mips = switch (builtin.arch) {
 };
 
 comptime {
-    switch (builtin.output_type) {
-        .Unknown => unreachable,
-        .Exe => {
-            if (builtin.link_libc) {
-                if (@hasDecl(root, "main") and
-                    @typeInfo(@typeOf(root.main)).Fn.calling_convention != .C)
-                {
-                    @export("main", main, .Weak);
-                }
-            } else if (builtin.os == .windows) {
-                if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup")) {
-                    @export("WinMainCRTStartup", WinMainCRTStartup, .Strong);
-                }
-            } else if (is_wasm and builtin.os == .freestanding) {
-                if (!@hasDecl(root, "_start")) @export("_start", wasm_freestanding_start, .Strong);
-            } else if (builtin.os == .uefi) {
-                if (!@hasDecl(root, "EfiMain")) @export("EfiMain", EfiMain, .Strong);
-            } else if (is_mips) {
-                if (!@hasDecl(root, "__start")) @export("__start", _start, .Strong);
-            } else {
-                if (!@hasDecl(root, "_start")) @export("_start", _start, .Strong);
+    if (builtin.output_mode == .Lib and builtin.link_mode == .Dynamic) {
+        if (builtin.os == .windows and !@hasDecl(root, "_DllMainCRTStartup")) {
+            @export("_DllMainCRTStartup", _DllMainCRTStartup, .Strong);
+        }
+    } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
+        if (builtin.link_libc and @hasDecl(root, "main") and
+            @typeInfo(@typeOf(root.main)).Fn.calling_convention != .C)
+        {
+            @export("main", main, .Weak);
+        } else if (builtin.os == .windows) {
+            if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup")) {
+                @export("WinMainCRTStartup", WinMainCRTStartup, .Strong);
             }
-        },
-        .Lib => {
-            if (builtin.os == .windows and builtin.link_type == .Dynamic and
-                !@hasDecl(root, "_DllMainCRTStartup"))
-            {
-                @export("_DllMainCRTStartup", _DllMainCRTStartup, .Strong);
-            }
-        },
-        .Obj => {},
+        } else if (is_wasm and builtin.os == .freestanding) {
+            if (!@hasDecl(root, "_start")) @export("_start", wasm_freestanding_start, .Strong);
+        } else if (builtin.os == .uefi) {
+            if (!@hasDecl(root, "EfiMain")) @export("EfiMain", EfiMain, .Strong);
+        } else if (is_mips) {
+            if (!@hasDecl(root, "__start")) @export("__start", _start, .Strong);
+        } else {
+            if (!@hasDecl(root, "_start")) @export("_start", _start, .Strong);
+        }
     }
 }
 
