@@ -128,7 +128,7 @@ nakedcc fn _start() noreturn {
     @noInlineCall(posixCallMainAndExit);
 }
 
-extern fn WinMainCRTStartup() noreturn {
+stdcallcc fn WinMainCRTStartup() noreturn {
     @setAlignStack(16);
     if (!builtin.single_threaded) {
         _ = @import("start_windows_tls.zig");
