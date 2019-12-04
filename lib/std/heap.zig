@@ -334,12 +334,10 @@ const WasmPageAllocator = struct {
             return error.OutOfMemory;
         }
 
-        if (old_mem.len == 0) {
-            return alloc(allocator, new_size, new_align);
+        if (nPages(new_size) == nPages(old_mem.len)) {
+            return old_mem.ptr[0..new_size];
         } else if (new_size < old_mem.len) {
             return shrink(allocator, old_mem, old_align, new_size, new_align);
-        } else if (nPages(new_size) == nPages(old_mem.len)) {
-            return old_mem.ptr[0..new_size];
         } else {
             const new_mem = try alloc(allocator, new_size, new_align);
             std.mem.copy(u8, new_mem, old_mem);
