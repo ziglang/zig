@@ -280,9 +280,7 @@ const WasmPageAllocator = struct {
         }
 
         fn useRecycled(self: *FreeBlock, num_pages: usize) ?[*]u8 {
-            var found_idx: usize = 0;
-            var found_size: usize = 0;
-
+            @setCold(true);
             for (self.block_data) |segment, i| {
                 const spills_into_next = @bitCast(i128, segment) < 0;
                 const has_enough_bits = @popCount(u128, segment) >= num_pages;
@@ -290,23 +288,16 @@ const WasmPageAllocator = struct {
                 if (!spills_into_next and !has_enough_bits) continue;
 
                 var j: usize = i * 128;
-                while (j < self.packed_data.int_count) : (j += 1) {
-                    if (self.packed_data.get(j) == 0) {
-                        found_size = 0;
-                        if (j > (i + 1) * 128) {
-                            break;
-                        }
-                    } else {
-                        if (found_size == 0) {
-                            found_idx = j;
-                        }
-                        found_size += 1;
-
-                        if (found_size >= num_pages) {
-                            self.setBits(found_idx, found_size, 0);
-                            return @intToPtr([*]u8, (found_idx + self.offset) * std.mem.page_size);
+                while (j < (i + 1) * 128) : (j += 1) {
+                    var count: usize = 0;
+                    while (j + count < self.packed_data.int_count and self.packed_data.get(j + count) == 1) {
+                        count += 1;
+                        if (count >= num_pages) {
+                            self.setBits(j, num_pages, 0);
+                            return @intToPtr([*]u8, (j + self.offset) * std.mem.page_size);
                         }
                     }
+                    j += count;
                 }
             }
             return null;
