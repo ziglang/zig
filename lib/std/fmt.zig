@@ -1021,7 +1021,7 @@ test "parseInt" {
     std.testing.expect(if (parseInt(u8, "256", 10)) |_| false else |err| err == error.Overflow);
 }
 
-const ParseUnsignedError = error{
+pub const ParseUnsignedError = error{
     /// The result cannot fit in the type specified
     Overflow,
 
