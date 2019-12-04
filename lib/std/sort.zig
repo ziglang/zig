@@ -1189,19 +1189,36 @@ fn fuzzTest(rng: *std.rand.Random) void {
     }
 }
 
-pub fn min(comptime T: type, items: []const T, lessThan: fn (lhs: T, rhs: T) bool) ?T {
+pub fn argMin(comptime T: type, items: []const T, lessThan: fn (lhs: T, rhs: T) bool) ?usize {
     if (items.len == 0) {
         return null;
     }
 
-    var i: usize = 0;
     var smallest = items[0];
-    for (items[1..]) |item| {
+    var smallest_index: usize = 0;
+    for (items[1..]) |item, i| {
         if (lessThan(item, smallest)) {
             smallest = item;
+            smallest_index = i + 1;
         }
     }
-    return smallest;
+
+    return smallest_index;
+}
+
+test "std.sort.argMin" {
+    testing.expectEqual(@as(?usize, null), argMin(i32, &[_]i32{}, asc(i32)));
+    testing.expectEqual(@as(?usize, 0), argMin(i32, &[_]i32{1}, asc(i32)));
+    testing.expectEqual(@as(?usize, 0), argMin(i32, &[_]i32{ 1, 2, 3, 4, 5 }, asc(i32)));
+    testing.expectEqual(@as(?usize, 3), argMin(i32, &[_]i32{ 9, 3, 8, 2, 5 }, asc(i32)));
+    testing.expectEqual(@as(?usize, 0), argMin(i32, &[_]i32{ 1, 1, 1, 1, 1 }, asc(i32)));
+    testing.expectEqual(@as(?usize, 0), argMin(i32, &[_]i32{ -10, 1, 10 }, asc(i32)));
+    testing.expectEqual(@as(?usize, 3), argMin(i32, &[_]i32{ 6, 3, 5, 7, 6 }, desc(i32)));
+}
+
+pub fn min(comptime T: type, items: []const T, lessThan: fn (lhs: T, rhs: T) bool) ?T {
+    const i = argMin(T, items, lessThan) orelse return null;
+    return items[i];
 }
 
 test "std.sort.min" {
@@ -1214,19 +1231,36 @@ test "std.sort.min" {
     testing.expectEqual(@as(?i32, 7), min(i32, &[_]i32{ 6, 3, 5, 7, 6 }, desc(i32)));
 }
 
-pub fn max(comptime T: type, items: []const T, lessThan: fn (lhs: T, rhs: T) bool) ?T {
+pub fn argMax(comptime T: type, items: []const T, lessThan: fn (lhs: T, rhs: T) bool) ?usize {
     if (items.len == 0) {
         return null;
     }
 
-    var i: usize = 0;
     var biggest = items[0];
-    for (items[1..]) |item| {
+    var biggest_index: usize = 0;
+    for (items[1..]) |item, i| {
         if (lessThan(biggest, item)) {
             biggest = item;
+            biggest_index = i + 1;
         }
     }
-    return biggest;
+
+    return biggest_index;
+}
+
+test "std.sort.argMax" {
+    testing.expectEqual(@as(?usize, null), argMax(i32, &[_]i32{}, asc(i32)));
+    testing.expectEqual(@as(?usize, 0), argMax(i32, &[_]i32{1}, asc(i32)));
+    testing.expectEqual(@as(?usize, 4), argMax(i32, &[_]i32{ 1, 2, 3, 4, 5 }, asc(i32)));
+    testing.expectEqual(@as(?usize, 0), argMax(i32, &[_]i32{ 9, 3, 8, 2, 5 }, asc(i32)));
+    testing.expectEqual(@as(?usize, 0), argMax(i32, &[_]i32{ 1, 1, 1, 1, 1 }, asc(i32)));
+    testing.expectEqual(@as(?usize, 2), argMax(i32, &[_]i32{ -10, 1, 10 }, asc(i32)));
+    testing.expectEqual(@as(?usize, 1), argMax(i32, &[_]i32{ 6, 3, 5, 7, 6 }, desc(i32)));
+}
+
+pub fn max(comptime T: type, items: []const T, lessThan: fn (lhs: T, rhs: T) bool) ?T {
+    const i = argMax(T, items, lessThan) orelse return null;
+    return items[i];
 }
 
 test "std.sort.max" {
