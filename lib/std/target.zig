@@ -46,6 +46,7 @@ pub const Target = union(enum) {
         wasi,
         emscripten,
         uefi,
+        other,
     };
 
     pub const Arch = union(enum) {
@@ -432,6 +433,7 @@ pub const Target = union(enum) {
             .contiki,
             .amdpal,
             .hermit,
+            .other,
             => return .eabi,
             .openbsd,
             .macosx,

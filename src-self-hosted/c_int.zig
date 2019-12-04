@@ -71,7 +71,7 @@ pub const CInt = struct {
     pub fn sizeInBits(cint: CInt, self: Target) u32 {
         const arch = self.getArch();
         switch (self.getOs()) {
-            .freestanding => switch (self.getArch()) {
+            .freestanding, .other => switch (self.getArch()) {
                 .msp430 => switch (cint.id) {
                     .Short,
                     .UShort,

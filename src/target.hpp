@@ -50,6 +50,7 @@ enum Os {
     OsWASI,
     OsEmscripten,
     OsUefi,
+    OsOther,
 };
 
 // Synchronize with target.cpp::subarch_list_list

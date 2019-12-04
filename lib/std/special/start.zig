@@ -32,14 +32,16 @@ comptime {
             if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup")) {
                 @export("WinMainCRTStartup", WinMainCRTStartup, .Strong);
             }
-        } else if (is_wasm and builtin.os == .freestanding) {
-            if (!@hasDecl(root, "_start")) @export("_start", wasm_freestanding_start, .Strong);
         } else if (builtin.os == .uefi) {
             if (!@hasDecl(root, "EfiMain")) @export("EfiMain", EfiMain, .Strong);
-        } else if (is_mips) {
-            if (!@hasDecl(root, "__start")) @export("__start", _start, .Strong);
-        } else {
-            if (!@hasDecl(root, "_start")) @export("_start", _start, .Strong);
+        } else if (builtin.os != .freestanding) {
+            if (is_mips) {
+                if (!@hasDecl(root, "__start")) @export("__start", _start, .Strong);
+            } else {
+                if (!@hasDecl(root, "_start")) @export("_start", _start, .Strong);
+            }
+        } else if (is_wasm) {
+            if (!@hasDecl(root, "_start")) @export("_start", wasm_freestanding_start, .Strong);
         }
     }
 }
