@@ -1210,3 +1210,41 @@ pub fn max(comptime T: type, items: []T, lessThan: fn (lhs: T, rhs: T) bool) T {
     }
     return biggest;
 }
+
+pub fn isSorted(comptime T: type, items: []const T, lessThan: fn (lhs: T, rhs: T) bool) bool {
+    var i: usize = 1;
+    while (i < items.len) : (i += 1) {
+        if (lessThan(items[i], items[i - 1])) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+test "std.sort.isSorted" {
+    testing.expect(isSorted(i32, &[_]i32{}, asc(i32)));
+    testing.expect(isSorted(i32, &[_]i32{10}, asc(i32)));
+    testing.expect(isSorted(i32, &[_]i32{ 1, 2, 3, 4, 5 }, asc(i32)));
+    testing.expect(isSorted(i32, &[_]i32{ -10, 1, 1, 1, 10 }, asc(i32)));
+
+    testing.expect(isSorted(i32, &[_]i32{}, desc(i32)));
+    testing.expect(isSorted(i32, &[_]i32{-20}, desc(i32)));
+    testing.expect(isSorted(i32, &[_]i32{ 3, 2, 1, 0, -1 }, desc(i32)));
+    testing.expect(isSorted(i32, &[_]i32{ 10, -10 }, desc(i32)));
+
+    testing.expect(isSorted(i32, &[_]i32{ 1, 1, 1, 1, 1 }, asc(i32)));
+    testing.expect(isSorted(i32, &[_]i32{ 1, 1, 1, 1, 1 }, desc(i32)));
+
+    testing.expectEqual(false, isSorted(i32, &[_]i32{ 5, 4, 3, 2, 1 }, asc(i32)));
+    testing.expectEqual(false, isSorted(i32, &[_]i32{ 1, 2, 3, 4, 5 }, desc(i32)));
+
+    testing.expect(isSorted(u8, "abcd", asc(u8)));
+    testing.expect(isSorted(u8, "zyxw", desc(u8)));
+
+    testing.expectEqual(false, isSorted(u8, "abcd", desc(u8)));
+    testing.expectEqual(false, isSorted(u8, "zyxw", asc(u8)));
+
+    testing.expect(isSorted(u8, "ffff", asc(u8)));
+    testing.expect(isSorted(u8, "ffff", desc(u8)));
+}
