@@ -60,18 +60,17 @@ pub const DNSRData = union(dns.DNSType) {
     TXT: [][]const u8,
 };
 
-/// Parse a given OpaqueDNSRData into a DNSRData. Requires the original
+/// Parse a given []u8 into a DNSRData. Requires the original
 /// DNSPacket for allocator purposes and the original DNSResource for
 /// TYPE detection.
 pub fn parseRData(
     pkt_const: dns.Packet,
     resource: dns.Resource,
-    opaque: dns.OpaqueDNSRData,
+    opaque: []u8,
 ) !DNSRData {
     var pkt = pkt_const;
 
-    var opaque_val = opaque.value;
-    var in = io.SliceInStream.init(opaque_val);
+    var in = io.SliceInStream.init(opaque);
     var in_stream = &in.stream;
     var deserializer = dns.DNSDeserializer.init(in_stream);
 
@@ -143,11 +142,11 @@ pub fn parseRData(
     return rdata;
 }
 
-/// Serialize a given DNSRData into OpaqueDNSRData.
+/// Serialize a given DNSRData into []u8
 pub fn serializeRData(
     pkt: *dns.DNSPacket,
     rdata: DNSRData,
-) !dns.OpaqueDNSRData {
+) ![]u8 {
     // TODO a nice idea would be to maybe implement a fixed buffer allocator
     // or a way for the serializer's underlying stream
     // to allocate memory on-demand?

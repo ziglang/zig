@@ -1,9 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-pub const RData = @import("dns/rdata.zig");
-
-// TODO port zigdig's rdata module to std.dns.rdata
+pub const rdata = @import("dns/rdata.zig");
+pub const RData = rdata.DNSRData;
 
 pub const QuestionList = std.ArrayList(Question);
 pub const ResourceList = std.ArrayList(Resource);
@@ -235,15 +234,6 @@ pub const Question = struct {
     qclass: DNSClass,
 };
 
-/// Represents any RDATA information. This is opaque (as a []u8) because RDATA
-/// is very different than parsing the packet, as there can be many kinds of
-/// DNS types, each with their own RDATA structure. Look over the rdata module
-/// for parsing of OpaqueDNSRData.
-pub const OpaqueDNSRData = struct {
-    len: u16,
-    value: []u8,
-};
-
 /// Represents a single DNS resource. Appears on the answer, authority,
 /// and additional lists of the packet.
 pub const Resource = struct {
@@ -253,7 +243,8 @@ pub const Resource = struct {
     class: DNSClass,
     ttl: i32,
 
-    rdata: OpaqueDNSRData,
+    /// Use the dns.rdata module to interprete a resource's RDATA.
+    opaque_rdata: []u8,
 
     /// Give the size, in bytes, of the binary representation of a resource.
     pub fn size(resource: @This()) usize {
@@ -268,7 +259,7 @@ pub const Resource = struct {
 
         // rdata
         res_size += @sizeOf(u16);
-        res_size += resource.rdata.len * @sizeOf(u8);
+        res_size += resource.opaque_rdata.len * @sizeOf(u8);
 
         return res_size;
     }
@@ -277,8 +268,9 @@ pub const Resource = struct {
         try serializer.serialize(self.rr_type);
         try serializer.serialize(self.class);
         try serializer.serialize(self.ttl);
-        try serializer.serialize(self.rdata.len);
-        try serializer.serialize(self.rdata.value);
+
+        try serializer.serialize(self.opaque_rdata.len);
+        try serializer.serialize(self.opaque_rdata);
     }
 };
 
@@ -526,18 +518,18 @@ pub const Packet = struct {
         return DNSName{ .labels = labels };
     }
 
-    /// Deserialises DNS RDATA information into an OpaqueDNSRData struct
-    /// for later parsing/unparsing.
-    fn deserializeRData(self: *Self, deserializer: var) !OpaqueDNSRData {
-        var rdlength = try deserializer.deserialize(u16);
-        var rdata = try self.allocator.alloc(u8, rdlength);
+    /// (almost) Deserialize an RDATA section. This only deserializes to a slice of u8.
+    /// Parsing of RDATA sections are in their own dns.rdata module.
+    fn deserializeRData(self: *Self, deserializer: var) ![]u8 {
+        var rdata_length = try deserializer.deserialize(u16);
+        var opaque_rdata = try self.allocator.alloc(u8, rdata_length);
         var i: u16 = 0;
 
-        while (i < rdlength) : (i += 1) {
-            rdata[i] = try deserializer.deserialize(u8);
+        while (i < rdata_length) : (i += 1) {
+            opaque_rdata[i] = try deserializer.deserialize(u8);
         }
 
-        return OpaqueDNSRData{ .len = rdlength, .value = rdata };
+        return opaque_rdata;
     }
 
     /// Deserialize a list of Resource which sizes are controlled by the
@@ -558,14 +550,14 @@ pub const Packet = struct {
             var ttl = try deserializer.deserialize(i32);
 
             // rdlength and rdata are under deserializeRData
-            var rdata = try self.deserializeRData(deserializer);
+            var opaque_rdata = try self.deserializeRData(deserializer);
 
             var resource = Resource{
                 .name = name,
                 .rr_type = @intToEnum(DNSType, rr_type),
                 .class = @intToEnum(DNSClass, class),
                 .ttl = ttl,
-                .rdata = rdata,
+                .opaque_rdata = opaque_rdata,
             };
 
             try rs_list.append(resource);
