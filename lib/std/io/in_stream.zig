@@ -174,7 +174,8 @@ pub fn InStream(comptime ReadError: type) type {
         /// Reads 1 byte from the stream or returns `error.EndOfStream`.
         pub fn readByte(self: *Self) !u8 {
             var result: [1]u8 = undefined;
-            try self.readNoEof(result[0..]);
+            const amt_read = try self.read(result[0..]);
+            if (amt_read < 1) return error.EndOfStream;
             return result[0];
         }
 

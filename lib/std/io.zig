@@ -107,6 +107,13 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
         fn readFn(in_stream: *Stream, dest: []u8) !usize {
             const self = @fieldParentPtr(Self, "stream", in_stream);
 
+            // Hot path for one byte reads
+            if (dest.len == 1 and self.end_index > self.start_index) {
+                dest[0] = self.buffer[self.start_index];
+                self.start_index += 1;
+                return 1;
+            }
+
             var dest_index: usize = 0;
             while (true) {
                 const dest_space = dest.len - dest_index;
@@ -126,6 +133,13 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
                     if (dest_space < buffer_size) {
                         self.start_index = 0;
                         self.end_index = try self.unbuffered_in_stream.read(self.buffer[0..]);
+
+                        // Shortcut
+                        if (self.end_index >= dest_space) {
+                            mem.copy(u8, dest[dest_index..], self.buffer[0..dest_space]);
+                            self.start_index = dest_space;
+                            return dest.len;
+                        }
                     } else {
                         // asking for so much data that buffering is actually less efficient.
                         // forward the request directly to the unbuffered stream
