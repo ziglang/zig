@@ -951,7 +951,7 @@ pub fn cap_valid(u8: x) bool {
 }
 
 pub fn CAP_TO_MASK(cap: u8) u32 {
-    return @as(u32, 1) << u5(cap & 31);
+    return @as(u32, 1) << @intCast(u5, cap & 31);
 }
 
 pub fn CAP_TO_INDEX(cap: u8) u8 {
