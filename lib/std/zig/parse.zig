@@ -2558,7 +2558,7 @@ fn parsePtrTypeStart(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
                 _ = try expectToken(it, tree, .RBracket);
                 const node = try arena.create(Node.PrefixOp);
                 node.* = .{
-                    .op_token = ident,
+                    .op_token = lbracket,
                     .op = .{ .PtrType = .{} },
                     .rhs = undefined, // set by caller
                 };

@@ -421,8 +421,10 @@ fn renderExpression(
                     const op_tok_id = tree.tokens.at(prefix_op_node.op_token).id;
                     switch (op_tok_id) {
                         .Asterisk, .AsteriskAsterisk => try stream.writeByte('*'),
-                        .Identifier => try stream.write("[*c]"),
-                        .LBracket => try stream.write("[*"),
+                        .LBracket => if (tree.tokens.at(prefix_op_node.op_token + 2).id == .Identifier)
+                            try stream.write("[*c")
+                        else
+                            try stream.write("[*"),
                         else => unreachable,
                     }
                     if (ptr_info.sentinel) |sentinel| {
@@ -435,7 +437,7 @@ fn renderExpression(
                         try renderExpression(allocator, stream, tree, indent, start_col, sentinel, sentinel_space);
                     }
                     switch (op_tok_id) {
-                        .Asterisk, .AsteriskAsterisk, .Identifier => {},
+                        .Asterisk, .AsteriskAsterisk => {},
                         .LBracket => try stream.writeByte(']'),
                         else => unreachable,
                     }
