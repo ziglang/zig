@@ -256,28 +256,32 @@ const WasmPageAllocator = struct {
     // TODO: figure out why __heap_base cannot be found
     var heap_base_wannabe align(16) = [_]u8{0} ** 256;
 
+    const PageStatus = enum(u1) {
+        used = 0,
+        free = 1,
+
+        pub const all_used: u8 = 0;
+    };
+
     const FreeBlock = struct {
         bytes: []align(16) u8,
 
         const Io = std.packed_int_array.PackedIntIo(u1, .Little);
 
-        const used = 0;
-        const free = 1;
-
         fn totalPages(self: FreeBlock) usize {
             return self.bytes.len * 8;
         }
 
-        fn getBit(self: *FreeBlock, idx: usize) u1 {
+        fn getBit(self: *FreeBlock, idx: usize) PageStatus {
             const bit_offset = 0;
-            return Io.get(self.bytes, idx, bit_offset);
+            return @intToEnum(PageStatus, Io.get(self.bytes, idx, bit_offset));
         }
 
-        fn setBits(self: *FreeBlock, start_idx: usize, len: usize, val: u1) void {
+        fn setBits(self: *FreeBlock, start_idx: usize, len: usize, val: PageStatus) void {
             const bit_offset = 0;
             var i: usize = 0;
             while (i < len) : (i += 1) {
-                Io.set(self.bytes, start_idx + i, bit_offset, val);
+                Io.set(self.bytes, start_idx + i, bit_offset, @enumToInt(val));
             }
         }
 
@@ -302,10 +306,10 @@ const WasmPageAllocator = struct {
                 var j: usize = i * 128;
                 while (j < (i + 1) * 128) : (j += 1) {
                     var count: usize = 0;
-                    while (j + count < self.totalPages() and self.getBit(j + count) == 1) {
+                    while (j + count < self.totalPages() and self.getBit(j + count) == .free) {
                         count += 1;
                         if (count >= num_pages) {
-                            self.setBits(j, num_pages, used);
+                            self.setBits(j, num_pages, .used);
                             return j;
                         }
                     }
@@ -316,7 +320,7 @@ const WasmPageAllocator = struct {
         }
 
         fn recycle(self: *FreeBlock, start_idx: usize, len: usize) void {
-            self.setBits(start_idx, len, free);
+            self.setBits(start_idx, len, .free);
         }
     };
 
@@ -391,7 +395,7 @@ const WasmPageAllocator = struct {
 
                     extended.bytes = @intToPtr([*]align(16) u8, free_end * std.mem.page_size)[0..std.mem.page_size];
                     // Since this is the first page being freed and we consume it, assume *nothing* is free.
-                    std.mem.set(u8, extended.bytes, FreeBlock.used);
+                    std.mem.set(u8, extended.bytes, PageStatus.all_used);
                 }
                 const clamped_start = std.math.max(extendedOffset(), free_start);
                 extended.recycle(clamped_start - extendedOffset(), free_end - clamped_start);
