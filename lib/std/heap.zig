@@ -257,24 +257,28 @@ const WasmPageAllocator = struct {
     var heap_base_wannabe: [256]u8 align(16) = undefined;
 
     const FreeBlock = struct {
-        packed_data: std.PackedIntSlice(u1) = std.PackedIntSlice(u1).init(&[_]u8{}, 0),
-        block_data: []u128 = &[_]u128{},
+        const Io = std.packed_int_array.PackedIntIo(u1, .Little);
 
-        fn initData(self: *FreeBlock, data: []align(16) u8) void {
+        bytes: []align(16) u8,
+
+        fn initData(self: *FreeBlock, bytes: []align(16) u8) void {
             // 0 == used, 1 == free
-            std.mem.set(u8, data, 0);
-            self.packed_data = std.PackedIntSlice(u1).init(data, data.len * 8);
-            self.block_data = @bytesToSlice(u128, data);
+            std.mem.set(u8, bytes, 0);
+            self.bytes = bytes;
         }
 
         fn totalPages(self: FreeBlock) usize {
-            return self.packed_data.int_count;
+            return self.bytes.len * 8;
+        }
+
+        fn getBit(self: *FreeBlock, idx: usize) u1 {
+            return Io.get(self.bytes, idx, 0);
         }
 
         fn setBits(self: *FreeBlock, start_idx: usize, len: usize, val: u1) void {
             var i: usize = 0;
             while (i < len) : (i += 1) {
-                self.packed_data.set(i + start_idx, val);
+                Io.set(self.bytes, start_idx + i, 0, val);
             }
         }
 
@@ -282,14 +286,15 @@ const WasmPageAllocator = struct {
         // This saves ~50 bytes compared to returning a nullable
 
         // We can guarantee that conventional memory never gets this big,
-        // and wasm32 would not be able to address this block (32 GB > usize).
+        // and wasm32 would not be able to address this memory (32 GB > usize).
 
         // Revisit if this is settled: https://github.com/ziglang/zig/issues/3806
         const not_found = std.math.maxInt(usize);
 
         fn useRecycled(self: *FreeBlock, num_pages: usize) usize {
             @setCold(true);
-            for (self.block_data) |segment, i| {
+            const segments = @bytesToSlice(u128, self.bytes);
+            for (segments) |segment, i| {
                 const spills_into_next = @bitCast(i128, segment) < 0;
                 const has_enough_bits = @popCount(u128, segment) >= num_pages;
 
@@ -298,7 +303,7 @@ const WasmPageAllocator = struct {
                 var j: usize = i * 128;
                 while (j < (i + 1) * 128) : (j += 1) {
                     var count: usize = 0;
-                    while (j + count < self.packed_data.int_count and self.packed_data.get(j + count) == 1) {
+                    while (j + count < self.totalPages() and self.getBit(j + count) == 1) {
                         count += 1;
                         if (count >= num_pages) {
                             self.setBits(j, num_pages, 0);
@@ -316,8 +321,8 @@ const WasmPageAllocator = struct {
         }
     };
 
-    var conventional = FreeBlock{};
-    var extended = FreeBlock{};
+    var conventional = FreeBlock{ .bytes = &[_]u8{} };
+    var extended = FreeBlock{ .bytes = &[_]u8{} };
 
     fn extendedOffset() usize {
         return conventional.totalPages();
