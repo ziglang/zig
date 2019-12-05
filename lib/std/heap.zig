@@ -257,7 +257,6 @@ const WasmPageAllocator = struct {
     var heap_base_wannabe: [256]u8 align(16) = undefined;
 
     const FreeBlock = struct {
-        offset: usize = 0,
         packed_data: std.PackedIntSlice(u1) = std.PackedIntSlice(u1).init(&[_]u8{}, 0),
         block_data: []u128 = &[_]u128{},
 
@@ -275,11 +274,20 @@ const WasmPageAllocator = struct {
         fn setBits(self: *FreeBlock, start_idx: usize, len: usize, val: u1) void {
             var i: usize = 0;
             while (i < len) : (i += 1) {
-                self.packed_data.set(i + start_idx + self.offset, val);
+                self.packed_data.set(i + start_idx, val);
             }
         }
 
-        fn useRecycled(self: *FreeBlock, num_pages: usize) ?[*]u8 {
+        // Use '0xFFFFFFFF' as a _missing_ sentinel
+        // This saves ~50 bytes compared to returning a nullable
+
+        // We can guarantee that conventional memory never gets this big,
+        // and wasm32 would not be able to address this block (32 GB > usize).
+
+        // Revisit if this is settled: https://github.com/ziglang/zig/issues/3806
+        const not_found = std.math.maxInt(usize);
+
+        fn useRecycled(self: *FreeBlock, num_pages: usize) usize {
             @setCold(true);
             for (self.block_data) |segment, i| {
                 const spills_into_next = @bitCast(i128, segment) < 0;
@@ -294,13 +302,13 @@ const WasmPageAllocator = struct {
                         count += 1;
                         if (count >= num_pages) {
                             self.setBits(j, num_pages, 0);
-                            return @intToPtr([*]u8, (j + self.offset) * std.mem.page_size);
+                            return j;
                         }
                     }
                     j += count;
                 }
             }
-            return null;
+            return not_found;
         }
 
         fn recycle(self: *FreeBlock, start_idx: usize, len: usize) void {
@@ -311,22 +319,31 @@ const WasmPageAllocator = struct {
     var conventional = FreeBlock{};
     var extended = FreeBlock{};
 
+    fn extendedOffset() usize {
+        return conventional.totalPages();
+    }
+
     fn nPages(memsize: usize) usize {
         return std.mem.alignForward(memsize, std.mem.page_size) / std.mem.page_size;
     }
 
-    fn alloc(allocator: *Allocator, n: usize, alignment: u29) error{OutOfMemory}![]u8 {
-        const n_pages = nPages(n);
-        const page = conventional.useRecycled(n_pages) orelse extended.useRecycled(n_pages) orelse blk: {
-            const prev_page_count = @"llvm.wasm.memory.grow.i32"(0, @intCast(u32, n_pages));
-            if (prev_page_count < 0) {
-                return error.OutOfMemory;
-            }
+    fn alloc(allocator: *Allocator, page_count: usize, alignment: u29) error{OutOfMemory}!usize {
+        var idx = conventional.useRecycled(page_count);
+        if (idx != FreeBlock.not_found) {
+            return idx;
+        }
 
-            break :blk @intToPtr([*]u8, @intCast(usize, prev_page_count) * std.mem.page_size);
-        };
+        idx = extended.useRecycled(page_count);
+        if (idx != FreeBlock.not_found) {
+            return idx + extendedOffset();
+        }
 
-        return page[0..n];
+        const prev_page_count = @"llvm.wasm.memory.grow.i32"(0, @intCast(u32, page_count));
+        if (prev_page_count <= 0) {
+            return error.OutOfMemory;
+        }
+
+        return @intCast(usize, prev_page_count);
     }
 
     pub fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) Allocator.Error![]u8 {
@@ -339,10 +356,11 @@ const WasmPageAllocator = struct {
         } else if (new_size < old_mem.len) {
             return shrink(allocator, old_mem, old_align, new_size, new_align);
         } else {
-            const new_mem = try alloc(allocator, new_size, new_align);
+            const page_idx = try alloc(allocator, nPages(new_size), new_align);
+            const new_mem = @intToPtr([*]u8, page_idx * std.mem.page_size)[0..new_size];
             std.mem.copy(u8, new_mem, old_mem);
             _ = shrink(allocator, old_mem, old_align, 0, 0);
-            return new_mem[0..new_size];
+            return new_mem;
         }
     }
 
@@ -352,22 +370,19 @@ const WasmPageAllocator = struct {
 
         if (free_end > free_start) {
             if (conventional.totalPages() == 0) {
-                conventional.offset = 0;
                 //conventional.initData(__heap_base[0..@intCast(usize, @"llvm.wasm.memory.size.i32"(0) * std.mem.page_size)]);
                 conventional.initData(heap_base_wannabe[0..]);
             }
 
-            if (free_start < conventional.totalPages()) {
+            if (free_start < extendedOffset()) {
                 conventional.recycle(free_start, free_end - free_start);
             } else {
                 if (extended.totalPages() == 0) {
-                    extended.offset = conventional.offset + conventional.totalPages();
-
                     // Steal the last page from the memory currently being recycled
                     free_end -= 1;
                     extended.initData(@intToPtr([*]align(16) u8, free_end * std.mem.page_size)[0..std.mem.page_size]);
                 }
-                extended.recycle(free_start, free_end - free_start);
+                extended.recycle(free_start - extendedOffset(), free_end - free_start);
             }
         }
 
