@@ -548,7 +548,7 @@ pub fn intToEnum(comptime Tag: type, tag_int: var) IntToEnumError!Tag {
 pub fn fieldIndex(comptime T: type, comptime name: []const u8) ?comptime_int {
     inline for (fields(T)) |field, i| {
         if (mem.eql(u8, field.name, name))
-            return comptime_int(i);
+            return i;
     }
     return null;
 }
