@@ -13,11 +13,23 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry3() void {
         \\    comptime @call(.{ .modifier = .never_tail }, foo, .{});
         \\}
+        \\export fn entry4() void {
+        \\    @call(.{ .modifier = .never_inline }, bar, .{});
+        \\}
+        \\export fn entry5(c: bool) void {
+        \\    var baz = if (c) baz1 else baz2;
+        \\    @call(.{ .modifier = .compile_time }, baz, .{});
+        \\}
         \\fn foo() void {}
+        \\inline fn bar() void {}
+        \\fn baz1() void {}
+        \\fn baz2() void {}
     ,
         "tmp.zig:2:21: error: expected tuple or struct, found 'void'",
         "tmp.zig:5:58: error: unable to perform 'never_inline' call at compile-time",
         "tmp.zig:8:56: error: unable to perform 'never_tail' call at compile-time",
+        "tmp.zig:11:5: error: no-inline call of inline function",
+        "tmp.zig:15:43: error: unable to evaluate constant expression",
     );
 
     cases.add(
@@ -1943,17 +1955,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:2:12: error: use of undeclared identifier 'SomeNonexistentType'",
-    );
-
-    cases.add(
-        "@noInlineCall on an inline function",
-        \\inline fn foo() void {}
-        \\
-        \\export fn entry() void {
-        \\    @noInlineCall(foo);
-        \\}
-    ,
-        "tmp.zig:4:5: error: no-inline call of inline function",
     );
 
     cases.add(

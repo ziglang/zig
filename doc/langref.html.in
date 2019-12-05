@@ -6841,6 +6841,71 @@ async fn func(y: *i32) void {
       </p>
       {#header_close#}
 
+      {#header_open|@call#}
+      <pre>{#syntax#}@call(options: std.builtin.CallOptions, function: var, args: var) var{#endsyntax#}</pre>
+      <p>
+      Calls a function, in the same way that invoking an expression with parentheses does:
+      </p>
+      {#code_begin|test|call#}
+const assert = @import("std").debug.assert;
+
+test "noinline function call" {
+    assert(@call(.{}, add, .{3, 9}) == 12);
+}
+
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+      {#code_end#}
+      <p>
+      {#syntax#}@call{#endsyntax#} allows more flexibility than normal function call syntax does. The
+      {#syntax#}CallOptions{#endsyntax#} struct is reproduced here:
+      </p>
+      {#code_begin|syntax#}
+pub const CallOptions = struct {
+    modifier: Modifier = .auto,
+    stack: ?[]align(std.Target.stack_align) u8 = null,
+
+    pub const Modifier = enum {
+        /// Equivalent to function call syntax.
+        auto,
+
+        /// Asserts that the function call will not suspend. This allows a
+        /// non-async function to call an async function.
+        no_async,
+
+        /// The function call will return an async function frame instead of
+        /// the function's result, which is expected to then be awaited.
+        /// This is equivalent to using the `async` keyword in front of function
+        /// call syntax.
+        async_call,
+
+        /// Prevents tail call optimization. This guarantees that the return
+        /// address will point to the callsite, as opposed to the callsite's
+        /// callsite. If the call is otherwise required to be tail-called
+        /// or inlined, a compile error is emitted instead.
+        never_tail,
+
+        /// Guarantees that the call will not be inlined. If the call is
+        /// otherwise required to be inlined, a compile error is emitted instead.
+        never_inline,
+
+        /// Guarantees that the call will be generated with tail call optimization.
+        /// If this is not possible, a compile error is emitted instead.
+        always_tail,
+
+        /// Guarantees that the call will inlined at the callsite.
+        /// If this is not possible, a compile error is emitted instead.
+        always_inline,
+
+        /// Evaluates the call at compile-time. If the call cannot be completed at
+        /// compile-time, a compile error is emitted instead.
+        compile_time,
+    };
+};
+      {#code_end#}
+      {#header_close#}
+
       {#header_open|@cDefine#}
       <pre>{#syntax#}@cDefine(comptime name: []u8, value){#endsyntax#}</pre>
       <p>
@@ -7445,7 +7510,7 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       Unlike a normal function call, however, {#syntax#}@inlineCall{#endsyntax#} guarantees that the call
       will be inlined. If the call cannot be inlined, a compile error is emitted.
       </p>
-      {#see_also|@noInlineCall#}
+      {#see_also|@call#}
       {#header_close#}
 
       {#header_open|@intCast#}
@@ -7645,29 +7710,6 @@ fn targetFunction(x: i32) usize {
     return @ptrToInt(ptr);
 }
       {#code_end#}
-      {#header_close#}
-
-      {#header_open|@noInlineCall#}
-      <pre>{#syntax#}@noInlineCall(function: var, args: ...) var{#endsyntax#}</pre>
-      <p>
-      This calls a function, in the same way that invoking an expression with parentheses does:
-      </p>
-      {#code_begin|test#}
-const assert = @import("std").debug.assert;
-
-test "noinline function call" {
-    assert(@noInlineCall(add, 3, 9) == 12);
-}
-
-fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
-      {#code_end#}
-      <p>
-      Unlike a normal function call, however, {#syntax#}@noInlineCall{#endsyntax#} guarantees that the call
-      will not be inlined. If the call must be inlined, a compile error is emitted.
-      </p>
-      {#see_also|@inlineCall#}
       {#header_close#}
 
       {#header_open|@OpaqueType#}

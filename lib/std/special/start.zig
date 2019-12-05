@@ -125,7 +125,7 @@ nakedcc fn _start() noreturn {
     }
     // If LLVM inlines stack variables into _start, they will overwrite
     // the command line argument data.
-    @noInlineCall(posixCallMainAndExit);
+    @call(.{ .modifier = .never_inline }, posixCallMainAndExit, .{});
 }
 
 stdcallcc fn WinMainCRTStartup() noreturn {

@@ -1701,7 +1701,6 @@ enum BuiltinFnId {
     BuiltinFnIdByteOffsetOf,
     BuiltinFnIdBitOffsetOf,
     BuiltinFnIdInlineCall,
-    BuiltinFnIdNoInlineCall,
     BuiltinFnIdNewStackCall,
     BuiltinFnIdAsyncCall,
     BuiltinFnIdTypeId,

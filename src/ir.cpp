@@ -6014,7 +6014,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 return ir_lval_wrap(irb, scope, offset_of, lval, result_loc);
             }
         case BuiltinFnIdInlineCall:
-        case BuiltinFnIdNoInlineCall:
             {
                 if (node->data.fn_call_expr.params.length == 0) {
                     add_node_error(irb->codegen, node, buf_sprintf("expected at least 1 argument, found 0"));
@@ -6035,11 +6034,9 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     if (args[i] == irb->codegen->invalid_instruction)
                         return args[i];
                 }
-                CallModifier modifier = (builtin_fn->id == BuiltinFnIdInlineCall) ?
-                    CallModifierAlwaysInline : CallModifierNeverInline;
 
                 IrInstruction *call = ir_build_call_src(irb, scope, node, nullptr, fn_ref, arg_count, args,
-                        nullptr, modifier, false, nullptr, result_loc);
+                        nullptr, CallModifierAlwaysInline, false, nullptr, result_loc);
                 return ir_lval_wrap(irb, scope, call, lval, result_loc);
             }
         case BuiltinFnIdNewStackCall:
