@@ -379,8 +379,11 @@ const WasmPageAllocator = struct {
             }
 
             if (free_start < extendedOffset()) {
-                conventional.recycle(free_start, free_end - free_start);
-            } else {
+                const clamped_end = std.math.min(extendedOffset(), free_end);
+                conventional.recycle(free_start, clamped_end - free_start);
+            }
+
+            if (free_end > extendedOffset()) {
                 if (extended.totalPages() == 0) {
                     // Steal the last page from the memory currently being recycled
                     // TODO: would it be better if we use the first page instead?
@@ -390,7 +393,8 @@ const WasmPageAllocator = struct {
                     // Since this is the first page being freed and we consume it, assume *nothing* is free.
                     std.mem.set(u8, extended.bytes, FreeBlock.used);
                 }
-                extended.recycle(free_start - extendedOffset(), free_end - free_start);
+                const clamped_start = std.math.max(extendedOffset(), free_start);
+                extended.recycle(clamped_start - extendedOffset(), free_end - clamped_start);
             }
         }
 
