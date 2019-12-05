@@ -254,31 +254,30 @@ extern fn @"llvm.wasm.memory.grow.i32"(u32, u32) i32;
 
 const WasmPageAllocator = struct {
     // TODO: figure out why __heap_base cannot be found
-    var heap_base_wannabe: [256]u8 align(16) = undefined;
+    var heap_base_wannabe align(16) = [_]u8{0} ** 256;
 
     const FreeBlock = struct {
-        const Io = std.packed_int_array.PackedIntIo(u1, .Little);
-
         bytes: []align(16) u8,
 
-        fn initData(self: *FreeBlock, bytes: []align(16) u8) void {
-            // 0 == used, 1 == free
-            std.mem.set(u8, bytes, 0);
-            self.bytes = bytes;
-        }
+        const Io = std.packed_int_array.PackedIntIo(u1, .Little);
+
+        const used = 0;
+        const free = 1;
 
         fn totalPages(self: FreeBlock) usize {
             return self.bytes.len * 8;
         }
 
         fn getBit(self: *FreeBlock, idx: usize) u1 {
-            return Io.get(self.bytes, idx, 0);
+            const bit_offset = 0;
+            return Io.get(self.bytes, idx, bit_offset);
         }
 
         fn setBits(self: *FreeBlock, start_idx: usize, len: usize, val: u1) void {
+            const bit_offset = 0;
             var i: usize = 0;
             while (i < len) : (i += 1) {
-                Io.set(self.bytes, start_idx + i, 0, val);
+                Io.set(self.bytes, start_idx + i, bit_offset, val);
             }
         }
 
@@ -306,7 +305,7 @@ const WasmPageAllocator = struct {
                     while (j + count < self.totalPages() and self.getBit(j + count) == 1) {
                         count += 1;
                         if (count >= num_pages) {
-                            self.setBits(j, num_pages, 0);
+                            self.setBits(j, num_pages, used);
                             return j;
                         }
                     }
@@ -317,7 +316,7 @@ const WasmPageAllocator = struct {
         }
 
         fn recycle(self: *FreeBlock, start_idx: usize, len: usize) void {
-            self.setBits(start_idx, len, 1);
+            self.setBits(start_idx, len, free);
         }
     };
 
@@ -375,8 +374,8 @@ const WasmPageAllocator = struct {
 
         if (free_end > free_start) {
             if (conventional.totalPages() == 0) {
-                //conventional.initData(__heap_base[0..@intCast(usize, @"llvm.wasm.memory.size.i32"(0) * std.mem.page_size)]);
-                conventional.initData(heap_base_wannabe[0..]);
+                //conventional.bytes = __heap_base[0..@intCast(usize, @"llvm.wasm.memory.size.i32"(0) * std.mem.page_size)];
+                conventional.bytes = heap_base_wannabe[0..];
             }
 
             if (free_start < extendedOffset()) {
@@ -384,8 +383,12 @@ const WasmPageAllocator = struct {
             } else {
                 if (extended.totalPages() == 0) {
                     // Steal the last page from the memory currently being recycled
+                    // TODO: would it be better if we use the first page instead?
                     free_end -= 1;
-                    extended.initData(@intToPtr([*]align(16) u8, free_end * std.mem.page_size)[0..std.mem.page_size]);
+
+                    extended.bytes = @intToPtr([*]align(16) u8, free_end * std.mem.page_size)[0..std.mem.page_size];
+                    // Since this is the first page being freed and we consume it, assume *nothing* is free.
+                    std.mem.set(u8, extended.bytes, FreeBlock.used);
                 }
                 extended.recycle(free_start - extendedOffset(), free_end - free_start);
             }
