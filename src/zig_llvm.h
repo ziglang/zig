@@ -64,13 +64,15 @@ ZIG_EXTERN_C LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, co
 
 ZIG_EXTERN_C LLVMTypeRef ZigLLVMTokenTypeInContext(LLVMContextRef context_ref);
 
-enum ZigLLVM_FnInline {
-    ZigLLVM_FnInlineAuto,
-    ZigLLVM_FnInlineAlways,
-    ZigLLVM_FnInlineNever,
+enum ZigLLVM_CallAttr {
+    ZigLLVM_CallAttrAuto,
+    ZigLLVM_CallAttrNeverTail,
+    ZigLLVM_CallAttrNeverInline,
+    ZigLLVM_CallAttrAlwaysTail,
+    ZigLLVM_CallAttrAlwaysInline,
 };
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
-        unsigned NumArgs, unsigned CC, enum ZigLLVM_FnInline fn_inline, const char *Name);
+        unsigned NumArgs, unsigned CC, enum ZigLLVM_CallAttr attr, const char *Name);
 
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildMemCpy(LLVMBuilderRef B, LLVMValueRef Dst, unsigned DstAlign,
         LLVMValueRef Src, unsigned SrcAlign, LLVMValueRef Size, bool isVolatile);

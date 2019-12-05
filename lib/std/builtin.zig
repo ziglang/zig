@@ -372,6 +372,24 @@ pub const Version = struct {
     patch: u32,
 };
 
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const CallOptions = struct {
+    modifier: Modifier = .auto,
+    stack: ?[]align(std.Target.stack_align) u8 = null,
+
+    pub const Modifier = enum {
+        auto,
+        no_async,
+        async_call,
+        never_tail,
+        never_inline,
+        always_tail,
+        always_inline,
+        compile_time,
+    };
+};
+
 /// This function type is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const PanicFn = fn ([]const u8, ?*StackTrace) noreturn;

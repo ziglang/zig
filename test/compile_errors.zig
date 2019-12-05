@@ -3,6 +3,24 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "bad usage of @call",
+        \\export fn entry1() void {
+        \\    @call(.{}, foo, {});
+        \\}
+        \\export fn entry2() void {
+        \\    comptime @call(.{ .modifier = .never_inline }, foo, .{});
+        \\}
+        \\export fn entry3() void {
+        \\    comptime @call(.{ .modifier = .never_tail }, foo, .{});
+        \\}
+        \\fn foo() void {}
+    ,
+        "tmp.zig:2:21: error: expected tuple or struct, found 'void'",
+        "tmp.zig:5:58: error: unable to perform 'never_inline' call at compile-time",
+        "tmp.zig:8:56: error: unable to perform 'never_tail' call at compile-time",
+    );
+
+    cases.add(
         \\export async fn foo() void {}
     , "tmp.zig:1:1: error: exported function cannot be async");
 
