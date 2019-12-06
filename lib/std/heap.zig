@@ -325,7 +325,7 @@ const WasmPageAllocator = struct {
 
     var _conventional_data = [_]u128{0} ** 16;
     // Marking `conventional` as const saves ~40 bytes
-    var conventional = FreeBlock{ .data = &_conventional_data };
+    const conventional = FreeBlock{ .data = &_conventional_data };
     var extended = FreeBlock{ .data = &[_]u128{} };
 
     fn extendedOffset() usize {
