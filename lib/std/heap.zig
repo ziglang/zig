@@ -794,8 +794,10 @@ test "PageAllocator" {
     const allocator = page_allocator;
     try testAllocator(allocator);
     try testAllocatorAligned(allocator, 16);
-    try testAllocatorLargeAlignment(allocator);
-    try testAllocatorAlignedShrink(allocator);
+    if (!std.Target.current.isWasm()) {
+        try testAllocatorLargeAlignment(allocator);
+        try testAllocatorAlignedShrink(allocator);
+    }
 
     if (builtin.os == .windows) {
         // Trying really large alignment. As mentionned in the implementation,
@@ -832,7 +834,7 @@ test "ArenaAllocator" {
     try testAllocatorAlignedShrink(&arena_allocator.allocator);
 }
 
-var test_fixed_buffer_allocator_memory: [80000 * @sizeOf(u64)]u8 = undefined;
+var test_fixed_buffer_allocator_memory: [800000 * @sizeOf(u64)]u8 = undefined;
 test "FixedBufferAllocator" {
     var fixed_buffer_allocator = FixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]);
 
@@ -955,8 +957,7 @@ fn testAllocatorAligned(allocator: *mem.Allocator, comptime alignment: u29) !voi
 fn testAllocatorLargeAlignment(allocator: *mem.Allocator) mem.Allocator.Error!void {
     //Maybe a platform's page_size is actually the same as or
     //  very near usize?
-    //if (mem.page_size << 2 > maxInt(usize)) return;
-    if (mem.page_size << 2 > 32768) return;
+    if (mem.page_size << 2 > maxInt(usize)) return;
 
     const USizeShift = @IntType(false, std.math.log2(usize.bit_count));
     const large_align = @as(u29, mem.page_size << 2);
