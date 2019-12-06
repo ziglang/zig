@@ -21786,10 +21786,12 @@ static void ensure_field_index(ZigType *type, const char *field_name, size_t ind
     Buf *field_name_buf;
 
     assert(type != nullptr && !type_is_invalid(type));
-    // Check for our field by creating a buffer in place then using the comma operator to free it so that we don't
-    // leak memory in debug mode.
-    assert(find_struct_type_field(type, field_name_buf = buf_create_from_str(field_name))->src_index == index &&
-            (buf_deinit(field_name_buf), true));
+    field_name_buf = buf_create_from_str(field_name);
+    TypeStructField *field = find_struct_type_field(type, field_name_buf);
+    buf_deinit(field_name_buf);
+
+    if (field == nullptr || field->src_index != index)
+        zig_panic("reference to unknown field %s", field_name);
 }
 
 static ZigType *ir_type_info_get_type(IrAnalyze *ira, const char *type_name, ZigType *root) {
@@ -22113,7 +22115,7 @@ static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_type_ent
         zig_unreachable();
     }
 
-    if ((err = type_resolve(ira->codegen, attrs_type->data.pointer.child_type, ResolveStatusAlignmentKnown)))
+    if ((err = type_resolve(ira->codegen, attrs_type->data.pointer.child_type, ResolveStatusSizeKnown)))
         return nullptr;
 
     ZigType *type_info_pointer_type = ir_type_info_get_type(ira, "Pointer", nullptr);
@@ -22162,11 +22164,10 @@ static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_type_ent
     // sentinel: var
     ensure_field_index(result->type, "sentinel", 6);
     fields[6]->special = ConstValSpecialStatic;
+    fields[6]->type = get_optional_type(ira->codegen, attrs_type->data.pointer.child_type);
     if (attrs_type->data.pointer.sentinel != nullptr) {
-        fields[6]->type = get_optional_type(ira->codegen, attrs_type->data.pointer.child_type);
         fields[6]->data.x_optional = attrs_type->data.pointer.sentinel;
     } else {
-        fields[6]->type = ira->codegen->builtin_types.entry_null;
         fields[6]->data.x_optional = nullptr;
     }
 
@@ -22814,13 +22815,20 @@ static Error get_const_field_sentinel(IrAnalyze *ira, IrInstruction *source_inst
     ZigValue *field_val = get_const_field(ira, source_instr->source_node, struct_value, name, field_index);
     if (field_val == nullptr)
         return ErrorSemanticAnalyzeFail;
+
     IrInstruction *field_inst = ir_const(ira, source_instr, field_val->type);
     IrInstruction *casted_field_inst = ir_implicit_cast(ira, field_inst,
             get_optional_type(ira->codegen, elem_type));
     if (type_is_invalid(casted_field_inst->value->type))
         return ErrorSemanticAnalyzeFail;
 
-    *result = casted_field_inst->value->data.x_optional;
+    if (optional_value_is_null(casted_field_inst->value)) {
+        *result = nullptr;
+    } else {
+        assert(type_has_optional_repr(casted_field_inst->value->type));
+        *result = casted_field_inst->value->data.x_optional;
+    }
+
     return ErrorNone;
 }
 
