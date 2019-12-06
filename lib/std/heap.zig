@@ -252,6 +252,12 @@ extern fn @"llvm.wasm.memory.size.i32"(u32) u32;
 extern fn @"llvm.wasm.memory.grow.i32"(u32, u32) i32;
 
 const WasmPageAllocator = struct {
+    comptime {
+        if (!std.Target.current.isWasm()) {
+            @compileError("WasmPageAllocator is only available for wasm32 arch");
+        }
+    }
+
     const PageStatus = enum(u1) {
         used = 0,
         free = 1,
@@ -797,7 +803,7 @@ test "c_allocator" {
 }
 
 test "WasmPageAllocator internals" {
-    if (std.Target.current.isWasm()) {
+    if (comptime std.Target.current.isWasm()) {
         const none_free = WasmPageAllocator.PageStatus.none_free;
         std.debug.assert(none_free == WasmPageAllocator.conventional.data[0]); // Passes if this test runs first
         std.debug.assert(!WasmPageAllocator.extended.isInitialized()); // Passes if this test runs first
