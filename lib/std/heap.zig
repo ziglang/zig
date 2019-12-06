@@ -256,7 +256,7 @@ const WasmPageAllocator = struct {
         used = 0,
         free = 1,
 
-        pub const all_used: u8 = 0;
+        pub const none_free: u8 = 0;
     };
 
     const FreeBlock = struct {
@@ -265,7 +265,11 @@ const WasmPageAllocator = struct {
         const Io = std.packed_int_array.PackedIntIo(u1, .Little);
 
         fn totalPages(self: FreeBlock) usize {
-            return self.data.len * 8;
+            return self.data.len * 128;
+        }
+
+        fn isInitialized(self: FreeBlock) bool {
+            return self.data.len > 0;
         }
 
         fn getBit(self: FreeBlock, idx: usize) PageStatus {
@@ -319,7 +323,9 @@ const WasmPageAllocator = struct {
         }
     };
 
-    const conventional = FreeBlock{ .data = &[_]u128{ 0, 0 } };
+    var _conventional_data = [_]u128{0} ** 16;
+    // Marking `conventional` as const saves ~40 bytes
+    var conventional = FreeBlock{ .data = &_conventional_data };
     var extended = FreeBlock{ .data = &[_]u128{} };
 
     fn extendedOffset() usize {
@@ -379,14 +385,14 @@ const WasmPageAllocator = struct {
             }
 
             if (free_end > extendedOffset()) {
-                if (extended.totalPages() == 0) {
+                if (!extended.isInitialized()) {
                     // Steal the last page from the memory currently being recycled
                     // TODO: would it be better if we use the first page instead?
                     free_end -= 1;
 
                     extended.data = @intToPtr([*]u128, free_end * std.mem.page_size)[0 .. std.mem.page_size / @sizeOf(u128)];
                     // Since this is the first page being freed and we consume it, assume *nothing* is free.
-                    std.mem.set(u128, extended.data, PageStatus.all_used);
+                    std.mem.set(u128, extended.data, PageStatus.none_free);
                 }
                 const clamped_start = std.math.max(extendedOffset(), free_start);
                 extended.recycle(clamped_start - extendedOffset(), free_end - clamped_start);
@@ -787,6 +793,38 @@ test "c_allocator" {
         var slice = try c_allocator.alloc(u8, 50);
         defer c_allocator.free(slice);
         slice = try c_allocator.realloc(slice, 100);
+    }
+}
+
+test "WasmPageAllocator internals" {
+    if (std.Target.current.isWasm()) {
+        const none_free = WasmPageAllocator.PageStatus.none_free;
+        std.debug.assert(none_free == WasmPageAllocator.conventional.data[0]); // Passes if this test runs first
+        std.debug.assert(!WasmPageAllocator.extended.isInitialized()); // Passes if this test runs first
+
+        const tmp = try page_allocator.alloc(u8, 1);
+        testing.expect(none_free == WasmPageAllocator.conventional.data[0]);
+        page_allocator.free(tmp);
+        testing.expect(none_free < WasmPageAllocator.conventional.data[0]);
+
+        const a_little_free = WasmPageAllocator.conventional.data[0];
+        const tmp_large = try page_allocator.alloc(u8, std.mem.page_size + 1);
+        testing.expect(a_little_free == WasmPageAllocator.conventional.data[0]);
+        const tmp_small = try page_allocator.alloc(u8, 1);
+        testing.expect(none_free == WasmPageAllocator.conventional.data[0]);
+
+        page_allocator.free(tmp_small);
+        testing.expect(a_little_free == WasmPageAllocator.conventional.data[0]);
+        page_allocator.free(tmp_large);
+        testing.expect(a_little_free < WasmPageAllocator.conventional.data[0]);
+
+        const more_free = WasmPageAllocator.conventional.data[0];
+        const supersize = try page_allocator.alloc(u8, std.mem.page_size * (WasmPageAllocator.conventional.totalPages() + 1));
+        testing.expect(more_free == WasmPageAllocator.conventional.data[0]);
+        testing.expect(!WasmPageAllocator.extended.isInitialized());
+        page_allocator.free(supersize);
+        testing.expect(WasmPageAllocator.extended.isInitialized());
+        testing.expect(more_free < WasmPageAllocator.conventional.data[0]);
     }
 }
 
