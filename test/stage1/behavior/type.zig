@@ -130,3 +130,17 @@ test "Type.Undefined" {
 test "Type.Null" {
     testTypes(&[_]type{@typeOf(null)});
 }
+test "@Type create slice with null sentinel" {
+    const Slice = @Type(builtin.TypeInfo{
+        .Pointer = .{
+            .size = .Slice,
+            .is_const = true,
+            .is_volatile = false,
+            .is_allowzero = false,
+            .alignment = 8,
+            .child = *i32,
+            .sentinel = null,
+        },
+    });
+    testing.expect(Slice == []align(8) const *i32);
+}
