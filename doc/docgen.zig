@@ -1427,10 +1427,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             }
                             const escaped_stderr = try escapeHtml(allocator, result.stderr);
                             const colored_stderr = try termColor(allocator, escaped_stderr);
-                            try out.print("\n{}\n", colored_stderr);
-                            if (!code.is_inline) {
-                                try out.print("</code></pre>\n");
-                            }
+                            try out.print("\n{}", colored_stderr);
                         } else {
                             _ = exec(allocator, &env_map, build_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "example failed to compile");
                         }

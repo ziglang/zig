@@ -1,10 +1,10 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <title>Documentation - The Zig Programming Language</title>
     <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg=="/>
-    <style type="text/css">
+    <style>
       body{
         font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
       }
@@ -511,7 +511,7 @@ pub fn main() void {
       </div>
       <p>
       In addition to the integer types above, arbitrary bit-width integers can be referenced by using
-      an identifier of <code>i</code> or </code>u</code> followed by digits. For example, the identifier
+      an identifier of <code>i</code> or <code>u</code> followed by digits. For example, the identifier
       {#syntax#}i7{#endsyntax#} refers to a signed 7-bit integer. The maximum allowed bit-width of an
       integer type is {#syntax#}65535{#endsyntax#}.
       </p>
@@ -878,7 +878,7 @@ fn divide(a: i32, b: i32) i32 {
       </p>
       <p>
       Zig supports arbitrary bit-width integers, referenced by using
-      an identifier of <code>i</code> or </code>u</code> followed by digits. For example, the identifier
+      an identifier of <code>i</code> or <code>u</code> followed by digits. For example, the identifier
       {#syntax#}i7{#endsyntax#} refers to a signed 7-bit integer. The maximum allowed bit-width of an
       integer type is {#syntax#}65535{#endsyntax#}.
       </p>
@@ -5445,8 +5445,6 @@ fn gimmeTheBiggerInteger(a: u64, b: u64) u64 {
         <li>In the function definition, the value is known at compile-time.</li>
       </ul>
       <p>
-      </p>
-      <p>
       For example, if we were to introduce another function to the above snippet:
       </p>
       {#code_begin|test_err|values of type 'type' must be comptime known#}
@@ -6006,7 +6004,7 @@ pub fn main() void {
       {#target_linux_x86_64#}
 pub fn main() noreturn {
     const msg = "hello world\n";
-    _ = syscall3(SYS_write, STDOUT_FILENO, @ptrToInt(&msg), msg.len);
+    _ = syscall3(SYS_write, STDOUT_FILENO, @ptrToInt(msg), msg.len);
     _ = syscall1(SYS_exit, 0);
     unreachable;
 }
@@ -6891,7 +6889,7 @@ async fn func(y: *i32) void {
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
       <p>
-      This appends <code>#include <$path>\n</code> to the {#syntax#}c_import{#endsyntax#}
+      This appends <code>#include &lt;$path&gt;\n</code> to the {#syntax#}c_import{#endsyntax#}
       temporary buffer.
       </p>
       {#see_also|Import from C Header File|@cImport|@cDefine|@cUndef#}
@@ -7015,7 +7013,6 @@ test "main" {
     warn("Runtime in main, num1 = {}.\n", num1);
 }
       {#code_end#}
-      </p>
       <p>
       will ouput:
       </p>
@@ -8226,7 +8223,7 @@ test "integer truncation" {
           <li>{#syntax#}noreturn{#endsyntax#}</li>
           <li>{#syntax#}void{#endsyntax#}</li>
           <li>{#syntax#}bool{#endsyntax#}</li>
-          <li>{#link|Integers#}</li> - The maximum bit count for an integer type is {#syntax#}65535{#endsyntax#}.
+          <li>{#link|Integers#} - The maximum bit count for an integer type is {#syntax#}65535{#endsyntax#}.</li>
           <li>{#link|Floats#}</li>
           <li>{#link|Pointers#}</li>
           <li>{#syntax#}comptime_int{#endsyntax#}</li>
@@ -8620,7 +8617,7 @@ pub fn build(b: *Builder) void {
       {#header_close#}
 
       {#header_open|Single Threaded Builds#}
-      <p>Zig has a compile option <code>--single-threaded</code> which has the following effects:
+      <p>Zig has a compile option <code>--single-threaded</code> which has the following effects:</p>
       <ul>
         <li>All {#link|Thread Local Variables#} are treated as {#link|Global Variables#}.</li>
         <li>The overhead of {#link|Async Functions#} becomes equivalent to function call overhead.</li>
@@ -8629,7 +8626,6 @@ pub fn build(b: *Builder) void {
           For example {#syntax#}std.Mutex{#endsyntax#} becomes
           an empty data structure and all of its functions become no-ops.</li>
       </ul>
-      </p>
       {#header_close#}
 
       {#header_open|Undefined Behavior#}
@@ -9410,7 +9406,7 @@ test "string literal to constant slice" {
       The location of memory allocated with {#syntax#}allocator.alloc{#endsyntax#} or
       {#syntax#}allocator.create{#endsyntax#} is determined by the allocator's implementation.
       </p>
-      </p>TODO: thread local variables</p>
+      <p>TODO: thread local variables</p>
       {#header_close#}
 
       {#header_open|Implementing an Allocator#}
