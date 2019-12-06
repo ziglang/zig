@@ -382,16 +382,6 @@ pub const CallOptions = struct {
         /// Equivalent to function call syntax.
         auto,
 
-        /// Asserts that the function call will not suspend. This allows a
-        /// non-async function to call an async function.
-        no_async,
-
-        /// The function call will return an async function frame instead of
-        /// the function's result, which is expected to then be awaited.
-        /// This is equivalent to using the `async` keyword in front of function
-        /// call syntax.
-        async_call,
-
         /// Prevents tail call optimization. This guarantees that the return
         /// address will point to the callsite, as opposed to the callsite's
         /// callsite. If the call is otherwise required to be tail-called
@@ -401,6 +391,10 @@ pub const CallOptions = struct {
         /// Guarantees that the call will not be inlined. If the call is
         /// otherwise required to be inlined, a compile error is emitted instead.
         never_inline,
+
+        /// Asserts that the function call will not suspend. This allows a
+        /// non-async function to call an async function.
+        no_async,
 
         /// Guarantees that the call will be generated with tail call optimization.
         /// If this is not possible, a compile error is emitted instead.

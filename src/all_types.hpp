@@ -409,6 +409,9 @@ struct ZigValue {
     LLVMValueRef llvm_global;
 
     union {
+        // populated if special == ConstValSpecialLazy
+        LazyValue *x_lazy;
+
         // populated if special == ConstValSpecialStatic
         BigInt x_bigint;
         BigFloat x_bigfloat;
@@ -429,7 +432,6 @@ struct ZigValue {
         ConstPtrValue x_ptr;
         ConstArgTuple x_arg_tuple;
         Buf *x_enum_literal;
-        LazyValue *x_lazy;
 
         // populated if special == ConstValSpecialRuntime
         RuntimeHintErrorUnion rh_error_union;
@@ -770,16 +772,16 @@ struct AstNodeUnwrapOptional {
 // Must be synchronized with std.builtin.CallOptions.Modifier
 enum CallModifier {
     CallModifierNone,
-    CallModifierNoAsync,
-    CallModifierAsync,
     CallModifierNeverTail,
     CallModifierNeverInline,
+    CallModifierNoAsync,
     CallModifierAlwaysTail,
     CallModifierAlwaysInline,
     CallModifierCompileTime,
 
-    // This is an additional tag in the compiler, but not exposed in the std lib.
+    // These are additional tags in the compiler, but not exposed in the std lib.
     CallModifierBuiltin,
+    CallModifierAsync,
 };
 
 struct AstNodeFnCallExpr {

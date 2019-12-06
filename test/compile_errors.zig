@@ -45,9 +45,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.addCase(x: {
         var tc = cases.create("call with new stack on unsupported target",
+            \\var buf: [10]u8 align(16) = undefined;
             \\export fn entry() void {
-            \\    var buf: [10]u8 align(16) = undefined;
-            \\    @call(.{.stack = &buf}, foo);
+            \\    @call(.{.stack = &buf}, foo, .{});
             \\}
             \\fn foo() void {}
         , "tmp.zig:3:5: error: target arch 'wasm32' does not support calling with a new stack");
