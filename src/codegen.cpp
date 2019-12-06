@@ -1227,7 +1227,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     LLVMValueRef msg_prefix_init = LLVMConstString(unwrap_err_msg_text, strlen(unwrap_err_msg_text), 1);
     LLVMValueRef msg_prefix = LLVMAddGlobal(g->module, LLVMTypeOf(msg_prefix_init), "");
     LLVMSetInitializer(msg_prefix, msg_prefix_init);
-    LLVMSetLinkage(msg_prefix, LLVMInternalLinkage);
+    LLVMSetLinkage(msg_prefix, LLVMPrivateLinkage);
     LLVMSetGlobalConstant(msg_prefix, true);
 
     const char *fn_name = get_mangled_name(g, "__zig_fail_unwrap", false);
@@ -7180,7 +7180,7 @@ static void render_const_val_global(CodeGen *g, ZigValue *const_val, const char 
         LLVMTypeRef type_ref = const_val->llvm_value ?
             LLVMTypeOf(const_val->llvm_value) : get_llvm_type(g, const_val->type);
         LLVMValueRef global_value = LLVMAddGlobal(g->module, type_ref, name);
-        LLVMSetLinkage(global_value, LLVMInternalLinkage);
+        LLVMSetLinkage(global_value, (name == nullptr) ? LLVMPrivateLinkage : LLVMInternalLinkage);
         LLVMSetGlobalConstant(global_value, true);
         LLVMSetUnnamedAddr(global_value, true);
         LLVMSetAlignment(global_value, (const_val->llvm_align == 0) ?
