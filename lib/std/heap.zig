@@ -246,16 +246,12 @@ const PageAllocator = struct {
     }
 };
 
-extern const __heap_base: [*]u8;
 // TODO Exposed LLVM intrinsics is a bug
 // See: https://github.com/ziglang/zig/issues/2291
 extern fn @"llvm.wasm.memory.size.i32"(u32) u32;
 extern fn @"llvm.wasm.memory.grow.i32"(u32, u32) i32;
 
 const WasmPageAllocator = struct {
-    // TODO: figure out why __heap_base cannot be found
-    var heap_base_wannabe align(16) = [_]u8{0} ** 256;
-
     const PageStatus = enum(u1) {
         used = 0,
         free = 1,
@@ -264,24 +260,24 @@ const WasmPageAllocator = struct {
     };
 
     const FreeBlock = struct {
-        bytes: []align(16) u8,
+        data: []u128,
 
         const Io = std.packed_int_array.PackedIntIo(u1, .Little);
 
         fn totalPages(self: FreeBlock) usize {
-            return self.bytes.len * 8;
+            return self.data.len * 8;
         }
 
-        fn getBit(self: *FreeBlock, idx: usize) PageStatus {
+        fn getBit(self: FreeBlock, idx: usize) PageStatus {
             const bit_offset = 0;
-            return @intToEnum(PageStatus, Io.get(self.bytes, idx, bit_offset));
+            return @intToEnum(PageStatus, Io.get(@sliceToBytes(self.data), idx, bit_offset));
         }
 
-        fn setBits(self: *FreeBlock, start_idx: usize, len: usize, val: PageStatus) void {
+        fn setBits(self: FreeBlock, start_idx: usize, len: usize, val: PageStatus) void {
             const bit_offset = 0;
             var i: usize = 0;
             while (i < len) : (i += 1) {
-                Io.set(self.bytes, start_idx + i, bit_offset, @enumToInt(val));
+                Io.set(@sliceToBytes(self.data), start_idx + i, bit_offset, @enumToInt(val));
             }
         }
 
@@ -294,10 +290,9 @@ const WasmPageAllocator = struct {
         // Revisit if this is settled: https://github.com/ziglang/zig/issues/3806
         const not_found = std.math.maxInt(usize);
 
-        fn useRecycled(self: *FreeBlock, num_pages: usize) usize {
+        fn useRecycled(self: FreeBlock, num_pages: usize) usize {
             @setCold(true);
-            const segments = @bytesToSlice(u128, self.bytes);
-            for (segments) |segment, i| {
+            for (self.data) |segment, i| {
                 const spills_into_next = @bitCast(i128, segment) < 0;
                 const has_enough_bits = @popCount(u128, segment) >= num_pages;
 
@@ -319,13 +314,13 @@ const WasmPageAllocator = struct {
             return not_found;
         }
 
-        fn recycle(self: *FreeBlock, start_idx: usize, len: usize) void {
+        fn recycle(self: FreeBlock, start_idx: usize, len: usize) void {
             self.setBits(start_idx, len, .free);
         }
     };
 
-    var conventional = FreeBlock{ .bytes = &[_]u8{} };
-    var extended = FreeBlock{ .bytes = &[_]u8{} };
+    const conventional = FreeBlock{ .data = &[_]u128{ 0, 0 } };
+    var extended = FreeBlock{ .data = &[_]u128{} };
 
     fn extendedOffset() usize {
         return conventional.totalPages();
@@ -373,15 +368,11 @@ const WasmPageAllocator = struct {
     }
 
     pub fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+        @setCold(true);
         const free_start = nPages(@ptrToInt(old_mem.ptr) + new_size);
         var free_end = nPages(@ptrToInt(old_mem.ptr) + old_mem.len);
 
         if (free_end > free_start) {
-            if (conventional.totalPages() == 0) {
-                //conventional.bytes = __heap_base[0..@intCast(usize, @"llvm.wasm.memory.size.i32"(0) * std.mem.page_size)];
-                conventional.bytes = heap_base_wannabe[0..];
-            }
-
             if (free_start < extendedOffset()) {
                 const clamped_end = std.math.min(extendedOffset(), free_end);
                 conventional.recycle(free_start, clamped_end - free_start);
@@ -393,9 +384,9 @@ const WasmPageAllocator = struct {
                     // TODO: would it be better if we use the first page instead?
                     free_end -= 1;
 
-                    extended.bytes = @intToPtr([*]align(16) u8, free_end * std.mem.page_size)[0..std.mem.page_size];
+                    extended.data = @intToPtr([*]u128, free_end * std.mem.page_size)[0 .. std.mem.page_size / @sizeOf(u128)];
                     // Since this is the first page being freed and we consume it, assume *nothing* is free.
-                    std.mem.set(u8, extended.bytes, PageStatus.all_used);
+                    std.mem.set(u128, extended.data, PageStatus.all_used);
                 }
                 const clamped_start = std.math.max(extendedOffset(), free_start);
                 extended.recycle(clamped_start - extendedOffset(), free_end - clamped_start);
