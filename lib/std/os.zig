@@ -3248,3 +3248,15 @@ pub fn sched_yield() SchedYieldError!void {
         else => return error.SystemCannotYield,
     }
 }
+
+pub const GetRusageError = UnexpectedError;
+
+pub fn getrusage(who: i32, usage: *rusage) GetRusageError!void {
+    const rc = system.getrusage(who, usage);
+    switch (errno(rc)) {
+        0 => return,
+        EINVAL => unreachable,
+        EFAULT => unreachable,
+        else => |err| return unexpectedErrno(err),
+    }
+}
