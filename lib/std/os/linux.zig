@@ -1152,6 +1152,10 @@ pub fn io_uring_register(fd: i32, opcode: u32, arg: ?*const c_void, nr_args: u32
     return syscall4(SYS_io_uring_register, @bitCast(usize, @as(isize, fd)), opcode, @ptrToInt(arg), nr_args);
 }
 
+pub fn getrusage(who: i32, usage: *rusage) usize {
+    return syscall2(SYS_getrusage, @bitCast(usize, @as(isize, who)), @ptrToInt(usage));
+}
+
 test "" {
     if (builtin.os == .linux) {
         _ = @import("linux/test.zig");

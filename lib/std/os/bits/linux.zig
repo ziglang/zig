@@ -1422,3 +1422,26 @@ pub const POLLHUP = 0x010;
 pub const POLLNVAL = 0x020;
 pub const POLLRDNORM = 0x040;
 pub const POLLRDBAND = 0x080;
+
+pub const RUSAGE_SELF = 0;
+pub const RUSAGE_CHILDREN = -1;
+pub const RUSAGE_THREAD = 1;
+
+pub const rusage = extern struct {
+    ru_utime: timeval,
+    ru_stime: timeval,
+    ru_maxrss: isize,
+    ru_ix_rss: isize,
+    ru_idrss: isize,
+    ru_isrss: isize,
+    ru_minflt: isize,
+    ru_majflt: isize,
+    ru_nswap: isize,
+    ru_inblock: isize,
+    ru_oublock: isize,
+    ru_msgsnd: isize,
+    ru_msgrcv: isize,
+    ru_nsignals: isize,
+    ru_nvcsw: isize,
+    ru_nivcsw: isize,
+};
