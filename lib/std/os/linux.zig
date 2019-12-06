@@ -1114,6 +1114,10 @@ pub fn memfd_create(name: [*:0]const u8, flags: u32) usize {
     return syscall2(SYS_memfd_create, @ptrToInt(name), flags);
 }
 
+pub fn getrusage(who: i32, usage: *rusage) usize {
+    return syscall2(SYS_getrusage, @bitCast(usize, @as(isize, who)), @ptrToInt(usage));
+}
+
 test "" {
     if (builtin.os == .linux) {
         _ = @import("linux/test.zig");

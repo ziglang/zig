@@ -3325,3 +3325,14 @@ pub fn memfd_create(name: []const u8, flags: u32) !fd_t {
     const name_t = try toMemFdPath(name);
     return memfd_createC(&name_t, flags);
 }
+
+pub fn getrusage(who: i32) rusage {
+    var result: rusage = undefined;
+    const rc = system.getrusage(who, &result);
+    switch (errno(rc)) {
+        0 => return result,
+        EINVAL => unreachable,
+        EFAULT => unreachable,
+        else => unreachable,
+    }
+}
