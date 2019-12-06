@@ -1700,7 +1700,6 @@ enum BuiltinFnId {
     BuiltinFnIdFieldParentPtr,
     BuiltinFnIdByteOffsetOf,
     BuiltinFnIdBitOffsetOf,
-    BuiltinFnIdInlineCall,
     BuiltinFnIdNewStackCall,
     BuiltinFnIdAsyncCall,
     BuiltinFnIdTypeId,
@@ -2487,6 +2486,7 @@ enum IrInstructionId {
     IrInstructionIdVarPtr,
     IrInstructionIdReturnPtr,
     IrInstructionIdCallSrc,
+    IrInstructionIdCallSrcArgs,
     IrInstructionIdCallExtra,
     IrInstructionIdCallGen,
     IrInstructionIdConst,
@@ -2904,8 +2904,21 @@ struct IrInstructionCallSrc {
     bool is_async_call_builtin;
 };
 
-/// This is a pass1 instruction, used by @call.
-/// `args` is expected to be either a struct or a tuple.
+// This is a pass1 instruction, used by @call when the args node is
+// a tuple or struct literal.
+struct IrInstructionCallSrcArgs {
+    IrInstruction base;
+
+    IrInstruction *options;
+    IrInstruction *fn_ref;
+    IrInstruction **args_ptr;
+    size_t args_len;
+    ResultLoc *result_loc;
+};
+
+// This is a pass1 instruction, used by @call, when the args node
+// is not a literal.
+// `args` is expected to be either a struct or a tuple.
 struct IrInstructionCallExtra {
     IrInstruction base;
 

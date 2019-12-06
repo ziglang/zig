@@ -182,25 +182,25 @@ fn win_probe_stack_adjust_sp() void {
 
 pub nakedcc fn _chkstk() void {
     @setRuntimeSafety(false);
-    @inlineCall(win_probe_stack_adjust_sp);
+    @call(.{ .modifier = .always_inline }, win_probe_stack_adjust_sp, .{});
 }
 pub nakedcc fn __chkstk() void {
     @setRuntimeSafety(false);
     switch (builtin.arch) {
-        .i386 => @inlineCall(win_probe_stack_adjust_sp),
-        .x86_64 => @inlineCall(win_probe_stack_only),
+        .i386 => @call(.{ .modifier = .always_inline }, win_probe_stack_adjust_sp, .{}),
+        .x86_64 => @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{}),
         else => unreachable,
     }
 }
 pub nakedcc fn ___chkstk() void {
     @setRuntimeSafety(false);
-    @inlineCall(win_probe_stack_adjust_sp);
+    @call(.{ .modifier = .always_inline }, win_probe_stack_adjust_sp, .{});
 }
 pub nakedcc fn __chkstk_ms() void {
     @setRuntimeSafety(false);
-    @inlineCall(win_probe_stack_only);
+    @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{});
 }
 pub nakedcc fn ___chkstk_ms() void {
     @setRuntimeSafety(false);
-    @inlineCall(win_probe_stack_only);
+    @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{});
 }

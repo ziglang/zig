@@ -96,6 +96,8 @@ const char* ir_instruction_type_str(IrInstructionId id) {
             return "CallExtra";
         case IrInstructionIdCallSrc:
             return "CallSrc";
+        case IrInstructionIdCallSrcArgs:
+            return "CallSrcArgs";
         case IrInstructionIdCallGen:
             return "CallGen";
         case IrInstructionIdConst:
@@ -646,6 +648,22 @@ static void ir_print_call_extra(IrPrint *irp, IrInstructionCallExtra *instructio
     fprintf(irp->f, ", args=");
     ir_print_other_instruction(irp, instruction->args);
     fprintf(irp->f, ", result=");
+    ir_print_result_loc(irp, instruction->result_loc);
+}
+
+static void ir_print_call_src_args(IrPrint *irp, IrInstructionCallSrcArgs *instruction) {
+    fprintf(irp->f, "opts=");
+    ir_print_other_instruction(irp, instruction->options);
+    fprintf(irp->f, ", fn=");
+    ir_print_other_instruction(irp, instruction->fn_ref);
+    fprintf(irp->f, ", args=(");
+    for (size_t i = 0; i < instruction->args_len; i += 1) {
+        IrInstruction *arg = instruction->args_ptr[i];
+        if (i != 0)
+            fprintf(irp->f, ", ");
+        ir_print_other_instruction(irp, arg);
+    }
+    fprintf(irp->f, "), result=");
     ir_print_result_loc(irp, instruction->result_loc);
 }
 
@@ -2130,6 +2148,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
             break;
         case IrInstructionIdCallSrc:
             ir_print_call_src(irp, (IrInstructionCallSrc *)instruction);
+            break;
+        case IrInstructionIdCallSrcArgs:
+            ir_print_call_src_args(irp, (IrInstructionCallSrcArgs *)instruction);
             break;
         case IrInstructionIdCallGen:
             ir_print_call_gen(irp, (IrInstructionCallGen *)instruction);

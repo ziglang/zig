@@ -7492,27 +7492,6 @@ test "@hasDecl" {
       {#see_also|Compile Variables|@embedFile#}
       {#header_close#}
 
-      {#header_open|@inlineCall#}
-      <pre>{#syntax#}@inlineCall(function: X, args: ...) Y{#endsyntax#}</pre>
-      <p>
-      This calls a function, in the same way that invoking an expression with parentheses does:
-      </p>
-      {#code_begin|test#}
-const assert = @import("std").debug.assert;
-
-test "inline function call" {
-    assert(@inlineCall(add, 3, 9) == 12);
-}
-
-fn add(a: i32, b: i32) i32 { return a + b; }
-      {#code_end#}
-      <p>
-      Unlike a normal function call, however, {#syntax#}@inlineCall{#endsyntax#} guarantees that the call
-      will be inlined. If the call cannot be inlined, a compile error is emitted.
-      </p>
-      {#see_also|@call#}
-      {#header_close#}
-
       {#header_open|@intCast#}
       <pre>{#syntax#}@intCast(comptime DestType: type, int: var) DestType{#endsyntax#}</pre>
       <p>

@@ -11,7 +11,7 @@ const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
 
-const Endian = @import("builtin").Endian;
+const Endian = std.builtin.Endian;
 
 pub fn SipHash64(comptime c_rounds: usize, comptime d_rounds: usize) type {
     return SipHash(u64, c_rounds, d_rounds);
@@ -62,7 +62,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
 
             var off: usize = 0;
             while (off < b.len) : (off += 8) {
-                @inlineCall(self.round, b[off .. off + 8]);
+                @call(.{ .modifier = .always_inline }, self.round, .{b[off .. off + 8]});
             }
 
             self.msg_len +%= @truncate(u8, b.len);
@@ -84,9 +84,12 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
                 self.v2 ^= 0xff;
             }
 
+            // TODO this is a workaround, should be able to supply the value without a separate variable
+            const inl = std.builtin.CallOptions{ .modifier = .always_inline };
+
             comptime var i: usize = 0;
             inline while (i < d_rounds) : (i += 1) {
-                @inlineCall(sipRound, self);
+                @call(inl, sipRound, .{self});
             }
 
             const b1 = self.v0 ^ self.v1 ^ self.v2 ^ self.v3;
@@ -98,7 +101,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
 
             comptime var j: usize = 0;
             inline while (j < d_rounds) : (j += 1) {
-                @inlineCall(sipRound, self);
+                @call(inl, sipRound, .{self});
             }
 
             const b2 = self.v0 ^ self.v1 ^ self.v2 ^ self.v3;
@@ -111,9 +114,11 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             const m = mem.readIntSliceLittle(u64, b[0..]);
             self.v3 ^= m;
 
+            // TODO this is a workaround, should be able to supply the value without a separate variable
+            const inl = std.builtin.CallOptions{ .modifier = .always_inline };
             comptime var i: usize = 0;
             inline while (i < c_rounds) : (i += 1) {
-                @inlineCall(sipRound, self);
+                @call(inl, sipRound, .{self});
             }
 
             self.v0 ^= m;
@@ -140,8 +145,8 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             const aligned_len = input.len - (input.len % 8);
 
             var c = Self.init(key);
-            @inlineCall(c.update, input[0..aligned_len]);
-            return @inlineCall(c.final, input[aligned_len..]);
+            @call(.{ .modifier = .always_inline }, c.update, .{input[0..aligned_len]});
+            return @call(.{ .modifier = .always_inline }, c.final, .{input[aligned_len..]});
         }
     };
 }

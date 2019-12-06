@@ -28,10 +28,21 @@ test "tuple parameters" {
             return a + b;
         }
     }.add;
+    var a: i32 = 12;
+    var b: i32 = 34;
+    expect(@call(.{}, add, .{ a, 34 }) == 46);
+    expect(@call(.{}, add, .{ 12, b }) == 46);
+    expect(@call(.{}, add, .{ a, b }) == 46);
     expect(@call(.{}, add, .{ 12, 34 }) == 46);
     comptime expect(@call(.{}, add, .{ 12, 34 }) == 46);
     {
-        const separate_args = .{ 12, 34 };
-        expect(@call(.{ .modifier = .always_inline }, add, separate_args) == 46);
+        const separate_args0 = .{ a, b };
+        //TODO const separate_args1 = .{ a, 34 };
+        const separate_args2 = .{ 12, 34 };
+        //TODO const separate_args3 = .{ 12, b };
+        expect(@call(.{ .modifier = .always_inline }, add, separate_args0) == 46);
+        // TODO expect(@call(.{ .modifier = .always_inline }, add, separate_args1) == 46);
+        expect(@call(.{ .modifier = .always_inline }, add, separate_args2) == 46);
+        // TODO expect(@call(.{ .modifier = .always_inline }, add, separate_args3) == 46);
     }
 }

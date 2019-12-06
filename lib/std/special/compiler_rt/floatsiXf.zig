@@ -55,17 +55,17 @@ fn floatsiXf(comptime T: type, a: i32) T {
 
 pub extern fn __floatsisf(arg: i32) f32 {
     @setRuntimeSafety(builtin.is_test);
-    return @inlineCall(floatsiXf, f32, arg);
+    return @call(.{ .modifier = .always_inline }, floatsiXf, .{ f32, arg });
 }
 
 pub extern fn __floatsidf(arg: i32) f64 {
     @setRuntimeSafety(builtin.is_test);
-    return @inlineCall(floatsiXf, f64, arg);
+    return @call(.{ .modifier = .always_inline }, floatsiXf, .{ f64, arg });
 }
 
 pub extern fn __floatsitf(arg: i32) f128 {
     @setRuntimeSafety(builtin.is_test);
-    return @inlineCall(floatsiXf, f128, arg);
+    return @call(.{ .modifier = .always_inline }, floatsiXf, .{ f128, arg });
 }
 
 fn test_one_floatsitf(a: i32, expected: u128) void {

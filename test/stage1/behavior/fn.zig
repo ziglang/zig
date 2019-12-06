@@ -96,14 +96,6 @@ fn fn4() u32 {
     return 8;
 }
 
-test "inline function call" {
-    expect(@inlineCall(add, 3, 9) == 12);
-}
-
-fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
-
 test "number literal as an argument" {
     numberLiteralArg(3);
     comptime numberLiteralArg(3);
@@ -251,7 +243,7 @@ test "discard the result of a function that returns a struct" {
 test "function call with anon list literal" {
     const S = struct {
         fn doTheTest() void {
-            consumeVec(.{9, 8, 7});
+            consumeVec(.{ 9, 8, 7 });
         }
 
         fn consumeVec(vec: [3]f32) void {

@@ -594,8 +594,11 @@ ZigType *get_pointer_to_type_extra2(CodeGen *g, ZigType *child_type, bool is_con
             break;
     }
 
-
-    if (type_is_resolved(child_type, ResolveStatusZeroBitsKnown)) {
+    if (inferred_struct_field != nullptr) {
+        entry->abi_size = g->builtin_types.entry_usize->abi_size;
+        entry->size_in_bits = g->builtin_types.entry_usize->size_in_bits;
+        entry->abi_align = g->builtin_types.entry_usize->abi_align;
+    } else if (type_is_resolved(child_type, ResolveStatusZeroBitsKnown)) {
         if (type_has_bits(child_type)) {
             entry->abi_size = g->builtin_types.entry_usize->abi_size;
             entry->size_in_bits = g->builtin_types.entry_usize->size_in_bits;
