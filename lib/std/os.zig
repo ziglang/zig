@@ -3249,14 +3249,13 @@ pub fn sched_yield() SchedYieldError!void {
     }
 }
 
-pub const GetRusageError = UnexpectedError;
-
-pub fn getrusage(who: i32, usage: *rusage) GetRusageError!void {
-    const rc = system.getrusage(who, usage);
+pub fn getrusage(who: i32) rusage {
+    var result: rusage = undefined;
+    const rc = system.getrusage(who, &result);
     switch (errno(rc)) {
-        0 => return,
+        0 => return result,
         EINVAL => unreachable,
         EFAULT => unreachable,
-        else => |err| return unexpectedErrno(err),
+        else => unreachable,
     }
 }

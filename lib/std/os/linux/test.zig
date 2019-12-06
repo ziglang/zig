@@ -75,18 +75,3 @@ test "statx" {
     expect(@bitCast(u64, @as(i64, stat_buf.blksize)) == statx_buf.blksize);
     expect(@bitCast(u64, @as(i64, stat_buf.blocks)) == statx_buf.blocks);
 }
-
-test "getrusage" {
-    var r_usage: linux.rusage = undefined;
-    var err = linux.getErrno(linux.getrusage(linux.RUSAGE_SELF, &r_usage));
-    expect(err == 0);
-
-    err = linux.getErrno(linux.getrusage(linux.RUSAGE_CHILDREN, &r_usage));
-    expect(err == 0);
-
-    err = linux.getErrno(linux.getrusage(linux.RUSAGE_THREAD, &r_usage));
-    expect(err == 0);
-
-    err = linux.getErrno(linux.getrusage(2, &r_usage));
-    expect(err != 0);
-}
