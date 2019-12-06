@@ -184,7 +184,7 @@ fn posixCallMainAndExit() noreturn {
         //    0,
         //) catch @panic("out of memory");
         //std.os.mprotect(new_stack[0..std.mem.page_size], std.os.PROT_NONE) catch {};
-        //std.os.exit(@newStackCall(new_stack, callMainWithArgs, argc, argv, envp));
+        //std.os.exit(@call(.{.stack = new_stack}, callMainWithArgs, .{argc, argv, envp}));
     }
 
     std.os.exit(@call(.{ .modifier = .always_inline }, callMainWithArgs, .{ argc, argv, envp }));

@@ -13358,6 +13358,15 @@ static IrInstruction *ir_analyze_struct_value_field_value(IrAnalyze *ira, IrInst
     return ir_get_deref(ira, source_instr, field_ptr, nullptr);
 }
 
+static IrInstruction *ir_analyze_optional_value_payload_value(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *optional_operand, bool safety_check_on)
+{
+    IrInstruction *opt_ptr = ir_get_ref(ira, source_instr, optional_operand, true, false);
+    IrInstruction *payload_ptr = ir_analyze_unwrap_optional_payload(ira, source_instr, opt_ptr,
+            safety_check_on, false);
+    return ir_get_deref(ira, source_instr, payload_ptr, nullptr);
+}
+
 static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_instr,
     ZigType *wanted_type, IrInstruction *value)
 {
@@ -17521,7 +17530,7 @@ static IrInstruction *analyze_casted_new_stack(IrAnalyze *ira, IrInstruction *so
         arch_stack_pointer_register_name(ira->codegen->zig_target->arch) == nullptr)
     {
         ir_add_error(ira, source_instr,
-            buf_sprintf("target arch '%s' does not support @newStackCall",
+            buf_sprintf("target arch '%s' does not support calling with a new stack",
                 target_arch_name(ira->codegen->zig_target->arch)));
     }
 
@@ -18223,13 +18232,21 @@ static IrInstruction *ir_analyze_call_extra(IrAnalyze *ira, IrInstruction *sourc
 
     TypeStructField *stack_field = find_struct_type_field(options->value->type, buf_create_from_str("stack"));
     ir_assert(stack_field != nullptr, source_instr);
-    IrInstruction *stack = ir_analyze_struct_value_field_value(ira, source_instr, options, stack_field);
-    IrInstruction *stack_is_non_null_inst = ir_analyze_test_non_null(ira, source_instr, stack);
+    IrInstruction *opt_stack = ir_analyze_struct_value_field_value(ira, source_instr, options, stack_field);
+    if (type_is_invalid(opt_stack->value->type))
+        return ira->codegen->invalid_instruction;
+    IrInstruction *stack_is_non_null_inst = ir_analyze_test_non_null(ira, source_instr, opt_stack);
     bool stack_is_non_null;
     if (!ir_resolve_bool(ira, stack_is_non_null_inst, &stack_is_non_null))
         return ira->codegen->invalid_instruction;
-    if (!stack_is_non_null)
+    IrInstruction *stack;
+    if (stack_is_non_null) {
+        stack = ir_analyze_optional_value_payload_value(ira, source_instr, opt_stack, false);
+    if (type_is_invalid(stack->value->type))
+        return ira->codegen->invalid_instruction;
+    } else {
         stack = nullptr;
+    }
 
     return ir_analyze_fn_call(ira, source_instr, fn, fn_type, fn_ref, first_arg_ptr,
         modifier, stack, false, args_ptr, args_len, nullptr, result_loc);

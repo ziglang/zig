@@ -26,8 +26,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn baz2() void {}
     ,
         "tmp.zig:2:21: error: expected tuple or struct, found 'void'",
-        "tmp.zig:5:58: error: unable to perform 'never_inline' call at compile-time",
-        "tmp.zig:8:56: error: unable to perform 'never_tail' call at compile-time",
+        "tmp.zig:5:14: error: unable to perform 'never_inline' call at compile-time",
+        "tmp.zig:8:14: error: unable to perform 'never_tail' call at compile-time",
         "tmp.zig:11:5: error: no-inline call of inline function",
         "tmp.zig:15:43: error: unable to evaluate constant expression",
     );
@@ -44,13 +44,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.addCase(x: {
-        var tc = cases.create("@newStackCall on unsupported target",
+        var tc = cases.create("call with new stack on unsupported target",
             \\export fn entry() void {
             \\    var buf: [10]u8 align(16) = undefined;
-            \\    @newStackCall(&buf, foo);
+            \\    @call(.{.stack = &buf}, foo);
             \\}
             \\fn foo() void {}
-        , "tmp.zig:3:5: error: target arch 'wasm32' does not support @newStackCall");
+        , "tmp.zig:3:5: error: target arch 'wasm32' does not support calling with a new stack");
         tc.target = tests.Target{
             .Cross = tests.CrossTarget{
                 .arch = .wasm32,
