@@ -3,6 +3,36 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add(
+        "bad usage of @call",
+        \\export fn entry1() void {
+        \\    @call(.{}, foo, {});
+        \\}
+        \\export fn entry2() void {
+        \\    comptime @call(.{ .modifier = .never_inline }, foo, .{});
+        \\}
+        \\export fn entry3() void {
+        \\    comptime @call(.{ .modifier = .never_tail }, foo, .{});
+        \\}
+        \\export fn entry4() void {
+        \\    @call(.{ .modifier = .never_inline }, bar, .{});
+        \\}
+        \\export fn entry5(c: bool) void {
+        \\    var baz = if (c) baz1 else baz2;
+        \\    @call(.{ .modifier = .compile_time }, baz, .{});
+        \\}
+        \\fn foo() void {}
+        \\inline fn bar() void {}
+        \\fn baz1() void {}
+        \\fn baz2() void {}
+    ,
+        "tmp.zig:2:21: error: expected tuple or struct, found 'void'",
+        "tmp.zig:5:14: error: unable to perform 'never_inline' call at compile-time",
+        "tmp.zig:8:14: error: unable to perform 'never_tail' call at compile-time",
+        "tmp.zig:11:5: error: no-inline call of inline function",
+        "tmp.zig:15:43: error: unable to evaluate constant expression",
+    );
+
+    cases.add(
         \\export async fn foo() void {}
     , "tmp.zig:1:1: error: exported function cannot be async");
 
@@ -14,13 +44,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.addCase(x: {
-        var tc = cases.create("@newStackCall on unsupported target",
+        var tc = cases.create("call with new stack on unsupported target",
+            \\var buf: [10]u8 align(16) = undefined;
             \\export fn entry() void {
-            \\    var buf: [10]u8 align(16) = undefined;
-            \\    @newStackCall(&buf, foo);
+            \\    @call(.{.stack = &buf}, foo, .{});
             \\}
             \\fn foo() void {}
-        , "tmp.zig:3:5: error: target arch 'wasm32' does not support @newStackCall");
+        , "tmp.zig:3:5: error: target arch 'wasm32' does not support calling with a new stack");
         tc.target = tests.Target{
             .Cross = tests.CrossTarget{
                 .arch = .wasm32,
@@ -1925,17 +1955,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     ,
         "tmp.zig:2:12: error: use of undeclared identifier 'SomeNonexistentType'",
-    );
-
-    cases.add(
-        "@noInlineCall on an inline function",
-        \\inline fn foo() void {}
-        \\
-        \\export fn entry() void {
-        \\    @noInlineCall(foo);
-        \\}
-    ,
-        "tmp.zig:4:5: error: no-inline call of inline function",
     );
 
     cases.add(

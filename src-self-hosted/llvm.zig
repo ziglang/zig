@@ -260,10 +260,12 @@ pub const X86StdcallCallConv = c.LLVMX86StdcallCallConv;
 pub const X86FastcallCallConv = c.LLVMX86FastcallCallConv;
 pub const CallConv = c.LLVMCallConv;
 
-pub const FnInline = extern enum {
+pub const CallAttr = extern enum {
     Auto,
-    Always,
-    Never,
+    NeverTail,
+    NeverInline,
+    AlwaysTail,
+    AlwaysInline,
 };
 
 fn removeNullability(comptime T: type) type {
@@ -286,6 +288,6 @@ extern fn ZigLLVMTargetMachineEmitToFile(
 ) bool;
 
 pub const BuildCall = ZigLLVMBuildCall;
-extern fn ZigLLVMBuildCall(B: *Builder, Fn: *Value, Args: [*]*Value, NumArgs: c_uint, CC: c_uint, fn_inline: FnInline, Name: [*:0]const u8) ?*Value;
+extern fn ZigLLVMBuildCall(B: *Builder, Fn: *Value, Args: [*]*Value, NumArgs: c_uint, CC: c_uint, fn_inline: CallAttr, Name: [*:0]const u8) ?*Value;
 
 pub const PrivateLinkage = c.LLVMLinkage.LLVMPrivateLinkage;

@@ -6839,6 +6839,99 @@ async fn func(y: *i32) void {
       </p>
       {#header_close#}
 
+      {#header_open|@call#}
+      <pre>{#syntax#}@call(options: std.builtin.CallOptions, function: var, args: var) var{#endsyntax#}</pre>
+      <p>
+      Calls a function, in the same way that invoking an expression with parentheses does:
+      </p>
+      {#code_begin|test|call#}
+const assert = @import("std").debug.assert;
+
+test "noinline function call" {
+    assert(@call(.{}, add, .{3, 9}) == 12);
+}
+
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+      {#code_end#}
+      <p>
+      {#syntax#}@call{#endsyntax#} allows more flexibility than normal function call syntax does. The
+      {#syntax#}CallOptions{#endsyntax#} struct is reproduced here:
+      </p>
+      {#code_begin|syntax#}
+pub const CallOptions = struct {
+    modifier: Modifier = .auto,
+    stack: ?[]align(std.Target.stack_align) u8 = null,
+
+    pub const Modifier = enum {
+        /// Equivalent to function call syntax.
+        auto,
+
+        /// Prevents tail call optimization. This guarantees that the return
+        /// address will point to the callsite, as opposed to the callsite's
+        /// callsite. If the call is otherwise required to be tail-called
+        /// or inlined, a compile error is emitted instead.
+        never_tail,
+
+        /// Guarantees that the call will not be inlined. If the call is
+        /// otherwise required to be inlined, a compile error is emitted instead.
+        never_inline,
+
+        /// Asserts that the function call will not suspend. This allows a
+        /// non-async function to call an async function.
+        no_async,
+
+        /// Guarantees that the call will be generated with tail call optimization.
+        /// If this is not possible, a compile error is emitted instead.
+        always_tail,
+
+        /// Guarantees that the call will inlined at the callsite.
+        /// If this is not possible, a compile error is emitted instead.
+        always_inline,
+
+        /// Evaluates the call at compile-time. If the call cannot be completed at
+        /// compile-time, a compile error is emitted instead.
+        compile_time,
+    };
+};
+      {#code_end#}
+
+      {#header_open|Calling with a New Stack#}
+      <p>
+      When the {#syntax#}stack{#endsyntax#} option is provided, instead of using the same stack as the caller, the function uses the provided stack.
+      </p>
+      {#code_begin|test|new_stack_call#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+var new_stack_bytes: [1024]u8 align(16) = undefined;
+
+test "calling a function with a new stack" {
+    const arg = 1234;
+
+    const a = @call(.{.stack = new_stack_bytes[0..512]}, targetFunction, .{arg});
+    const b = @call(.{.stack = new_stack_bytes[512..]}, targetFunction, .{arg});
+    _ = targetFunction(arg);
+
+    assert(arg == 1234);
+    assert(a < b);
+}
+
+fn targetFunction(x: i32) usize {
+    assert(x == 1234);
+
+    var local_variable: i32 = 42;
+    const ptr = &local_variable;
+    ptr.* += 1;
+
+    assert(local_variable == 43);
+    return @ptrToInt(ptr);
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_close#}
+
       {#header_open|@cDefine#}
       <pre>{#syntax#}@cDefine(comptime name: []u8, value){#endsyntax#}</pre>
       <p>
@@ -7424,27 +7517,6 @@ test "@hasDecl" {
       {#see_also|Compile Variables|@embedFile#}
       {#header_close#}
 
-      {#header_open|@inlineCall#}
-      <pre>{#syntax#}@inlineCall(function: X, args: ...) Y{#endsyntax#}</pre>
-      <p>
-      This calls a function, in the same way that invoking an expression with parentheses does:
-      </p>
-      {#code_begin|test#}
-const assert = @import("std").debug.assert;
-
-test "inline function call" {
-    assert(@inlineCall(add, 3, 9) == 12);
-}
-
-fn add(a: i32, b: i32) i32 { return a + b; }
-      {#code_end#}
-      <p>
-      Unlike a normal function call, however, {#syntax#}@inlineCall{#endsyntax#} guarantees that the call
-      will be inlined. If the call cannot be inlined, a compile error is emitted.
-      </p>
-      {#see_also|@noInlineCall#}
-      {#header_close#}
-
       {#header_open|@intCast#}
       <pre>{#syntax#}@intCast(comptime DestType: type, int: var) DestType{#endsyntax#}</pre>
       <p>
@@ -7600,71 +7672,6 @@ mem.set(u8, dest, c);{#endsyntax#}</pre>
           stores the overflowed bits in {#syntax#}result{#endsyntax#} and returns {#syntax#}true{#endsyntax#}.
                   If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
       </p>
-      {#header_close#}
-
-      {#header_open|@newStackCall#}
-      <pre>{#syntax#}@newStackCall(new_stack: []align(target_stack_align) u8, function: var, args: ...) var{#endsyntax#}</pre>
-      <p>
-      This calls a function, in the same way that invoking an expression with parentheses does. However,
-      instead of using the same stack as the caller, the function uses the stack provided in the {#syntax#}new_stack{#endsyntax#}
-      parameter.
-      </p>
-      <p>
-      The new stack must be aligned to {#syntax#}target_stack_align{#endsyntax#} bytes. This is a target-specific
-      number. A safe value that will work on all targets is {#syntax#}16{#endsyntax#}. This value can
-      also be obtained by using {#link|@sizeOf#} on the {#link|@Frame#} type of {#link|Async Functions#}.
-      </p>
-      {#code_begin|test#}
-const std = @import("std");
-const assert = std.debug.assert;
-
-var new_stack_bytes: [1024]u8 align(16) = undefined;
-
-test "calling a function with a new stack" {
-    const arg = 1234;
-
-    const a = @newStackCall(new_stack_bytes[0..512], targetFunction, arg);
-    const b = @newStackCall(new_stack_bytes[512..], targetFunction, arg);
-    _ = targetFunction(arg);
-
-    assert(arg == 1234);
-    assert(a < b);
-}
-
-fn targetFunction(x: i32) usize {
-    assert(x == 1234);
-
-    var local_variable: i32 = 42;
-    const ptr = &local_variable;
-    ptr.* += 1;
-
-    assert(local_variable == 43);
-    return @ptrToInt(ptr);
-}
-      {#code_end#}
-      {#header_close#}
-
-      {#header_open|@noInlineCall#}
-      <pre>{#syntax#}@noInlineCall(function: var, args: ...) var{#endsyntax#}</pre>
-      <p>
-      This calls a function, in the same way that invoking an expression with parentheses does:
-      </p>
-      {#code_begin|test#}
-const assert = @import("std").debug.assert;
-
-test "noinline function call" {
-    assert(@noInlineCall(add, 3, 9) == 12);
-}
-
-fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
-      {#code_end#}
-      <p>
-      Unlike a normal function call, however, {#syntax#}@noInlineCall{#endsyntax#} guarantees that the call
-      will not be inlined. If the call must be inlined, a compile error is emitted.
-      </p>
-      {#see_also|@inlineCall#}
       {#header_close#}
 
       {#header_open|@OpaqueType#}

@@ -594,8 +594,11 @@ ZigType *get_pointer_to_type_extra2(CodeGen *g, ZigType *child_type, bool is_con
             break;
     }
 
-
-    if (type_is_resolved(child_type, ResolveStatusZeroBitsKnown)) {
+    if (inferred_struct_field != nullptr) {
+        entry->abi_size = g->builtin_types.entry_usize->abi_size;
+        entry->size_in_bits = g->builtin_types.entry_usize->size_in_bits;
+        entry->abi_align = g->builtin_types.entry_usize->abi_align;
+    } else if (type_is_resolved(child_type, ResolveStatusZeroBitsKnown)) {
         if (type_has_bits(child_type)) {
             entry->abi_size = g->builtin_types.entry_usize->abi_size;
             entry->size_in_bits = g->builtin_types.entry_usize->size_in_bits;
@@ -956,10 +959,7 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
 
 ZigType *get_stack_trace_type(CodeGen *g) {
     if (g->stack_trace_type == nullptr) {
-        ZigValue *stack_trace_type_val = get_builtin_value(g, "StackTrace");
-        assert(stack_trace_type_val->type->id == ZigTypeIdMetaType);
-
-        g->stack_trace_type = stack_trace_type_val->data.x_type;
+        g->stack_trace_type = get_builtin_type(g, "StackTrace");
         assertNoError(type_resolve(g, g->stack_trace_type, ResolveStatusZeroBitsKnown));
     }
     return g->stack_trace_type;
@@ -2717,10 +2717,10 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
         src_assert(struct_type->data.structure.fields == nullptr, decl_node);
         struct_type->data.structure.fields = alloc_type_struct_fields(field_count);
     } else if (decl_node->type == NodeTypeContainerInitExpr) {
-        src_assert(struct_type->data.structure.is_inferred, decl_node);
-        src_assert(struct_type->data.structure.fields != nullptr, decl_node);
-
         field_count = struct_type->data.structure.src_field_count;
+
+        src_assert(struct_type->data.structure.is_inferred, decl_node);
+        src_assert(field_count == 0 || struct_type->data.structure.fields != nullptr, decl_node);
     } else zig_unreachable();
 
     struct_type->data.structure.fields_by_name.init(field_count);
@@ -7529,6 +7529,12 @@ ZigValue *get_builtin_value(CodeGen *codegen, const char *name) {
     ZigValue *var_value = tld_var->var->const_value;
     assert(var_value != nullptr);
     return var_value;
+}
+
+ZigType *get_builtin_type(CodeGen *codegen, const char *name) {
+    ZigValue *type_val = get_builtin_value(codegen, name);
+    assert(type_val->type->id == ZigTypeIdMetaType);
+    return type_val->data.x_type;
 }
 
 bool type_is_global_error_set(ZigType *err_set_type) {

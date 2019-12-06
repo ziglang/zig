@@ -197,7 +197,7 @@ pub const CityHash64 = struct {
     }
 
     fn hashLen16(u: u64, v: u64) u64 {
-        return @inlineCall(hash128To64, u, v);
+        return @call(.{ .modifier = .always_inline }, hash128To64, .{ u, v });
     }
 
     fn hashLen16Mul(low: u64, high: u64, mul: u64) u64 {
@@ -210,7 +210,7 @@ pub const CityHash64 = struct {
     }
 
     fn hash128To64(low: u64, high: u64) u64 {
-        return @inlineCall(hashLen16Mul, low, high, 0x9ddfea08eb382d69);
+        return @call(.{ .modifier = .always_inline }, hashLen16Mul, .{ low, high, 0x9ddfea08eb382d69 });
     }
 
     fn hashLen0To16(str: []const u8) u64 {
@@ -291,7 +291,14 @@ pub const CityHash64 = struct {
     }
 
     fn weakHashLen32WithSeeds(ptr: [*]const u8, a: u64, b: u64) WeakPair {
-        return @inlineCall(weakHashLen32WithSeedsHelper, fetch64(ptr), fetch64(ptr + 8), fetch64(ptr + 16), fetch64(ptr + 24), a, b);
+        return @call(.{ .modifier = .always_inline }, weakHashLen32WithSeedsHelper, .{
+            fetch64(ptr),
+            fetch64(ptr + 8),
+            fetch64(ptr + 16),
+            fetch64(ptr + 24),
+            a,
+            b,
+        });
     }
 
     pub fn hash(str: []const u8) u64 {
@@ -339,7 +346,7 @@ pub const CityHash64 = struct {
     }
 
     pub fn hashWithSeed(str: []const u8, seed: u64) u64 {
-        return @inlineCall(Self.hashWithSeeds, str, k2, seed);
+        return @call(.{ .modifier = .always_inline }, Self.hashWithSeeds, .{ str, k2, seed });
     }
 
     pub fn hashWithSeeds(str: []const u8, seed0: u64, seed1: u64) u64 {

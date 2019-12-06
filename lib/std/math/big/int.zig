@@ -811,7 +811,7 @@ pub const Int = struct {
 
         var j: usize = 0;
         while (j < a_lo.len) : (j += 1) {
-            a_lo[j] = @inlineCall(addMulLimbWithCarry, a_lo[j], y[j], xi, &carry);
+            a_lo[j] = @call(.{ .modifier = .always_inline }, addMulLimbWithCarry, .{ a_lo[j], y[j], xi, &carry });
         }
 
         j = 0;
@@ -1214,7 +1214,11 @@ pub const Int = struct {
             const dst_i = src_i + limb_shift;
 
             const src_digit = a[src_i];
-            r[dst_i] = carry | @inlineCall(math.shr, Limb, src_digit, Limb.bit_count - @intCast(Limb, interior_limb_shift));
+            r[dst_i] = carry | @call(.{ .modifier = .always_inline }, math.shr, .{
+                Limb,
+                src_digit,
+                Limb.bit_count - @intCast(Limb, interior_limb_shift),
+            });
             carry = (src_digit << interior_limb_shift);
         }
 
@@ -1254,7 +1258,11 @@ pub const Int = struct {
 
             const src_digit = a[src_i];
             r[dst_i] = carry | (src_digit >> interior_limb_shift);
-            carry = @inlineCall(math.shl, Limb, src_digit, Limb.bit_count - @intCast(Limb, interior_limb_shift));
+            carry = @call(.{ .modifier = .always_inline }, math.shl, .{
+                Limb,
+                src_digit,
+                Limb.bit_count - @intCast(Limb, interior_limb_shift),
+            });
         }
     }
 

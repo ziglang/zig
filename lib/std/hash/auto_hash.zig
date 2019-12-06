@@ -92,7 +92,7 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
 
         // Help the optimizer see that hashing an int is easy by inlining!
         // TODO Check if the situation is better after #561 is resolved.
-        .Int => @inlineCall(hasher.update, std.mem.asBytes(&key)),
+        .Int => @call(.{ .modifier = .always_inline }, hasher.update, .{std.mem.asBytes(&key)}),
 
         .Float => |info| hash(hasher, @bitCast(@IntType(false, info.bits), key), strat),
 
@@ -101,7 +101,7 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
         .ErrorSet => hash(hasher, @errorToInt(key), strat),
         .AnyFrame, .Fn => hash(hasher, @ptrToInt(key), strat),
 
-        .Pointer => @inlineCall(hashPointer, hasher, key, strat),
+        .Pointer => @call(.{ .modifier = .always_inline }, hashPointer, .{ hasher, key, strat }),
 
         .Optional => if (key) |k| hash(hasher, k, strat),
 

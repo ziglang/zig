@@ -8,7 +8,7 @@ pub const Murmur2_32 = struct {
     const Self = @This();
 
     pub fn hash(str: []const u8) u32 {
-        return @inlineCall(Self.hashWithSeed, str, default_seed);
+        return @call(.{ .modifier = .always_inline }, Self.hashWithSeed, .{ str, default_seed });
     }
 
     pub fn hashWithSeed(str: []const u8, seed: u32) u32 {
@@ -44,7 +44,7 @@ pub const Murmur2_32 = struct {
     }
 
     pub fn hashUint32(v: u32) u32 {
-        return @inlineCall(Self.hashUint32WithSeed, v, default_seed);
+        return @call(.{ .modifier = .always_inline }, Self.hashUint32WithSeed, .{ v, default_seed });
     }
 
     pub fn hashUint32WithSeed(v: u32, seed: u32) u32 {
@@ -64,7 +64,7 @@ pub const Murmur2_32 = struct {
     }
 
     pub fn hashUint64(v: u64) u32 {
-        return @inlineCall(Self.hashUint64WithSeed, v, default_seed);
+        return @call(.{ .modifier = .always_inline }, Self.hashUint64WithSeed, .{ v, default_seed });
     }
 
     pub fn hashUint64WithSeed(v: u64, seed: u32) u32 {
@@ -93,7 +93,7 @@ pub const Murmur2_64 = struct {
     const Self = @This();
 
     pub fn hash(str: []const u8) u64 {
-        return @inlineCall(Self.hashWithSeed, str, default_seed);
+        return @call(.{ .modifier = .always_inline }, Self.hashWithSeed, .{ str, default_seed });
     }
 
     pub fn hashWithSeed(str: []const u8, seed: u64) u64 {
@@ -127,7 +127,7 @@ pub const Murmur2_64 = struct {
     }
 
     pub fn hashUint32(v: u32) u64 {
-        return @inlineCall(Self.hashUint32WithSeed, v, default_seed);
+        return @call(.{ .modifier = .always_inline }, Self.hashUint32WithSeed, .{ v, default_seed });
     }
 
     pub fn hashUint32WithSeed(v: u32, seed: u32) u64 {
@@ -144,7 +144,7 @@ pub const Murmur2_64 = struct {
     }
 
     pub fn hashUint64(v: u64) u64 {
-        return @inlineCall(Self.hashUint64WithSeed, v, default_seed);
+        return @call(.{ .modifier = .always_inline }, Self.hashUint64WithSeed, .{ v, default_seed });
     }
 
     pub fn hashUint64WithSeed(v: u64, seed: u32) u64 {
@@ -172,7 +172,7 @@ pub const Murmur3_32 = struct {
     }
 
     pub fn hash(str: []const u8) u32 {
-        return @inlineCall(Self.hashWithSeed, str, default_seed);
+        return @call(.{ .modifier = .always_inline }, Self.hashWithSeed, .{ str, default_seed });
     }
 
     pub fn hashWithSeed(str: []const u8, seed: u32) u32 {
@@ -220,7 +220,7 @@ pub const Murmur3_32 = struct {
     }
 
     pub fn hashUint32(v: u32) u32 {
-        return @inlineCall(Self.hashUint32WithSeed, v, default_seed);
+        return @call(.{ .modifier = .always_inline }, Self.hashUint32WithSeed, .{ v, default_seed });
     }
 
     pub fn hashUint32WithSeed(v: u32, seed: u32) u32 {
@@ -246,7 +246,7 @@ pub const Murmur3_32 = struct {
     }
 
     pub fn hashUint64(v: u64) u32 {
-        return @inlineCall(Self.hashUint64WithSeed, v, default_seed);
+        return @call(.{ .modifier = .always_inline }, Self.hashUint64WithSeed, .{ v, default_seed });
     }
 
     pub fn hashUint64WithSeed(v: u64, seed: u32) u32 {

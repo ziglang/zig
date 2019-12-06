@@ -92,8 +92,12 @@ const char* ir_instruction_type_str(IrInstructionId id) {
             return "VarPtr";
         case IrInstructionIdReturnPtr:
             return "ReturnPtr";
+        case IrInstructionIdCallExtra:
+            return "CallExtra";
         case IrInstructionIdCallSrc:
             return "CallSrc";
+        case IrInstructionIdCallSrcArgs:
+            return "CallSrcArgs";
         case IrInstructionIdCallGen:
             return "CallGen";
         case IrInstructionIdConst:
@@ -636,15 +640,57 @@ static void ir_print_result_loc(IrPrint *irp, ResultLoc *result_loc) {
     zig_unreachable();
 }
 
+static void ir_print_call_extra(IrPrint *irp, IrInstructionCallExtra *instruction) {
+    fprintf(irp->f, "opts=");
+    ir_print_other_instruction(irp, instruction->options);
+    fprintf(irp->f, ", fn=");
+    ir_print_other_instruction(irp, instruction->fn_ref);
+    fprintf(irp->f, ", args=");
+    ir_print_other_instruction(irp, instruction->args);
+    fprintf(irp->f, ", result=");
+    ir_print_result_loc(irp, instruction->result_loc);
+}
+
+static void ir_print_call_src_args(IrPrint *irp, IrInstructionCallSrcArgs *instruction) {
+    fprintf(irp->f, "opts=");
+    ir_print_other_instruction(irp, instruction->options);
+    fprintf(irp->f, ", fn=");
+    ir_print_other_instruction(irp, instruction->fn_ref);
+    fprintf(irp->f, ", args=(");
+    for (size_t i = 0; i < instruction->args_len; i += 1) {
+        IrInstruction *arg = instruction->args_ptr[i];
+        if (i != 0)
+            fprintf(irp->f, ", ");
+        ir_print_other_instruction(irp, arg);
+    }
+    fprintf(irp->f, "), result=");
+    ir_print_result_loc(irp, instruction->result_loc);
+}
+
 static void ir_print_call_src(IrPrint *irp, IrInstructionCallSrc *call_instruction) {
     switch (call_instruction->modifier) {
         case CallModifierNone:
             break;
+        case CallModifierNoAsync:
+            fprintf(irp->f, "noasync ");
+            break;
         case CallModifierAsync:
             fprintf(irp->f, "async ");
             break;
-        case CallModifierNoAsync:
-            fprintf(irp->f, "noasync ");
+        case CallModifierNeverTail:
+            fprintf(irp->f, "notail ");
+            break;
+        case CallModifierNeverInline:
+            fprintf(irp->f, "noinline ");
+            break;
+        case CallModifierAlwaysTail:
+            fprintf(irp->f, "tail ");
+            break;
+        case CallModifierAlwaysInline:
+            fprintf(irp->f, "inline ");
+            break;
+        case CallModifierCompileTime:
+            fprintf(irp->f, "comptime ");
             break;
         case CallModifierBuiltin:
             zig_unreachable();
@@ -670,11 +716,26 @@ static void ir_print_call_gen(IrPrint *irp, IrInstructionCallGen *call_instructi
     switch (call_instruction->modifier) {
         case CallModifierNone:
             break;
+        case CallModifierNoAsync:
+            fprintf(irp->f, "noasync ");
+            break;
         case CallModifierAsync:
             fprintf(irp->f, "async ");
             break;
-        case CallModifierNoAsync:
-            fprintf(irp->f, "noasync ");
+        case CallModifierNeverTail:
+            fprintf(irp->f, "notail ");
+            break;
+        case CallModifierNeverInline:
+            fprintf(irp->f, "noinline ");
+            break;
+        case CallModifierAlwaysTail:
+            fprintf(irp->f, "tail ");
+            break;
+        case CallModifierAlwaysInline:
+            fprintf(irp->f, "inline ");
+            break;
+        case CallModifierCompileTime:
+            fprintf(irp->f, "comptime ");
             break;
         case CallModifierBuiltin:
             zig_unreachable();
@@ -2082,8 +2143,14 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
         case IrInstructionIdCast:
             ir_print_cast(irp, (IrInstructionCast *)instruction);
             break;
+        case IrInstructionIdCallExtra:
+            ir_print_call_extra(irp, (IrInstructionCallExtra *)instruction);
+            break;
         case IrInstructionIdCallSrc:
             ir_print_call_src(irp, (IrInstructionCallSrc *)instruction);
+            break;
+        case IrInstructionIdCallSrcArgs:
+            ir_print_call_src_args(irp, (IrInstructionCallSrcArgs *)instruction);
             break;
         case IrInstructionIdCallGen:
             ir_print_call_gen(irp, (IrInstructionCallGen *)instruction);

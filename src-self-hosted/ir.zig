@@ -321,7 +321,7 @@ pub const Inst = struct {
             }
 
             const llvm_cc = llvm.CCallConv;
-            const fn_inline = llvm.FnInline.Auto;
+            const call_attr = llvm.CallAttr.Auto;
 
             return llvm.BuildCall(
                 ofile.builder,
@@ -329,7 +329,7 @@ pub const Inst = struct {
                 args.ptr,
                 @intCast(c_uint, args.len),
                 llvm_cc,
-                fn_inline,
+                call_attr,
                 "",
             ) orelse error.OutOfMemory;
         }
