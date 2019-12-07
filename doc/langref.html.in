@@ -8363,6 +8363,7 @@ pub const TypeInfo = union(TypeId) {
         alignment: comptime_int,
         child: type,
         is_allowzero: bool,
+        sentinel: var,
 
         pub const Size = enum {
             One,
@@ -8375,6 +8376,7 @@ pub const TypeInfo = union(TypeId) {
     pub const Array = struct {
         len: comptime_int,
         child: type,
+        sentinel: var,
     };
 
     pub const ContainerLayout = enum {
@@ -8504,6 +8506,24 @@ pub const TypeInfo = union(TypeId) {
       For {#link|structs|struct#}, {#link|unions|union#}, {#link|enums|enum#}, and
       {#link|error sets|Error Set Type#}, the fields are guaranteed to be in the same
       order as declared. For declarations, the order is unspecified.
+      </p>
+      <p>
+      Note that the {#syntax#}sentinel{#endsyntax#} field in {#syntax#}TypeInfo.Pointer{#endsyntax#}
+      and {#syntax#}TypeInfo.Array{#endsyntax#} is of type {#syntax#}var{#endsyntax#} rather
+      than {#syntax#}?child{#endsyntax#}. {#syntax#}TypeInfo.Pointer{#endsyntax#}
+      and {#syntax#}TypeInfo.Array{#endsyntax#} can be constructed with any comptime value for the
+      {#syntax#}sentinel{#endsyntax#} field.  However, the {#syntax#}@Type{#endsyntax#} builtin will
+      only accept the TypeInfo struct if the sentinel value is implicitly convertible to
+      {#syntax#}child{#endsyntax#}. Furthermore, any {#syntax#}TypeInfo.Pointer{#endsyntax#}
+      or {#syntax#}TypeInfo.Array{#endsyntax#} retreived from {#syntax#}@typeInfo{#endsyntax#} will
+      guarantee that {#syntax#}@typeOf(sentinel){#endsyntax#} is equal to
+      {#syntax#}?child{#endsyntax#}.  For example, {#syntax#}@typeOf(sentinel){#endsyntax#} for a
+      {#syntax#}TypeInfo.Pointer{#endsyntax#} constructed with
+      {#syntax#}TypeInfo.Pointer { ... .sentinel = 0; ... }{#endsyntax#} would be
+      {#syntax#}comptime_int{#endsyntax#} rather than {#syntax#}?u8{#endsyntax#}.  However, if you
+      passed that {#syntax#}TypeInfo.Pointer{#endsyntax#} struct to
+      {#syntax#}@typeInfo(@Type(myPointerInfo)){#endsyntax#} then {#syntax#}@typeOf(sentinel){#endsyntax#}
+      would be {#syntax#}?u8{#endsyntax#}.
       </p>
       {#header_close#}
 
