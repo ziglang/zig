@@ -321,7 +321,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
 
     var header_stack_size: usize = 0;
     var last_action = Action.Open;
-    var last_columns: ?u8 = null;
+    var last_columns: bool = false;
 
     var toc_buf = try std.Buffer.initSize(allocator, 0);
     defer toc_buf.deinit();
@@ -362,7 +362,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                     _ = try eatToken(tokenizer, Token.Id.Separator);
                     const content_token = try eatToken(tokenizer, Token.Id.TagContent);
                     const content = tokenizer.buffer[content_token.start..content_token.end];
-                    var columns: ?u8 = null;
+                    var columns: bool = false;
                     while (true) {
                         const bracket_tok = tokenizer.next();
                         switch (bracket_tok.id) {
@@ -371,7 +371,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             .TagContent => {
                                 const param = tokenizer.buffer[bracket_tok.start..bracket_tok.end];
                                 if (mem.eql(u8, param, "3col")) {
-                                    columns = 3;
+                                    columns = true;
                                 } else {
                                     return parseError(tokenizer, bracket_tok, "unrecognized header_open param: {}", param);
                                 }
@@ -398,10 +398,10 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                     if (last_action == Action.Open) {
                         try toc.writeByte('\n');
                         try toc.writeByteNTimes(' ', header_stack_size * 4);
-                        if (last_columns) |n| {
-                            try toc.print("<ul style=\"columns: {}\">\n", n);
+                        if (last_columns) {
+                            try toc.print("<ul class=\"toc col3\">\n");
                         } else {
-                            try toc.write("<ul>\n");
+                            try toc.write("<ul class=\"toc\">\n");
                         }
                     } else {
                         last_action = Action.Open;

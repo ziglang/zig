@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Documentation - The Zig Programming Language</title>
     <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg=="/>
     <style>
@@ -95,6 +96,22 @@
       }
       h1:hover > a.hdr, h2:hover > a.hdr, h3:hover > a.hdr, h4:hover > a.hdr, h5:hover > a.hdr {
         visibility: visible;
+      }
+
+      ul.col3 {
+        columns: 3;
+      }
+
+      @media (max-width: 480px) {
+        #contents {
+          overflow-wrap: break-word;
+        }
+        ul.col3 {
+          columns: 2;
+        }
+        ul.toc {
+          padding-inline-start: 30px;
+        }
       }
 
       @media (prefers-color-scheme: dark) {
@@ -7308,7 +7325,7 @@ export fn @"A function name that is a complete sentence."() void {}
       <p>
       When looking at the resulting object, you can see the symbol is used verbatim:
       </p>
-      <pre>00000000000001f0 T A function name that is a complete sentence.</pre>
+      <code>00000000000001f0 T A function name that is a complete sentence.</code>
       {#see_also|Exporting a C Library#}
       {#header_close#}
 
