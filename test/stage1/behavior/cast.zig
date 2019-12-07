@@ -710,3 +710,24 @@ test "return u8 coercing into ?u32 return type" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "peer result null and comptime_int" {
+    const S = struct {
+        fn blah(n: i32) ?i32 {
+            if (n == 0) {
+                return null;
+            } else if (n < 0) {
+                return -1;
+            } else {
+                return 1;
+            }
+        }
+    };
+
+    expect(S.blah(0) == null);
+    comptime expect(S.blah(0) == null);
+    expect(S.blah(10).? == 1);
+    comptime expect(S.blah(10).? == 1);
+    expect(S.blah(-10).? == -1);
+    comptime expect(S.blah(-10).? == -1);
+}

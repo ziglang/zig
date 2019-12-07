@@ -11438,13 +11438,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
             }
         }
     } else if (any_are_null && prev_inst->value->type->id != ZigTypeIdNull) {
-        if (prev_inst->value->type->id == ZigTypeIdComptimeInt ||
-            prev_inst->value->type->id == ZigTypeIdComptimeFloat)
-        {
-            ir_add_error_node(ira, source_node,
-                buf_sprintf("unable to make maybe out of number literal"));
-            return ira->codegen->builtin_types.entry_invalid;
-        } else if (prev_inst->value->type->id == ZigTypeIdOptional) {
+        if (prev_inst->value->type->id == ZigTypeIdOptional) {
             return prev_inst->value->type;
         } else {
             if ((err = type_resolve(ira->codegen, prev_inst->value->type, ResolveStatusSizeKnown)))
