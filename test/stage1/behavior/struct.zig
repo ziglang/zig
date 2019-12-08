@@ -813,3 +813,12 @@ test "anon struct literal field value initialized with fn call" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "self-referencing struct via array member" {
+    const T = struct {
+        children: [1]*@This(),
+    };
+    var x: T = undefined;
+    x = T{ .children = .{&x} };
+    expect(x.children[0] == &x);
+}

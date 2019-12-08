@@ -1147,6 +1147,21 @@ Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent
                         parent_type_val, is_zero_bits);
             }
         }
+        case LazyValueIdArrayType: {
+            LazyValueArrayType *lazy_array_type =
+                reinterpret_cast<LazyValueArrayType *>(type_val->data.x_lazy);
+
+            if (lazy_array_type->length < 1) {
+                *is_zero_bits = true;
+                return ErrorNone;
+            }
+
+            if ((err = type_val_resolve_zero_bits(g, lazy_array_type->elem_type->value,
+                                                  parent_type, nullptr, is_zero_bits)))
+                return err;
+
+            return ErrorNone;
+        }
         case LazyValueIdOptType:
         case LazyValueIdSliceType:
         case LazyValueIdErrUnionType:
@@ -1181,6 +1196,7 @@ Error type_val_resolve_is_opaque_type(CodeGen *g, ZigValue *type_val, bool *is_o
         case LazyValueIdFnType:
         case LazyValueIdOptType:
         case LazyValueIdErrUnionType:
+        case LazyValueIdArrayType:
             *is_opaque_type = false;
             return ErrorNone;
     }
@@ -1207,6 +1223,10 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ZigValue *type
         case LazyValueIdOptType: {
             LazyValueOptType *lazy_opt_type = reinterpret_cast<LazyValueOptType *>(type_val->data.x_lazy);
             return type_val_resolve_requires_comptime(g, lazy_opt_type->payload_type->value);
+        }
+        case LazyValueIdArrayType: {
+            LazyValueArrayType *lazy_array_type = reinterpret_cast<LazyValueArrayType *>(type_val->data.x_lazy);
+            return type_val_resolve_requires_comptime(g, lazy_array_type->elem_type->value);
         }
         case LazyValueIdFnType: {
             LazyValueFnType *lazy_fn_type = reinterpret_cast<LazyValueFnType *>(type_val->data.x_lazy);
@@ -1305,6 +1325,7 @@ start_over:
             return ErrorNone;
         case LazyValueIdOptType:
         case LazyValueIdErrUnionType:
+        case LazyValueIdArrayType:
             if ((err = ir_resolve_lazy(g, source_node, type_val)))
                 return err;
             goto start_over;
@@ -1340,6 +1361,11 @@ Error type_val_resolve_abi_align(CodeGen *g, ZigValue *type_val, uint32_t *abi_a
             LazyValueOptType *lazy_opt_type = reinterpret_cast<LazyValueOptType *>(type_val->data.x_lazy);
             return type_val_resolve_abi_align(g, lazy_opt_type->payload_type->value, abi_align);
         }
+        case LazyValueIdArrayType: {
+            LazyValueArrayType *lazy_array_type =
+                reinterpret_cast<LazyValueArrayType *>(type_val->data.x_lazy);
+            return type_val_resolve_abi_align(g, lazy_array_type->elem_type->value, abi_align);
+        }
         case LazyValueIdErrUnionType: {
             LazyValueErrUnionType *lazy_err_union_type =
                 reinterpret_cast<LazyValueErrUnionType *>(type_val->data.x_lazy);
@@ -1370,6 +1396,13 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, ZigV
         case LazyValueIdOptType: // it has the optional bit
         case LazyValueIdFnType:
             return OnePossibleValueNo;
+        case LazyValueIdArrayType: {
+            LazyValueArrayType *lazy_array_type =
+                reinterpret_cast<LazyValueArrayType *>(type_val->data.x_lazy);
+            if (lazy_array_type->length < 1)
+                return OnePossibleValueYes;
+            return type_val_resolve_has_one_possible_value(g, lazy_array_type->elem_type->value);
+        }
         case LazyValueIdPtrType: {
             Error err;
             bool zero_bits;

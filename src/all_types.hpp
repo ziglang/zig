@@ -322,6 +322,7 @@ enum LazyValueId {
     LazyValueIdSliceType,
     LazyValueIdFnType,
     LazyValueIdErrUnionType,
+    LazyValueIdArrayType,
 };
 
 struct LazyValue {
@@ -353,6 +354,15 @@ struct LazyValueSliceType {
     bool is_const;
     bool is_volatile;
     bool is_allowzero;
+};
+
+struct LazyValueArrayType {
+    LazyValue base;
+
+    IrAnalyze *ira;
+    IrInstruction *sentinel; // can be null
+    IrInstruction *elem_type;
+    uint64_t length;
 };
 
 struct LazyValuePtrType {
