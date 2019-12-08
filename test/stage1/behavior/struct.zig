@@ -799,3 +799,17 @@ test "comptime struct field" {
     var foo: T = undefined;
     comptime expect(foo.b == 1234);
 }
+
+test "anon struct literal field value initialized with fn call" {
+    const S = struct {
+        fn doTheTest() void {
+            var x = .{foo()};
+            expectEqualSlices(u8, x[0], "hi");
+        }
+        fn foo() []const u8 {
+            return "hi";
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

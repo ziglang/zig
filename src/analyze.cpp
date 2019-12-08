@@ -4165,13 +4165,22 @@ TypeEnumField *find_enum_type_field(ZigType *enum_type, Buf *name) {
 
 TypeStructField *find_struct_type_field(ZigType *type_entry, Buf *name) {
     assert(type_entry->id == ZigTypeIdStruct);
-    assert(type_is_resolved(type_entry, ResolveStatusZeroBitsKnown));
-    if (type_entry->data.structure.src_field_count == 0)
+    if (type_entry->data.structure.resolve_status == ResolveStatusBeingInferred) {
+        for (size_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
+            TypeStructField *field = type_entry->data.structure.fields[i];
+            if (buf_eql_buf(field->name, name))
+                return field;
+        }
         return nullptr;
-    auto entry = type_entry->data.structure.fields_by_name.maybe_get(name);
-    if (entry == nullptr)
-        return nullptr;
-    return entry->value;
+    } else {
+        assert(type_is_resolved(type_entry, ResolveStatusZeroBitsKnown));
+        if (type_entry->data.structure.src_field_count == 0)
+            return nullptr;
+        auto entry = type_entry->data.structure.fields_by_name.maybe_get(name);
+        if (entry == nullptr)
+            return nullptr;
+        return entry->value;
+    }
 }
 
 TypeUnionField *find_union_type_field(ZigType *type_entry, Buf *name) {
