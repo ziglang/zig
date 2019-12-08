@@ -19514,6 +19514,18 @@ static IrInstruction *ir_analyze_container_member_access_inner(IrAnalyze *ira,
     return ira->codegen->invalid_instruction;
 }
 
+static void memoize_field_init_val(CodeGen *codegen, ZigType *container_type, TypeStructField *field) {
+    if (field->init_val != nullptr) return;
+    if (field->decl_node->type != NodeTypeStructField) return;
+    AstNode *init_node = field->decl_node->data.struct_field.value;
+    if (init_node == nullptr) return;
+    // scope is not the scope of the struct init, it's the scope of the struct type decl
+    Scope *analyze_scope = &get_container_scope(container_type)->base;
+    // memoize it
+    field->init_val = analyze_const_value(codegen, analyze_scope, init_node,
+            field->type_entry, nullptr, UndefOk);
+}
+
 static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction *source_instr,
         TypeStructField *field, IrInstruction *struct_ptr, ZigType *struct_type, bool initializing)
 {
@@ -19523,6 +19535,7 @@ static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction 
         return ira->codegen->invalid_instruction;
     if (field->is_comptime) {
         IrInstruction *elem = ir_const(ira, source_instr, field_type);
+        memoize_field_init_val(ira->codegen, struct_type, field);
         copy_const_val(elem->value, field->init_val);
         return ir_get_ref(ira, source_instr, elem, true, false);
     }
@@ -21556,25 +21569,12 @@ static IrInstruction *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruc
 
         // look for a default field value
         TypeStructField *field = container_type->data.structure.fields[i];
+        memoize_field_init_val(ira->codegen, container_type, field);
         if (field->init_val == nullptr) {
-            // it's not memoized. time to go analyze it
-            AstNode *init_node;
-            if (field->decl_node->type == NodeTypeStructField) {
-                init_node = field->decl_node->data.struct_field.value;
-            } else {
-                init_node = nullptr;
-            }
-            if (init_node == nullptr) {
-                ir_add_error_node(ira, instruction->source_node,
-                    buf_sprintf("missing field: '%s'", buf_ptr(container_type->data.structure.fields[i]->name)));
-                any_missing = true;
-                continue;
-            }
-            // scope is not the scope of the struct init, it's the scope of the struct type decl
-            Scope *analyze_scope = &get_container_scope(container_type)->base;
-            // memoize it
-            field->init_val = analyze_const_value(ira->codegen, analyze_scope, init_node,
-                    field->type_entry, nullptr, UndefOk);
+            ir_add_error_node(ira, instruction->source_node,
+                buf_sprintf("missing field: '%s'", buf_ptr(container_type->data.structure.fields[i]->name)));
+            any_missing = true;
+            continue;
         }
         if (type_is_invalid(field->init_val->type))
             return ira->codegen->invalid_instruction;

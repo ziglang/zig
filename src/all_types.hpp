@@ -1006,6 +1006,7 @@ struct AstNodeStructField {
     // populated if the "align(A)" is present
     AstNode *align_expr;
     Buf doc_comments;
+    Token *comptime_token;
 };
 
 struct AstNodeStringLiteral {

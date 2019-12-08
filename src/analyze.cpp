@@ -2736,6 +2736,16 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
             field_node = decl_node->data.container_decl.fields.at(i);
             type_struct_field->name = field_node->data.struct_field.name;
             type_struct_field->decl_node = field_node;
+            if (field_node->data.struct_field.comptime_token != nullptr) {
+                if (field_node->data.struct_field.value == nullptr) {
+                    add_token_error(g, field_node->owner,
+                        field_node->data.struct_field.comptime_token,
+                        buf_sprintf("comptime struct field missing initialization value"));
+                    struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+                    return ErrorSemanticAnalyzeFail;
+                }
+                type_struct_field->is_comptime = true;
+            }
 
             if (field_node->data.struct_field.type == nullptr) {
                 add_node_error(g, field_node, buf_sprintf("struct field missing type"));

@@ -789,3 +789,13 @@ test "struct with var field" {
     expect(pt.x == 1);
     expect(pt.y == 2);
 }
+
+test "comptime struct field" {
+    const T = struct {
+        a: i32,
+        comptime b: i32 = 1234,
+    };
+
+    var foo: T = undefined;
+    comptime expect(foo.b == 1234);
+}
