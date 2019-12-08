@@ -655,6 +655,10 @@ static ZigValue *const_ptr_pointee_unchecked(CodeGen *g, ZigValue *const_val) {
     if (isf != nullptr) {
         TypeStructField *field = find_struct_type_field(isf->inferred_struct_type, isf->field_name);
         assert(field != nullptr);
+        if (field->is_comptime) {
+            assert(field->init_val != nullptr);
+            return field->init_val;
+        }
         assert(const_val->data.x_ptr.special == ConstPtrSpecialRef);
         ZigValue *struct_val = const_val->data.x_ptr.data.ref.pointee;
         return struct_val->data.x_struct.fields[field->src_index];
@@ -17373,6 +17377,13 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
         field->type_val = create_const_type(ira->codegen, field->type_entry);
         field->src_index = old_field_count;
         field->decl_node = uncasted_value->source_node;
+        if (instr_is_comptime(uncasted_value)) {
+            ZigValue *uncasted_val = ir_resolve_const(ira, uncasted_value, UndefOk);
+            field->is_comptime = true;
+            field->init_val = create_const_vals(1);
+            copy_const_val(field->init_val, uncasted_val);
+            return ir_const_void(ira, source_instr);
+        }
 
         ZigType *struct_ptr_type = get_pointer_to_type(ira->codegen, isf->inferred_struct_type, false);
         IrInstruction *casted_ptr;
@@ -19510,6 +19521,11 @@ static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction 
     ZigType *field_type = resolve_struct_field_type(ira->codegen, field);
     if (field_type == nullptr)
         return ira->codegen->invalid_instruction;
+    if (field->is_comptime) {
+        IrInstruction *elem = ir_const(ira, source_instr, field_type);
+        copy_const_val(elem->value, field->init_val);
+        return ir_get_ref(ira, source_instr, elem, true, false);
+    }
     switch (type_has_one_possible_value(ira->codegen, field_type)) {
         case OnePossibleValueInvalid:
             return ira->codegen->invalid_instruction;
@@ -21716,6 +21732,10 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
             for (size_t i = 0; i < const_ptrs.length; i += 1) {
                 IrInstruction *elem_result_loc = const_ptrs.at(i);
                 assert(elem_result_loc->value->special == ConstValSpecialStatic);
+                if (elem_result_loc->value->type->data.pointer.inferred_struct_field != nullptr) {
+                    // This field will be generated comptime; no need to do this.
+                    continue;
+                }
                 IrInstruction *deref = ir_get_deref(ira, elem_result_loc, elem_result_loc, nullptr);
                 elem_result_loc->value->special = ConstValSpecialRuntime;
                 ir_analyze_store_ptr(ira, elem_result_loc, elem_result_loc, deref, false);

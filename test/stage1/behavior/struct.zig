@@ -775,8 +775,6 @@ test "anonymous struct literal assigned to variable" {
     expect(vec.@"0" == 22);
     expect(vec.@"1" == 55);
     expect(vec.@"2" == 99);
-    vec.@"1" += 1;
-    expect(vec.@"1" == 56);
 }
 
 test "struct with var field" {
