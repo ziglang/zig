@@ -23065,7 +23065,7 @@ static Error get_const_field_sentinel(IrAnalyze *ira, IrInstruction *source_inst
     if (field_val == nullptr)
         return ErrorSemanticAnalyzeFail;
 
-    IrInstruction *field_inst = ir_const(ira, source_instr, field_val->type);
+    IrInstruction *field_inst = ir_const_move(ira, source_instr, field_val);
     IrInstruction *casted_field_inst = ir_implicit_cast(ira, field_inst,
             get_optional_type(ira->codegen, elem_type));
     if (type_is_invalid(casted_field_inst->value->type))
