@@ -38,7 +38,11 @@
 #define ATTRIBUTE_NORETURN __attribute__((noreturn))
 #define ATTRIBUTE_MUST_USE __attribute__((warn_unused_result))
 
+#if defined(__MINGW32__) || defined(__MINGW64__)
+#define BREAKPOINT __debugbreak()
+#else
 #define BREAKPOINT raise(SIGTRAP)
+#endif
 
 #endif
 
