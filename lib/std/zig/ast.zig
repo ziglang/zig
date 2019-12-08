@@ -754,8 +754,9 @@ pub const Node = struct {
     };
 
     pub const ContainerField = struct {
-        base: Node,
+        base: Node = Node{ .id = .ContainerField },
         doc_comments: ?*DocComment,
+        comptime_token: ?TokenIndex,
         name_token: TokenIndex,
         type_expr: ?*Node,
         value_expr: ?*Node,
@@ -778,7 +779,7 @@ pub const Node = struct {
         }
 
         pub fn firstToken(self: *const ContainerField) TokenIndex {
-            return self.name_token;
+            return self.comptime_token orelse self.name_token;
         }
 
         pub fn lastToken(self: *const ContainerField) TokenIndex {

@@ -251,6 +251,9 @@ fn renderTopLevelDecl(allocator: *mem.Allocator, stream: var, tree: *ast.Tree, i
             const field = @fieldParentPtr(ast.Node.ContainerField, "base", decl);
 
             try renderDocComments(tree, stream, field, indent, start_col);
+            if (field.comptime_token) |t| {
+                try renderToken(tree, stream, t, indent, start_col, Space.Space); // comptime
+            }
 
             if (field.type_expr == null and field.value_expr == null) {
                 return renderToken(tree, stream, field.name_token, indent, start_col, Space.Comma); // name,
