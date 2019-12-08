@@ -20504,73 +20504,28 @@ static IrInstruction *ir_analyze_instruction_asm(IrAnalyze *ira, IrInstructionAs
 static IrInstruction *ir_analyze_instruction_array_type(IrAnalyze *ira,
         IrInstructionArrayType *array_type_instruction)
 {
-    Error err;
+    IrInstruction *result = ir_const(ira, &array_type_instruction->base, ira->codegen->builtin_types.entry_type);
+    result->value->special = ConstValSpecialLazy;
 
-    IrInstruction *size_value = array_type_instruction->size->child;
-    uint64_t size;
-    if (!ir_resolve_usize(ira, size_value, &size))
+    LazyValueArrayType *lazy_array_type = allocate<LazyValueArrayType>(1, "LazyValueArrayType");
+    lazy_array_type->ira = ira; ira_ref(ira);
+    result->value->data.x_lazy = &lazy_array_type->base;
+    lazy_array_type->base.id = LazyValueIdArrayType;
+
+    lazy_array_type->elem_type = array_type_instruction->child_type->child;
+    if (ir_resolve_type_lazy(ira, lazy_array_type->elem_type) == nullptr)
         return ira->codegen->invalid_instruction;
 
-    IrInstruction *child_type_value = array_type_instruction->child_type->child;
-    ZigType *child_type = ir_resolve_type(ira, child_type_value);
-    if (type_is_invalid(child_type))
+    if (!ir_resolve_usize(ira, array_type_instruction->size->child, &lazy_array_type->length))
         return ira->codegen->invalid_instruction;
 
-    ZigValue *sentinel_val;
     if (array_type_instruction->sentinel != nullptr) {
-        IrInstruction *uncasted_sentinel = array_type_instruction->sentinel->child;
-        if (type_is_invalid(uncasted_sentinel->value->type))
+        lazy_array_type->sentinel = array_type_instruction->sentinel->child;
+        if (ir_resolve_const(ira, lazy_array_type->sentinel, LazyOk) == nullptr)
             return ira->codegen->invalid_instruction;
-        IrInstruction *sentinel = ir_implicit_cast(ira, uncasted_sentinel, child_type);
-        if (type_is_invalid(sentinel->value->type))
-            return ira->codegen->invalid_instruction;
-        sentinel_val = ir_resolve_const(ira, sentinel, UndefBad);
-        if (sentinel_val == nullptr)
-            return ira->codegen->invalid_instruction;
-    } else {
-        sentinel_val = nullptr;
     }
 
-    switch (child_type->id) {
-        case ZigTypeIdInvalid: // handled above
-            zig_unreachable();
-        case ZigTypeIdUnreachable:
-        case ZigTypeIdUndefined:
-        case ZigTypeIdNull:
-        case ZigTypeIdArgTuple:
-        case ZigTypeIdOpaque:
-            ir_add_error_node(ira, array_type_instruction->base.source_node,
-                    buf_sprintf("array of type '%s' not allowed", buf_ptr(&child_type->name)));
-            return ira->codegen->invalid_instruction;
-        case ZigTypeIdMetaType:
-        case ZigTypeIdVoid:
-        case ZigTypeIdBool:
-        case ZigTypeIdInt:
-        case ZigTypeIdFloat:
-        case ZigTypeIdPointer:
-        case ZigTypeIdArray:
-        case ZigTypeIdStruct:
-        case ZigTypeIdComptimeFloat:
-        case ZigTypeIdComptimeInt:
-        case ZigTypeIdEnumLiteral:
-        case ZigTypeIdOptional:
-        case ZigTypeIdErrorUnion:
-        case ZigTypeIdErrorSet:
-        case ZigTypeIdEnum:
-        case ZigTypeIdUnion:
-        case ZigTypeIdFn:
-        case ZigTypeIdBoundFn:
-        case ZigTypeIdVector:
-        case ZigTypeIdFnFrame:
-        case ZigTypeIdAnyFrame:
-            {
-                if ((err = type_resolve(ira->codegen, child_type, ResolveStatusSizeKnown)))
-                    return ira->codegen->invalid_instruction;
-                ZigType *result_type = get_array_type(ira->codegen, child_type, size, sentinel_val);
-                return ir_const_type(ira, &array_type_instruction->base, result_type);
-            }
-    }
-    zig_unreachable();
+    return result;
 }
 
 static IrInstruction *ir_analyze_instruction_size_of(IrAnalyze *ira, IrInstructionSizeOf *instruction) {
@@ -28973,6 +28928,72 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
                     lazy_ptr_type->is_const, lazy_ptr_type->is_volatile, lazy_ptr_type->ptr_len, align_bytes,
                     lazy_ptr_type->bit_offset_in_host, lazy_ptr_type->host_int_bytes,
                     allow_zero, VECTOR_INDEX_NONE, nullptr, sentinel_val);
+            val->special = ConstValSpecialStatic;
+
+            // We can't free the lazy value here, because multiple other ZigValues might be pointing to it.
+            return ErrorNone;
+        }
+        case LazyValueIdArrayType: {
+            LazyValueArrayType *lazy_array_type = reinterpret_cast<LazyValueArrayType *>(val->data.x_lazy);
+            IrAnalyze *ira = lazy_array_type->ira;
+
+            ZigType *elem_type = ir_resolve_type(ira, lazy_array_type->elem_type);
+            if (type_is_invalid(elem_type))
+                return ErrorSemanticAnalyzeFail;
+
+            switch (elem_type->id) {
+                case ZigTypeIdInvalid: // handled above
+                    zig_unreachable();
+                case ZigTypeIdUnreachable:
+                case ZigTypeIdUndefined:
+                case ZigTypeIdNull:
+                case ZigTypeIdArgTuple:
+                case ZigTypeIdOpaque:
+                    ir_add_error(ira, lazy_array_type->elem_type,
+                                 buf_sprintf("array of type '%s' not allowed",
+                                             buf_ptr(&elem_type->name)));
+                    return ErrorSemanticAnalyzeFail;
+                case ZigTypeIdMetaType:
+                case ZigTypeIdVoid:
+                case ZigTypeIdBool:
+                case ZigTypeIdInt:
+                case ZigTypeIdFloat:
+                case ZigTypeIdPointer:
+                case ZigTypeIdArray:
+                case ZigTypeIdStruct:
+                case ZigTypeIdComptimeFloat:
+                case ZigTypeIdComptimeInt:
+                case ZigTypeIdEnumLiteral:
+                case ZigTypeIdOptional:
+                case ZigTypeIdErrorUnion:
+                case ZigTypeIdErrorSet:
+                case ZigTypeIdEnum:
+                case ZigTypeIdUnion:
+                case ZigTypeIdFn:
+                case ZigTypeIdBoundFn:
+                case ZigTypeIdVector:
+                case ZigTypeIdFnFrame:
+                case ZigTypeIdAnyFrame:
+                    break;
+            }
+
+            if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusSizeKnown)))
+                return err;
+
+            ZigValue *sentinel_val = nullptr;
+            if (lazy_array_type->sentinel != nullptr) {
+                if (type_is_invalid(lazy_array_type->sentinel->value->type))
+                    return ErrorSemanticAnalyzeFail;
+                IrInstruction *sentinel = ir_implicit_cast(ira, lazy_array_type->sentinel, elem_type);
+                if (type_is_invalid(sentinel->value->type))
+                    return ErrorSemanticAnalyzeFail;
+                sentinel_val = ir_resolve_const(ira, sentinel, UndefBad);
+                if (sentinel_val == nullptr)
+                    return ErrorSemanticAnalyzeFail;
+            }
+
+            assert(val->type->id == ZigTypeIdMetaType);
+            val->data.x_type = get_array_type(ira->codegen, elem_type, lazy_array_type->length, sentinel_val);
             val->special = ConstValSpecialStatic;
 
             // We can't free the lazy value here, because multiple other ZigValues might be pointing to it.

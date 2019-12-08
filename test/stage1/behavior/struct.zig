@@ -791,3 +791,12 @@ test "struct with var field" {
     expect(pt.x == 1);
     expect(pt.y == 2);
 }
+
+test "self-referencing struct via array member" {
+    const T = struct {
+        children: [1]*@This(),
+    };
+    var x: T = undefined;
+    x = T{ .children = .{&x} };
+    expect(x.children[0] == &x);
+}
