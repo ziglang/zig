@@ -1,3 +1,13 @@
+test "zig fmt: comptime struct field" {
+    try testCanonical(
+        \\const Foo = struct {
+        \\    a: i32,
+        \\    comptime b: i32 = 1234,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: c pointer type" {
     try testCanonical(
         \\pub extern fn repro() [*c]const u8;

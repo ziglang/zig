@@ -1006,6 +1006,7 @@ struct AstNodeStructField {
     // populated if the "align(A)" is present
     AstNode *align_expr;
     Buf doc_comments;
+    Token *comptime_token;
 };
 
 struct AstNodeStringLiteral {
@@ -1263,6 +1264,7 @@ struct TypeStructField {
     uint32_t bit_offset_in_host; // offset from the memory at gen_index
     uint32_t host_int_bytes; // size of host integer
     uint32_t align;
+    bool is_comptime;
 };
 
 enum ResolveStatus {

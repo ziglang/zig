@@ -2,6 +2,15 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("comptime struct field, no init value",
+        \\const Foo = struct {
+        \\    comptime b: i32,
+        \\};
+        \\export fn entry() void {
+        \\    var f: Foo = undefined;
+        \\}
+    , "tmp.zig:2:5: error: comptime struct field missing initialization value");
+
     cases.add(
         "bad usage of @call",
         \\export fn entry1() void {
@@ -32,7 +41,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:15:43: error: unable to evaluate constant expression",
     );
 
-    cases.add(
+    cases.add("exported async function",
         \\export async fn foo() void {}
     , "tmp.zig:1:1: error: exported function cannot be async");
 

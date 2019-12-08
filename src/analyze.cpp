@@ -2736,6 +2736,16 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
             field_node = decl_node->data.container_decl.fields.at(i);
             type_struct_field->name = field_node->data.struct_field.name;
             type_struct_field->decl_node = field_node;
+            if (field_node->data.struct_field.comptime_token != nullptr) {
+                if (field_node->data.struct_field.value == nullptr) {
+                    add_token_error(g, field_node->owner,
+                        field_node->data.struct_field.comptime_token,
+                        buf_sprintf("comptime struct field missing initialization value"));
+                    struct_type->data.structure.resolve_status = ResolveStatusInvalid;
+                    return ErrorSemanticAnalyzeFail;
+                }
+                type_struct_field->is_comptime = true;
+            }
 
             if (field_node->data.struct_field.type == nullptr) {
                 add_node_error(g, field_node, buf_sprintf("struct field missing type"));
@@ -2787,6 +2797,9 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
 
         type_struct_field->src_index = i;
         type_struct_field->gen_index = SIZE_MAX;
+
+        if (type_struct_field->is_comptime)
+            continue;
 
         switch (type_val_resolve_requires_comptime(g, field_type_val)) {
             case ReqCompTimeYes:
@@ -7987,8 +8000,9 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     // inserting padding bytes where LLVM would do it automatically.
     size_t llvm_struct_abi_align = 0;
     for (size_t i = 0; i < field_count; i += 1) {
-        ZigType *field_type = struct_type->data.structure.fields[i]->type_entry;
-        if (!type_has_bits(field_type))
+        TypeStructField *field = struct_type->data.structure.fields[i];
+        ZigType *field_type = field->type_entry;
+        if (field->is_comptime || !type_has_bits(field_type))
             continue;
         LLVMTypeRef field_llvm_type = get_llvm_type(g, field_type);
         size_t llvm_field_abi_align = LLVMABIAlignmentOfType(g->target_data_ref, field_llvm_type);
@@ -7999,7 +8013,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
         TypeStructField *field = struct_type->data.structure.fields[i];
         ZigType *field_type = field->type_entry;
 
-        if (!type_has_bits(field_type)) {
+        if (field->is_comptime || !type_has_bits(field_type)) {
             field->gen_index = SIZE_MAX;
             continue;
         }
