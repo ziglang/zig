@@ -744,7 +744,7 @@ static void anal_dump_type(AnalDumpCtx *ctx, ZigType *ty) {
         case ZigTypeIdEnumLiteral:
             break;
         case ZigTypeIdStruct: {
-            if (ty->data.structure.is_slice) {
+            if (ty->data.structure.special == StructSpecialSlice) {
                 jw_object_field(jw, "len");
                 jw_int(jw, 2);
                 anal_dump_pointer_attrs(ctx, ty->data.structure.fields[slice_ptr_index]->type_entry);

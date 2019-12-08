@@ -724,14 +724,11 @@ static bool is_opt_err_set(ZigType *ty) {
 }
 
 static bool is_tuple(ZigType *type) {
-    return type->id == ZigTypeIdStruct && type->data.structure.decl_node != nullptr &&
-        type->data.structure.decl_node->type == NodeTypeContainerInitExpr &&
-        (type->data.structure.decl_node->data.container_init_expr.kind == ContainerInitKindArray ||
-         type->data.structure.decl_node->data.container_init_expr.entries.length == 0);
+    return type->id == ZigTypeIdStruct && type->data.structure.special == StructSpecialInferredTuple;
 }
 
 static bool is_slice(ZigType *type) {
-    return type->id == ZigTypeIdStruct && type->data.structure.is_slice;
+    return type->id == ZigTypeIdStruct && type->data.structure.special == StructSpecialSlice;
 }
 
 static bool slice_is_const(ZigType *type) {
@@ -13928,7 +13925,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     }
 
     // cast from inferred struct type to array, union, or struct
-    if (actual_type->id == ZigTypeIdStruct && actual_type->data.structure.is_inferred) {
+    if (is_anon_container(actual_type)) {
         AstNode *decl_node = actual_type->data.structure.decl_node;
         ir_assert(decl_node->type == NodeTypeContainerInitExpr, source_instr);
         ContainerInitKind init_kind = decl_node->data.container_init_expr.kind;
@@ -17047,10 +17044,17 @@ static IrInstruction *ir_analyze_instruction_resolve_result(IrAnalyze *ira,
             Buf *name = get_anon_type_name(ira->codegen, nullptr, container_string(ContainerKindStruct),
                     instruction->base.scope, instruction->base.source_node, bare_name);
 
+            StructSpecial struct_special = StructSpecialInferredStruct;
+            if (instruction->base.source_node->type == NodeTypeContainerInitExpr &&
+                instruction->base.source_node->data.container_init_expr.kind == ContainerInitKindArray)
+            {
+                struct_special = StructSpecialInferredTuple;
+            }
+
             ZigType *inferred_struct_type = get_partial_container_type(ira->codegen,
                     instruction->base.scope, ContainerKindStruct, instruction->base.source_node,
                     buf_ptr(name), bare_name, ContainerLayoutAuto);
-            inferred_struct_type->data.structure.is_inferred = true;
+            inferred_struct_type->data.structure.special = struct_special;
             inferred_struct_type->data.structure.resolve_status = ResolveStatusBeingInferred;
             implicit_elem_type = inferred_struct_type;
         }
@@ -19570,7 +19574,7 @@ static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction 
     bool is_const = struct_ptr->value->type->data.pointer.is_const;
     bool is_volatile = struct_ptr->value->type->data.pointer.is_volatile;
     ZigType *ptr_type;
-    if (struct_type->data.structure.is_inferred) {
+    if (is_anon_container(struct_type)) {
         ptr_type = get_pointer_to_type_extra(ira->codegen, field_type,
                 is_const, is_volatile, PtrLenSingle, 0, 0, 0, false);
     } else {
@@ -22816,7 +22820,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
             }
         case ZigTypeIdStruct:
             {
-                if (type_entry->data.structure.is_slice) {
+                if (type_entry->data.structure.special == StructSpecialSlice) {
                     result = create_ptr_like_type_info(ira, type_entry);
                     if (result == nullptr)
                         return ErrorSemanticAnalyzeFail;

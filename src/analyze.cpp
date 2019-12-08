@@ -420,7 +420,7 @@ uint32_t get_abi_alignment(CodeGen *g, ZigType *type_entry) {
 }
 
 static bool is_slice(ZigType *type) {
-    return type->id == ZigTypeIdStruct && type->data.structure.is_slice;
+    return type->id == ZigTypeIdStruct && type->data.structure.special == StructSpecialSlice;
 }
 
 ZigType *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
@@ -832,7 +832,7 @@ ZigType *get_slice_type(CodeGen *g, ZigType *ptr_type) {
 
     entry->data.structure.resolve_status = ResolveStatusSizeKnown;
     entry->data.structure.layout = ContainerLayoutAuto;
-    entry->data.structure.is_slice = true;
+    entry->data.structure.special = StructSpecialSlice;
     entry->data.structure.src_field_count = element_count;
     entry->data.structure.gen_field_count = element_count;
     entry->data.structure.fields = alloc_type_struct_fields(element_count);
@@ -2752,7 +2752,7 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
     } else if (decl_node->type == NodeTypeContainerInitExpr) {
         field_count = struct_type->data.structure.src_field_count;
 
-        src_assert(struct_type->data.structure.is_inferred, decl_node);
+        src_assert(is_anon_container(struct_type), decl_node);
         src_assert(field_count == 0 || struct_type->data.structure.fields != nullptr, decl_node);
     } else zig_unreachable();
 
@@ -4256,7 +4256,7 @@ bool is_container(ZigType *type_entry) {
         case ZigTypeIdInvalid:
             zig_unreachable();
         case ZigTypeIdStruct:
-            return !type_entry->data.structure.is_slice;
+            return type_entry->data.structure.special != StructSpecialSlice;
         case ZigTypeIdEnum:
         case ZigTypeIdUnion:
             return true;
@@ -7391,7 +7391,7 @@ size_t type_id_index(ZigType *entry) {
         case ZigTypeIdArray:
             return 7;
         case ZigTypeIdStruct:
-            if (entry->data.structure.is_slice)
+            if (entry->data.structure.special == StructSpecialSlice)
                 return 6;
             return 8;
         case ZigTypeIdComptimeFloat:
@@ -9077,7 +9077,7 @@ static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_r
             assert(type->llvm_di_type != nullptr);
             return;
         case ZigTypeIdStruct:
-            if (type->data.structure.is_slice)
+            if (type->data.structure.special == StructSpecialSlice)
                 return resolve_llvm_types_slice(g, type, wanted_resolve_status);
             else
                 return resolve_llvm_types_struct(g, type, wanted_resolve_status, nullptr);
@@ -9228,4 +9228,10 @@ void IrExecutable::src() {
     for (it = this; it != nullptr && it->source_node != nullptr; it = it->parent_exec) {
         it->source_node->src();
     }
+}
+
+bool is_anon_container(ZigType *ty) {
+    return ty->id == ZigTypeIdStruct && (
+        ty->data.structure.special == StructSpecialInferredTuple ||
+        ty->data.structure.special == StructSpecialInferredStruct);
 }

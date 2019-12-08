@@ -278,4 +278,5 @@ IrInstruction *ir_create_alloca(CodeGen *g, Scope *scope, AstNode *source_node, 
 Error analyze_import(CodeGen *codegen, ZigType *source_import, Buf *import_target_str,
         ZigType **out_import, Buf **out_import_target_path, Buf *out_full_path);
 ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry);
+bool is_anon_container(ZigType *ty);
 #endif
