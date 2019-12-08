@@ -790,6 +790,14 @@ test "struct with var field" {
     expect(pt.y == 2);
 }
 
+test "field initializer preserves its own type" {
+    const S = struct {
+        bytes: []align(2) u8 = &[_]u8{},
+    };
+    var x = S{};
+    expect(x.bytes.len == 0);
+}
+
 test "comptime struct field" {
     const T = struct {
         a: i32,

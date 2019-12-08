@@ -19521,9 +19521,10 @@ static void memoize_field_init_val(CodeGen *codegen, ZigType *container_type, Ty
     if (init_node == nullptr) return;
     // scope is not the scope of the struct init, it's the scope of the struct type decl
     Scope *analyze_scope = &get_container_scope(container_type)->base;
-    // memoize it
+    // To get the initializer value own type we evaluate it using the `var` type
+    // entry instead of the field one.
     field->init_val = analyze_const_value(codegen, analyze_scope, init_node,
-            field->type_entry, nullptr, UndefOk);
+            codegen->builtin_types.entry_var, nullptr, UndefOk);
 }
 
 static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction *source_instr,
