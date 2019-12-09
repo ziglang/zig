@@ -158,9 +158,9 @@ pub const LibCInstallation = struct {
                         if (sdk.msvc_lib_dir_ptr != 0) {
                             self.msvc_lib_dir = try std.mem.dupe(allocator, u8, sdk.msvc_lib_dir_ptr[0..sdk.msvc_lib_dir_len]);
                         }
-                        try group.call(findNativeKernel32LibDir, allocator, self, sdk);
-                        try group.call(findNativeIncludeDirWindows, self, allocator, sdk);
-                        try group.call(findNativeLibDirWindows, self, allocator, sdk);
+                        try group.call(findNativeKernel32LibDir, .{ allocator, self, sdk });
+                        try group.call(findNativeIncludeDirWindows, .{ self, allocator, sdk });
+                        try group.call(findNativeLibDirWindows, .{ self, allocator, sdk });
                     },
                     c.ZigFindWindowsSdkError.OutOfMemory => return error.OutOfMemory,
                     c.ZigFindWindowsSdkError.NotFound => return error.NotFound,
@@ -168,10 +168,10 @@ pub const LibCInstallation = struct {
                 }
             },
             .linux => {
-                try group.call(findNativeIncludeDirLinux, self, allocator);
-                try group.call(findNativeLibDirLinux, self, allocator);
-                try group.call(findNativeStaticLibDir, self, allocator);
-                try group.call(findNativeDynamicLinker, self, allocator);
+                try group.call(findNativeIncludeDirLinux, .{ self, allocator });
+                try group.call(findNativeLibDirLinux, .{ self, allocator });
+                try group.call(findNativeStaticLibDir, .{ self, allocator });
+                try group.call(findNativeDynamicLinker, .{ self, allocator });
             },
             .macosx, .freebsd, .netbsd => {
                 self.include_dir = try std.mem.dupe(allocator, u8, "/usr/include");
@@ -322,7 +322,7 @@ pub const LibCInstallation = struct {
         var group = event.Group(FindError!void).init(allocator);
         errdefer group.wait() catch {};
         for (dyn_tests) |*dyn_test| {
-            try group.call(testNativeDynamicLinker, self, allocator, dyn_test);
+            try group.call(testNativeDynamicLinker, .{ self, allocator, dyn_test });
         }
         try group.wait();
         for (dyn_tests) |*dyn_test| {

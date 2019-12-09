@@ -18330,10 +18330,7 @@ static IrInstruction *ir_analyze_call_extra(IrAnalyze *ira, IrInstruction *sourc
     if (modifier_val == nullptr)
         return ira->codegen->invalid_instruction;
     CallModifier modifier = (CallModifier)bigint_as_u32(&modifier_val->data.x_enum_tag);
-    if (modifier == CallModifierAsync) {
-        ir_add_error(ira, source_instr, buf_sprintf("TODO: @call with async modifier"));
-        return ira->codegen->invalid_instruction;
-    }
+
     if (ir_should_inline(ira->new_irb.exec, source_instr->scope)) {
         switch (modifier) {
             case CallModifierBuiltin:

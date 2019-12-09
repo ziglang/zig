@@ -6880,6 +6880,9 @@ pub const CallOptions = struct {
         /// Equivalent to function call syntax.
         auto,
 
+        /// Equivalent to async keyword used with function call syntax.
+        async_kw,
+
         /// Prevents tail call optimization. This guarantees that the return
         /// address will point to the callsite, as opposed to the callsite's
         /// callsite. If the call is otherwise required to be tail-called

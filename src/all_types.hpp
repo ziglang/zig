@@ -782,6 +782,7 @@ struct AstNodeUnwrapOptional {
 // Must be synchronized with std.builtin.CallOptions.Modifier
 enum CallModifier {
     CallModifierNone,
+    CallModifierAsync,
     CallModifierNeverTail,
     CallModifierNeverInline,
     CallModifierNoAsync,
@@ -791,7 +792,6 @@ enum CallModifier {
 
     // These are additional tags in the compiler, but not exposed in the std lib.
     CallModifierBuiltin,
-    CallModifierAsync,
 };
 
 struct AstNodeFnCallExpr {
