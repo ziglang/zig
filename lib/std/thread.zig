@@ -138,7 +138,7 @@ pub const Thread = struct {
     };
 
     /// caller must call wait on the returned thread
-    /// fn startFn(@typeOf(context)) T
+    /// fn startFn(@TypeOf(context)) T
     /// where T is u8, noreturn, void, or !void
     /// caller must call wait on the returned thread
     pub fn spawn(context: var, comptime startFn: var) SpawnError!*Thread {
