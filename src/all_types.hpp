@@ -2395,7 +2395,7 @@ struct ScopeFnDef {
     ZigFn *fn_entry;
 };
 
-// This scope is created for a @typeOf.
+// This scope is created for a @TypeOf.
 // All runtime side-effects are elided within it.
 // NodeTypeFnCallExpr
 struct ScopeTypeOf {
