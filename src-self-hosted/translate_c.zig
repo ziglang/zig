@@ -393,8 +393,42 @@ fn transBinaryOperator(
                 .node_scope = scope,
             });
         },
-        .Mul,
-        .Div,
+        .Mul => {
+            const node = if (cIsUnsignedInteger(qt))
+                try transCreateNodeInfixOp(rp, scope, stmt, .MultWrap, .AsteriskPercent, "*%", true)
+            else
+                try transCreateNodeInfixOp(rp, scope, stmt, .Mult, .Asterisk, "*", true);
+            return maybeSuppressResult(rp, scope, result_used, TransResult{
+                .node = node,
+                .child_scope = scope,
+                .node_scope = scope,
+            });
+        },
+        .Div => {
+            if (!cIsUnsignedInteger(qt)) {
+                // signed integer division uses @divTrunc
+                const div_trunc_node = try transCreateNodeBuiltinFnCall(rp.c, "@divTrunc");
+                const lhs = try transExpr(rp, scope, ZigClangBinaryOperator_getLHS(stmt), .used, .l_value);
+                try div_trunc_node.params.push(lhs.node);
+                _ = try appendToken(rp.c, .Comma, ",");
+                const rhs = try transExpr(rp, scope, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value);
+                try div_trunc_node.params.push(rhs.node);
+                div_trunc_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+                return maybeSuppressResult(rp, scope, result_used, TransResult{
+                    .node = &div_trunc_node.base,
+                    .child_scope = scope,
+                    .node_scope = scope,
+                });
+            } else {
+                // unsigned/float division uses the operator
+                const node = try transCreateNodeInfixOp(rp, scope, stmt, .Div, .Slash, "/", true);
+                return maybeSuppressResult(rp, scope, result_used, TransResult{
+                    .node = node,
+                    .child_scope = scope,
+                    .node_scope = scope,
+                });
+            }
+        },
         .Rem,
         .Shl,
         .Shr,
