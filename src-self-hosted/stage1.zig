@@ -149,7 +149,7 @@ export fn stage2_fmt(argc: c_int, argv: [*]const [*:0]const u8) c_int {
         fmtMain(argc, argv) catch unreachable;
     } else {
         fmtMain(argc, argv) catch |e| {
-            std.debug.warn("{}\n", @errorName(e));
+            std.debug.warn("{}\n", .{@errorName(e)});
             return -1;
         };
     }

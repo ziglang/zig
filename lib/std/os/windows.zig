@@ -323,7 +323,7 @@ pub fn GetQueuedCompletionStatus(
             ERROR.HANDLE_EOF => return GetQueuedCompletionStatusResult.EOF,
             else => |err| {
                 if (std.debug.runtime_safety) {
-                    std.debug.panic("unexpected error: {}\n", err);
+                    std.debug.panic("unexpected error: {}\n", .{err});
                 }
             },
         }
