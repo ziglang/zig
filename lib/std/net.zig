@@ -277,32 +277,24 @@ pub const Address = extern union {
             os.AF_INET => {
                 const port = mem.bigToNative(u16, self.in.port);
                 const bytes = @ptrCast(*const [4]u8, &self.in.addr);
-                try std.fmt.format(
-                    context,
-                    Errors,
-                    output,
-                    "{}.{}.{}.{}:{}",
+                try std.fmt.format(context, Errors, output, "{}.{}.{}.{}:{}", .{
                     bytes[0],
                     bytes[1],
                     bytes[2],
                     bytes[3],
                     port,
-                );
+                });
             },
             os.AF_INET6 => {
                 const port = mem.bigToNative(u16, self.in6.port);
                 if (mem.eql(u8, self.in6.addr[0..12], &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
-                    try std.fmt.format(
-                        context,
-                        Errors,
-                        output,
-                        "[::ffff:{}.{}.{}.{}]:{}",
+                    try std.fmt.format(context, Errors, output, "[::ffff:{}.{}.{}.{}]:{}", .{
                         self.in6.addr[12],
                         self.in6.addr[13],
                         self.in6.addr[14],
                         self.in6.addr[15],
                         port,
-                    );
+                    });
                     return;
                 }
                 const big_endian_parts = @ptrCast(*align(1) const [8]u16, &self.in6.addr);
@@ -327,19 +319,19 @@ pub const Address = extern union {
                         }
                         continue;
                     }
-                    try std.fmt.format(context, Errors, output, "{x}", native_endian_parts[i]);
+                    try std.fmt.format(context, Errors, output, "{x}", .{native_endian_parts[i]});
                     if (i != native_endian_parts.len - 1) {
                         try output(context, ":");
                     }
                 }
-                try std.fmt.format(context, Errors, output, "]:{}", port);
+                try std.fmt.format(context, Errors, output, "]:{}", .{port});
             },
             os.AF_UNIX => {
                 if (!has_unix_sockets) {
                     unreachable;
                 }
 
-                try std.fmt.format(context, Errors, output, "{}", &self.un.path);
+                try std.fmt.format(context, Errors, output, "{}", .{&self.un.path});
             },
             else => unreachable,
         }
@@ -445,7 +437,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
         const name_c = try std.cstr.addNullByte(allocator, name);
         defer allocator.free(name_c);
 
-        const port_c = try std.fmt.allocPrint(allocator, "{}\x00", port);
+        const port_c = try std.fmt.allocPrint(allocator, "{}\x00", .{port});
         defer allocator.free(port_c);
 
         const hints = os.addrinfo{

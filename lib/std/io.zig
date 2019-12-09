@@ -492,7 +492,7 @@ test "io.SliceOutStream" {
     var slice_stream = SliceOutStream.init(buf[0..]);
     const stream = &slice_stream.stream;
 
-    try stream.print("{}{}!", "Hello", "World");
+    try stream.print("{}{}!", .{ "Hello", "World" });
     testing.expectEqualSlices(u8, "HelloWorld!", slice_stream.getWritten());
 }
 

@@ -134,16 +134,15 @@ test "std.atomic.stack" {
     }
 
     if (context.put_sum != context.get_sum) {
-        std.debug.panic("failure\nput_sum:{} != get_sum:{}", context.put_sum, context.get_sum);
+        std.debug.panic("failure\nput_sum:{} != get_sum:{}", .{ context.put_sum, context.get_sum });
     }
 
     if (context.get_count != puts_per_thread * put_thread_count) {
-        std.debug.panic(
-            "failure\nget_count:{} != puts_per_thread:{} * put_thread_count:{}",
+        std.debug.panic("failure\nget_count:{} != puts_per_thread:{} * put_thread_count:{}", .{
             context.get_count,
             @as(u32, puts_per_thread),
             @as(u32, put_thread_count),
-        );
+        });
     }
 }
 

@@ -217,7 +217,7 @@ inline fn initEventLoopAndCallMain() u8 {
     if (std.event.Loop.instance) |loop| {
         if (!@hasDecl(root, "event_loop")) {
             loop.init() catch |err| {
-                std.debug.warn("error: {}\n", @errorName(err));
+                std.debug.warn("error: {}\n", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }
@@ -264,7 +264,7 @@ fn callMain() u8 {
         },
         .ErrorUnion => {
             const result = root.main() catch |err| {
-                std.debug.warn("error: {}\n", @errorName(err));
+                std.debug.warn("error: {}\n", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }

@@ -293,7 +293,7 @@ pub fn LinearFifo(
 
         pub usingnamespace if (T == u8)
             struct {
-                pub fn print(self: *Self, comptime format: []const u8, args: ...) !void {
+                pub fn print(self: *Self, comptime format: []const u8, args: var) !void {
                     return std.fmt.format(self, error{OutOfMemory}, Self.write, format, args);
                 }
             }
@@ -407,7 +407,7 @@ test "LinearFifo(u8, .Dynamic)" {
     fifo.shrink(0);
 
     {
-        try fifo.print("{}, {}!", "Hello", "World");
+        try fifo.print("{}, {}!", .{ "Hello", "World" });
         var result: [30]u8 = undefined;
         testing.expectEqualSlices(u8, "Hello, World!", result[0..fifo.read(&result)]);
         testing.expectEqual(@as(usize, 0), fifo.readableLength());

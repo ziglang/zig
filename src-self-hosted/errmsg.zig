@@ -231,7 +231,7 @@ pub const Msg = struct {
     pub fn printToStream(msg: *const Msg, stream: var, color_on: bool) !void {
         switch (msg.data) {
             .Cli => {
-                try stream.print("{}:-:-: error: {}\n", msg.realpath, msg.text);
+                try stream.print("{}:-:-: error: {}\n", .{ msg.realpath, msg.text });
                 return;
             },
             else => {},
@@ -254,24 +254,22 @@ pub const Msg = struct {
         const start_loc = tree.tokenLocationPtr(0, first_token);
         const end_loc = tree.tokenLocationPtr(first_token.end, last_token);
         if (!color_on) {
-            try stream.print(
-                "{}:{}:{}: error: {}\n",
+            try stream.print("{}:{}:{}: error: {}\n", .{
                 path,
                 start_loc.line + 1,
                 start_loc.column + 1,
                 msg.text,
-            );
+            });
             return;
         }
 
-        try stream.print(
-            "{}:{}:{}: error: {}\n{}\n",
+        try stream.print("{}:{}:{}: error: {}\n{}\n", .{
             path,
             start_loc.line + 1,
             start_loc.column + 1,
             msg.text,
             tree.source[start_loc.line_start..start_loc.line_end],
-        );
+        });
         try stream.writeByteNTimes(' ', start_loc.column);
         try stream.writeByteNTimes('~', last_token.end - first_token.start);
         try stream.write("\n");

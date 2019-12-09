@@ -217,7 +217,7 @@ fn test__truncdfsf2(a: f64, expected: u32) void {
         }
     }
 
-    @import("std").debug.warn("got 0x{x} wanted 0x{x}\n", rep, expected);
+    @import("std").debug.warn("got 0x{x} wanted 0x{x}\n", .{ rep, expected });
 
     @panic("__trunctfsf2 test failure");
 }

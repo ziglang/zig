@@ -205,7 +205,7 @@ const std = @import("std");
 
 pub fn main() !void {
     const stdout = &std.io.getStdOut().outStream().stream;
-    try stdout.print("Hello, {}!\n", "world");
+    try stdout.print("Hello, {}!\n", .{"world"});
 }
       {#code_end#}
       <p>
@@ -217,7 +217,7 @@ pub fn main() !void {
 const warn = @import("std").debug.warn;
 
 pub fn main() void {
-    warn("Hello, world!\n");
+    warn("Hello, world!\n", .{});
 }
       {#code_end#}
       <p>
@@ -289,41 +289,50 @@ const assert = std.debug.assert;
 pub fn main() void {
     // integers
     const one_plus_one: i32 = 1 + 1;
-    warn("1 + 1 = {}\n", one_plus_one);
+    warn("1 + 1 = {}\n", .{one_plus_one});
 
     // floats
     const seven_div_three: f32 = 7.0 / 3.0;
-    warn("7.0 / 3.0 = {}\n", seven_div_three);
+    warn("7.0 / 3.0 = {}\n", .{seven_div_three});
 
     // boolean
-    warn("{}\n{}\n{}\n",
+    warn("{}\n{}\n{}\n", .{
         true and false,
         true or false,
-        !true);
+        !true,
+    });
 
     // optional
     var optional_value: ?[]const u8 = null;
     assert(optional_value == null);
 
-    warn("\noptional 1\ntype: {}\nvalue: {}\n",
-        @typeName(@typeOf(optional_value)), optional_value);
+    warn("\noptional 1\ntype: {}\nvalue: {}\n", .{
+        @typeName(@typeOf(optional_value)),
+        optional_value,
+    });
 
     optional_value = "hi";
     assert(optional_value != null);
 
-    warn("\noptional 2\ntype: {}\nvalue: {}\n",
-        @typeName(@typeOf(optional_value)), optional_value);
+    warn("\noptional 2\ntype: {}\nvalue: {}\n", .{
+        @typeName(@typeOf(optional_value)),
+        optional_value,
+    });
 
     // error union
     var number_or_error: anyerror!i32 = error.ArgNotFound;
 
-    warn("\nerror union 1\ntype: {}\nvalue: {}\n",
-        @typeName(@typeOf(number_or_error)), number_or_error);
+    warn("\nerror union 1\ntype: {}\nvalue: {}\n", .{
+        @typeName(@typeOf(number_or_error)),
+        number_or_error,
+    });
 
     number_or_error = 1234;
 
-    warn("\nerror union 2\ntype: {}\nvalue: {}\n",
-        @typeName(@typeOf(number_or_error)), number_or_error);
+    warn("\nerror union 2\ntype: {}\nvalue: {}\n", .{
+        @typeName(@typeOf(number_or_error)),
+        number_or_error,
+    });
 }
       {#code_end#}
       {#header_open|Primitive Types#}
@@ -954,8 +963,8 @@ extern fn foo_optimized(x: f64) f64;
 
 pub fn main() void {
     const x = 0.001;
-    warn("optimized = {}\n", foo_optimized(x));
-    warn("strict = {}\n", foo_strict(x));
+    warn("optimized = {}\n", .{foo_optimized(x)});
+    warn("strict = {}\n", .{foo_strict(x)});
 }
       {#code_end#}
       {#see_also|@setFloatMode|Division by Zero#}
@@ -2182,7 +2191,7 @@ test "using slices for strings" {
     // You can use slice syntax on an array to convert an array into a slice.
     const all_together_slice = all_together[0..];
     // String concatenation example.
-    const hello_world = try fmt.bufPrint(all_together_slice, "{} {}", hello, world);
+    const hello_world = try fmt.bufPrint(all_together_slice, "{} {}", .{hello, world});
 
     // Generally, you can use UTF-8 and not worry about whether something is a
     // string. If you don't need to deal with individual characters, no need
@@ -2623,9 +2632,9 @@ const std = @import("std");
 
 pub fn main() void {
     const Foo = struct {};
-    std.debug.warn("variable: {}\n", @typeName(Foo));
-    std.debug.warn("anonymous: {}\n", @typeName(struct {}));
-    std.debug.warn("function: {}\n", @typeName(List(i32)));
+    std.debug.warn("variable: {}\n", .{@typeName(Foo)});
+    std.debug.warn("anonymous: {}\n", .{@typeName(struct {})});
+    std.debug.warn("function: {}\n", .{@typeName(List(i32))});
 }
 
 fn List(comptime T: type) type {
@@ -3806,18 +3815,18 @@ test "defer basics" {
 // If multiple defer statements are specified, they will be executed in
 // the reverse order they were run.
 fn deferUnwindExample() void {
-    warn("\n");
+    warn("\n", .{});
 
     defer {
-        warn("1 ");
+        warn("1 ", .{});
     }
     defer {
-        warn("2 ");
+        warn("2 ", .{});
     }
     if (false) {
         // defers are not run if they are never executed.
         defer {
-            warn("3 ");
+            warn("3 ", .{});
         }
     }
 }
@@ -3832,15 +3841,15 @@ test "defer unwinding" {
 // This is especially useful in allowing a function to clean up properly
 // on error, and replaces goto error handling tactics as seen in c.
 fn deferErrorExample(is_error: bool) !void {
-    warn("\nstart of function\n");
+    warn("\nstart of function\n", .{});
 
     // This will always be executed on exit
     defer {
-        warn("end of function\n");
+        warn("end of function\n", .{});
     }
 
     errdefer {
-        warn("encountered an error!\n");
+        warn("encountered an error!\n", .{});
     }
 
     if (is_error) {
@@ -5843,7 +5852,7 @@ const a_number: i32 = 1234;
 const a_string = "foobar";
 
 pub fn main() void {
-    warn("here is a string: '{}' here is a number: {}\n", a_string, a_number);
+    warn("here is a string: '{}' here is a number: {}\n", .{a_string, a_number});
 }
       {#code_end#}
 
@@ -5960,8 +5969,11 @@ const a_number: i32 = 1234;
 const a_string = "foobar";
 
 test "printf too many arguments" {
-    warn("here is a string: '{}' here is a number: {}\n",
-        a_string, a_number, a_number);
+    warn("here is a string: '{}' here is a number: {}\n", .{
+        a_string,
+        a_number,
+        a_number,
+    });
 }
       {#code_end#}
       <p>
@@ -5979,7 +5991,7 @@ const a_string = "foobar";
 const fmt = "here is a string: '{}' here is a number: {}\n";
 
 pub fn main() void {
-    warn(fmt, a_string, a_number);
+    warn(fmt, .{a_string, a_number});
 }
       {#code_end#}
       <p>
@@ -6417,7 +6429,7 @@ pub fn main() void {
 
 fn amainWrap() void {
     amain() catch |e| {
-        std.debug.warn("{}\n", e);
+        std.debug.warn("{}\n", .{e});
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpStackTrace(trace.*);
         }
@@ -6447,8 +6459,8 @@ fn amain() !void {
     const download_text = try await download_frame;
     defer allocator.free(download_text);
 
-    std.debug.warn("download_text: {}\n", download_text);
-    std.debug.warn("file_text: {}\n", file_text);
+    std.debug.warn("download_text: {}\n", .{download_text});
+    std.debug.warn("file_text: {}\n", .{file_text});
 }
 
 var global_download_frame: anyframe = undefined;
@@ -6458,7 +6470,7 @@ fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
     suspend {
         global_download_frame = @frame();
     }
-    std.debug.warn("fetchUrl returning\n");
+    std.debug.warn("fetchUrl returning\n", .{});
     return result;
 }
 
@@ -6469,7 +6481,7 @@ fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
     suspend {
         global_file_frame = @frame();
     }
-    std.debug.warn("readFile returning\n");
+    std.debug.warn("readFile returning\n", .{});
     return result;
 }
       {#code_end#}
@@ -6487,7 +6499,7 @@ pub fn main() void {
 
 fn amainWrap() void {
     amain() catch |e| {
-        std.debug.warn("{}\n", e);
+        std.debug.warn("{}\n", .{e});
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpStackTrace(trace.*);
         }
@@ -6517,21 +6529,21 @@ fn amain() !void {
     const download_text = try await download_frame;
     defer allocator.free(download_text);
 
-    std.debug.warn("download_text: {}\n", download_text);
-    std.debug.warn("file_text: {}\n", file_text);
+    std.debug.warn("download_text: {}\n", .{download_text});
+    std.debug.warn("file_text: {}\n", .{file_text});
 }
 
 fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
     const result = try std.mem.dupe(allocator, u8, "this is the downloaded url contents");
     errdefer allocator.free(result);
-    std.debug.warn("fetchUrl returning\n");
+    std.debug.warn("fetchUrl returning\n", .{});
     return result;
 }
 
 fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
     const result = try std.mem.dupe(allocator, u8, "this is the file contents");
     errdefer allocator.free(result);
-    std.debug.warn("readFile returning\n");
+    std.debug.warn("readFile returning\n", .{});
     return result;
 }
       {#code_end#}
@@ -7103,7 +7115,7 @@ const num1 = blk: {
 test "main" {
     @compileLog("comptime in main");
 
-    warn("Runtime in main, num1 = {}.\n", num1);
+    warn("Runtime in main, num1 = {}.\n", .{num1});
 }
       {#code_end#}
       <p>
@@ -7124,7 +7136,7 @@ const num1 = blk: {
 };
 
 test "main" {
-    warn("Runtime in main, num1 = {}.\n", num1);
+    warn("Runtime in main, num1 = {}.\n", .{num1});
 }
       {#code_end#}
       {#header_close#}
@@ -8706,7 +8718,7 @@ const std = @import("std");
 pub fn main() void {
     var value: i32 = -1;
     var unsigned = @intCast(u32, value);
-    std.debug.warn("value: {}\n", unsigned);
+    std.debug.warn("value: {}\n", .{unsigned});
 }
       {#code_end#}
       <p>
@@ -8728,7 +8740,7 @@ const std = @import("std");
 pub fn main() void {
     var spartan_count: u16 = 300;
     const byte = @intCast(u8, spartan_count);
-    std.debug.warn("value: {}\n", byte);
+    std.debug.warn("value: {}\n", .{byte});
 }
       {#code_end#}
       <p>
@@ -8762,7 +8774,7 @@ const std = @import("std");
 pub fn main() void {
     var byte: u8 = 255;
     byte += 1;
-    std.debug.warn("value: {}\n", byte);
+    std.debug.warn("value: {}\n", .{byte});
 }
       {#code_end#}
       {#header_close#}
@@ -8785,11 +8797,11 @@ pub fn main() !void {
     var byte: u8 = 255;
 
     byte = if (math.add(u8, byte, 1)) |result| result else |err| {
-        warn("unable to add one: {}\n", @errorName(err));
+        warn("unable to add one: {}\n", .{@errorName(err)});
         return err;
     };
 
-    warn("result: {}\n", byte);
+    warn("result: {}\n", .{byte});
 }
       {#code_end#}
       {#header_close#}
@@ -8814,9 +8826,9 @@ pub fn main() void {
 
     var result: u8 = undefined;
     if (@addWithOverflow(u8, byte, 10, &result)) {
-        warn("overflowed result: {}\n", result);
+        warn("overflowed result: {}\n", .{result});
     } else {
-        warn("result: {}\n", result);
+        warn("result: {}\n", .{result});
     }
 }
       {#code_end#}
@@ -8861,7 +8873,7 @@ const std = @import("std");
 pub fn main() void {
     var x: u8 = 0b01010101;
     var y = @shlExact(x, 2);
-    std.debug.warn("value: {}\n", y);
+    std.debug.warn("value: {}\n", .{y});
 }
       {#code_end#}
       {#header_close#}
@@ -8879,7 +8891,7 @@ const std = @import("std");
 pub fn main() void {
     var x: u8 = 0b10101010;
     var y = @shrExact(x, 2);
-    std.debug.warn("value: {}\n", y);
+    std.debug.warn("value: {}\n", .{y});
 }
       {#code_end#}
       {#header_close#}
@@ -8900,7 +8912,7 @@ pub fn main() void {
     var a: u32 = 1;
     var b: u32 = 0;
     var c = a / b;
-    std.debug.warn("value: {}\n", c);
+    std.debug.warn("value: {}\n", .{c});
 }
       {#code_end#}
       {#header_close#}
@@ -8921,7 +8933,7 @@ pub fn main() void {
     var a: u32 = 10;
     var b: u32 = 0;
     var c = a % b;
-    std.debug.warn("value: {}\n", c);
+    std.debug.warn("value: {}\n", .{c});
 }
       {#code_end#}
       {#header_close#}
@@ -8942,7 +8954,7 @@ pub fn main() void {
     var a: u32 = 10;
     var b: u32 = 3;
     var c = @divExact(a, b);
-    std.debug.warn("value: {}\n", c);
+    std.debug.warn("value: {}\n", .{c});
 }
       {#code_end#}
       {#header_close#}
@@ -8961,7 +8973,7 @@ const std = @import("std");
 pub fn main() void {
     var bytes = [5]u8{ 1, 2, 3, 4, 5 };
     var slice = @bytesToSlice(u32, bytes[0..]);
-    std.debug.warn("value: {}\n", slice[0]);
+    std.debug.warn("value: {}\n", .{slice[0]});
 }
       {#code_end#}
       {#header_close#}
@@ -8980,7 +8992,7 @@ const std = @import("std");
 pub fn main() void {
     var optional_number: ?i32 = null;
     var number = optional_number.?;
-    std.debug.warn("value: {}\n", number);
+    std.debug.warn("value: {}\n", .{number});
 }
       {#code_end#}
       <p>One way to avoid this crash is to test for null instead of assuming non-null, with
@@ -8991,9 +9003,9 @@ pub fn main() void {
     const optional_number: ?i32 = null;
 
     if (optional_number) |number| {
-        warn("got number: {}\n", number);
+        warn("got number: {}\n", .{number});
     } else {
-        warn("it's null\n");
+        warn("it's null\n", .{});
     }
 }
       {#code_end#}
@@ -9016,7 +9028,7 @@ const std = @import("std");
 
 pub fn main() void {
     const number = getNumberOrFail() catch unreachable;
-    std.debug.warn("value: {}\n", number);
+    std.debug.warn("value: {}\n", .{number});
 }
 
 fn getNumberOrFail() !i32 {
@@ -9032,9 +9044,9 @@ pub fn main() void {
     const result = getNumberOrFail();
 
     if (result) |number| {
-        warn("got number: {}\n", number);
+        warn("got number: {}\n", .{number});
     } else |err| {
-        warn("got error: {}\n", @errorName(err));
+        warn("got error: {}\n", .{@errorName(err)});
     }
 }
 
@@ -9061,7 +9073,7 @@ pub fn main() void {
     var err = error.AnError;
     var number = @errorToInt(err) + 500;
     var invalid_err = @intToError(number);
-    std.debug.warn("value: {}\n", number);
+    std.debug.warn("value: {}\n", .{number});
 }
       {#code_end#}
       {#header_close#}
@@ -9091,7 +9103,7 @@ const Foo = enum {
 pub fn main() void {
     var a: u2 = 3;
     var b = @intToEnum(Foo, a);
-    std.debug.warn("value: {}\n", @tagName(b));
+    std.debug.warn("value: {}\n", .{@tagName(b)});
 }
       {#code_end#}
       {#header_close#}
@@ -9128,7 +9140,7 @@ pub fn main() void {
 }
 fn foo(set1: Set1) void {
     const x = @errSetCast(Set2, set1);
-    std.debug.warn("value: {}\n", x);
+    std.debug.warn("value: {}\n", .{x});
 }
       {#code_end#}
       {#header_close#}
@@ -9184,7 +9196,7 @@ pub fn main() void {
 
 fn bar(f: *Foo) void {
     f.float = 12.34;
-    std.debug.warn("value: {}\n", f.float);
+    std.debug.warn("value: {}\n", .{f.float});
 }
       {#code_end#}
       <p>
@@ -9208,7 +9220,7 @@ pub fn main() void {
 
 fn bar(f: *Foo) void {
     f.* = Foo{ .float = 12.34 };
-    std.debug.warn("value: {}\n", f.float);
+    std.debug.warn("value: {}\n", .{f.float});
 }
       {#code_end#}
       <p>
@@ -9227,7 +9239,7 @@ pub fn main() void {
     var f = Foo{ .int = 42 };
     f = Foo{ .float = undefined };
     bar(&f);
-    std.debug.warn("value: {}\n", f.float);
+    std.debug.warn("value: {}\n", .{f.float});
 }
 
 fn bar(f: *Foo) void {
@@ -9348,7 +9360,7 @@ pub fn main() !void {
     const allocator = &arena.allocator;
 
     const ptr = try allocator.create(i32);
-    std.debug.warn("ptr={*}\n", ptr);
+    std.debug.warn("ptr={*}\n", .{ptr});
 }
               {#code_end#}
               When using this kind of allocator, there is no need to free anything manually. Everything
@@ -9881,7 +9893,7 @@ pub fn main() !void {
     defer std.process.argsFree(std.heap.page_allocator, args);
 
     for (args) |arg, i| {
-        std.debug.warn("{}: {}\n", i, arg);
+        std.debug.warn("{}: {}\n", .{i, arg});
     }
 }
       {#code_end#}

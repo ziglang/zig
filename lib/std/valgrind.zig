@@ -114,20 +114,6 @@ pub fn innerThreads(qzz: [*]u8) void {
     doClientRequestStmt(.InnerThreads, qzz, 0, 0, 0, 0);
 }
 
-//pub fn printf(format: [*]const u8, args: ...) usize {
-//    return doClientRequestExpr(0,
-//        .PrintfValistByRef,
-//        @ptrToInt(format), @ptrToInt(args),
-//        0, 0, 0);
-//}
-
-//pub fn printfBacktrace(format: [*]const u8, args: ...) usize {
-//    return doClientRequestExpr(0,
-//        .PrintfBacktraceValistByRef,
-//        @ptrToInt(format), @ptrToInt(args),
-//        0, 0, 0);
-//}
-
 pub fn nonSIMDCall0(func: fn (usize) usize) usize {
     return doClientRequestExpr(0, .ClientCall0, @ptrToInt(func), 0, 0, 0, 0);
 }

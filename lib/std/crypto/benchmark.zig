@@ -114,7 +114,7 @@ fn usage() void {
         \\  --seed   [int]
         \\  --help
         \\
-    );
+    , .{});
 }
 
 fn mode(comptime x: comptime_int) comptime_int {

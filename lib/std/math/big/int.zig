@@ -180,9 +180,9 @@ pub const Int = struct {
 
     pub fn dump(self: Int) void {
         for (self.limbs) |limb| {
-            debug.warn("{x} ", limb);
+            debug.warn("{x} ", .{limb});
         }
-        debug.warn("\n");
+        debug.warn("\n", .{});
     }
 
     /// Negate the sign of an Int.
