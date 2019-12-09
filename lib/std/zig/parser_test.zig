@@ -1,3 +1,14 @@
+// TODO: Remove condition after deprecating 'typeOf'. See https://github.com/ziglang/zig/issues/1348
+test "zig fmt: change @typeOf to @TypeOf" {
+    try testTransform(
+        \\const a = @typeOf(@as(usize, 10));
+        \\
+    ,
+        \\const a = @TypeOf(@as(usize, 10));
+        \\
+    );
+}
+
 test "zig fmt: comptime struct field" {
     try testCanonical(
         \\const Foo = struct {
