@@ -7,10 +7,10 @@ const std = @import("std.zig");
 pub fn expectError(expected_error: anyerror, actual_error_union: var) void {
     if (actual_error_union) |actual_payload| {
         // TODO remove workaround here for https://github.com/ziglang/zig/issues/557
-        if (@sizeOf(@typeOf(actual_payload)) == 0) {
+        if (@sizeOf(@TypeOf(actual_payload)) == 0) {
             std.debug.panic("expected error.{}, found {} value", .{
                 @errorName(expected_error),
-                @typeName(@typeOf(actual_payload)),
+                @typeName(@TypeOf(actual_payload)),
             });
         } else {
             std.debug.panic("expected error.{}, found {}", .{ @errorName(expected_error), actual_payload });
@@ -29,14 +29,14 @@ pub fn expectError(expected_error: anyerror, actual_error_union: var) void {
 /// equal, prints diagnostics to stderr to show exactly how they are not equal,
 /// then aborts.
 /// The types must match exactly.
-pub fn expectEqual(expected: var, actual: @typeOf(expected)) void {
-    switch (@typeInfo(@typeOf(actual))) {
+pub fn expectEqual(expected: var, actual: @TypeOf(expected)) void {
+    switch (@typeInfo(@TypeOf(actual))) {
         .NoReturn,
         .BoundFn,
         .Opaque,
         .Frame,
         .AnyFrame,
-        => @compileError("value of type " ++ @typeName(@typeOf(actual)) ++ " encountered"),
+        => @compileError("value of type " ++ @typeName(@TypeOf(actual)) ++ " encountered"),
 
         .Undefined,
         .Null,
@@ -95,7 +95,7 @@ pub fn expectEqual(expected: var, actual: @typeOf(expected)) void {
                 @compileError("Unable to compare untagged union values");
             }
 
-            const TagType = @TagType(@typeOf(expected));
+            const TagType = @TagType(@TypeOf(expected));
 
             const expectedTag = @as(TagType, expected);
             const actualTag = @as(TagType, actual);
@@ -103,7 +103,7 @@ pub fn expectEqual(expected: var, actual: @typeOf(expected)) void {
             expectEqual(expectedTag, actualTag);
 
             // we only reach this loop if the tags are equal
-            inline for (std.meta.fields(@typeOf(actual))) |fld| {
+            inline for (std.meta.fields(@TypeOf(actual))) |fld| {
                 if (std.mem.eql(u8, fld.name, @tagName(actualTag))) {
                     expectEqual(@field(expected, fld.name), @field(actual, fld.name));
                     return;

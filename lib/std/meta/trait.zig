@@ -13,7 +13,7 @@ fn traitFnWorkaround(comptime T: type) bool {
     return false;
 }
 
-pub const TraitFn = @typeOf(traitFnWorkaround);
+pub const TraitFn = @TypeOf(traitFnWorkaround);
 ///
 
 //////Trait generators
@@ -61,7 +61,7 @@ pub fn hasFn(comptime name: []const u8) TraitFn {
         pub fn trait(comptime T: type) bool {
             if (!comptime isContainer(T)) return false;
             if (!comptime @hasDecl(T, name)) return false;
-            const DeclType = @typeOf(@field(T, name));
+            const DeclType = @TypeOf(@field(T, name));
             const decl_type_id = @typeId(DeclType);
             return decl_type_id == builtin.TypeId.Fn;
         }
@@ -236,9 +236,9 @@ pub fn isSingleItemPtr(comptime T: type) bool {
 
 test "std.meta.trait.isSingleItemPtr" {
     const array = [_]u8{0} ** 10;
-    testing.expect(isSingleItemPtr(@typeOf(&array[0])));
-    testing.expect(!isSingleItemPtr(@typeOf(array)));
-    testing.expect(!isSingleItemPtr(@typeOf(array[0..1])));
+    testing.expect(isSingleItemPtr(@TypeOf(&array[0])));
+    testing.expect(!isSingleItemPtr(@TypeOf(array)));
+    testing.expect(!isSingleItemPtr(@TypeOf(array[0..1])));
 }
 
 ///
@@ -253,9 +253,9 @@ pub fn isManyItemPtr(comptime T: type) bool {
 test "std.meta.trait.isManyItemPtr" {
     const array = [_]u8{0} ** 10;
     const mip = @ptrCast([*]const u8, &array[0]);
-    testing.expect(isManyItemPtr(@typeOf(mip)));
-    testing.expect(!isManyItemPtr(@typeOf(array)));
-    testing.expect(!isManyItemPtr(@typeOf(array[0..1])));
+    testing.expect(isManyItemPtr(@TypeOf(mip)));
+    testing.expect(!isManyItemPtr(@TypeOf(array)));
+    testing.expect(!isManyItemPtr(@TypeOf(array[0..1])));
 }
 
 ///
@@ -269,9 +269,9 @@ pub fn isSlice(comptime T: type) bool {
 
 test "std.meta.trait.isSlice" {
     const array = [_]u8{0} ** 10;
-    testing.expect(isSlice(@typeOf(array[0..])));
-    testing.expect(!isSlice(@typeOf(array)));
-    testing.expect(!isSlice(@typeOf(&array[0])));
+    testing.expect(isSlice(@TypeOf(array[0..])));
+    testing.expect(!isSlice(@TypeOf(array)));
+    testing.expect(!isSlice(@TypeOf(&array[0])));
 }
 
 ///
@@ -291,10 +291,10 @@ test "std.meta.trait.isIndexable" {
     const array = [_]u8{0} ** 10;
     const slice = array[0..];
 
-    testing.expect(isIndexable(@typeOf(array)));
-    testing.expect(isIndexable(@typeOf(&array)));
-    testing.expect(isIndexable(@typeOf(slice)));
-    testing.expect(!isIndexable(meta.Child(@typeOf(slice))));
+    testing.expect(isIndexable(@TypeOf(array)));
+    testing.expect(isIndexable(@TypeOf(&array)));
+    testing.expect(isIndexable(@TypeOf(slice)));
+    testing.expect(!isIndexable(meta.Child(@TypeOf(slice))));
 }
 
 ///
@@ -313,8 +313,8 @@ test "std.meta.trait.isNumber" {
     testing.expect(isNumber(u32));
     testing.expect(isNumber(f32));
     testing.expect(isNumber(u64));
-    testing.expect(isNumber(@typeOf(102)));
-    testing.expect(isNumber(@typeOf(102.123)));
+    testing.expect(isNumber(@TypeOf(102)));
+    testing.expect(isNumber(@TypeOf(102.123)));
     testing.expect(!isNumber([]u8));
     testing.expect(!isNumber(NotANumber));
 }
@@ -328,10 +328,10 @@ pub fn isConstPtr(comptime T: type) bool {
 test "std.meta.trait.isConstPtr" {
     var t = @as(u8, 0);
     const c = @as(u8, 0);
-    testing.expect(isConstPtr(*const @typeOf(t)));
-    testing.expect(isConstPtr(@typeOf(&c)));
-    testing.expect(!isConstPtr(*@typeOf(t)));
-    testing.expect(!isConstPtr(@typeOf(6)));
+    testing.expect(isConstPtr(*const @TypeOf(t)));
+    testing.expect(isConstPtr(@TypeOf(&c)));
+    testing.expect(!isConstPtr(*@TypeOf(t)));
+    testing.expect(!isConstPtr(@TypeOf(6)));
 }
 
 pub fn isContainer(comptime T: type) bool {

@@ -311,7 +311,7 @@ const Dump = struct {
     }
 
     fn render(self: *Dump, stream: var) !void {
-        var jw = json.WriteStream(@typeOf(stream).Child, 10).init(stream);
+        var jw = json.WriteStream(@TypeOf(stream).Child, 10).init(stream);
         try jw.beginObject();
 
         try jw.objectField("typeKinds");

@@ -14,8 +14,8 @@ const expect = std.testing.expect;
 ///  - cbrt(+-0)   = +-0
 ///  - cbrt(+-inf) = +-inf
 ///  - cbrt(nan)   = nan
-pub fn cbrt(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn cbrt(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => cbrt32(x),
         f64 => cbrt64(x),

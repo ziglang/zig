@@ -24,8 +24,8 @@ pub const modf64_result = modf_result(f64);
 /// Special Cases:
 ///  - modf(+-inf) = +-inf, nan
 ///  - modf(nan)   = nan, nan
-pub fn modf(x: var) modf_result(@typeOf(x)) {
-    const T = @typeOf(x);
+pub fn modf(x: var) modf_result(@TypeOf(x)) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => modf32(x),
         f64 => modf64(x),

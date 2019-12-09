@@ -47,7 +47,7 @@ comptime {
     expect(max_f64(1.2, 3.4) == 3.4);
 }
 
-fn max_var(a: var, b: var) @typeOf(a + b) {
+fn max_var(a: var, b: var) @TypeOf(a + b) {
     return if (a > b) a else b;
 }
 

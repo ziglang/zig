@@ -1147,7 +1147,7 @@ fn transCreateNodeAPInt(c: *Context, int: ?*const ZigClangAPSInt) !*ast.Node {
     var big = try std.math.big.Int.initCapacity(c.a(), num_limbs);
     defer big.deinit();
     const data = ZigClangAPSInt_getRawData(int.?);
-    var i: @typeOf(num_limbs) = 0;
+    var i: @TypeOf(num_limbs) = 0;
     while (i < num_limbs) : (i += 1) big.limbs[i] = data[i];
     const str = big.toString(c.a(), 10) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -1416,7 +1416,7 @@ fn revertAndWarn(
     source_loc: ZigClangSourceLocation,
     comptime format: []const u8,
     args: var,
-) (@typeOf(err) || error{OutOfMemory}) {
+) (@TypeOf(err) || error{OutOfMemory}) {
     rp.activate();
     try emitWarning(rp.c, source_loc, format, args);
     return err;

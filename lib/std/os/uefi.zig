@@ -32,7 +32,7 @@ pub const Guid = extern struct {
         options: fmt.FormatOptions,
         context: var,
         comptime Errors: type,
-        output: fn (@typeOf(context), []const u8) Errors!void,
+        output: fn (@TypeOf(context), []const u8) Errors!void,
     ) Errors!void {
         if (f.len == 0) {
             return fmt.format(context, Errors, output, "{x:0>8}-{x:0>4}-{x:0>4}-{x:0>2}{x:0>2}-{x:0>12}", self.time_low, self.time_mid, self.time_high_and_version, self.clock_seq_high_and_reserved, self.clock_seq_low, self.node);

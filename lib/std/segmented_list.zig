@@ -122,7 +122,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             self.* = undefined;
         }
 
-        pub fn at(self: var, i: usize) AtType(@typeOf(self)) {
+        pub fn at(self: var, i: usize) AtType(@TypeOf(self)) {
             assert(i < self.len);
             return self.uncheckedAt(i);
         }
@@ -213,7 +213,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             self.len = new_len;
         }
 
-        pub fn uncheckedAt(self: var, index: usize) AtType(@typeOf(self)) {
+        pub fn uncheckedAt(self: var, index: usize) AtType(@TypeOf(self)) {
             if (index < prealloc_item_count) {
                 return &self.prealloc_segment[index];
             }

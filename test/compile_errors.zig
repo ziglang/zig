@@ -154,7 +154,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    };
         \\}
     , &[_][]const u8{
-        "tmp.zig:11:25: error: expected type 'u32', found '@typeOf(get_uval).ReturnType.ErrorSet!u32'",
+        "tmp.zig:11:25: error: expected type 'u32', found '@TypeOf(get_uval).ReturnType.ErrorSet!u32'",
     });
 
     cases.add("asigning to struct or union fields that are not optionals with a function that returns an optional",
@@ -854,7 +854,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add("field access of slices",
         \\export fn entry() void {
         \\    var slice: []i32 = undefined;
-        \\    const info = @typeOf(slice).unknown;
+        \\    const info = @TypeOf(slice).unknown;
         \\}
     , &[_][]const u8{
         "tmp.zig:3:32: error: type '[]i32' does not support field access",
@@ -894,7 +894,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add("@sizeOf bad type",
         \\export fn entry() usize {
-        \\    return @sizeOf(@typeOf(null));
+        \\    return @sizeOf(@TypeOf(null));
         \\}
     , &[_][]const u8{
         "tmp.zig:2:20: error: no size available for type '(null)'",
@@ -1033,7 +1033,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add("bogus compile var",
         \\const x = @import("builtin").bogus;
-        \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(x)); }
     , &[_][]const u8{
         "tmp.zig:1:29: error: container 'builtin' has no member called 'bogus'",
     });
@@ -1080,7 +1080,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\var foo: Foo = undefined;
         \\
         \\export fn entry() usize {
-        \\    return @sizeOf(@typeOf(foo.x));
+        \\    return @sizeOf(@TypeOf(foo.x));
         \\}
     , &[_][]const u8{
         "tmp.zig:1:13: error: struct 'Foo' depends on itself",
@@ -1118,8 +1118,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("top level decl dependency loop",
-        \\const a : @typeOf(b) = 0;
-        \\const b : @typeOf(a) = 0;
+        \\const a : @TypeOf(b) = 0;
+        \\const b : @TypeOf(a) = 0;
         \\export fn entry() void {
         \\    const c = a + b;
         \\}
@@ -1620,7 +1620,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\var x: f64 = 1.0;
         \\var y: f32 = x;
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(y)); }
     , &[_][]const u8{
         "tmp.zig:2:14: error: expected type 'f32', found 'f64'",
     });
@@ -2494,7 +2494,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:14: error: duplicate switch value: '@typeOf(foo).ReturnType.ErrorSet.Foo'",
+        "tmp.zig:5:14: error: duplicate switch value: '@TypeOf(foo).ReturnType.ErrorSet.Foo'",
         "tmp.zig:3:14: note: other value is here",
     });
 
@@ -2626,7 +2626,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    try foo();
         \\}
     , &[_][]const u8{
-        "tmp.zig:5:5: error: cannot resolve inferred error set '@typeOf(foo).ReturnType.ErrorSet': function 'foo' not fully analyzed yet",
+        "tmp.zig:5:5: error: cannot resolve inferred error set '@TypeOf(foo).ReturnType.ErrorSet': function 'foo' not fully analyzed yet",
     });
 
     cases.add("implicit cast of error set not a subset",
@@ -3555,7 +3555,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
         "tmp.zig:8:5: error: enumeration value 'Number.Four' not handled in switch",
     });
@@ -3577,7 +3577,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
         "tmp.zig:13:15: error: duplicate switch value",
         "tmp.zig:10:15: note: other value is here",
@@ -3601,7 +3601,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
         "tmp.zig:13:15: error: duplicate switch value",
         "tmp.zig:10:15: note: other value is here",
@@ -3628,7 +3628,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\        0 => {},
         \\    }
         \\}
-        \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
     , &[_][]const u8{
         "tmp.zig:2:5: error: switch must handle all possibilities",
     });
@@ -3642,7 +3642,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\        206 ... 255 => 3,
         \\    };
         \\}
-        \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
     , &[_][]const u8{
         "tmp.zig:6:9: error: duplicate switch value",
         "tmp.zig:5:14: note: previous value is here",
@@ -3655,7 +3655,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\}
         \\const y: u8 = 100;
-        \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
     , &[_][]const u8{
         "tmp.zig:2:5: error: else prong required when switching on type '*u8'",
     });
@@ -3673,7 +3673,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const derp: usize = 1234;
         \\const a = derp ++ "foo";
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(a)); }
     , &[_][]const u8{
         "tmp.zig:3:11: error: expected array, found 'usize'",
     });
@@ -3683,14 +3683,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return s ++ "foo";
         \\}
         \\var s: [10]u8 = undefined;
-        \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
         "tmp.zig:2:12: error: unable to evaluate constant expression",
     });
 
     cases.add("@cImport with bogus include",
         \\const c = @cImport(@cInclude("bogus.h"));
-        \\export fn entry() usize { return @sizeOf(@typeOf(c.bogo)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(c.bogo)); }
     , &[_][]const u8{
         "tmp.zig:1:11: error: C import failed",
         ".h:1:10: note: 'bogus.h' file not found",
@@ -3700,14 +3700,14 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const x = 3;
         \\const y = &x;
         \\fn foo() *const i32 { return y; }
-        \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
     , &[_][]const u8{
         "tmp.zig:3:30: error: expected type '*const i32', found '*const comptime_int'",
     });
 
     cases.add("integer overflow error",
         \\const x : u8 = 300;
-        \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(x)); }
     , &[_][]const u8{
         "tmp.zig:1:16: error: integer value 300 cannot be coerced to type 'u8'",
     });
@@ -3736,7 +3736,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    }
         \\};
         \\
-        \\const member_fn_type = @typeOf(Foo.member_a);
+        \\const member_fn_type = @TypeOf(Foo.member_a);
         \\const members = [_]member_fn_type {
         \\    Foo.member_a,
         \\    Foo.member_b,
@@ -3746,21 +3746,21 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    const result = members[index]();
         \\}
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
         "tmp.zig:20:34: error: expected 1 arguments, found 0",
     });
 
     cases.add("missing function name",
         \\fn () void {}
-        \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
         "tmp.zig:1:1: error: missing function name",
     });
 
     cases.add("missing param name",
         \\fn f(i32) void {}
-        \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
         "tmp.zig:1:6: error: missing parameter name",
     });
@@ -3770,7 +3770,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn a() i32 {return 0;}
         \\fn b() i32 {return 1;}
         \\fn c() i32 {return 2;}
-        \\export fn entry() usize { return @sizeOf(@typeOf(fns)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(fns)); }
     , &[_][]const u8{
         "tmp.zig:1:28: error: expected type 'fn() void', found 'fn() i32'",
     });
@@ -3781,7 +3781,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\pub fn b(x: i32) i32 {return x + 1;}
         \\export fn c(x: i32) i32 {return x + 2;}
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(fns)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(fns)); }
     , &[_][]const u8{
         "tmp.zig:1:37: error: expected type 'fn(i32) i32', found 'extern fn(i32) i32'",
     });
@@ -3789,7 +3789,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add("colliding invalid top level functions",
         \\fn func() bogus {}
         \\fn func() bogus {}
-        \\export fn entry() usize { return @sizeOf(@typeOf(func)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(func)); }
     , &[_][]const u8{
         "tmp.zig:2:1: error: redefinition of 'func'",
     });
@@ -3801,7 +3801,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\var global_var: usize = 1;
         \\fn get() usize { return global_var; }
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(Foo)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(Foo)); }
     , &[_][]const u8{
         "tmp.zig:5:25: error: unable to evaluate constant expression",
         "tmp.zig:2:12: note: referenced here",
@@ -3813,7 +3813,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\};
         \\const x = Foo {.field = 1} + Foo {.field = 2};
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(x)); }
     , &[_][]const u8{
         "tmp.zig:4:28: error: invalid operands to binary expression: 'Foo' and 'Foo'",
     });
@@ -3824,10 +3824,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const int_x = @as(u32, 1) / @as(u32, 0);
         \\const float_x = @as(f32, 1.0) / @as(f32, 0.0);
         \\
-        \\export fn entry1() usize { return @sizeOf(@typeOf(lit_int_x)); }
-        \\export fn entry2() usize { return @sizeOf(@typeOf(lit_float_x)); }
-        \\export fn entry3() usize { return @sizeOf(@typeOf(int_x)); }
-        \\export fn entry4() usize { return @sizeOf(@typeOf(float_x)); }
+        \\export fn entry1() usize { return @sizeOf(@TypeOf(lit_int_x)); }
+        \\export fn entry2() usize { return @sizeOf(@TypeOf(lit_float_x)); }
+        \\export fn entry3() usize { return @sizeOf(@TypeOf(int_x)); }
+        \\export fn entry4() usize { return @sizeOf(@TypeOf(float_x)); }
     , &[_][]const u8{
         "tmp.zig:1:21: error: division by zero",
         "tmp.zig:2:25: error: division by zero",
@@ -3839,7 +3839,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const foo = "a
         \\b";
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
     , &[_][]const u8{
         "tmp.zig:1:15: error: newline not allowed in string literal",
     });
@@ -3848,7 +3848,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn foo() void {}
         \\const invalid = foo > foo;
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(invalid)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(invalid)); }
     , &[_][]const u8{
         "tmp.zig:2:21: error: operator not allowed for type 'fn() void'",
     });
@@ -3859,7 +3859,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return foo(a, b);
         \\}
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(test1)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(test1)); }
     , &[_][]const u8{
         "tmp.zig:3:16: error: unable to evaluate constant expression",
     });
@@ -3867,7 +3867,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add("assign null to non-optional pointer",
         \\const a: *u8 = null;
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(a)); }
     , &[_][]const u8{
         "tmp.zig:1:16: error: expected type '*u8', found '(null)'",
     });
@@ -3887,7 +3887,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 1 / x;
         \\}
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(y)); }
     , &[_][]const u8{
         "tmp.zig:3:14: error: division by zero",
         "tmp.zig:1:14: note: referenced here",
@@ -3896,7 +3896,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add("branch on undefined value",
         \\const x = if (undefined) true else false;
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(x)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(x)); }
     , &[_][]const u8{
         "tmp.zig:1:15: error: use of undefined value here causes undefined behavior",
     });
@@ -4276,7 +4276,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return fibbonaci(x - 1) + fibbonaci(x - 2);
         \\}
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(seventh_fib_number)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(seventh_fib_number)); }
     , &[_][]const u8{
         "tmp.zig:3:21: error: evaluation exceeded 1000 backwards branches",
         "tmp.zig:1:37: note: referenced here",
@@ -4286,7 +4286,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add("@embedFile with bogus file",
         \\const resource = @embedFile("bogus.txt",);
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(resource)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(resource)); }
     , &[_][]const u8{
         "tmp.zig:1:29: error: unable to find '",
         "bogus.txt'",
@@ -4299,7 +4299,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const a = Foo {.x = get_it()};
         \\extern fn get_it() i32;
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(a)); }
     , &[_][]const u8{
         "tmp.zig:4:21: error: unable to evaluate constant expression",
     });
@@ -4315,7 +4315,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\var global_side_effect = false;
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(a)); }
     , &[_][]const u8{
         "tmp.zig:6:26: error: unable to evaluate constant expression",
         "tmp.zig:4:17: note: referenced here",
@@ -4344,8 +4344,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return a.* == b.*;
         \\}
         \\
-        \\export fn entry1() usize { return @sizeOf(@typeOf(bad_eql_1)); }
-        \\export fn entry2() usize { return @sizeOf(@typeOf(bad_eql_2)); }
+        \\export fn entry1() usize { return @sizeOf(@TypeOf(bad_eql_1)); }
+        \\export fn entry2() usize { return @sizeOf(@TypeOf(bad_eql_2)); }
     , &[_][]const u8{
         "tmp.zig:2:14: error: operator not allowed for type '[]u8'",
         "tmp.zig:9:16: error: operator not allowed for type 'EnumWithData'",
@@ -4392,7 +4392,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return -x;
         \\}
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(y)); }
     , &[_][]const u8{
         "tmp.zig:3:12: error: negation caused overflow",
         "tmp.zig:1:14: note: referenced here",
@@ -4404,7 +4404,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return a + b;
         \\}
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(y)); }
     , &[_][]const u8{
         "tmp.zig:3:14: error: operation caused overflow",
         "tmp.zig:1:14: note: referenced here",
@@ -4416,7 +4416,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return a - b;
         \\}
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(y)); }
     , &[_][]const u8{
         "tmp.zig:3:14: error: operation caused overflow",
         "tmp.zig:1:14: note: referenced here",
@@ -4428,7 +4428,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return a * b;
         \\}
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(y)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(y)); }
     , &[_][]const u8{
         "tmp.zig:3:14: error: operation caused overflow",
         "tmp.zig:1:14: note: referenced here",
@@ -4440,7 +4440,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return @truncate(i8, x);
         \\}
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
         "tmp.zig:3:26: error: expected signed integer type, found 'u32'",
     });
@@ -4480,7 +4480,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn f() i32 {
         \\    return foo(1, 2);
         \\}
-        \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
         "tmp.zig:1:15: error: comptime parameter not allowed in function with calling convention 'ccc'",
     });
@@ -4524,7 +4524,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn f(m: []const u8) void {
         \\    m.copy(u8, self[0..], m);
         \\}
-        \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
         "tmp.zig:3:6: error: no member named 'copy' in '[]const u8'",
     });
@@ -4537,7 +4537,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\    foo.method(1, 2);
         \\}
-        \\export fn entry() usize { return @sizeOf(@typeOf(f)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
         "tmp.zig:6:15: error: expected 2 arguments, found 3",
     });
@@ -4596,7 +4596,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var jd = JsonNode {.kind = JsonType.JSONArray , .jobject = JsonOA.JSONArray {jll} };
         \\}
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
     , &[_][]const u8{
         "tmp.zig:5:16: error: use of undeclared identifier 'JsonList'",
     });
@@ -4655,7 +4655,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const TINY_QUANTUM_SIZE = 1 << TINY_QUANTUM_SHIFT;
         \\var block_aligned_stuff: usize = (4 + TINY_QUANTUM_SIZE) & ~(TINY_QUANTUM_SIZE - 1);
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(block_aligned_stuff)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(block_aligned_stuff)); }
     , &[_][]const u8{
         "tmp.zig:3:60: error: unable to perform binary not operation on type 'comptime_int'",
     });
@@ -4683,7 +4683,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const zero: i32 = 0;
         \\const a = zero{1};
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(a)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(a)); }
     , &[_][]const u8{
         "tmp.zig:2:11: error: expected type 'type', found 'i32'",
     });
@@ -4715,7 +4715,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 0;
         \\}
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(testTrickyDefer)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(testTrickyDefer)); }
     , &[_][]const u8{
         "tmp.zig:4:11: error: cannot return from defer expression",
     });
@@ -4730,7 +4730,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add("global variable alignment non power of 2",
         \\const some_data: [100]u8 align(3) = undefined;
-        \\export fn entry() usize { return @sizeOf(@typeOf(some_data)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(some_data)); }
     , &[_][]const u8{
         "tmp.zig:1:32: error: alignment value 3 is not a power of 2",
     });
@@ -4772,7 +4772,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return x.*;
         \\}
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
     , &[_][]const u8{
         "tmp.zig:8:26: error: expected type '*const u3', found '*align(:3:1) const u3'",
     });
@@ -4875,7 +4875,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return out.*[0..1];
         \\}
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(pass)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(pass)); }
     , &[_][]const u8{
         "tmp.zig:4:10: error: attempt to dereference non-pointer type '[10]u8'",
     });
@@ -4890,7 +4890,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return true;
         \\}
         \\
-        \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
+        \\export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
     , &[_][]const u8{
         "tmp.zig:4:19: error: expected type '*[]const u8', found '*const []const u8'",
     });
@@ -5726,7 +5726,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
 
     cases.add("@ArgType arg index out of bounds",
         \\comptime {
-        \\    _ = @ArgType(@typeOf(add), 2);
+        \\    _ = @ArgType(@TypeOf(add), 2);
         \\}
         \\fn add(a: i32, b: i32) i32 { return a + b; }
     , &[_][]const u8{
@@ -6220,7 +6220,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add("getting return type of generic function",
         \\fn generic(a: var) void {}
         \\comptime {
-        \\    _ = @typeOf(generic).ReturnType;
+        \\    _ = @TypeOf(generic).ReturnType;
         \\}
     , &[_][]const u8{
         "tmp.zig:3:25: error: ReturnType has not been resolved because 'fn(var)var' is generic",
@@ -6229,7 +6229,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add("getting @ArgType of generic function",
         \\fn generic(a: var) void {}
         \\comptime {
-        \\    _ = @ArgType(@typeOf(generic), 0);
+        \\    _ = @ArgType(@TypeOf(generic), 0);
         \\}
     , &[_][]const u8{
         "tmp.zig:3:36: error: @ArgType could not resolve the type of arg 0 because 'fn(var)var' is generic",

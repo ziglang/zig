@@ -30,7 +30,7 @@ test "void arrays" {
     var array: [4]void = undefined;
     array[0] = void{};
     array[1] = array[2];
-    expect(@sizeOf(@typeOf(array)) == 0);
+    expect(@sizeOf(@TypeOf(array)) == 0);
     expect(array.len == 4);
 }
 
@@ -109,12 +109,12 @@ test "array literal with specified size" {
 
 test "array child property" {
     var x: [5]i32 = undefined;
-    expect(@typeOf(x).Child == i32);
+    expect(@TypeOf(x).Child == i32);
 }
 
 test "array len property" {
     var x: [5]i32 = undefined;
-    expect(@typeOf(x).len == 5);
+    expect(@TypeOf(x).len == 5);
 }
 
 test "array len field" {

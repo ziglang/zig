@@ -226,14 +226,14 @@ fn testCastConstArrayRefToConstSlice() void {
     {
         const blah = "aoeu".*;
         const const_array_ref = &blah;
-        expect(@typeOf(const_array_ref) == *const [4:0]u8);
+        expect(@TypeOf(const_array_ref) == *const [4:0]u8);
         const slice: []const u8 = const_array_ref;
         expect(mem.eql(u8, slice, "aoeu"));
     }
     {
         const blah: [4]u8 = "aoeu".*;
         const const_array_ref = &blah;
-        expect(@typeOf(const_array_ref) == *const [4]u8);
+        expect(@TypeOf(const_array_ref) == *const [4]u8);
         const slice: []const u8 = const_array_ref;
         expect(mem.eql(u8, slice, "aoeu"));
     }
@@ -353,29 +353,29 @@ test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
 
 test "@intCast comptime_int" {
     const result = @intCast(i32, 1234);
-    expect(@typeOf(result) == i32);
+    expect(@TypeOf(result) == i32);
     expect(result == 1234);
 }
 
 test "@floatCast comptime_int and comptime_float" {
     {
         const result = @floatCast(f16, 1234);
-        expect(@typeOf(result) == f16);
+        expect(@TypeOf(result) == f16);
         expect(result == 1234.0);
     }
     {
         const result = @floatCast(f16, 1234.0);
-        expect(@typeOf(result) == f16);
+        expect(@TypeOf(result) == f16);
         expect(result == 1234.0);
     }
     {
         const result = @floatCast(f32, 1234);
-        expect(@typeOf(result) == f32);
+        expect(@TypeOf(result) == f32);
         expect(result == 1234.0);
     }
     {
         const result = @floatCast(f32, 1234.0);
-        expect(@typeOf(result) == f32);
+        expect(@TypeOf(result) == f32);
         expect(result == 1234.0);
     }
 }
@@ -383,12 +383,12 @@ test "@floatCast comptime_int and comptime_float" {
 test "comptime_int @intToFloat" {
     {
         const result = @intToFloat(f16, 1234);
-        expect(@typeOf(result) == f16);
+        expect(@TypeOf(result) == f16);
         expect(result == 1234.0);
     }
     {
         const result = @intToFloat(f32, 1234);
-        expect(@typeOf(result) == f32);
+        expect(@TypeOf(result) == f32);
         expect(result == 1234.0);
     }
 }
@@ -396,7 +396,7 @@ test "comptime_int @intToFloat" {
 test "@bytesToSlice keeps pointer alignment" {
     var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
     const numbers = @bytesToSlice(u32, bytes[0..]);
-    comptime expect(@typeOf(numbers) == []align(@alignOf(@typeOf(bytes))) u32);
+    comptime expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
 }
 
 test "@intCast i32 to u7" {

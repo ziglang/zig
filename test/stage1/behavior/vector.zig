@@ -148,7 +148,7 @@ test "vector @splat" {
         fn doTheTest() void {
             var v: u32 = 5;
             var x = @splat(4, v);
-            expect(@typeOf(x) == @Vector(4, u32));
+            expect(@TypeOf(x) == @Vector(4, u32));
             var array_x: [4]u32 = x;
             expect(array_x[0] == 5);
             expect(array_x[1] == 5);

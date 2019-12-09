@@ -663,7 +663,7 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
         pub fn writeBits(self: *Self, value: var, bits: usize) Error!void {
             if (bits == 0) return;
 
-            const U = @typeOf(value);
+            const U = @TypeOf(value);
             comptime assert(trait.isUnsignedInt(U));
 
             //by extending the buffer to a minimum of u8 we can cover a number of edge cases
@@ -962,7 +962,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
 
         /// Deserializes data into the type pointed to by `ptr`
         pub fn deserializeInto(self: *Self, ptr: var) !void {
-            const T = @typeOf(ptr);
+            const T = @TypeOf(ptr);
             comptime assert(trait.is(builtin.TypeId.Pointer)(T));
 
             if (comptime trait.isSlice(T) or comptime trait.isPtrTo(builtin.TypeId.Array)(T)) {
@@ -1091,7 +1091,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
         }
 
         fn serializeInt(self: *Self, value: var) Error!void {
-            const T = @typeOf(value);
+            const T = @TypeOf(value);
             comptime assert(trait.is(builtin.TypeId.Int)(T) or trait.is(builtin.TypeId.Float)(T));
 
             const t_bit_count = comptime meta.bitCount(T);
@@ -1123,7 +1123,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
 
         /// Serializes the passed value into the stream
         pub fn serialize(self: *Self, value: var) Error!void {
-            const T = comptime @typeOf(value);
+            const T = comptime @TypeOf(value);
 
             if (comptime trait.isIndexable(T)) {
                 for (value) |v|

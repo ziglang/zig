@@ -73,7 +73,7 @@ fn fnWithUnreachable() noreturn {
 }
 
 test "function pointers" {
-    const fns = [_]@typeOf(fn1){
+    const fns = [_]@TypeOf(fn1){
         fn1,
         fn2,
         fn3,
@@ -130,7 +130,7 @@ test "pass by non-copying value through var arg" {
 }
 
 fn addPointCoordsVar(pt: var) i32 {
-    comptime expect(@typeOf(pt) == Point);
+    comptime expect(@TypeOf(pt) == Point);
     return pt.x + pt.y;
 }
 
@@ -170,7 +170,7 @@ test "pass by non-copying value as method, at comptime" {
 }
 
 fn outer(y: u32) fn (u32) u32 {
-    const Y = @typeOf(y);
+    const Y = @TypeOf(y);
     const st = struct {
         fn get(z: u32) u32 {
             return z + @sizeOf(Y);
@@ -265,7 +265,7 @@ test "ability to give comptime types and non comptime types to same parameter" {
         }
 
         fn foo(arg: var) i32 {
-            if (@typeInfo(@typeOf(arg)) == .Type and arg == i32) return 20;
+            if (@typeInfo(@TypeOf(arg)) == .Type and arg == i32) return 20;
             return 9 + arg;
         }
     };

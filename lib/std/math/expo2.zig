@@ -7,8 +7,8 @@
 const math = @import("../math.zig");
 
 /// Returns exp(x) / 2 for x >= log(maxFloat(T)).
-pub fn expo2(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn expo2(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => expo2f(x),
         f64 => expo2d(x),

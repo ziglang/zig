@@ -201,7 +201,7 @@ fn testUnion() void {
     expect(typeinfo_info.Union.fields.len == 25);
     expect(typeinfo_info.Union.fields[4].enum_field != null);
     expect(typeinfo_info.Union.fields[4].enum_field.?.value == 4);
-    expect(typeinfo_info.Union.fields[4].field_type == @typeOf(@typeInfo(u8).Int));
+    expect(typeinfo_info.Union.fields[4].field_type == @TypeOf(@typeInfo(u8).Int));
     expect(typeinfo_info.Union.decls.len == 21);
 
     const TestNoTagUnion = union {
@@ -264,7 +264,7 @@ test "type info: function type info" {
 }
 
 fn testFunction() void {
-    const fn_info = @typeInfo(@typeOf(foo));
+    const fn_info = @typeInfo(@TypeOf(foo));
     expect(@as(TypeId, fn_info) == TypeId.Fn);
     expect(fn_info.Fn.calling_convention == TypeInfo.CallingConvention.Unspecified);
     expect(fn_info.Fn.is_generic);
@@ -273,7 +273,7 @@ fn testFunction() void {
     expect(fn_info.Fn.return_type == null);
 
     const test_instance: TestStruct = undefined;
-    const bound_fn_info = @typeInfo(@typeOf(test_instance.foo));
+    const bound_fn_info = @typeInfo(@TypeOf(test_instance.foo));
     expect(@as(TypeId, bound_fn_info) == TypeId.BoundFn);
     expect(bound_fn_info.BoundFn.args[0].arg_type.? == *const TestStruct);
 }

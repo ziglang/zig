@@ -635,7 +635,7 @@ const MsfStream = struct {
     /// Implementation of InStream trait for Pdb.MsfStream
     stream: Stream = undefined,
 
-    pub const Error = @typeOf(read).ReturnType.ErrorSet;
+    pub const Error = @TypeOf(read).ReturnType.ErrorSet;
     pub const Stream = io.InStream(Error);
 
     fn init(block_size: u32, file: File, blocks: []u32) MsfStream {
