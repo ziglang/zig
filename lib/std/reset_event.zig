@@ -283,7 +283,7 @@ const PosixEvent = struct {
 
     pub fn init() PosixEvent {
         return PosixEvent{
-            .state = .0,
+            .state = 0,
             .cond = c.PTHREAD_COND_INITIALIZER,
             .mutex = c.PTHREAD_MUTEX_INITIALIZER,
         };
