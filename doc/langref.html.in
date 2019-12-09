@@ -307,7 +307,7 @@ pub fn main() void {
     assert(optional_value == null);
 
     warn("\noptional 1\ntype: {}\nvalue: {}\n", .{
-        @typeName(@typeOf(optional_value)),
+        @typeName(@TypeOf(optional_value)),
         optional_value,
     });
 
@@ -315,7 +315,7 @@ pub fn main() void {
     assert(optional_value != null);
 
     warn("\noptional 2\ntype: {}\nvalue: {}\n", .{
-        @typeName(@typeOf(optional_value)),
+        @typeName(@TypeOf(optional_value)),
         optional_value,
     });
 
@@ -323,14 +323,14 @@ pub fn main() void {
     var number_or_error: anyerror!i32 = error.ArgNotFound;
 
     warn("\nerror union 1\ntype: {}\nvalue: {}\n", .{
-        @typeName(@typeOf(number_or_error)),
+        @typeName(@TypeOf(number_or_error)),
         number_or_error,
     });
 
     number_or_error = 1234;
 
     warn("\nerror union 2\ntype: {}\nvalue: {}\n", .{
-        @typeName(@typeOf(number_or_error)),
+        @typeName(@TypeOf(number_or_error)),
         number_or_error,
     });
 }
@@ -572,7 +572,7 @@ const mem = @import("std").mem;
 
 test "string literals" {
     const bytes = "hello";
-    assert(@typeOf(bytes) == *const [5:0]u8);
+    assert(@TypeOf(bytes) == *const [5:0]u8);
     assert(bytes.len == 5);
     assert(bytes[1] == 'e');
     assert(bytes[5] == 0);
@@ -1802,7 +1802,7 @@ const assert = std.debug.assert;
 test "null terminated array" {
     const array = [_:0]u8 {1, 2, 3, 4};
 
-    assert(@typeOf(array) == [4:0]u8);
+    assert(@TypeOf(array) == [4:0]u8);
     assert(array.len == 4);
     assert(array[4] == 0);
 }
@@ -1885,12 +1885,12 @@ test "address of syntax" {
     assert(x_ptr.* == 1234);
 
     // When you get the address of a const variable, you get a const pointer to a single item.
-    assert(@typeOf(x_ptr) == *const i32);
+    assert(@TypeOf(x_ptr) == *const i32);
 
     // If you want to mutate the value, you'd need an address of a mutable variable:
     var y: i32 = 5678;
     const y_ptr = &y;
-    assert(@typeOf(y_ptr) == *i32);
+    assert(@TypeOf(y_ptr) == *i32);
     y_ptr.* += 1;
     assert(y_ptr.* == 5679);
 }
@@ -1901,7 +1901,7 @@ test "pointer array access" {
     // does not support pointer arithmetic.
     var array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
     const ptr = &array[2];
-    assert(@typeOf(ptr) == *u8);
+    assert(@TypeOf(ptr) == *u8);
 
     assert(array[2] == 3);
     ptr.* += 1;
@@ -1953,7 +1953,7 @@ const assert = @import("std").debug.assert;
 test "@ptrToInt and @intToPtr" {
     const ptr = @intToPtr(*i32, 0xdeadbeef);
     const addr = @ptrToInt(ptr);
-    assert(@typeOf(addr) == usize);
+    assert(@TypeOf(addr) == usize);
     assert(addr == 0xdeadbeef);
 }
       {#code_end#}
@@ -1968,7 +1968,7 @@ test "comptime @intToPtr" {
         // ptr is never dereferenced.
         const ptr = @intToPtr(*i32, 0xdeadbeef);
         const addr = @ptrToInt(ptr);
-        assert(@typeOf(addr) == usize);
+        assert(@TypeOf(addr) == usize);
         assert(addr == 0xdeadbeef);
     }
 }
@@ -1984,7 +1984,7 @@ const assert = @import("std").debug.assert;
 
 test "volatile" {
     const mmio_ptr = @intToPtr(*volatile u8, 0x12345678);
-    assert(@typeOf(mmio_ptr) == *volatile u8);
+    assert(@TypeOf(mmio_ptr) == *volatile u8);
 }
       {#code_end#}
       <p>
@@ -2041,8 +2041,8 @@ const builtin = @import("builtin");
 
 test "variable alignment" {
     var x: i32 = 1234;
-    const align_of_i32 = @alignOf(@typeOf(x));
-    assert(@typeOf(&x) == *i32);
+    const align_of_i32 = @alignOf(@TypeOf(x));
+    assert(@TypeOf(&x) == *i32);
     assert(*i32 == *align(align_of_i32) i32);
     if (builtin.arch == builtin.Arch.x86_64) {
         assert((*i32).alignment == 4);
@@ -2063,10 +2063,10 @@ const assert = @import("std").debug.assert;
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
-    assert(@typeOf(&foo).alignment == 4);
-    assert(@typeOf(&foo) == *align(4) u8);
+    assert(@TypeOf(&foo).alignment == 4);
+    assert(@TypeOf(&foo) == *align(4) u8);
     const slice = @as(*[1]u8, &foo)[0..];
-    assert(@typeOf(slice) == []align(4) u8);
+    assert(@TypeOf(slice) == []align(4) u8);
 }
 
 fn derp() align(@sizeOf(usize) * 2) i32 { return 1234; }
@@ -2075,8 +2075,8 @@ fn noop4() align(4) void {}
 
 test "function alignment" {
     assert(derp() == 1234);
-    assert(@typeOf(noop1) == fn() align(1) void);
-    assert(@typeOf(noop4) == fn() align(4) void);
+    assert(@TypeOf(noop1) == fn() align(1) void);
+    assert(@TypeOf(noop4) == fn() align(4) void);
     noop1();
     noop4();
 }
@@ -2162,8 +2162,8 @@ test "basic slices" {
 
     // Using the address-of operator on a slice gives a pointer to a single
     // item, while using the `ptr` field gives an unknown length pointer.
-    assert(@typeOf(slice.ptr) == [*]i32);
-    assert(@typeOf(&slice[0]) == *i32);
+    assert(@TypeOf(slice.ptr) == [*]i32);
+    assert(@TypeOf(&slice[0]) == *i32);
     assert(@ptrToInt(slice.ptr) == @ptrToInt(&slice[0]));
 
     // Slices have array bounds checking. If you try to access something out
@@ -2208,7 +2208,7 @@ test "slice pointer" {
     slice[2] = 3;
     assert(slice[2] == 3);
     // The slice is mutable because we sliced a mutable pointer.
-    assert(@typeOf(slice) == []u8);
+    assert(@TypeOf(slice) == []u8);
 
     // You can also slice a slice:
     const slice2 = slice[2..3];
@@ -3566,7 +3566,7 @@ test "for basics" {
     // This is zero-indexed.
     var sum2: i32 = 0;
     for (items) |value, i| {
-        assert(@typeOf(i) == usize);
+        assert(@TypeOf(i) == usize);
         sum2 += @intCast(i32, i);
     }
     assert(sum2 == 10);
@@ -3909,7 +3909,7 @@ test "type of unreachable" {
         // However this assertion will still fail because
         // evaluating unreachable at compile-time is a compile error.
 
-        assert(@typeOf(unreachable) == noreturn);
+        assert(@TypeOf(unreachable) == noreturn);
     }
 }
       {#code_end#}
@@ -4018,7 +4018,7 @@ test "function" {
 const assert = @import("std").debug.assert;
 
 comptime {
-    assert(@typeOf(foo) == fn()void);
+    assert(@TypeOf(foo) == fn()void);
     assert(@sizeOf(fn()void) == @sizeOf(?fn()void));
 }
 
@@ -4062,35 +4062,35 @@ test "pass struct to function" {
       </p>
       {#header_close#}
       {#header_open|Function Parameter Type Inference#}
-      <p> 
-      Function parameters can be declared with {#syntax#}var{#endsyntax#} in place of the type. 
+      <p>
+      Function parameters can be declared with {#syntax#}var{#endsyntax#} in place of the type.
       In this case the parameter types will be inferred when the function is called.
-      Use {#link|@typeOf#} and {#link|@typeInfo#} to get information about the inferred type.
+      Use {#link|@TypeOf#} and {#link|@typeInfo#} to get information about the inferred type.
       </p>
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
 
-fn addFortyTwo(x: var) @typeOf(x) {
+fn addFortyTwo(x: var) @TypeOf(x) {
     return x + 42;
 }
 
 test "fn type inference" {
     assert(addFortyTwo(1) == 43);
-    assert(@typeOf(addFortyTwo(1)) == comptime_int);
+    assert(@TypeOf(addFortyTwo(1)) == comptime_int);
     var y: i64 = 2;
     assert(addFortyTwo(y) == 44);
-    assert(@typeOf(addFortyTwo(y)) == i64);
+    assert(@TypeOf(addFortyTwo(y)) == i64);
 }
       {#code_end#}
-      
+
       {#header_close#}
       {#header_open|Function Reflection#}
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
 
 test "fn reflection" {
-    assert(@typeOf(assert).ReturnType == void);
-    assert(@typeOf(assert).is_var_args == false);
+    assert(@TypeOf(assert).ReturnType == void);
+    assert(@TypeOf(assert).is_var_args == false);
 }
       {#code_end#}
       {#header_close#}
@@ -4390,10 +4390,10 @@ test "error union" {
     foo = error.SomeError;
 
     // Use compile-time reflection to access the payload type of an error union:
-    comptime assert(@typeOf(foo).Payload == i32);
+    comptime assert(@TypeOf(foo).Payload == i32);
 
     // Use compile-time reflection to access the error set type of an error union:
-    comptime assert(@typeOf(foo).ErrorSet == anyerror);
+    comptime assert(@TypeOf(foo).ErrorSet == anyerror);
 }
       {#code_end#}
       {#header_open|Merging Error Sets#}
@@ -4770,7 +4770,7 @@ test "optional type" {
     foo = 1234;
 
     // Use compile-time reflection to access the child type of the optional:
-    comptime assert(@typeOf(foo).Child == i32);
+    comptime assert(@TypeOf(foo).Child == i32);
 }
       {#code_end#}
       {#header_close#}
@@ -5154,7 +5154,7 @@ test "peer resolve int widening" {
     var b: i16 = 34;
     var c = a + b;
     assert(c == 46);
-    assert(@typeOf(c) == i16);
+    assert(@TypeOf(c) == i16);
 }
 
 test "peer resolve arrays of different size to const slice" {
@@ -5949,7 +5949,7 @@ pub fn printf(self: *OutStream, arg0: i32, arg1: []const u8) !void {
       </p>
       {#code_begin|syntax#}
 pub fn printValue(self: *OutStream, value: var) !void {
-    const T = @typeOf(value);
+    const T = @TypeOf(value);
     if (@isInteger(T)) {
         return self.printInt(T, value);
     } else if (@isFloat(T)) {
@@ -6265,7 +6265,7 @@ test "async function suspend with block" {
 
 fn testSuspendBlock() void {
     suspend {
-        comptime assert(@typeOf(@frame()) == *@Frame(testSuspendBlock));
+        comptime assert(@TypeOf(@frame()) == *@Frame(testSuspendBlock));
         the_frame = @frame();
     }
     result = true;
@@ -6332,7 +6332,7 @@ test "async and await" {
 
 fn amain() void {
     var frame = async func();
-    comptime assert(@typeOf(frame) == @Frame(func));
+    comptime assert(@TypeOf(frame) == @Frame(func));
 
     const ptr: anyframe->void = &frame;
     const any_ptr: anyframe = ptr;
@@ -6740,7 +6740,7 @@ async fn func(y: *i32) void {
       Converts a value of one type to another type.
       </p>
       <p>
-      Asserts that {#syntax#}@sizeOf(@typeOf(value)) == @sizeOf(DestType){#endsyntax#}.
+      Asserts that {#syntax#}@sizeOf(@TypeOf(value)) == @sizeOf(DestType){#endsyntax#}.
       </p>
       <p>
       Asserts that {#syntax#}@typeId(DestType) != @import("builtin").TypeId.Pointer{#endsyntax#}. Use {#syntax#}@ptrCast{#endsyntax#} or {#syntax#}@intToPtr{#endsyntax#} if you need this.
@@ -7045,7 +7045,7 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
       <p>
       {#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("builtin").AtomicOrder{#endsyntax#}.
       </p>
-      <p>{#syntax#}@typeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
+      <p>{#syntax#}@TypeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       {#see_also|Compile Variables|cmpxchgWeak#}
       {#header_close#}
       {#header_open|@cmpxchgWeak#}
@@ -7073,7 +7073,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       {#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("builtin").AtomicOrder{#endsyntax#}.
       </p>
-      <p>{#syntax#}@typeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
+      <p>{#syntax#}@TypeOf(ptr).alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       {#see_also|Compile Variables|cmpxchgStrong#}
       {#header_close#}
 
@@ -8020,7 +8020,7 @@ test "@setRuntimeSafety" {
       {#header_close#}
 
       {#header_open|@splat#}
-      <pre>{#syntax#}@splat(comptime len: u32, scalar: var) @Vector(len, @typeOf(scalar)){#endsyntax#}</pre>
+      <pre>{#syntax#}@splat(comptime len: u32, scalar: var) @Vector(len, @TypeOf(scalar)){#endsyntax#}</pre>
       <p>
       Produces a vector of length {#syntax#}len{#endsyntax#} where each element is the value
       {#syntax#}scalar{#endsyntax#}:
@@ -8032,7 +8032,7 @@ const assert = std.debug.assert;
 test "vector @splat" {
     const scalar: u32 = 5;
     const result = @splat(4, scalar);
-    comptime assert(@typeOf(result) == @Vector(4, u32));
+    comptime assert(@TypeOf(result) == @Vector(4, u32));
     assert(std.mem.eql(u32, &@as([4]u32, result), &[_]u32{ 5, 5, 5, 5 }));
 }
       {#code_end#}
@@ -8250,8 +8250,8 @@ test "integer truncation" {
           <li>{#link|Pointers#}</li>
           <li>{#syntax#}comptime_int{#endsyntax#}</li>
           <li>{#syntax#}comptime_float{#endsyntax#}</li>
-          <li>{#syntax#}@typeOf(undefined){#endsyntax#}</li>
-          <li>{#syntax#}@typeOf(null){#endsyntax#}</li>
+          <li>{#syntax#}@TypeOf(undefined){#endsyntax#}</li>
+          <li>{#syntax#}@TypeOf(null){#endsyntax#}</li>
       </ul>
       <p>
       For these types it is a
@@ -8516,20 +8516,20 @@ pub const TypeInfo = union(TypeId) {
 
       {#header_close#}
 
-      {#header_open|@typeOf#}
-      <pre>{#syntax#}@typeOf(expression) type{#endsyntax#}</pre>
+      {#header_open|@TypeOf#}
+      <pre>{#syntax#}@TypeOf(expression) type{#endsyntax#}</pre>
       <p>
       This function returns a compile-time constant, which is the type of the
       expression passed as an argument. The expression is evaluated.
       </p>
-      <p>{#syntax#}@typeOf{#endsyntax#} guarantees no run-time side-effects within the expression:</p>
+      <p>{#syntax#}@TypeOf{#endsyntax#} guarantees no run-time side-effects within the expression:</p>
       {#code_begin|test#}
 const std = @import("std");
 const assert = std.debug.assert;
 
 test "no runtime side effects" {
     var data: i32 = 0;
-    const T = @typeOf(foo(i32, &data));
+    const T = @TypeOf(foo(i32, &data));
     comptime assert(T == i32);
     assert(data == 0);
 }
