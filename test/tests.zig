@@ -1253,7 +1253,12 @@ pub const CompileErrorContext = struct {
         }
     };
 
-    pub fn create(self: *CompileErrorContext, name: []const u8, source: []const u8, expected_lines: ...) *TestCase {
+    pub fn create(
+        self: *CompileErrorContext,
+        name: []const u8,
+        source: []const u8,
+        expected_lines: []const []const u8,
+    ) *TestCase {
         const tc = self.b.allocator.create(TestCase) catch unreachable;
         tc.* = TestCase{
             .name = name,
@@ -1266,31 +1271,46 @@ pub const CompileErrorContext = struct {
         };
 
         tc.addSourceFile("tmp.zig", source);
-        comptime var arg_i = 0;
-        inline while (arg_i < expected_lines.len) : (arg_i += 1) {
+        var arg_i: usize = 0;
+        while (arg_i < expected_lines.len) : (arg_i += 1) {
             tc.addExpectedError(expected_lines[arg_i]);
         }
         return tc;
     }
 
-    pub fn addC(self: *CompileErrorContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+    pub fn addC(self: *CompileErrorContext, name: []const u8, source: []const u8, expected_lines: []const []const u8) void {
         var tc = self.create(name, source, expected_lines);
         tc.link_libc = true;
         self.addCase(tc);
     }
 
-    pub fn addExe(self: *CompileErrorContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+    pub fn addExe(
+        self: *CompileErrorContext,
+        name: []const u8,
+        source: []const u8,
+        expected_lines: []const []const u8,
+    ) void {
         var tc = self.create(name, source, expected_lines);
         tc.is_exe = true;
         self.addCase(tc);
     }
 
-    pub fn add(self: *CompileErrorContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+    pub fn add(
+        self: *CompileErrorContext,
+        name: []const u8,
+        source: []const u8,
+        expected_lines: []const []const u8,
+    ) void {
         const tc = self.create(name, source, expected_lines);
         self.addCase(tc);
     }
 
-    pub fn addTest(self: *CompileErrorContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+    pub fn addTest(
+        self: *CompileErrorContext,
+        name: []const u8,
+        source: []const u8,
+        expected_lines: []const []const u8,
+    ) void {
         const tc = self.create(name, source, expected_lines);
         tc.is_test = true;
         self.addCase(tc);
@@ -1549,7 +1569,14 @@ pub const TranslateCContext = struct {
         warn("\n", .{});
     }
 
-    pub fn create(self: *TranslateCContext, allow_warnings: bool, filename: []const u8, name: []const u8, source: []const u8, expected_lines: ...) *TestCase {
+    pub fn create(
+        self: *TranslateCContext,
+        allow_warnings: bool,
+        filename: []const u8,
+        name: []const u8,
+        source: []const u8,
+        expected_lines: []const []const u8,
+    ) *TestCase {
         const tc = self.b.allocator.create(TestCase) catch unreachable;
         tc.* = TestCase{
             .name = name,
@@ -1560,24 +1587,39 @@ pub const TranslateCContext = struct {
         };
 
         tc.addSourceFile(filename, source);
-        comptime var arg_i = 0;
-        inline while (arg_i < expected_lines.len) : (arg_i += 1) {
+        var arg_i: usize = 0;
+        while (arg_i < expected_lines.len) : (arg_i += 1) {
             tc.addExpectedLine(expected_lines[arg_i]);
         }
         return tc;
     }
 
-    pub fn add(self: *TranslateCContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+    pub fn add(
+        self: *TranslateCContext,
+        name: []const u8,
+        source: []const u8,
+        expected_lines: []const []const u8,
+    ) void {
         const tc = self.create(false, "source.h", name, source, expected_lines);
         self.addCase(tc);
     }
 
-    pub fn addC(self: *TranslateCContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+    pub fn addC(
+        self: *TranslateCContext,
+        name: []const u8,
+        source: []const u8,
+        expected_lines: []const []const u8,
+    ) void {
         const tc = self.create(false, "source.c", name, source, expected_lines);
         self.addCase(tc);
     }
 
-    pub fn add_both(self: *TranslateCContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+    pub fn add_both(
+        self: *TranslateCContext,
+        name: []const u8,
+        source: []const u8,
+        expected_lines: []const []const u8,
+    ) void {
         for ([_]bool{ false, true }) |stage2| {
             const tc = self.create(false, "source.h", name, source, expected_lines);
             tc.stage2 = stage2;
@@ -1585,7 +1627,12 @@ pub const TranslateCContext = struct {
         }
     }
 
-    pub fn addC_both(self: *TranslateCContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+    pub fn addC_both(
+        self: *TranslateCContext,
+        name: []const u8,
+        source: []const u8,
+        expected_lines: []const []const u8,
+    ) void {
         for ([_]bool{ false, true }) |stage2| {
             const tc = self.create(false, "source.c", name, source, expected_lines);
             tc.stage2 = stage2;
@@ -1593,19 +1640,34 @@ pub const TranslateCContext = struct {
         }
     }
 
-    pub fn add_2(self: *TranslateCContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+    pub fn add_2(
+        self: *TranslateCContext,
+        name: []const u8,
+        source: []const u8,
+        expected_lines: []const []const u8,
+    ) void {
         const tc = self.create(false, "source.h", name, source, expected_lines);
         tc.stage2 = true;
         self.addCase(tc);
     }
 
-    pub fn addC_2(self: *TranslateCContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+    pub fn addC_2(
+        self: *TranslateCContext,
+        name: []const u8,
+        source: []const u8,
+        expected_lines: []const []const u8,
+    ) void {
         const tc = self.create(false, "source.c", name, source, expected_lines);
         tc.stage2 = true;
         self.addCase(tc);
     }
 
-    pub fn addAllowWarnings(self: *TranslateCContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+    pub fn addAllowWarnings(
+        self: *TranslateCContext,
+        name: []const u8,
+        source: []const u8,
+        expected_lines: []const []const u8,
+    ) void {
         const tc = self.create(true, "source.h", name, source, expected_lines);
         self.addCase(tc);
     }
@@ -1723,7 +1785,13 @@ pub const GenHContext = struct {
         warn("\n", .{});
     }
 
-    pub fn create(self: *GenHContext, filename: []const u8, name: []const u8, source: []const u8, expected_lines: ...) *TestCase {
+    pub fn create(
+        self: *GenHContext,
+        filename: []const u8,
+        name: []const u8,
+        source: []const u8,
+        expected_lines: []const []const u8,
+    ) *TestCase {
         const tc = self.b.allocator.create(TestCase) catch unreachable;
         tc.* = TestCase{
             .name = name,
@@ -1732,14 +1800,14 @@ pub const GenHContext = struct {
         };
 
         tc.addSourceFile(filename, source);
-        comptime var arg_i = 0;
-        inline while (arg_i < expected_lines.len) : (arg_i += 1) {
+        var arg_i: usize = 0;
+        while (arg_i < expected_lines.len) : (arg_i += 1) {
             tc.addExpectedLine(expected_lines[arg_i]);
         }
         return tc;
     }
 
-    pub fn add(self: *GenHContext, name: []const u8, source: []const u8, expected_lines: ...) void {
+    pub fn add(self: *GenHContext, name: []const u8, source: []const u8, expected_lines: []const []const u8) void {
         const tc = self.create("test.zig", name, source, expected_lines);
         self.addCase(tc);
     }

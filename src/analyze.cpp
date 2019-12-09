@@ -323,7 +323,6 @@ AstNode *type_decl_node(ZigType *type_entry) {
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdVector:
         case ZigTypeIdAnyFrame:
             return nullptr;
@@ -392,7 +391,6 @@ bool type_is_resolved(ZigType *type_entry, ResolveStatus status) {
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdVector:
         case ZigTypeIdAnyFrame:
             return true;
@@ -1558,7 +1556,6 @@ static Error emit_error_unless_type_allowed_in_packed_container(CodeGen *g, ZigT
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
         case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
@@ -1661,7 +1658,6 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdVoid:
         case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
@@ -1786,12 +1782,9 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
             if (fn_type_id.cc == CallingConventionC) {
                 fn_type_id.param_count = fn_type_id.next_param_index;
                 continue;
-            } else if (calling_convention_allows_zig_types(fn_type_id.cc)) {
-                return get_generic_fn_type(g, &fn_type_id);
             } else {
                 add_node_error(g, param_node,
-                        buf_sprintf("var args not allowed in function with calling convention '%s'",
-                            calling_convention_name(fn_type_id.cc)));
+                        buf_sprintf("var args only allowed in functions with C calling convention"));
                 return g->builtin_types.entry_invalid;
             }
         } else if (param_node->data.param_decl.var_token != nullptr) {
@@ -1838,7 +1831,6 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
             case ZigTypeIdUnreachable:
             case ZigTypeIdUndefined:
             case ZigTypeIdNull:
-            case ZigTypeIdArgTuple:
             case ZigTypeIdOpaque:
                 add_node_error(g, param_node->data.param_decl.type,
                     buf_sprintf("parameter of type '%s' not allowed", buf_ptr(&type_entry->name)));
@@ -1913,7 +1905,6 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
 
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdArgTuple:
             add_node_error(g, fn_proto->return_type,
                 buf_sprintf("return type '%s' not allowed", buf_ptr(&specified_return_type->name)));
             return g->builtin_types.entry_invalid;
@@ -1963,7 +1954,6 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
         case ZigTypeIdInvalid:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
             zig_unreachable();
 
@@ -3720,7 +3710,6 @@ ZigType *validate_var_type(CodeGen *g, AstNode *source_node, ZigType *type_entry
         case ZigTypeIdUnreachable:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
             add_node_error(g, source_node, buf_sprintf("variable of type '%s' not allowed",
                 buf_ptr(&type_entry->name)));
@@ -4275,7 +4264,6 @@ bool is_container(ZigType *type_entry) {
         case ZigTypeIdErrorSet:
         case ZigTypeIdFn:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
         case ZigTypeIdVector:
         case ZigTypeIdFnFrame:
@@ -4982,7 +4970,6 @@ bool handle_is_ptr(ZigType *type_entry) {
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
              zig_unreachable();
         case ZigTypeIdUnreachable:
@@ -5201,9 +5188,6 @@ static uint32_t hash_const_val(ZigValue *const_val) {
                 memcpy(&ints[0], &f128, 16);
                 return ints[0] ^ ints[1] ^ ints[2] ^ ints[3] ^ 0xed8b3dfb;
             }
-        case ZigTypeIdArgTuple:
-            return (uint32_t)const_val->data.x_arg_tuple.start_index * (uint32_t)281907309 +
-                (uint32_t)const_val->data.x_arg_tuple.end_index * (uint32_t)2290442768;
         case ZigTypeIdFn:
             assert(const_val->data.x_ptr.mut == ConstPtrMutComptimeConst);
             assert(const_val->data.x_ptr.special == ConstPtrSpecialFunction);
@@ -5357,9 +5341,6 @@ static bool can_mutate_comptime_var_state(ZigValue *value) {
 
         case ZigTypeIdUnion:
             return can_mutate_comptime_var_state(value->data.x_union.payload);
-
-        case ZigTypeIdArgTuple:
-            zig_panic("TODO var args at comptime is currently not supported");
     }
     zig_unreachable();
 }
@@ -5400,9 +5381,6 @@ static bool return_type_is_cacheable(ZigType *return_type) {
 
         case ZigTypeIdErrorUnion:
             return return_type_is_cacheable(return_type->data.error_union.payload_type);
-
-        case ZigTypeIdArgTuple:
-            zig_panic("TODO var args at comptime is currently not supported");
     }
     zig_unreachable();
 }
@@ -5540,7 +5518,6 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
         case ZigTypeIdEnumLiteral:
         case ZigTypeIdMetaType:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdOptional:
         case ZigTypeIdFn:
         case ZigTypeIdBool:
@@ -5626,7 +5603,6 @@ ReqCompTime type_requires_comptime(CodeGen *g, ZigType *ty) {
         case ZigTypeIdNull:
         case ZigTypeIdMetaType:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
             return ReqCompTimeYes;
         case ZigTypeIdArray:
             return type_requires_comptime(g, ty->data.array.child_type);
@@ -5917,20 +5893,6 @@ ZigValue *create_const_ptr_hard_coded_addr(CodeGen *g, ZigType *pointee_type,
     init_const_ptr_hard_coded_addr(g, const_val, pointee_type, addr, is_const);
     return const_val;
 }
-
-void init_const_arg_tuple(CodeGen *g, ZigValue *const_val, size_t arg_index_start, size_t arg_index_end) {
-    const_val->special = ConstValSpecialStatic;
-    const_val->type = g->builtin_types.entry_arg_tuple;
-    const_val->data.x_arg_tuple.start_index = arg_index_start;
-    const_val->data.x_arg_tuple.end_index = arg_index_end;
-}
-
-ZigValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_t arg_index_end) {
-    ZigValue *const_val = create_const_vals(1);
-    init_const_arg_tuple(g, const_val, arg_index_start, arg_index_end);
-    return const_val;
-}
-
 
 ZigValue *create_const_vals(size_t count) {
     return allocate<ZigValue>(count, "ZigValue");
@@ -6679,9 +6641,6 @@ bool const_values_equal(CodeGen *g, ZigValue *a, ZigValue *b) {
             }
         case ZigTypeIdErrorUnion:
             zig_panic("TODO");
-        case ZigTypeIdArgTuple:
-            return a->data.x_arg_tuple.start_index == b->data.x_arg_tuple.start_index &&
-                   a->data.x_arg_tuple.end_index == b->data.x_arg_tuple.end_index;
         case ZigTypeIdBoundFn:
         case ZigTypeIdInvalid:
         case ZigTypeIdUnreachable:
@@ -7008,11 +6967,6 @@ void render_const_value(CodeGen *g, Buf *buf, ZigValue *const_val) {
             }
         case ZigTypeIdErrorSet:
             return render_const_val_err_set(g, buf, const_val, type_entry);
-        case ZigTypeIdArgTuple:
-            {
-                buf_appendf(buf, "(args value)");
-                return;
-            }
         case ZigTypeIdFnFrame:
             buf_appendf(buf, "(TODO: async function frame value)");
             return;
@@ -7075,7 +7029,6 @@ uint32_t type_id_hash(TypeId x) {
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
             zig_unreachable();
@@ -7127,7 +7080,6 @@ bool type_id_eql(TypeId a, TypeId b) {
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
         case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
@@ -7350,7 +7302,6 @@ static const ZigTypeId all_type_ids[] = {
     ZigTypeIdUnion,
     ZigTypeIdFn,
     ZigTypeIdBoundFn,
-    ZigTypeIdArgTuple,
     ZigTypeIdOpaque,
     ZigTypeIdFnFrame,
     ZigTypeIdAnyFrame,
@@ -7413,18 +7364,16 @@ size_t type_id_index(ZigType *entry) {
             return 18;
         case ZigTypeIdBoundFn:
             return 19;
-        case ZigTypeIdArgTuple:
-            return 20;
         case ZigTypeIdOpaque:
-            return 21;
+            return 20;
         case ZigTypeIdFnFrame:
-            return 22;
+            return 21;
         case ZigTypeIdAnyFrame:
-            return 23;
+            return 22;
         case ZigTypeIdVector:
-            return 24;
+            return 23;
         case ZigTypeIdEnumLiteral:
-            return 25;
+            return 24;
     }
     zig_unreachable();
 }
@@ -7475,8 +7424,6 @@ const char *type_id_name(ZigTypeId id) {
             return "Fn";
         case ZigTypeIdBoundFn:
             return "BoundFn";
-        case ZigTypeIdArgTuple:
-            return "ArgTuple";
         case ZigTypeIdOpaque:
             return "Opaque";
         case ZigTypeIdVector:
@@ -9064,7 +9011,6 @@ static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_r
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
             zig_unreachable();
         case ZigTypeIdFloat:
         case ZigTypeIdOpaque:

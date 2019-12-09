@@ -1,6 +1,6 @@
 const expect = @import("std").testing.expect;
 
-fn add(args: ...) i32 {
+fn add(args: var) i32 {
     var sum = @as(i32, 0);
     {
         comptime var i: usize = 0;
@@ -12,43 +12,42 @@ fn add(args: ...) i32 {
 }
 
 test "add arbitrary args" {
-    expect(add(@as(i32, 1), @as(i32, 2), @as(i32, 3), @as(i32, 4)) == 10);
-    expect(add(@as(i32, 1234)) == 1234);
-    expect(add() == 0);
+    expect(add(.{ @as(i32, 1), @as(i32, 2), @as(i32, 3), @as(i32, 4) }) == 10);
+    expect(add(.{@as(i32, 1234)}) == 1234);
+    expect(add(.{}) == 0);
 }
 
-fn readFirstVarArg(args: ...) void {
+fn readFirstVarArg(args: var) void {
     const value = args[0];
 }
 
 test "send void arg to var args" {
-    readFirstVarArg({});
+    readFirstVarArg(.{{}});
 }
 
 test "pass args directly" {
-    expect(addSomeStuff(@as(i32, 1), @as(i32, 2), @as(i32, 3), @as(i32, 4)) == 10);
-    expect(addSomeStuff(@as(i32, 1234)) == 1234);
-    expect(addSomeStuff() == 0);
+    expect(addSomeStuff(.{ @as(i32, 1), @as(i32, 2), @as(i32, 3), @as(i32, 4) }) == 10);
+    expect(addSomeStuff(.{@as(i32, 1234)}) == 1234);
+    expect(addSomeStuff(.{}) == 0);
 }
 
-fn addSomeStuff(args: ...) i32 {
+fn addSomeStuff(args: var) i32 {
     return add(args);
 }
 
 test "runtime parameter before var args" {
-    expect(extraFn(10) == 0);
-    expect(extraFn(10, false) == 1);
-    expect(extraFn(10, false, true) == 2);
+    expect(extraFn(10, .{}) == 0);
+    expect(extraFn(10, .{false}) == 1);
+    expect(extraFn(10, .{ false, true }) == 2);
 
-    // TODO issue #313
-    //comptime {
-    //    expect(extraFn(10) == 0);
-    //    expect(extraFn(10, false) == 1);
-    //    expect(extraFn(10, false, true) == 2);
-    //}
+    comptime {
+        expect(extraFn(10, .{}) == 0);
+        expect(extraFn(10, .{false}) == 1);
+        expect(extraFn(10, .{ false, true }) == 2);
+    }
 }
 
-fn extraFn(extra: u32, args: ...) usize {
+fn extraFn(extra: u32, args: var) usize {
     if (args.len >= 1) {
         expect(args[0] == false);
     }
@@ -58,27 +57,27 @@ fn extraFn(extra: u32, args: ...) usize {
     return args.len;
 }
 
-const foos = [_]fn (...) bool{
+const foos = [_]fn (var) bool{
     foo1,
     foo2,
 };
 
-fn foo1(args: ...) bool {
+fn foo1(args: var) bool {
     return true;
 }
-fn foo2(args: ...) bool {
+fn foo2(args: var) bool {
     return false;
 }
 
 test "array of var args functions" {
-    expect(foos[0]());
-    expect(!foos[1]());
+    expect(foos[0](.{}));
+    expect(!foos[1](.{}));
 }
 
 test "pass zero length array to var args param" {
-    doNothingWithFirstArg("");
+    doNothingWithFirstArg(.{""});
 }
 
-fn doNothingWithFirstArg(args: ...) void {
+fn doNothingWithFirstArg(args: var) void {
     const a = args[0];
 }

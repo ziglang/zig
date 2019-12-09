@@ -1471,7 +1471,6 @@ enum ZigTypeId {
     ZigTypeIdUnion,
     ZigTypeIdFn,
     ZigTypeIdBoundFn,
-    ZigTypeIdArgTuple,
     ZigTypeIdOpaque,
     ZigTypeIdFnFrame,
     ZigTypeIdAnyFrame,
@@ -2039,7 +2038,6 @@ struct CodeGen {
         ZigType *entry_null;
         ZigType *entry_var;
         ZigType *entry_global_error_set;
-        ZigType *entry_arg_tuple;
         ZigType *entry_enum_literal;
         ZigType *entry_any_frame;
     } builtin_types;

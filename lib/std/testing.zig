@@ -33,7 +33,6 @@ pub fn expectEqual(expected: var, actual: @typeOf(expected)) void {
     switch (@typeInfo(@typeOf(actual))) {
         .NoReturn,
         .BoundFn,
-        .ArgTuple,
         .Opaque,
         .Frame,
         .AnyFrame,
