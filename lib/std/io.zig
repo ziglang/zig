@@ -593,6 +593,8 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
             const self = @fieldParentPtr(Self, "stream", out_stream);
 
             if (bytes.len == 1) {
+                // This is not required logic but a shorter path
+                // for single byte writes
                 self.buffer[self.index] = bytes[0];
                 self.index += 1;
                 if (self.index == buffer_size) {
