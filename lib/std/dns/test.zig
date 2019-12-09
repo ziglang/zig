@@ -6,6 +6,7 @@ const OutError = io.SliceOutStream.Error;
 const InError = io.SliceInStream.Error;
 
 const dns = std.dns;
+const rdata = std.dns.rdata;
 const Packet = dns.Packet;
 
 test "convert domain string to dns name" {
@@ -116,6 +117,15 @@ test "deserialization of reply google.com/A" {
     testing.expectEqual(dns.DNSType.A, answer.rr_type);
     testing.expectEqual(dns.DNSClass.IN, answer.class);
     testing.expectEqual(@as(i32, 300), answer.ttl);
+
+    var answer_rdata = try rdata.parseRData(pkt, answer);
+    testing.expectEqual(dns.DNSType.A, @as(dns.DNSType, answer_rdata));
+
+    const addr = @ptrCast(*[4]u8, &answer_rdata.A.in.addr).*;
+    testing.expectEqual(@as(u8, 216), addr[0]);
+    testing.expectEqual(@as(u8, 58), addr[1]);
+    testing.expectEqual(@as(u8, 202), addr[2]);
+    testing.expectEqual(@as(u8, 142), addr[3]);
 }
 
 fn encodeBase64(out: []const u8) []const u8 {

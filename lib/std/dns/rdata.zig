@@ -60,17 +60,15 @@ pub const DNSRData = union(dns.DNSType) {
     TXT: [][]const u8,
 };
 
-/// Parse a given []u8 into a DNSRData. Requires the original
-/// DNSPacket for allocator purposes and the original DNSResource for
-/// TYPE detection.
+/// Parse a given Resource's RDATA information. Requires the original
+/// DNSPacket for allocation for memory ownership.
 pub fn parseRData(
     pkt_const: dns.Packet,
     resource: dns.Resource,
-    opaque: []u8,
 ) !DNSRData {
     var pkt = pkt_const;
 
-    var in = io.SliceInStream.init(opaque);
+    var in = io.SliceInStream.init(resource.opaque_rdata);
     var in_stream = &in.stream;
     var deserializer = dns.DNSDeserializer.init(in_stream);
 
@@ -134,8 +132,7 @@ pub fn parseRData(
         },
 
         else => blk: {
-            std.debug.warn("invalid rdata type: {}\n", resource.rr_type);
-            return DNSError.RDATANotSupported;
+            return error.InvalidRData;
         },
     };
 
