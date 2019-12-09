@@ -127,9 +127,7 @@ pub const Header = packed struct {
     /// debugging purposes
     pub fn repr(self: *Header) ![]u8 {
         var buf: [1024]u8 = undefined;
-        return std.fmt.bufPrint(
-            &buf,
-            "Header<{},{},{},{},{},{},{},{},{},{},{},{},{}>",
+        return std.fmt.bufPrint(&buf, "Header<{},{},{},{},{},{},{},{},{},{},{},{},{}>", .{
             self.id,
             self.qr_flag,
             self.opcode,
@@ -143,7 +141,7 @@ pub const Header = packed struct {
             self.ancount,
             self.nscount,
             self.arcount,
-        );
+        });
     }
 };
 
