@@ -1071,7 +1071,7 @@ test "zig fmt: line comment after doc comment" {
 test "zig fmt: float literal with exponent" {
     try testCanonical(
         \\test "bit field alignment" {
-        \\    assert(@typeOf(&blah.b) == *align(1:3:6) const u3);
+        \\    assert(@TypeOf(&blah.b) == *align(1:3:6) const u3);
         \\}
         \\
     );
@@ -2604,7 +2604,7 @@ test "zig fmt: comments at several places in struct init" {
     try testTransform(
         \\var bar = Bar{
         \\    .x = 10, // test
-        \\    .y = "test" 
+        \\    .y = "test"
         \\    // test
         \\};
         \\
