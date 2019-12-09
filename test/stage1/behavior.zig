@@ -103,6 +103,7 @@ comptime {
     _ = @import("behavior/this.zig");
     _ = @import("behavior/truncate.zig");
     _ = @import("behavior/try.zig");
+    _ = @import("behavior/tuple.zig");
     _ = @import("behavior/type.zig");
     _ = @import("behavior/type_info.zig");
     _ = @import("behavior/typename.zig");

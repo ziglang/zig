@@ -15573,6 +15573,110 @@ static IrInstruction *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp 
     return result;
 }
 
+static IrInstruction *ir_analyze_tuple_cat(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *op1, IrInstruction *op2)
+{
+    Error err;
+    ZigType *op1_type = op1->value->type;
+    ZigType *op2_type = op2->value->type;
+
+    uint32_t op1_field_count = op1_type->data.structure.src_field_count;
+    uint32_t op2_field_count = op2_type->data.structure.src_field_count;
+
+    Buf *bare_name = buf_alloc();
+    Buf *name = get_anon_type_name(ira->codegen, nullptr, container_string(ContainerKindStruct),
+            source_instr->scope, source_instr->source_node, bare_name);
+    ZigType *new_type = get_partial_container_type(ira->codegen, source_instr->scope,
+        ContainerKindStruct, source_instr->source_node, buf_ptr(name), bare_name, ContainerLayoutAuto);
+    new_type->data.structure.special = StructSpecialInferredTuple;
+    new_type->data.structure.resolve_status = ResolveStatusBeingInferred;
+
+    bool is_comptime = ir_should_inline(ira->new_irb.exec, source_instr->scope);
+
+    IrInstruction *new_struct_ptr = ir_resolve_result(ira, source_instr, no_result_loc(),
+            new_type, nullptr, false, false, true);
+    uint32_t new_field_count = op1_field_count + op2_field_count;
+
+    new_type->data.structure.src_field_count = new_field_count;
+    new_type->data.structure.fields = realloc_type_struct_fields(new_type->data.structure.fields,
+            0, new_field_count);
+    for (uint32_t i = 0; i < new_field_count; i += 1) {
+        TypeStructField *src_field;
+        if (i < op1_field_count) {
+            src_field = op1_type->data.structure.fields[i];
+        } else {
+            src_field = op2_type->data.structure.fields[i - op1_field_count];
+        }
+        TypeStructField *new_field = new_type->data.structure.fields[i];
+        new_field->name = buf_sprintf("%" PRIu32, i);
+        new_field->type_entry = src_field->type_entry;
+        new_field->type_val = src_field->type_val;
+        new_field->src_index = i;
+        new_field->decl_node = src_field->decl_node;
+        new_field->init_val = src_field->init_val;
+        new_field->is_comptime = src_field->is_comptime;
+    }
+    if ((err = type_resolve(ira->codegen, new_type, ResolveStatusZeroBitsKnown)))
+        return ira->codegen->invalid_instruction;
+
+    ZigList<IrInstruction *> const_ptrs = {};
+    IrInstruction *first_non_const_instruction = nullptr;
+    for (uint32_t i = 0; i < new_field_count; i += 1) {
+        TypeStructField *dst_field = new_type->data.structure.fields[i];
+        IrInstruction *src_struct_op;
+        TypeStructField *src_field;
+        if (i < op1_field_count) {
+            src_field = op1_type->data.structure.fields[i];
+            src_struct_op = op1;
+        } else {
+            src_field = op2_type->data.structure.fields[i - op1_field_count];
+            src_struct_op = op2;
+        }
+        IrInstruction *field_value = ir_analyze_struct_value_field_value(ira, source_instr,
+                src_struct_op, src_field);
+        if (type_is_invalid(field_value->value->type))
+            return ira->codegen->invalid_instruction;
+        IrInstruction *dest_ptr = ir_analyze_struct_field_ptr(ira, source_instr, dst_field,
+                new_struct_ptr, new_type, true);
+        if (type_is_invalid(dest_ptr->value->type))
+            return ira->codegen->invalid_instruction;
+        if (instr_is_comptime(field_value)) {
+            const_ptrs.append(dest_ptr);
+        } else {
+            first_non_const_instruction = field_value;
+        }
+        IrInstruction *store_ptr_inst = ir_analyze_store_ptr(ira, source_instr, dest_ptr, field_value,
+                true);
+        if (type_is_invalid(store_ptr_inst->value->type))
+            return ira->codegen->invalid_instruction;
+    }
+    if (const_ptrs.length != new_field_count) {
+        new_struct_ptr->value->special = ConstValSpecialRuntime;
+        for (size_t i = 0; i < const_ptrs.length; i += 1) {
+            IrInstruction *elem_result_loc = const_ptrs.at(i);
+            assert(elem_result_loc->value->special == ConstValSpecialStatic);
+            if (elem_result_loc->value->type->data.pointer.inferred_struct_field != nullptr) {
+                // This field will be generated comptime; no need to do this.
+                continue;
+            }
+            IrInstruction *deref = ir_get_deref(ira, elem_result_loc, elem_result_loc, nullptr);
+            elem_result_loc->value->special = ConstValSpecialRuntime;
+            ir_analyze_store_ptr(ira, elem_result_loc, elem_result_loc, deref, false);
+        }
+    }
+    IrInstruction *result = ir_get_deref(ira, source_instr, new_struct_ptr, nullptr);
+    if (instr_is_comptime(result))
+        return result;
+
+    if (is_comptime) {
+        ir_add_error_node(ira, first_non_const_instruction->source_node,
+            buf_sprintf("unable to evaluate constant expression"));
+        return ira->codegen->invalid_instruction;
+    }
+
+    return result;
+}
+
 static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *instruction) {
     IrInstruction *op1 = instruction->op1->child;
     ZigType *op1_type = op1->value->type;
@@ -15583,6 +15687,10 @@ static IrInstruction *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *i
     ZigType *op2_type = op2->value->type;
     if (type_is_invalid(op2_type))
         return ira->codegen->invalid_instruction;
+
+    if (is_tuple(op1_type) && is_tuple(op2_type)) {
+        return ir_analyze_tuple_cat(ira, &instruction->base, op1, op2);
+    }
 
     ZigValue *op1_val = ir_resolve_const(ira, op1, UndefBad);
     if (!op1_val)
@@ -17446,11 +17554,12 @@ static IrInstruction *ir_analyze_store_ptr(IrAnalyze *ira, IrInstruction *source
     }
 
     if (instr_is_comptime(ptr) && ptr->value->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
-        if (ptr->value->data.x_ptr.mut == ConstPtrMutComptimeConst) {
+        if (!allow_write_through_const && ptr->value->data.x_ptr.mut == ConstPtrMutComptimeConst) {
             ir_add_error(ira, source_instr, buf_sprintf("cannot assign to constant"));
             return ira->codegen->invalid_instruction;
         }
-        if (ptr->value->data.x_ptr.mut == ConstPtrMutComptimeVar ||
+        if ((allow_write_through_const && ptr->value->data.x_ptr.mut == ConstPtrMutComptimeConst) ||
+            ptr->value->data.x_ptr.mut == ConstPtrMutComptimeVar ||
             ptr->value->data.x_ptr.mut == ConstPtrMutInfer)
         {
             if (instr_is_comptime(value)) {
