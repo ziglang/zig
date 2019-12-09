@@ -17025,7 +17025,7 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
     {
         result_loc_pass1 = no_result_loc();
     }
-    bool was_written = result_loc_pass1->written;
+    bool was_already_resolved = result_loc_pass1->resolved_loc != nullptr;
     IrInstruction *result_loc = ir_resolve_result_raw(ira, suspend_source_instr, result_loc_pass1, value_type,
             value, force_runtime, non_null_comptime, allow_discard);
     if (result_loc == nullptr || (instr_is_unreachable(result_loc) || type_is_invalid(result_loc->value->type)))
@@ -17038,7 +17038,7 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
     }
 
     InferredStructField *isf = result_loc->value->type->data.pointer.inferred_struct_field;
-    if (!was_written && isf != nullptr) {
+    if (!was_already_resolved && isf != nullptr) {
         // Now it's time to add the field to the struct type.
         uint32_t old_field_count = isf->inferred_struct_type->data.structure.src_field_count;
         uint32_t new_field_count = old_field_count + 1;
@@ -18077,7 +18077,11 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstruction *source_i
                 if (type_is_invalid(result_loc->value->type) || instr_is_unreachable(result_loc)) {
                     return result_loc;
                 }
-                if (!handle_is_ptr(result_loc->value->type->data.pointer.child_type)) {
+                ZigType *res_child_type = result_loc->value->type->data.pointer.child_type;
+                if (res_child_type == ira->codegen->builtin_types.entry_var) {
+                    res_child_type = impl_fn_type_id->return_type;
+                }
+                if (!handle_is_ptr(res_child_type)) {
                     ir_reset_result(call_result_loc);
                     result_loc = nullptr;
                 }
@@ -18240,7 +18244,11 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstruction *source_i
             if (type_is_invalid(result_loc->value->type) || instr_is_unreachable(result_loc)) {
                 return result_loc;
             }
-            if (!handle_is_ptr(result_loc->value->type->data.pointer.child_type)) {
+            ZigType *res_child_type = result_loc->value->type->data.pointer.child_type;
+            if (res_child_type == ira->codegen->builtin_types.entry_var) {
+                res_child_type = return_type;
+            }
+            if (!handle_is_ptr(res_child_type)) {
                 ir_reset_result(call_result_loc);
                 result_loc = nullptr;
             }

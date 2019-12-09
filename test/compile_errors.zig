@@ -2598,14 +2598,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn a(b: fn (*const u8) void) void {
         \\    b('a');
         \\}
-        \\fn c(d: u8) void {
-        \\    @import("std").debug.warn("{c}\n", d);
-        \\}
+        \\fn c(d: u8) void {}
         \\export fn entry() void {
         \\    a(c);
         \\}
     ,
-        "tmp.zig:8:7: error: expected type 'fn(*const u8) void', found 'fn(u8) void'",
+        "tmp.zig:6:7: error: expected type 'fn(*const u8) void', found 'fn(u8) void'",
     );
 
     cases.add(

@@ -610,5 +610,5 @@ test "Headers.format" {
         \\foo: bar
         \\cookie: somevalue
         \\
-    , try std.fmt.bufPrint(buf[0..], "{}", h));
+    , try std.fmt.bufPrint(buf[0..], "{}", .{h}));
 }

@@ -164,7 +164,7 @@ fn usage() void {
         \\  --iterative-only
         \\  --help
         \\
-    );
+    , .{});
 }
 
 fn mode(comptime x: comptime_int) comptime_int {

@@ -91,10 +91,12 @@ pub fn format(
     comptime Errors: type,
     output: fn (@typeOf(context), []const u8) Errors!void,
     comptime fmt: []const u8,
-    args: ...,
+    args: var,
 ) Errors!void {
     const ArgSetType = @IntType(false, 32);
-    if (args.len > ArgSetType.bit_count) {
+    const args_fields = std.meta.fields(@typeOf(args));
+    const args_len = args_fields.len;
+    if (args_len > ArgSetType.bit_count) {
         @compileError("32 arguments max are supported per format call");
     }
 
@@ -158,14 +160,14 @@ pub fn format(
                     maybe_pos_arg.? += c - '0';
                     specifier_start = i + 1;
 
-                    if (maybe_pos_arg.? >= args.len) {
+                    if (maybe_pos_arg.? >= args_len) {
                         @compileError("Positional value refers to non-existent argument");
                     }
                 },
                 '}' => {
                     const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
 
-                    if (arg_to_print >= args.len) {
+                    if (arg_to_print >= args_len) {
                         @compileError("Too few arguments");
                     }
 
@@ -302,7 +304,7 @@ pub fn format(
             used_pos_args |= 1 << i;
         }
 
-        if (@popCount(ArgSetType, used_pos_args) != args.len) {
+        if (@popCount(ArgSetType, used_pos_args) != args_len) {
             @compileError("Unused arguments");
         }
         if (state != State.Start) {
@@ -389,7 +391,7 @@ pub fn formatType(
                 }
                 try output(context, " }");
             } else {
-                try format(context, Errors, output, "@{x}", @ptrToInt(&value));
+                try format(context, Errors, output, "@{x}", .{@ptrToInt(&value)});
             }
         },
         .Struct => {
@@ -421,12 +423,12 @@ pub fn formatType(
                     if (info.child == u8) {
                         return formatText(value, fmt, options, context, Errors, output);
                     }
-                    return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
+                    return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
                 },
                 builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
                     return formatType(value.*, fmt, options, context, Errors, output, max_depth);
                 },
-                else => return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value)),
+                else => return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) }),
             },
             .Many => {
                 if (ptr_info.child == u8) {
@@ -435,7 +437,7 @@ pub fn formatType(
                         return formatText(value[0..len], fmt, options, context, Errors, output);
                     }
                 }
-                return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
+                return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
             },
             .Slice => {
                 if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
@@ -444,10 +446,10 @@ pub fn formatType(
                 if (ptr_info.child == u8) {
                     return formatText(value, fmt, options, context, Errors, output);
                 }
-                return format(context, Errors, output, "{}@{x}", @typeName(ptr_info.child), @ptrToInt(value.ptr));
+                return format(context, Errors, output, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value.ptr) });
             },
             .C => {
-                return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
+                return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
             },
         },
         .Array => |info| {
@@ -465,7 +467,7 @@ pub fn formatType(
             return formatType(@as(Slice, &value), fmt, options, context, Errors, output, max_depth);
         },
         .Fn => {
-            return format(context, Errors, output, "{}@{x}", @typeName(T), @ptrToInt(value));
+            return format(context, Errors, output, "{}@{x}", .{ @typeName(T), @ptrToInt(value) });
         },
         else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
     }
@@ -1113,7 +1115,7 @@ pub const BufPrintError = error{
     /// As much as possible was written to the buffer, but it was too small to fit all the printed bytes.
     BufferTooSmall,
 };
-pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: ...) BufPrintError![]u8 {
+pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: var) BufPrintError![]u8 {
     var context = BufPrintContext{ .remaining = buf };
     try format(&context, BufPrintError, bufPrintWrite, fmt, args);
     return buf[0 .. buf.len - context.remaining.len];
@@ -1121,7 +1123,7 @@ pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: ...) BufPrintError![]
 
 pub const AllocPrintError = error{OutOfMemory};
 
-pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: ...) AllocPrintError![]u8 {
+pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![]u8 {
     var size: usize = 0;
     format(&size, error{}, countSize, fmt, args) catch |err| switch (err) {};
     const buf = try allocator.alloc(u8, size);
@@ -1173,46 +1175,46 @@ test "parse unsigned comptime" {
 test "optional" {
     {
         const value: ?i32 = 1234;
-        try testFmt("optional: 1234\n", "optional: {}\n", value);
+        try testFmt("optional: 1234\n", "optional: {}\n", .{value});
     }
     {
         const value: ?i32 = null;
-        try testFmt("optional: null\n", "optional: {}\n", value);
+        try testFmt("optional: null\n", "optional: {}\n", .{value});
     }
 }
 
 test "error" {
     {
         const value: anyerror!i32 = 1234;
-        try testFmt("error union: 1234\n", "error union: {}\n", value);
+        try testFmt("error union: 1234\n", "error union: {}\n", .{value});
     }
     {
         const value: anyerror!i32 = error.InvalidChar;
-        try testFmt("error union: error.InvalidChar\n", "error union: {}\n", value);
+        try testFmt("error union: error.InvalidChar\n", "error union: {}\n", .{value});
     }
 }
 
 test "int.small" {
     {
         const value: u3 = 0b101;
-        try testFmt("u3: 5\n", "u3: {}\n", value);
+        try testFmt("u3: 5\n", "u3: {}\n", .{value});
     }
 }
 
 test "int.specifier" {
     {
         const value: u8 = 'a';
-        try testFmt("u8: a\n", "u8: {c}\n", value);
+        try testFmt("u8: a\n", "u8: {c}\n", .{value});
     }
     {
         const value: u8 = 0b1100;
-        try testFmt("u8: 0b1100\n", "u8: 0b{b}\n", value);
+        try testFmt("u8: 0b1100\n", "u8: 0b{b}\n", .{value});
     }
 }
 
 test "int.padded" {
-    try testFmt("u8: '   1'", "u8: '{:4}'", @as(u8, 1));
-    try testFmt("u8: 'xxx1'", "u8: '{:x<4}'", @as(u8, 1));
+    try testFmt("u8: '   1'", "u8: '{:4}'", .{@as(u8, 1)});
+    try testFmt("u8: 'xxx1'", "u8: '{:x<4}'", .{@as(u8, 1)});
 }
 
 test "buffer" {
@@ -1238,14 +1240,14 @@ test "buffer" {
 test "array" {
     {
         const value: [3]u8 = "abc".*;
-        try testFmt("array: abc\n", "array: {}\n", value);
-        try testFmt("array: abc\n", "array: {}\n", &value);
+        try testFmt("array: abc\n", "array: {}\n", .{value});
+        try testFmt("array: abc\n", "array: {}\n", .{&value});
 
         var buf: [100]u8 = undefined;
         try testFmt(
-            try bufPrint(buf[0..], "array: [3]u8@{x}\n", @ptrToInt(&value)),
+            try bufPrint(buf[0..], "array: [3]u8@{x}\n", .{@ptrToInt(&value)}),
             "array: {*}\n",
-            &value,
+            .{&value},
         );
     }
 }
@@ -1253,36 +1255,36 @@ test "array" {
 test "slice" {
     {
         const value: []const u8 = "abc";
-        try testFmt("slice: abc\n", "slice: {}\n", value);
+        try testFmt("slice: abc\n", "slice: {}\n", .{value});
     }
     {
         const value = @intToPtr([*]const []const u8, 0xdeadbeef)[0..0];
-        try testFmt("slice: []const u8@deadbeef\n", "slice: {}\n", value);
+        try testFmt("slice: []const u8@deadbeef\n", "slice: {}\n", .{value});
     }
 
-    try testFmt("buf: Test \n", "buf: {s:5}\n", "Test");
-    try testFmt("buf: Test\n Other text", "buf: {s}\n Other text", "Test");
+    try testFmt("buf: Test \n", "buf: {s:5}\n", .{"Test"});
+    try testFmt("buf: Test\n Other text", "buf: {s}\n Other text", .{"Test"});
 }
 
 test "pointer" {
     {
         const value = @intToPtr(*i32, 0xdeadbeef);
-        try testFmt("pointer: i32@deadbeef\n", "pointer: {}\n", value);
-        try testFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", value);
+        try testFmt("pointer: i32@deadbeef\n", "pointer: {}\n", .{value});
+        try testFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", .{value});
     }
     {
         const value = @intToPtr(fn () void, 0xdeadbeef);
-        try testFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", value);
+        try testFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
     }
     {
         const value = @intToPtr(fn () void, 0xdeadbeef);
-        try testFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", value);
+        try testFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
     }
 }
 
 test "cstr" {
-    try testFmt("cstr: Test C\n", "cstr: {s}\n", "Test C");
-    try testFmt("cstr: Test C    \n", "cstr: {s:10}\n", "Test C");
+    try testFmt("cstr: Test C\n", "cstr: {s}\n", .{"Test C"});
+    try testFmt("cstr: Test C    \n", "cstr: {s:10}\n", .{"Test C"});
 }
 
 test "filesize" {
@@ -1290,8 +1292,8 @@ test "filesize" {
         // TODO https://github.com/ziglang/zig/issues/3289
         return error.SkipZigTest;
     }
-    try testFmt("file size: 63MiB\n", "file size: {Bi}\n", @as(usize, 63 * 1024 * 1024));
-    try testFmt("file size: 66.06MB\n", "file size: {B:.2}\n", @as(usize, 63 * 1024 * 1024));
+    try testFmt("file size: 63MiB\n", "file size: {Bi}\n", .{@as(usize, 63 * 1024 * 1024)});
+    try testFmt("file size: 66.06MB\n", "file size: {B:.2}\n", .{@as(usize, 63 * 1024 * 1024)});
 }
 
 test "struct" {
@@ -1300,8 +1302,8 @@ test "struct" {
             field: u8,
         };
         const value = Struct{ .field = 42 };
-        try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", value);
-        try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", &value);
+        try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", .{value});
+        try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", .{&value});
     }
     {
         const Struct = struct {
@@ -1309,7 +1311,7 @@ test "struct" {
             b: u1,
         };
         const value = Struct{ .a = 0, .b = 1 };
-        try testFmt("struct: Struct{ .a = 0, .b = 1 }\n", "struct: {}\n", value);
+        try testFmt("struct: Struct{ .a = 0, .b = 1 }\n", "struct: {}\n", .{value});
     }
 }
 
@@ -1319,8 +1321,8 @@ test "enum" {
         Two,
     };
     const value = Enum.Two;
-    try testFmt("enum: Enum.Two\n", "enum: {}\n", value);
-    try testFmt("enum: Enum.Two\n", "enum: {}\n", &value);
+    try testFmt("enum: Enum.Two\n", "enum: {}\n", .{value});
+    try testFmt("enum: Enum.Two\n", "enum: {}\n", .{&value});
 }
 
 test "float.scientific" {
@@ -1328,10 +1330,10 @@ test "float.scientific" {
         // TODO https://github.com/ziglang/zig/issues/3289
         return error.SkipZigTest;
     }
-    try testFmt("f32: 1.34000003e+00", "f32: {e}", @as(f32, 1.34));
-    try testFmt("f32: 1.23400001e+01", "f32: {e}", @as(f32, 12.34));
-    try testFmt("f64: -1.234e+11", "f64: {e}", @as(f64, -12.34e10));
-    try testFmt("f64: 9.99996e-40", "f64: {e}", @as(f64, 9.999960e-40));
+    try testFmt("f32: 1.34000003e+00", "f32: {e}", .{@as(f32, 1.34)});
+    try testFmt("f32: 1.23400001e+01", "f32: {e}", .{@as(f32, 12.34)});
+    try testFmt("f64: -1.234e+11", "f64: {e}", .{@as(f64, -12.34e10)});
+    try testFmt("f64: 9.99996e-40", "f64: {e}", .{@as(f64, 9.999960e-40)});
 }
 
 test "float.scientific.precision" {
@@ -1339,12 +1341,12 @@ test "float.scientific.precision" {
         // TODO https://github.com/ziglang/zig/issues/3289
         return error.SkipZigTest;
     }
-    try testFmt("f64: 1.40971e-42", "f64: {e:.5}", @as(f64, 1.409706e-42));
-    try testFmt("f64: 1.00000e-09", "f64: {e:.5}", @as(f64, @bitCast(f32, @as(u32, 814313563))));
-    try testFmt("f64: 7.81250e-03", "f64: {e:.5}", @as(f64, @bitCast(f32, @as(u32, 1006632960))));
+    try testFmt("f64: 1.40971e-42", "f64: {e:.5}", .{@as(f64, 1.409706e-42)});
+    try testFmt("f64: 1.00000e-09", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 814313563)))});
+    try testFmt("f64: 7.81250e-03", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1006632960)))});
     // libc rounds 1.000005e+05 to 1.00000e+05 but zig does 1.00001e+05.
     // In fact, libc doesn't round a lot of 5 cases up when one past the precision point.
-    try testFmt("f64: 1.00001e+05", "f64: {e:.5}", @as(f64, @bitCast(f32, @as(u32, 1203982400))));
+    try testFmt("f64: 1.00001e+05", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1203982400)))});
 }
 
 test "float.special" {
@@ -1352,14 +1354,14 @@ test "float.special" {
         // TODO https://github.com/ziglang/zig/issues/3289
         return error.SkipZigTest;
     }
-    try testFmt("f64: nan", "f64: {}", math.nan_f64);
+    try testFmt("f64: nan", "f64: {}", .{math.nan_f64});
     // negative nan is not defined by IEE 754,
     // and ARM thus normalizes it to positive nan
     if (builtin.arch != builtin.Arch.arm) {
-        try testFmt("f64: -nan", "f64: {}", -math.nan_f64);
+        try testFmt("f64: -nan", "f64: {}", .{-math.nan_f64});
     }
-    try testFmt("f64: inf", "f64: {}", math.inf_f64);
-    try testFmt("f64: -inf", "f64: {}", -math.inf_f64);
+    try testFmt("f64: inf", "f64: {}", .{math.inf_f64});
+    try testFmt("f64: -inf", "f64: {}", .{-math.inf_f64});
 }
 
 test "float.decimal" {
@@ -1367,21 +1369,21 @@ test "float.decimal" {
         // TODO https://github.com/ziglang/zig/issues/3289
         return error.SkipZigTest;
     }
-    try testFmt("f64: 152314000000000000000000000000", "f64: {d}", @as(f64, 1.52314e+29));
-    try testFmt("f32: 1.1", "f32: {d:.1}", @as(f32, 1.1234));
-    try testFmt("f32: 1234.57", "f32: {d:.2}", @as(f32, 1234.567));
+    try testFmt("f64: 152314000000000000000000000000", "f64: {d}", .{@as(f64, 1.52314e+29)});
+    try testFmt("f32: 1.1", "f32: {d:.1}", .{@as(f32, 1.1234)});
+    try testFmt("f32: 1234.57", "f32: {d:.2}", .{@as(f32, 1234.567)});
     // -11.1234 is converted to f64 -11.12339... internally (errol3() function takes f64).
     // -11.12339... is rounded back up to -11.1234
-    try testFmt("f32: -11.1234", "f32: {d:.4}", @as(f32, -11.1234));
-    try testFmt("f32: 91.12345", "f32: {d:.5}", @as(f32, 91.12345));
-    try testFmt("f64: 91.1234567890", "f64: {d:.10}", @as(f64, 91.12345678901235));
-    try testFmt("f64: 0.00000", "f64: {d:.5}", @as(f64, 0.0));
-    try testFmt("f64: 6", "f64: {d:.0}", @as(f64, 5.700));
-    try testFmt("f64: 10.0", "f64: {d:.1}", @as(f64, 9.999));
-    try testFmt("f64: 1.000", "f64: {d:.3}", @as(f64, 1.0));
-    try testFmt("f64: 0.00030000", "f64: {d:.8}", @as(f64, 0.0003));
-    try testFmt("f64: 0.00000", "f64: {d:.5}", @as(f64, 1.40130e-45));
-    try testFmt("f64: 0.00000", "f64: {d:.5}", @as(f64, 9.999960e-40));
+    try testFmt("f32: -11.1234", "f32: {d:.4}", .{@as(f32, -11.1234)});
+    try testFmt("f32: 91.12345", "f32: {d:.5}", .{@as(f32, 91.12345)});
+    try testFmt("f64: 91.1234567890", "f64: {d:.10}", .{@as(f64, 91.12345678901235)});
+    try testFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 0.0)});
+    try testFmt("f64: 6", "f64: {d:.0}", .{@as(f64, 5.700)});
+    try testFmt("f64: 10.0", "f64: {d:.1}", .{@as(f64, 9.999)});
+    try testFmt("f64: 1.000", "f64: {d:.3}", .{@as(f64, 1.0)});
+    try testFmt("f64: 0.00030000", "f64: {d:.8}", .{@as(f64, 0.0003)});
+    try testFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 1.40130e-45)});
+    try testFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 9.999960e-40)});
 }
 
 test "float.libc.sanity" {
@@ -1389,22 +1391,22 @@ test "float.libc.sanity" {
         // TODO https://github.com/ziglang/zig/issues/3289
         return error.SkipZigTest;
     }
-    try testFmt("f64: 0.00001", "f64: {d:.5}", @as(f64, @bitCast(f32, @as(u32, 916964781))));
-    try testFmt("f64: 0.00001", "f64: {d:.5}", @as(f64, @bitCast(f32, @as(u32, 925353389))));
-    try testFmt("f64: 0.10000", "f64: {d:.5}", @as(f64, @bitCast(f32, @as(u32, 1036831278))));
-    try testFmt("f64: 1.00000", "f64: {d:.5}", @as(f64, @bitCast(f32, @as(u32, 1065353133))));
-    try testFmt("f64: 10.00000", "f64: {d:.5}", @as(f64, @bitCast(f32, @as(u32, 1092616192))));
+    try testFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 916964781)))});
+    try testFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 925353389)))});
+    try testFmt("f64: 0.10000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1036831278)))});
+    try testFmt("f64: 1.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1065353133)))});
+    try testFmt("f64: 10.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1092616192)))});
 
     // libc differences
     //
     // This is 0.015625 exactly according to gdb. We thus round down,
     // however glibc rounds up for some reason. This occurs for all
     // floats of the form x.yyyy25 on a precision point.
-    try testFmt("f64: 0.01563", "f64: {d:.5}", @as(f64, @bitCast(f32, @as(u32, 1015021568))));
+    try testFmt("f64: 0.01563", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1015021568)))});
     // errol3 rounds to ... 630 but libc rounds to ...632. Grisu3
     // also rounds to 630 so I'm inclined to believe libc is not
     // optimal here.
-    try testFmt("f64: 18014400656965630.00000", "f64: {d:.5}", @as(f64, @bitCast(f32, @as(u32, 1518338049))));
+    try testFmt("f64: 18014400656965630.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1518338049)))});
 }
 
 test "custom" {
@@ -1422,9 +1424,9 @@ test "custom" {
             output: fn (@typeOf(context), []const u8) Errors!void,
         ) Errors!void {
             if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "p")) {
-                return std.fmt.format(context, Errors, output, "({d:.3},{d:.3})", self.x, self.y);
+                return std.fmt.format(context, Errors, output, "({d:.3},{d:.3})", .{ self.x, self.y });
             } else if (comptime std.mem.eql(u8, fmt, "d")) {
-                return std.fmt.format(context, Errors, output, "{d:.3}x{d:.3}", self.x, self.y);
+                return std.fmt.format(context, Errors, output, "{d:.3}x{d:.3}", .{ self.x, self.y });
             } else {
                 @compileError("Unknown format character: '" ++ fmt ++ "'");
             }
@@ -1436,12 +1438,12 @@ test "custom" {
         .x = 10.2,
         .y = 2.22,
     };
-    try testFmt("point: (10.200,2.220)\n", "point: {}\n", &value);
-    try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", &value);
+    try testFmt("point: (10.200,2.220)\n", "point: {}\n", .{&value});
+    try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", .{&value});
 
     // same thing but not passing a pointer
-    try testFmt("point: (10.200,2.220)\n", "point: {}\n", value);
-    try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", value);
+    try testFmt("point: (10.200,2.220)\n", "point: {}\n", .{value});
+    try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", .{value});
 }
 
 test "struct" {
@@ -1455,7 +1457,7 @@ test "struct" {
         .b = error.Unused,
     };
 
-    try testFmt("S{ .a = 456, .b = error.Unused }", "{}", inst);
+    try testFmt("S{ .a = 456, .b = error.Unused }", "{}", .{inst});
 }
 
 test "union" {
@@ -1478,13 +1480,13 @@ test "union" {
     const uu_inst = UU{ .int = 456 };
     const eu_inst = EU{ .float = 321.123 };
 
-    try testFmt("TU{ .int = 123 }", "{}", tu_inst);
+    try testFmt("TU{ .int = 123 }", "{}", .{tu_inst});
 
     var buf: [100]u8 = undefined;
-    const uu_result = try bufPrint(buf[0..], "{}", uu_inst);
+    const uu_result = try bufPrint(buf[0..], "{}", .{uu_inst});
     std.testing.expect(mem.eql(u8, uu_result[0..3], "UU@"));
 
-    const eu_result = try bufPrint(buf[0..], "{}", eu_inst);
+    const eu_result = try bufPrint(buf[0..], "{}", .{eu_inst});
     std.testing.expect(mem.eql(u8, uu_result[0..3], "EU@"));
 }
 
@@ -1497,7 +1499,7 @@ test "enum" {
 
     const inst = E.Two;
 
-    try testFmt("E.Two", "{}", inst);
+    try testFmt("E.Two", "{}", .{inst});
 }
 
 test "struct.self-referential" {
@@ -1511,7 +1513,7 @@ test "struct.self-referential" {
     };
     inst.a = &inst;
 
-    try testFmt("S{ .a = S{ .a = S{ .a = S{ ... } } } }", "{}", inst);
+    try testFmt("S{ .a = S{ .a = S{ .a = S{ ... } } } }", "{}", .{inst});
 }
 
 test "struct.zero-size" {
@@ -1526,30 +1528,30 @@ test "struct.zero-size" {
     const a = A{};
     const b = B{ .a = a, .c = 0 };
 
-    try testFmt("B{ .a = A{ }, .c = 0 }", "{}", b);
+    try testFmt("B{ .a = A{ }, .c = 0 }", "{}", .{b});
 }
 
 test "bytes.hex" {
     const some_bytes = "\xCA\xFE\xBA\xBE";
-    try testFmt("lowercase: cafebabe\n", "lowercase: {x}\n", some_bytes);
-    try testFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", some_bytes);
+    try testFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{some_bytes});
+    try testFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{some_bytes});
     //Test Slices
-    try testFmt("uppercase: CAFE\n", "uppercase: {X}\n", some_bytes[0..2]);
-    try testFmt("lowercase: babe\n", "lowercase: {x}\n", some_bytes[2..]);
+    try testFmt("uppercase: CAFE\n", "uppercase: {X}\n", .{some_bytes[0..2]});
+    try testFmt("lowercase: babe\n", "lowercase: {x}\n", .{some_bytes[2..]});
     const bytes_with_zeros = "\x00\x0E\xBA\xBE";
-    try testFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", bytes_with_zeros);
+    try testFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
 }
 
-fn testFmt(expected: []const u8, comptime template: []const u8, args: ...) !void {
+fn testFmt(expected: []const u8, comptime template: []const u8, args: var) !void {
     var buf: [100]u8 = undefined;
     const result = try bufPrint(buf[0..], template, args);
     if (mem.eql(u8, result, expected)) return;
 
-    std.debug.warn("\n====== expected this output: =========\n");
-    std.debug.warn("{}", expected);
-    std.debug.warn("\n======== instead found this: =========\n");
-    std.debug.warn("{}", result);
-    std.debug.warn("\n======================================\n");
+    std.debug.warn("\n====== expected this output: =========\n", .{});
+    std.debug.warn("{}", .{expected});
+    std.debug.warn("\n======== instead found this: =========\n", .{});
+    std.debug.warn("{}", .{result});
+    std.debug.warn("\n======================================\n", .{});
     return error.TestFailed;
 }
 
@@ -1602,7 +1604,7 @@ test "hexToBytes" {
     const test_hex_str = "909A312BB12ED1F819B3521AC4C1E896F2160507FFC1C8381E3B07BB16BD1706";
     var pb: [32]u8 = undefined;
     try hexToBytes(pb[0..], test_hex_str);
-    try testFmt(test_hex_str, "{X}", pb);
+    try testFmt(test_hex_str, "{X}", .{pb});
 }
 
 test "formatIntValue with comptime_int" {
@@ -1628,7 +1630,7 @@ test "formatType max_depth" {
             output: fn (@typeOf(context), []const u8) Errors!void,
         ) Errors!void {
             if (fmt.len == 0) {
-                return std.fmt.format(context, Errors, output, "({d:.3},{d:.3})", self.x, self.y);
+                return std.fmt.format(context, Errors, output, "({d:.3},{d:.3})", .{ self.x, self.y });
             } else {
                 @compileError("Unknown format string: '" ++ fmt ++ "'");
             }
@@ -1680,17 +1682,17 @@ test "formatType max_depth" {
 }
 
 test "positional" {
-    try testFmt("2 1 0", "{2} {1} {0}", @as(usize, 0), @as(usize, 1), @as(usize, 2));
-    try testFmt("2 1 0", "{2} {1} {}", @as(usize, 0), @as(usize, 1), @as(usize, 2));
-    try testFmt("0 0", "{0} {0}", @as(usize, 0));
-    try testFmt("0 1", "{} {1}", @as(usize, 0), @as(usize, 1));
-    try testFmt("1 0 0 1", "{1} {} {0} {}", @as(usize, 0), @as(usize, 1));
+    try testFmt("2 1 0", "{2} {1} {0}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
+    try testFmt("2 1 0", "{2} {1} {}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
+    try testFmt("0 0", "{0} {0}", .{@as(usize, 0)});
+    try testFmt("0 1", "{} {1}", .{ @as(usize, 0), @as(usize, 1) });
+    try testFmt("1 0 0 1", "{1} {} {0} {}", .{ @as(usize, 0), @as(usize, 1) });
 }
 
 test "positional with specifier" {
-    try testFmt("10.0", "{0d:.1}", @as(f64, 9.999));
+    try testFmt("10.0", "{0d:.1}", .{@as(f64, 9.999)});
 }
 
 test "positional/alignment/width/precision" {
-    try testFmt("10.0", "{0d: >3.1}", @as(f64, 9.999));
+    try testFmt("10.0", "{0d: >3.1}", .{@as(f64, 9.999)});
 }

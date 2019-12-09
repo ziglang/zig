@@ -154,7 +154,7 @@ fn dependOnLib(b: *Builder, lib_exe_obj: var, dep: LibraryDep) void {
         const static_bare_name = if (mem.eql(u8, lib, "curses"))
             @as([]const u8, "libncurses.a")
         else
-            b.fmt("lib{}.a", lib);
+            b.fmt("lib{}.a", .{lib});
         const static_lib_name = fs.path.join(
             b.allocator,
             &[_][]const u8{ lib_dir, static_bare_name },
@@ -186,7 +186,7 @@ fn addCppLib(b: *Builder, lib_exe_obj: var, cmake_binary_dir: []const u8, lib_na
     lib_exe_obj.addObjectFile(fs.path.join(b.allocator, &[_][]const u8{
         cmake_binary_dir,
         "zig_cpp",
-        b.fmt("{}{}{}", lib_exe_obj.target.libPrefix(), lib_name, lib_exe_obj.target.staticLibSuffix()),
+        b.fmt("{}{}{}", .{ lib_exe_obj.target.libPrefix(), lib_name, lib_exe_obj.target.staticLibSuffix() }),
     }) catch unreachable);
 }
 
@@ -343,14 +343,14 @@ fn addCxxKnownPath(
 ) !void {
     const path_padded = try b.exec(&[_][]const u8{
         ctx.cxx_compiler,
-        b.fmt("-print-file-name={}", objname),
+        b.fmt("-print-file-name={}", .{objname}),
     });
     const path_unpadded = mem.tokenize(path_padded, "\r\n").next().?;
     if (mem.eql(u8, path_unpadded, objname)) {
         if (errtxt) |msg| {
-            warn("{}", msg);
+            warn("{}", .{msg});
         } else {
-            warn("Unable to determine path to {}\n", objname);
+            warn("Unable to determine path to {}\n", .{objname});
         }
         return error.RequiredLibraryNotFound;
     }

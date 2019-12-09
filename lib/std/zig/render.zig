@@ -76,7 +76,7 @@ fn renderRoot(
     // render all the line comments at the beginning of the file
     while (tok_it.next()) |token| {
         if (token.id != .LineComment) break;
-        try stream.print("{}\n", mem.trimRight(u8, tree.tokenSlicePtr(token), " "));
+        try stream.print("{}\n", .{mem.trimRight(u8, tree.tokenSlicePtr(token), " ")});
         if (tok_it.peek()) |next_token| {
             const loc = tree.tokenLocationPtr(token.end, next_token);
             if (loc.line >= 2) {
@@ -1226,7 +1226,7 @@ fn renderExpression(
 
             var skip_first_indent = true;
             if (tree.tokens.at(multiline_str_literal.firstToken() - 1).id != .LineComment) {
-                try stream.print("\n");
+                try stream.print("\n", .{});
                 skip_first_indent = false;
             }
 
@@ -2129,7 +2129,7 @@ fn renderTokenOffset(
 
     var loc = tree.tokenLocationPtr(token.end, next_token);
     if (loc.line == 0) {
-        try stream.print(" {}", mem.trimRight(u8, tree.tokenSlicePtr(next_token), " "));
+        try stream.print(" {}", .{mem.trimRight(u8, tree.tokenSlicePtr(next_token), " ")});
         offset = 2;
         token = next_token;
         next_token = tree.tokens.at(token_index + offset);

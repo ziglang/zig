@@ -24,8 +24,12 @@ pub fn main() !void {
     const elapsed_ns_better = timer.lap();
     @fence(.SeqCst);
 
-    std.debug.warn("original utf8ToUtf16Le: elapsed: {} ns ({} ms)\n", elapsed_ns_orig, elapsed_ns_orig / 1000000);
-    std.debug.warn("new utf8ToUtf16Le: elapsed: {} ns ({} ms)\n", elapsed_ns_better, elapsed_ns_better / 1000000);
+    std.debug.warn("original utf8ToUtf16Le: elapsed: {} ns ({} ms)\n", .{
+        elapsed_ns_orig, elapsed_ns_orig / 1000000,
+    });
+    std.debug.warn("new utf8ToUtf16Le: elapsed: {} ns ({} ms)\n", .{
+        elapsed_ns_better, elapsed_ns_better / 1000000,
+    });
     asm volatile ("nop"
         :
         : [a] "r" (&buffer1),

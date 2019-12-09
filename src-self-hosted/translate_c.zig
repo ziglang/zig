@@ -125,7 +125,7 @@ const Context = struct {
 
         const line = ZigClangSourceManager_getSpellingLineNumber(c.source_manager, spelling_loc);
         const column = ZigClangSourceManager_getSpellingColumnNumber(c.source_manager, spelling_loc);
-        return std.fmt.allocPrint(c.a(), "{}:{}:{}", filename, line, column);
+        return std.fmt.allocPrint(c.a(), "{}:{}:{}", .{ filename, line, column });
     }
 };
 
@@ -228,20 +228,20 @@ fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
             return visitFnDecl(c, @ptrCast(*const ZigClangFunctionDecl, decl));
         },
         .Typedef => {
-            try emitWarning(c, ZigClangDecl_getLocation(decl), "TODO implement translate-c for typedefs");
+            try emitWarning(c, ZigClangDecl_getLocation(decl), "TODO implement translate-c for typedefs", .{});
         },
         .Enum => {
-            try emitWarning(c, ZigClangDecl_getLocation(decl), "TODO implement translate-c for enums");
+            try emitWarning(c, ZigClangDecl_getLocation(decl), "TODO implement translate-c for enums", .{});
         },
         .Record => {
-            try emitWarning(c, ZigClangDecl_getLocation(decl), "TODO implement translate-c for structs");
+            try emitWarning(c, ZigClangDecl_getLocation(decl), "TODO implement translate-c for structs", .{});
         },
         .Var => {
-            try emitWarning(c, ZigClangDecl_getLocation(decl), "TODO implement translate-c for variables");
+            try emitWarning(c, ZigClangDecl_getLocation(decl), "TODO implement translate-c for variables", .{});
         },
         else => {
             const decl_name = try c.str(ZigClangDecl_getDeclKindName(decl));
-            try emitWarning(c, ZigClangDecl_getLocation(decl), "ignoring {} declaration", decl_name);
+            try emitWarning(c, ZigClangDecl_getLocation(decl), "ignoring {} declaration", .{decl_name});
         },
     }
 }
@@ -264,7 +264,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
         .is_export = switch (storage_class) {
             .None => has_body and c.mode != .import,
             .Extern, .Static => false,
-            .PrivateExtern => return failDecl(c, fn_decl_loc, fn_name, "unsupported storage class: private extern"),
+            .PrivateExtern => return failDecl(c, fn_decl_loc, fn_name, "unsupported storage class: private extern", .{}),
             .Auto => unreachable, // Not legal on functions
             .Register => unreachable, // Not legal on functions
         },
@@ -274,7 +274,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
             const fn_proto_type = @ptrCast(*const ZigClangFunctionProtoType, fn_type);
             break :blk transFnProto(rp, fn_proto_type, fn_decl_loc, decl_ctx, true) catch |err| switch (err) {
                 error.UnsupportedType => {
-                    return failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function");
+                    return failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function", .{});
                 },
                 error.OutOfMemory => |e| return e,
             };
@@ -283,7 +283,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
             const fn_no_proto_type = @ptrCast(*const ZigClangFunctionType, fn_type);
             break :blk transFnNoProto(rp, fn_no_proto_type, fn_decl_loc, decl_ctx, true) catch |err| switch (err) {
                 error.UnsupportedType => {
-                    return failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function");
+                    return failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function", .{});
                 },
                 error.OutOfMemory => |e| return e,
             };
@@ -302,7 +302,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
         error.OutOfMemory => |e| return e,
         error.UnsupportedTranslation,
         error.UnsupportedType,
-        => return failDecl(c, fn_decl_loc, fn_name, "unable to translate function"),
+        => return failDecl(c, fn_decl_loc, fn_name, "unable to translate function", .{}),
     };
     assert(result.node.id == ast.Node.Id.Block);
     proto_node.body_node = result.node;
@@ -344,7 +344,7 @@ fn transStmt(
                 error.UnsupportedTranslation,
                 ZigClangStmt_getBeginLoc(stmt),
                 "TODO implement translation of stmt class {}",
-                @tagName(sc),
+                .{@tagName(sc)},
             );
         },
     }
@@ -364,7 +364,7 @@ fn transBinaryOperator(
             error.UnsupportedTranslation,
             ZigClangBinaryOperator_getBeginLoc(stmt),
             "TODO: handle more C binary operators: {}",
-            op,
+            .{op},
         ),
         .Assign => return TransResult{
             .node = &(try transCreateNodeAssign(rp, scope, result_used, ZigClangBinaryOperator_getLHS(stmt), ZigClangBinaryOperator_getRHS(stmt))).base,
@@ -415,7 +415,7 @@ fn transBinaryOperator(
             error.UnsupportedTranslation,
             ZigClangBinaryOperator_getBeginLoc(stmt),
             "TODO: handle more C binary operators: {}",
-            op,
+            .{op},
         ),
         .MulAssign,
         .DivAssign,
@@ -567,7 +567,7 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
                 error.UnsupportedTranslation,
                 ZigClangStmt_getBeginLoc(@ptrCast(*const ZigClangStmt, stmt)),
                 "TODO implement translation of DeclStmt kind {}",
-                @tagName(kind),
+                .{@tagName(kind)},
             ),
         }
     }
@@ -636,7 +636,7 @@ fn transImplicitCastExpr(
             error.UnsupportedTranslation,
             ZigClangStmt_getBeginLoc(@ptrCast(*const ZigClangStmt, expr)),
             "TODO implement translation of CastKind {}",
-            @tagName(kind),
+            .{@tagName(kind)},
         ),
     }
 }
@@ -650,7 +650,7 @@ fn transIntegerLiteral(
     var eval_result: ZigClangExprEvalResult = undefined;
     if (!ZigClangIntegerLiteral_EvaluateAsInt(expr, &eval_result, rp.c.clang_context)) {
         const loc = ZigClangIntegerLiteral_getBeginLoc(expr);
-        return revertAndWarn(rp, error.UnsupportedTranslation, loc, "invalid integer literal");
+        return revertAndWarn(rp, error.UnsupportedTranslation, loc, "invalid integer literal", .{});
     }
     const node = try transCreateNodeAPInt(rp.c, ZigClangAPValue_getInt(&eval_result.Val));
     const res = TransResult{
@@ -719,7 +719,7 @@ fn transStringLiteral(
             error.UnsupportedTranslation,
             ZigClangStmt_getBeginLoc(@ptrCast(*const ZigClangStmt, stmt)),
             "TODO: support string literal kind {}",
-            kind,
+            .{kind},
         ),
     }
 }
@@ -751,7 +751,7 @@ fn escapeChar(c: u8, char_buf: *[4]u8) []const u8 {
         '\n' => return "\\n"[0..],
         '\r' => return "\\r"[0..],
         '\t' => return "\\t"[0..],
-        else => return std.fmt.bufPrint(char_buf[0..], "\\x{x:2}", c) catch unreachable,
+        else => return std.fmt.bufPrint(char_buf[0..], "\\x{x:2}", .{c}) catch unreachable,
     };
     std.mem.copy(u8, char_buf, escaped);
     return char_buf[0..escaped.len];
@@ -1016,7 +1016,13 @@ fn transCreateNodeAssign(
     // zig:     lhs = _tmp;
     // zig:     break :x _tmp
     // zig: })
-    return revertAndWarn(rp, error.UnsupportedTranslation, ZigClangExpr_getBeginLoc(lhs), "TODO: worst case assign op expr");
+    return revertAndWarn(
+        rp,
+        error.UnsupportedTranslation,
+        ZigClangExpr_getBeginLoc(lhs),
+        "TODO: worst case assign op expr",
+        .{},
+    );
 }
 
 fn transCreateNodeBuiltinFnCall(c: *Context, name: []const u8) !*ast.Node.BuiltinCall {
@@ -1211,7 +1217,7 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
                 .Float128 => return appendIdentifier(rp.c, "f128"),
                 .Float16 => return appendIdentifier(rp.c, "f16"),
                 .LongDouble => return appendIdentifier(rp.c, "c_longdouble"),
-                else => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported builtin type"),
+                else => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported builtin type", .{}),
             }
         },
         .FunctionProto => {
@@ -1253,7 +1259,7 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
         },
         else => {
             const type_name = rp.c.str(ZigClangType_getTypeClassName(ty));
-            return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported type: '{}'", type_name);
+            return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported type: '{}'", .{type_name});
         },
     }
 }
@@ -1275,7 +1281,13 @@ fn transCC(
     switch (clang_cc) {
         .C => return CallingConvention.C,
         .X86StdCall => return CallingConvention.Stdcall,
-        else => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported calling convention: {}", @tagName(clang_cc)),
+        else => return revertAndWarn(
+            rp,
+            error.UnsupportedType,
+            source_loc,
+            "unsupported calling convention: {}",
+            .{@tagName(clang_cc)},
+        ),
     }
 }
 
@@ -1292,7 +1304,13 @@ fn transFnProto(
     const param_count: usize = ZigClangFunctionProtoType_getNumParams(fn_proto_ty);
     var i: usize = 0;
     while (i < param_count) : (i += 1) {
-        return revertAndWarn(rp, error.UnsupportedType, source_loc, "TODO: implement parameters for FunctionProto in transType");
+        return revertAndWarn(
+            rp,
+            error.UnsupportedType,
+            source_loc,
+            "TODO: implement parameters for FunctionProto in transType",
+            .{},
+        );
     }
 
     return finishTransFnProto(rp, fn_ty, source_loc, fn_decl_context, is_var_args, cc, is_pub);
@@ -1350,7 +1368,7 @@ fn finishTransFnProto(
             } else {
                 break :blk transQualType(rp, return_qt, source_loc) catch |err| switch (err) {
                     error.UnsupportedType => {
-                        try emitWarning(rp.c, source_loc, "unsupported function proto return type");
+                        try emitWarning(rp.c, source_loc, "unsupported function proto return type", .{});
                         return err;
                     },
                     error.OutOfMemory => |e| return e,
@@ -1397,18 +1415,19 @@ fn revertAndWarn(
     err: var,
     source_loc: ZigClangSourceLocation,
     comptime format: []const u8,
-    args: ...,
+    args: var,
 ) (@typeOf(err) || error{OutOfMemory}) {
     rp.activate();
     try emitWarning(rp.c, source_loc, format, args);
     return err;
 }
 
-fn emitWarning(c: *Context, loc: ZigClangSourceLocation, comptime format: []const u8, args: ...) !void {
-    _ = try appendTokenFmt(c, .LineComment, "// {}: warning: " ++ format, c.locStr(loc), args);
+fn emitWarning(c: *Context, loc: ZigClangSourceLocation, comptime format: []const u8, args: var) !void {
+    const args_prefix = .{c.locStr(loc)};
+    _ = try appendTokenFmt(c, .LineComment, "// {}: warning: " ++ format, args_prefix ++ args);
 }
 
-fn failDecl(c: *Context, loc: ZigClangSourceLocation, name: []const u8, comptime format: []const u8, args: ...) !void {
+fn failDecl(c: *Context, loc: ZigClangSourceLocation, name: []const u8, comptime format: []const u8, args: var) !void {
     // const name = @compileError(msg);
     const const_tok = try appendToken(c, .Keyword_const, "const");
     const name_tok = try appendToken(c, .Identifier, name);
@@ -1456,10 +1475,10 @@ fn failDecl(c: *Context, loc: ZigClangSourceLocation, name: []const u8, comptime
 }
 
 fn appendToken(c: *Context, token_id: Token.Id, bytes: []const u8) !ast.TokenIndex {
-    return appendTokenFmt(c, token_id, "{}", bytes);
+    return appendTokenFmt(c, token_id, "{}", .{bytes});
 }
 
-fn appendTokenFmt(c: *Context, token_id: Token.Id, comptime format: []const u8, args: ...) !ast.TokenIndex {
+fn appendTokenFmt(c: *Context, token_id: Token.Id, comptime format: []const u8, args: var) !ast.TokenIndex {
     const S = struct {
         fn callback(context: *Context, bytes: []const u8) error{OutOfMemory}!void {
             return context.source_buffer.append(bytes);
