@@ -1587,3 +1587,56 @@ test "" {
     _ = @import("fs/file.zig");
     _ = @import("fs/get_app_data_dir.zig");
 }
+
+// Custom read-by-line iterator with some FP-style secret sauce
+// Used for std.terminfo.Terminfo
+pub const ReadLineIterator = struct {
+    const FilterCallback = fn([]u8)bool;
+    const MapCallback = fn([]u8)[]const u8;
+
+    in_stream: File.InStream,
+    buf_in_stream: std.io.BufferedInStream(File.ReadError),
+    filter_fn: FilterCallback,
+    map_fn: MapCallback,
+
+    pub fn init(file_path: []const u8) !ReadLineIterator {
+        const file = try std.fs.cwd().openFile(file_path, .{});
+        var in_stream = file.inStream();
+
+        return ReadLineIterator {
+            .in_stream = in_stream,
+            .buf_in_stream = std.io.BufferedInStream(File.ReadError).init(&in_stream.stream),
+            .filter_fn = struct { fn filter(line: []u8) bool { return true; } }.filter,
+            .map_fn = struct { fn map(line: []u8) []u8 { return line; } }.map,
+        };
+    }
+
+    pub fn deinit(self: *ReadLineIterator) void {
+        self.in_stream.file.close();
+    }
+
+    pub fn setFilter(self: *ReadLineIterator, filter_fn: FilterCallback) void {
+        self.filter_fn = filter_fn;
+    }
+
+    pub fn setMap(self: *ReadLineIterator, map_fn: MapCallback) void {
+        self.map_fn = map_fn;
+    }
+
+    pub fn next(self: *ReadLineIterator) !?[]const u8 {
+        while (try self.in_stream.stream.readUntilDelimiterOrEof(self.buf_in_stream.buffer[0..], '\n')) |line| {
+            if (self.filter_fn(line)) return self.map_fn(line);
+        }
+        return null;
+    }
+
+    pub fn collect(self: *ReadLineIterator, allocator: *std.mem.Allocator) !std.ArrayList(u8) {
+        var buffer = std.ArrayList(u8).init(allocator);
+
+        while (try self.next()) |line| {
+            try buffer.appendSlice(line);
+        }
+
+        return buffer;
+    }
+};
