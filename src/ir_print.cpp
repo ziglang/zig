@@ -873,7 +873,7 @@ static void ir_print_vector_store_elem(IrPrint *irp, IrInstructionVectorStoreEle
 }
 
 static void ir_print_typeof(IrPrint *irp, IrInstructionTypeOf *instruction) {
-    fprintf(irp->f, "@typeOf(");
+    fprintf(irp->f, "@TypeOf(");
     ir_print_other_instruction(irp, instruction->value);
     fprintf(irp->f, ")");
 }
