@@ -255,19 +255,20 @@ pub const Resource = struct {
         res_size += @sizeOf(u16) * 3;
         res_size += @sizeOf(u32);
 
-        // rdata
+        // rdata (len + rdata)
         res_size += @sizeOf(u16);
         res_size += resource.opaque_rdata.len * @sizeOf(u8);
 
         return res_size;
     }
+
     pub fn serialize(self: @This(), serializer: var) !void {
         try serializer.serialize(self.name);
         try serializer.serialize(self.rr_type);
         try serializer.serialize(self.class);
         try serializer.serialize(self.ttl);
 
-        try serializer.serialize(self.opaque_rdata.len);
+        try serializer.serialize(@intCast(u16, self.opaque_rdata.len));
         try serializer.serialize(self.opaque_rdata);
     }
 };

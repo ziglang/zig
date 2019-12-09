@@ -58,6 +58,14 @@ pub const DNSRData = union(dns.DNSType) {
     },
     MX: MXData,
     TXT: [][]const u8,
+
+    pub fn size(self: @This()) usize {
+        // TODO implement size() for more types
+        return switch (self) {
+            .NS => |name| name.size(),
+            else => @panic("TODO"),
+        };
+    }
 };
 
 /// Deserialize a given Resource's RDATA information. Requires the original

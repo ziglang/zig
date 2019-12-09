@@ -199,8 +199,8 @@ test "rdata serialization" {
     var name = try dns.DNSName.fromString(allocator, "google.com");
     var pkt_rdata = dns.rdata.DNSRData{ .NS = name };
 
-    // TODO DNSRData.size() method
     var rdata_buffer = try allocator.alloc(u8, 0x10000);
+    var opaque_rdata = rdata_buffer[0..pkt_rdata.size()];
     var out = io.SliceOutStream.init(rdata_buffer);
     var out_stream = &out.stream;
     var serializer = io.Serializer(.Big, .Bit, OutError).init(out_stream);
@@ -211,9 +211,11 @@ test "rdata serialization" {
         .rr_type = .A,
         .class = .IN,
         .ttl = 300,
-        .opaque_rdata = rdata_buffer,
+        .opaque_rdata = opaque_rdata,
     });
 
     var res = try encodePacket(pkt);
-    std.debug.warn("res pkt = '{}'\n", .{res});
+
+    // TODO compare with known good packet?
+    // std.debug.warn("res pkt = '{}'\n", .{res});
 }
