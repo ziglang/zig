@@ -802,12 +802,6 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
     res->data.fn_proto.auto_err_set = exmark != nullptr;
     res->data.fn_proto.return_type = return_type;
 
-    // It seems that the Zig compiler expects varargs to be the
-    // last parameter in the decl list. This is not encoded in
-    // the grammar, which allows varargs anywhere in the decl.
-    // Since varargs is gonna be removed at some point, I'm not
-    // gonna encode this "varargs is always last" rule in the
-    // grammar, and just enforce it here, until varargs is removed.
     for (size_t i = 0; i < params.length; i++) {
         AstNode *param_decl = params.at(i);
         assert(param_decl->type == NodeTypeParamDecl);

@@ -4,7 +4,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
     cases.add("declare enum",
         \\const Foo = extern enum { A, B, C };
         \\export fn entry(foo: Foo) void { }
-    ,
+    , &[_][]const u8{
         \\enum Foo {
         \\    A = 0,
         \\    B = 1,
@@ -12,7 +12,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\};
     ,
         \\void entry(enum Foo foo);
-    );
+    });
 
     cases.add("declare struct",
         \\const Foo = extern struct {
@@ -24,7 +24,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\    F: u64,
         \\};
         \\export fn entry(foo: Foo) void { }
-    ,
+    , &[_][]const u8{
         \\struct Foo {
         \\    int32_t A;
         \\    float B;
@@ -36,7 +36,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
     ,
         \\void entry(struct Foo foo);
         \\
-    );
+    });
 
     cases.add("declare union",
         \\const Big = extern struct {
@@ -53,7 +53,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\    D: Big,
         \\};
         \\export fn entry(foo: Foo) void {}
-    ,
+    , &[_][]const u8{
         \\struct Big {
         \\    uint64_t A;
         \\    uint64_t B;
@@ -71,17 +71,17 @@ pub fn addCases(cases: *tests.GenHContext) void {
     ,
         \\void entry(union Foo foo);
         \\
-    );
+    });
 
     cases.add("declare opaque type",
         \\const Foo = @OpaqueType();
         \\
         \\export fn entry(foo: ?*Foo) void { }
-    ,
+    , &[_][]const u8{
         \\struct Foo;
     ,
         \\void entry(struct Foo * foo);
-    );
+    });
 
     cases.add("array field-type",
         \\const Foo = extern struct {
@@ -89,7 +89,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\    B: [4]*u32,
         \\};
         \\export fn entry(foo: Foo, bar: [3]u8) void { }
-    ,
+    , &[_][]const u8{
         \\struct Foo {
         \\    int32_t A[2];
         \\    uint32_t * B[4];
@@ -97,7 +97,7 @@ pub fn addCases(cases: *tests.GenHContext) void {
     ,
         \\void entry(struct Foo foo, uint8_t bar[]);
         \\
-    );
+    });
 
     cases.add("ptr to zig struct",
         \\const S = struct {
@@ -107,12 +107,12 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\export fn a(s: *S) u8 {
         \\    return s.a;
         \\}
-    ,
+    , &[_][]const u8{
         \\struct S;
     ,
         \\uint8_t a(struct S * s);
         \\
-    );
+    });
 
     cases.add("ptr to zig union",
         \\const U = union(enum) {
@@ -123,12 +123,12 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\export fn a(s: *U) u8 {
         \\    return s.A;
         \\}
-    ,
+    , &[_][]const u8{
         \\union U;
     ,
         \\uint8_t a(union U * s);
         \\
-    );
+    });
 
     cases.add("ptr to zig enum",
         \\const E = enum(u8) {
@@ -139,10 +139,10 @@ pub fn addCases(cases: *tests.GenHContext) void {
         \\export fn a(s: *E) u8 {
         \\    return @enumToInt(s.*);
         \\}
-    ,
+    , &[_][]const u8{
         \\enum E;
     ,
         \\uint8_t a(enum E * s);
         \\
-    );
+    });
 }

@@ -6539,7 +6539,6 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Zig
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdVoid:
         case ZigTypeIdOpaque:
             zig_unreachable();
@@ -7182,7 +7181,6 @@ check: switch (const_val->special) {
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
             zig_unreachable();
         case ZigTypeIdFnFrame:
@@ -7886,11 +7884,6 @@ static void define_builtin_types(CodeGen *g) {
         ZigType *entry = new_type_table_entry(ZigTypeIdOpaque);
         buf_init_from_str(&entry->name, "(var)");
         g->builtin_types.entry_var = entry;
-    }
-    {
-        ZigType *entry = new_type_table_entry(ZigTypeIdArgTuple);
-        buf_init_from_str(&entry->name, "(args)");
-        g->builtin_types.entry_arg_tuple = entry;
     }
 
     for (size_t i = 0; i < array_length(c_int_type_infos); i += 1) {
@@ -9532,7 +9525,6 @@ static void prepend_c_type_to_decl_list(CodeGen *g, GenH *gen_h, ZigType *type_e
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdErrorUnion:
         case ZigTypeIdErrorSet:
         case ZigTypeIdFnFrame:
@@ -9721,7 +9713,6 @@ static void get_c_type(CodeGen *g, GenH *gen_h, ZigType *type_entry, Buf *out_bu
         case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdFnFrame:
         case ZigTypeIdAnyFrame:
             zig_unreachable();
@@ -9781,7 +9772,6 @@ static void gen_h_file_types(CodeGen* g, GenH* gen_h, Buf* out_buf) {
             case ZigTypeIdErrorUnion:
             case ZigTypeIdErrorSet:
             case ZigTypeIdBoundFn:
-            case ZigTypeIdArgTuple:
             case ZigTypeIdOptional:
             case ZigTypeIdFn:
             case ZigTypeIdVector:

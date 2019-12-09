@@ -731,3 +731,41 @@ test "peer result null and comptime_int" {
     expect(S.blah(-10).? == -1);
     comptime expect(S.blah(-10).? == -1);
 }
+
+test "peer type resolution implicit cast to return type" {
+    const S = struct {
+        fn doTheTest() void {
+            for ("hello") |c| _ = f(c);
+        }
+        fn f(c: u8) []const u8 {
+            return switch (c) {
+                'h', 'e' => &[_]u8{c}, // should cast to slice
+                'l', ' ' => &[_]u8{ c, '.' }, // should cast to slice
+                else => ([_]u8{c})[0..], // is a slice
+            };
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "peer type resolution implicit cast to variable type" {
+    const S = struct {
+        fn doTheTest() void {
+            var x: []const u8 = undefined;
+            for ("hello") |c| x = switch (c) {
+                'h', 'e' => &[_]u8{c}, // should cast to slice
+                'l', ' ' => &[_]u8{ c, '.' }, // should cast to slice
+                else => ([_]u8{c})[0..], // is a slice
+            };
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "variable initialization uses result locations properly with regards to the type" {
+    var b = true;
+    const x: i32 = if (b) 1 else 2;
+    expect(x == 1);
+}

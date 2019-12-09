@@ -94,9 +94,7 @@ pub fn format(
     args: var,
 ) Errors!void {
     const ArgSetType = @IntType(false, 32);
-    const args_fields = std.meta.fields(@typeOf(args));
-    const args_len = args_fields.len;
-    if (args_len > ArgSetType.bit_count) {
+    if (args.len > ArgSetType.bit_count) {
         @compileError("32 arguments max are supported per format call");
     }
 
@@ -160,14 +158,14 @@ pub fn format(
                     maybe_pos_arg.? += c - '0';
                     specifier_start = i + 1;
 
-                    if (maybe_pos_arg.? >= args_len) {
+                    if (maybe_pos_arg.? >= args.len) {
                         @compileError("Positional value refers to non-existent argument");
                     }
                 },
                 '}' => {
                     const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
 
-                    if (arg_to_print >= args_len) {
+                    if (arg_to_print >= args.len) {
                         @compileError("Too few arguments");
                     }
 
@@ -304,7 +302,7 @@ pub fn format(
             used_pos_args |= 1 << i;
         }
 
-        if (@popCount(ArgSetType, used_pos_args) != args_len) {
+        if (@popCount(ArgSetType, used_pos_args) != args.len) {
             @compileError("Unused arguments");
         }
         if (state != State.Start) {

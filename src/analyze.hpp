@@ -171,9 +171,6 @@ void init_const_slice(CodeGen *g, ZigValue *const_val, ZigValue *array_val,
         size_t start, size_t len, bool is_const);
 ZigValue *create_const_slice(CodeGen *g, ZigValue *array_val, size_t start, size_t len, bool is_const);
 
-void init_const_arg_tuple(CodeGen *g, ZigValue *const_val, size_t arg_index_start, size_t arg_index_end);
-ZigValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_t arg_index_end);
-
 void init_const_null(ZigValue *const_val, ZigType *type);
 ZigValue *create_const_null(ZigType *type);
 

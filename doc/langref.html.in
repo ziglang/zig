@@ -5862,7 +5862,7 @@ pub fn main() void {
 
       {#code_begin|syntax#}
 /// Calls print and then flushes the buffer.
-pub fn printf(self: *OutStream, comptime format: []const u8, args: ...) anyerror!void {
+pub fn printf(self: *OutStream, comptime format: []const u8, args: var) anyerror!void {
     const State = enum {
         Start,
         OpenBrace,
@@ -6879,6 +6879,9 @@ pub const CallOptions = struct {
     pub const Modifier = enum {
         /// Equivalent to function call syntax.
         auto,
+
+        /// Equivalent to async keyword used with function call syntax.
+        async_kw,
 
         /// Prevents tail call optimization. This guarantees that the return
         /// address will point to the callsite, as opposed to the callsite's
@@ -8274,7 +8277,6 @@ test "integer truncation" {
           <li>{#link|union#}</li>
           <li>{#link|Functions#}</li>
           <li>BoundFn</li>
-          <li>ArgTuple</li>
           <li>{#link|struct#}</li>
       </ul>
       {#header_close#}
@@ -8307,7 +8309,6 @@ pub const TypeId = enum {
     Fn,
     Block,
     BoundFn,
-    ArgTuple,
     Opaque,
 };
       {#code_end#}
@@ -8340,7 +8341,6 @@ pub const TypeInfo = union(TypeId) {
     Union: Union,
     Fn: Fn,
     BoundFn: Fn,
-    ArgTuple: void,
     Opaque: void,
     Promise: Promise,
     Vector: Vector,

@@ -79,7 +79,6 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
         .NoReturn,
         .Opaque,
         .Undefined,
-        .ArgTuple,
         .Void,
         .Null,
         .BoundFn,

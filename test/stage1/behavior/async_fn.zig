@@ -1271,3 +1271,25 @@ test "spill target expr in a for loop, with a var decl in the loop body" {
     resume S.global_frame;
     resume S.global_frame;
 }
+
+test "async call with @call" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+        fn doTheTest() void {
+            _ = @call(.{ .modifier = .async_kw }, atest, .{});
+            resume global_frame;
+        }
+        fn atest() void {
+            var frame = @call(.{ .modifier = .async_kw }, afoo, .{});
+            const res = await frame;
+            expect(res == 42);
+        }
+        fn afoo() i32 {
+            suspend {
+                global_frame = @frame();
+            }
+            return 42;
+        }
+    };
+    S.doTheTest();
+}

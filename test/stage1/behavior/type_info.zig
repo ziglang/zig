@@ -198,7 +198,7 @@ fn testUnion() void {
     expect(@as(TypeId, typeinfo_info) == TypeId.Union);
     expect(typeinfo_info.Union.layout == TypeInfo.ContainerLayout.Auto);
     expect(typeinfo_info.Union.tag_type.? == TypeId);
-    expect(typeinfo_info.Union.fields.len == 26);
+    expect(typeinfo_info.Union.fields.len == 25);
     expect(typeinfo_info.Union.fields[4].enum_field != null);
     expect(typeinfo_info.Union.fields[4].enum_field.?.value == 4);
     expect(typeinfo_info.Union.fields[4].field_type == @typeOf(@typeInfo(u8).Int));

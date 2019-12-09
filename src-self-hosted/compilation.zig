@@ -778,7 +778,7 @@ pub const Compilation = struct {
                     continue;
                 };
                 const root_scope = ev.data;
-                group.call(rebuildFile, self, root_scope) catch |err| {
+                group.call(rebuildFile, .{ self, root_scope }) catch |err| {
                     build_result = err;
                     continue;
                 };
@@ -787,7 +787,7 @@ pub const Compilation = struct {
             while (self.fs_watch.channel.getOrNull()) |ev_or_err| {
                 if (ev_or_err) |ev| {
                     const root_scope = ev.data;
-                    group.call(rebuildFile, self, root_scope) catch |err| {
+                    group.call(rebuildFile, .{ self, root_scope }) catch |err| {
                         build_result = err;
                         continue;
                     };
@@ -868,7 +868,7 @@ pub const Compilation = struct {
 
                     // TODO connect existing comptime decls to updated source files
 
-                    try self.prelink_group.call(addCompTimeBlock, self, tree_scope, &decl_scope.base, comptime_node);
+                    try self.prelink_group.call(addCompTimeBlock, .{ self, tree_scope, &decl_scope.base, comptime_node });
                 },
                 .VarDecl => @panic("TODO"),
                 .FnProto => {
@@ -921,7 +921,7 @@ pub const Compilation = struct {
                         tree_scope.base.ref();
                         errdefer self.gpa().destroy(fn_decl);
 
-                        try group.call(addTopLevelDecl, self, &fn_decl.base, locked_table);
+                        try group.call(addTopLevelDecl, .{ self, &fn_decl.base, locked_table });
                     }
                 },
                 .TestDecl => @panic("TODO"),
@@ -1042,8 +1042,8 @@ pub const Compilation = struct {
         const is_export = decl.isExported(decl.tree_scope.tree);
 
         if (is_export) {
-            try self.prelink_group.call(verifyUniqueSymbol, self, decl);
-            try self.prelink_group.call(resolveDecl, self, decl);
+            try self.prelink_group.call(verifyUniqueSymbol, .{ self, decl });
+            try self.prelink_group.call(resolveDecl, .{ self, decl });
         }
 
         const gop = try locked_table.getOrPut(decl.name);
@@ -1062,7 +1062,7 @@ pub const Compilation = struct {
         const msg = try Msg.createFromScope(self, tree_scope, span, text);
         errdefer msg.destroy();
 
-        try self.prelink_group.call(addCompileErrorAsync, self, msg);
+        try self.prelink_group.call(addCompileErrorAsync, .{ self, msg });
     }
 
     fn addCompileErrorCli(self: *Compilation, realpath: []const u8, comptime fmt: []const u8, args: var) !void {
@@ -1072,7 +1072,7 @@ pub const Compilation = struct {
         const msg = try Msg.createFromCli(self, realpath, text);
         errdefer msg.destroy();
 
-        try self.prelink_group.call(addCompileErrorAsync, self, msg);
+        try self.prelink_group.call(addCompileErrorAsync, .{ self, msg });
     }
 
     async fn addCompileErrorAsync(
@@ -1131,7 +1131,7 @@ pub const Compilation = struct {
 
             // get a head start on looking for the native libc
             if (self.target == Target.Native and self.override_libc == null) {
-                try self.deinit_group.call(startFindingNativeLibC, self);
+                try self.deinit_group.call(startFindingNativeLibC, .{self});
             }
         }
         return link_lib;
@@ -1339,8 +1339,8 @@ fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
 
     // Kick off rendering to LLVM module, but it doesn't block the fn decl
     // analysis from being complete.
-    try comp.prelink_group.call(codegen.renderToLlvm, comp, fn_val, analyzed_code);
-    try comp.prelink_group.call(addFnToLinkSet, comp, fn_val);
+    try comp.prelink_group.call(codegen.renderToLlvm, .{ comp, fn_val, analyzed_code });
+    try comp.prelink_group.call(addFnToLinkSet, .{ comp, fn_val });
 }
 
 async fn addFnToLinkSet(comp: *Compilation, fn_val: *Value.Fn) Compilation.BuildError!void {

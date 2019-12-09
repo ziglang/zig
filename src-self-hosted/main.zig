@@ -654,7 +654,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
 
     var group = event.Group(FmtError!void).init(allocator);
     for (flags.positionals.toSliceConst()) |file_path| {
-        try group.call(fmtPath, &fmt, file_path, check_mode);
+        try group.call(fmtPath, .{ &fmt, file_path, check_mode });
     }
     try group.wait();
     if (fmt.any_error) {
@@ -710,7 +710,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
                 if (entry.kind == .Directory or mem.endsWith(u8, entry.name, ".zig")) {
                     const full_path = try fs.path.join(fmt.allocator, &[_][]const u8{ file_path, entry.name });
                     @panic("TODO https://github.com/ziglang/zig/issues/3777");
-                    // try group.call(fmtPath, fmt, full_path, check_mode);
+                    // try group.call(fmtPath, .{fmt, full_path, check_mode});
                 }
             }
             return group.wait();

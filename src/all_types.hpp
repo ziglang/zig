@@ -782,6 +782,7 @@ struct AstNodeUnwrapOptional {
 // Must be synchronized with std.builtin.CallOptions.Modifier
 enum CallModifier {
     CallModifierNone,
+    CallModifierAsync,
     CallModifierNeverTail,
     CallModifierNeverInline,
     CallModifierNoAsync,
@@ -791,7 +792,6 @@ enum CallModifier {
 
     // These are additional tags in the compiler, but not exposed in the std lib.
     CallModifierBuiltin,
-    CallModifierAsync,
 };
 
 struct AstNodeFnCallExpr {
@@ -1471,7 +1471,6 @@ enum ZigTypeId {
     ZigTypeIdUnion,
     ZigTypeIdFn,
     ZigTypeIdBoundFn,
-    ZigTypeIdArgTuple,
     ZigTypeIdOpaque,
     ZigTypeIdFnFrame,
     ZigTypeIdAnyFrame,
@@ -2039,7 +2038,6 @@ struct CodeGen {
         ZigType *entry_null;
         ZigType *entry_var;
         ZigType *entry_global_error_set;
-        ZigType *entry_arg_tuple;
         ZigType *entry_enum_literal;
         ZigType *entry_any_frame;
     } builtin_types;

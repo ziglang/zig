@@ -780,7 +780,6 @@ static bool types_have_same_zig_comptime_repr(CodeGen *codegen, ZigType *expecte
         case ZigTypeIdErrorUnion:
         case ZigTypeIdEnum:
         case ZigTypeIdUnion:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdVector:
         case ZigTypeIdFnFrame:
             return false;
@@ -14791,7 +14790,6 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
         case ZigTypeIdFn:
         case ZigTypeIdOpaque:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdEnum:
         case ZigTypeIdEnumLiteral:
         case ZigTypeIdAnyFrame:
@@ -16437,7 +16435,6 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
                 case ZigTypeIdErrorUnion:
                 case ZigTypeIdErrorSet:
                 case ZigTypeIdBoundFn:
-                case ZigTypeIdArgTuple:
                 case ZigTypeIdOpaque:
                 case ZigTypeIdFnFrame:
                 case ZigTypeIdAnyFrame:
@@ -16462,7 +16459,6 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
         case ZigTypeIdVector:
             zig_panic("TODO export const value of type %s", buf_ptr(&target->value->type->name));
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
         case ZigTypeIdEnumLiteral:
         case ZigTypeIdFnFrame:
@@ -16609,7 +16605,6 @@ static bool type_can_bit_cast(ZigType *t) {
         case ZigTypeIdMetaType:
         case ZigTypeIdOpaque:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdUnreachable:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
@@ -17416,23 +17411,6 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
     return true;
 }
 
-static ZigVar *get_fn_var_by_index(ZigFn *fn_entry, size_t index) {
-    FnTypeParamInfo *src_param_info = &fn_entry->type_entry->data.fn.fn_type_id.param_info[index];
-    if (!type_has_bits(src_param_info->type))
-        return nullptr;
-
-    size_t next_var_i = 0;
-    for (size_t param_i = 0; param_i < index; param_i += 1) {
-        FnTypeParamInfo *src_param_info = &fn_entry->type_entry->data.fn.fn_type_id.param_info[param_i];
-        if (!type_has_bits(src_param_info->type)) {
-            continue;
-        }
-
-        next_var_i += 1;
-    }
-    return fn_entry->variable_list.at(next_var_i);
-}
-
 static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction, ZigVar *var) {
     while (var->next_var != nullptr) {
         var = var->next_var;
@@ -17690,16 +17668,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstruction *source_i
         var_args_1_or_0 = fn_type_id->is_var_args ? 1 : 0;
     }
     size_t src_param_count = fn_type_id->param_count - var_args_1_or_0;
-
     size_t call_param_count = args_len + first_arg_1_or_0;
-    for (size_t i = 0; i < args_len; i += 1) {
-        ZigValue *arg_tuple_value = args_ptr[i]->value;
-        if (arg_tuple_value->type->id == ZigTypeIdArgTuple) {
-            call_param_count -= 1;
-            call_param_count += arg_tuple_value->data.x_arg_tuple.end_index -
-                arg_tuple_value->data.x_arg_tuple.start_index;
-        }
-    }
     AstNode *source_node = source_instr->source_node;
 
     AstNode *fn_proto_node = fn_entry ? fn_entry->proto_node : nullptr;;
@@ -17854,16 +17823,7 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstruction *source_i
             return ira->codegen->invalid_instruction;
         }
 
-        // Count the arguments of the function type id we are creating
-        size_t new_fn_arg_count = first_arg_1_or_0;
-        for (size_t call_i = 0; call_i < args_len; call_i += 1) {
-            IrInstruction *arg = args_ptr[call_i];
-            if (arg->value->type->id == ZigTypeIdArgTuple) {
-                new_fn_arg_count += arg->value->data.x_arg_tuple.end_index - arg->value->data.x_arg_tuple.start_index;
-            } else {
-                new_fn_arg_count += 1;
-            }
-        }
+        size_t new_fn_arg_count = first_arg_1_or_0 + args_len;
 
         IrInstruction **casted_args = allocate<IrInstruction *>(new_fn_arg_count);
 
@@ -17914,76 +17874,19 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstruction *source_i
             }
         }
 
-        bool found_first_var_arg = false;
-        size_t first_var_arg;
-
         ZigFn *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
         assert(parent_fn_entry);
         for (size_t call_i = 0; call_i < args_len; call_i += 1) {
             IrInstruction *arg = args_ptr[call_i];
 
-            if (arg->value->type->id == ZigTypeIdArgTuple) {
-                for (size_t arg_tuple_i = arg->value->data.x_arg_tuple.start_index;
-                    arg_tuple_i < arg->value->data.x_arg_tuple.end_index; arg_tuple_i += 1)
-                {
-                    AstNode *param_decl_node = fn_proto_node->data.fn_proto.params.at(next_proto_i);
-                    assert(param_decl_node->type == NodeTypeParamDecl);
-                    bool is_var_args = param_decl_node->data.param_decl.is_var_args;
-                    if (is_var_args && !found_first_var_arg) {
-                        first_var_arg = inst_fn_type_id.param_count;
-                        found_first_var_arg = true;
-                    }
-
-                    ZigVar *arg_var = get_fn_var_by_index(parent_fn_entry, arg_tuple_i);
-                    if (arg_var == nullptr) {
-                        ir_add_error(ira, arg,
-                            buf_sprintf("compiler bug: var args can't handle void. https://github.com/ziglang/zig/issues/557"));
-                        return ira->codegen->invalid_instruction;
-                    }
-                    IrInstruction *arg_var_ptr_inst = ir_get_var_ptr(ira, arg, arg_var);
-                    if (type_is_invalid(arg_var_ptr_inst->value->type))
-                        return ira->codegen->invalid_instruction;
-
-                    IrInstruction *arg_tuple_arg = ir_get_deref(ira, arg, arg_var_ptr_inst, nullptr);
-                    if (type_is_invalid(arg_tuple_arg->value->type))
-                        return ira->codegen->invalid_instruction;
-
-                    if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, arg_tuple_arg, &impl_fn->child_scope,
-                        &next_proto_i, generic_id, &inst_fn_type_id, casted_args, impl_fn))
-                    {
-                        return ira->codegen->invalid_instruction;
-                    }
-                }
-            } else {
-                AstNode *param_decl_node = fn_proto_node->data.fn_proto.params.at(next_proto_i);
-                assert(param_decl_node->type == NodeTypeParamDecl);
-                bool is_var_args = param_decl_node->data.param_decl.is_var_args;
-                if (is_var_args && !found_first_var_arg) {
-                    first_var_arg = inst_fn_type_id.param_count;
-                    found_first_var_arg = true;
-                }
-
-                if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, arg, &impl_fn->child_scope,
-                    &next_proto_i, generic_id, &inst_fn_type_id, casted_args, impl_fn))
-                {
-                    return ira->codegen->invalid_instruction;
-                }
-            }
-        }
-
-        if (fn_proto_node->data.fn_proto.is_var_args) {
             AstNode *param_decl_node = fn_proto_node->data.fn_proto.params.at(next_proto_i);
-            Buf *param_name = param_decl_node->data.param_decl.name;
+            assert(param_decl_node->type == NodeTypeParamDecl);
 
-            if (!found_first_var_arg) {
-                first_var_arg = inst_fn_type_id.param_count;
+            if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, arg, &impl_fn->child_scope,
+                &next_proto_i, generic_id, &inst_fn_type_id, casted_args, impl_fn))
+            {
+                return ira->codegen->invalid_instruction;
             }
-
-            ZigValue *var_args_val = create_const_arg_tuple(ira->codegen,
-                    first_var_arg, inst_fn_type_id.param_count);
-            ZigVar *var = add_variable(ira->codegen, param_decl_node,
-                impl_fn->child_scope, param_name, true, var_args_val, nullptr, var_args_val->type);
-            impl_fn->child_scope = var->child_scope;
         }
 
         if (fn_proto_node->data.fn_proto.align_expr != nullptr) {
@@ -18153,55 +18056,20 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstruction *source_i
         if (type_is_invalid(old_arg->value->type))
             return ira->codegen->invalid_instruction;
 
-        if (old_arg->value->type->id == ZigTypeIdArgTuple) {
-            for (size_t arg_tuple_i = old_arg->value->data.x_arg_tuple.start_index;
-                arg_tuple_i < old_arg->value->data.x_arg_tuple.end_index; arg_tuple_i += 1)
-            {
-                ZigVar *arg_var = get_fn_var_by_index(parent_fn_entry, arg_tuple_i);
-                if (arg_var == nullptr) {
-                    ir_add_error(ira, old_arg,
-                        buf_sprintf("compiler bug: var args can't handle void. https://github.com/ziglang/zig/issues/557"));
-                    return ira->codegen->invalid_instruction;
-                }
-                IrInstruction *arg_var_ptr_inst = ir_get_var_ptr(ira, old_arg, arg_var);
-                if (type_is_invalid(arg_var_ptr_inst->value->type))
-                    return ira->codegen->invalid_instruction;
-
-                IrInstruction *arg_tuple_arg = ir_get_deref(ira, old_arg, arg_var_ptr_inst, nullptr);
-                if (type_is_invalid(arg_tuple_arg->value->type))
-                    return ira->codegen->invalid_instruction;
-
-                IrInstruction *casted_arg;
-                if (next_arg_index < src_param_count) {
-                    ZigType *param_type = fn_type_id->param_info[next_arg_index].type;
-                    if (type_is_invalid(param_type))
-                        return ira->codegen->invalid_instruction;
-                    casted_arg = ir_implicit_cast(ira, arg_tuple_arg, param_type);
-                    if (type_is_invalid(casted_arg->value->type))
-                        return ira->codegen->invalid_instruction;
-                } else {
-                    casted_arg = arg_tuple_arg;
-                }
-
-                casted_args[next_arg_index] = casted_arg;
-                next_arg_index += 1;
-            }
+        IrInstruction *casted_arg;
+        if (next_arg_index < src_param_count) {
+            ZigType *param_type = fn_type_id->param_info[next_arg_index].type;
+            if (type_is_invalid(param_type))
+                return ira->codegen->invalid_instruction;
+            casted_arg = ir_implicit_cast(ira, old_arg, param_type);
+            if (type_is_invalid(casted_arg->value->type))
+                return ira->codegen->invalid_instruction;
         } else {
-            IrInstruction *casted_arg;
-            if (next_arg_index < src_param_count) {
-                ZigType *param_type = fn_type_id->param_info[next_arg_index].type;
-                if (type_is_invalid(param_type))
-                    return ira->codegen->invalid_instruction;
-                casted_arg = ir_implicit_cast(ira, old_arg, param_type);
-                if (type_is_invalid(casted_arg->value->type))
-                    return ira->codegen->invalid_instruction;
-            } else {
-                casted_arg = old_arg;
-            }
-
-            casted_args[next_arg_index] = casted_arg;
-            next_arg_index += 1;
+            casted_arg = old_arg;
         }
+
+        casted_args[next_arg_index] = casted_arg;
+        next_arg_index += 1;
     }
 
     assert(next_arg_index == call_param_count);
@@ -18330,10 +18198,7 @@ static IrInstruction *ir_analyze_call_extra(IrAnalyze *ira, IrInstruction *sourc
     if (modifier_val == nullptr)
         return ira->codegen->invalid_instruction;
     CallModifier modifier = (CallModifier)bigint_as_u32(&modifier_val->data.x_enum_tag);
-    if (modifier == CallModifierAsync) {
-        ir_add_error(ira, source_instr, buf_sprintf("TODO: @call with async modifier"));
-        return ira->codegen->invalid_instruction;
-    }
+
     if (ir_should_inline(ira->new_irb.exec, source_instr->scope)) {
         switch (modifier) {
             case CallModifierBuiltin:
@@ -19189,37 +19054,6 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
     } else if (is_slice(array_type)) {
         return_type = adjust_ptr_len(ira->codegen, array_type->data.structure.fields[slice_ptr_index]->type_entry,
                 elem_ptr_instruction->ptr_len);
-    } else if (array_type->id == ZigTypeIdArgTuple) {
-        ZigValue *ptr_val = ir_resolve_const(ira, array_ptr, UndefBad);
-        if (!ptr_val)
-            return ira->codegen->invalid_instruction;
-        ZigValue *args_val = const_ptr_pointee(ira, ira->codegen, ptr_val, elem_ptr_instruction->base.source_node);
-        if (args_val == nullptr)
-            return ira->codegen->invalid_instruction;
-        size_t start = args_val->data.x_arg_tuple.start_index;
-        size_t end = args_val->data.x_arg_tuple.end_index;
-        uint64_t elem_index_val;
-        if (!ir_resolve_usize(ira, elem_index, &elem_index_val))
-            return ira->codegen->invalid_instruction;
-        size_t index = elem_index_val;
-        size_t len = end - start;
-        if (index >= len) {
-            ir_add_error(ira, &elem_ptr_instruction->base,
-                buf_sprintf("index %" ZIG_PRI_usize " outside argument list of size %" ZIG_PRI_usize "", index, len));
-            return ira->codegen->invalid_instruction;
-        }
-        size_t abs_index = start + index;
-        ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
-        assert(fn_entry);
-        ZigVar *var = get_fn_var_by_index(fn_entry, abs_index);
-        bool is_const = true;
-        bool is_volatile = false;
-        if (var) {
-            return ir_get_var_ptr(ira, &elem_ptr_instruction->base, var);
-        } else {
-            return ir_get_const_ptr(ira, &elem_ptr_instruction->base, ira->codegen->intern.for_void(),
-                    ira->codegen->builtin_types.entry_void, ConstPtrMutComptimeConst, is_const, is_volatile, 0);
-        }
     } else if (array_type->id == ZigTypeIdVector) {
         // This depends on whether the element index is comptime, so it is computed later.
         return_type = nullptr;
@@ -20028,6 +19862,10 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
 
     if (type_is_invalid(container_type)) {
         return ira->codegen->invalid_instruction;
+    } else if (is_tuple(container_type) && !field_ptr_instruction->initializing && buf_eql_str(field_name, "len")) {
+        IrInstruction *len_inst = ir_const_unsigned(ira, &field_ptr_instruction->base,
+                container_type->data.structure.src_field_count);
+        return ir_get_ref(ira, &field_ptr_instruction->base, len_inst, true, false);
     } else if (is_slice(container_type) || is_container_ref(container_type)) {
         assert(container_ptr->value->type->id == ZigTypeIdPointer);
         if (container_type->id == ZigTypeIdPointer) {
@@ -20047,32 +19885,6 @@ static IrInstruction *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstruc
             } else {
                 init_const_usize(ira->codegen, len_val, container_type->data.array.len);
             }
-
-            ZigType *usize = ira->codegen->builtin_types.entry_usize;
-            bool ptr_is_const = true;
-            bool ptr_is_volatile = false;
-            return ir_get_const_ptr(ira, &field_ptr_instruction->base, len_val,
-                    usize, ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
-        } else {
-            ir_add_error_node(ira, source_node,
-                buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name),
-                    buf_ptr(&container_type->name)));
-            return ira->codegen->invalid_instruction;
-        }
-    } else if (container_type->id == ZigTypeIdArgTuple) {
-        ZigValue *container_ptr_val = ir_resolve_const(ira, container_ptr, UndefBad);
-        if (!container_ptr_val)
-            return ira->codegen->invalid_instruction;
-
-        assert(container_ptr->value->type->id == ZigTypeIdPointer);
-        ZigValue *child_val = const_ptr_pointee(ira, ira->codegen, container_ptr_val, source_node);
-        if (child_val == nullptr)
-            return ira->codegen->invalid_instruction;
-
-        if (buf_eql_str(field_name, "len")) {
-            ZigValue *len_val = create_const_vals(1);
-            size_t len = child_val->data.x_arg_tuple.end_index - child_val->data.x_arg_tuple.start_index;
-            init_const_usize(ira->codegen, len_val, len);
 
             ZigType *usize = ira->codegen->builtin_types.entry_usize;
             bool ptr_is_const = true;
@@ -21261,7 +21073,6 @@ static IrInstruction *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case ZigTypeIdNull:
         case ZigTypeIdOptional:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
         case ZigTypeIdVector:
         case ZigTypeIdFnFrame:
@@ -22583,7 +22394,6 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
         case ZigTypeIdEnumLiteral:
         case ZigTypeIdUndefined:
         case ZigTypeIdNull:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdOpaque:
             result = ira->codegen->intern.for_void();
             break;
@@ -23360,7 +23170,6 @@ static ZigType *type_info_to_type(IrAnalyze *ira, IrInstruction *instruction, Zi
         case ZigTypeIdUnion:
         case ZigTypeIdFn:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdStruct:
             ir_add_error(ira, instruction, buf_sprintf(
                 "@Type not availble for 'TypeInfo.%s'", type_id_name(tagTypeId)));
@@ -26455,7 +26264,6 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ZigValue *val)
         case ZigTypeIdMetaType:
         case ZigTypeIdOpaque:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdUnreachable:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
@@ -26612,7 +26420,6 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
         case ZigTypeIdMetaType:
         case ZigTypeIdOpaque:
         case ZigTypeIdBoundFn:
-        case ZigTypeIdArgTuple:
         case ZigTypeIdUnreachable:
         case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
@@ -28841,7 +28648,6 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
                     case ZigTypeIdUndefined:
                     case ZigTypeIdNull:
                     case ZigTypeIdBoundFn:
-                    case ZigTypeIdArgTuple:
                     case ZigTypeIdVoid:
                     case ZigTypeIdOpaque:
                         ir_add_error(ira, lazy_align_of->target_type,
@@ -28893,7 +28699,6 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
                     case ZigTypeIdUndefined:
                     case ZigTypeIdNull:
                     case ZigTypeIdBoundFn:
-                    case ZigTypeIdArgTuple:
                     case ZigTypeIdOpaque:
                         ir_add_error(ira, lazy_size_of->target_type,
                             buf_sprintf("no size available for type '%s'",
@@ -28972,7 +28777,6 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
                 case ZigTypeIdUnreachable:
                 case ZigTypeIdUndefined:
                 case ZigTypeIdNull:
-                case ZigTypeIdArgTuple:
                 case ZigTypeIdOpaque:
                     ir_add_error(ira, lazy_slice_type->elem_type,
                         buf_sprintf("slice of type '%s' not allowed", buf_ptr(&elem_type->name)));
@@ -29105,7 +28909,6 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
                 case ZigTypeIdUnreachable:
                 case ZigTypeIdUndefined:
                 case ZigTypeIdNull:
-                case ZigTypeIdArgTuple:
                 case ZigTypeIdOpaque:
                     ir_add_error(ira, lazy_array_type->elem_type,
                                  buf_sprintf("array of type '%s' not allowed",

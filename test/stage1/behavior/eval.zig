@@ -670,10 +670,10 @@ fn loopNTimes(comptime n: usize) void {
 }
 
 test "variable inside inline loop that has different types on different iterations" {
-    testVarInsideInlineLoop(true, @as(u32, 42));
+    testVarInsideInlineLoop(.{true, @as(u32, 42)});
 }
 
-fn testVarInsideInlineLoop(args: ...) void {
+fn testVarInsideInlineLoop(args: var) void {
     comptime var i = 0;
     inline while (i < args.len) : (i += 1) {
         const x = args[i];

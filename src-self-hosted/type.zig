@@ -41,7 +41,6 @@ pub const Type = struct {
             .Enum => @fieldParentPtr(Enum, "base", base).destroy(comp),
             .Union => @fieldParentPtr(Union, "base", base).destroy(comp),
             .BoundFn => @fieldParentPtr(BoundFn, "base", base).destroy(comp),
-            .ArgTuple => @fieldParentPtr(ArgTuple, "base", base).destroy(comp),
             .Opaque => @fieldParentPtr(Opaque, "base", base).destroy(comp),
             .Frame => @fieldParentPtr(Frame, "base", base).destroy(comp),
             .AnyFrame => @fieldParentPtr(AnyFrame, "base", base).destroy(comp),
@@ -76,7 +75,6 @@ pub const Type = struct {
             .Enum => return @fieldParentPtr(Enum, "base", base).getLlvmType(allocator, llvm_context),
             .Union => return @fieldParentPtr(Union, "base", base).getLlvmType(allocator, llvm_context),
             .BoundFn => return @fieldParentPtr(BoundFn, "base", base).getLlvmType(allocator, llvm_context),
-            .ArgTuple => unreachable,
             .Opaque => return @fieldParentPtr(Opaque, "base", base).getLlvmType(allocator, llvm_context),
             .Frame => return @fieldParentPtr(Frame, "base", base).getLlvmType(allocator, llvm_context),
             .AnyFrame => return @fieldParentPtr(AnyFrame, "base", base).getLlvmType(allocator, llvm_context),
@@ -93,7 +91,6 @@ pub const Type = struct {
             .Undefined,
             .Null,
             .BoundFn,
-            .ArgTuple,
             .Opaque,
             => unreachable,
 
@@ -128,7 +125,6 @@ pub const Type = struct {
             .Undefined,
             .Null,
             .BoundFn,
-            .ArgTuple,
             .Opaque,
             => unreachable,
 
@@ -1001,14 +997,6 @@ pub const Type = struct {
 
         pub fn getLlvmType(self: *BoundFn, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
             @panic("TODO");
-        }
-    };
-
-    pub const ArgTuple = struct {
-        base: Type,
-
-        pub fn destroy(self: *ArgTuple, comp: *Compilation) void {
-            comp.gpa().destroy(self);
         }
     };
 

@@ -116,7 +116,6 @@ pub const TypeInfo = union(enum) {
     Union: Union,
     Fn: Fn,
     BoundFn: Fn,
-    ArgTuple: void,
     Opaque: void,
     Frame: void,
     AnyFrame: AnyFrame,
@@ -381,6 +380,9 @@ pub const CallOptions = struct {
     pub const Modifier = enum {
         /// Equivalent to function call syntax.
         auto,
+
+        /// Equivalent to async keyword used with function call syntax.
+        async_kw,
 
         /// Prevents tail call optimization. This guarantees that the return
         /// address will point to the callsite, as opposed to the callsite's
