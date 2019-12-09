@@ -469,6 +469,7 @@ pub fn formatType(
         .Fn => {
             return format(context, Errors, output, "{}@{x}", .{ @typeName(T), @ptrToInt(value) });
         },
+        .Type => return output(context, @typeName(T)),
         else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
     }
 }

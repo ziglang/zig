@@ -255,3 +255,20 @@ test "function call with anon list literal" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "ability to give comptime types and non comptime types to same parameter" {
+    const S = struct {
+        fn doTheTest() void {
+            var x: i32 = 1;
+            expect(foo(x) == 10);
+            expect(foo(i32) == 20);
+        }
+
+        fn foo(arg: var) i32 {
+            if (@typeInfo(@typeOf(arg)) == .Type and arg == i32) return 20;
+            return 9 + arg;
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}

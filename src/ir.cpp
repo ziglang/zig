@@ -17359,8 +17359,18 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
         }
     }
 
-    bool comptime_arg = param_decl_node->data.param_decl.is_comptime ||
-        casted_arg->value->type->id == ZigTypeIdComptimeInt || casted_arg->value->type->id == ZigTypeIdComptimeFloat;
+    bool comptime_arg = param_decl_node->data.param_decl.is_comptime;
+    if (!comptime_arg) {
+        switch (type_requires_comptime(ira->codegen, casted_arg->value->type)) {
+        case ReqCompTimeInvalid:
+            return false;
+        case ReqCompTimeYes:
+            comptime_arg = true;
+            break;
+        case ReqCompTimeNo:
+            break;
+        }
+    }
 
     ZigValue *arg_val;
 
@@ -17395,17 +17405,6 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
     }
 
     if (!comptime_arg) {
-        switch (type_requires_comptime(ira->codegen, casted_arg->value->type)) {
-        case ReqCompTimeYes:
-            ir_add_error(ira, casted_arg,
-                buf_sprintf("parameter of type '%s' requires comptime", buf_ptr(&casted_arg->value->type->name)));
-            return false;
-        case ReqCompTimeInvalid:
-            return false;
-        case ReqCompTimeNo:
-            break;
-        }
-
         casted_args[fn_type_id->param_count] = casted_arg;
         FnTypeParamInfo *param_info = &fn_type_id->param_info[fn_type_id->param_count];
         param_info->type = casted_arg->value->type;
