@@ -6,15 +6,7 @@ const std = @import("std.zig");
 /// and then aborts when actual_error_union is not expected_error.
 pub fn expectError(expected_error: anyerror, actual_error_union: var) void {
     if (actual_error_union) |actual_payload| {
-        // TODO remove workaround here for https://github.com/ziglang/zig/issues/557
-        if (@sizeOf(@typeOf(actual_payload)) == 0) {
-            std.debug.panic("expected error.{}, found {} value", .{
-                @errorName(expected_error),
-                @typeName(@typeOf(actual_payload)),
-            });
-        } else {
-            std.debug.panic("expected error.{}, found {}", .{ @errorName(expected_error), actual_payload });
-        }
+        std.debug.panic("expected error.{}, found {}", .{ @errorName(expected_error), actual_payload });
     } else |actual_error| {
         if (expected_error != actual_error) {
             std.debug.panic("expected error.{}, found error.{}", .{
