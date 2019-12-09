@@ -804,33 +804,38 @@ test "c_allocator" {
 
 test "WasmPageAllocator internals" {
     if (comptime std.Target.current.isWasm()) {
-        const none_free = WasmPageAllocator.PageStatus.none_free;
-        std.debug.assert(none_free == WasmPageAllocator.conventional.data[0]); // Passes if this test runs first
-        std.debug.assert(!WasmPageAllocator.extended.isInitialized()); // Passes if this test runs first
+        const conventional_memsize = WasmPageAllocator.conventional.totalPages() * std.mem.page_size;
+        const initial = try page_allocator.alloc(u8, std.mem.page_size);
+        std.debug.assert(@ptrToInt(initial.ptr) < conventional_memsize); // If this isn't conventional, the rest of these tests don't make sense. Also we have a serious memory leak in the test suite.
 
-        const tmp = try page_allocator.alloc(u8, 1);
-        testing.expect(none_free == WasmPageAllocator.conventional.data[0]);
-        page_allocator.free(tmp);
-        testing.expect(none_free < WasmPageAllocator.conventional.data[0]);
+        var inplace = try page_allocator.realloc(initial, 1);
+        testing.expectEqual(initial.ptr, inplace.ptr);
+        inplace = try page_allocator.realloc(inplace, 4);
+        testing.expectEqual(initial.ptr, inplace.ptr);
+        page_allocator.free(inplace);
 
-        const a_little_free = WasmPageAllocator.conventional.data[0];
-        const tmp_large = try page_allocator.alloc(u8, std.mem.page_size + 1);
-        testing.expect(a_little_free == WasmPageAllocator.conventional.data[0]);
-        const tmp_small = try page_allocator.alloc(u8, 1);
-        testing.expect(none_free == WasmPageAllocator.conventional.data[0]);
+        const reuse = try page_allocator.alloc(u8, 1);
+        testing.expectEqual(initial.ptr, reuse.ptr);
+        page_allocator.free(reuse);
 
-        page_allocator.free(tmp_small);
-        testing.expect(a_little_free == WasmPageAllocator.conventional.data[0]);
-        page_allocator.free(tmp_large);
-        testing.expect(a_little_free < WasmPageAllocator.conventional.data[0]);
+        // This segment may span conventional and extended which has really complex rules so we're just ignoring it for now.
+        const padding = try page_allocator.alloc(u8, conventional_memsize);
+        page_allocator.free(padding);
 
-        const more_free = WasmPageAllocator.conventional.data[0];
-        const supersize = try page_allocator.alloc(u8, std.mem.page_size * (WasmPageAllocator.conventional.totalPages() + 1));
-        testing.expect(more_free == WasmPageAllocator.conventional.data[0]);
-        testing.expect(!WasmPageAllocator.extended.isInitialized());
-        page_allocator.free(supersize);
-        testing.expect(WasmPageAllocator.extended.isInitialized());
-        testing.expect(more_free < WasmPageAllocator.conventional.data[0]);
+        const extended = try page_allocator.alloc(u8, conventional_memsize);
+        testing.expect(@ptrToInt(extended.ptr) >= conventional_memsize);
+
+        const use_small = try page_allocator.alloc(u8, 1);
+        testing.expectEqual(initial.ptr, use_small.ptr);
+        page_allocator.free(use_small);
+
+        inplace = try page_allocator.realloc(extended, 1);
+        testing.expectEqual(extended.ptr, inplace.ptr);
+        page_allocator.free(inplace);
+
+        const reuse_extended = try page_allocator.alloc(u8, conventional_memsize);
+        testing.expectEqual(extended.ptr, reuse_extended.ptr);
+        page_allocator.free(reuse_extended);
     }
 }
 
