@@ -281,8 +281,8 @@ test "small int addition" {
     x += 1;
     expect(x == 3);
 
-    var result: @typeOf(x) = 3;
-    expect(@addWithOverflow(@typeOf(x), x, 1, &result));
+    var result: @TypeOf(x) = 3;
+    expect(@addWithOverflow(@TypeOf(x), x, 1, &result));
 
     expect(result == 0);
 }
@@ -586,7 +586,7 @@ test "@sqrt" {
 
     const x = 14.0;
     const y = x * x;
-    const z = @sqrt(@typeOf(y), y);
+    const z = @sqrt(@TypeOf(y), y);
     comptime expect(z == x);
 }
 

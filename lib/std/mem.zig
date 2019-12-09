@@ -86,7 +86,7 @@ pub const Allocator = struct {
     /// `ptr` should be the return value of `create`, or otherwise
     /// have the same address and alignment property.
     pub fn destroy(self: *Allocator, ptr: var) void {
-        const T = @typeOf(ptr).Child;
+        const T = @TypeOf(ptr).Child;
         if (@sizeOf(T) == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
         const shrink_result = self.shrinkFn(self, non_const_ptr[0..@sizeOf(T)], @alignOf(T), 0, 1);
@@ -147,10 +147,10 @@ pub const Allocator = struct {
     /// If you need guaranteed success, call `shrink`.
     /// If `new_n` is 0, this is the same as `free` and it always succeeds.
     pub fn realloc(self: *Allocator, old_mem: var, new_n: usize) t: {
-        const Slice = @typeInfo(@typeOf(old_mem)).Pointer;
+        const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
         break :t Error![]align(Slice.alignment) Slice.child;
     } {
-        const old_alignment = @typeInfo(@typeOf(old_mem)).Pointer.alignment;
+        const old_alignment = @typeInfo(@TypeOf(old_mem)).Pointer.alignment;
         return self.alignedRealloc(old_mem, old_alignment, new_n);
     }
 
@@ -162,8 +162,8 @@ pub const Allocator = struct {
         old_mem: var,
         comptime new_alignment: u29,
         new_n: usize,
-    ) Error![]align(new_alignment) @typeInfo(@typeOf(old_mem)).Pointer.child {
-        const Slice = @typeInfo(@typeOf(old_mem)).Pointer;
+    ) Error![]align(new_alignment) @typeInfo(@TypeOf(old_mem)).Pointer.child {
+        const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
         const T = Slice.child;
         if (old_mem.len == 0) {
             return self.alignedAlloc(T, new_alignment, new_n);
@@ -189,10 +189,10 @@ pub const Allocator = struct {
     /// Returned slice has same alignment as old_mem.
     /// Shrinking to 0 is the same as calling `free`.
     pub fn shrink(self: *Allocator, old_mem: var, new_n: usize) t: {
-        const Slice = @typeInfo(@typeOf(old_mem)).Pointer;
+        const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
         break :t []align(Slice.alignment) Slice.child;
     } {
-        const old_alignment = @typeInfo(@typeOf(old_mem)).Pointer.alignment;
+        const old_alignment = @typeInfo(@TypeOf(old_mem)).Pointer.alignment;
         return self.alignedShrink(old_mem, old_alignment, new_n);
     }
 
@@ -204,8 +204,8 @@ pub const Allocator = struct {
         old_mem: var,
         comptime new_alignment: u29,
         new_n: usize,
-    ) []align(new_alignment) @typeInfo(@typeOf(old_mem)).Pointer.child {
-        const Slice = @typeInfo(@typeOf(old_mem)).Pointer;
+    ) []align(new_alignment) @typeInfo(@TypeOf(old_mem)).Pointer.child {
+        const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
         const T = Slice.child;
 
         if (new_n == 0) {
@@ -229,7 +229,7 @@ pub const Allocator = struct {
     /// Free an array allocated with `alloc`. To free a single item,
     /// see `destroy`.
     pub fn free(self: *Allocator, memory: var) void {
-        const Slice = @typeInfo(@typeOf(memory)).Pointer;
+        const Slice = @typeInfo(@TypeOf(memory)).Pointer;
         const bytes = @sliceToBytes(memory);
         if (bytes.len == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
@@ -1323,8 +1323,8 @@ fn AsBytesReturnType(comptime P: type) type {
 }
 
 ///Given a pointer to a single item, returns a slice of the underlying bytes, preserving constness.
-pub fn asBytes(ptr: var) AsBytesReturnType(@typeOf(ptr)) {
-    const P = @typeOf(ptr);
+pub fn asBytes(ptr: var) AsBytesReturnType(@TypeOf(ptr)) {
+    const P = @TypeOf(ptr);
     return @ptrCast(AsBytesReturnType(P), ptr);
 }
 
@@ -1363,7 +1363,7 @@ test "asBytes" {
 }
 
 ///Given any value, returns a copy of its bytes in an array.
-pub fn toBytes(value: var) [@sizeOf(@typeOf(value))]u8 {
+pub fn toBytes(value: var) [@sizeOf(@TypeOf(value))]u8 {
     return asBytes(&value).*;
 }
 
@@ -1397,8 +1397,8 @@ fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
 
 ///Given a pointer to an array of bytes, returns a pointer to a value of the specified type
 /// backed by those bytes, preserving constness.
-pub fn bytesAsValue(comptime T: type, bytes: var) BytesAsValueReturnType(T, @typeOf(bytes)) {
-    return @ptrCast(BytesAsValueReturnType(T, @typeOf(bytes)), bytes);
+pub fn bytesAsValue(comptime T: type, bytes: var) BytesAsValueReturnType(T, @TypeOf(bytes)) {
+    return @ptrCast(BytesAsValueReturnType(T, @TypeOf(bytes)), bytes);
 }
 
 test "bytesAsValue" {
@@ -1460,11 +1460,11 @@ fn SubArrayPtrReturnType(comptime T: type, comptime length: usize) type {
 }
 
 ///Given a pointer to an array, returns a pointer to a portion of that array, preserving constness.
-pub fn subArrayPtr(ptr: var, comptime start: usize, comptime length: usize) SubArrayPtrReturnType(@typeOf(ptr), length) {
+pub fn subArrayPtr(ptr: var, comptime start: usize, comptime length: usize) SubArrayPtrReturnType(@TypeOf(ptr), length) {
     assert(start + length <= ptr.*.len);
 
-    const ReturnType = SubArrayPtrReturnType(@typeOf(ptr), length);
-    const T = meta.Child(meta.Child(@typeOf(ptr)));
+    const ReturnType = SubArrayPtrReturnType(@TypeOf(ptr), length);
+    const T = meta.Child(meta.Child(@TypeOf(ptr)));
     return @ptrCast(ReturnType, &ptr[start]);
 }
 

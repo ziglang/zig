@@ -125,10 +125,10 @@ test "Type.ComptimeInt" {
     testTypes(&[_]type{comptime_int});
 }
 test "Type.Undefined" {
-    testTypes(&[_]type{@typeOf(undefined)});
+    testTypes(&[_]type{@TypeOf(undefined)});
 }
 test "Type.Null" {
-    testTypes(&[_]type{@typeOf(null)});
+    testTypes(&[_]type{@TypeOf(null)});
 }
 test "@Type create slice with null sentinel" {
     const Slice = @Type(builtin.TypeInfo{

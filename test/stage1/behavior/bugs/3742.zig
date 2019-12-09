@@ -24,7 +24,7 @@ pub fn isCommand(comptime T: type) bool {
 
 pub const ArgSerializer = struct {
     pub fn serializeCommand(command: var) void {
-        const CmdT = @typeOf(command);
+        const CmdT = @TypeOf(command);
 
         if (comptime isCommand(CmdT)) {
             // COMMENTING THE NEXT LINE REMOVES THE ERROR

@@ -258,12 +258,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.add("order-independent declarations",
         \\const io = @import("std").io;
         \\const z = io.stdin_fileno;
-        \\const x : @typeOf(y) = 1234;
+        \\const x : @TypeOf(y) = 1234;
         \\const y : u16 = 5678;
         \\pub fn main() void {
         \\    var x_local : i32 = print_ok(x);
         \\}
-        \\fn print_ok(val: @typeOf(x)) @typeOf(foo) {
+        \\fn print_ok(val: @TypeOf(x)) @TypeOf(foo) {
         \\    const stdout = &io.getStdOut().outStream().stream;
         \\    stdout.print("OK\n", .{}) catch unreachable;
         \\    return 0;

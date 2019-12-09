@@ -29,9 +29,9 @@ test "for loop with pointer elem var" {
     expect(mem.eql(u8, &target, "bcdefgh"));
 
     for (source) |*c, i|
-        expect(@typeOf(c) == *const u8);
+        expect(@TypeOf(c) == *const u8);
     for (target) |*c, i|
-        expect(@typeOf(c) == *u8);
+        expect(@TypeOf(c) == *u8);
 }
 
 fn mangleString(s: []u8) void {

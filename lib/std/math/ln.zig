@@ -17,11 +17,11 @@ const TypeId = builtin.TypeId;
 ///  - ln(0)     = -inf
 ///  - ln(x)     = nan if x < 0
 ///  - ln(nan)   = nan
-pub fn ln(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn ln(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     switch (@typeId(T)) {
         TypeId.ComptimeFloat => {
-            return @typeOf(1.0)(ln_64(x));
+            return @TypeOf(1.0)(ln_64(x));
         },
         TypeId.Float => {
             return switch (T) {
@@ -31,7 +31,7 @@ pub fn ln(x: var) @typeOf(x) {
             };
         },
         TypeId.ComptimeInt => {
-            return @typeOf(1)(math.floor(ln_64(@as(f64, x))));
+            return @TypeOf(1)(math.floor(ln_64(@as(f64, x))));
         },
         TypeId.Int => {
             return @as(T, math.floor(ln_64(@as(f64, x))));

@@ -13,8 +13,8 @@ const expect = std.testing.expect;
 /// Special Cases:
 ///  - atan(+-0)   = +-0
 ///  - atan(+-inf) = +-pi/2
-pub fn atan(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn atan(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => atan32(x),
         f64 => atan64(x),

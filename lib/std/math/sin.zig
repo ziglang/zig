@@ -14,8 +14,8 @@ const expect = std.testing.expect;
 ///  - sin(+-0)   = +-0
 ///  - sin(+-inf) = nan
 ///  - sin(nan)   = nan
-pub fn sin(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn sin(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => sin_(T, x),
         f64 => sin_(T, x),

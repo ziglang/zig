@@ -18,11 +18,11 @@ const maxInt = std.math.maxInt;
 ///  - log10(0)     = -inf
 ///  - log10(x)     = nan if x < 0
 ///  - log10(nan)   = nan
-pub fn log10(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn log10(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     switch (@typeId(T)) {
         TypeId.ComptimeFloat => {
-            return @typeOf(1.0)(log10_64(x));
+            return @TypeOf(1.0)(log10_64(x));
         },
         TypeId.Float => {
             return switch (T) {
@@ -32,7 +32,7 @@ pub fn log10(x: var) @typeOf(x) {
             };
         },
         TypeId.ComptimeInt => {
-            return @typeOf(1)(math.floor(log10_64(@as(f64, x))));
+            return @TypeOf(1)(math.floor(log10_64(@as(f64, x))));
         },
         TypeId.Int => {
             return @floatToInt(T, math.floor(log10_64(@intToFloat(f64, x))));

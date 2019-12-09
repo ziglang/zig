@@ -18,11 +18,11 @@ const maxInt = std.math.maxInt;
 ///  - log2(0)     = -inf
 ///  - log2(x)     = nan if x < 0
 ///  - log2(nan)   = nan
-pub fn log2(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn log2(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     switch (@typeId(T)) {
         TypeId.ComptimeFloat => {
-            return @typeOf(1.0)(log2_64(x));
+            return @TypeOf(1.0)(log2_64(x));
         },
         TypeId.Float => {
             return switch (T) {

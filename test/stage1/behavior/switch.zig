@@ -406,7 +406,7 @@ test "switch prongs with cases with identical payload types" {
         fn doTheSwitch1(u: Union) void {
             switch (u) {
                 .A, .C => |e| {
-                    expect(@typeOf(e) == usize);
+                    expect(@TypeOf(e) == usize);
                     expect(e == 8);
                 },
                 .B => |e| @panic("fail"),
@@ -416,7 +416,7 @@ test "switch prongs with cases with identical payload types" {
             switch (u) {
                 .A, .C => |e| @panic("fail"),
                 .B => |e| {
-                    expect(@typeOf(e) == isize);
+                    expect(@TypeOf(e) == isize);
                     expect(e == -8);
                 },
             }

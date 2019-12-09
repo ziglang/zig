@@ -1038,7 +1038,7 @@ pub const Value = union(enum) {
     }
 
     pub fn dumpStream(self: @This(), stream: var, comptime max_depth: usize) !void {
-        var w = std.json.WriteStream(@typeOf(stream).Child, max_depth).init(stream);
+        var w = std.json.WriteStream(@TypeOf(stream).Child, max_depth).init(stream);
         w.newline = "";
         w.one_indent = "";
         w.space = "";
@@ -1048,7 +1048,7 @@ pub const Value = union(enum) {
     pub fn dumpStreamIndent(self: @This(), comptime indent: usize, stream: var, comptime max_depth: usize) !void {
         var one_indent = " " ** indent;
 
-        var w = std.json.WriteStream(@typeOf(stream).Child, max_depth).init(stream);
+        var w = std.json.WriteStream(@TypeOf(stream).Child, max_depth).init(stream);
         w.one_indent = one_indent;
         try w.emitJson(self);
     }
@@ -1338,7 +1338,7 @@ test "write json then parse it" {
 
     var slice_out_stream = std.io.SliceOutStream.init(&out_buffer);
     const out_stream = &slice_out_stream.stream;
-    var jw = WriteStream(@typeOf(out_stream).Child, 4).init(out_stream);
+    var jw = WriteStream(@TypeOf(out_stream).Child, 4).init(out_stream);
 
     try jw.beginObject();
 

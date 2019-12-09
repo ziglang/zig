@@ -125,7 +125,7 @@ pub fn main() !void {
 }
 
 fn runBuild(builder: *Builder) anyerror!void {
-    switch (@typeId(@typeOf(root.build).ReturnType)) {
+    switch (@typeId(@TypeOf(root.build).ReturnType)) {
         .Void => root.build(builder),
         .ErrorUnion => try root.build(builder),
         else => @compileError("expected return type of build to be 'void' or '!void'"),

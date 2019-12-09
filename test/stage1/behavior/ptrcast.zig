@@ -55,7 +55,7 @@ test "comptime ptrcast keeps larger alignment" {
     comptime {
         const a: u32 = 1234;
         const p = @ptrCast([*]const u8, &a);
-        std.debug.assert(@typeOf(p) == [*]align(@alignOf(u32)) const u8);
+        std.debug.assert(@TypeOf(p) == [*]align(@alignOf(u32)) const u8);
     }
 }
 

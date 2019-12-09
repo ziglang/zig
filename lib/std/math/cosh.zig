@@ -17,8 +17,8 @@ const maxInt = std.math.maxInt;
 ///  - cosh(+-0)   = 1
 ///  - cosh(+-inf) = +inf
 ///  - cosh(nan)   = nan
-pub fn cosh(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn cosh(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => cosh32(x),
         f64 => cosh64(x),
