@@ -62,7 +62,7 @@ pub const DNSRData = union(dns.DNSType) {
     pub fn size(self: @This()) usize {
         // TODO implement size() for more types
         return switch (self) {
-            .NS => |name| name.size(),
+            .NS, .MD, .MF, .MB, .MG, .MR, .CNAME, .PTR => |name| name.size(),
             else => @panic("TODO"),
         };
     }
@@ -226,12 +226,7 @@ pub fn prettyRData(allocator: *std.mem.Allocator, rdata: DNSRData) ![]const u8 {
             try stream.print("{}", addr);
         },
 
-        .CNAME => try printName(stream, rdata.CNAME),
-        .NS => try printName(stream, rdata.NS),
-        .PTR => try printName(stream, rdata.PTR),
-
-        .MD => try printName(stream, rdata.MD),
-        .MF => try printName(stream, rdata.MF),
+        .NS, .MD, .MF, .MB, .MG, .MR, .CNAME, .PTR => |name| try printName(stream, name),
 
         .SOA => |soa| blk: {
             try printName(stream, soa.mname);
