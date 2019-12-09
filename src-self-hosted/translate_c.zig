@@ -429,7 +429,31 @@ fn transBinaryOperator(
                 });
             }
         },
-        .Rem,
+        .Rem => {
+            if (!cIsUnsignedInteger(qt)) {
+                // signed integer division uses @rem
+                const rem_node = try transCreateNodeBuiltinFnCall(rp.c, "@rem");
+                const lhs = try transExpr(rp, scope, ZigClangBinaryOperator_getLHS(stmt), .used, .l_value);
+                try rem_node.params.push(lhs.node);
+                _ = try appendToken(rp.c, .Comma, ",");
+                const rhs = try transExpr(rp, scope, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value);
+                try rem_node.params.push(rhs.node);
+                rem_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+                return maybeSuppressResult(rp, scope, result_used, TransResult{
+                    .node = &rem_node.base,
+                    .child_scope = scope,
+                    .node_scope = scope,
+                });
+            } else {
+                // unsigned/float division uses the operator
+                const node = try transCreateNodeInfixOp(rp, scope, stmt, .Mod, .Percent, "%", true);
+                return maybeSuppressResult(rp, scope, result_used, TransResult{
+                    .node = node,
+                    .child_scope = scope,
+                    .node_scope = scope,
+                });
+            }
+        },
         .Shl,
         .Shr,
         .LT,
