@@ -175,7 +175,7 @@ pub fn llvmTargetFromTriple(triple: std.Buffer) !*llvm.Target {
     var result: *llvm.Target = undefined;
     var err_msg: [*:0]u8 = undefined;
     if (llvm.GetTargetFromTriple(triple.toSlice(), &result, &err_msg) != 0) {
-        std.debug.warn("triple: {s} error: {s}\n", triple.toSlice(), err_msg);
+        std.debug.warn("triple: {s} error: {s}\n", .{ triple.toSlice(), err_msg });
         return error.UnsupportedTarget;
     }
     return result;
@@ -206,7 +206,7 @@ pub fn getTriple(allocator: *std.mem.Allocator, self: std.Target) !std.Buffer {
     const env_name = if (self.isWasm()) "wasm" else @tagName(self.getAbi());
 
     var out = &std.io.BufferOutStream.init(&result).stream;
-    try out.print("{}-unknown-{}-{}", @tagName(self.getArch()), @tagName(self.getOs()), env_name);
+    try out.print("{}-unknown-{}-{}", .{ @tagName(self.getArch()), @tagName(self.getOs()), env_name });
 
     return result;
 }

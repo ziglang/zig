@@ -32,16 +32,16 @@ pub const IrVal = union(enum) {
 
     pub fn dump(self: IrVal) void {
         switch (self) {
-            .Unknown => std.debug.warn("Unknown"),
+            .Unknown => std.debug.warn("Unknown", .{}),
             .KnownType => |typ| {
-                std.debug.warn("KnownType(");
+                std.debug.warn("KnownType(", .{});
                 typ.dump();
-                std.debug.warn(")");
+                std.debug.warn(")", .{});
             },
             .KnownValue => |value| {
-                std.debug.warn("KnownValue(");
+                std.debug.warn("KnownValue(", .{});
                 value.dump();
-                std.debug.warn(")");
+                std.debug.warn(")", .{});
             },
         }
     }
@@ -90,9 +90,9 @@ pub const Inst = struct {
         inline while (i < @memberCount(Id)) : (i += 1) {
             if (base.id == @field(Id, @memberName(Id, i))) {
                 const T = @field(Inst, @memberName(Id, i));
-                std.debug.warn("#{} = {}(", base.debug_id, @tagName(base.id));
+                std.debug.warn("#{} = {}(", .{ base.debug_id, @tagName(base.id) });
                 @fieldParentPtr(T, "base", base).dump();
-                std.debug.warn(")");
+                std.debug.warn(")", .{});
                 return;
             }
         }
@@ -173,7 +173,7 @@ pub const Inst = struct {
         if (self.isCompTime()) {
             return self.val.KnownValue;
         } else {
-            try ira.addCompileError(self.span, "unable to evaluate constant expression");
+            try ira.addCompileError(self.span, "unable to evaluate constant expression", .{});
             return error.SemanticAnalysisFailed;
         }
     }
@@ -269,11 +269,11 @@ pub const Inst = struct {
         const ir_val_init = IrVal.Init.Unknown;
 
         pub fn dump(self: *const Call) void {
-            std.debug.warn("#{}(", self.params.fn_ref.debug_id);
+            std.debug.warn("#{}(", .{self.params.fn_ref.debug_id});
             for (self.params.args) |arg| {
-                std.debug.warn("#{},", arg.debug_id);
+                std.debug.warn("#{},", .{arg.debug_id});
             }
-            std.debug.warn(")");
+            std.debug.warn(")", .{});
         }
 
         pub fn hasSideEffects(self: *const Call) bool {
@@ -284,19 +284,17 @@ pub const Inst = struct {
             const fn_ref = try self.params.fn_ref.getAsParam();
             const fn_ref_type = fn_ref.getKnownType();
             const fn_type = fn_ref_type.cast(Type.Fn) orelse {
-                try ira.addCompileError(fn_ref.span, "type '{}' not a function", fn_ref_type.name);
+                try ira.addCompileError(fn_ref.span, "type '{}' not a function", .{fn_ref_type.name});
                 return error.SemanticAnalysisFailed;
             };
 
             const fn_type_param_count = fn_type.paramCount();
 
             if (fn_type_param_count != self.params.args.len) {
-                try ira.addCompileError(
-                    self.base.span,
-                    "expected {} arguments, found {}",
+                try ira.addCompileError(self.base.span, "expected {} arguments, found {}", .{
                     fn_type_param_count,
                     self.params.args.len,
-                );
+                });
                 return error.SemanticAnalysisFailed;
             }
 
@@ -375,7 +373,7 @@ pub const Inst = struct {
         const ir_val_init = IrVal.Init.NoReturn;
 
         pub fn dump(self: *const Return) void {
-            std.debug.warn("#{}", self.params.return_value.debug_id);
+            std.debug.warn("#{}", .{self.params.return_value.debug_id});
         }
 
         pub fn hasSideEffects(self: *const Return) bool {
@@ -509,7 +507,7 @@ pub const Inst = struct {
         const ir_val_init = IrVal.Init.Unknown;
 
         pub fn dump(inst: *const VarPtr) void {
-            std.debug.warn("{}", inst.params.var_scope.name);
+            std.debug.warn("{}", .{inst.params.var_scope.name});
         }
 
         pub fn hasSideEffects(inst: *const VarPtr) bool {
@@ -567,7 +565,7 @@ pub const Inst = struct {
             const target = try self.params.target.getAsParam();
             const target_type = target.getKnownType();
             if (target_type.id != .Pointer) {
-                try ira.addCompileError(self.base.span, "dereference of non pointer type '{}'", target_type.name);
+                try ira.addCompileError(self.base.span, "dereference of non pointer type '{}'", .{target_type.name});
                 return error.SemanticAnalysisFailed;
             }
             const ptr_type = @fieldParentPtr(Type.Pointer, "base", target_type);
@@ -705,7 +703,7 @@ pub const Inst = struct {
         const ir_val_init = IrVal.Init.Unknown;
 
         pub fn dump(self: *const CheckVoidStmt) void {
-            std.debug.warn("#{}", self.params.target.debug_id);
+            std.debug.warn("#{}", .{self.params.target.debug_id});
         }
 
         pub fn hasSideEffects(inst: *const CheckVoidStmt) bool {
@@ -715,7 +713,7 @@ pub const Inst = struct {
         pub fn analyze(self: *const CheckVoidStmt, ira: *Analyze) !*Inst {
             const target = try self.params.target.getAsParam();
             if (target.getKnownType().id != .Void) {
-                try ira.addCompileError(self.base.span, "expression value is ignored");
+                try ira.addCompileError(self.base.span, "expression value is ignored", .{});
                 return error.SemanticAnalysisFailed;
             }
             return ira.irb.buildConstVoid(self.base.scope, self.base.span, true);
@@ -801,7 +799,7 @@ pub const Inst = struct {
         const ir_val_init = IrVal.Init.Unknown;
 
         pub fn dump(inst: *const AddImplicitReturnType) void {
-            std.debug.warn("#{}", inst.params.target.debug_id);
+            std.debug.warn("#{}", .{inst.params.target.debug_id});
         }
 
         pub fn hasSideEffects(inst: *const AddImplicitReturnType) bool {
@@ -826,7 +824,7 @@ pub const Inst = struct {
         const ir_val_init = IrVal.Init.Unknown;
 
         pub fn dump(inst: *const TestErr) void {
-            std.debug.warn("#{}", inst.params.target.debug_id);
+            std.debug.warn("#{}", .{inst.params.target.debug_id});
         }
 
         pub fn hasSideEffects(inst: *const TestErr) bool {
@@ -888,7 +886,7 @@ pub const Inst = struct {
         const ir_val_init = IrVal.Init.Unknown;
 
         pub fn dump(inst: *const TestCompTime) void {
-            std.debug.warn("#{}", inst.params.target.debug_id);
+            std.debug.warn("#{}", .{inst.params.target.debug_id});
         }
 
         pub fn hasSideEffects(inst: *const TestCompTime) bool {
@@ -971,11 +969,11 @@ pub const Code = struct {
     pub fn dump(self: *Code) void {
         var bb_i: usize = 0;
         for (self.basic_block_list.toSliceConst()) |bb| {
-            std.debug.warn("{s}_{}:\n", bb.name_hint, bb.debug_id);
+            std.debug.warn("{s}_{}:\n", .{ bb.name_hint, bb.debug_id });
             for (bb.instruction_list.toSliceConst()) |instr| {
-                std.debug.warn("  ");
+                std.debug.warn("  ", .{});
                 instr.dump();
-                std.debug.warn("\n");
+                std.debug.warn("\n", .{});
             }
         }
     }
@@ -993,6 +991,7 @@ pub const Code = struct {
                     self.tree_scope,
                     ret_value.span,
                     "unable to evaluate constant expression",
+                    .{},
                 );
                 return error.SemanticAnalysisFailed;
             } else if (inst.hasSideEffects()) {
@@ -1000,6 +999,7 @@ pub const Code = struct {
                     self.tree_scope,
                     inst.span,
                     "unable to evaluate constant expression",
+                    .{},
                 );
                 return error.SemanticAnalysisFailed;
             }
@@ -1359,7 +1359,7 @@ pub const Builder = struct {
                     irb.code.tree_scope,
                     src_span,
                     "invalid character in string literal: '{c}'",
-                    str_token[bad_index],
+                    .{str_token[bad_index]},
                 );
                 return error.SemanticAnalysisFailed;
             },
@@ -1523,6 +1523,7 @@ pub const Builder = struct {
                         irb.code.tree_scope,
                         src_span,
                         "return expression outside function definition",
+                        .{},
                     );
                     return error.SemanticAnalysisFailed;
                 }
@@ -1533,6 +1534,7 @@ pub const Builder = struct {
                             irb.code.tree_scope,
                             src_span,
                             "cannot return from defer expression",
+                            .{},
                         );
                         scope_defer_expr.reported_err = true;
                     }
@@ -1629,7 +1631,7 @@ pub const Builder = struct {
             }
         } else |err| switch (err) {
             error.Overflow => {
-                try irb.comp.addCompileError(irb.code.tree_scope, src_span, "integer too large");
+                try irb.comp.addCompileError(irb.code.tree_scope, src_span, "integer too large", .{});
                 return error.SemanticAnalysisFailed;
             },
             error.OutOfMemory => return error.OutOfMemory,
@@ -1663,7 +1665,7 @@ pub const Builder = struct {
         // TODO put a variable of same name with invalid type in global scope
         // so that future references to this same name will find a variable with an invalid type
 
-        try irb.comp.addCompileError(irb.code.tree_scope, src_span, "unknown identifier '{}'", name);
+        try irb.comp.addCompileError(irb.code.tree_scope, src_span, "unknown identifier '{}'", .{name});
         return error.SemanticAnalysisFailed;
     }
 
@@ -2008,7 +2010,7 @@ const Analyze = struct {
             const next_instruction = ira.parent_basic_block.instruction_list.at(ira.instruction_index);
 
             if (!next_instruction.is_generated) {
-                try ira.addCompileError(next_instruction.span, "unreachable code");
+                try ira.addCompileError(next_instruction.span, "unreachable code", .{});
                 break;
             }
             ira.instruction_index += 1;
@@ -2041,7 +2043,7 @@ const Analyze = struct {
         }
     }
 
-    fn addCompileError(self: *Analyze, span: Span, comptime fmt: []const u8, args: ...) !void {
+    fn addCompileError(self: *Analyze, span: Span, comptime fmt: []const u8, args: var) !void {
         return self.irb.comp.addCompileError(self.irb.code.tree_scope, span, fmt, args);
     }
 
@@ -2330,12 +2332,10 @@ const Analyze = struct {
                 break :cast;
             };
             if (!fits) {
-                try ira.addCompileError(
-                    source_instr.span,
-                    "integer value '{}' cannot be stored in type '{}'",
+                try ira.addCompileError(source_instr.span, "integer value '{}' cannot be stored in type '{}'", .{
                     from_int,
                     dest_type.name,
-                );
+                });
                 return error.SemanticAnalysisFailed;
             }
 
@@ -2498,12 +2498,10 @@ const Analyze = struct {
         //    }
         //}
 
-        try ira.addCompileError(
-            source_instr.span,
-            "expected type '{}', found '{}'",
+        try ira.addCompileError(source_instr.span, "expected type '{}', found '{}'", .{
             dest_type.name,
             from_type.name,
-        );
+        });
         //ErrorMsg *parent_msg = ir_add_error_node(ira, source_instr->source_node,
         //    buf_sprintf("expected type '%s', found '%s'",
         //        buf_ptr(&wanted_type->name),

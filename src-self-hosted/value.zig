@@ -53,7 +53,7 @@ pub const Value = struct {
     }
 
     pub fn dump(base: *const Value) void {
-        std.debug.warn("{}", @tagName(base.id));
+        std.debug.warn("{}", .{@tagName(base.id)});
     }
 
     pub fn getLlvmConst(base: *Value, ofile: *ObjectFile) (error{OutOfMemory}!?*llvm.Value) {

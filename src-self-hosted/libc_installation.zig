@@ -65,7 +65,7 @@ pub const LibCInstallation = struct {
             if (line.len == 0 or line[0] == '#') continue;
             var line_it = std.mem.separate(line, "=");
             const name = line_it.next() orelse {
-                try stderr.print("missing equal sign after field name\n");
+                try stderr.print("missing equal sign after field name\n", .{});
                 return error.ParseError;
             };
             const value = line_it.rest();
@@ -83,7 +83,7 @@ pub const LibCInstallation = struct {
                         },
                         else => {
                             if (value.len == 0) {
-                                try stderr.print("field cannot be empty: {}\n", key);
+                                try stderr.print("field cannot be empty: {}\n", .{key});
                                 return error.ParseError;
                             }
                             const dupe = try std.mem.dupe(allocator, u8, value);
@@ -97,7 +97,7 @@ pub const LibCInstallation = struct {
         }
         for (found_keys) |found_key, i| {
             if (!found_key.found) {
-                try stderr.print("missing field: {}\n", keys[i]);
+                try stderr.print("missing field: {}\n", .{keys[i]});
                 return error.ParseError;
             }
         }
@@ -105,6 +105,11 @@ pub const LibCInstallation = struct {
 
     pub fn render(self: *const LibCInstallation, out: *std.io.OutStream(fs.File.WriteError)) !void {
         @setEvalBranchQuota(4000);
+        const lib_dir = self.lib_dir orelse "";
+        const static_lib_dir = self.static_lib_dir orelse "";
+        const msvc_lib_dir = self.msvc_lib_dir orelse "";
+        const kernel32_lib_dir = self.kernel32_lib_dir orelse "";
+        const dynamic_linker_path = self.dynamic_linker_path orelse util.getDynamicLinkerPath(Target{ .Native = {} });
         try out.print(
             \\# The directory that contains `stdlib.h`.
             \\# On Linux, can be found with: `cc -E -Wp,-v -xc /dev/null`
@@ -132,14 +137,7 @@ pub const LibCInstallation = struct {
             \\# Only needed when targeting Linux.
             \\dynamic_linker_path={}
             \\
-        ,
-            self.include_dir,
-            self.lib_dir orelse "",
-            self.static_lib_dir orelse "",
-            self.msvc_lib_dir orelse "",
-            self.kernel32_lib_dir orelse "",
-            self.dynamic_linker_path orelse util.getDynamicLinkerPath(Target{ .Native = {} }),
-        );
+        , .{ self.include_dir, lib_dir, static_lib_dir, msvc_lib_dir, kernel32_lib_dir, dynamic_linker_path });
     }
 
     /// Finds the default, native libc.
@@ -255,7 +253,7 @@ pub const LibCInstallation = struct {
         for (searches) |search| {
             result_buf.shrink(0);
             const stream = &std.io.BufferOutStream.init(&result_buf).stream;
-            try stream.print("{}\\Include\\{}\\ucrt", search.path, search.version);
+            try stream.print("{}\\Include\\{}\\ucrt", .{ search.path, search.version });
 
             const stdlib_path = try fs.path.join(
                 allocator,
@@ -282,7 +280,7 @@ pub const LibCInstallation = struct {
         for (searches) |search| {
             result_buf.shrink(0);
             const stream = &std.io.BufferOutStream.init(&result_buf).stream;
-            try stream.print("{}\\Lib\\{}\\ucrt\\", search.path, search.version);
+            try stream.print("{}\\Lib\\{}\\ucrt\\", .{ search.path, search.version });
             switch (builtin.arch) {
                 .i386 => try stream.write("x86"),
                 .x86_64 => try stream.write("x64"),
@@ -360,7 +358,7 @@ pub const LibCInstallation = struct {
         for (searches) |search| {
             result_buf.shrink(0);
             const stream = &std.io.BufferOutStream.init(&result_buf).stream;
-            try stream.print("{}\\Lib\\{}\\um\\", search.path, search.version);
+            try stream.print("{}\\Lib\\{}\\um\\", .{ search.path, search.version });
             switch (builtin.arch) {
                 .i386 => try stream.write("x86\\"),
                 .x86_64 => try stream.write("x64\\"),
@@ -395,7 +393,7 @@ pub const LibCInstallation = struct {
 /// caller owns returned memory
 fn ccPrintFileName(allocator: *Allocator, o_file: []const u8, want_dirname: bool) ![]u8 {
     const cc_exe = std.os.getenv("CC") orelse "cc";
-    const arg1 = try std.fmt.allocPrint(allocator, "-print-file-name={}", o_file);
+    const arg1 = try std.fmt.allocPrint(allocator, "-print-file-name={}", .{o_file});
     defer allocator.free(arg1);
     const argv = [_][]const u8{ cc_exe, arg1 };
 

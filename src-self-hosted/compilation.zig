@@ -807,7 +807,7 @@ pub const Compilation = struct {
                 root_scope.realpath,
                 max_src_size,
             ) catch |err| {
-                try self.addCompileErrorCli(root_scope.realpath, "unable to open: {}", @errorName(err));
+                try self.addCompileErrorCli(root_scope.realpath, "unable to open: {}", .{@errorName(err)});
                 return;
             };
             errdefer self.gpa().free(source_code);
@@ -878,7 +878,7 @@ pub const Compilation = struct {
                         try self.addCompileError(tree_scope, Span{
                             .first = fn_proto.fn_token,
                             .last = fn_proto.fn_token + 1,
-                        }, "missing function name");
+                        }, "missing function name", .{});
                         continue;
                     };
 
@@ -942,7 +942,7 @@ pub const Compilation = struct {
             const root_scope = blk: {
                 // TODO async/await std.fs.realpath
                 const root_src_real_path = std.fs.realpathAlloc(self.gpa(), root_src_path) catch |err| {
-                    try self.addCompileErrorCli(root_src_path, "unable to open: {}", @errorName(err));
+                    try self.addCompileErrorCli(root_src_path, "unable to open: {}", .{@errorName(err)});
                     return;
                 };
                 errdefer self.gpa().free(root_src_real_path);
@@ -991,7 +991,7 @@ pub const Compilation = struct {
         defer unanalyzed_code.destroy(comp.gpa());
 
         if (comp.verbose_ir) {
-            std.debug.warn("unanalyzed:\n");
+            std.debug.warn("unanalyzed:\n", .{});
             unanalyzed_code.dump();
         }
 
@@ -1003,7 +1003,7 @@ pub const Compilation = struct {
         errdefer analyzed_code.destroy(comp.gpa());
 
         if (comp.verbose_ir) {
-            std.debug.warn("analyzed:\n");
+            std.debug.warn("analyzed:\n", .{});
             analyzed_code.dump();
         }
 
@@ -1048,14 +1048,14 @@ pub const Compilation = struct {
 
         const gop = try locked_table.getOrPut(decl.name);
         if (gop.found_existing) {
-            try self.addCompileError(decl.tree_scope, decl.getSpan(), "redefinition of '{}'", decl.name);
+            try self.addCompileError(decl.tree_scope, decl.getSpan(), "redefinition of '{}'", .{decl.name});
             // TODO note: other definition here
         } else {
             gop.kv.value = decl;
         }
     }
 
-    fn addCompileError(self: *Compilation, tree_scope: *Scope.AstTree, span: Span, comptime fmt: []const u8, args: ...) !void {
+    fn addCompileError(self: *Compilation, tree_scope: *Scope.AstTree, span: Span, comptime fmt: []const u8, args: var) !void {
         const text = try std.fmt.allocPrint(self.gpa(), fmt, args);
         errdefer self.gpa().free(text);
 
@@ -1065,7 +1065,7 @@ pub const Compilation = struct {
         try self.prelink_group.call(addCompileErrorAsync, self, msg);
     }
 
-    fn addCompileErrorCli(self: *Compilation, realpath: []const u8, comptime fmt: []const u8, args: ...) !void {
+    fn addCompileErrorCli(self: *Compilation, realpath: []const u8, comptime fmt: []const u8, args: var) !void {
         const text = try std.fmt.allocPrint(self.gpa(), fmt, args);
         errdefer self.gpa().free(text);
 
@@ -1092,12 +1092,9 @@ pub const Compilation = struct {
         defer exported_symbol_names.release();
 
         if (try exported_symbol_names.value.put(decl.name, decl)) |other_decl| {
-            try self.addCompileError(
-                decl.tree_scope,
-                decl.getSpan(),
-                "exported symbol collision: '{}'",
+            try self.addCompileError(decl.tree_scope, decl.getSpan(), "exported symbol collision: '{}'", .{
                 decl.name,
-            );
+            });
             // TODO add error note showing location of other symbol
         }
     }
@@ -1162,7 +1159,7 @@ pub const Compilation = struct {
         const tmp_dir = try self.getTmpDir();
         const file_prefix = self.getRandomFileName();
 
-        const file_name = try std.fmt.allocPrint(self.gpa(), "{}{}", file_prefix[0..], suffix);
+        const file_name = try std.fmt.allocPrint(self.gpa(), "{}{}", .{ file_prefix[0..], suffix });
         defer self.gpa().free(file_name);
 
         const full_path = try std.fs.path.join(self.gpa(), &[_][]const u8{ tmp_dir, file_name[0..] });
@@ -1303,7 +1300,7 @@ fn generateDeclFn(comp: *Compilation, fn_decl: *Decl.Fn) !void {
             try comp.addCompileError(tree_scope, Span{
                 .first = param_decl.firstToken(),
                 .last = param_decl.type_node.firstToken(),
-            }, "missing parameter name");
+            }, "missing parameter name", .{});
             return error.SemanticAnalysisFailed;
         };
         const param_name = tree_scope.tree.tokenSlice(name_token);

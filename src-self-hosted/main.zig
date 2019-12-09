@@ -128,7 +128,7 @@ pub fn main() !void {
         }
     }
 
-    try stderr.print("unknown command: {}\n\n", args[1]);
+    try stderr.print("unknown command: {}\n\n", .{args[1]});
     try stderr.write(usage);
     process.argsFree(allocator, args);
     process.exit(1);
@@ -329,14 +329,14 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
             if (cur_pkg.parent) |parent| {
                 cur_pkg = parent;
             } else {
-                try stderr.print("encountered --pkg-end with no matching --pkg-begin\n");
+                try stderr.print("encountered --pkg-end with no matching --pkg-begin\n", .{});
                 process.exit(1);
             }
         }
     }
 
     if (cur_pkg.parent != null) {
-        try stderr.print("unmatched --pkg-begin\n");
+        try stderr.print("unmatched --pkg-begin\n", .{});
         process.exit(1);
     }
 
@@ -345,7 +345,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
         0 => null,
         1 => flags.positionals.at(0),
         else => {
-            try stderr.print("unexpected extra parameter: {}\n", flags.positionals.at(1));
+            try stderr.print("unexpected extra parameter: {}\n", .{flags.positionals.at(1)});
             process.exit(1);
         },
     };
@@ -477,13 +477,13 @@ fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
 
         switch (build_event) {
             .Ok => {
-                stderr.print("Build {} succeeded\n", count) catch process.exit(1);
+                stderr.print("Build {} succeeded\n", .{count}) catch process.exit(1);
             },
             .Error => |err| {
-                stderr.print("Build {} failed: {}\n", count, @errorName(err)) catch process.exit(1);
+                stderr.print("Build {} failed: {}\n", .{ count, @errorName(err) }) catch process.exit(1);
             },
             .Fail => |msgs| {
-                stderr.print("Build {} compile errors:\n", count) catch process.exit(1);
+                stderr.print("Build {} compile errors:\n", .{count}) catch process.exit(1);
                 for (msgs) |msg| {
                     defer msg.destroy();
                     msg.printToFile(stderr_file, color) catch process.exit(1);
@@ -544,12 +544,11 @@ const Fmt = struct {
 
 fn parseLibcPaths(allocator: *Allocator, libc: *LibCInstallation, libc_paths_file: []const u8) void {
     libc.parse(allocator, libc_paths_file, stderr) catch |err| {
-        stderr.print(
-            "Unable to parse libc path file '{}': {}.\n" ++
-                "Try running `zig libc` to see an example for the native target.\n",
+        stderr.print("Unable to parse libc path file '{}': {}.\n" ++
+            "Try running `zig libc` to see an example for the native target.\n", .{
             libc_paths_file,
             @errorName(err),
-        ) catch {};
+        }) catch {};
         process.exit(1);
     };
 }
@@ -563,7 +562,7 @@ fn cmdLibC(allocator: *Allocator, args: []const []const u8) !void {
             return;
         },
         else => {
-            try stderr.print("unexpected extra parameter: {}\n", args[1]);
+            try stderr.print("unexpected extra parameter: {}\n", .{args[1]});
             process.exit(1);
         },
     }
@@ -572,7 +571,7 @@ fn cmdLibC(allocator: *Allocator, args: []const []const u8) !void {
     defer zig_compiler.deinit();
 
     const libc = zig_compiler.getNativeLibC() catch |err| {
-        stderr.print("unable to find libc: {}\n", @errorName(err)) catch {};
+        stderr.print("unable to find libc: {}\n", .{@errorName(err)}) catch {};
         process.exit(1);
     };
     libc.render(stdout) catch process.exit(1);
@@ -614,7 +613,7 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         defer allocator.free(source_code);
 
         const tree = std.zig.parse(allocator, source_code) catch |err| {
-            try stderr.print("error parsing stdin: {}\n", err);
+            try stderr.print("error parsing stdin: {}\n", .{err});
             process.exit(1);
         };
         defer tree.deinit();
@@ -718,7 +717,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
         },
         else => {
             // TODO lock stderr printing
-            try stderr.print("unable to open '{}': {}\n", file_path, err);
+            try stderr.print("unable to open '{}': {}\n", .{ file_path, err });
             fmt.any_error = true;
             return;
         },
@@ -726,7 +725,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
     defer fmt.allocator.free(source_code);
 
     const tree = std.zig.parse(fmt.allocator, source_code) catch |err| {
-        try stderr.print("error parsing file '{}': {}\n", file_path, err);
+        try stderr.print("error parsing file '{}': {}\n", .{ file_path, err });
         fmt.any_error = true;
         return;
     };
@@ -747,7 +746,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
     if (check_mode) {
         const anything_changed = try std.zig.render(fmt.allocator, io.null_out_stream, tree);
         if (anything_changed) {
-            try stderr.print("{}\n", file_path);
+            try stderr.print("{}\n", .{file_path});
             fmt.any_error = true;
         }
     } else {
@@ -757,7 +756,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
 
         const anything_changed = try std.zig.render(fmt.allocator, baf.stream(), tree);
         if (anything_changed) {
-            try stderr.print("{}\n", file_path);
+            try stderr.print("{}\n", .{file_path});
             try baf.finish();
         }
     }
@@ -774,7 +773,7 @@ fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
             // NOTE: Cannot use empty string, see #918.
             comptime const native_str = if (comptime mem.eql(u8, arch_tag, @tagName(builtin.arch))) " (native)\n" else "\n";
 
-            try stdout.print("  {}{}", arch_tag, native_str);
+            try stdout.print("  {}{}", .{ arch_tag, native_str });
         }
     }
     try stdout.write("\n");
@@ -787,7 +786,7 @@ fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
             // NOTE: Cannot use empty string, see #918.
             comptime const native_str = if (comptime mem.eql(u8, os_tag, @tagName(builtin.os))) " (native)\n" else "\n";
 
-            try stdout.print("  {}{}", os_tag, native_str);
+            try stdout.print("  {}{}", .{ os_tag, native_str });
         }
     }
     try stdout.write("\n");
@@ -800,13 +799,13 @@ fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
             // NOTE: Cannot use empty string, see #918.
             comptime const native_str = if (comptime mem.eql(u8, abi_tag, @tagName(builtin.abi))) " (native)\n" else "\n";
 
-            try stdout.print("  {}{}", abi_tag, native_str);
+            try stdout.print("  {}{}", .{ abi_tag, native_str });
         }
     }
 }
 
 fn cmdVersion(allocator: *Allocator, args: []const []const u8) !void {
-    try stdout.print("{}\n", std.mem.toSliceConst(u8, c.ZIG_VERSION_STRING));
+    try stdout.print("{}\n", .{std.mem.toSliceConst(u8, c.ZIG_VERSION_STRING)});
 }
 
 const args_test_spec = [_]Flag{Flag.Bool("--help")};
@@ -865,7 +864,7 @@ fn cmdInternal(allocator: *Allocator, args: []const []const u8) !void {
         }
     }
 
-    try stderr.print("unknown sub command: {}\n\n", args[0]);
+    try stderr.print("unknown sub command: {}\n\n", .{args[0]});
     try stderr.write(usage_internal);
 }
 
@@ -878,14 +877,14 @@ fn cmdInternalBuildInfo(allocator: *Allocator, args: []const []const u8) !void {
         \\ZIG_LLVM_CONFIG_EXE  {}
         \\ZIG_DIA_GUIDS_LIB    {}
         \\
-    ,
+    , .{
         std.mem.toSliceConst(u8, c.ZIG_CMAKE_BINARY_DIR),
         std.mem.toSliceConst(u8, c.ZIG_CXX_COMPILER),
         std.mem.toSliceConst(u8, c.ZIG_LLD_INCLUDE_PATH),
         std.mem.toSliceConst(u8, c.ZIG_LLD_LIBRARIES),
         std.mem.toSliceConst(u8, c.ZIG_LLVM_CONFIG_EXE),
         std.mem.toSliceConst(u8, c.ZIG_DIA_GUIDS_LIB),
-    );
+    });
 }
 
 const CliPkg = struct {
