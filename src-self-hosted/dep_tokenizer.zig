@@ -38,7 +38,7 @@ pub const Tokenizer = struct {
                     },
                     .target => |*target| switch (char) {
                         '\t', '\n', '\r', ' ' => {
-                            return self.errorIllegalChar(self.index, char, "invalid target");
+                            return self.errorIllegalChar(self.index, char, "invalid target", .{});
                         },
                         '$' => {
                             self.state = State{ .target_dollar_sign = target.* };
@@ -59,7 +59,7 @@ pub const Tokenizer = struct {
                     },
                     .target_reverse_solidus => |*target| switch (char) {
                         '\t', '\n', '\r' => {
-                            return self.errorIllegalChar(self.index, char, "bad target escape");
+                            return self.errorIllegalChar(self.index, char, "bad target escape", .{});
                         },
                         ' ', '#', '\\' => {
                             try target.appendByte(char);
@@ -84,7 +84,7 @@ pub const Tokenizer = struct {
                             break; // advance
                         },
                         else => {
-                            return self.errorIllegalChar(self.index, char, "expecting '$'");
+                            return self.errorIllegalChar(self.index, char, "expecting '$'", .{});
                         },
                     },
                     .target_colon => |*target| switch (char) {
@@ -161,7 +161,7 @@ pub const Tokenizer = struct {
                             break; // advance
                         },
                         else => {
-                            return self.errorIllegalChar(self.index, char, "continuation expecting end-of-line");
+                            return self.errorIllegalChar(self.index, char, "continuation expecting end-of-line", .{});
                         },
                     },
                     .rhs_continuation_linefeed => switch (char) {
@@ -170,7 +170,7 @@ pub const Tokenizer = struct {
                             break; // advance
                         },
                         else => {
-                            return self.errorIllegalChar(self.index, char, "continuation expecting end-of-line");
+                            return self.errorIllegalChar(self.index, char, "continuation expecting end-of-line", .{});
                         },
                     },
                     .prereq_quote => |*prereq| switch (char) {
@@ -231,7 +231,7 @@ pub const Tokenizer = struct {
                             return Token{ .id = .prereq, .bytes = bytes };
                         },
                         else => {
-                            return self.errorIllegalChar(self.index, char, "continuation expecting end-of-line");
+                            return self.errorIllegalChar(self.index, char, "continuation expecting end-of-line", .{});
                         },
                     },
                 }
@@ -249,13 +249,13 @@ pub const Tokenizer = struct {
             .rhs_continuation_linefeed,
             => {},
             .target => |target| {
-                return self.errorPosition(idx, target.toSlice(), "incomplete target");
+                return self.errorPosition(idx, target.toSlice(), "incomplete target", .{});
             },
             .target_reverse_solidus,
             .target_dollar_sign,
             => {
                 const index = self.index - 1;
-                return self.errorIllegalChar(idx, self.bytes[idx], "incomplete escape");
+                return self.errorIllegalChar(idx, self.bytes[idx], "incomplete escape", .{});
             },
             .target_colon => |target| {
                 const bytes = target.toSlice();
@@ -278,7 +278,7 @@ pub const Tokenizer = struct {
                 self.state = State{ .lhs = {} };
             },
             .prereq_quote => |prereq| {
-                return self.errorPosition(idx, prereq.toSlice(), "incomplete quoted prerequisite");
+                return self.errorPosition(idx, prereq.toSlice(), "incomplete quoted prerequisite", .{});
             },
             .prereq => |prereq| {
                 const bytes = prereq.toSlice();
@@ -299,29 +299,29 @@ pub const Tokenizer = struct {
         return null;
     }
 
-    fn errorf(self: *Tokenizer, comptime fmt: []const u8, args: ...) Error {
+    fn errorf(self: *Tokenizer, comptime fmt: []const u8, args: var) Error {
         self.error_text = (try std.Buffer.allocPrint(&self.arena.allocator, fmt, args)).toSlice();
         return Error.InvalidInput;
     }
 
-    fn errorPosition(self: *Tokenizer, position: usize, bytes: []const u8, comptime fmt: []const u8, args: ...) Error {
+    fn errorPosition(self: *Tokenizer, position: usize, bytes: []const u8, comptime fmt: []const u8, args: var) Error {
         var buffer = try std.Buffer.initSize(&self.arena.allocator, 0);
         std.fmt.format(&buffer, anyerror, std.Buffer.append, fmt, args) catch {};
         try buffer.append(" '");
         var out = makeOutput(std.Buffer.append, &buffer);
         try printCharValues(&out, bytes);
         try buffer.append("'");
-        std.fmt.format(&buffer, anyerror, std.Buffer.append, " at position {}", position - (bytes.len - 1)) catch {};
+        std.fmt.format(&buffer, anyerror, std.Buffer.append, " at position {}", .{position - (bytes.len - 1)}) catch {};
         self.error_text = buffer.toSlice();
         return Error.InvalidInput;
     }
 
-    fn errorIllegalChar(self: *Tokenizer, position: usize, char: u8, comptime fmt: []const u8, args: ...) Error {
+    fn errorIllegalChar(self: *Tokenizer, position: usize, char: u8, comptime fmt: []const u8, args: var) Error {
         var buffer = try std.Buffer.initSize(&self.arena.allocator, 0);
         try buffer.append("illegal char ");
         var out = makeOutput(std.Buffer.append, &buffer);
         try printUnderstandableChar(&out, char);
-        std.fmt.format(&buffer, anyerror, std.Buffer.append, " at position {}", position) catch {};
+        std.fmt.format(&buffer, anyerror, std.Buffer.append, " at position {}", .{position}) catch {};
         if (fmt.len != 0) std.fmt.format(&buffer, anyerror, std.Buffer.append, ": " ++ fmt, args) catch {};
         self.error_text = buffer.toSlice();
         return Error.InvalidInput;
@@ -998,7 +998,7 @@ fn printCharValues(out: var, bytes: []const u8) !void {
 
 fn printUnderstandableChar(out: var, char: u8) !void {
     if (!std.ascii.isPrint(char) or char == ' ') {
-        std.fmt.format(out.context, anyerror, out.output, "\\x{X:2}", char) catch {};
+        std.fmt.format(out.context, anyerror, out.output, "\\x{X:2}", .{char}) catch {};
     } else {
         try out.write("'");
         try out.write(&[_]u8{printable_char_tab[char]});

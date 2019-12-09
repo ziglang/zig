@@ -536,8 +536,8 @@ static void ast_parse_container_doc_comments(ParseContext *pc, Buf *buf) {
 //     <- TestDecl ContainerMembers
 //      / TopLevelComptime ContainerMembers
 //      / KEYWORD_pub? TopLevelDecl ContainerMembers
-//      / ContainerField COMMA ContainerMembers
-//      / ContainerField
+//      / KEYWORD_comptime? ContainerField COMMA ContainerMembers
+//      / KEYWORD_comptime? ContainerField
 //      /
 static AstNodeContainerDecl ast_parse_container_members(ParseContext *pc) {
     AstNodeContainerDecl res = {};
@@ -574,10 +574,13 @@ static AstNodeContainerDecl ast_parse_container_members(ParseContext *pc) {
             ast_error(pc, peek_token(pc), "expected function or variable declaration after pub");
         }
 
+        Token *comptime_token = eat_token_if(pc, TokenIdKeywordCompTime);
+
         AstNode *container_field = ast_parse_container_field(pc);
         if (container_field != nullptr) {
             assert(container_field->type == NodeTypeStructField);
             container_field->data.struct_field.doc_comments = doc_comment_buf;
+            container_field->data.struct_field.comptime_token = comptime_token;
             res.fields.append(container_field);
             if (eat_token_if(pc, TokenIdComma) != nullptr) {
                 continue;
@@ -611,6 +614,13 @@ static AstNode *ast_parse_top_level_comptime(ParseContext *pc) {
     Token *comptime = eat_token_if(pc, TokenIdKeywordCompTime);
     if (comptime == nullptr)
         return nullptr;
+
+    // 1 token lookahead because it could be a comptime struct field
+    Token *lbrace = peek_token(pc);
+    if (lbrace->id != TokenIdLBrace) {
+        put_back_token(pc);
+        return nullptr;
+    }
 
     AstNode *block = ast_expect(pc, ast_parse_block_expr);
     AstNode *res = ast_create_node(pc, NodeTypeCompTime, comptime);

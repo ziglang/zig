@@ -6,7 +6,7 @@ const tests = @import("tests.zig");
 pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addC("hello world with libc",
         \\const c = @cImport(@cInclude("stdio.h"));
-        \\export fn main(argc: c_int, argv: [*][*]u8) c_int {
+        \\pub export fn main(argc: c_int, argv: [*][*]u8) c_int {
         \\    _ = c.puts("Hello, world!");
         \\    return 0;
         \\}
@@ -20,7 +20,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\pub fn main() void {
             \\    privateFunction();
             \\    const stdout = &getStdOut().outStream().stream;
-            \\    stdout.print("OK 2\n") catch unreachable;
+            \\    stdout.print("OK 2\n", .{}) catch unreachable;
             \\}
             \\
             \\fn privateFunction() void {
@@ -35,7 +35,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\// but it's private so it should be OK
             \\fn privateFunction() void {
             \\    const stdout = &getStdOut().outStream().stream;
-            \\    stdout.print("OK 1\n") catch unreachable;
+            \\    stdout.print("OK 1\n", .{}) catch unreachable;
             \\}
             \\
             \\pub fn printText() void {
@@ -61,7 +61,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\usingnamespace @import("std").io;
             \\pub fn foo_function() void {
             \\    const stdout = &getStdOut().outStream().stream;
-            \\    stdout.print("OK\n") catch unreachable;
+            \\    stdout.print("OK\n", .{}) catch unreachable;
             \\}
         );
 
@@ -72,7 +72,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\pub fn bar_function() void {
             \\    if (foo_function()) {
             \\        const stdout = &getStdOut().outStream().stream;
-            \\        stdout.print("OK\n") catch unreachable;
+            \\        stdout.print("OK\n", .{}) catch unreachable;
             \\    }
             \\}
         );
@@ -104,7 +104,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\
             \\pub fn ok() void {
             \\    const stdout = &io.getStdOut().outStream().stream;
-            \\    stdout.print(b_text) catch unreachable;
+            \\    stdout.print(b_text, .{}) catch unreachable;
             \\}
         );
 
@@ -122,7 +122,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\
         \\pub fn main() void {
         \\    const stdout = &io.getStdOut().outStream().stream;
-        \\    stdout.print("Hello, world!\n{d:4} {x:3} {c}\n", @as(u32, 12), @as(u16, 0x12), @as(u8, 'a')) catch unreachable;
+        \\    stdout.print("Hello, world!\n{d:4} {x:3} {c}\n", .{@as(u32, 12), @as(u16, 0x12), @as(u8, 'a')}) catch unreachable;
         \\}
     , "Hello, world!\n  12  12 a\n");
 
@@ -139,7 +139,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @cInclude("stdio.h");
         \\});
         \\
-        \\export fn main(argc: c_int, argv: [*][*]u8) c_int {
+        \\pub export fn main(argc: c_int, argv: [*][*]u8) c_int {
         \\    if (is_windows) {
         \\        // we want actual \n, not \r\n
         \\        _ = c._setmode(1, c._O_BINARY);
@@ -265,7 +265,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
         \\fn print_ok(val: @typeOf(x)) @typeOf(foo) {
         \\    const stdout = &io.getStdOut().outStream().stream;
-        \\    stdout.print("OK\n") catch unreachable;
+        \\    stdout.print("OK\n", .{}) catch unreachable;
         \\    return 0;
         \\}
         \\const foo : i32 = 0;
@@ -286,7 +286,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    }
         \\}
         \\
-        \\export fn main() c_int {
+        \\pub export fn main() c_int {
         \\    var array = [_]u32{ 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
         \\
         \\    c.qsort(@ptrCast(?*c_void, array[0..].ptr), @intCast(c_ulong, array.len), @sizeOf(i32), compare_fn);
@@ -314,7 +314,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @cInclude("stdio.h");
         \\});
         \\
-        \\export fn main(argc: c_int, argv: [*][*]u8) c_int {
+        \\pub export fn main(argc: c_int, argv: [*][*]u8) c_int {
         \\    if (is_windows) {
         \\        // we want actual \n, not \r\n
         \\        _ = c._setmode(1, c._O_BINARY);
@@ -348,12 +348,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    const foo = Foo {.field1 = bar,};
         \\    const stdout = &io.getStdOut().outStream().stream;
         \\    if (!foo.method()) {
-        \\        stdout.print("BAD\n") catch unreachable;
+        \\        stdout.print("BAD\n", .{}) catch unreachable;
         \\    }
         \\    if (!bar.method()) {
-        \\        stdout.print("BAD\n") catch unreachable;
+        \\        stdout.print("BAD\n", .{}) catch unreachable;
         \\    }
-        \\    stdout.print("OK\n") catch unreachable;
+        \\    stdout.print("OK\n", .{}) catch unreachable;
         \\}
     , "OK\n");
 
@@ -361,11 +361,11 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const io = @import("std").io;
         \\pub fn main() void {
         \\    const stdout = &io.getStdOut().outStream().stream;
-        \\    stdout.print("before\n") catch unreachable;
-        \\    defer stdout.print("defer1\n") catch unreachable;
-        \\    defer stdout.print("defer2\n") catch unreachable;
-        \\    defer stdout.print("defer3\n") catch unreachable;
-        \\    stdout.print("after\n") catch unreachable;
+        \\    stdout.print("before\n", .{}) catch unreachable;
+        \\    defer stdout.print("defer1\n", .{}) catch unreachable;
+        \\    defer stdout.print("defer2\n", .{}) catch unreachable;
+        \\    defer stdout.print("defer3\n", .{}) catch unreachable;
+        \\    stdout.print("after\n", .{}) catch unreachable;
         \\}
     , "before\nafter\ndefer3\ndefer2\ndefer1\n");
 
@@ -374,13 +374,13 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const os = @import("std").os;
         \\pub fn main() void {
         \\    const stdout = &io.getStdOut().outStream().stream;
-        \\    stdout.print("before\n") catch unreachable;
-        \\    defer stdout.print("defer1\n") catch unreachable;
-        \\    defer stdout.print("defer2\n") catch unreachable;
+        \\    stdout.print("before\n", .{}) catch unreachable;
+        \\    defer stdout.print("defer1\n", .{}) catch unreachable;
+        \\    defer stdout.print("defer2\n", .{}) catch unreachable;
         \\    var args_it = @import("std").process.args();
         \\    if (args_it.skip() and !args_it.skip()) return;
-        \\    defer stdout.print("defer3\n") catch unreachable;
-        \\    stdout.print("after\n") catch unreachable;
+        \\    defer stdout.print("defer3\n", .{}) catch unreachable;
+        \\    stdout.print("after\n", .{}) catch unreachable;
         \\}
     , "before\ndefer2\ndefer1\n");
 
@@ -391,12 +391,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
         \\fn do_test() !void {
         \\    const stdout = &io.getStdOut().outStream().stream;
-        \\    stdout.print("before\n") catch unreachable;
-        \\    defer stdout.print("defer1\n") catch unreachable;
-        \\    errdefer stdout.print("deferErr\n") catch unreachable;
+        \\    stdout.print("before\n", .{}) catch unreachable;
+        \\    defer stdout.print("defer1\n", .{}) catch unreachable;
+        \\    errdefer stdout.print("deferErr\n", .{}) catch unreachable;
         \\    try its_gonna_fail();
-        \\    defer stdout.print("defer3\n") catch unreachable;
-        \\    stdout.print("after\n") catch unreachable;
+        \\    defer stdout.print("defer3\n", .{}) catch unreachable;
+        \\    stdout.print("after\n", .{}) catch unreachable;
         \\}
         \\fn its_gonna_fail() !void {
         \\    return error.IToldYouItWouldFail;
@@ -410,12 +410,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
         \\fn do_test() !void {
         \\    const stdout = &io.getStdOut().outStream().stream;
-        \\    stdout.print("before\n") catch unreachable;
-        \\    defer stdout.print("defer1\n") catch unreachable;
-        \\    errdefer stdout.print("deferErr\n") catch unreachable;
+        \\    stdout.print("before\n", .{}) catch unreachable;
+        \\    defer stdout.print("defer1\n", .{}) catch unreachable;
+        \\    errdefer stdout.print("deferErr\n", .{}) catch unreachable;
         \\    try its_gonna_pass();
-        \\    defer stdout.print("defer3\n") catch unreachable;
-        \\    stdout.print("after\n") catch unreachable;
+        \\    defer stdout.print("defer3\n", .{}) catch unreachable;
+        \\    stdout.print("after\n", .{}) catch unreachable;
         \\}
         \\fn its_gonna_pass() anyerror!void { }
     , "before\nafter\ndefer3\ndefer1\n");
@@ -427,7 +427,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\
             \\pub fn main() void {
             \\    const stdout = &io.getStdOut().outStream().stream;
-            \\    stdout.print(foo_txt) catch unreachable;
+            \\    stdout.print(foo_txt, .{}) catch unreachable;
             \\}
         , "1234\nabcd\n");
 
@@ -452,7 +452,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\    _ = args_it.skip();
             \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
             \\        const arg = try arg_or_err;
-            \\        try stdout.print("{}: {}\n", index, arg);
+            \\        try stdout.print("{}: {}\n", .{index, arg});
             \\    }
             \\}
         ,
@@ -493,7 +493,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\    _ = args_it.skip();
             \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
             \\        const arg = try arg_or_err;
-            \\        try stdout.print("{}: {}\n", index, arg);
+            \\        try stdout.print("{}: {}\n", .{index, arg});
             \\    }
             \\}
         ,

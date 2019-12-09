@@ -48,7 +48,7 @@ pub fn resolveZigLibDir(allocator: *mem.Allocator) ![]u8 {
             \\Unable to find zig lib directory: {}.
             \\Reinstall Zig or use --zig-install-prefix.
             \\
-        , @errorName(err));
+        , .{@errorName(err)});
 
         return error.ZigLibDirNotFound;
     };

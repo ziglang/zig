@@ -14,31 +14,31 @@ const ConditionalOperator = enum {
 
 pub nakedcc fn __aeabi_fcmpeq() noreturn {
     @setRuntimeSafety(false);
-    @inlineCall(aeabi_fcmp, .Eq);
+    @call(.{ .modifier = .always_inline }, aeabi_fcmp, .{.Eq});
     unreachable;
 }
 
 pub nakedcc fn __aeabi_fcmplt() noreturn {
     @setRuntimeSafety(false);
-    @inlineCall(aeabi_fcmp, .Lt);
+    @call(.{ .modifier = .always_inline }, aeabi_fcmp, .{.Lt});
     unreachable;
 }
 
 pub nakedcc fn __aeabi_fcmple() noreturn {
     @setRuntimeSafety(false);
-    @inlineCall(aeabi_fcmp, .Le);
+    @call(.{ .modifier = .always_inline }, aeabi_fcmp, .{.Le});
     unreachable;
 }
 
 pub nakedcc fn __aeabi_fcmpge() noreturn {
     @setRuntimeSafety(false);
-    @inlineCall(aeabi_fcmp, .Ge);
+    @call(.{ .modifier = .always_inline }, aeabi_fcmp, .{.Ge});
     unreachable;
 }
 
 pub nakedcc fn __aeabi_fcmpgt() noreturn {
     @setRuntimeSafety(false);
-    @inlineCall(aeabi_fcmp, .Gt);
+    @call(.{ .modifier = .always_inline }, aeabi_fcmp, .{.Gt});
     unreachable;
 }
 

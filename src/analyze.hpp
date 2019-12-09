@@ -207,6 +207,7 @@ void add_var_export(CodeGen *g, ZigVar *fn_table_entry, const char *symbol_name,
 
 
 ZigValue *get_builtin_value(CodeGen *codegen, const char *name);
+ZigType *get_builtin_type(CodeGen *codegen, const char *name);
 ZigType *get_stack_trace_type(CodeGen *g);
 bool resolve_inferred_error_set(CodeGen *g, ZigType *err_set_type, AstNode *source_node);
 
@@ -277,4 +278,5 @@ IrInstruction *ir_create_alloca(CodeGen *g, Scope *scope, AstNode *source_node, 
 Error analyze_import(CodeGen *codegen, ZigType *source_import, Buf *import_target_str,
         ZigType **out_import, Buf **out_import_target_path, Buf *out_full_path);
 ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry);
+bool is_anon_container(ZigType *ty);
 #endif

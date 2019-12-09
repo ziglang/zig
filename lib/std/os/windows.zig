@@ -323,7 +323,7 @@ pub fn GetQueuedCompletionStatus(
             ERROR.HANDLE_EOF => return GetQueuedCompletionStatusResult.EOF,
             else => |err| {
                 if (std.debug.runtime_safety) {
-                    std.debug.panic("unexpected error: {}\n", err);
+                    std.debug.panic("unexpected error: {}\n", .{err});
                 }
             },
         }
@@ -1039,7 +1039,7 @@ pub fn unexpectedError(err: DWORD) std.os.UnexpectedError {
         var buf_u8: [614]u8 = undefined;
         var len = kernel32.FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, null, err, MAKELANGID(LANG.NEUTRAL, SUBLANG.DEFAULT), buf_u16[0..].ptr, buf_u16.len / @sizeOf(TCHAR), null);
         _ = std.unicode.utf16leToUtf8(&buf_u8, buf_u16[0..len]) catch unreachable;
-        std.debug.warn("error.Unexpected: GetLastError({}): {}\n", err, buf_u8[0..len]);
+        std.debug.warn("error.Unexpected: GetLastError({}): {}\n", .{ err, buf_u8[0..len] });
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
@@ -1053,7 +1053,7 @@ pub fn unexpectedWSAError(err: c_int) std.os.UnexpectedError {
 /// and you get an unexpected status.
 pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
-        std.debug.warn("error.Unexpected NTSTATUS=0x{x}\n", status);
+        std.debug.warn("error.Unexpected NTSTATUS=0x{x}\n", .{status});
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;

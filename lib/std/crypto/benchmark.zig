@@ -1,7 +1,7 @@
 // zig run benchmark.zig --release-fast --override-lib-dir ..
 
 const builtin = @import("builtin");
-const std = @import("../std.zig");
+const std = @import("std");
 const time = std.time;
 const Timer = time.Timer;
 const crypto = std.crypto;
@@ -67,7 +67,7 @@ pub fn benchmarkMac(comptime Mac: var, comptime bytes: comptime_int) !u64 {
     var timer = try Timer.start();
     const start = timer.lap();
     while (offset < bytes) : (offset += in.len) {
-        Mac.create(key[0..], in[0..], key);
+        Mac.create(key[0..], in[0..], key[0..]);
     }
     const end = timer.read();
 
@@ -94,7 +94,7 @@ pub fn benchmarkKeyExchange(comptime DhKeyExchange: var, comptime exchange_count
     {
         var i: usize = 0;
         while (i < exchange_count) : (i += 1) {
-            _ = DhKeyExchange.create(out[0..], out, in);
+            _ = DhKeyExchange.create(out[0..], out[0..], in[0..]);
         }
     }
     const end = timer.read();
@@ -114,7 +114,7 @@ fn usage() void {
         \\  --seed   [int]
         \\  --help
         \\
-    );
+    , .{});
 }
 
 fn mode(comptime x: comptime_int) comptime_int {

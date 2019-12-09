@@ -98,15 +98,15 @@ pub const Args = struct {
                         const flag_args = readFlagArguments(allocator, args, flag.required, flag.allowed_set, &i) catch |err| {
                             switch (err) {
                                 error.ArgumentNotInAllowedSet => {
-                                    std.debug.warn("argument '{}' is invalid for flag '{}'\n", args[i], arg);
-                                    std.debug.warn("allowed options are ");
+                                    std.debug.warn("argument '{}' is invalid for flag '{}'\n", .{ args[i], arg });
+                                    std.debug.warn("allowed options are ", .{});
                                     for (flag.allowed_set.?) |possible| {
-                                        std.debug.warn("'{}' ", possible);
+                                        std.debug.warn("'{}' ", .{possible});
                                     }
-                                    std.debug.warn("\n");
+                                    std.debug.warn("\n", .{});
                                 },
                                 error.MissingFlagArguments => {
-                                    std.debug.warn("missing argument for flag: {}\n", arg);
+                                    std.debug.warn("missing argument for flag: {}\n", .{arg});
                                 },
                                 else => {},
                             }
@@ -134,7 +134,7 @@ pub const Args = struct {
                 }
 
                 // TODO: Better errors with context, global error state and return is sufficient.
-                std.debug.warn("could not match flag: {}\n", arg);
+                std.debug.warn("could not match flag: {}\n", .{arg});
                 return error.UnknownFlag;
             } else {
                 try parsed.positionals.append(arg);

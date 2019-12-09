@@ -35,7 +35,7 @@ pub fn OutStream(comptime WriteError: type) type {
             }
         }
 
-        pub fn print(self: *Self, comptime format: []const u8, args: ...) Error!void {
+        pub fn print(self: *Self, comptime format: []const u8, args: var) Error!void {
             return std.fmt.format(self, Error, self.writeFn, format, args);
         }
 

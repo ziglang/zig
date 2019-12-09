@@ -29,7 +29,7 @@ test "parse and render IPv6 addresses" {
     };
     for (ips) |ip, i| {
         var addr = net.Address.parseIp6(ip, 0) catch unreachable;
-        var newIp = std.fmt.bufPrint(buffer[0..], "{}", addr) catch unreachable;
+        var newIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr}) catch unreachable;
         std.testing.expect(std.mem.eql(u8, printed[i], newIp[1 .. newIp.len - 3]));
     }
 
@@ -51,7 +51,7 @@ test "parse and render IPv4 addresses" {
         "127.0.0.1",
     }) |ip| {
         var addr = net.Address.parseIp4(ip, 0) catch unreachable;
-        var newIp = std.fmt.bufPrint(buffer[0..], "{}", addr) catch unreachable;
+        var newIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr}) catch unreachable;
         std.testing.expect(std.mem.eql(u8, ip, newIp[0 .. newIp.len - 2]));
     }
 
@@ -118,5 +118,5 @@ fn testServer(server: *net.StreamServer) anyerror!void {
     var client = try server.accept();
 
     const stream = &client.file.outStream().stream;
-    try stream.print("hello from server\n");
+    try stream.print("hello from server\n", .{});
 }

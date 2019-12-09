@@ -26,15 +26,15 @@ pub fn main() !void {
     _ = arg_it.skip();
 
     const zig_exe = try unwrapArg(arg_it.next(allocator) orelse {
-        warn("Expected first argument to be path to zig compiler\n");
+        warn("Expected first argument to be path to zig compiler\n", .{});
         return error.InvalidArgs;
     });
     const build_root = try unwrapArg(arg_it.next(allocator) orelse {
-        warn("Expected second argument to be build root directory path\n");
+        warn("Expected second argument to be build root directory path\n", .{});
         return error.InvalidArgs;
     });
     const cache_root = try unwrapArg(arg_it.next(allocator) orelse {
-        warn("Expected third argument to be cache root directory path\n");
+        warn("Expected third argument to be cache root directory path\n", .{});
         return error.InvalidArgs;
     });
 
@@ -51,7 +51,7 @@ pub fn main() !void {
         if (mem.startsWith(u8, arg, "-D")) {
             const option_contents = arg[2..];
             if (option_contents.len == 0) {
-                warn("Expected option name after '-D'\n\n");
+                warn("Expected option name after '-D'\n\n", .{});
                 return usageAndErr(builder, false, stderr_stream);
             }
             if (mem.indexOfScalar(u8, option_contents, '=')) |name_end| {
@@ -70,18 +70,18 @@ pub fn main() !void {
                 return usage(builder, false, stdout_stream);
             } else if (mem.eql(u8, arg, "--prefix")) {
                 builder.install_prefix = try unwrapArg(arg_it.next(allocator) orelse {
-                    warn("Expected argument after --prefix\n\n");
+                    warn("Expected argument after --prefix\n\n", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 });
             } else if (mem.eql(u8, arg, "--search-prefix")) {
                 const search_prefix = try unwrapArg(arg_it.next(allocator) orelse {
-                    warn("Expected argument after --search-prefix\n\n");
+                    warn("Expected argument after --search-prefix\n\n", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 });
                 builder.addSearchPrefix(search_prefix);
             } else if (mem.eql(u8, arg, "--override-lib-dir")) {
                 builder.override_lib_dir = try unwrapArg(arg_it.next(allocator) orelse {
-                    warn("Expected argument after --override-lib-dir\n\n");
+                    warn("Expected argument after --override-lib-dir\n\n", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 });
             } else if (mem.eql(u8, arg, "--verbose-tokenize")) {
@@ -99,7 +99,7 @@ pub fn main() !void {
             } else if (mem.eql(u8, arg, "--verbose-cc")) {
                 builder.verbose_cc = true;
             } else {
-                warn("Unrecognized argument: {}\n\n", arg);
+                warn("Unrecognized argument: {}\n\n", .{arg});
                 return usageAndErr(builder, false, stderr_stream);
             }
         } else {
@@ -145,15 +145,15 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
         \\
         \\Steps:
         \\
-    , builder.zig_exe);
+    , .{builder.zig_exe});
 
     const allocator = builder.allocator;
     for (builder.top_level_steps.toSliceConst()) |top_level_step| {
         const name = if (&top_level_step.step == builder.default_step)
-            try fmt.allocPrint(allocator, "{} (default)", top_level_step.step.name)
+            try fmt.allocPrint(allocator, "{} (default)", .{top_level_step.step.name})
         else
             top_level_step.step.name;
-        try out_stream.print("  {s:22} {}\n", name, top_level_step.description);
+        try out_stream.print("  {s:22} {}\n", .{ name, top_level_step.description });
     }
 
     try out_stream.write(
@@ -169,12 +169,15 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
     );
 
     if (builder.available_options_list.len == 0) {
-        try out_stream.print("  (none)\n");
+        try out_stream.print("  (none)\n", .{});
     } else {
         for (builder.available_options_list.toSliceConst()) |option| {
-            const name = try fmt.allocPrint(allocator, "  -D{}=[{}]", option.name, Builder.typeIdName(option.type_id));
+            const name = try fmt.allocPrint(allocator, "  -D{}=[{}]", .{
+                option.name,
+                Builder.typeIdName(option.type_id),
+            });
             defer allocator.free(name);
-            try out_stream.print("{s:24} {}\n", name, option.description);
+            try out_stream.print("{s:24} {}\n", .{ name, option.description });
         }
     }
 
@@ -204,7 +207,7 @@ const UnwrapArgError = error{OutOfMemory};
 
 fn unwrapArg(arg: UnwrapArgError![]u8) UnwrapArgError![]u8 {
     return arg catch |err| {
-        warn("Unable to parse command line: {}\n", err);
+        warn("Unable to parse command line: {}\n", .{err});
         return err;
     };
 }

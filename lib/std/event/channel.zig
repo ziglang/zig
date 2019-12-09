@@ -294,14 +294,14 @@ test "std.event.Channel wraparound" {
 
     const channel_size = 2;
 
-    var buf : [channel_size]i32 = undefined;
+    var buf: [channel_size]i32 = undefined;
     var channel: Channel(i32) = undefined;
     channel.init(&buf);
     defer channel.deinit();
 
     // add items to channel and pull them out until
     // the buffer wraps around, make sure it doesn't crash.
-    var result : i32 = undefined;
+    var result: i32 = undefined;
     channel.put(5);
     testing.expectEqual(@as(i32, 5), channel.get());
     channel.put(6);

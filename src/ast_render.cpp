@@ -702,14 +702,29 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 switch (node->data.fn_call_expr.modifier) {
                     case CallModifierNone:
                         break;
-                    case CallModifierBuiltin:
-                        fprintf(ar->f, "@");
+                    case CallModifierNoAsync:
+                        fprintf(ar->f, "noasync ");
                         break;
                     case CallModifierAsync:
                         fprintf(ar->f, "async ");
                         break;
-                    case CallModifierNoAsync:
-                        fprintf(ar->f, "noasync ");
+                    case CallModifierNeverTail:
+                        fprintf(ar->f, "notail ");
+                        break;
+                    case CallModifierNeverInline:
+                        fprintf(ar->f, "noinline ");
+                        break;
+                    case CallModifierAlwaysTail:
+                        fprintf(ar->f, "tail ");
+                        break;
+                    case CallModifierAlwaysInline:
+                        fprintf(ar->f, "inline ");
+                        break;
+                    case CallModifierCompileTime:
+                        fprintf(ar->f, "comptime ");
+                        break;
+                    case CallModifierBuiltin:
+                        fprintf(ar->f, "@");
                         break;
                 }
                 AstNode *fn_ref_node = node->data.fn_call_expr.fn_ref_expr;

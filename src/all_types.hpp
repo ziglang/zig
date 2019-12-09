@@ -322,6 +322,7 @@ enum LazyValueId {
     LazyValueIdSliceType,
     LazyValueIdFnType,
     LazyValueIdErrUnionType,
+    LazyValueIdArrayType,
 };
 
 struct LazyValue {
@@ -353,6 +354,15 @@ struct LazyValueSliceType {
     bool is_const;
     bool is_volatile;
     bool is_allowzero;
+};
+
+struct LazyValueArrayType {
+    LazyValue base;
+
+    IrAnalyze *ira;
+    IrInstruction *sentinel; // can be null
+    IrInstruction *elem_type;
+    uint64_t length;
 };
 
 struct LazyValuePtrType {
@@ -409,6 +419,9 @@ struct ZigValue {
     LLVMValueRef llvm_global;
 
     union {
+        // populated if special == ConstValSpecialLazy
+        LazyValue *x_lazy;
+
         // populated if special == ConstValSpecialStatic
         BigInt x_bigint;
         BigFloat x_bigfloat;
@@ -429,7 +442,6 @@ struct ZigValue {
         ConstPtrValue x_ptr;
         ConstArgTuple x_arg_tuple;
         Buf *x_enum_literal;
-        LazyValue *x_lazy;
 
         // populated if special == ConstValSpecialRuntime
         RuntimeHintErrorUnion rh_error_union;
@@ -767,11 +779,19 @@ struct AstNodeUnwrapOptional {
     AstNode *expr;
 };
 
+// Must be synchronized with std.builtin.CallOptions.Modifier
 enum CallModifier {
     CallModifierNone,
-    CallModifierAsync,
+    CallModifierNeverTail,
+    CallModifierNeverInline,
     CallModifierNoAsync,
+    CallModifierAlwaysTail,
+    CallModifierAlwaysInline,
+    CallModifierCompileTime,
+
+    // These are additional tags in the compiler, but not exposed in the std lib.
     CallModifierBuiltin,
+    CallModifierAsync,
 };
 
 struct AstNodeFnCallExpr {
@@ -996,6 +1016,7 @@ struct AstNodeStructField {
     // populated if the "align(A)" is present
     AstNode *align_expr;
     Buf doc_comments;
+    Token *comptime_token;
 };
 
 struct AstNodeStringLiteral {
@@ -1253,6 +1274,7 @@ struct TypeStructField {
     uint32_t bit_offset_in_host; // offset from the memory at gen_index
     uint32_t host_int_bytes; // size of host integer
     uint32_t align;
+    bool is_comptime;
 };
 
 enum ResolveStatus {
@@ -1286,6 +1308,13 @@ struct RootStruct {
     ZigLLVMDIFile *di_file;
 };
 
+enum StructSpecial {
+    StructSpecialNone,
+    StructSpecialSlice,
+    StructSpecialInferredTuple,
+    StructSpecialInferredStruct,
+};
+
 struct ZigTypeStruct {
     AstNode *decl_node;
     TypeStructField **fields;
@@ -1301,13 +1330,12 @@ struct ZigTypeStruct {
     ContainerLayout layout;
     ResolveStatus resolve_status;
 
-    bool is_slice;
+    StructSpecial special;
     // whether any of the fields require comptime
     // known after ResolveStatusZeroBitsKnown
     bool requires_comptime;
     bool resolve_loop_flag_zero_bits;
     bool resolve_loop_flag_other;
-    bool is_inferred;
 };
 
 struct ZigTypeOptional {
@@ -1692,8 +1720,6 @@ enum BuiltinFnId {
     BuiltinFnIdFieldParentPtr,
     BuiltinFnIdByteOffsetOf,
     BuiltinFnIdBitOffsetOf,
-    BuiltinFnIdInlineCall,
-    BuiltinFnIdNoInlineCall,
     BuiltinFnIdNewStackCall,
     BuiltinFnIdAsyncCall,
     BuiltinFnIdTypeId,
@@ -1717,6 +1743,7 @@ enum BuiltinFnId {
     BuiltinFnIdFrameHandle,
     BuiltinFnIdFrameSize,
     BuiltinFnIdAs,
+    BuiltinFnIdCall,
 };
 
 struct BuiltinFnEntry {
@@ -2061,7 +2088,6 @@ struct CodeGen {
     ZigList<TldVar *> global_vars;
 
     ZigFn *cur_fn;
-    ZigFn *main_fn;
     ZigFn *panic_fn;
 
     ZigFn *largest_frame_fn;
@@ -2081,7 +2107,6 @@ struct CodeGen {
     uint32_t target_abi_index;
     uint32_t target_oformat_index;
     bool is_big_endian;
-    bool have_pub_main;
     bool have_c_main;
     bool have_winmain;
     bool have_winmain_crt_startup;
@@ -2481,6 +2506,8 @@ enum IrInstructionId {
     IrInstructionIdVarPtr,
     IrInstructionIdReturnPtr,
     IrInstructionIdCallSrc,
+    IrInstructionIdCallSrcArgs,
+    IrInstructionIdCallExtra,
     IrInstructionIdCallGen,
     IrInstructionIdConst,
     IrInstructionIdReturn,
@@ -2888,15 +2915,37 @@ struct IrInstructionCallSrc {
     ZigFn *fn_entry;
     size_t arg_count;
     IrInstruction **args;
+    IrInstruction *ret_ptr;
     ResultLoc *result_loc;
 
     IrInstruction *new_stack;
 
-    FnInline fn_inline;
     CallModifier modifier;
-
     bool is_async_call_builtin;
-    bool is_comptime;
+};
+
+// This is a pass1 instruction, used by @call when the args node is
+// a tuple or struct literal.
+struct IrInstructionCallSrcArgs {
+    IrInstruction base;
+
+    IrInstruction *options;
+    IrInstruction *fn_ref;
+    IrInstruction **args_ptr;
+    size_t args_len;
+    ResultLoc *result_loc;
+};
+
+// This is a pass1 instruction, used by @call, when the args node
+// is not a literal.
+// `args` is expected to be either a struct or a tuple.
+struct IrInstructionCallExtra {
+    IrInstruction base;
+
+    IrInstruction *options;
+    IrInstruction *fn_ref;
+    IrInstruction *args;
+    ResultLoc *result_loc;
 };
 
 struct IrInstructionCallGen {
@@ -2910,7 +2959,6 @@ struct IrInstructionCallGen {
     IrInstruction *frame_result_loc;
     IrInstruction *new_stack;
 
-    FnInline fn_inline;
     CallModifier modifier;
 
     bool is_async_call_builtin;

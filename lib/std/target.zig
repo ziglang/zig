@@ -46,6 +46,7 @@ pub const Target = union(enum) {
         wasi,
         emscripten,
         uefi,
+        other,
     };
 
     pub const Arch = union(enum) {
@@ -320,14 +321,12 @@ pub const Target = union(enum) {
     pub const stack_align = 16;
 
     pub fn zigTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
-        return std.fmt.allocPrint(
-            allocator,
-            "{}{}-{}-{}",
+        return std.fmt.allocPrint(allocator, "{}{}-{}-{}", .{
             @tagName(self.getArch()),
             Target.archSubArchName(self.getArch()),
             @tagName(self.getOs()),
             @tagName(self.getAbi()),
-        );
+        });
     }
 
     /// Returned slice must be freed by the caller.
@@ -371,23 +370,19 @@ pub const Target = union(enum) {
     }
 
     pub fn zigTripleNoSubArch(self: Target, allocator: *mem.Allocator) ![]u8 {
-        return std.fmt.allocPrint(
-            allocator,
-            "{}-{}-{}",
+        return std.fmt.allocPrint(allocator, "{}-{}-{}", .{
             @tagName(self.getArch()),
             @tagName(self.getOs()),
             @tagName(self.getAbi()),
-        );
+        });
     }
 
     pub fn linuxTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
-        return std.fmt.allocPrint(
-            allocator,
-            "{}-{}-{}",
+        return std.fmt.allocPrint(allocator, "{}-{}-{}", .{
             @tagName(self.getArch()),
             @tagName(self.getOs()),
             @tagName(self.getAbi()),
-        );
+        });
     }
 
     pub fn parse(text: []const u8) !Target {
@@ -432,6 +427,7 @@ pub const Target = union(enum) {
             .contiki,
             .amdpal,
             .hermit,
+            .other,
             => return .eabi,
             .openbsd,
             .macosx,

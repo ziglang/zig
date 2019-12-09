@@ -206,6 +206,11 @@ fn parseTestDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 /// TopLevelComptime <- KEYWORD_comptime BlockExpr
 fn parseTopLevelComptime(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const tok = eatToken(it, .Keyword_comptime) orelse return null;
+    const lbrace = eatToken(it, .LBrace) orelse {
+        putBackToken(it, tok);
+        return null;
+    };
+    putBackToken(it, lbrace);
     const block_node = try expectNode(arena, it, tree, parseBlockExpr, AstError{
         .ExpectedLabelOrLBrace = AstError.ExpectedLabelOrLBrace{ .token = it.index },
     });
@@ -403,9 +408,13 @@ fn parseVarDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     return &node.base;
 }
 
-/// ContainerField <- IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
+/// ContainerField <- KEYWORD_comptime? IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
 fn parseContainerField(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
-    const name_token = eatToken(it, .Identifier) orelse return null;
+    const comptime_token = eatToken(it, .Keyword_comptime);
+    const name_token = eatToken(it, .Identifier) orelse {
+        if (comptime_token) |t| putBackToken(it, t);
+        return null;
+    };
 
     var align_expr: ?*Node = null;
     var type_expr: ?*Node = null;
@@ -431,8 +440,8 @@ fn parseContainerField(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 
     const node = try arena.create(Node.ContainerField);
     node.* = Node.ContainerField{
-        .base = Node{ .id = .ContainerField },
         .doc_comments = null,
+        .comptime_token = comptime_token,
         .name_token = name_token,
         .type_expr = type_expr,
         .value_expr = value_expr,
@@ -2558,7 +2567,7 @@ fn parsePtrTypeStart(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
                 _ = try expectToken(it, tree, .RBracket);
                 const node = try arena.create(Node.PrefixOp);
                 node.* = .{
-                    .op_token = ident,
+                    .op_token = lbracket,
                     .op = .{ .PtrType = .{} },
                     .rhs = undefined, // set by caller
                 };

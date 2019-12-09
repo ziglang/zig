@@ -16,7 +16,7 @@ pub const Buffer = struct {
         mem.copy(u8, self.list.items, m);
         return self;
     }
-    
+
     /// Initialize memory to size bytes of undefined values.
     /// Must deinitialize with deinit.
     pub fn initSize(allocator: *Allocator, size: usize) !Buffer {
@@ -24,7 +24,7 @@ pub const Buffer = struct {
         try self.resize(size);
         return self;
     }
-    
+
     /// Initialize with capacity to hold at least num bytes.
     /// Must deinitialize with deinit.
     pub fn initCapacity(allocator: *Allocator, num: usize) !Buffer {
@@ -64,7 +64,7 @@ pub const Buffer = struct {
         return result;
     }
 
-    pub fn allocPrint(allocator: *Allocator, comptime format: []const u8, args: ...) !Buffer {
+    pub fn allocPrint(allocator: *Allocator, comptime format: []const u8, args: var) !Buffer {
         const countSize = struct {
             fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
                 size.* += bytes.len;
@@ -107,7 +107,7 @@ pub const Buffer = struct {
     pub fn len(self: Buffer) usize {
         return self.list.len - 1;
     }
-    
+
     pub fn capacity(self: Buffer) usize {
         return if (self.list.items.len > 0)
             self.list.items.len - 1

@@ -399,7 +399,7 @@ pub const Type = struct {
                 .Generic => |generic| {
                     self.non_key = NonKey{ .Generic = {} };
                     const cc_str = ccFnTypeStr(generic.cc);
-                    try name_stream.print("{}fn(", cc_str);
+                    try name_stream.print("{}fn(", .{cc_str});
                     var param_i: usize = 0;
                     while (param_i < generic.param_count) : (param_i += 1) {
                         const arg = if (param_i == 0) "var" else ", var";
@@ -407,7 +407,7 @@ pub const Type = struct {
                     }
                     try name_stream.write(")");
                     if (key.alignment) |alignment| {
-                        try name_stream.print(" align({})", alignment);
+                        try name_stream.print(" align({})", .{alignment});
                     }
                     try name_stream.write(" var");
                 },
@@ -416,7 +416,7 @@ pub const Type = struct {
                         .Normal = NonKey.Normal{ .variable_list = std.ArrayList(*Scope.Var).init(comp.gpa()) },
                     };
                     const cc_str = ccFnTypeStr(normal.cc);
-                    try name_stream.print("{}fn(", cc_str);
+                    try name_stream.print("{}fn(", .{cc_str});
                     for (normal.params) |param, i| {
                         if (i != 0) try name_stream.write(", ");
                         if (param.is_noalias) try name_stream.write("noalias ");
@@ -428,9 +428,9 @@ pub const Type = struct {
                     }
                     try name_stream.write(")");
                     if (key.alignment) |alignment| {
-                        try name_stream.print(" align({})", alignment);
+                        try name_stream.print(" align({})", .{alignment});
                     }
-                    try name_stream.print(" {}", normal.return_type.name);
+                    try name_stream.print(" {}", .{normal.return_type.name});
                 },
             }
 
@@ -584,7 +584,7 @@ pub const Type = struct {
             errdefer comp.gpa().destroy(self);
 
             const u_or_i = "ui"[@boolToInt(key.is_signed)];
-            const name = try std.fmt.allocPrint(comp.gpa(), "{c}{}", u_or_i, key.bit_count);
+            const name = try std.fmt.allocPrint(comp.gpa(), "{c}{}", .{ u_or_i, key.bit_count });
             errdefer comp.gpa().free(name);
 
             self.base.init(comp, .Int, name);
@@ -767,23 +767,19 @@ pub const Type = struct {
                 .Non => "",
             };
             const name = switch (self.key.alignment) {
-                .Abi => try std.fmt.allocPrint(
-                    comp.gpa(),
-                    "{}{}{}{}",
+                .Abi => try std.fmt.allocPrint(comp.gpa(), "{}{}{}{}", .{
                     size_str,
                     mut_str,
                     vol_str,
                     self.key.child_type.name,
-                ),
-                .Override => |alignment| try std.fmt.allocPrint(
-                    comp.gpa(),
-                    "{}align<{}> {}{}{}",
+                }),
+                .Override => |alignment| try std.fmt.allocPrint(comp.gpa(), "{}align<{}> {}{}{}", .{
                     size_str,
                     alignment,
                     mut_str,
                     vol_str,
                     self.key.child_type.name,
-                ),
+                }),
             };
             errdefer comp.gpa().free(name);
 
@@ -852,7 +848,7 @@ pub const Type = struct {
             };
             errdefer comp.gpa().destroy(self);
 
-            const name = try std.fmt.allocPrint(comp.gpa(), "[{}]{}", key.len, key.elem_type.name);
+            const name = try std.fmt.allocPrint(comp.gpa(), "[{}]{}", .{ key.len, key.elem_type.name });
             errdefer comp.gpa().free(name);
 
             self.base.init(comp, .Array, name);

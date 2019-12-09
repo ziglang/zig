@@ -27,9 +27,9 @@ test "write a file, read it, then delete it" {
         var file_out_stream = file.outStream();
         var buf_stream = io.BufferedOutStream(File.WriteError).init(&file_out_stream.stream);
         const st = &buf_stream.stream;
-        try st.print("begin");
+        try st.print("begin", .{});
         try st.write(data[0..]);
-        try st.print("end");
+        try st.print("end", .{});
         try buf_stream.flush();
     }
 
@@ -72,7 +72,7 @@ test "BufferOutStream" {
 
     const x: i32 = 42;
     const y: i32 = 1234;
-    try buf_stream.print("x: {}\ny: {}\n", x, y);
+    try buf_stream.print("x: {}\ny: {}\n", .{ x, y });
 
     expect(mem.eql(u8, buffer.toSlice(), "x: 42\ny: 1234\n"));
 }
@@ -605,7 +605,7 @@ test "c out stream" {
     }
 
     const out_stream = &io.COutStream.init(out_file).stream;
-    try out_stream.print("hi: {}\n", @as(i32, 123));
+    try out_stream.print("hi: {}\n", .{@as(i32, 123)});
 }
 
 test "File seek ops" {

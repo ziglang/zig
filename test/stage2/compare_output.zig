@@ -5,7 +5,7 @@ pub fn addCases(ctx: *TestContext) !void {
     // hello world
     try ctx.testCompareOutputLibC(
         \\extern fn puts([*]const u8) void;
-        \\export fn main() c_int {
+        \\pub export fn main() c_int {
         \\    puts("Hello, world!");
         \\    return 0;
         \\}
@@ -14,7 +14,7 @@ pub fn addCases(ctx: *TestContext) !void {
     // function calling another function
     try ctx.testCompareOutputLibC(
         \\extern fn puts(s: [*]const u8) void;
-        \\export fn main() c_int {
+        \\pub export fn main() c_int {
         \\    return foo("OK");
         \\}
         \\fn foo(s: [*]const u8) c_int {

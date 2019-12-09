@@ -164,7 +164,7 @@ fn usage() void {
         \\  --iterative-only
         \\  --help
         \\
-    );
+    , .{});
 }
 
 fn mode(comptime x: comptime_int) comptime_int {
@@ -181,7 +181,7 @@ fn printPad(stdout: var, s: []const u8) !void {
 }
 
 pub fn main() !void {
-    var stdout_file = try std.io.getStdOut();
+    var stdout_file = std.io.getStdOut();
     var stdout_out_stream = stdout_file.outStream();
     const stdout = &stdout_out_stream.stream;
 

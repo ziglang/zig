@@ -149,7 +149,7 @@ export fn stage2_fmt(argc: c_int, argv: [*]const [*:0]const u8) c_int {
         fmtMain(argc, argv) catch unreachable;
     } else {
         fmtMain(argc, argv) catch |e| {
-            std.debug.warn("{}\n", @errorName(e));
+            std.debug.warn("{}\n", .{@errorName(e)});
             return -1;
         };
     }
@@ -205,7 +205,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
         defer allocator.free(source_code);
 
         const tree = std.zig.parse(allocator, source_code) catch |err| {
-            try stderr.print("error parsing stdin: {}\n", err);
+            try stderr.print("error parsing stdin: {}\n", .{err});
             process.exit(1);
         };
         defer tree.deinit();
@@ -294,7 +294,7 @@ fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void
         },
         else => {
             // TODO lock stderr printing
-            try stderr.print("unable to open '{}': {}\n", file_path, err);
+            try stderr.print("unable to open '{}': {}\n", .{ file_path, err });
             fmt.any_error = true;
             return;
         },
@@ -302,7 +302,7 @@ fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void
     defer fmt.allocator.free(source_code);
 
     const tree = std.zig.parse(fmt.allocator, source_code) catch |err| {
-        try stderr.print("error parsing file '{}': {}\n", file_path, err);
+        try stderr.print("error parsing file '{}': {}\n", .{ file_path, err });
         fmt.any_error = true;
         return;
     };
@@ -320,7 +320,7 @@ fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void
     if (check_mode) {
         const anything_changed = try std.zig.render(fmt.allocator, io.null_out_stream, tree);
         if (anything_changed) {
-            try stderr.print("{}\n", file_path);
+            try stderr.print("{}\n", .{file_path});
             fmt.any_error = true;
         }
     } else {
@@ -329,7 +329,7 @@ fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void
 
         const anything_changed = try std.zig.render(fmt.allocator, baf.stream(), tree);
         if (anything_changed) {
-            try stderr.print("{}\n", file_path);
+            try stderr.print("{}\n", .{file_path});
             try baf.finish();
         }
     }
@@ -374,7 +374,7 @@ fn printErrMsgToFile(
     const text = text_buf.toOwnedSlice();
 
     const stream = &file.outStream().stream;
-    try stream.print("{}:{}:{}: error: {}\n", path, start_loc.line + 1, start_loc.column + 1, text);
+    try stream.print("{}:{}:{}: error: {}\n", .{ path, start_loc.line + 1, start_loc.column + 1, text });
 
     if (!color_on) return;
 

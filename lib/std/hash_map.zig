@@ -42,6 +42,11 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
 
         const Self = @This();
 
+        /// A *KV is a mutable pointer into this HashMap's internal storage.
+        /// Modifying the key is undefined behavior.
+        /// Modifying the value is harmless.
+        /// *KV pointers become invalid whenever this HashMap is modified,
+        /// and then any access to the *KV is undefined behavior.
         pub const KV = struct {
             key: K,
             value: V,

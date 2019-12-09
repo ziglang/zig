@@ -3,19 +3,19 @@ const builtin = @import("builtin");
 const is_test = builtin.is_test;
 
 pub extern fn __extendsfdf2(a: f32) f64 {
-    return @inlineCall(extendXfYf2, f64, f32, @bitCast(u32, a));
+    return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f64, f32, @bitCast(u32, a) });
 }
 
 pub extern fn __extenddftf2(a: f64) f128 {
-    return @inlineCall(extendXfYf2, f128, f64, @bitCast(u64, a));
+    return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f128, f64, @bitCast(u64, a) });
 }
 
 pub extern fn __extendsftf2(a: f32) f128 {
-    return @inlineCall(extendXfYf2, f128, f32, @bitCast(u32, a));
+    return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f128, f32, @bitCast(u32, a) });
 }
 
 pub extern fn __extendhfsf2(a: u16) f32 {
-    return @inlineCall(extendXfYf2, f32, f16, a);
+    return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f32, f16, a });
 }
 
 const CHAR_BIT = 8;

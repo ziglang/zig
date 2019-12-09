@@ -1,10 +1,10 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <title>Documentation - The Zig Programming Language</title>
     <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg=="/>
-    <style type="text/css">
+    <style>
       body{
         font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
       }
@@ -205,7 +205,7 @@ const std = @import("std");
 
 pub fn main() !void {
     const stdout = &std.io.getStdOut().outStream().stream;
-    try stdout.print("Hello, {}!\n", "world");
+    try stdout.print("Hello, {}!\n", .{"world"});
 }
       {#code_end#}
       <p>
@@ -217,7 +217,7 @@ pub fn main() !void {
 const warn = @import("std").debug.warn;
 
 pub fn main() void {
-    warn("Hello, world!\n");
+    warn("Hello, world!\n", .{});
 }
       {#code_end#}
       <p>
@@ -289,41 +289,50 @@ const assert = std.debug.assert;
 pub fn main() void {
     // integers
     const one_plus_one: i32 = 1 + 1;
-    warn("1 + 1 = {}\n", one_plus_one);
+    warn("1 + 1 = {}\n", .{one_plus_one});
 
     // floats
     const seven_div_three: f32 = 7.0 / 3.0;
-    warn("7.0 / 3.0 = {}\n", seven_div_three);
+    warn("7.0 / 3.0 = {}\n", .{seven_div_three});
 
     // boolean
-    warn("{}\n{}\n{}\n",
+    warn("{}\n{}\n{}\n", .{
         true and false,
         true or false,
-        !true);
+        !true,
+    });
 
     // optional
     var optional_value: ?[]const u8 = null;
     assert(optional_value == null);
 
-    warn("\noptional 1\ntype: {}\nvalue: {}\n",
-        @typeName(@typeOf(optional_value)), optional_value);
+    warn("\noptional 1\ntype: {}\nvalue: {}\n", .{
+        @typeName(@typeOf(optional_value)),
+        optional_value,
+    });
 
     optional_value = "hi";
     assert(optional_value != null);
 
-    warn("\noptional 2\ntype: {}\nvalue: {}\n",
-        @typeName(@typeOf(optional_value)), optional_value);
+    warn("\noptional 2\ntype: {}\nvalue: {}\n", .{
+        @typeName(@typeOf(optional_value)),
+        optional_value,
+    });
 
     // error union
     var number_or_error: anyerror!i32 = error.ArgNotFound;
 
-    warn("\nerror union 1\ntype: {}\nvalue: {}\n",
-        @typeName(@typeOf(number_or_error)), number_or_error);
+    warn("\nerror union 1\ntype: {}\nvalue: {}\n", .{
+        @typeName(@typeOf(number_or_error)),
+        number_or_error,
+    });
 
     number_or_error = 1234;
 
-    warn("\nerror union 2\ntype: {}\nvalue: {}\n",
-        @typeName(@typeOf(number_or_error)), number_or_error);
+    warn("\nerror union 2\ntype: {}\nvalue: {}\n", .{
+        @typeName(@typeOf(number_or_error)),
+        number_or_error,
+    });
 }
       {#code_end#}
       {#header_open|Primitive Types#}
@@ -511,7 +520,7 @@ pub fn main() void {
       </div>
       <p>
       In addition to the integer types above, arbitrary bit-width integers can be referenced by using
-      an identifier of <code>i</code> or </code>u</code> followed by digits. For example, the identifier
+      an identifier of <code>i</code> or <code>u</code> followed by digits. For example, the identifier
       {#syntax#}i7{#endsyntax#} refers to a signed 7-bit integer. The maximum allowed bit-width of an
       integer type is {#syntax#}65535{#endsyntax#}.
       </p>
@@ -878,7 +887,7 @@ fn divide(a: i32, b: i32) i32 {
       </p>
       <p>
       Zig supports arbitrary bit-width integers, referenced by using
-      an identifier of <code>i</code> or </code>u</code> followed by digits. For example, the identifier
+      an identifier of <code>i</code> or <code>u</code> followed by digits. For example, the identifier
       {#syntax#}i7{#endsyntax#} refers to a signed 7-bit integer. The maximum allowed bit-width of an
       integer type is {#syntax#}65535{#endsyntax#}.
       </p>
@@ -954,8 +963,8 @@ extern fn foo_optimized(x: f64) f64;
 
 pub fn main() void {
     const x = 0.001;
-    warn("optimized = {}\n", foo_optimized(x));
-    warn("strict = {}\n", foo_strict(x));
+    warn("optimized = {}\n", .{foo_optimized(x)});
+    warn("strict = {}\n", .{foo_strict(x)});
 }
       {#code_end#}
       {#see_also|@setFloatMode|Division by Zero#}
@@ -2182,7 +2191,7 @@ test "using slices for strings" {
     // You can use slice syntax on an array to convert an array into a slice.
     const all_together_slice = all_together[0..];
     // String concatenation example.
-    const hello_world = try fmt.bufPrint(all_together_slice, "{} {}", hello, world);
+    const hello_world = try fmt.bufPrint(all_together_slice, "{} {}", .{hello, world});
 
     // Generally, you can use UTF-8 and not worry about whether something is a
     // string. If you don't need to deal with individual characters, no need
@@ -2623,9 +2632,9 @@ const std = @import("std");
 
 pub fn main() void {
     const Foo = struct {};
-    std.debug.warn("variable: {}\n", @typeName(Foo));
-    std.debug.warn("anonymous: {}\n", @typeName(struct {}));
-    std.debug.warn("function: {}\n", @typeName(List(i32)));
+    std.debug.warn("variable: {}\n", .{@typeName(Foo)});
+    std.debug.warn("anonymous: {}\n", .{@typeName(struct {})});
+    std.debug.warn("function: {}\n", .{@typeName(List(i32))});
 }
 
 fn List(comptime T: type) type {
@@ -3806,18 +3815,18 @@ test "defer basics" {
 // If multiple defer statements are specified, they will be executed in
 // the reverse order they were run.
 fn deferUnwindExample() void {
-    warn("\n");
+    warn("\n", .{});
 
     defer {
-        warn("1 ");
+        warn("1 ", .{});
     }
     defer {
-        warn("2 ");
+        warn("2 ", .{});
     }
     if (false) {
         // defers are not run if they are never executed.
         defer {
-            warn("3 ");
+            warn("3 ", .{});
         }
     }
 }
@@ -3832,15 +3841,15 @@ test "defer unwinding" {
 // This is especially useful in allowing a function to clean up properly
 // on error, and replaces goto error handling tactics as seen in c.
 fn deferErrorExample(is_error: bool) !void {
-    warn("\nstart of function\n");
+    warn("\nstart of function\n", .{});
 
     // This will always be executed on exit
     defer {
-        warn("end of function\n");
+        warn("end of function\n", .{});
     }
 
     errdefer {
-        warn("encountered an error!\n");
+        warn("encountered an error!\n", .{});
     }
 
     if (is_error) {
@@ -5445,8 +5454,6 @@ fn gimmeTheBiggerInteger(a: u64, b: u64) u64 {
         <li>In the function definition, the value is known at compile-time.</li>
       </ul>
       <p>
-      </p>
-      <p>
       For example, if we were to introduce another function to the above snippet:
       </p>
       {#code_begin|test_err|values of type 'type' must be comptime known#}
@@ -5845,7 +5852,7 @@ const a_number: i32 = 1234;
 const a_string = "foobar";
 
 pub fn main() void {
-    warn("here is a string: '{}' here is a number: {}\n", a_string, a_number);
+    warn("here is a string: '{}' here is a number: {}\n", .{a_string, a_number});
 }
       {#code_end#}
 
@@ -5962,8 +5969,11 @@ const a_number: i32 = 1234;
 const a_string = "foobar";
 
 test "printf too many arguments" {
-    warn("here is a string: '{}' here is a number: {}\n",
-        a_string, a_number, a_number);
+    warn("here is a string: '{}' here is a number: {}\n", .{
+        a_string,
+        a_number,
+        a_number,
+    });
 }
       {#code_end#}
       <p>
@@ -5981,7 +5991,7 @@ const a_string = "foobar";
 const fmt = "here is a string: '{}' here is a number: {}\n";
 
 pub fn main() void {
-    warn(fmt, a_string, a_number);
+    warn(fmt, .{a_string, a_number});
 }
       {#code_end#}
       <p>
@@ -6006,7 +6016,7 @@ pub fn main() void {
       {#target_linux_x86_64#}
 pub fn main() noreturn {
     const msg = "hello world\n";
-    _ = syscall3(SYS_write, STDOUT_FILENO, @ptrToInt(&msg), msg.len);
+    _ = syscall3(SYS_write, STDOUT_FILENO, @ptrToInt(msg), msg.len);
     _ = syscall1(SYS_exit, 0);
     unreachable;
 }
@@ -6419,7 +6429,7 @@ pub fn main() void {
 
 fn amainWrap() void {
     amain() catch |e| {
-        std.debug.warn("{}\n", e);
+        std.debug.warn("{}\n", .{e});
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpStackTrace(trace.*);
         }
@@ -6449,8 +6459,8 @@ fn amain() !void {
     const download_text = try await download_frame;
     defer allocator.free(download_text);
 
-    std.debug.warn("download_text: {}\n", download_text);
-    std.debug.warn("file_text: {}\n", file_text);
+    std.debug.warn("download_text: {}\n", .{download_text});
+    std.debug.warn("file_text: {}\n", .{file_text});
 }
 
 var global_download_frame: anyframe = undefined;
@@ -6460,7 +6470,7 @@ fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
     suspend {
         global_download_frame = @frame();
     }
-    std.debug.warn("fetchUrl returning\n");
+    std.debug.warn("fetchUrl returning\n", .{});
     return result;
 }
 
@@ -6471,7 +6481,7 @@ fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
     suspend {
         global_file_frame = @frame();
     }
-    std.debug.warn("readFile returning\n");
+    std.debug.warn("readFile returning\n", .{});
     return result;
 }
       {#code_end#}
@@ -6489,7 +6499,7 @@ pub fn main() void {
 
 fn amainWrap() void {
     amain() catch |e| {
-        std.debug.warn("{}\n", e);
+        std.debug.warn("{}\n", .{e});
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpStackTrace(trace.*);
         }
@@ -6519,21 +6529,21 @@ fn amain() !void {
     const download_text = try await download_frame;
     defer allocator.free(download_text);
 
-    std.debug.warn("download_text: {}\n", download_text);
-    std.debug.warn("file_text: {}\n", file_text);
+    std.debug.warn("download_text: {}\n", .{download_text});
+    std.debug.warn("file_text: {}\n", .{file_text});
 }
 
 fn fetchUrl(allocator: *Allocator, url: []const u8) ![]u8 {
     const result = try std.mem.dupe(allocator, u8, "this is the downloaded url contents");
     errdefer allocator.free(result);
-    std.debug.warn("fetchUrl returning\n");
+    std.debug.warn("fetchUrl returning\n", .{});
     return result;
 }
 
 fn readFile(allocator: *Allocator, filename: []const u8) ![]u8 {
     const result = try std.mem.dupe(allocator, u8, "this is the file contents");
     errdefer allocator.free(result);
-    std.debug.warn("readFile returning\n");
+    std.debug.warn("readFile returning\n", .{});
     return result;
 }
       {#code_end#}
@@ -6841,6 +6851,99 @@ async fn func(y: *i32) void {
       </p>
       {#header_close#}
 
+      {#header_open|@call#}
+      <pre>{#syntax#}@call(options: std.builtin.CallOptions, function: var, args: var) var{#endsyntax#}</pre>
+      <p>
+      Calls a function, in the same way that invoking an expression with parentheses does:
+      </p>
+      {#code_begin|test|call#}
+const assert = @import("std").debug.assert;
+
+test "noinline function call" {
+    assert(@call(.{}, add, .{3, 9}) == 12);
+}
+
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+      {#code_end#}
+      <p>
+      {#syntax#}@call{#endsyntax#} allows more flexibility than normal function call syntax does. The
+      {#syntax#}CallOptions{#endsyntax#} struct is reproduced here:
+      </p>
+      {#code_begin|syntax#}
+pub const CallOptions = struct {
+    modifier: Modifier = .auto,
+    stack: ?[]align(std.Target.stack_align) u8 = null,
+
+    pub const Modifier = enum {
+        /// Equivalent to function call syntax.
+        auto,
+
+        /// Prevents tail call optimization. This guarantees that the return
+        /// address will point to the callsite, as opposed to the callsite's
+        /// callsite. If the call is otherwise required to be tail-called
+        /// or inlined, a compile error is emitted instead.
+        never_tail,
+
+        /// Guarantees that the call will not be inlined. If the call is
+        /// otherwise required to be inlined, a compile error is emitted instead.
+        never_inline,
+
+        /// Asserts that the function call will not suspend. This allows a
+        /// non-async function to call an async function.
+        no_async,
+
+        /// Guarantees that the call will be generated with tail call optimization.
+        /// If this is not possible, a compile error is emitted instead.
+        always_tail,
+
+        /// Guarantees that the call will inlined at the callsite.
+        /// If this is not possible, a compile error is emitted instead.
+        always_inline,
+
+        /// Evaluates the call at compile-time. If the call cannot be completed at
+        /// compile-time, a compile error is emitted instead.
+        compile_time,
+    };
+};
+      {#code_end#}
+
+      {#header_open|Calling with a New Stack#}
+      <p>
+      When the {#syntax#}stack{#endsyntax#} option is provided, instead of using the same stack as the caller, the function uses the provided stack.
+      </p>
+      {#code_begin|test|new_stack_call#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+var new_stack_bytes: [1024]u8 align(16) = undefined;
+
+test "calling a function with a new stack" {
+    const arg = 1234;
+
+    const a = @call(.{.stack = new_stack_bytes[0..512]}, targetFunction, .{arg});
+    const b = @call(.{.stack = new_stack_bytes[512..]}, targetFunction, .{arg});
+    _ = targetFunction(arg);
+
+    assert(arg == 1234);
+    assert(a < b);
+}
+
+fn targetFunction(x: i32) usize {
+    assert(x == 1234);
+
+    var local_variable: i32 = 42;
+    const ptr = &local_variable;
+    ptr.* += 1;
+
+    assert(local_variable == 43);
+    return @ptrToInt(ptr);
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_close#}
+
       {#header_open|@cDefine#}
       <pre>{#syntax#}@cDefine(comptime name: []u8, value){#endsyntax#}</pre>
       <p>
@@ -6891,7 +6994,7 @@ async fn func(y: *i32) void {
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
       <p>
-      This appends <code>#include <$path>\n</code> to the {#syntax#}c_import{#endsyntax#}
+      This appends <code>#include &lt;$path&gt;\n</code> to the {#syntax#}c_import{#endsyntax#}
       temporary buffer.
       </p>
       {#see_also|Import from C Header File|@cImport|@cDefine|@cUndef#}
@@ -7012,10 +7115,9 @@ const num1 = blk: {
 test "main" {
     @compileLog("comptime in main");
 
-    warn("Runtime in main, num1 = {}.\n", num1);
+    warn("Runtime in main, num1 = {}.\n", .{num1});
 }
       {#code_end#}
-      </p>
       <p>
       will ouput:
       </p>
@@ -7034,7 +7136,7 @@ const num1 = blk: {
 };
 
 test "main" {
-    warn("Runtime in main, num1 = {}.\n", num1);
+    warn("Runtime in main, num1 = {}.\n", .{num1});
 }
       {#code_end#}
       {#header_close#}
@@ -7427,27 +7529,6 @@ test "@hasDecl" {
       {#see_also|Compile Variables|@embedFile#}
       {#header_close#}
 
-      {#header_open|@inlineCall#}
-      <pre>{#syntax#}@inlineCall(function: X, args: ...) Y{#endsyntax#}</pre>
-      <p>
-      This calls a function, in the same way that invoking an expression with parentheses does:
-      </p>
-      {#code_begin|test#}
-const assert = @import("std").debug.assert;
-
-test "inline function call" {
-    assert(@inlineCall(add, 3, 9) == 12);
-}
-
-fn add(a: i32, b: i32) i32 { return a + b; }
-      {#code_end#}
-      <p>
-      Unlike a normal function call, however, {#syntax#}@inlineCall{#endsyntax#} guarantees that the call
-      will be inlined. If the call cannot be inlined, a compile error is emitted.
-      </p>
-      {#see_also|@noInlineCall#}
-      {#header_close#}
-
       {#header_open|@intCast#}
       <pre>{#syntax#}@intCast(comptime DestType: type, int: var) DestType{#endsyntax#}</pre>
       <p>
@@ -7603,71 +7684,6 @@ mem.set(u8, dest, c);{#endsyntax#}</pre>
           stores the overflowed bits in {#syntax#}result{#endsyntax#} and returns {#syntax#}true{#endsyntax#}.
                   If no overflow or underflow occurs, returns {#syntax#}false{#endsyntax#}.
       </p>
-      {#header_close#}
-
-      {#header_open|@newStackCall#}
-      <pre>{#syntax#}@newStackCall(new_stack: []align(target_stack_align) u8, function: var, args: ...) var{#endsyntax#}</pre>
-      <p>
-      This calls a function, in the same way that invoking an expression with parentheses does. However,
-      instead of using the same stack as the caller, the function uses the stack provided in the {#syntax#}new_stack{#endsyntax#}
-      parameter.
-      </p>
-      <p>
-      The new stack must be aligned to {#syntax#}target_stack_align{#endsyntax#} bytes. This is a target-specific
-      number. A safe value that will work on all targets is {#syntax#}16{#endsyntax#}. This value can
-      also be obtained by using {#link|@sizeOf#} on the {#link|@Frame#} type of {#link|Async Functions#}.
-      </p>
-      {#code_begin|test#}
-const std = @import("std");
-const assert = std.debug.assert;
-
-var new_stack_bytes: [1024]u8 align(16) = undefined;
-
-test "calling a function with a new stack" {
-    const arg = 1234;
-
-    const a = @newStackCall(new_stack_bytes[0..512], targetFunction, arg);
-    const b = @newStackCall(new_stack_bytes[512..], targetFunction, arg);
-    _ = targetFunction(arg);
-
-    assert(arg == 1234);
-    assert(a < b);
-}
-
-fn targetFunction(x: i32) usize {
-    assert(x == 1234);
-
-    var local_variable: i32 = 42;
-    const ptr = &local_variable;
-    ptr.* += 1;
-
-    assert(local_variable == 43);
-    return @ptrToInt(ptr);
-}
-      {#code_end#}
-      {#header_close#}
-
-      {#header_open|@noInlineCall#}
-      <pre>{#syntax#}@noInlineCall(function: var, args: ...) var{#endsyntax#}</pre>
-      <p>
-      This calls a function, in the same way that invoking an expression with parentheses does:
-      </p>
-      {#code_begin|test#}
-const assert = @import("std").debug.assert;
-
-test "noinline function call" {
-    assert(@noInlineCall(add, 3, 9) == 12);
-}
-
-fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
-      {#code_end#}
-      <p>
-      Unlike a normal function call, however, {#syntax#}@noInlineCall{#endsyntax#} guarantees that the call
-      will not be inlined. If the call must be inlined, a compile error is emitted.
-      </p>
-      {#see_also|@inlineCall#}
       {#header_close#}
 
       {#header_open|@OpaqueType#}
@@ -8226,7 +8242,7 @@ test "integer truncation" {
           <li>{#syntax#}noreturn{#endsyntax#}</li>
           <li>{#syntax#}void{#endsyntax#}</li>
           <li>{#syntax#}bool{#endsyntax#}</li>
-          <li>{#link|Integers#}</li> - The maximum bit count for an integer type is {#syntax#}65535{#endsyntax#}.
+          <li>{#link|Integers#} - The maximum bit count for an integer type is {#syntax#}65535{#endsyntax#}.</li>
           <li>{#link|Floats#}</li>
           <li>{#link|Pointers#}</li>
           <li>{#syntax#}comptime_int{#endsyntax#}</li>
@@ -8620,7 +8636,7 @@ pub fn build(b: *Builder) void {
       {#header_close#}
 
       {#header_open|Single Threaded Builds#}
-      <p>Zig has a compile option <code>--single-threaded</code> which has the following effects:
+      <p>Zig has a compile option <code>--single-threaded</code> which has the following effects:</p>
       <ul>
         <li>All {#link|Thread Local Variables#} are treated as {#link|Global Variables#}.</li>
         <li>The overhead of {#link|Async Functions#} becomes equivalent to function call overhead.</li>
@@ -8629,7 +8645,6 @@ pub fn build(b: *Builder) void {
           For example {#syntax#}std.Mutex{#endsyntax#} becomes
           an empty data structure and all of its functions become no-ops.</li>
       </ul>
-      </p>
       {#header_close#}
 
       {#header_open|Undefined Behavior#}
@@ -8703,7 +8718,7 @@ const std = @import("std");
 pub fn main() void {
     var value: i32 = -1;
     var unsigned = @intCast(u32, value);
-    std.debug.warn("value: {}\n", unsigned);
+    std.debug.warn("value: {}\n", .{unsigned});
 }
       {#code_end#}
       <p>
@@ -8725,7 +8740,7 @@ const std = @import("std");
 pub fn main() void {
     var spartan_count: u16 = 300;
     const byte = @intCast(u8, spartan_count);
-    std.debug.warn("value: {}\n", byte);
+    std.debug.warn("value: {}\n", .{byte});
 }
       {#code_end#}
       <p>
@@ -8759,7 +8774,7 @@ const std = @import("std");
 pub fn main() void {
     var byte: u8 = 255;
     byte += 1;
-    std.debug.warn("value: {}\n", byte);
+    std.debug.warn("value: {}\n", .{byte});
 }
       {#code_end#}
       {#header_close#}
@@ -8782,11 +8797,11 @@ pub fn main() !void {
     var byte: u8 = 255;
 
     byte = if (math.add(u8, byte, 1)) |result| result else |err| {
-        warn("unable to add one: {}\n", @errorName(err));
+        warn("unable to add one: {}\n", .{@errorName(err)});
         return err;
     };
 
-    warn("result: {}\n", byte);
+    warn("result: {}\n", .{byte});
 }
       {#code_end#}
       {#header_close#}
@@ -8811,9 +8826,9 @@ pub fn main() void {
 
     var result: u8 = undefined;
     if (@addWithOverflow(u8, byte, 10, &result)) {
-        warn("overflowed result: {}\n", result);
+        warn("overflowed result: {}\n", .{result});
     } else {
-        warn("result: {}\n", result);
+        warn("result: {}\n", .{result});
     }
 }
       {#code_end#}
@@ -8858,7 +8873,7 @@ const std = @import("std");
 pub fn main() void {
     var x: u8 = 0b01010101;
     var y = @shlExact(x, 2);
-    std.debug.warn("value: {}\n", y);
+    std.debug.warn("value: {}\n", .{y});
 }
       {#code_end#}
       {#header_close#}
@@ -8876,7 +8891,7 @@ const std = @import("std");
 pub fn main() void {
     var x: u8 = 0b10101010;
     var y = @shrExact(x, 2);
-    std.debug.warn("value: {}\n", y);
+    std.debug.warn("value: {}\n", .{y});
 }
       {#code_end#}
       {#header_close#}
@@ -8897,7 +8912,7 @@ pub fn main() void {
     var a: u32 = 1;
     var b: u32 = 0;
     var c = a / b;
-    std.debug.warn("value: {}\n", c);
+    std.debug.warn("value: {}\n", .{c});
 }
       {#code_end#}
       {#header_close#}
@@ -8918,7 +8933,7 @@ pub fn main() void {
     var a: u32 = 10;
     var b: u32 = 0;
     var c = a % b;
-    std.debug.warn("value: {}\n", c);
+    std.debug.warn("value: {}\n", .{c});
 }
       {#code_end#}
       {#header_close#}
@@ -8939,7 +8954,7 @@ pub fn main() void {
     var a: u32 = 10;
     var b: u32 = 3;
     var c = @divExact(a, b);
-    std.debug.warn("value: {}\n", c);
+    std.debug.warn("value: {}\n", .{c});
 }
       {#code_end#}
       {#header_close#}
@@ -8958,7 +8973,7 @@ const std = @import("std");
 pub fn main() void {
     var bytes = [5]u8{ 1, 2, 3, 4, 5 };
     var slice = @bytesToSlice(u32, bytes[0..]);
-    std.debug.warn("value: {}\n", slice[0]);
+    std.debug.warn("value: {}\n", .{slice[0]});
 }
       {#code_end#}
       {#header_close#}
@@ -8977,7 +8992,7 @@ const std = @import("std");
 pub fn main() void {
     var optional_number: ?i32 = null;
     var number = optional_number.?;
-    std.debug.warn("value: {}\n", number);
+    std.debug.warn("value: {}\n", .{number});
 }
       {#code_end#}
       <p>One way to avoid this crash is to test for null instead of assuming non-null, with
@@ -8988,9 +9003,9 @@ pub fn main() void {
     const optional_number: ?i32 = null;
 
     if (optional_number) |number| {
-        warn("got number: {}\n", number);
+        warn("got number: {}\n", .{number});
     } else {
-        warn("it's null\n");
+        warn("it's null\n", .{});
     }
 }
       {#code_end#}
@@ -9013,7 +9028,7 @@ const std = @import("std");
 
 pub fn main() void {
     const number = getNumberOrFail() catch unreachable;
-    std.debug.warn("value: {}\n", number);
+    std.debug.warn("value: {}\n", .{number});
 }
 
 fn getNumberOrFail() !i32 {
@@ -9029,9 +9044,9 @@ pub fn main() void {
     const result = getNumberOrFail();
 
     if (result) |number| {
-        warn("got number: {}\n", number);
+        warn("got number: {}\n", .{number});
     } else |err| {
-        warn("got error: {}\n", @errorName(err));
+        warn("got error: {}\n", .{@errorName(err)});
     }
 }
 
@@ -9058,7 +9073,7 @@ pub fn main() void {
     var err = error.AnError;
     var number = @errorToInt(err) + 500;
     var invalid_err = @intToError(number);
-    std.debug.warn("value: {}\n", number);
+    std.debug.warn("value: {}\n", .{number});
 }
       {#code_end#}
       {#header_close#}
@@ -9088,7 +9103,7 @@ const Foo = enum {
 pub fn main() void {
     var a: u2 = 3;
     var b = @intToEnum(Foo, a);
-    std.debug.warn("value: {}\n", @tagName(b));
+    std.debug.warn("value: {}\n", .{@tagName(b)});
 }
       {#code_end#}
       {#header_close#}
@@ -9125,7 +9140,7 @@ pub fn main() void {
 }
 fn foo(set1: Set1) void {
     const x = @errSetCast(Set2, set1);
-    std.debug.warn("value: {}\n", x);
+    std.debug.warn("value: {}\n", .{x});
 }
       {#code_end#}
       {#header_close#}
@@ -9181,7 +9196,7 @@ pub fn main() void {
 
 fn bar(f: *Foo) void {
     f.float = 12.34;
-    std.debug.warn("value: {}\n", f.float);
+    std.debug.warn("value: {}\n", .{f.float});
 }
       {#code_end#}
       <p>
@@ -9205,7 +9220,7 @@ pub fn main() void {
 
 fn bar(f: *Foo) void {
     f.* = Foo{ .float = 12.34 };
-    std.debug.warn("value: {}\n", f.float);
+    std.debug.warn("value: {}\n", .{f.float});
 }
       {#code_end#}
       <p>
@@ -9224,7 +9239,7 @@ pub fn main() void {
     var f = Foo{ .int = 42 };
     f = Foo{ .float = undefined };
     bar(&f);
-    std.debug.warn("value: {}\n", f.float);
+    std.debug.warn("value: {}\n", .{f.float});
 }
 
 fn bar(f: *Foo) void {
@@ -9345,7 +9360,7 @@ pub fn main() !void {
     const allocator = &arena.allocator;
 
     const ptr = try allocator.create(i32);
-    std.debug.warn("ptr={*}\n", ptr);
+    std.debug.warn("ptr={*}\n", .{ptr});
 }
               {#code_end#}
               When using this kind of allocator, there is no need to free anything manually. Everything
@@ -9410,7 +9425,7 @@ test "string literal to constant slice" {
       The location of memory allocated with {#syntax#}allocator.alloc{#endsyntax#} or
       {#syntax#}allocator.create{#endsyntax#} is determined by the allocator's implementation.
       </p>
-      </p>TODO: thread local variables</p>
+      <p>TODO: thread local variables</p>
       {#header_close#}
 
       {#header_open|Implementing an Allocator#}
@@ -9878,7 +9893,7 @@ pub fn main() !void {
     defer std.process.argsFree(std.heap.page_allocator, args);
 
     for (args) |arg, i| {
-        std.debug.warn("{}: {}\n", i, arg);
+        std.debug.warn("{}: {}\n", .{i, arg});
     }
 }
       {#code_end#}

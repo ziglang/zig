@@ -19,25 +19,49 @@ const is_mips = switch (builtin.arch) {
 };
 
 comptime {
-    if (builtin.link_libc) {
-        @export("main", main, .Strong);
-    } else if (builtin.os == .windows) {
-        @export("WinMainCRTStartup", WinMainCRTStartup, .Strong);
-    } else if (is_wasm and builtin.os == .freestanding) {
-        @export("_start", wasm_freestanding_start, .Strong);
-    } else if (builtin.os == .uefi) {
-        @export("EfiMain", EfiMain, .Strong);
-    } else if (is_mips) {
-        if (!@hasDecl(root, "__start")) @export("__start", _start, .Strong);
-    } else {
-        if (!@hasDecl(root, "_start")) @export("_start", _start, .Strong);
+    if (builtin.output_mode == .Lib and builtin.link_mode == .Dynamic) {
+        if (builtin.os == .windows and !@hasDecl(root, "_DllMainCRTStartup")) {
+            @export("_DllMainCRTStartup", _DllMainCRTStartup, .Strong);
+        }
+    } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
+        if (builtin.link_libc and @hasDecl(root, "main")) {
+            if (@typeInfo(@typeOf(root.main)).Fn.calling_convention != .C) {
+                @export("main", main, .Weak);
+            }
+        } else if (builtin.os == .windows) {
+            if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup")) {
+                @export("WinMainCRTStartup", WinMainCRTStartup, .Strong);
+            }
+        } else if (builtin.os == .uefi) {
+            if (!@hasDecl(root, "EfiMain")) @export("EfiMain", EfiMain, .Strong);
+        } else if (builtin.os != .freestanding) {
+            if (is_mips) {
+                if (!@hasDecl(root, "__start")) @export("__start", _start, .Strong);
+            } else {
+                if (!@hasDecl(root, "_start")) @export("_start", _start, .Strong);
+            }
+        } else if (is_wasm) {
+            if (!@hasDecl(root, "_start")) @export("_start", wasm_freestanding_start, .Strong);
+        }
     }
+}
+
+stdcallcc fn _DllMainCRTStartup(
+    hinstDLL: std.os.windows.HINSTANCE,
+    fdwReason: std.os.windows.DWORD,
+    lpReserved: std.os.windows.LPVOID,
+) std.os.windows.BOOL {
+    if (@hasDecl(root, "DllMain")) {
+        return root.DllMain(hinstDLL, fdwReason, lpReserved);
+    }
+
+    return std.os.windows.TRUE;
 }
 
 extern fn wasm_freestanding_start() void {
     // This is marked inline because for some reason LLVM in release mode fails to inline it,
     // and we want fewer call frames in stack traces.
-    _ = @inlineCall(callMain);
+    _ = @call(.{ .modifier = .always_inline }, callMain, .{});
 }
 
 extern fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) usize {
@@ -67,7 +91,7 @@ nakedcc fn _start() noreturn {
     if (builtin.os == builtin.Os.wasi) {
         // This is marked inline because for some reason LLVM in release mode fails to inline it,
         // and we want fewer call frames in stack traces.
-        std.os.wasi.proc_exit(@inlineCall(callMain));
+        std.os.wasi.proc_exit(@call(.{ .modifier = .always_inline }, callMain, .{}));
     }
 
     switch (builtin.arch) {
@@ -103,10 +127,10 @@ nakedcc fn _start() noreturn {
     }
     // If LLVM inlines stack variables into _start, they will overwrite
     // the command line argument data.
-    @noInlineCall(posixCallMainAndExit);
+    @call(.{ .modifier = .never_inline }, posixCallMainAndExit, .{});
 }
 
-extern fn WinMainCRTStartup() noreturn {
+stdcallcc fn WinMainCRTStartup() noreturn {
     @setAlignStack(16);
     if (!builtin.single_threaded) {
         _ = @import("start_windows_tls.zig");
@@ -162,10 +186,10 @@ fn posixCallMainAndExit() noreturn {
         //    0,
         //) catch @panic("out of memory");
         //std.os.mprotect(new_stack[0..std.mem.page_size], std.os.PROT_NONE) catch {};
-        //std.os.exit(@newStackCall(new_stack, callMainWithArgs, argc, argv, envp));
+        //std.os.exit(@call(.{.stack = new_stack}, callMainWithArgs, .{argc, argv, envp}));
     }
 
-    std.os.exit(@inlineCall(callMainWithArgs, argc, argv, envp));
+    std.os.exit(@call(.{ .modifier = .always_inline }, callMainWithArgs, .{ argc, argv, envp }));
 }
 
 fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
@@ -181,7 +205,7 @@ extern fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) i32 {
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];
-    return @inlineCall(callMainWithArgs, @intCast(usize, c_argc), c_argv, envp);
+    return @call(.{ .modifier = .always_inline }, callMainWithArgs, .{ @intCast(usize, c_argc), c_argv, envp });
 }
 
 // General error message for a malformed return type
@@ -193,7 +217,7 @@ inline fn initEventLoopAndCallMain() u8 {
     if (std.event.Loop.instance) |loop| {
         if (!@hasDecl(root, "event_loop")) {
             loop.init() catch |err| {
-                std.debug.warn("error: {}\n", @errorName(err));
+                std.debug.warn("error: {}\n", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }
@@ -211,7 +235,7 @@ inline fn initEventLoopAndCallMain() u8 {
 
     // This is marked inline because for some reason LLVM in release mode fails to inline it,
     // and we want fewer call frames in stack traces.
-    return @inlineCall(callMain);
+    return @call(.{ .modifier = .always_inline }, callMain, .{});
 }
 
 async fn callMainAsync(loop: *std.event.Loop) u8 {
@@ -240,7 +264,7 @@ fn callMain() u8 {
         },
         .ErrorUnion => {
             const result = root.main() catch |err| {
-                std.debug.warn("error: {}\n", @errorName(err));
+                std.debug.warn("error: {}\n", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }

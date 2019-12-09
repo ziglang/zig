@@ -2,18 +2,64 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("comptime struct field, no init value",
+        \\const Foo = struct {
+        \\    comptime b: i32,
+        \\};
+        \\export fn entry() void {
+        \\    var f: Foo = undefined;
+        \\}
+    , "tmp.zig:2:5: error: comptime struct field missing initialization value");
+
     cases.add(
+        "bad usage of @call",
+        \\export fn entry1() void {
+        \\    @call(.{}, foo, {});
+        \\}
+        \\export fn entry2() void {
+        \\    comptime @call(.{ .modifier = .never_inline }, foo, .{});
+        \\}
+        \\export fn entry3() void {
+        \\    comptime @call(.{ .modifier = .never_tail }, foo, .{});
+        \\}
+        \\export fn entry4() void {
+        \\    @call(.{ .modifier = .never_inline }, bar, .{});
+        \\}
+        \\export fn entry5(c: bool) void {
+        \\    var baz = if (c) baz1 else baz2;
+        \\    @call(.{ .modifier = .compile_time }, baz, .{});
+        \\}
+        \\fn foo() void {}
+        \\inline fn bar() void {}
+        \\fn baz1() void {}
+        \\fn baz2() void {}
+    ,
+        "tmp.zig:2:21: error: expected tuple or struct, found 'void'",
+        "tmp.zig:5:14: error: unable to perform 'never_inline' call at compile-time",
+        "tmp.zig:8:14: error: unable to perform 'never_tail' call at compile-time",
+        "tmp.zig:11:5: error: no-inline call of inline function",
+        "tmp.zig:15:43: error: unable to evaluate constant expression",
+    );
+
+    cases.add("exported async function",
         \\export async fn foo() void {}
     , "tmp.zig:1:1: error: exported function cannot be async");
 
+    cases.addExe(
+        "main missing name",
+        \\pub fn (main) void {}
+    ,
+        "tmp.zig:1:5: error: missing function name",
+    );
+
     cases.addCase(x: {
-        var tc = cases.create("@newStackCall on unsupported target",
+        var tc = cases.create("call with new stack on unsupported target",
+            \\var buf: [10]u8 align(16) = undefined;
             \\export fn entry() void {
-            \\    var buf: [10]u8 align(16) = undefined;
-            \\    @newStackCall(&buf, foo);
+            \\    @call(.{.stack = &buf}, foo, .{});
             \\}
             \\fn foo() void {}
-        , "tmp.zig:3:5: error: target arch 'wasm32' does not support @newStackCall");
+        , "tmp.zig:3:5: error: target arch 'wasm32' does not support calling with a new stack");
         tc.target = tests.Target{
             .Cross = tests.CrossTarget{
                 .arch = .wasm32,
@@ -1921,17 +1967,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     );
 
     cases.add(
-        "@noInlineCall on an inline function",
-        \\inline fn foo() void {}
-        \\
-        \\export fn entry() void {
-        \\    @noInlineCall(foo);
-        \\}
-    ,
-        "tmp.zig:4:5: error: no-inline call of inline function",
-    );
-
-    cases.add(
         "comptime continue inside runtime catch",
         \\export fn entry(c: bool) void {
         \\    const ints = [_]u8{ 1, 2 };
@@ -2563,14 +2598,12 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn a(b: fn (*const u8) void) void {
         \\    b('a');
         \\}
-        \\fn c(d: u8) void {
-        \\    @import("std").debug.warn("{c}\n", d);
-        \\}
+        \\fn c(d: u8) void {}
         \\export fn entry() void {
         \\    a(c);
         \\}
     ,
-        "tmp.zig:8:7: error: expected type 'fn(*const u8) void', found 'fn(u8) void'",
+        "tmp.zig:6:7: error: expected type 'fn(*const u8) void', found 'fn(u8) void'",
     );
 
     cases.add(

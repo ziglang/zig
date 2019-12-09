@@ -215,32 +215,33 @@ const Tokenizer = struct {
     }
 };
 
-fn parseError(tokenizer: *Tokenizer, token: Token, comptime fmt: []const u8, args: ...) anyerror {
+fn parseError(tokenizer: *Tokenizer, token: Token, comptime fmt: []const u8, args: var) anyerror {
     const loc = tokenizer.getTokenLocation(token);
-    warn("{}:{}:{}: error: " ++ fmt ++ "\n", tokenizer.source_file_name, loc.line + 1, loc.column + 1, args);
+    const args_prefix = .{ tokenizer.source_file_name, loc.line + 1, loc.column + 1 };
+    warn("{}:{}:{}: error: " ++ fmt ++ "\n", args_prefix ++ args);
     if (loc.line_start <= loc.line_end) {
-        warn("{}\n", tokenizer.buffer[loc.line_start..loc.line_end]);
+        warn("{}\n", .{tokenizer.buffer[loc.line_start..loc.line_end]});
         {
             var i: usize = 0;
             while (i < loc.column) : (i += 1) {
-                warn(" ");
+                warn(" ", .{});
             }
         }
         {
             const caret_count = token.end - token.start;
             var i: usize = 0;
             while (i < caret_count) : (i += 1) {
-                warn("~");
+                warn("~", .{});
             }
         }
-        warn("\n");
+        warn("\n", .{});
     }
     return error.ParseError;
 }
 
 fn assertToken(tokenizer: *Tokenizer, token: Token, id: Token.Id) !void {
     if (token.id != id) {
-        return parseError(tokenizer, token, "expected {}, found {}", @tagName(id), @tagName(token.id));
+        return parseError(tokenizer, token, "expected {}, found {}", .{ @tagName(id), @tagName(token.id) });
     }
 }
 
@@ -339,7 +340,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
         switch (token.id) {
             Token.Id.Eof => {
                 if (header_stack_size != 0) {
-                    return parseError(tokenizer, token, "unbalanced headers");
+                    return parseError(tokenizer, token, "unbalanced headers", .{});
                 }
                 try toc.write("    </ul>\n");
                 break;
@@ -373,10 +374,15 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                                 if (mem.eql(u8, param, "3col")) {
                                     columns = 3;
                                 } else {
-                                    return parseError(tokenizer, bracket_tok, "unrecognized header_open param: {}", param);
+                                    return parseError(
+                                        tokenizer,
+                                        bracket_tok,
+                                        "unrecognized header_open param: {}",
+                                        .{param},
+                                    );
                                 }
                             },
-                            else => return parseError(tokenizer, bracket_tok, "invalid header_open token"),
+                            else => return parseError(tokenizer, bracket_tok, "invalid header_open token", .{}),
                         }
                     }
 
@@ -391,15 +397,15 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                         },
                     });
                     if (try urls.put(urlized, tag_token)) |entry| {
-                        parseError(tokenizer, tag_token, "duplicate header url: #{}", urlized) catch {};
-                        parseError(tokenizer, entry.value, "other tag here") catch {};
+                        parseError(tokenizer, tag_token, "duplicate header url: #{}", .{urlized}) catch {};
+                        parseError(tokenizer, entry.value, "other tag here", .{}) catch {};
                         return error.ParseError;
                     }
                     if (last_action == Action.Open) {
                         try toc.writeByte('\n');
                         try toc.writeByteNTimes(' ', header_stack_size * 4);
                         if (last_columns) |n| {
-                            try toc.print("<ul style=\"columns: {}\">\n", n);
+                            try toc.print("<ul style=\"columns: {}\">\n", .{n});
                         } else {
                             try toc.write("<ul>\n");
                         }
@@ -408,10 +414,10 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                     }
                     last_columns = columns;
                     try toc.writeByteNTimes(' ', 4 + header_stack_size * 4);
-                    try toc.print("<li><a id=\"toc-{}\" href=\"#{}\">{}</a>", urlized, urlized, content);
+                    try toc.print("<li><a id=\"toc-{}\" href=\"#{}\">{}</a>", .{ urlized, urlized, content });
                 } else if (mem.eql(u8, tag_name, "header_close")) {
                     if (header_stack_size == 0) {
-                        return parseError(tokenizer, tag_token, "unbalanced close header");
+                        return parseError(tokenizer, tag_token, "unbalanced close header", .{});
                     }
                     header_stack_size -= 1;
                     _ = try eatToken(tokenizer, Token.Id.BracketClose);
@@ -442,7 +448,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                                 try nodes.append(Node{ .SeeAlso = list.toOwnedSlice() });
                                 break;
                             },
-                            else => return parseError(tokenizer, see_also_tok, "invalid see_also token"),
+                            else => return parseError(tokenizer, see_also_tok, "invalid see_also token", .{}),
                         }
                     }
                 } else if (mem.eql(u8, tag_name, "link")) {
@@ -459,7 +465,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                                 _ = try eatToken(tokenizer, Token.Id.BracketClose);
                                 break :blk tokenizer.buffer[explicit_text.start..explicit_text.end];
                             },
-                            else => return parseError(tokenizer, tok, "invalid link token"),
+                            else => return parseError(tokenizer, tok, "invalid link token", .{}),
                         }
                     };
 
@@ -482,7 +488,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             _ = try eatToken(tokenizer, Token.Id.BracketClose);
                         },
                         Token.Id.BracketClose => {},
-                        else => return parseError(tokenizer, token, "invalid token"),
+                        else => return parseError(tokenizer, token, "invalid token", .{}),
                     }
                     const code_kind_str = tokenizer.buffer[code_kind_tok.start..code_kind_tok.end];
                     var code_kind_id: Code.Id = undefined;
@@ -512,7 +518,7 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                         code_kind_id = Code.Id{ .Obj = null };
                         is_inline = true;
                     } else {
-                        return parseError(tokenizer, code_kind_tok, "unrecognized code kind: {}", code_kind_str);
+                        return parseError(tokenizer, code_kind_tok, "unrecognized code kind: {}", .{code_kind_str});
                     }
 
                     var mode = builtin.Mode.Debug;
@@ -550,7 +556,12 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             _ = try eatToken(tokenizer, Token.Id.BracketClose);
                             break content_tok;
                         } else {
-                            return parseError(tokenizer, end_code_tag, "invalid token inside code_begin: {}", end_tag_name);
+                            return parseError(
+                                tokenizer,
+                                end_code_tag,
+                                "invalid token inside code_begin: {}",
+                                .{end_tag_name},
+                            );
                         }
                         _ = try eatToken(tokenizer, Token.Id.BracketClose);
                     } else
@@ -575,15 +586,20 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                     const end_syntax_tag = try eatToken(tokenizer, Token.Id.TagContent);
                     const end_tag_name = tokenizer.buffer[end_syntax_tag.start..end_syntax_tag.end];
                     if (!mem.eql(u8, end_tag_name, "endsyntax")) {
-                        return parseError(tokenizer, end_syntax_tag, "invalid token inside syntax: {}", end_tag_name);
+                        return parseError(
+                            tokenizer,
+                            end_syntax_tag,
+                            "invalid token inside syntax: {}",
+                            .{end_tag_name},
+                        );
                     }
                     _ = try eatToken(tokenizer, Token.Id.BracketClose);
                     try nodes.append(Node{ .Syntax = content_tok });
                 } else {
-                    return parseError(tokenizer, tag_token, "unrecognized tag name: {}", tag_name);
+                    return parseError(tokenizer, tag_token, "unrecognized tag name: {}", .{tag_name});
                 }
             },
-            else => return parseError(tokenizer, token, "invalid token"),
+            else => return parseError(tokenizer, token, "invalid token", .{}),
         }
     }
 
@@ -729,7 +745,7 @@ fn termColor(allocator: *mem.Allocator, input: []const u8) ![]u8 {
                         try out.write("</span>");
                     }
                     if (first_number != 0 or second_number != 0) {
-                        try out.print("<span class=\"t{}_{}\">", first_number, second_number);
+                        try out.print("<span class=\"t{}_{}\">", .{ first_number, second_number });
                         open_span_count += 1;
                     }
                 },
@@ -960,6 +976,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
                 docgen_tokenizer,
                 source_token,
                 "syntax error",
+                .{},
             ),
         }
         index = token.end;
@@ -987,9 +1004,9 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
             },
             Node.Link => |info| {
                 if (!toc.urls.contains(info.url)) {
-                    return parseError(tokenizer, info.token, "url not found: {}", info.url);
+                    return parseError(tokenizer, info.token, "url not found: {}", .{info.url});
                 }
-                try out.print("<a href=\"#{}\">{}</a>", info.url, info.name);
+                try out.print("<a href=\"#{}\">{}</a>", .{ info.url, info.name });
             },
             Node.Nav => {
                 try out.write(toc.toc);
@@ -1002,12 +1019,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
             Node.HeaderOpen => |info| {
                 try out.print(
                     "<h{} id=\"{}\"><a href=\"#toc-{}\">{}</a> <a class=\"hdr\" href=\"#{}\">§</a></h{}>\n",
-                    info.n,
-                    info.url,
-                    info.url,
-                    info.name,
-                    info.url,
-                    info.n,
+                    .{ info.n, info.url, info.url, info.name, info.url, info.n },
                 );
             },
             Node.SeeAlso => |items| {
@@ -1015,9 +1027,9 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                 for (items) |item| {
                     const url = try urlize(allocator, item.name);
                     if (!toc.urls.contains(url)) {
-                        return parseError(tokenizer, item.token, "url not found: {}", url);
+                        return parseError(tokenizer, item.token, "url not found: {}", .{url});
                     }
-                    try out.print("<li><a href=\"#{}\">{}</a></li>\n", url, item.name);
+                    try out.print("<li><a href=\"#{}\">{}</a></li>\n", .{ url, item.name });
                 }
                 try out.write("</ul>\n");
             },
@@ -1026,17 +1038,17 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
             },
             Node.Code => |code| {
                 code_progress_index += 1;
-                warn("docgen example code {}/{}...", code_progress_index, tokenizer.code_node_count);
+                warn("docgen example code {}/{}...", .{ code_progress_index, tokenizer.code_node_count });
 
                 const raw_source = tokenizer.buffer[code.source_token.start..code.source_token.end];
                 const trimmed_raw_source = mem.trim(u8, raw_source, " \n");
                 if (!code.is_inline) {
-                    try out.print("<p class=\"file\">{}.zig</p>", code.name);
+                    try out.print("<p class=\"file\">{}.zig</p>", .{code.name});
                 }
                 try out.write("<pre>");
                 try tokenizeAndPrint(tokenizer, out, code.source_token);
                 try out.write("</pre>");
-                const name_plus_ext = try std.fmt.allocPrint(allocator, "{}.zig", code.name);
+                const name_plus_ext = try std.fmt.allocPrint(allocator, "{}.zig", .{code.name});
                 const tmp_source_file_name = try fs.path.join(
                     allocator,
                     &[_][]const u8{ tmp_dir_name, name_plus_ext },
@@ -1045,7 +1057,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
 
                 switch (code.id) {
                     Code.Id.Exe => |expected_outcome| code_block: {
-                        const name_plus_bin_ext = try std.fmt.allocPrint(allocator, "{}{}", code.name, exe_ext);
+                        const name_plus_bin_ext = try std.fmt.allocPrint(allocator, "{}{}", .{ code.name, exe_ext });
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
                         try build_args.appendSlice(&[_][]const u8{
@@ -1059,40 +1071,40 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             "--cache",
                             "on",
                         });
-                        try out.print("<pre><code class=\"shell\">$ zig build-exe {}.zig", code.name);
+                        try out.print("<pre><code class=\"shell\">$ zig build-exe {}.zig", .{code.name});
                         switch (code.mode) {
                             builtin.Mode.Debug => {},
                             builtin.Mode.ReleaseSafe => {
                                 try build_args.append("--release-safe");
-                                try out.print(" --release-safe");
+                                try out.print(" --release-safe", .{});
                             },
                             builtin.Mode.ReleaseFast => {
                                 try build_args.append("--release-fast");
-                                try out.print(" --release-fast");
+                                try out.print(" --release-fast", .{});
                             },
                             builtin.Mode.ReleaseSmall => {
                                 try build_args.append("--release-small");
-                                try out.print(" --release-small");
+                                try out.print(" --release-small", .{});
                             },
                         }
                         for (code.link_objects) |link_object| {
-                            const name_with_ext = try std.fmt.allocPrint(allocator, "{}{}", link_object, obj_ext);
+                            const name_with_ext = try std.fmt.allocPrint(allocator, "{}{}", .{ link_object, obj_ext });
                             const full_path_object = try fs.path.join(
                                 allocator,
                                 &[_][]const u8{ tmp_dir_name, name_with_ext },
                             );
                             try build_args.append("--object");
                             try build_args.append(full_path_object);
-                            try out.print(" --object {}", name_with_ext);
+                            try out.print(" --object {}", .{name_with_ext});
                         }
                         if (code.link_libc) {
                             try build_args.append("-lc");
-                            try out.print(" -lc");
+                            try out.print(" -lc", .{});
                         }
                         if (code.target_str) |triple| {
                             try build_args.appendSlice(&[_][]const u8{ "-target", triple });
                             if (!code.is_inline) {
-                                try out.print(" -target {}", triple);
+                                try out.print(" -target {}", .{triple});
                             }
                         }
                         if (expected_outcome == .BuildFail) {
@@ -1106,29 +1118,29 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             switch (result.term) {
                                 .Exited => |exit_code| {
                                     if (exit_code == 0) {
-                                        warn("{}\nThe following command incorrectly succeeded:\n", result.stderr);
+                                        warn("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
                                         for (build_args.toSliceConst()) |arg|
-                                            warn("{} ", arg)
+                                            warn("{} ", .{arg})
                                         else
-                                            warn("\n");
-                                        return parseError(tokenizer, code.source_token, "example incorrectly compiled");
+                                            warn("\n", .{});
+                                        return parseError(tokenizer, code.source_token, "example incorrectly compiled", .{});
                                     }
                                 },
                                 else => {
-                                    warn("{}\nThe following command crashed:\n", result.stderr);
+                                    warn("{}\nThe following command crashed:\n", .{result.stderr});
                                     for (build_args.toSliceConst()) |arg|
-                                        warn("{} ", arg)
+                                        warn("{} ", .{arg})
                                     else
-                                        warn("\n");
-                                    return parseError(tokenizer, code.source_token, "example compile crashed");
+                                        warn("\n", .{});
+                                    return parseError(tokenizer, code.source_token, "example compile crashed", .{});
                                 },
                             }
                             const escaped_stderr = try escapeHtml(allocator, result.stderr);
                             const colored_stderr = try termColor(allocator, escaped_stderr);
-                            try out.print("\n{}</code></pre>\n", colored_stderr);
+                            try out.print("\n{}</code></pre>\n", .{colored_stderr});
                             break :code_block;
                         }
-                        const exec_result = exec(allocator, &env_map, build_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "example failed to compile");
+                        const exec_result = exec(allocator, &env_map, build_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "example failed to compile", .{});
 
                         if (code.target_str) |triple| {
                             if (mem.startsWith(u8, triple, "wasm32") or
@@ -1137,7 +1149,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                                 (builtin.os != .linux or builtin.arch != .x86_64))
                             {
                                 // skip execution
-                                try out.print("</code></pre>\n");
+                                try out.print("</code></pre>\n", .{});
                                 break :code_block;
                             }
                         }
@@ -1152,12 +1164,12 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             switch (result.term) {
                                 .Exited => |exit_code| {
                                     if (exit_code == 0) {
-                                        warn("{}\nThe following command incorrectly succeeded:\n", result.stderr);
+                                        warn("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
                                         for (run_args) |arg|
-                                            warn("{} ", arg)
+                                            warn("{} ", .{arg})
                                         else
-                                            warn("\n");
-                                        return parseError(tokenizer, code.source_token, "example incorrectly compiled");
+                                            warn("\n", .{});
+                                        return parseError(tokenizer, code.source_token, "example incorrectly compiled", .{});
                                     }
                                 },
                                 .Signal => exited_with_signal = true,
@@ -1165,7 +1177,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             }
                             break :blk result;
                         } else blk: {
-                            break :blk exec(allocator, &env_map, run_args) catch return parseError(tokenizer, code.source_token, "example crashed");
+                            break :blk exec(allocator, &env_map, run_args) catch return parseError(tokenizer, code.source_token, "example crashed", .{});
                         };
 
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
@@ -1174,11 +1186,11 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         const colored_stderr = try termColor(allocator, escaped_stderr);
                         const colored_stdout = try termColor(allocator, escaped_stdout);
 
-                        try out.print("\n$ ./{}\n{}{}", code.name, colored_stdout, colored_stderr);
+                        try out.print("\n$ ./{}\n{}{}", .{ code.name, colored_stdout, colored_stderr });
                         if (exited_with_signal) {
-                            try out.print("(process terminated by signal)");
+                            try out.print("(process terminated by signal)", .{});
                         }
-                        try out.print("</code></pre>\n");
+                        try out.print("</code></pre>\n", .{});
                     },
                     Code.Id.Test => {
                         var test_args = std.ArrayList([]const u8).init(allocator);
@@ -1191,34 +1203,34 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             "--cache",
                             "on",
                         });
-                        try out.print("<pre><code class=\"shell\">$ zig test {}.zig", code.name);
+                        try out.print("<pre><code class=\"shell\">$ zig test {}.zig", .{code.name});
                         switch (code.mode) {
                             builtin.Mode.Debug => {},
                             builtin.Mode.ReleaseSafe => {
                                 try test_args.append("--release-safe");
-                                try out.print(" --release-safe");
+                                try out.print(" --release-safe", .{});
                             },
                             builtin.Mode.ReleaseFast => {
                                 try test_args.append("--release-fast");
-                                try out.print(" --release-fast");
+                                try out.print(" --release-fast", .{});
                             },
                             builtin.Mode.ReleaseSmall => {
                                 try test_args.append("--release-small");
-                                try out.print(" --release-small");
+                                try out.print(" --release-small", .{});
                             },
                         }
                         if (code.link_libc) {
                             try test_args.append("-lc");
-                            try out.print(" -lc");
+                            try out.print(" -lc", .{});
                         }
                         if (code.target_str) |triple| {
                             try test_args.appendSlice(&[_][]const u8{ "-target", triple });
-                            try out.print(" -target {}", triple);
+                            try out.print(" -target {}", .{triple});
                         }
-                        const result = exec(allocator, &env_map, test_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "test failed");
+                        const result = exec(allocator, &env_map, test_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "test failed", .{});
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
                         const escaped_stdout = try escapeHtml(allocator, result.stdout);
-                        try out.print("\n{}{}</code></pre>\n", escaped_stderr, escaped_stdout);
+                        try out.print("\n{}{}</code></pre>\n", .{ escaped_stderr, escaped_stdout });
                     },
                     Code.Id.TestError => |error_match| {
                         var test_args = std.ArrayList([]const u8).init(allocator);
@@ -1233,50 +1245,50 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             "--output-dir",
                             tmp_dir_name,
                         });
-                        try out.print("<pre><code class=\"shell\">$ zig test {}.zig", code.name);
+                        try out.print("<pre><code class=\"shell\">$ zig test {}.zig", .{code.name});
                         switch (code.mode) {
                             builtin.Mode.Debug => {},
                             builtin.Mode.ReleaseSafe => {
                                 try test_args.append("--release-safe");
-                                try out.print(" --release-safe");
+                                try out.print(" --release-safe", .{});
                             },
                             builtin.Mode.ReleaseFast => {
                                 try test_args.append("--release-fast");
-                                try out.print(" --release-fast");
+                                try out.print(" --release-fast", .{});
                             },
                             builtin.Mode.ReleaseSmall => {
                                 try test_args.append("--release-small");
-                                try out.print(" --release-small");
+                                try out.print(" --release-small", .{});
                             },
                         }
                         const result = try ChildProcess.exec(allocator, test_args.toSliceConst(), null, &env_map, max_doc_file_size);
                         switch (result.term) {
                             .Exited => |exit_code| {
                                 if (exit_code == 0) {
-                                    warn("{}\nThe following command incorrectly succeeded:\n", result.stderr);
+                                    warn("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
                                     for (test_args.toSliceConst()) |arg|
-                                        warn("{} ", arg)
+                                        warn("{} ", .{arg})
                                     else
-                                        warn("\n");
-                                    return parseError(tokenizer, code.source_token, "example incorrectly compiled");
+                                        warn("\n", .{});
+                                    return parseError(tokenizer, code.source_token, "example incorrectly compiled", .{});
                                 }
                             },
                             else => {
-                                warn("{}\nThe following command crashed:\n", result.stderr);
+                                warn("{}\nThe following command crashed:\n", .{result.stderr});
                                 for (test_args.toSliceConst()) |arg|
-                                    warn("{} ", arg)
+                                    warn("{} ", .{arg})
                                 else
-                                    warn("\n");
-                                return parseError(tokenizer, code.source_token, "example compile crashed");
+                                    warn("\n", .{});
+                                return parseError(tokenizer, code.source_token, "example compile crashed", .{});
                             },
                         }
                         if (mem.indexOf(u8, result.stderr, error_match) == null) {
-                            warn("{}\nExpected to find '{}' in stderr", result.stderr, error_match);
-                            return parseError(tokenizer, code.source_token, "example did not have expected compile error");
+                            warn("{}\nExpected to find '{}' in stderr", .{ result.stderr, error_match });
+                            return parseError(tokenizer, code.source_token, "example did not have expected compile error", .{});
                         }
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
                         const colored_stderr = try termColor(allocator, escaped_stderr);
-                        try out.print("\n{}</code></pre>\n", colored_stderr);
+                        try out.print("\n{}</code></pre>\n", .{colored_stderr});
                     },
 
                     Code.Id.TestSafety => |error_match| {
@@ -1311,38 +1323,37 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         switch (result.term) {
                             .Exited => |exit_code| {
                                 if (exit_code == 0) {
-                                    warn("{}\nThe following command incorrectly succeeded:\n", result.stderr);
+                                    warn("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
                                     for (test_args.toSliceConst()) |arg|
-                                        warn("{} ", arg)
+                                        warn("{} ", .{arg})
                                     else
-                                        warn("\n");
-                                    return parseError(tokenizer, code.source_token, "example test incorrectly succeeded");
+                                        warn("\n", .{});
+                                    return parseError(tokenizer, code.source_token, "example test incorrectly succeeded", .{});
                                 }
                             },
                             else => {
-                                warn("{}\nThe following command crashed:\n", result.stderr);
+                                warn("{}\nThe following command crashed:\n", .{result.stderr});
                                 for (test_args.toSliceConst()) |arg|
-                                    warn("{} ", arg)
+                                    warn("{} ", .{arg})
                                 else
-                                    warn("\n");
-                                return parseError(tokenizer, code.source_token, "example compile crashed");
+                                    warn("\n", .{});
+                                return parseError(tokenizer, code.source_token, "example compile crashed", .{});
                             },
                         }
                         if (mem.indexOf(u8, result.stderr, error_match) == null) {
-                            warn("{}\nExpected to find '{}' in stderr", result.stderr, error_match);
-                            return parseError(tokenizer, code.source_token, "example did not have expected runtime safety error message");
+                            warn("{}\nExpected to find '{}' in stderr", .{ result.stderr, error_match });
+                            return parseError(tokenizer, code.source_token, "example did not have expected runtime safety error message", .{});
                         }
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
                         const colored_stderr = try termColor(allocator, escaped_stderr);
-                        try out.print(
-                            "<pre><code class=\"shell\">$ zig test {}.zig{}\n{}</code></pre>\n",
+                        try out.print("<pre><code class=\"shell\">$ zig test {}.zig{}\n{}</code></pre>\n", .{
                             code.name,
                             mode_arg,
                             colored_stderr,
-                        );
+                        });
                     },
                     Code.Id.Obj => |maybe_error_match| {
-                        const name_plus_obj_ext = try std.fmt.allocPrint(allocator, "{}{}", code.name, obj_ext);
+                        const name_plus_obj_ext = try std.fmt.allocPrint(allocator, "{}{}", .{ code.name, obj_ext });
                         const tmp_obj_file_name = try fs.path.join(
                             allocator,
                             &[_][]const u8{ tmp_dir_name, name_plus_obj_ext },
@@ -1350,7 +1361,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
 
-                        const name_plus_h_ext = try std.fmt.allocPrint(allocator, "{}.h", code.name);
+                        const name_plus_h_ext = try std.fmt.allocPrint(allocator, "{}.h", .{code.name});
                         const output_h_file_name = try fs.path.join(
                             allocator,
                             &[_][]const u8{ tmp_dir_name, name_plus_h_ext },
@@ -1369,7 +1380,7 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                         });
 
                         if (!code.is_inline) {
-                            try out.print("<pre><code class=\"shell\">$ zig build-obj {}.zig", code.name);
+                            try out.print("<pre><code class=\"shell\">$ zig build-obj {}.zig", .{code.name});
                         }
 
                         switch (code.mode) {
@@ -1377,26 +1388,26 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             builtin.Mode.ReleaseSafe => {
                                 try build_args.append("--release-safe");
                                 if (!code.is_inline) {
-                                    try out.print(" --release-safe");
+                                    try out.print(" --release-safe", .{});
                                 }
                             },
                             builtin.Mode.ReleaseFast => {
                                 try build_args.append("--release-fast");
                                 if (!code.is_inline) {
-                                    try out.print(" --release-fast");
+                                    try out.print(" --release-fast", .{});
                                 }
                             },
                             builtin.Mode.ReleaseSmall => {
                                 try build_args.append("--release-small");
                                 if (!code.is_inline) {
-                                    try out.print(" --release-small");
+                                    try out.print(" --release-small", .{});
                                 }
                             },
                         }
 
                         if (code.target_str) |triple| {
                             try build_args.appendSlice(&[_][]const u8{ "-target", triple });
-                            try out.print(" -target {}", triple);
+                            try out.print(" -target {}", .{triple});
                         }
 
                         if (maybe_error_match) |error_match| {
@@ -1404,38 +1415,35 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             switch (result.term) {
                                 .Exited => |exit_code| {
                                     if (exit_code == 0) {
-                                        warn("{}\nThe following command incorrectly succeeded:\n", result.stderr);
+                                        warn("{}\nThe following command incorrectly succeeded:\n", .{result.stderr});
                                         for (build_args.toSliceConst()) |arg|
-                                            warn("{} ", arg)
+                                            warn("{} ", .{arg})
                                         else
-                                            warn("\n");
-                                        return parseError(tokenizer, code.source_token, "example build incorrectly succeeded");
+                                            warn("\n", .{});
+                                        return parseError(tokenizer, code.source_token, "example build incorrectly succeeded", .{});
                                     }
                                 },
                                 else => {
-                                    warn("{}\nThe following command crashed:\n", result.stderr);
+                                    warn("{}\nThe following command crashed:\n", .{result.stderr});
                                     for (build_args.toSliceConst()) |arg|
-                                        warn("{} ", arg)
+                                        warn("{} ", .{arg})
                                     else
-                                        warn("\n");
-                                    return parseError(tokenizer, code.source_token, "example compile crashed");
+                                        warn("\n", .{});
+                                    return parseError(tokenizer, code.source_token, "example compile crashed", .{});
                                 },
                             }
                             if (mem.indexOf(u8, result.stderr, error_match) == null) {
-                                warn("{}\nExpected to find '{}' in stderr", result.stderr, error_match);
-                                return parseError(tokenizer, code.source_token, "example did not have expected compile error message");
+                                warn("{}\nExpected to find '{}' in stderr", .{ result.stderr, error_match });
+                                return parseError(tokenizer, code.source_token, "example did not have expected compile error message", .{});
                             }
                             const escaped_stderr = try escapeHtml(allocator, result.stderr);
                             const colored_stderr = try termColor(allocator, escaped_stderr);
-                            try out.print("\n{}\n", colored_stderr);
-                            if (!code.is_inline) {
-                                try out.print("</code></pre>\n");
-                            }
+                            try out.print("\n{}", .{colored_stderr});
                         } else {
-                            _ = exec(allocator, &env_map, build_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "example failed to compile");
+                            _ = exec(allocator, &env_map, build_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "example failed to compile", .{});
                         }
                         if (!code.is_inline) {
-                            try out.print("</code></pre>\n");
+                            try out.print("</code></pre>\n", .{});
                         }
                     },
                     Code.Id.Lib => {
@@ -1449,33 +1457,33 @@ fn genHtml(allocator: *mem.Allocator, tokenizer: *Tokenizer, toc: *Toc, out: var
                             "--output-dir",
                             tmp_dir_name,
                         });
-                        try out.print("<pre><code class=\"shell\">$ zig build-lib {}.zig", code.name);
+                        try out.print("<pre><code class=\"shell\">$ zig build-lib {}.zig", .{code.name});
                         switch (code.mode) {
                             builtin.Mode.Debug => {},
                             builtin.Mode.ReleaseSafe => {
                                 try test_args.append("--release-safe");
-                                try out.print(" --release-safe");
+                                try out.print(" --release-safe", .{});
                             },
                             builtin.Mode.ReleaseFast => {
                                 try test_args.append("--release-fast");
-                                try out.print(" --release-fast");
+                                try out.print(" --release-fast", .{});
                             },
                             builtin.Mode.ReleaseSmall => {
                                 try test_args.append("--release-small");
-                                try out.print(" --release-small");
+                                try out.print(" --release-small", .{});
                             },
                         }
                         if (code.target_str) |triple| {
                             try test_args.appendSlice(&[_][]const u8{ "-target", triple });
-                            try out.print(" -target {}", triple);
+                            try out.print(" -target {}", .{triple});
                         }
-                        const result = exec(allocator, &env_map, test_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "test failed");
+                        const result = exec(allocator, &env_map, test_args.toSliceConst()) catch return parseError(tokenizer, code.source_token, "test failed", .{});
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
                         const escaped_stdout = try escapeHtml(allocator, result.stdout);
-                        try out.print("\n{}{}</code></pre>\n", escaped_stderr, escaped_stdout);
+                        try out.print("\n{}{}</code></pre>\n", .{ escaped_stderr, escaped_stdout });
                     },
                 }
-                warn("OK\n");
+                warn("OK\n", .{});
             },
         }
     }
@@ -1486,20 +1494,20 @@ fn exec(allocator: *mem.Allocator, env_map: *std.BufMap, args: []const []const u
     switch (result.term) {
         .Exited => |exit_code| {
             if (exit_code != 0) {
-                warn("{}\nThe following command exited with code {}:\n", result.stderr, exit_code);
+                warn("{}\nThe following command exited with code {}:\n", .{ result.stderr, exit_code });
                 for (args) |arg|
-                    warn("{} ", arg)
+                    warn("{} ", .{arg})
                 else
-                    warn("\n");
+                    warn("\n", .{});
                 return error.ChildExitError;
             }
         },
         else => {
-            warn("{}\nThe following command crashed:\n", result.stderr);
+            warn("{}\nThe following command crashed:\n", .{result.stderr});
             for (args) |arg|
-                warn("{} ", arg)
+                warn("{} ", .{arg})
             else
-                warn("\n");
+                warn("\n", .{});
             return error.ChildCrashed;
         },
     }

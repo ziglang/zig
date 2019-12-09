@@ -1,3 +1,20 @@
+test "zig fmt: comptime struct field" {
+    try testCanonical(
+        \\const Foo = struct {
+        \\    a: i32,
+        \\    comptime b: i32 = 1234,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: c pointer type" {
+    try testCanonical(
+        \\pub extern fn repro() [*c]const u8;
+        \\
+    );
+}
+
 test "zig fmt: asm expression with comptime content" {
     try testCanonical(
         \\comptime {
@@ -21,6 +38,7 @@ test "zig fmt: asm expression with comptime content" {
         \\
     );
 }
+
 test "zig fmt: var struct field" {
     try testCanonical(
         \\pub const Pointer = struct {
@@ -619,15 +637,6 @@ test "zig fmt: fn decl with trailing comma" {
         \\fn foo(
         \\    a: i32,
         \\    b: i32,
-        \\) void {}
-        \\
-    );
-}
-
-test "zig fmt: var_args with trailing comma" {
-    try testCanonical(
-        \\pub fn add(
-        \\    a: ...,
         \\) void {}
         \\
     );
@@ -1732,13 +1741,6 @@ test "zig fmt: call expression" {
     );
 }
 
-test "zig fmt: var args" {
-    try testCanonical(
-        \\fn print(args: ...) void {}
-        \\
-    );
-}
-
 test "zig fmt: var type" {
     try testCanonical(
         \\fn print(args: var) var {}
@@ -2687,9 +2689,9 @@ fn testParse(source: []const u8, allocator: *mem.Allocator, anything_changed: *b
     while (error_it.next()) |parse_error| {
         const token = tree.tokens.at(parse_error.loc());
         const loc = tree.tokenLocation(0, parse_error.loc());
-        try stderr.print("(memory buffer):{}:{}: error: ", loc.line + 1, loc.column + 1);
+        try stderr.print("(memory buffer):{}:{}: error: ", .{ loc.line + 1, loc.column + 1 });
         try tree.renderError(parse_error, stderr);
-        try stderr.print("\n{}\n", source[loc.line_start..loc.line_end]);
+        try stderr.print("\n{}\n", .{source[loc.line_start..loc.line_end]});
         {
             var i: usize = 0;
             while (i < loc.column) : (i += 1) {
@@ -2725,16 +2727,16 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
         var anything_changed: bool = undefined;
         const result_source = try testParse(source, &failing_allocator.allocator, &anything_changed);
         if (!mem.eql(u8, result_source, expected_source)) {
-            warn("\n====== expected this output: =========\n");
-            warn("{}", expected_source);
-            warn("\n======== instead found this: =========\n");
-            warn("{}", result_source);
-            warn("\n======================================\n");
+            warn("\n====== expected this output: =========\n", .{});
+            warn("{}", .{expected_source});
+            warn("\n======== instead found this: =========\n", .{});
+            warn("{}", .{result_source});
+            warn("\n======================================\n", .{});
             return error.TestFailed;
         }
         const changes_expected = source.ptr != expected_source.ptr;
         if (anything_changed != changes_expected) {
-            warn("std.zig.render returned {} instead of {}\n", anything_changed, changes_expected);
+            warn("std.zig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });
             return error.TestFailed;
         }
         std.testing.expect(anything_changed == changes_expected);
@@ -2754,12 +2756,14 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
                 if (failing_allocator.allocated_bytes != failing_allocator.freed_bytes) {
                     warn(
                         "\nfail_index: {}/{}\nallocated bytes: {}\nfreed bytes: {}\nallocations: {}\ndeallocations: {}\n",
-                        fail_index,
-                        needed_alloc_count,
-                        failing_allocator.allocated_bytes,
-                        failing_allocator.freed_bytes,
-                        failing_allocator.allocations,
-                        failing_allocator.deallocations,
+                        .{
+                            fail_index,
+                            needed_alloc_count,
+                            failing_allocator.allocated_bytes,
+                            failing_allocator.freed_bytes,
+                            failing_allocator.allocations,
+                            failing_allocator.deallocations,
+                        },
                     );
                     return error.MemoryLeakDetected;
                 }

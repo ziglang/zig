@@ -981,7 +981,7 @@ static void gen_panic(CodeGen *g, LLVMValueRef msg_arg, LLVMValueRef stack_trace
         msg_arg,
         stack_trace_arg,
     };
-    ZigLLVMBuildCall(g->builder, fn_val, args, 2, llvm_cc, ZigLLVM_FnInlineAuto, "");
+    ZigLLVMBuildCall(g->builder, fn_val, args, 2, llvm_cc, ZigLLVM_CallAttrAuto, "");
     if (!stack_trace_is_llvm_alloca) {
         // The stack trace argument is not in the stack of the caller, so
         // we'd like to set tail call here, but because slices (the type of msg_arg) are
@@ -1201,7 +1201,8 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
 
     LLVMPositionBuilderAtEnd(g->builder, dest_non_null_block);
     LLVMValueRef args[] = { err_ret_trace_ptr, return_address };
-    ZigLLVMBuildCall(g->builder, add_error_return_trace_addr_fn_val, args, 2, get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAlways, "");
+    ZigLLVMBuildCall(g->builder, add_error_return_trace_addr_fn_val, args, 2,
+            get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAlwaysInline, "");
     LLVMBuildRetVoid(g->builder);
 
     LLVMPositionBuilderAtEnd(g->builder, prev_block);
@@ -1227,7 +1228,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     LLVMValueRef msg_prefix_init = LLVMConstString(unwrap_err_msg_text, strlen(unwrap_err_msg_text), 1);
     LLVMValueRef msg_prefix = LLVMAddGlobal(g->module, LLVMTypeOf(msg_prefix_init), "");
     LLVMSetInitializer(msg_prefix, msg_prefix_init);
-    LLVMSetLinkage(msg_prefix, LLVMInternalLinkage);
+    LLVMSetLinkage(msg_prefix, LLVMPrivateLinkage);
     LLVMSetGlobalConstant(msg_prefix, true);
 
     const char *fn_name = get_mangled_name(g, "__zig_fail_unwrap", false);
@@ -1370,13 +1371,13 @@ static void gen_safety_crash_for_err(CodeGen *g, LLVMValueRef err_val, Scope *sc
             err_val,
         };
         call_instruction = ZigLLVMBuildCall(g->builder, safety_crash_err_fn, args, 2,
-                get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
+                get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAuto, "");
     } else {
         LLVMValueRef args[] = {
             err_val,
         };
         call_instruction = ZigLLVMBuildCall(g->builder, safety_crash_err_fn, args, 1,
-                get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
+                get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAuto, "");
     }
     if (!is_llvm_alloca) {
         LLVMSetTailCall(call_instruction, true);
@@ -2216,7 +2217,7 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
     LLVMValueRef addr_ptr = LLVMBuildInBoundsGEP(g->builder, src_ptr_val, &ptr_index, 1, "");
     LLVMValueRef this_addr_val = LLVMBuildLoad(g->builder, addr_ptr, "");
     LLVMValueRef args[] = {dest_stack_trace_ptr, this_addr_val};
-    ZigLLVMBuildCall(g->builder, add_error_return_trace_addr_fn_val, args, 2, get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAlways, "");
+    ZigLLVMBuildCall(g->builder, add_error_return_trace_addr_fn_val, args, 2, get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAlwaysInline, "");
     LLVMValueRef prev_frames_left = LLVMBuildLoad(g->builder, frames_left_ptr, "");
     LLVMValueRef new_frames_left = LLVMBuildNUWSub(g->builder, prev_frames_left, usize_one, "");
     LLVMValueRef done_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, new_frames_left, usize_zero, "");
@@ -2253,7 +2254,7 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
     LLVMValueRef my_err_trace_val = get_cur_err_ret_trace_val(g, save_err_ret_addr_instruction->base.scope,
             &is_llvm_alloca);
     ZigLLVMBuildCall(g->builder, return_err_fn, &my_err_trace_val, 1,
-            get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
+            get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAuto, "");
 
     ZigType *ret_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
     if (fn_is_async(g->cur_fn) && codegen_fn_has_err_ret_tracing_arg(g, ret_type)) {
@@ -2297,7 +2298,7 @@ static LLVMValueRef gen_resume(CodeGen *g, LLVMValueRef fn_val, LLVMValueRef tar
     LLVMValueRef arg_val = LLVMConstSub(LLVMConstAllOnes(usize_type_ref),
             LLVMConstInt(usize_type_ref, resume_id, false));
     LLVMValueRef args[] = {target_frame_ptr, arg_val};
-    return ZigLLVMBuildCall(g->builder, fn_val, args, 2, LLVMFastCallConv, ZigLLVM_FnInlineAuto, "");
+    return ZigLLVMBuildCall(g->builder, fn_val, args, 2, LLVMFastCallConv, ZigLLVM_CallAttrAuto, "");
 }
 
 static LLVMBasicBlockRef gen_suspend_begin(CodeGen *g, const char *name_hint) {
@@ -2424,7 +2425,7 @@ static void gen_async_return(CodeGen *g, IrInstructionReturn *instruction) {
             LLVMValueRef my_err_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope, &is_llvm_alloca);
             LLVMValueRef args[] = { dest_trace_ptr, my_err_trace_val };
             ZigLLVMBuildCall(g->builder, get_merge_err_ret_traces_fn_val(g), args, 2,
-                    get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
+                    get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAuto, "");
         }
     }
 
@@ -2997,9 +2998,9 @@ static LLVMValueRef ir_render_resize_slice(CodeGen *g, IrExecutable *executable,
 
     LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
     assert(wanted_type->id == ZigTypeIdStruct);
-    assert(wanted_type->data.structure.is_slice);
+    assert(wanted_type->data.structure.special == StructSpecialSlice);
     assert(actual_type->id == ZigTypeIdStruct);
-    assert(actual_type->data.structure.is_slice);
+    assert(actual_type->data.structure.special == StructSpecialSlice);
 
     ZigType *actual_pointer_type = actual_type->data.structure.fields[0]->type_entry;
     ZigType *actual_child_type = actual_pointer_type->data.pointer.child_type;
@@ -3061,7 +3062,7 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
     ZigType *actual_type = cast_instruction->value->value->type;
     ZigType *wanted_type = cast_instruction->base.value->type;
     LLVMValueRef expr_val = ir_llvm_value(g, cast_instruction->value);
-    assert(expr_val);
+    ir_assert(expr_val, &cast_instruction->base);
 
     switch (cast_instruction->cast_op) {
         case CastOpNoCast:
@@ -3750,7 +3751,7 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
         return LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 1, "");
     } else if (array_type->id == ZigTypeIdStruct) {
         LLVMValueRef array_ptr = get_handle_value(g, array_ptr_ptr, array_type, array_ptr_type);
-        assert(array_type->data.structure.is_slice);
+        assert(array_type->data.structure.special == StructSpecialSlice);
 
         ZigType *ptr_type = array_type->data.structure.fields[slice_ptr_index]->type_entry;
         if (!type_has_bits(ptr_type)) {
@@ -4142,16 +4143,28 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     fn_walk.data.call.gen_param_types = &gen_param_types;
     walk_function_params(g, fn_type, &fn_walk);
 
-    ZigLLVM_FnInline fn_inline;
-    switch (instruction->fn_inline) {
-        case FnInlineAuto:
-            fn_inline = ZigLLVM_FnInlineAuto;
+    ZigLLVM_CallAttr call_attr;
+    switch (instruction->modifier) {
+        case CallModifierBuiltin:
+        case CallModifierCompileTime:
+            zig_unreachable();
+        case CallModifierNone:
+        case CallModifierNoAsync:
+        case CallModifierAsync:
+            call_attr = ZigLLVM_CallAttrAuto;
             break;
-        case FnInlineAlways:
-            fn_inline = (instruction->fn_entry == nullptr) ? ZigLLVM_FnInlineAuto : ZigLLVM_FnInlineAlways;
+        case CallModifierNeverTail:
+            call_attr = ZigLLVM_CallAttrNeverTail;
             break;
-        case FnInlineNever:
-            fn_inline = ZigLLVM_FnInlineNever;
+        case CallModifierNeverInline:
+            call_attr = ZigLLVM_CallAttrNeverInline;
+            break;
+        case CallModifierAlwaysTail:
+            call_attr = ZigLLVM_CallAttrAlwaysTail;
+            break;
+        case CallModifierAlwaysInline:
+            ir_assert(instruction->fn_entry != nullptr, &instruction->base);
+            call_attr = ZigLLVM_CallAttrAlwaysInline;
             break;
     }
 
@@ -4257,7 +4270,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
 
     if (instruction->new_stack == nullptr || instruction->is_async_call_builtin) {
         result = ZigLLVMBuildCall(g->builder, fn_val,
-                gen_param_values.items, (unsigned)gen_param_values.length, llvm_cc, fn_inline, "");
+                gen_param_values.items, (unsigned)gen_param_values.length, llvm_cc, call_attr, "");
     } else if (instruction->modifier == CallModifierAsync) {
         zig_panic("TODO @asyncCall of non-async function");
     } else {
@@ -4269,7 +4282,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         }
         gen_set_stack_pointer(g, new_stack_addr);
         result = ZigLLVMBuildCall(g->builder, fn_val,
-                gen_param_values.items, (unsigned)gen_param_values.length, llvm_cc, fn_inline, "");
+                gen_param_values.items, (unsigned)gen_param_values.length, llvm_cc, call_attr, "");
         if (src_return_type->id != ZigTypeIdUnreachable) {
             LLVMValueRef stackrestore_fn_val = get_stackrestore_fn_val(g);
             LLVMBuildCall(g->builder, stackrestore_fn_val, &old_stack_ref, 1, "");
@@ -4317,8 +4330,17 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executa
         return struct_ptr;
     }
 
-    ZigType *struct_type = (struct_ptr_type->id == ZigTypeIdPointer) ?
-        struct_ptr_type->data.pointer.child_type : struct_ptr_type;
+    ZigType *struct_type;
+    if (struct_ptr_type->id == ZigTypeIdPointer) {
+        if (struct_ptr_type->data.pointer.inferred_struct_field != nullptr) {
+            struct_type = struct_ptr_type->data.pointer.inferred_struct_field->inferred_struct_type;
+        } else {
+            struct_type = struct_ptr_type->data.pointer.child_type;
+        }
+    } else {
+        struct_type = struct_ptr_type;
+    }
+
     if ((err = type_resolve(g, struct_type, ResolveStatusLLVMFull)))
         codegen_report_errors_and_exit(g);
 
@@ -4947,7 +4969,7 @@ static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, IrExecutable *executable
 
     LLVMValueRef enum_tag_value = ir_llvm_value(g, instruction->target);
     return ZigLLVMBuildCall(g->builder, enum_name_function, &enum_tag_value, 1,
-            get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
+            get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAuto, "");
 }
 
 static LLVMValueRef ir_render_field_parent_ptr(CodeGen *g, IrExecutable *executable,
@@ -5006,7 +5028,9 @@ static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutable *executable, I
     {
         align_bytes = target_type->data.maybe.child_type->data.fn.fn_type_id.alignment;
         ptr_val = target_val;
-    } else if (target_type->id == ZigTypeIdStruct && target_type->data.structure.is_slice) {
+    } else if (target_type->id == ZigTypeIdStruct &&
+            target_type->data.structure.special == StructSpecialSlice)
+    {
         ZigType *slice_ptr_type = target_type->data.structure.fields[slice_ptr_index]->type_entry;
         align_bytes = get_ptr_align(g, slice_ptr_type);
 
@@ -5268,7 +5292,7 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInst
 
         return tmp_struct_ptr;
     } else if (array_type->id == ZigTypeIdStruct) {
-        assert(array_type->data.structure.is_slice);
+        assert(array_type->data.structure.special == StructSpecialSlice);
         assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
         assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(array_ptr))) == LLVMStructTypeKind);
         assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(tmp_struct_ptr))) == LLVMStructTypeKind);
@@ -5903,7 +5927,7 @@ static LLVMValueRef gen_await_early_return(CodeGen *g, IrInstruction *source_ins
         LLVMValueRef dest_trace_ptr = get_cur_err_ret_trace_val(g, source_instr->scope, &is_llvm_alloca);
         LLVMValueRef args[] = { dest_trace_ptr, src_trace_ptr };
         ZigLLVMBuildCall(g->builder, get_merge_err_ret_traces_fn_val(g), args, 2,
-                get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
+                get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAuto, "");
     }
     if (non_async && type_has_bits(result_type)) {
         LLVMValueRef result_ptr = (result_loc == nullptr) ? their_result_ptr : result_loc;
@@ -6137,7 +6161,9 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdLoadPtr:
         case IrInstructionIdHasDecl:
         case IrInstructionIdUndeclaredIdent:
+        case IrInstructionIdCallExtra:
         case IrInstructionIdCallSrc:
+        case IrInstructionIdCallSrcArgs:
         case IrInstructionIdAllocaSrc:
         case IrInstructionIdEndExpr:
         case IrInstructionIdImplicitCast:
@@ -7180,7 +7206,7 @@ static void render_const_val_global(CodeGen *g, ZigValue *const_val, const char 
         LLVMTypeRef type_ref = const_val->llvm_value ?
             LLVMTypeOf(const_val->llvm_value) : get_llvm_type(g, const_val->type);
         LLVMValueRef global_value = LLVMAddGlobal(g->module, type_ref, name);
-        LLVMSetLinkage(global_value, LLVMInternalLinkage);
+        LLVMSetLinkage(global_value, (name == nullptr) ? LLVMPrivateLinkage : LLVMInternalLinkage);
         LLVMSetGlobalConstant(global_value, true);
         LLVMSetUnnamedAddr(global_value, true);
         LLVMSetAlignment(global_value, (const_val->llvm_align == 0) ?
@@ -8118,8 +8144,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdNearbyInt, "nearbyInt", 2);
     create_builtin_fn(g, BuiltinFnIdRound, "round", 2);
     create_builtin_fn(g, BuiltinFnIdMulAdd, "mulAdd", 4);
-    create_builtin_fn(g, BuiltinFnIdInlineCall, "inlineCall", SIZE_MAX);
-    create_builtin_fn(g, BuiltinFnIdNoInlineCall, "noInlineCall", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdNewStackCall, "newStackCall", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdAsyncCall, "asyncCall", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdTypeId, "typeId", 1);
@@ -8146,6 +8170,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdFrameAddress, "frameAddress", 0);
     create_builtin_fn(g, BuiltinFnIdFrameSize, "frameSize", 1);
     create_builtin_fn(g, BuiltinFnIdAs, "as", 2);
+    create_builtin_fn(g, BuiltinFnIdCall, "call", 3);
 }
 
 static const char *bool_to_str(bool b) {
@@ -8229,9 +8254,9 @@ TargetSubsystem detect_subsystem(CodeGen *g) {
     if (g->zig_target->os == OsWindows) {
         if (g->have_dllmain_crt_startup || (g->out_type == OutTypeLib && g->is_dynamic))
             return TargetSubsystemAuto;
-        if (g->have_c_main || g->have_pub_main || g->is_test_build)
+        if (g->have_c_main || g->is_test_build || g->have_winmain_crt_startup)
             return TargetSubsystemConsole;
-        if (g->have_winmain || g->have_winmain_crt_startup)
+        if (g->have_winmain)
             return TargetSubsystemWindows;
     } else if (g->zig_target->os == OsUefi) {
         return TargetSubsystemEfiApplication;
@@ -8375,6 +8400,22 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
         const char *endian_str = g->is_big_endian ? "Endian.Big" : "Endian.Little";
         buf_appendf(contents, "pub const endian = %s;\n", endian_str);
     }
+    const char *out_type = nullptr;
+    switch (g->out_type) {
+        case OutTypeExe:
+            out_type = "Exe";
+            break;
+        case OutTypeLib:
+            out_type = "Lib";
+            break;
+        case OutTypeObj:
+        case OutTypeUnknown: // This happens when running the `zig builtin` command.
+            out_type = "Obj";
+            break;
+    }
+    buf_appendf(contents, "pub const output_mode = OutputMode.%s;\n", out_type);
+    const char *link_type = g->is_dynamic ? "Dynamic" : "Static"; 
+    buf_appendf(contents, "pub const link_mode = LinkMode.%s;\n", link_type);
     buf_appendf(contents, "pub const is_test = %s;\n", bool_to_str(g->is_test_build));
     buf_appendf(contents, "pub const single_threaded = %s;\n", bool_to_str(g->is_single_threaded));
     buf_appendf(contents, "pub const os = Os.%s;\n", cur_os);
@@ -8441,6 +8482,8 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_buf(&cache_hash, compiler_id);
     cache_int(&cache_hash, g->build_mode);
     cache_bool(&cache_hash, g->strip_debug_symbols);
+    cache_int(&cache_hash, g->out_type);
+    cache_bool(&cache_hash, g->is_dynamic);
     cache_bool(&cache_hash, g->is_test_build);
     cache_bool(&cache_hash, g->is_single_threaded);
     cache_int(&cache_hash, g->zig_target->is_native);
@@ -9148,38 +9191,6 @@ static Buf *get_resolved_root_src_path(CodeGen *g) {
     return resolved_path;
 }
 
-static bool want_startup_code(CodeGen *g) {
-    // Test builds get handled separately.
-    if (g->is_test_build)
-        return false;
-
-    // WASM freestanding can still have an entry point but other freestanding targets do not.
-    if (g->zig_target->os == OsFreestanding && !target_is_wasm(g->zig_target))
-        return false;
-
-    // Declaring certain export functions means skipping the start code
-    if (g->have_c_main || g->have_winmain || g->have_winmain_crt_startup)
-        return false;
-
-    // If there is a pub main in the root source file, that means we need start code.
-    if (g->have_pub_main) {
-        return true;
-    } else {
-        if (g->zig_target->os == OsUefi)
-            return false;
-    }
-
-    if (g->out_type == OutTypeExe) {
-        // For build-exe, we might add start code even though there is no pub main, so that the
-        // programmer gets the "no pub main" compile error. However if linking libc and there is
-        // a C source file, that might have main().
-        return g->c_source_files.length == 0 || g->libc_link_lib == nullptr;
-    }
-
-    // For objects and libraries, and we don't have pub main, no start code.
-    return false;
-}
-
 static void gen_root_source(CodeGen *g) {
     Buf *resolved_path = get_resolved_root_src_path(g);
     if (resolved_path == nullptr)
@@ -9241,21 +9252,14 @@ static void gen_root_source(CodeGen *g) {
         assert(g->panic_fn != nullptr);
     }
 
-
     if (!g->error_during_imports) {
         semantic_analyze(g);
     }
     report_errors_and_maybe_exit(g);
 
-    if (want_startup_code(g)) {
+    if (!g->is_test_build) {
         g->start_import = add_special_code(g, create_start_pkg(g, g->root_package), "start.zig");
     }
-    if (g->zig_target->os == OsWindows && !g->have_dllmain_crt_startup &&
-            g->out_type == OutTypeLib && g->is_dynamic)
-    {
-        g->start_import = add_special_code(g, create_start_pkg(g, g->root_package), "start_lib.zig");
-    }
-
     if (!g->error_during_imports) {
         semantic_analyze(g);
     }
