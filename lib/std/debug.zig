@@ -2469,10 +2469,10 @@ extern fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: *con
 stdcallcc fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) c_long {
     const exception_address = @ptrToInt(info.ExceptionRecord.ExceptionAddress);
     switch (info.ExceptionRecord.ExceptionCode) {
-        windows.EXCEPTION_DATATYPE_MISALIGNMENT => panicExtra(null, exception_address, "Unaligned Memory Access"),
-        windows.EXCEPTION_ACCESS_VIOLATION => panicExtra(null, exception_address, "Segmentation fault at address 0x{x}", info.ExceptionRecord.ExceptionInformation[1]),
-        windows.EXCEPTION_ILLEGAL_INSTRUCTION => panicExtra(null, exception_address, "Illegal Instruction"),
-        windows.EXCEPTION_STACK_OVERFLOW => panicExtra(null, exception_address, "Stack Overflow"),
+        windows.EXCEPTION_DATATYPE_MISALIGNMENT => panicExtra(null, exception_address, "Unaligned Memory Access", .{}),
+        windows.EXCEPTION_ACCESS_VIOLATION => panicExtra(null, exception_address, "Segmentation fault at address 0x{x}", .{info.ExceptionRecord.ExceptionInformation[1]}),
+        windows.EXCEPTION_ILLEGAL_INSTRUCTION => panicExtra(null, exception_address, "Illegal Instruction", .{}),
+        windows.EXCEPTION_STACK_OVERFLOW => panicExtra(null, exception_address, "Stack Overflow", .{}),
         else => return windows.EXCEPTION_CONTINUE_SEARCH,
     }
 }
