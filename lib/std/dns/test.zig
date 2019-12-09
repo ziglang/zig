@@ -118,7 +118,7 @@ test "deserialization of reply google.com/A" {
     testing.expectEqual(dns.DNSClass.IN, answer.class);
     testing.expectEqual(@as(i32, 300), answer.ttl);
 
-    var answer_rdata = try rdata.parseRData(pkt, answer);
+    var answer_rdata = try rdata.deserializeRData(pkt, answer);
     testing.expectEqual(dns.DNSType.A, @as(dns.DNSType, answer_rdata));
 
     const addr = @ptrCast(*[4]u8, &answer_rdata.A.in.addr).*;
@@ -154,13 +154,7 @@ test "serialization of google.com/A (question)" {
 
     var qname = try dns.DNSName.fromString(allocator, "google.com");
 
-    var question = dns.Question{
-        .qname = qname,
-        .qtype = dns.DNSType.A,
-        .qclass = dns.DNSClass.IN,
-    };
-
-    try pkt.addQuestion(question);
+    try pkt.addQuestion(dns.Question{ .qname = qname, .qtype = .A, .qclass = .IN });
 
     var encoded = try encodePacket(pkt);
     testing.expectEqualSlices(u8, encoded, TEST_PKT_QUERY);
@@ -190,4 +184,36 @@ fn deserialTest(allocator: *Allocator, buf: []u8) !Packet {
 test "convert string to dns type" {
     var parsed = try dns.DNSType.fromStr("AAAA");
     testing.expectEqual(dns.DNSType.AAAA, parsed);
+}
+
+test "rdata serialization" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
+    defer arena.deinit();
+    const allocator = &arena.allocator;
+
+    var pkt = dns.Packet.init(allocator, ""[0..]);
+    pkt.header.id = 5189;
+    pkt.header.rd = true;
+    pkt.header.z = 2;
+
+    var name = try dns.DNSName.fromString(allocator, "google.com");
+    var pkt_rdata = dns.rdata.DNSRData{ .NS = name };
+
+    // TODO DNSRData.size() method
+    var rdata_buffer = try allocator.alloc(u8, 0x10000);
+    var out = io.SliceOutStream.init(rdata_buffer);
+    var out_stream = &out.stream;
+    var serializer = io.Serializer(.Big, .Bit, OutError).init(out_stream);
+    try rdata.serializeRData(pkt_rdata, &serializer);
+
+    try pkt.addAnswer(dns.Resource{
+        .name = name,
+        .rr_type = .A,
+        .class = .IN,
+        .ttl = 300,
+        .opaque_rdata = rdata_buffer,
+    });
+
+    var res = try encodePacket(pkt);
+    std.debug.warn("res pkt = '{}'\n", .{res});
 }

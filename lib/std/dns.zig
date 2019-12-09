@@ -595,6 +595,21 @@ pub const Packet = struct {
         try self.questions.append(question);
     }
 
+    pub fn addAnswer(self: *Self, resource: Resource) !void {
+        self.header.ancount += 1;
+        try self.answers.append(resource);
+    }
+
+    pub fn addAuthority(self: *Self, resource: Resource) !void {
+        self.header.nscount += 1;
+        try self.authority.append(resource);
+    }
+
+    pub fn addAdditional(self: *Self, resource: Resource) !void {
+        self.header.ancount += 1;
+        try self.additional.append(resource);
+    }
+
     fn sliceSizes(self: Self) usize {
         var pkt_size: usize = 0;
 

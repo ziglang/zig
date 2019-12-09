@@ -60,9 +60,9 @@ pub const DNSRData = union(dns.DNSType) {
     TXT: [][]const u8,
 };
 
-/// Parse a given Resource's RDATA information. Requires the original
-/// DNSPacket for allocation for memory ownership.
-pub fn parseRData(
+/// Deserialize a given Resource's RDATA information. Requires the original
+/// Packet for allocation for memory ownership.
+pub fn deserializeRData(
     pkt_const: dns.Packet,
     resource: dns.Resource,
 ) !DNSRData {
@@ -141,22 +141,9 @@ pub fn parseRData(
 
 /// Serialize a given DNSRData into []u8
 pub fn serializeRData(
-    pkt: *dns.DNSPacket,
     rdata: DNSRData,
-) ![]u8 {
-    // TODO a nice idea would be to maybe implement a fixed buffer allocator
-    // or a way for the serializer's underlying stream
-    // to allocate memory on-demand?
-    var buf = try allocator.alloc(u8, 1024);
-
-    var out = io.SliceOutStream.init(buf);
-    var out_stream = &out.stream;
-    var serializer = std.io.Serializer(
-        .Big,
-        .Bit,
-        std.io.OutError,
-    ).init(out_stream);
-
+    serializer: var,
+) !void {
     switch (rdata) {
         .NS, .MD, .MF, .MB, .MG, .MR, .CNAME, .PTR => |name| try serializer.serialize(name),
 
@@ -176,7 +163,7 @@ pub fn serializeRData(
             try serializer.serialize(mxdata.exchange);
         },
 
-        else => return DNSError.RDATANotSupported,
+        else => return error.NotImplemented,
     }
 }
 
