@@ -129,7 +129,7 @@ test "deserialization of reply google.com/A" {
 }
 
 fn encodeBase64(out: []const u8) []const u8 {
-    var buffer: [0x10000]u8 = undefined;
+    var buffer: [128]u8 = undefined;
     var encoded = buffer[0..std.base64.Base64Encoder.calcSize(out.len)];
     std.base64.standard_encoder.encode(encoded, out);
 
@@ -141,7 +141,7 @@ fn encodePacket(pkt: Packet) ![]const u8 {
     return encodeBase64(out);
 }
 
-test "serialization of google.com/A" {
+test "serialization of google.com/A (question)" {
     // setup a random id packet
     var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
     defer arena.deinit();
@@ -165,6 +165,7 @@ test "serialization of google.com/A" {
     var encoded = try encodePacket(pkt);
     testing.expectEqualSlices(u8, encoded, TEST_PKT_QUERY);
 }
+
 fn serialTest(allocator: *Allocator, packet: Packet) ![]u8 {
     var buf = try allocator.alloc(u8, packet.size());
 
@@ -186,7 +187,7 @@ fn deserialTest(allocator: *Allocator, buf: []u8) !Packet {
     return pkt;
 }
 
-test "string convert to type" {
+test "convert string to dns type" {
     var parsed = try dns.DNSType.fromStr("AAAA");
     testing.expectEqual(dns.DNSType.AAAA, parsed);
 }
