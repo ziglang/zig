@@ -48,6 +48,8 @@ pub const DNSRData = union(dns.DNSType) {
         // how to define bit map? align(8)?
     },
     PTR: dns.DNSName,
+
+    // TODO replace by DNSName?
     HINFO: struct {
         cpu: []const u8,
         os: []const u8,
@@ -60,9 +62,11 @@ pub const DNSRData = union(dns.DNSType) {
     TXT: [][]const u8,
 
     pub fn size(self: @This()) usize {
-        // TODO implement size() for more types
         return switch (self) {
+            .A => 4,
+            .AAAA => 16,
             .NS, .MD, .MF, .MB, .MG, .MR, .CNAME, .PTR => |name| name.size(),
+
             else => @panic("TODO"),
         };
     }
@@ -184,32 +188,6 @@ fn printName(
         try stream.print("{}", label);
         try stream.print(".");
     }
-}
-
-// This maybe should be provided by the standard library in the future.
-fn strspn(s1: []const u8, s2: []const u8) usize {
-    var bytes: usize = 0;
-
-    while (bytes < s1.len and bytes + s2.len < s1.len) {
-        if (std.mem.compare(
-            u8,
-            s1[bytes .. bytes + s2.len],
-            s2,
-        ) == std.mem.Compare.Equal) {
-            bytes += s2.len;
-        } else {
-            break;
-        }
-    }
-
-    return bytes;
-}
-
-test "strspn" {
-    var val = "abcabc"[0..];
-    std.testing.expectEqual(usize(6), strspn(val, "abc"));
-    std.testing.expectEqual(usize(2), strspn(val, "ab"));
-    std.testing.expectEqual(usize(6), strspn(":0:0:0:681b:bcb3:", ":0"));
 }
 
 /// Prettify a given DNSRData union variable. Returns a string with e.g
