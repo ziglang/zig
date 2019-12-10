@@ -255,8 +255,6 @@ pub const Resource = struct {
         res_size += @sizeOf(u16) * 3;
         res_size += @sizeOf(u32);
 
-        // rdata (len + rdata)
-        res_size += @sizeOf(u16);
         res_size += resource.opaque_rdata.len * @sizeOf(u8);
 
         return res_size;
@@ -607,7 +605,7 @@ pub const Packet = struct {
     }
 
     pub fn addAdditional(self: *Self, resource: Resource) !void {
-        self.header.ancount += 1;
+        self.header.arcount += 1;
         try self.additional.append(resource);
     }
 
