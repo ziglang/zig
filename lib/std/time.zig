@@ -51,7 +51,7 @@ pub fn milliTimestamp() u64 {
         const err = os.wasi.clock_time_get(os.wasi.CLOCK_REALTIME, 1, &ns);
         assert(err == os.wasi.ESUCCESS);
 
-        const ns_per_ms = 1000;
+        const ns_per_ms = (ns_per_s / ms_per_s);
         return @divFloor(ns, ns_per_ms);
     }
     if (comptime std.Target.current.isDarwin()) {

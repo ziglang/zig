@@ -3363,7 +3363,6 @@ pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
             // Make sure timeout does not overflow.
             timeout = std.math.maxInt(timestamp_t);
         }
-        std.debug.warn("Sleep {}s {}ns\n", .{ seconds, nanoseconds });
 
         const sub = subscription_t{
             .userdata = undefined,
