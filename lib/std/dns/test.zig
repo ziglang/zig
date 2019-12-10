@@ -128,17 +128,16 @@ test "deserialization of reply google.com/A" {
     testing.expectEqual(@as(u8, 142), addr[3]);
 }
 
-fn encodeBase64(out: []const u8) []const u8 {
-    var buffer: [128]u8 = undefined;
+fn encodeBase64(buffer: []u8, out: []const u8) []const u8 {
     var encoded = buffer[0..std.base64.Base64Encoder.calcSize(out.len)];
     std.base64.standard_encoder.encode(encoded, out);
 
     return encoded;
 }
 
-fn encodePacket(pkt: Packet) ![]const u8 {
+fn encodePacket(buffer: []u8, pkt: Packet) ![]const u8 {
     var out = try serialTest(pkt.allocator, pkt);
-    return encodeBase64(out);
+    return encodeBase64(buffer, out);
 }
 
 test "serialization of google.com/A (question)" {
@@ -156,7 +155,8 @@ test "serialization of google.com/A (question)" {
 
     try pkt.addQuestion(dns.Question{ .qname = qname, .qtype = .A, .qclass = .IN });
 
-    var encoded = try encodePacket(pkt);
+    var buffer: [128]u8 = undefined;
+    var encoded = try encodePacket(&buffer, pkt);
     testing.expectEqualSlices(u8, encoded, TEST_PKT_QUERY);
 }
 
@@ -197,7 +197,9 @@ test "rdata serialization" {
     pkt.header.z = 2;
 
     var name = try dns.DNSName.fromString(allocator, "google.com");
-    var pkt_rdata = dns.rdata.DNSRData{ .NS = name };
+    var pkt_rdata = dns.rdata.DNSRData{
+        .A = try std.net.Address.parseIp4("127.0.0.1", 0),
+    };
 
     var rdata_buffer = try allocator.alloc(u8, 0x10000);
     var opaque_rdata = rdata_buffer[0..pkt_rdata.size()];
@@ -214,8 +216,9 @@ test "rdata serialization" {
         .opaque_rdata = opaque_rdata,
     });
 
-    var res = try encodePacket(pkt);
+    var buffer: [128]u8 = undefined;
+    var res = try encodePacket(&buffer, pkt);
 
     // TODO compare with known good packet?
-    // std.debug.warn("res pkt = '{}'\n", .{res});
+    std.debug.warn("res pkt = {} '{}'\n", .{ res.len, res });
 }

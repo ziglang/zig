@@ -157,6 +157,9 @@ pub fn serializeRData(
     serializer: var,
 ) !void {
     switch (rdata) {
+        .A => |addr| try serializer.serialize(addr.in.addr),
+        .AAAA => |addr| try serializer.serialize(addr.in6.addr),
+
         .NS, .MD, .MF, .MB, .MG, .MR, .CNAME, .PTR => |name| try serializer.serialize(name),
 
         .SOA => |soa_data| blk: {
