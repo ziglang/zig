@@ -144,7 +144,7 @@ pub const LinuxDynLib = struct {
 
     pub fn lookup(self: *LinuxDynLib, comptime T: type, name: []const u8) ?T {
         if (self.elf_lib.lookup("", name)) |symbol| {
-            return @ptrCast(T, symbol);
+            return @intToPtr(T, symbol);
         } else {
             return null;
         }
