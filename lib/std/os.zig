@@ -3355,6 +3355,37 @@ pub fn realpathW(pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BYTES]u8) Real
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
 pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
+    if (builtin.os == .wasi) {
+        var timeout: timestamp_t = undefined;
+        if (@mulWithOverflow(timestamp_t, seconds, std.time.ns_per_s, &timeout) or
+            @addWithOverflow(timestamp_t, timeout, nanoseconds, &timeout))
+        {
+            // Make sure timeout does not overflow.
+            timeout = std.math.maxInt(timestamp_t);
+        }
+        std.debug.warn("Sleep {}s {}ns\n", .{ seconds, nanoseconds });
+
+        const sub = subscription_t{
+            .userdata = undefined,
+            .@"type" = EVENTTYPE_CLOCK,
+            .u = .{
+                .clock = .{
+                    .clock_id = CLOCK_REALTIME,
+                    .flags = 0,
+                    .precision = undefined,
+                    .identifier = undefined,
+                    .timeout = timeout,
+                },
+            },
+        };
+
+        var nevents: usize = undefined;
+        var ev: event_t = undefined;
+        const err = system.poll_oneoff(&sub, &ev, 1, &nevents);
+        //return if (err == 0 and ev.@"error" == 0) 0 else ENOTSUP;
+        return;
+    }
+
     var req = timespec{
         .tv_sec = math.cast(isize, seconds) catch math.maxInt(isize),
         .tv_nsec = math.cast(isize, nanoseconds) catch math.maxInt(isize),
