@@ -11,7 +11,7 @@ const TypeId = builtin.TypeId;
 const TypeInfo = builtin.TypeInfo;
 
 pub fn tagName(v: var) []const u8 {
-    const T = @typeOf(v);
+    const T = @TypeOf(v);
     switch (@typeInfo(T)) {
         TypeId.ErrorSet => return @errorName(v),
         else => return @tagName(v),
@@ -339,8 +339,8 @@ test "std.meta.TagType" {
 }
 
 ///Returns the active tag of a tagged union
-pub fn activeTag(u: var) @TagType(@typeOf(u)) {
-    const T = @typeOf(u);
+pub fn activeTag(u: var) @TagType(@TypeOf(u)) {
+    const T = @TypeOf(u);
     return @as(@TagType(T), u);
 }
 
@@ -365,7 +365,7 @@ test "std.meta.activeTag" {
 ///Given a tagged union type, and an enum, return the type of the union
 /// field corresponding to the enum tag.
 pub fn TagPayloadType(comptime U: type, tag: var) type {
-    const Tag = @typeOf(tag);
+    const Tag = @TypeOf(tag);
     testing.expect(trait.is(builtin.TypeId.Union)(U));
     testing.expect(trait.is(builtin.TypeId.Enum)(Tag));
 
@@ -386,13 +386,13 @@ test "std.meta.TagPayloadType" {
     };
     const MovedEvent = TagPayloadType(Event, Event.Moved);
     var e: Event = undefined;
-    testing.expect(MovedEvent == @typeOf(e.Moved));
+    testing.expect(MovedEvent == @TypeOf(e.Moved));
 }
 
 ///Compares two of any type for equality. Containers are compared on a field-by-field basis,
 /// where possible. Pointers are not followed.
-pub fn eql(a: var, b: @typeOf(a)) bool {
-    const T = @typeOf(a);
+pub fn eql(a: var, b: @TypeOf(a)) bool {
+    const T = @TypeOf(a);
 
     switch (@typeId(T)) {
         builtin.TypeId.Struct => {

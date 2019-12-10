@@ -4230,7 +4230,7 @@ static AstNode *resolve_typedef_decl(Context *c, const ZigClangTypedefNameDecl *
         emit_warning(c, ZigClangTypedefNameDecl_getLocation(typedef_decl),
                 "typedef %s - unresolved child type", buf_ptr(type_name));
         c->decl_table.put(typedef_decl, nullptr);
-        // TODO add global var with type_name equal to @compileError("unable to resolve C type") 
+        // TODO add global var with type_name equal to @compileError("unable to resolve C type")
         return nullptr;
     }
     add_global_var(c, type_name, type_node);
@@ -4919,9 +4919,9 @@ static AstNode *parse_ctok_primary_expr(Context *c, CTokenize *ctok, size_t *tok
                 *tok_i += 1;
 
 
-                //if (@typeId(@typeOf(x)) == @import("builtin").TypeId.Pointer)
+                //if (@typeId(@TypeOf(x)) == @import("builtin").TypeId.Pointer)
                 //    @ptrCast(dest, x)
-                //else if (@typeId(@typeOf(x)) == @import("builtin").TypeId.Integer)
+                //else if (@typeId(@TypeOf(x)) == @import("builtin").TypeId.Integer)
                 //    @intToPtr(dest, x)
                 //else
                 //    (dest)(x)
@@ -4931,7 +4931,7 @@ static AstNode *parse_ctok_primary_expr(Context *c, CTokenize *ctok, size_t *tok
                 AstNode *typeid_type = trans_create_node_field_access_str(c, import_builtin, "TypeId");
                 AstNode *typeid_pointer = trans_create_node_field_access_str(c, typeid_type, "Pointer");
                 AstNode *typeid_integer = trans_create_node_field_access_str(c, typeid_type, "Int");
-                AstNode *typeof_x = trans_create_node_builtin_fn_call_str(c, "typeOf");
+                AstNode *typeof_x = trans_create_node_builtin_fn_call_str(c, "TypeOf");
                 typeof_x->data.fn_call_expr.params.append(node_to_cast);
                 AstNode *typeid_value = trans_create_node_builtin_fn_call_str(c, "typeId");
                 typeid_value->data.fn_call_expr.params.append(typeof_x);

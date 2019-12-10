@@ -12,8 +12,8 @@ const maxInt = std.math.maxInt;
 ///  - sqrt(+-0)   = +-0
 ///  - sqrt(x)     = nan if x < 0
 ///  - sqrt(nan)   = nan
-pub fn sqrt(x: var) (if (@typeId(@typeOf(x)) == TypeId.Int) @IntType(false, @typeOf(x).bit_count / 2) else @typeOf(x)) {
-    const T = @typeOf(x);
+pub fn sqrt(x: var) (if (@typeId(@TypeOf(x)) == TypeId.Int) @IntType(false, @TypeOf(x).bit_count / 2) else @TypeOf(x)) {
+    const T = @TypeOf(x);
     switch (@typeId(T)) {
         TypeId.ComptimeFloat => return @as(T, @sqrt(f64, x)), // TODO upgrade to f128
         TypeId.Float => return @sqrt(T, x),

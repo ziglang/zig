@@ -1290,7 +1290,7 @@ pub const DwarfInfo = struct {
             try di.dwarf_seekable_stream.seekTo(this_unit_offset);
 
             var is_64: bool = undefined;
-            const unit_length = try readInitialLength(@typeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
+            const unit_length = try readInitialLength(@TypeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
             if (unit_length == 0) return;
             const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
 
@@ -1392,7 +1392,7 @@ pub const DwarfInfo = struct {
             try di.dwarf_seekable_stream.seekTo(this_unit_offset);
 
             var is_64: bool = undefined;
-            const unit_length = try readInitialLength(@typeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
+            const unit_length = try readInitialLength(@TypeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
             if (unit_length == 0) return;
             const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
 
@@ -1551,7 +1551,7 @@ pub const DwarfInfo = struct {
         try di.dwarf_seekable_stream.seekTo(di.debug_line.offset + line_info_offset);
 
         var is_64: bool = undefined;
-        const unit_length = try readInitialLength(@typeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
+        const unit_length = try readInitialLength(@TypeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
         if (unit_length == 0) {
             return error.MissingDebugInfo;
         }
@@ -2080,7 +2080,7 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64
         DW.FORM_strp => FormValue{ .StrPtr = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
         DW.FORM_indirect => {
             const child_form_id = try noasync leb.readULEB128(u64, in_stream);
-            const F = @typeOf(async parseFormValue(allocator, in_stream, child_form_id, is_64));
+            const F = @TypeOf(async parseFormValue(allocator, in_stream, child_form_id, is_64));
             var frame = try allocator.create(F);
             defer allocator.destroy(frame);
             return await @asyncCall(frame, {}, parseFormValue, allocator, in_stream, child_form_id, is_64);

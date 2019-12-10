@@ -121,7 +121,7 @@ static ScopeExpr *find_expr_scope(Scope *scope) {
 }
 
 static void update_progress_display(CodeGen *g) {
-    stage2_progress_update_node(g->sub_progress_node, 
+    stage2_progress_update_node(g->sub_progress_node,
         g->resolve_queue_index + g->fn_defs_index,
         g->resolve_queue.length + g->fn_defs.length);
 }
@@ -1732,7 +1732,7 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
 ZigType *get_auto_err_set_type(CodeGen *g, ZigFn *fn_entry) {
     ZigType *err_set_type = new_type_table_entry(ZigTypeIdErrorSet);
     buf_resize(&err_set_type->name, 0);
-    buf_appendf(&err_set_type->name, "@typeOf(%s).ReturnType.ErrorSet", buf_ptr(&fn_entry->symbol_name));
+    buf_appendf(&err_set_type->name, "@TypeOf(%s).ReturnType.ErrorSet", buf_ptr(&fn_entry->symbol_name));
     err_set_type->data.error_set.err_count = 0;
     err_set_type->data.error_set.errors = nullptr;
     err_set_type->data.error_set.infer_fn = fn_entry;

@@ -22,7 +22,7 @@ pub const HashStrategy = enum {
 
 /// Helper function to hash a pointer and mutate the strategy if needed.
 pub fn hashPointer(hasher: var, key: var, comptime strat: HashStrategy) void {
-    const info = @typeInfo(@typeOf(key));
+    const info = @typeInfo(@TypeOf(key));
 
     switch (info.Pointer.size) {
         builtin.TypeInfo.Pointer.Size.One => switch (strat) {
@@ -74,7 +74,7 @@ pub fn hashArray(hasher: var, key: var, comptime strat: HashStrategy) void {
 /// Provides generic hashing for any eligible type.
 /// Strategy is provided to determine if pointers should be followed or not.
 pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
-    const Key = @typeOf(key);
+    const Key = @TypeOf(key);
     switch (@typeInfo(Key)) {
         .NoReturn,
         .Opaque,
@@ -164,7 +164,7 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
 /// Only hashes `key` itself, pointers are not followed.
 /// Slices are rejected to avoid ambiguity on the user's intention.
 pub fn autoHash(hasher: var, key: var) void {
-    const Key = @typeOf(key);
+    const Key = @TypeOf(key);
     if (comptime meta.trait.isSlice(Key)) {
         comptime assert(@hasDecl(std, "StringHashMap")); // detect when the following message needs updated
         const extra_help = if (Key == []const u8)

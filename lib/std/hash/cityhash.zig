@@ -360,9 +360,9 @@ fn SMHasherTest(comptime hash_fn: var, comptime hashbits: u32) u32 {
     var hashes: [hashbytes * 256]u8 = undefined;
     var final: [hashbytes]u8 = undefined;
 
-    @memset(@ptrCast([*]u8, &key[0]), 0, @sizeOf(@typeOf(key)));
-    @memset(@ptrCast([*]u8, &hashes[0]), 0, @sizeOf(@typeOf(hashes)));
-    @memset(@ptrCast([*]u8, &final[0]), 0, @sizeOf(@typeOf(final)));
+    @memset(@ptrCast([*]u8, &key[0]), 0, @sizeOf(@TypeOf(key)));
+    @memset(@ptrCast([*]u8, &hashes[0]), 0, @sizeOf(@TypeOf(hashes)));
+    @memset(@ptrCast([*]u8, &final[0]), 0, @sizeOf(@TypeOf(final)));
 
     var i: u32 = 0;
     while (i < 256) : (i += 1) {
@@ -370,7 +370,7 @@ fn SMHasherTest(comptime hash_fn: var, comptime hashbits: u32) u32 {
 
         var h = hash_fn(key[0..i], 256 - i);
         if (builtin.endian == builtin.Endian.Big)
-            h = @byteSwap(@typeOf(h), h);
+            h = @byteSwap(@TypeOf(h), h);
         @memcpy(@ptrCast([*]u8, &hashes[i * hashbytes]), @ptrCast([*]u8, &h), hashbytes);
     }
 

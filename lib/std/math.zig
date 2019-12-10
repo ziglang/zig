@@ -95,7 +95,7 @@ pub fn approxEq(comptime T: type, x: T, y: T, epsilon: T) bool {
 
 // TODO: Hide the following in an internal module.
 pub fn forceEval(value: var) void {
-    const T = @typeOf(value);
+    const T = @TypeOf(value);
     switch (T) {
         f16 => {
             var x: f16 = undefined;
@@ -239,13 +239,13 @@ pub fn Min(comptime A: type, comptime B: type) type {
         },
         else => {},
     }
-    return @typeOf(@as(A, 0) + @as(B, 0));
+    return @TypeOf(@as(A, 0) + @as(B, 0));
 }
 
 /// Returns the smaller number. When one of the parameter's type's full range fits in the other,
 /// the return type is the smaller type.
-pub fn min(x: var, y: var) Min(@typeOf(x), @typeOf(y)) {
-    const Result = Min(@typeOf(x), @typeOf(y));
+pub fn min(x: var, y: var) Min(@TypeOf(x), @TypeOf(y)) {
+    const Result = Min(@TypeOf(x), @TypeOf(y));
     if (x < y) {
         // TODO Zig should allow this as an implicit cast because x is immutable and in this
         // scope it is known to fit in the return type.
@@ -269,33 +269,33 @@ test "math.min" {
         var a: u16 = 999;
         var b: u32 = 10;
         var result = min(a, b);
-        testing.expect(@typeOf(result) == u16);
+        testing.expect(@TypeOf(result) == u16);
         testing.expect(result == 10);
     }
     {
         var a: f64 = 10.34;
         var b: f32 = 999.12;
         var result = min(a, b);
-        testing.expect(@typeOf(result) == f64);
+        testing.expect(@TypeOf(result) == f64);
         testing.expect(result == 10.34);
     }
     {
         var a: i8 = -127;
         var b: i16 = -200;
         var result = min(a, b);
-        testing.expect(@typeOf(result) == i16);
+        testing.expect(@TypeOf(result) == i16);
         testing.expect(result == -200);
     }
     {
         const a = 10.34;
         var b: f32 = 999.12;
         var result = min(a, b);
-        testing.expect(@typeOf(result) == f32);
+        testing.expect(@TypeOf(result) == f32);
         testing.expect(result == 10.34);
     }
 }
 
-pub fn max(x: var, y: var) @typeOf(x + y) {
+pub fn max(x: var, y: var) @TypeOf(x + y) {
     return if (x > y) x else y;
 }
 
@@ -318,8 +318,8 @@ pub fn sub(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     return if (@subWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
-pub fn negate(x: var) !@typeOf(x) {
-    return sub(@typeOf(x), 0, x);
+pub fn negate(x: var) !@TypeOf(x) {
+    return sub(@TypeOf(x), 0, x);
 }
 
 pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) !T {
@@ -333,7 +333,7 @@ pub fn shl(comptime T: type, a: T, shift_amt: var) T {
     const abs_shift_amt = absCast(shift_amt);
     const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else @intCast(Log2Int(T), abs_shift_amt);
 
-    if (@typeOf(shift_amt) == comptime_int or @typeOf(shift_amt).is_signed) {
+    if (@TypeOf(shift_amt) == comptime_int or @TypeOf(shift_amt).is_signed) {
         if (shift_amt < 0) {
             return a >> casted_shift_amt;
         }
@@ -359,7 +359,7 @@ pub fn shr(comptime T: type, a: T, shift_amt: var) T {
     const abs_shift_amt = absCast(shift_amt);
     const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else @intCast(Log2Int(T), abs_shift_amt);
 
-    if (@typeOf(shift_amt) == comptime_int or @typeOf(shift_amt).is_signed) {
+    if (@TypeOf(shift_amt) == comptime_int or @TypeOf(shift_amt).is_signed) {
         if (shift_amt >= 0) {
             return a >> casted_shift_amt;
         } else {
@@ -505,12 +505,12 @@ fn testOverflow() void {
     testing.expect((shlExact(i32, 0b11, 4) catch unreachable) == 0b110000);
 }
 
-pub fn absInt(x: var) !@typeOf(x) {
-    const T = @typeOf(x);
+pub fn absInt(x: var) !@TypeOf(x) {
+    const T = @TypeOf(x);
     comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
     comptime assert(T.is_signed); // must pass a signed integer to absInt
 
-    if (x == minInt(@typeOf(x))) {
+    if (x == minInt(@TypeOf(x))) {
         return error.Overflow;
     } else {
         @setRuntimeSafety(false);
@@ -654,16 +654,16 @@ fn testRem() void {
 /// Returns the absolute value of the integer parameter.
 /// Result is an unsigned integer.
 pub fn absCast(x: var) t: {
-    if (@typeOf(x) == comptime_int) {
+    if (@TypeOf(x) == comptime_int) {
         break :t comptime_int;
     } else {
-        break :t @IntType(false, @typeOf(x).bit_count);
+        break :t @IntType(false, @TypeOf(x).bit_count);
     }
 } {
-    if (@typeOf(x) == comptime_int) {
+    if (@TypeOf(x) == comptime_int) {
         return if (x < 0) -x else x;
     }
-    const uint = @IntType(false, @typeOf(x).bit_count);
+    const uint = @IntType(false, @TypeOf(x).bit_count);
     if (x >= 0) return @intCast(uint, x);
 
     return @intCast(uint, -(x + 1)) + 1;
@@ -671,23 +671,23 @@ pub fn absCast(x: var) t: {
 
 test "math.absCast" {
     testing.expect(absCast(@as(i32, -999)) == 999);
-    testing.expect(@typeOf(absCast(@as(i32, -999))) == u32);
+    testing.expect(@TypeOf(absCast(@as(i32, -999))) == u32);
 
     testing.expect(absCast(@as(i32, 999)) == 999);
-    testing.expect(@typeOf(absCast(@as(i32, 999))) == u32);
+    testing.expect(@TypeOf(absCast(@as(i32, 999))) == u32);
 
     testing.expect(absCast(@as(i32, minInt(i32))) == -minInt(i32));
-    testing.expect(@typeOf(absCast(@as(i32, minInt(i32)))) == u32);
+    testing.expect(@TypeOf(absCast(@as(i32, minInt(i32)))) == u32);
 
     testing.expect(absCast(-999) == 999);
 }
 
 /// Returns the negation of the integer parameter.
 /// Result is a signed integer.
-pub fn negateCast(x: var) !@IntType(true, @typeOf(x).bit_count) {
-    if (@typeOf(x).is_signed) return negate(x);
+pub fn negateCast(x: var) !@IntType(true, @TypeOf(x).bit_count) {
+    if (@TypeOf(x).is_signed) return negate(x);
 
-    const int = @IntType(true, @typeOf(x).bit_count);
+    const int = @IntType(true, @TypeOf(x).bit_count);
     if (x > -minInt(int)) return error.Overflow;
 
     if (x == -minInt(int)) return minInt(int);
@@ -697,10 +697,10 @@ pub fn negateCast(x: var) !@IntType(true, @typeOf(x).bit_count) {
 
 test "math.negateCast" {
     testing.expect((negateCast(@as(u32, 999)) catch unreachable) == -999);
-    testing.expect(@typeOf(negateCast(@as(u32, 999)) catch unreachable) == i32);
+    testing.expect(@TypeOf(negateCast(@as(u32, 999)) catch unreachable) == i32);
 
     testing.expect((negateCast(@as(u32, -minInt(i32))) catch unreachable) == minInt(i32));
-    testing.expect(@typeOf(negateCast(@as(u32, -minInt(i32))) catch unreachable) == i32);
+    testing.expect(@TypeOf(negateCast(@as(u32, -minInt(i32))) catch unreachable) == i32);
 
     testing.expectError(error.Overflow, negateCast(@as(u32, maxInt(i32) + 10)));
 }
@@ -709,10 +709,10 @@ test "math.negateCast" {
 /// return an error.
 pub fn cast(comptime T: type, x: var) (error{Overflow}!T) {
     comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer
-    comptime assert(@typeId(@typeOf(x)) == builtin.TypeId.Int); // must pass an integer
-    if (maxInt(@typeOf(x)) > maxInt(T) and x > maxInt(T)) {
+    comptime assert(@typeId(@TypeOf(x)) == builtin.TypeId.Int); // must pass an integer
+    if (maxInt(@TypeOf(x)) > maxInt(T) and x > maxInt(T)) {
         return error.Overflow;
-    } else if (minInt(@typeOf(x)) < minInt(T) and x < minInt(T)) {
+    } else if (minInt(@TypeOf(x)) < minInt(T) and x < minInt(T)) {
         return error.Overflow;
     } else {
         return @intCast(T, x);
@@ -726,13 +726,13 @@ test "math.cast" {
     testing.expectError(error.Overflow, cast(u64, @as(i8, -1)));
 
     testing.expect((try cast(u8, @as(u32, 255))) == @as(u8, 255));
-    testing.expect(@typeOf(try cast(u8, @as(u32, 255))) == u8);
+    testing.expect(@TypeOf(try cast(u8, @as(u32, 255))) == u8);
 }
 
 pub const AlignCastError = error{UnalignedMemory};
 
 /// Align cast a pointer but return an error if it's the wrong alignment
-pub fn alignCast(comptime alignment: u29, ptr: var) AlignCastError!@typeOf(@alignCast(alignment, ptr)) {
+pub fn alignCast(comptime alignment: u29, ptr: var) AlignCastError!@TypeOf(@alignCast(alignment, ptr)) {
     const addr = @ptrToInt(ptr);
     if (addr % alignment != 0) {
         return error.UnalignedMemory;
@@ -858,7 +858,7 @@ test "std.math.log2_int_ceil" {
 }
 
 pub fn lossyCast(comptime T: type, value: var) T {
-    switch (@typeInfo(@typeOf(value))) {
+    switch (@typeInfo(@TypeOf(value))) {
         builtin.TypeId.Int => return @intToFloat(T, value),
         builtin.TypeId.Float => return @floatCast(T, value),
         builtin.TypeId.ComptimeInt => return @as(T, value),

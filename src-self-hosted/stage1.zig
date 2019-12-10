@@ -270,11 +270,9 @@ const FmtError = error{
     FileBusy,
 } || fs.File.OpenError;
 
-fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void {
-    const file_path = try std.mem.dupe(fmt.allocator, u8, file_path_ref);
-    defer fmt.allocator.free(file_path);
-
-    if (try fmt.seen.put(file_path, {})) |_| return;
+fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool) FmtError!void {
+    if (fmt.seen.exists(file_path)) return;
+    try fmt.seen.put(file_path);
 
     const source_code = io.readFileAlloc(fmt.allocator, file_path) catch |err| switch (err) {
         error.IsDir, error.AccessDenied => {
@@ -341,7 +339,7 @@ const Fmt = struct {
     color: errmsg.Color,
     allocator: *mem.Allocator,
 
-    const SeenMap = std.StringHashMap(void);
+    const SeenMap = std.BufSet;
 };
 
 fn printErrMsgToFile(

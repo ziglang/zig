@@ -1539,7 +1539,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("macro pointer cast",
         \\#define NRF_GPIO ((NRF_GPIO_Type *) NRF_GPIO_BASE)
     , &[_][]const u8{
-        \\pub const NRF_GPIO = if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Pointer) @ptrCast([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Int) @intToPtr([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else @as([*c]NRF_GPIO_Type, NRF_GPIO_BASE);
+        \\pub const NRF_GPIO = if (@typeId(@TypeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Pointer) @ptrCast([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@TypeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Int) @intToPtr([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else @as([*c]NRF_GPIO_Type, NRF_GPIO_BASE);
     });
 
     cases.add("if on non-bool",

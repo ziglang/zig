@@ -1647,7 +1647,7 @@ static void gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type,
                 ptr_type->data.pointer.vector_index, false);
         LLVMValueRef loaded_vector = gen_load(g, ptr, ptr_type, "");
         LLVMValueRef new_vector = LLVMBuildInsertElement(g->builder, loaded_vector, value,
-                index_val, ""); 
+                index_val, "");
         gen_store(g, new_vector, ptr, ptr_type);
         return;
     }
@@ -8067,7 +8067,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdTypeInfo, "typeInfo", 1);
     create_builtin_fn(g, BuiltinFnIdType, "Type", 1);
     create_builtin_fn(g, BuiltinFnIdHasField, "hasField", 2);
-    create_builtin_fn(g, BuiltinFnIdTypeof, "typeOf", 1); // TODO rename to TypeOf
+    create_builtin_fn(g, BuiltinFnIdTypeof, "TypeOf", 1);
     create_builtin_fn(g, BuiltinFnIdAddWithOverflow, "addWithOverflow", 4);
     create_builtin_fn(g, BuiltinFnIdSubWithOverflow, "subWithOverflow", 4);
     create_builtin_fn(g, BuiltinFnIdMulWithOverflow, "mulWithOverflow", 4);
@@ -8407,7 +8407,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             break;
     }
     buf_appendf(contents, "pub const output_mode = OutputMode.%s;\n", out_type);
-    const char *link_type = g->is_dynamic ? "Dynamic" : "Static"; 
+    const char *link_type = g->is_dynamic ? "Dynamic" : "Static";
     buf_appendf(contents, "pub const link_mode = LinkMode.%s;\n", link_type);
     buf_appendf(contents, "pub const is_test = %s;\n", bool_to_str(g->is_test_build));
     buf_appendf(contents, "pub const single_threaded = %s;\n", bool_to_str(g->is_single_threaded));

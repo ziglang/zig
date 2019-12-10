@@ -105,7 +105,7 @@ pub fn vec3(x: f32, y: f32, z: f32) Vec3 {
 
 test "constant expressions" {
     var array: [array_size]u8 = undefined;
-    expect(@sizeOf(@typeOf(array)) == 20);
+    expect(@sizeOf(@TypeOf(array)) == 20);
 }
 const array_size: u8 = 20;
 
@@ -598,7 +598,7 @@ test "pointer to type" {
         var T: type = i32;
         expect(T == i32);
         var ptr = &T;
-        expect(@typeOf(ptr) == *type);
+        expect(@TypeOf(ptr) == *type);
         ptr.* = f32;
         expect(T == f32);
         expect(*T == *f32);

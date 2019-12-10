@@ -1038,14 +1038,14 @@ pub const Type = struct {
 };
 
 fn hashAny(x: var, comptime seed: u64) u32 {
-    switch (@typeInfo(@typeOf(x))) {
+    switch (@typeInfo(@TypeOf(x))) {
         .Int => |info| {
             comptime var rng = comptime std.rand.DefaultPrng.init(seed);
             const unsigned_x = @bitCast(@IntType(false, info.bits), x);
             if (info.bits <= 32) {
                 return @as(u32, unsigned_x) *% comptime rng.random.scalar(u32);
             } else {
-                return @truncate(u32, unsigned_x *% comptime rng.random.scalar(@typeOf(unsigned_x)));
+                return @truncate(u32, unsigned_x *% comptime rng.random.scalar(@TypeOf(unsigned_x)));
             }
         },
         .Pointer => |info| {
@@ -1069,6 +1069,6 @@ fn hashAny(x: var, comptime seed: u64) u32 {
                 return hashAny(@as(u32, 1), seed);
             }
         },
-        else => @compileError("implement hash function for " ++ @typeName(@typeOf(x))),
+        else => @compileError("implement hash function for " ++ @typeName(@TypeOf(x))),
     }
 }

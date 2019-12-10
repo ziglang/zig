@@ -13,8 +13,8 @@ const expect = std.testing.expect;
 /// Special Cases:
 ///  - exp2(+inf) = +inf
 ///  - exp2(nan)  = nan
-pub fn exp2(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn exp2(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => exp2_32(x),
         f64 => exp2_64(x),

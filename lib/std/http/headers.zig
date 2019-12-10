@@ -367,7 +367,7 @@ pub const Headers = struct {
         options: std.fmt.FormatOptions,
         context: var,
         comptime Errors: type,
-        output: fn (@typeOf(context), []const u8) Errors!void,
+        output: fn (@TypeOf(context), []const u8) Errors!void,
     ) Errors!void {
         var it = self.iterator();
         while (it.next()) |entry| {

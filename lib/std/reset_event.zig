@@ -27,7 +27,7 @@ pub const ResetEvent = struct {
     pub fn isSet(self: *ResetEvent) bool {
         return self.os_event.isSet();
     }
-    
+
     /// Sets the event if not already set and
     /// wakes up AT LEAST one thread waiting the event.
     /// Returns whether or not a thread was woken up.
@@ -62,7 +62,7 @@ const OsEvent = if (builtin.single_threaded) DebugEvent else switch (builtin.os)
 };
 
 const DebugEvent = struct {
-    is_set: @typeOf(set_init),
+    is_set: @TypeOf(set_init),
 
     const set_init = if (std.debug.runtime_safety) false else {};
 
@@ -283,7 +283,7 @@ const PosixEvent = struct {
 
     pub fn init() PosixEvent {
         return PosixEvent{
-            .state = .0,
+            .state = 0,
             .cond = c.PTHREAD_COND_INITIALIZER,
             .mutex = c.PTHREAD_MUTEX_INITIALIZER,
         };
@@ -345,8 +345,8 @@ const PosixEvent = struct {
                 timeout_abs += @intCast(u64, ts.tv_sec) * time.second;
                 timeout_abs += @intCast(u64, ts.tv_nsec);
             }
-            ts.tv_sec = @intCast(@typeOf(ts.tv_sec), @divFloor(timeout_abs, time.second));
-            ts.tv_nsec = @intCast(@typeOf(ts.tv_nsec), @mod(timeout_abs, time.second));
+            ts.tv_sec = @intCast(@TypeOf(ts.tv_sec), @divFloor(timeout_abs, time.second));
+            ts.tv_nsec = @intCast(@TypeOf(ts.tv_nsec), @mod(timeout_abs, time.second));
         }
 
         var dummy_value: u32 = undefined;
@@ -426,7 +426,7 @@ test "std.ResetEvent" {
         .event = event,
         .value = 0,
     };
-    
+
     var receiver = try std.Thread.spawn(&context, Context.receiver);
     defer receiver.wait();
     try context.sender();

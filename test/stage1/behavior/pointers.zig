@@ -93,10 +93,10 @@ test "peer type resolution with C pointers" {
     var x2 = if (t) ptr_many else ptr_c;
     var x3 = if (t) ptr_c else ptr_one;
     var x4 = if (t) ptr_c else ptr_many;
-    expect(@typeOf(x1) == [*c]u8);
-    expect(@typeOf(x2) == [*c]u8);
-    expect(@typeOf(x3) == [*c]u8);
-    expect(@typeOf(x4) == [*c]u8);
+    expect(@TypeOf(x1) == [*c]u8);
+    expect(@TypeOf(x2) == [*c]u8);
+    expect(@TypeOf(x3) == [*c]u8);
+    expect(@TypeOf(x4) == [*c]u8);
 }
 
 test "implicit casting between C pointer and optional non-C pointer" {
@@ -144,11 +144,11 @@ test "allowzero pointer and slice" {
     expect(opt_ptr != null);
     expect(@ptrToInt(ptr) == 0);
     var slice = ptr[0..10];
-    expect(@typeOf(slice) == []allowzero i32);
+    expect(@TypeOf(slice) == []allowzero i32);
     expect(@ptrToInt(&slice[5]) == 20);
 
-    expect(@typeInfo(@typeOf(ptr)).Pointer.is_allowzero);
-    expect(@typeInfo(@typeOf(slice)).Pointer.is_allowzero);
+    expect(@typeInfo(@TypeOf(ptr)).Pointer.is_allowzero);
+    expect(@typeInfo(@TypeOf(slice)).Pointer.is_allowzero);
 }
 
 test "assign null directly to C pointer and test null equality" {
@@ -204,7 +204,7 @@ test "assign null directly to C pointer and test null equality" {
 test "null terminated pointer" {
     const S = struct {
         fn doTheTest() void {
-            var array_with_zero = [_:0]u8{'h', 'e', 'l', 'l', 'o'};
+            var array_with_zero = [_:0]u8{ 'h', 'e', 'l', 'l', 'o' };
             var zero_ptr: [*:0]const u8 = @ptrCast([*:0]const u8, &array_with_zero);
             var no_zero_ptr: [*]const u8 = zero_ptr;
             var zero_ptr_again = @ptrCast([*:0]const u8, no_zero_ptr);
@@ -218,7 +218,7 @@ test "null terminated pointer" {
 test "allow any sentinel" {
     const S = struct {
         fn doTheTest() void {
-            var array = [_:std.math.minInt(i32)]i32{1, 2, 3, 4};
+            var array = [_:std.math.minInt(i32)]i32{ 1, 2, 3, 4 };
             var ptr: [*:std.math.minInt(i32)]i32 = &array;
             expect(ptr[4] == std.math.minInt(i32));
         }
@@ -229,10 +229,14 @@ test "allow any sentinel" {
 
 test "pointer sentinel with enums" {
     const S = struct {
-        const Number = enum{one, two, sentinel};
+        const Number = enum {
+            one,
+            two,
+            sentinel,
+        };
 
         fn doTheTest() void {
-            var ptr: [*:.sentinel]Number = &[_:.sentinel]Number{.one, .two, .two, .one};
+            var ptr: [*:.sentinel]Number = &[_:.sentinel]Number{ .one, .two, .two, .one };
             expect(ptr[4] == .sentinel); // TODO this should be comptime expect, see #3731
         }
     };
@@ -243,7 +247,7 @@ test "pointer sentinel with enums" {
 test "pointer sentinel with optional element" {
     const S = struct {
         fn doTheTest() void {
-            var ptr: [*:null]?i32 = &[_:null]?i32{1, 2, 3, 4};
+            var ptr: [*:null]?i32 = &[_:null]?i32{ 1, 2, 3, 4 };
             expect(ptr[4] == null); // TODO this should be comptime expect, see #3731
         }
     };
@@ -255,7 +259,7 @@ test "pointer sentinel with +inf" {
     const S = struct {
         fn doTheTest() void {
             const inf = std.math.inf_f32;
-            var ptr: [*:inf]f32 = &[_:inf]f32{1.1, 2.2, 3.3, 4.4};
+            var ptr: [*:inf]f32 = &[_:inf]f32{ 1.1, 2.2, 3.3, 4.4 };
             expect(ptr[4] == inf); // TODO this should be comptime expect, see #3731
         }
     };

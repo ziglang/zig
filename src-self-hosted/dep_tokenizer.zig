@@ -1021,8 +1021,8 @@ comptime {
 // output: must be a function that takes a `self` idiom parameter
 // and a bytes parameter
 // context: must be that self
-fn makeOutput(output: var, context: var) Output(@typeOf(output)) {
-    return Output(@typeOf(output)){
+fn makeOutput(output: var, context: var) Output(@TypeOf(output)) {
+    return Output(@TypeOf(output)){
         .output = output,
         .context = context,
     };

@@ -362,8 +362,8 @@ test "string concatenation" {
     const a = "OK" ++ " IT " ++ "WORKED";
     const b = "OK IT WORKED";
 
-    comptime expect(@typeOf(a) == *const [12:0]u8);
-    comptime expect(@typeOf(b) == *const [12:0]u8);
+    comptime expect(@TypeOf(a) == *const [12:0]u8);
+    comptime expect(@TypeOf(b) == *const [12:0]u8);
 
     const len = mem.len(u8, b);
     const len_with_null = len + 1;
@@ -460,19 +460,19 @@ test "@typeId" {
         expect(@typeId(*f32) == Tid.Pointer);
         expect(@typeId([2]u8) == Tid.Array);
         expect(@typeId(AStruct) == Tid.Struct);
-        expect(@typeId(@typeOf(1)) == Tid.ComptimeInt);
-        expect(@typeId(@typeOf(1.0)) == Tid.ComptimeFloat);
-        expect(@typeId(@typeOf(undefined)) == Tid.Undefined);
-        expect(@typeId(@typeOf(null)) == Tid.Null);
+        expect(@typeId(@TypeOf(1)) == Tid.ComptimeInt);
+        expect(@typeId(@TypeOf(1.0)) == Tid.ComptimeFloat);
+        expect(@typeId(@TypeOf(undefined)) == Tid.Undefined);
+        expect(@typeId(@TypeOf(null)) == Tid.Null);
         expect(@typeId(?i32) == Tid.Optional);
         expect(@typeId(anyerror!i32) == Tid.ErrorUnion);
         expect(@typeId(anyerror) == Tid.ErrorSet);
         expect(@typeId(AnEnum) == Tid.Enum);
-        expect(@typeId(@typeOf(AUnionEnum.One)) == Tid.Enum);
+        expect(@typeId(@TypeOf(AUnionEnum.One)) == Tid.Enum);
         expect(@typeId(AUnionEnum) == Tid.Union);
         expect(@typeId(AUnion) == Tid.Union);
         expect(@typeId(fn () void) == Tid.Fn);
-        expect(@typeId(@typeOf(builtin)) == Tid.Type);
+        expect(@typeId(@TypeOf(builtin)) == Tid.Type);
         // TODO bound fn
         // TODO arg tuple
         // TODO opaque
@@ -652,9 +652,9 @@ test "volatile load and store" {
 
 test "slice string literal has type []const u8" {
     comptime {
-        expect(@typeOf("aoeu"[0..]) == []const u8);
+        expect(@TypeOf("aoeu"[0..]) == []const u8);
         const array = [_]i32{ 1, 2, 3, 4 };
-        expect(@typeOf(array[0..]) == []const i32);
+        expect(@TypeOf(array[0..]) == []const i32);
     }
 }
 

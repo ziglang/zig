@@ -72,7 +72,7 @@ pub const LibCInstallation = struct {
             inline for (keys) |key, i| {
                 if (std.mem.eql(u8, name, key)) {
                     found_keys[i].found = true;
-                    switch (@typeInfo(@typeOf(@field(self, key)))) {
+                    switch (@typeInfo(@TypeOf(@field(self, key)))) {
                         .Optional => {
                             if (value.len == 0) {
                                 @field(self, key) = null;

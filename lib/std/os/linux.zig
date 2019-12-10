@@ -706,7 +706,7 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
         .restorer = @ptrCast(extern fn () void, restorer_fn),
     };
     var ksa_old: k_sigaction = undefined;
-    const ksa_mask_size = @sizeOf(@typeOf(ksa_old.mask));
+    const ksa_mask_size = @sizeOf(@TypeOf(ksa_old.mask));
     @memcpy(@ptrCast([*]u8, &ksa.mask), @ptrCast([*]const u8, &act.mask), ksa_mask_size);
     const result = syscall4(SYS_rt_sigaction, sig, @ptrToInt(&ksa), @ptrToInt(&ksa_old), ksa_mask_size);
     const err = getErrno(result);
@@ -786,7 +786,7 @@ pub fn sendmsg(fd: i32, msg: *msghdr_const, flags: u32) usize {
 }
 
 pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize {
-    if (@typeInfo(usize).Int.bits > @typeInfo(@typeOf(mmsghdr(undefined).msg_len)).Int.bits) {
+    if (@typeInfo(usize).Int.bits > @typeInfo(@TypeOf(mmsghdr(undefined).msg_len)).Int.bits) {
         // workaround kernel brokenness:
         // if adding up all iov_len overflows a i32 then split into multiple calls
         // see https://www.openwall.com/lists/musl/2014/06/07/5

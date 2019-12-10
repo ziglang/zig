@@ -118,7 +118,7 @@ test "atomic load and rmw with enum" {
 
     expect(@atomicLoad(Value, &x, .SeqCst) != .b);
 
-    _ = @atomicRmw(Value, &x, .Xchg, .c, .SeqCst); 
+    _ = @atomicRmw(Value, &x, .Xchg, .c, .SeqCst);
     expect(@atomicLoad(Value, &x, .SeqCst) == .c);
     expect(@atomicLoad(Value, &x, .SeqCst) != .a);
     expect(@atomicLoad(Value, &x, .SeqCst) != .b);

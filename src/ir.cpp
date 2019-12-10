@@ -9267,7 +9267,7 @@ static ZigValue *ir_exec_const_result(CodeGen *codegen, IrExecutable *exec) {
                 }
             }
             if (get_scope_typeof(instruction->scope) != nullptr) {
-                // doesn't count, it's inside a @typeOf()
+                // doesn't count, it's inside a @TypeOf()
                 continue;
             }
             exec_add_error_node(codegen, exec, instruction->source_node,
@@ -10413,7 +10413,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             return result;
         }
 
-        bool ok_cv_qualifiers = 
+        bool ok_cv_qualifiers =
             (!actual_ptr_type->data.pointer.is_const || wanted_ptr_type->data.pointer.is_const) &&
             (!actual_ptr_type->data.pointer.is_volatile || wanted_ptr_type->data.pointer.is_volatile);
         if (!ok_cv_qualifiers) {
@@ -13779,7 +13779,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         (wanted_type->id == ZigTypeIdOptional && wanted_type->data.maybe.child_type->id == ZigTypeIdEnum))
     {
         IrInstruction *result = ir_analyze_enum_literal(ira, source_instr, value, wanted_type->data.maybe.child_type);
-        if (result == ira->codegen->invalid_instruction) 
+        if (result == ira->codegen->invalid_instruction)
             return result;
 
         return ir_analyze_optional_wrap(ira, result, value, wanted_type, nullptr);
@@ -13790,9 +13790,9 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         (wanted_type->id == ZigTypeIdErrorUnion && wanted_type->data.error_union.payload_type->id == ZigTypeIdEnum))
     {
         IrInstruction *result = ir_analyze_enum_literal(ira, source_instr, value, wanted_type->data.error_union.payload_type);
-        if (result == ira->codegen->invalid_instruction) 
+        if (result == ira->codegen->invalid_instruction)
             return result;
-        
+
         return ir_analyze_err_wrap_payload(ira, result, value, wanted_type, nullptr);
     }
 
@@ -19328,7 +19328,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                             {
                                 size_t offset = ptr_field->data.x_ptr.data.base_array.elem_index;
                                 uint64_t new_index = offset + index;
-                                if (ptr_field->data.x_ptr.data.base_array.array_val->data.x_array.special != 
+                                if (ptr_field->data.x_ptr.data.base_array.array_val->data.x_array.special !=
                                         ConstArraySpecialBuf)
                                 {
                                     ir_assert(new_index <

@@ -5,10 +5,10 @@ const builtin = @import("builtin");
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
-    expect(@typeOf(&foo).alignment == 4);
-    expect(@typeOf(&foo) == *align(4) u8);
+    expect(@TypeOf(&foo).alignment == 4);
+    expect(@TypeOf(&foo) == *align(4) u8);
     const slice = @as(*[1]u8, &foo)[0..];
-    expect(@typeOf(slice) == []align(4) u8);
+    expect(@TypeOf(slice) == []align(4) u8);
 }
 
 fn derp() align(@sizeOf(usize) * 2) i32 {
@@ -19,8 +19,8 @@ fn noop4() align(4) void {}
 
 test "function alignment" {
     expect(derp() == 1234);
-    expect(@typeOf(noop1) == fn () align(1) void);
-    expect(@typeOf(noop4) == fn () align(4) void);
+    expect(@TypeOf(noop1) == fn () align(1) void);
+    expect(@TypeOf(noop4) == fn () align(4) void);
     noop1();
     noop4();
 }
@@ -31,7 +31,7 @@ var baz: packed struct {
 } = undefined;
 
 test "packed struct alignment" {
-    expect(@typeOf(&baz.b) == *align(1) u32);
+    expect(@TypeOf(&baz.b) == *align(1) u32);
 }
 
 const blah: packed struct {
@@ -41,7 +41,7 @@ const blah: packed struct {
 } = undefined;
 
 test "bit field alignment" {
-    expect(@typeOf(&blah.b) == *align(1:3:1) const u3);
+    expect(@TypeOf(&blah.b) == *align(1:3:1) const u3);
 }
 
 test "default alignment allows unspecified in type syntax" {
@@ -165,28 +165,28 @@ fn whyWouldYouEverDoThis(comptime align_bytes: u8) align(align_bytes) u8 {
 test "@ptrCast preserves alignment of bigger source" {
     var x: u32 align(16) = 1234;
     const ptr = @ptrCast(*u8, &x);
-    expect(@typeOf(ptr) == *align(16) u8);
+    expect(@TypeOf(ptr) == *align(16) u8);
 }
 
 test "runtime known array index has best alignment possible" {
     // take full advantage of over-alignment
     var array align(4) = [_]u8{ 1, 2, 3, 4 };
-    expect(@typeOf(&array[0]) == *align(4) u8);
-    expect(@typeOf(&array[1]) == *u8);
-    expect(@typeOf(&array[2]) == *align(2) u8);
-    expect(@typeOf(&array[3]) == *u8);
+    expect(@TypeOf(&array[0]) == *align(4) u8);
+    expect(@TypeOf(&array[1]) == *u8);
+    expect(@TypeOf(&array[2]) == *align(2) u8);
+    expect(@TypeOf(&array[3]) == *u8);
 
     // because align is too small but we still figure out to use 2
     var bigger align(2) = [_]u64{ 1, 2, 3, 4 };
-    expect(@typeOf(&bigger[0]) == *align(2) u64);
-    expect(@typeOf(&bigger[1]) == *align(2) u64);
-    expect(@typeOf(&bigger[2]) == *align(2) u64);
-    expect(@typeOf(&bigger[3]) == *align(2) u64);
+    expect(@TypeOf(&bigger[0]) == *align(2) u64);
+    expect(@TypeOf(&bigger[1]) == *align(2) u64);
+    expect(@TypeOf(&bigger[2]) == *align(2) u64);
+    expect(@TypeOf(&bigger[3]) == *align(2) u64);
 
     // because pointer is align 2 and u32 align % 2 == 0 we can assume align 2
     var smaller align(2) = [_]u32{ 1, 2, 3, 4 };
-    comptime expect(@typeOf(smaller[0..]) == []align(2) u32);
-    comptime expect(@typeOf(smaller[0..].ptr) == [*]align(2) u32);
+    comptime expect(@TypeOf(smaller[0..]) == []align(2) u32);
+    comptime expect(@TypeOf(smaller[0..].ptr) == [*]align(2) u32);
     testIndex(smaller[0..].ptr, 0, *align(2) u32);
     testIndex(smaller[0..].ptr, 1, *align(2) u32);
     testIndex(smaller[0..].ptr, 2, *align(2) u32);
@@ -199,10 +199,10 @@ test "runtime known array index has best alignment possible" {
     testIndex2(array[0..].ptr, 3, *u8);
 }
 fn testIndex(smaller: [*]align(2) u32, index: usize, comptime T: type) void {
-    comptime expect(@typeOf(&smaller[index]) == T);
+    comptime expect(@TypeOf(&smaller[index]) == T);
 }
 fn testIndex2(ptr: [*]align(4) u8, index: usize, comptime T: type) void {
-    comptime expect(@typeOf(&ptr[index]) == T);
+    comptime expect(@TypeOf(&ptr[index]) == T);
 }
 
 test "alignstack" {
@@ -303,7 +303,7 @@ test "struct field explicit alignment" {
     var node: S.Node = undefined;
     node.massive_byte = 100;
     expect(node.massive_byte == 100);
-    comptime expect(@typeOf(&node.massive_byte) == *align(64) u8);
+    comptime expect(@TypeOf(&node.massive_byte) == *align(64) u8);
     expect(@ptrToInt(&node.massive_byte) % 64 == 0);
 }
 

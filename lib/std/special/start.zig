@@ -25,7 +25,7 @@ comptime {
         }
     } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
         if (builtin.link_libc and @hasDecl(root, "main")) {
-            if (@typeInfo(@typeOf(root.main)).Fn.calling_convention != .C) {
+            if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
                 @export("main", main, .Weak);
             }
         } else if (builtin.os == .windows) {
@@ -69,7 +69,7 @@ extern fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) u
     uefi.handle = handle;
     uefi.system_table = system_table;
 
-    switch (@typeInfo(@typeOf(root.main).ReturnType)) {
+    switch (@typeInfo(@TypeOf(root.main).ReturnType)) {
         .NoReturn => {
             root.main();
         },
@@ -248,7 +248,7 @@ async fn callMainAsync(loop: *std.event.Loop) u8 {
 // This is not marked inline because it is called with @asyncCall when
 // there is an event loop.
 fn callMain() u8 {
-    switch (@typeInfo(@typeOf(root.main).ReturnType)) {
+    switch (@typeInfo(@TypeOf(root.main).ReturnType)) {
         .NoReturn => {
             root.main();
         },
@@ -270,7 +270,7 @@ fn callMain() u8 {
                 }
                 return 1;
             };
-            switch (@typeInfo(@typeOf(result))) {
+            switch (@typeInfo(@TypeOf(result))) {
                 .Void => return 0,
                 .Int => |info| {
                     if (info.bits != 8) {

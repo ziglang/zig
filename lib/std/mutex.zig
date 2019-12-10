@@ -11,7 +11,7 @@ const ResetEvent = std.ResetEvent;
 /// no-ops. In single threaded debug mode, there is deadlock detection.
 pub const Mutex = if (builtin.single_threaded)
     struct {
-        lock: @typeOf(lock_init),
+        lock: @TypeOf(lock_init),
 
         const lock_init = if (std.debug.runtime_safety) false else {};
 

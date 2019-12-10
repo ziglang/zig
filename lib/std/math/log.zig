@@ -23,10 +23,10 @@ pub fn log(comptime T: type, base: T, x: T) T {
     const float_base = math.lossyCast(f64, base);
     switch (@typeId(T)) {
         TypeId.ComptimeFloat => {
-            return @typeOf(1.0)(math.ln(@as(f64, x)) / math.ln(float_base));
+            return @TypeOf(1.0)(math.ln(@as(f64, x)) / math.ln(float_base));
         },
         TypeId.ComptimeInt => {
-            return @typeOf(1)(math.floor(math.ln(@as(f64, x)) / math.ln(float_base)));
+            return @TypeOf(1)(math.floor(math.ln(@as(f64, x)) / math.ln(float_base)));
         },
         builtin.TypeId.Int => {
             // TODO implement integer log without using float math

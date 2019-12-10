@@ -83,9 +83,9 @@ test "error union type " {
 fn testErrorUnionType() void {
     const x: anyerror!i32 = 1234;
     if (x) |value| expect(value == 1234) else |_| unreachable;
-    expect(@typeId(@typeOf(x)) == builtin.TypeId.ErrorUnion);
-    expect(@typeId(@typeOf(x).ErrorSet) == builtin.TypeId.ErrorSet);
-    expect(@typeOf(x).ErrorSet == anyerror);
+    expect(@typeId(@TypeOf(x)) == builtin.TypeId.ErrorUnion);
+    expect(@typeId(@TypeOf(x).ErrorSet) == builtin.TypeId.ErrorSet);
+    expect(@TypeOf(x).ErrorSet == anyerror);
 }
 
 test "error set type" {

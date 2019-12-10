@@ -1,3 +1,14 @@
+// TODO: Remove condition after deprecating 'typeOf'. See https://github.com/ziglang/zig/issues/1348
+test "zig fmt: change @typeOf to @TypeOf" {
+    try testTransform(
+        \\const a = @typeOf(@as(usize, 10));
+        \\
+    ,
+        \\const a = @TypeOf(@as(usize, 10));
+        \\
+    );
+}
+
 test "zig fmt: comptime struct field" {
     try testCanonical(
         \\const Foo = struct {
@@ -1060,7 +1071,7 @@ test "zig fmt: line comment after doc comment" {
 test "zig fmt: float literal with exponent" {
     try testCanonical(
         \\test "bit field alignment" {
-        \\    assert(@typeOf(&blah.b) == *align(1:3:6) const u3);
+        \\    assert(@TypeOf(&blah.b) == *align(1:3:6) const u3);
         \\}
         \\
     );
@@ -2593,7 +2604,7 @@ test "zig fmt: comments at several places in struct init" {
     try testTransform(
         \\var bar = Bar{
         \\    .x = 10, // test
-        \\    .y = "test" 
+        \\    .y = "test"
         \\    // test
         \\};
         \\
