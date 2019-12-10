@@ -592,7 +592,16 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
         fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
             const self = @fieldParentPtr(Self, "stream", out_stream);
 
-            if (bytes.len >= self.buffer.len) {
+            if (bytes.len == 1) {
+                // This is not required logic but a shorter path
+                // for single byte writes
+                self.buffer[self.index] = bytes[0];
+                self.index += 1;
+                if (self.index == buffer_size) {
+                    try self.flush();
+                }
+                return;
+            } else if (bytes.len >= self.buffer.len) {
                 try self.flush();
                 return self.unbuffered_out_stream.write(bytes);
             }
