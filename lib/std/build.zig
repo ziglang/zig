@@ -1576,7 +1576,7 @@ pub const LibExeObjStep = struct {
 
     pub fn addBuildOption(self: *LibExeObjStep, comptime T: type, name: []const u8, value: T) void {
         const out = &std.io.BufferOutStream.init(&self.build_options_contents).stream;
-        out.print("pub const {} = {};\n", name, value) catch unreachable;
+        out.print("pub const {} = {};\n", .{ name, value }) catch unreachable;
     }
 
     pub fn addSystemIncludeDir(self: *LibExeObjStep, path: []const u8) void {
