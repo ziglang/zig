@@ -84,11 +84,6 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             self.items[i] = item;
         }
 
-        /// Return length of the list.
-        pub fn count(self: Self) usize {
-            return self.len;
-        }
-
         /// Return the maximum number of items the list can hold
         /// without allocating more memory.
         pub fn capacity(self: Self) usize {
@@ -114,7 +109,7 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             return result;
         }
 
-        /// Insert `item` at index `n`. Moves `list[n .. list.count()]`
+        /// Insert `item` at index `n`. Moves `list[n .. list.len]`
         /// to make room.
         pub fn insert(self: *Self, n: usize, item: T) !void {
             try self.ensureCapacity(self.len + 1);
@@ -125,7 +120,7 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
         }
 
         /// Insert slice `items` at index `n`. Moves
-        /// `list[n .. list.count()]` to make room.
+        /// `list[n .. list.len]` to make room.
         pub fn insertSlice(self: *Self, n: usize, items: SliceConst) !void {
             try self.ensureCapacity(self.len + items.len);
             self.len += items.len;
@@ -222,7 +217,7 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
         }
 
         pub fn addOneAssumeCapacity(self: *Self) *T {
-            assert(self.count() < self.capacity());
+            assert(self.len < self.capacity());
             const result = &self.items[self.len];
             self.len += 1;
             return result;
@@ -240,31 +235,6 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             if (self.len == 0) return null;
             return self.pop();
         }
-
-        pub const Iterator = struct {
-            list: *const Self,
-            // how many items have we returned
-            count: usize,
-
-            pub fn next(it: *Iterator) ?T {
-                if (it.count >= it.list.len) return null;
-                const val = it.list.at(it.count);
-                it.count += 1;
-                return val;
-            }
-
-            pub fn reset(it: *Iterator) void {
-                it.count = 0;
-            }
-        };
-
-        /// Return an iterator over the list.
-        pub fn iterator(self: *const Self) Iterator {
-            return Iterator{
-                .list = self,
-                .count = 0,
-            };
-        }
     };
 }
 
@@ -275,7 +245,7 @@ test "std.ArrayList.init" {
     var list = ArrayList(i32).init(allocator);
     defer list.deinit();
 
-    testing.expect(list.count() == 0);
+    testing.expect(list.len == 0);
     testing.expect(list.capacity() == 0);
 }
 
@@ -284,7 +254,7 @@ test "std.ArrayList.initCapacity" {
     const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
     var list = try ArrayList(i8).initCapacity(allocator, 200);
     defer list.deinit();
-    testing.expect(list.count() == 0);
+    testing.expect(list.len == 0);
     testing.expect(list.capacity() >= 200);
 }
 
@@ -424,35 +394,6 @@ test "std.ArrayList.swapRemoveOrError" {
     // Test out of bounds with two items
     try list.append(2);
     testing.expectError(error.OutOfBounds, list.swapRemoveOrError(2));
-}
-
-test "std.ArrayList.iterator" {
-    var list = ArrayList(i32).init(debug.global_allocator);
-    defer list.deinit();
-
-    try list.append(1);
-    try list.append(2);
-    try list.append(3);
-
-    var count: i32 = 0;
-    var it = list.iterator();
-    while (it.next()) |next| {
-        testing.expect(next == count + 1);
-        count += 1;
-    }
-
-    testing.expect(count == 3);
-    testing.expect(it.next() == null);
-    it.reset();
-    count = 0;
-    while (it.next()) |next| {
-        testing.expect(next == count + 1);
-        count += 1;
-        if (count == 2) break;
-    }
-
-    it.reset();
-    testing.expect(it.next().? == 1);
 }
 
 test "std.ArrayList.insert" {
