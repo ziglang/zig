@@ -132,6 +132,10 @@ pub const LinuxDynLib = struct {
         };
     }
 
+    pub fn openC(path_c: [*:0]const u8) !LinuxDynLib {
+        return open(mem.toSlice(u8, path_c));
+    }
+
     pub fn close(self: *LinuxDynLib) void {
         os.munmap(self.memory);
         os.close(self.fd);
@@ -148,8 +152,6 @@ pub const LinuxDynLib = struct {
 };
 
 pub const ElfLib = struct {
-    strings: [*:0]u8,
-
     pub const Error = error{
         NotElfFile,
         NotDynamicLibrary,
@@ -160,7 +162,7 @@ pub const ElfLib = struct {
         ElfHashTableNotFound,
     };
 
-    strings: [*]u8,
+    strings: [*:0]u8,
     syms: [*]elf.Sym,
     hashtab: [*]os.Elf_Symndx,
     versym: ?[*]u16,
@@ -270,9 +272,18 @@ pub const WindowsDynLib = struct {
     dll: windows.HMODULE,
 
     pub fn open(path: []const u8) !WindowsDynLib {
-        const wpath = try windows.sliceToPrefixedFileW(path);
+        const path_w = try windows.sliceToPrefixedFileW(path);
+        return openW(&path_w);
+    }
+
+    pub fn openC(path_c: [*:0]const u8) !WindowsDynLib {
+        const path_w = try windows.cStrToPrefixedFileW(path);
+        return openW(&path_w);
+    }
+
+    pub fn openW(path_w: [*:0]const u16) !WindowsDynLib {
         return WindowsDynLib{
-            .dll = try windows.LoadLibraryW(&wpath),
+            .dll = try windows.LoadLibraryW(path_w),
         };
     }
 
@@ -281,19 +292,12 @@ pub const WindowsDynLib = struct {
         self.* = undefined;
     }
 
-    pub fn lookupC(self: *WindowsDynLib, comptime T: type, name: [*:0]const u8) ?T {
-        if (windows.kernel32.GetProcAddress(self.dll, name)) |addr| {
+    pub fn lookup(self: *DlDynlib, comptime T: type, name: [:0]const u8) ?T {
+        if (windows.kernel32.GetProcAddress(self.dll, name.ptr)) |addr| {
             return @ptrCast(T, addr);
         } else {
             return null;
         }
-    }
-
-    pub fn lookup(self: *DlDynlib, comptime T: type, comptime max_name_len: usize, name: []const u8) ?T {
-        const c_name: [max_name_len]u8 = undefined;
-        mem.copy(&c_name, name);
-        c_name[name.len] = 0;
-        return self.lookupC(T, &c_name);
     }
 };
 
@@ -303,12 +307,13 @@ pub const DlDynlib = struct {
     handle: *c_void,
 
     pub fn open(path: []const u8) !DlDynlib {
-        if (!builtin.link_libc and !os.darwin.is_the_target) {
-            @compileError("DlDynlib requires libc");
-        }
+        const path_c = try os.toPosixPath(path);
+        return openC(&path_c);
+    }
 
+    pub fn openC(path_c: [*:0]const u8) !DlDynlib {
         return DlDynlib{
-            .handle = system.dlopen(path.ptr, system.RTLD_LAZY) orelse {
+            .handle = system.dlopen(path_c, system.RTLD_LAZY) orelse {
                 return error.FileNotFound;
             },
         };
@@ -319,19 +324,14 @@ pub const DlDynlib = struct {
         self.* = undefined;
     }
 
-    pub fn lookupC(self: *DlDynlib, comptime T: type, name: [*:0]const u8) ?T {
-        if (system.dlsym(self.handle, name)) |symbol| {
+    pub fn lookup(self: *DlDynlib, comptime T: type, name: [*:0]const u8) ?T {
+        // dlsym (and other dl-functions) secretly take shadow parameter - return address on stack
+        // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=66826
+        if (@call(.{ .modifier = .never_tail }, system.dlsym, .{ self.handle, name.ptr })) |symbol| {
             return @ptrCast(T, symbol);
         } else {
             return null;
         }
-    }
-
-    pub fn lookup(self: *DlDynlib, comptime T: type, comptime max_name_len: usize, name: []const u8) ?T {
-        const c_name: [max_name_len]u8 = undefined;
-        mem.copy(&c_name, name);
-        c_name[name.len] = 0;
-        return self.lookupC(T, &c_name);
     }
 };
 
@@ -340,7 +340,7 @@ test "dynamic_library" {
         .linux => "invalid_so.so",
         .windows => "invalid_dll.dll",
         .macosx, .tvos, .watchos, .ios => "invalid_dylib.dylib",
-        else => return,
+        else => return error.SkipZigTest,
     };
 
     const dynlib = DynLib.open(libname) catch |err| {

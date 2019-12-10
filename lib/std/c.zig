@@ -226,3 +226,7 @@ pub extern "c" fn pthread_cond_destroy(cond: *pthread_cond_t) c_int;
 
 pub const pthread_t = *@OpaqueType();
 pub const FILE = @OpaqueType();
+
+pub extern "c" fn dlopen(path: [*:0]const u8, mode: c_int) ?*c_void;
+pub extern "c" fn dlclose(handle: *c_void) c_int;
+pub extern "c" fn dlsym(handle: ?*c_void, symbol: [*:0]const u8) ?*c_void;

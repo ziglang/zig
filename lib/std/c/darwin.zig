@@ -128,7 +128,3 @@ pub const pthread_attr_t = extern struct {
     __sig: c_long,
     __opaque: [56]u8,
 };
-
-pub extern "c" fn dlopen(path: [*]const u8, mode: c_int) ?*c_void;
-pub extern "c" fn dlclose(handle: *c_void) c_int;
-pub extern "c" fn dlsym(handle: ?*c_void, symbol: [*]const u8) ?*c_void;

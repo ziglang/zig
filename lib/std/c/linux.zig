@@ -98,3 +98,10 @@ const __SIZEOF_PTHREAD_MUTEX_T = if (builtin.os == .fuchsia) 40 else switch (bui
     },
     else => unreachable,
 };
+
+pub const RTLD_LAZY = 1;
+pub const RTLD_NOW = 2;
+pub const RTLD_NOLOAD = 4;
+pub const RTLD_NODELETE = 4096;
+pub const RTLD_GLOBAL = 256;
+pub const RTLD_LOCAL = 0;
