@@ -283,7 +283,8 @@ pub const WindowsDynLib = struct {
 
     pub fn openW(path_w: [*:0]const u16) !WindowsDynLib {
         return WindowsDynLib{
-            .dll = try windows.LoadLibraryW(path_w),
+            // + 4 to skip over the \??\
+            .dll = try windows.LoadLibraryW(path_w + 4),
         };
     }
 
