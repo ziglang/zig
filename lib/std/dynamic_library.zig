@@ -142,7 +142,7 @@ pub const LinuxDynLib = struct {
         self.* = undefined;
     }
 
-    pub fn lookup(self: *LinuxDynLib, comptime T: type, name: []const u8) ?T {
+    pub fn lookup(self: *LinuxDynLib, comptime T: type, name: [:0]const u8) ?T {
         if (self.elf_lib.lookup("", name)) |symbol| {
             return @intToPtr(T, symbol);
         } else {
@@ -292,7 +292,7 @@ pub const WindowsDynLib = struct {
         self.* = undefined;
     }
 
-    pub fn lookup(self: *DlDynlib, comptime T: type, name: [:0]const u8) ?T {
+    pub fn lookup(self: *WindowsDynLib, comptime T: type, name: [:0]const u8) ?T {
         if (windows.kernel32.GetProcAddress(self.dll, name.ptr)) |addr| {
             return @ptrCast(T, addr);
         } else {
@@ -324,7 +324,7 @@ pub const DlDynlib = struct {
         self.* = undefined;
     }
 
-    pub fn lookup(self: *DlDynlib, comptime T: type, name: [*:0]const u8) ?T {
+    pub fn lookup(self: *DlDynlib, comptime T: type, name: [:0]const u8) ?T {
         // dlsym (and other dl-functions) secretly take shadow parameter - return address on stack
         // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=66826
         if (@call(.{ .modifier = .never_tail }, system.dlsym, .{ self.handle, name.ptr })) |symbol| {
