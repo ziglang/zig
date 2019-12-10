@@ -6561,6 +6561,7 @@ static IrInstruction *ir_gen_prefix_op_id(IrBuilder *irb, Scope *scope, AstNode 
 }
 
 static IrInstruction *ir_expr_wrap(IrBuilder *irb, Scope *scope, IrInstruction *inst, ResultLoc *result_loc) {
+    if (inst == irb->codegen->invalid_instruction) return inst;
     ir_build_end_expr(irb, scope, inst->source_node, inst, result_loc);
     return inst;
 }
