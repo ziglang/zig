@@ -101,8 +101,6 @@ pub async fn renderToLlvm(comp: *Compilation, fn_val: *Value.Fn, code: *ir.Code)
         _ = llvm.VerifyModule(ofile.module, llvm.AbortProcessAction, &error_ptr);
     }
 
-    assert(comp.emit_file_type == Compilation.Emit.Binary); // TODO support other types
-
     const is_small = comp.build_mode == .ReleaseSmall;
     const is_debug = comp.build_mode == .Debug;
 

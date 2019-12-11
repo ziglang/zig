@@ -135,22 +135,17 @@ pub const Compilation = struct {
     /// lazily created when we need it
     tmp_dir: event.Future(BuildError![]u8) = event.Future(BuildError![]u8).init(),
 
-    version_major: u32 = 0,
-    version_minor: u32 = 0,
-    version_patch: u32 = 0,
+    version: builtin.Version = builtin.Version{ .major = 0, .minor = 0, .patch = 0 },
 
     linker_script: ?[]const u8 = null,
     out_h_path: ?[]const u8 = null,
 
     is_test: bool = false,
-    each_lib_rpath: bool = false,
     strip: bool = false,
     is_static: bool,
     linker_rdynamic: bool = false,
 
     clang_argv: []const []const u8 = &[_][]const u8{},
-    lib_dirs: []const []const u8 = &[_][]const u8{},
-    rpath_list: []const []const u8 = &[_][]const u8{},
     assembly_files: []const []const u8 = &[_][]const u8{},
 
     /// paths that are explicitly provided by the user to link against
@@ -161,9 +156,6 @@ pub const Compilation = struct {
     fn_link_set: event.Locked(FnLinkSet) = event.Locked(FnLinkSet).init(FnLinkSet.init()),
 
     pub const FnLinkSet = std.TailQueue(?*Value.Fn);
-
-    windows_subsystem_windows: bool = false,
-    windows_subsystem_console: bool = false,
 
     link_libs_list: ArrayList(*LinkLib),
     libc_link_lib: ?*LinkLib = null,
@@ -178,17 +170,18 @@ pub const Compilation = struct {
     verbose_llvm_ir: bool = false,
     verbose_link: bool = false,
 
-    darwin_frameworks: []const []const u8 = &[_][]const u8{},
     darwin_version_min: DarwinVersionMin = .None,
 
     test_filters: []const []const u8 = &[_][]const u8{},
     test_name_prefix: ?[]const u8 = null,
 
-    emit_file_type: Emit = .Binary,
+    emit_bin: bool = true,
+    emit_asm: bool = false,
+    emit_llvm_ir: bool = false,
+    emit_h: bool = false,
 
     kind: Kind,
 
-    link_out_file: ?[]const u8 = null,
     events: *event.Channel(Event),
 
     exported_symbol_names: event.Locked(Decl.Table),

@@ -14,7 +14,6 @@ fn traitFnWorkaround(comptime T: type) bool {
 }
 
 pub const TraitFn = @TypeOf(traitFnWorkaround);
-///
 
 //////Trait generators
 
@@ -55,7 +54,6 @@ test "std.meta.trait.multiTrait" {
     testing.expect(!isVector(u8));
 }
 
-///
 pub fn hasFn(comptime name: []const u8) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
@@ -79,7 +77,6 @@ test "std.meta.trait.hasFn" {
     testing.expect(!hasFn("useless")(u8));
 }
 
-///
 pub fn hasField(comptime name: []const u8) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
@@ -113,7 +110,6 @@ test "std.meta.trait.hasField" {
     testing.expect(!hasField("value")(u8));
 }
 
-///
 pub fn is(comptime id: builtin.TypeId) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
@@ -131,7 +127,6 @@ test "std.meta.trait.is" {
     testing.expect(!is(builtin.TypeId.Optional)(anyerror));
 }
 
-///
 pub fn isPtrTo(comptime id: builtin.TypeId) TraitFn {
     const Closure = struct {
         pub fn trait(comptime T: type) bool {
@@ -173,7 +168,6 @@ test "std.meta.trait.isExtern" {
     testing.expect(!isExtern(u8));
 }
 
-///
 pub fn isPacked(comptime T: type) bool {
     const Packed = builtin.TypeInfo.ContainerLayout.Packed;
     const info = @typeInfo(T);
@@ -194,7 +188,6 @@ test "std.meta.trait.isPacked" {
     testing.expect(!isPacked(u8));
 }
 
-///
 pub fn isUnsignedInt(comptime T: type) bool {
     return switch (@typeId(T)) {
         builtin.TypeId.Int => !@typeInfo(T).Int.is_signed,
@@ -209,7 +202,6 @@ test "isUnsignedInt" {
     testing.expect(isUnsignedInt(f64) == false);
 }
 
-///
 pub fn isSignedInt(comptime T: type) bool {
     return switch (@typeId(T)) {
         builtin.TypeId.ComptimeInt => true,
@@ -225,7 +217,6 @@ test "isSignedInt" {
     testing.expect(isSignedInt(f64) == false);
 }
 
-///
 pub fn isSingleItemPtr(comptime T: type) bool {
     if (comptime is(builtin.TypeId.Pointer)(T)) {
         const info = @typeInfo(T);
@@ -241,7 +232,6 @@ test "std.meta.trait.isSingleItemPtr" {
     testing.expect(!isSingleItemPtr(@TypeOf(array[0..1])));
 }
 
-///
 pub fn isManyItemPtr(comptime T: type) bool {
     if (comptime is(builtin.TypeId.Pointer)(T)) {
         const info = @typeInfo(T);
@@ -258,7 +248,6 @@ test "std.meta.trait.isManyItemPtr" {
     testing.expect(!isManyItemPtr(@TypeOf(array[0..1])));
 }
 
-///
 pub fn isSlice(comptime T: type) bool {
     if (comptime is(builtin.TypeId.Pointer)(T)) {
         const info = @typeInfo(T);
@@ -274,7 +263,6 @@ test "std.meta.trait.isSlice" {
     testing.expect(!isSlice(@TypeOf(&array[0])));
 }
 
-///
 pub fn isIndexable(comptime T: type) bool {
     if (comptime is(builtin.TypeId.Pointer)(T)) {
         const info = @typeInfo(T);
@@ -297,7 +285,6 @@ test "std.meta.trait.isIndexable" {
     testing.expect(!isIndexable(meta.Child(@TypeOf(slice))));
 }
 
-///
 pub fn isNumber(comptime T: type) bool {
     return switch (@typeId(T)) {
         builtin.TypeId.Int, builtin.TypeId.Float, builtin.TypeId.ComptimeInt, builtin.TypeId.ComptimeFloat => true,

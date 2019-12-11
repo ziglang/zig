@@ -36,21 +36,17 @@ pub fn link(comp: *Compilation) !void {
     ctx.args = std.ArrayList([*:0]const u8).init(&ctx.arena.allocator);
     ctx.link_msg = std.Buffer.initNull(&ctx.arena.allocator);
 
-    if (comp.link_out_file) |out_file| {
-        ctx.out_file_path = try std.Buffer.init(&ctx.arena.allocator, out_file);
-    } else {
-        ctx.out_file_path = try std.Buffer.init(&ctx.arena.allocator, comp.name.toSliceConst());
-        switch (comp.kind) {
-            .Exe => {
-                try ctx.out_file_path.append(comp.target.exeFileExt());
-            },
-            .Lib => {
-                try ctx.out_file_path.append(if (comp.is_static) comp.target.staticLibSuffix() else comp.target.dynamicLibSuffix());
-            },
-            .Obj => {
-                try ctx.out_file_path.append(comp.target.oFileExt());
-            },
-        }
+    ctx.out_file_path = try std.Buffer.init(&ctx.arena.allocator, comp.name.toSliceConst());
+    switch (comp.kind) {
+        .Exe => {
+            try ctx.out_file_path.append(comp.target.exeFileExt());
+        },
+        .Lib => {
+            try ctx.out_file_path.append(if (comp.is_static) comp.target.staticLibSuffix() else comp.target.dynamicLibSuffix());
+        },
+        .Obj => {
+            try ctx.out_file_path.append(comp.target.oFileExt());
+        },
     }
 
     // even though we're calling LLD as a library it thinks the first
@@ -183,37 +179,6 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
         try addPathJoin(ctx, ctx.libc.static_lib_dir.?, crtbegino);
     }
 
-    //for (size_t i = 0; i < g->rpath_list.length; i += 1) {
-    //    Buf *rpath = g->rpath_list.at(i);
-    //    add_rpath(lj, rpath);
-    //}
-    //if (g->each_lib_rpath) {
-    //    for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
-    //        const char *lib_dir = g->lib_dirs.at(i);
-    //        for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
-    //            LinkLib *link_lib = g->link_libs_list.at(i);
-    //            if (buf_eql_str(link_lib->name, "c")) {
-    //                continue;
-    //            }
-    //            bool does_exist;
-    //            Buf *test_path = buf_sprintf("%s/lib%s.so", lib_dir, buf_ptr(link_lib->name));
-    //            if (os_file_exists(test_path, &does_exist) != ErrorNone) {
-    //                zig_panic("link: unable to check if file exists: %s", buf_ptr(test_path));
-    //            }
-    //            if (does_exist) {
-    //                add_rpath(lj, buf_create_from_str(lib_dir));
-    //                break;
-    //            }
-    //        }
-    //    }
-    //}
-
-    //for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
-    //    const char *lib_dir = g->lib_dirs.at(i);
-    //    lj->args.append("-L");
-    //    lj->args.append(lib_dir);
-    //}
-
     if (ctx.comp.haveLibC()) {
         try ctx.args.append("-L");
         // TODO addNullByte should probably return [:0]u8
@@ -326,12 +291,6 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
         else => return error.UnsupportedLinkArchitecture,
     }
 
-    if (ctx.comp.windows_subsystem_windows) {
-        try ctx.args.append("/SUBSYSTEM:windows");
-    } else if (ctx.comp.windows_subsystem_console) {
-        try ctx.args.append("/SUBSYSTEM:console");
-    }
-
     const is_library = ctx.comp.kind == .Lib;
 
     const out_arg = try std.fmt.allocPrint(&ctx.arena.allocator, "-OUT:{}\x00", .{ctx.out_file_path.toSliceConst()});
@@ -374,23 +333,12 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
         try ctx.args.append("-NODEFAULTLIB");
         if (!is_library) {
             try ctx.args.append("-ENTRY:WinMainCRTStartup");
-            // TODO
-            //if (g->have_winmain) {
-            //    lj->args.append("-ENTRY:WinMain");
-            //} else {
-            //    lj->args.append("-ENTRY:WinMainCRTStartup");
-            //}
         }
     }
 
     if (is_library and !ctx.comp.is_static) {
         try ctx.args.append("-DLL");
     }
-
-    //for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
-    //    const char *lib_dir = g->lib_dirs.at(i);
-    //    lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", lib_dir)));
-    //}
 
     for (ctx.comp.link_objects) |link_object| {
         const link_obj_with_null = try std.cstr.addNullByte(&ctx.arena.allocator, link_object);
@@ -402,63 +350,10 @@ fn constructLinkerArgsCoff(ctx: *Context) !void {
         .Exe, .Lib => {
             if (!ctx.comp.haveLibC()) {
                 @panic("TODO");
-                //Buf *builtin_o_path = build_o(g, "builtin");
-                //lj->args.append(buf_ptr(builtin_o_path));
             }
-
-            // msvc compiler_rt is missing some stuff, so we still build it and rely on weak linkage
-            // TODO
-            //Buf *compiler_rt_o_path = build_compiler_rt(g);
-            //lj->args.append(buf_ptr(compiler_rt_o_path));
         },
         .Obj => {},
     }
-
-    //Buf *def_contents = buf_alloc();
-    //ZigList<const char *> gen_lib_args = {0};
-    //for (size_t lib_i = 0; lib_i < g->link_libs_list.length; lib_i += 1) {
-    //    LinkLib *link_lib = g->link_libs_list.at(lib_i);
-    //    if (buf_eql_str(link_lib->name, "c")) {
-    //        continue;
-    //    }
-    //    if (link_lib->provided_explicitly) {
-    //        if (lj->codegen->zig_target.env_type == ZigLLVM_GNU) {
-    //            Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
-    //            lj->args.append(buf_ptr(arg));
-    //        }
-    //        else {
-    //            lj->args.append(buf_ptr(link_lib->name));
-    //        }
-    //    } else {
-    //        buf_resize(def_contents, 0);
-    //        buf_appendf(def_contents, "LIBRARY %s\nEXPORTS\n", buf_ptr(link_lib->name));
-    //        for (size_t exp_i = 0; exp_i < link_lib->symbols.length; exp_i += 1) {
-    //            Buf *symbol_name = link_lib->symbols.at(exp_i);
-    //            buf_appendf(def_contents, "%s\n", buf_ptr(symbol_name));
-    //        }
-    //        buf_appendf(def_contents, "\n");
-
-    //        Buf *def_path = buf_alloc();
-    //        os_path_join(g->cache_dir, buf_sprintf("%s.def", buf_ptr(link_lib->name)), def_path);
-    //        os_write_file(def_path, def_contents);
-
-    //        Buf *generated_lib_path = buf_alloc();
-    //        os_path_join(g->cache_dir, buf_sprintf("%s.lib", buf_ptr(link_lib->name)), generated_lib_path);
-
-    //        gen_lib_args.resize(0);
-    //        gen_lib_args.append("link");
-
-    //        coff_append_machine_arg(g, &gen_lib_args);
-    //        gen_lib_args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_path))));
-    //        gen_lib_args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(generated_lib_path))));
-    //        Buf diag = BUF_INIT;
-    //        if (!zig_lld_link(g->zig_target.oformat, gen_lib_args.items, gen_lib_args.length, &diag)) {
-    //            fprintf(stderr, "%s\n", buf_ptr(&diag));
-    //            exit(1);
-    //        }
-    //        lj->args.append(buf_ptr(generated_lib_path));
-    //    }
-    //}
 }
 
 fn constructLinkerArgsMachO(ctx: *Context) !void {
@@ -475,32 +370,6 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
     } else {
         try ctx.args.append("-dynamic");
     }
-
-    //if (is_lib) {
-    //    if (!g->is_static) {
-    //        lj->args.append("-dylib");
-
-    //        Buf *compat_vers = buf_sprintf("%" ZIG_PRI_usize ".0.0", g->version_major);
-    //        lj->args.append("-compatibility_version");
-    //        lj->args.append(buf_ptr(compat_vers));
-
-    //        Buf *cur_vers = buf_sprintf("%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize,
-    //            g->version_major, g->version_minor, g->version_patch);
-    //        lj->args.append("-current_version");
-    //        lj->args.append(buf_ptr(cur_vers));
-
-    //        // TODO getting an error when running an executable when doing this rpath thing
-    //        //Buf *dylib_install_name = buf_sprintf("@rpath/lib%s.%" ZIG_PRI_usize ".dylib",
-    //        //    buf_ptr(g->root_out_name), g->version_major);
-    //        //lj->args.append("-install_name");
-    //        //lj->args.append(buf_ptr(dylib_install_name));
-
-    //        if (buf_len(&lj->out_file) == 0) {
-    //            buf_appendf(&lj->out_file, "lib%s.%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".dylib",
-    //                buf_ptr(g->root_out_name), g->version_major, g->version_minor, g->version_patch);
-    //        }
-    //    }
-    //}
 
     try ctx.args.append("-arch");
     try ctx.args.append(util.getDarwinArchString(ctx.comp.target));
@@ -528,12 +397,6 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
 
     try ctx.args.append("-o");
     try ctx.args.append(ctx.out_file_path.toSliceConst());
-
-    //for (size_t i = 0; i < g->rpath_list.length; i += 1) {
-    //    Buf *rpath = g->rpath_list.at(i);
-    //    add_rpath(lj, rpath);
-    //}
-    //add_rpath(lj, &lj->out_file);
 
     if (shared) {
         try ctx.args.append("-headerpad_max_install_names");
@@ -563,23 +426,11 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
         }
     }
 
-    //for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
-    //    const char *lib_dir = g->lib_dirs.at(i);
-    //    lj->args.append("-L");
-    //    lj->args.append(lib_dir);
-    //}
-
     for (ctx.comp.link_objects) |link_object| {
         const link_obj_with_null = try std.cstr.addNullByte(&ctx.arena.allocator, link_object);
         try ctx.args.append(@ptrCast([*:0]const u8, link_obj_with_null.ptr));
     }
     try addFnObjects(ctx);
-
-    //// compiler_rt on darwin is missing some stuff, so we still build it and rely on LinkOnce
-    //if (g->out_type == OutTypeExe || g->out_type == OutTypeLib) {
-    //    Buf *compiler_rt_o_path = build_compiler_rt(g);
-    //    lj->args.append(buf_ptr(compiler_rt_o_path));
-    //}
 
     if (ctx.comp.target == Target.Native) {
         for (ctx.comp.link_libs_list.toSliceConst()) |lib| {
@@ -613,11 +464,6 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
     } else {
         @panic("TODO");
     }
-
-    //for (size_t i = 0; i < g->darwin_frameworks.length; i += 1) {
-    //    lj->args.append("-framework");
-    //    lj->args.append(buf_ptr(g->darwin_frameworks.at(i)));
-    //}
 }
 
 fn constructLinkerArgsWasm(ctx: *Context) void {
