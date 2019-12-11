@@ -174,6 +174,38 @@ pub const filestat_t = extern struct {
     st_ctim: timestamp_t,
 };
 
+pub const Stat = extern struct {
+    dev: u64,
+    ino: u64,
+    nlink: u64,
+
+    mode: usize,
+    uid: usize,
+    gid: usize,
+    __pad0: usize,
+    rdev: u64,
+    size: i64,
+    blksize: isize,
+    blocks: i64,
+
+    atim: timespec,
+    mtim: timespec,
+    ctim: timespec,
+    __reserved: [3]i64,
+
+    pub fn atime(self: Stat) timespec {
+        return self.atim;
+    }
+
+    pub fn mtime(self: Stat) timespec {
+        return self.mtim;
+    }
+
+    pub fn ctime(self: Stat) timespec {
+        return self.ctim;
+    }
+};
+
 pub const filetype_t = u8;
 pub const FILETYPE_UNKNOWN: filetype_t = 0;
 pub const FILETYPE_BLOCK_DEVICE: filetype_t = 1;
