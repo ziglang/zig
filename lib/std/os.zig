@@ -3105,6 +3105,19 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
         return windows.SetFilePointerEx_BEGIN(fd, offset);
     }
     const ipos = @bitCast(i64, offset); // the OS treats this as unsigned
+    if (builtin.os == .wasi) {
+        var new_offset: filesize_t = undefined;
+        switch (system.fd_seek(fd, ipos, WHENCE_SET, &new_offset)) {
+            0 => return,
+            ENOTCAPABLE => return error.Unseekable,
+            EBADF => unreachable, // always a race condition
+            EINVAL => return error.Unseekable,
+            EOVERFLOW => return error.Unseekable,
+            ESPIPE => return error.Unseekable,
+            ENXIO => return error.Unseekable,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
     switch (errno(system.lseek(fd, ipos, SEEK_SET))) {
         0 => return,
         EBADF => unreachable, // always a race condition
@@ -3132,6 +3145,19 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
     }
     if (builtin.os.tag == .windows) {
         return windows.SetFilePointerEx_CURRENT(fd, offset);
+    }
+    if (builtin.os == .wasi) {
+        var new_offset: filesize_t = undefined;
+        switch (system.fd_seek(fd, offset, WHENCE_CUR, &new_offset)) {
+            0 => return,
+            ENOTCAPABLE => return error.Unseekable,
+            EBADF => unreachable, // always a race condition
+            EINVAL => return error.Unseekable,
+            EOVERFLOW => return error.Unseekable,
+            ESPIPE => return error.Unseekable,
+            ENXIO => return error.Unseekable,
+            else => |err| return unexpectedErrno(err),
+        }
     }
     switch (errno(system.lseek(fd, offset, SEEK_CUR))) {
         0 => return,
@@ -3161,6 +3187,19 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
     if (builtin.os.tag == .windows) {
         return windows.SetFilePointerEx_END(fd, offset);
     }
+    if (builtin.os == .wasi) {
+        var new_offset: filesize_t = undefined;
+        switch (system.fd_seek(fd, offset, WHENCE_END, &new_offset)) {
+            0 => return,
+            ENOTCAPABLE => return error.Unseekable,
+            EBADF => unreachable, // always a race condition
+            EINVAL => return error.Unseekable,
+            EOVERFLOW => return error.Unseekable,
+            ESPIPE => return error.Unseekable,
+            ENXIO => return error.Unseekable,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
     switch (errno(system.lseek(fd, offset, SEEK_END))) {
         0 => return,
         EBADF => unreachable, // always a race condition
@@ -3188,6 +3227,19 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
     }
     if (builtin.os.tag == .windows) {
         return windows.SetFilePointerEx_CURRENT_get(fd);
+    }
+    if (builtin.os == .wasi) {
+        var new_offset: filesize_t = undefined;
+        switch (system.fd_seek(fd, 0, WHENCE_CUR, &new_offset)) {
+            0 => return new_offset,
+            ENOTCAPABLE => return error.Unseekable,
+            EBADF => unreachable, // always a race condition
+            EINVAL => return error.Unseekable,
+            EOVERFLOW => return error.Unseekable,
+            ESPIPE => return error.Unseekable,
+            ENXIO => return error.Unseekable,
+            else => |err| return unexpectedErrno(err),
+        }
     }
     const rc = system.lseek(fd, 0, SEEK_CUR);
     switch (errno(rc)) {
