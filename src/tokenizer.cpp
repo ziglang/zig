@@ -574,6 +574,8 @@ void tokenize(Buf *buf, Tokenization *out) {
                         set_token_id(&t, t.cur_tok, TokenIdDotStar);
                         end_token(&t);
                         break;
+                    case DIGIT:
+                        tokenize_error(&t, "invalid float literal. Add `0` before the decimal point");
                     default:
                         t.pos -= 1;
                         end_token(&t);
