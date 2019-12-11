@@ -1455,6 +1455,34 @@ pub fn unlinkatZ(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatEr
         const file_path_w = try windows.cStrToPrefixedFileW(file_path_c);
         return unlinkatW(dirfd, &file_path_w, flags);
     }
+    if (builtin.os == .wasi) {
+        const wasiUnlink = if (flags & AT_REMOVEDIR != 0)
+            system.path_remove_directory
+        else
+            system.path_unlink_file;
+
+        switch (wasiUnlink(dirfd, file_path_c, std.mem.len(u8, file_path_c))) {
+            0 => return,
+            EACCES => return error.AccessDenied,
+            EPERM => return error.AccessDenied,
+            EBUSY => return error.FileBusy,
+            EFAULT => unreachable,
+            EIO => return error.FileSystem,
+            EISDIR => return error.IsDir,
+            ELOOP => return error.SymLinkLoop,
+            ENAMETOOLONG => return error.NameTooLong,
+            ENOENT => return error.FileNotFound,
+            ENOTDIR => return error.NotDir,
+            ENOMEM => return error.SystemResources,
+            EROFS => return error.ReadOnlyFileSystem,
+            ENOTEMPTY => return error.DirNotEmpty,
+
+            EINVAL => unreachable, // invalid flags, or pathname has . as last component
+            EBADF => unreachable, // always a race condition
+
+            else => |err| return unexpectedErrno(err),
+        }
+    }
     switch (errno(system.unlinkat(dirfd, file_path_c, flags))) {
         0 => return,
         EACCES => return error.AccessDenied,

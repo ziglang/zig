@@ -337,3 +337,8 @@ pub const WHENCE_CUR: whence_t = 1;
 pub const WHENCE_END: whence_t = 2;
 
 pub const PATH_MAX = 4096;
+
+pub const AT_EACCESS = 0x0;
+pub const AT_SYMLINK_NOFOLLOW = 0x1;
+pub const AT_SYMLINK_FOLLOW = 0x2;
+pub const AT_REMOVEDIR = 0x4;
