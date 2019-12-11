@@ -335,3 +335,5 @@ pub const whence_t = u8;
 pub const WHENCE_SET: whence_t = 0;
 pub const WHENCE_CUR: whence_t = 1;
 pub const WHENCE_END: whence_t = 2;
+
+pub const PATH_MAX = 4096;
