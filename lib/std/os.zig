@@ -98,6 +98,7 @@ pub fn close(fd: fd_t) void {
     }
     if (builtin.os.tag == .wasi) {
         _ = wasi.fd_close(fd);
+        return;
     }
     if (comptime std.Target.current.isDarwin()) {
         // This avoids the EINTR problem.
