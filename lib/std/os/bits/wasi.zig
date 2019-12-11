@@ -182,7 +182,7 @@ pub const Stat = extern struct {
     mode: usize,
     uid: usize,
     gid: usize,
-    __pad0: usize,
+    __pad0: usize = undefined,
     rdev: u64,
     size: i64,
     blksize: isize,
@@ -191,7 +191,7 @@ pub const Stat = extern struct {
     atim: timespec,
     mtim: timespec,
     ctim: timespec,
-    __reserved: [3]i64,
+    __reserved: [3]i64 = undefined,
 
     pub fn atime(self: Stat) timespec {
         return self.atim;
@@ -374,3 +374,12 @@ pub const AT_EACCESS = 0x0;
 pub const AT_SYMLINK_NOFOLLOW = 0x1;
 pub const AT_SYMLINK_FOLLOW = 0x2;
 pub const AT_REMOVEDIR = 0x4;
+
+pub const S_IFBLK = 0x6000;
+pub const S_IFCHR = 0x2000;
+pub const S_IFDIR = 0x4000;
+pub const S_IFIFO = 0xc000;
+pub const S_IFLNK = 0xa000;
+pub const S_IFMT = S_IFBLK | S_IFCHR | S_IFDIR | S_IFIFO | S_IFLNK | S_IFREG | S_IFSOCK;
+pub const S_IFREG = 0x8000;
+pub const S_IFSOCK = 0xc000;

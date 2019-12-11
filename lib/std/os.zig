@@ -2604,6 +2604,51 @@ pub const FStatError = error{
 pub fn fstat(fd: fd_t) FStatError!Stat {
     var stat: Stat = undefined;
 
+    if (builtin.os == .wasi) {
+        var in: filestat_t = undefined;
+        switch (wasi.fd_filestat_get(fd, &in)) {
+            0 => return Stat{
+                .dev = in.st_dev,
+                .ino = in.st_ino,
+                .nlink = in.st_nlink,
+                .size = @intCast(i64, in.st_size),
+                .atim = .{
+                    .tv_sec = @intCast(i64, in.st_atim / std.time.ns_per_s),
+                    .tv_nsec = @intCast(isize, in.st_atim % std.time.ns_per_s),
+                },
+                .mtim = .{
+                    .tv_sec = @intCast(i64, in.st_mtim / std.time.ns_per_s),
+                    .tv_nsec = @intCast(isize, in.st_mtim % std.time.ns_per_s),
+                },
+                .ctim = .{
+                    .tv_sec = @intCast(i64, in.st_ctim / std.time.ns_per_s),
+                    .tv_nsec = @intCast(isize, in.st_ctim % std.time.ns_per_s),
+                },
+                .mode = switch (in.st_filetype) {
+                    FILETYPE_BLOCK_DEVICE => S_IFBLK,
+                    FILETYPE_CHARACTER_DEVICE => S_IFCHR,
+                    FILETYPE_DIRECTORY => S_IFDIR,
+                    FILETYPE_REGULAR_FILE => S_IFREG,
+                    FILETYPE_SOCKET_DGRAM, FILETYPE_SOCKET_STREAM => S_IFSOCK,
+                    FILETYPE_SYMBOLIC_LINK => S_IFLNK,
+                    else => 0,
+                },
+
+                // These were left undefined in upstream
+                .uid = undefined,
+                .gid = undefined,
+                .rdev = undefined,
+                .blksize = undefined,
+                .blocks = undefined,
+            },
+            EINVAL => unreachable,
+            EBADF => unreachable, // Always a race condition.
+            ENOMEM => return error.SystemResources,
+            EACCES => return error.AccessDenied,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
     switch (errno(system.fstat(fd, &stat))) {
         0 => return stat,
         EINVAL => unreachable,
