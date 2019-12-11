@@ -51,6 +51,10 @@ pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataD
             };
             return fs.path.join(allocator, &[_][]const u8{ home_dir, ".local", "share", appname });
         },
+        .wasi => {
+            // TODO: WASI doesn't define a home_dir ...yet
+            return error.AppDataDirUnavailable;
+        },
         else => @compileError("Unsupported OS"),
     }
 }
