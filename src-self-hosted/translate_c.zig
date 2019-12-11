@@ -272,7 +272,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     const proto_node = switch (ZigClangType_getTypeClass(fn_type)) {
         .FunctionProto => blk: {
             const fn_proto_type = @ptrCast(*const ZigClangFunctionProtoType, fn_type);
-            break :blk transFnProto(rp, fn_proto_type, fn_decl_loc, decl_ctx, true) catch |err| switch (err) {
+            break :blk transFnProto(rp, fn_decl, fn_proto_type, fn_decl_loc, decl_ctx, true) catch |err| switch (err) {
                 error.UnsupportedType => {
                     return failDecl(c, fn_decl_loc, fn_name, "unable to resolve prototype of function", .{});
                 },
@@ -338,6 +338,7 @@ fn transStmt(
         .IntegerLiteralClass => return transIntegerLiteral(rp, scope, @ptrCast(*const ZigClangIntegerLiteral, stmt), result_used),
         .ReturnStmtClass => return transReturnStmt(rp, scope, @ptrCast(*const ZigClangReturnStmt, stmt)),
         .StringLiteralClass => return transStringLiteral(rp, scope, @ptrCast(*const ZigClangStringLiteral, stmt), result_used),
+        .ParenExprClass => return transExpr(rp, scope, ZigClangParenExpr_getSubExpr(@ptrCast(*const ZigClangParenExpr, stmt)), result_used, lrvalue),
         else => {
             return revertAndWarn(
                 rp,
@@ -393,9 +394,67 @@ fn transBinaryOperator(
                 .node_scope = scope,
             });
         },
-        .Mul,
-        .Div,
-        .Rem,
+        .Mul => {
+            const node = if (cIsUnsignedInteger(qt))
+                try transCreateNodeInfixOp(rp, scope, stmt, .MultWrap, .AsteriskPercent, "*%", true)
+            else
+                try transCreateNodeInfixOp(rp, scope, stmt, .Mult, .Asterisk, "*", true);
+            return maybeSuppressResult(rp, scope, result_used, TransResult{
+                .node = node,
+                .child_scope = scope,
+                .node_scope = scope,
+            });
+        },
+        .Div => {
+            if (!cIsUnsignedInteger(qt)) {
+                // signed integer division uses @divTrunc
+                const div_trunc_node = try transCreateNodeBuiltinFnCall(rp.c, "@divTrunc");
+                const lhs = try transExpr(rp, scope, ZigClangBinaryOperator_getLHS(stmt), .used, .l_value);
+                try div_trunc_node.params.push(lhs.node);
+                _ = try appendToken(rp.c, .Comma, ",");
+                const rhs = try transExpr(rp, scope, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value);
+                try div_trunc_node.params.push(rhs.node);
+                div_trunc_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+                return maybeSuppressResult(rp, scope, result_used, TransResult{
+                    .node = &div_trunc_node.base,
+                    .child_scope = scope,
+                    .node_scope = scope,
+                });
+            } else {
+                // unsigned/float division uses the operator
+                const node = try transCreateNodeInfixOp(rp, scope, stmt, .Div, .Slash, "/", true);
+                return maybeSuppressResult(rp, scope, result_used, TransResult{
+                    .node = node,
+                    .child_scope = scope,
+                    .node_scope = scope,
+                });
+            }
+        },
+        .Rem => {
+            if (!cIsUnsignedInteger(qt)) {
+                // signed integer division uses @rem
+                const rem_node = try transCreateNodeBuiltinFnCall(rp.c, "@rem");
+                const lhs = try transExpr(rp, scope, ZigClangBinaryOperator_getLHS(stmt), .used, .l_value);
+                try rem_node.params.push(lhs.node);
+                _ = try appendToken(rp.c, .Comma, ",");
+                const rhs = try transExpr(rp, scope, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value);
+                try rem_node.params.push(rhs.node);
+                rem_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+                return maybeSuppressResult(rp, scope, result_used, TransResult{
+                    .node = &rem_node.base,
+                    .child_scope = scope,
+                    .node_scope = scope,
+                });
+            } else {
+                // unsigned/float division uses the operator
+                const node = try transCreateNodeInfixOp(rp, scope, stmt, .Mod, .Percent, "%", true);
+                return maybeSuppressResult(rp, scope, result_used, TransResult{
+                    .node = node,
+                    .child_scope = scope,
+                    .node_scope = scope,
+                });
+            }
+        },
         .Shl,
         .Shr,
         .LT,
@@ -1119,11 +1178,11 @@ fn transCreateNodePtrType(
             break :blk lbracket;
         },
         .Identifier => blk: {
-            _ = try appendToken(c, .LBracket, "[");
+            const lbracket = try appendToken(c, .LBracket, "["); // Rendering checks if this token + 2 == .Identifier, so needs to return this token
             _ = try appendToken(c, .Asterisk, "*");
-            const c_ident = try appendToken(c, .Identifier, "c");
+            _ = try appendToken(c, .Identifier, "c");
             _ = try appendToken(c, .RBracket, "]");
-            break :blk c_ident;
+            break :blk lbracket;
         },
         .Asterisk => try appendToken(c, .Asterisk, "*"),
         else => unreachable,
@@ -1222,7 +1281,7 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
         },
         .FunctionProto => {
             const fn_proto_ty = @ptrCast(*const ZigClangFunctionProtoType, ty);
-            const fn_proto = try transFnProto(rp, fn_proto_ty, source_loc, null, false);
+            const fn_proto = try transFnProto(rp, null, fn_proto_ty, source_loc, null, false);
             return &fn_proto.base;
         },
         .Paren => {
@@ -1293,6 +1352,7 @@ fn transCC(
 
 fn transFnProto(
     rp: RestorePoint,
+    fn_decl: ?*const ZigClangFunctionDecl,
     fn_proto_ty: *const ZigClangFunctionProtoType,
     source_loc: ZigClangSourceLocation,
     fn_decl_context: ?FnDeclContext,
@@ -1301,19 +1361,7 @@ fn transFnProto(
     const fn_ty = @ptrCast(*const ZigClangFunctionType, fn_proto_ty);
     const cc = try transCC(rp, fn_ty, source_loc);
     const is_var_args = ZigClangFunctionProtoType_isVariadic(fn_proto_ty);
-    const param_count: usize = ZigClangFunctionProtoType_getNumParams(fn_proto_ty);
-    var i: usize = 0;
-    while (i < param_count) : (i += 1) {
-        return revertAndWarn(
-            rp,
-            error.UnsupportedType,
-            source_loc,
-            "TODO: implement parameters for FunctionProto in transType",
-            .{},
-        );
-    }
-
-    return finishTransFnProto(rp, fn_ty, source_loc, fn_decl_context, is_var_args, cc, is_pub);
+    return finishTransFnProto(rp, fn_decl, fn_proto_ty, fn_ty, source_loc, fn_decl_context, is_var_args, cc, is_pub);
 }
 
 fn transFnNoProto(
@@ -1325,11 +1373,13 @@ fn transFnNoProto(
 ) !*ast.Node.FnProto {
     const cc = try transCC(rp, fn_ty, source_loc);
     const is_var_args = if (fn_decl_context) |ctx| !ctx.is_export else true;
-    return finishTransFnProto(rp, fn_ty, source_loc, fn_decl_context, is_var_args, cc, is_pub);
+    return finishTransFnProto(rp, null, null, fn_ty, source_loc, fn_decl_context, is_var_args, cc, is_pub);
 }
 
 fn finishTransFnProto(
     rp: RestorePoint,
+    fn_decl: ?*const ZigClangFunctionDecl,
+    fn_proto_ty: ?*const ZigClangFunctionProtoType,
     fn_ty: *const ZigClangFunctionType,
     source_loc: ZigClangSourceLocation,
     fn_decl_context: ?FnDeclContext,
@@ -1355,7 +1405,67 @@ fn finishTransFnProto(
     const fn_tok = try appendToken(rp.c, .Keyword_fn, "fn");
     const name_tok = if (fn_decl_context) |ctx| try appendToken(rp.c, .Identifier, ctx.fn_name) else null;
     const lparen_tok = try appendToken(rp.c, .LParen, "(");
-    const var_args_tok = if (is_var_args) try appendToken(rp.c, .Ellipsis3, "...") else null;
+
+    var fn_params = ast.Node.FnProto.ParamList.init(rp.c.a());
+    const param_count: usize = if (fn_proto_ty != null) ZigClangFunctionProtoType_getNumParams(fn_proto_ty.?) else 0;
+
+    var i: usize = 0;
+    while (i < param_count) : (i += 1) {
+        const param_qt = ZigClangFunctionProtoType_getParamType(fn_proto_ty.?, @intCast(c_uint, i));
+
+        const noalias_tok = if (ZigClangQualType_isRestrictQualified(param_qt)) try appendToken(rp.c, .Keyword_noalias, "noalias") else null;
+
+        const param_name_tok: ?ast.TokenIndex = blk: {
+            if (fn_decl != null) {
+                const param = ZigClangFunctionDecl_getParamDecl(fn_decl.?, @intCast(c_uint, i));
+                const param_name = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, param)));
+                if (param_name.len > 0) {
+                    // TODO: If len == 0, auto-generate arg1, arg2, etc? Or leave the name blank?
+                    const result = try appendToken(rp.c, .Identifier, param_name);
+                    _ = try appendToken(rp.c, .Colon, ":");
+                    break :blk result;
+                }
+            }
+            break :blk null;
+        };
+
+        const type_node = try transQualType(rp, param_qt, source_loc);
+
+        const param_node = try rp.c.a().create(ast.Node.ParamDecl);
+        param_node.* = ast.Node.ParamDecl{
+            .base = ast.Node{ .id = ast.Node.Id.ParamDecl },
+            .doc_comments = null,
+            .comptime_token = null,
+            .noalias_token = noalias_tok,
+            .name_token = param_name_tok,
+            .type_node = type_node,
+            .var_args_token = null,
+        };
+        try fn_params.push(&param_node.base);
+
+        if (i + 1 < param_count) {
+            _ = try appendToken(rp.c, .Comma, ",");
+        }
+    }
+
+    if (is_var_args) {
+        if (param_count > 0) {
+            _ = try appendToken(rp.c, .Comma, ",");
+        }
+
+        const var_arg_node = try rp.c.a().create(ast.Node.ParamDecl);
+        var_arg_node.* = ast.Node.ParamDecl{
+            .base = ast.Node{ .id = ast.Node.Id.ParamDecl },
+            .doc_comments = null,
+            .comptime_token = null,
+            .noalias_token = null,
+            .name_token = null,
+            .type_node = undefined, // Note: Accessing this causes an access violation. Need to check .var_args_token first before trying this field
+            .var_args_token = try appendToken(rp.c, .Ellipsis3, "..."),
+        };
+        try fn_params.push(&var_arg_node.base);
+    }
+
     const rparen_tok = try appendToken(rp.c, .RParen, ")");
 
     const return_type_node = blk: {
@@ -1384,7 +1494,7 @@ fn finishTransFnProto(
         .visib_token = pub_tok,
         .fn_token = fn_tok,
         .name_token = name_tok,
-        .params = ast.Node.FnProto.ParamList.init(rp.c.a()),
+        .params = fn_params,
         .return_type = ast.Node.FnProto.ReturnType{ .Explicit = return_type_node },
         .var_args_token = null, // TODO this field is broken in the AST data model
         .extern_export_inline_token = extern_export_inline_tok,
@@ -1394,19 +1504,6 @@ fn finishTransFnProto(
         .align_expr = null,
         .section_expr = null,
     };
-    if (is_var_args) {
-        const var_arg_node = try rp.c.a().create(ast.Node.ParamDecl);
-        var_arg_node.* = ast.Node.ParamDecl{
-            .base = ast.Node{ .id = ast.Node.Id.ParamDecl },
-            .doc_comments = null,
-            .comptime_token = null,
-            .noalias_token = null,
-            .name_token = null,
-            .type_node = undefined,
-            .var_args_token = var_args_tok,
-        };
-        try fn_proto.params.push(&var_arg_node.base);
-    }
     return fn_proto;
 }
 

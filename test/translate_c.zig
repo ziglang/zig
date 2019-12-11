@@ -719,7 +719,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.addC("add, sub, mul, div, rem",
+    cases.addC_both("add, sub, mul, div, rem",
         \\int s(int a, int b) {
         \\    int c;
         \\    c = a + b;

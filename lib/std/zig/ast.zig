@@ -967,7 +967,9 @@ pub const Node = struct {
         pub fn iterate(self: *ParamDecl, index: usize) ?*Node {
             var i = index;
 
-            if (i < 1) return self.type_node;
+            if (i < 1) {
+                return if (self.var_args_token == null) self.type_node else null;
+            }
             i -= 1;
 
             return null;

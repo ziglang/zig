@@ -971,3 +971,5 @@ pub extern fn ZigClangBinaryOperator_getType(*const ZigClangBinaryOperator) ZigC
 
 pub extern fn ZigClangStringLiteral_getKind(*const ZigClangStringLiteral) ZigClangStringLiteral_StringKind;
 pub extern fn ZigClangStringLiteral_getString_bytes_begin_size(*const ZigClangStringLiteral, *usize) [*c]const u8;
+
+pub extern fn ZigClangParenExpr_getSubExpr(*const ZigClangParenExpr) *const ZigClangExpr;
