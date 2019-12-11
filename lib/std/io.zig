@@ -34,25 +34,52 @@ else
     Mode.blocking;
 pub const is_async = mode != .blocking;
 
-pub fn getStdOut() File {
+fn getStdOutHandle() os.fd_t {
     if (builtin.os == .windows) {
-        return File.openHandle(os.windows.peb().ProcessParameters.hStdOutput);
+        return os.windows.peb().ProcessParameters.hStdOutput;
     }
-    return File.openHandle(os.STDOUT_FILENO);
+
+    if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdOutHandle")) {
+        return root.os.io.getStdOutHandle();
+    }
+
+    return os.STDOUT_FILENO;
+}
+
+pub fn getStdOut() File {
+    return File.openHandle(getStdOutHandle());
+}
+
+fn getStdErrHandle() os.fd_t {
+    if (builtin.os == .windows) {
+        return os.windows.peb().ProcessParameters.hStdError;
+    }
+
+    if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdErrHandle")) {
+        return root.os.io.getStdErrHandle();
+    }
+
+    return os.STDERR_FILENO;
 }
 
 pub fn getStdErr() File {
+    return File.openHandle(getStdErrHandle());
+}
+
+fn getStdInHandle() os.fd_t {
     if (builtin.os == .windows) {
-        return File.openHandle(os.windows.peb().ProcessParameters.hStdError);
+        return os.windows.peb().ProcessParameters.hStdInput;
     }
-    return File.openHandle(os.STDERR_FILENO);
+
+    if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdInHandle")) {
+        return root.os.io.getStdInHandle();
+    }
+
+    return os.STDIN_FILENO;
 }
 
 pub fn getStdIn() File {
-    if (builtin.os == .windows) {
-        return File.openHandle(os.windows.peb().ProcessParameters.hStdInput);
-    }
-    return File.openHandle(os.STDIN_FILENO);
+    return File.openHandle(getStdInHandle());
 }
 
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
