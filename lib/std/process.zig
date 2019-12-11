@@ -81,6 +81,9 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             return os.unexpectedErrno(environ_get_ret);
         }
 
+        // os.wasi.environ_get doesn't always null out the last item
+        environ[environ_count] = null;
+
         for (environ) |env| {
             if (env) |ptr| {
                 const pair = mem.spanZ(ptr);

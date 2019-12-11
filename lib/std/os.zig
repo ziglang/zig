@@ -1264,6 +1264,11 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
     if (builtin.os.tag == .windows) {
         return windows.GetCurrentDirectory(out_buffer);
     }
+    if (builtin.os == .wasi) {
+        // Working dir concept doesn't exist in WASI so return this dummy value.
+        out_buffer[0] = '.';
+        return out_buffer[0..];
+    }
 
     const err = if (builtin.link_libc) blk: {
         break :blk if (std.c.getcwd(out_buffer.ptr, out_buffer.len)) |_| 0 else std.c._errno().*;
