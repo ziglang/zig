@@ -248,6 +248,9 @@ pub fn kill(pid: pid_t, sig: u8) KillError!void {
 
 /// Exits the program cleanly with the specified status code.
 pub fn exit(status: u8) noreturn {
+    if (@hasDecl(root, "os") and @hasDecl(root.os, "exit")) {
+        root.os.exit(status);
+    }
     if (builtin.link_libc) {
         system.exit(status);
     }
