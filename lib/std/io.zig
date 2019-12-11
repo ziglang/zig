@@ -56,13 +56,13 @@ fn getStdErrHandle() os.fd_t {
     }
 
     if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdErrHandle")) {
-        return root.os.io.getStdOutHandle();
+        return root.os.io.getStdErrHandle();
     }
 
     return os.STDERR_FILENO;
 }
 
-pub fn getStdErr() file {
+pub fn getStdErr() File {
     return File.openHandle(getStdErrHandle());
 }
 
