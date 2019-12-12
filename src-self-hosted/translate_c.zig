@@ -229,7 +229,7 @@ fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
             try emitWarning(c, ZigClangDecl_getLocation(decl), "TODO implement translate-c for structs", .{});
         },
         .Var => {
-            try emitWarning(c, ZigClangDecl_getLocation(decl), "TODO implement translate-c for variables", .{});
+            return visitVarDecl(c, @ptrCast(*const ZigClangVarDecl, decl));
         },
         else => {
             const decl_name = try c.str(ZigClangDecl_getDeclKindName(decl));
@@ -300,6 +300,59 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     proto_node.body_node = result.node;
 
     return addTopLevelDecl(c, fn_name, &proto_node.base);
+}
+
+fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
+    if (try c.decl_table.put(@ptrToInt(var_decl), {})) |_| return; // Avoid processing this decl twice
+    const rp = makeRestorePoint(c);
+    var scope = &c.global_scope.base;
+    const var_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, var_decl)));
+    const var_decl_loc = ZigClangVarDecl_getLocation(var_decl);
+
+    switch (ZigClangVarDecl_getTLSKind(var_decl)) {
+        .None => {},
+        .Static => return failDecl(c, var_decl_loc, var_name, "static thread local storage not supported", .{}),
+        .Dynamic => return failDecl(c, var_decl_loc, var_name, "dynamic thread local storag not supported", .{}),
+    }
+
+    const qual_type = ZigClangVarDecl_getType(var_decl);
+    const is_extern = ZigClangVarDecl_hasExternalStorage(var_decl);
+    const is_static = ZigClangVarDecl_isFileVarDecl(var_decl);
+    const is_const = ZigClangQualType_isConstQualified(qual_type);
+
+    var var_node = try transCreateNodeVarDecl(c, true, is_extern, is_const, var_name);
+
+    const type_node = transQualType(rp, qual_type, var_decl_loc) catch |err| switch (err) {
+        error.UnsupportedType => {
+            return failDecl(c, var_decl_loc, var_name, "unable to resolve variable type", .{});
+        },
+        error.OutOfMemory => |e| return e,
+    };
+
+    if (is_static and !is_extern) {
+        const eq_tok = try appendToken(c, .Equal, "=");
+        const init_node = if (ZigClangVarDecl_hasInit(var_decl)) blk: {
+            const ap_value = ZigClangVarDecl_evaluateValue(var_decl) orelse
+                return failDecl(c, var_decl_loc, var_name, "unable to evaluate initializer", .{});
+            break :blk transApValue(rp, ap_value, qual_type, var_decl_loc) catch |err| switch (err) {
+                error.UnsupportedTranslation,
+                error.UnsupportedType, => {
+                    return failDecl(c, var_decl_loc, var_name, "unable to evaluate initializer", .{});
+                },
+                error.OutOfMemory => |e| return e,
+            };
+        } else
+            try transCreateNodeUndefinedLiteral(c);
+        var_node.eq_token = eq_tok;
+        var_node.init_node = init_node;
+    }
+
+    if (!is_extern) {
+        return failDecl(c, var_decl_loc, var_name, "non-extern, non-static variable not supported", .{});
+    }
+
+    var_node.semicolon_token = try appendToken(rp.c, .Semicolon, ";");
+    return addTopLevelDecl(c, var_name, &var_node.base);
 }
 
 const ResultUsed = enum {
@@ -1225,6 +1278,61 @@ fn transCreateNodeReturnExpr(c: *Context) !*ast.Node {
     return &node.base;
 }
 
+fn transCreateNodeUndefinedLiteral(c: *Context) !*ast.Node {
+    const token = try appendToken(c, .Keyword_undefined, "undefined");
+    const node = try c.a().create(ast.Node.UndefinedLiteral);
+    node.* = ast.Node.UndefinedLiteral{
+        .base = ast.Node{ .id = .UndefinedLiteral },
+        .token = token,
+    };
+    return &node.base;
+}
+
+fn transCreateNodeVarDecl(
+    c: *Context,
+    is_pub: bool,
+    is_extern: bool,
+    is_const: bool,
+    var_name: []const u8,
+) !*ast.Node.VarDecl {
+    const visb_tok = if (is_pub)
+        try appendToken(c, .Keyword_pub, "pub")
+    else
+        null;
+
+    const extern_tok = if (is_extern)
+        try appendToken(c, .Keyword_extern, "extern")
+    else
+        null;
+
+    const mut_tok = if (is_const)
+        try appendToken(c, .Keyword_const, "const")
+    else
+        try appendToken(c, .Keyword_var, "var");
+
+    const name_tok = try appendToken(c, .Identifier, var_name);
+
+    const node = try c.a().create(ast.Node.VarDecl);
+    node.* = ast.Node.VarDecl{
+        .base = ast.Node{ .id = .VarDecl },
+        .doc_comments = null,
+        .visib_token = visb_tok,
+        .thread_local_token = null,
+        .name_token = name_tok,
+        .eq_token = undefined, // set by caller
+        .mut_token = mut_tok,
+        .comptime_token = null,
+        .extern_export_token = extern_tok,
+        .lib_name = null,
+        .type_node = null,
+        .align_node = null,
+        .section_node = null,
+        .init_node = null,
+        .semicolon_token = undefined, // set by caller
+    };
+    return node;
+}
+
 const RestorePoint = struct {
     c: *Context,
     token_index: ast.TokenIndex,
@@ -1313,6 +1421,16 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
             return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported type: '{}'", .{type_name});
         },
     }
+}
+
+fn transApValue(rp: RestorePoint, ap_value: *const ZigClangAPValue, qual_type: ZigClangQualType, source_loc: ZigClangSourceLocation) TransError!*ast.Node {
+    return revertAndWarn(
+        rp,
+        error.UnsupportedTranslation,
+        source_loc,
+        "TODO implement translation of ap value",
+        .{},
+    );
 }
 
 const FnDeclContext = struct {
