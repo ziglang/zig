@@ -329,6 +329,36 @@ pub const SIGPOLL: signal_t = 28;
 pub const SIGPWR: signal_t = 29;
 pub const SIGSYS: signal_t = 30;
 
+pub const AF_INET = 1;
+pub const AF_INET6 = 2;
+pub const AF_UNIX = 3;
+pub const AF_UNSPEC = 0;
+
+pub const sa_family_t = u16;
+pub const in_port_t = u16;
+pub const max_align_t = 16;
+
+pub const socklen_t = u32;
+
+pub const sockaddr = extern struct {
+    family: sa_family_t align(max_align_t),
+    data: [0]i8,
+};
+
+pub const sockaddr_in = extern struct {
+    family: sa_family_t align(max_align_t) = AF_INET,
+    port: in_port_t,
+    addr: u32,
+};
+
+pub const sockaddr_in6 = extern struct {
+    family: sa_family_t align(max_align_t) = AF_INET6,
+    port: in_port_t,
+    flowinfo: u32,
+    addr: [16]u8 align(4),
+    scope_id: u32,
+};
+
 pub const subclockflags_t = u16;
 pub const SUBSCRIPTION_CLOCK_ABSTIME: subclockflags_t = 0x0001;
 
