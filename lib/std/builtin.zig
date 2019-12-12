@@ -424,6 +424,10 @@ pub const panic: PanicFn = if (@hasDecl(root, "panic")) root.panic else default_
 /// therefore must be kept in sync with the compiler implementation.
 pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn {
     @setCold(true);
+    if (@hasDecl(root, "os") and @hasDecl(root.os, "panic")) {
+        root.os.panic(msg, error_return_trace);
+        unreachable;
+    }
     switch (os) {
         .freestanding => {
             while (true) {
