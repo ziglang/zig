@@ -1,6 +1,4 @@
-pub const STDIN_FILENO = 0;
-pub const STDOUT_FILENO = 1;
-pub const STDERR_FILENO = 2;
+pub usingnamespace @import("./posix.zig");
 
 pub const advice_t = u8;
 pub const ADVICE_NORMAL: advice_t = 0;

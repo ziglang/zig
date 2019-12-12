@@ -1,6 +1,8 @@
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 
+pub usingnamespace @import("./posix.zig");
+
 pub const fd_t = c_int;
 pub const pid_t = c_int;
 
@@ -205,10 +207,6 @@ pub const KERN_PROC = 14; // struct: process entries
 pub const KERN_PROC_PATHNAME = 12; // path to executable
 
 pub const PATH_MAX = 1024;
-
-pub const STDIN_FILENO = 0;
-pub const STDOUT_FILENO = 1;
-pub const STDERR_FILENO = 2;
 
 pub const PROT_NONE = 0;
 pub const PROT_READ = 1;

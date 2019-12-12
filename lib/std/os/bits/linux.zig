@@ -3,6 +3,8 @@ const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 usingnamespace @import("../bits.zig");
 
+pub usingnamespace @import("./posix.zig");
+
 pub usingnamespace switch (builtin.arch) {
     .mips, .mipsel => @import("linux/errno-mips.zig"),
     else => @import("linux/errno-generic.zig"),
@@ -28,10 +30,6 @@ pub const clock_t = isize;
 
 pub const PATH_MAX = 4096;
 pub const IOV_MAX = 1024;
-
-pub const STDIN_FILENO = 0;
-pub const STDOUT_FILENO = 1;
-pub const STDERR_FILENO = 2;
 
 /// Special value used to indicate openat should use the current working directory
 pub const AT_FDCWD = -100;

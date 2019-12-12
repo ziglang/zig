@@ -2,6 +2,8 @@ const std = @import("../../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
+pub usingnamespace @import("./posix.zig");
+
 pub const fd_t = c_int;
 pub const pid_t = c_int;
 
@@ -192,10 +194,6 @@ pub const host_t = mach_port_t;
 pub const CALENDAR_CLOCK = 1;
 
 pub const PATH_MAX = 1024;
-
-pub const STDIN_FILENO = 0;
-pub const STDOUT_FILENO = 1;
-pub const STDERR_FILENO = 2;
 
 /// [MC2] no permissions
 pub const PROT_NONE = 0x00;

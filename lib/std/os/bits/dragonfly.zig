@@ -1,6 +1,8 @@
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 
+pub usingnamespace @import("./posix.zig");
+
 pub fn S_ISCHR(m: u32) bool {
     return m & S_IFMT == S_IFCHR;
 }
@@ -105,10 +107,6 @@ pub const EPROTO = 92;
 pub const ENOMEDIUM = 93;
 pub const ELAST = 99;
 pub const EASYNC = 99;
-
-pub const STDIN_FILENO = 0;
-pub const STDOUT_FILENO = 1;
-pub const STDERR_FILENO = 2;
 
 pub const PROT_NONE = 0;
 pub const PROT_READ = 1;
