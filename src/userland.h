@@ -81,12 +81,6 @@ enum Error {
 };
 
 // ABI warning
-enum Stage2TranslateMode {
-    Stage2TranslateModeImport,
-    Stage2TranslateModeTranslate,
-};
-
-// ABI warning
 struct Stage2ErrorMsg {
     const char *filename_ptr; // can be null
     size_t filename_len;
@@ -104,8 +98,7 @@ struct Stage2Ast;
 // ABI warning
 ZIG_EXTERN_C enum Error stage2_translate_c(struct Stage2Ast **out_ast,
         struct Stage2ErrorMsg **out_errors_ptr, size_t *out_errors_len,
-        const char **args_begin, const char **args_end, enum Stage2TranslateMode mode,
-        const char *resources_path);
+        const char **args_begin, const char **args_end, const char *resources_path);
 
 // ABI warning
 ZIG_EXTERN_C void stage2_free_clang_errors(struct Stage2ErrorMsg *ptr, size_t len);

@@ -7,11 +7,6 @@ const ast = std.zig.ast;
 const Token = std.zig.Token;
 usingnamespace @import("clang.zig");
 
-pub const Mode = enum {
-    import,
-    translate,
-};
-
 const CallingConvention = std.builtin.TypeInfo.CallingConvention;
 
 pub const ClangErrMsg = Stage2ErrorMsg;
@@ -104,7 +99,6 @@ const Context = struct {
     source_manager: *ZigClangSourceManager,
     decl_table: DeclTable,
     global_scope: *Scope.Root,
-    mode: Mode,
     ptr_params: std.BufSet,
     clang_context: *ZigClangASTContext,
 
@@ -133,7 +127,6 @@ pub fn translate(
     backing_allocator: *std.mem.Allocator,
     args_begin: [*]?[*]const u8,
     args_end: [*]?[*]const u8,
-    mode: Mode,
     errors: *[]ClangErrMsg,
     resources_path: [*]const u8,
 ) !*ast.Tree {
@@ -185,7 +178,6 @@ pub fn translate(
         .err = undefined,
         .decl_table = DeclTable.init(arena),
         .global_scope = try arena.create(Scope.Root),
-        .mode = mode,
         .ptr_params = std.BufSet.init(arena),
         .clang_context = ZigClangASTUnit_getASTContext(ast_unit).?,
     };
@@ -262,7 +254,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
         .storage_class = storage_class,
         .scope = &scope,
         .is_export = switch (storage_class) {
-            .None => has_body and c.mode != .import,
+            .None => has_body,
             .Extern, .Static => false,
             .PrivateExtern => return failDecl(c, fn_decl_loc, fn_name, "unsupported storage class: private extern", .{}),
             .Auto => unreachable, // Not legal on functions
