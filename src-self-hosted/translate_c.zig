@@ -322,7 +322,8 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
 
     var var_node = try transCreateNodeVarDecl(c, true, is_extern, is_const, var_name);
 
-    const type_node = transQualType(rp, qual_type, var_decl_loc) catch |err| switch (err) {
+    _= try appendToken(rp.c, .Colon, ":");
+    var_node.type_node = transQualType(rp, qual_type, var_decl_loc) catch |err| switch (err) {
         error.UnsupportedType => {
             return failDecl(c, var_decl_loc, var_name, "unable to resolve variable type", .{});
         },
@@ -336,7 +337,8 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
                 return failDecl(c, var_decl_loc, var_name, "unable to evaluate initializer", .{});
             break :blk transApValue(rp, ap_value, qual_type, var_decl_loc) catch |err| switch (err) {
                 error.UnsupportedTranslation,
-                error.UnsupportedType, => {
+                error.UnsupportedType,
+                => {
                     return failDecl(c, var_decl_loc, var_name, "unable to evaluate initializer", .{});
                 },
                 error.OutOfMemory => |e| return e,
@@ -345,9 +347,7 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
             try transCreateNodeUndefinedLiteral(c);
         var_node.eq_token = eq_tok;
         var_node.init_node = init_node;
-    }
-
-    if (!is_extern) {
+    } else if (!is_extern) {
         return failDecl(c, var_decl_loc, var_name, "non-extern, non-static variable not supported", .{});
     }
 
