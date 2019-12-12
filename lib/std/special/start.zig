@@ -244,7 +244,7 @@ async fn callMainAsync(loop: *std.event.Loop) u8 {
 
 // This is not marked inline because it is called with @asyncCall when
 // there is an event loop.
-fn callMain() u8 {
+pub fn callMain() u8 {
     switch (@typeInfo(@TypeOf(root.main).ReturnType)) {
         .NoReturn => {
             root.main();
