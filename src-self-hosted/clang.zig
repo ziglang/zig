@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 
+pub const struct_ZigClangAPInt = @OpaqueType();
 pub const struct_ZigClangAPSInt = @OpaqueType();
 pub const struct_ZigClangAPFloat = @OpaqueType();
 pub const struct_ZigClangASTContext = @OpaqueType();
@@ -747,6 +748,7 @@ pub extern fn ZigClangType_getTypeClass(self: ?*const struct_ZigClangType) ZigCl
 pub extern fn ZigClangType_getPointeeType(self: ?*const struct_ZigClangType) struct_ZigClangQualType;
 pub extern fn ZigClangType_isVoidType(self: ?*const struct_ZigClangType) bool;
 pub extern fn ZigClangType_getTypeClassName(self: *const struct_ZigClangType) [*:0]const u8;
+pub extern fn ZigClangType_getAsArrayTypeUnsafe(self: *const ZigClangType) *const ZigClangArrayType;
 pub extern fn ZigClangStmt_getBeginLoc(self: *const struct_ZigClangStmt) struct_ZigClangSourceLocation;
 pub extern fn ZigClangStmt_getStmtClass(self: ?*const struct_ZigClangStmt) ZigClangStmtClass;
 pub extern fn ZigClangStmt_classof_Expr(self: ?*const struct_ZigClangStmt) bool;
@@ -756,8 +758,8 @@ pub extern fn ZigClangExpr_getBeginLoc(self: *const struct_ZigClangExpr) struct_
 pub extern fn ZigClangAPValue_getKind(self: ?*const struct_ZigClangAPValue) ZigClangAPValueKind;
 pub extern fn ZigClangAPValue_getInt(self: ?*const struct_ZigClangAPValue) ?*const struct_ZigClangAPSInt;
 pub extern fn ZigClangAPValue_getArrayInitializedElts(self: ?*const struct_ZigClangAPValue) c_uint;
-pub extern fn ZigClangAPValue_getArrayInitializedElt(self: ?*const struct_ZigClangAPValue, i: c_uint) ?*const struct_ZigClangAPValue;
-pub extern fn ZigClangAPValue_getArrayFiller(self: ?*const struct_ZigClangAPValue) ?*const struct_ZigClangAPValue;
+pub extern fn ZigClangAPValue_getArrayInitializedElt(self: ?*const struct_ZigClangAPValue, i: c_uint) *const struct_ZigClangAPValue;
+pub extern fn ZigClangAPValue_getArrayFiller(self: ?*const struct_ZigClangAPValue) *const struct_ZigClangAPValue;
 pub extern fn ZigClangAPValue_getArraySize(self: ?*const struct_ZigClangAPValue) c_uint;
 pub extern fn ZigClangAPValue_getLValueBase(self: ?*const struct_ZigClangAPValue) struct_ZigClangAPValueLValueBase;
 pub extern fn ZigClangAPSInt_isSigned(self: ?*const struct_ZigClangAPSInt) bool;
@@ -766,6 +768,8 @@ pub extern fn ZigClangAPSInt_negate(self: ?*const struct_ZigClangAPSInt) ?*const
 pub extern fn ZigClangAPSInt_free(self: ?*const struct_ZigClangAPSInt) void;
 pub extern fn ZigClangAPSInt_getRawData(self: ?*const struct_ZigClangAPSInt) [*c]const u64;
 pub extern fn ZigClangAPSInt_getNumWords(self: ?*const struct_ZigClangAPSInt) c_uint;
+
+pub extern fn ZigClangAPInt_getLimitedValue(self: *const struct_ZigClangAPInt, limit: u64) u64;
 pub extern fn ZigClangAPValueLValueBase_dyn_cast_Expr(self: struct_ZigClangAPValueLValueBase) ?*const struct_ZigClangExpr;
 pub extern fn ZigClangASTUnit_delete(self: ?*struct_ZigClangASTUnit) void;
 
@@ -935,6 +939,8 @@ pub extern fn ZigClangImplicitCastExpr_getSubExpr(*const ZigClangImplicitCastExp
 
 pub extern fn ZigClangArrayType_getElementType(*const ZigClangArrayType) ZigClangQualType;
 
+pub extern fn ZigClangConstantArrayType_getElementType(self: *const struct_ZigClangConstantArrayType) ZigClangQualType;
+pub extern fn ZigClangConstantArrayType_getSize(self: *const struct_ZigClangConstantArrayType) *const struct_ZigClangAPInt;
 pub extern fn ZigClangDeclRefExpr_getDecl(*const ZigClangDeclRefExpr) *const ZigClangValueDecl;
 
 pub extern fn ZigClangParenType_getInnerType(*const ZigClangParenType) ZigClangQualType;
