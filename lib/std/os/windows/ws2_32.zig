@@ -164,13 +164,13 @@ pub const IPPROTO_ICMPV6 = 58;
 pub const IPPROTO_RM = 113;
 
 pub const sockaddr = extern struct {
-    family: ADDRESS_FAMILY,
+    family: ADDRESS_FAMILY align(4),
     data: [14]u8,
 };
 
 /// IPv4 socket address
 pub const sockaddr_in = extern struct {
-    family: ADDRESS_FAMILY = AF_INET,
+    family: ADDRESS_FAMILY align(4) = AF_INET,
     port: USHORT,
     addr: u32,
     zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
@@ -178,7 +178,7 @@ pub const sockaddr_in = extern struct {
 
 /// IPv6 socket address
 pub const sockaddr_in6 = extern struct {
-    family: ADDRESS_FAMILY = AF_INET6,
+    family: ADDRESS_FAMILY align(4) = AF_INET6,
     port: USHORT,
     flowinfo: u32,
     addr: [16]u8,
@@ -187,7 +187,7 @@ pub const sockaddr_in6 = extern struct {
 
 /// UNIX domain socket address
 pub const sockaddr_un = extern struct {
-    family: ADDRESS_FAMILY = AF_UNIX,
+    family: ADDRESS_FAMILY align(4) = AF_UNIX,
     path: [108]u8,
 };
 

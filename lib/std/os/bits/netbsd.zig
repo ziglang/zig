@@ -210,7 +210,7 @@ pub const sa_family_t = u8;
 
 pub const sockaddr = extern struct {
     /// total length
-    len: u8,
+    len: u8 align(4),
 
     /// address family
     family: sa_family_t,
@@ -220,7 +220,7 @@ pub const sockaddr = extern struct {
 };
 
 pub const sockaddr_in = extern struct {
-    len: u8 = @sizeOf(sockaddr_in),
+    len: u8 align(4) = @sizeOf(sockaddr_in),
     family: sa_family_t = AF_INET,
     port: in_port_t,
     addr: u32,
@@ -228,7 +228,7 @@ pub const sockaddr_in = extern struct {
 };
 
 pub const sockaddr_in6 = extern struct {
-    len: u8 = @sizeOf(sockaddr_in6),
+    len: u8 align(4) = @sizeOf(sockaddr_in6),
     family: sa_family_t = AF_INET6,
     port: in_port_t,
     flowinfo: u32,
@@ -239,7 +239,7 @@ pub const sockaddr_in6 = extern struct {
 /// Definitions for UNIX IPC domain.
 pub const sockaddr_un = extern struct {
     /// total sockaddr length
-    len: u8 = @sizeOf(sockaddr_un),
+    len: u8 align(4) = @sizeOf(sockaddr_un),
 
     /// AF_LOCAL
     family: sa_family_t = AF_LOCAL,

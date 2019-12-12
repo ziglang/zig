@@ -845,13 +845,13 @@ pub const sa_family_t = u16;
 pub const socklen_t = u32;
 
 pub const sockaddr = extern struct {
-    family: sa_family_t,
+    family: sa_family_t align(4),
     data: [14]u8,
 };
 
 /// IPv4 socket address
 pub const sockaddr_in = extern struct {
-    family: sa_family_t = AF_INET,
+    family: sa_family_t align(4) = AF_INET,
     port: in_port_t,
     addr: u32,
     zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
@@ -859,7 +859,7 @@ pub const sockaddr_in = extern struct {
 
 /// IPv6 socket address
 pub const sockaddr_in6 = extern struct {
-    family: sa_family_t = AF_INET6,
+    family: sa_family_t align(4) = AF_INET6,
     port: in_port_t,
     flowinfo: u32,
     addr: [16]u8,
@@ -868,7 +868,7 @@ pub const sockaddr_in6 = extern struct {
 
 /// UNIX domain socket address
 pub const sockaddr_un = extern struct {
-    family: sa_family_t = AF_UNIX,
+    family: sa_family_t align(4) = AF_UNIX,
     path: [108]u8,
 };
 

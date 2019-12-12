@@ -67,6 +67,10 @@ test "resolve DNS" {
         // DNS resolution not implemented on Windows yet.
         return error.SkipZigTest;
     }
+    if (std.builtin.os == .wasi) {
+        // Wasi doesn't define this.
+        return error.SkipZigTest;
+    }
 
     const address_list = net.getAddressList(testing.allocator, "example.com", 80) catch |err| switch (err) {
         // The tests are required to work even when there is no Internet connection,

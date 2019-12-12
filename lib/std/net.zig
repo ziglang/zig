@@ -257,7 +257,7 @@ pub const Address = extern union {
     /// Asserts that `addr` is an IP address.
     /// This function will read past the end of the pointer, with a size depending
     /// on the address family.
-    pub fn initPosix(addr: *align(4) const os.sockaddr) Address {
+    pub fn initPosix(addr: *const os.sockaddr) Address {
         switch (addr.family) {
             os.AF_INET => return Address{ .in = @ptrCast(*const os.sockaddr_in, addr).* },
             os.AF_INET6 => return Address{ .in6 = @ptrCast(*const os.sockaddr_in6, addr).* },
