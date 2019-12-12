@@ -198,6 +198,10 @@ pub fn abort() noreturn {
     if (builtin.os == .uefi) {
         exit(0); // TODO choose appropriate exit code
     }
+    if (builtin.os == .wasi) {
+        @breakpoint();
+        exit(1);
+    }
 
     system.abort();
 }
