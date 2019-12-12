@@ -2,6 +2,18 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("invalid float literal",
+        \\const std = @import("std");
+        \\
+        \\pub fn main() void {
+        \\    var bad_float :f32 = 0.0;
+        \\    bad_float = bad_float + .20;
+        \\    std.debug.assert(bad_float < 1.0);
+        \\})
+    , &[_][]const u8{
+        "tmp.zig:5:29: error: invalid token: '.'",
+    });
+
     cases.add("var args without c calling conv",
         \\fn foo(args: ...) void {}
         \\comptime {

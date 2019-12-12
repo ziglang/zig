@@ -1923,7 +1923,11 @@ static AstNode *ast_parse_anon_lit(ParseContext *pc) {
     }
 
     // anon container literal
-    return ast_parse_init_list(pc);
+    AstNode *res = ast_parse_init_list(pc);
+    if (res != nullptr)
+        return res;
+    put_back_token(pc);
+    return nullptr;
 }
 
 // AsmOutput <- COLON AsmOutputList AsmInput?
