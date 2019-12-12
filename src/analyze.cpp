@@ -3536,7 +3536,7 @@ static void preview_test_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope
         return;
 
     ZigType *import = get_scope_import(&decls_scope->base);
-    if (import->data.structure.root_struct->package != g->root_package)
+    if (import->data.structure.root_struct->package != g->main_pkg)
         return;
 
     Buf *decl_name_buf = node->data.test_decl.name;
@@ -3577,7 +3577,7 @@ void update_compile_var(CodeGen *g, Buf *name, ZigValue *value) {
     resolve_top_level_decl(g, tld, tld->source_node, false);
     assert(tld->id == TldIdVar);
     TldVar *tld_var = (TldVar *)tld;
-    tld_var->var->const_value = value;
+    copy_const_val(tld_var->var->const_value, value);
     tld_var->var->var_type = value->type;
     tld_var->var->align_bytes = get_abi_alignment(g, value->type);
 }
@@ -9177,4 +9177,43 @@ bool is_anon_container(ZigType *ty) {
     return ty->id == ZigTypeIdStruct && (
         ty->data.structure.special == StructSpecialInferredTuple ||
         ty->data.structure.special == StructSpecialInferredStruct);
+}
+
+bool is_opt_err_set(ZigType *ty) {
+    return ty->id == ZigTypeIdErrorSet ||
+        (ty->id == ZigTypeIdOptional && ty->data.maybe.child_type->id == ZigTypeIdErrorSet);
+}
+
+// Returns whether the x_optional field of ZigValue is active.
+bool type_has_optional_repr(ZigType *ty) {
+    if (ty->id != ZigTypeIdOptional) {
+        return false;
+    } else if (get_codegen_ptr_type(ty) != nullptr) {
+        return false;
+    } else if (is_opt_err_set(ty)) {
+        return false;
+    } else {
+        return true;
+    }
+}
+
+void copy_const_val(ZigValue *dest, ZigValue *src) {
+    memcpy(dest, src, sizeof(ZigValue));
+    if (src->special != ConstValSpecialStatic)
+        return;
+    dest->parent.id = ConstParentIdNone;
+    if (dest->type->id == ZigTypeIdStruct) {
+        dest->data.x_struct.fields = alloc_const_vals_ptrs(dest->type->data.structure.src_field_count);
+        for (size_t i = 0; i < dest->type->data.structure.src_field_count; i += 1) {
+            copy_const_val(dest->data.x_struct.fields[i], src->data.x_struct.fields[i]);
+            dest->data.x_struct.fields[i]->parent.id = ConstParentIdStruct;
+            dest->data.x_struct.fields[i]->parent.data.p_struct.struct_val = dest;
+            dest->data.x_struct.fields[i]->parent.data.p_struct.field_index = i;
+        }
+    } else if (type_has_optional_repr(dest->type) && dest->data.x_optional != nullptr) {
+        dest->data.x_optional = create_const_vals(1);
+        copy_const_val(dest->data.x_optional, src->data.x_optional);
+        dest->data.x_optional->parent.id = ConstParentIdOptionalPayload;
+        dest->data.x_optional->parent.data.p_optional_payload.optional_val = dest;
+    }
 }

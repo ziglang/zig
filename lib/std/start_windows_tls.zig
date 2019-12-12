@@ -1,5 +1,5 @@
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 
 export var _tls_index: u32 = std.os.windows.TLS_OUT_OF_INDEXES;
 export var _tls_start: u8 linksection(".tls") = 0;

@@ -414,6 +414,13 @@ pub const CallOptions = struct {
 
 /// This function type is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const TestFn = struct {
+    name: []const u8,
+    func: fn()anyerror!void,
+};
+
+/// This function type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const PanicFn = fn ([]const u8, ?*StackTrace) noreturn;
 
 /// This function is used by the Zig language code generation and

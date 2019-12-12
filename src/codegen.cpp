@@ -8440,11 +8440,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
 
     if (g->is_test_build) {
         buf_appendf(contents,
-            "const TestFn = struct {\n"
-                "name: []const u8,\n"
-                "func: fn()anyerror!void,\n"
-            "};\n"
-            "pub const test_functions = {}; // overwritten later\n"
+            "pub var test_functions: []TestFn = undefined; // overwritten later\n"
         );
     }
 
@@ -8535,23 +8531,23 @@ static Error define_builtin_compile_vars(CodeGen *g) {
         }
     }
 
-    assert(g->root_package);
+    assert(g->main_pkg);
     assert(g->std_package);
     g->compile_var_package = new_package(buf_ptr(this_dir), builtin_zig_basename, "builtin");
-    g->compile_var_package->package_table.put(buf_create_from_str("std"), g->std_package);
-    g->root_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
-    g->std_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
-    g->std_package->package_table.put(buf_create_from_str("std"), g->std_package);
-    ZigPackage *root_pkg;
     if (g->is_test_build) {
         if (g->test_runner_package == nullptr) {
             g->test_runner_package = create_test_runner_pkg(g);
         }
-        root_pkg = g->test_runner_package;
+        g->root_pkg = g->test_runner_package;
     } else {
-        root_pkg = g->root_package;
+        g->root_pkg = g->main_pkg;
     }
-    g->std_package->package_table.put(buf_create_from_str("root"), root_pkg);
+    g->compile_var_package->package_table.put(buf_create_from_str("std"), g->std_package);
+    g->main_pkg->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
+    g->main_pkg->package_table.put(buf_create_from_str("root"), g->root_pkg);
+    g->std_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
+    g->std_package->package_table.put(buf_create_from_str("std"), g->std_package);
+    g->std_package->package_table.put(buf_create_from_str("root"), g->root_pkg);
     g->compile_var_import = add_source_file(g, g->compile_var_package, builtin_zig_path, contents,
             SourceKindPkgMain);
 
@@ -8670,7 +8666,7 @@ static void init(CodeGen *g) {
     // no longer reference DW_AT_comp_dir, for the purpose of being able to support the
     // common practice of stripping all but the line number sections from an executable.
     const char *compile_unit_dir = target_os_is_darwin(g->zig_target->os) ? "." :
-        buf_ptr(&g->root_package->root_src_dir);
+        buf_ptr(&g->main_pkg->root_src_dir);
 
     ZigLLVMDIFile *compile_unit_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(g->root_out_name),
             compile_unit_dir);
@@ -9083,30 +9079,7 @@ void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file, bool use_us
     }
 }
 
-static ZigType *add_special_code(CodeGen *g, ZigPackage *package, const char *basename) {
-    Buf *code_basename = buf_create_from_str(basename);
-    Buf path_to_code_src = BUF_INIT;
-    os_path_join(g->zig_std_special_dir, code_basename, &path_to_code_src);
-
-    Buf *resolve_paths[] = {&path_to_code_src};
-    Buf *resolved_path = buf_alloc();
-    *resolved_path = os_path_resolve(resolve_paths, 1);
-    Buf *import_code = buf_alloc();
-    Error err;
-    if ((err = file_fetch(g, resolved_path, import_code))) {
-        zig_panic("unable to open '%s': %s\n", buf_ptr(&path_to_code_src), err_str(err));
-    }
-
-    return add_source_file(g, package, resolved_path, import_code, SourceKindPkgMain);
-}
-
-static ZigPackage *create_start_pkg(CodeGen *g, ZigPackage *pkg_with_main) {
-    ZigPackage *package = codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "start.zig", "std.special");
-    package->package_table.put(buf_create_from_str("root"), pkg_with_main);
-    return package;
-}
-
-static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
+static void update_test_functions_builtin_decl(CodeGen *g) {
     Error err;
 
     assert(g->is_test_build);
@@ -9166,16 +9139,15 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
 
     update_compile_var(g, buf_create_from_str("test_functions"), test_fn_slice);
     assert(g->test_runner_package != nullptr);
-    g->test_runner_import = add_special_code(g, g->test_runner_package, "test_runner.zig");
 }
 
 static Buf *get_resolved_root_src_path(CodeGen *g) {
     // TODO memoize
-    if (buf_len(&g->root_package->root_src_path) == 0)
+    if (buf_len(&g->main_pkg->root_src_path) == 0)
         return nullptr;
 
     Buf rel_full_path = BUF_INIT;
-    os_path_join(&g->root_package->root_src_dir, &g->root_package->root_src_path, &rel_full_path);
+    os_path_join(&g->main_pkg->root_src_dir, &g->main_pkg->root_src_path, &rel_full_path);
 
     Buf *resolved_path = buf_alloc();
     Buf *resolve_paths[] = {&rel_full_path};
@@ -9198,7 +9170,7 @@ static void gen_root_source(CodeGen *g) {
         exit(1);
     }
 
-    ZigType *root_import_alias = add_source_file(g, g->root_package, resolved_path, source_code, SourceKindRoot);
+    ZigType *root_import_alias = add_source_file(g, g->main_pkg, resolved_path, source_code, SourceKindRoot);
     assert(root_import_alias == g->root_import);
 
     assert(g->root_out_name);
@@ -9250,16 +9222,8 @@ static void gen_root_source(CodeGen *g) {
     }
     report_errors_and_maybe_exit(g);
 
-    if (!g->is_test_build) {
-        g->start_import = add_special_code(g, create_start_pkg(g, g->root_package), "start.zig");
-    }
-    if (!g->error_during_imports) {
-        semantic_analyze(g);
-    }
     if (g->is_test_build) {
-        create_test_compile_var_and_add_test_runner(g);
-        g->start_import = add_special_code(g, create_start_pkg(g, g->test_runner_package), "start.zig");
-
+        update_test_functions_builtin_decl(g);
         if (!g->error_during_imports) {
             semantic_analyze(g);
         }
@@ -10058,7 +10022,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     CacheHash *ch = &g->cache_hash;
     cache_init(ch, manifest_dir);
 
-    add_cache_pkg(g, ch, g->root_package);
+    add_cache_pkg(g, ch, g->main_pkg);
     if (g->linker_script != nullptr) {
         cache_file(ch, buf_create_from_str(g->linker_script));
     }
@@ -10141,7 +10105,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
 }
 
 static bool need_llvm_module(CodeGen *g) {
-    return buf_len(&g->root_package->root_src_path) != 0;
+    return buf_len(&g->main_pkg->root_src_path) != 0;
 }
 
 static void resolve_out_paths(CodeGen *g) {
@@ -10388,8 +10352,7 @@ ZigPackage *codegen_create_package(CodeGen *g, const char *root_src_dir, const c
         assert(g->compile_var_package != nullptr);
         pkg->package_table.put(buf_create_from_str("std"), g->std_package);
 
-        ZigPackage *main_pkg = g->is_test_build ? g->test_runner_package : g->root_package;
-        pkg->package_table.put(buf_create_from_str("root"), main_pkg);
+        pkg->package_table.put(buf_create_from_str("root"), g->root_pkg);
 
         pkg->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
     }
@@ -10516,14 +10479,12 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
                     buf_len(&resolved_root_src_path) - buf_len(&resolved_main_pkg_path) - 1);
         }
 
-        g->root_package = new_package(buf_ptr(root_pkg_path), buf_ptr(rel_root_src_path), "");
+        g->main_pkg = new_package(buf_ptr(root_pkg_path), buf_ptr(rel_root_src_path), "");
         g->std_package = new_package(buf_ptr(g->zig_std_dir), "std.zig", "std");
-        g->root_package->package_table.put(buf_create_from_str("std"), g->std_package);
+        g->main_pkg->package_table.put(buf_create_from_str("std"), g->std_package);
     } else {
-        g->root_package = new_package(".", "", "");
+        g->main_pkg = new_package(".", "", "");
     }
-
-    g->root_package->package_table.put(buf_create_from_str("root"), g->root_package);
 
     g->zig_std_special_dir = buf_alloc();
     os_path_join(g->zig_std_dir, buf_sprintf("special"), g->zig_std_special_dir);
