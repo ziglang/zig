@@ -22,6 +22,18 @@ pub usingnamespace @import("windows/bits.zig");
 
 pub const self_process_handle = @intToPtr(HANDLE, maxInt(usize));
 
+pub fn getStdOutHandle() fd_t {
+    return peb().ProcessParameters.hStdOutput;
+}
+
+pub fn getStdErrHandle() fd_t {
+    return peb().ProcessParameters.hStdError;
+}
+
+pub fn getStdInHandle() fd_t {
+    return peb().ProcessParameters.hStdInput;
+}
+
 pub const CreateFileError = error{
     SharingViolation,
     PathAlreadyExists,
