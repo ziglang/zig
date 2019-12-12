@@ -27,67 +27,88 @@ fn getMaybeDefinedChildType(comptime T: type) ?type {
     }
 }
 
-pub fn serialize(value: var, stream: var) !void {
+pub const Structured = union(enum){
+    Array: json.Array,
+    Object: json.ObjectMap
+};
+
+pub const Primitive = union(enum){
+    Bool: bool,
+    Integer: i64,
+    Float: f64,
+    String: []const u8
+};
+
+pub const Number = union(enum){
+    Integer: i64,
+    Float: f64
+};
+
+/// jsonStream must be a pointer to std.json.WriteStream
+pub fn serialize(value: var, jsonStream: var) !void {
     comptime const valueType = @typeOf(value);
     comptime const info = @typeInfo(valueType);
     
     if(valueType == json.Value){
-        try value.dumpStream(stream, 1024);
+        try jsonStream.emitJson(value);
         return;
     }
 
     switch(info){
         .Null => {
-            try stream.write("null");
+            try jsonStream.emitNull();
         },
-        .Int, .ComptimeInt, .Float, .ComptimeFloat, .Bool => {
-            try stream.print("{}", value);
+        .Int, .ComptimeInt, .Float, .ComptimeFloat => {
+            try jsonStream.emitNumber(value);
+        },
+        .Bool => {
+            try jsonStream.emitBool(value);
         },
         .Pointer => |ptrInfo| {
             if(ptrInfo.child == u8){
-                try stream.print("\"{}\"", value);
+                try jsonStream.emitString(value);
             } else {
-                try stream.write("[");
+                try jsonStream.beginArray();
                 for(value) |item, index| {
-                    try serialize(item, stream);
-                    if(index != value.len - 1){
-                        try stream.write(",");
-                    }
+                    try jsonStream.arrayElem();
+                    try serialize(item, jsonStream);
                 }
-                try stream.write("]");
+                try jsonStream.endArray();
             }
         },
         .Struct => |structInfo| {
-            try stream.write("{");
-            var firstProp: bool = true;
+            try jsonStream.beginObject();
+
             inline for(structInfo.fields) |field, index| {
                 if(getMaybeDefinedChildType(field.field_type) != null) {
                     if(@field(value, field.name) == .Defined) {
-                        if(!firstProp){
-                            try stream.write(",");
-                        }
-
-                        try stream.write("\"" ++ field.name ++ "\":");
-                        try serialize(@field(value, field.name).Defined, stream);
-                        firstProp = false;
+                        try jsonStream.objectField(field.name);
+                        try serialize(@field(value, field.name).Defined, jsonStream);
                     }
                 } else {
-                    if(!firstProp){
-                        try stream.write(",");
-                    }
-
-                    try stream.write("\"" ++ field.name ++ "\":");
-                    try serialize(@field(value, field.name), stream);
-                    firstProp = false;
+                    try jsonStream.objectField(field.name);
+                    try serialize(@field(value, field.name), jsonStream);
                 }
             }
-            try stream.write("}");
+            try jsonStream.endObject();
         },
         .Optional => {
-            if(value == null){
-                try stream.write("null");
+            if(value) |notNull| {
+                try serialize(notNull, jsonStream);
             } else {
-                try serialize(value.?, stream);
+                try jsonStream.emitNull();
+            }
+        },
+        .Union => |unionInfo| {
+            if(unionInfo.tag_type) |tagType| {
+                inline for(unionInfo.fields) |field| {
+                    if (@enumToInt(@as(tagType, value)) == field.enum_field.?.value) {
+                        return try serialize(@field(value, field.name), jsonStream);
+                    }
+                }
+                unreachable;
+            } else {
+                @compileError("JSON serialize: Unsupported untagged union type: " ++ @typeName(T));
             }
         },
         else => {
@@ -146,10 +167,22 @@ pub fn serialize2(value: var, alloc: *mem.Allocator) mem.Allocator.Error!json.Va
             return obj;
         },
         .Optional => {
-            if(value == null){
-                return json.Value{.Null={}};
+            if(value) |notNull| {
+                return try serialize2(notNull, alloc);
             } else {
-                return try serialize2(value.?, alloc);
+                return json.Value{.Null={}};
+            }
+        },
+        .Union => |unionInfo| {
+            if(unionInfo.tag_type) |tagType| {
+                inline for(unionInfo.fields) |field| {
+                    if (@enumToInt(@as(tagType, value)) == field.enum_field.?.value) {
+                        return try serialize2(@field(value, field.name), alloc);
+                    }
+                }
+                unreachable;
+            } else {
+                @compileError("JSON serialize: Unsupported untagged union type: " ++ @typeName(T));
             }
         },
         else => {
@@ -158,11 +191,18 @@ pub fn serialize2(value: var, alloc: *mem.Allocator) mem.Allocator.Error!json.Va
     }
 }
 
-pub const DeserializeError = error{
+pub const DeserializeError = error {
     InvalidType,
     MissingField
 } || mem.Allocator.Error;
 
+pub const DeserializeOptions = struct {
+    copyStrings: bool,
+    undefinedToNull: bool,
+    allowExtraFields: bool,
+};
+
+/// Unions are tried to be filled with first matching json.Value type
 pub fn deserialize(comptime T: type, value: json.Value, alloc: *mem.Allocator) DeserializeError!T {
     comptime const info = @typeInfo(T);
 
@@ -234,10 +274,64 @@ pub fn deserialize(comptime T: type, value: json.Value, alloc: *mem.Allocator) D
                 return try deserialize(optionalInfo.child, value, alloc);
             }
         },
+        .Union => |unionInfo| {
+            if(unionInfo.tag_type) |_| {
+                inline for(unionInfo.fields) |field| {
+                    if(typesMatch(field.field_type, value)){
+                        const successOrError = deserialize(field.field_type, value, alloc);
+
+                        if(successOrError) |success| {
+                            return @unionInit(T, field.enum_field.?.name, success);
+                        } else |err| {
+                            // if it's just a type error try the next type in the union
+                            if(err != error.InvalidType and err != error.MissingField){
+                                return err;
+                            }
+                        }
+                    }
+                }
+                return error.InvalidType;
+            } else {
+                @compileError("JSON deserialize: Unsupported untagged union type: " ++ @typeName(T));
+            }
+        },
         else => {
             @compileError("JSON deserialize: Unsupported type: " ++ @typeName(T));
         },
     }
+}
+
+fn typesMatch(comptime fieldType: type, jsonTag: @TagType(json.Value)) bool {
+    const info = @typeInfo(fieldType);
+
+    switch(jsonTag){
+        .Null => unreachable, // null is handled by optionals
+        .Bool => {
+            return info == .Bool;
+        },
+        .Integer => {
+            return info == .Int;
+        },
+        .Float => {
+            return info == .Float;
+        },
+        .String => {
+            return isStringType(fieldType);
+        },
+        .Array => {
+            return info == .Pointer and info.Pointer.size == .Slice and !isStringType(fieldType);
+        },
+        .Object => {
+            return info == .Struct;
+        },
+    }
+}
+
+fn isStringType(comptime fieldType: type) bool {
+    return switch(@typeInfo(fieldType)){
+        .Pointer => |ptr| ptr.size == .Slice and ptr.child == u8 and ptr.is_const,
+        else => false
+    };
 }
 
 test "deserialize" {

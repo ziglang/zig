@@ -4,6 +4,9 @@ const MaybeDefined = @import("json_serialize.zig").MaybeDefined;
 pub const String = []const u8;
 pub const Integer = i64;
 pub const Float = f64;
+pub const Bool = bool;
+pub const Array = json.Array;
+pub const Object = json.ObjectMap;
 pub const Any = json.Value;
 
 pub const ErrorCodes = struct {
@@ -19,7 +22,7 @@ pub const ErrorCodes = struct {
     pub const serverErrorEnd = -32000;
     pub const ServerNotInitialized = -32002;
     pub const UnknownErrorCode = -32001;
- 
+
     // Defined by LSP
     pub const RequestCancelled = -32800;
     pub const ContentModified = -32801;
@@ -29,38 +32,38 @@ pub const DocumentUri = String;
 
 pub const Position = struct {
     line: Integer,
-    character: Integer
+    character: Integer,
 };
 
 pub const Range = struct {
     start: Position,
-    end: Position
+    end: Position,
 };
 
 pub const Location = struct {
     uri: DocumentUri,
-    range: Range
+    range: Range,
 };
 
 pub const LocationLink = struct {
-    originSelectionRange: MaybeDefined(Range) = MaybeDefined(Range).NotDefined,
+    originSelectionRange: MaybeDefined(Range) = .NotDefined,
     targetUri: DocumentUri,
     targetRange: Range,
-    targetSelectionRange: Range
+    targetSelectionRange: Range,
 };
 
 pub const Diagnostic = struct {
     range: Range,
-    severity: MaybeDefined(Integer) = MaybeDefined(Integer).NotDefined,
-    code: MaybeDefined(Any) = MaybeDefined(Any).NotDefined,
-    source: MaybeDefined(String) = MaybeDefined(String).NotDefined,
+    severity: MaybeDefined(Integer) = .NotDefined,
+    code: MaybeDefined(Any) = .NotDefined,
+    source: MaybeDefined(String) = .NotDefined,
     message: String,
-    relatedInformation: MaybeDefined([]DiagnosticRelatedInformation) = MaybeDefined([]DiagnosticRelatedInformation).NotDefined
+    relatedInformation: MaybeDefined([]DiagnosticRelatedInformation) = .NotDefined,
 };
 
 pub const DiagnosticRelatedInformation = struct {
     location: Location,
-    message: String
+    message: String,
 };
 
 pub const DiagnosticSeverity = struct {
@@ -73,12 +76,12 @@ pub const DiagnosticSeverity = struct {
 pub const Command = struct {
     title: String,
     command: String,
-    arguments: MaybeDefined([]Any)
+    arguments: MaybeDefined([]Any),
 };
 
 pub const TextEdit = struct {
     range: Range,
-    newText: String
+    newText: String,
 };
 
 pub const TextDocumentSyncKind = struct {
@@ -129,4 +132,57 @@ pub const VersionedTextDocumentIdentifier = struct {
 pub const PublishDiagnosticsParams = struct {
     uri: DocumentUri,
     diagnostics: []Diagnostic,
+};
+
+pub const CompletionParams = struct {
+    textDocument: TextDocumentIdentifier,
+    position: Position,
+    context: MaybeDefined(CompletionContext),
+};
+
+pub const CompletionTriggerKind = struct {
+    pub const Invoked = 1;
+    pub const TriggerCharacter = 2;
+    pub const TriggerForIncompleteCompletions = 3;
+};
+
+pub const CompletionContext = struct {
+    triggerKind: Integer,
+    triggerCharacter: MaybeDefined(String),
+};
+
+// not complete definition
+pub const CompletionItem = struct {
+    label: String,
+    kind: MaybeDefined(Integer) = .NotDefined,
+    textEdit: MaybeDefined(TextEdit) = .NotDefined,
+    filterText: MaybeDefined(String) = .NotDefined,
+};
+
+pub const CompletionItemKind = struct {
+    pub const Text = 1;
+    pub const Method = 2;
+    pub const Function = 3;
+    pub const Constructor = 4;
+    pub const Field = 5;
+    pub const Variable = 6;
+    pub const Class = 7;
+    pub const Interface = 8;
+    pub const Module = 9;
+    pub const Property = 10;
+    pub const Unit = 11;
+    pub const Value = 12;
+    pub const Enum = 13;
+    pub const Keyword = 14;
+    pub const Snippet = 15;
+    pub const Color = 16;
+    pub const File = 17;
+    pub const Reference = 18;
+    pub const Folder = 19;
+    pub const EnumMember = 20;
+    pub const Constant = 21;
+    pub const Struct = 22;
+    pub const Event = 23;
+    pub const Operator = 24;
+    pub const TypeParameter = 25;
 };

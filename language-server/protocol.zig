@@ -2,6 +2,7 @@ const std = @import("std");
 const json = std.json;
 const io = std.io;
 const mem = std.mem;
+const debug = std.debug;
 
 const json_rpc = @import("json_rpc.zig");
 const serial = @import("json_serialize.zig");
@@ -106,14 +107,25 @@ pub fn MessageWriter(comptime Error: type) type {
         }
 
         pub fn writeResponse(self: *Self, response: json_rpc.Response) !void {
-            try self.writeString();
+            debug.assert(response.validate());
+
+            var mem_buffer: [1024 * 128]u8 = undefined;
+            var sliceStream = io.SliceOutStream.init(mem_buffer[0..]);
+            var jsonStream = json.WriteStream(@typeOf(sliceStream.stream), 1024).init(&sliceStream.stream);
+
+            try serial.serialize(response, &jsonStream);
+            try self.writeString(sliceStream.getWritten());
         }
 
         pub fn writeRequest(self: *Self, request: json_rpc.Request) !void {
+            debug.assert(request.validate());
+            
             var mem_buffer: [1024 * 128]u8 = undefined;
-            var stream = io.SliceOutStream.init(mem_buffer[0..]);
-            try serial.serialize(request, &stream.stream);
-            try self.writeString(stream.getWritten());
+            var sliceStream = io.SliceOutStream.init(mem_buffer[0..]);
+            var jsonStream = json.WriteStream(@typeOf(sliceStream.stream), 1024).init(&sliceStream.stream);
+
+            try serial.serialize(request, &jsonStream);
+            try self.writeString(sliceStream.getWritten());
         }
     };
 }

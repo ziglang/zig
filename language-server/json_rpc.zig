@@ -4,18 +4,24 @@ const mem = std.mem;
 const json = std.json;
 
 const serial = @import("json_serialize.zig");
+const types = @import("types.zig");
 
 // JSON RPC 2.0
+// TODO batching support?
+
+/// Float or Null not recommended by the standard
+pub const Id = union(enum) {
+    String: types.String,
+    Integer: types.Integer,
+    Float: types.Float
+};
 
 pub const Request = struct {
-    /// Must be "2.0"
-    jsonrpc: []const u8,
-    method: []const u8,
+    jsonrpc: types.String = "2.0",
+    method: types.String,
     /// Must be an Array or an Object
     params: json.Value,
-    /// Must be a String, Number, or Null
-    /// Float or Null not recommended by the standard
-    id: serial.MaybeDefined(json.Value),
+    id: serial.MaybeDefined(?Id) = .NotDefined,
 
     pub fn validate(self: *const Request) bool {
         if(!mem.eql(u8, self.jsonrpc, "2.0")){
@@ -25,34 +31,38 @@ pub const Request = struct {
             .Object, .Array => {},
             else => return false
         }
-        switch(self.id){
-            .Defined => |jsonVal| {
-                switch(jsonVal){
-                    .String, .Integer, .Float, .Null => {},
-                    else => return false
-                }
-            },
-            .NotDefined => {}
-        }
 
         return true;
     }
 };
 
 pub const Response = struct {
-    outcome: Outcome,
-    id: json.Value,
+    jsonrpc: types.String = "2.0",
+    @"error": serial.MaybeDefined(Error) = .NotDefined,
+    result: serial.MaybeDefined(json.Value) = .NotDefined,
+    id: ?Id,
 
-    pub const Outcome = union(enum){
-        Error: Error,
-        Result: json.Value,
-
-        pub const Error = struct {
-            code: i64,
-            message: []const u8,
-            data: ?json.Value,
-        };
+    pub const Error = struct {
+        code: types.Integer,
+        message: types.String,
+        data: serial.MaybeDefined(json.Value),
     };
+
+    pub fn validate(self: *const Response) bool {
+        if(!mem.eql(u8, self.jsonrpc, "2.0")){
+            return false;
+        }
+
+        const errorDefined = self.@"error" == .Defined;
+        const resultDefined = self.result == .Defined;
+
+        // exactly one of them must be defined
+        if(errorDefined == resultDefined){
+            return false;
+        }
+
+        return true;
+    }
 };
 
 pub fn Dispatcher(comptime ContextType: type) type {
@@ -71,7 +81,7 @@ pub fn Dispatcher(comptime ContextType: type) type {
         };
         pub const Error = DispatchError || MethodError;
         
-        pub const Method = fn(*ContextType, Request) MethodError!void;
+        pub const Method = fn(*ContextType, Request) anyerror!void;
         pub const Map = std.StringHashMap(Method);
 
         pub fn init(context: *ContextType, alloc: *mem.Allocator) Self {
@@ -92,7 +102,7 @@ pub fn Dispatcher(comptime ContextType: type) type {
         pub fn dispatch(self: *Self, message: Request) Error!void {
             debug.warn("{}\n", message.method);
             if(self.map.getValue(message.method)) |method| {
-                try method(self.context, message);
+                method(self.context, message) catch return error.InternalError;
             } else {
                 return error.MethodNotFound;
             }
