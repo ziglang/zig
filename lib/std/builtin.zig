@@ -414,6 +414,13 @@ pub const CallOptions = struct {
 
 /// This function type is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const TestFn = struct {
+    name: []const u8,
+    func: fn()anyerror!void,
+};
+
+/// This function type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const PanicFn = fn ([]const u8, ?*StackTrace) noreturn;
 
 /// This function is used by the Zig language code generation and
@@ -424,6 +431,10 @@ pub const panic: PanicFn = if (@hasDecl(root, "panic")) root.panic else default_
 /// therefore must be kept in sync with the compiler implementation.
 pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn {
     @setCold(true);
+    if (@hasDecl(root, "os") and @hasDecl(root.os, "panic")) {
+        root.os.panic(msg, error_return_trace);
+        unreachable;
+    }
     switch (os) {
         .freestanding => {
             while (true) {

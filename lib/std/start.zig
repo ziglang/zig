@@ -1,8 +1,8 @@
 // This file is included in the compilation unit when exporting an executable.
 
 const root = @import("root");
-const std = @import("std");
-const builtin = @import("builtin");
+const std = @import("std.zig");
+const builtin = std.builtin;
 const assert = std.debug.assert;
 const uefi = std.os.uefi;
 
@@ -17,6 +17,7 @@ const is_mips = switch (builtin.arch) {
     .mips, .mipsel, .mips64, .mips64el => true,
     else => false,
 };
+const start_sym_name = if (is_mips) "__start" else "_start";
 
 comptime {
     if (builtin.output_mode == .Lib and builtin.link_mode == .Dynamic) {
@@ -34,14 +35,10 @@ comptime {
             }
         } else if (builtin.os == .uefi) {
             if (!@hasDecl(root, "EfiMain")) @export("EfiMain", EfiMain, .Strong);
-        } else if (builtin.os != .freestanding) {
-            if (is_mips) {
-                if (!@hasDecl(root, "__start")) @export("__start", _start, .Strong);
-            } else {
-                if (!@hasDecl(root, "_start")) @export("_start", _start, .Strong);
-            }
-        } else if (is_wasm) {
-            if (!@hasDecl(root, "_start")) @export("_start", wasm_freestanding_start, .Strong);
+        } else if (is_wasm and builtin.os == .freestanding) {
+            if (!@hasDecl(root, start_sym_name)) @export(start_sym_name, wasm_freestanding_start, .Strong);
+        } else if (builtin.os != .other and builtin.os != .freestanding) {
+            if (!@hasDecl(root, start_sym_name)) @export(start_sym_name, _start, .Strong);
         }
     }
 }
@@ -247,7 +244,7 @@ async fn callMainAsync(loop: *std.event.Loop) u8 {
 
 // This is not marked inline because it is called with @asyncCall when
 // there is an event loop.
-fn callMain() u8 {
+pub fn callMain() u8 {
     switch (@typeInfo(@TypeOf(root.main).ReturnType)) {
         .NoReturn => {
             root.main();

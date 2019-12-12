@@ -623,7 +623,7 @@ int main(int argc, char **argv) {
 
         ZigPackage *build_pkg = codegen_create_package(g, buf_ptr(&build_file_dirname),
                 buf_ptr(&build_file_basename), "std.special");
-        g->root_package->package_table.put(buf_create_from_str("@build"), build_pkg);
+        g->main_pkg->package_table.put(buf_create_from_str("@build"), build_pkg);
         g->enable_cache = get_cache_opt(enable_cache, true);
         codegen_build_and_link(g);
         if (root_progress_node != nullptr) {
@@ -1269,7 +1269,7 @@ int main(int argc, char **argv) {
                 codegen_set_test_name_prefix(g, buf_create_from_str(test_name_prefix));
             }
 
-            add_package(g, cur_pkg, g->root_package);
+            add_package(g, cur_pkg, g->main_pkg);
 
             if (cmd == CmdBuild || cmd == CmdRun || cmd == CmdTest) {
                 g->c_source_files = c_source_files;

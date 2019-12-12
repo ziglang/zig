@@ -276,4 +276,7 @@ Error analyze_import(CodeGen *codegen, ZigType *source_import, Buf *import_targe
         ZigType **out_import, Buf **out_import_target_path, Buf *out_full_path);
 ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry);
 bool is_anon_container(ZigType *ty);
+void copy_const_val(ZigValue *dest, ZigValue *src);
+bool type_has_optional_repr(ZigType *ty);
+bool is_opt_err_set(ZigType *ty);
 #endif

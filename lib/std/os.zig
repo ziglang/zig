@@ -187,19 +187,23 @@ pub fn abort() noreturn {
         }
         windows.kernel32.ExitProcess(3);
     }
-    if (builtin.link_libc) {
-        system.abort();
+    if (!builtin.link_libc and builtin.os == .linux) {
+        raise(SIGABRT) catch {};
+
+        // TODO the rest of the implementation of abort() from musl libc here
+
+        raise(SIGKILL) catch {};
+        exit(127);
     }
     if (builtin.os == .uefi) {
         exit(0); // TODO choose appropriate exit code
     }
+    if (builtin.os == .wasi) {
+        @breakpoint();
+        exit(1);
+    }
 
-    raise(SIGABRT) catch {};
-
-    // TODO the rest of the implementation of abort() from musl libc here
-
-    raise(SIGKILL) catch {};
-    exit(127);
+    system.abort();
 }
 
 pub const RaiseError = UnexpectedError;

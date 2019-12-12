@@ -83,7 +83,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
         @setCold(true);
         std.debug.panic("{}", msg);
     }
-    if (builtin.os != .freestanding) {
+    if (builtin.os != .freestanding and builtin.os != .other) {
         std.os.abort();
     }
     while (true) {}

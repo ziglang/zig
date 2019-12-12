@@ -2003,10 +2003,11 @@ struct CodeGen {
     ZigPackage *std_package;
     ZigPackage *test_runner_package;
     ZigPackage *compile_var_package;
+    ZigPackage *root_pkg; // @import("root")
+    ZigPackage *main_pkg; // usually same as root_pkg, except for `zig test`
     ZigType *compile_var_import;
     ZigType *root_import;
     ZigType *start_import;
-    ZigType *test_runner_import;
 
     struct {
         ZigType *entry_bool;
@@ -2179,7 +2180,6 @@ struct CodeGen {
     Buf *root_out_name;
     Buf *test_filter;
     Buf *test_name_prefix;
-    ZigPackage *root_package;
     Buf *zig_lib_dir;
     Buf *zig_std_dir;
     Buf *dynamic_linker_path;
