@@ -609,7 +609,7 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
                     null
                 else
                     try appendToken(c, .Keyword_threadlocal, "threadlocal");
-                const qual_type = ZigClangVarDecl_getType(var_decl);
+                const qual_type = ZigClangVarDecl_getTypeSourceInfo_getType(var_decl);
                 const mut_token = if (ZigClangQualType_isConstQualified(qual_type))
                     try appendToken(c, .Keyword_const, "const")
                 else
@@ -1452,6 +1452,19 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
             node.op.ArrayType.len_expr = try transCreateNodeInt(rp.c, size);
             _ = try appendToken(rp.c, .RBracket, "]");
             node.rhs = try transQualType(rp, ZigClangConstantArrayType_getElementType(const_arr_ty), source_loc);
+            return &node.base;
+        },
+        .IncompleteArray => {
+            const incomplete_array_ty = @ptrCast(*const ZigClangIncompleteArrayType, ty);
+
+            const child_qt = ZigClangIncompleteArrayType_getElementType(incomplete_array_ty);
+            var node = try transCreateNodePtrType(
+                rp.c,
+                ZigClangQualType_isConstQualified(child_qt),
+                ZigClangQualType_isVolatileQualified(child_qt),
+                .Identifier,
+            );
+            node.rhs = try transQualType(rp, child_qt, source_loc);
             return &node.base;
         },
         else => {

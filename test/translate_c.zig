@@ -1,11 +1,11 @@
 const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
-// add_both - test for stage1 and stage2, in #include mode
-// add - test stage1 only, in #include mode
-// add_2 - test stage2 only, in #include mode
+// add_both - test for stage1 and stage2
+// add - test stage1 only
+// add_2 - test stage2 only
 
-pub export fn addCases(cases: *tests.TranslateCContext) void {
+pub fn addCases(cases: *tests.TranslateCContext) void {
     /////////////// Cases that pass for both stage1/stage2 ////////////////
     cases.add_both("simple function prototypes",
         \\void __attribute__((noreturn)) foo(void);
@@ -66,21 +66,17 @@ pub export fn addCases(cases: *tests.TranslateCContext) void {
         \\pub var v0: [*c]const u8 = "0.0.0";
     });
 
-    /////////////// Cases that pass for only stage2 ////////////////
-
-    cases.add_2("Parameterless function prototypes",
-        \\void a() {}
-        \\void b(void) {}
-        \\void c();
-        \\void d(void);
+    cases.add_both("static incomplete array inside function",
+        \\void foo(void) {
+        \\    static const char v2[] = "2.2.2";
+        \\}
     , &[_][]const u8{
-        \\pub export fn a() void {}
-        \\pub export fn b() void {}
-        \\pub extern fn c(...) void;
-        \\pub extern fn d() void;
+        \\pub export fn foo() void {
+        \\    const v2: [*c]const u8 = "2.2.2";
+        \\}
     });
 
-    cases.add_2("simple function definition",
+    cases.add_both("simple function definition",
         \\void foo(void) {}
         \\static void bar(void) {}
     , &[_][]const u8{
@@ -88,7 +84,9 @@ pub export fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn bar() void {}
     });
 
-    cases.add_2("parameterless function prototypes",
+    /////////////// Cases that pass for only stage2 ////////////////
+
+    cases.add_2("Parameterless function prototypes",
         \\void a() {}
         \\void b(void) {}
         \\void c();
@@ -128,14 +126,6 @@ pub export fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const struct_Bar = extern struct {
         \\    foo: ?*struct_Foo,
         \\};
-    });
-
-    cases.add_both("simple function definition",
-        \\void foo(void) {}
-        \\static void bar(void) {}
-    , &[_][]const u8{
-        \\pub export fn foo() void {}
-        \\pub fn bar() void {}
     });
 
     cases.add("macro with left shift",
@@ -1518,16 +1508,6 @@ pub export fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo(u32_0: c_int) c_int {
         \\    return u32_0;
-        \\}
-    });
-
-    cases.add("static incomplete array inside function",
-        \\void foo(void) {
-        \\    static const char v2[] = "2.2.2";
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo() void {
-        \\    const v2: [*c]const u8 = "2.2.2";
         \\}
     });
 

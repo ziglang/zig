@@ -938,6 +938,7 @@ pub extern fn ZigClangImplicitCastExpr_getCastKind(*const ZigClangImplicitCastEx
 pub extern fn ZigClangImplicitCastExpr_getSubExpr(*const ZigClangImplicitCastExpr) *const ZigClangExpr;
 
 pub extern fn ZigClangArrayType_getElementType(*const ZigClangArrayType) ZigClangQualType;
+pub extern fn ZigClangIncompleteArrayType_getElementType(*const ZigClangIncompleteArrayType) ZigClangQualType;
 
 pub extern fn ZigClangConstantArrayType_getElementType(self: *const struct_ZigClangConstantArrayType) ZigClangQualType;
 pub extern fn ZigClangConstantArrayType_getSize(self: *const struct_ZigClangConstantArrayType) *const struct_ZigClangAPInt;
@@ -968,6 +969,7 @@ pub const struct_ZigClangAPValue = extern struct {
     Kind: ZigClangAPValueKind,
     Data: if (builtin.os == .windows and builtin.abi == .msvc) [52]u8 else [68]u8,
 };
+pub extern fn ZigClangVarDecl_getTypeSourceInfo_getType(self: *const struct_ZigClangVarDecl) struct_ZigClangQualType;
 
 pub extern fn ZigClangIntegerLiteral_EvaluateAsInt(*const ZigClangIntegerLiteral, *ZigClangExprEvalResult, *const ZigClangASTContext) bool;
 pub extern fn ZigClangIntegerLiteral_getBeginLoc(*const ZigClangIntegerLiteral) ZigClangSourceLocation;
