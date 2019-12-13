@@ -55,7 +55,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 ,
                 // release-safe
                     \\error: TheSkyIsFalling
-                    \\source.zig:4:5: [address] in std.special.main (test)
+                    \\source.zig:4:5: [address] in std.start.main (test)
                     \\
                 ,
                 // release-fast
@@ -79,8 +79,8 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 ,
                 // release-safe
                     \\error: TheSkyIsFalling
-                    \\source.zig:4:5: [address] in std.special.main (test)
-                    \\source.zig:8:5: [address] in std.special.main (test)
+                    \\source.zig:4:5: [address] in std.start.main (test)
+                    \\source.zig:8:5: [address] in std.start.main (test)
                     \\
                 ,
                 // release-fast
@@ -106,10 +106,10 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 ,
                 // release-safe
                     \\error: TheSkyIsFalling
-                    \\source.zig:12:5: [address] in std.special.main (test)
-                    \\source.zig:8:5: [address] in std.special.main (test)
-                    \\source.zig:4:5: [address] in std.special.main (test)
-                    \\source.zig:16:5: [address] in std.special.main (test)
+                    \\source.zig:12:5: [address] in std.start.main (test)
+                    \\source.zig:8:5: [address] in std.start.main (test)
+                    \\source.zig:4:5: [address] in std.start.main (test)
+                    \\source.zig:16:5: [address] in std.start.main (test)
                     \\
                 ,
                 // release-fast
@@ -134,7 +134,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 ,
                 // release-safe
                     \\error: TheSkyIsFalling
-                    \\source.zig:4:5: [address] in std.special.posixCallMainAndExit (test)
+                    \\source.zig:4:5: [address] in std.start.posixCallMainAndExit (test)
                     \\
                 ,
                 // release-fast
@@ -158,8 +158,8 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 ,
                 // release-safe
                     \\error: TheSkyIsFalling
-                    \\source.zig:4:5: [address] in std.special.posixCallMainAndExit (test)
-                    \\source.zig:8:5: [address] in std.special.posixCallMainAndExit (test)
+                    \\source.zig:4:5: [address] in std.start.posixCallMainAndExit (test)
+                    \\source.zig:8:5: [address] in std.start.posixCallMainAndExit (test)
                     \\
                 ,
                 // release-fast
@@ -185,10 +185,10 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 ,
                 // release-safe
                     \\error: TheSkyIsFalling
-                    \\source.zig:12:5: [address] in std.special.posixCallMainAndExit (test)
-                    \\source.zig:8:5: [address] in std.special.posixCallMainAndExit (test)
-                    \\source.zig:4:5: [address] in std.special.posixCallMainAndExit (test)
-                    \\source.zig:16:5: [address] in std.special.posixCallMainAndExit (test)
+                    \\source.zig:12:5: [address] in std.start.posixCallMainAndExit (test)
+                    \\source.zig:8:5: [address] in std.start.posixCallMainAndExit (test)
+                    \\source.zig:4:5: [address] in std.start.posixCallMainAndExit (test)
+                    \\source.zig:16:5: [address] in std.start.posixCallMainAndExit (test)
                     \\
                 ,
                 // release-fast
