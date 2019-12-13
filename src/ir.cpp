@@ -23343,7 +23343,7 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
         const char *resources_path = buf_ptr(ira->codegen->zig_c_headers_dir);
 
         if ((err = parse_h_file(ira->codegen, &root_node, &errors_ptr, &errors_len,
-            &clang_argv.at(0), &clang_argv.last(), resources_path)))
+            &clang_argv.at(0), &clang_argv.last(), TranslateModeImport, resources_path)))
         {
             if (err != ErrorCCompileErrors) {
                 ir_add_error_node(ira, node, buf_sprintf("C import failed: %s", err_str(err)));

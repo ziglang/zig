@@ -64,6 +64,7 @@ struct TransScopeWhile {
 
 struct Context {
     AstNode *root;
+    bool want_export;
     HashMap<const void *, AstNode *, ptr_hash, ptr_eq> decl_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> global_table;
@@ -4090,7 +4091,7 @@ static void visit_fn_decl(Context *c, const ZigClangFunctionDecl *fn_decl) {
     ZigClangStorageClass sc = ZigClangFunctionDecl_getStorageClass(fn_decl);
     if (sc == ZigClangStorageClass_None) {
         proto_node->data.fn_proto.visib_mod = VisibModPub;
-        proto_node->data.fn_proto.is_export = ZigClangFunctionDecl_hasBody(fn_decl);
+        proto_node->data.fn_proto.is_export = ZigClangFunctionDecl_hasBody(fn_decl) ? c->want_export : false;
     } else if (sc == ZigClangStorageClass_Extern || sc == ZigClangStorageClass_Static) {
         proto_node->data.fn_proto.visib_mod = VisibModPub;
     } else if (sc == ZigClangStorageClass_PrivateExtern) {
@@ -5111,11 +5112,16 @@ static void process_preprocessor_entities(Context *c, ZigClangASTUnit *unit) {
 Error parse_h_file(CodeGen *codegen, AstNode **out_root_node,
         Stage2ErrorMsg **errors_ptr, size_t *errors_len,
         const char **args_begin, const char **args_end,
-        const char *resources_path)
+        TranslateMode mode, const char *resources_path)
 {
     Context context = {0};
     Context *c = &context;
     c->warnings_on = codegen->verbose_cimport;
+    if (mode == TranslateModeImport) {
+        c->want_export = false;
+    } else {
+        c->want_export = true;
+    }
     c->decl_table.init(8);
     c->macro_table.init(8);
     c->global_table.init(8);

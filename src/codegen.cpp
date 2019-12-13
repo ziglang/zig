@@ -9020,6 +9020,10 @@ void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file, bool use_us
 
     init(g);
 
+    TranslateMode trans_mode = buf_ends_with_str(full_path, ".h") ?
+        TranslateModeImport : TranslateModeTranslate;
+
+
     ZigList<const char *> clang_argv = {0};
     add_cc_args(g, clang_argv, nullptr, true);
 
@@ -9045,8 +9049,8 @@ void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file, bool use_us
         err = stage2_translate_c(&ast, &errors_ptr, &errors_len,
                         &clang_argv.at(0), &clang_argv.last(), resources_path);
     } else {
-        err = parse_h_file(g, &root_node, &errors_ptr, &errors_len, &clang_argv.at(0),
-                        &clang_argv.last(), resources_path);
+        err = parse_h_file(g, &root_node, &errors_ptr, &errors_len, &clang_argv.at(0), &clang_argv.last(),
+                trans_mode, resources_path);
     }
 
     if (err == ErrorCCompileErrors && errors_len > 0) {
