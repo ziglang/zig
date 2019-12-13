@@ -7,11 +7,6 @@ const ast = std.zig.ast;
 const Token = std.zig.Token;
 usingnamespace @import("clang.zig");
 
-pub const Mode = enum {
-    import,
-    translate,
-};
-
 const CallingConvention = std.builtin.TypeInfo.CallingConvention;
 
 pub const ClangErrMsg = Stage2ErrorMsg;
@@ -104,7 +99,6 @@ const Context = struct {
     source_manager: *ZigClangSourceManager,
     decl_table: DeclTable,
     global_scope: *Scope.Root,
-    mode: Mode,
     ptr_params: std.BufSet,
     clang_context: *ZigClangASTContext,
 
@@ -133,7 +127,6 @@ pub fn translate(
     backing_allocator: *std.mem.Allocator,
     args_begin: [*]?[*]const u8,
     args_end: [*]?[*]const u8,
-    mode: Mode,
     errors: *[]ClangErrMsg,
     resources_path: [*]const u8,
 ) !*ast.Tree {
@@ -185,7 +178,6 @@ pub fn translate(
         .err = undefined,
         .decl_table = DeclTable.init(arena),
         .global_scope = try arena.create(Scope.Root),
-        .mode = mode,
         .ptr_params = std.BufSet.init(arena),
         .clang_context = ZigClangASTUnit_getASTContext(ast_unit).?,
     };
@@ -228,7 +220,7 @@ fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
             return visitFnDecl(c, @ptrCast(*const ZigClangFunctionDecl, decl));
         },
         .Typedef => {
-            try emitWarning(c, ZigClangDecl_getLocation(decl), "TODO implement translate-c for typedefs", .{});
+            try resolveTypeDef(c, @ptrCast(*const ZigClangTypedefNameDecl, decl));
         },
         .Enum => {
             try emitWarning(c, ZigClangDecl_getLocation(decl), "TODO implement translate-c for enums", .{});
@@ -237,7 +229,7 @@ fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
             try emitWarning(c, ZigClangDecl_getLocation(decl), "TODO implement translate-c for structs", .{});
         },
         .Var => {
-            try emitWarning(c, ZigClangDecl_getLocation(decl), "TODO implement translate-c for variables", .{});
+            return visitVarDecl(c, @ptrCast(*const ZigClangVarDecl, decl));
         },
         else => {
             const decl_name = try c.str(ZigClangDecl_getDeclKindName(decl));
@@ -262,7 +254,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
         .storage_class = storage_class,
         .scope = &scope,
         .is_export = switch (storage_class) {
-            .None => has_body and c.mode != .import,
+            .None => has_body,
             .Extern, .Static => false,
             .PrivateExtern => return failDecl(c, fn_decl_loc, fn_name, "unsupported storage class: private extern", .{}),
             .Auto => unreachable, // Not legal on functions
@@ -310,6 +302,130 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     return addTopLevelDecl(c, fn_name, &proto_node.base);
 }
 
+fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
+    if (try c.decl_table.put(@ptrToInt(var_decl), {})) |_| return; // Avoid processing this decl twice
+    const rp = makeRestorePoint(c);
+    const visib_tok = try appendToken(c, .Keyword_pub, "pub");
+
+    const thread_local_token = if (ZigClangVarDecl_getTLSKind(var_decl) == .None)
+        null
+    else
+        try appendToken(c, .Keyword_threadlocal, "threadlocal");
+
+    var scope = &c.global_scope.base;
+    const var_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, var_decl)));
+    const var_decl_loc = ZigClangVarDecl_getLocation(var_decl);
+
+    const qual_type = ZigClangVarDecl_getTypeSourceInfo_getType(var_decl);
+    const storage_class = ZigClangVarDecl_getStorageClass(var_decl);
+    const is_const = ZigClangQualType_isConstQualified(qual_type);
+
+    const extern_tok = if (storage_class == .Extern)
+        try appendToken(c, .Keyword_extern, "extern")
+    else if (storage_class != .Static)
+        try appendToken(c, .Keyword_export, "export")
+    else
+        null;
+
+    const mut_tok = if (is_const)
+        try appendToken(c, .Keyword_const, "const")
+    else
+        try appendToken(c, .Keyword_var, "var");
+
+    const name_tok = try appendToken(c, .Identifier, var_name);
+
+    _ = try appendToken(c, .Colon, ":");
+    const type_node = transQualType(rp, qual_type, var_decl_loc) catch |err| switch (err) {
+        error.UnsupportedType => {
+            return failDecl(c, var_decl_loc, var_name, "unable to resolve variable type", .{});
+        },
+        error.OutOfMemory => |e| return e,
+    };
+
+    var eq_tok: ast.TokenIndex = undefined;
+    var init_node: ?*ast.Node = null;
+
+    if (ZigClangVarDecl_hasInit(var_decl)) {
+        eq_tok = try appendToken(c, .Equal, "=");
+        init_node = if (ZigClangVarDecl_getInit(var_decl)) |expr| blk: {
+            var res = transExpr(rp, &c.global_scope.base, expr, .used, .r_value) catch |err| switch (err) {
+                error.UnsupportedTranslation,
+                error.UnsupportedType,
+                => {
+                    return failDecl(c, var_decl_loc, var_name, "unable to translate initializer", .{});
+                },
+                error.OutOfMemory => |e| return e,
+            };
+            break :blk res.node;
+        } else
+            try transCreateNodeUndefinedLiteral(c);
+    } else if (storage_class != .Extern) {
+        return failDecl(c, var_decl_loc, var_name, "non-extern variable has no initializer", .{});
+    }
+
+    const node = try c.a().create(ast.Node.VarDecl);
+    node.* = ast.Node.VarDecl{
+        .base = ast.Node{ .id = .VarDecl },
+        .doc_comments = null,
+        .visib_token = visib_tok,
+        .thread_local_token = thread_local_token,
+        .name_token = name_tok,
+        .eq_token = eq_tok,
+        .mut_token = mut_tok,
+        .comptime_token = null,
+        .extern_export_token = extern_tok,
+        .lib_name = null,
+        .type_node = type_node,
+        .align_node = null,
+        .section_node = null,
+        .init_node = init_node,
+        .semicolon_token = try appendToken(c, .Semicolon, ";"),
+    };
+    return addTopLevelDecl(c, var_name, &node.base);
+}
+
+fn resolveTypeDef(c: *Context, typedef_decl: *const ZigClangTypedefNameDecl) Error!void {
+    if (try c.decl_table.put(@ptrToInt(ZigClangTypedefNameDecl_getCanonicalDecl(typedef_decl)), {})) |_| return; // Avoid processing this decl twice
+    const rp = makeRestorePoint(c);
+    const visib_tok = try appendToken(c, .Keyword_pub, "pub");
+    const const_tok = try appendToken(c, .Keyword_const, "const");
+
+    const typedef_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, typedef_decl)));
+    const name_tok = try appendToken(c, .Identifier, typedef_name);
+    const eq_tok = try appendToken(c, .Equal, "=");
+
+    const child_qt = ZigClangTypedefNameDecl_getUnderlyingType(typedef_decl);
+    const typedef_loc = ZigClangTypedefNameDecl_getLocation(typedef_decl);
+    const type_node = transQualType(rp, child_qt, typedef_loc) catch |err| switch (err) {
+        error.UnsupportedType => {
+            const node = try failDecl(c, typedef_loc, typedef_name, "unable to resolve typedef child type", .{});
+            _ = try c.decl_table.put(@ptrToInt(typedef_decl), node);
+            return node;
+        },
+        error.OutOfMemory => |e| return e,
+    };
+
+    const node = try c.a().create(ast.Node.VarDecl);
+    node.* = ast.Node.VarDecl{
+        .base = ast.Node{ .id = .VarDecl },
+        .doc_comments = null,
+        .visib_token = visib_tok,
+        .thread_local_token = null,
+        .name_token = name_tok,
+        .eq_token = eq_tok,
+        .mut_token = const_tok,
+        .comptime_token = null,
+        .extern_export_token = null,
+        .lib_name = null,
+        .type_node = null,
+        .align_node = null,
+        .section_node = null,
+        .init_node = type_node,
+        .semicolon_token = try appendToken(c, .Semicolon, ";"),
+    };
+    try addTopLevelDecl(c, typedef_name, &node.base);
+}
+
 const ResultUsed = enum {
     used,
     unused,
@@ -339,6 +455,7 @@ fn transStmt(
         .ReturnStmtClass => return transReturnStmt(rp, scope, @ptrCast(*const ZigClangReturnStmt, stmt)),
         .StringLiteralClass => return transStringLiteral(rp, scope, @ptrCast(*const ZigClangStringLiteral, stmt), result_used),
         .ParenExprClass => return transExpr(rp, scope, ZigClangParenExpr_getSubExpr(@ptrCast(*const ZigClangParenExpr, stmt)), result_used, lrvalue),
+        .InitListExprClass => return transInitListExpr(rp, scope, @ptrCast(*const ZigClangInitListExpr, stmt), result_used),
         else => {
             return revertAndWarn(
                 rp,
@@ -564,7 +681,7 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
                     null
                 else
                     try appendToken(c, .Keyword_threadlocal, "threadlocal");
-                const qual_type = ZigClangVarDecl_getType(var_decl);
+                const qual_type = ZigClangVarDecl_getTypeSourceInfo_getType(var_decl);
                 const mut_token = if (ZigClangQualType_isConstQualified(qual_type))
                     try appendToken(c, .Keyword_const, "const")
                 else
@@ -589,15 +706,8 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
                 const eq_token = try appendToken(c, .Equal, "=");
                 const init_node = if (ZigClangVarDecl_getInit(var_decl)) |expr|
                     (try transExpr(rp, scope, expr, .used, .r_value)).node
-                else blk: {
-                    const undefined_token = try appendToken(c, .Keyword_undefined, "undefined");
-                    const undefined_node = try rp.c.a().create(ast.Node.UndefinedLiteral);
-                    undefined_node.* = ast.Node.UndefinedLiteral{
-                        .base = ast.Node{ .id = .UndefinedLiteral },
-                        .token = undefined_token,
-                    };
-                    break :blk &undefined_node.base;
-                };
+                else
+                    try transCreateNodeUndefinedLiteral(c);
                 const semicolon_token = try appendToken(c, .Semicolon, ";");
 
                 const node = try c.a().create(ast.Node.VarDecl);
@@ -687,7 +797,7 @@ fn transImplicitCastExpr(
         .FunctionToPointerDecay, .ArrayToPointerDecay => {
             return maybeSuppressResult(rp, scope, result_used, sub_expr_node);
         },
-        .LValueToRValue => {
+        .LValueToRValue, .NoOp => {
             return transExpr(rp, scope, sub_expr, .used, .r_value);
         },
         else => |kind| return revertAndWarn(
@@ -866,6 +976,88 @@ fn transExpr(
     lrvalue: LRValue,
 ) TransError!TransResult {
     return transStmt(rp, scope, @ptrCast(*const ZigClangStmt, expr), used, lrvalue);
+}
+
+fn transInitListExpr(
+    rp: RestorePoint,
+    scope: *Scope,
+    expr: *const ZigClangInitListExpr,
+    used: ResultUsed,
+) TransError!TransResult {
+    // TODO use anon literals once they work properly
+    const qt = getExprQualType(rp.c, @ptrCast(*const ZigClangExpr, expr));
+    const qual_type = ZigClangQualType_getTypePtr(qt);
+    const source_loc = ZigClangExpr_getBeginLoc(@ptrCast(*const ZigClangExpr, expr));
+    const arr_type = ZigClangType_getAsArrayTypeUnsafe(qual_type);
+    const child_qt = ZigClangArrayType_getElementType(arr_type);
+    const init_count = ZigClangInitListExpr_getNumInits(expr);
+    const all_count = 200; //ZigClangArrayType_getSize(arr_type);
+    const leftover_count = all_count - init_count;
+
+    var init_node: *ast.Node.SuffixOp = undefined;
+    var cat_tok: ast.TokenIndex = undefined;
+    if (init_count != 0) {
+        var type_node = try transQualType(rp, qt, source_loc);
+        init_node = try transCreateNodeArrayInitializer(rp.c, type_node);
+        var i: c_uint = 0;
+        while (i < init_count) : (i += 1) {
+            const elem_expr = ZigClangInitListExpr_getInit(expr, i);
+            try init_node.op.ArrayInitializer.push((try transExpr(rp, scope, elem_expr, .used, .r_value)).node);
+            _ = try appendToken(rp.c, .Comma, ",");
+        }
+        init_node.rtoken = try appendToken(rp.c, .RBrace, "}");
+        if (leftover_count == 0) {
+            return TransResult{
+                .node = &init_node.base,
+                .child_scope = scope,
+                .node_scope = scope,
+            };
+        }
+        cat_tok = try appendToken(rp.c, .PlusPlus, "++");
+    }
+
+    var filler_type_node = try transQualType(rp, qt, source_loc);
+    var filler_init_node = try transCreateNodeArrayInitializer(rp.c, filler_type_node);
+    const filler_val_expr = ZigClangInitListExpr_getArrayFiller(expr);
+    try filler_init_node.op.ArrayInitializer.push((try transExpr(rp, scope, filler_val_expr, .used, .r_value)).node);
+    filler_init_node.rtoken = try appendToken(rp.c, .RBrace, "}");
+
+    const rhs_node = if (leftover_count == 1)
+        &filler_init_node.base
+    else blk: {
+        const mul_tok = try appendToken(rp.c, .AsteriskAsterisk, "**");
+        const mul_node = try rp.c.a().create(ast.Node.InfixOp);
+        mul_node.* = .{
+            .base = .{ .id = .InfixOp },
+            .op_token = mul_tok,
+            .lhs = &filler_init_node.base,
+            .op = .ArrayMult,
+            .rhs = try transCreateNodeInt(rp.c, leftover_count),
+        };
+        break :blk &mul_node.base;
+    };
+
+    if (init_count == 0) {
+        return TransResult{
+            .node = rhs_node,
+            .child_scope = scope,
+            .node_scope = scope,
+        };
+    }
+
+    const cat_node = try rp.c.a().create(ast.Node.InfixOp);
+    cat_node.* = .{
+        .base = .{ .id = .InfixOp },
+        .op_token = cat_tok,
+        .lhs = &init_node.base,
+        .op = .ArrayCat,
+        .rhs = rhs_node,
+    };
+    return TransResult{
+        .node = &cat_node.base,
+        .child_scope = scope,
+        .node_scope = scope,
+    };
 }
 
 fn findBlockScope(inner: *Scope) *Scope.Block {
@@ -1233,6 +1425,40 @@ fn transCreateNodeReturnExpr(c: *Context) !*ast.Node {
     return &node.base;
 }
 
+fn transCreateNodeUndefinedLiteral(c: *Context) !*ast.Node {
+    const token = try appendToken(c, .Keyword_undefined, "undefined");
+    const node = try c.a().create(ast.Node.UndefinedLiteral);
+    node.* = ast.Node.UndefinedLiteral{
+        .base = ast.Node{ .id = .UndefinedLiteral },
+        .token = token,
+    };
+    return &node.base;
+}
+
+fn transCreateNodeArrayInitializer(c: *Context, type_node: *ast.Node) !*ast.Node.SuffixOp {
+    _ = try appendToken(c, .LBrace, "{");
+    const node = try c.a().create(ast.Node.SuffixOp);
+    node.* = ast.Node.SuffixOp{
+        .base = ast.Node{ .id = .SuffixOp },
+        .lhs = .{ .node = type_node },
+        .op = .{
+            .ArrayInitializer = ast.Node.SuffixOp.Op.InitList.init(c.a()),
+        },
+        .rtoken = undefined, // set after appending values
+    };
+    return node;
+}
+
+fn transCreateNodeInt(c: *Context, int: var) !*ast.Node {
+    const token = try appendToken(c, .IntegerLiteral, try std.fmt.allocPrint(c.a(), "{}", .{int}));
+    const node = try c.a().create(ast.Node.IntegerLiteral);
+    node.* = ast.Node.IntegerLiteral{
+        .base = ast.Node{ .id = .IntegerLiteral },
+        .token = token,
+    };
+    return &node.base;
+}
+
 const RestorePoint = struct {
     c: *Context,
     token_index: ast.TokenIndex,
@@ -1316,11 +1542,61 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
             pointer_node.rhs = try transQualType(rp, child_qt, source_loc);
             return &pointer_node.base;
         },
+        .ConstantArray => {
+            const const_arr_ty = @ptrCast(*const ZigClangConstantArrayType, ty);
+
+            const size_ap_int = ZigClangConstantArrayType_getSize(const_arr_ty);
+            const size = ZigClangAPInt_getLimitedValue(size_ap_int, std.math.maxInt(usize));
+            var node = try transCreateNodePrefixOp(
+                rp.c,
+                .{
+                    .ArrayType = .{
+                        .len_expr = undefined,
+                        .sentinel = null,
+                    },
+                },
+                .LBracket,
+                "[",
+            );
+            node.op.ArrayType.len_expr = try transCreateNodeInt(rp.c, size);
+            _ = try appendToken(rp.c, .RBracket, "]");
+            node.rhs = try transQualType(rp, ZigClangConstantArrayType_getElementType(const_arr_ty), source_loc);
+            return &node.base;
+        },
+        .IncompleteArray => {
+            const incomplete_array_ty = @ptrCast(*const ZigClangIncompleteArrayType, ty);
+
+            const child_qt = ZigClangIncompleteArrayType_getElementType(incomplete_array_ty);
+            var node = try transCreateNodePtrType(
+                rp.c,
+                ZigClangQualType_isConstQualified(child_qt),
+                ZigClangQualType_isVolatileQualified(child_qt),
+                .Identifier,
+            );
+            node.rhs = try transQualType(rp, child_qt, source_loc);
+            return &node.base;
+        },
+        .Typedef => {
+            const typedef_ty = @ptrCast(*const ZigClangTypedefType, ty);
+
+            const typedef_decl = ZigClangTypedefType_getDecl(typedef_ty);
+            const typedef_name = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, typedef_decl)));
+            return appendIdentifier(rp.c, typedef_name);
+        },
         else => {
             const type_name = rp.c.str(ZigClangType_getTypeClassName(ty));
             return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported type: '{}'", .{type_name});
         },
     }
+}
+
+fn isCVoid(qt: ZigClangQualType) bool {
+    const ty = ZigClangQualType_getTypePtr(qt);
+    if (ZigClangType_getTypeClass(ty) == .Builtin) {
+        const builtin_ty = @ptrCast(*const ZigClangBuiltinType, ty);
+        return ZigClangBuiltinType_getKind(builtin_ty) == .Void;
+    }
+    return false;
 }
 
 const FnDeclContext = struct {
@@ -1473,7 +1749,8 @@ fn finishTransFnProto(
             break :blk try appendIdentifier(rp.c, "noreturn");
         } else {
             const return_qt = ZigClangFunctionType_getReturnType(fn_ty);
-            if (ZigClangType_isVoidType(qualTypeCanon(return_qt))) {
+            if (isCVoid(return_qt)) {
+                // convert primitive c_void to actual void (only for return type)
                 break :blk try appendIdentifier(rp.c, "void");
             } else {
                 break :blk transQualType(rp, return_qt, source_loc) catch |err| switch (err) {
@@ -1568,7 +1845,7 @@ fn failDecl(c: *Context, loc: ZigClangSourceLocation, name: []const u8, comptime
         .init_node = &call_node.base,
         .semicolon_token = semi_tok,
     };
-    try c.tree.root_node.decls.push(&var_decl_node.base);
+    try addTopLevelDecl(c, name, &var_decl_node.base);
 }
 
 fn appendToken(c: *Context, token_id: Token.Id, bytes: []const u8) !ast.TokenIndex {

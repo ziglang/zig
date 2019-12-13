@@ -64,7 +64,6 @@ struct TransScopeWhile {
 
 struct Context {
     AstNode *root;
-    VisibMod visib_mod;
     bool want_export;
     HashMap<const void *, AstNode *, ptr_hash, ptr_eq> decl_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
@@ -367,7 +366,7 @@ static AstNode *trans_create_node_var_decl(Context *c, VisibMod visib_mod, bool 
 static AstNode *trans_create_node_var_decl_global(Context *c, bool is_const, Buf *var_name, AstNode *type_node,
         AstNode *init_node)
 {
-    return trans_create_node_var_decl(c, c->visib_mod, is_const, var_name, type_node, init_node);
+    return trans_create_node_var_decl(c, VisibModPub, is_const, var_name, type_node, init_node);
 }
 
 static AstNode *trans_create_node_var_decl_local(Context *c, bool is_const, Buf *var_name, AstNode *type_node,
@@ -379,7 +378,7 @@ static AstNode *trans_create_node_var_decl_local(Context *c, bool is_const, Buf 
 static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, AstNode *ref_node, AstNode *src_proto_node) {
     AstNode *fn_def = trans_create_node(c, NodeTypeFnDef);
     AstNode *fn_proto = trans_create_node(c, NodeTypeFnProto);
-    fn_proto->data.fn_proto.visib_mod = c->visib_mod;
+    fn_proto->data.fn_proto.visib_mod = VisibModPub;
     fn_proto->data.fn_proto.name = fn_name;
     fn_proto->data.fn_proto.fn_inline = FnInlineAlways;
     fn_proto->data.fn_proto.return_type = src_proto_node->data.fn_proto.return_type; // TODO ok for these to alias?
@@ -4091,10 +4090,10 @@ static void visit_fn_decl(Context *c, const ZigClangFunctionDecl *fn_decl) {
 
     ZigClangStorageClass sc = ZigClangFunctionDecl_getStorageClass(fn_decl);
     if (sc == ZigClangStorageClass_None) {
-        proto_node->data.fn_proto.visib_mod = c->visib_mod;
+        proto_node->data.fn_proto.visib_mod = VisibModPub;
         proto_node->data.fn_proto.is_export = ZigClangFunctionDecl_hasBody(fn_decl) ? c->want_export : false;
     } else if (sc == ZigClangStorageClass_Extern || sc == ZigClangStorageClass_Static) {
-        proto_node->data.fn_proto.visib_mod = c->visib_mod;
+        proto_node->data.fn_proto.visib_mod = VisibModPub;
     } else if (sc == ZigClangStorageClass_PrivateExtern) {
         emit_warning(c, ZigClangFunctionDecl_getLocation(fn_decl), "unsupported storage class: private extern");
         return;
@@ -5113,16 +5112,14 @@ static void process_preprocessor_entities(Context *c, ZigClangASTUnit *unit) {
 Error parse_h_file(CodeGen *codegen, AstNode **out_root_node,
         Stage2ErrorMsg **errors_ptr, size_t *errors_len,
         const char **args_begin, const char **args_end,
-        Stage2TranslateMode mode, const char *resources_path)
+        TranslateMode mode, const char *resources_path)
 {
     Context context = {0};
     Context *c = &context;
     c->warnings_on = codegen->verbose_cimport;
-    if (mode == Stage2TranslateModeImport) {
-        c->visib_mod = VisibModPub;
+    if (mode == TranslateModeImport) {
         c->want_export = false;
     } else {
-        c->visib_mod = VisibModPub;
         c->want_export = true;
     }
     c->decl_table.init(8);

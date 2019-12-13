@@ -3,10 +3,9 @@ const builtin = @import("builtin");
 
 // add_both - test for stage1 and stage2, in #include mode
 // add - test stage1 only, in #include mode
-// add_2 - test stage2 only, in #include mode
+// add_2 - test stage2 only
 // addC_both - test for stage1 and stage2, in -c mode
 // addC - test stage1 only, in -c mode
-// addC_2 - test stage2 only, in -c mode
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
     /////////////// Cases that pass for both stage1/stage2 ////////////////
@@ -18,7 +17,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn bar() c_int;
     });
 
-    cases.add_both("simple var decls",
+    cases.addC_both("simple var decls",
         \\void foo(void) {
         \\    int a;
         \\    char b = 123;
@@ -26,7 +25,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    const unsigned d = 440;
         \\}
     , &[_][]const u8{
-        \\pub fn foo() void {
+        \\pub export fn foo() void {
         \\    var a: c_int = undefined;
         \\    var b: u8 = @as(u8, 123);
         \\    const c: c_int = undefined;
@@ -34,7 +33,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add_both("ignore result, explicit function arguments",
+    cases.addC_both("ignore result, explicit function arguments",
         \\void foo(void) {
         \\    int a;
         \\    1;
@@ -44,7 +43,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    a = 1;
         \\}
     , &[_][]const u8{
-        \\pub fn foo() void {
+        \\pub export fn foo() void {
         \\    var a: c_int = undefined;
         \\    _ = 1;
         \\    _ = "hey";
@@ -54,40 +53,137 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.addC_both("variables",
+        \\extern int extern_var;
+        \\static const int int_var = 13;
+    , &[_][]const u8{
+        \\pub extern var extern_var: c_int;
+    ,
+        \\pub const int_var: c_int = 13;
+    });
+
+    cases.add_both("const ptr initializer",
+        \\static const char *v0 = "0.0.0";
+    , &[_][]const u8{
+        \\pub var v0: [*c]const u8 = "0.0.0";
+    });
+
+    cases.addC_both("static incomplete array inside function",
+        \\void foo(void) {
+        \\    static const char v2[] = "2.2.2";
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    const v2: [*c]const u8 = "2.2.2";
+        \\}
+    });
+
+    cases.addC_both("simple function definition",
+        \\void foo(void) {}
+        \\static void bar(void) {}
+    , &[_][]const u8{
+        \\pub export fn foo() void {}
+        \\pub fn bar() void {}
+    });
+
+    cases.add_both("typedef void",
+        \\typedef void Foo;
+        \\Foo fun(Foo *a);
+    , &[_][]const u8{
+        \\pub const Foo = c_void;
+    ,
+        \\pub extern fn fun(a: ?*Foo) Foo;
+    });
+
+    cases.add_both("duplicate typedef",
+        \\typedef long foo;
+        \\typedef int bar;
+        \\typedef long foo;
+        \\typedef int baz;
+    , &[_][]const u8{
+        \\pub const foo = c_long;
+        \\pub const bar = c_int;
+        \\pub const baz = c_int;
+    });
+
+    cases.addC_both("casting pointers to ints and ints to pointers",
+        \\void foo(void);
+        \\void bar(void) {
+        \\    void *func_ptr = foo;
+        \\    void (*typed_func_ptr)(void) = (void (*)(void)) (unsigned long) func_ptr;
+        \\}
+    , &[_][]const u8{
+        \\pub extern fn foo() void;
+        \\pub export fn bar() void {
+        \\    var func_ptr: ?*c_void = @ptrCast(?*c_void, foo);
+        \\    var typed_func_ptr: ?extern fn () void = @intToPtr(?extern fn () void, @as(c_ulong, @ptrToInt(func_ptr)));
+        \\}
+    });
+
+    cases.add_both("noreturn attribute",
+        \\void foo(void) __attribute__((noreturn));
+    , &[_][]const u8{
+        \\pub extern fn foo() noreturn;
+    });
+
+    cases.addC_both("add, sub, mul, div, rem",
+        \\int s(int a, int b) {
+        \\    int c;
+        \\    c = a + b;
+        \\    c = a - b;
+        \\    c = a * b;
+        \\    c = a / b;
+        \\    c = a % b;
+        \\}
+        \\unsigned u(unsigned a, unsigned b) {
+        \\    unsigned c;
+        \\    c = a + b;
+        \\    c = a - b;
+        \\    c = a * b;
+        \\    c = a / b;
+        \\    c = a % b;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn s(a: c_int, b: c_int) c_int {
+        \\    var c: c_int = undefined;
+        \\    c = (a + b);
+        \\    c = (a - b);
+        \\    c = (a * b);
+        \\    c = @divTrunc(a, b);
+        \\    c = @rem(a, b);
+        \\}
+        \\pub export fn u(a: c_uint, b: c_uint) c_uint {
+        \\    var c: c_uint = undefined;
+        \\    c = (a +% b);
+        \\    c = (a -% b);
+        \\    c = (a *% b);
+        \\    c = (a / b);
+        \\    c = (a % b);
+        \\}
+    });
+
     /////////////// Cases that pass for only stage2 ////////////////
-    // TODO: restore these tests after removing "import mode" concept
-    // https://github.com/ziglang/zig/issues/2780
 
-    // cases.add_2("Parameterless function prototypes",
-    //     \\void a() {}
-    //     \\void b(void) {}
-    //     \\void c();
-    //     \\void d(void);
-    // ,
-    //     \\pub export fn a() void {}
-    //     \\pub export fn b() void {}
-    //     \\pub extern fn c(...) void;
-    //     \\pub extern fn d() void;
-    // );
-
-    // cases.add_2("simple function definition",
-    //     \\void foo(void) {}
-    //     \\static void bar(void) {}
-    // ,
-    //     \\pub export fn foo() void {}
-    //     \\pub extern fn bar() void {}
-    // );
-
-    cases.add_2("parameterless function prototypes",
+    cases.add_2("Parameterless function prototypes",
         \\void a() {}
         \\void b(void) {}
         \\void c();
         \\void d(void);
     , &[_][]const u8{
-        \\pub fn a(...) void {}
-        \\pub fn b() void {}
+        \\pub export fn a() void {}
+        \\pub export fn b() void {}
         \\pub extern fn c(...) void;
         \\pub extern fn d() void;
+    });
+
+    cases.add_2("variable declarations",
+        \\extern char arr0[] = "hello";
+        \\static char arr1[] = "hello";
+        \\char arr2[] = "hello";
+    , &[_][]const u8{
+        \\pub extern var arr0: [*c]u8 = "hello";
+        \\pub var arr1: [*c]u8 = "hello";
+        \\pub export var arr2: [*c]u8 = "hello";
     });
 
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
@@ -120,32 +216,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     });
 
-    cases.add_both("simple function definition",
-        \\void foo(void) {}
-        \\static void bar(void) {}
-    , &[_][]const u8{
-        \\pub fn foo() void {}
-        \\pub fn bar() void {}
-    });
-
     cases.add("macro with left shift",
         \\#define REDISMODULE_READ (1<<0)
     , &[_][]const u8{
         \\pub const REDISMODULE_READ = 1 << 0;
-    });
-
-    cases.add_both("casting pointers to ints and ints to pointers",
-        \\void foo(void);
-        \\void bar(void) {
-        \\    void *func_ptr = foo;
-        \\    void (*typed_func_ptr)(void) = (void (*)(void)) (unsigned long) func_ptr;
-        \\}
-    , &[_][]const u8{
-        \\pub extern fn foo() void;
-        \\pub fn bar() void {
-        \\    var func_ptr: ?*c_void = @ptrCast(?*c_void, foo);
-        \\    var typed_func_ptr: ?extern fn () void = @intToPtr(?extern fn () void, @as(c_ulong, @ptrToInt(func_ptr)));
-        \\}
     });
 
     if (builtin.os != builtin.Os.windows) {
@@ -320,12 +394,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn baz(a: i8, b: i16, c: i32, d: i64) void;
     });
 
-    cases.add_both("noreturn attribute",
-        \\void foo(void) __attribute__((noreturn));
-    , &[_][]const u8{
-        \\pub extern fn foo() noreturn;
-    });
-
     cases.addC("simple function",
         \\int abs(int a) {
         \\    return a < 0 ? -a : a;
@@ -482,15 +550,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const THING2 = THING1;
     });
 
-    cases.add("variables",
-        \\extern int extern_var;
-        \\static const int int_var = 13;
-    , &[_][]const u8{
-        \\pub extern var extern_var: c_int;
-    ,
-        \\pub const int_var: c_int = 13;
-    });
-
     cases.add("circular struct definitions",
         \\struct Bar;
         \\
@@ -509,15 +568,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const struct_Foo = extern struct {
         \\    next: [*c]struct_Bar,
         \\};
-    });
-
-    cases.add("typedef void",
-        \\typedef void Foo;
-        \\Foo fun(Foo *a);
-    , &[_][]const u8{
-        \\pub const Foo = c_void;
-    ,
-        \\pub extern fn fun(a: ?*Foo) Foo;
     });
 
     cases.add("generate inline func for #define global extern fn",
@@ -716,42 +766,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    if (a == b) return a;
         \\    if (a != b) return b;
         \\    return a;
-        \\}
-    });
-
-    cases.addC_both("add, sub, mul, div, rem",
-        \\int s(int a, int b) {
-        \\    int c;
-        \\    c = a + b;
-        \\    c = a - b;
-        \\    c = a * b;
-        \\    c = a / b;
-        \\    c = a % b;
-        \\}
-        \\unsigned u(unsigned a, unsigned b) {
-        \\    unsigned c;
-        \\    c = a + b;
-        \\    c = a - b;
-        \\    c = a * b;
-        \\    c = a / b;
-        \\    c = a % b;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn s(a: c_int, b: c_int) c_int {
-        \\    var c: c_int = undefined;
-        \\    c = (a + b);
-        \\    c = (a - b);
-        \\    c = (a * b);
-        \\    c = @divTrunc(a, b);
-        \\    c = @rem(a, b);
-        \\}
-        \\pub export fn u(a: c_uint, b: c_uint) c_uint {
-        \\    var c: c_uint = undefined;
-        \\    c = (a +% b);
-        \\    c = (a -% b);
-        \\    c = (a *% b);
-        \\    c = (a / b);
-        \\    c = (a % b);
         \\}
     });
 
@@ -1147,17 +1161,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.addC("duplicate typedef",
-        \\typedef long foo;
-        \\typedef int bar;
-        \\typedef long foo;
-        \\typedef int baz;
-    , &[_][]const u8{
-        \\pub const foo = c_long;
-        \\pub const bar = c_int;
-        \\pub const baz = c_int;
-    });
-
     cases.addC("post increment/decrement",
         \\void foo(void) {
         \\    int i = 0;
@@ -1517,22 +1520,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub fn foo(u32_0: c_int) c_int {
         \\    return u32_0;
-        \\}
-    });
-
-    cases.add("const ptr initializer",
-        \\static const char *v0 = "0.0.0";
-    , &[_][]const u8{
-        \\pub var v0: [*c]const u8 = "0.0.0";
-    });
-
-    cases.add("static incomplete array inside function",
-        \\void foo(void) {
-        \\    static const char v2[] = "2.2.2";
-        \\}
-    , &[_][]const u8{
-        \\pub fn foo() void {
-        \\    const v2: [*c]const u8 = "2.2.2";
         \\}
     });
 

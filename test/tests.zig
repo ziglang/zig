@@ -1651,17 +1651,6 @@ pub const TranslateCContext = struct {
         self.addCase(tc);
     }
 
-    pub fn addC_2(
-        self: *TranslateCContext,
-        name: []const u8,
-        source: []const u8,
-        expected_lines: []const []const u8,
-    ) void {
-        const tc = self.create(false, "source.c", name, source, expected_lines);
-        tc.stage2 = true;
-        self.addCase(tc);
-    }
-
     pub fn addAllowWarnings(
         self: *TranslateCContext,
         name: []const u8,
