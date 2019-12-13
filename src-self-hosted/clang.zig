@@ -735,7 +735,7 @@ pub extern fn ZigClangRecordDecl_isAnonymousStructOrUnion(record_decl: ?*const s
 pub extern fn ZigClangEnumDecl_getIntegerType(self: ?*const struct_ZigClangEnumDecl) struct_ZigClangQualType;
 pub extern fn ZigClangDecl_getName_bytes_begin(decl: ?*const struct_ZigClangDecl) [*c]const u8;
 pub extern fn ZigClangSourceLocation_eq(a: struct_ZigClangSourceLocation, b: struct_ZigClangSourceLocation) bool;
-pub extern fn ZigClangTypedefType_getDecl(self: ?*const struct_ZigClangTypedefType) ?*const struct_ZigClangTypedefNameDecl;
+pub extern fn ZigClangTypedefType_getDecl(self: ?*const struct_ZigClangTypedefType) *const struct_ZigClangTypedefNameDecl;
 pub extern fn ZigClangTypedefNameDecl_getUnderlyingType(self: ?*const struct_ZigClangTypedefNameDecl) struct_ZigClangQualType;
 pub extern fn ZigClangQualType_getCanonicalType(self: struct_ZigClangQualType) struct_ZigClangQualType;
 pub extern fn ZigClangQualType_getTypeClass(self: struct_ZigClangQualType) ZigClangTypeClass;

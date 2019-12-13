@@ -220,7 +220,7 @@ fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
             return visitFnDecl(c, @ptrCast(*const ZigClangFunctionDecl, decl));
         },
         .Typedef => {
-            try emitWarning(c, ZigClangDecl_getLocation(decl), "TODO implement translate-c for typedefs", .{});
+            try resolveTypeDef(c, @ptrCast(*const ZigClangTypedefNameDecl, decl));
         },
         .Enum => {
             try emitWarning(c, ZigClangDecl_getLocation(decl), "TODO implement translate-c for enums", .{});
@@ -382,6 +382,48 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
         .semicolon_token = try appendToken(c, .Semicolon, ";"),
     };
     return addTopLevelDecl(c, var_name, &node.base);
+}
+
+fn resolveTypeDef(c: *Context, typedef_decl: *const ZigClangTypedefNameDecl) Error!void {
+    if (try c.decl_table.put(@ptrToInt(ZigClangTypedefNameDecl_getCanonicalDecl(typedef_decl)), {})) |_| return; // Avoid processing this decl twice
+    const rp = makeRestorePoint(c);
+    const visib_tok = try appendToken(c, .Keyword_pub, "pub");
+    const const_tok = try appendToken(c, .Keyword_const, "const");
+
+    const typedef_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, typedef_decl)));
+    const name_tok = try appendToken(c, .Identifier, typedef_name);
+    const eq_tok = try appendToken(c, .Equal, "=");
+
+    const child_qt = ZigClangTypedefNameDecl_getUnderlyingType(typedef_decl);
+    const typedef_loc = ZigClangTypedefNameDecl_getLocation(typedef_decl);
+    const type_node = transQualType(rp, child_qt, typedef_loc) catch |err| switch (err) {
+        error.UnsupportedType => {
+            const node = try failDecl(c, typedef_loc, typedef_name, "unable to resolve typedef child type", .{});
+            _ = try c.decl_table.put(@ptrToInt(typedef_decl), node);
+            return node;
+        },
+        error.OutOfMemory => |e| return e,
+    };
+
+    const node = try c.a().create(ast.Node.VarDecl);
+    node.* = ast.Node.VarDecl{
+        .base = ast.Node{ .id = .VarDecl },
+        .doc_comments = null,
+        .visib_token = visib_tok,
+        .thread_local_token = null,
+        .name_token = name_tok,
+        .eq_token = eq_tok,
+        .mut_token = const_tok,
+        .comptime_token = null,
+        .extern_export_token = null,
+        .lib_name = null,
+        .type_node = null,
+        .align_node = null,
+        .section_node = null,
+        .init_node = type_node,
+        .semicolon_token = try appendToken(c, .Semicolon, ";"),
+    };
+    try addTopLevelDecl(c, typedef_name, &node.base);
 }
 
 const ResultUsed = enum {
@@ -1534,11 +1576,27 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
             node.rhs = try transQualType(rp, child_qt, source_loc);
             return &node.base;
         },
+        .Typedef => {
+            const typedef_ty = @ptrCast(*const ZigClangTypedefType, ty);
+
+            const typedef_decl = ZigClangTypedefType_getDecl(typedef_ty);
+            const typedef_name = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, typedef_decl)));
+            return appendIdentifier(rp.c, typedef_name);
+        },
         else => {
             const type_name = rp.c.str(ZigClangType_getTypeClassName(ty));
             return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported type: '{}'", .{type_name});
         },
     }
+}
+
+fn isCVoid(qt: ZigClangQualType) bool {
+    const ty = ZigClangQualType_getTypePtr(qt);
+    if (ZigClangType_getTypeClass(ty) == .Builtin) {
+        const builtin_ty = @ptrCast(*const ZigClangBuiltinType, ty);
+        return ZigClangBuiltinType_getKind(builtin_ty) == .Void;
+    }
+    return false;
 }
 
 const FnDeclContext = struct {
@@ -1691,7 +1749,8 @@ fn finishTransFnProto(
             break :blk try appendIdentifier(rp.c, "noreturn");
         } else {
             const return_qt = ZigClangFunctionType_getReturnType(fn_ty);
-            if (ZigClangType_isVoidType(qualTypeCanon(return_qt))) {
+            if (isCVoid(return_qt)) {
+                // convert primitive c_void to actual void (only for return type)
                 break :blk try appendIdentifier(rp.c, "void");
             } else {
                 break :blk transQualType(rp, return_qt, source_loc) catch |err| switch (err) {
@@ -1786,7 +1845,7 @@ fn failDecl(c: *Context, loc: ZigClangSourceLocation, name: []const u8, comptime
         .init_node = &call_node.base,
         .semicolon_token = semi_tok,
     };
-    try c.tree.root_node.decls.push(&var_decl_node.base);
+    try addTopLevelDecl(c, name, &var_decl_node.base);
 }
 
 fn appendToken(c: *Context, token_id: Token.Id, bytes: []const u8) !ast.TokenIndex {
