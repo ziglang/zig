@@ -186,9 +186,75 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export var arr2: [*c]u8 = "hello";
     });
 
+    cases.add_2("pointer to struct demoted to opaque due to bit fields",
+        \\struct Foo {
+        \\    unsigned int: 1;
+        \\};
+        \\struct Bar {
+        \\    struct Foo *foo;
+        \\};
+    , &[_][]const u8{ // TODO that semicolon is hideous
+        \\pub const struct_Foo = @OpaqueType() // /home/vexu/Documents/zig/zig/zig-cache/source.h:2:5: warning: struct demoted to opaque type - has bitfield
+        \\    ;
+        \\pub const struct_Bar = extern struct {
+        \\    foo: ?*struct_Foo,
+        \\};
+    });
+
+    cases.add_2("double define struct",
+        \\typedef struct Bar Bar;
+        \\typedef struct Foo Foo;
+        \\
+        \\struct Foo {
+        \\    Foo *a;
+        \\};
+        \\
+        \\struct Bar {
+        \\    Foo *a;
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_Bar = extern struct {
+        \\    a: [*c]Foo,
+        \\};
+        \\pub const Bar = struct_Bar;
+        \\pub const struct_Foo = extern struct {
+        \\    a: [*c]Foo,
+        \\};
+        \\pub const Foo = struct_Foo;
+    });
+
+    cases.add_2("simple struct",
+        \\struct Foo {
+        \\    int x;
+        \\    char *y;
+        \\};
+    , &[_][]const u8{
+        \\const struct_Foo = extern struct {
+        \\    x: c_int,
+        \\    y: [*c]u8,
+        \\};
+    });
+
+    cases.add_2("self referential struct with function pointer",
+        \\struct Foo {
+        \\    void (*derp)(struct Foo *foo);
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_Foo = extern struct {
+        \\    derp: ?extern fn ([*c]struct_Foo) void,
+        \\};
+    });
+    cases.add_2("struct prototype used in func",
+        \\struct Foo;
+        \\struct Foo *some_func(struct Foo *foo, int x);
+    , &[_][]const u8{
+        \\pub const struct_Foo = @OpaqueType();
+        \\pub extern fn some_func(foo: ?*struct_Foo, x: c_int) ?*struct_Foo;
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
-    cases.add("typedef of function in struct field",
+    cases.add_both("typedef of function in struct field",
         \\typedef void lws_callback_function(void);
         \\struct Foo {
         \\    void (*func)(void);

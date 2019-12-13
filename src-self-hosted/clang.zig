@@ -709,6 +709,20 @@ pub const ZigClangStringLiteral_StringKind = extern enum {
     UTF32,
 };
 
+pub const ZigClangRecordDecl_field_iterator = extern struct {
+    opaque: *c_void,
+};
+
+pub const  ZigClangElaboratedTypeKeyword = extern enum {
+    Struct,
+    Interface,
+    Union,
+    Class,
+    Enum,
+    Typename,
+    None,
+};
+
 pub extern fn ZigClangSourceManager_getSpellingLoc(self: ?*const struct_ZigClangSourceManager, Loc: struct_ZigClangSourceLocation) struct_ZigClangSourceLocation;
 pub extern fn ZigClangSourceManager_getFilename(self: *const struct_ZigClangSourceManager, SpellingLoc: struct_ZigClangSourceLocation) ?[*:0]const u8;
 pub extern fn ZigClangSourceManager_getSpellingLineNumber(self: ?*const struct_ZigClangSourceManager, Loc: struct_ZigClangSourceLocation) c_uint;
@@ -718,7 +732,7 @@ pub extern fn ZigClangASTContext_getPointerType(self: ?*const struct_ZigClangAST
 pub extern fn ZigClangASTUnit_getASTContext(self: ?*struct_ZigClangASTUnit) ?*struct_ZigClangASTContext;
 pub extern fn ZigClangASTUnit_getSourceManager(self: *struct_ZigClangASTUnit) *struct_ZigClangSourceManager;
 pub extern fn ZigClangASTUnit_visitLocalTopLevelDecls(self: *struct_ZigClangASTUnit, context: ?*c_void, Fn: ?extern fn (?*c_void, *const struct_ZigClangDecl) bool) bool;
-pub extern fn ZigClangRecordType_getDecl(record_ty: ?*const struct_ZigClangRecordType) ?*const struct_ZigClangRecordDecl;
+pub extern fn ZigClangRecordType_getDecl(record_ty: ?*const struct_ZigClangRecordType) *const struct_ZigClangRecordDecl;
 pub extern fn ZigClangEnumType_getDecl(record_ty: ?*const struct_ZigClangEnumType) ?*const struct_ZigClangEnumDecl;
 pub extern fn ZigClangRecordDecl_getCanonicalDecl(record_decl: ?*const struct_ZigClangRecordDecl) ?*const struct_ZigClangTagDecl;
 pub extern fn ZigClangEnumDecl_getCanonicalDecl(self: ?*const struct_ZigClangEnumDecl) ?*const struct_ZigClangTagDecl;
@@ -732,6 +746,11 @@ pub extern fn ZigClangDecl_getLocation(self: *const ZigClangDecl) ZigClangSource
 pub extern fn ZigClangRecordDecl_isUnion(record_decl: ?*const struct_ZigClangRecordDecl) bool;
 pub extern fn ZigClangRecordDecl_isStruct(record_decl: ?*const struct_ZigClangRecordDecl) bool;
 pub extern fn ZigClangRecordDecl_isAnonymousStructOrUnion(record_decl: ?*const struct_ZigClangRecordDecl) bool;
+pub extern fn ZigClangRecordDecl_field_begin(*const struct_ZigClangRecordDecl) ZigClangRecordDecl_field_iterator;
+pub extern fn ZigClangRecordDecl_field_end(*const struct_ZigClangRecordDecl) ZigClangRecordDecl_field_iterator;
+pub extern fn ZigClangRecordDecl_field_iterator_next(ZigClangRecordDecl_field_iterator) ZigClangRecordDecl_field_iterator;
+pub extern fn ZigClangRecordDecl_field_iterator_deref(ZigClangRecordDecl_field_iterator) *const struct_ZigClangFieldDecl;
+pub extern fn ZigClangRecordDecl_field_iterator_neq(ZigClangRecordDecl_field_iterator, ZigClangRecordDecl_field_iterator) bool;
 pub extern fn ZigClangEnumDecl_getIntegerType(self: ?*const struct_ZigClangEnumDecl) struct_ZigClangQualType;
 pub extern fn ZigClangDecl_getName_bytes_begin(decl: ?*const struct_ZigClangDecl) [*c]const u8;
 pub extern fn ZigClangSourceLocation_eq(a: struct_ZigClangSourceLocation, b: struct_ZigClangSourceLocation) bool;
@@ -948,6 +967,7 @@ pub extern fn ZigClangDeclRefExpr_getDecl(*const ZigClangDeclRefExpr) *const Zig
 
 pub extern fn ZigClangParenType_getInnerType(*const ZigClangParenType) ZigClangQualType;
 
+pub extern fn ZigClangElaboratedType_getKeyword(*const struct_ZigClangElaboratedType) ZigClangElaboratedTypeKeyword;
 pub extern fn ZigClangElaboratedType_getNamedType(*const ZigClangElaboratedType) ZigClangQualType;
 
 pub extern fn ZigClangAttributedType_getEquivalentType(*const ZigClangAttributedType) ZigClangQualType;
@@ -987,3 +1007,7 @@ pub extern fn ZigClangStringLiteral_getKind(*const ZigClangStringLiteral) ZigCla
 pub extern fn ZigClangStringLiteral_getString_bytes_begin_size(*const ZigClangStringLiteral, *usize) [*c]const u8;
 
 pub extern fn ZigClangParenExpr_getSubExpr(*const ZigClangParenExpr) *const ZigClangExpr;
+
+pub extern fn ZigClangFieldDecl_isBitField(*const struct_ZigClangFieldDecl) bool;
+pub extern fn ZigClangFieldDecl_getType(*const struct_ZigClangFieldDecl) struct_ZigClangQualType;
+pub extern fn ZigClangFieldDecl_getLocation(*const struct_ZigClangFieldDecl) struct_ZigClangSourceLocation;
