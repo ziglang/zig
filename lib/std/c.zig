@@ -96,7 +96,7 @@ pub extern "c" fn mkdir(path: [*:0]const u8, mode: c_uint) c_int;
 pub extern "c" fn symlink(existing: [*:0]const u8, new: [*:0]const u8) c_int;
 pub extern "c" fn rename(old: [*:0]const u8, new: [*:0]const u8) c_int;
 pub extern "c" fn chdir(path: [*:0]const u8) c_int;
-pub extern "c" fn execve(path: [*:0]const u8, argv: [*:0]const ?[*]const u8, envp: [*:0]const ?[*]const u8) c_int;
+pub extern "c" fn execve(path: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) c_int;
 pub extern "c" fn dup(fd: fd_t) c_int;
 pub extern "c" fn dup2(old_fd: fd_t, new_fd: fd_t) c_int;
 pub extern "c" fn readlink(noalias path: [*:0]const u8, noalias buf: [*]u8, bufsize: usize) isize;
