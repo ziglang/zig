@@ -98,6 +98,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn d() void;
     });
 
+    cases.add_2("variable declarations",
+        \\extern char arr0[] = "hello";
+        \\static char arr1[] = "hello";
+        \\char arr2[] = "hello";
+    , &[_][]const u8{
+        \\pub extern var arr0: [*c]u8 = "hello";
+        \\pub var arr1: [*c]u8 = "hello";
+        \\pub export var arr2: [*c]u8 = "hello";
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     cases.add("typedef of function in struct field",

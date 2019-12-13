@@ -74,6 +74,7 @@ pub const struct_ZigClangVarDecl = @OpaqueType();
 pub const struct_ZigClangWhileStmt = @OpaqueType();
 pub const struct_ZigClangFunctionType = @OpaqueType();
 pub const struct_ZigClangPredefinedExpr = @OpaqueType();
+pub const struct_ZigClangInitListExpr = @OpaqueType();
 
 pub const ZigClangBO = extern enum {
     PtrMemD,
@@ -755,11 +756,12 @@ pub extern fn ZigClangStmt_classof_Expr(self: ?*const struct_ZigClangStmt) bool;
 pub extern fn ZigClangExpr_getStmtClass(self: ?*const struct_ZigClangExpr) ZigClangStmtClass;
 pub extern fn ZigClangExpr_getType(self: ?*const struct_ZigClangExpr) struct_ZigClangQualType;
 pub extern fn ZigClangExpr_getBeginLoc(self: *const struct_ZigClangExpr) struct_ZigClangSourceLocation;
+pub extern fn ZigClangInitListExpr_getInit(self: ?*const struct_ZigClangInitListExpr, i: c_uint) *const ZigClangExpr;
+pub extern fn ZigClangInitListExpr_getArrayFiller(self: ?*const struct_ZigClangInitListExpr) *const ZigClangExpr;
+pub extern fn ZigClangInitListExpr_getNumInits(self: ?*const struct_ZigClangInitListExpr) c_uint;
 pub extern fn ZigClangAPValue_getKind(self: ?*const struct_ZigClangAPValue) ZigClangAPValueKind;
 pub extern fn ZigClangAPValue_getInt(self: ?*const struct_ZigClangAPValue) ?*const struct_ZigClangAPSInt;
 pub extern fn ZigClangAPValue_getArrayInitializedElts(self: ?*const struct_ZigClangAPValue) c_uint;
-pub extern fn ZigClangAPValue_getArrayInitializedElt(self: ?*const struct_ZigClangAPValue, i: c_uint) *const struct_ZigClangAPValue;
-pub extern fn ZigClangAPValue_getArrayFiller(self: ?*const struct_ZigClangAPValue) *const struct_ZigClangAPValue;
 pub extern fn ZigClangAPValue_getArraySize(self: ?*const struct_ZigClangAPValue) c_uint;
 pub extern fn ZigClangAPValue_getLValueBase(self: ?*const struct_ZigClangAPValue) struct_ZigClangAPValueLValueBase;
 pub extern fn ZigClangAPSInt_isSigned(self: ?*const struct_ZigClangAPSInt) bool;
@@ -867,6 +869,7 @@ pub const ZigClangVarDecl = struct_ZigClangVarDecl;
 pub const ZigClangWhileStmt = struct_ZigClangWhileStmt;
 pub const ZigClangFunctionType = struct_ZigClangFunctionType;
 pub const ZigClangPredefinedExpr = struct_ZigClangPredefinedExpr;
+pub const ZigClangInitListExpr = struct_ZigClangInitListExpr;
 
 pub const struct_ZigClangSourceLocation = extern struct {
     ID: c_uint,
@@ -921,9 +924,8 @@ pub extern fn ZigClangDeclStmt_decl_begin(self: *const ZigClangDeclStmt) ZigClan
 pub extern fn ZigClangDeclStmt_decl_end(self: *const ZigClangDeclStmt) ZigClangDeclStmt_const_decl_iterator;
 
 pub extern fn ZigClangVarDecl_getLocation(self: *const struct_ZigClangVarDecl) ZigClangSourceLocation;
-pub extern fn ZigClangVarDecl_hasExternalStorage(self: *const struct_ZigClangVarDecl) bool;
-pub extern fn ZigClangVarDecl_isFileVarDecl(self: *const struct_ZigClangVarDecl) bool;
 pub extern fn ZigClangVarDecl_hasInit(self: *const struct_ZigClangVarDecl) bool;
+pub extern fn ZigClangVarDecl_getStorageClass(self: *const ZigClangVarDecl) ZigClangStorageClass;
 pub extern fn ZigClangVarDecl_getType(self: ?*const struct_ZigClangVarDecl) struct_ZigClangQualType;
 pub extern fn ZigClangVarDecl_getInit(*const ZigClangVarDecl) ?*const ZigClangExpr;
 pub extern fn ZigClangVarDecl_getTLSKind(self: ?*const struct_ZigClangVarDecl) ZigClangVarDecl_TLSKind;
@@ -964,7 +966,6 @@ pub const struct_ZigClangExprEvalResult = extern struct {
     Val: ZigClangAPValue,
 };
 
-pub extern fn ZigClangVarDecl_evaluateValue(self: *const struct_ZigClangVarDecl) ?*const ZigClangAPValue;
 pub const struct_ZigClangAPValue = extern struct {
     Kind: ZigClangAPValueKind,
     Data: if (builtin.os == .windows and builtin.abi == .msvc) [52]u8 else [68]u8,
