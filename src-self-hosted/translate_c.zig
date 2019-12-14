@@ -381,7 +381,6 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
 
     const node = try c.a().create(ast.Node.VarDecl);
     node.* = ast.Node.VarDecl{
-        .base = ast.Node{ .id = .VarDecl },
         .doc_comments = null,
         .visib_token = visib_tok,
         .thread_local_token = thread_local_token,
@@ -421,7 +420,6 @@ fn resolveTypeDef(c: *Context, typedef_decl: *const ZigClangTypedefNameDecl) Err
 
     const node = try c.a().create(ast.Node.VarDecl);
     node.* = ast.Node.VarDecl{
-        .base = ast.Node{ .id = .VarDecl },
         .doc_comments = null,
         .visib_token = visib_tok,
         .thread_local_token = null,
@@ -473,7 +471,6 @@ fn resolveRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!
 
     const node = try c.a().create(ast.Node.VarDecl);
     node.* = ast.Node.VarDecl{
-        .base = ast.Node{ .id = .VarDecl },
         .doc_comments = null,
         .visib_token = visib_tok,
         .thread_local_token = null,
@@ -504,7 +501,6 @@ fn createAlias(c: *Context, alias: var) !void {
 
     const node = try c.a().create(ast.Node.VarDecl);
     node.* = ast.Node.VarDecl{
-        .base = ast.Node{ .id = .VarDecl },
         .doc_comments = null,
         .visib_token = visib_tok,
         .thread_local_token = null,
@@ -810,7 +806,6 @@ fn transDeclStmt(rp: RestorePoint, parent_scope: *Scope, stmt: *const ZigClangDe
 
                 const node = try c.a().create(ast.Node.VarDecl);
                 node.* = ast.Node.VarDecl{
-                    .base = ast.Node{ .id = .VarDecl },
                     .doc_comments = null,
                     .visib_token = null,
                     .thread_local_token = thread_local_token,
@@ -978,7 +973,6 @@ fn transStringLiteral(
             const token = try appendToken(rp.c, .StringLiteral, buf);
             const node = try rp.c.a().create(ast.Node.StringLiteral);
             node.* = ast.Node.StringLiteral{
-                .base = ast.Node{ .id = .StringLiteral },
                 .token = token,
             };
             const res = TransResult{
@@ -1145,7 +1139,6 @@ fn transInitListExpr(
         const mul_tok = try appendToken(rp.c, .AsteriskAsterisk, "**");
         const mul_node = try rp.c.a().create(ast.Node.InfixOp);
         mul_node.* = .{
-            .base = .{ .id = .InfixOp },
             .op_token = mul_tok,
             .lhs = &filler_init_node.base,
             .op = .ArrayMult,
@@ -1164,7 +1157,6 @@ fn transInitListExpr(
 
     const cat_node = try rp.c.a().create(ast.Node.InfixOp);
     cat_node.* = .{
-        .base = .{ .id = .InfixOp },
         .op_token = cat_tok,
         .lhs = &init_node.base,
         .op = .ArrayCat,
@@ -1296,7 +1288,6 @@ fn maybeSuppressResult(
     const op_token = try appendToken(rp.c, .Equal, "=");
     const op_node = try rp.c.a().create(ast.Node.InfixOp);
     op_node.* = ast.Node.InfixOp{
-        .base = ast.Node{ .id = .InfixOp },
         .op_token = op_token,
         .lhs = lhs,
         .op = .Assign,
@@ -1352,7 +1343,6 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) TypeErro
 
     const container_node = try c.a().create(ast.Node.ContainerDecl);
     container_node.* = .{
-        .base = ast.Node{ .id = .ContainerDecl },
         .layout_token = extern_tok,
         .kind_token = container_tok,
         .init_arg_expr = .None,
@@ -1523,7 +1513,6 @@ fn transCreateNodeAssign(
 
         const node = try rp.c.a().create(ast.Node.InfixOp);
         node.* = ast.Node.InfixOp{
-            .base = ast.Node{ .id = .InfixOp },
             .op_token = eq_token,
             .lhs = lhs_node.node,
             .op = .Assign,
@@ -1553,7 +1542,6 @@ fn transCreateNodeBuiltinFnCall(c: *Context, name: []const u8) !*ast.Node.Builti
     _ = try appendToken(c, .LParen, "(");
     const node = try c.a().create(ast.Node.BuiltinCall);
     node.* = ast.Node.BuiltinCall{
-        .base = ast.Node{ .id = .BuiltinCall },
         .builtin_token = builtin_token,
         .params = ast.Node.BuiltinCall.ParamList.init(c.a()),
         .rparen_token = undefined, // set after appending args
@@ -1565,7 +1553,6 @@ fn transCreateNodeFnCall(c: *Context, fn_expr: *ast.Node) !*ast.Node.SuffixOp {
     _ = try appendToken(c, .LParen, "(");
     const node = try c.a().create(ast.Node.SuffixOp);
     node.* = ast.Node.SuffixOp{
-        .base = ast.Node{ .id = .SuffixOp },
         .lhs = fn_expr,
         .op = ast.Node.SuffixOp.Op{
             .Call = ast.Node.SuffixOp.Op.Call{
@@ -1586,7 +1573,6 @@ fn transCreateNodePrefixOp(
 ) !*ast.Node.PrefixOp {
     const node = try c.a().create(ast.Node.PrefixOp);
     node.* = ast.Node.PrefixOp{
-        .base = ast.Node{ .id = .PrefixOp },
         .op_token = try appendToken(c, op_tok_id, bytes),
         .op = op,
         .rhs = undefined, // translate and set afterward
@@ -1609,7 +1595,6 @@ fn transCreateNodeInfixOp(
     const rhs = try transExpr(rp, scope, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value);
     const node = try rp.c.a().create(ast.Node.InfixOp);
     node.* = ast.Node.InfixOp{
-        .base = ast.Node{ .id = .InfixOp },
         .op_token = op_token,
         .lhs = lhs.node,
         .op = op,
@@ -1619,7 +1604,6 @@ fn transCreateNodeInfixOp(
     const rparen = try appendToken(rp.c, .RParen, ")");
     const grouped_expr = try rp.c.a().create(ast.Node.GroupedExpression);
     grouped_expr.* = ast.Node.GroupedExpression{
-        .base = ast.Node{ .id = .GroupedExpression },
         .lparen = lparen,
         .expr = &node.base,
         .rparen = rparen,
@@ -1652,7 +1636,6 @@ fn transCreateNodePtrType(
         else => unreachable,
     };
     node.* = ast.Node.PrefixOp{
-        .base = ast.Node{ .id = .PrefixOp },
         .op_token = op_token,
         .op = ast.Node.PrefixOp.Op{
             .PtrType = .{
@@ -1679,7 +1662,6 @@ fn transCreateNodeAPInt(c: *Context, int: ?*const ZigClangAPSInt) !*ast.Node {
     const token = try appendToken(c, .IntegerLiteral, str);
     const node = try c.a().create(ast.Node.IntegerLiteral);
     node.* = ast.Node.IntegerLiteral{
-        .base = ast.Node{ .id = .IntegerLiteral },
         .token = token,
     };
     return &node.base;
@@ -1689,7 +1671,6 @@ fn transCreateNodeReturnExpr(c: *Context) !*ast.Node {
     const ltoken = try appendToken(c, .Keyword_return, "return");
     const node = try c.a().create(ast.Node.ControlFlowExpression);
     node.* = ast.Node.ControlFlowExpression{
-        .base = ast.Node{ .id = .ControlFlowExpression },
         .ltoken = ltoken,
         .kind = .Return,
         .rhs = null,
@@ -1701,7 +1682,6 @@ fn transCreateNodeUndefinedLiteral(c: *Context) !*ast.Node {
     const token = try appendToken(c, .Keyword_undefined, "undefined");
     const node = try c.a().create(ast.Node.UndefinedLiteral);
     node.* = ast.Node.UndefinedLiteral{
-        .base = ast.Node{ .id = .UndefinedLiteral },
         .token = token,
     };
     return &node.base;
@@ -1711,7 +1691,6 @@ fn transCreateNodeNullLiteral(c: *Context) !*ast.Node {
     const token = try appendToken(c, .Keyword_null, "null");
     const node = try c.a().create(ast.Node.NullLiteral);
     node.* = ast.Node.NullLiteral{
-        .base = ast.Node{ .id = .NullLiteral },
         .token = token,
     };
     return &node.base;
@@ -1724,7 +1703,6 @@ fn transCreateNodeBoolLiteral(c: *Context, value: bool) !*ast.Node {
         try appendToken(c, .Keyword_false, "false");
     const node = try c.a().create(ast.Node.BoolLiteral);
     node.* = ast.Node.BoolLiteral{
-        .base = ast.Node{ .id = .BoolLiteral },
         .token = token,
     };
     return &node.base;
@@ -1734,7 +1712,6 @@ fn transCreateNodeArrayInitializer(c: *Context, dot_tok: ast.TokenIndex) !*ast.N
     _ = try appendToken(c, .LBrace, "{");
     const node = try c.a().create(ast.Node.SuffixOp);
     node.* = ast.Node.SuffixOp{
-        .base = ast.Node{ .id = .SuffixOp },
         .lhs = .{ .dot = dot_tok },
         .op = .{
             .ArrayInitializer = ast.Node.SuffixOp.Op.InitList.init(c.a()),
@@ -1748,7 +1725,6 @@ fn transCreateNodeInt(c: *Context, int: var) !*ast.Node {
     const token = try appendTokenFmt(c, .IntegerLiteral, "{}", .{int});
     const node = try c.a().create(ast.Node.IntegerLiteral);
     node.* = ast.Node.IntegerLiteral{
-        .base = ast.Node{ .id = .IntegerLiteral },
         .token = token,
     };
     return &node.base;
