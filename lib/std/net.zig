@@ -271,15 +271,17 @@ pub const Address = extern union {
         options: std.fmt.FormatOptions,
         context: var,
         comptime Errors: type,
-        outputFn: if (std.io.is_async) async fn (@TypeOf(context), []const u8) Errors!void
-                  else fn (@TypeOf(context), []const u8) Errors!void,
+        outputFn: var,
+        comptime is_async: bool,
     ) !void {
-        comptime const output = std.fmt.output; // TODO: A partial fn would be nice
+        // TODO: A partial fn would be nice
+        comptime const output = if (is_async) std.fmt.output else std.fmt.blocking.output;
+        comptime const formatFn = if (is_async) std.fmt.format else std.fmt.blocking.format;
         switch (self.any.family) {
             os.AF_INET => {
                 const port = mem.bigToNative(u16, self.in.port);
                 const bytes = @ptrCast(*const [4]u8, &self.in.addr);
-                try std.fmt.format(context, Errors, outputFn, "{}.{}.{}.{}:{}", .{
+                try formatFn(context, Errors, outputFn, "{}.{}.{}.{}:{}", .{
                     bytes[0],
                     bytes[1],
                     bytes[2],
@@ -290,7 +292,7 @@ pub const Address = extern union {
             os.AF_INET6 => {
                 const port = mem.bigToNative(u16, self.in6.port);
                 if (mem.eql(u8, self.in6.addr[0..12], &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
-                    try std.fmt.format(context, Errors, outputFn, "[::ffff:{}.{}.{}.{}]:{}", .{
+                    try formatFn(context, Errors, outputFn, "[::ffff:{}.{}.{}.{}]:{}", .{
                         self.in6.addr[12],
                         self.in6.addr[13],
                         self.in6.addr[14],
@@ -321,19 +323,19 @@ pub const Address = extern union {
                         }
                         continue;
                     }
-                    try std.fmt.format(context, Errors, outputFn, "{x}", .{native_endian_parts[i]});
+                    try formatFn(context, Errors, outputFn, "{x}", .{native_endian_parts[i]});
                     if (i != native_endian_parts.len - 1) {
                         try output(context, Errors, outputFn, ":");
                     }
                 }
-                try std.fmt.format(context, Errors, outputFn, "]:{}", .{port});
+                try formatFn(context, Errors, outputFn, "]:{}", .{port});
             },
             os.AF_UNIX => {
                 if (!has_unix_sockets) {
                     unreachable;
                 }
 
-                try std.fmt.format(context, Errors, outputFn, "{}", .{&self.un.path});
+                try formatFn(context, Errors, outputFn, "{}", .{&self.un.path});
             },
             else => unreachable,
         }
