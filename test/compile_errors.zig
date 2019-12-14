@@ -10,6 +10,25 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:13: error: pointer type '[*]align(4) u8' requires aligned address",
     });
 
+    cases.add("switch on extern enum missing else prong",
+        \\const i = extern enum {
+        \\    n = 0,
+        \\    o = 2,
+        \\    p = 4,
+        \\    q = 4,
+        \\};
+        \\pub fn main() void {
+        \\    var x = @intToEnum(i, 52);
+        \\    switch (x) {
+        \\        .n,
+        \\        .o,
+        \\        .p => unreachable,
+        \\    }
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:9:5: error: switch on an extern enum must have an else prong",
+    });
+
     cases.add("invalid float literal",
         \\const std = @import("std");
         \\

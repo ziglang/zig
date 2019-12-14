@@ -282,6 +282,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
             .PrivateExtern => return failDecl(c, fn_decl_loc, fn_name, "unsupported storage class: private extern", .{}),
             .Auto => unreachable, // Not legal on functions
             .Register => unreachable, // Not legal on functions
+            else => unreachable,
         },
     };
     const proto_node = switch (ZigClangType_getTypeClass(fn_type)) {
@@ -710,6 +711,7 @@ fn transBinaryOperator(
         .XorAssign,
         .OrAssign,
         => unreachable,
+        else => unreachable,
     }
 }
 
@@ -1001,6 +1003,7 @@ fn transStringLiteral(
             "TODO: support string literal kind {}",
             .{kind},
         ),
+        else => unreachable,
     }
 }
 
