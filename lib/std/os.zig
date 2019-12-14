@@ -453,6 +453,7 @@ pub const WriteError = error{
     BrokenPipe,
     SystemResources,
     OperationAborted,
+    ConnectionResetByPeer,
 
     /// This error occurs when no global event loop is configured,
     /// and reading from the file descriptor would block.
@@ -524,6 +525,7 @@ pub fn writeMode(fd: fd_t, bytes: []const u8, comptime io_mode: std.io.Mode) Wri
             ENOSPC => return error.NoSpaceLeft,
             EPERM => return error.AccessDenied,
             EPIPE => return error.BrokenPipe,
+            ECONNRESET => return error.ConnectionResetByPeer,
             else => |err| return unexpectedErrno(err),
         }
     }
