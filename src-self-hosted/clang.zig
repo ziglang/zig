@@ -713,16 +713,6 @@ pub const ZigClangRecordDecl_field_iterator = extern struct {
     opaque: *c_void,
 };
 
-pub const  ZigClangElaboratedTypeKeyword = extern enum {
-    Struct,
-    Interface,
-    Union,
-    Class,
-    Enum,
-    Typename,
-    None,
-};
-
 pub extern fn ZigClangSourceManager_getSpellingLoc(self: ?*const struct_ZigClangSourceManager, Loc: struct_ZigClangSourceLocation) struct_ZigClangSourceLocation;
 pub extern fn ZigClangSourceManager_getFilename(self: *const struct_ZigClangSourceManager, SpellingLoc: struct_ZigClangSourceLocation) ?[*:0]const u8;
 pub extern fn ZigClangSourceManager_getSpellingLineNumber(self: ?*const struct_ZigClangSourceManager, Loc: struct_ZigClangSourceLocation) c_uint;
@@ -967,7 +957,6 @@ pub extern fn ZigClangDeclRefExpr_getDecl(*const ZigClangDeclRefExpr) *const Zig
 
 pub extern fn ZigClangParenType_getInnerType(*const ZigClangParenType) ZigClangQualType;
 
-pub extern fn ZigClangElaboratedType_getKeyword(*const struct_ZigClangElaboratedType) ZigClangElaboratedTypeKeyword;
 pub extern fn ZigClangElaboratedType_getNamedType(*const ZigClangElaboratedType) ZigClangQualType;
 
 pub extern fn ZigClangAttributedType_getEquivalentType(*const ZigClangAttributedType) ZigClangQualType;

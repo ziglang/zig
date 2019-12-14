@@ -193,7 +193,6 @@ fn renderRoot(
 fn renderExtraNewline(tree: *ast.Tree, stream: var, start_col: *usize, node: *ast.Node) @TypeOf(stream).Child.Error!void {
     const first_token = node.firstToken();
     var prev_token = first_token;
-    if (prev_token == 0) return;
     while (tree.tokens.at(prev_token - 1).id == .DocComment) {
         prev_token -= 1;
     }
@@ -2175,7 +2174,8 @@ fn renderTokenOffset(
     }
 
     while (true) {
-        const newline_count = if (loc.line < 2) @as(u8, 1) else @as(u8, 2);
+        assert(loc.line != 0);
+        const newline_count = if (loc.line == 1) @as(u8, 1) else @as(u8, 2);
         try stream.writeByteNTimes('\n', newline_count);
         try stream.writeByteNTimes(' ', indent);
         try stream.write(mem.trimRight(u8, tree.tokenSlicePtr(next_token), " "));
