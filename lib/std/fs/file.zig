@@ -290,10 +290,18 @@ pub const File = struct {
         return os.read(self.handle, buffer);
     }
 
+    pub fn readMode(self: File, buffer: []u8, comptime io_mode: std.io.Mode) ReadError!usize {
+        return os.readMode(self.handle, buffer, io_mode);
+    }
+
     pub const WriteError = os.WriteError;
 
     pub fn write(self: File, bytes: []const u8) WriteError!void {
         return os.write(self.handle, bytes);
+    }
+
+    pub fn writeMode(self: File, bytes: []const u8, comptime io_mode: std.io.Mode) WriteError!void {
+        return os.writeMode(self.handle, bytes, io_mode);
     }
 
     pub fn writev_iovec(self: File, iovecs: []const os.iovec_const) WriteError!void {
@@ -317,6 +325,16 @@ pub const File = struct {
             .stream = OutStream.Stream{ .writeFn = OutStream.writeFn },
         };
     }
+
+    // TODO: It'd be cleaner to support outStream(mode)
+    pub fn blockingOutStream(file: File) BlockingOutStream {
+        return BlockingOutStream{
+            .file = file,
+            .stream = BlockingOutStream.Stream{
+                .writeFn = BlockingOutStream.writeFn },
+        };
+    }
+
 
     pub fn seekableStream(file: File) SeekableStream {
         return SeekableStream{
@@ -355,6 +373,19 @@ pub const File = struct {
         fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
             const self = @fieldParentPtr(OutStream, "stream", out_stream);
             return self.file.write(bytes);
+        }
+    };
+
+    pub const BlockingOutStream = struct {
+        file: File,
+        stream: Stream,
+
+        pub const Error = WriteError;
+        pub const Stream = io.BlockingOutStream(Error);
+
+        fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
+            const self = @fieldParentPtr(BlockingOutStream, "stream", out_stream);
+            return self.file.writeMode(bytes, .blocking);
         }
     };
 

@@ -3,10 +3,17 @@ const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
 const builtin = @import("builtin");
+const root = @import("root");
 const errol = @import("fmt/errol.zig");
 const lossyCast = std.math.lossyCast;
 
 pub const default_max_depth = 3;
+pub const default_stack_size = 1 * 1024 * 1024;
+pub const stack_size: usize = if (@hasDecl(root, "stack_size_std_io_OutStream"))
+    root.stack_size_std_io_OutStream
+else
+    default_stack_size;
+
 
 pub const Alignment = enum {
     Left,
@@ -44,943 +51,976 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
     return false;
 }
 
-/// Renders fmt string with args, calling output with slices of bytes.
-/// If `output` returns an error, the error is returned from `format` and
-/// `output` is not called again.
-///
-/// The format string must be comptime known and may contain placeholders following
-/// this format:
-/// `{[position][specifier]:[fill][alignment][width].[precision]}`
-///
-/// Each word between `[` and `]` is a parameter you have to replace with something:
-///
-/// - *position* is the index of the argument that should be inserted
-/// - *specifier* is a type-dependent formatting option that determines how a type should formatted (see below)
-/// - *fill* is a single character which is used to pad the formatted text
-/// - *alignment* is one of the three characters `<`, `^` or `>`. they define if the text is *left*, *center*, or *right* aligned
-/// - *width* is the total width of the field in characters
-/// - *precision* specifies how many decimals a formatted number should have
-///
-/// Note that most of the parameters are optional and may be omitted. Also you can leave out separators like `:` and `.` when
-/// all parameters after the separator are omitted.
-/// Only exception is the *fill* parameter. If *fill* is required, one has to specify *alignment* as well, as otherwise
-/// the digits after `:` is interpreted as *width*, not *fill*.
-///
-/// The *specifier* has several options for types:
-/// - `x` and `X`:
-///   - format the non-numeric value as a string of bytes in hexadecimal notation ("binary dump") in either lower case or upper case
-///   - output numeric value in hexadecimal notation
-/// - `s`: print a pointer-to-many as a c-string, use zero-termination
-/// - `B` and `Bi`: output a memory size in either metric (1000) or power-of-two (1024) based notation. works for both float and integer values.
-/// - `e`: output floating point value in scientific notation
-/// - `d`: output numeric value in decimal notation
-/// - `b`: output integer value in binary notation
-/// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
-/// - `*`: output the address of the value instead of the value itself.
-///
-/// If a formatted user type contains a function of the type
-/// ```
-/// fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, context: var, comptime Errors: type, output: fn (@TypeOf(context), []const u8) Errors!void) Errors!void
-/// ```
-/// with `?` being the type formatted, this function will be called instead of the default implementation.
-/// This allows user types to be formatted in a logical manner instead of dumping all fields of the type.
-///
-/// A user type may be a `struct`, `union` or `enum` type.
-pub fn format(
-    context: var,
-    comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
-    comptime fmt: []const u8,
-    args: var,
-) Errors!void {
-    const ArgSetType = @IntType(false, 32);
-    if (args.len > ArgSetType.bit_count) {
-        @compileError("32 arguments max are supported per format call");
+
+// Use io mode by default
+pub usingnamespace OutputFormat(std.io.mode);
+
+// But still allow using std.fmt.blocking.format() for noasync fn's
+pub const blocking = OutputFormat(.blocking);
+
+
+pub fn OutputFormat(comptime mode: std.io.Mode) type {
+    comptime const is_async = mode == .evented;
+    if (is_async and !std.io.is_async) {
+        @compileError("Cannot use is_async without evented io");
     }
-
-    const State = enum {
-        Start,
-        Positional,
-        CloseBrace,
-        Specifier,
-        FormatFillAndAlign,
-        FormatWidth,
-        FormatPrecision,
-    };
-
-    comptime var start_index = 0;
-    comptime var state = State.Start;
-    comptime var next_arg = 0;
-    comptime var maybe_pos_arg: ?comptime_int = null;
-    comptime var used_pos_args: ArgSetType = 0;
-    comptime var specifier_start = 0;
-    comptime var specifier_end = 0;
-    comptime var options = FormatOptions{};
-
-    inline for (fmt) |c, i| {
-        switch (state) {
-            .Start => switch (c) {
-                '{' => {
-                    if (start_index < i) {
-                        try output(context, fmt[start_index..i]);
-                    }
-
-                    start_index = i;
-                    specifier_start = i + 1;
-                    specifier_end = i + 1;
-                    maybe_pos_arg = null;
-                    state = .Positional;
-                    options = FormatOptions{};
-                },
-                '}' => {
-                    if (start_index < i) {
-                        try output(context, fmt[start_index..i]);
-                    }
-                    state = .CloseBrace;
-                },
-                else => {},
-            },
-            .Positional => switch (c) {
-                '{' => {
-                    state = .Start;
-                    start_index = i;
-                },
-                ':' => {
-                    state = if (comptime peekIsAlign(fmt[i..])) State.FormatFillAndAlign else State.FormatWidth;
-                    specifier_end = i;
-                },
-                '0'...'9' => {
-                    if (maybe_pos_arg == null) {
-                        maybe_pos_arg = 0;
-                    }
-
-                    maybe_pos_arg.? *= 10;
-                    maybe_pos_arg.? += c - '0';
-                    specifier_start = i + 1;
-
-                    if (maybe_pos_arg.? >= args.len) {
-                        @compileError("Positional value refers to non-existent argument");
-                    }
-                },
-                '}' => {
-                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
-
-                    if (arg_to_print >= args.len) {
-                        @compileError("Too few arguments");
-                    }
-
-                    try formatType(
-                        args[arg_to_print],
-                        fmt[0..0],
-                        options,
-                        context,
-                        Errors,
-                        output,
-                        default_max_depth,
-                    );
-
-                    state = .Start;
-                    start_index = i + 1;
-                },
-                else => {
-                    state = .Specifier;
-                    specifier_start = i;
-                },
-            },
-            .CloseBrace => switch (c) {
-                '}' => {
-                    state = .Start;
-                    start_index = i;
-                },
-                else => @compileError("Single '}' encountered in format string"),
-            },
-            .Specifier => switch (c) {
-                ':' => {
-                    specifier_end = i;
-                    state = if (comptime peekIsAlign(fmt[i..])) State.FormatFillAndAlign else State.FormatWidth;
-                },
-                '}' => {
-                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
-
-                    try formatType(
-                        args[arg_to_print],
-                        fmt[specifier_start..i],
-                        options,
-                        context,
-                        Errors,
-                        output,
-                        default_max_depth,
-                    );
-                    state = .Start;
-                    start_index = i + 1;
-                },
-                else => {},
-            },
-            // Only entered if the format string contains a fill/align segment.
-            .FormatFillAndAlign => switch (c) {
-                '<' => {
-                    options.alignment = Alignment.Left;
-                    state = .FormatWidth;
-                },
-                '^' => {
-                    options.alignment = Alignment.Center;
-                    state = .FormatWidth;
-                },
-                '>' => {
-                    options.alignment = Alignment.Right;
-                    state = .FormatWidth;
-                },
-                else => {
-                    options.fill = c;
-                },
-            },
-            .FormatWidth => switch (c) {
-                '0'...'9' => {
-                    if (options.width == null) {
-                        options.width = 0;
-                    }
-
-                    options.width.? *= 10;
-                    options.width.? += c - '0';
-                },
-                '.' => {
-                    state = .FormatPrecision;
-                },
-                '}' => {
-                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
-
-                    try formatType(
-                        args[arg_to_print],
-                        fmt[specifier_start..specifier_end],
-                        options,
-                        context,
-                        Errors,
-                        output,
-                        default_max_depth,
-                    );
-                    state = .Start;
-                    start_index = i + 1;
-                },
-                else => {
-                    @compileError("Unexpected character in width value: " ++ [_]u8{c});
-                },
-            },
-            .FormatPrecision => switch (c) {
-                '0'...'9' => {
-                    if (options.precision == null) {
-                        options.precision = 0;
-                    }
-
-                    options.precision.? *= 10;
-                    options.precision.? += c - '0';
-                },
-                '}' => {
-                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
-
-                    try formatType(
-                        args[arg_to_print],
-                        fmt[specifier_start..specifier_end],
-                        options,
-                        context,
-                        Errors,
-                        output,
-                        default_max_depth,
-                    );
-                    state = .Start;
-                    start_index = i + 1;
-                },
-                else => {
-                    @compileError("Unexpected character in precision value: " ++ [_]u8{c});
-                },
-            },
-        }
-    }
-    comptime {
-        // All arguments must have been printed but we allow mixing positional and fixed to achieve this.
-        var i: usize = 0;
-        inline while (i < next_arg) : (i += 1) {
-            used_pos_args |= 1 << i;
-        }
-
-        if (@popCount(ArgSetType, used_pos_args) != args.len) {
-            @compileError("Unused arguments");
-        }
-        if (state != State.Start) {
-            @compileError("Incomplete format string: " ++ fmt);
-        }
-    }
-    if (start_index < fmt.len) {
-        try output(context, fmt[start_index..]);
-    }
-}
-
-pub fn formatType(
-    value: var,
-    comptime fmt: []const u8,
-    options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
-    max_depth: usize,
-) Errors!void {
-    if (comptime std.mem.eql(u8, fmt, "*")) {
-        try output(context, @typeName(@TypeOf(value).Child));
-        try output(context, "@");
-        try formatInt(@ptrToInt(value), 16, false, FormatOptions{}, context, Errors, output);
-        return;
-    }
-
-    const T = @TypeOf(value);
-    switch (@typeInfo(T)) {
-        .ComptimeInt, .Int, .Float => {
-            return formatValue(value, fmt, options, context, Errors, output);
-        },
-        .Void => {
-            return output(context, "void");
-        },
-        .Bool => {
-            return output(context, if (value) "true" else "false");
-        },
-        .Optional => {
-            if (value) |payload| {
-                return formatType(payload, fmt, options, context, Errors, output, max_depth);
+    return struct {
+        pub fn output(
+            context: var,
+            comptime Errors: type,
+            outputFn: if (is_async) async fn (@TypeOf(context), []const u8) Errors!void else fn (@TypeOf(context), []const u8) Errors!void,
+            buffer: []const u8) Errors!void {
+            if (is_async) {
+                // Let's not be writing 0xaa in safe modes for upwards of 4 MiB for every stream read.
+                @setRuntimeSafety(false);
+                var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
+                return await @asyncCall(&stack_frame, {}, outputFn, context, buffer);
             } else {
-                return output(context, "null");
+                return outputFn(context, buffer);
             }
-        },
-        .ErrorUnion => {
-            if (value) |payload| {
-                return formatType(payload, fmt, options, context, Errors, output, max_depth);
-            } else |err| {
-                return formatType(err, fmt, options, context, Errors, output, max_depth);
-            }
-        },
-        .ErrorSet => {
-            try output(context, "error.");
-            return output(context, @errorName(value));
-        },
-        .Enum => {
-            if (comptime std.meta.trait.hasFn("format")(T)) {
-                return value.format(fmt, options, context, Errors, output);
-            }
-
-            try output(context, @typeName(T));
-            try output(context, ".");
-            return formatType(@tagName(value), "", options, context, Errors, output, max_depth);
-        },
-        .Union => {
-            if (comptime std.meta.trait.hasFn("format")(T)) {
-                return value.format(fmt, options, context, Errors, output);
-            }
-
-            try output(context, @typeName(T));
-            if (max_depth == 0) {
-                return output(context, "{ ... }");
-            }
-            const info = @typeInfo(T).Union;
-            if (info.tag_type) |UnionTagType| {
-                try output(context, "{ .");
-                try output(context, @tagName(@as(UnionTagType, value)));
-                try output(context, " = ");
-                inline for (info.fields) |u_field| {
-                    if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
-                        try formatType(@field(value, u_field.name), "", options, context, Errors, output, max_depth - 1);
-                    }
-                }
-                try output(context, " }");
-            } else {
-                try format(context, Errors, output, "@{x}", .{@ptrToInt(&value)});
-            }
-        },
-        .Struct => {
-            if (comptime std.meta.trait.hasFn("format")(T)) {
-                return value.format(fmt, options, context, Errors, output);
-            }
-
-            try output(context, @typeName(T));
-            if (max_depth == 0) {
-                return output(context, "{ ... }");
-            }
-            comptime var field_i = 0;
-            try output(context, "{");
-            inline while (field_i < @memberCount(T)) : (field_i += 1) {
-                if (field_i == 0) {
-                    try output(context, " .");
-                } else {
-                    try output(context, ", .");
-                }
-                try output(context, @memberName(T, field_i));
-                try output(context, " = ");
-                try formatType(@field(value, @memberName(T, field_i)), "", options, context, Errors, output, max_depth - 1);
-            }
-            try output(context, " }");
-        },
-        .Pointer => |ptr_info| switch (ptr_info.size) {
-            .One => switch (@typeInfo(ptr_info.child)) {
-                builtin.TypeId.Array => |info| {
-                    if (info.child == u8) {
-                        return formatText(value, fmt, options, context, Errors, output);
-                    }
-                    return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
-                },
-                builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
-                    return formatType(value.*, fmt, options, context, Errors, output, max_depth);
-                },
-                else => return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) }),
-            },
-            .Many => {
-                if (ptr_info.child == u8) {
-                    if (fmt.len > 0 and fmt[0] == 's') {
-                        const len = mem.len(u8, value);
-                        return formatText(value[0..len], fmt, options, context, Errors, output);
-                    }
-                }
-                return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
-            },
-            .Slice => {
-                if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
-                    return formatText(value, fmt, options, context, Errors, output);
-                }
-                if (ptr_info.child == u8) {
-                    return formatText(value, fmt, options, context, Errors, output);
-                }
-                return format(context, Errors, output, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value.ptr) });
-            },
-            .C => {
-                return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
-            },
-        },
-        .Array => |info| {
-            const Slice = @Type(builtin.TypeInfo{
-                .Pointer = .{
-                    .size = .Slice,
-                    .is_const = true,
-                    .is_volatile = false,
-                    .is_allowzero = false,
-                    .alignment = @alignOf(info.child),
-                    .child = info.child,
-                    .sentinel = null,
-                },
-            });
-            return formatType(@as(Slice, &value), fmt, options, context, Errors, output, max_depth);
-        },
-        .Fn => {
-            return format(context, Errors, output, "{}@{x}", .{ @typeName(T), @ptrToInt(value) });
-        },
-        .Type => return output(context, @typeName(T)),
-        else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
-    }
-}
-
-fn formatValue(
-    value: var,
-    comptime fmt: []const u8,
-    options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
-    if (comptime std.mem.eql(u8, fmt, "B")) {
-        return formatBytes(value, options, 1000, context, Errors, output);
-    } else if (comptime std.mem.eql(u8, fmt, "Bi")) {
-        return formatBytes(value, options, 1024, context, Errors, output);
-    }
-
-    const T = @TypeOf(value);
-    switch (@typeId(T)) {
-        .Float => return formatFloatValue(value, fmt, options, context, Errors, output),
-        .Int, .ComptimeInt => return formatIntValue(value, fmt, options, context, Errors, output),
-        else => comptime unreachable,
-    }
-}
-
-pub fn formatIntValue(
-    value: var,
-    comptime fmt: []const u8,
-    options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
-    comptime var radix = 10;
-    comptime var uppercase = false;
-
-    const int_value = if (@TypeOf(value) == comptime_int) blk: {
-        const Int = math.IntFittingRange(value, value);
-        break :blk @as(Int, value);
-    } else
-        value;
-
-    if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "d")) {
-        radix = 10;
-        uppercase = false;
-    } else if (comptime std.mem.eql(u8, fmt, "c")) {
-        if (@TypeOf(int_value).bit_count <= 8) {
-            return formatAsciiChar(@as(u8, int_value), options, context, Errors, output);
-        } else {
-            @compileError("Cannot print integer that is larger than 8 bits as a ascii");
         }
-    } else if (comptime std.mem.eql(u8, fmt, "b")) {
-        radix = 2;
-        uppercase = false;
-    } else if (comptime std.mem.eql(u8, fmt, "x")) {
-        radix = 16;
-        uppercase = false;
-    } else if (comptime std.mem.eql(u8, fmt, "X")) {
-        radix = 16;
-        uppercase = true;
-    } else {
-        @compileError("Unknown format string: '" ++ fmt ++ "'");
-    }
 
-    return formatInt(int_value, radix, uppercase, options, context, Errors, output);
-}
 
-fn formatFloatValue(
-    value: var,
-    comptime fmt: []const u8,
-    options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
-    if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
-        return formatFloatScientific(value, options, context, Errors, output);
-    } else if (comptime std.mem.eql(u8, fmt, "d")) {
-        return formatFloatDecimal(value, options, context, Errors, output);
-    } else {
-        @compileError("Unknown format string: '" ++ fmt ++ "'");
-    }
-}
+        /// Renders fmt string with args, calling output with slices of bytes.
+        /// If `output` returns an error, the error is returned from `format` and
+        /// `output` is not called again.
+        ///
+        /// The format string must be comptime known and may contain placeholders following
+        /// this format:
+        /// `{[position][specifier]:[fill][alignment][width].[precision]}`
+        ///
+        /// Each word between `[` and `]` is a parameter you have to replace with something:
+        ///
+        /// - *position* is the index of the argument that should be inserted
+        /// - *specifier* is a type-dependent formatting option that determines how a type should formatted (see below)
+        /// - *fill* is a single character which is used to pad the formatted text
+        /// - *alignment* is one of the three characters `<`, `^` or `>`. they define if the text is *left*, *center*, or *right* aligned
+        /// - *width* is the total width of the field in characters
+        /// - *precision* specifies how many decimals a formatted number should have
+        ///
+        /// Note that most of the parameters are optional and may be omitted. Also you can leave out separators like `:` and `.` when
+        /// all parameters after the separator are omitted.
+        /// Only exception is the *fill* parameter. If *fill* is required, one has to specify *alignment* as well, as otherwise
+        /// the digits after `:` is interpreted as *width*, not *fill*.
+        ///
+        /// The *specifier* has several options for types:
+        /// - `x` and `X`:
+        ///   - format the non-numeric value as a string of bytes in hexadecimal notation ("binary dump") in either lower case or upper case
+        ///   - output numeric value in hexadecimal notation
+        /// - `s`: print a pointer-to-many as a c-string, use zero-termination
+        /// - `B` and `Bi`: output a memory size in either metric (1000) or power-of-two (1024) based notation. works for both float and integer values.
+        /// - `e`: output floating point value in scientific notation
+        /// - `d`: output numeric value in decimal notation
+        /// - `b`: output integer value in binary notation
+        /// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
+        /// - `*`: output the address of the value instead of the value itself.
+        ///
+        /// If a formatted user type contains a function of the type
+        /// ```
+        /// fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, context: var, comptime Errors: type, output: fn (@TypeOf(context), []const u8) Errors!void) Errors!void
+        /// ```
+        /// with `?` being the type formatted, this function will be called instead of the default implementation.
+        /// This allows user types to be formatted in a logical manner instead of dumping all fields of the type.
+        ///
+        /// A user type may be a `struct`, `union` or `enum` type.
+        pub fn format(
+            context: var,
+            comptime Errors: type,
+            outputFn: if (is_async) async fn (@TypeOf(context), []const u8) Errors!void else fn (@TypeOf(context), []const u8) Errors!void,
+            comptime fmt: []const u8,
+            args: var,
+        ) Errors!void {
+            const ArgSetType = @IntType(false, 32);
+            if (args.len > ArgSetType.bit_count) {
+                @compileError("32 arguments max are supported per format call");
+            }
 
-pub fn formatText(
-    bytes: []const u8,
-    comptime fmt: []const u8,
-    options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
-    if (fmt.len == 0) {
-        return output(context, bytes);
-    } else if (comptime std.mem.eql(u8, fmt, "s")) {
-        return formatBuf(bytes, options, context, Errors, output);
-    } else if (comptime (std.mem.eql(u8, fmt, "x") or std.mem.eql(u8, fmt, "X"))) {
-        for (bytes) |c| {
-            try formatInt(c, 16, fmt[0] == 'X', FormatOptions{ .width = 2, .fill = '0' }, context, Errors, output);
-        }
-        return;
-    } else {
-        @compileError("Unknown format string: '" ++ fmt ++ "'");
-    }
-}
+            const State = enum {
+                Start,
+                Positional,
+                CloseBrace,
+                Specifier,
+                FormatFillAndAlign,
+                FormatWidth,
+                FormatPrecision,
+            };
 
-pub fn formatAsciiChar(
-    c: u8,
-    options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
-    return output(context, @as(*const [1]u8, &c)[0..]);
-}
+            comptime var start_index = 0;
+            comptime var state = State.Start;
+            comptime var next_arg = 0;
+            comptime var maybe_pos_arg: ?comptime_int = null;
+            comptime var used_pos_args: ArgSetType = 0;
+            comptime var specifier_start = 0;
+            comptime var specifier_end = 0;
+            comptime var options = FormatOptions{};
 
-pub fn formatBuf(
-    buf: []const u8,
-    options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
-    try output(context, buf);
+            inline for (fmt) |c, i| {
+                switch (state) {
+                    .Start => switch (c) {
+                        '{' => {
+                            if (start_index < i) {
+                                try output(context, Errors, outputFn, fmt[start_index..i]);
+                            }
 
-    const width = options.width orelse 0;
-    var leftover_padding = if (width > buf.len) (width - buf.len) else return;
-    const pad_byte: u8 = options.fill;
-    while (leftover_padding > 0) : (leftover_padding -= 1) {
-        try output(context, @as(*const [1]u8, &pad_byte)[0..1]);
-    }
-}
+                            start_index = i;
+                            specifier_start = i + 1;
+                            specifier_end = i + 1;
+                            maybe_pos_arg = null;
+                            state = .Positional;
+                            options = FormatOptions{};
+                        },
+                        '}' => {
+                            if (start_index < i) {
+                                try output(context, Errors, outputFn, fmt[start_index..i]);
+                            }
+                            state = .CloseBrace;
+                        },
+                        else => {},
+                    },
+                    .Positional => switch (c) {
+                        '{' => {
+                            state = .Start;
+                            start_index = i;
+                        },
+                        ':' => {
+                            state = if (comptime peekIsAlign(fmt[i..])) State.FormatFillAndAlign else State.FormatWidth;
+                            specifier_end = i;
+                        },
+                        '0'...'9' => {
+                            if (maybe_pos_arg == null) {
+                                maybe_pos_arg = 0;
+                            }
 
-// Print a float in scientific notation to the specified precision. Null uses full precision.
-// It should be the case that every full precision, printed value can be re-parsed back to the
-// same type unambiguously.
-pub fn formatFloatScientific(
-    value: var,
-    options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
-    var x = @floatCast(f64, value);
+                            maybe_pos_arg.? *= 10;
+                            maybe_pos_arg.? += c - '0';
+                            specifier_start = i + 1;
 
-    // Errol doesn't handle these special cases.
-    if (math.signbit(x)) {
-        try output(context, "-");
-        x = -x;
-    }
+                            if (maybe_pos_arg.? >= args.len) {
+                                @compileError("Positional value refers to non-existent argument");
+                            }
+                        },
+                        '}' => {
+                            const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
 
-    if (math.isNan(x)) {
-        return output(context, "nan");
-    }
-    if (math.isPositiveInf(x)) {
-        return output(context, "inf");
-    }
-    if (x == 0.0) {
-        try output(context, "0");
+                            if (arg_to_print >= args.len) {
+                                @compileError("Too few arguments");
+                            }
 
-        if (options.precision) |precision| {
-            if (precision != 0) {
-                try output(context, ".");
+                            try formatType(
+                                args[arg_to_print],
+                                fmt[0..0],
+                                options,
+                                context,
+                                Errors,
+                                outputFn,
+                                default_max_depth,
+                            );
+
+                            state = .Start;
+                            start_index = i + 1;
+                        },
+                        else => {
+                            state = .Specifier;
+                            specifier_start = i;
+                        },
+                    },
+                    .CloseBrace => switch (c) {
+                        '}' => {
+                            state = .Start;
+                            start_index = i;
+                        },
+                        else => @compileError("Single '}' encountered in format string"),
+                    },
+                    .Specifier => switch (c) {
+                        ':' => {
+                            specifier_end = i;
+                            state = if (comptime peekIsAlign(fmt[i..])) State.FormatFillAndAlign else State.FormatWidth;
+                        },
+                        '}' => {
+                            const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
+
+                            try formatType(
+                                args[arg_to_print],
+                                fmt[specifier_start..i],
+                                options,
+                                context,
+                                Errors,
+                                outputFn,
+                                default_max_depth,
+                            );
+                            state = .Start;
+                            start_index = i + 1;
+                        },
+                        else => {},
+                    },
+                    // Only entered if the format string contains a fill/align segment.
+                    .FormatFillAndAlign => switch (c) {
+                        '<' => {
+                            options.alignment = Alignment.Left;
+                            state = .FormatWidth;
+                        },
+                        '^' => {
+                            options.alignment = Alignment.Center;
+                            state = .FormatWidth;
+                        },
+                        '>' => {
+                            options.alignment = Alignment.Right;
+                            state = .FormatWidth;
+                        },
+                        else => {
+                            options.fill = c;
+                        },
+                    },
+                    .FormatWidth => switch (c) {
+                        '0'...'9' => {
+                            if (options.width == null) {
+                                options.width = 0;
+                            }
+
+                            options.width.? *= 10;
+                            options.width.? += c - '0';
+                        },
+                        '.' => {
+                            state = .FormatPrecision;
+                        },
+                        '}' => {
+                            const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
+
+                            try formatType(
+                                args[arg_to_print],
+                                fmt[specifier_start..specifier_end],
+                                options,
+                                context,
+                                Errors,
+                                outputFn,
+                                default_max_depth,
+                            );
+                            state = .Start;
+                            start_index = i + 1;
+                        },
+                        else => {
+                            @compileError("Unexpected character in width value: " ++ [_]u8{c});
+                        },
+                    },
+                    .FormatPrecision => switch (c) {
+                        '0'...'9' => {
+                            if (options.precision == null) {
+                                options.precision = 0;
+                            }
+
+                            options.precision.? *= 10;
+                            options.precision.? += c - '0';
+                        },
+                        '}' => {
+                            const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
+
+                            try formatType(
+                                args[arg_to_print],
+                                fmt[specifier_start..specifier_end],
+                                options,
+                                context,
+                                Errors,
+                                outputFn,
+                                default_max_depth,
+                            );
+                            state = .Start;
+                            start_index = i + 1;
+                        },
+                        else => {
+                            @compileError("Unexpected character in precision value: " ++ [_]u8{c});
+                        },
+                    },
+                }
+            }
+            comptime {
+                // All arguments must have been printed but we allow mixing positional and fixed to achieve this.
                 var i: usize = 0;
-                while (i < precision) : (i += 1) {
-                    try output(context, "0");
+                inline while (i < next_arg) : (i += 1) {
+                    used_pos_args |= 1 << i;
+                }
+
+                if (@popCount(ArgSetType, used_pos_args) != args.len) {
+                    @compileError("Unused arguments");
+                }
+                if (state != State.Start) {
+                    @compileError("Incomplete format string: " ++ fmt);
                 }
             }
-        } else {
-            try output(context, ".0");
-        }
-
-        try output(context, "e+00");
-        return;
-    }
-
-    var buffer: [32]u8 = undefined;
-    var float_decimal = errol.errol3(x, buffer[0..]);
-
-    if (options.precision) |precision| {
-        errol.roundToPrecision(&float_decimal, precision, errol.RoundMode.Scientific);
-
-        try output(context, float_decimal.digits[0..1]);
-
-        // {e0} case prints no `.`
-        if (precision != 0) {
-            try output(context, ".");
-
-            var printed: usize = 0;
-            if (float_decimal.digits.len > 1) {
-                const num_digits = math.min(float_decimal.digits.len, precision + 1);
-                try output(context, float_decimal.digits[1..num_digits]);
-                printed += num_digits - 1;
-            }
-
-            while (printed < precision) : (printed += 1) {
-                try output(context, "0");
+            if (start_index < fmt.len) {
+                try output(context, Errors, outputFn, fmt[start_index..]);
             }
         }
-    } else {
-        try output(context, float_decimal.digits[0..1]);
-        try output(context, ".");
-        if (float_decimal.digits.len > 1) {
-            const num_digits = if (@TypeOf(value) == f32) math.min(@as(usize, 9), float_decimal.digits.len) else float_decimal.digits.len;
 
-            try output(context, float_decimal.digits[1..num_digits]);
-        } else {
-            try output(context, "0");
-        }
-    }
-
-    try output(context, "e");
-    const exp = float_decimal.exp - 1;
-
-    if (exp >= 0) {
-        try output(context, "+");
-        if (exp > -10 and exp < 10) {
-            try output(context, "0");
-        }
-        try formatInt(exp, 10, false, FormatOptions{ .width = 0 }, context, Errors, output);
-    } else {
-        try output(context, "-");
-        if (exp > -10 and exp < 10) {
-            try output(context, "0");
-        }
-        try formatInt(-exp, 10, false, FormatOptions{ .width = 0 }, context, Errors, output);
-    }
-}
-
-// Print a float of the format x.yyyyy where the number of y is specified by the precision argument.
-// By default floats are printed at full precision (no rounding).
-pub fn formatFloatDecimal(
-    value: var,
-    options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
-    var x = @as(f64, value);
-
-    // Errol doesn't handle these special cases.
-    if (math.signbit(x)) {
-        try output(context, "-");
-        x = -x;
-    }
-
-    if (math.isNan(x)) {
-        return output(context, "nan");
-    }
-    if (math.isPositiveInf(x)) {
-        return output(context, "inf");
-    }
-    if (x == 0.0) {
-        try output(context, "0");
-
-        if (options.precision) |precision| {
-            if (precision != 0) {
-                try output(context, ".");
-                var i: usize = 0;
-                while (i < precision) : (i += 1) {
-                    try output(context, "0");
-                }
-            } else {
-                try output(context, ".0");
-            }
-        } else {
-            try output(context, "0");
-        }
-
-        return;
-    }
-
-    // non-special case, use errol3
-    var buffer: [32]u8 = undefined;
-    var float_decimal = errol.errol3(x, buffer[0..]);
-
-    if (options.precision) |precision| {
-        errol.roundToPrecision(&float_decimal, precision, errol.RoundMode.Decimal);
-
-        // exp < 0 means the leading is always 0 as errol result is normalized.
-        var num_digits_whole = if (float_decimal.exp > 0) @intCast(usize, float_decimal.exp) else 0;
-
-        // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
-        var num_digits_whole_no_pad = math.min(num_digits_whole, float_decimal.digits.len);
-
-        if (num_digits_whole > 0) {
-            // We may have to zero pad, for instance 1e4 requires zero padding.
-            try output(context, float_decimal.digits[0..num_digits_whole_no_pad]);
-
-            var i = num_digits_whole_no_pad;
-            while (i < num_digits_whole) : (i += 1) {
-                try output(context, "0");
-            }
-        } else {
-            try output(context, "0");
-        }
-
-        // {.0} special case doesn't want a trailing '.'
-        if (precision == 0) {
-            return;
-        }
-
-        try output(context, ".");
-
-        // Keep track of fractional count printed for case where we pre-pad then post-pad with 0's.
-        var printed: usize = 0;
-
-        // Zero-fill until we reach significant digits or run out of precision.
-        if (float_decimal.exp <= 0) {
-            const zero_digit_count = @intCast(usize, -float_decimal.exp);
-            const zeros_to_print = math.min(zero_digit_count, precision);
-
-            var i: usize = 0;
-            while (i < zeros_to_print) : (i += 1) {
-                try output(context, "0");
-                printed += 1;
-            }
-
-            if (printed >= precision) {
+        pub fn formatType(
+            value: var,
+            comptime fmt: []const u8,
+            options: FormatOptions,
+            context: var,
+            comptime Errors: type,
+            outputFn: if (is_async) async fn (@TypeOf(context), []const u8) Errors!void else fn (@TypeOf(context), []const u8) Errors!void,
+            max_depth: usize,
+        ) Errors!void {
+            if (comptime std.mem.eql(u8, fmt, "*")) {
+                try output(context, Errors, outputFn, @typeName(@TypeOf(value).Child));
+                try output(context, Errors, outputFn, "@");
+                try formatInt(@ptrToInt(value), 16, false, FormatOptions{}, context, Errors, outputFn);
                 return;
             }
-        }
 
-        // Remaining fractional portion, zero-padding if insufficient.
-        assert(precision >= printed);
-        if (num_digits_whole_no_pad + precision - printed < float_decimal.digits.len) {
-            try output(context, float_decimal.digits[num_digits_whole_no_pad .. num_digits_whole_no_pad + precision - printed]);
-            return;
-        } else {
-            try output(context, float_decimal.digits[num_digits_whole_no_pad..]);
-            printed += float_decimal.digits.len - num_digits_whole_no_pad;
+            const T = @TypeOf(value);
+            switch (@typeInfo(T)) {
+                .ComptimeInt, .Int, .Float => {
+                    return formatValue(value, fmt, options, context, Errors, outputFn);
+                },
+                .Void => {
+                    return output(context, Errors, outputFn,  "void");
+                },
+                .Bool => {
+                    return output(context, Errors, outputFn, if (value) "true" else "false");
+                },
+                .Optional => {
+                    if (value) |payload| {
+                        return formatType(payload, fmt, options, context, Errors, outputFn, max_depth);
+                    } else {
+                        return output(context, Errors, outputFn, "null");
+                    }
+                },
+                .ErrorUnion => {
+                    if (value) |payload| {
+                        return formatType(payload, fmt, options, context, Errors, outputFn, max_depth);
+                    } else |err| {
+                        return formatType(err, fmt, options, context, Errors, outputFn, max_depth);
+                    }
+                },
+                .ErrorSet => {
+                    try output(context, Errors, outputFn, "error.");
+                    return output(context, Errors, outputFn, @errorName(value));
+                },
+                .Enum => {
+                    if (comptime std.meta.trait.hasFn("format")(T)) {
+                        return value.format(fmt, options, context, Errors, outputFn);
+                    }
 
-            while (printed < precision) : (printed += 1) {
-                try output(context, "0");
+                    try output(context, Errors, outputFn, @typeName(T));
+                    try output(context, Errors, outputFn, ".");
+                    return formatType(@tagName(value), "", options, context, Errors, outputFn, max_depth);
+                },
+                .Union => {
+                    if (comptime std.meta.trait.hasFn("format")(T)) {
+                        // FIXME
+                        //return value.format(fmt, options, context, Errors, outputFn);
+                    }
+
+                    try output(context, Errors, outputFn, @typeName(T));
+                    if (max_depth == 0) {
+                        return output(context, Errors, outputFn, "{ ... }");
+                    }
+                    const info = @typeInfo(T).Union;
+                    if (info.tag_type) |UnionTagType| {
+                        try output(context, Errors, outputFn, "{ .");
+                        try output(context, Errors, outputFn, @tagName(@as(UnionTagType, value)));
+                        try output(context, Errors, outputFn, " = ");
+                        inline for (info.fields) |u_field| {
+                            if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
+                                try formatType(@field(value, u_field.name), "", options, context, Errors, outputFn, max_depth - 1);
+                            }
+                        }
+                        try output(context, Errors, outputFn, " }");
+                    } else {
+                        try format(context, Errors, outputFn, "@{x}", .{@ptrToInt(&value)});
+                    }
+                },
+                .Struct => {
+                    if (comptime std.meta.trait.hasFn("format")(T)) {
+                        return value.format(fmt, options, context, Errors, outputFn);
+                    }
+
+                    try output(context, Errors, outputFn, @typeName(T));
+                    if (max_depth == 0) {
+                        return output(context, Errors, outputFn, "{ ... }");
+                    }
+                    comptime var field_i = 0;
+                    try output(context, Errors, outputFn, "{");
+                    inline while (field_i < @memberCount(T)) : (field_i += 1) {
+                        if (field_i == 0) {
+                            try output(context, Errors, outputFn, " .");
+                        } else {
+                            try output(context, Errors, outputFn, ", .");
+                        }
+                        try output(context, Errors, outputFn, @memberName(T, field_i));
+                        try output(context, Errors, outputFn, " = ");
+                        try formatType(@field(value, @memberName(T, field_i)), "", options, context, Errors, outputFn, max_depth - 1);
+                    }
+                    try output(context, Errors, outputFn, " }");
+                },
+                .Pointer => |ptr_info| switch (ptr_info.size) {
+                    .One => switch (@typeInfo(ptr_info.child)) {
+                        builtin.TypeId.Array => |info| {
+                            if (info.child == u8) {
+                                return formatText(value, fmt, options, context, Errors, outputFn);
+                            }
+                            return format(context, Errors, outputFn, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
+                        },
+                        builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
+                            return formatType(value.*, fmt, options, context, Errors, outputFn, max_depth);
+                        },
+                        else => return format(context, Errors, outputFn, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) }),
+                    },
+                    .Many => {
+                        if (ptr_info.child == u8) {
+                            if (fmt.len > 0 and fmt[0] == 's') {
+                                const len = mem.len(u8, value);
+                                return formatText(value[0..len], fmt, options, context, Errors, outputFn);
+                            }
+                        }
+                        return format(context, Errors, outputFn, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
+                    },
+                    .Slice => {
+                        if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
+                            return formatText(value, fmt, options, context, Errors, outputFn);
+                        }
+                        if (ptr_info.child == u8) {
+                            return formatText(value, fmt, options, context, Errors, outputFn);
+                        }
+                        return format(context, Errors, outputFn, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value.ptr) });
+                    },
+                    .C => {
+                        return format(context, Errors, outputFn, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
+                    },
+                },
+                .Array => |info| {
+                    const Slice = @Type(builtin.TypeInfo{
+                        .Pointer = .{
+                            .size = .Slice,
+                            .is_const = true,
+                            .is_volatile = false,
+                            .is_allowzero = false,
+                            .alignment = @alignOf(info.child),
+                            .child = info.child,
+                            .sentinel = null,
+                        },
+                    });
+                    return formatType(@as(Slice, &value), fmt, options, context, Errors, outputFn, max_depth);
+                },
+                .Fn => {
+                    return format(context, Errors, outputFn, "{}@{x}", .{ @typeName(T), @ptrToInt(value) });
+                },
+                .Type => return output(context, Errors, outputFn, @typeName(T)),
+                else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
             }
         }
-    } else {
-        // exp < 0 means the leading is always 0 as errol result is normalized.
-        var num_digits_whole = if (float_decimal.exp > 0) @intCast(usize, float_decimal.exp) else 0;
 
-        // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
-        var num_digits_whole_no_pad = math.min(num_digits_whole, float_decimal.digits.len);
-
-        if (num_digits_whole > 0) {
-            // We may have to zero pad, for instance 1e4 requires zero padding.
-            try output(context, float_decimal.digits[0..num_digits_whole_no_pad]);
-
-            var i = num_digits_whole_no_pad;
-            while (i < num_digits_whole) : (i += 1) {
-                try output(context, "0");
+        fn formatValue(
+            value: var,
+            comptime fmt: []const u8,
+            options: FormatOptions,
+            context: var,
+            comptime Errors: type,
+            outputFn: if (is_async) async fn (@TypeOf(context), []const u8) Errors!void else fn (@TypeOf(context), []const u8) Errors!void,
+        ) Errors!void {
+            if (comptime std.mem.eql(u8, fmt, "B")) {
+                return formatBytes(value, options, 1000, context, Errors, outputFn);
+            } else if (comptime std.mem.eql(u8, fmt, "Bi")) {
+                return formatBytes(value, options, 1024, context, Errors, outputFn);
             }
-        } else {
-            try output(context, "0");
-        }
 
-        // Omit `.` if no fractional portion
-        if (float_decimal.exp >= 0 and num_digits_whole_no_pad == float_decimal.digits.len) {
-            return;
-        }
-
-        try output(context, ".");
-
-        // Zero-fill until we reach significant digits or run out of precision.
-        if (float_decimal.exp < 0) {
-            const zero_digit_count = @intCast(usize, -float_decimal.exp);
-
-            var i: usize = 0;
-            while (i < zero_digit_count) : (i += 1) {
-                try output(context, "0");
+            const T = @TypeOf(value);
+            switch (@typeId(T)) {
+                .Float => return formatFloatValue(value, fmt, options, context, Errors, outputFn),
+                .Int, .ComptimeInt => return formatIntValue(value, fmt, options, context, Errors, outputFn),
+                else => comptime unreachable,
             }
         }
 
-        try output(context, float_decimal.digits[num_digits_whole_no_pad..]);
-    }
-}
+        pub fn formatIntValue(
+            value: var,
+            comptime fmt: []const u8,
+            options: FormatOptions,
+            context: var,
+            comptime Errors: type,
+            outputFn: if (is_async) async fn (@TypeOf(context), []const u8) Errors!void else fn (@TypeOf(context), []const u8) Errors!void,
+        ) Errors!void {
+            comptime var radix = 10;
+            comptime var uppercase = false;
 
-pub fn formatBytes(
-    value: var,
-    options: FormatOptions,
-    comptime radix: usize,
-    context: var,
-    comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
-    if (value == 0) {
-        return output(context, "0B");
-    }
+            const int_value = if (@TypeOf(value) == comptime_int) blk: {
+                const Int = math.IntFittingRange(value, value);
+                break :blk @as(Int, value);
+            } else
+                value;
 
-    const mags_si = " kMGTPEZY";
-    const mags_iec = " KMGTPEZY";
-    const magnitude = switch (radix) {
-        1000 => math.min(math.log2(value) / comptime math.log2(1000), mags_si.len - 1),
-        1024 => math.min(math.log2(value) / 10, mags_iec.len - 1),
-        else => unreachable,
-    };
-    const new_value = lossyCast(f64, value) / math.pow(f64, lossyCast(f64, radix), lossyCast(f64, magnitude));
-    const suffix = switch (radix) {
-        1000 => mags_si[magnitude],
-        1024 => mags_iec[magnitude],
-        else => unreachable,
-    };
+            if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "d")) {
+                radix = 10;
+                uppercase = false;
+            } else if (comptime std.mem.eql(u8, fmt, "c")) {
+                if (@TypeOf(int_value).bit_count <= 8) {
+                    return formatAsciiChar(@as(u8, int_value), options, context, Errors, outputFn);
+                } else {
+                    @compileError("Cannot print integer that is larger than 8 bits as a ascii");
+                }
+            } else if (comptime std.mem.eql(u8, fmt, "b")) {
+                radix = 2;
+                uppercase = false;
+            } else if (comptime std.mem.eql(u8, fmt, "x")) {
+                radix = 16;
+                uppercase = false;
+            } else if (comptime std.mem.eql(u8, fmt, "X")) {
+                radix = 16;
+                uppercase = true;
+            } else {
+                @compileError("Unknown format string: '" ++ fmt ++ "'");
+            }
 
-    try formatFloatDecimal(new_value, options, context, Errors, output);
-
-    if (suffix == ' ') {
-        return output(context, "B");
-    }
-
-    const buf = switch (radix) {
-        1000 => &[_]u8{ suffix, 'B' },
-        1024 => &[_]u8{ suffix, 'i', 'B' },
-        else => unreachable,
-    };
-    return output(context, buf);
-}
-
-pub fn formatInt(
-    value: var,
-    base: u8,
-    uppercase: bool,
-    options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
-    const int_value = if (@TypeOf(value) == comptime_int) blk: {
-        const Int = math.IntFittingRange(value, value);
-        break :blk @as(Int, value);
-    } else
-        value;
-
-    if (@TypeOf(int_value).is_signed) {
-        return formatIntSigned(int_value, base, uppercase, options, context, Errors, output);
-    } else {
-        return formatIntUnsigned(int_value, base, uppercase, options, context, Errors, output);
-    }
-}
-
-fn formatIntSigned(
-    value: var,
-    base: u8,
-    uppercase: bool,
-    options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
-    const new_options = FormatOptions{
-        .width = if (options.width) |w| (if (w == 0) 0 else w - 1) else null,
-        .precision = options.precision,
-        .fill = options.fill,
-    };
-
-    const uint = @IntType(false, @TypeOf(value).bit_count);
-    if (value < 0) {
-        const minus_sign: u8 = '-';
-        try output(context, @as(*const [1]u8, &minus_sign)[0..]);
-        const new_value = @intCast(uint, -(value + 1)) + 1;
-        return formatIntUnsigned(new_value, base, uppercase, new_options, context, Errors, output);
-    } else if (options.width == null or options.width.? == 0) {
-        return formatIntUnsigned(@intCast(uint, value), base, uppercase, options, context, Errors, output);
-    } else {
-        const plus_sign: u8 = '+';
-        try output(context, @as(*const [1]u8, &plus_sign)[0..]);
-        const new_value = @intCast(uint, value);
-        return formatIntUnsigned(new_value, base, uppercase, new_options, context, Errors, output);
-    }
-}
-
-fn formatIntUnsigned(
-    value: var,
-    base: u8,
-    uppercase: bool,
-    options: FormatOptions,
-    context: var,
-    comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
-) Errors!void {
-    assert(base >= 2);
-    var buf: [math.max(@TypeOf(value).bit_count, 1)]u8 = undefined;
-    const min_int_bits = comptime math.max(@TypeOf(value).bit_count, @TypeOf(base).bit_count);
-    const MinInt = @IntType(@TypeOf(value).is_signed, min_int_bits);
-    var a: MinInt = value;
-    var index: usize = buf.len;
-
-    while (true) {
-        const digit = a % base;
-        index -= 1;
-        buf[index] = digitToChar(@intCast(u8, digit), uppercase);
-        a /= base;
-        if (a == 0) break;
-    }
-
-    const digits_buf = buf[index..];
-    const width = options.width orelse 0;
-    const padding = if (width > digits_buf.len) (width - digits_buf.len) else 0;
-
-    if (padding > index) {
-        const zero_byte: u8 = options.fill;
-        var leftover_padding = padding - index;
-        while (true) {
-            try output(context, @as(*const [1]u8, &zero_byte)[0..]);
-            leftover_padding -= 1;
-            if (leftover_padding == 0) break;
+            return formatInt(int_value, radix, uppercase, options, context, Errors, outputFn);
         }
-        mem.set(u8, buf[0..index], options.fill);
-        return output(context, &buf);
-    } else {
-        const padded_buf = buf[index - padding ..];
-        mem.set(u8, padded_buf[0..padding], options.fill);
-        return output(context, padded_buf);
-    }
+
+        fn formatFloatValue(
+            value: var,
+            comptime fmt: []const u8,
+            options: FormatOptions,
+            context: var,
+            comptime Errors: type,
+            outputFn: if (is_async) async fn (@TypeOf(context), []const u8) Errors!void else fn (@TypeOf(context), []const u8) Errors!void,
+        ) Errors!void {
+            if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
+                return formatFloatScientific(value, options, context, Errors, outputFn);
+            } else if (comptime std.mem.eql(u8, fmt, "d")) {
+                return formatFloatDecimal(value, options, context, Errors, outputFn);
+            } else {
+                @compileError("Unknown format string: '" ++ fmt ++ "'");
+            }
+        }
+
+        pub fn formatText(
+            bytes: []const u8,
+            comptime fmt: []const u8,
+            options: FormatOptions,
+            context: var,
+            comptime Errors: type,
+            outputFn: if (is_async) async fn (@TypeOf(context), []const u8) Errors!void else fn (@TypeOf(context), []const u8) Errors!void,
+        ) Errors!void {
+            if (fmt.len == 0) {
+                return output(context, Errors, outputFn, bytes);
+            } else if (comptime std.mem.eql(u8, fmt, "s")) {
+                return formatBuf(bytes, options, context, Errors, outputFn);
+            } else if (comptime (std.mem.eql(u8, fmt, "x") or std.mem.eql(u8, fmt, "X"))) {
+                for (bytes) |c| {
+                    try formatInt(c, 16, fmt[0] == 'X', FormatOptions{ .width = 2, .fill = '0' }, context, Errors, outputFn);
+                }
+                return;
+            } else {
+                @compileError("Unknown format string: '" ++ fmt ++ "'");
+            }
+        }
+
+        pub fn formatAsciiChar(
+            c: u8,
+            options: FormatOptions,
+            context: var,
+            comptime Errors: type,
+            outputFn: if (is_async) async fn (@TypeOf(context), []const u8) Errors!void else fn (@TypeOf(context), []const u8) Errors!void,
+        ) Errors!void {
+            return output(context, Errors, outputFn, @as(*const [1]u8, &c)[0..]);
+        }
+
+        pub fn formatBuf(
+            buf: []const u8,
+            options: FormatOptions,
+            context: var,
+            comptime Errors: type,
+            outputFn: if (is_async) async fn (@TypeOf(context), []const u8) Errors!void else fn (@TypeOf(context), []const u8) Errors!void,
+        ) Errors!void {
+            try output(context, Errors, outputFn, buf);
+
+            const width = options.width orelse 0;
+            var leftover_padding = if (width > buf.len) (width - buf.len) else return;
+            const pad_byte: u8 = options.fill;
+            while (leftover_padding > 0) : (leftover_padding -= 1) {
+                try output(context, Errors, outputFn, @as(*const [1]u8, &pad_byte)[0..1]);
+            }
+        }
+
+        // Print a float in scientific notation to the specified precision. Null uses full precision.
+        // It should be the case that every full precision, printed value can be re-parsed back to the
+        // same type unambiguously.
+        pub fn formatFloatScientific(
+            value: var,
+            options: FormatOptions,
+            context: var,
+            comptime Errors: type,
+            outputFn: if (is_async) async fn (@TypeOf(context), []const u8) Errors!void else fn (@TypeOf(context), []const u8) Errors!void,
+        ) Errors!void {
+            var x = @floatCast(f64, value);
+
+            // Errol doesn't handle these special cases.
+            if (math.signbit(x)) {
+                try output(context, Errors, outputFn, "-");
+                x = -x;
+            }
+
+            if (math.isNan(x)) {
+                return output(context, Errors, outputFn, "nan");
+            }
+            if (math.isPositiveInf(x)) {
+                return output(context, Errors, outputFn, "inf");
+            }
+            if (x == 0.0) {
+                try output(context, Errors, outputFn, "0");
+
+                if (options.precision) |precision| {
+                    if (precision != 0) {
+                        try output(context, Errors, outputFn, ".");
+                        var i: usize = 0;
+                        while (i < precision) : (i += 1) {
+                            try output(context, Errors, outputFn, "0");
+                        }
+                    }
+                } else {
+                    try output(context, Errors, outputFn, ".0");
+                }
+
+                try output(context, Errors, outputFn, "e+00");
+                return;
+            }
+
+            var buffer: [32]u8 = undefined;
+            var float_decimal = errol.errol3(x, buffer[0..]);
+
+            if (options.precision) |precision| {
+                errol.roundToPrecision(&float_decimal, precision, errol.RoundMode.Scientific);
+
+                try output(context, Errors, outputFn, float_decimal.digits[0..1]);
+
+                // {e0} case prints no `.`
+                if (precision != 0) {
+                    try output(context, Errors, outputFn, ".");
+
+                    var printed: usize = 0;
+                    if (float_decimal.digits.len > 1) {
+                        const num_digits = math.min(float_decimal.digits.len, precision + 1);
+                        try output(context, Errors, outputFn, float_decimal.digits[1..num_digits]);
+                        printed += num_digits - 1;
+                    }
+
+                    while (printed < precision) : (printed += 1) {
+                        try output(context, Errors, outputFn, "0");
+                    }
+                }
+            } else {
+                try output(context, Errors, outputFn, float_decimal.digits[0..1]);
+                try output(context, Errors, outputFn, ".");
+                if (float_decimal.digits.len > 1) {
+                    const num_digits = if (@TypeOf(value) == f32) math.min(@as(usize, 9), float_decimal.digits.len) else float_decimal.digits.len;
+
+                    try output(context, Errors, outputFn, float_decimal.digits[1..num_digits]);
+                } else {
+                    try output(context, Errors, outputFn, "0");
+                }
+            }
+
+            try output(context, Errors, outputFn, "e");
+            const exp = float_decimal.exp - 1;
+
+            if (exp >= 0) {
+                try output(context, Errors, outputFn, "+");
+                if (exp > -10 and exp < 10) {
+                    try output(context, Errors, outputFn, "0");
+                }
+                try formatInt(exp, 10, false, FormatOptions{ .width = 0 }, context, Errors, outputFn);
+            } else {
+                try output(context, Errors, outputFn, "-");
+                if (exp > -10 and exp < 10) {
+                    try output(context, Errors, outputFn, "0");
+                }
+                try formatInt(-exp, 10, false, FormatOptions{ .width = 0 }, context, Errors, outputFn);
+            }
+        }
+
+        // Print a float of the format x.yyyyy where the number of y is specified by the precision argument.
+        // By default floats are printed at full precision (no rounding).
+        pub fn formatFloatDecimal(
+            value: var,
+            options: FormatOptions,
+            context: var,
+            comptime Errors: type,
+            outputFn: if (is_async) async fn (@TypeOf(context), []const u8) Errors!void else fn (@TypeOf(context), []const u8) Errors!void,
+        ) Errors!void {
+            var x = @as(f64, value);
+
+            // Errol doesn't handle these special cases.
+            if (math.signbit(x)) {
+                try output(context, Errors, outputFn, "-");
+                x = -x;
+            }
+
+            if (math.isNan(x)) {
+                return output(context, Errors, outputFn, "nan");
+            }
+            if (math.isPositiveInf(x)) {
+                return output(context, Errors, outputFn, "inf");
+            }
+            if (x == 0.0) {
+                try output(context, Errors, outputFn, "0");
+
+                if (options.precision) |precision| {
+                    if (precision != 0) {
+                        try output(context, Errors, outputFn, ".");
+                        var i: usize = 0;
+                        while (i < precision) : (i += 1) {
+                            try output(context, Errors, outputFn, "0");
+                        }
+                    } else {
+                        try output(context, Errors, outputFn, ".0");
+                    }
+                } else {
+                    try output(context, Errors, outputFn, "0");
+                }
+
+                return;
+            }
+
+            // non-special case, use errol3
+            var buffer: [32]u8 = undefined;
+            var float_decimal = errol.errol3(x, buffer[0..]);
+
+            if (options.precision) |precision| {
+                errol.roundToPrecision(&float_decimal, precision, errol.RoundMode.Decimal);
+
+                // exp < 0 means the leading is always 0 as errol result is normalized.
+                var num_digits_whole = if (float_decimal.exp > 0) @intCast(usize, float_decimal.exp) else 0;
+
+                // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
+                var num_digits_whole_no_pad = math.min(num_digits_whole, float_decimal.digits.len);
+
+                if (num_digits_whole > 0) {
+                    // We may have to zero pad, for instance 1e4 requires zero padding.
+                    try output(context, Errors, outputFn, float_decimal.digits[0..num_digits_whole_no_pad]);
+
+                    var i = num_digits_whole_no_pad;
+                    while (i < num_digits_whole) : (i += 1) {
+                        try output(context, Errors, outputFn, "0");
+                    }
+                } else {
+                    try output(context, Errors, outputFn, "0");
+                }
+
+                // {.0} special case doesn't want a trailing '.'
+                if (precision == 0) {
+                    return;
+                }
+
+                try output(context, Errors, outputFn, ".");
+
+                // Keep track of fractional count printed for case where we pre-pad then post-pad with 0's.
+                var printed: usize = 0;
+
+                // Zero-fill until we reach significant digits or run out of precision.
+                if (float_decimal.exp <= 0) {
+                    const zero_digit_count = @intCast(usize, -float_decimal.exp);
+                    const zeros_to_print = math.min(zero_digit_count, precision);
+
+                    var i: usize = 0;
+                    while (i < zeros_to_print) : (i += 1) {
+                        try output(context, Errors, outputFn, "0");
+                        printed += 1;
+                    }
+
+                    if (printed >= precision) {
+                        return;
+                    }
+                }
+
+                // Remaining fractional portion, zero-padding if insufficient.
+                assert(precision >= printed);
+                if (num_digits_whole_no_pad + precision - printed < float_decimal.digits.len) {
+                    try output(context, Errors, outputFn, float_decimal.digits[num_digits_whole_no_pad .. num_digits_whole_no_pad + precision - printed]);
+                    return;
+                } else {
+                    try output(context, Errors, outputFn, float_decimal.digits[num_digits_whole_no_pad..]);
+                    printed += float_decimal.digits.len - num_digits_whole_no_pad;
+
+                    while (printed < precision) : (printed += 1) {
+                        try output(context, Errors, outputFn, "0");
+                    }
+                }
+            } else {
+                // exp < 0 means the leading is always 0 as errol result is normalized.
+                var num_digits_whole = if (float_decimal.exp > 0) @intCast(usize, float_decimal.exp) else 0;
+
+                // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
+                var num_digits_whole_no_pad = math.min(num_digits_whole, float_decimal.digits.len);
+
+                if (num_digits_whole > 0) {
+                    // We may have to zero pad, for instance 1e4 requires zero padding.
+                    try output(context, Errors, outputFn, float_decimal.digits[0..num_digits_whole_no_pad]);
+
+                    var i = num_digits_whole_no_pad;
+                    while (i < num_digits_whole) : (i += 1) {
+                        try output(context, Errors, outputFn, "0");
+                    }
+                } else {
+                    try output(context, Errors, outputFn, "0");
+                }
+
+                // Omit `.` if no fractional portion
+                if (float_decimal.exp >= 0 and num_digits_whole_no_pad == float_decimal.digits.len) {
+                    return;
+                }
+
+                try output(context, Errors, outputFn, ".");
+
+                // Zero-fill until we reach significant digits or run out of precision.
+                if (float_decimal.exp < 0) {
+                    const zero_digit_count = @intCast(usize, -float_decimal.exp);
+
+                    var i: usize = 0;
+                    while (i < zero_digit_count) : (i += 1) {
+                        try output(context, Errors, outputFn, "0");
+                    }
+                }
+
+                try output(context, Errors, outputFn, float_decimal.digits[num_digits_whole_no_pad..]);
+            }
+        }
+
+        pub fn formatBytes(
+            value: var,
+            options: FormatOptions,
+            comptime radix: usize,
+            context: var,
+            comptime Errors: type,
+            outputFn: if (is_async) async fn (@TypeOf(context), []const u8) Errors!void else fn (@TypeOf(context), []const u8) Errors!void,
+        ) Errors!void {
+            if (value == 0) {
+                return output(context, Errors, outputFn, "0B");
+            }
+
+            const mags_si = " kMGTPEZY";
+            const mags_iec = " KMGTPEZY";
+            const magnitude = switch (radix) {
+                1000 => math.min(math.log2(value) / comptime math.log2(1000), mags_si.len - 1),
+                1024 => math.min(math.log2(value) / 10, mags_iec.len - 1),
+                else => unreachable,
+            };
+            const new_value = lossyCast(f64, value) / math.pow(f64, lossyCast(f64, radix), lossyCast(f64, magnitude));
+            const suffix = switch (radix) {
+                1000 => mags_si[magnitude],
+                1024 => mags_iec[magnitude],
+                else => unreachable,
+            };
+
+            try formatFloatDecimal(new_value, options, context, Errors, outputFn);
+
+            if (suffix == ' ') {
+                return output(context, Errors, outputFn, "B");
+            }
+
+            const buf = switch (radix) {
+                1000 => &[_]u8{ suffix, 'B' },
+                1024 => &[_]u8{ suffix, 'i', 'B' },
+                else => unreachable,
+            };
+            return output(context, Errors, outputFn, buf);
+        }
+
+        pub fn formatInt(
+            value: var,
+            base: u8,
+            uppercase: bool,
+            options: FormatOptions,
+            context: var,
+            comptime Errors: type,
+            outputFn: if (is_async) async fn (@TypeOf(context), []const u8) Errors!void else fn (@TypeOf(context), []const u8) Errors!void,
+        ) Errors!void {
+            const int_value = if (@TypeOf(value) == comptime_int) blk: {
+                const Int = math.IntFittingRange(value, value);
+                break :blk @as(Int, value);
+            } else
+                value;
+
+            if (@TypeOf(int_value).is_signed) {
+                return formatIntSigned(int_value, base, uppercase, options, context, Errors, outputFn);
+            } else {
+                return formatIntUnsigned(int_value, base, uppercase, options, context, Errors, outputFn);
+            }
+        }
+
+        fn formatIntSigned(
+            value: var,
+            base: u8,
+            uppercase: bool,
+            options: FormatOptions,
+            context: var,
+            comptime Errors: type,
+            outputFn: if (is_async) async fn (@TypeOf(context), []const u8) Errors!void else fn (@TypeOf(context), []const u8) Errors!void,
+        ) Errors!void {
+            const new_options = FormatOptions{
+                .width = if (options.width) |w| (if (w == 0) 0 else w - 1) else null,
+                .precision = options.precision,
+                .fill = options.fill,
+            };
+
+            const uint = @IntType(false, @TypeOf(value).bit_count);
+            if (value < 0) {
+                const minus_sign: u8 = '-';
+                try output(context, Errors, outputFn, @as(*const [1]u8, &minus_sign)[0..]);
+                const new_value = @intCast(uint, -(value + 1)) + 1;
+                return formatIntUnsigned(new_value, base, uppercase, new_options, context, Errors, outputFn);
+            } else if (options.width == null or options.width.? == 0) {
+                return formatIntUnsigned(@intCast(uint, value), base, uppercase, options, context, Errors, outputFn);
+            } else {
+                const plus_sign: u8 = '+';
+                try output(context, Errors, outputFn, @as(*const [1]u8, &plus_sign)[0..]);
+                const new_value = @intCast(uint, value);
+                return formatIntUnsigned(new_value, base, uppercase, new_options, context, Errors, outputFn);
+            }
+        }
+
+        fn formatIntUnsigned(
+            value: var,
+            base: u8,
+            uppercase: bool,
+            options: FormatOptions,
+            context: var,
+            comptime Errors: type,
+            outputFn: if (is_async) async fn (@TypeOf(context), []const u8) Errors!void else fn (@TypeOf(context), []const u8) Errors!void,
+        ) Errors!void {
+            assert(base >= 2);
+            var buf: [math.max(@TypeOf(value).bit_count, 1)]u8 = undefined;
+            const min_int_bits = comptime math.max(@TypeOf(value).bit_count, @TypeOf(base).bit_count);
+            const MinInt = @IntType(@TypeOf(value).is_signed, min_int_bits);
+            var a: MinInt = value;
+            var index: usize = buf.len;
+
+            while (true) {
+                const digit = a % base;
+                index -= 1;
+                buf[index] = digitToChar(@intCast(u8, digit), uppercase);
+                a /= base;
+                if (a == 0) break;
+            }
+
+            const digits_buf = buf[index..];
+            const width = options.width orelse 0;
+            const padding = if (width > digits_buf.len) (width - digits_buf.len) else 0;
+
+            if (padding > index) {
+                const zero_byte: u8 = options.fill;
+                var leftover_padding = padding - index;
+                while (true) {
+                    try output(context, Errors, outputFn, @as(*const [1]u8, &zero_byte)[0..]);
+                    leftover_padding -= 1;
+                    if (leftover_padding == 0) break;
+                }
+                mem.set(u8, buf[0..index], options.fill);
+                return output(context, Errors, outputFn, &buf);
+            } else {
+                const padded_buf = buf[index - padding ..];
+                mem.set(u8, padded_buf[0..padding], options.fill);
+                return output(context, Errors, outputFn, padded_buf);
+            }
+        }
+    };
 }
 
 pub fn formatIntBuf(out_buf: []u8, value: var, base: u8, uppercase: bool, options: FormatOptions) usize {
@@ -1420,12 +1460,12 @@ test "custom" {
             options: FormatOptions,
             context: var,
             comptime Errors: type,
-            output: fn (@TypeOf(context), []const u8) Errors!void,
+            outputFn: if (std.io.is_async) async fn (@TypeOf(context), []const u8) Errors!void else fn (@TypeOf(context), []const u8) Errors!void,
         ) Errors!void {
             if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "p")) {
-                return std.fmt.format(context, Errors, output, "({d:.3},{d:.3})", .{ self.x, self.y });
+                return std.fmt.format(context, Errors, outputFn, "({d:.3},{d:.3})", .{ self.x, self.y });
             } else if (comptime std.mem.eql(u8, fmt, "d")) {
-                return std.fmt.format(context, Errors, output, "{d:.3}x{d:.3}", .{ self.x, self.y });
+                return std.fmt.format(context, Errors, outputFn, "{d:.3}x{d:.3}", .{ self.x, self.y });
             } else {
                 @compileError("Unknown format character: '" ++ fmt ++ "'");
             }
@@ -1626,10 +1666,10 @@ test "formatType max_depth" {
             options: FormatOptions,
             context: var,
             comptime Errors: type,
-            output: fn (@TypeOf(context), []const u8) Errors!void,
+            outputFn: if (std.io.is_async) async fn (@TypeOf(context), []const u8) Errors!void else fn (@TypeOf(context), []const u8) Errors!void,
         ) Errors!void {
             if (fmt.len == 0) {
-                return std.fmt.format(context, Errors, output, "({d:.3},{d:.3})", .{ self.x, self.y });
+                return std.fmt.format(context, Errors, outputFn, "({d:.3},{d:.3})", .{ self.x, self.y });
             } else {
                 @compileError("Unknown format string: '" ++ fmt ++ "'");
             }

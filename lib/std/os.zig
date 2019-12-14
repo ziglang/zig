@@ -294,6 +294,15 @@ pub const ReadError = error{
 /// If the application has a global event loop enabled, EAGAIN is handled
 /// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
 pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
+    return readMode(fd, buf, std.io.mode);
+}
+
+pub fn readMode(fd: fd_t, buf: []u8, comptime io_mode: std.io.Mode) ReadError!usize {
+    comptime const is_async = io_mode == .evented;
+    if (is_async and std.event.Loop.instance == null) {
+        @compileError("Cannot use is_async without evented io");
+    }
+
     if (builtin.os == .windows) {
         return windows.ReadFile(fd, buf);
     }
@@ -318,8 +327,8 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
-                loop.waitUntilFdReadable(fd);
+            EAGAIN => if (is_async and std.event.Loop.instance != null) {
+                std.event.Loop.instance.?.waitUntilFdReadable(fd);
                 continue;
             } else {
                 return error.WouldBlock;
@@ -456,6 +465,15 @@ pub const WriteError = error{
 /// TODO evented I/O integration is disabled until
 /// https://github.com/ziglang/zig/issues/3557 is solved.
 pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
+    return writeMode(fd, bytes, std.io.mode);
+}
+
+pub fn writeMode(fd: fd_t, bytes: []const u8, comptime io_mode: std.io.Mode) WriteError!void {
+    comptime const is_async = io_mode == .evented;
+    if (is_async and std.event.Loop.instance == null) {
+        @compileError("Cannot use is_async without evented io");
+    }
+
     if (builtin.os == .windows) {
         return windows.WriteFile(fd, bytes);
     }
@@ -491,13 +509,13 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
             EINVAL => unreachable,
             EFAULT => unreachable,
             // TODO https://github.com/ziglang/zig/issues/3557
-            EAGAIN => return error.WouldBlock,
-            //EAGAIN => if (std.event.Loop.instance) |loop| {
-            //    loop.waitUntilFdWritable(fd);
-            //    continue;
-            //} else {
-            //    return error.WouldBlock;
-            //},
+            //EAGAIN => return error.WouldBlock,
+            EAGAIN => if (is_async and std.event.Loop.instance != null) {
+                std.event.Loop.instance.?.waitUntilFdWritable(fd);
+                continue;
+            } else {
+                return error.WouldBlock;
+            },
             EBADF => unreachable, // Always a race condition.
             EDESTADDRREQ => unreachable, // `connect` was never called.
             EDQUOT => return error.DiskQuota,
@@ -510,6 +528,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
         }
     }
 }
+
 
 /// Write multiple buffers to a file descriptor.
 /// If the application has a global event loop enabled, EAGAIN is handled

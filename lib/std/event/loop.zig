@@ -32,6 +32,7 @@ pub const Loop = struct {
         handle: anyframe,
         overlapped: Overlapped,
 
+
         pub const overlapped_init = switch (builtin.os) {
             .windows => windows.OVERLAPPED{
                 .Internal = 0,
@@ -92,6 +93,7 @@ pub const Loop = struct {
         .evented => &global_instance_state,
     };
     pub const instance: ?*Loop = if (@hasDecl(root, "event_loop")) root.event_loop else default_instance;
+    initialized: bool = false,
 
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
@@ -158,6 +160,8 @@ pub const Loop = struct {
 
         try self.initOsData(extra_thread_count);
         errdefer self.deinitOsData();
+
+        self.initialized = true;
     }
 
     pub fn deinit(self: *Loop) void {
@@ -237,7 +241,7 @@ pub const Loop = struct {
                 var extra_thread_index: usize = 0;
                 errdefer {
                     // writing 8 bytes to an eventfd cannot fail
-                    os.write(self.os_data.final_eventfd, &wakeup_bytes) catch unreachable;
+                    os.writeMode(self.os_data.final_eventfd, &wakeup_bytes, .blocking) catch unreachable;
                     while (extra_thread_index != 0) {
                         extra_thread_index -= 1;
                         self.extra_threads[extra_thread_index].wait();

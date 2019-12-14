@@ -86,7 +86,9 @@ pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
 pub const SliceSeekableInStream = @import("io/seekable_stream.zig").SliceSeekableInStream;
 pub const COutStream = @import("io/c_out_stream.zig").COutStream;
 pub const InStream = @import("io/in_stream.zig").InStream;
+pub const InStreamMode = @import("io/in_stream.zig").InStreamMode;
 pub const OutStream = @import("io/out_stream.zig").OutStream;
+pub const OutStreamMode = @import("io/out_stream.zig").OutStreamMode;
 
 /// Deprecated; use `std.fs.Dir.writeFile`.
 pub fn writeFile(path: []const u8, data: []const u8) !void {
@@ -99,13 +101,14 @@ pub fn readFileAlloc(allocator: *mem.Allocator, path: []const u8) ![]u8 {
 }
 
 pub fn BufferedInStream(comptime Error: type) type {
-    return BufferedInStreamCustom(mem.page_size, Error);
+    return BufferedInStreamCustom(mem.page_size, Error, mode);
 }
 
-pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type) type {
+pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type,
+                              comptime io_mode: Mode) type {
     return struct {
         const Self = @This();
-        const Stream = InStream(Error);
+        const Stream = InStreamMode(Error, io_mode);
 
         stream: Stream,
 
@@ -585,14 +588,21 @@ test "io.CountingOutStream" {
     testing.expect(counting_stream.bytes_written == bytes.len);
 }
 
-pub fn BufferedOutStream(comptime Error: type) type {
-    return BufferedOutStreamCustom(mem.page_size, Error);
+
+// Use when async is not allowed
+pub fn BlockingOutStream(comptime WriteError: type) type {
+    return OutStreamMode(WriteError, .blocking);
 }
 
-pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamError: type) type {
+pub fn BufferedOutStream(comptime Error: type) type {
+    return BufferedOutStreamCustom(mem.page_size, Error, mode);
+}
+
+pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamError: type,
+                               comptime io_mode: Mode) type {
     return struct {
         const Self = @This();
-        pub const Stream = OutStream(Error);
+        pub const Stream = OutStreamMode(Error, io_mode);
         pub const Error = OutStreamError;
 
         stream: Stream,

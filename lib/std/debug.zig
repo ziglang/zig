@@ -41,10 +41,11 @@ const Module = struct {
 /// Tries to write to stderr, unbuffered, and ignores any error returned.
 /// Does not append a newline.
 var stderr_file: File = undefined;
-var stderr_file_out_stream: File.OutStream = undefined;
+var stderr_file_out_stream: File.BlockingOutStream = undefined;
 
-var stderr_stream: ?*io.OutStream(File.WriteError) = null;
+var stderr_stream: ?*io.BlockingOutStream(File.WriteError) = null;
 var stderr_mutex = std.Mutex.init();
+
 
 pub fn warn(comptime fmt: []const u8, args: var) void {
     const held = stderr_mutex.acquire();
@@ -53,12 +54,13 @@ pub fn warn(comptime fmt: []const u8, args: var) void {
     stderr.print(fmt, args) catch return;
 }
 
-pub fn getStderrStream() *io.OutStream(File.WriteError) {
+
+pub fn getStderrStream() *io.BlockingOutStream(File.WriteError) {
     if (stderr_stream) |st| {
         return st;
     } else {
         stderr_file = io.getStdErr();
-        stderr_file_out_stream = stderr_file.outStream();
+        stderr_file_out_stream = stderr_file.blockingOutStream();
         const st = &stderr_file_out_stream.stream;
         stderr_stream = st;
         return st;
@@ -91,16 +93,20 @@ fn wantTtyColor() bool {
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     const stderr = getStderrStream();
+    return dumpCurrentStackTraceToStream(stderr, start_addr);
+}
+
+pub fn dumpCurrentStackTraceToStream(stream: var, start_addr: ?usize) void {
     if (builtin.strip_debug_info) {
-        stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
+        stream.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
         return;
     }
     const debug_info = getSelfDebugInfo() catch |err| {
-        stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
+        stream.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
         return;
     };
-    writeCurrentStackTrace(stderr, debug_info, wantTtyColor(), start_addr) catch |err| {
-        stderr.print("Unable to dump stack trace: {}\n", .{@errorName(err)}) catch return;
+    writeCurrentStackTrace(stream, debug_info, wantTtyColor(), start_addr) catch |err| {
+        stream.print("Unable to dump stack trace: {}\n", .{@errorName(err)}) catch return;
         return;
     };
 }
@@ -110,24 +116,28 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 /// TODO multithreaded awareness
 pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
     const stderr = getStderrStream();
+    return dumpStackTraceFromBaseToStream(stderr, bp, ip);
+}
+
+pub fn dumpStackTraceFromBaseToStream(stream: var, bp: usize, ip: usize) void {
     if (builtin.strip_debug_info) {
-        stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
+        stream.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
         return;
     }
     const debug_info = getSelfDebugInfo() catch |err| {
-        stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
+        stream.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
         return;
     };
     const tty_color = wantTtyColor();
-    printSourceAtAddress(debug_info, stderr, ip, tty_color) catch return;
+    printSourceAtAddress(debug_info, stream, ip, tty_color) catch return;
     const first_return_address = @intToPtr(*const usize, bp + @sizeOf(usize)).*;
-    printSourceAtAddress(debug_info, stderr, first_return_address - 1, tty_color) catch return;
+    printSourceAtAddress(debug_info, stream, first_return_address - 1, tty_color) catch return;
     var it = StackIterator{
         .first_addr = null,
         .fp = bp,
     };
     while (it.next()) |return_address| {
-        printSourceAtAddress(debug_info, stderr, return_address - 1, tty_color) catch return;
+        printSourceAtAddress(debug_info, stream, return_address - 1, tty_color) catch return;
     }
 }
 
@@ -183,16 +193,20 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace
 /// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
     const stderr = getStderrStream();
+    return dumpStackTraceToStream(stderr, stack_trace);
+}
+
+pub fn dumpStackTraceToStream(stream: var, stack_trace: builtin.StackTrace) void {
     if (builtin.strip_debug_info) {
-        stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
+        stream.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
         return;
     }
     const debug_info = getSelfDebugInfo() catch |err| {
-        stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
+        stream.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
         return;
     };
-    writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, wantTtyColor()) catch |err| {
-        stderr.print("Unable to dump stack trace: {}\n", .{@errorName(err)}) catch return;
+    writeStackTrace(stack_trace, stream, getDebugInfoAllocator(), debug_info, wantTtyColor()) catch |err| {
+        stream.print("Unable to dump stack trace: {}\n", .{@errorName(err)}) catch return;
         return;
     };
 }

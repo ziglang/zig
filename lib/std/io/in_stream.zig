@@ -14,10 +14,18 @@ else
     default_stack_size;
 
 pub fn InStream(comptime ReadError: type) type {
+    return InStreamMode(ReadError, std.io.mode);
+}
+
+pub fn InStreamMode(comptime ReadError: type, comptime mode: std.io.Mode) type {
+    comptime const is_async = mode == .evented;
+    if (is_async and !std.io.is_async) {
+        @compileError("Cannot use is_async without evened io");
+    }
     return struct {
         const Self = @This();
         pub const Error = ReadError;
-        pub const ReadFn = if (std.io.is_async)
+        pub const ReadFn = if (is_async)
             async fn (self: *Self, buffer: []u8) Error!usize
         else
             fn (self: *Self, buffer: []u8) Error!usize;
@@ -31,7 +39,7 @@ pub fn InStream(comptime ReadError: type) type {
         /// If the number of bytes read is 0, it means end of stream.
         /// End of stream is not an error condition.
         pub fn read(self: *Self, buffer: []u8) Error!usize {
-            if (std.io.is_async) {
+            if (is_async) {
                 // Let's not be writing 0xaa in safe modes for upwards of 4 MiB for every stream read.
                 @setRuntimeSafety(false);
                 var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
