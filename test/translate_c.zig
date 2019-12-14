@@ -686,7 +686,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const SDL_INIT_VIDEO = @as(c_ulonglong, 32);
     });
 
-    cases.add("zig keywords in C code",
+    cases.add_both("zig keywords in C code",
         \\struct comptime {
         \\    int defer;
         \\};
