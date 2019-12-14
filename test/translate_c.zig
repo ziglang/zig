@@ -252,6 +252,22 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn some_func(foo: ?*struct_Foo, x: c_int) ?*struct_Foo;
     });
 
+    cases.add_2("array initializer expr",
+        \\static void foo(void){
+        \\    char arr[10] ={1};
+        \\    char *arr1[10] ={0};
+        \\}
+    , &[_][]const u8{
+        \\pub fn foo() void {
+        \\    var arr: [10]u8 = .{
+        \\        @as(u8, 1),
+        \\    } ++ .{0} ** 9;
+        \\    var arr1: [10][*c]u8 = .{
+        \\        null,
+        \\    } ++ .{null} ** 9;
+        \\}
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     cases.add_both("typedef of function in struct field",

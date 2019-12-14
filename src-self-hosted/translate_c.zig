@@ -498,7 +498,7 @@ fn transStmt(
     stmt: *const ZigClangStmt,
     result_used: ResultUsed,
     lrvalue: LRValue,
-) !TransResult {
+) TransError!TransResult {
     const sc = ZigClangStmt_getStmtClass(stmt);
     switch (sc) {
         .BinaryOperatorClass => return transBinaryOperator(rp, scope, @ptrCast(*const ZigClangBinaryOperator, stmt), result_used),
@@ -512,6 +512,7 @@ fn transStmt(
         .StringLiteralClass => return transStringLiteral(rp, scope, @ptrCast(*const ZigClangStringLiteral, stmt), result_used),
         .ParenExprClass => return transExpr(rp, scope, ZigClangParenExpr_getSubExpr(@ptrCast(*const ZigClangParenExpr, stmt)), result_used, lrvalue),
         .InitListExprClass => return transInitListExpr(rp, scope, @ptrCast(*const ZigClangInitListExpr, stmt), result_used),
+        .ImplicitValueInitExprClass => return transImplicitValueInitExpr(rp, scope, @ptrCast(*const ZigClangExpr, stmt), result_used),
         else => {
             return revertAndWarn(
                 rp,
@@ -856,6 +857,13 @@ fn transImplicitCastExpr(
         .LValueToRValue, .NoOp => {
             return transExpr(rp, scope, sub_expr, .used, .r_value);
         },
+        .NullToPointer => {
+            return TransResult{
+                .node = try transCreateNodeNullLiteral(rp.c),
+                .node_scope = scope,
+                .child_scope = scope,
+            };
+        },
         else => |kind| return revertAndWarn(
             rp,
             error.UnsupportedTranslation,
@@ -1040,21 +1048,33 @@ fn transInitListExpr(
     expr: *const ZigClangInitListExpr,
     used: ResultUsed,
 ) TransError!TransResult {
-    // TODO use anon literals once they work properly
     const qt = getExprQualType(rp.c, @ptrCast(*const ZigClangExpr, expr));
     const qual_type = ZigClangQualType_getTypePtr(qt);
     const source_loc = ZigClangExpr_getBeginLoc(@ptrCast(*const ZigClangExpr, expr));
+    switch (ZigClangType_getTypeClass(qual_type)) {
+        .ConstantArray => {},
+        .Record, .Elaborated => {
+            return revertAndWarn(rp, error.UnsupportedType, source_loc, "TODO initListExpr for structs", .{});
+        },
+        else => {
+            const type_name = rp.c.str(ZigClangType_getTypeClassName(qual_type));
+            return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported initlist type: '{}'", .{type_name});
+        },
+    }
+
     const arr_type = ZigClangType_getAsArrayTypeUnsafe(qual_type);
+    const const_arr_ty = @ptrCast(*const ZigClangConstantArrayType, qual_type);
     const child_qt = ZigClangArrayType_getElementType(arr_type);
     const init_count = ZigClangInitListExpr_getNumInits(expr);
-    const all_count = 200; //ZigClangArrayType_getSize(arr_type);
+    const size_ap_int = ZigClangConstantArrayType_getSize(const_arr_ty);
+    const all_count = ZigClangAPInt_getLimitedValue(size_ap_int, std.math.maxInt(usize));
     const leftover_count = all_count - init_count;
 
     var init_node: *ast.Node.SuffixOp = undefined;
     var cat_tok: ast.TokenIndex = undefined;
     if (init_count != 0) {
-        var type_node = try transQualType(rp, qt, source_loc);
-        init_node = try transCreateNodeArrayInitializer(rp.c, type_node);
+        const dot_tok = try appendToken(rp.c, .Period, ".");
+        init_node = try transCreateNodeArrayInitializer(rp.c, dot_tok);
         var i: c_uint = 0;
         while (i < init_count) : (i += 1) {
             const elem_expr = ZigClangInitListExpr_getInit(expr, i);
@@ -1072,8 +1092,8 @@ fn transInitListExpr(
         cat_tok = try appendToken(rp.c, .PlusPlus, "++");
     }
 
-    var filler_type_node = try transQualType(rp, qt, source_loc);
-    var filler_init_node = try transCreateNodeArrayInitializer(rp.c, filler_type_node);
+    const dot_tok = try appendToken(rp.c, .Period, ".");
+    var filler_init_node = try transCreateNodeArrayInitializer(rp.c, dot_tok);
     const filler_val_expr = ZigClangInitListExpr_getArrayFiller(expr);
     try filler_init_node.op.ArrayInitializer.push((try transExpr(rp, scope, filler_val_expr, .used, .r_value)).node);
     filler_init_node.rtoken = try appendToken(rp.c, .RBrace, "}");
@@ -1111,6 +1131,58 @@ fn transInitListExpr(
     };
     return TransResult{
         .node = &cat_node.base,
+        .child_scope = scope,
+        .node_scope = scope,
+    };
+}
+
+fn transImplicitValueInitExpr(
+    rp: RestorePoint,
+    scope: *Scope,
+    expr: *const ZigClangExpr,
+    used: ResultUsed,
+) TransError!TransResult {
+    const source_loc = ZigClangExpr_getBeginLoc(expr);
+    const qt = getExprQualType(rp.c, expr);
+    const ty = ZigClangQualType_getTypePtr(qt);
+    const node = switch (ZigClangType_getTypeClass(ty)) {
+        .Builtin => blk: {
+            const builtin_ty = @ptrCast(*const ZigClangBuiltinType, ty);
+            switch (ZigClangBuiltinType_getKind(builtin_ty)) {
+                .Bool => {
+                    break :blk try transCreateNodeBoolLiteral(rp.c, false);
+                },
+                .Char_U,
+                .UChar,
+                .Char_S,
+                .Char8,
+                .SChar,
+                .UShort,
+                .UInt,
+                .ULong,
+                .ULongLong,
+                .Short,
+                .Int,
+                .Long,
+                .LongLong,
+                .UInt128,
+                .Int128,
+                .Float,
+                .Double,
+                .Float128,
+                .Float16,
+                .LongDouble,
+                => {
+                    break :blk try transCreateNodeInt(rp.c, 0);
+                },
+                else => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported builtin type", .{}),
+            }
+        },
+        .Pointer => try transCreateNodeNullLiteral(rp.c),
+        else => return revertAndWarn(rp, error.UnsupportedType, source_loc, "type does not have an implicit init value", .{}),
+    };
+    return TransResult{
+        .node = node,
         .child_scope = scope,
         .node_scope = scope,
     };
@@ -1593,12 +1665,35 @@ fn transCreateNodeUndefinedLiteral(c: *Context) !*ast.Node {
     return &node.base;
 }
 
-fn transCreateNodeArrayInitializer(c: *Context, type_node: *ast.Node) !*ast.Node.SuffixOp {
+fn transCreateNodeNullLiteral(c: *Context) !*ast.Node {
+    const token = try appendToken(c, .Keyword_null, "null");
+    const node = try c.a().create(ast.Node.NullLiteral);
+    node.* = ast.Node.NullLiteral{
+        .base = ast.Node{ .id = .NullLiteral },
+        .token = token,
+    };
+    return &node.base;
+}
+
+fn transCreateNodeBoolLiteral(c: *Context, value: bool) !*ast.Node {
+    const token = if (value)
+        try appendToken(c, .Keyword_true, "true")
+    else
+        try appendToken(c, .Keyword_false, "false");
+    const node = try c.a().create(ast.Node.BoolLiteral);
+    node.* = ast.Node.BoolLiteral{
+        .base = ast.Node{ .id = .BoolLiteral },
+        .token = token,
+    };
+    return &node.base;
+}
+
+fn transCreateNodeArrayInitializer(c: *Context, dot_tok: ast.TokenIndex) !*ast.Node.SuffixOp {
     _ = try appendToken(c, .LBrace, "{");
     const node = try c.a().create(ast.Node.SuffixOp);
     node.* = ast.Node.SuffixOp{
         .base = ast.Node{ .id = .SuffixOp },
-        .lhs = .{ .node = type_node },
+        .lhs = .{ .dot = dot_tok },
         .op = .{
             .ArrayInitializer = ast.Node.SuffixOp.Op.InitList.init(c.a()),
         },
@@ -1753,7 +1848,6 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
             const typedef_ty = @ptrCast(*const ZigClangTypedefType, ty);
 
             const typedef_decl = ZigClangTypedefType_getDecl(typedef_ty);
-            // const typedef_name = rp.c.decl_table.get(@ptrToInt(ZigClangTypedefNameDecl_getCanonicalDecl(typedef_decl))).?.value;
             const typedef_name = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, typedef_decl)));
             return appendIdentifier(rp.c, typedef_name);
         },
