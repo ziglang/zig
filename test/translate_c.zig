@@ -217,6 +217,72 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const OpenGLProcs = union_OpenGLProcs;
     });
 
+    cases.add_2("enums",
+        \\typedef enum {
+        \\    a,
+        \\    b,
+        \\    c,
+        \\} d;
+        \\enum {
+        \\    e,
+        \\    f = 4,
+        \\    g,
+        \\} h = e;
+        \\struct Baz {
+        \\    enum {
+        \\        i,
+        \\        j,
+        \\        k,
+        \\    } l;
+        \\    d m;
+        \\};
+        \\enum i {
+        \\    n,
+        \\    o,
+        \\    p,
+        \\};
+    , &[_][]const u8{
+        \\pub const a = enum_unnamed_1.a;
+        \\pub const b = enum_unnamed_1.b;
+        \\pub const c = enum_unnamed_1.c;
+        \\pub const enum_unnamed_1 = extern enum {
+        \\    a,
+        \\    b,
+        \\    c,
+        \\};
+        \\pub const d = enum_unnamed_1;
+        \\pub const e = enum_unnamed_2.e;
+        \\pub const f = enum_unnamed_2.f;
+        \\pub const g = enum_unnamed_2.g;
+        \\pub const enum_unnamed_2 = extern enum {
+        \\    e = 0,
+        \\    f = 4,
+        \\    g = 5,
+        \\};
+        \\pub export var h: enum_unnamed_2 = @as(enum_unnamed_2, e);
+        \\pub const i = enum_unnamed_3.i;
+        \\pub const j = enum_unnamed_3.j;
+        \\pub const k = enum_unnamed_3.k;
+        \\pub const enum_unnamed_3 = extern enum {
+        \\    i,
+        \\    j,
+        \\    k,
+        \\};
+        \\pub const struct_Baz = extern struct {
+        \\    l: enum_unnamed_3,
+        \\    m: d,
+        \\};
+        \\pub const n = enum_i.n;
+        \\pub const o = enum_i.o;
+        \\pub const p = enum_i.p;
+        \\pub const enum_i = extern enum {
+        \\    n,
+        \\    o,
+        \\    p,
+        \\};
+        \\pub const Baz = struct_Baz;
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     cases.add_both("typedef of function in struct field",
@@ -440,7 +506,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("enums",
+    cases.add_both("enums",
         \\enum Foo {
         \\    FooA,
         \\    FooB,
@@ -462,7 +528,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const Foo = enum_Foo;
     });
 
-    cases.add("enums",
+    cases.add_both("enums",
         \\enum Foo {
         \\    FooA = 2,
         \\    FooB = 5,
