@@ -408,7 +408,7 @@ pub fn OutputFormat(comptime mode: std.io.Mode) type {
                 .Union => {
                     if (comptime std.meta.trait.hasFn("format")(T)) {
                         // WARNING: API changed, added is_async param
-                        return value.format(fmt, options, context, Errors, outputFn, is_async);
+                        //return value.format(fmt, options, context, Errors, outputFn, is_async);
                     }
 
                     try output(context, Errors, outputFn, @typeName(T));
