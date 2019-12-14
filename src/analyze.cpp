@@ -2682,7 +2682,7 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 
         // Make sure the value is unique
         auto entry = occupied_tag_values.put_unique(type_enum_field->value, field_node);
-        if (entry != nullptr) {
+        if (entry != nullptr && enum_type->data.enumeration.layout != ContainerLayoutExtern) {
             enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
 
             Buf *val_buf = buf_alloc();

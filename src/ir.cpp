@@ -12728,7 +12728,7 @@ static IrInstruction *ir_analyze_int_to_enum(IrAnalyze *ira, IrInstruction *sour
             return ira->codegen->invalid_instruction;
 
         TypeEnumField *field = find_enum_field_by_tag(wanted_type, &val->data.x_bigint);
-        if (field == nullptr) {
+        if (field == nullptr && wanted_type->data.enumeration.layout != ContainerLayoutExtern) {
             Buf *val_buf = buf_alloc();
             bigint_append_buf(val_buf, &val->data.x_bigint, 10);
             ErrorMsg *msg = ir_add_error(ira, source_instr,
@@ -25791,6 +25791,10 @@ static IrInstruction *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
             }
         }
         if (!instruction->have_else_prong) {
+            if (switch_type->data.enumeration.layout == ContainerLayoutExtern) {
+                ir_add_error(ira, &instruction->base,
+                    buf_sprintf("switch on an extern enum must have an else prong"));
+            }
             for (uint32_t i = 0; i < switch_type->data.enumeration.src_field_count; i += 1) {
                 TypeEnumField *enum_field = &switch_type->data.enumeration.fields[i];
 
