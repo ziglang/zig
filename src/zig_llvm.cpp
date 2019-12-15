@@ -156,6 +156,10 @@ unsigned ZigLLVMDataLayoutGetStackAlignment(LLVMTargetDataRef TD) {
     return unwrap(TD)->getStackAlignment();
 }
 
+unsigned ZigLLVMDataLayoutGetProgramAddressSpace(LLVMTargetDataRef TD) {
+    return unwrap(TD)->getProgramAddressSpace();
+}
+
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         const char *filename, ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug,
         bool is_small, bool time_report)
