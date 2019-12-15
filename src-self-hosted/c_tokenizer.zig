@@ -25,6 +25,7 @@ pub const CToken = struct {
         Tilde,
         Shl,
         Lt,
+        Comma,
     };
 
     pub const NumLitSuffix = enum {
@@ -189,6 +190,10 @@ fn next(chars: [*]const u8, i: *usize) !CToken {
                     },
                     '~' => {
                         result.id = .Tilde;
+                        return result;
+                    },
+                    ',' => {
+                        result.id = .Comma;
                         return result;
                     },
                     else => return error.TokenizingFailed,

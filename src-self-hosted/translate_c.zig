@@ -2039,12 +2039,45 @@ fn transCreateNodeUnwrapNull(c: *Context, wrapped: *ast.Node) !*ast.Node {
     _ = try appendToken(c, .Period, ".");
     const qm = try appendToken(c, .QuestionMark, "?");
     const node = try c.a().create(ast.Node.SuffixOp);
-    node.* = ast.Node.SuffixOp{
+    node.* = .{
         .op = .UnwrapOptional,
         .lhs = .{ .node = wrapped },
         .rtoken = qm,
     };
     return &node.base;
+}
+
+fn transCreateNodeEnumLiteral(c: *Context, name: []const u8) !*ast.Node {
+    const node = try c.a().create(ast.Node.EnumLiteral);
+    node.* = .{
+        .dot = try appendToken(c, .Period, "."),
+        .name = try appendIdentifier(c, name),
+    };
+    return &node.base;
+}
+
+fn transCreateNodeIf(c: *Context) !*ast.Node.If {
+    const if_tok = try appendToken(c, .Keyword_if, "if");
+    _ = try appendToken(c, .LParen, "(");
+    const node = try c.a().create(ast.Node.If);
+    node.* = .{
+        .if_token = if_tok,
+        .condition = undefined,
+        .payload = null,
+        .body = undefined,
+        .@"else" = null,
+    };
+    return node;
+}
+
+fn transCreateNodeElse(c: *Context) !*ast.Node.Else {
+    const node = try c.a().create(ast.Node.Else);
+    node.* = .{
+        .else_token = try appendToken(c, .Keyword_else, "else"),
+        .payload = null,
+        .body = undefined,
+    };
+    return node;
 }
 
 const RestorePoint = struct {
@@ -2722,26 +2755,102 @@ fn parseCPrimaryExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc:
             };
             return &node.base;
         },
-        .Minus => {
-            const node = try transCreateNodePrefixOp(
-                rp.c,
-                .Negation,
-                .Minus,
-                "-",
-            );
-            node.rhs = try parseCNumLit(rp, it.next().?, source_loc);
-            return &node.base;
-        },
         .NumLitInt, .NumLitFloat => {
             return parseCNumLit(rp, tok, source_loc);
         },
         .Identifier => return transCreateNodeIdentifier(rp.c, tok.bytes),
         .LParen => {
-            _ = try appendToken(rp.c, .LParen, "(");
             const inner_node = try parseCExpr(rp, it, source_loc);
-            _ = try appendToken(rp.c, .RParen, ")");
 
-            return inner_node; // TODO
+            // hack to get zig fmt to render a comma in builtin calls
+            _ = try appendToken(rp.c, .Comma, ",");
+
+            if (it.peek().?.id == .RParen) {
+                _ = it.next();
+                return inner_node;
+            }
+
+            const node_to_cast = try parseCExpr(rp, it, source_loc);
+
+            if (it.next().?.id != .RParen) {
+                return revertAndWarn(
+                    rp,
+                    error.ParseError,
+                    source_loc,
+                    "unable to translate C expr",
+                    .{},
+                );
+            }
+
+            //if (@typeId(@TypeOf(x)) == .Pointer)
+            //    @ptrCast(dest, x)
+            //else if (@typeId(@TypeOf(x)) == .Integer)
+            //    @intToPtr(dest, x)
+            //else
+            //    @as(dest, x)
+
+            const if_1 = try transCreateNodeIf(rp.c);
+            const type_id_1 = try transCreateNodeBuiltinFnCall(rp.c, "@typeId");
+            const type_of_1 = try transCreateNodeBuiltinFnCall(rp.c, "@TypeOf");
+            try type_id_1.params.push(&type_of_1.base);
+            try type_of_1.params.push(node_to_cast);
+            type_of_1.rparen_token = try appendToken(rp.c, .LParen, ")");
+            type_id_1.rparen_token = try appendToken(rp.c, .LParen, ")");
+
+            const cmp_1 = try rp.c.a().create(ast.Node.InfixOp);
+            cmp_1.* = .{
+                .op_token = try appendToken(rp.c, .EqualEqual, "=="),
+                .lhs = &type_id_1.base,
+                .op = .EqualEqual,
+                .rhs = try transCreateNodeEnumLiteral(rp.c, "Pointer"),
+            };
+            if_1.condition = &cmp_1.base;
+            _ = try appendToken(rp.c, .LParen, ")");
+
+            const ptr_cast = try transCreateNodeBuiltinFnCall(rp.c, "@ptrCast");
+            try ptr_cast.params.push(inner_node);
+            try ptr_cast.params.push(node_to_cast);
+            ptr_cast.rparen_token = try appendToken(rp.c, .LParen, ")");
+            if_1.body = &ptr_cast.base;
+
+            const else_1 = try transCreateNodeElse(rp.c);
+            if_1.@"else" = else_1;
+
+            const if_2 = try transCreateNodeIf(rp.c);
+            const type_id_2 = try transCreateNodeBuiltinFnCall(rp.c, "@typeId");
+            const type_of_2 = try transCreateNodeBuiltinFnCall(rp.c, "@TypeOf");
+            try type_id_2.params.push(&type_of_2.base);
+            try type_of_2.params.push(node_to_cast);
+            type_of_2.rparen_token = try appendToken(rp.c, .LParen, ")");
+            type_id_2.rparen_token = try appendToken(rp.c, .LParen, ")");
+
+            const cmp_2 = try rp.c.a().create(ast.Node.InfixOp);
+            cmp_2.* = .{
+                .op_token = try appendToken(rp.c, .EqualEqual, "=="),
+                .lhs = &type_id_2.base,
+                .op = .EqualEqual,
+                .rhs = try transCreateNodeEnumLiteral(rp.c, "Int"),
+            };
+            if_2.condition = &cmp_2.base;
+            else_1.body = &if_2.base;
+            _ = try appendToken(rp.c, .LParen, ")");
+
+            const int_to_ptr = try transCreateNodeBuiltinFnCall(rp.c, "@intToPtr");
+            try int_to_ptr.params.push(inner_node);
+            try int_to_ptr.params.push(node_to_cast);
+            int_to_ptr.rparen_token = try appendToken(rp.c, .LParen, ")");
+            if_2.body = &int_to_ptr.base;
+
+            const else_2 = try transCreateNodeElse(rp.c);
+            if_2.@"else" = else_2;
+
+            const as = try transCreateNodeBuiltinFnCall(rp.c, "@as");
+            try as.params.push(inner_node);
+            try as.params.push(node_to_cast);
+            as.rparen_token = try appendToken(rp.c, .LParen, ")");
+            else_2.body = &as.base;
+
+            return &if_1.base;
         },
         else => return revertAndWarn(
             rp,
@@ -2779,6 +2888,30 @@ fn parseCSuffixOpExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc
                     .rhs = rhs,
                 };
                 node = &access_node.base;
+            },
+            .Asterisk => {
+                if (it.peek().?.id == .RParen) {
+                    // type *)
+
+                    // hack to get zig fmt to render a comma in builtin calls
+                    _ = try appendToken(rp.c, .Comma, ",");
+
+                    const ptr = try transCreateNodePtrType(rp.c, false, false, .Identifier);
+                    ptr.rhs = node;
+                    return &ptr.base;
+                } else {
+                    // expr * expr
+                    const op_token = try appendToken(rp.c, .Asterisk, "*");
+                    const rhs = try parseCPrimaryExpr(rp, it, source_loc);
+                    const bitshift_node = try rp.c.a().create(ast.Node.InfixOp);
+                    bitshift_node.* = .{
+                        .op_token = op_token,
+                        .lhs = node,
+                        .op = .BitShiftLeft,
+                        .rhs = rhs,
+                    };
+                    node = &bitshift_node.base;
+                }
             },
             .Shl => {
                 const op_token = try appendToken(rp.c, .AngleBracketAngleBracketLeft, "<<");
@@ -2819,6 +2952,16 @@ fn parseCPrefixOpExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc
             node.rhs = try parseCPrefixOpExpr(rp, it, source_loc);
             return &node.base;
         },
+        .Asterisk => {
+            const prefix_op_expr = try parseCPrefixOpExpr(rp, it, source_loc);
+            const node = try rp.c.a().create(ast.Node.SuffixOp);
+            node.* = .{
+                .lhs = .{ .node = prefix_op_expr },
+                .op = .Deref,
+                .rtoken = try appendToken(rp.c, .PeriodAsterisk, ".*"),
+            };
+            return &node.base;
+        },
         else => {
             _ = it.prev();
             return try parseCSuffixOpExpr(rp, it, source_loc);
@@ -2833,7 +2976,7 @@ fn tokenSlice(c: *Context, token: ast.TokenIndex) []const u8 {
 
 fn getFnDecl(c: *Context, ref: *ast.Node) ?*ast.Node {
     const init = ref.cast(ast.Node.VarDecl).?.init_node.?;
-    const name = if (init.cast(ast.Node.Identifier)) |id| 
+    const name = if (init.cast(ast.Node.Identifier)) |id|
         tokenSlice(c, id.token)
     else
         return null;

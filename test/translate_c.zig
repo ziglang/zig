@@ -397,6 +397,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const OpenGLProcs = union_OpenGLProcs;
     });
 
+    cases.add_2("macro pointer cast",
+        \\#define NRF_GPIO ((NRF_GPIO_Type *) NRF_GPIO_BASE)
+    , &[_][]const u8{
+        \\pub const NRF_GPIO = if (@typeId(@TypeOf(NRF_GPIO_BASE)) == .Pointer) @ptrCast([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@TypeOf(NRF_GPIO_BASE)) == .Int) @intToPtr([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else @as([*c]NRF_GPIO_Type, NRF_GPIO_BASE);
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     cases.add_both("typedef of function in struct field",
