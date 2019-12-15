@@ -2611,7 +2611,7 @@ pub fn realpathC(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
 
         return readlinkC(@ptrCast([*:0]const u8, proc_path.ptr), out_buffer);
     }
-    const result_path = std.c.realpath(pathname, out_buffer) orelse switch (std.c._errno().*) {
+    const result_path = std.c.realpath(pathname, @ptrCast([*:0]u8, out_buffer)) orelse switch (std.c._errno().*) {
         EINVAL => unreachable,
         EBADF => unreachable,
         EFAULT => unreachable,

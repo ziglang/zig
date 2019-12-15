@@ -597,7 +597,7 @@ test "Deserializer bad data" {
 test "c out stream" {
     if (!builtin.link_libc) return error.SkipZigTest;
 
-    const filename = "tmp_io_test_file.txt";
+    const filename = "tmp_io_test_file.txt\x00";
     const out_file = std.c.fopen(filename, "w") orelse return error.UnableToOpenTestFile;
     defer {
         _ = std.c.fclose(out_file);
