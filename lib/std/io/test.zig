@@ -598,10 +598,10 @@ test "c out stream" {
     if (!builtin.link_libc) return error.SkipZigTest;
 
     const filename = "tmp_io_test_file.txt";
-    const out_file = std.c.fopen(@ptrCast([*:0]const u8, filename), "w") orelse return error.UnableToOpenTestFile;
+    const out_file = std.c.fopen(filename, "w") orelse return error.UnableToOpenTestFile;
     defer {
         _ = std.c.fclose(out_file);
-        fs.cwd().deleteFileC(@ptrCast([*:0]const u8, filename)) catch {};
+        fs.cwd().deleteFileC(filename) catch {};
     }
 
     const out_stream = &io.COutStream.init(out_file).stream;
