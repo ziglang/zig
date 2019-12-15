@@ -871,6 +871,20 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add_2("==, !=, no if", // TODO remove this test after `if` conversion supported, and switch "==, !=" to addC_both
+        \\int max(int a, int b) {
+        \\    int c = (a == b);
+        \\    int d = (a != b);
+        \\    return (c != d);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(a: c_int, b: c_int) c_int {
+        \\    var c: c_int = (a == b);
+        \\    var d: c_int = (a != b);
+        \\    return (c != d);
+        \\}
+    });
+
     cases.addC("bitwise binary operators",
         \\int max(int a, int b) {
         \\    return (a & b) ^ (a | b);
@@ -878,6 +892,20 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn max(a: c_int, b: c_int) c_int {
         \\    return (a & b) ^ (a | b);
+        \\}
+    });
+
+    cases.add_2("bitwise binary operators, simpler parens", // TODO can combine with "bitwise binary operators" when parens are correctly preserved/not added in translate-c-2
+        \\int max(int a, int b) {
+        \\    int c = (a & b);
+        \\    int d = (a | b);
+        \\    return (c ^ d);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(a: c_int, b: c_int) c_int {
+        \\    var c: c_int = (a & b);
+        \\    var d: c_int = (a | b);
+        \\    return (c ^ d);
         \\}
     });
 
@@ -894,6 +922,30 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    if ((a < b) or (a == b)) return b;
         \\    if ((a >= b) and (a == b)) return a;
         \\    return a;
+        \\}
+    });
+
+    cases.add_2("comparison operators (no if)", // TODO Come up with less contrived tests? Make sure to cover all these comparisons. Can use `if` after it is added to translate-c-2
+        \\int test_comparisons(int a, int b) {
+        \\    int c = (a < b);
+        \\    int d = (a > b);
+        \\    int e = (a <= b);
+        \\    int f = (a >= b);
+        \\    int g = (c < d);
+        \\    int h = (e < f);
+        \\    int i = (g < h);
+        \\    return i;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn test_comparisons(a: c_int, b: c_int) c_int {
+        \\    var c: c_int = (a < b);
+        \\    var d: c_int = (a > b);
+        \\    var e: c_int = (a <= b);
+        \\    var f: c_int = (a >= b);
+        \\    var g: c_int = (c < d);
+        \\    var h: c_int = (e < f);
+        \\    var i: c_int = (g < h);
+        \\    return i;
         \\}
     });
 

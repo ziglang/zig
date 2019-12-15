@@ -681,15 +681,85 @@ fn transBinaryOperator(
         },
         .Shl,
         .Shr,
-        .LT,
-        .GT,
-        .LE,
-        .GE,
-        .EQ,
-        .NE,
-        .And,
-        .Xor,
-        .Or,
+        => return revertAndWarn(
+            rp,
+            error.UnsupportedTranslation,
+            ZigClangBinaryOperator_getBeginLoc(stmt),
+            "TODO: handle more C binary operators: {}",
+            .{op},
+        ),
+        .LT => {
+            const node = try transCreateNodeInfixOp(rp, scope, stmt, .LessThan, .AngleBracketLeft, "<", true);
+            return maybeSuppressResult(rp, scope, result_used, TransResult{
+                .node = node,
+                .child_scope = scope,
+                .node_scope = scope,
+            });
+        },
+        .GT => {
+            const node = try transCreateNodeInfixOp(rp, scope, stmt, .GreaterThan, .AngleBracketRight, ">", true);
+            return maybeSuppressResult(rp, scope, result_used, TransResult{
+                .node = node,
+                .child_scope = scope,
+                .node_scope = scope,
+            });
+        },
+        .LE => {
+            const node = try transCreateNodeInfixOp(rp, scope, stmt, .LessOrEqual, .AngleBracketLeftEqual, "<=", true);
+            return maybeSuppressResult(rp, scope, result_used, TransResult{
+                .node = node,
+                .child_scope = scope,
+                .node_scope = scope,
+            });
+        },
+        .GE => {
+            const node = try transCreateNodeInfixOp(rp, scope, stmt, .GreaterOrEqual, .AngleBracketRightEqual, ">=", true);
+            return maybeSuppressResult(rp, scope, result_used, TransResult{
+                .node = node,
+                .child_scope = scope,
+                .node_scope = scope,
+            });
+        },
+        .EQ => {
+            const node = try transCreateNodeInfixOp(rp, scope, stmt, .EqualEqual, .EqualEqual, "==", true);
+            return maybeSuppressResult(rp, scope, result_used, TransResult{
+                .node = node,
+                .child_scope = scope,
+                .node_scope = scope,
+            });
+        },
+        .NE => {
+            const node = try transCreateNodeInfixOp(rp, scope, stmt, .BangEqual, .BangEqual, "!=", true);
+            return maybeSuppressResult(rp, scope, result_used, TransResult{
+                .node = node,
+                .child_scope = scope,
+                .node_scope = scope,
+            });
+        },
+        .And => {
+            const node = try transCreateNodeInfixOp(rp, scope, stmt, .BitAnd, .Ampersand, "&", true);
+            return maybeSuppressResult(rp, scope, result_used, TransResult{
+                .node = node,
+                .child_scope = scope,
+                .node_scope = scope,
+            });
+        },
+        .Xor => {
+            const node = try transCreateNodeInfixOp(rp, scope, stmt, .BitXor, .Caret, "^", true);
+            return maybeSuppressResult(rp, scope, result_used, TransResult{
+                .node = node,
+                .child_scope = scope,
+                .node_scope = scope,
+            });
+        },
+        .Or => {
+            const node = try transCreateNodeInfixOp(rp, scope, stmt, .BitOr, .Pipe, "|", true);
+            return maybeSuppressResult(rp, scope, result_used, TransResult{
+                .node = node,
+                .child_scope = scope,
+                .node_scope = scope,
+            });
+        },
         .LAnd,
         .LOr,
         .Comma,
