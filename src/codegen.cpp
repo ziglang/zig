@@ -422,9 +422,10 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
     LLVMTypeRef fn_llvm_type = fn->raw_type_ref;
     LLVMValueRef llvm_fn = nullptr;
     if (fn->body_node == nullptr) {
+        const unsigned fn_addrspace = ZigLLVMDataLayoutGetProgramAddressSpace(g->target_data_ref);
         LLVMValueRef existing_llvm_fn = LLVMGetNamedFunction(g->module, symbol_name);
         if (existing_llvm_fn) {
-            return LLVMConstBitCast(existing_llvm_fn, LLVMPointerType(fn_llvm_type, 0));
+            return LLVMConstBitCast(existing_llvm_fn, LLVMPointerType(fn_llvm_type, fn_addrspace));
         } else {
             Buf *buf_symbol_name = buf_create_from_str(symbol_name);
             auto entry = g->exported_symbol_names.maybe_get(buf_symbol_name);
@@ -447,7 +448,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
                 resolve_llvm_types_fn(g, tld_fn->fn_entry);
                 tld_fn->fn_entry->llvm_value = LLVMAddFunction(g->module, symbol_name,
                         tld_fn->fn_entry->raw_type_ref);
-                llvm_fn = LLVMConstBitCast(tld_fn->fn_entry->llvm_value, LLVMPointerType(fn_llvm_type, 0));
+                llvm_fn = LLVMConstBitCast(tld_fn->fn_entry->llvm_value, LLVMPointerType(fn_llvm_type, fn_addrspace));
                 return llvm_fn;
             }
         }

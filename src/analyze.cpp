@@ -8779,7 +8779,8 @@ static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
 
     fn_type->data.fn.raw_type_ref = LLVMFunctionType(get_llvm_type(g, gen_return_type),
             gen_param_types.items, (unsigned int)gen_param_types.length, fn_type_id->is_var_args);
-    fn_type->llvm_type = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
+    const unsigned fn_addrspace = ZigLLVMDataLayoutGetProgramAddressSpace(g->target_data_ref);
+    fn_type->llvm_type = LLVMPointerType(fn_type->data.fn.raw_type_ref, fn_addrspace);
     fn_type->data.fn.raw_di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types.items, (int)param_di_types.length, 0);
     fn_type->llvm_di_type = ZigLLVMCreateDebugPointerType(g->dbuilder, fn_type->data.fn.raw_di_type,
             LLVMStoreSizeOfType(g->target_data_ref, fn_type->llvm_type),
@@ -8888,7 +8889,8 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
 
     ZigType *result_type = any_frame_type->data.any_frame.result_type;
     ZigType *ptr_result_type = (result_type == nullptr) ? nullptr : get_pointer_to_type(g, result_type, false);
-    LLVMTypeRef ptr_fn_llvm_type = LLVMPointerType(fn_type, 0);
+    const unsigned fn_addrspace = ZigLLVMDataLayoutGetProgramAddressSpace(g->target_data_ref);
+    LLVMTypeRef ptr_fn_llvm_type = LLVMPointerType(fn_type, fn_addrspace);
     if (result_type == nullptr) {
         g->anyframe_fn_type = ptr_fn_llvm_type;
     }

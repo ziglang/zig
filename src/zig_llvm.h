@@ -475,5 +475,6 @@ ZIG_EXTERN_C void ZigLLVMGetNativeTarget(enum ZigLLVM_ArchType *arch_type, enum 
         enum ZigLLVM_ObjectFormatType *oformat);
 
 ZIG_EXTERN_C unsigned ZigLLVMDataLayoutGetStackAlignment(LLVMTargetDataRef TD);
+ZIG_EXTERN_C unsigned ZigLLVMDataLayoutGetProgramAddressSpace(LLVMTargetDataRef TD);
 
 #endif
