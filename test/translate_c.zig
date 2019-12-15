@@ -403,6 +403,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const NRF_GPIO = if (@typeId(@TypeOf(NRF_GPIO_BASE)) == .Pointer) @ptrCast([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@TypeOf(NRF_GPIO_BASE)) == .Int) @intToPtr([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else @as([*c]NRF_GPIO_Type, NRF_GPIO_BASE);
     });
 
+    cases.add_2("basic macro function",
+        \\#define BASIC(c) (c*2)
+    , &[_][]const u8{
+        \\pub inline fn BASIC(c: var) @TypeOf(c * 2) {
+        \\    return c * 2;
+        \\}
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     cases.add_both("typedef of function in struct field",

@@ -26,6 +26,7 @@ pub const CToken = struct {
         Shl,
         Lt,
         Comma,
+        Fn,
     };
 
     pub const NumLitSuffix = enum {
@@ -41,11 +42,22 @@ pub const CToken = struct {
 
 pub fn tokenizeCMacro(tl: *TokenList, chars: [*]const u8) !void {
     var index: usize = 0;
+    var first = true;
     while (true) {
         const tok = try next(chars, &index);
         try tl.push(tok);
         if (tok.id == .Eof)
             return;
+        if (first) {
+            // distinguish NAME (EXPR) from NAME(ARGS)
+            first = false;
+            if (chars[index] == '(') {
+                try tl.push(.{
+                    .id = .Fn,
+                    .bytes = "",
+                });
+            }
+        }
     }
 }
 
@@ -515,10 +527,12 @@ test "tokenize macro" {
     var tl = TokenList.init(std.heap.page_allocator);
     defer tl.deinit();
 
-    const src = "TEST 0\n";
+    const src = "TEST(0\n";
     try tokenizeCMacro(&tl, src);
     var it = tl.iterator(0);
     expect(it.next().?.id == .Identifier);
+    expect(it.next().?.id == .Fn);
+    expect(it.next().?.id == .LParen);
     expect(std.mem.eql(u8, it.next().?.bytes, "0"));
     expect(it.next().?.id == .Eof);
     expect(it.next() == null);

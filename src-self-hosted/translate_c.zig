@@ -2585,11 +2585,7 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
     while (it.I != it_end.I) : (it.I += 1) {
         const entity = ZigClangPreprocessingRecord_iterator_deref(it);
         tok_list.shrink(0);
-
         switch (ZigClangPreprocessedEntity_getKind(entity)) {
-            .MacroExpansionKind => {
-                // TODO
-            },
             .MacroDefinitionKind => {
                 const macro = @ptrCast(*ZigClangMacroDefinitionRecord, entity);
                 const raw_name = ZigClangMacroDefinitionRecord_getName_getNameStart(macro);
@@ -2599,41 +2595,56 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
                 // if (name_exists_global(c, name)) { // TODO
                 //     continue;
                 // }
-
                 const begin_c = ZigClangSourceManager_getCharacterData(c.source_manager, begin_loc);
-                try transMacroDefine(c, &tok_list, name, begin_c, begin_loc);
+                ctok.tokenizeCMacro(&tok_list, begin_c) catch |err| switch (err) {
+                    error.OutOfMemory => |e| return e,
+                    else => {
+                        try failDecl(c, begin_loc, name, "unable to tokenize macro definition", .{});
+                        continue;
+                    },
+                };
+
+                var tok_it = tok_list.iterator(0);
+                const first_tok = tok_it.next().?;
+                assert(first_tok.id == .Identifier and std.mem.eql(u8, first_tok.bytes, name));
+                const next = tok_it.peek().?;
+                switch (next.id) {
+                    .Identifier => {
+                        // if it equals itself, ignore. for example, from stdio.h:
+                        // #define stdin stdin
+                        if (std.mem.eql(u8, name, next.bytes)) {
+                            continue;
+                        }
+                    },
+                    .Eof => {
+                        // this means it is a macro without a value
+                        // we don't care about such things
+                        continue;
+                    },
+                    else => {},
+                }
+                const macro_fn = if (tok_it.peek().?.id == .Fn) blk: {
+                    _ = tok_it.next();
+                    break :blk true;
+                } else false;
+
+                (if (macro_fn)
+                    transMacroFnDefine(c, &tok_it, name, begin_c, begin_loc)
+                else
+                    transMacroDefine(c, &tok_it, name, begin_c, begin_loc)) catch |err| switch (err) {
+                    error.UnsupportedTranslation,
+                    error.ParseError,
+                    => try failDecl(c, begin_loc, name, "unable to translate macro", .{}),
+                    error.OutOfMemory => |e| return e,
+                };
             },
             else => {},
         }
     }
 }
 
-fn transMacroDefine(c: *Context, tok_list: *ctok.TokenList, name: []const u8, char_ptr: [*]const u8, source_loc: ZigClangSourceLocation) Error!void {
-    ctok.tokenizeCMacro(tok_list, char_ptr) catch |err| switch (err) {
-        error.OutOfMemory => |e| return e,
-        else => return failDecl(c, source_loc, name, "unable to tokenize macro definition", .{}),
-    };
+fn transMacroDefine(c: *Context, it: *ctok.TokenList.Iterator, name: []const u8, char_ptr: [*]const u8, source_loc: ZigClangSourceLocation) ParseError!void {
     const rp = makeRestorePoint(c);
-
-    var it = tok_list.iterator(0);
-    const first_tok = it.next().?;
-    assert(first_tok.id == .Identifier and std.mem.eql(u8, first_tok.bytes, name));
-    const next = it.peek().?;
-    switch (next.id) {
-        .Identifier => {
-            // if it equals itself, ignore. for example, from stdio.h:
-            // #define stdin stdin
-            if (std.mem.eql(u8, name, next.bytes)) {
-                return;
-            }
-        },
-        .Eof => {
-            // this means it is a macro without a value
-            // we don't care about such things
-            return;
-        },
-        else => {},
-    }
 
     const visib_tok = try appendToken(c, .Keyword_pub, "pub");
     const mut_tok = try appendToken(c, .Keyword_const, "const");
@@ -2641,12 +2652,7 @@ fn transMacroDefine(c: *Context, tok_list: *ctok.TokenList, name: []const u8, ch
 
     const eq_tok = try appendToken(c, .Equal, "=");
 
-    const init_node = parseCExpr(rp, &it, source_loc) catch |err| switch (err) {
-        error.UnsupportedTranslation,
-        error.ParseError,
-        => return failDecl(c, source_loc, name, "unable to translate macro", .{}),
-        error.OutOfMemory => |e| return e,
-    };
+    const init_node = try parseCExpr(rp, it, source_loc);
 
     const node = try c.a().create(ast.Node.VarDecl);
     node.* = ast.Node.VarDecl{
@@ -2666,6 +2672,97 @@ fn transMacroDefine(c: *Context, tok_list: *ctok.TokenList, name: []const u8, ch
         .semicolon_token = try appendToken(c, .Semicolon, ";"),
     };
     _ = try c.macro_table.put(name, &node.base);
+}
+
+fn transMacroFnDefine(c: *Context, it: *ctok.TokenList.Iterator, name: []const u8, char_ptr: [*]const u8, source_loc: ZigClangSourceLocation) ParseError!void {
+    const rp = makeRestorePoint(c);
+    const pub_tok = try appendToken(c, .Keyword_pub, "pub");
+    const inline_tok = try appendToken(c, .Keyword_inline, "inline");
+    const fn_tok = try appendToken(c, .Keyword_fn, "fn");
+    const name_tok = try appendIdentifier(c, name);
+    _ = try appendToken(c, .LParen, "(");
+
+    if (it.next().?.id != .LParen) {
+        return error.ParseError;
+    }
+    var fn_params = ast.Node.FnProto.ParamList.init(c.a());
+    while (true) {
+        const param_tok = it.next().?;
+        if (param_tok.id != .Identifier)
+            return error.ParseError;
+
+        // TODO avoid name collisions
+        const param_name_tok = try appendIdentifier(c, param_tok.bytes);
+        _ = try appendToken(c, .Colon, ":");
+
+        const token_index = try appendToken(c, .Keyword_var, "var");
+        const identifier = try c.a().create(ast.Node.Identifier);
+        identifier.* = ast.Node.Identifier{
+            .base = ast.Node{ .id = ast.Node.Id.Identifier },
+            .token = token_index,
+        };
+
+        const param_node = try c.a().create(ast.Node.ParamDecl);
+        param_node.* = .{
+            .doc_comments = null,
+            .comptime_token = null,
+            .noalias_token = null,
+            .name_token = param_name_tok,
+            .type_node = &identifier.base,
+            .var_args_token = null,
+        };
+        try fn_params.push(&param_node.base);
+
+        if (it.peek().?.id != .Comma)
+            break;
+        _ = it.next();
+        _ = try appendToken(c, .Comma, ",");
+    }
+
+    if (it.next().?.id != .RParen) {
+        return error.ParseError;
+    }
+
+    _ = try appendToken(c, .RParen, ")");
+
+    const type_of = try transCreateNodeBuiltinFnCall(c, "@TypeOf");
+    type_of.rparen_token = try appendToken(c, .LParen, ")");
+
+    const fn_proto = try c.a().create(ast.Node.FnProto);
+    fn_proto.* = .{
+        .visib_token = pub_tok,
+        .extern_export_inline_token = inline_tok,
+        .fn_token = fn_tok,
+        .name_token = name_tok,
+        .params = fn_params,
+        .return_type = .{ .Explicit = &type_of.base },
+        .doc_comments = null,
+        .var_args_token = null,
+        .cc_token = null,
+        .body_node = null,
+        .lib_name = null,
+        .align_expr = null,
+        .section_expr = null,
+    };
+
+    const block = try c.a().create(ast.Node.Block);
+    block.* = .{
+        .label = null,
+        .lbrace = try appendToken(c, .LBrace, "{"),
+        .statements = ast.Node.Block.StatementList.init(c.a()),
+        .rbrace = undefined,
+    };
+
+    const return_expr = try transCreateNodeReturnExpr(c);
+    const expr = try parseCExpr(rp, it, source_loc);
+    _ = try appendToken(c, .Semicolon, ";");
+    try type_of.params.push(expr);
+    return_expr.rhs = expr;
+
+    block.rbrace = try appendToken(c, .RBrace, "}");
+    try block.statements.push(&return_expr.base);
+    fn_proto.body_node = &block.base;
+    _ = try c.macro_table.put(name, &fn_proto.base);
 }
 
 const ParseError = Error || error{
@@ -2762,13 +2859,13 @@ fn parseCPrimaryExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc:
         .LParen => {
             const inner_node = try parseCExpr(rp, it, source_loc);
 
-            // hack to get zig fmt to render a comma in builtin calls
-            _ = try appendToken(rp.c, .Comma, ",");
-
             if (it.peek().?.id == .RParen) {
                 _ = it.next();
                 return inner_node;
             }
+
+            // hack to get zig fmt to render a comma in builtin calls
+            _ = try appendToken(rp.c, .Comma, ",");
 
             const node_to_cast = try parseCExpr(rp, it, source_loc);
 
@@ -2879,7 +2976,7 @@ fn parseCSuffixOpExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc
                     );
 
                 const op_token = try appendToken(rp.c, .Period, ".");
-                const rhs = try transCreateNodeIdentifier(rp.c, tok.bytes);
+                const rhs = try transCreateNodeIdentifier(rp.c, name_tok.bytes);
                 const access_node = try rp.c.a().create(ast.Node.InfixOp);
                 access_node.* = .{
                     .op_token = op_token,
@@ -2975,7 +3072,7 @@ fn tokenSlice(c: *Context, token: ast.TokenIndex) []const u8 {
 }
 
 fn getFnDecl(c: *Context, ref: *ast.Node) ?*ast.Node {
-    const init = ref.cast(ast.Node.VarDecl).?.init_node.?;
+    const init = if (ref.cast(ast.Node.VarDecl)) |v| v.init_node.? else return null;
     const name = if (init.cast(ast.Node.Identifier)) |id|
         tokenSlice(c, id.token)
     else
