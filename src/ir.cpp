@@ -17395,7 +17395,7 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
     result->value->type = get_pointer_to_type_extra(ira->codegen, var->var_type,
             var->src_is_const, is_volatile, PtrLenSingle, var->align_bytes, 0, 0, false);
 
-    if (linkage_makes_it_runtime)
+    if (linkage_makes_it_runtime || var->is_thread_local)
         goto no_mem_slot;
 
     if (value_is_comptime(var->const_value)) {
