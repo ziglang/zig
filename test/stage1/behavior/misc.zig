@@ -773,3 +773,11 @@ test "result location is optional inside error union" {
     const x = maybe(true) catch unreachable;
     expect(x.? == 42);
 }
+
+threadlocal var buffer: [11]u8 = undefined;
+
+test "pointer to thread local array" {
+    const s = "Hello world";
+    std.mem.copy(u8, buffer[0..], s);
+    std.testing.expectEqualSlices(u8, buffer[0..], s);
+}
