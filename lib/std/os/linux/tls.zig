@@ -281,7 +281,9 @@ pub fn copyTLS(addr: usize) usize {
     dtv.entries = 1;
     dtv.tls_block[0] = addr + tls_img.data_offset + tls_dtv_offset;
     // Set-up the TCB
-    const tcb_ptr = @intToPtr(*usize, addr + tls_img.tcb_offset);
+    // Force the alignment to 1 byte as the TCB may start from a non-aligned
+    // address under the variant II model
+    const tcb_ptr = @intToPtr(*align(1) usize, addr + tls_img.tcb_offset);
     if (tls_variant == TLSVariant.VariantI) {
         tcb_ptr.* = addr + tls_img.dtv_offset;
     } else {

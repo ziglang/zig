@@ -3241,17 +3241,37 @@ static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutable *executa
 static LLVMValueRef ir_render_int_to_ptr(CodeGen *g, IrExecutable *executable, IrInstructionIntToPtr *instruction) {
     ZigType *wanted_type = instruction->base.value->type;
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
-    if (!ptr_allows_addr_zero(wanted_type) && ir_want_runtime_safety(g, &instruction->base)) {
-        LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(target_val));
-        LLVMValueRef is_zero_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, target_val, zero, "");
-        LLVMBasicBlockRef bad_block = LLVMAppendBasicBlock(g->cur_fn_val, "PtrToIntBad");
-        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "PtrToIntOk");
-        LLVMBuildCondBr(g->builder, is_zero_bit, bad_block, ok_block);
 
-        LLVMPositionBuilderAtEnd(g->builder, bad_block);
-        gen_safety_crash(g, PanicMsgIdPtrCastNull);
+    if (ir_want_runtime_safety(g, &instruction->base)) {
+        ZigType *usize = g->builtin_types.entry_usize;
+        LLVMValueRef zero = LLVMConstNull(usize->llvm_type);
 
-        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+        if (!ptr_allows_addr_zero(wanted_type)) {
+            LLVMValueRef is_zero_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, target_val, zero, "");
+            LLVMBasicBlockRef bad_block = LLVMAppendBasicBlock(g->cur_fn_val, "PtrToIntBad");
+            LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "PtrToIntOk");
+            LLVMBuildCondBr(g->builder, is_zero_bit, bad_block, ok_block);
+
+            LLVMPositionBuilderAtEnd(g->builder, bad_block);
+            gen_safety_crash(g, PanicMsgIdPtrCastNull);
+
+            LLVMPositionBuilderAtEnd(g->builder, ok_block);
+        }
+
+        {
+            const uint32_t align_bytes = get_ptr_align(g, wanted_type);
+            LLVMValueRef alignment_minus_1 = LLVMConstInt(usize->llvm_type, align_bytes - 1, false);
+            LLVMValueRef anded_val = LLVMBuildAnd(g->builder, target_val, alignment_minus_1, "");
+            LLVMValueRef is_ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, anded_val, zero, "");
+            LLVMBasicBlockRef bad_block = LLVMAppendBasicBlock(g->cur_fn_val, "PtrToIntAlignBad");
+            LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "PtrToIntAlignOk");
+            LLVMBuildCondBr(g->builder, is_ok_bit, ok_block, bad_block);
+
+            LLVMPositionBuilderAtEnd(g->builder, bad_block);
+            gen_safety_crash(g, PanicMsgIdIncorrectAlignment);
+
+            LLVMPositionBuilderAtEnd(g->builder, ok_block);
+        }
     }
     return LLVMBuildIntToPtr(g->builder, target_val, get_llvm_type(g, wanted_type), "");
 }

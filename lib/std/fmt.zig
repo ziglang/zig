@@ -1257,7 +1257,7 @@ test "slice" {
         try testFmt("slice: abc\n", "slice: {}\n", .{value});
     }
     {
-        const value = @intToPtr([*]const []const u8, 0xdeadbeef)[0..0];
+        const value = @intToPtr([*]align(1) const []const u8, 0xdeadbeef)[0..0];
         try testFmt("slice: []const u8@deadbeef\n", "slice: {}\n", .{value});
     }
 
@@ -1267,7 +1267,7 @@ test "slice" {
 
 test "pointer" {
     {
-        const value = @intToPtr(*i32, 0xdeadbeef);
+        const value = @intToPtr(*align(1) i32, 0xdeadbeef);
         try testFmt("pointer: i32@deadbeef\n", "pointer: {}\n", .{value});
         try testFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", .{value});
     }

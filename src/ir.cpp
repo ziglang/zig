@@ -26606,6 +26606,14 @@ static IrInstruction *ir_analyze_int_to_ptr(IrAnalyze *ira, IrInstruction *sourc
             return ira->codegen->invalid_instruction;
         }
 
+        const uint32_t align_bytes = get_ptr_align(ira->codegen, ptr_type);
+        if (addr != 0 && addr % align_bytes != 0) {
+            ir_add_error(ira, source_instr,
+                    buf_sprintf("pointer type '%s' requires aligned address",
+                                buf_ptr(&ptr_type->name)));
+            return ira->codegen->invalid_instruction;
+        }
+
         IrInstruction *result = ir_const(ira, source_instr, ptr_type);
         result->value->data.x_ptr.special = ConstPtrSpecialHardCodedAddr;
         result->value->data.x_ptr.mut = ConstPtrMutRuntimeVar;
