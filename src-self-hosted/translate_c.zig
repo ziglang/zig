@@ -33,8 +33,7 @@ fn addrEql(a: usize, b: usize) bool {
     return a == b;
 }
 
-const MacroTable = std.StringHashMap(*ast.Node);
-const SymbolTable = std.StringHashMap(void);
+const SymbolTable = std.StringHashMap(*ast.Node);
 const AliasList = std.SegmentedList(struct {
     alias: []const u8,
     name: []const u8,
@@ -109,7 +108,7 @@ const Context = struct {
     decl_table: DeclTable,
     alias_list: AliasList,
     sym_table: SymbolTable,
-    macro_table: MacroTable,
+    macro_table: SymbolTable,
     global_scope: *Scope.Root,
     ptr_params: std.BufSet,
     clang_context: *ZigClangASTContext,
@@ -197,7 +196,7 @@ pub fn translate(
         .decl_table = DeclTable.init(arena),
         .alias_list = AliasList.init(arena),
         .sym_table = SymbolTable.init(arena),
-        .macro_table = MacroTable.init(arena),
+        .macro_table = SymbolTable.init(arena),
         .global_scope = try arena.create(Scope.Root),
         .ptr_params = std.BufSet.init(arena),
         .clang_context = ZigClangASTUnit_getASTContext(ast_unit).?,
@@ -215,11 +214,7 @@ pub fn translate(
 
     try transPreprocessorEntities(&context, ast_unit);
 
-    var macro_it = context.macro_table.iterator();
-    while (macro_it.next()) |kv| {
-        try addTopLevelDecl(&context, kv.key, kv.value);
-    }
-
+    try addMacros(&context);
     var it = context.alias_list.iterator(0);
     while (it.next()) |alias| {
         if (!context.sym_table.contains(alias.alias)) {
@@ -962,12 +957,11 @@ fn transReturnStmt(
 ) !TransResult {
     const node = try transCreateNodeReturnExpr(rp.c);
     if (ZigClangReturnStmt_getRetValue(expr)) |val_expr| {
-        const ret_node = node.cast(ast.Node.ControlFlowExpression).?;
-        ret_node.rhs = (try transExpr(rp, scope, val_expr, .used, .r_value)).node;
+        node.rhs = (try transExpr(rp, scope, val_expr, .used, .r_value)).node;
     }
     _ = try appendToken(rp.c, .Semicolon, ";");
     return TransResult{
-        .node = node,
+        .node = &node.base,
         .child_scope = scope,
         .node_scope = scope,
     };
@@ -1327,7 +1321,7 @@ fn maybeSuppressResult(
 
 fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: *ast.Node) !void {
     try c.tree.root_node.decls.push(decl_node);
-    _ = try c.sym_table.put(name, {});
+    _ = try c.sym_table.put(name, decl_node);
 }
 
 fn transQualType(rp: RestorePoint, qt: ZigClangQualType, source_loc: ZigClangSourceLocation) TypeError!*ast.Node {
@@ -1767,7 +1761,7 @@ fn transCreateNodeFnCall(c: *Context, fn_expr: *ast.Node) !*ast.Node.SuffixOp {
     _ = try appendToken(c, .LParen, "(");
     const node = try c.a().create(ast.Node.SuffixOp);
     node.* = ast.Node.SuffixOp{
-        .lhs = fn_expr,
+        .lhs = .{ .node = fn_expr },
         .op = ast.Node.SuffixOp.Op{
             .Call = ast.Node.SuffixOp.Op.Call{
                 .params = ast.Node.SuffixOp.Op.Call.ParamList.init(c.a()),
@@ -1881,7 +1875,7 @@ fn transCreateNodeAPInt(c: *Context, int: ?*const ZigClangAPSInt) !*ast.Node {
     return &node.base;
 }
 
-fn transCreateNodeReturnExpr(c: *Context) !*ast.Node {
+fn transCreateNodeReturnExpr(c: *Context) !*ast.Node.ControlFlowExpression {
     const ltoken = try appendToken(c, .Keyword_return, "return");
     const node = try c.a().create(ast.Node.ControlFlowExpression);
     node.* = ast.Node.ControlFlowExpression{
@@ -1889,7 +1883,7 @@ fn transCreateNodeReturnExpr(c: *Context) !*ast.Node {
         .kind = .Return,
         .rhs = null,
     };
-    return &node.base;
+    return node;
 }
 
 fn transCreateNodeUndefinedLiteral(c: *Context) !*ast.Node {
@@ -1959,6 +1953,100 @@ fn transCreateNodeOpaqueType(c: *Context) !*ast.Node {
     return &call_node.base;
 }
 
+fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_alias_node: *ast.Node) !*ast.Node {
+    const pub_tok = try appendToken(c, .Keyword_pub, "pub");
+    const inline_tok = try appendToken(c, .Keyword_inline, "inline");
+    const fn_tok = try appendToken(c, .Keyword_fn, "fn");
+    const name_tok = try appendIdentifier(c, name);
+    _ = try appendToken(c, .LParen, "(");
+
+    const proto_alias = proto_alias_node.cast(ast.Node.FnProto).?;
+
+    var fn_params = ast.Node.FnProto.ParamList.init(c.a());
+    var it = proto_alias.params.iterator(0);
+    while (it.next()) |pn| {
+        if (it.index != 0) {
+            _ = try appendToken(c, .Comma, ",");
+        }
+        const param = pn.*.cast(ast.Node.ParamDecl).?;
+
+        const param_name_tok = param.name_token orelse
+            try appendTokenFmt(c, .Identifier, "arg_{}", .{c.getMangle()});
+
+        _ = try appendToken(c, .Colon, ":");
+
+        const param_node = try c.a().create(ast.Node.ParamDecl);
+        param_node.* = .{
+            .doc_comments = null,
+            .comptime_token = null,
+            .noalias_token = param.noalias_token,
+            .name_token = param_name_tok,
+            .type_node = param.type_node,
+            .var_args_token = null,
+        };
+        try fn_params.push(&param_node.base);
+    }
+
+    _ = try appendToken(c, .RParen, ")");
+
+    const fn_proto = try c.a().create(ast.Node.FnProto);
+    fn_proto.* = .{
+        .doc_comments = null,
+        .visib_token = pub_tok,
+        .fn_token = fn_tok,
+        .name_token = name_tok,
+        .params = fn_params,
+        .return_type = proto_alias.return_type,
+        .var_args_token = null,
+        .extern_export_inline_token = inline_tok,
+        .cc_token = null,
+        .body_node = null,
+        .lib_name = null,
+        .align_expr = null,
+        .section_expr = null,
+    };
+
+    const block = try c.a().create(ast.Node.Block);
+    block.* = .{
+        .label = null,
+        .lbrace = try appendToken(c, .LBrace, "{"),
+        .statements = ast.Node.Block.StatementList.init(c.a()),
+        .rbrace = undefined,
+    };
+
+    const return_expr = try transCreateNodeReturnExpr(c);
+    const unwrap_expr = try transCreateNodeUnwrapNull(c, ref.cast(ast.Node.VarDecl).?.init_node.?);
+    const call_expr = try transCreateNodeFnCall(c, unwrap_expr);
+    it = fn_params.iterator(0);
+    while (it.next()) |pn| {
+        if (it.index != 0) {
+            _ = try appendToken(c, .Comma, ",");
+        }
+        const param = pn.*.cast(ast.Node.ParamDecl).?;
+        try call_expr.op.Call.params.push(try transCreateNodeIdentifier(c, tokenSlice(c, param.name_token.?)));
+    }
+    call_expr.rtoken = try appendToken(c, .RParen, ")");
+    return_expr.rhs = &call_expr.base;
+    _ = try appendToken(c, .Semicolon, ";");
+
+    block.rbrace = try appendToken(c, .RBrace, "}");
+    try block.statements.push(&return_expr.base);
+    fn_proto.body_node = &block.base;
+    return &fn_proto.base;
+}
+
+fn transCreateNodeUnwrapNull(c: *Context, wrapped: *ast.Node) !*ast.Node {
+    _ = try appendToken(c, .Period, ".");
+    const qm = try appendToken(c, .QuestionMark, "?");
+    const node = try c.a().create(ast.Node.SuffixOp);
+    node.* = ast.Node.SuffixOp{
+        .op = .UnwrapOptional,
+        .lhs = .{ .node = wrapped },
+        .rtoken = qm,
+    };
+    return &node.base;
+}
+
 const RestorePoint = struct {
     c: *Context,
     token_index: ast.TokenIndex,
@@ -1982,28 +2070,28 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
     switch (ZigClangType_getTypeClass(ty)) {
         .Builtin => {
             const builtin_ty = @ptrCast(*const ZigClangBuiltinType, ty);
-            switch (ZigClangBuiltinType_getKind(builtin_ty)) {
-                .Void => return transCreateNodeIdentifier(rp.c, "c_void"),
-                .Bool => return transCreateNodeIdentifier(rp.c, "bool"),
-                .Char_U, .UChar, .Char_S, .Char8 => return transCreateNodeIdentifier(rp.c, "u8"),
-                .SChar => return transCreateNodeIdentifier(rp.c, "i8"),
-                .UShort => return transCreateNodeIdentifier(rp.c, "c_ushort"),
-                .UInt => return transCreateNodeIdentifier(rp.c, "c_uint"),
-                .ULong => return transCreateNodeIdentifier(rp.c, "c_ulong"),
-                .ULongLong => return transCreateNodeIdentifier(rp.c, "c_ulonglong"),
-                .Short => return transCreateNodeIdentifier(rp.c, "c_short"),
-                .Int => return transCreateNodeIdentifier(rp.c, "c_int"),
-                .Long => return transCreateNodeIdentifier(rp.c, "c_long"),
-                .LongLong => return transCreateNodeIdentifier(rp.c, "c_longlong"),
-                .UInt128 => return transCreateNodeIdentifier(rp.c, "u128"),
-                .Int128 => return transCreateNodeIdentifier(rp.c, "i128"),
-                .Float => return transCreateNodeIdentifier(rp.c, "f32"),
-                .Double => return transCreateNodeIdentifier(rp.c, "f64"),
-                .Float128 => return transCreateNodeIdentifier(rp.c, "f128"),
-                .Float16 => return transCreateNodeIdentifier(rp.c, "f16"),
-                .LongDouble => return transCreateNodeIdentifier(rp.c, "c_longdouble"),
+            return transCreateNodeIdentifier(rp.c, switch (ZigClangBuiltinType_getKind(builtin_ty)) {
+                .Void => "c_void",
+                .Bool => "bool",
+                .Char_U, .UChar, .Char_S, .Char8 => "u8",
+                .SChar => "i8",
+                .UShort => "c_ushort",
+                .UInt => "c_uint",
+                .ULong => "c_ulong",
+                .ULongLong => "c_ulonglong",
+                .Short => "c_short",
+                .Int => "c_int",
+                .Long => "c_long",
+                .LongLong => "c_longlong",
+                .UInt128 => "u128",
+                .Int128 => "i128",
+                .Float => "f32",
+                .Double => "f64",
+                .Float128 => "f128",
+                .Float16 => "f16",
+                .LongDouble => "c_longdouble",
                 else => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported builtin type", .{}),
-            }
+            });
         },
         .FunctionProto => {
             const fn_proto_ty = @ptrCast(*const ZigClangFunctionProtoType, ty);
@@ -2693,8 +2781,6 @@ fn parseCSuffixOpExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc
                 node = &access_node.base;
             },
             .Shl => {
-                const rhs_node = try parseCPrimaryExpr(rp, it, source_loc);
-
                 const op_token = try appendToken(rp.c, .AngleBracketAngleBracketLeft, "<<");
                 const rhs = try parseCPrimaryExpr(rp, it, source_loc);
                 const bitshift_node = try rp.c.a().create(ast.Node.InfixOp);
@@ -2718,9 +2804,64 @@ fn parseCPrefixOpExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc
     const op_tok = it.next().?;
 
     switch (op_tok.id) {
+        .Bang => {
+            const node = try transCreateNodePrefixOp(rp.c, .BoolNot, .Bang, "!");
+            node.rhs = try parseCPrefixOpExpr(rp, it, source_loc);
+            return &node.base;
+        },
+        .Minus => {
+            const node = try transCreateNodePrefixOp(rp.c, .Negation, .Minus, "-");
+            node.rhs = try parseCPrefixOpExpr(rp, it, source_loc);
+            return &node.base;
+        },
+        .Tilde => {
+            const node = try transCreateNodePrefixOp(rp.c, .BitNot, .Tilde, "~");
+            node.rhs = try parseCPrefixOpExpr(rp, it, source_loc);
+            return &node.base;
+        },
         else => {
             _ = it.prev();
             return try parseCSuffixOpExpr(rp, it, source_loc);
         },
+    }
+}
+
+fn tokenSlice(c: *Context, token: ast.TokenIndex) []const u8 {
+    const tok = c.tree.tokens.at(token);
+    return c.source_buffer.toSliceConst()[tok.start..tok.end];
+}
+
+fn getFnDecl(c: *Context, ref: *ast.Node) ?*ast.Node {
+    const init = ref.cast(ast.Node.VarDecl).?.init_node.?;
+    const name = if (init.cast(ast.Node.Identifier)) |id| 
+        tokenSlice(c, id.token)
+    else
+        return null;
+    // TODO a.b.c
+    if (c.sym_table.get(name)) |kv| {
+        if (kv.value.cast(ast.Node.VarDecl)) |val| {
+            if (val.type_node) |type_node| {
+                if (type_node.cast(ast.Node.PrefixOp)) |casted| {
+                    if (casted.rhs.id == .FnProto) {
+                        return casted.rhs;
+                    }
+                }
+            }
+        }
+    }
+    return null;
+}
+
+fn addMacros(c: *Context) !void {
+    var macro_it = c.macro_table.iterator();
+    while (macro_it.next()) |kv| {
+        if (getFnDecl(c, kv.value)) |proto_node| {
+            // If a macro aliases a global variable which is a function pointer, we conclude that
+            // the macro is intended to represent a function that assumes the function pointer
+            // variable is non-null and calls it.
+            try addTopLevelDecl(c, kv.key, try transCreateNodeMacroFn(c, kv.key, kv.value, proto_node));
+        } else {
+            try addTopLevelDecl(c, kv.key, kv.value);
+        }
     }
 }

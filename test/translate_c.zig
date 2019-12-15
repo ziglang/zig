@@ -339,6 +339,64 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const SDL_INIT_VIDEO = @as(c_ulonglong, 0x00000020);
     });
 
+    cases.add_2("generate inline func for #define global extern fn",
+        \\extern void (*fn_ptr)(void);
+        \\#define foo fn_ptr
+        \\
+        \\extern char (*fn_ptr2)(int, float);
+        \\#define bar fn_ptr2
+    , &[_][]const u8{
+        \\pub extern var fn_ptr: ?extern fn () void;
+    ,
+        \\pub inline fn foo() void {
+        \\    return fn_ptr.?();
+        \\}
+    ,
+        \\pub extern var fn_ptr2: ?extern fn (c_int, f32) u8;
+    ,
+        \\pub inline fn bar(arg_1: c_int, arg_2: f32) u8 {
+        \\    return fn_ptr2.?(arg_1, arg_2);
+        \\}
+    });
+
+    cases.add_2("macros with field targets",
+        \\typedef unsigned int GLbitfield;
+        \\typedef void (*PFNGLCLEARPROC) (GLbitfield mask);
+        \\typedef void(*OpenGLProc)(void);
+        \\union OpenGLProcs {
+        \\    OpenGLProc ptr[1];
+        \\    struct {
+        \\        PFNGLCLEARPROC Clear;
+        \\    } gl;
+        \\};
+        \\extern union OpenGLProcs glProcs;
+        \\#define glClearUnion glProcs.gl.Clear
+        \\#define glClearPFN PFNGLCLEARPROC
+    , &[_][]const u8{
+        \\pub const GLbitfield = c_uint;
+    ,
+        \\pub const PFNGLCLEARPROC = ?extern fn (GLbitfield) void;
+    ,
+        \\pub const OpenGLProc = ?extern fn () void;
+    ,
+        \\pub const union_OpenGLProcs = extern union {
+        \\    ptr: [1]OpenGLProc,
+        \\    gl: extern struct {
+        \\        Clear: PFNGLCLEARPROC,
+        \\    },
+        \\};
+    ,
+        \\pub extern var glProcs: union_OpenGLProcs;
+    ,
+        \\pub const glClearPFN = PFNGLCLEARPROC;
+    // , // TODO
+    //     \\pub inline fn glClearUnion(arg_1: GLbitfield) void {
+    //     \\    return glProcs.gl.Clear.?(arg_1);
+    //     \\}
+    ,
+        \\pub const OpenGLProcs = union_OpenGLProcs;
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     cases.add_both("typedef of function in struct field",
@@ -1844,7 +1902,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         },
     );
 
-    cases.addC(//todo
+    cases.add_both(
         "bitwise not on u-suffixed 0 (zero) in macro definition",
         "#define NOT_ZERO (~0U)",
         &[_][]const u8{
