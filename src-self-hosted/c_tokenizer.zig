@@ -40,12 +40,15 @@ pub const CToken = struct {
     };
 };
 
-pub fn tokenizeCMacro(tl: *TokenList, chars: [*]const u8) !void {
+pub fn tokenizeCMacro(tl: *TokenList, chars: [*:0]const u8) !void {
     var index: usize = 0;
     var first = true;
     while (true) {
         const tok = try next(chars, &index);
-        try tl.push(tok);
+        if (tok.id == .StrLit or tok.id == .CharLit)
+            try tl.push(try zigifyEscapeSequences(tl.allocator, tok))
+        else
+            try tl.push(tok);
         if (tok.id == .Eof)
             return;
         if (first) {
@@ -61,7 +64,83 @@ pub fn tokenizeCMacro(tl: *TokenList, chars: [*]const u8) !void {
     }
 }
 
-fn next(chars: [*]const u8, i: *usize) !CToken {
+fn zigifyEscapeSequences(allocator: *std.mem.Allocator, tok: CToken) !CToken {
+    for (tok.bytes) |c| {
+        if (c == '\\') {
+            break;
+        }
+    } else return tok;
+    var bytes = try allocator.alloc(u8, tok.bytes.len * 2);
+    var escape = false;
+    var i: usize = 0;
+    for (tok.bytes) |c| {
+        if (escape) {
+            switch (c) {
+                'n', 'r', 't', '\\', '\'', '\"', 'x' => {
+                    bytes[i] = c;
+                },
+                'a' => {
+                    bytes[i] = 'x';
+                    i += 1;
+                    bytes[i] = '0';
+                    i += 1;
+                    bytes[i] = '7';
+                },
+                'b' => {
+                    bytes[i] = 'x';
+                    i += 1;
+                    bytes[i] = '0';
+                    i += 1;
+                    bytes[i] = '8';
+                },
+                'f' => {
+                    bytes[i] = 'x';
+                    i += 1;
+                    bytes[i] = '0';
+                    i += 1;
+                    bytes[i] = 'C';
+                },
+                'v' => {
+                    bytes[i] = 'x';
+                    i += 1;
+                    bytes[i] = '0';
+                    i += 1;
+                    bytes[i] = 'B';
+                },
+                '?' => {
+                    i -= 1;
+                    bytes[i] = '?';
+                },
+                'u', 'U' => {
+                    // TODO unicode escape sequences
+                    return error.TokenizingFailed;
+                },
+                '0'...'7' => {
+                    // TODO octal escape sequences
+                    return error.TokenizingFailed;
+                },
+                else => {
+                    // unknown escape sequence
+                    return error.TokenizingFailed;
+                },
+            }
+            i += 1;
+            escape = false;
+        } else {
+            if (c == '\\') {
+                escape = true;
+            }
+            bytes[i] = c;
+            i += 1;
+        }
+    }
+    return CToken{
+        .id = tok.id,
+        .bytes = bytes[0..i],
+    };
+}
+
+fn next(chars: [*:0]const u8, i: *usize) !CToken {
     var state: enum {
         Start,
         GotLt,
@@ -462,7 +541,7 @@ fn next(chars: [*]const u8, i: *usize) !CToken {
             .String => { // TODO char escapes
                 switch (c) {
                     '\"' => {
-                        result.bytes = chars[begin_index + 1 .. i.* - 1];
+                        result.bytes = chars[begin_index..i.*];
                         return result;
                     },
                     else => {},
@@ -471,7 +550,7 @@ fn next(chars: [*]const u8, i: *usize) !CToken {
             .CharLit => {
                 switch (c) {
                     '\'' => {
-                        result.bytes = chars[begin_index + 1 .. i.* - 1];
+                        result.bytes = chars[begin_index..i.*];
                         return result;
                     },
                     else => {},

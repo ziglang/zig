@@ -2629,9 +2629,9 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
                 } else false;
 
                 (if (macro_fn)
-                    transMacroFnDefine(c, &tok_it, name, begin_c, begin_loc)
+                    transMacroFnDefine(c, &tok_it, name, begin_loc)
                 else
-                    transMacroDefine(c, &tok_it, name, begin_c, begin_loc)) catch |err| switch (err) {
+                    transMacroDefine(c, &tok_it, name, begin_loc)) catch |err| switch (err) {
                     error.UnsupportedTranslation,
                     error.ParseError,
                     => try failDecl(c, begin_loc, name, "unable to translate macro", .{}),
@@ -2643,7 +2643,7 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
     }
 }
 
-fn transMacroDefine(c: *Context, it: *ctok.TokenList.Iterator, name: []const u8, char_ptr: [*]const u8, source_loc: ZigClangSourceLocation) ParseError!void {
+fn transMacroDefine(c: *Context, it: *ctok.TokenList.Iterator, name: []const u8, source_loc: ZigClangSourceLocation) ParseError!void {
     const rp = makeRestorePoint(c);
 
     const visib_tok = try appendToken(c, .Keyword_pub, "pub");
@@ -2674,7 +2674,7 @@ fn transMacroDefine(c: *Context, it: *ctok.TokenList.Iterator, name: []const u8,
     _ = try c.macro_table.put(name, &node.base);
 }
 
-fn transMacroFnDefine(c: *Context, it: *ctok.TokenList.Iterator, name: []const u8, char_ptr: [*]const u8, source_loc: ZigClangSourceLocation) ParseError!void {
+fn transMacroFnDefine(c: *Context, it: *ctok.TokenList.Iterator, name: []const u8, source_loc: ZigClangSourceLocation) ParseError!void {
     const rp = makeRestorePoint(c);
     const pub_tok = try appendToken(c, .Keyword_pub, "pub");
     const inline_tok = try appendToken(c, .Keyword_inline, "inline");
@@ -2829,11 +2829,7 @@ fn parseCPrimaryExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc:
     const tok = it.next().?;
     switch (tok.id) {
         .CharLit => {
-            const buf = try rp.c.a().alloc(u8, tok.bytes.len + "''".len);
-            buf[0] = '\'';
-            writeEscapedString(buf[1..], tok.bytes);
-            buf[buf.len - 1] = '\'';
-            const token = try appendToken(rp.c, .CharLiteral, buf);
+            const token = try appendToken(rp.c, .CharLiteral, tok.bytes);
             const node = try rp.c.a().create(ast.Node.CharLiteral);
             node.* = ast.Node.CharLiteral{
                 .token = token,
@@ -2841,11 +2837,7 @@ fn parseCPrimaryExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc:
             return &node.base;
         },
         .StrLit => {
-            const buf = try rp.c.a().alloc(u8, tok.bytes.len + "\"\"".len);
-            buf[0] = '"';
-            writeEscapedString(buf[1..], tok.bytes);
-            buf[buf.len - 1] = '"';
-            const token = try appendToken(rp.c, .StringLiteral, buf);
+            const token = try appendToken(rp.c, .StringLiteral, tok.bytes);
             const node = try rp.c.a().create(ast.Node.StringLiteral);
             node.* = ast.Node.StringLiteral{
                 .token = token,

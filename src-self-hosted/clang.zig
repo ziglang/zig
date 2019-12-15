@@ -734,7 +734,7 @@ pub extern fn ZigClangSourceManager_getSpellingLoc(self: ?*const struct_ZigClang
 pub extern fn ZigClangSourceManager_getFilename(self: *const struct_ZigClangSourceManager, SpellingLoc: struct_ZigClangSourceLocation) ?[*:0]const u8;
 pub extern fn ZigClangSourceManager_getSpellingLineNumber(self: ?*const struct_ZigClangSourceManager, Loc: struct_ZigClangSourceLocation) c_uint;
 pub extern fn ZigClangSourceManager_getSpellingColumnNumber(self: ?*const struct_ZigClangSourceManager, Loc: struct_ZigClangSourceLocation) c_uint;
-pub extern fn ZigClangSourceManager_getCharacterData(self: ?*const struct_ZigClangSourceManager, SL: struct_ZigClangSourceLocation) [*c]const u8;
+pub extern fn ZigClangSourceManager_getCharacterData(self: ?*const struct_ZigClangSourceManager, SL: struct_ZigClangSourceLocation) [*:0]const u8;
 pub extern fn ZigClangASTContext_getPointerType(self: ?*const struct_ZigClangASTContext, T: struct_ZigClangQualType) struct_ZigClangQualType;
 pub extern fn ZigClangASTUnit_getASTContext(self: ?*struct_ZigClangASTUnit) ?*struct_ZigClangASTContext;
 pub extern fn ZigClangASTUnit_getSourceManager(self: *struct_ZigClangASTUnit) *struct_ZigClangSourceManager;

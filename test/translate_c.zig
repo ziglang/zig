@@ -411,6 +411,15 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add_2("macro escape sequences",
+        \\#define FOO "aoeu\xab derp"
+        \\#define FOO2 "aoeu\a derp"
+    , &[_][]const u8{
+        \\pub const FOO = "aoeu\xab derp";
+    ,
+        \\pub const FOO2 = "aoeu\x07 derp";
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     cases.add_both("typedef of function in struct field",
