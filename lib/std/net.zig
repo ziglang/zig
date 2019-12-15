@@ -437,7 +437,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
         const name_c = try std.cstr.addNullByte(allocator, name);
         defer allocator.free(name_c);
 
-        const port_c = try std.fmt.allocPrintCstr(allocator, "{}", .{port});
+        const port_c = try std.fmt.allocPrint(allocator, "{}\x00", .{port});
         defer allocator.free(port_c);
 
         const hints = os.addrinfo{
@@ -451,7 +451,11 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
             .next = null,
         };
         var res: *os.addrinfo = undefined;
-        switch (os.system.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res)) {
+        switch (os.system.getaddrinfo(
+                name_c.ptr,
+                @ptrCast([*:0]const u8, port_c.ptr),
+                &hints,
+                &res)) {
             0 => {},
             c.EAI_ADDRFAMILY => return error.HostLacksNetworkAddresses,
             c.EAI_AGAIN => return error.TemporaryNameServerFailure,

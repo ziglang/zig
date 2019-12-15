@@ -316,8 +316,6 @@ pub fn symlinkat(existing: [*:0]const u8, newfd: i32, newpath: [*:0]const u8) us
     return syscall3(SYS_symlinkat, @ptrToInt(existing), @bitCast(usize, @as(isize, newfd)), @ptrToInt(newpath));
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-// REVIEW This shouldn't be null terminated, right?
 pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: usize) usize {
     return syscall4(SYS_pread, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), count, offset);
 }
