@@ -1,6 +1,19 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
+    cases.addRuntimeSafety("intToPtr with misaligned address",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    if (@import("std").mem.eql(u8, message, "incorrect alignment")) {
+        \\        @import("std").os.exit(126); // good
+        \\    }
+        \\    @import("std").os.exit(0); // test failed
+        \\}
+        \\pub fn main() void {
+        \\    var x: usize = 5;
+        \\    var y = @intToPtr([*]align(4) u8, x);
+        \\}
+    );
+
     cases.addRuntimeSafety("resuming a non-suspended function which never been suspended",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
