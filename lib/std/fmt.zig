@@ -1131,6 +1131,16 @@ pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: var
     };
 }
 
+pub fn allocPrintCstr(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![:0]u8 {
+    var size: usize = 0;
+    format(&size, error{}, countSize, fmt, args) catch |err| switch (err) {};
+    const buf = try allocator.alloc(u8, size + 1);
+    buf[size] = 0;
+    return bufPrint(buf, fmt, args) catch |err| switch (err) {
+        error.BufferTooSmall => unreachable, // we just counted the size above
+    };
+}
+
 fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
     size.* += bytes.len;
 }
