@@ -1023,6 +1023,19 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add_2("shift right with a fixed size type, no while", // TODO can fold this into "shift right assign with a fixed size type" once `while` and `>>=` and `uint32_t` are handled in translate-c-2
+        \\#include <stdint.h>
+        \\uint32_t some_func(uint32_t a) {
+        \\    uint32_t b = a >> 1;
+        \\    return b;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn some_func(a: uint32_t) uint32_t {
+        \\    var b: uint32_t = a >> @as(u5, 1);
+        \\    return b;
+        \\}
+    });
+
     cases.add("anonymous enum",
         \\enum {
         \\    One,
@@ -1196,6 +1209,18 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() c_int {
         \\    return (1 << @as(@import("std").math.Log2Int(c_int), 2)) >> @as(@import("std").math.Log2Int(c_int), 1);
+        \\}
+    });
+
+    cases.add_2("bitshift, no parens", // TODO can fold this into "bitshift" once parens are preserved correctly in translate-c-2
+        \\int foo(void) {
+        \\    int a = (1 << 2);
+        \\    return a >> 1;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    var a: c_int = 1 << @as(@import("std").math.Log2Int(c_int), 2);
+        \\    return a >> @as(@import("std").math.Log2Int(c_int), 1);
         \\}
     });
 

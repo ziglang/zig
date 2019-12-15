@@ -575,6 +575,45 @@ fn transStmt(
     }
 }
 
+fn transCreateNodeShiftOp(
+    rp: RestorePoint,
+    scope: *Scope,
+    stmt: *const ZigClangBinaryOperator,
+    comptime op: ast.Node.InfixOp.Op,
+    comptime op_tok_id: std.zig.Token.Id,
+    comptime bytes: []const u8,
+) !*ast.Node {
+    if (!(op == .BitShiftLeft or op == .BitShiftRight)) {
+        @compileError("op must be either .BitShiftLeft or .BitShiftRight");
+    }
+
+    const lhs_expr = ZigClangBinaryOperator_getLHS(stmt);
+    const rhs_expr = ZigClangBinaryOperator_getRHS(stmt);
+    const rhs_location = ZigClangExpr_getBeginLoc(rhs_expr);
+    // lhs >> u5(rh)
+
+    const lhs = try transExpr(rp, scope, lhs_expr, .used, .l_value);
+    const op_token = try appendToken(rp.c, op_tok_id, bytes);
+
+    const as_node = try transCreateNodeBuiltinFnCall(rp.c, "@as");
+    const rhs_type = try qualTypeToLog2IntRef(rp, ZigClangBinaryOperator_getType(stmt), rhs_location);
+    try as_node.params.push(rhs_type);
+    _ = try appendToken(rp.c, .Comma, ",");
+    const rhs = try transExpr(rp, scope, rhs_expr, .used, .l_value);
+    try as_node.params.push(rhs.node);
+    as_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+
+    const node = try rp.c.a().create(ast.Node.InfixOp);
+    node.* = ast.Node.InfixOp{
+        .op_token = op_token,
+        .lhs = lhs.node,
+        .op = op,
+        .rhs = &as_node.base,
+    };
+
+    return &node.base;
+}
+
 fn transBinaryOperator(
     rp: RestorePoint,
     scope: *Scope,
@@ -679,15 +718,22 @@ fn transBinaryOperator(
                 });
             }
         },
-        .Shl,
-        .Shr,
-        => return revertAndWarn(
-            rp,
-            error.UnsupportedTranslation,
-            ZigClangBinaryOperator_getBeginLoc(stmt),
-            "TODO: handle more C binary operators: {}",
-            .{op},
-        ),
+        .Shl => {
+            const node = try transCreateNodeShiftOp(rp, scope, stmt, .BitShiftLeft, .AngleBracketAngleBracketLeft, "<<");
+            return maybeSuppressResult(rp, scope, result_used, TransResult{
+                .node = node,
+                .child_scope = scope,
+                .node_scope = scope,
+            });
+        },
+        .Shr => {
+            const node = try transCreateNodeShiftOp(rp, scope, stmt, .BitShiftRight, .AngleBracketAngleBracketRight, ">>");
+            return maybeSuppressResult(rp, scope, result_used, TransResult{
+                .node = node,
+                .child_scope = scope,
+                .node_scope = scope,
+            });
+        },
         .LT => {
             const node = try transCreateNodeInfixOp(rp, scope, stmt, .LessThan, .AngleBracketLeft, "<", true);
             return maybeSuppressResult(rp, scope, result_used, TransResult{
@@ -1664,6 +1710,95 @@ fn qualTypeIsPtr(qt: ZigClangQualType) bool {
     return ZigClangType_getTypeClass(qualTypeCanon(qt)) == .Pointer;
 }
 
+fn qualTypeIntBitWidth(rp: RestorePoint, qt: ZigClangQualType, source_loc: ZigClangSourceLocation) !u32 {
+    const ty = ZigClangQualType_getTypePtr(qt);
+
+    switch (ZigClangType_getTypeClass(ty)) {
+        .Builtin => {
+            const builtin_ty = @ptrCast(*const ZigClangBuiltinType, ty);
+
+            switch (ZigClangBuiltinType_getKind(builtin_ty)) {
+                .Char_U,
+                .UChar,
+                .Char_S,
+                .SChar,
+                => return 8,
+                .UInt128,
+                .Int128,
+                => return 128,
+                else => return 0,
+            }
+
+            unreachable;
+        },
+        .Typedef => {
+            const typedef_ty = @ptrCast(*const ZigClangTypedefType, ty);
+            const typedef_decl = ZigClangTypedefType_getDecl(typedef_ty);
+            const type_name = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, typedef_decl)));
+
+            if (std.mem.eql(u8, type_name, "uint8_t") or std.mem.eql(u8, type_name, "int8_t")) {
+                return 8;
+            } else if (std.mem.eql(u8, type_name, "uint16_t") or std.mem.eql(u8, type_name, "int16_t")) {
+                return 16;
+            } else if (std.mem.eql(u8, type_name, "uint32_t") or std.mem.eql(u8, type_name, "int32_t")) {
+                return 32;
+            } else if (std.mem.eql(u8, type_name, "uint64_t") or std.mem.eql(u8, type_name, "int64_t")) {
+                return 64;
+            } else {
+                return 0;
+            }
+        },
+        else => return 0,
+    }
+
+    unreachable;
+}
+
+fn qualTypeToLog2IntRef(rp: RestorePoint, qt: ZigClangQualType, source_loc: ZigClangSourceLocation) !*ast.Node {
+    const int_bit_width = try qualTypeIntBitWidth(rp, qt, source_loc);
+
+    if (int_bit_width != 0) {
+        // we can perform the log2 now.
+        const cast_bit_width = std.math.log2_int(u64, int_bit_width);
+        const node = try rp.c.a().create(ast.Node.IntegerLiteral);
+        node.* = ast.Node.IntegerLiteral{
+            .token = try appendTokenFmt(rp.c, .Identifier, "u{}", .{cast_bit_width}),
+        };
+        return &node.base;
+    }
+
+    const zig_type_node = try transQualType(rp, qt, source_loc);
+
+    //    @import("std").math.Log2Int(c_long);
+    //
+    //    FnCall
+    //        FieldAccess
+    //            FieldAccess
+    //                FnCall (.builtin = true)
+    //                    Symbol "import"
+    //                    StringLiteral "std"
+    //                Symbol "math"
+    //            Symbol "Log2Int"
+    //        Symbol <zig_type_node> (var from above)
+
+    const import_fn_call = try transCreateNodeBuiltinFnCall(rp.c, "@import");
+    const std_token = try appendToken(rp.c, .StringLiteral, "\"std\"");
+    const std_node = try rp.c.a().create(ast.Node.StringLiteral);
+    std_node.* = ast.Node.StringLiteral{
+        .token = std_token,
+    };
+    try import_fn_call.params.push(&std_node.base);
+    import_fn_call.rparen_token = try appendToken(rp.c, .RParen, ")");
+
+    const inner_field_access = try transCreateNodeFieldAccess(rp.c, &import_fn_call.base, "math");
+    const outer_field_access = try transCreateNodeFieldAccess(rp.c, &inner_field_access.base, "Log2Int");
+    const log2int_fn_call = try transCreateNodeFnCall(rp.c, &outer_field_access.base);
+    try @ptrCast(*ast.Node.SuffixOp.Op.Call, &log2int_fn_call.op).params.push(zig_type_node);
+    log2int_fn_call.rtoken = try appendToken(rp.c, .RParen, ")");
+
+    return &log2int_fn_call.base;
+}
+
 fn qualTypeChildIsFnProto(qt: ZigClangQualType) bool {
     const ty = ZigClangQualType_getTypePtr(qt);
 
@@ -1827,7 +1962,7 @@ fn transCreateNodeFnCall(c: *Context, fn_expr: *ast.Node) !*ast.Node.SuffixOp {
     _ = try appendToken(c, .LParen, "(");
     const node = try c.a().create(ast.Node.SuffixOp);
     node.* = ast.Node.SuffixOp{
-        .lhs = fn_expr,
+        .lhs = .{ .node = fn_expr },
         .op = ast.Node.SuffixOp.Op{
             .Call = ast.Node.SuffixOp.Op.Call{
                 .params = ast.Node.SuffixOp.Op.Call.ParamList.init(c.a()),
@@ -1837,6 +1972,17 @@ fn transCreateNodeFnCall(c: *Context, fn_expr: *ast.Node) !*ast.Node.SuffixOp {
         .rtoken = undefined, // set after appending args
     };
     return node;
+}
+
+fn transCreateNodeFieldAccess(c: *Context, container: *ast.Node, field_name: []const u8) !*ast.Node.InfixOp {
+    const field_access_node = try c.a().create(ast.Node.InfixOp);
+    field_access_node.* = .{
+        .op_token = try appendToken(c, .Period, "."),
+        .lhs = container,
+        .op = .Period,
+        .rhs = try transCreateNodeIdentifier(c, field_name),
+    };
+    return field_access_node;
 }
 
 fn transCreateNodePrefixOp(
