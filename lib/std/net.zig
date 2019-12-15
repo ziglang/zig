@@ -452,7 +452,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
         };
         var res: *os.addrinfo = undefined;
         switch (os.system.getaddrinfo(
-                @ptrCast([*:0]const u8, name_c.ptr),
+                name_c.ptr,
                 @ptrCast([*:0]const u8, port_c.ptr),
                 &hints,
                 &res)) {
