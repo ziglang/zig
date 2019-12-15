@@ -75,6 +75,7 @@ pub const struct_ZigClangWhileStmt = @OpaqueType();
 pub const struct_ZigClangFunctionType = @OpaqueType();
 pub const struct_ZigClangPredefinedExpr = @OpaqueType();
 pub const struct_ZigClangInitListExpr = @OpaqueType();
+pub const ZigClangPreprocessingRecord = @OpaqueType();
 
 pub const ZigClangBO = extern enum {
     PtrMemD,
@@ -717,6 +718,18 @@ pub const ZigClangEnumDecl_enumerator_iterator = extern struct {
     opaque: *c_void,
 };
 
+pub const ZigClangPreprocessingRecord_iterator = extern struct {
+    I: c_int,
+    Self: *ZigClangPreprocessingRecord,
+};
+
+pub const ZigClangPreprocessedEntity_EntityKind = extern enum {
+    InvalidKind,
+    MacroExpansionKind,
+    MacroDefinitionKind,
+    InclusionDirectiveKind,
+};
+
 pub extern fn ZigClangSourceManager_getSpellingLoc(self: ?*const struct_ZigClangSourceManager, Loc: struct_ZigClangSourceLocation) struct_ZigClangSourceLocation;
 pub extern fn ZigClangSourceManager_getFilename(self: *const struct_ZigClangSourceManager, SpellingLoc: struct_ZigClangSourceLocation) ?[*:0]const u8;
 pub extern fn ZigClangSourceManager_getSpellingLineNumber(self: ?*const struct_ZigClangSourceManager, Loc: struct_ZigClangSourceLocation) c_uint;
@@ -1014,3 +1027,12 @@ pub extern fn ZigClangFieldDecl_getLocation(*const struct_ZigClangFieldDecl) str
 
 pub extern fn ZigClangEnumConstantDecl_getInitExpr(*const ZigClangEnumConstantDecl) ?*const ZigClangExpr;
 pub extern fn ZigClangEnumConstantDecl_getInitVal(*const ZigClangEnumConstantDecl) *const ZigClangAPSInt;
+
+pub extern fn ZigClangASTUnit_getLocalPreprocessingEntities_begin(*ZigClangASTUnit) ZigClangPreprocessingRecord_iterator;
+pub extern fn ZigClangASTUnit_getLocalPreprocessingEntities_end(*ZigClangASTUnit) ZigClangPreprocessingRecord_iterator;
+pub extern fn ZigClangPreprocessingRecord_iterator_deref(ZigClangPreprocessingRecord_iterator) *ZigClangPreprocessedEntity;
+pub extern fn ZigClangPreprocessedEntity_getKind(*const ZigClangPreprocessedEntity) ZigClangPreprocessedEntity_EntityKind;
+
+pub extern fn ZigClangMacroDefinitionRecord_getName_getNameStart(*const ZigClangMacroDefinitionRecord) [*:0]const u8;
+pub extern fn ZigClangMacroDefinitionRecord_getSourceRange_getBegin(*const ZigClangMacroDefinitionRecord) ZigClangSourceLocation;
+pub extern fn ZigClangMacroDefinitionRecord_getSourceRange_getEnd(*const ZigClangMacroDefinitionRecord) ZigClangSourceLocation;

@@ -1,4 +1,5 @@
 const std = @import("std");
+const expect = std.testing.expect;
 
 pub const TokenList = std.SegmentedList(CToken, 32);
 
@@ -28,6 +29,7 @@ pub const CToken = struct {
 
     pub const NumLitSuffix = enum {
         None,
+        F,
         L,
         U,
         LU,
@@ -39,19 +41,18 @@ pub const CToken = struct {
 pub fn tokenizeCMacro(tl: *TokenList, chars: [*]const u8) !void {
     var index: usize = 0;
     while (true) {
-        const tok = try next(chars[index..], &index);
-        tl.push(tok);
+        const tok = try next(chars, &index);
+        try tl.push(tok);
         if (tok.id == .Eof)
             return;
     }
 }
 
-fn next(chars: [*]const u8, index: *usize) !CToken {
+fn next(chars: [*]const u8, i: *usize) !CToken {
     var state: enum {
         Start,
         GotLt,
-        ExpectChar,
-        ExpectEndQuot,
+        CharLit,
         OpenComment,
         Comment,
         CommentStar,
@@ -62,6 +63,7 @@ fn next(chars: [*]const u8, index: *usize) !CToken {
         Octal,
         GotZero,
         Hex,
+        Bin,
         Float,
         ExpSign,
         FloatExp,
@@ -70,7 +72,6 @@ fn next(chars: [*]const u8, index: *usize) !CToken {
         NumLitIntSuffixL,
         NumLitIntSuffixLL,
         NumLitIntSuffixUL,
-        GotLt,
     } = .Start;
 
     var result = CToken{
@@ -79,9 +80,10 @@ fn next(chars: [*]const u8, index: *usize) !CToken {
     };
     var begin_index: usize = 0;
     var digits: u8 = 0;
-    var pre_escape = .Start;
+    var pre_escape = state;
 
-    for (chars[begin_index..]) |c, i| {
+    while (true) {
+        const c = chars[i.*];
         if (c == 0) {
             switch (state) {
                 .Start => {
@@ -90,22 +92,25 @@ fn next(chars: [*]const u8, index: *usize) !CToken {
                 .Identifier,
                 .Decimal,
                 .Hex,
+                .Bin,
                 .Octal,
                 .GotZero,
+                .Float,
+                .FloatExp,
+                => {
+                    result.bytes = chars[begin_index..i.*];
+                    return result;
+                },
                 .NumLitIntSuffixU,
                 .NumLitIntSuffixL,
                 .NumLitIntSuffixUL,
                 .NumLitIntSuffixLL,
-                .Float,
-                .FloatExp,
                 .GotLt,
                 => {
                     return result;
                 },
-                .ExpectChar,
-                .ExpectEndQuot,
+                .CharLit,
                 .OpenComment,
-                .LineComment,
                 .Comment,
                 .CommentStar,
                 .Backslash,
@@ -115,20 +120,20 @@ fn next(chars: [*]const u8, index: *usize) !CToken {
                 => return error.TokenizingFailed,
             }
         }
-        index.* += 1;
+        i.* += 1;
         switch (state) {
             .Start => {
                 switch (c) {
                     ' ', '\t', '\x0B', '\x0C' => {},
                     '\'' => {
-                        state = .ExpectChar;
+                        state = .CharLit;
                         result.id = .CharLit;
-                        begin_index = i;
+                        begin_index = i.* - 1;
                     },
                     '\"' => {
                         state = .String;
                         result.id = .StrLit;
-                        begin_index = i;
+                        begin_index = i.* - 1;
                     },
                     '/' => {
                         state = .OpenComment;
@@ -142,17 +147,17 @@ fn next(chars: [*]const u8, index: *usize) !CToken {
                     'a'...'z', 'A'...'Z', '_' => {
                         state = .Identifier;
                         result.id = .Identifier;
-                        begin_index = i;
+                        begin_index = i.* - 1;
                     },
                     '1'...'9' => {
                         state = .Decimal;
                         result.id = .NumLitInt;
-                        begin_index = i;
+                        begin_index = i.* - 1;
                     },
                     '0' => {
                         state = .GotZero;
                         result.id = .NumLitInt;
-                        begin_index = i;
+                        begin_index = i.* - 1;
                     },
                     '.' => {
                         result.id = .Dot;
@@ -206,12 +211,23 @@ fn next(chars: [*]const u8, index: *usize) !CToken {
                     'e', 'E' => {
                         state = .ExpSign;
                     },
-                    'f', 'F', 'l', 'L' => {
-                        result.bytes = chars[begin_index..i];
+                    'f',
+                    'F',
+                    => {
+                        i.* -= 1;
+                        result.num_lit_suffix = .F;
+                        result.bytes = chars[begin_index..i.*];
+                        return result;
+                    },
+                    'l', 'L' => {
+                        i.* -= 1;
+                        result.num_lit_suffix = .L;
+                        result.bytes = chars[begin_index..i.*];
                         return result;
                     },
                     else => {
-                        result.bytes = chars[begin_index..i];
+                        i.* -= 1;
+                        result.bytes = chars[begin_index..i.*];
                         return result;
                     },
                 }
@@ -238,12 +254,19 @@ fn next(chars: [*]const u8, index: *usize) !CToken {
             .FloatExp => {
                 switch (c) {
                     '0'...'9' => {},
-                    'f', 'F', 'l', 'L' => {
-                        result.bytes = chars[begin_index..i];
+                    'f', 'F' => {
+                        result.num_lit_suffix = .F;
+                        result.bytes = chars[begin_index .. i.* - 1];
+                        return result;
+                    },
+                    'l', 'L' => {
+                        result.num_lit_suffix = .L;
+                        result.bytes = chars[begin_index .. i.* - 1];
                         return result;
                     },
                     else => {
-                        result.bytes = chars[begin_index..i];
+                        i.* -= 1;
+                        result.bytes = chars[begin_index..i.*];
                         return result;
                     },
                 }
@@ -255,17 +278,20 @@ fn next(chars: [*]const u8, index: *usize) !CToken {
                     'u', 'U' => {
                         state = .NumLitIntSuffixU;
                         result.num_lit_suffix = .U;
+                        result.bytes = chars[begin_index .. i.* - 1];
                     },
                     'l', 'L' => {
                         state = .NumLitIntSuffixL;
                         result.num_lit_suffix = .L;
+                        result.bytes = chars[begin_index .. i.* - 1];
                     },
                     '.' => {
                         result.id = .NumLitFloat;
                         state = .Float;
                     },
                     else => {
-                        result.bytes = chars[begin_index..i];
+                        i.* -= 1;
+                        result.bytes = chars[begin_index..i.*];
                         return result;
                     },
                 }
@@ -275,15 +301,25 @@ fn next(chars: [*]const u8, index: *usize) !CToken {
                     'x', 'X' => {
                         state = .Hex;
                     },
+                    'b', 'B' => {
+                        state = .Bin;
+                    },
                     '.' => {
                         state = .Float;
                         result.id = .NumLitFloat;
                     },
-                    'l', 'L', 'u', 'U' => {
-                        c -= 1;
-                        state = .Decimal;
+                    'u', 'U' => {
+                        state = .NumLitIntSuffixU;
+                        result.num_lit_suffix = .U;
+                        result.bytes = chars[begin_index .. i.* - 1];
+                    },
+                    'l', 'L' => {
+                        state = .NumLitIntSuffixL;
+                        result.num_lit_suffix = .L;
+                        result.bytes = chars[begin_index .. i.* - 1];
                     },
                     else => {
+                        i.* -= 1;
                         state = .Octal;
                     },
                 }
@@ -293,7 +329,8 @@ fn next(chars: [*]const u8, index: *usize) !CToken {
                     '0'...'7' => {},
                     '8', '9' => return error.TokenizingFailed,
                     else => {
-                        result.bytes = chars[begin_index..i];
+                        i.* -= 1;
+                        result.bytes = chars[begin_index..i.*];
                         return result;
                     },
                 }
@@ -301,23 +338,44 @@ fn next(chars: [*]const u8, index: *usize) !CToken {
             .Hex => {
                 switch (c) {
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
-
-                    'p', 'P' => {
-                        result.id = .NumLitFloat;
-                        state = .ExpSign;
-                    },
                     'u', 'U' => {
                         // marks the number literal as unsigned
                         state = .NumLitIntSuffixU;
                         result.num_lit_suffix = .U;
+                        result.bytes = chars[begin_index .. i.* - 1];
                     },
                     'l', 'L' => {
                         // marks the number literal as long
                         state = .NumLitIntSuffixL;
                         result.num_lit_suffix = .L;
+                        result.bytes = chars[begin_index .. i.* - 1];
                     },
                     else => {
-                        result.bytes = chars[begin_index..i];
+                        i.* -= 1;
+                        result.bytes = chars[begin_index..i.*];
+                        return result;
+                    },
+                }
+            },
+            .Bin => {
+                switch (c) {
+                    '0'...'1' => {},
+                    '2'...'9' => return error.TokenizingFailed,
+                    'u', 'U' => {
+                        // marks the number literal as unsigned
+                        state = .NumLitIntSuffixU;
+                        result.num_lit_suffix = .U;
+                        result.bytes = chars[begin_index .. i.* - 1];
+                    },
+                    'l', 'L' => {
+                        // marks the number literal as long
+                        state = .NumLitIntSuffixL;
+                        result.num_lit_suffix = .L;
+                        result.bytes = chars[begin_index .. i.* - 1];
+                    },
+                    else => {
+                        i.* -= 1;
+                        result.bytes = chars[begin_index..i.*];
                         return result;
                     },
                 }
@@ -329,7 +387,7 @@ fn next(chars: [*]const u8, index: *usize) !CToken {
                         state = .NumLitIntSuffixUL;
                     },
                     else => {
-                        result.bytes = chars[begin_index..i - 1];
+                        i.* -= 1;
                         return result;
                     },
                 }
@@ -342,11 +400,10 @@ fn next(chars: [*]const u8, index: *usize) !CToken {
                     },
                     'u', 'U' => {
                         result.num_lit_suffix = .LU;
-                        result.bytes = chars[begin_index..i - 2];
                         return result;
                     },
                     else => {
-                        result.bytes = chars[begin_index..i - 1];
+                        i.* -= 1;
                         return result;
                     },
                 }
@@ -355,11 +412,10 @@ fn next(chars: [*]const u8, index: *usize) !CToken {
                 switch (c) {
                     'u', 'U' => {
                         result.num_lit_suffix = .LLU;
-                        result.bytes = chars[begin_index..i - 3];
                         return result;
                     },
                     else => {
-                        result.bytes = chars[begin_index..i - 2];
+                        i.* -= 1;
                         return result;
                     },
                 }
@@ -368,11 +424,10 @@ fn next(chars: [*]const u8, index: *usize) !CToken {
                 switch (c) {
                     'l', 'L' => {
                         result.num_lit_suffix = .LLU;
-                        result.bytes = chars[begin_index..i - 3];
                         return result;
                     },
                     else => {
-                        result.bytes = chars[begin_index..i - 2];
+                        i.* -= 1;
                         return result;
                     },
                 }
@@ -381,35 +436,28 @@ fn next(chars: [*]const u8, index: *usize) !CToken {
                 switch (c) {
                     '_', 'a'...'z', 'A'...'Z', '0'...'9' => {},
                     else => {
-                        result.bytes = chars[begin_index..i];
+                        i.* -= 1;
+                        result.bytes = chars[begin_index..i.*];
                         return result;
                     },
                 }
             },
-            .String => {
+            .String => { // TODO char escapes
                 switch (c) {
                     '\"' => {
-                        result.bytes = chars[begin_index + 1 .. i];
+                        result.bytes = chars[begin_index + 1 .. i.* - 1];
                         return result;
                     },
                     else => {},
                 }
             },
-            .ExpectChar => {
-                switch (c) {
-                    '\'' => return error.TokenizingFailed,
-                    else => {
-                        state = .ExpectEndQuot;
-                    },
-                }
-            },
-            .ExpectEndQuot => {
+            .CharLit => {
                 switch (c) {
                     '\'' => {
-                        result.bytes = chars[begin_index + 1 .. i];
+                        result.bytes = chars[begin_index + 1 .. i.* - 1];
                         return result;
                     },
-                    else => return error.TokenizingFailed,
+                    else => {},
                 }
             },
             .OpenComment => {
@@ -455,4 +503,56 @@ fn next(chars: [*]const u8, index: *usize) !CToken {
             },
         }
     }
+    unreachable;
+}
+
+test "tokenize macro" {
+    var tl = TokenList.init(std.heap.page_allocator);
+    defer tl.deinit();
+
+    const src = "TEST 0\n";
+    try tokenizeCMacro(&tl, src);
+    var it = tl.iterator(0);
+    expect(it.next().?.id == .Identifier);
+    expect(std.mem.eql(u8, it.next().?.bytes, "0"));
+    expect(it.next().?.id == .Eof);
+    expect(it.next() == null);
+    tl.shrink(0);
+
+    const src2 = "__FLT_MIN_10_EXP__ -37\n";
+    try tokenizeCMacro(&tl, src2);
+    it = tl.iterator(0);
+    expect(std.mem.eql(u8, it.next().?.bytes, "__FLT_MIN_10_EXP__"));
+    expect(it.next().?.id == .Minus);
+    expect(std.mem.eql(u8, it.next().?.bytes, "37"));
+    expect(it.next().?.id == .Eof);
+    expect(it.next() == null);
+    tl.shrink(0);
+
+    const src3 = "__llvm__ 1\n#define";
+    try tokenizeCMacro(&tl, src3);
+    it = tl.iterator(0);
+    expect(std.mem.eql(u8, it.next().?.bytes, "__llvm__"));
+    expect(std.mem.eql(u8, it.next().?.bytes, "1"));
+    expect(it.next().?.id == .Eof);
+    expect(it.next() == null);
+    tl.shrink(0);
+
+    const src4 = "TEST 2";
+    try tokenizeCMacro(&tl, src4);
+    it = tl.iterator(0);
+    expect(it.next().?.id == .Identifier);
+    expect(std.mem.eql(u8, it.next().?.bytes, "2"));
+    expect(it.next().?.id == .Eof);
+    expect(it.next() == null);
+    tl.shrink(0);
+
+    const src5 = "FOO 0l";
+    try tokenizeCMacro(&tl, src5);
+    it = tl.iterator(0);
+    expect(it.next().?.id == .Identifier);
+    expect(std.mem.eql(u8, it.next().?.bytes, "0"));
+    expect(it.next().?.id == .Eof);
+    expect(it.next() == null);
+    tl.shrink(0);
 }

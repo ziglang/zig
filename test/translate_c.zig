@@ -214,6 +214,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        Clear: c_int,
         \\    },
         \\};
+    ,
         \\pub const OpenGLProcs = union_OpenGLProcs;
     });
 
@@ -280,7 +281,62 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    o,
         \\    p,
         \\};
+    ,
         \\pub const Baz = struct_Baz;
+    });
+
+    cases.add_2("#define a char literal",
+        \\#define A_CHAR  'a'
+    , &[_][]const u8{
+        \\pub const A_CHAR = 'a';
+    });
+
+    cases.add_2("comment after integer literal",
+        \\#define SDL_INIT_VIDEO 0x00000020  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = 0x00000020;
+    });
+
+    cases.add_2("u integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020u  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_uint, 0x00000020);
+    });
+
+    cases.add_2("l integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020l  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_long, 0x00000020);
+    });
+
+    cases.add_2("ul integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020ul  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_ulong, 0x00000020);
+    });
+
+    cases.add_2("lu integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020lu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_ulong, 0x00000020);
+    });
+
+    cases.add_2("ll integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020ll  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_longlong, 0x00000020);
+    });
+
+    cases.add_2("ull integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020ull  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_ulonglong, 0x00000020);
+    });
+
+    cases.add_2("llu integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020llu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_ulonglong, 0x00000020);
     });
 
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
@@ -314,7 +370,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     });
 
-    cases.add("macro with left shift",
+    cases.add_both("macro with left shift",
         \\#define REDISMODULE_READ (1<<0)
     , &[_][]const u8{
         \\pub const REDISMODULE_READ = 1 << 0;
@@ -637,13 +693,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const A_CHAR = 97;
     });
 
-    cases.add("#define an unsigned integer literal",
+    cases.add_both("#define an unsigned integer literal",
         \\#define CHANNEL_COUNT 24
     , &[_][]const u8{
         \\pub const CHANNEL_COUNT = 24;
     });
 
-    cases.add("#define referencing another #define",
+    cases.add_both("#define referencing another #define",
         \\#define THING2 THING1
         \\#define THING1 1234
     , &[_][]const u8{
@@ -692,7 +748,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("#define string",
+    cases.add_both("#define string",
         \\#define  foo  "a string"
     , &[_][]const u8{
         \\pub const foo = "a string";
@@ -788,7 +844,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const FOO_CHAR = 63;
     });
 
-    cases.add("macro with parens around negative number",
+    cases.add_both("macro with parens around negative number",
         \\#define LUA_GLOBALSINDEX        (-10002)
     , &[_][]const u8{
         \\pub const LUA_GLOBALSINDEX = -10002;
@@ -1732,7 +1788,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.addC(
+    cases.add_both(
         "u integer suffix after 0 (zero) in macro definition",
         "#define ZERO 0U",
         &[_][]const u8{
@@ -1740,7 +1796,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         },
     );
 
-    cases.addC(
+    cases.add_both(
         "l integer suffix after 0 (zero) in macro definition",
         "#define ZERO 0L",
         &[_][]const u8{
@@ -1748,7 +1804,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         },
     );
 
-    cases.addC(
+    cases.add_both(
         "ul integer suffix after 0 (zero) in macro definition",
         "#define ZERO 0UL",
         &[_][]const u8{
@@ -1756,7 +1812,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         },
     );
 
-    cases.addC(
+    cases.add_both(
         "lu integer suffix after 0 (zero) in macro definition",
         "#define ZERO 0LU",
         &[_][]const u8{
@@ -1764,7 +1820,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         },
     );
 
-    cases.addC(
+    cases.add_both(
         "ll integer suffix after 0 (zero) in macro definition",
         "#define ZERO 0LL",
         &[_][]const u8{
@@ -1772,7 +1828,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         },
     );
 
-    cases.addC(
+    cases.add_both(
         "ull integer suffix after 0 (zero) in macro definition",
         "#define ZERO 0ULL",
         &[_][]const u8{
@@ -1780,7 +1836,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         },
     );
 
-    cases.addC(
+    cases.add_both(
         "llu integer suffix after 0 (zero) in macro definition",
         "#define ZERO 0LLU",
         &[_][]const u8{
@@ -1788,7 +1844,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         },
     );
 
-    cases.addC(
+    cases.addC(//todo
         "bitwise not on u-suffixed 0 (zero) in macro definition",
         "#define NOT_ZERO (~0U)",
         &[_][]const u8{
