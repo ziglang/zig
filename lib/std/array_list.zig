@@ -235,6 +235,10 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             if (self.len == 0) return null;
             return self.pop();
         }
+
+        pub fn sort(self: *Self, lessThan: fn (lhs: T, rhs: T) bool) void {
+            std.sort.sort(T, self.items[0..self.len], lessThan);
+        }
     };
 }
 
@@ -441,4 +445,21 @@ test "std.ArrayList: ArrayList(T) of struct T" {
     var root = Item{ .integer = 1, .sub_items = ArrayList(Item).init(debug.global_allocator) };
     try root.sub_items.append(Item{ .integer = 42, .sub_items = ArrayList(Item).init(debug.global_allocator) });
     testing.expect(root.sub_items.items[0].integer == 42);
+}
+
+test "std.ArrayList.sort" {
+    var list = ArrayList(i32).init(debug.global_allocator);
+    defer list.deinit();
+
+    try list.append(4);
+    try list.append(2);
+    try list.append(1);
+    try list.append(3);
+
+    list.sort(std.sort.asc(i32));
+
+    testing.expect(list.items[0] == 1);
+    testing.expect(list.items[1] == 2);
+    testing.expect(list.items[2] == 3);
+    testing.expect(list.items[3] == 4);
 }
