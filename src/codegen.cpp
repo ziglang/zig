@@ -8261,6 +8261,20 @@ static bool detect_stack_probing(CodeGen *g) {
     zig_unreachable();
 }
 
+static bool detect_sanitize_c(CodeGen *g) {
+    if (!target_supports_sanitize_c(g->zig_target))
+        return false;
+    switch (g->want_sanitize_c) {
+        case WantCSanitizeDisabled:
+            return false;
+        case WantCSanitizeEnabled:
+            return true;
+        case WantCSanitizeAuto:
+            return g->build_mode == BuildModeSafeRelease || g->build_mode == BuildModeDebug;
+    }
+    zig_unreachable();
+}
+
 // Returns TargetSubsystemAuto to mean "no subsystem"
 TargetSubsystem detect_subsystem(CodeGen *g) {
     if (g->subsystem != TargetSubsystemAuto)
@@ -8297,6 +8311,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     g->have_dynamic_link = detect_dynamic_link(g);
     g->have_pic = detect_pic(g);
     g->have_stack_probing = detect_stack_probing(g);
+    g->have_sanitize_c = detect_sanitize_c(g);
     g->is_single_threaded = detect_single_threaded(g);
     g->have_err_ret_tracing = detect_err_ret_tracing(g);
 
@@ -8582,6 +8597,7 @@ static void init(CodeGen *g) {
     g->have_dynamic_link = detect_dynamic_link(g);
     g->have_pic = detect_pic(g);
     g->have_stack_probing = detect_stack_probing(g);
+    g->have_sanitize_c = detect_sanitize_c(g);
     g->is_single_threaded = detect_single_threaded(g);
     g->have_err_ret_tracing = detect_err_ret_tracing(g);
 
@@ -8971,6 +8987,11 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         args.append("-fomit-frame-pointer");
     }
 
+    if (g->have_sanitize_c) {
+        args.append("-fsanitize=undefined");
+        args.append("-fsanitize-trap=undefined");
+    }
+
     switch (g->build_mode) {
         case BuildModeDebug:
             // windows c runtime requires -D_DEBUG if using debug libraries
@@ -9306,6 +9327,7 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     cache_bool(cache_hash, g->strip_debug_symbols);
     cache_int(cache_hash, g->build_mode);
     cache_bool(cache_hash, g->have_pic);
+    cache_bool(cache_hash, g->have_sanitize_c);
     cache_bool(cache_hash, want_valgrind_support(g));
     cache_bool(cache_hash, g->function_sections);
     for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
@@ -10084,6 +10106,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->have_pic);
     cache_bool(ch, g->have_dynamic_link);
     cache_bool(ch, g->have_stack_probing);
+    cache_bool(ch, g->have_sanitize_c);
     cache_bool(ch, g->is_dummy_so);
     cache_bool(ch, g->function_sections);
     cache_bool(ch, g->enable_dump_analysis);
@@ -10204,6 +10227,7 @@ void codegen_build_and_link(CodeGen *g) {
     g->have_pic = detect_pic(g);
     g->is_single_threaded = detect_single_threaded(g);
     g->have_err_ret_tracing = detect_err_ret_tracing(g);
+    g->have_sanitize_c = detect_sanitize_c(g);
     detect_libc(g);
     detect_dynamic_linker(g);
 
@@ -10392,6 +10416,7 @@ CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType o
     child_gen->root_out_name = buf_create_from_str(name);
     child_gen->disable_gen_h = true;
     child_gen->want_stack_check = WantStackCheckDisabled;
+    child_gen->want_sanitize_c = WantCSanitizeDisabled;
     child_gen->verbose_tokenize = parent_gen->verbose_tokenize;
     child_gen->verbose_ast = parent_gen->verbose_ast;
     child_gen->verbose_link = parent_gen->verbose_link;

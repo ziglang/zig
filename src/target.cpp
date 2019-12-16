@@ -1606,6 +1606,10 @@ bool target_supports_stack_probing(const ZigTarget *target) {
     return target->os != OsWindows && target->os != OsUefi && (target->arch == ZigLLVM_x86 || target->arch == ZigLLVM_x86_64);
 }
 
+bool target_supports_sanitize_c(const ZigTarget *target) {
+    return true;
+}
+
 bool target_requires_pic(const ZigTarget *target, bool linking_libc) {
   // This function returns whether non-pic code is completely invalid on the given target.
   return target_is_android(target) || target->os == OsWindows || target->os == OsUefi || target_os_requires_libc(target->os) ||

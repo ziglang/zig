@@ -1928,6 +1928,12 @@ enum WantStackCheck {
     WantStackCheckEnabled,
 };
 
+enum WantCSanitize {
+    WantCSanitizeAuto,
+    WantCSanitizeDisabled,
+    WantCSanitizeEnabled,
+};
+
 struct CFile {
     ZigList<const char *> args;
     const char *source_path;
@@ -2096,6 +2102,7 @@ struct CodeGen {
 
     WantPIC want_pic;
     WantStackCheck want_stack_check;
+    WantCSanitize want_sanitize_c;
     CacheHash cache_hash;
     ErrColor err_color;
     uint32_t next_unresolved_index;
@@ -2170,6 +2177,7 @@ struct CodeGen {
     bool have_pic;
     bool have_dynamic_link; // this is whether the final thing will be dynamically linked. see also is_dynamic
     bool have_stack_probing;
+    bool have_sanitize_c;
     bool function_sections;
     bool enable_dump_analysis;
     bool enable_doc_generation;
