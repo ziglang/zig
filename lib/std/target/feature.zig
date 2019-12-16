@@ -7,8 +7,7 @@ pub const AmdGpuFeature = @import("feature/AmdGpuFeature.zig").AmdGpuFeature;
 pub const ArmFeature = @import("feature/ArmFeature.zig").ArmFeature;
 pub const AvrFeature = @import("feature/AvrFeature.zig").AvrFeature;
 pub const BpfFeature = @import("feature/BpfFeature.zig").BpfFeature;
-pub const HexagonFeature = @import("feature/HexagonFeature.zig").HexagonFeature;
-pub const MipsFeature = @import("feature/MipsFeature.zig").MipsFeature;
+pub const HexagonFeature = @import("feature/HexagonFeature.zig").HexagonFeature; pub const MipsFeature = @import("feature/MipsFeature.zig").MipsFeature;
 pub const Msp430Feature = @import("feature/Msp430Feature.zig").Msp430Feature;
 pub const NvptxFeature = @import("feature/NvptxFeature.zig").NvptxFeature;
 pub const PowerPcFeature = @import("feature/PowerPcFeature.zig").PowerPcFeature;
@@ -51,7 +50,7 @@ pub fn FeatureInfo(comptime EnumType: type) type {
         value: EnumType,
         name: []const u8,
 
-        dependencies: []const EnumType,
+        subfeatures: []const EnumType,
 
         const Self = @This();
 
@@ -60,16 +59,16 @@ pub fn FeatureInfo(comptime EnumType: type) type {
                 .value = value,
                 .name = name,
 
-                .dependencies = &[_]EnumType{},
+                .subfeatures = &[_]EnumType{},
             };
         }
 
-        fn createWithDeps(value: EnumType, name: []const u8, dependencies: []const EnumType) Self {
+        fn createWithSubfeatures(value: EnumType, name: []const u8, subfeatures: []const EnumType) Self {
             return Self {
                 .value = value,
                 .name = name,
 
-                .dependencies = dependencies,
+                .subfeatures = subfeatures,
             };
         }
     };
