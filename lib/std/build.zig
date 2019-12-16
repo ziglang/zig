@@ -54,7 +54,6 @@ pub const Builder = struct {
     is_release: bool,
     override_lib_dir: ?[]const u8,
     vcpkg_root: VcpkgRoot,
-    args: ?[][]const u8,
     pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
 
     const PkgConfigError = error{
@@ -161,7 +160,6 @@ pub const Builder = struct {
             .override_lib_dir = null,
             .install_path = undefined,
             .vcpkg_root = VcpkgRoot{ .Unattempted = {} },
-            .args = null,
         };
         try self.top_level_steps.append(&self.install_tls);
         try self.top_level_steps.append(&self.uninstall_tls);

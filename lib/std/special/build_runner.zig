@@ -98,10 +98,6 @@ pub fn main() !void {
                 builder.verbose_cimport = true;
             } else if (mem.eql(u8, arg, "--verbose-cc")) {
                 builder.verbose_cc = true;
-            } else if (mem.eql(u8, arg, "--")) {
-                var arg_slice = try process.argsAlloc(allocator);
-                builder.args = arg_slice[arg_it.index..];
-                break;
             } else {
                 warn("Unrecognized argument: {}\n\n", .{arg});
                 return usageAndErr(builder, false, stderr_stream);
