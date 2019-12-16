@@ -2,6 +2,9 @@ const std = @import("std.zig");
 const mem = std.mem;
 const builtin = std.builtin;
 
+pub const feature = @import("target/feature.zig");
+pub const cpu = @import("target/cpu.zig");
+
 /// TODO Nearly all the functions in this namespace would be
 /// better off if https://github.com/ziglang/zig/issues/425
 /// was solved.
