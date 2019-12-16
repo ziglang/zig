@@ -14,10 +14,13 @@ const windows = os.windows;
 pub const ResetEvent = struct {
     os_event: OsEvent,
 
-    pub const OsEvent = if (builtin.single_threaded) DebugEvent else switch (builtin.os) {
-        .windows => AtomicEvent,
-        else => if (builtin.link_libc) PosixEvent else AtomicEvent,
-    };
+    pub const OsEvent = 
+        if (builtin.single_threaded)
+            DebugEvent
+        else if (builtin.link_libc and builtin.os != .windows and builtin.os != .linux)
+            PosixEvent
+        else
+            AtomicEvent;
 
     pub fn init() ResetEvent {
         return ResetEvent{ .os_event = OsEvent.init() };
