@@ -146,6 +146,8 @@ fn testAtomicStore() void {
 }
 
 test "atomicrmw with floats" {
+    if (builtin.arch == .aarch64 or builtin.arch == .arm)
+        return;
     testAtomicRmwFloat();
 }
 
