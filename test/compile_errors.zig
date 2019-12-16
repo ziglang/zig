@@ -19,9 +19,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x: f32 = 0;
         \\    _ = @cmpxchgWeak(f32, &x, 1, 2, .SeqCst, .SeqCst);
         \\}
-    ,
+    , &[_][]const u8{
         "tmp.zig:3:22: error: expected integer, enum or pointer type, found 'f32'",
-    );
+    });
 
     cases.add(
         "atomicrmw with float op not .Xchg, .Add or .Sub",
@@ -29,9 +29,9 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var x: f32 = 0;
         \\    _ = @atomicRmw(f32, &x, .And, 2, .SeqCst);
         \\}
-    ,
+    , &[_][]const u8{
         "tmp.zig:3:29: error: @atomicRmw with float only works with .Xchg, .Add and .Sub",
-    );
+    });
 
     cases.add("intToPtr with misaligned address",
         \\pub fn main() void {
