@@ -172,7 +172,7 @@ const Scope = struct {
                     // comma operator used
                     return try Block.init(c, scope, true);
                 },
-                else => scope = inner,
+                else => scope = scope.parent.?,
             }
         }
     }
@@ -610,7 +610,9 @@ fn transStmt(
         .ParenExprClass => return transExpr(rp, scope, ZigClangParenExpr_getSubExpr(@ptrCast(*const ZigClangParenExpr, stmt)), result_used, lrvalue),
         .InitListExprClass => return transInitListExpr(rp, scope, @ptrCast(*const ZigClangInitListExpr, stmt), result_used),
         .ImplicitValueInitExprClass => return transImplicitValueInitExpr(rp, scope, @ptrCast(*const ZigClangExpr, stmt), result_used),
-        .IfStmtClass => return transIfStmt(rp, scope, @ptrCast(*const ZigClangIfStmt, stmt), result_used),
+        .IfStmtClass => return transIfStmt(rp, scope, @ptrCast(*const ZigClangIfStmt, stmt)),
+        .WhileStmtClass => return transWhileLoop(rp, scope, @ptrCast(*const ZigClangWhileStmt, stmt)),
+        .DoStmtClass => return transDoWhileLoop(rp, scope, @ptrCast(*const ZigClangDoStmt, stmt)),
         else => {
             return revertAndWarn(
                 rp,
@@ -1184,7 +1186,6 @@ fn transIfStmt(
     rp: RestorePoint,
     scope: *Scope,
     stmt: *const ZigClangIfStmt,
-    used: ResultUsed,
 ) TransError!*ast.Node {
     // if (c) t
     // if (c) t else e
@@ -1196,7 +1197,7 @@ fn transIfStmt(
             .id = .Condition,
         },
     };
-    if_node.condition = try transBoolExpr(rp, &cond_scope.base, @ptrCast(*const ZigClangExpr, ZigClangIfStmt_getCond(stmt)), .used, .r_value);
+    if_node.condition = try transBoolExpr(rp, &cond_scope.base, @ptrCast(*const ZigClangExpr, ZigClangIfStmt_getCond(stmt)), .used, .r_value, false);
     _ = try appendToken(rp.c, .RParen, ")");
 
     if_node.body = try transStmt(rp, scope, ZigClangIfStmt_getThen(stmt), .used, .r_value);
@@ -1207,6 +1208,87 @@ fn transIfStmt(
     }
     _ = try appendToken(rp.c, .Semicolon, ";");
     return &if_node.base;
+}
+
+fn transWhileLoop(
+    rp: RestorePoint,
+    scope: *Scope,
+    stmt: *const ZigClangWhileStmt,
+) TransError!*ast.Node {
+    const while_node = try transCreateNodeWhile(rp.c);
+
+    var cond_scope = Scope.Condition{
+        .base = .{
+            .parent = scope,
+            .id = .Condition,
+        },
+    };
+    while_node.condition = try transBoolExpr(rp, &cond_scope.base, @ptrCast(*const ZigClangExpr, ZigClangWhileStmt_getCond(stmt)), .used, .r_value, false);
+    _ = try appendToken(rp.c, .RParen, ")");
+
+    while_node.body = try transStmt(rp, scope, ZigClangWhileStmt_getBody(stmt), .unused, .r_value);
+    return &while_node.base;
+}
+
+fn transDoWhileLoop(
+    rp: RestorePoint,
+    scope: *Scope,
+    stmt: *const ZigClangDoStmt,
+) TransError!*ast.Node {
+    const while_node = try transCreateNodeWhile(rp.c);
+
+    while_node.condition = try transCreateNodeBoolLiteral(rp.c, true);
+    _ = try appendToken(rp.c, .RParen, ")");
+    var new = false;
+
+    const body_node = if (ZigClangStmt_getStmtClass(ZigClangDoStmt_getBody(stmt)) == .CompoundStmtClass)
+        // there's already a block in C, so we'll append our condition to it.
+        // c: do {
+        // c:   a;
+        // c:   b;
+        // c: } while(c);
+        // zig: while (true) {
+        // zig:   a;
+        // zig:   b;
+        // zig:   if (!cond) break;
+        // zig: }
+        (try transStmt(rp, scope, ZigClangDoStmt_getBody(stmt), .unused, .r_value)).cast(ast.Node.Block).?
+    else blk: {
+        // the C statement is without a block, so we need to create a block to contain it.
+        // c: do
+        // c:   a;
+        // c: while(c);
+        // zig: while (true) {
+        // zig:   a;
+        // zig:   if (!cond) break;
+        // zig: }
+        
+        new = true;
+        const block = try transCreateNodeBlock(rp.c, null);
+        try block.statements.push(try transStmt(rp, scope, ZigClangDoStmt_getBody(stmt), .unused, .r_value));
+        break :blk block;
+    };
+
+    // if (!cond) break;
+    const if_node = try transCreateNodeIf(rp.c);
+    var cond_scope = Scope.Condition{
+        .base = .{
+            .parent = scope,
+            .id = .Condition,
+        },
+    };
+    const prefix_op = try transCreateNodePrefixOp(rp.c, .BoolNot, .Bang, "!");
+    prefix_op.rhs = try transBoolExpr(rp, &cond_scope.base, @ptrCast(*const ZigClangExpr, ZigClangDoStmt_getCond(stmt)), .used, .r_value, false);
+    _ = try appendToken(rp.c, .RParen, ")");
+    if_node.condition = &prefix_op.base;
+    if_node.body = &(try transCreateNodeBreak(rp.c, null)).base;
+    _ = try appendToken(rp.c, .Semicolon, ";");
+
+    try body_node.statements.push(&if_node.base);
+    if (new)
+        body_node.rbrace = try appendToken(rp.c, .RBrace, "}");
+    while_node.body = &body_node.base;
+    return &while_node.base;
 }
 
 fn transCPtrCast(
@@ -1682,7 +1764,7 @@ fn transCreateNodeBuiltinFnCall(c: *Context, name: []const u8) !*ast.Node.Builti
     const builtin_token = try appendToken(c, .Builtin, name);
     _ = try appendToken(c, .LParen, "(");
     const node = try c.a().create(ast.Node.BuiltinCall);
-    node.* = ast.Node.BuiltinCall{
+    node.* = .{
         .builtin_token = builtin_token,
         .params = ast.Node.BuiltinCall.ParamList.init(c.a()),
         .rparen_token = undefined, // set after appending args
@@ -1693,10 +1775,10 @@ fn transCreateNodeBuiltinFnCall(c: *Context, name: []const u8) !*ast.Node.Builti
 fn transCreateNodeFnCall(c: *Context, fn_expr: *ast.Node) !*ast.Node.SuffixOp {
     _ = try appendToken(c, .LParen, "(");
     const node = try c.a().create(ast.Node.SuffixOp);
-    node.* = ast.Node.SuffixOp{
+    node.* = .{
         .lhs = .{ .node = fn_expr },
-        .op = ast.Node.SuffixOp.Op{
-            .Call = ast.Node.SuffixOp.Op.Call{
+        .op = .{
+            .Call = .{
                 .params = ast.Node.SuffixOp.Op.Call.ParamList.init(c.a()),
                 .async_token = null,
             },
@@ -1744,7 +1826,7 @@ fn transCreateNodeInfixOp(
     if (!grouped) return &node.base;
     const rparen = try appendToken(rp.c, .RParen, ")");
     const grouped_expr = try rp.c.a().create(ast.Node.GroupedExpression);
-    grouped_expr.* = ast.Node.GroupedExpression{
+    grouped_expr.* = .{
         .lparen = lparen,
         .expr = &node.base,
         .rparen = rparen,
@@ -1776,9 +1858,9 @@ fn transCreateNodePtrType(
         .Asterisk => try appendToken(c, .Asterisk, "*"),
         else => unreachable,
     };
-    node.* = ast.Node.PrefixOp{
+    node.* = .{
         .op_token = op_token,
-        .op = ast.Node.PrefixOp.Op{
+        .op = .{
             .PtrType = .{
                 .const_token = if (is_const) try appendToken(c, .Keyword_const, "const") else null,
                 .volatile_token = if (is_volatile) try appendToken(c, .Keyword_volatile, "volatile") else null,
@@ -1811,7 +1893,7 @@ fn transCreateNodeAPInt(c: *Context, int: ?*const ZigClangAPSInt) !*ast.Node {
 fn transCreateNodeReturnExpr(c: *Context) !*ast.Node.ControlFlowExpression {
     const ltoken = try appendToken(c, .Keyword_return, "return");
     const node = try c.a().create(ast.Node.ControlFlowExpression);
-    node.* = ast.Node.ControlFlowExpression{
+    node.* = .{
         .ltoken = ltoken,
         .kind = .Return,
         .rhs = null,
@@ -1822,7 +1904,7 @@ fn transCreateNodeReturnExpr(c: *Context) !*ast.Node.ControlFlowExpression {
 fn transCreateNodeUndefinedLiteral(c: *Context) !*ast.Node {
     const token = try appendToken(c, .Keyword_undefined, "undefined");
     const node = try c.a().create(ast.Node.UndefinedLiteral);
-    node.* = ast.Node.UndefinedLiteral{
+    node.* = .{
         .token = token,
     };
     return &node.base;
@@ -1831,7 +1913,7 @@ fn transCreateNodeUndefinedLiteral(c: *Context) !*ast.Node {
 fn transCreateNodeNullLiteral(c: *Context) !*ast.Node {
     const token = try appendToken(c, .Keyword_null, "null");
     const node = try c.a().create(ast.Node.NullLiteral);
-    node.* = ast.Node.NullLiteral{
+    node.* = .{
         .token = token,
     };
     return &node.base;
@@ -1843,7 +1925,7 @@ fn transCreateNodeBoolLiteral(c: *Context, value: bool) !*ast.Node {
     else
         try appendToken(c, .Keyword_false, "false");
     const node = try c.a().create(ast.Node.BoolLiteral);
-    node.* = ast.Node.BoolLiteral{
+    node.* = .{
         .token = token,
     };
     return &node.base;
@@ -2032,7 +2114,7 @@ fn transCreateNodeBreak(c: *Context, label: ?[]const u8) !*ast.Node.ControlFlowE
         break :blk try transCreateNodeIdentifier(c, l);
     } else null;
     const node = try c.a().create(ast.Node.ControlFlowExpression);
-    node.* = ast.Node.ControlFlowExpression{
+    node.* = .{
         .ltoken = ltoken,
         .kind = .{ .Break = label_node },
         .rhs = null,
@@ -2046,7 +2128,7 @@ fn transCreateNodeVarDecl(c: *Context, is_pub: bool, is_const: bool, name: []con
     const name_tok = try appendIdentifier(c, name);
 
     const node = try c.a().create(ast.Node.VarDecl);
-    node.* = ast.Node.VarDecl{
+    node.* = .{
         .doc_comments = null,
         .visib_token = visib_tok,
         .thread_local_token = null,
@@ -2061,6 +2143,24 @@ fn transCreateNodeVarDecl(c: *Context, is_pub: bool, is_const: bool, name: []con
         .section_node = null,
         .init_node = null,
         .semicolon_token = undefined,
+    };
+    return node;
+}
+
+fn transCreateNodeWhile(c: *Context) !*ast.Node.While {
+    const while_tok = try appendToken(c, .Keyword_while, "while");
+    _ = try appendToken(c, .LParen, "(");
+
+    const node = try c.a().create(ast.Node.While);
+    node.* = .{
+        .label = null,
+        .inline_token = null,
+        .while_token = while_tok,
+        .condition = undefined,
+        .payload = null,
+        .continue_expr = null,
+        .body = undefined,
+        .@"else" = null,
     };
     return node;
 }

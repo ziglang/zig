@@ -755,6 +755,46 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add_2("while loops",
+        \\int foo() {
+        \\    int a = 5;
+        \\    while (2)
+        \\        a = 2;
+        \\    while (4) {
+        \\        int a = 4;
+        \\        a = 9;
+        \\        return 6, a;
+        \\    }
+        \\    do {
+        \\        int a = 2;
+        \\        a = 12;
+        \\    } while (4);
+        \\    do
+        \\        a = 7;
+        \\    while (4);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    var a: c_int = 5;
+        \\    while (2 != 0) a = 2;
+        \\    while (4 != 0) {
+        \\        var a: c_int = 4;
+        \\        a = 9;
+        \\        _ = 6;
+        \\        return a;
+        \\    }
+        \\    while (true) {
+        \\        var a: c_int = 2;
+        \\        a = 12;
+        \\        if (!4 != 0) break;
+        \\    }
+        \\    while (true) {
+        \\        a = 7;
+        \\        if (!4 != 0) break;
+        \\    }
+        \\}
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     if (builtin.os != builtin.Os.windows) {

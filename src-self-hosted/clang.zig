@@ -1040,3 +1040,12 @@ pub extern fn ZigClangMacroDefinitionRecord_getSourceRange_getEnd(*const ZigClan
 pub extern fn ZigClangIfStmt_getThen(*const ZigClangIfStmt) *const ZigClangStmt;
 pub extern fn ZigClangIfStmt_getElse(*const ZigClangIfStmt) ?*const ZigClangStmt;
 pub extern fn ZigClangIfStmt_getCond(*const ZigClangIfStmt) *const ZigClangStmt;
+
+pub extern fn ZigClangWhileStmt_getCond(*const ZigClangWhileStmt) *const ZigClangExpr;
+pub extern fn ZigClangWhileStmt_getBody(*const ZigClangWhileStmt) *const ZigClangStmt;
+
+pub extern fn ZigClangDoStmt_getCond(*const ZigClangDoStmt) *const ZigClangExpr;
+pub extern fn ZigClangDoStmt_getBody(*const ZigClangDoStmt) *const ZigClangStmt;
+
+pub extern fn ZigClangDoStmt_getCond(*const  ZigClangDoStmt) *const ZigClangExpr;
+pub extern fn ZigClangDoStmt_getBody(*const  ZigClangDoStmt) *const ZigClangStmt;
