@@ -615,7 +615,7 @@ test "utf8ToUtf16Le" {
 }
 
 test "utf8ToUtf16LeWithNull" {
-    var bytes: [8]u8 = undefined;
+    var bytes: [128]u8 = undefined;
     const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
     const utf16 = try utf8ToUtf16LeWithNull(allocator, "𐐷");
     testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc\x00\x00", @sliceToBytes(utf16[0..]));
