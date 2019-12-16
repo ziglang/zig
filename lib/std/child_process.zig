@@ -280,22 +280,38 @@ pub const ChildProcess = struct {
     }
 
     fn cleanupAfterWait(self: *ChildProcess, status: u32) !Term {
-        defer {
-            os.close(self.err_pipe[0]);
-            os.close(self.err_pipe[1]);
-        }
+        defer destroyPipe(self.err_pipe);
 
-        // Write maxInt(ErrInt) to the write end of the err_pipe. This is after
-        // waitpid, so this write is guaranteed to be after the child
-        // pid potentially wrote an error. This way we can do a blocking
-        // read on the error pipe and either get maxInt(ErrInt) (no error) or
-        // an error code.
-        try writeIntFd(self.err_pipe[1], maxInt(ErrInt));
-        const err_int = try readIntFd(self.err_pipe[0]);
-        // Here we potentially return the fork child's error
-        // from the parent pid.
-        if (err_int != maxInt(ErrInt)) {
-            return @errSetCast(SpawnError, @intToError(err_int));
+        if (builtin.os == .linux) {
+            var fd = [1]std.os.pollfd{std.os.pollfd{
+                .fd = self.err_pipe[0],
+                .events = std.os.POLLIN,
+                .revents = undefined,
+            }};
+
+            // Check if the eventfd buffer stores a non-zero value by polling
+            // it, that's the error code returned by the child process.
+            _ = std.os.poll(&fd, 0) catch unreachable;
+
+            // According to eventfd(2) the descriptro is readable if the counter
+            // has a value greater than 0
+            if ((fd[0].revents & std.os.POLLIN) != 0) {
+                const err_int = try readIntFd(self.err_pipe[0]);
+                return @errSetCast(SpawnError, @intToError(err_int));
+            }
+        } else {
+            // Write maxInt(ErrInt) to the write end of the err_pipe. This is after
+            // waitpid, so this write is guaranteed to be after the child
+            // pid potentially wrote an error. This way we can do a blocking
+            // read on the error pipe and either get maxInt(ErrInt) (no error) or
+            // an error code.
+            try writeIntFd(self.err_pipe[1], maxInt(ErrInt));
+            const err_int = try readIntFd(self.err_pipe[0]);
+            // Here we potentially return the fork child's error from the parent
+            // pid.
+            if (err_int != maxInt(ErrInt)) {
+                return @errSetCast(SpawnError, @intToError(err_int));
+            }
         }
 
         return statusToTerm(status);
@@ -359,7 +375,16 @@ pub const ChildProcess = struct {
 
         // This pipe is used to communicate errors between the time of fork
         // and execve from the child process to the parent process.
-        const err_pipe = try os.pipe();
+        const err_pipe = blk: {
+            if (builtin.os == .linux) {
+                const fd = try os.eventfd(0, 0);
+                // There's no distinction between the readable and the writeable
+                // end with eventfd
+                break :blk [2]os.fd_t{ fd, fd };
+            } else {
+                break :blk try os.pipe();
+            }
+        };
         errdefer destroyPipe(err_pipe);
 
         const pid_result = try os.fork();
@@ -773,7 +798,7 @@ fn windowsMakePipeOut(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const 
 
 fn destroyPipe(pipe: [2]os.fd_t) void {
     os.close(pipe[0]);
-    os.close(pipe[1]);
+    if (pipe[0] != pipe[1]) os.close(pipe[1]);
 }
 
 // Child of fork calls this to report an error to the fork parent.
@@ -787,12 +812,12 @@ const ErrInt = @IntType(false, @sizeOf(anyerror) * 8);
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
     const stream = &File.openHandle(fd).outStream().stream;
-    stream.writeIntNative(ErrInt, value) catch return error.SystemResources;
+    stream.writeIntNative(u64, @intCast(u64, value)) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
     const stream = &File.openHandle(fd).inStream().stream;
-    return stream.readIntNative(ErrInt) catch return error.SystemResources;
+    return @intCast(ErrInt, stream.readIntNative(u64) catch return error.SystemResources);
 }
 
 /// Caller must free result.
