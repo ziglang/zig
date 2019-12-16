@@ -4,6 +4,7 @@ const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
+const mem = std.mem;
 
 test "division" {
     if (@import("builtin").arch == .riscv64) {
@@ -652,4 +653,21 @@ test "128-bit multiplication" {
     var b: i128 = 2;
     var c = a * b;
     expect(c == 6);
+}
+
+test "vector comparison" {
+    const S = struct {
+        fn doTheTest() void {
+            var a: @Vector(6, i32) = [_]i32{1, 3, -1, 5, 7, 9};
+            var b: @Vector(6, i32) = [_]i32{-1, 3, 0, 6, 10, -10};
+            expect(mem.eql(bool, &@as([6]bool, a < b), &[_]bool{false, false, true, true, true, false}));
+            expect(mem.eql(bool, &@as([6]bool, a <= b), &[_]bool{false, true, true, true, true, false}));
+            expect(mem.eql(bool, &@as([6]bool, a == b), &[_]bool{false, true, false, false, false, false}));
+            expect(mem.eql(bool, &@as([6]bool, a != b), &[_]bool{true, false, true, true, true, true}));
+            expect(mem.eql(bool, &@as([6]bool, a > b), &[_]bool{true, false, false, false, false, true}));
+            expect(mem.eql(bool, &@as([6]bool, a >= b), &[_]bool{true, true, false, false, false, true}));
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }
