@@ -4174,58 +4174,50 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:5: error: use of undefined value here causes undefined behavior",
     });
 
-    cases.add("equal on undefined value",
+    cases.add("comparison operators with undefined value",
+        \\// operator ==
         \\comptime {
         \\    var a: i64 = undefined;
-        \\    _ = a == a;
+        \\    var x: i32 = 0;
+        \\    if (a == a) x += 1;
         \\}
-    , &[_][]const u8{
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    });
-
-    cases.add("not equal on undefined value",
+        \\// operator !=
         \\comptime {
         \\    var a: i64 = undefined;
-        \\    _ = a != a;
+        \\    var x: i32 = 0;
+        \\    if (a != a) x += 1;
         \\}
-    , &[_][]const u8{
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    });
-
-    cases.add("greater than on undefined value",
+        \\// operator >
         \\comptime {
         \\    var a: i64 = undefined;
-        \\    _ = a > a;
+        \\    var x: i32 = 0;
+        \\    if (a > a) x += 1;
         \\}
-    , &[_][]const u8{
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    });
-
-    cases.add("greater than equal on undefined value",
+        \\// operator <
         \\comptime {
         \\    var a: i64 = undefined;
-        \\    _ = a >= a;
+        \\    var x: i32 = 0;
+        \\    if (a < a) x += 1;
         \\}
-    , &[_][]const u8{
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    });
-
-    cases.add("less than on undefined value",
+        \\// operator >=
         \\comptime {
         \\    var a: i64 = undefined;
-        \\    _ = a < a;
+        \\    var x: i32 = 0;
+        \\    if (a >= a) x += 1;
         \\}
-    , &[_][]const u8{
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
-    });
-
-    cases.add("less than equal on undefined value",
+        \\// operator <=
         \\comptime {
         \\    var a: i64 = undefined;
-        \\    _ = a <= a;
+        \\    var x: i32 = 0;
+        \\    if (a <= a) x += 1;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:9: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:5:11: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:11:11: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:17:11: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:23:11: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:29:11: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:35:11: error: use of undefined value here causes undefined behavior",
     });
 
     cases.add("and on undefined value",

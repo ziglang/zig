@@ -943,3 +943,58 @@ test "math.mulWide" {
     testing.expect(mulWide(i8, 5, -5) == -25);
     testing.expect(mulWide(u8, 100, 100) == 10000);
 }
+
+/// Not to be confused with `std.mem.Compare`.
+pub const CompareOperator = enum {
+    /// Less than (`<`)
+    lt,
+
+    /// Less than or equal (`<=`)
+    lte,
+
+    /// Equal (`==`)
+    eq,
+
+    /// Greater than or equal (`>=`)
+    gte,
+
+    /// Greater than (`>`)
+    gt,
+
+    /// Not equal (`!=`)
+    neq,
+};
+
+/// This function does the same thing as comparison operators, however the
+/// operator is a runtime-known enum value. Works on any operands that
+/// support comparison operators.
+pub fn compare(a: var, op: CompareOperator, b: var) bool {
+    return switch (op) {
+        .lt => a < b,
+        .lte => a <= b,
+        .eq => a == b,
+        .neq => a != b,
+        .gt => a > b,
+        .gte => a >= b,
+    };
+}
+
+test "math.lt, et al < <= > >= between signed and unsigned" {
+    testing.expect(compare(@as(i8, -1), .lt, @as(u8, 255)));
+    testing.expect(compare(@as(i8, 2), .gt, @as(u8, 1)));
+    testing.expect(!compare(@as(i8, -1), .gte, @as(u8, 255)));
+    testing.expect(compare(@as(u8, 255), .gt, @as(i8, -1)));
+    testing.expect(!compare(@as(u8, 255), .lte, @as(i8, -1)));
+    testing.expect(compare(@as(i8, -1), .lt, @as(u9, 255)));
+    testing.expect(!compare(@as(i8, -1), .gte, @as(u9, 255)));
+    testing.expect(compare(@as(u9, 255), .gt, @as(i8, -1)));
+    testing.expect(!compare(@as(u9, 255), .lte, @as(i8, -1)));
+    testing.expect(compare(@as(i9, -1), .lt, @as(u8, 255)));
+    testing.expect(!compare(@as(i9, -1), .gte, @as(u8, 255)));
+    testing.expect(compare(@as(u8, 255), .gt, @as(i9, -1)));
+    testing.expect(!compare(@as(u8, 255), .lte, @as(i9, -1)));
+    testing.expect(compare(@as(u8, 1), .lt, @as(u8, 2)));
+    testing.expect(@bitCast(u8, @as(i8, -1)) == @as(u8, 255));
+    testing.expect(!compare(@as(u8, 255), .eq, @as(i8, -1)));
+    testing.expect(compare(@as(u8, 1), .eq, @as(u8, 1)));
+}

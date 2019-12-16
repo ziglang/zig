@@ -95,6 +95,7 @@ size_t bigint_bits_needed(const BigInt *op);
 Cmp bigint_cmp_zero(const BigInt *op);
 
 void bigint_incr(BigInt *value);
+void bigint_decr(BigInt *value);
 
 bool mul_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result);
 

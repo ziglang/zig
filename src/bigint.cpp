@@ -1759,3 +1759,27 @@ void bigint_incr(BigInt *x) {
     bigint_add(x, &copy, &one);
 }
 
+void bigint_decr(BigInt *x) {
+    if (x->digit_count == 0) {
+        bigint_init_signed(x, -1);
+        return;
+    }
+
+    if (x->digit_count == 1) {
+        if (x->is_negative && x->data.digit != UINT64_MAX) {
+            x->data.digit += 1;
+            return;
+        } else if (!x->is_negative && x->data.digit != 0) {
+            x->data.digit -= 1;
+            return;
+        }
+    }
+
+    BigInt copy;
+    bigint_init_bigint(&copy, x);
+
+    BigInt neg_one;
+    bigint_init_signed(&neg_one, -1);
+
+    bigint_add(x, &copy, &neg_one);
+}

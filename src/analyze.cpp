@@ -9219,3 +9219,41 @@ void copy_const_val(ZigValue *dest, ZigValue *src) {
         dest->data.x_optional->parent.data.p_optional_payload.optional_val = dest;
     }
 }
+
+bool type_is_numeric(ZigType *ty) {
+    switch (ty->id) {
+        case ZigTypeIdInvalid:
+            zig_unreachable();
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdInt:
+        case ZigTypeIdFloat:
+            return true;
+
+        case ZigTypeIdVector:
+            return type_is_numeric(ty->data.vector.elem_type);
+
+        case ZigTypeIdMetaType:
+        case ZigTypeIdVoid:
+        case ZigTypeIdBool:
+        case ZigTypeIdUnreachable:
+        case ZigTypeIdPointer:
+        case ZigTypeIdArray:
+        case ZigTypeIdStruct:
+        case ZigTypeIdUndefined:
+        case ZigTypeIdNull:
+        case ZigTypeIdOptional:
+        case ZigTypeIdErrorUnion:
+        case ZigTypeIdErrorSet:
+        case ZigTypeIdEnum:
+        case ZigTypeIdUnion:
+        case ZigTypeIdFn:
+        case ZigTypeIdBoundFn:
+        case ZigTypeIdOpaque:
+        case ZigTypeIdFnFrame:
+        case ZigTypeIdAnyFrame:
+        case ZigTypeIdEnumLiteral:
+            return false;
+    }
+    zig_unreachable();
+}

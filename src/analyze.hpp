@@ -279,4 +279,5 @@ bool is_anon_container(ZigType *ty);
 void copy_const_val(ZigValue *dest, ZigValue *src);
 bool type_has_optional_repr(ZigType *ty);
 bool is_opt_err_set(ZigType *ty);
+bool type_is_numeric(ZigType *ty);
 #endif
