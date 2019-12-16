@@ -542,7 +542,6 @@ test "utf16leToUtf8" {
     }
 }
 
-/// TODO support codepoints bigger than 16 bits
 /// TODO type for null terminated pointer
 pub fn utf8ToUtf16LeWithNull(allocator: *mem.Allocator, utf8: []const u8) ![]u16 {
     var result = std.ArrayList(u16).init(allocator);
@@ -552,7 +551,18 @@ pub fn utf8ToUtf16LeWithNull(allocator: *mem.Allocator, utf8: []const u8) ![]u16
     const view = try Utf8View.init(utf8);
     var it = view.iterator();
     while (it.nextCodepoint()) |codepoint| {
-        try result.append(@intCast(u16, codepoint)); // TODO surrogate pairs
+        if (codepoint < 0x10000) {
+            const short = @intCast(u16, codepoint);
+            try result.append(mem.nativeToLittle(u16, short));
+        } else {
+            const short = @intCast(u16, codepoint - 0x10000);
+            const high = (short >> 10) + 0xD800;
+            const low = (short & 0x3FF) + 0xDC00;
+            var out: [2]u16 = undefined;
+            out[0] = mem.nativeToLittle(u16, high);
+            out[1] = mem.nativeToLittle(u16, low);
+            try result.appendSlice(out[0..]);
+        }
     }
 
     try result.append(0);
@@ -561,7 +571,6 @@ pub fn utf8ToUtf16LeWithNull(allocator: *mem.Allocator, utf8: []const u8) ![]u16
 
 /// Returns index of next character. If exact fit, returned index equals output slice length.
 /// Assumes there is enough space for the output.
-/// TODO support codepoints bigger than 16 bits
 pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
     var dest_i: usize = 0;
     var src_i: usize = 0;
@@ -578,16 +587,36 @@ pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
             2, 3, 4 => {
                 const next_src_i = src_i + n;
                 const codepoint = utf8Decode(utf8[src_i..next_src_i]) catch return error.InvalidUtf8;
-                const short = @intCast(u16, codepoint); // TODO surrogate pairs
-                utf16le[dest_i] = switch (builtin.endian) {
-                    .Little => short,
-                    .Big => @byteSwap(u16, short),
-                };
-                dest_i += 1;
+                if (codepoint < 0x10000) {
+                    const short = @intCast(u16, codepoint);
+                    utf16le[dest_i] = mem.nativeToLittle(u16, short);
+                    dest_i += 1;
+                } else {
+                    const short = @intCast(u16, codepoint - 0x10000);
+                    const high = (short >> 10) + 0xD800;
+                    const low = (short & 0x3FF) + 0xDC00;
+                    utf16le[dest_i] = mem.nativeToLittle(u16, high);
+                    utf16le[dest_i + 1] = mem.nativeToLittle(u16, low);
+                    dest_i += 2;
+                }
                 src_i = next_src_i;
             },
             else => return error.InvalidUtf8,
         }
     }
     return dest_i;
+}
+
+test "utf8ToUtf16Le" {
+    var utf16le: [2]u16 = [_]u16{0} ** 2;
+    const length = try utf8ToUtf16Le(utf16le[0..], "𐐷");
+    testing.expect(@as(usize, 2) == length);
+    testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", @sliceToBytes(utf16le[0..]));
+}
+
+test "utf8ToUtf16LeWithNull" {
+    var bytes: [128]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+    const utf16 = try utf8ToUtf16LeWithNull(allocator, "𐐷");
+    testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc\x00\x00", @sliceToBytes(utf16[0..]));
 }
