@@ -280,7 +280,10 @@ pub const ChildProcess = struct {
     }
 
     fn cleanupAfterWait(self: *ChildProcess, status: u32) !Term {
-        defer destroyPipe(self.err_pipe);
+        defer {
+            os.close(self.err_pipe[0]);
+            os.close(self.err_pipe[1]);
+        }
 
         // Write maxInt(ErrInt) to the write end of the err_pipe. This is after
         // waitpid, so this write is guaranteed to be after the child
@@ -356,16 +359,7 @@ pub const ChildProcess = struct {
 
         // This pipe is used to communicate errors between the time of fork
         // and execve from the child process to the parent process.
-        const err_pipe = blk: {
-            if (builtin.os == .linux) {
-                const fd = try os.eventfd(0, 0);
-                // There's no distinction between the readable and the writeable
-                // end with eventfd
-                break :blk [2]os.fd_t{ fd, fd };
-            } else {
-                break :blk try os.pipe();
-            }
-        };
+        const err_pipe = try os.pipe();
         errdefer destroyPipe(err_pipe);
 
         const pid_result = try os.fork();
@@ -779,7 +773,7 @@ fn windowsMakePipeOut(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const 
 
 fn destroyPipe(pipe: [2]os.fd_t) void {
     os.close(pipe[0]);
-    if (pipe[0] != pipe[1]) os.close(pipe[1]);
+    os.close(pipe[1]);
 }
 
 // Child of fork calls this to report an error to the fork parent.
@@ -793,12 +787,12 @@ const ErrInt = @IntType(false, @sizeOf(anyerror) * 8);
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
     const stream = &File.openHandle(fd).outStream().stream;
-    stream.writeIntNative(u64, @intCast(u64, value)) catch return error.SystemResources;
+    stream.writeIntNative(ErrInt, value) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
     const stream = &File.openHandle(fd).inStream().stream;
-    return @intCast(ErrInt, stream.readIntNative(u64) catch return error.SystemResources);
+    return stream.readIntNative(ErrInt) catch return error.SystemResources;
 }
 
 /// Caller must free result.
