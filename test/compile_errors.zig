@@ -13,6 +13,26 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:12: note: destination pointer requires a terminating '0' sentinel",
     });
 
+    cases.add(
+        "cmpxchg with float",
+        \\export fn entry() void {
+        \\    var x: f32 = 0;
+        \\    _ = @cmpxchgWeak(f32, &x, 1, 2, .SeqCst, .SeqCst);
+        \\}
+    ,
+        "tmp.zig:3:22: error: expected integer, enum or pointer type, found 'f32'",
+    );
+
+    cases.add(
+        "atomicrmw with float op not .Xchg, .Add or .Sub",
+        \\export fn entry() void {
+        \\    var x: f32 = 0;
+        \\    _ = @atomicRmw(f32, &x, .And, 2, .SeqCst);
+        \\}
+    ,
+        "tmp.zig:3:29: error: @atomicRmw with float only works with .Xchg, .Add and .Sub",
+    );
+
     cases.add("intToPtr with misaligned address",
         \\pub fn main() void {
         \\    var y = @intToPtr([*]align(4) u8, 5);

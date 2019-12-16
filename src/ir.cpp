@@ -23956,6 +23956,12 @@ static IrInstruction *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstructi
     if (type_is_invalid(operand_type))
         return ira->codegen->invalid_instruction;
 
+    if (operand_type->id == ZigTypeIdFloat) {
+        ir_add_error(ira, instruction->type_value->child,
+            buf_sprintf("expected integer, enum or pointer type, found '%s'", buf_ptr(&operand_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
     IrInstruction *ptr = instruction->ptr->child;
     if (type_is_invalid(ptr->value->type))
         return ira->codegen->invalid_instruction;
@@ -27433,9 +27439,17 @@ static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstruction *op
                 buf_sprintf("%" PRIu32 "-bit enum tag type is not a power of 2", int_type->data.integral.bit_count));
             return ira->codegen->builtin_types.entry_invalid;
         }
+    } else if (operand_type->id == ZigTypeIdFloat) {
+        uint32_t max_atomic_bits = target_arch_largest_atomic_bits(ira->codegen->zig_target->arch);
+        if (operand_type->data.floating.bit_count > max_atomic_bits) {
+            ir_add_error(ira, op,
+                buf_sprintf("expected %" PRIu32 "-bit float or smaller, found %" PRIu32 "-bit float",
+                    max_atomic_bits, (uint32_t) operand_type->data.floating.bit_count));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
     } else if (get_codegen_ptr_type(operand_type) == nullptr) {
         ir_add_error(ira, op,
-            buf_sprintf("expected integer, enum or pointer type, found '%s'", buf_ptr(&operand_type->name)));
+            buf_sprintf("expected integer, float, enum or pointer type, found '%s'", buf_ptr(&operand_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 
@@ -27469,6 +27483,10 @@ static IrInstruction *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstru
     if (operand_type->id == ZigTypeIdEnum && op != AtomicRmwOp_xchg) {
         ir_add_error(ira, instruction->op,
             buf_sprintf("@atomicRmw on enum only works with .Xchg"));
+        return ira->codegen->invalid_instruction;
+    } else if (operand_type->id == ZigTypeIdFloat && op > AtomicRmwOp_sub) {
+        ir_add_error(ira, instruction->op,
+            buf_sprintf("@atomicRmw with float only works with .Xchg, .Add and .Sub"));
         return ira->codegen->invalid_instruction;
     }
 

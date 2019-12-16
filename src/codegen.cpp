@@ -5129,11 +5129,13 @@ static LLVMAtomicOrdering to_LLVMAtomicOrdering(AtomicOrder atomic_order) {
     zig_unreachable();
 }
 
-static LLVMAtomicRMWBinOp to_LLVMAtomicRMWBinOp(AtomicRmwOp op, bool is_signed) {
+static LLVMAtomicRMWBinOp to_LLVMAtomicRMWBinOp(AtomicRmwOp op, bool is_signed, bool is_float) {
     switch (op) {
         case AtomicRmwOp_xchg: return LLVMAtomicRMWBinOpXchg;
-        case AtomicRmwOp_add: return LLVMAtomicRMWBinOpAdd;
-        case AtomicRmwOp_sub: return LLVMAtomicRMWBinOpSub;
+        case AtomicRmwOp_add:
+            return is_float ? LLVMAtomicRMWBinOpFAdd: LLVMAtomicRMWBinOpAdd;
+        case AtomicRmwOp_sub:
+            return is_float ? LLVMAtomicRMWBinOpFSub: LLVMAtomicRMWBinOpSub;
         case AtomicRmwOp_and: return LLVMAtomicRMWBinOpAnd;
         case AtomicRmwOp_nand: return LLVMAtomicRMWBinOpNand;
         case AtomicRmwOp_or: return LLVMAtomicRMWBinOpOr;
@@ -5725,14 +5727,14 @@ static LLVMValueRef ir_render_panic(CodeGen *g, IrExecutable *executable, IrInst
 static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutable *executable,
         IrInstructionAtomicRmw *instruction)
 {
-    bool is_signed;
     ZigType *operand_type = instruction->operand->value->type;
+    bool is_float = operand_type->id == ZigTypeIdFloat;
     if (operand_type->id == ZigTypeIdInt) {
         is_signed = operand_type->data.integral.is_signed;
     } else {
         is_signed = false;
     }
-    LLVMAtomicRMWBinOp op = to_LLVMAtomicRMWBinOp(instruction->resolved_op, is_signed);
+    LLVMAtomicRMWBinOp op = to_LLVMAtomicRMWBinOp(instruction->resolved_op, is_signed, is_float);
     LLVMAtomicOrdering ordering = to_LLVMAtomicOrdering(instruction->resolved_ordering);
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef operand = ir_llvm_value(g, instruction->operand);
