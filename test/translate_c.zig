@@ -162,6 +162,270 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add_both("enums",
+        \\enum Foo {
+        \\    FooA,
+        \\    FooB,
+        \\    Foo1,
+        \\};
+    , &[_][]const u8{
+        \\pub const enum_Foo = extern enum {
+        \\    A,
+        \\    B,
+        \\    @"1",
+        \\};
+    ,
+        \\pub const FooA = enum_Foo.A;
+    ,
+        \\pub const FooB = enum_Foo.B;
+    ,
+        \\pub const Foo1 = enum_Foo.@"1";
+    ,
+        \\pub const Foo = enum_Foo;
+    });
+
+    cases.add_both("enums",
+        \\enum Foo {
+        \\    FooA = 2,
+        \\    FooB = 5,
+        \\    Foo1,
+        \\};
+    , &[_][]const u8{
+        \\pub const enum_Foo = extern enum {
+        \\    A = 2,
+        \\    B = 5,
+        \\    @"1" = 6,
+        \\};
+    ,
+        \\pub const FooA = enum_Foo.A;
+    ,
+        \\pub const FooB = enum_Foo.B;
+    ,
+        \\pub const Foo1 = enum_Foo.@"1";
+    ,
+        \\pub const Foo = enum_Foo;
+    });
+
+    cases.add_both("typedef of function in struct field",
+        \\typedef void lws_callback_function(void);
+        \\struct Foo {
+        \\    void (*func)(void);
+        \\    lws_callback_function *callback_http;
+        \\};
+    , &[_][]const u8{
+        \\pub const lws_callback_function = extern fn () void;
+        \\pub const struct_Foo = extern struct {
+        \\    func: ?extern fn () void,
+        \\    callback_http: ?lws_callback_function,
+        \\};
+    });
+
+    cases.add_both("pointer to struct demoted to opaque due to bit fields",
+        \\struct Foo {
+        \\    unsigned int: 1;
+        \\};
+        \\struct Bar {
+        \\    struct Foo *foo;
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_Foo = @OpaqueType()
+    ,
+        \\pub const struct_Bar = extern struct {
+        \\    foo: ?*struct_Foo,
+        \\};
+    });
+
+    cases.add_both("macro with left shift",
+        \\#define REDISMODULE_READ (1<<0)
+    , &[_][]const u8{
+        \\pub const REDISMODULE_READ = 1 << 0;
+    });
+
+    cases.add_both("double define struct",
+        \\typedef struct Bar Bar;
+        \\typedef struct Foo Foo;
+        \\
+        \\struct Foo {
+        \\    Foo *a;
+        \\};
+        \\
+        \\struct Bar {
+        \\    Foo *a;
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_Foo = extern struct {
+        \\    a: [*c]Foo,
+        \\};
+    ,
+        \\pub const Foo = struct_Foo;
+    ,
+        \\pub const struct_Bar = extern struct {
+        \\    a: [*c]Foo,
+        \\};
+    ,
+        \\pub const Bar = struct_Bar;
+    });
+
+    cases.add_both("simple struct",
+        \\struct Foo {
+        \\    int x;
+        \\    char *y;
+        \\};
+    , &[_][]const u8{
+        \\const struct_Foo = extern struct {
+        \\    x: c_int,
+        \\    y: [*c]u8,
+        \\};
+    ,
+        \\pub const Foo = struct_Foo;
+    });
+
+    cases.add_both("self referential struct with function pointer",
+        \\struct Foo {
+        \\    void (*derp)(struct Foo *foo);
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_Foo = extern struct {
+        \\    derp: ?extern fn ([*c]struct_Foo) void,
+        \\};
+    ,
+        \\pub const Foo = struct_Foo;
+    });
+
+    cases.add_both("struct prototype used in func",
+        \\struct Foo;
+        \\struct Foo *some_func(struct Foo *foo, int x);
+    , &[_][]const u8{
+        \\pub const struct_Foo = @OpaqueType();
+    ,
+        \\pub extern fn some_func(foo: ?*struct_Foo, x: c_int) ?*struct_Foo;
+    ,
+        \\pub const Foo = struct_Foo;
+    });
+
+    cases.add_both("#define an unsigned integer literal",
+        \\#define CHANNEL_COUNT 24
+    , &[_][]const u8{
+        \\pub const CHANNEL_COUNT = 24;
+    });
+
+    cases.add_both("#define referencing another #define",
+        \\#define THING2 THING1
+        \\#define THING1 1234
+    , &[_][]const u8{
+        \\pub const THING1 = 1234;
+    ,
+        \\pub const THING2 = THING1;
+    });
+
+    cases.add_both("circular struct definitions",
+        \\struct Bar;
+        \\
+        \\struct Foo {
+        \\    struct Bar *next;
+        \\};
+        \\
+        \\struct Bar {
+        \\    struct Foo *next;
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_Bar = extern struct {
+        \\    next: [*c]struct_Foo,
+        \\};
+    ,
+        \\pub const struct_Foo = extern struct {
+        \\    next: [*c]struct_Bar,
+        \\};
+    });
+
+    cases.add_both("#define string",
+        \\#define  foo  "a string"
+    , &[_][]const u8{
+        \\pub const foo = "a string";
+    });
+
+    cases.add_both("zig keywords in C code",
+        \\struct comptime {
+        \\    int defer;
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_comptime = extern struct {
+        \\    @"defer": c_int,
+        \\};
+    ,
+        \\pub const @"comptime" = struct_comptime;
+    });
+
+    cases.add_both("macro with parens around negative number",
+        \\#define LUA_GLOBALSINDEX        (-10002)
+    , &[_][]const u8{
+        \\pub const LUA_GLOBALSINDEX = -10002;
+    });
+
+    cases.add_both(
+        "u integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0U",
+        &[_][]const u8{
+            "pub const ZERO = @as(c_uint, 0);",
+        },
+    );
+
+    cases.add_both(
+        "l integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0L",
+        &[_][]const u8{
+            "pub const ZERO = @as(c_long, 0);",
+        },
+    );
+
+    cases.add_both(
+        "ul integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0UL",
+        &[_][]const u8{
+            "pub const ZERO = @as(c_ulong, 0);",
+        },
+    );
+
+    cases.add_both(
+        "lu integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0LU",
+        &[_][]const u8{
+            "pub const ZERO = @as(c_ulong, 0);",
+        },
+    );
+
+    cases.add_both(
+        "ll integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0LL",
+        &[_][]const u8{
+            "pub const ZERO = @as(c_longlong, 0);",
+        },
+    );
+
+    cases.add_both(
+        "ull integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0ULL",
+        &[_][]const u8{
+            "pub const ZERO = @as(c_ulonglong, 0);",
+        },
+    );
+
+    cases.add_both(
+        "llu integer suffix after 0 (zero) in macro definition",
+        "#define ZERO 0LLU",
+        &[_][]const u8{
+            "pub const ZERO = @as(c_ulonglong, 0);",
+        },
+    );
+
+    cases.add_both(
+        "bitwise not on u-suffixed 0 (zero) in macro definition",
+        "#define NOT_ZERO (~0U)",
+        &[_][]const u8{
+            "pub const NOT_ZERO = ~@as(c_uint, 0);",
+        },
+    );
+
     /////////////// Cases that pass for only stage2 ////////////////
 
     cases.add_2("Parameterless function prototypes",
@@ -200,21 +464,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        null,
         \\    } ++ .{null} ** 9;
         \\}
-    });
-
-    cases.add_2("field struct",
-        \\union OpenGLProcs {
-        \\    struct {
-        \\        int Clear;
-        \\    } gl;
-        \\};
-    , &[_][]const u8{
-        \\pub const union_OpenGLProcs = extern union {
-        \\    gl: extern struct {
-        \\        Clear: c_int,
-        \\    },
-        \\};
-        \\pub const OpenGLProcs = union_OpenGLProcs;
     });
 
     cases.add_2("enums",
@@ -280,45 +529,177 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    o,
         \\    p,
         \\};
+    ,
         \\pub const Baz = struct_Baz;
     });
 
-    /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
-
-    cases.add_both("typedef of function in struct field",
-        \\typedef void lws_callback_function(void);
-        \\struct Foo {
-        \\    void (*func)(void);
-        \\    lws_callback_function *callback_http;
-        \\};
+    cases.add_2("#define a char literal",
+        \\#define A_CHAR  'a'
     , &[_][]const u8{
-        \\pub const lws_callback_function = extern fn () void;
-        \\pub const struct_Foo = extern struct {
-        \\    func: ?extern fn () void,
-        \\    callback_http: ?lws_callback_function,
-        \\};
+        \\pub const A_CHAR = 'a';
     });
 
-    cases.add_both("pointer to struct demoted to opaque due to bit fields",
-        \\struct Foo {
-        \\    unsigned int: 1;
-        \\};
-        \\struct Bar {
-        \\    struct Foo *foo;
-        \\};
+    cases.add_2("comment after integer literal",
+        \\#define SDL_INIT_VIDEO 0x00000020  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     , &[_][]const u8{
-        \\pub const struct_Foo = @OpaqueType()
+        \\pub const SDL_INIT_VIDEO = 0x00000020;
+    });
+
+    cases.add_2("u integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020u  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_uint, 0x00000020);
+    });
+
+    cases.add_2("l integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020l  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_long, 0x00000020);
+    });
+
+    cases.add_2("ul integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020ul  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_ulong, 0x00000020);
+    });
+
+    cases.add_2("lu integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020lu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_ulong, 0x00000020);
+    });
+
+    cases.add_2("ll integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020ll  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_longlong, 0x00000020);
+    });
+
+    cases.add_2("ull integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020ull  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_ulonglong, 0x00000020);
+    });
+
+    cases.add_2("llu integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020llu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_ulonglong, 0x00000020);
+    });
+
+    cases.add_2("generate inline func for #define global extern fn",
+        \\extern void (*fn_ptr)(void);
+        \\#define foo fn_ptr
+        \\
+        \\extern char (*fn_ptr2)(int, float);
+        \\#define bar fn_ptr2
+    , &[_][]const u8{
+        \\pub extern var fn_ptr: ?extern fn () void;
     ,
-        \\pub const struct_Bar = extern struct {
-        \\    foo: ?*struct_Foo,
-        \\};
+        \\pub inline fn foo() void {
+        \\    return fn_ptr.?();
+        \\}
+    ,
+        \\pub extern var fn_ptr2: ?extern fn (c_int, f32) u8;
+    ,
+        \\pub inline fn bar(arg_1: c_int, arg_2: f32) u8 {
+        \\    return fn_ptr2.?(arg_1, arg_2);
+        \\}
     });
 
-    cases.add("macro with left shift",
-        \\#define REDISMODULE_READ (1<<0)
+    cases.add_2("macros with field targets",
+        \\typedef unsigned int GLbitfield;
+        \\typedef void (*PFNGLCLEARPROC) (GLbitfield mask);
+        \\typedef void(*OpenGLProc)(void);
+        \\union OpenGLProcs {
+        \\    OpenGLProc ptr[1];
+        \\    struct {
+        \\        PFNGLCLEARPROC Clear;
+        \\    } gl;
+        \\};
+        \\extern union OpenGLProcs glProcs;
+        \\#define glClearUnion glProcs.gl.Clear
+        \\#define glClearPFN PFNGLCLEARPROC
     , &[_][]const u8{
-        \\pub const REDISMODULE_READ = 1 << 0;
+        \\pub const GLbitfield = c_uint;
+    ,
+        \\pub const PFNGLCLEARPROC = ?extern fn (GLbitfield) void;
+    ,
+        \\pub const OpenGLProc = ?extern fn () void;
+    ,
+        \\pub const union_OpenGLProcs = extern union {
+        \\    ptr: [1]OpenGLProc,
+        \\    gl: extern struct {
+        \\        Clear: PFNGLCLEARPROC,
+        \\    },
+        \\};
+    ,
+        \\pub extern var glProcs: union_OpenGLProcs;
+    ,
+        \\pub const glClearPFN = PFNGLCLEARPROC;
+ // , // TODO
+    //     \\pub inline fn glClearUnion(arg_1: GLbitfield) void {
+    //     \\    return glProcs.gl.Clear.?(arg_1);
+    //     \\}
+        ,
+        \\pub const OpenGLProcs = union_OpenGLProcs;
     });
+
+    cases.add_2("macro pointer cast",
+        \\#define NRF_GPIO ((NRF_GPIO_Type *) NRF_GPIO_BASE)
+    , &[_][]const u8{
+        \\pub const NRF_GPIO = if (@typeId(@TypeOf(NRF_GPIO_BASE)) == .Pointer) @ptrCast([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@TypeOf(NRF_GPIO_BASE)) == .Int) @intToPtr([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else @as([*c]NRF_GPIO_Type, NRF_GPIO_BASE);
+    });
+
+    cases.add_2("basic macro function",
+        \\extern int c;
+        \\#define BASIC(c) (c*2)
+    , &[_][]const u8{
+        \\pub extern var c: c_int;
+    ,
+        \\pub inline fn BASIC(c_1: var) @TypeOf(c_1 * 2) {
+        \\    return c_1 * 2;
+        \\}
+    });
+
+    cases.add_2("macro escape sequences",
+        \\#define FOO "aoeu\xab derp"
+        \\#define FOO2 "aoeu\a derp"
+    , &[_][]const u8{
+        \\pub const FOO = "aoeu\xab derp";
+    ,
+        \\pub const FOO2 = "aoeu\x07 derp";
+    });
+
+    cases.add_2("variable aliasing",
+        \\static long a = 2;
+        \\static long b = 2;
+        \\static int c = 4;
+        \\void foo(char c) {
+        \\    int a;
+        \\    char b = 123;
+        \\    b = (char) a;
+        \\    {
+        \\        int d = 5;
+        \\    }
+        \\    unsigned d = 440;
+        \\}
+    , &[_][]const u8{
+        \\pub var a: c_long = @as(c_long, 2);
+        \\pub var b: c_long = @as(c_long, 2);
+        \\pub var c: c_int = 4;
+        \\pub export fn foo(c_1: u8) void {
+        \\    var a_2: c_int = undefined;
+        \\    var b_3: u8 = @as(u8, 123);
+        \\    b_3 = @as(u8, a_2);
+        \\    {
+        \\        var d: c_int = 5;
+        \\    }
+        \\    var d: c_uint = @as(c_uint, 440);
+        \\}
+    });
+
+    /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     if (builtin.os != builtin.Os.windows) {
         // Windows treats this as an enum with type c_int
@@ -457,31 +838,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add_both("double define struct",
-        \\typedef struct Bar Bar;
-        \\typedef struct Foo Foo;
-        \\
-        \\struct Foo {
-        \\    Foo *a;
-        \\};
-        \\
-        \\struct Bar {
-        \\    Foo *a;
-        \\};
-    , &[_][]const u8{
-        \\pub const struct_Foo = extern struct {
-        \\    a: [*c]Foo,
-        \\};
-    ,
-        \\pub const Foo = struct_Foo;
-    ,
-        \\pub const struct_Bar = extern struct {
-        \\    a: [*c]Foo,
-        \\};
-    ,
-        \\pub const Bar = struct_Bar;
-    });
-
     cases.addAllowWarnings("simple data types",
         \\#include <stdint.h>
         \\int foo(char a, unsigned char b, signed char c);
@@ -506,68 +862,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add_both("enums",
-        \\enum Foo {
-        \\    FooA,
-        \\    FooB,
-        \\    Foo1,
-        \\};
-    , &[_][]const u8{
-        \\pub const enum_Foo = extern enum {
-        \\    A,
-        \\    B,
-        \\    @"1",
-        \\};
-    ,
-        \\pub const FooA = enum_Foo.A;
-    ,
-        \\pub const FooB = enum_Foo.B;
-    ,
-        \\pub const Foo1 = enum_Foo.@"1";
-    ,
-        \\pub const Foo = enum_Foo;
-    });
-
-    cases.add_both("enums",
-        \\enum Foo {
-        \\    FooA = 2,
-        \\    FooB = 5,
-        \\    Foo1,
-        \\};
-    , &[_][]const u8{
-        \\pub const enum_Foo = extern enum {
-        \\    A = 2,
-        \\    B = 5,
-        \\    @"1" = 6,
-        \\};
-    ,
-        \\pub const FooA = enum_Foo.A;
-    ,
-        \\pub const FooB = enum_Foo.B;
-    ,
-        \\pub const Foo1 = enum_Foo.@"1";
-    ,
-        \\pub const Foo = enum_Foo;
-    });
-
     cases.add("restrict -> noalias",
         \\void foo(void *restrict bar, void *restrict);
     , &[_][]const u8{
         \\pub extern fn foo(noalias bar: ?*c_void, noalias arg1: ?*c_void) void;
-    });
-
-    cases.add_both("simple struct",
-        \\struct Foo {
-        \\    int x;
-        \\    char *y;
-        \\};
-    , &[_][]const u8{
-        \\const struct_Foo = extern struct {
-        \\    x: c_int,
-        \\    y: [*c]u8,
-        \\};
-    ,
-        \\pub const Foo = struct_Foo;
     });
 
     cases.add("qualified struct and enum",
@@ -608,160 +906,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn func(array: [*c]c_int) void;
     });
 
-    cases.add_both("self referential struct with function pointer",
-        \\struct Foo {
-        \\    void (*derp)(struct Foo *foo);
-        \\};
-    , &[_][]const u8{
-        \\pub const struct_Foo = extern struct {
-        \\    derp: ?extern fn ([*c]struct_Foo) void,
-        \\};
-    ,
-        \\pub const Foo = struct_Foo;
-    });
-
-    cases.add_both("struct prototype used in func",
-        \\struct Foo;
-        \\struct Foo *some_func(struct Foo *foo, int x);
-    , &[_][]const u8{
-        \\pub const struct_Foo = @OpaqueType();
-    ,
-        \\pub extern fn some_func(foo: ?*struct_Foo, x: c_int) ?*struct_Foo;
-    ,
-        \\pub const Foo = struct_Foo;
-    });
-
-    cases.add("#define a char literal",
-        \\#define A_CHAR  'a'
-    , &[_][]const u8{
-        \\pub const A_CHAR = 97;
-    });
-
-    cases.add("#define an unsigned integer literal",
-        \\#define CHANNEL_COUNT 24
-    , &[_][]const u8{
-        \\pub const CHANNEL_COUNT = 24;
-    });
-
-    cases.add("#define referencing another #define",
-        \\#define THING2 THING1
-        \\#define THING1 1234
-    , &[_][]const u8{
-        \\pub const THING1 = 1234;
-    ,
-        \\pub const THING2 = THING1;
-    });
-
-    cases.add_both("circular struct definitions",
-        \\struct Bar;
-        \\
-        \\struct Foo {
-        \\    struct Bar *next;
-        \\};
-        \\
-        \\struct Bar {
-        \\    struct Foo *next;
-        \\};
-    , &[_][]const u8{
-        \\pub const struct_Bar = extern struct {
-        \\    next: [*c]struct_Foo,
-        \\};
-    ,
-        \\pub const struct_Foo = extern struct {
-        \\    next: [*c]struct_Bar,
-        \\};
-    });
-
-    cases.add("generate inline func for #define global extern fn",
-        \\extern void (*fn_ptr)(void);
-        \\#define foo fn_ptr
-        \\
-        \\extern char (*fn_ptr2)(int, float);
-        \\#define bar fn_ptr2
-    , &[_][]const u8{
-        \\pub extern var fn_ptr: ?extern fn () void;
-    ,
-        \\pub inline fn foo() void {
-        \\    return fn_ptr.?();
-        \\}
-    ,
-        \\pub extern var fn_ptr2: ?extern fn (c_int, f32) u8;
-    ,
-        \\pub inline fn bar(arg0: c_int, arg1: f32) u8 {
-        \\    return fn_ptr2.?(arg0, arg1);
-        \\}
-    });
-
-    cases.add("#define string",
-        \\#define  foo  "a string"
-    , &[_][]const u8{
-        \\pub const foo = "a string";
-    });
-
     cases.add("__cdecl doesn't mess up function pointers",
         \\void foo(void (__cdecl *fn_ptr)(void));
     , &[_][]const u8{
         \\pub extern fn foo(fn_ptr: ?extern fn () void) void;
-    });
-
-    cases.add("comment after integer literal",
-        \\#define SDL_INIT_VIDEO 0x00000020  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
-    , &[_][]const u8{
-        \\pub const SDL_INIT_VIDEO = 32;
-    });
-
-    cases.add("u integer suffix after hex literal",
-        \\#define SDL_INIT_VIDEO 0x00000020u  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
-    , &[_][]const u8{
-        \\pub const SDL_INIT_VIDEO = @as(c_uint, 32);
-    });
-
-    cases.add("l integer suffix after hex literal",
-        \\#define SDL_INIT_VIDEO 0x00000020l  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
-    , &[_][]const u8{
-        \\pub const SDL_INIT_VIDEO = @as(c_long, 32);
-    });
-
-    cases.add("ul integer suffix after hex literal",
-        \\#define SDL_INIT_VIDEO 0x00000020ul  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
-    , &[_][]const u8{
-        \\pub const SDL_INIT_VIDEO = @as(c_ulong, 32);
-    });
-
-    cases.add("lu integer suffix after hex literal",
-        \\#define SDL_INIT_VIDEO 0x00000020lu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
-    , &[_][]const u8{
-        \\pub const SDL_INIT_VIDEO = @as(c_ulong, 32);
-    });
-
-    cases.add("ll integer suffix after hex literal",
-        \\#define SDL_INIT_VIDEO 0x00000020ll  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
-    , &[_][]const u8{
-        \\pub const SDL_INIT_VIDEO = @as(c_longlong, 32);
-    });
-
-    cases.add("ull integer suffix after hex literal",
-        \\#define SDL_INIT_VIDEO 0x00000020ull  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
-    , &[_][]const u8{
-        \\pub const SDL_INIT_VIDEO = @as(c_ulonglong, 32);
-    });
-
-    cases.add("llu integer suffix after hex literal",
-        \\#define SDL_INIT_VIDEO 0x00000020llu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
-    , &[_][]const u8{
-        \\pub const SDL_INIT_VIDEO = @as(c_ulonglong, 32);
-    });
-
-    cases.add_both("zig keywords in C code",
-        \\struct comptime {
-        \\    int defer;
-        \\};
-    , &[_][]const u8{
-        \\pub const struct_comptime = extern struct {
-        \\    @"defer": c_int,
-        \\};
-    ,
-        \\pub const @"comptime" = struct_comptime;
     });
 
     cases.add("macro defines string literal with hex",
@@ -786,12 +934,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const FOO2 = "aoeu\x134 derp";
     ,
         \\pub const FOO_CHAR = 63;
-    });
-
-    cases.add("macro with parens around negative number",
-        \\#define LUA_GLOBALSINDEX        (-10002)
-    , &[_][]const u8{
-        \\pub const LUA_GLOBALSINDEX = -10002;
     });
 
     cases.addC("post increment",
@@ -1521,44 +1663,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("macros with field targets",
-        \\typedef unsigned int GLbitfield;
-        \\typedef void (*PFNGLCLEARPROC) (GLbitfield mask);
-        \\typedef void(*OpenGLProc)(void);
-        \\union OpenGLProcs {
-        \\    OpenGLProc ptr[1];
-        \\    struct {
-        \\        PFNGLCLEARPROC Clear;
-        \\    } gl;
-        \\};
-        \\extern union OpenGLProcs glProcs;
-        \\#define glClearUnion glProcs.gl.Clear
-        \\#define glClearPFN PFNGLCLEARPROC
-    , &[_][]const u8{
-        \\pub const GLbitfield = c_uint;
-    ,
-        \\pub const PFNGLCLEARPROC = ?extern fn (GLbitfield) void;
-    ,
-        \\pub const OpenGLProc = ?extern fn () void;
-    ,
-        \\pub const union_OpenGLProcs = extern union {
-        \\    ptr: [1]OpenGLProc,
-        \\    gl: extern struct {
-        \\        Clear: PFNGLCLEARPROC,
-        \\    },
-        \\};
-    ,
-        \\pub extern var glProcs: union_OpenGLProcs;
-    ,
-        \\pub const glClearPFN = PFNGLCLEARPROC;
-    ,
-        \\pub inline fn glClearUnion(arg0: GLbitfield) void {
-        \\    return glProcs.gl.Clear.?(arg0);
-        \\}
-    ,
-        \\pub const OpenGLProcs = union_OpenGLProcs;
-    });
-
     cases.add("variable name shadowing",
         \\int foo(void) {
         \\    int x = 1;
@@ -1623,12 +1727,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn foo(u32_0: c_int) c_int {
         \\    return u32_0;
         \\}
-    });
-
-    cases.add("macro pointer cast",
-        \\#define NRF_GPIO ((NRF_GPIO_Type *) NRF_GPIO_BASE)
-    , &[_][]const u8{
-        \\pub const NRF_GPIO = if (@typeId(@TypeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Pointer) @ptrCast([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@TypeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Int) @intToPtr([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else @as([*c]NRF_GPIO_Type, NRF_GPIO_BASE);
     });
 
     cases.add("if on non-bool",
@@ -1731,70 +1829,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    }
         \\}
     });
-
-    cases.addC(
-        "u integer suffix after 0 (zero) in macro definition",
-        "#define ZERO 0U",
-        &[_][]const u8{
-            "pub const ZERO = @as(c_uint, 0);",
-        },
-    );
-
-    cases.addC(
-        "l integer suffix after 0 (zero) in macro definition",
-        "#define ZERO 0L",
-        &[_][]const u8{
-            "pub const ZERO = @as(c_long, 0);",
-        },
-    );
-
-    cases.addC(
-        "ul integer suffix after 0 (zero) in macro definition",
-        "#define ZERO 0UL",
-        &[_][]const u8{
-            "pub const ZERO = @as(c_ulong, 0);",
-        },
-    );
-
-    cases.addC(
-        "lu integer suffix after 0 (zero) in macro definition",
-        "#define ZERO 0LU",
-        &[_][]const u8{
-            "pub const ZERO = @as(c_ulong, 0);",
-        },
-    );
-
-    cases.addC(
-        "ll integer suffix after 0 (zero) in macro definition",
-        "#define ZERO 0LL",
-        &[_][]const u8{
-            "pub const ZERO = @as(c_longlong, 0);",
-        },
-    );
-
-    cases.addC(
-        "ull integer suffix after 0 (zero) in macro definition",
-        "#define ZERO 0ULL",
-        &[_][]const u8{
-            "pub const ZERO = @as(c_ulonglong, 0);",
-        },
-    );
-
-    cases.addC(
-        "llu integer suffix after 0 (zero) in macro definition",
-        "#define ZERO 0LLU",
-        &[_][]const u8{
-            "pub const ZERO = @as(c_ulonglong, 0);",
-        },
-    );
-
-    cases.addC(
-        "bitwise not on u-suffixed 0 (zero) in macro definition",
-        "#define NOT_ZERO (~0U)",
-        &[_][]const u8{
-            "pub const NOT_ZERO = ~@as(c_uint, 0);",
-        },
-    );
 
     cases.addC("implicit casts",
         \\#include <stdbool.h>
@@ -1935,5 +1969,122 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() void {}
         \\pub export fn bar() void {}
+    });
+
+    cases.add("#define a char literal",
+        \\#define A_CHAR  'a'
+    , &[_][]const u8{
+        \\pub const A_CHAR = 97;
+    });
+
+    cases.add("generate inline func for #define global extern fn",
+        \\extern void (*fn_ptr)(void);
+        \\#define foo fn_ptr
+        \\
+        \\extern char (*fn_ptr2)(int, float);
+        \\#define bar fn_ptr2
+    , &[_][]const u8{
+        \\pub extern var fn_ptr: ?extern fn () void;
+    ,
+        \\pub inline fn foo() void {
+        \\    return fn_ptr.?();
+        \\}
+    ,
+        \\pub extern var fn_ptr2: ?extern fn (c_int, f32) u8;
+    ,
+        \\pub inline fn bar(arg0: c_int, arg1: f32) u8 {
+        \\    return fn_ptr2.?(arg0, arg1);
+        \\}
+    });
+    cases.add("comment after integer literal",
+        \\#define SDL_INIT_VIDEO 0x00000020  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = 32;
+    });
+
+    cases.add("u integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020u  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_uint, 32);
+    });
+
+    cases.add("l integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020l  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_long, 32);
+    });
+
+    cases.add("ul integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020ul  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_ulong, 32);
+    });
+
+    cases.add("lu integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020lu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_ulong, 32);
+    });
+
+    cases.add("ll integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020ll  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_longlong, 32);
+    });
+
+    cases.add("ull integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020ull  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_ulonglong, 32);
+    });
+
+    cases.add("llu integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020llu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    , &[_][]const u8{
+        \\pub const SDL_INIT_VIDEO = @as(c_ulonglong, 32);
+    });
+
+    cases.add("macros with field targets",
+        \\typedef unsigned int GLbitfield;
+        \\typedef void (*PFNGLCLEARPROC) (GLbitfield mask);
+        \\typedef void(*OpenGLProc)(void);
+        \\union OpenGLProcs {
+        \\    OpenGLProc ptr[1];
+        \\    struct {
+        \\        PFNGLCLEARPROC Clear;
+        \\    } gl;
+        \\};
+        \\extern union OpenGLProcs glProcs;
+        \\#define glClearUnion glProcs.gl.Clear
+        \\#define glClearPFN PFNGLCLEARPROC
+    , &[_][]const u8{
+        \\pub const GLbitfield = c_uint;
+    ,
+        \\pub const PFNGLCLEARPROC = ?extern fn (GLbitfield) void;
+    ,
+        \\pub const OpenGLProc = ?extern fn () void;
+    ,
+        \\pub const union_OpenGLProcs = extern union {
+        \\    ptr: [1]OpenGLProc,
+        \\    gl: extern struct {
+        \\        Clear: PFNGLCLEARPROC,
+        \\    },
+        \\};
+    ,
+        \\pub extern var glProcs: union_OpenGLProcs;
+    ,
+        \\pub const glClearPFN = PFNGLCLEARPROC;
+    ,
+        \\pub inline fn glClearUnion(arg0: GLbitfield) void {
+        \\    return glProcs.gl.Clear.?(arg0);
+        \\}
+    ,
+        \\pub const OpenGLProcs = union_OpenGLProcs;
+    });
+
+    cases.add("macro pointer cast",
+        \\#define NRF_GPIO ((NRF_GPIO_Type *) NRF_GPIO_BASE)
+    , &[_][]const u8{
+        \\pub const NRF_GPIO = if (@typeId(@TypeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Pointer) @ptrCast([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@TypeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Int) @intToPtr([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else @as([*c]NRF_GPIO_Type, NRF_GPIO_BASE);
     });
 }

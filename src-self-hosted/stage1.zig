@@ -93,7 +93,7 @@ export fn stage2_translate_c(
     out_errors_len: *usize,
     args_begin: [*]?[*]const u8,
     args_end: [*]?[*]const u8,
-    resources_path: [*]const u8,
+    resources_path: [*:0]const u8,
 ) Error {
     var errors: []translate_c.ClangErrMsg = undefined;
     out_ast.* = translate_c.translate(std.heap.c_allocator, args_begin, args_end, &errors, resources_path) catch |err| switch (err) {
