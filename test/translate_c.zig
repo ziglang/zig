@@ -949,26 +949,99 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.addC("logical and, logical or on none bool values",
-        \\int and_or_none_bool(int a, float b, void *c) {
-        \\    if (a && b) return 0;
-        \\    if (b && c) return 1;
-        \\    if (a && c) return 2;
-        \\    if (a || b) return 3;
-        \\    if (b || c) return 4;
-        \\    if (a || c) return 5;
-        \\    return 6;
+    cases.addC("logical and, logical or, on non-bool values", // Note this gets cut off by extra C symbols being injected in middle: `pub const Foo = enum_Foo;`
+        \\enum Foo {
+        \\    FooA,
+        \\    FooB,
+        \\    FooC,
+        \\};
+        \\int and_or_non_bool(int a, float b, void *c) {
+        \\    enum Foo d = FooA;
+        \\    int e = (a && b);
+        \\    int f = (b && c);
+        \\    int g = (a && c);
+        \\    int h = (a || b);
+        \\    int i = (b || c);
+        \\    int j = (a || c);
+        \\    int k = (a || d);
+        \\    int l = (d && b);
+        \\    int m = (c || d);
+        \\    return (((((((e + f) + g) + h) + i) + j) + k) + l) + m;
         \\}
     , &[_][]const u8{
-        \\pub export fn and_or_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
-        \\    if ((a != 0) and (b != 0)) return 0;
-        \\    if ((b != 0) and (c != null)) return 1;
-        \\    if ((a != 0) and (c != null)) return 2;
-        \\    if ((a != 0) or (b != 0)) return 3;
-        \\    if ((b != 0) or (c != null)) return 4;
-        \\    if ((a != 0) or (c != null)) return 5;
-        \\    return 6;
+        \\pub const FooA = enum_Foo.A;
+        \\pub const FooB = enum_Foo.B;
+        \\pub const FooC = enum_Foo.C;
+        \\pub const enum_Foo = extern enum {
+        \\    A,
+        \\    B,
+        \\    C,
+        \\};
+        \\pub export fn and_or_non_bool(a: c_int, b: f32, c: ?*c_void) c_int {
+        \\    var d: enum_Foo = @as(enum_Foo, FooA);
+        \\    var e: c_int = (a != 0) and (b != 0);
+        \\    var f: c_int = (b != 0) and (c != null);
+        \\    var g: c_int = (a != 0) and (c != null);
+        \\    var h: c_int = (a != 0) or (b != 0);
+        \\    var i: c_int = (b != 0) or (c != null);
+        \\    var j: c_int = (a != 0) or (c != null);
+        \\    var k: c_int = (a != 0) or (@as(c_int, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0)));
+        \\    var l: c_int = (@as(c_int, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0))) and (b != 0);
+        \\    var m: c_int = (c != null) or (@as(c_int, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0)));
+        \\    return (((((((e + f) + g) + h) + i) + j) + k) + l) + m;
         \\}
+    });
+
+    cases.add_2("logical and, logical or, on non-bool values, extra parens",
+        \\enum Foo {
+        \\    FooA,
+        \\    FooB,
+        \\    FooC,
+        \\};
+        \\typedef int SomeTypedef;
+        \\int and_or_non_bool(int a, float b, void *c) {
+        \\    enum Foo d = FooA;
+        \\    int e = (a && b);
+        \\    int f = (b && c);
+        \\    int g = (a && c);
+        \\    int h = (a || b);
+        \\    int i = (b || c);
+        \\    int j = (a || c);
+        \\    int k = (a || d);
+        \\    int l = (d && b);
+        \\    int m = (c || d);
+        \\    SomeTypedef td = 44;
+        \\    int o = (td || b);
+        \\    int p = (c && td);
+        \\    return ((((((((((e + f) + g) + h) + i) + j) + k) + l) + m) + o) + p);
+        \\}
+    , &[_][]const u8{
+        \\pub const FooA = enum_Foo.A;
+        \\pub const FooB = enum_Foo.B;
+        \\pub const FooC = enum_Foo.C;
+        \\pub const enum_Foo = extern enum {
+        \\    A,
+        \\    B,
+        \\    C,
+        \\};
+        \\pub const SomeTypedef = c_int;
+        \\pub export fn and_or_non_bool(a: c_int, b: f32, c: ?*c_void) c_int {
+        \\    var d: enum_Foo = @as(enum_Foo, FooA);
+        \\    var e: c_int = ((a != 0) and (b != 0));
+        \\    var f: c_int = ((b != 0) and (c != null));
+        \\    var g: c_int = ((a != 0) and (c != null));
+        \\    var h: c_int = ((a != 0) or (b != 0));
+        \\    var i: c_int = ((b != 0) or (c != null));
+        \\    var j: c_int = ((a != 0) or (c != null));
+        \\    var k: c_int = ((a != 0) or (@as(c_int, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0))));
+        \\    var l: c_int = ((@as(c_int, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0))) and (b != 0));
+        \\    var m: c_int = ((c != null) or (@as(c_int, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0))));
+        \\    var td: SomeTypedef = 44;
+        \\    var o: c_int = ((td != 0) or (b != 0));
+        \\    var p: c_int = ((c != null) and (td != 0));
+        \\    return ((((((((((e + f) + g) + h) + i) + j) + k) + l) + m) + o) + p);
+        \\}
+        \\pub const Foo = enum_Foo;
     });
 
     cases.addC("assign",

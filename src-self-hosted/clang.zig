@@ -967,6 +967,16 @@ pub extern fn ZigClangDeclRefExpr_getDecl(*const ZigClangDeclRefExpr) *const Zig
 pub extern fn ZigClangParenType_getInnerType(*const ZigClangParenType) ZigClangQualType;
 
 pub extern fn ZigClangElaboratedType_getNamedType(*const ZigClangElaboratedType) ZigClangQualType;
+pub extern fn ZigClangElaboratedType_getKeyword(*const ZigClangElaboratedType) ZigClangElaboratedTypeKeyword;
+pub const ZigClangElaboratedTypeKeyword = extern enum {
+    Struct,
+    Interface,
+    Union,
+    Class,
+    Enum,
+    Typename,
+    None,
+};
 
 pub extern fn ZigClangAttributedType_getEquivalentType(*const ZigClangAttributedType) ZigClangQualType;
 

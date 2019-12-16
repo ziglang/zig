@@ -592,14 +592,14 @@ fn transCreateNodeShiftOp(
     const rhs_location = ZigClangExpr_getBeginLoc(rhs_expr);
     // lhs >> u5(rh)
 
-    const lhs = try transExpr(rp, scope, lhs_expr, .used, .l_value);
+    const lhs = try transExpr(rp, scope, lhs_expr, .used, .r_value);
     const op_token = try appendToken(rp.c, op_tok_id, bytes);
 
     const as_node = try transCreateNodeBuiltinFnCall(rp.c, "@as");
     const rhs_type = try qualTypeToLog2IntRef(rp, ZigClangBinaryOperator_getType(stmt), rhs_location);
     try as_node.params.push(rhs_type);
     _ = try appendToken(rp.c, .Comma, ",");
-    const rhs = try transExpr(rp, scope, rhs_expr, .used, .l_value);
+    const rhs = try transExpr(rp, scope, rhs_expr, .used, .r_value);
     try as_node.params.push(rhs.node);
     as_node.rparen_token = try appendToken(rp.c, .RParen, ")");
 
@@ -672,7 +672,7 @@ fn transBinaryOperator(
             if (!cIsUnsignedInteger(qt)) {
                 // signed integer division uses @divTrunc
                 const div_trunc_node = try transCreateNodeBuiltinFnCall(rp.c, "@divTrunc");
-                const lhs = try transExpr(rp, scope, ZigClangBinaryOperator_getLHS(stmt), .used, .l_value);
+                const lhs = try transExpr(rp, scope, ZigClangBinaryOperator_getLHS(stmt), .used, .r_value);
                 try div_trunc_node.params.push(lhs.node);
                 _ = try appendToken(rp.c, .Comma, ",");
                 const rhs = try transExpr(rp, scope, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value);
@@ -697,7 +697,7 @@ fn transBinaryOperator(
             if (!cIsUnsignedInteger(qt)) {
                 // signed integer division uses @rem
                 const rem_node = try transCreateNodeBuiltinFnCall(rp.c, "@rem");
-                const lhs = try transExpr(rp, scope, ZigClangBinaryOperator_getLHS(stmt), .used, .l_value);
+                const lhs = try transExpr(rp, scope, ZigClangBinaryOperator_getLHS(stmt), .used, .r_value);
                 try rem_node.params.push(lhs.node);
                 _ = try appendToken(rp.c, .Comma, ",");
                 const rhs = try transExpr(rp, scope, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value);
@@ -806,10 +806,23 @@ fn transBinaryOperator(
                 .node_scope = scope,
             });
         },
-        .LAnd,
-        .LOr,
-        .Comma,
-        => return revertAndWarn(
+        .LAnd => {
+            const node = try transCreateNodeBoolInfixOp(rp, scope, stmt, .BoolAnd, .Keyword_and, "and");
+            return maybeSuppressResult(rp, scope, result_used, TransResult{
+                .node = node,
+                .child_scope = scope,
+                .node_scope = scope,
+            });
+        },
+        .LOr => {
+            const node = try transCreateNodeBoolInfixOp(rp, scope, stmt, .BoolOr, .Keyword_or, "or");
+            return maybeSuppressResult(rp, scope, result_used, TransResult{
+                .node = node,
+                .child_scope = scope,
+                .node_scope = scope,
+            });
+        },
+        .Comma => return revertAndWarn(
             rp,
             error.UnsupportedTranslation,
             ZigClangBinaryOperator_getBeginLoc(stmt),
@@ -1038,6 +1051,321 @@ fn transImplicitCastExpr(
             .{@tagName(kind)},
         ),
     }
+}
+
+fn toEnumZeroCmp(
+    rp: RestorePoint,
+    scope: *Scope,
+    expr: *ast.Node,
+    generate_enum_node: fn (RestorePoint, *const struct_ZigClangType, source_loc: ZigClangSourceLocation) TransError!*ast.Node,
+    enum_ty: *const struct_ZigClangType,
+    enum_source_loc: ZigClangSourceLocation,
+) !*ast.Node {
+    // expr != @bitCast(EnumType, @as(@TagType(EnumType), 0))
+
+    // @bitCast(Enum,
+    const bitcast = try transCreateNodeBuiltinFnCall(rp.c, "@bitCast");
+    const bitcast_enum_identifier = try generate_enum_node(rp, enum_ty, enum_source_loc);
+    try bitcast.params.push(bitcast_enum_identifier);
+    _ = try appendToken(rp.c, .Comma, ",");
+
+    // @as(
+    const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@as");
+
+    // @TagType(Enum),
+    const tag_type = try transCreateNodeBuiltinFnCall(rp.c, "@TagType");
+    const tag_type_enum_identifier = try generate_enum_node(rp, enum_ty, enum_source_loc);
+    try tag_type.params.push(tag_type_enum_identifier);
+    tag_type.rparen_token = try appendToken(rp.c, .RParen, ")");
+    try cast_node.params.push(&tag_type.base);
+    _ = try appendToken(rp.c, .Comma, ",");
+
+    // 0)
+    const zero = try transCreateNodeInt(rp.c, 0);
+    try cast_node.params.push(zero);
+    cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+
+    try bitcast.params.push(&cast_node.base);
+    bitcast.rparen_token = try appendToken(rp.c, .RParen, ")");
+
+    // expr != @bitCast(EnumType, @as(@TagType(EnumType), 0))
+    return transCreateNodeNotEqual(rp, scope, expr, &bitcast.base);
+}
+
+fn transBoolExpr(
+    rp: RestorePoint,
+    scope: *Scope,
+    expr: *const ZigClangExpr,
+    used: ResultUsed,
+    lrvalue: LRValue,
+) !*ast.Node {
+    var res = try transExpr(rp, scope, expr, used, lrvalue);
+
+    switch (res.node.id) {
+        .InfixOp => switch (@ptrCast(*const ast.Node.InfixOp, &res.node).op) {
+            .BoolOr,
+            .BoolAnd,
+            .EqualEqual,
+            .BangEqual,
+            .LessThan,
+            .GreaterThan,
+            .LessOrEqual,
+            .GreaterOrEqual,
+            => return res.node,
+
+            else => {},
+        },
+
+        .PrefixOp => switch (@ptrCast(*const ast.Node.PrefixOp, &res.node).op) {
+            .BoolNot => return res.node,
+
+            else => {},
+        },
+
+        .BoolLiteral => return res.node,
+
+        else => {},
+    }
+
+    const ty = ZigClangQualType_getTypePtr(getExprQualTypeBeforeImplicitCast(rp.c, expr));
+
+    switch (ZigClangType_getTypeClass(ty)) {
+        .Builtin => {
+            const builtin_ty = @ptrCast(*const ZigClangBuiltinType, ty);
+
+            switch (ZigClangBuiltinType_getKind(builtin_ty)) {
+                .Bool,
+                .Char_U,
+                .UChar,
+                .Char_S,
+                .SChar,
+                .UShort,
+                .UInt,
+                .ULong,
+                .ULongLong,
+                .Short,
+                .Int,
+                .Long,
+                .LongLong,
+                .UInt128,
+                .Int128,
+                .Float,
+                .Double,
+                .Float128,
+                .LongDouble,
+                .WChar_U,
+                .Char8,
+                .Char16,
+                .Char32,
+                .WChar_S,
+                .Float16,
+                => return transCreateNodeNotEqual(rp, scope, res.node, try transCreateNodeInt(rp.c, 0)),
+
+                .NullPtr => return transCreateNodeNotEqual(rp, scope, res.node, try transCreateNodeNullLiteral(rp.c)),
+
+                .Void,
+                .Half,
+                .ObjCId,
+                .ObjCClass,
+                .ObjCSel,
+                .OMPArraySection,
+                .Dependent,
+                .Overload,
+                .BoundMember,
+                .PseudoObject,
+                .UnknownAny,
+                .BuiltinFn,
+                .ARCUnbridgedCast,
+                .OCLImage1dRO,
+                .OCLImage1dArrayRO,
+                .OCLImage1dBufferRO,
+                .OCLImage2dRO,
+                .OCLImage2dArrayRO,
+                .OCLImage2dDepthRO,
+                .OCLImage2dArrayDepthRO,
+                .OCLImage2dMSAARO,
+                .OCLImage2dArrayMSAARO,
+                .OCLImage2dMSAADepthRO,
+                .OCLImage2dArrayMSAADepthRO,
+                .OCLImage3dRO,
+                .OCLImage1dWO,
+                .OCLImage1dArrayWO,
+                .OCLImage1dBufferWO,
+                .OCLImage2dWO,
+                .OCLImage2dArrayWO,
+                .OCLImage2dDepthWO,
+                .OCLImage2dArrayDepthWO,
+                .OCLImage2dMSAAWO,
+                .OCLImage2dArrayMSAAWO,
+                .OCLImage2dMSAADepthWO,
+                .OCLImage2dArrayMSAADepthWO,
+                .OCLImage3dWO,
+                .OCLImage1dRW,
+                .OCLImage1dArrayRW,
+                .OCLImage1dBufferRW,
+                .OCLImage2dRW,
+                .OCLImage2dArrayRW,
+                .OCLImage2dDepthRW,
+                .OCLImage2dArrayDepthRW,
+                .OCLImage2dMSAARW,
+                .OCLImage2dArrayMSAARW,
+                .OCLImage2dMSAADepthRW,
+                .OCLImage2dArrayMSAADepthRW,
+                .OCLImage3dRW,
+                .OCLSampler,
+                .OCLEvent,
+                .OCLClkEvent,
+                .OCLQueue,
+                .OCLReserveID,
+                .ShortAccum,
+                .Accum,
+                .LongAccum,
+                .UShortAccum,
+                .UAccum,
+                .ULongAccum,
+                .ShortFract,
+                .Fract,
+                .LongFract,
+                .UShortFract,
+                .UFract,
+                .ULongFract,
+                .SatShortAccum,
+                .SatAccum,
+                .SatLongAccum,
+                .SatUShortAccum,
+                .SatUAccum,
+                .SatULongAccum,
+                .SatShortFract,
+                .SatFract,
+                .SatLongFract,
+                .SatUShortFract,
+                .SatUFract,
+                .SatULongFract,
+                .OCLIntelSubgroupAVCMcePayload,
+                .OCLIntelSubgroupAVCImePayload,
+                .OCLIntelSubgroupAVCRefPayload,
+                .OCLIntelSubgroupAVCSicPayload,
+                .OCLIntelSubgroupAVCMceResult,
+                .OCLIntelSubgroupAVCImeResult,
+                .OCLIntelSubgroupAVCRefResult,
+                .OCLIntelSubgroupAVCSicResult,
+                .OCLIntelSubgroupAVCImeResultSingleRefStreamout,
+                .OCLIntelSubgroupAVCImeResultDualRefStreamout,
+                .OCLIntelSubgroupAVCImeSingleRefStreamin,
+                .OCLIntelSubgroupAVCImeDualRefStreamin,
+                => return res.node,
+            }
+        },
+        .Pointer => return transCreateNodeNotEqual(rp, scope, res.node, try transCreateNodeNullLiteral(rp.c)),
+
+        .Typedef => {
+            return transCreateNodeNotEqual(rp, scope, res.node, try transCreateNodeInt(rp.c, 0)); // TODO currently assuming it is like an int/char/bool builtin type. Coerce the type and recurse? Add a toTypedefZeroCmp function?
+
+            // TODO This is the code that was in translate-c, but it seems like it is giving wrong results! It just prints the typedef name instead of the value
+            // const typedef_ty = @ptrCast(*const ZigClangTypedefType, ty);
+            // const typedef_decl = ZigClangTypedefType_getDecl(typedef_ty);
+            // const typedef_name_decl = ZigClangTypedefNameDecl_getCanonicalDecl(typedef_decl);
+
+            // const typedef_name = if (rp.c.decl_table.get(@ptrToInt(typedef_name_decl))) |existing_entry|
+            //     existing_entry.value
+            // else
+            //     try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, typedef_name_decl)));
+
+            // return transCreateNodeIdentifier(rp.c, typedef_name);
+        },
+
+        .Enum => {
+            const gen_enum_decl_node = struct {
+                // Have to use a callback because node must be generated inline in order to avoid weird AST printing behavior,
+                // and the code to generate the nodes is a little different for each case
+                fn generate_node(inner_rp: RestorePoint, enum_ty: *const struct_ZigClangType, source_loc: ZigClangSourceLocation) TransError!*ast.Node {
+                    const actual_enum_ty = @ptrCast(*const ZigClangEnumType, enum_ty);
+                    const enum_decl = ZigClangEnumType_getDecl(actual_enum_ty);
+                    const enum_type = (try transEnumDecl(inner_rp.c, enum_decl)) orelse {
+                        return revertAndWarn(inner_rp, error.UnsupportedType, source_loc, "unable to translate enum declaration", .{});
+                    };
+                    return enum_type;
+                }
+            };
+
+            return toEnumZeroCmp(rp, scope, res.node, gen_enum_decl_node.generate_node, ty, ZigClangExpr_getBeginLoc(expr));
+        },
+
+        .Elaborated => {
+            const elaborated_ty = @ptrCast(*const ZigClangElaboratedType, ty);
+
+            switch (ZigClangElaboratedType_getKeyword(elaborated_ty)) {
+                .Enum => {
+                    // Have to use a callback because node must be generated inline in order to avoid weird AST printing behavior,
+                    // and the code to generate the nodes is a little different for each case
+                    const gen_enum_type_node = struct {
+                        fn generate_node(inner_rp: RestorePoint, enum_ty: *const struct_ZigClangType, source_loc: ZigClangSourceLocation) TransError!*ast.Node {
+                            const inner_elaborated_ty = @ptrCast(*const ZigClangElaboratedType, enum_ty);
+                            const enum_type = try transQualType(inner_rp, ZigClangElaboratedType_getNamedType(inner_elaborated_ty), source_loc);
+                            return enum_type;
+                        }
+                    };
+
+                    return toEnumZeroCmp(rp, scope, res.node, gen_enum_type_node.generate_node, ty, ZigClangExpr_getBeginLoc(expr));
+                },
+
+                .Struct,
+                .Union,
+                .Interface,
+                .Class,
+                .Typename,
+                .None,
+                => return res.node,
+            }
+        },
+
+        .FunctionProto,
+        .Record,
+        .ConstantArray,
+        .Paren,
+        .Decayed,
+        .Attributed,
+        .IncompleteArray,
+        .BlockPointer,
+        .LValueReference,
+        .RValueReference,
+        .MemberPointer,
+        .VariableArray,
+        .DependentSizedArray,
+        .DependentSizedExtVector,
+        .Vector,
+        .ExtVector,
+        .FunctionNoProto,
+        .UnresolvedUsing,
+        .Adjusted,
+        .TypeOfExpr,
+        .TypeOf,
+        .Decltype,
+        .UnaryTransform,
+        .TemplateTypeParm,
+        .SubstTemplateTypeParm,
+        .SubstTemplateTypeParmPack,
+        .TemplateSpecialization,
+        .Auto,
+        .InjectedClassName,
+        .DependentName,
+        .DependentTemplateSpecialization,
+        .PackExpansion,
+        .ObjCObject,
+        .ObjCInterface,
+        .Complex,
+        .ObjCObjectPointer,
+        .Atomic,
+        .Pipe,
+        .ObjCTypeParam,
+        .DeducedTemplateSpecialization,
+        .DependentAddressSpace,
+        .DependentVector,
+        .MacroQualified,
+        => return res.node,
+    }
+
+    unreachable;
 }
 
 fn transIntegerLiteral(
@@ -1848,6 +2176,14 @@ fn getExprQualType(c: *Context, expr: *const ZigClangExpr) ZigClangQualType {
     return ZigClangExpr_getType(expr);
 }
 
+fn getExprQualTypeBeforeImplicitCast(c: *Context, expr: *const ZigClangExpr) ZigClangQualType {
+    if (ZigClangExpr_getStmtClass(expr) == .ImplicitCastExprClass) {
+        const cast_expr = @ptrCast(*const ZigClangImplicitCastExpr, expr);
+        return getExprQualType(c, ZigClangImplicitCastExpr_getSubExpr(cast_expr));
+    }
+    return ZigClangExpr_getType(expr);
+}
+
 fn typeIsOpaque(c: *Context, ty: *const ZigClangType, loc: ZigClangSourceLocation) bool {
     switch (ZigClangType_getTypeClass(ty)) {
         .Builtin => {
@@ -2000,25 +2336,24 @@ fn transCreateNodePrefixOp(
     return node;
 }
 
-fn transCreateNodeInfixOp(
+fn transCreateNodeInfixOpImpl(
     rp: RestorePoint,
     scope: *Scope,
-    stmt: *const ZigClangBinaryOperator,
+    lhs_node: *ast.Node,
+    rhs_node: *ast.Node,
     op: ast.Node.InfixOp.Op,
     op_tok_id: std.zig.Token.Id,
     bytes: []const u8,
     grouped: bool,
 ) !*ast.Node {
     const lparen = if (grouped) try appendToken(rp.c, .LParen, "(") else undefined;
-    const lhs = try transExpr(rp, scope, ZigClangBinaryOperator_getLHS(stmt), .used, .l_value);
     const op_token = try appendToken(rp.c, op_tok_id, bytes);
-    const rhs = try transExpr(rp, scope, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value);
     const node = try rp.c.a().create(ast.Node.InfixOp);
     node.* = ast.Node.InfixOp{
         .op_token = op_token,
-        .lhs = lhs.node,
+        .lhs = lhs_node,
         .op = op,
-        .rhs = rhs.node,
+        .rhs = rhs_node,
     };
     if (!grouped) return &node.base;
     const rparen = try appendToken(rp.c, .RParen, ")");
@@ -2029,6 +2364,60 @@ fn transCreateNodeInfixOp(
         .rparen = rparen,
     };
     return &grouped_expr.base;
+}
+
+fn transCreateNodeInfixOp(
+    rp: RestorePoint,
+    scope: *Scope,
+    stmt: *const ZigClangBinaryOperator,
+    op: ast.Node.InfixOp.Op,
+    op_tok_id: std.zig.Token.Id,
+    bytes: []const u8,
+    grouped: bool,
+) !*ast.Node {
+    return transCreateNodeInfixOpImpl(
+        rp,
+        scope,
+        (try transExpr(rp, scope, ZigClangBinaryOperator_getLHS(stmt), .used, .r_value)).node,
+        (try transExpr(rp, scope, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value)).node,
+        op,
+        op_tok_id,
+        bytes,
+        grouped,
+    );
+}
+
+fn transCreateNodeNotEqual(
+    rp: RestorePoint,
+    scope: *Scope,
+    lhs_node: *ast.Node,
+    rhs_node: *ast.Node,
+) !*ast.Node {
+    return transCreateNodeInfixOpImpl(rp, scope, lhs_node, rhs_node, .BangEqual, .BangEqual, "!=", true);
+}
+
+fn transCreateNodeBoolInfixOp(
+    rp: RestorePoint,
+    scope: *Scope,
+    stmt: *const ZigClangBinaryOperator,
+    comptime op: ast.Node.InfixOp.Op,
+    comptime op_tok_id: std.zig.Token.Id,
+    comptime bytes: []const u8,
+) !*ast.Node {
+    if (!(op == .BoolAnd or op == .BoolOr)) {
+        @compileError("op must be either .BoolAnd or .BoolOr");
+    }
+
+    return transCreateNodeInfixOpImpl(
+        rp,
+        scope,
+        try transBoolExpr(rp, scope, ZigClangBinaryOperator_getLHS(stmt), .used, .r_value),
+        try transBoolExpr(rp, scope, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value),
+        op,
+        op_tok_id,
+        bytes,
+        true,
+    );
 }
 
 fn transCreateNodePtrType(
