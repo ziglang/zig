@@ -886,6 +886,7 @@ pub const TokenStream = struct {
 
     pub fn next(self: *TokenStream) Error!?Token {
         if (self.token) |token| {
+            // TODO: Audit this pattern once #2915 is closed
             const copy = token;
             self.token = null;
             return copy;
