@@ -652,10 +652,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.add_2("basic macro function",
+        \\extern int c;
         \\#define BASIC(c) (c*2)
     , &[_][]const u8{
-        \\pub inline fn BASIC(c: var) @TypeOf(c * 2) {
-        \\    return c * 2;
+        \\pub extern var c: c_int;
+    ,
+        \\pub inline fn BASIC(c_1: var) @TypeOf(c_1 * 2) {
+        \\    return c_1 * 2;
         \\}
     });
 

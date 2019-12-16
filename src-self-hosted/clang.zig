@@ -764,14 +764,14 @@ pub extern fn ZigClangEnumDecl_enumerator_end(*const ZigClangEnumDecl) ZigClangE
 pub extern fn ZigClangEnumDecl_enumerator_iterator_next(ZigClangEnumDecl_enumerator_iterator) ZigClangEnumDecl_enumerator_iterator;
 pub extern fn ZigClangEnumDecl_enumerator_iterator_deref(ZigClangEnumDecl_enumerator_iterator) *const ZigClangEnumConstantDecl;
 pub extern fn ZigClangEnumDecl_enumerator_iterator_neq(ZigClangEnumDecl_enumerator_iterator, ZigClangEnumDecl_enumerator_iterator) bool;
-pub extern fn ZigClangDecl_getName_bytes_begin(decl: ?*const struct_ZigClangDecl) [*c]const u8;
+pub extern fn ZigClangDecl_getName_bytes_begin(decl: ?*const struct_ZigClangDecl) [*:0]const u8;
 pub extern fn ZigClangSourceLocation_eq(a: struct_ZigClangSourceLocation, b: struct_ZigClangSourceLocation) bool;
 pub extern fn ZigClangTypedefType_getDecl(self: ?*const struct_ZigClangTypedefType) *const struct_ZigClangTypedefNameDecl;
 pub extern fn ZigClangTypedefNameDecl_getUnderlyingType(self: ?*const struct_ZigClangTypedefNameDecl) struct_ZigClangQualType;
 pub extern fn ZigClangQualType_getCanonicalType(self: struct_ZigClangQualType) struct_ZigClangQualType;
 pub extern fn ZigClangQualType_getTypeClass(self: struct_ZigClangQualType) ZigClangTypeClass;
 pub extern fn ZigClangQualType_getTypePtr(self: struct_ZigClangQualType) *const struct_ZigClangType;
-pub extern fn ZigClangQualType_addConst(self: [*c]struct_ZigClangQualType) void;
+pub extern fn ZigClangQualType_addConst(self: *struct_ZigClangQualType) void;
 pub extern fn ZigClangQualType_eq(self: struct_ZigClangQualType, arg1: struct_ZigClangQualType) bool;
 pub extern fn ZigClangQualType_isConstQualified(self: struct_ZigClangQualType) bool;
 pub extern fn ZigClangQualType_isVolatileQualified(self: struct_ZigClangQualType) bool;
@@ -799,7 +799,7 @@ pub extern fn ZigClangAPSInt_isSigned(self: ?*const struct_ZigClangAPSInt) bool;
 pub extern fn ZigClangAPSInt_isNegative(self: ?*const struct_ZigClangAPSInt) bool;
 pub extern fn ZigClangAPSInt_negate(self: ?*const struct_ZigClangAPSInt) ?*const struct_ZigClangAPSInt;
 pub extern fn ZigClangAPSInt_free(self: ?*const struct_ZigClangAPSInt) void;
-pub extern fn ZigClangAPSInt_getRawData(self: ?*const struct_ZigClangAPSInt) [*c]const u64;
+pub extern fn ZigClangAPSInt_getRawData(self: ?*const struct_ZigClangAPSInt) [*:0]const u64;
 pub extern fn ZigClangAPSInt_getNumWords(self: ?*const struct_ZigClangAPSInt) c_uint;
 
 pub extern fn ZigClangAPInt_getLimitedValue(self: *const struct_ZigClangAPInt, limit: u64) u64;
@@ -931,25 +931,25 @@ pub const struct_ZigClangAPValueLValueBase = extern struct {
     Version: c_uint,
 };
 
-pub extern fn ZigClangErrorMsg_delete(ptr: [*c]Stage2ErrorMsg, len: usize) void;
+pub extern fn ZigClangErrorMsg_delete(ptr: [*]Stage2ErrorMsg, len: usize) void;
 
 pub extern fn ZigClangLoadFromCommandLine(
     args_begin: [*]?[*]const u8,
     args_end: [*]?[*]const u8,
     errors_ptr: *[*]Stage2ErrorMsg,
     errors_len: *usize,
-    resources_path: [*c]const u8,
+    resources_path: [*:0]const u8,
 ) ?*ZigClangASTUnit;
 
 pub extern fn ZigClangDecl_getKind(decl: *const ZigClangDecl) ZigClangDeclKind;
 pub extern fn ZigClangDecl_getDeclKindName(decl: *const struct_ZigClangDecl) [*:0]const u8;
 
-pub const ZigClangCompoundStmt_const_body_iterator = [*c]const *struct_ZigClangStmt;
+pub const ZigClangCompoundStmt_const_body_iterator = [*]const *struct_ZigClangStmt;
 
 pub extern fn ZigClangCompoundStmt_body_begin(self: *const ZigClangCompoundStmt) ZigClangCompoundStmt_const_body_iterator;
 pub extern fn ZigClangCompoundStmt_body_end(self: *const ZigClangCompoundStmt) ZigClangCompoundStmt_const_body_iterator;
 
-pub const ZigClangDeclStmt_const_decl_iterator = [*c]const *struct_ZigClangDecl;
+pub const ZigClangDeclStmt_const_decl_iterator = [*]const *struct_ZigClangDecl;
 
 pub extern fn ZigClangDeclStmt_decl_begin(self: *const ZigClangDeclStmt) ZigClangDeclStmt_const_decl_iterator;
 pub extern fn ZigClangDeclStmt_decl_end(self: *const ZigClangDeclStmt) ZigClangDeclStmt_const_decl_iterator;
@@ -1017,7 +1017,7 @@ pub extern fn ZigClangBinaryOperator_getType(*const ZigClangBinaryOperator) ZigC
 pub extern fn ZigClangDecayedType_getDecayedType(*const ZigClangDecayedType) ZigClangQualType;
 
 pub extern fn ZigClangStringLiteral_getKind(*const ZigClangStringLiteral) ZigClangStringLiteral_StringKind;
-pub extern fn ZigClangStringLiteral_getString_bytes_begin_size(*const ZigClangStringLiteral, *usize) [*c]const u8;
+pub extern fn ZigClangStringLiteral_getString_bytes_begin_size(*const ZigClangStringLiteral, *usize) [*]const u8;
 
 pub extern fn ZigClangParenExpr_getSubExpr(*const ZigClangParenExpr) *const ZigClangExpr;
 
