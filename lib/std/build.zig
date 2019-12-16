@@ -1034,6 +1034,7 @@ pub const LibExeObjStep = struct {
     disable_gen_h: bool,
     bundle_compiler_rt: bool,
     disable_stack_probing: bool,
+    disable_sanitize_c: bool,
     c_std: Builder.CStd,
     override_lib_dir: ?[]const u8,
     main_pkg_path: ?[]const u8,
@@ -1183,6 +1184,7 @@ pub const LibExeObjStep = struct {
             .disable_gen_h = false,
             .bundle_compiler_rt = false,
             .disable_stack_probing = false,
+            .disable_sanitize_c = false,
             .output_dir = null,
             .need_system_paths = false,
             .single_threaded = false,
@@ -1821,6 +1823,9 @@ pub const LibExeObjStep = struct {
         }
         if (self.disable_stack_probing) {
             try zig_args.append("-fno-stack-check");
+        }
+        if (self.disable_sanitize_c) {
+            try zig_args.append("-fno-sanitize-c");
         }
 
         switch (self.target) {
