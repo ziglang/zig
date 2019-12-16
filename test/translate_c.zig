@@ -732,6 +732,29 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add_2("if statements",
+        \\int foo(char c) {
+        \\    if (2) {
+        \\        int a = 2;
+        \\    }
+        \\    if (2, 5) {
+        \\        int a = 2;
+        \\    }
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo(c: u8) c_int {
+        \\    if (2 != 0) {
+        \\        var a: c_int = 2;
+        \\    }
+        \\    if ((blk_1: {
+        \\        _ = 2;
+        \\        break :blk_1 5;
+        \\    }) != 0) {
+        \\        var a: c_int = 2;
+        \\    }
+        \\}
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     if (builtin.os != builtin.Os.windows) {

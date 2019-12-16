@@ -67,18 +67,17 @@ const Scope = struct {
         variables: AliasList,
         label: ?[]const u8,
 
-        /// Don't forget to set rbrace token later
+        /// Don't forget to set rbrace token and block_node later
         fn init(c: *Context, parent: *Scope, want_label: bool) !*Block {
             // TODO removing `?[]const u8` here causes LLVM error
             const label: ?[]const u8 = if (want_label) try std.fmt.allocPrint(c.a(), "blk_{}", .{c.getMangle()}) else null;
-            const block_node = try transCreateNodeBlock(c, label);
             const block = try c.a().create(Block);
             block.* = .{
                 .base = .{
                     .id = .Block,
                     .parent = parent,
                 },
-                .block_node = block_node,
+                .block_node = undefined,
                 .variables = AliasList.init(c.a()),
                 .label = label,
             };
@@ -126,7 +125,6 @@ const Scope = struct {
     };
 
     const Condition = struct {
-        expr: *ast.Node,
         base: Scope,
     };
 
@@ -612,6 +610,7 @@ fn transStmt(
         .ParenExprClass => return transExpr(rp, scope, ZigClangParenExpr_getSubExpr(@ptrCast(*const ZigClangParenExpr, stmt)), result_used, lrvalue),
         .InitListExprClass => return transInitListExpr(rp, scope, @ptrCast(*const ZigClangInitListExpr, stmt), result_used),
         .ImplicitValueInitExprClass => return transImplicitValueInitExpr(rp, scope, @ptrCast(*const ZigClangExpr, stmt), result_used),
+        .IfStmtClass => return transIfStmt(rp, scope, @ptrCast(*const ZigClangIfStmt, stmt), result_used),
         else => {
             return revertAndWarn(
                 rp,
@@ -718,18 +717,31 @@ fn transBinaryOperator(
         ),
         .Comma => {
             const block_scope = try scope.findBlockScope(rp.c);
+            const expr = block_scope.base.parent == scope;
+            const lparen = if (expr) blk: {
+                const l = try appendToken(rp.c, .LParen, "(");
+                block_scope.block_node = try transCreateNodeBlock(rp.c, block_scope.label);
+                break :blk l;
+            } else undefined;
 
             const lhs = try transExpr(rp, &block_scope.base, ZigClangBinaryOperator_getLHS(stmt), .unused, .r_value);
             try block_scope.block_node.statements.push(lhs);
 
             const rhs = try transExpr(rp, &block_scope.base, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value);
-            if (block_scope.base.parent == scope) {
+            if (expr) {
+                _ = try appendToken(rp.c, .Semicolon, ";");
                 const break_node = try transCreateNodeBreak(rp.c, block_scope.label);
                 break_node.rhs = rhs;
-                _ = try appendToken(rp.c, .Semicolon, ";");
                 try block_scope.block_node.statements.push(&break_node.base);
                 block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
-                return maybeSuppressResult(rp, scope, result_used, &block_scope.block_node.base);
+                const rparen = try appendToken(rp.c, .RParen, ")");
+                const grouped_expr = try rp.c.a().create(ast.Node.GroupedExpression);
+                grouped_expr.* = .{
+                    .lparen = lparen,
+                    .expr = &block_scope.block_node.base,
+                    .rparen = rparen,
+                };
+                return maybeSuppressResult(rp, scope, result_used, &grouped_expr.base);
             } else {
                 return maybeSuppressResult(rp, scope, result_used, rhs);
             }
@@ -766,6 +778,7 @@ fn transCompoundStmtInline(
 
 fn transCompoundStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangCompoundStmt) TransError!*ast.Node {
     const block_scope = try Scope.Block.init(rp.c, scope, false);
+    block_scope.block_node = try transCreateNodeBlock(rp.c, block_scope.label);
     try transCompoundStmtInline(rp, &block_scope.base, stmt, block_scope.block_node);
     block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
     return &block_scope.block_node.base;
@@ -792,7 +805,7 @@ fn transCStyleCastExprClass(
 
 fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt) TransError!*ast.Node {
     const c = rp.c;
-    const block_scope = try scope.findBlockScope(c);
+    const block_scope = scope.findBlockScope(c) catch unreachable;
 
     var it = ZigClangDeclStmt_decl_begin(stmt);
     const end_it = ZigClangDeclStmt_decl_end(stmt);
@@ -1165,6 +1178,35 @@ fn transImplicitValueInitExpr(
         .Pointer => return transCreateNodeNullLiteral(rp.c),
         else => return revertAndWarn(rp, error.UnsupportedType, source_loc, "type does not have an implicit init value", .{}),
     };
+}
+
+fn transIfStmt(
+    rp: RestorePoint,
+    scope: *Scope,
+    stmt: *const ZigClangIfStmt,
+    used: ResultUsed,
+) TransError!*ast.Node {
+    // if (c) t
+    // if (c) t else e
+    const if_node = try transCreateNodeIf(rp.c);
+
+    var cond_scope = Scope.Condition{
+        .base = .{
+            .parent = scope,
+            .id = .Condition,
+        },
+    };
+    if_node.condition = try transBoolExpr(rp, &cond_scope.base, @ptrCast(*const ZigClangExpr, ZigClangIfStmt_getCond(stmt)), .used, .r_value);
+    _ = try appendToken(rp.c, .RParen, ")");
+
+    if_node.body = try transStmt(rp, scope, ZigClangIfStmt_getThen(stmt), .used, .r_value);
+
+    if (ZigClangIfStmt_getElse(stmt)) |expr| {
+        if_node.@"else" = try transCreateNodeElse(rp.c);
+        if_node.@"else".?.body = try transStmt(rp, scope, expr, .used, .r_value);
+    }
+    _ = try appendToken(rp.c, .Semicolon, ";");
+    return &if_node.base;
 }
 
 fn transCPtrCast(
@@ -1602,6 +1644,7 @@ fn transCreateNodeAssign(
     // zig: })
     _ = try appendToken(rp.c, .LParen, "(");
     const block_scope = try Scope.Block.init(rp.c, scope, true);
+    block_scope.block_node = try transCreateNodeBlock(rp.c, block_scope.label);
     const tmp = try std.fmt.allocPrint(rp.c.a(), "_tmp_{}", .{rp.c.getMangle()});
 
     const node = try transCreateNodeVarDecl(rp.c, false, true, tmp);
