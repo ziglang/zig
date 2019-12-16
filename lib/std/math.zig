@@ -944,102 +944,57 @@ test "math.mulWide" {
     testing.expect(mulWide(u8, 100, 100) == 10000);
 }
 
-// not to be confused with std.mem.Compare
+/// Not to be confused with `std.mem.Compare`.
 pub const CompareOperator = enum {
-    lessThan,
-    lessThanOrEqual,
-    equal,
-    greaterThan,
-    greaterThanOrEqual,
+    /// Less than (`<`)
+    lt,
+
+    /// Less than or equal (`<=`)
+    lte,
+
+    /// Equal (`==`)
+    eq,
+
+    /// Greater than or equal (`>=`)
+    gte,
+
+    /// Greater than (`>`)
+    gt,
+
+    /// Not equal (`!=`)
+    neq,
 };
 
-pub fn compare(a: var, comptime op: CompareOperator, b: var) bool {
-    const A = @typeOf(a);
-    const B = @typeOf(b);
-    if (@typeId(@typeOf(a)) != .Int or @typeId(@typeOf(b)) != .Int) @compileError("only integers supported");
-    if (A.is_signed == B.is_signed) {
-        return switch (op) {
-        .lessThan           => a <  b,
-        .lessThanOrEqual    => a <= b,
-        .equal              => a == b,
-        .greaterThan        => a >  b,
-        .greaterThanOrEqual => a >= b,
-        };
-    }
-    const Signed = if (A.is_signed) A else B;
-    const Unsigned = if (B.is_signed) A else B;
-    const signedMoreBits = Signed.bit_count > Unsigned.bit_count;
-    const bits = if (signedMoreBits) Signed.bit_count else Unsigned.bit_count;
-    if (signedMoreBits) {
-        const T = @IntType(true, bits);
-        if (A.is_signed) {
-            return switch (op) {
-            .lessThan           => a <  @intCast(T, b),
-            .lessThanOrEqual    => a <= @intCast(T, b),
-            .equal              => a == @intCast(T, b),
-            .greaterThan        => a >  @intCast(T, b),
-            .greaterThanOrEqual => a >= @intCast(T, b),
-            };
-        } else {
-            return switch (op) {
-            .lessThan           => @intCast(T, a) <  b,
-            .lessThanOrEqual    => @intCast(T, a) <= b,
-            .equal              => @intCast(T, a) == b,
-            .greaterThan        => @intCast(T, a) >  b,
-            .greaterThanOrEqual => @intCast(T, a) >= b,
-            };
-        }
-    }
-    if (A.is_signed) {
-        const U = @IntType(false, A.bit_count);
-        const T = @IntType(false, A.bit_count - 1);
-        switch (op) {
-        .lessThan        => if (a <  0 or maxInt(A) <  b) return true,
-        .lessThanOrEqual => if (a <= 0 or maxInt(A) <= b) return true,
-        .equal           => if (A.bit_count <= B.bit_count and a < 0) return false,
-        else => {},
-        }
-        return switch (op) {
-        .lessThan           => @truncate(T, @bitCast(U, a)) <  b,
-        .lessThanOrEqual    => @truncate(T, @bitCast(U, a)) <= b,
-        .equal              => @truncate(T, @bitCast(U, a)) == b,
-        .greaterThan        => @truncate(T, @bitCast(U, a)) >  b,
-        .greaterThanOrEqual => @truncate(T, @bitCast(U, a)) >= b,
-        };
-    } else {
-        const U = @IntType(false, B.bit_count);
-        const T = @IntType(false, B.bit_count - 1);
-        switch (op) {
-        .greaterThan        => if (0 >  b or a >  maxInt(B)) return true,
-        .greaterThanOrEqual => if (0 >= b or a >= maxInt(B)) return true,
-        .equal              => if (A.bit_count >= B.bit_count and 0 > b) return false,
-        else => {},
-        }
-        return switch (op) {
-        .lessThan           => a <  @truncate(T, @bitCast(U, b)),
-        .lessThanOrEqual    => a <= @truncate(T, @bitCast(U, b)),
-        .equal              => a == @truncate(T, @bitCast(U, b)),
-        .greaterThan        => a >  @truncate(T, @bitCast(U, b)),
-        .greaterThanOrEqual => a >= @truncate(T, @bitCast(U, b)),
-        };
-    }
+/// This function does the same thing as comparison operators, however the
+/// operator is a runtime-known enum value. Works on any operands that
+/// support comparison operators.
+pub fn compare(a: var, op: CompareOperator, b: var) bool {
+    return switch (op) {
+        .lt => a < b,
+        .lte => a <= b,
+        .eq => a == b,
+        .neq => a != b,
+        .gt => a > b,
+        .gte => a >= b,
+    };
 }
 
-test "math.lessThan, et al < <= > >= between signed and unsigned" {
-    testing.expect(compare(i8(-1), .lessThan, u8(255)));
-    testing.expect(!compare(i8(-1), .greaterThanOrEqual, u8(255)));
-    testing.expect(compare(u8(255), .greaterThan, i8(-1)));
-    testing.expect(!compare(u8(255), .lessThanOrEqual, i8(-1)));
-    testing.expect(compare(i8(-1), .lessThan, u9(255)));
-    testing.expect(!compare(i8(-1), .greaterThanOrEqual, u9(255)));
-    testing.expect(compare(u9(255), .greaterThan, i8(-1)));
-    testing.expect(!compare(u9(255), .lessThanOrEqual, i8(-1)));
-    testing.expect(compare(i9(-1), .lessThan, u8(255)));
-    testing.expect(!compare(i9(-1), .greaterThanOrEqual, u8(255)));
-    testing.expect(compare(u8(255), .greaterThan, i9(-1)));
-    testing.expect(!compare(u8(255), .lessThanOrEqual, i9(-1)));
-    testing.expect(compare(u8(1), .lessThan, u8(2)));
-    testing.expect(@bitCast(u8, i8(-1)) == u8(255));
-    testing.expect(!compare(u8(255), .equal, i8(-1)));
-    testing.expect(compare(u8(1), .equal, u8(1)));
+test "math.lt, et al < <= > >= between signed and unsigned" {
+    testing.expect(compare(@as(i8, -1), .lt, @as(u8, 255)));
+    testing.expect(compare(@as(i8, 2), .gt, @as(u8, 1)));
+    testing.expect(!compare(@as(i8, -1), .gte, @as(u8, 255)));
+    testing.expect(compare(@as(u8, 255), .gt, @as(i8, -1)));
+    testing.expect(!compare(@as(u8, 255), .lte, @as(i8, -1)));
+    testing.expect(compare(@as(i8, -1), .lt, @as(u9, 255)));
+    testing.expect(!compare(@as(i8, -1), .gte, @as(u9, 255)));
+    testing.expect(compare(@as(u9, 255), .gt, @as(i8, -1)));
+    testing.expect(!compare(@as(u9, 255), .lte, @as(i8, -1)));
+    testing.expect(compare(@as(i9, -1), .lt, @as(u8, 255)));
+    testing.expect(!compare(@as(i9, -1), .gte, @as(u8, 255)));
+    testing.expect(compare(@as(u8, 255), .gt, @as(i9, -1)));
+    testing.expect(!compare(@as(u8, 255), .lte, @as(i9, -1)));
+    testing.expect(compare(@as(u8, 1), .lt, @as(u8, 2)));
+    testing.expect(@bitCast(u8, @as(i8, -1)) == @as(u8, 255));
+    testing.expect(!compare(@as(u8, 255), .eq, @as(i8, -1)));
+    testing.expect(compare(@as(u8, 1), .eq, @as(u8, 1)));
 }

@@ -1792,6 +1792,24 @@ static IrInstruction *ir_build_bin_op(IrBuilder *irb, Scope *scope, AstNode *sou
     return &bin_op_instruction->base;
 }
 
+static IrInstruction *ir_build_bin_op_gen(IrAnalyze *ira, IrInstruction *source_instr, ZigType *res_type,
+        IrBinOp op_id, IrInstruction *op1, IrInstruction *op2, bool safety_check_on)
+{
+    IrInstructionBinOp *bin_op_instruction = ir_build_instruction<IrInstructionBinOp>(&ira->new_irb,
+            source_instr->scope, source_instr->source_node);
+    bin_op_instruction->base.value->type = res_type;
+    bin_op_instruction->op_id = op_id;
+    bin_op_instruction->op1 = op1;
+    bin_op_instruction->op2 = op2;
+    bin_op_instruction->safety_check_on = safety_check_on;
+
+    ir_ref_instruction(op1, ira->new_irb.current_basic_block);
+    ir_ref_instruction(op2, ira->new_irb.current_basic_block);
+
+    return &bin_op_instruction->base;
+}
+
+
 static IrInstruction *ir_build_merge_err_sets(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *op1, IrInstruction *op2, Buf *type_name)
 {
@@ -9591,51 +9609,58 @@ static bool float_is_nan(ZigValue *op) {
 }
 
 static Cmp float_cmp(ZigValue *op1, ZigValue *op2) {
-    assert(op1->type == op2->type);
-    if (op1->type->id == ZigTypeIdComptimeFloat) {
-        return bigfloat_cmp(&op1->data.x_bigfloat, &op2->data.x_bigfloat);
-    } else if (op1->type->id == ZigTypeIdFloat) {
-        switch (op1->type->data.floating.bit_count) {
-            case 16:
-                if (f16_lt(op1->data.x_f16, op2->data.x_f16)) {
-                    return CmpLT;
-                } else if (f16_lt(op2->data.x_f16, op1->data.x_f16)) {
-                    return CmpGT;
-                } else {
-                    return CmpEQ;
-                }
-            case 32:
-                if (op1->data.x_f32 > op2->data.x_f32) {
-                    return CmpGT;
-                } else if (op1->data.x_f32 < op2->data.x_f32) {
-                    return CmpLT;
-                } else {
-                    return CmpEQ;
-                }
-            case 64:
-                if (op1->data.x_f64 > op2->data.x_f64) {
-                    return CmpGT;
-                } else if (op1->data.x_f64 < op2->data.x_f64) {
-                    return CmpLT;
-                } else {
-                    return CmpEQ;
-                }
-            case 128:
-                if (f128M_lt(&op1->data.x_f128, &op2->data.x_f128)) {
-                    return CmpLT;
-                } else if (f128M_eq(&op1->data.x_f128, &op2->data.x_f128)) {
-                    return CmpEQ;
-                } else {
-                    return CmpGT;
-                }
-            default:
-                zig_unreachable();
+    if (op1->type == op2->type) {
+        if (op1->type->id == ZigTypeIdComptimeFloat) {
+            return bigfloat_cmp(&op1->data.x_bigfloat, &op2->data.x_bigfloat);
+        } else if (op1->type->id == ZigTypeIdFloat) {
+            switch (op1->type->data.floating.bit_count) {
+                case 16:
+                    if (f16_lt(op1->data.x_f16, op2->data.x_f16)) {
+                        return CmpLT;
+                    } else if (f16_lt(op2->data.x_f16, op1->data.x_f16)) {
+                        return CmpGT;
+                    } else {
+                        return CmpEQ;
+                    }
+                case 32:
+                    if (op1->data.x_f32 > op2->data.x_f32) {
+                        return CmpGT;
+                    } else if (op1->data.x_f32 < op2->data.x_f32) {
+                        return CmpLT;
+                    } else {
+                        return CmpEQ;
+                    }
+                case 64:
+                    if (op1->data.x_f64 > op2->data.x_f64) {
+                        return CmpGT;
+                    } else if (op1->data.x_f64 < op2->data.x_f64) {
+                        return CmpLT;
+                    } else {
+                        return CmpEQ;
+                    }
+                case 128:
+                    if (f128M_lt(&op1->data.x_f128, &op2->data.x_f128)) {
+                        return CmpLT;
+                    } else if (f128M_eq(&op1->data.x_f128, &op2->data.x_f128)) {
+                        return CmpEQ;
+                    } else {
+                        return CmpGT;
+                    }
+                default:
+                    zig_unreachable();
+            }
+        } else {
+            zig_unreachable();
         }
-    } else {
-        zig_unreachable();
     }
+    BigFloat op1_big;
+    BigFloat op2_big;
+    float_init_bigfloat(op1, &op1_big);
+    float_init_bigfloat(op2, &op2_big);
+    return bigfloat_cmp(&op1_big, &op2_big);
 }
 
+// This function cannot handle NaN
 static Cmp float_cmp_zero(ZigValue *op) {
     if (op->type->id == ZigTypeIdComptimeFloat) {
         return bigfloat_cmp_zero(&op->data.x_bigfloat);
@@ -14421,18 +14446,7 @@ static IrInstruction *ir_evaluate_bin_op_cmp(IrAnalyze *ira, ZigType *resolved_t
     if (op1_val->special == ConstValSpecialUndef ||
         op2_val->special == ConstValSpecialUndef)
         return ir_const_undef(ira, &bin_op_instruction->base, resolved_type);
-    if (resolved_type->id == ZigTypeIdComptimeFloat || resolved_type->id == ZigTypeIdFloat) {
-        if (float_is_nan(op1_val) || float_is_nan(op2_val)) {
-            return ir_const_bool(ira, &bin_op_instruction->base, op_id == IrBinOpCmpNotEq);
-        }
-        Cmp cmp_result = float_cmp(op1_val, op2_val);
-        bool answer = resolve_cmp_op_id(op_id, cmp_result);
-        return ir_const_bool(ira, &bin_op_instruction->base, answer);
-    } else if (resolved_type->id == ZigTypeIdComptimeInt || resolved_type->id == ZigTypeIdInt) {
-        Cmp cmp_result = bigint_cmp(&op1_val->data.x_bigint, &op2_val->data.x_bigint);
-        bool answer = resolve_cmp_op_id(op_id, cmp_result);
-        return ir_const_bool(ira, &bin_op_instruction->base, answer);
-    } else if (resolved_type->id == ZigTypeIdPointer && op_id != IrBinOpCmpEq && op_id != IrBinOpCmpNotEq) {
+    if (resolved_type->id == ZigTypeIdPointer && op_id != IrBinOpCmpEq && op_id != IrBinOpCmpNotEq) {
         if ((op1_val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr ||
                 op1_val->data.x_ptr.special == ConstPtrSpecialNull) &&
             (op2_val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr ||
@@ -14482,6 +14496,12 @@ static Error lazy_cmp_zero(AstNode *source_node, ZigValue *val, Cmp *result) {
                 case ZigTypeIdInt:
                     *result = bigint_cmp_zero(&val->data.x_bigint);
                     return ErrorNone;
+                case ZigTypeIdComptimeFloat:
+                case ZigTypeIdFloat:
+                    if (float_is_nan(val))
+                        return ErrorNotLazy;
+                    *result = float_cmp_zero(val);
+                    return ErrorNone;
                 default:
                     return ErrorNotLazy;
             }
@@ -14511,9 +14531,450 @@ static Error lazy_cmp_zero(AstNode *source_node, ZigValue *val, Cmp *result) {
     zig_unreachable();
 }
 
-static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
+static ErrorMsg *ir_eval_bin_op_cmp_scalar(IrAnalyze *ira, IrInstruction *source_instr,
+    ZigValue *op1_val, IrBinOp op_id, ZigValue *op2_val, ZigValue *out_val)
+{
+    Error err;
+    {
+        // Before resolving the values, we special case comparisons against zero. These can often
+        // be done without resolving lazy values, preventing potential dependency loops.
+        Cmp op1_cmp_zero;
+        if ((err = lazy_cmp_zero(source_instr->source_node, op1_val, &op1_cmp_zero))) {
+            if (err == ErrorNotLazy) goto never_mind_just_calculate_it_normally;
+            return ira->codegen->trace_err;
+        }
+        Cmp op2_cmp_zero;
+        if ((err = lazy_cmp_zero(source_instr->source_node, op2_val, &op2_cmp_zero))) {
+            if (err == ErrorNotLazy) goto never_mind_just_calculate_it_normally;
+            return ira->codegen->trace_err;
+        }
+        bool can_cmp_zero = false;
+        Cmp cmp_result;
+        if (op1_cmp_zero == CmpEQ && op2_cmp_zero == CmpEQ) {
+            can_cmp_zero = true;
+            cmp_result = CmpEQ;
+        } else if (op1_cmp_zero == CmpGT && op2_cmp_zero == CmpEQ) {
+            can_cmp_zero = true;
+            cmp_result = CmpGT;
+        } else if (op1_cmp_zero == CmpEQ && op2_cmp_zero == CmpGT) {
+            can_cmp_zero = true;
+            cmp_result = CmpLT;
+        } else if (op1_cmp_zero == CmpLT && op2_cmp_zero == CmpEQ) {
+            can_cmp_zero = true;
+            cmp_result = CmpLT;
+        } else if (op1_cmp_zero == CmpEQ && op2_cmp_zero == CmpLT) {
+            can_cmp_zero = true;
+            cmp_result = CmpGT;
+        } else if (op1_cmp_zero == CmpLT && op2_cmp_zero == CmpGT) {
+            can_cmp_zero = true;
+            cmp_result = CmpLT;
+        } else if (op1_cmp_zero == CmpGT && op2_cmp_zero == CmpLT) {
+            can_cmp_zero = true;
+            cmp_result = CmpGT;
+        }
+        if (can_cmp_zero) {
+            bool answer = resolve_cmp_op_id(op_id, cmp_result);
+            out_val->special = ConstValSpecialStatic;
+            out_val->data.x_bool = answer;
+            return nullptr;
+        }
+    }
+never_mind_just_calculate_it_normally:
+
+    if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec, source_instr->source_node,
+                    op1_val, UndefOk)))
+    {
+        return ira->codegen->trace_err;
+    }
+    if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec, source_instr->source_node,
+                    op2_val, UndefOk)))
+    {
+        return ira->codegen->trace_err;
+    }
+
+
+    if (op1_val->special == ConstValSpecialUndef || op2_val->special == ConstValSpecialUndef) {
+        out_val->special = ConstValSpecialUndef;
+        return nullptr;
+    }
+
+    bool op1_is_float = op1_val->type->id == ZigTypeIdFloat || op1_val->type->id == ZigTypeIdComptimeFloat;
+    bool op2_is_float = op2_val->type->id == ZigTypeIdFloat || op2_val->type->id == ZigTypeIdComptimeFloat;
+    if (op1_is_float && op2_is_float) {
+        if (float_is_nan(op1_val) || float_is_nan(op2_val)) {
+            out_val->special = ConstValSpecialStatic;
+            out_val->data.x_bool = op_id == IrBinOpCmpNotEq;
+            return nullptr;
+        }
+        if (op1_val->type->id == ZigTypeIdComptimeFloat) {
+            IrInstruction *tmp = ir_const_noval(ira, source_instr);
+            tmp->value = op1_val;
+            IrInstruction *casted = ir_implicit_cast(ira, tmp, op2_val->type);
+            op1_val = casted->value;
+        } else if (op2_val->type->id == ZigTypeIdComptimeFloat) {
+            IrInstruction *tmp = ir_const_noval(ira, source_instr);
+            tmp->value = op2_val;
+            IrInstruction *casted = ir_implicit_cast(ira, tmp, op1_val->type);
+            op2_val = casted->value;
+        }
+        Cmp cmp_result = float_cmp(op1_val, op2_val);
+        out_val->special = ConstValSpecialStatic;
+        out_val->data.x_bool = resolve_cmp_op_id(op_id, cmp_result);
+        return nullptr;
+    }
+
+    bool op1_is_int = op1_val->type->id == ZigTypeIdInt || op1_val->type->id == ZigTypeIdComptimeInt;
+    bool op2_is_int = op2_val->type->id == ZigTypeIdInt || op2_val->type->id == ZigTypeIdComptimeInt;
+
+    BigInt *op1_bigint;
+    BigInt *op2_bigint;
+    bool need_to_free_op1_bigint = false;
+    bool need_to_free_op2_bigint = false;
+    if (op1_is_float) {
+        op1_bigint = allocate<BigInt>(1, "BigInt");
+        need_to_free_op1_bigint = true;
+        float_init_bigint(op1_bigint, op1_val);
+    } else {
+        assert(op1_is_int);
+        op1_bigint = &op1_val->data.x_bigint;
+    }
+    if (op2_is_float) {
+        op2_bigint = allocate<BigInt>(1, "BigInt");
+        need_to_free_op2_bigint = true;
+        float_init_bigint(op2_bigint, op2_val);
+    } else {
+        assert(op2_is_int);
+        op2_bigint = &op2_val->data.x_bigint;
+    }
+
+    Cmp cmp_result = bigint_cmp(op1_bigint, op2_bigint);
+    out_val->special = ConstValSpecialStatic;
+    out_val->data.x_bool = resolve_cmp_op_id(op_id, cmp_result);
+
+    if (need_to_free_op1_bigint) destroy(op1_bigint, "BigInt");
+    if (need_to_free_op2_bigint) destroy(op2_bigint, "BigInt");
+    return nullptr;
+}
+
+static IrInstruction *ir_analyze_bin_op_cmp_numeric(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *op1, IrInstruction *op2, IrBinOp op_id)
+{
     Error err;
 
+    ZigType *scalar_result_type = ira->codegen->builtin_types.entry_bool;
+    ZigType *result_type = scalar_result_type;
+    ZigType *op1_scalar_type = op1->value->type;
+    ZigType *op2_scalar_type = op2->value->type;
+    if (op1->value->type->id == ZigTypeIdVector && op2->value->type->id == ZigTypeIdVector) {
+        if (op1->value->type->data.vector.len != op2->value->type->data.vector.len) {
+            ir_add_error(ira, source_instr,
+                buf_sprintf("vector length mismatch: %" PRIu32 " and %" PRIu32,
+                    op1->value->type->data.vector.len, op2->value->type->data.vector.len));
+            return ira->codegen->invalid_instruction;
+        }
+        result_type = get_vector_type(ira->codegen, op1->value->type->data.vector.len, scalar_result_type);
+        op1_scalar_type = op1->value->type->data.vector.elem_type;
+        op2_scalar_type = op2->value->type->data.vector.elem_type;
+    } else if (op1->value->type->id == ZigTypeIdVector || op2->value->type->id == ZigTypeIdVector) {
+        ir_add_error(ira, source_instr,
+            buf_sprintf("mixed scalar and vector operands to comparison operator: '%s' and '%s'",
+                buf_ptr(&op1->value->type->name), buf_ptr(&op2->value->type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    bool opv_op1;
+    switch (type_has_one_possible_value(ira->codegen, op1->value->type)) {
+        case OnePossibleValueInvalid:
+            return ira->codegen->invalid_instruction;
+        case OnePossibleValueYes:
+            opv_op1 = true;
+            break;
+        case OnePossibleValueNo:
+            opv_op1 = false;
+            break;
+    }
+    bool opv_op2;
+    switch (type_has_one_possible_value(ira->codegen, op2->value->type)) {
+        case OnePossibleValueInvalid:
+            return ira->codegen->invalid_instruction;
+        case OnePossibleValueYes:
+            opv_op2 = true;
+            break;
+        case OnePossibleValueNo:
+            opv_op2 = false;
+            break;
+    }
+    Cmp op1_cmp_zero;
+    bool have_op1_cmp_zero = false;
+    if ((err = lazy_cmp_zero(source_instr->source_node, op1->value, &op1_cmp_zero))) {
+        if (err != ErrorNotLazy) return ira->codegen->invalid_instruction;
+    } else {
+        have_op1_cmp_zero = true;
+    }
+    Cmp op2_cmp_zero;
+    bool have_op2_cmp_zero = false;
+    if ((err = lazy_cmp_zero(source_instr->source_node, op2->value, &op2_cmp_zero))) {
+        if (err != ErrorNotLazy) return ira->codegen->invalid_instruction;
+    } else {
+        have_op2_cmp_zero = true;
+    }
+    if (((opv_op1 || instr_is_comptime(op1)) && (opv_op2 || instr_is_comptime(op2))) ||
+        (have_op1_cmp_zero && have_op2_cmp_zero))
+    {
+        IrInstruction *result_instruction = ir_const(ira, source_instr, result_type);
+        ZigValue *out_val = result_instruction->value;
+        if (result_type->id == ZigTypeIdVector) {
+            size_t len = result_type->data.vector.len;
+            expand_undef_array(ira->codegen, op1->value);
+            expand_undef_array(ira->codegen, op2->value);
+            out_val->special = ConstValSpecialUndef;
+            expand_undef_array(ira->codegen, out_val);
+            for (size_t i = 0; i < len; i += 1) {
+                ZigValue *scalar_op1_val = &op1->value->data.x_array.data.s_none.elements[i];
+                ZigValue *scalar_op2_val = &op2->value->data.x_array.data.s_none.elements[i];
+                ZigValue *scalar_out_val = &out_val->data.x_array.data.s_none.elements[i];
+                assert(scalar_out_val->type == scalar_result_type);
+                ErrorMsg *msg = ir_eval_bin_op_cmp_scalar(ira, source_instr,
+                        scalar_op1_val, op_id, scalar_op2_val, scalar_out_val);
+                if (msg != nullptr) {
+                    add_error_note(ira->codegen, msg, source_instr->source_node,
+                        buf_sprintf("when computing vector element at index %" ZIG_PRI_usize, i));
+                    return ira->codegen->invalid_instruction;
+                }
+            }
+            out_val->type = result_type;
+            out_val->special = ConstValSpecialStatic;
+        } else {
+            if (ir_eval_bin_op_cmp_scalar(ira, source_instr, op1->value, op_id,
+                        op2->value, out_val) != nullptr)
+            {
+                return ira->codegen->invalid_instruction;
+            }
+        }
+        return result_instruction;
+    }
+
+    // If one operand has a comptime-known comparison with 0, and the other operand is unsigned, we might
+    // know the answer, depending on the operator.
+    // TODO make this work with vectors
+    if (have_op1_cmp_zero && op2_scalar_type->id == ZigTypeIdInt && !op2_scalar_type->data.integral.is_signed) {
+        if (op1_cmp_zero == CmpEQ) {
+            // 0 <= unsigned_x    // true
+            // 0 >  unsigned_x    // false
+            switch (op_id) {
+                case IrBinOpCmpLessOrEq:
+                    return ir_const_bool(ira, source_instr, true);
+                case IrBinOpCmpGreaterThan:
+                    return ir_const_bool(ira, source_instr, false);
+                default:
+                    break;
+            }
+        } else if (op1_cmp_zero == CmpLT) {
+            // -1 != unsigned_x   // true
+            // -1 <= unsigned_x   // true
+            // -1 <  unsigned_x   // true
+            // -1 == unsigned_x   // false
+            // -1 >= unsigned_x   // false
+            // -1 >  unsigned_x   // false
+            switch (op_id) {
+                case IrBinOpCmpNotEq:
+                case IrBinOpCmpLessOrEq:
+                case IrBinOpCmpLessThan:
+                    return ir_const_bool(ira, source_instr, true);
+                case IrBinOpCmpEq:
+                case IrBinOpCmpGreaterOrEq:
+                case IrBinOpCmpGreaterThan:
+                    return ir_const_bool(ira, source_instr, false);
+                default:
+                    break;
+            }
+        }
+    }
+    if (have_op2_cmp_zero && op1_scalar_type->id == ZigTypeIdInt && !op1_scalar_type->data.integral.is_signed) {
+        if (op2_cmp_zero == CmpEQ) {
+            // unsigned_x <  0    // false
+            // unsigned_x >= 0    // true
+            switch (op_id) {
+                case IrBinOpCmpLessThan:
+                    return ir_const_bool(ira, source_instr, false);
+                case IrBinOpCmpGreaterOrEq:
+                    return ir_const_bool(ira, source_instr, true);
+                default:
+                    break;
+            }
+        } else if (op2_cmp_zero == CmpLT) {
+            // unsigned_x != -1   // true
+            // unsigned_x >= -1   // true
+            // unsigned_x >  -1   // true
+            // unsigned_x == -1   // false
+            // unsigned_x <  -1   // false
+            // unsigned_x <= -1   // false
+            switch (op_id) {
+                case IrBinOpCmpNotEq:
+                case IrBinOpCmpGreaterOrEq:
+                case IrBinOpCmpGreaterThan:
+                    return ir_const_bool(ira, source_instr, true);
+                case IrBinOpCmpEq:
+                case IrBinOpCmpLessThan:
+                case IrBinOpCmpLessOrEq:
+                    return ir_const_bool(ira, source_instr, false);
+                default:
+                    break;
+            }
+        }
+    }
+
+    // It must be a runtime comparison.
+    // For floats, emit a float comparison instruction.
+    bool op1_is_float = op1_scalar_type->id == ZigTypeIdFloat || op1_scalar_type->id == ZigTypeIdComptimeFloat;
+    bool op2_is_float = op2_scalar_type->id == ZigTypeIdFloat || op2_scalar_type->id == ZigTypeIdComptimeFloat;
+    if (op1_is_float && op2_is_float) {
+        // Implicit cast the smaller one to the larger one.
+        ZigType *dest_scalar_type;
+        if (op1_scalar_type->id == ZigTypeIdComptimeFloat) {
+            dest_scalar_type = op2_scalar_type;
+        } else if (op2_scalar_type->id == ZigTypeIdComptimeFloat) {
+            dest_scalar_type = op1_scalar_type;
+        } else if (op1_scalar_type->data.floating.bit_count >= op2_scalar_type->data.floating.bit_count) {
+            dest_scalar_type = op1_scalar_type;
+        } else {
+            dest_scalar_type = op2_scalar_type;
+        }
+        ZigType *dest_type = (result_type->id == ZigTypeIdVector) ?
+            get_vector_type(ira->codegen, result_type->data.vector.len, dest_scalar_type) : dest_scalar_type;
+        IrInstruction *casted_op1 = ir_implicit_cast(ira, op1, dest_type);
+        IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, dest_type);
+        if (type_is_invalid(casted_op1->value->type) || type_is_invalid(casted_op2->value->type))
+            return ira->codegen->invalid_instruction;
+        return ir_build_bin_op_gen(ira, source_instr, result_type, op_id, casted_op1, casted_op2, true);
+    }
+
+    // For mixed unsigned integer sizes, implicit cast both operands to the larger integer.
+    // For mixed signed and unsigned integers, implicit cast both operands to a signed
+    // integer with + 1 bit.
+    // For mixed floats and integers, extract the integer part from the float, cast that to
+    // a signed integer with mantissa bits + 1, and if there was any non-integral part of the float,
+    // add/subtract 1.
+    bool dest_int_is_signed = false;
+    if (have_op1_cmp_zero) {
+        if (op1_cmp_zero == CmpLT) dest_int_is_signed = true;
+    } else if (op1_is_float) {
+        dest_int_is_signed = true;
+    } else if (op1_scalar_type->id == ZigTypeIdInt && op1_scalar_type->data.integral.is_signed) {
+        dest_int_is_signed = true;
+    }
+    if (have_op2_cmp_zero) {
+        if (op2_cmp_zero == CmpLT) dest_int_is_signed = true;
+    } else if (op2_is_float) {
+        dest_int_is_signed = true;
+    } else if (op2->value->type->id == ZigTypeIdInt && op2->value->type->data.integral.is_signed) {
+        dest_int_is_signed = true;
+    }
+    ZigType *dest_float_type = nullptr;
+    uint32_t op1_bits;
+    if (instr_is_comptime(op1)) {
+        ZigValue *op1_val = ir_resolve_const(ira, op1, UndefOk);
+        if (op1_val == nullptr)
+            return ira->codegen->invalid_instruction;
+        if (op1_val->special == ConstValSpecialUndef)
+            return ir_const_undef(ira, source_instr, ira->codegen->builtin_types.entry_bool);
+        if (result_type->id == ZigTypeIdVector) {
+            ir_add_error(ira, op1, buf_sprintf("compiler bug: TODO: support comptime vector here"));
+            return ira->codegen->invalid_instruction;
+        }
+        bool is_unsigned;
+        if (op1_is_float) {
+            BigInt bigint = {};
+            float_init_bigint(&bigint, op1_val);
+            Cmp zcmp = float_cmp_zero(op1_val);
+            if (float_has_fraction(op1_val)) {
+                if (op_id == IrBinOpCmpEq || op_id == IrBinOpCmpNotEq) {
+                    return ir_const_bool(ira, source_instr, op_id == IrBinOpCmpNotEq);
+                }
+                if (zcmp == CmpLT) {
+                    bigint_decr(&bigint);
+                } else {
+                    bigint_incr(&bigint);
+                }
+            }
+            op1_bits = bigint_bits_needed(&bigint);
+            is_unsigned = zcmp != CmpLT;
+        } else {
+            op1_bits = bigint_bits_needed(&op1_val->data.x_bigint);
+            is_unsigned = bigint_cmp_zero(&op1_val->data.x_bigint) != CmpLT;
+        }
+        if (is_unsigned && dest_int_is_signed) {
+            op1_bits += 1;
+        }
+    } else if (op1_is_float) {
+        dest_float_type = op1_scalar_type;
+    } else {
+        ir_assert(op1_scalar_type->id == ZigTypeIdInt, source_instr);
+        op1_bits = op1_scalar_type->data.integral.bit_count;
+        if (!op1_scalar_type->data.integral.is_signed && dest_int_is_signed) {
+            op1_bits += 1;
+        }
+    }
+    uint32_t op2_bits;
+    if (instr_is_comptime(op2)) {
+        ZigValue *op2_val = ir_resolve_const(ira, op2, UndefOk);
+        if (op2_val == nullptr)
+            return ira->codegen->invalid_instruction;
+        if (op2_val->special == ConstValSpecialUndef)
+            return ir_const_undef(ira, source_instr, ira->codegen->builtin_types.entry_bool);
+        if (result_type->id == ZigTypeIdVector) {
+            ir_add_error(ira, op2, buf_sprintf("compiler bug: TODO: support comptime vector here"));
+            return ira->codegen->invalid_instruction;
+        }
+        bool is_unsigned;
+        if (op2_is_float) {
+            BigInt bigint = {};
+            float_init_bigint(&bigint, op2_val);
+            Cmp zcmp = float_cmp_zero(op2_val);
+            if (float_has_fraction(op2_val)) {
+                if (op_id == IrBinOpCmpEq || op_id == IrBinOpCmpNotEq) {
+                    return ir_const_bool(ira, source_instr, op_id == IrBinOpCmpNotEq);
+                }
+                if (zcmp == CmpLT) {
+                    bigint_decr(&bigint);
+                } else {
+                    bigint_incr(&bigint);
+                }
+            }
+            op2_bits = bigint_bits_needed(&bigint);
+            is_unsigned = zcmp != CmpLT;
+        } else {
+            op2_bits = bigint_bits_needed(&op2_val->data.x_bigint);
+            is_unsigned = bigint_cmp_zero(&op2_val->data.x_bigint) != CmpLT;
+        }
+        if (is_unsigned && dest_int_is_signed) {
+            op2_bits += 1;
+        }
+    } else if (op2_is_float) {
+        dest_float_type = op2_scalar_type;
+    } else {
+        ir_assert(op2_scalar_type->id == ZigTypeIdInt, source_instr);
+        op2_bits = op2_scalar_type->data.integral.bit_count;
+        if (!op2_scalar_type->data.integral.is_signed && dest_int_is_signed) {
+            op2_bits += 1;
+        }
+    }
+    uint32_t dest_int_bits = (op1_bits > op2_bits) ? op1_bits : op2_bits;
+    ZigType *dest_scalar_type = (dest_float_type == nullptr) ?
+        get_int_type(ira->codegen, dest_int_is_signed, dest_int_bits) : dest_float_type;
+    ZigType *dest_type = (result_type->id == ZigTypeIdVector) ?
+        get_vector_type(ira->codegen, result_type->data.vector.len, dest_scalar_type) : dest_scalar_type;
+
+    IrInstruction *casted_op1 = ir_implicit_cast(ira, op1, dest_type);
+    if (type_is_invalid(casted_op1->value->type))
+        return ira->codegen->invalid_instruction;
+    IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, dest_type);
+    if (type_is_invalid(casted_op2->value->type))
+        return ira->codegen->invalid_instruction;
+    return ir_build_bin_op_gen(ira, source_instr, result_type, op_id, casted_op1, casted_op2, true);
+}
+
+static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
     IrInstruction *op1 = bin_op_instruction->op1->child;
     if (type_is_invalid(op1->value->type))
         return ira->codegen->invalid_instruction;
@@ -14726,6 +15187,13 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
         return result;
     }
 
+    if (type_is_numeric(op1->value->type) && type_is_numeric(op2->value->type)) {
+        // This operation allows any combination of integer and float types, regardless of the
+        // signed-ness, comptime-ness, and bit-width. So peer type resolution is incorrect for
+        // numeric types.
+        return ir_analyze_bin_op_cmp_numeric(ira, &bin_op_instruction->base, op1, op2, op_id);
+    }
+
     IrInstruction *instructions[] = {op1, op2};
     ZigType *resolved_type = ir_resolve_peer_types(ira, source_node, nullptr, instructions, 2);
     if (type_is_invalid(resolved_type))
@@ -14741,8 +15209,7 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
         case ZigTypeIdInt:
         case ZigTypeIdFloat:
         case ZigTypeIdVector:
-            operator_allowed = true;
-            break;
+            zig_unreachable(); // handled with the type_is_numeric checks above
 
         case ZigTypeIdBool:
         case ZigTypeIdMetaType:
@@ -14802,50 +15269,6 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
     }
 
     if (one_possible_value || (instr_is_comptime(casted_op1) && instr_is_comptime(casted_op2))) {
-        {
-            // Before resolving the values, we special case comparisons against zero. These can often be done
-            // without resolving lazy values, preventing potential dependency loops.
-            Cmp op1_cmp_zero;
-            if ((err = lazy_cmp_zero(bin_op_instruction->base.source_node, casted_op1->value, &op1_cmp_zero))) {
-                if (err == ErrorNotLazy) goto never_mind_just_calculate_it_normally;
-                return ira->codegen->invalid_instruction;
-            }
-            Cmp op2_cmp_zero;
-            if ((err = lazy_cmp_zero(bin_op_instruction->base.source_node, casted_op2->value, &op2_cmp_zero))) {
-                if (err == ErrorNotLazy) goto never_mind_just_calculate_it_normally;
-                return ira->codegen->invalid_instruction;
-            }
-            bool can_cmp_zero = false;
-            Cmp cmp_result;
-            if (op1_cmp_zero == CmpEQ && op2_cmp_zero == CmpEQ) {
-                can_cmp_zero = true;
-                cmp_result = CmpEQ;
-            } else if (op1_cmp_zero == CmpGT && op2_cmp_zero == CmpEQ) {
-                can_cmp_zero = true;
-                cmp_result = CmpGT;
-            } else if (op1_cmp_zero == CmpEQ && op2_cmp_zero == CmpGT) {
-                can_cmp_zero = true;
-                cmp_result = CmpLT;
-            } else if (op1_cmp_zero == CmpLT && op2_cmp_zero == CmpEQ) {
-                can_cmp_zero = true;
-                cmp_result = CmpLT;
-            } else if (op1_cmp_zero == CmpEQ && op2_cmp_zero == CmpLT) {
-                can_cmp_zero = true;
-                cmp_result = CmpGT;
-            } else if (op1_cmp_zero == CmpLT && op2_cmp_zero == CmpGT) {
-                can_cmp_zero = true;
-                cmp_result = CmpLT;
-            } else if (op1_cmp_zero == CmpGT && op2_cmp_zero == CmpLT) {
-                can_cmp_zero = true;
-                cmp_result = CmpGT;
-            }
-            if (can_cmp_zero) {
-                bool answer = resolve_cmp_op_id(op_id, cmp_result);
-                return ir_const_bool(ira, &bin_op_instruction->base, answer);
-            }
-        }
-never_mind_just_calculate_it_normally:
-
         ZigValue *op1_val = one_possible_value ? casted_op1->value : ir_resolve_const(ira, casted_op1, UndefBad);
         if (op1_val == nullptr)
             return ira->codegen->invalid_instruction;
@@ -14868,43 +15291,6 @@ never_mind_just_calculate_it_normally:
             copy_const_val(&result->value->data.x_array.data.s_none.elements[i], cur_res->value);
         }
         return result;
-    }
-
-    // some comparisons with unsigned numbers can be evaluated
-    if (resolved_type->id == ZigTypeIdInt && !resolved_type->data.integral.is_signed) {
-        ZigValue *known_left_val;
-        IrBinOp flipped_op_id;
-        if (instr_is_comptime(casted_op1)) {
-            known_left_val = ir_resolve_const(ira, casted_op1, UndefBad);
-            if (known_left_val == nullptr)
-                return ira->codegen->invalid_instruction;
-
-            flipped_op_id = op_id;
-        } else if (instr_is_comptime(casted_op2)) {
-            known_left_val = ir_resolve_const(ira, casted_op2, UndefBad);
-            if (known_left_val == nullptr)
-                return ira->codegen->invalid_instruction;
-
-            if (op_id == IrBinOpCmpLessThan) {
-                flipped_op_id = IrBinOpCmpGreaterThan;
-            } else if (op_id == IrBinOpCmpGreaterThan) {
-                flipped_op_id = IrBinOpCmpLessThan;
-            } else if (op_id == IrBinOpCmpLessOrEq) {
-                flipped_op_id = IrBinOpCmpGreaterOrEq;
-            } else if (op_id == IrBinOpCmpGreaterOrEq) {
-                flipped_op_id = IrBinOpCmpLessOrEq;
-            } else {
-                flipped_op_id = op_id;
-            }
-        } else {
-            known_left_val = nullptr;
-        }
-        if (known_left_val != nullptr && bigint_cmp_zero(&known_left_val->data.x_bigint) == CmpEQ &&
-            (flipped_op_id == IrBinOpCmpLessOrEq || flipped_op_id == IrBinOpCmpGreaterThan))
-        {
-            bool answer = (flipped_op_id == IrBinOpCmpLessOrEq);
-            return ir_const_bool(ira, &bin_op_instruction->base, answer);
-        }
     }
 
     IrInstruction *result = ir_build_bin_op(&ira->new_irb,
@@ -23959,26 +24345,32 @@ static IrInstruction *ir_analyze_instruction_int_to_float(IrAnalyze *ira, IrInst
     return ir_resolve_cast(ira, &instruction->base, target, dest_type, CastOpIntToFloat);
 }
 
+static IrInstruction *ir_analyze_float_to_int(IrAnalyze *ira, IrInstruction *source_instr,
+        ZigType *dest_type, IrInstruction *operand, AstNode *operand_source_node)
+{
+    if (operand->value->type->id == ZigTypeIdComptimeInt) {
+        return ir_implicit_cast(ira, operand, dest_type);
+    }
+
+    if (operand->value->type->id != ZigTypeIdFloat && operand->value->type->id != ZigTypeIdComptimeFloat) {
+        ir_add_error_node(ira, operand_source_node, buf_sprintf("expected float type, found '%s'",
+                    buf_ptr(&operand->value->type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    return ir_resolve_cast(ira, source_instr, operand, dest_type, CastOpFloatToInt);
+}
+
 static IrInstruction *ir_analyze_instruction_float_to_int(IrAnalyze *ira, IrInstructionFloatToInt *instruction) {
     ZigType *dest_type = ir_resolve_type(ira, instruction->dest_type->child);
     if (type_is_invalid(dest_type))
         return ira->codegen->invalid_instruction;
 
-    IrInstruction *target = instruction->target->child;
-    if (type_is_invalid(target->value->type))
+    IrInstruction *operand = instruction->target->child;
+    if (type_is_invalid(operand->value->type))
         return ira->codegen->invalid_instruction;
 
-    if (target->value->type->id == ZigTypeIdComptimeInt) {
-        return ir_implicit_cast(ira, target, dest_type);
-    }
-
-    if (target->value->type->id != ZigTypeIdFloat && target->value->type->id != ZigTypeIdComptimeFloat) {
-        ir_add_error(ira, instruction->target, buf_sprintf("expected float type, found '%s'",
-                    buf_ptr(&target->value->type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    return ir_resolve_cast(ira, &instruction->base, target, dest_type, CastOpFloatToInt);
+    return ir_analyze_float_to_int(ira, &instruction->base, dest_type, operand, instruction->target->source_node);
 }
 
 static IrInstruction *ir_analyze_instruction_err_to_int(IrAnalyze *ira, IrInstructionErrToInt *instruction) {
@@ -27111,13 +27503,13 @@ static IrInstruction *ir_analyze_instruction_save_err_ret_addr(IrAnalyze *ira, I
     return result;
 }
 
-static void ir_eval_float_op(IrAnalyze *ira, IrInstructionFloatOp *source_instr, ZigType *float_type,
-    ZigValue *op, ZigValue *out_val) {
+static void ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, BuiltinFnId fop, ZigType *float_type,
+        ZigValue *op, ZigValue *out_val)
+{
     assert(ira && source_instr && float_type && out_val && op);
     assert(float_type->id == ZigTypeIdFloat ||
            float_type->id == ZigTypeIdComptimeFloat);
 
-    BuiltinFnId fop = source_instr->op;
     unsigned bits;
 
     switch (float_type->id) {
@@ -27291,45 +27683,39 @@ static void ir_eval_float_op(IrAnalyze *ira, IrInstructionFloatOp *source_instr,
     }
 }
 
-static IrInstruction *ir_analyze_instruction_float_op(IrAnalyze *ira, IrInstructionFloatOp *instruction) {
-    IrInstruction *type = instruction->type->child;
-    if (type_is_invalid(type->value->type))
-        return ira->codegen->invalid_instruction;
-
-    ZigType *expr_type = ir_resolve_type(ira, type);
-    if (type_is_invalid(expr_type))
-        return ira->codegen->invalid_instruction;
-
+static IrInstruction *ir_analyze_float_op(IrAnalyze *ira, IrInstruction *source_instr,
+        ZigType *expr_type, AstNode *expr_type_src_node, IrInstruction *operand, BuiltinFnId op)
+{
     // Only allow float types, and vectors of floats.
     ZigType *float_type = (expr_type->id == ZigTypeIdVector) ? expr_type->data.vector.elem_type : expr_type;
     if (float_type->id != ZigTypeIdFloat && float_type->id != ZigTypeIdComptimeFloat) {
-        ir_add_error(ira, instruction->type, buf_sprintf("@%s does not support type '%s'", float_op_to_name(instruction->op, false), buf_ptr(&float_type->name)));
+        ir_add_error_node(ira, expr_type_src_node,
+                buf_sprintf("@%s does not support type '%s'",
+                    float_op_to_name(op, false), buf_ptr(&float_type->name)));
         return ira->codegen->invalid_instruction;
     }
 
-    IrInstruction *op1 = instruction->op1->child;
-    if (type_is_invalid(op1->value->type))
+    IrInstruction *casted_op = ir_implicit_cast(ira, operand, float_type);
+    if (type_is_invalid(casted_op->value->type))
         return ira->codegen->invalid_instruction;
 
-    IrInstruction *casted_op1 = ir_implicit_cast(ira, op1, float_type);
-    if (type_is_invalid(casted_op1->value->type))
-        return ira->codegen->invalid_instruction;
-
-    if (instr_is_comptime(casted_op1)) {
-        // Our comptime 16-bit and 128-bit support is quite limited.
+    if (instr_is_comptime(casted_op)) {
         if ((float_type->id == ZigTypeIdComptimeFloat ||
             float_type->data.floating.bit_count == 16 ||
             float_type->data.floating.bit_count == 128) &&
-            instruction->op != BuiltinFnIdSqrt) {
-            ir_add_error(ira, instruction->type, buf_sprintf("@%s does not support type '%s'", float_op_to_name(instruction->op, false), buf_ptr(&float_type->name)));
+            op != BuiltinFnIdSqrt)
+        {
+            ir_add_error(ira, source_instr,
+                    buf_sprintf("compiler bug: TODO make @%s support type '%s'",
+                        float_op_to_name(op, false), buf_ptr(&float_type->name)));
             return ira->codegen->invalid_instruction;
         }
 
-        ZigValue *op1_const = ir_resolve_const(ira, casted_op1, UndefBad);
+        ZigValue *op1_const = ir_resolve_const(ira, casted_op, UndefBad);
         if (!op1_const)
             return ira->codegen->invalid_instruction;
 
-        IrInstruction *result = ir_const(ira, &instruction->base, expr_type);
+        IrInstruction *result = ir_const(ira, source_instr, expr_type);
         ZigValue *out_val = result->value;
 
         if (expr_type->id == ZigTypeIdVector) {
@@ -27342,24 +27728,36 @@ static IrInstruction *ir_analyze_instruction_float_op(IrAnalyze *ira, IrInstruct
                 ZigValue *float_out_val = &out_val->data.x_array.data.s_none.elements[i];
                 assert(float_operand_op1->type == float_type);
                 assert(float_out_val->type == float_type);
-                ir_eval_float_op(ira, instruction, float_type,
-                        op1_const, float_out_val);
+                ir_eval_float_op(ira, source_instr, op, float_type, op1_const, float_out_val);
                 float_out_val->type = float_type;
             }
             out_val->type = expr_type;
             out_val->special = ConstValSpecialStatic;
         } else {
-            ir_eval_float_op(ira, instruction, float_type, op1_const, out_val);
+            ir_eval_float_op(ira, source_instr, op, float_type, op1_const, out_val);
         }
         return result;
     }
 
-    ir_assert(float_type->id == ZigTypeIdFloat, &instruction->base);
+    ir_assert(float_type->id == ZigTypeIdFloat, source_instr);
 
-    IrInstruction *result = ir_build_float_op(&ira->new_irb, instruction->base.scope,
-            instruction->base.source_node, nullptr, casted_op1, instruction->op);
+    IrInstruction *result = ir_build_float_op(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, nullptr, casted_op, op);
     result->value->type = expr_type;
     return result;
+}
+
+static IrInstruction *ir_analyze_instruction_float_op(IrAnalyze *ira, IrInstructionFloatOp *instruction) {
+    ZigType *expr_type = ir_resolve_type(ira, instruction->type->child);
+    if (type_is_invalid(expr_type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *operand = instruction->op1->child;
+    if (type_is_invalid(operand->value->type))
+        return ira->codegen->invalid_instruction;
+
+    return ir_analyze_float_op(ira, &instruction->base, expr_type, instruction->type->source_node,
+            operand, instruction->op);
 }
 
 static IrInstruction *ir_analyze_instruction_bswap(IrAnalyze *ira, IrInstructionBswap *instruction) {
