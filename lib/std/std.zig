@@ -60,6 +60,7 @@ pub const rand = @import("rand.zig");
 pub const rb = @import("rb.zig");
 pub const sort = @import("sort.zig");
 pub const ascii = @import("ascii.zig");
+pub const target = @import("target.zig");
 pub const testing = @import("testing.zig");
 pub const time = @import("time.zig");
 pub const unicode = @import("unicode.zig");
