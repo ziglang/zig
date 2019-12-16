@@ -1254,6 +1254,8 @@ fn transBoolExpr(
                 .OCLIntelSubgroupAVCImeSingleRefStreamin,
                 .OCLIntelSubgroupAVCImeDualRefStreamin,
                 => return res.node,
+
+                else => {},
             }
         },
         .Pointer => return transCreateNodeNotEqual(rp, scope, res.node, try transCreateNodeNullLiteral(rp.c)),
@@ -1316,6 +1318,8 @@ fn transBoolExpr(
                 .Typename,
                 .None,
                 => return res.node,
+
+                else => {},
             }
         },
 
@@ -1363,6 +1367,8 @@ fn transBoolExpr(
         .DependentVector,
         .MacroQualified,
         => return res.node,
+
+        else => unreachable,
     }
 
     unreachable;
