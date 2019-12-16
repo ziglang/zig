@@ -699,6 +699,21 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add_2("comma operator",
+        \\int foo(char c) {
+        \\    2, 4;
+        \\    return 2, 4, 6;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo(c: u8) c_int {
+        \\    _ = 2;
+        \\    _ = 4;
+        \\    _ = 2;
+        \\    _ = 4;
+        \\    return 6;
+        \\}
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     if (builtin.os != builtin.Os.windows) {

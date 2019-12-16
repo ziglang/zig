@@ -47,7 +47,7 @@ const Scope = struct {
         Switch,
         Block,
         Root,
-        While,
+        Condition,
         FnDef,
         Ref,
     };
@@ -65,9 +65,13 @@ const Scope = struct {
         base: Scope,
         block_node: *ast.Node.Block,
         variables: AliasList,
+        label: ?[]const u8,
 
         /// Don't forget to set rbrace token later
-        fn init(c: *Context, parent: *Scope, block_node: *ast.Node.Block) !*Block {
+        fn init(c: *Context, parent: *Scope, want_label: bool) !*Block {
+            // TODO removing `?[]const u8` here causes LLVM error
+            const label: ?[]const u8 = if (want_label) try std.fmt.allocPrint(c.a(), "blk_{}", .{c.getMangle()}) else null;
+            const block_node = try transCreateNodeBlock(c, label);
             const block = try c.a().create(Block);
             block.* = .{
                 .base = .{
@@ -76,6 +80,7 @@ const Scope = struct {
                 },
                 .block_node = block_node,
                 .variables = AliasList.init(c.a()),
+                .label = label,
             };
             return block;
         }
@@ -120,7 +125,8 @@ const Scope = struct {
         }
     };
 
-    const While = struct {
+    const Condition = struct {
+        expr: *ast.Node,
         base: Scope,
     };
 
@@ -157,10 +163,19 @@ const Scope = struct {
         }
     };
 
-    fn findBlockScope(inner: *Scope) *Scope.Block {
+    fn findBlockScope(inner: *Scope, c: *Context) !*Scope.Block {
         var scope = inner;
-        while (true) : (scope = scope.parent orelse unreachable) {
-            if (scope.id == .Block) return @fieldParentPtr(Scope.Block, "base", scope);
+        while (true) {
+            switch (scope.id) {
+                .Root => unreachable,
+                .Block => return @fieldParentPtr(Block, "base", scope),
+                .Condition => {
+                    const cond = @fieldParentPtr(Condition, "base", scope);
+                    // comma operator used
+                    return try Block.init(c, scope, true);
+                },
+                else => scope = inner,
+            }
         }
     }
 
@@ -751,7 +766,6 @@ fn transBinaryOperator(
         .Or,
         .LAnd,
         .LOr,
-        .Comma,
         => return revertAndWarn(
             rp,
             error.UnsupportedTranslation,
@@ -759,6 +773,23 @@ fn transBinaryOperator(
             "TODO: handle more C binary operators: {}",
             .{op},
         ),
+        .Comma => {
+            const block_scope = try scope.findBlockScope(rp.c);
+
+            const lhs = try transExpr(rp, &block_scope.base, ZigClangBinaryOperator_getLHS(stmt), .unused, .r_value);
+            try block_scope.block_node.statements.push(lhs);
+
+            const rhs = try transExpr(rp, &block_scope.base, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value);
+            if (block_scope.base.parent == scope) {
+                const break_node = try transCreateNodeBreak(rp.c, block_scope.label);
+                _ = try appendToken(rp.c, .Semicolon, ";");
+                try block_scope.block_node.statements.push(&break_node.base);
+                block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
+                return maybeSuppressResult(rp, scope, result_used, &block_scope.block_node.base);
+            } else {
+                return maybeSuppressResult(rp, scope, result_used, rhs);
+            }
+        },
         .MulAssign,
         .DivAssign,
         .RemAssign,
@@ -790,11 +821,10 @@ fn transCompoundStmtInline(
 }
 
 fn transCompoundStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangCompoundStmt) TransError!*ast.Node {
-    const block_node = try transCreateNodeBlock(rp.c, null);
-    const block_scope = try Scope.Block.init(rp.c, scope, block_node);
-    try transCompoundStmtInline(rp, &block_scope.base, stmt, block_node);
-    block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
-    return &block_node.base;
+    const block_scope = try Scope.Block.init(rp.c, scope, false);
+    try transCompoundStmtInline(rp, &block_scope.base, stmt, block_scope.block_node);
+    block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
+    return &block_scope.block_node.base;
 }
 
 fn transCStyleCastExprClass(
@@ -818,7 +848,7 @@ fn transCStyleCastExprClass(
 
 fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt) TransError!*ast.Node {
     const c = rp.c;
-    const block_scope = scope.findBlockScope();
+    const block_scope = try scope.findBlockScope(c);
 
     var it = ZigClangDeclStmt_decl_begin(stmt);
     const end_it = ZigClangDeclStmt_decl_end(stmt);
@@ -927,7 +957,7 @@ fn transImplicitCastExpr(
             return transExpr(rp, scope, sub_expr, .used, .r_value);
         },
         .NullToPointer => {
-            return transCreateNodeNullLiteral(rp.c);
+            return try transCreateNodeNullLiteral(rp.c);
         },
         else => |kind| return revertAndWarn(
             rp,
@@ -1185,7 +1215,7 @@ fn transImplicitValueInitExpr(
         .Builtin => blk: {
             const builtin_ty = @ptrCast(*const ZigClangBuiltinType, ty);
             switch (ZigClangBuiltinType_getKind(builtin_ty)) {
-                .Bool => return transCreateNodeBoolLiteral(rp.c, false),
+                .Bool => return try transCreateNodeBoolLiteral(rp.c, false),
                 .Char_U,
                 .UChar,
                 .Char_S,
@@ -2044,6 +2074,21 @@ fn transCreateNodeBlock(c: *Context, label: ?[]const u8) !*ast.Node.Block {
         .rbrace = undefined,
     };
     return block_node;
+}
+
+fn transCreateNodeBreak(c: *Context, label: ?[]const u8) !*ast.Node.ControlFlowExpression {
+    const ltoken = try appendToken(c, .Keyword_break, "break");
+    const label_node = if (label) |l| blk: {
+        _ = try appendToken(c, .Colon, ":");
+        break :blk try transCreateNodeIdentifier(c, l);
+    } else null;
+    const node = try c.a().create(ast.Node.ControlFlowExpression);
+    node.* = ast.Node.ControlFlowExpression{
+        .ltoken = ltoken,
+        .kind = .{ .Break = label_node },
+        .rhs = null,
+    };
+    return node;
 }
 
 const RestorePoint = struct {
