@@ -54,6 +54,7 @@ const Scope = struct {
 
     const Switch = struct {
         base: Scope,
+        label: []const u8,
     };
 
     /// used when getting a member `a.b`
@@ -190,6 +191,7 @@ const Scope = struct {
             .Ref => null,
             .FnDef => @fieldParentPtr(FnDef, "base", scope).getAlias(name),
             .Block => @fieldParentPtr(Block, "base", scope).getAlias(name),
+            .Condition => scope.parent.?.getAlias(name),
             else => @panic("TODO Scope.getAlias"),
         };
     }
@@ -200,8 +202,14 @@ const Scope = struct {
             .Root => @fieldParentPtr(Root, "base", scope).contains(name),
             .FnDef => @fieldParentPtr(FnDef, "base", scope).contains(name),
             .Block => @fieldParentPtr(Block, "base", scope).contains(name),
+            .Condition => scope.parent.?.contains(name),
             else => @panic("TODO Scope.contains"),
         };
+    }
+
+    fn getBreakableScope(scope: *Scope) *Scope {
+        var scope = inner;
+        while (scope.id != .Switch and scope.id != .Root) : (scope = scope.parent.?) {}
     }
 };
 
@@ -613,6 +621,13 @@ fn transStmt(
         .IfStmtClass => return transIfStmt(rp, scope, @ptrCast(*const ZigClangIfStmt, stmt)),
         .WhileStmtClass => return transWhileLoop(rp, scope, @ptrCast(*const ZigClangWhileStmt, stmt)),
         .DoStmtClass => return transDoWhileLoop(rp, scope, @ptrCast(*const ZigClangDoStmt, stmt)),
+        .NullStmtClass => {
+            const block = try transCreateNodeBlock(rp.c, null);
+            block.rbrace = try appendToken(rp.c, .RBrace, "}");
+            return &block.base;
+        },
+        .ContinueStmtClass => return transCreateNodeContinue(rp.c),
+        .BreakStmtClass => return transBreak(rp, scope),
         else => {
             return revertAndWarn(
                 rp,
@@ -1241,7 +1256,7 @@ fn transDoWhileLoop(
     _ = try appendToken(rp.c, .RParen, ")");
     var new = false;
 
-    const body_node = if (ZigClangStmt_getStmtClass(ZigClangDoStmt_getBody(stmt)) == .CompoundStmtClass)
+    const body_node = if (ZigClangStmt_getStmtClass(ZigClangDoStmt_getBody(stmt)) == .CompoundStmtClass) blk: {
         // there's already a block in C, so we'll append our condition to it.
         // c: do {
         // c:   a;
@@ -1252,8 +1267,8 @@ fn transDoWhileLoop(
         // zig:   b;
         // zig:   if (!cond) break;
         // zig: }
-        (try transStmt(rp, scope, ZigClangDoStmt_getBody(stmt), .unused, .r_value)).cast(ast.Node.Block).?
-    else blk: {
+        break :blk (try transStmt(rp, scope, ZigClangDoStmt_getBody(stmt), .unused, .r_value)).cast(ast.Node.Block).?
+    } else blk: {
         // the C statement is without a block, so we need to create a block to contain it.
         // c: do
         // c:   a;
@@ -1262,7 +1277,6 @@ fn transDoWhileLoop(
         // zig:   a;
         // zig:   if (!cond) break;
         // zig: }
-        
         new = true;
         const block = try transCreateNodeBlock(rp.c, null);
         try block.statements.push(try transStmt(rp, scope, ZigClangDoStmt_getBody(stmt), .unused, .r_value));
@@ -1326,6 +1340,15 @@ fn transCPtrCast(
     ptrcast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
 
     return &ptrcast_node.base;
+}
+
+fn transBreak(rp: RestorePoint, scope: *Scope) TransError!*ast.Node {
+    const break_scope = scope.getBreakableScope();
+    const br = try transCreateNodeBreak(rp.c, if (break_scope.id == .Switch)
+        @fieldParentPtr(Scope.Switch, "base", break_scope).label
+    else
+        null);
+    return &br.base;
 }
 
 fn maybeSuppressResult(
@@ -2163,6 +2186,18 @@ fn transCreateNodeWhile(c: *Context) !*ast.Node.While {
         .@"else" = null,
     };
     return node;
+}
+
+fn transCreateNodeContinue(c: *Context) !*ast.Node {
+    const ltoken = try appendToken(c, .Keyword_continue, "continue");
+    const node = try c.a().create(ast.Node.ControlFlowExpression);
+    node.* = .{
+        .ltoken = ltoken,
+        .kind = .{ .Continue = null },
+        .rhs = null,
+    };
+    _ = try appendToken(rp.c, .Semicolon, ";");
+    return &node.base;
 }
 
 const RestorePoint = struct {
