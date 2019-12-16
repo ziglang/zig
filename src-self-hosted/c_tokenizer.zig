@@ -6,7 +6,7 @@ pub const TokenList = std.SegmentedList(CToken, 32);
 pub const CToken = struct {
     id: Id,
     bytes: []const u8,
-    num_lit_suffix: NumLitSuffix = undefined,
+    num_lit_suffix: NumLitSuffix = .None,
 
     pub const Id = enum {
         CharLit,

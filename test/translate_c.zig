@@ -637,11 +637,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern var glProcs: union_OpenGLProcs;
     ,
         \\pub const glClearPFN = PFNGLCLEARPROC;
-    // , // TODO
+ // , // TODO
     //     \\pub inline fn glClearUnion(arg_1: GLbitfield) void {
     //     \\    return glProcs.gl.Clear.?(arg_1);
     //     \\}
-    ,
+        ,
         \\pub const OpenGLProcs = union_OpenGLProcs;
     });
 
@@ -669,6 +669,34 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const FOO = "aoeu\xab derp";
     ,
         \\pub const FOO2 = "aoeu\x07 derp";
+    });
+
+    cases.add_2("variable aliasing",
+        \\static long a = 2;
+        \\static long b = 2;
+        \\static int c = 4;
+        \\void foo(char c) {
+        \\    int a;
+        \\    char b = 123;
+        \\    b = (char) a;
+        \\    {
+        \\        int d = 5;
+        \\    }
+        \\    unsigned d = 440;
+        \\}
+    , &[_][]const u8{
+        \\pub var a: c_long = @as(c_long, 2);
+        \\pub var b: c_long = @as(c_long, 2);
+        \\pub var c: c_int = 4;
+        \\pub export fn foo(c_1: u8) void {
+        \\    var a_2: c_int = undefined;
+        \\    var b_3: u8 = @as(u8, 123);
+        \\    b_3 = @as(u8, a_2);
+        \\    {
+        \\        var d: c_int = 5;
+        \\    }
+        \\    var d: c_uint = @as(c_uint, 440);
+        \\}
     });
 
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
@@ -2059,5 +2087,4 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const NRF_GPIO = if (@typeId(@TypeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Pointer) @ptrCast([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@TypeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Int) @intToPtr([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else @as([*c]NRF_GPIO_Type, NRF_GPIO_BASE);
     });
-
 }
