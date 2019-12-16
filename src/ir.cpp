@@ -14018,7 +14018,8 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
         case OnePossibleValueInvalid:
             return ira->codegen->invalid_instruction;
         case OnePossibleValueYes:
-            return ir_const(ira, source_instruction, child_type);
+            return ir_const_move(ira, source_instruction,
+                     get_the_one_possible_value(ira->codegen, child_type));
         case OnePossibleValueNo:
             break;
     }
@@ -19226,7 +19227,8 @@ skip_resolve_peer_types:
     case OnePossibleValueInvalid:
         return ira->codegen->invalid_instruction;
     case OnePossibleValueYes:
-        return ir_const(ira, &phi_instruction->base, resolved_type);
+        return ir_const_move(ira, &phi_instruction->base,
+                 get_the_one_possible_value(ira->codegen, resolved_type));
     case OnePossibleValueNo:
         break;
     }
@@ -19862,7 +19864,8 @@ static IrInstruction *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInstruction 
         case OnePossibleValueInvalid:
             return ira->codegen->invalid_instruction;
         case OnePossibleValueYes: {
-            IrInstruction *elem = ir_const(ira, source_instr, field_type);
+            IrInstruction *elem = ir_const_move(ira, source_instr,
+                 get_the_one_possible_value(ira->codegen, field_type));
             return ir_get_ref(ira, source_instr, elem, false, false);
         }
         case OnePossibleValueNo:
@@ -21933,7 +21936,8 @@ static IrInstruction *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
         case OnePossibleValueInvalid:
             return ira->codegen->invalid_instruction;
         case OnePossibleValueYes:
-            return ir_const(ira, &instruction->base, container_type);
+            return ir_const_move(ira, &instruction->base,
+                     get_the_one_possible_value(ira->codegen, container_type));
         case OnePossibleValueNo:
             break;
     }
