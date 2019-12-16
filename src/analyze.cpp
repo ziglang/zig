@@ -5584,6 +5584,18 @@ ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
     ZigValue *result = create_const_vals(1);
     result->type = type_entry;
     result->special = ConstValSpecialStatic;
+    if (result->type->id == ZigTypeIdStruct) {
+        // The fields array cannot be left unpopulated
+        const ZigType *struct_type = result->type;
+        const size_t field_count = struct_type->data.structure.src_field_count;
+        result->data.x_struct.fields = alloc_const_vals_ptrs(field_count);
+        for (size_t i = 0; i < field_count; i += 1) {
+            TypeStructField *field = struct_type->data.structure.fields[i];
+            ZigType *field_type = resolve_struct_field_type(g, field);
+            assert(field_type != nullptr);
+            result->data.x_struct.fields[i] = get_the_one_possible_value(g, field_type);
+        }
+    }
     g->one_possible_values.put(type_entry, result);
     return result;
 }
