@@ -1047,5 +1047,7 @@ pub extern fn ZigClangWhileStmt_getBody(*const ZigClangWhileStmt) *const ZigClan
 pub extern fn ZigClangDoStmt_getCond(*const ZigClangDoStmt) *const ZigClangExpr;
 pub extern fn ZigClangDoStmt_getBody(*const ZigClangDoStmt) *const ZigClangStmt;
 
-pub extern fn ZigClangDoStmt_getCond(*const  ZigClangDoStmt) *const ZigClangExpr;
-pub extern fn ZigClangDoStmt_getBody(*const  ZigClangDoStmt) *const ZigClangStmt;
+pub extern fn ZigClangForStmt_getInit(*const ZigClangForStmt) ?*const ZigClangStmt;
+pub extern fn ZigClangForStmt_getCond(*const ZigClangForStmt) ?*const ZigClangExpr;
+pub extern fn ZigClangForStmt_getInc(*const ZigClangForStmt) ?*const ZigClangExpr;
+pub extern fn ZigClangForStmt_getBody(*const ZigClangForStmt) *const ZigClangStmt;

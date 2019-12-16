@@ -795,6 +795,30 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add_2("for loops",
+        \\int foo() {
+        \\    for (int i = 2, b = 4; i + 2; i = 2) {
+        \\        int a = 2;
+        \\        a = 6, 5, 7;
+        \\    }
+        \\    char i = 2;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    {
+        \\        var i: c_int = 2;
+        \\        var b: c_int = 4;
+        \\        while ((i + 2) != 0) : (i = 2) {
+        \\            var a: c_int = 2;
+        \\            a = 6;
+        \\            _ = 5;
+        \\            _ = 7;
+        \\        }
+        \\    }
+        \\    var i: u8 = @as(u8, 2);
+        \\}
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     if (builtin.os != builtin.Os.windows) {

@@ -207,9 +207,10 @@ const Scope = struct {
         };
     }
 
-    fn getBreakableScope(scope: *Scope) *Scope {
+    fn getBreakableScope(inner: *Scope) *Scope {
         var scope = inner;
         while (scope.id != .Switch and scope.id != .Root) : (scope = scope.parent.?) {}
+        return scope;
     }
 };
 
@@ -626,8 +627,9 @@ fn transStmt(
             block.rbrace = try appendToken(rp.c, .RBrace, "}");
             return &block.base;
         },
-        .ContinueStmtClass => return transCreateNodeContinue(rp.c),
+        .ContinueStmtClass => return try transCreateNodeContinue(rp.c),
         .BreakStmtClass => return transBreak(rp, scope),
+        .ForStmtClass => return transForLoop(rp, scope, @ptrCast(*const ZigClangForStmt, stmt)),
         else => {
             return revertAndWarn(
                 rp,
@@ -795,7 +797,7 @@ fn transCompoundStmtInline(
 
 fn transCompoundStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangCompoundStmt) TransError!*ast.Node {
     const block_scope = try Scope.Block.init(rp.c, scope, false);
-    block_scope.block_node = try transCreateNodeBlock(rp.c, block_scope.label);
+    block_scope.block_node = try transCreateNodeBlock(rp.c, null);
     try transCompoundStmtInline(rp, &block_scope.base, stmt, block_scope.block_node);
     block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
     return &block_scope.block_node.base;
@@ -1267,7 +1269,7 @@ fn transDoWhileLoop(
         // zig:   b;
         // zig:   if (!cond) break;
         // zig: }
-        break :blk (try transStmt(rp, scope, ZigClangDoStmt_getBody(stmt), .unused, .r_value)).cast(ast.Node.Block).?
+        break :blk (try transStmt(rp, scope, ZigClangDoStmt_getBody(stmt), .unused, .r_value)).cast(ast.Node.Block).?;
     } else blk: {
         // the C statement is without a block, so we need to create a block to contain it.
         // c: do
@@ -1303,6 +1305,50 @@ fn transDoWhileLoop(
         body_node.rbrace = try appendToken(rp.c, .RBrace, "}");
     while_node.body = &body_node.base;
     return &while_node.base;
+}
+
+fn transForLoop(
+    rp: RestorePoint,
+    scope: *Scope,
+    stmt: *const ZigClangForStmt,
+) TransError!*ast.Node {
+    var inner = scope;
+    var block = false;
+    var block_scope: ?*Scope.Block = null;
+    if (ZigClangForStmt_getInit(stmt)) |init| {
+        block_scope = try Scope.Block.init(rp.c, scope, false);
+        block_scope.?.block_node = try transCreateNodeBlock(rp.c, null);
+        inner = &block_scope.?.base;
+        _ = try transStmt(rp, inner, init, .unused, .r_value);
+    }
+    var cond_scope = Scope.Condition{
+        .base = .{
+            .parent = inner,
+            .id = .Condition,
+        },
+    };
+
+    const while_node = try transCreateNodeWhile(rp.c);
+    while_node.condition = if (ZigClangForStmt_getCond(stmt)) |cond|
+        try transBoolExpr(rp, &cond_scope.base, cond, .used, .r_value, false)
+    else
+        try transCreateNodeBoolLiteral(rp.c, true);
+    _ = try appendToken(rp.c, .RParen, ")");
+
+    if (ZigClangForStmt_getInc(stmt)) |incr| {
+        _ = try appendToken(rp.c, .Colon, ":");
+        _ = try appendToken(rp.c, .LParen, "(");
+        while_node.continue_expr = try transExpr(rp, &cond_scope.base, incr, .unused, .r_value);
+        _ = try appendToken(rp.c, .RParen, ")");
+    }
+
+    while_node.body = try transStmt(rp, inner, ZigClangForStmt_getBody(stmt), .unused, .r_value);
+    if (block_scope != null) {
+        try block_scope.?.block_node.statements.push(&while_node.base);
+        block_scope.?.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
+        return &block_scope.?.block_node.base;
+    } else
+        return &while_node.base;
 }
 
 fn transCPtrCast(
@@ -1358,12 +1404,20 @@ fn maybeSuppressResult(
     result: *ast.Node,
 ) TransError!*ast.Node {
     if (used == .used) return result;
-    // NOTE: This is backwards, but the semicolon must immediately follow the node.
-    _ = try appendToken(rp.c, .Semicolon, ";");
+    if (scope.id != .Condition) {
+        // NOTE: This is backwards, but the semicolon must immediately follow the node.
+        _ = try appendToken(rp.c, .Semicolon, ";");
+    } else { // TODO is there a way to avoid this hack?
+        // this parenthesis must come immediately following the node
+        _ = try appendToken(rp.c, .RParen, ")");
+        // these need to come before _
+        _ = try appendToken(rp.c, .Colon, ":");
+        _ = try appendToken(rp.c, .LParen, "(");
+    }
     const lhs = try transCreateNodeIdentifier(rp.c, "_");
     const op_token = try appendToken(rp.c, .Equal, "=");
     const op_node = try rp.c.a().create(ast.Node.InfixOp);
-    op_node.* = ast.Node.InfixOp{
+    op_node.* = .{
         .op_token = op_token,
         .lhs = lhs,
         .op = .Assign,
@@ -1728,7 +1782,8 @@ fn transCreateNodeAssign(
         const lhs_node = try transExpr(rp, scope, lhs, .used, .l_value);
         const eq_token = try appendToken(rp.c, .Equal, "=");
         const rhs_node = try transExpr(rp, scope, rhs, .used, .r_value);
-        _ = try appendToken(rp.c, .Semicolon, ";");
+        if (scope.id != .Condition)
+            _ = try appendToken(rp.c, .Semicolon, ";");
 
         const node = try rp.c.a().create(ast.Node.InfixOp);
         node.* = .{
@@ -2196,7 +2251,7 @@ fn transCreateNodeContinue(c: *Context) !*ast.Node {
         .kind = .{ .Continue = null },
         .rhs = null,
     };
-    _ = try appendToken(rp.c, .Semicolon, ";");
+    _ = try appendToken(c, .Semicolon, ";");
     return &node.base;
 }
 
