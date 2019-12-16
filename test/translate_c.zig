@@ -714,6 +714,24 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add_2("wors-case assign",
+        \\int foo(char c) {
+        \\    int a;
+        \\    int b;
+        \\    a = b = 2;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo(c: u8) c_int {
+        \\    var a: c_int = undefined;
+        \\    var b: c_int = undefined;
+        \\    a = blk_1: {
+        \\        const _tmp_2 = 2;
+        \\        b = _tmp_2;
+        \\        break :blk_1 _tmp_2;
+        \\    };
+        \\}
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     if (builtin.os != builtin.Os.windows) {

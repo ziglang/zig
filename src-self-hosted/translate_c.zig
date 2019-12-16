@@ -524,35 +524,18 @@ fn resolveTypeDef(c: *Context, typedef_decl: *const ZigClangTypedefNameDecl) Err
 
     const typedef_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, typedef_decl)));
     _ = try c.decl_table.put(@ptrToInt(ZigClangTypedefNameDecl_getCanonicalDecl(typedef_decl)), typedef_name);
-    const name_tok = try appendIdentifier(c, typedef_name);
-    const eq_tok = try appendToken(c, .Equal, "=");
+    const node = try transCreateNodeVarDecl(c, true, true, typedef_name);
+    node.eq_token = try appendToken(c, .Equal, "=");
 
     const child_qt = ZigClangTypedefNameDecl_getUnderlyingType(typedef_decl);
     const typedef_loc = ZigClangTypedefNameDecl_getLocation(typedef_decl);
-    const type_node = transQualType(rp, child_qt, typedef_loc) catch |err| switch (err) {
+    node.init_node = transQualType(rp, child_qt, typedef_loc) catch |err| switch (err) {
         error.UnsupportedType => {
             return failDecl(c, typedef_loc, typedef_name, "unable to resolve typedef child type", .{});
         },
         error.OutOfMemory => |e| return e,
     };
-
-    const node = try c.a().create(ast.Node.VarDecl);
-    node.* = ast.Node.VarDecl{
-        .doc_comments = null,
-        .visib_token = visib_tok,
-        .thread_local_token = null,
-        .name_token = name_tok,
-        .eq_token = eq_tok,
-        .mut_token = const_tok,
-        .comptime_token = null,
-        .extern_export_token = null,
-        .lib_name = null,
-        .type_node = null,
-        .align_node = null,
-        .section_node = null,
-        .init_node = type_node,
-        .semicolon_token = try appendToken(c, .Semicolon, ";"),
-    };
+    node.semicolon_token = try appendToken(c, .Semicolon, ";");
     try addTopLevelDecl(c, typedef_name, &node.base);
 }
 
@@ -572,69 +555,29 @@ fn resolveRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!
     if (ZigClangRecordDecl_isAnonymousStructOrUnion(record_decl) or bare_name.len == 0)
         return;
 
-    const visib_tok = try appendToken(c, .Keyword_pub, "pub");
-    const const_tok = try appendToken(c, .Keyword_const, "const");
-
     const name = try std.fmt.allocPrint(c.a(), "{}_{}", .{ container_kind_name, bare_name });
     _ = try c.decl_table.put(@ptrToInt(ZigClangRecordDecl_getCanonicalDecl(record_decl)), name);
-    const name_tok = try appendIdentifier(c, name);
 
-    const eq_tok = try appendToken(c, .Equal, "=");
-    const init_node = transRecordDecl(c, record_decl) catch |err| switch (err) {
+    const node = try transCreateNodeVarDecl(c, true, true, name);
+
+    node.eq_token = try appendToken(c, .Equal, "=");
+    node.init_node = transRecordDecl(c, record_decl) catch |err| switch (err) {
         error.UnsupportedType => {
             return failDecl(c, ZigClangRecordDecl_getLocation(record_decl), name, "unable to resolve record type", .{});
         },
         error.OutOfMemory => |e| return e,
     };
-    const semicolon_token = try appendToken(c, .Semicolon, ";");
-
-    const node = try c.a().create(ast.Node.VarDecl);
-    node.* = ast.Node.VarDecl{
-        .doc_comments = null,
-        .visib_token = visib_tok,
-        .thread_local_token = null,
-        .name_token = name_tok,
-        .eq_token = eq_tok,
-        .mut_token = const_tok,
-        .comptime_token = null,
-        .extern_export_token = null,
-        .lib_name = null,
-        .type_node = null,
-        .align_node = null,
-        .section_node = null,
-        .init_node = init_node,
-        .semicolon_token = semicolon_token,
-    };
+    node.semicolon_token = try appendToken(c, .Semicolon, ";");
 
     try addTopLevelDecl(c, name, &node.base);
     try c.alias_list.push(.{ .alias = bare_name, .name = name });
 }
 
 fn createAlias(c: *Context, alias: var) !void {
-    const visib_tok = try appendToken(c, .Keyword_pub, "pub");
-    const mut_tok = try appendToken(c, .Keyword_const, "const");
-    const name_tok = try appendIdentifier(c, alias.alias);
-
-    const eq_tok = try appendToken(c, .Equal, "=");
-    const init_node = try transCreateNodeIdentifier(c, alias.name);
-
-    const node = try c.a().create(ast.Node.VarDecl);
-    node.* = ast.Node.VarDecl{
-        .doc_comments = null,
-        .visib_token = visib_tok,
-        .thread_local_token = null,
-        .name_token = name_tok,
-        .eq_token = eq_tok,
-        .mut_token = mut_tok,
-        .comptime_token = null,
-        .extern_export_token = null,
-        .lib_name = null,
-        .type_node = null,
-        .align_node = null,
-        .section_node = null,
-        .init_node = init_node,
-        .semicolon_token = try appendToken(c, .Semicolon, ";"),
-    };
+    const node = try transCreateNodeVarDecl(c, true, true, alias.alias);
+    node.eq_token = try appendToken(c, .Equal, "=");
+    node.init_node = try transCreateNodeIdentifier(c, alias.name);
+    node.semicolon_token = try appendToken(c, .Semicolon, ";");
     return addTopLevelDecl(c, alias.alias, &node.base);
 }
 
@@ -697,7 +640,7 @@ fn transBinaryOperator(
             "TODO: handle more C binary operators: {}",
             .{op},
         ),
-        .Assign => return &(try transCreateNodeAssign(rp, scope, result_used, ZigClangBinaryOperator_getLHS(stmt), ZigClangBinaryOperator_getRHS(stmt))).base,
+        .Assign => return try transCreateNodeAssign(rp, scope, result_used, ZigClangBinaryOperator_getLHS(stmt), ZigClangBinaryOperator_getRHS(stmt)),
         .Add => {
             const node = if (cIsUnsignedInteger(qt))
                 try transCreateNodeInfixOp(rp, scope, stmt, .AddWrap, .PlusPercent, "+%", true)
@@ -782,6 +725,7 @@ fn transBinaryOperator(
             const rhs = try transExpr(rp, &block_scope.base, ZigClangBinaryOperator_getRHS(stmt), .used, .r_value);
             if (block_scope.base.parent == scope) {
                 const break_node = try transCreateNodeBreak(rp.c, block_scope.label);
+                break_node.rhs = rhs;
                 _ = try appendToken(rp.c, .Semicolon, ";");
                 try block_scope.block_node.statements.push(&break_node.base);
                 block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
@@ -862,10 +806,6 @@ fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt)
                 else
                     try appendToken(c, .Keyword_threadlocal, "threadlocal");
                 const qual_type = ZigClangVarDecl_getTypeSourceInfo_getType(var_decl);
-                const mut_token = if (ZigClangQualType_isConstQualified(qual_type))
-                    try appendToken(c, .Keyword_const, "const")
-                else
-                    try appendToken(c, .Keyword_var, "var");
                 const name = try c.str(ZigClangDecl_getName_bytes_begin(
                     @ptrCast(*const ZigClangDecl, var_decl),
                 ));
@@ -873,36 +813,18 @@ fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt)
                     try block_scope.variables.push(.{ .name = name, .alias = a });
                     break :blk a;
                 } else name;
-                const name_token = try appendIdentifier(c, checked_name);
+                const node = try transCreateNodeVarDecl(c, false, ZigClangQualType_isConstQualified(qual_type), checked_name);
 
-                const colon_token = try appendToken(c, .Colon, ":");
+                _ = try appendToken(c, .Colon, ":");
                 const loc = ZigClangStmt_getBeginLoc(@ptrCast(*const ZigClangStmt, stmt));
-                const type_node = try transQualType(rp, qual_type, loc);
+                node.type_node = try transQualType(rp, qual_type, loc);
 
-                const eq_token = try appendToken(c, .Equal, "=");
-                const init_node = if (ZigClangVarDecl_getInit(var_decl)) |expr|
+                node.eq_token = try appendToken(c, .Equal, "=");
+                node.init_node = if (ZigClangVarDecl_getInit(var_decl)) |expr|
                     try transExpr(rp, scope, expr, .used, .r_value)
                 else
                     try transCreateNodeUndefinedLiteral(c);
-                const semicolon_token = try appendToken(c, .Semicolon, ";");
-
-                const node = try c.a().create(ast.Node.VarDecl);
-                node.* = ast.Node.VarDecl{
-                    .doc_comments = null,
-                    .visib_token = null,
-                    .thread_local_token = thread_local_token,
-                    .name_token = name_token,
-                    .eq_token = eq_token,
-                    .mut_token = mut_token,
-                    .comptime_token = null,
-                    .extern_export_token = null,
-                    .lib_name = null,
-                    .type_node = type_node,
-                    .align_node = null, // TODO ?*Node,
-                    .section_node = null,
-                    .init_node = init_node,
-                    .semicolon_token = semicolon_token,
-                };
+                node.semicolon_token = try appendToken(c, .Semicolon, ";");
                 try block_scope.block_node.statements.push(&node.base);
             },
             else => |kind| return revertAndWarn(
@@ -1395,9 +1317,6 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
     const rp = makeRestorePoint(c);
     const enum_loc = ZigClangEnumDecl_getLocation(enum_decl);
 
-    const visib_tok = try appendToken(c, .Keyword_pub, "pub");
-    const const_tok = try appendToken(c, .Keyword_const, "const");
-
     var bare_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, enum_decl)));
     var is_unnamed = false;
     if (bare_name.len == 0) {
@@ -1407,10 +1326,10 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
 
     const name = try std.fmt.allocPrint(c.a(), "enum_{}", .{bare_name});
     _ = try c.decl_table.put(@ptrToInt(ZigClangEnumDecl_getCanonicalDecl(enum_decl)), name);
-    const name_tok = try appendIdentifier(c, name);
-    const eq_tok = try appendToken(c, .Equal, "=");
+    const node = try transCreateNodeVarDecl(c, true, true, name);
+    node.eq_token = try appendToken(c, .Equal, "=");
 
-    const init_node = if (ZigClangEnumDecl_getDefinition(enum_decl)) |enum_def| blk: {
+    node.init_node = if (ZigClangEnumDecl_getDefinition(enum_decl)) |enum_def| blk: {
         var pure_enum = true;
         var it = ZigClangEnumDecl_enumerator_begin(enum_def);
         var end_it = ZigClangEnumDecl_enumerator_end(enum_def);
@@ -1504,25 +1423,7 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
     } else
         try transCreateNodeOpaqueType(c);
 
-    const semicolon_token = try appendToken(c, .Semicolon, ";");
-
-    const node = try c.a().create(ast.Node.VarDecl);
-    node.* = ast.Node.VarDecl{
-        .visib_token = visib_tok,
-        .mut_token = const_tok,
-        .name_token = name_tok,
-        .eq_token = eq_tok,
-        .init_node = init_node,
-        .semicolon_token = semicolon_token,
-        .doc_comments = null,
-        .comptime_token = null,
-        .extern_export_token = null,
-        .thread_local_token = null,
-        .lib_name = null,
-        .type_node = null,
-        .align_node = null,
-        .section_node = null,
-    };
+    node.semicolon_token = try appendToken(c, .Semicolon, ";");
 
     try addTopLevelDecl(c, name, &node.base);
     if (!is_unnamed)
@@ -1531,14 +1432,12 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
 }
 
 fn addEnumTopLevel(c: *Context, enum_name: []const u8, field_name: []const u8, enum_val_name: []const u8) !void {
-    const visib_tok = try appendToken(c, .Keyword_pub, "pub");
-    const const_tok = try appendToken(c, .Keyword_const, "const");
-    const name_tok = try appendIdentifier(c, enum_val_name);
-    const eq_tok = try appendToken(c, .Equal, "=");
-
+    const node = try transCreateNodeVarDecl(c, true, true, enum_val_name);
+    node.eq_token = try appendToken(c, .Equal, "=");
     const enum_ident = try transCreateNodeIdentifier(c, enum_name);
     const period_tok = try appendToken(c, .Period, ".");
     const field_ident = try transCreateNodeIdentifier(c, field_name);
+    node.semicolon_token = try appendToken(c, .Semicolon, ";");
 
     const field_access_node = try c.a().create(ast.Node.InfixOp);
     field_access_node.* = .{
@@ -1547,26 +1446,7 @@ fn addEnumTopLevel(c: *Context, enum_name: []const u8, field_name: []const u8, e
         .op = .Period,
         .rhs = field_ident,
     };
-    const semicolon_token = try appendToken(c, .Semicolon, ";");
-
-    const node = try c.a().create(ast.Node.VarDecl);
-    node.* = ast.Node.VarDecl{
-        .visib_token = visib_tok,
-        .mut_token = const_tok,
-        .name_token = name_tok,
-        .eq_token = eq_tok,
-        .init_node = &field_access_node.base,
-        .semicolon_token = semicolon_token,
-        .thread_local_token = null,
-        .doc_comments = null,
-        .comptime_token = null,
-        .extern_export_token = null,
-        .lib_name = null,
-        .type_node = null,
-        .align_node = null,
-        .section_node = null,
-    };
-
+    node.init_node = &field_access_node.base;
     try addTopLevelDecl(c, field_name, &node.base);
 }
 
@@ -1693,7 +1573,7 @@ fn transCreateNodeAssign(
     result_used: ResultUsed,
     lhs: *const ZigClangExpr,
     rhs: *const ZigClangExpr,
-) !*ast.Node.InfixOp {
+) !*ast.Node {
     // common case
     // c:   lhs = rhs
     // zig: lhs = rhs
@@ -1710,7 +1590,7 @@ fn transCreateNodeAssign(
             .op = .Assign,
             .rhs = rhs_node,
         };
-        return node;
+        return &node.base;
     }
 
     // worst case
@@ -1720,13 +1600,39 @@ fn transCreateNodeAssign(
     // zig:     lhs = _tmp;
     // zig:     break :x _tmp
     // zig: })
-    return revertAndWarn(
-        rp,
-        error.UnsupportedTranslation,
-        ZigClangExpr_getBeginLoc(lhs),
-        "TODO: worst case assign op expr",
-        .{},
-    );
+    _ = try appendToken(rp.c, .LParen, "(");
+    const block_scope = try Scope.Block.init(rp.c, scope, true);
+    const tmp = try std.fmt.allocPrint(rp.c.a(), "_tmp_{}", .{rp.c.getMangle()});
+
+    const node = try transCreateNodeVarDecl(rp.c, false, true, tmp);
+    node.eq_token = try appendToken(rp.c, .Equal, "=");
+    node.init_node = try transExpr(rp, scope, rhs, .used, .r_value);
+    node.semicolon_token = try appendToken(rp.c, .Semicolon, ";");
+    try block_scope.block_node.statements.push(&node.base);
+
+    const lhs_node = try transExpr(rp, scope, lhs, .used, .l_value);
+    const eq_token = try appendToken(rp.c, .Equal, "=");
+    const ident = try transCreateNodeIdentifier(rp.c, tmp);
+    _ = try appendToken(rp.c, .Semicolon, ";");
+
+    const assign = try rp.c.a().create(ast.Node.InfixOp);
+    assign.* = .{
+        .op_token = eq_token,
+        .lhs = lhs_node,
+        .op = .Assign,
+        .rhs = ident,
+    };
+    try block_scope.block_node.statements.push(&assign.base);
+
+    const break_node = try transCreateNodeBreak(rp.c, block_scope.label);
+    break_node.rhs = try transCreateNodeIdentifier(rp.c, tmp);
+    _ = try appendToken(rp.c, .Semicolon, ";");
+    try block_scope.block_node.statements.push(&break_node.base);
+    block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
+    // semicolon must immediately follow rbrace because it is the last token in a block
+    _ = try appendToken(rp.c, .Semicolon, ";");
+    _ = try appendToken(rp.c, .RParen, ")");
+    return &block_scope.block_node.base;
 }
 
 fn transCreateNodeBuiltinFnCall(c: *Context, name: []const u8) !*ast.Node.BuiltinCall {
@@ -2087,6 +1993,31 @@ fn transCreateNodeBreak(c: *Context, label: ?[]const u8) !*ast.Node.ControlFlowE
         .ltoken = ltoken,
         .kind = .{ .Break = label_node },
         .rhs = null,
+    };
+    return node;
+}
+
+fn transCreateNodeVarDecl(c: *Context, is_pub: bool, is_const: bool, name: []const u8) !*ast.Node.VarDecl {
+    const visib_tok = if (is_pub) try appendToken(c, .Keyword_pub, "pub") else null;
+    const mut_tok = if (is_const) try appendToken(c, .Keyword_const, "const") else try appendToken(c, .Keyword_var, "var");
+    const name_tok = try appendIdentifier(c, name);
+
+    const node = try c.a().create(ast.Node.VarDecl);
+    node.* = ast.Node.VarDecl{
+        .doc_comments = null,
+        .visib_token = visib_tok,
+        .thread_local_token = null,
+        .name_token = name_tok,
+        .eq_token = undefined,
+        .mut_token = mut_tok,
+        .comptime_token = null,
+        .extern_export_token = null,
+        .lib_name = null,
+        .type_node = null,
+        .align_node = null,
+        .section_node = null,
+        .init_node = null,
+        .semicolon_token = undefined,
     };
     return node;
 }
@@ -2673,30 +2604,12 @@ fn transMacroDefine(c: *Context, it: *ctok.TokenList.Iterator, name: []const u8,
     const rp = makeRestorePoint(c);
     const scope = &c.global_scope.base;
 
-    const visib_tok = try appendToken(c, .Keyword_pub, "pub");
-    const mut_tok = try appendToken(c, .Keyword_const, "const");
-    const name_tok = try appendIdentifier(c, name);
-    const eq_tok = try appendToken(c, .Equal, "=");
+    const node = try transCreateNodeVarDecl(c, true, true, name);
+    node.eq_token = try appendToken(c, .Equal, "=");
 
-    const init_node = try parseCExpr(rp, it, source_loc, scope);
+    node.init_node = try parseCExpr(rp, it, source_loc, scope);
 
-    const node = try c.a().create(ast.Node.VarDecl);
-    node.* = ast.Node.VarDecl{
-        .doc_comments = null,
-        .visib_token = visib_tok,
-        .thread_local_token = null,
-        .name_token = name_tok,
-        .eq_token = eq_tok,
-        .mut_token = mut_tok,
-        .comptime_token = null,
-        .extern_export_token = null,
-        .lib_name = null,
-        .type_node = null,
-        .align_node = null,
-        .section_node = null,
-        .init_node = init_node,
-        .semicolon_token = try appendToken(c, .Semicolon, ";"),
-    };
+    node.semicolon_token = try appendToken(c, .Semicolon, ";");
     _ = try c.global_scope.macro_table.put(name, &node.base);
 }
 
