@@ -26983,6 +26983,8 @@ static IrInstruction *ir_analyze_bit_cast(IrAnalyze *ira, IrInstruction *source_
 static IrInstruction *ir_analyze_int_to_ptr(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *target,
         ZigType *ptr_type)
 {
+    Error err;
+
     ir_assert(get_src_ptr_type(ptr_type) != nullptr, source_instr);
     ir_assert(type_has_bits(ptr_type), source_instr);
 
@@ -27002,7 +27004,10 @@ static IrInstruction *ir_analyze_int_to_ptr(IrAnalyze *ira, IrInstruction *sourc
             return ira->codegen->invalid_instruction;
         }
 
-        const uint32_t align_bytes = get_ptr_align(ira->codegen, ptr_type);
+        uint32_t align_bytes;
+        if ((err = resolve_ptr_align(ira, ptr_type, &align_bytes)))
+            return ira->codegen->invalid_instruction;
+
         if (addr != 0 && addr % align_bytes != 0) {
             ir_add_error(ira, source_instr,
                     buf_sprintf("pointer type '%s' requires aligned address",
