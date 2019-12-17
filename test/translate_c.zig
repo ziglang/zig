@@ -825,6 +825,18 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export var _anyerror: c_uint = @as(c_uint, 2);
     });
 
+    cases.add_2("floats",
+        \\float a = 3.1415;
+        \\double b = 3.1415;
+        \\int c = 3.1415;
+        \\double d = 3;
+    , &[_][]const u8{
+        \\pub export var a: f32 = @floatCast(f32, 3.1415);
+        \\pub export var b: f64 = 3.1415;
+        \\pub export var c: c_int = @floatToInt(c_int, 3.1415);
+        \\pub export var d: f64 = @intToFloat(f64, 3);
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     if (builtin.os != builtin.Os.windows) {

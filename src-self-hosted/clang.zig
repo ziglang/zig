@@ -76,6 +76,7 @@ pub const struct_ZigClangFunctionType = @OpaqueType();
 pub const struct_ZigClangPredefinedExpr = @OpaqueType();
 pub const struct_ZigClangInitListExpr = @OpaqueType();
 pub const ZigClangPreprocessingRecord = @OpaqueType();
+pub const ZigClangFloatingLiteral = @OpaqueType();
 
 pub const ZigClangBO = extern enum {
     PtrMemD,
@@ -1051,3 +1052,6 @@ pub extern fn ZigClangForStmt_getInit(*const ZigClangForStmt) ?*const ZigClangSt
 pub extern fn ZigClangForStmt_getCond(*const ZigClangForStmt) ?*const ZigClangExpr;
 pub extern fn ZigClangForStmt_getInc(*const ZigClangForStmt) ?*const ZigClangExpr;
 pub extern fn ZigClangForStmt_getBody(*const ZigClangForStmt) *const ZigClangStmt;
+
+pub extern fn ZigClangAPFloat_toString(self: *const ZigClangAPFloat, precision: c_uint, maxPadding: c_uint, truncateZero: bool) [*:0]const u8;
+pub extern fn ZigClangAPFloat_getValueAsApproximateDouble(*const ZigClangFloatingLiteral) f64;

@@ -632,6 +632,7 @@ fn transStmt(
         .ContinueStmtClass => return try transCreateNodeContinue(rp.c),
         .BreakStmtClass => return transBreak(rp, scope),
         .ForStmtClass => return transForLoop(rp, scope, @ptrCast(*const ZigClangForStmt, stmt)),
+        .FloatingLiteralClass => return transFloatingLiteral(rp, scope, @ptrCast(*const ZigClangFloatingLiteral, stmt), result_used),
         else => {
             return revertAndWarn(
                 rp,
@@ -896,14 +897,9 @@ fn transImplicitCastExpr(
     const sub_expr = ZigClangImplicitCastExpr_getSubExpr(expr);
     const sub_expr_node = try transExpr(rp, scope, @ptrCast(*const ZigClangExpr, sub_expr), .used, .r_value);
     switch (ZigClangImplicitCastExpr_getCastKind(expr)) {
-        .BitCast => {
+        .BitCast, .FloatingCast, .FloatingToIntegral, .IntegralToFloating, .IntegralCast => {
             const dest_type = getExprQualType(c, @ptrCast(*const ZigClangExpr, expr));
             const src_type = getExprQualType(c, sub_expr);
-            return transCCast(rp, scope, ZigClangImplicitCastExpr_getBeginLoc(expr), dest_type, src_type, sub_expr_node);
-        },
-        .IntegralCast => {
-            const dest_type = ZigClangExpr_getType(@ptrCast(*const ZigClangExpr, expr));
-            const src_type = ZigClangExpr_getType(sub_expr);
             return transCCast(rp, scope, ZigClangImplicitCastExpr_getBeginLoc(expr), dest_type, src_type, sub_expr_node);
         },
         .FunctionToPointerDecay, .ArrayToPointerDecay => {
@@ -1051,6 +1047,30 @@ fn transCCast(
     }
     if (cIsUnsignedInteger(src_type) and qualTypeIsPtr(dst_type)) {
         const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@intToPtr");
+        try builtin_node.params.push(try transQualType(rp, dst_type, loc));
+        _ = try appendToken(rp.c, .Comma, ",");
+        try builtin_node.params.push(expr);
+        builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+        return &builtin_node.base;
+    }
+    if (cIsFloating(src_type) and cIsFloating(dst_type)) {
+        const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@floatCast");
+        try builtin_node.params.push(try transQualType(rp, dst_type, loc));
+        _ = try appendToken(rp.c, .Comma, ",");
+        try builtin_node.params.push(expr);
+        builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+        return &builtin_node.base;
+    }
+    if (cIsFloating(src_type) and !cIsFloating(dst_type)) {
+        const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@floatToInt");
+        try builtin_node.params.push(try transQualType(rp, dst_type, loc));
+        _ = try appendToken(rp.c, .Comma, ",");
+        try builtin_node.params.push(expr);
+        builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+        return &builtin_node.base;
+    }
+    if (!cIsFloating(src_type) and cIsFloating(dst_type)) {
+        const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@intToFloat");
         try builtin_node.params.push(try transQualType(rp, dst_type, loc));
         _ = try appendToken(rp.c, .Comma, ",");
         try builtin_node.params.push(expr);
@@ -1397,6 +1417,16 @@ fn transBreak(rp: RestorePoint, scope: *Scope) TransError!*ast.Node {
     else
         null);
     return &br.base;
+}
+
+fn transFloatingLiteral(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangFloatingLiteral, used: ResultUsed) TransError!*ast.Node {
+    // TODO use something more accurate
+    const dbl = ZigClangAPFloat_getValueAsApproximateDouble(stmt);
+    const node = try rp.c.a().create(ast.Node.FloatLiteral);
+    node.* = .{
+        .token = try appendTokenFmt(rp.c, .FloatLiteral, "{d}", .{dbl}),
+    };
+    return maybeSuppressResult(rp, scope, used, &node.base);
 }
 
 fn maybeSuppressResult(
@@ -1770,6 +1800,20 @@ fn cIsUnsignedInteger(qt: ZigClangQualType) bool {
     };
 }
 
+fn cIsFloating(qt: ZigClangQualType) bool {
+    const c_type = qualTypeCanon(qt);
+    if (ZigClangType_getTypeClass(c_type) != .Builtin) return false;
+    const builtin_ty = @ptrCast(*const ZigClangBuiltinType, c_type);
+    return switch (ZigClangBuiltinType_getKind(builtin_ty)) {
+        .Float,
+        .Double,
+        .Float128,
+        .LongDouble,
+        => true,
+        else => false,
+    };
+}
+
 fn transCreateNodeAssign(
     rp: RestorePoint,
     scope: *Scope,
@@ -1964,7 +2008,7 @@ fn transCreateNodeAPInt(c: *Context, int: ?*const ZigClangAPSInt) !*ast.Node {
     };
     const token = try appendToken(c, .IntegerLiteral, str);
     const node = try c.a().create(ast.Node.IntegerLiteral);
-    node.* = ast.Node.IntegerLiteral{
+    node.* = .{
         .token = token,
     };
     return &node.base;
@@ -2027,7 +2071,7 @@ fn transCreateNodeArrayInitializer(c: *Context, dot_tok: ast.TokenIndex) !*ast.N
 fn transCreateNodeInt(c: *Context, int: var) !*ast.Node {
     const token = try appendTokenFmt(c, .IntegerLiteral, "{}", .{int});
     const node = try c.a().create(ast.Node.IntegerLiteral);
-    node.* = ast.Node.IntegerLiteral{
+    node.* = .{
         .token = token,
     };
     return &node.base;
