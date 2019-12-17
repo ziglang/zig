@@ -69,9 +69,7 @@ const Scope = struct {
         label: ?[]const u8,
 
         /// Don't forget to set rbrace token and block_node later
-        fn init(c: *Context, parent: *Scope, want_label: bool) !*Block {
-            // TODO removing `?[]const u8` here causes LLVM error
-            const label: ?[]const u8 = if (want_label) try std.fmt.allocPrint(c.a(), "blk_{}", .{c.getMangle()}) else null;
+        fn init(c: *Context, parent: *Scope, label: ?[]const u8) !*Block {
             const block = try c.a().create(Block);
             block.* = .{
                 .base = .{
@@ -171,7 +169,7 @@ const Scope = struct {
                 .Condition => {
                     const cond = @fieldParentPtr(Condition, "base", scope);
                     // comma operator used
-                    return try Block.init(c, scope, true);
+                    return try Block.init(c, scope, "blk");
                 },
                 else => scope = scope.parent.?,
             }
@@ -179,7 +177,7 @@ const Scope = struct {
     }
 
     fn createAlias(scope: *Scope, c: *Context, name: []const u8) !?[]const u8 {
-        if (scope.contains(name)) {
+        if (isZigPrimitiveType(name) or scope.contains(name)) {
             return try std.fmt.allocPrint(c.a(), "{}_{}", .{ name, c.getMangle() });
         }
         return null;
@@ -452,7 +450,11 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
 
     const scope = &c.global_scope.base;
     const var_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, var_decl)));
-    _ = try c.decl_table.put(@ptrToInt(var_decl), var_name);
+
+    // TODO https://github.com/ziglang/zig/issues/3756
+    // TODO https://github.com/ziglang/zig/issues/1802
+    const checked_name = if (isZigPrimitiveType(var_name)) try std.fmt.allocPrint(c.a(), "_{}", .{var_name}) else var_name;
+    _ = try c.decl_table.put(@ptrToInt(var_decl), checked_name);
     const var_decl_loc = ZigClangVarDecl_getLocation(var_decl);
 
     const qual_type = ZigClangVarDecl_getTypeSourceInfo_getType(var_decl);
@@ -471,12 +473,12 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
     else
         try appendToken(c, .Keyword_var, "var");
 
-    const name_tok = try appendIdentifier(c, var_name);
+    const name_tok = try appendIdentifier(c, checked_name);
 
     _ = try appendToken(c, .Colon, ":");
     const type_node = transQualType(rp, qual_type, var_decl_loc) catch |err| switch (err) {
         error.UnsupportedType => {
-            return failDecl(c, var_decl_loc, var_name, "unable to resolve variable type", .{});
+            return failDecl(c, var_decl_loc, checked_name, "unable to resolve variable type", .{});
         },
         error.OutOfMemory => |e| return e,
     };
@@ -491,14 +493,14 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
                 error.UnsupportedTranslation,
                 error.UnsupportedType,
                 => {
-                    return failDecl(c, var_decl_loc, var_name, "unable to translate initializer", .{});
+                    return failDecl(c, var_decl_loc, checked_name, "unable to translate initializer", .{});
                 },
                 error.OutOfMemory => |e| return e,
             }
         else
             try transCreateNodeUndefinedLiteral(c);
     } else if (storage_class != .Extern) {
-        return failDecl(c, var_decl_loc, var_name, "non-extern variable has no initializer", .{});
+        return failDecl(c, var_decl_loc, checked_name, "non-extern variable has no initializer", .{});
     }
 
     const node = try c.a().create(ast.Node.VarDecl);
@@ -518,7 +520,7 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
         .init_node = init_node,
         .semicolon_token = try appendToken(c, .Semicolon, ";"),
     };
-    return addTopLevelDecl(c, var_name, &node.base);
+    return addTopLevelDecl(c, checked_name, &node.base);
 }
 
 fn resolveTypeDef(c: *Context, typedef_decl: *const ZigClangTypedefNameDecl) Error!void {
@@ -796,7 +798,7 @@ fn transCompoundStmtInline(
 }
 
 fn transCompoundStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangCompoundStmt) TransError!*ast.Node {
-    const block_scope = try Scope.Block.init(rp.c, scope, false);
+    const block_scope = try Scope.Block.init(rp.c, scope, null);
     block_scope.block_node = try transCreateNodeBlock(rp.c, null);
     try transCompoundStmtInline(rp, &block_scope.base, stmt, block_scope.block_node);
     block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
@@ -1316,7 +1318,7 @@ fn transForLoop(
     var block = false;
     var block_scope: ?*Scope.Block = null;
     if (ZigClangForStmt_getInit(stmt)) |init| {
-        block_scope = try Scope.Block.init(rp.c, scope, false);
+        block_scope = try Scope.Block.init(rp.c, scope, null);
         block_scope.?.block_node = try transCreateNodeBlock(rp.c, null);
         inner = &block_scope.?.base;
         _ = try transStmt(rp, inner, init, .unused, .r_value);
@@ -1803,7 +1805,7 @@ fn transCreateNodeAssign(
     // zig:     break :x _tmp
     // zig: })
     _ = try appendToken(rp.c, .LParen, "(");
-    const block_scope = try Scope.Block.init(rp.c, scope, true);
+    const block_scope = try Scope.Block.init(rp.c, scope, "blk");
     block_scope.block_node = try transCreateNodeBlock(rp.c, block_scope.label);
     const tmp = try std.fmt.allocPrint(rp.c.a(), "_tmp_{}", .{rp.c.getMangle()});
 
@@ -2732,6 +2734,33 @@ fn appendTokenFmt(c: *Context, token_id: Token.Id, comptime format: []const u8, 
     return token_index;
 }
 
+// TODO hook up with codegen
+fn isZigPrimitiveType(name: []const u8) bool {
+    if (name.len > 1 and std.mem.startsWith(u8, name, "u") or std.mem.startsWith(u8, name, "u")) {
+        for (name[1..]) |c| {
+            switch (c) {
+                '0'...'9' => {},
+                else => return false,
+            }
+        }
+        return true;
+    }
+    // void is invalid in c so it doesn't need to be checked.
+    return std.mem.eql(u8, name, "comptime_float") or
+    std.mem.eql(u8, name, "comptime_int") or
+    std.mem.eql(u8, name, "bool") or
+    std.mem.eql(u8, name, "isize") or
+    std.mem.eql(u8, name, "usize") or
+    std.mem.eql(u8, name, "f16") or
+    std.mem.eql(u8, name, "f32") or
+    std.mem.eql(u8, name, "f64") or
+    std.mem.eql(u8, name, "f128") or
+    std.mem.eql(u8, name, "c_longdouble") or
+    std.mem.eql(u8, name, "noreturn") or
+    std.mem.eql(u8, name, "type") or
+    std.mem.eql(u8, name, "anyerror");
+}
+
 fn isValidZigIdentifier(name: []const u8) bool {
     for (name) |c, i| {
         switch (c) {
@@ -2782,27 +2811,31 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
                 const begin_loc = ZigClangMacroDefinitionRecord_getSourceRange_getBegin(macro);
 
                 const name = try c.str(raw_name);
-                if (scope.contains(name)) {
+
+                // TODO https://github.com/ziglang/zig/issues/3756
+                // TODO https://github.com/ziglang/zig/issues/1802
+                const checked_name = if (isZigPrimitiveType(name)) try std.fmt.allocPrint(c.a(), "_{}", .{name}) else name;
+                if (scope.contains(checked_name)) {
                     continue;
                 }
                 const begin_c = ZigClangSourceManager_getCharacterData(c.source_manager, begin_loc);
                 ctok.tokenizeCMacro(&tok_list, begin_c) catch |err| switch (err) {
                     error.OutOfMemory => |e| return e,
                     else => {
-                        try failDecl(c, begin_loc, name, "unable to tokenize macro definition", .{});
+                        try failDecl(c, begin_loc, checked_name, "unable to tokenize macro definition", .{});
                         continue;
                     },
                 };
 
                 var tok_it = tok_list.iterator(0);
                 const first_tok = tok_it.next().?;
-                assert(first_tok.id == .Identifier and std.mem.eql(u8, first_tok.bytes, name));
+                assert(first_tok.id == .Identifier and std.mem.eql(u8, first_tok.bytes, checked_name));
                 const next = tok_it.peek().?;
                 switch (next.id) {
                     .Identifier => {
                         // if it equals itself, ignore. for example, from stdio.h:
                         // #define stdin stdin
-                        if (std.mem.eql(u8, name, next.bytes)) {
+                        if (std.mem.eql(u8, checked_name, next.bytes)) {
                             continue;
                         }
                     },
@@ -2819,12 +2852,12 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
                 } else false;
 
                 (if (macro_fn)
-                    transMacroFnDefine(c, &tok_it, name, begin_loc)
+                    transMacroFnDefine(c, &tok_it, checked_name, begin_loc)
                 else
-                    transMacroDefine(c, &tok_it, name, begin_loc)) catch |err| switch (err) {
+                    transMacroDefine(c, &tok_it, checked_name, begin_loc)) catch |err| switch (err) {
                     error.UnsupportedTranslation,
                     error.ParseError,
-                    => try failDecl(c, begin_loc, name, "unable to translate macro", .{}),
+                    => try failDecl(c, begin_loc, checked_name, "unable to translate macro", .{}),
                     error.OutOfMemory => |e| return e,
                 };
             },

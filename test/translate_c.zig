@@ -724,10 +724,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo(c: u8) c_int {
         \\    var a: c_int = undefined;
         \\    var b: c_int = undefined;
-        \\    a = blk_1: {
-        \\        const _tmp_2 = 2;
-        \\        b = _tmp_2;
-        \\        break :blk_1 _tmp_2;
+        \\    a = blk: {
+        \\        const _tmp_1 = 2;
+        \\        b = _tmp_1;
+        \\        break :blk _tmp_1;
         \\    };
         \\}
     });
@@ -746,9 +746,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    if (2 != 0) {
         \\        var a: c_int = 2;
         \\    }
-        \\    if ((blk_1: {
+        \\    if ((blk: {
         \\        _ = 2;
-        \\        break :blk_1 5;
+        \\        break :blk 5;
         \\    }) != 0) {
         \\        var a: c_int = 2;
         \\    }
@@ -817,6 +817,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    }
         \\    var i: u8 = @as(u8, 2);
         \\}
+    });
+
+    cases.add_2("shadowing primitive types",
+        \\unsigned anyerror = 2;
+    , &[_][]const u8{
+        \\pub export var _anyerror: c_uint = @as(c_uint, 2);
     });
 
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
