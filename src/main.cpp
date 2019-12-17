@@ -129,6 +129,11 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --test-name-prefix [text]    add prefix to all tests\n"
         "  --test-cmd [arg]             specify test execution command one arg at a time\n"
         "  --test-cmd-bin               appends test binary path to test cmd args\n"
+        "\n"
+        "Targets Options:\n"
+        "  --list-features [arch]       list available features for the given architecture\n"
+        "  --list-cpus [arch]           list available cpus for the given architecture\n"
+        "  --show-subfeatures           list subfeatures for each entry from --list-features or --list-cpus\n"
     , arg0);
     return return_code;
 }
@@ -529,6 +534,10 @@ int main(int argc, char **argv) {
     WantCSanitize want_sanitize_c = WantCSanitizeAuto;
     bool function_sections = false;
 
+    const char *targets_list_features_arch = nullptr;
+    const char *targets_list_cpus_arch = nullptr;
+    bool targets_show_subfeatures = false;
+
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
 
@@ -779,6 +788,8 @@ int main(int argc, char **argv) {
                 cur_pkg = cur_pkg->parent;
             } else if (strcmp(arg, "-ffunction-sections") == 0) {
                 function_sections = true;
+            } else if (strcmp(arg, "--show-subfeatures") == 0) {
+                    targets_show_subfeatures = true;
             } else if (i + 1 >= argc) {
                 fprintf(stderr, "Expected another argument after %s\n", arg);
                 return print_error_usage(arg0);
@@ -936,7 +947,11 @@ int main(int argc, char **argv) {
                             , argv[i]);
                         return EXIT_FAILURE;
                     }
-                } else {
+                } else if (strcmp(arg, "--list-features") == 0) {
+                    targets_list_features_arch = argv[i];
+                } else if (strcmp(arg, "--list-cpus") == 0) {
+                    targets_list_cpus_arch = argv[i];
+                }else {
                     fprintf(stderr, "Invalid argument: %s\n", arg);
                     return print_error_usage(arg0);
                 }
@@ -1413,7 +1428,21 @@ int main(int argc, char **argv) {
         return main_exit(root_progress_node, EXIT_SUCCESS);
     }
     case CmdTargets:
-        return print_target_list(stdout);
+        if (targets_list_features_arch != nullptr) {
+            stage2_list_features_for_arch(
+                targets_list_features_arch,
+                strlen(targets_list_features_arch),
+                targets_show_subfeatures);
+            return 0;
+        } else if (targets_list_cpus_arch != nullptr) {
+            stage2_list_cpus_for_arch(
+                targets_list_cpus_arch,
+                strlen(targets_list_cpus_arch),
+                targets_show_subfeatures);
+            return 0;
+        } else {
+            return print_target_list(stdout);
+        }
     case CmdNone:
         return print_full_usage(arg0, stderr, EXIT_FAILURE);
     }
