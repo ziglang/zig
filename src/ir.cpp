@@ -14915,7 +14915,7 @@ static IrInstruction *ir_analyze_bin_op_cmp_numeric(IrAnalyze *ira, IrInstructio
             op1_bits += 1;
         }
     }
-    uint32_t op2_bits;
+    uint32_t op2_bits = 0;
     if (instr_is_comptime(op2)) {
         ZigValue *op2_val = ir_resolve_const(ira, op2, UndefOk);
         if (op2_val == nullptr)
