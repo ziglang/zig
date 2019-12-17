@@ -600,6 +600,135 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add_both("simple union",
+        \\union Foo {
+        \\    int x;
+        \\    double y;
+        \\};
+    , &[_][]const u8{
+        \\pub const union_Foo = extern union {
+        \\    x: c_int,
+        \\    y: f64,
+        \\};
+    ,
+        \\pub const Foo = union_Foo;
+    });
+
+    cases.addC_both("string literal",
+        \\const char *foo(void) {
+        \\    return "bar";
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() [*c]const u8 {
+        \\    return "bar";
+        \\}
+    });
+
+    cases.addC_both("return void",
+        \\void foo(void) {
+        \\    return;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    return;
+        \\}
+    });
+
+    cases.addC_both("for loop",
+        \\void foo(void) {
+        \\    for (int i = 0; i; i = i + 1) { }
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    {
+        \\        var i: c_int = 0;
+        \\        while (i != 0) : (i = (i + 1)) {}
+        \\    }
+        \\}
+    });
+
+    cases.addC_both("empty for loop",
+        \\void foo(void) {
+        \\    for (;;) { }
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    while (true) {}
+        \\}
+    });
+
+    cases.addC_both("break statement",
+        \\void foo(void) {
+        \\    for (;;) {
+        \\        break;
+        \\    }
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    while (true) {
+        \\        break;
+        \\    }
+        \\}
+    });
+
+    cases.addC_both("continue statement",
+        \\void foo(void) {
+        \\    for (;;) {
+        \\        continue;
+        \\    }
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    while (true) {
+        \\        continue;
+        \\    }
+        \\}
+    });
+
+    cases.addC_both("pointer casting",
+        \\float *ptrcast(int *a) {
+        \\    return (float *)a;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn ptrcast(a: [*c]c_int) [*c]f32 {
+        \\    return @ptrCast([*c]f32, @alignCast(@alignOf(f32), a));
+        \\}
+    });
+
+    cases.addC_both("pointer conversion with different alignment",
+        \\void test_ptr_cast() {
+        \\    void *p;
+        \\    {
+        \\        char *to_char = (char *)p;
+        \\        short *to_short = (short *)p;
+        \\        int *to_int = (int *)p;
+        \\        long long *to_longlong = (long long *)p;
+        \\    }
+        \\    {
+        \\        char *to_char = p;
+        \\        short *to_short = p;
+        \\        int *to_int = p;
+        \\        long long *to_longlong = p;
+        \\    }
+        \\}
+    , &[_][]const u8{
+        \\pub export fn test_ptr_cast() void {
+        \\    var p: ?*c_void = undefined;
+        \\    {
+        \\        var to_char: [*c]u8 = @ptrCast([*c]u8, @alignCast(@alignOf(u8), p));
+        \\        var to_short: [*c]c_short = @ptrCast([*c]c_short, @alignCast(@alignOf(c_short), p));
+        \\        var to_int: [*c]c_int = @ptrCast([*c]c_int, @alignCast(@alignOf(c_int), p));
+        \\        var to_longlong: [*c]c_longlong = @ptrCast([*c]c_longlong, @alignCast(@alignOf(c_longlong), p));
+        \\    }
+        \\    {
+        \\        var to_char: [*c]u8 = @ptrCast([*c]u8, @alignCast(@alignOf(u8), p));
+        \\        var to_short: [*c]c_short = @ptrCast([*c]c_short, @alignCast(@alignOf(c_short), p));
+        \\        var to_int: [*c]c_int = @ptrCast([*c]c_int, @alignCast(@alignOf(c_int), p));
+        \\        var to_longlong: [*c]c_longlong = @ptrCast([*c]c_longlong, @alignCast(@alignOf(c_longlong), p));
+        \\    }
+        \\}
+    });
+
     /////////////// Cases that pass for only stage2 ////////////////
 
     cases.add_2("Parameterless function prototypes",
@@ -957,11 +1086,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    while (true) {
         \\        var a: c_int = 2;
         \\        a = 12;
-        \\        if (!4 != 0) break;
+        \\        if (!(4 != 0)) break;
         \\    }
         \\    while (true) {
         \\        a = 7;
-        \\        if (!4 != 0) break;
+        \\        if (!(4 != 0)) break;
         \\    }
         \\}
     });
@@ -1142,6 +1271,66 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn float_to_int(a: f32) c_int {
         \\    return @floatToInt(c_int, a);
+        \\}
+    });
+
+    cases.add_2("escape sequences",
+        \\const char *escapes() {
+        \\char a = '\'',
+        \\    b = '\\',
+        \\    c = '\a',
+        \\    d = '\b',
+        \\    e = '\f',
+        \\    f = '\n',
+        \\    g = '\r',
+        \\    h = '\t',
+        \\    i = '\v',
+        \\    j = '\0',
+        \\    k = '\"';
+        \\    return "\'\\\a\b\f\n\r\t\v\0\"";
+        \\}
+        \\
+    , &[_][]const u8{
+        \\pub export fn escapes() [*c]const u8 {
+        \\    var a: u8 = @as(u8, '\'');
+        \\    var b: u8 = @as(u8, '\\');
+        \\    var c: u8 = @as(u8, '\x07');
+        \\    var d: u8 = @as(u8, '\x08');
+        \\    var e: u8 = @as(u8, '\x0c');
+        \\    var f: u8 = @as(u8, '\n');
+        \\    var g: u8 = @as(u8, '\r');
+        \\    var h: u8 = @as(u8, '\t');
+        \\    var i: u8 = @as(u8, '\x0b');
+        \\    var j: u8 = @as(u8, '\x00');
+        \\    var k: u8 = @as(u8, '\"');
+        \\    return "\'\\\x07\x08\x0c\n\r\t\x0b\x00\"";
+        \\}
+    });
+
+    cases.add_2("do loop",
+        \\void foo(void) {
+        \\    int a = 2;
+        \\    do {
+        \\        a = a - 1;
+        \\    } while (a);
+        \\
+        \\    int b = 2;
+        \\    do
+        \\        b = b -1;
+        \\    while (b);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var a: c_int = 2;
+        \\    while (true) {
+        \\        a = (a - 1);
+        \\        if (!(a != 0)) break;
+        \\    }
+        \\    var b: c_int = 2;
+        \\    while (true) {
+        \\        b = (b - 1);
+        \\        if (!(b != 0)) break;
+        \\    }
         \\}
     });
 
@@ -1641,33 +1830,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.addC("do loop",
-        \\void foo(void) {
-        \\    int a = 2;
-        \\    do {
-        \\        a--;
-        \\    } while (a != 0);
-        \\
-        \\    int b = 2;
-        \\    do
-        \\        b--;
-        \\    while (b != 0);
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo() void {
-        \\    var a: c_int = 2;
-        \\    while (true) {
-        \\        a -= 1;
-        \\        if (!(a != 0)) break;
-        \\    }
-        \\    var b: c_int = 2;
-        \\    while (true) {
-        \\        b -= 1;
-        \\        if (!(b != 0)) break;
-        \\    }
-        \\}
-    });
-
     cases.addC("deref function pointer",
         \\void foo(void) {}
         \\int baz(void) { return 0; }
@@ -1708,20 +1870,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("simple union",
-        \\union Foo {
-        \\    int x;
-        \\    double y;
-        \\};
-    , &[_][]const u8{
-        \\pub const union_Foo = extern union {
-        \\    x: c_int,
-        \\    y: f64,
-        \\};
-    ,
-        \\pub const Foo = union_Foo;
-    });
-
     cases.add("address of operator",
         \\int foo(void) {
         \\    int x = 1234;
@@ -1733,77 +1881,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var x: c_int = 1234;
         \\    var ptr: [*c]c_int = &x;
         \\    return ptr.?.*;
-        \\}
-    });
-
-    cases.add("string literal",
-        \\const char *foo(void) {
-        \\    return "bar";
-        \\}
-    , &[_][]const u8{
-        \\pub fn foo() [*c]const u8 {
-        \\    return "bar";
-        \\}
-    });
-
-    cases.add("return void",
-        \\void foo(void) {
-        \\    return;
-        \\}
-    , &[_][]const u8{
-        \\pub fn foo() void {
-        \\    return;
-        \\}
-    });
-
-    cases.add("for loop",
-        \\void foo(void) {
-        \\    for (int i = 0; i < 10; i += 1) { }
-        \\}
-    , &[_][]const u8{
-        \\pub fn foo() void {
-        \\    {
-        \\        var i: c_int = 0;
-        \\        while (i < 10) : (i += 1) {}
-        \\    }
-        \\}
-    });
-
-    cases.add("empty for loop",
-        \\void foo(void) {
-        \\    for (;;) { }
-        \\}
-    , &[_][]const u8{
-        \\pub fn foo() void {
-        \\    while (true) {}
-        \\}
-    });
-
-    cases.add("break statement",
-        \\void foo(void) {
-        \\    for (;;) {
-        \\        break;
-        \\    }
-        \\}
-    , &[_][]const u8{
-        \\pub fn foo() void {
-        \\    while (true) {
-        \\        break;
-        \\    }
-        \\}
-    });
-
-    cases.add("continue statement",
-        \\void foo(void) {
-        \\    for (;;) {
-        \\        continue;
-        \\    }
-        \\}
-    , &[_][]const u8{
-        \\pub fn foo() void {
-        \\    while (true) {
-        \\        continue;
-        \\    }
         \\}
     });
 
@@ -1824,16 +1901,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        x_0 += 1;
         \\    }
         \\    return x;
-        \\}
-    });
-
-    cases.add("pointer casting",
-        \\float *ptrcast(int *a) {
-        \\    return (float *)a;
-        \\}
-    , &[_][]const u8{
-        \\fn ptrcast(a: [*c]c_int) [*c]f32 {
-        \\    return @ptrCast([*c]f32, @alignCast(@alignOf(f32), a));
         \\}
     });
 
@@ -1985,74 +2052,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    fn_int(@intCast(c_int, @ptrToInt(&fn_int)));
         \\    fn_ptr(@intToPtr(?*c_void, 42));
         \\}
-    });
-
-    cases.addC("pointer conversion with different alignment",
-        \\void test_ptr_cast() {
-        \\    void *p;
-        \\    {
-        \\        char *to_char = (char *)p;
-        \\        short *to_short = (short *)p;
-        \\        int *to_int = (int *)p;
-        \\        long long *to_longlong = (long long *)p;
-        \\    }
-        \\    {
-        \\        char *to_char = p;
-        \\        short *to_short = p;
-        \\        int *to_int = p;
-        \\        long long *to_longlong = p;
-        \\    }
-        \\}
-    , &[_][]const u8{
-        \\pub export fn test_ptr_cast() void {
-        \\    var p: ?*c_void = undefined;
-        \\    {
-        \\        var to_char: [*c]u8 = @ptrCast([*c]u8, @alignCast(@alignOf(u8), p));
-        \\        var to_short: [*c]c_short = @ptrCast([*c]c_short, @alignCast(@alignOf(c_short), p));
-        \\        var to_int: [*c]c_int = @ptrCast([*c]c_int, @alignCast(@alignOf(c_int), p));
-        \\        var to_longlong: [*c]c_longlong = @ptrCast([*c]c_longlong, @alignCast(@alignOf(c_longlong), p));
-        \\    }
-        \\    {
-        \\        var to_char: [*c]u8 = @ptrCast([*c]u8, @alignCast(@alignOf(u8), p));
-        \\        var to_short: [*c]c_short = @ptrCast([*c]c_short, @alignCast(@alignOf(c_short), p));
-        \\        var to_int: [*c]c_int = @ptrCast([*c]c_int, @alignCast(@alignOf(c_int), p));
-        \\        var to_longlong: [*c]c_longlong = @ptrCast([*c]c_longlong, @alignCast(@alignOf(c_longlong), p));
-        \\    }
-        \\}
-    });
-
-    cases.addC("escape sequences",
-        \\const char *escapes() {
-        \\char a = '\'',
-        \\    b = '\\',
-        \\    c = '\a',
-        \\    d = '\b',
-        \\    e = '\f',
-        \\    f = '\n',
-        \\    g = '\r',
-        \\    h = '\t',
-        \\    i = '\v',
-        \\    j = '\0',
-        \\    k = '\"';
-        \\    return "\'\\\a\b\f\n\r\t\v\0\"";
-        \\}
-        \\
-    , &[_][]const u8{
-        \\pub export fn escapes() [*c]const u8 {
-        \\    var a: u8 = @as(u8, '\'');
-        \\    var b: u8 = @as(u8, '\\');
-        \\    var c: u8 = @as(u8, '\x07');
-        \\    var d: u8 = @as(u8, '\x08');
-        \\    var e: u8 = @as(u8, '\x0c');
-        \\    var f: u8 = @as(u8, '\n');
-        \\    var g: u8 = @as(u8, '\r');
-        \\    var h: u8 = @as(u8, '\t');
-        \\    var i: u8 = @as(u8, '\x0b');
-        \\    var j: u8 = @as(u8, '\x00');
-        \\    var k: u8 = @as(u8, '\"');
-        \\    return "\'\\\x07\x08\x0c\n\r\t\x0b\x00\"";
-        \\}
-        \\
     });
 
     if (builtin.os != builtin.Os.windows) {
@@ -2384,6 +2383,67 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        _ = 1;
         \\        break :x 2;
         \\    };
+        \\}
+    });
+
+    cases.addC("escape sequences",
+        \\const char *escapes() {
+        \\char a = '\'',
+        \\    b = '\\',
+        \\    c = '\a',
+        \\    d = '\b',
+        \\    e = '\f',
+        \\    f = '\n',
+        \\    g = '\r',
+        \\    h = '\t',
+        \\    i = '\v',
+        \\    j = '\0',
+        \\    k = '\"';
+        \\    return "\'\\\a\b\f\n\r\t\v\0\"";
+        \\}
+        \\
+    , &[_][]const u8{
+        \\pub export fn escapes() [*c]const u8 {
+        \\    var a: u8 = @as(u8, '\'');
+        \\    var b: u8 = @as(u8, '\\');
+        \\    var c: u8 = @as(u8, '\x07');
+        \\    var d: u8 = @as(u8, '\x08');
+        \\    var e: u8 = @as(u8, '\x0c');
+        \\    var f: u8 = @as(u8, '\n');
+        \\    var g: u8 = @as(u8, '\r');
+        \\    var h: u8 = @as(u8, '\t');
+        \\    var i: u8 = @as(u8, '\x0b');
+        \\    var j: u8 = @as(u8, '\x00');
+        \\    var k: u8 = @as(u8, '\"');
+        \\    return "\'\\\x07\x08\x0c\n\r\t\x0b\x00\"";
+        \\}
+        \\
+    });
+
+    cases.addC("do loop",
+        \\void foo(void) {
+        \\    int a = 2;
+        \\    do {
+        \\        a--;
+        \\    } while (a != 0);
+        \\
+        \\    int b = 2;
+        \\    do
+        \\        b--;
+        \\    while (b != 0);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var a: c_int = 2;
+        \\    while (true) {
+        \\        a -= 1;
+        \\        if (!(a != 0)) break;
+        \\    }
+        \\    var b: c_int = 2;
+        \\    while (true) {
+        \\        b -= 1;
+        \\        if (!(b != 0)) break;
+        \\    }
         \\}
     });
 }

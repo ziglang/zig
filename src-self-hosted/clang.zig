@@ -78,6 +78,7 @@ pub const struct_ZigClangInitListExpr = @OpaqueType();
 pub const ZigClangPreprocessingRecord = @OpaqueType();
 pub const ZigClangFloatingLiteral = @OpaqueType();
 pub const ZigClangConstantExpr = @OpaqueType();
+pub const ZigClangCharacterLiteral = @OpaqueType();
 
 pub const ZigClangBO = extern enum {
     PtrMemD,
@@ -712,6 +713,14 @@ pub const ZigClangStringLiteral_StringKind = extern enum {
     UTF32,
 };
 
+pub const ZigClangCharacterLiteral_CharacterKind = extern enum {
+    Ascii,
+    Wide,
+    UTF8,
+    UTF16,
+    UTF32,
+};
+
 pub const ZigClangRecordDecl_field_iterator = extern struct {
     opaque: *c_void,
 };
@@ -1076,4 +1085,8 @@ pub extern fn ZigClangDefaultStmt_getSubStmt(*const ZigClangDefaultStmt) *const 
 pub extern fn ZigClangExpr_EvaluateAsConstantExpr(*const ZigClangExpr, *ZigClangExprEvalResult, ZigClangExpr_ConstExprUsage, *const ZigClangASTContext) bool;
 
 pub extern fn ZigClangPredefinedExpr_getFunctionName(*const ZigClangPredefinedExpr) *const ZigClangStringLiteral;
+
+pub extern fn ZigClangCharacterLiteral_getBeginLoc(*const ZigClangCharacterLiteral) ZigClangSourceLocation;
+pub extern fn ZigClangCharacterLiteral_getKind(*const ZigClangCharacterLiteral) ZigClangCharacterLiteral_CharacterKind;
+pub extern fn ZigClangCharacterLiteral_getValue(*const ZigClangCharacterLiteral) c_uint;
 
