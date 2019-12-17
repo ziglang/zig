@@ -499,7 +499,7 @@ pub const Target = union(enum) {
     pub fn parseArchSub(text: []const u8) ParseArchSubError!Arch {
         const info = @typeInfo(Arch);
         inline for (info.Union.fields) |field| {
-            if (mem.eql(u8, text, field.name)) {
+            if (text.len >= field.name.len and mem.eql(u8, text[0..field.name.len], field.name)) {
                 if (field.field_type == void) {
                     return @as(Arch, @field(Arch, field.name));
                 } else {
@@ -514,6 +514,31 @@ pub const Target = union(enum) {
                 }
             }
         }
+        return error.UnknownArchitecture;
+    }
+
+    pub fn parseArchTag(text: []const u8) ParseArchSubError!@TagType(Arch) {
+        const info = @typeInfo(Arch);
+        inline for (info.Union.fields) |field| {
+            if (text.len >= field.name.len and mem.eql(u8, text[0..field.name.len], field.name)) {
+                if (text.len == field.name.len) return @as(@TagType(Arch), @field(Arch, field.name));
+
+                if (field.field_type == void) {
+                    return error.UnknownArchitecture;
+                }
+
+                const sub_info = @typeInfo(field.field_type);
+                inline for (sub_info.Enum.fields) |sub_field| {
+                    const combined = field.name ++ sub_field.name;
+                    if (mem.eql(u8, text, combined)) {
+                        return @as(@TagType(Arch), @field(Arch, field.name));
+                    }
+                }
+
+                return error.UnknownSubArchitecture;
+            }
+        }
+
         return error.UnknownArchitecture;
     }
 
