@@ -9,7 +9,7 @@ pub const line_sep = switch (builtin.os) {
     else => "\n",
 };
 
-pub fn cmp(a: [*]const u8, b: [*]const u8) i8 {
+pub fn cmp(a: [*:0]const u8, b: [*:0]const u8) i8 {
     var index: usize = 0;
     while (a[index] == b[index] and a[index] != 0) : (index += 1) {}
     if (a[index] > b[index]) {
@@ -33,7 +33,7 @@ fn testCStrFnsImpl() void {
 
 /// Returns a mutable slice with 1 more byte of length which is a null byte.
 /// Caller owns the returned memory.
-pub fn addNullByte(allocator: *mem.Allocator, slice: []const u8) ![]u8 {
+pub fn addNullByte(allocator: *mem.Allocator, slice: []const u8) ![:0]u8 {
     const result = try allocator.alloc(u8, slice.len + 1);
     mem.copy(u8, result, slice);
     result[slice.len] = 0;
@@ -43,7 +43,7 @@ pub fn addNullByte(allocator: *mem.Allocator, slice: []const u8) ![]u8 {
 pub const NullTerminated2DArray = struct {
     allocator: *mem.Allocator,
     byte_count: usize,
-    ptr: ?[*]?[*]u8,
+    ptr: ?[*:null]?[*:0]u8,
 
     /// Takes N lists of strings, concatenates the lists together, and adds a null terminator
     /// Caller must deinit result
@@ -83,7 +83,7 @@ pub const NullTerminated2DArray = struct {
         return NullTerminated2DArray{
             .allocator = allocator,
             .byte_count = byte_count,
-            .ptr = @ptrCast(?[*]?[*]u8, buf.ptr),
+            .ptr = @ptrCast(?[*:null]?[*:0]u8, buf.ptr),
         };
     }
 
