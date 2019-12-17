@@ -2133,8 +2133,10 @@ fn foo(bytes: []u8) u32 {
       <p>
       This pointer attribute allows a pointer to have address zero. This is only ever needed on the
       freestanding OS target, where the address zero is mappable. If you want to represent null pointers, use
-      {#link|Optional Pointers#} instead. In this code example, if the pointer did not have the
-      {#syntax#}allowzero{#endsyntax#} attribute, this would be a {#link|Pointer Cast Invalid Null#} panic:
+      {#link|Optional Pointers#} instead. {#link|Optional Pointers#} with {#syntax#}allowzero{#endsyntax#}
+      are not the same size as pointers. In this code example, if the pointer
+      did not have the {#syntax#}allowzero{#endsyntax#} attribute, this would be a
+      {#link|Pointer Cast Invalid Null#} panic:
       </p>
       {#code_begin|test|allowzero#}
 const std = @import("std");
