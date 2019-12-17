@@ -2,20 +2,20 @@ const feature = @import("std").target.feature;
 const CpuInfo = @import("std").target.cpu.CpuInfo;
 
 pub const PowerPcCpu = enum {
-    440,
-    450,
-    601,
-    602,
-    603,
+    Cpu440,
+    Cpu450,
+    Cpu601,
+    Cpu602,
+    Cpu603,
     E603,
     Ev603,
-    604,
+    Cpu604,
     E604,
-    620,
-    7400,
-    7450,
-    750,
-    970,
+    Cpu620,
+    Cpu7400,
+    Cpu7450,
+    Cpu750,
+    Cpu970,
     A2,
     A2q,
     E500,
@@ -23,7 +23,7 @@ pub const PowerPcCpu = enum {
     E5500,
     G3,
     G4,
-    G4+,
+    G4plus,
     G5,
     Generic,
     Ppc,
@@ -40,14 +40,14 @@ pub const PowerPcCpu = enum {
     Pwr8,
     Pwr9,
 
-    pub fn getInfo(self: @This()) CpuInfo {
+    const FeatureType = feature.PowerPcFeature;
+
+    pub fn getInfo(self: @This()) CpuInfo(@This(), FeatureType) {
         return cpu_infos[@enumToInt(self)];
     }
 
-    pub const FeatureType = feature.PowerPcFeature;
-
-    const cpu_infos = [@memberCount(@This())]CpuInfo(@This()) {
-        CpuInfo(@This()).create(.440, "440", &[_]FeatureType {
+    pub const cpu_infos = [@memberCount(@This())]CpuInfo(@This(), FeatureType) {
+        CpuInfo(@This(), FeatureType).create(.Cpu440, "440", &[_]FeatureType {
             .Icbt,
             .Booke,
             .HardFloat,
@@ -55,8 +55,8 @@ pub const PowerPcCpu = enum {
             .Frsqrte,
             .Isel,
             .Msync,
-        },
-        CpuInfo(@This()).create(.450, "450", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Cpu450, "450", &[_]FeatureType {
             .Icbt,
             .Booke,
             .HardFloat,
@@ -64,63 +64,63 @@ pub const PowerPcCpu = enum {
             .Frsqrte,
             .Isel,
             .Msync,
-        },
-        CpuInfo(@This()).create(.601, "601", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Cpu601, "601", &[_]FeatureType {
             .HardFloat,
             .Fpu,
-        },
-        CpuInfo(@This()).create(.602, "602", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Cpu602, "602", &[_]FeatureType {
             .HardFloat,
             .Fpu,
-        },
-        CpuInfo(@This()).create(.603, "603", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Cpu603, "603", &[_]FeatureType {
             .HardFloat,
             .Fres,
             .Frsqrte,
-        },
-        CpuInfo(@This()).create(.E603, "603e", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.E603, "603e", &[_]FeatureType {
             .HardFloat,
             .Fres,
             .Frsqrte,
-        },
-        CpuInfo(@This()).create(.Ev603, "603ev", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Ev603, "603ev", &[_]FeatureType {
             .HardFloat,
             .Fres,
             .Frsqrte,
-        },
-        CpuInfo(@This()).create(.604, "604", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Cpu604, "604", &[_]FeatureType {
             .HardFloat,
             .Fres,
             .Frsqrte,
-        },
-        CpuInfo(@This()).create(.E604, "604e", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.E604, "604e", &[_]FeatureType {
             .HardFloat,
             .Fres,
             .Frsqrte,
-        },
-        CpuInfo(@This()).create(.620, "620", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Cpu620, "620", &[_]FeatureType {
             .HardFloat,
             .Fres,
             .Frsqrte,
-        },
-        CpuInfo(@This()).create(.7400, "7400", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Cpu7400, "7400", &[_]FeatureType {
             .HardFloat,
             .Altivec,
             .Fres,
             .Frsqrte,
-        },
-        CpuInfo(@This()).create(.7450, "7450", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Cpu7450, "7450", &[_]FeatureType {
             .HardFloat,
             .Altivec,
             .Fres,
             .Frsqrte,
-        },
-        CpuInfo(@This()).create(.750, "750", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Cpu750, "750", &[_]FeatureType {
             .HardFloat,
             .Fres,
             .Frsqrte,
-        },
-        CpuInfo(@This()).create(.970, "970", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Cpu970, "970", &[_]FeatureType {
             .Bit64,
             .HardFloat,
             .Altivec,
@@ -129,8 +129,8 @@ pub const PowerPcCpu = enum {
             .Fsqrt,
             .Mfocrf,
             .Stfiwx,
-        },
-        CpuInfo(@This()).create(.A2, "a2", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.A2, "a2", &[_]FeatureType {
             .Bit64,
             .Icbt,
             .Booke,
@@ -151,8 +151,8 @@ pub const PowerPcCpu = enum {
             .Recipprec,
             .Stfiwx,
             .SlowPopcntd,
-        },
-        CpuInfo(@This()).create(.A2q, "a2q", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.A2q, "a2q", &[_]FeatureType {
             .Bit64,
             .Icbt,
             .Booke,
@@ -174,20 +174,20 @@ pub const PowerPcCpu = enum {
             .Recipprec,
             .Stfiwx,
             .SlowPopcntd,
-        },
-        CpuInfo(@This()).create(.E500, "e500", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.E500, "e500", &[_]FeatureType {
             .Icbt,
             .Booke,
             .Isel,
-        },
-        CpuInfo(@This()).create(.E500mc, "e500mc", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.E500mc, "e500mc", &[_]FeatureType {
             .Icbt,
             .Booke,
             .Isel,
             .HardFloat,
             .Stfiwx,
-        },
-        CpuInfo(@This()).create(.E5500, "e5500", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.E5500, "e5500", &[_]FeatureType {
             .Bit64,
             .Icbt,
             .Booke,
@@ -195,44 +195,25 @@ pub const PowerPcCpu = enum {
             .Mfocrf,
             .HardFloat,
             .Stfiwx,
-        },
-        CpuInfo(@This()).create(.G3, "g3", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.G3, "g3", &[_]FeatureType {
             .HardFloat,
             .Fres,
             .Frsqrte,
-        },
-        CpuInfo(@This()).create(.G4, "g4", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.G4, "g4", &[_]FeatureType {
             .HardFloat,
             .Altivec,
             .Fres,
             .Frsqrte,
-        },
-        CpuInfo(@This()).create(.G4+, "g4+", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.G4plus, "g4+", &[_]FeatureType {
             .HardFloat,
             .Altivec,
             .Fres,
             .Frsqrte,
-        },
-        CpuInfo(@This()).create(.G5, "g5", &[_]FeatureType {
-            .Bit64,
-            .HardFloat,
-            .Altivec,
-            .Fres,
-            .Frsqrte,
-            .Fsqrt,
-            .Mfocrf,
-            .Stfiwx,
-        },
-        CpuInfo(@This()).create(.Generic, "generic", &[_]FeatureType {
-            .HardFloat,
-        },
-        CpuInfo(@This()).create(.Ppc, "ppc", &[_]FeatureType {
-            .HardFloat,
-        },
-        CpuInfo(@This()).create(.Ppc32, "ppc32", &[_]FeatureType {
-            .HardFloat,
-        },
-        CpuInfo(@This()).create(.Ppc64, "ppc64", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.G5, "g5", &[_]FeatureType {
             .Bit64,
             .HardFloat,
             .Altivec,
@@ -241,8 +222,27 @@ pub const PowerPcCpu = enum {
             .Fsqrt,
             .Mfocrf,
             .Stfiwx,
-        },
-        CpuInfo(@This()).create(.Ppc64le, "ppc64le", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Generic, "generic", &[_]FeatureType {
+            .HardFloat,
+        }),
+        CpuInfo(@This(), FeatureType).create(.Ppc, "ppc", &[_]FeatureType {
+            .HardFloat,
+        }),
+        CpuInfo(@This(), FeatureType).create(.Ppc32, "ppc32", &[_]FeatureType {
+            .HardFloat,
+        }),
+        CpuInfo(@This(), FeatureType).create(.Ppc64, "ppc64", &[_]FeatureType {
+            .Bit64,
+            .HardFloat,
+            .Altivec,
+            .Fres,
+            .Frsqrte,
+            .Fsqrt,
+            .Mfocrf,
+            .Stfiwx,
+        }),
+        CpuInfo(@This(), FeatureType).create(.Ppc64le, "ppc64le", &[_]FeatureType {
             .Bit64,
             .HardFloat,
             .Altivec,
@@ -273,8 +273,8 @@ pub const PowerPcCpu = enum {
             .Stfiwx,
             .TwoConstNr,
             .Vsx,
-        },
-        CpuInfo(@This()).create(.Pwr3, "pwr3", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Pwr3, "pwr3", &[_]FeatureType {
             .Bit64,
             .HardFloat,
             .Altivec,
@@ -282,8 +282,8 @@ pub const PowerPcCpu = enum {
             .Frsqrte,
             .Mfocrf,
             .Stfiwx,
-        },
-        CpuInfo(@This()).create(.Pwr4, "pwr4", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Pwr4, "pwr4", &[_]FeatureType {
             .Bit64,
             .HardFloat,
             .Altivec,
@@ -292,8 +292,8 @@ pub const PowerPcCpu = enum {
             .Fsqrt,
             .Mfocrf,
             .Stfiwx,
-        },
-        CpuInfo(@This()).create(.Pwr5, "pwr5", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Pwr5, "pwr5", &[_]FeatureType {
             .Bit64,
             .HardFloat,
             .Altivec,
@@ -304,8 +304,8 @@ pub const PowerPcCpu = enum {
             .Fsqrt,
             .Mfocrf,
             .Stfiwx,
-        },
-        CpuInfo(@This()).create(.Pwr5x, "pwr5x", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Pwr5x, "pwr5x", &[_]FeatureType {
             .Bit64,
             .HardFloat,
             .Altivec,
@@ -317,8 +317,8 @@ pub const PowerPcCpu = enum {
             .Fsqrt,
             .Mfocrf,
             .Stfiwx,
-        },
-        CpuInfo(@This()).create(.Pwr6, "pwr6", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Pwr6, "pwr6", &[_]FeatureType {
             .Bit64,
             .HardFloat,
             .Altivec,
@@ -334,8 +334,8 @@ pub const PowerPcCpu = enum {
             .Mfocrf,
             .Recipprec,
             .Stfiwx,
-        },
-        CpuInfo(@This()).create(.Pwr6x, "pwr6x", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Pwr6x, "pwr6x", &[_]FeatureType {
             .Bit64,
             .HardFloat,
             .Altivec,
@@ -351,8 +351,8 @@ pub const PowerPcCpu = enum {
             .Mfocrf,
             .Recipprec,
             .Stfiwx,
-        },
-        CpuInfo(@This()).create(.Pwr7, "pwr7", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Pwr7, "pwr7", &[_]FeatureType {
             .Bit64,
             .HardFloat,
             .Altivec,
@@ -376,8 +376,8 @@ pub const PowerPcCpu = enum {
             .Stfiwx,
             .TwoConstNr,
             .Vsx,
-        },
-        CpuInfo(@This()).create(.Pwr8, "pwr8", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Pwr8, "pwr8", &[_]FeatureType {
             .Bit64,
             .HardFloat,
             .Altivec,
@@ -408,8 +408,8 @@ pub const PowerPcCpu = enum {
             .Stfiwx,
             .TwoConstNr,
             .Vsx,
-        },
-        CpuInfo(@This()).create(.Pwr9, "pwr9", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Pwr9, "pwr9", &[_]FeatureType {
             .Bit64,
             .HardFloat,
             .Altivec,
@@ -446,6 +446,6 @@ pub const PowerPcCpu = enum {
             .TwoConstNr,
             .Vsx,
             .VectorsUseTwoUnits,
-        },
+        }),
     };
 };

@@ -6,7 +6,7 @@ pub const Msp430Feature = enum {
     Hwmultf5,
     Ext,
 
-    pub fn getInfo(self: @This()) FeatureInfo {
+    pub fn getInfo(self: @This()) FeatureInfo(@This()) {
         return feature_infos[@enumToInt(self)];
     }
 

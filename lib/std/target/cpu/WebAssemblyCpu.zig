@@ -6,23 +6,23 @@ pub const WebAssemblyCpu = enum {
     Generic,
     Mvp,
 
-    pub fn getInfo(self: @This()) CpuInfo {
+    const FeatureType = feature.WebAssemblyFeature;
+
+    pub fn getInfo(self: @This()) CpuInfo(@This(), FeatureType) {
         return cpu_infos[@enumToInt(self)];
     }
 
-    pub const FeatureType = feature.WebAssemblyFeature;
-
-    const cpu_infos = [@memberCount(@This())]CpuInfo(@This()) {
-        CpuInfo(@This()).create(.BleedingEdge, "bleeding-edge", &[_]FeatureType {
+    pub const cpu_infos = [@memberCount(@This())]CpuInfo(@This(), FeatureType) {
+        CpuInfo(@This(), FeatureType).create(.BleedingEdge, "bleeding-edge", &[_]FeatureType {
             .Atomics,
             .MutableGlobals,
             .NontrappingFptoint,
             .Simd128,
             .SignExt,
-        },
-        CpuInfo(@This()).create(.Generic, "generic", &[_]FeatureType {
-        },
-        CpuInfo(@This()).create(.Mvp, "mvp", &[_]FeatureType {
-        },
+        }),
+        CpuInfo(@This(), FeatureType).create(.Generic, "generic", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Mvp, "mvp", &[_]FeatureType {
+        }),
     };
 };

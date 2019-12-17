@@ -26,7 +26,7 @@ pub const HexagonFeature = enum {
     ReservedR19,
     SmallData,
 
-    pub fn getInfo(self: @This()) FeatureInfo {
+    pub fn getInfo(self: @This()) FeatureInfo(@This()) {
         return feature_infos[@enumToInt(self)];
     }
 

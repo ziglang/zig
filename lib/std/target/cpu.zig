@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const feature = @import("feature.zig");
-const Arch = @import("arch.zig").Arch;
+const Arch = std.Target.Arch;
 
 pub const AArch64Cpu = @import("cpu/AArch64Cpu.zig").AArch64Cpu;
 pub const AmdGpuCpu = @import("cpu/AmdGpuCpu.zig").AmdGpuCpu;
@@ -19,7 +19,7 @@ pub const SystemZCpu = @import("cpu/SystemZCpu.zig").SystemZCpu;
 pub const WebAssemblyCpu = @import("cpu/WebAssemblyCpu.zig").WebAssemblyCpu;
 pub const X86Cpu = @import("cpu/X86Cpu.zig").X86Cpu;
 
-const EmptyCpu = @import("feature/empty.zig").EmptyCpu;
+pub const EmptyCpu = @import("cpu/empty.zig").EmptyCpu;
 
 pub fn ArchCpu(comptime arch: @TagType(Arch)) type {
     return switch (arch) {
@@ -44,19 +44,21 @@ pub fn ArchCpu(comptime arch: @TagType(Arch)) type {
 }
 
 pub fn ArchCpuInfo(comptime arch: @TagType(Arch)) type {
-    return CpuInfo(feature.ArchFeature(arch));
+    return CpuInfo(ArchCpu(arch), feature.ArchFeature(arch));
 }
 
-pub fn CpuInfo(comptime FeatureType: type) type {
+pub fn CpuInfo(comptime CpuType: type, comptime FeatureType: type) type {
     return struct {
+        value: CpuType,
         name: []const u8,
 
         features: []const FeatureType,
 
         const Self = @This();
 
-        fn create(name: []const u8, features: []const FeatureType) Self {
+        pub fn create(value: CpuType, name: []const u8, features: []const FeatureType) Self {
             return Self {
+                .value = value,
                 .name = name,
                 .features = features,
             };

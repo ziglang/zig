@@ -27,7 +27,7 @@ pub const NvptxFeature = enum {
     Sm_72,
     Sm_75,
 
-    pub fn getInfo(self: @This()) FeatureInfo {
+    pub fn getInfo(self: @This()) FeatureInfo(@This()) {
         return feature_infos[@enumToInt(self)];
     }
 
