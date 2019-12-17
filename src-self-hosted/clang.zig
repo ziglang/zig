@@ -1055,3 +1055,7 @@ pub extern fn ZigClangForStmt_getBody(*const ZigClangForStmt) *const ZigClangStm
 
 pub extern fn ZigClangAPFloat_toString(self: *const ZigClangAPFloat, precision: c_uint, maxPadding: c_uint, truncateZero: bool) [*:0]const u8;
 pub extern fn ZigClangAPFloat_getValueAsApproximateDouble(*const ZigClangFloatingLiteral) f64;
+
+pub extern fn ZigClangConditionalOperator_getCond(*const ZigClangConditionalOperator) *const ZigClangExpr;
+pub extern fn ZigClangConditionalOperator_getTrueExpr(*const ZigClangConditionalOperator) *const ZigClangExpr;
+pub extern fn ZigClangConditionalOperator_getFalseExpr(*const ZigClangConditionalOperator) *const ZigClangExpr;

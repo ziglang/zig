@@ -633,6 +633,7 @@ fn transStmt(
         .BreakStmtClass => return transBreak(rp, scope),
         .ForStmtClass => return transForLoop(rp, scope, @ptrCast(*const ZigClangForStmt, stmt)),
         .FloatingLiteralClass => return transFloatingLiteral(rp, scope, @ptrCast(*const ZigClangFloatingLiteral, stmt), result_used),
+        .ConditionalOperatorClass => return transConditionalOperator(rp, scope, @ptrCast(*const ZigClangConditionalOperator, stmt), result_used),
         else => {
             return revertAndWarn(
                 rp,
@@ -1239,11 +1240,11 @@ fn transIfStmt(
     if_node.condition = try transBoolExpr(rp, &cond_scope.base, @ptrCast(*const ZigClangExpr, ZigClangIfStmt_getCond(stmt)), .used, .r_value, false);
     _ = try appendToken(rp.c, .RParen, ")");
 
-    if_node.body = try transStmt(rp, scope, ZigClangIfStmt_getThen(stmt), .used, .r_value);
+    if_node.body = try transStmt(rp, scope, ZigClangIfStmt_getThen(stmt), .unused, .r_value);
 
     if (ZigClangIfStmt_getElse(stmt)) |expr| {
         if_node.@"else" = try transCreateNodeElse(rp.c);
-        if_node.@"else".?.body = try transStmt(rp, scope, expr, .used, .r_value);
+        if_node.@"else".?.body = try transStmt(rp, scope, expr, .unused, .r_value);
     }
     _ = try appendToken(rp.c, .Semicolon, ";");
     return &if_node.base;
@@ -1427,6 +1428,43 @@ fn transFloatingLiteral(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangFl
         .token = try appendTokenFmt(rp.c, .FloatLiteral, "{d}", .{dbl}),
     };
     return maybeSuppressResult(rp, scope, used, &node.base);
+}
+
+fn transConditionalOperator(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangConditionalOperator, used: ResultUsed) TransError!*ast.Node {
+    const gropued = scope.id == .Condition;
+    const lparen = if (gropued) try appendToken(rp.c, .LParen, "(") else undefined;
+    const if_node = try transCreateNodeIf(rp.c);
+    var cond_scope = Scope.Condition{
+        .base = .{
+            .parent = scope,
+            .id = .Condition,
+        },
+    };
+
+    const cond_expr = ZigClangConditionalOperator_getCond(stmt);
+    const true_expr = ZigClangConditionalOperator_getTrueExpr(stmt);
+    const false_expr = ZigClangConditionalOperator_getFalseExpr(stmt);
+
+    if_node.condition = try transBoolExpr(rp, &cond_scope.base, cond_expr, .used, .r_value, false);
+    _ = try appendToken(rp.c, .RParen, ")");
+
+    if_node.body = try transExpr(rp, scope, true_expr, .used, .r_value);
+
+    if_node.@"else" = try transCreateNodeElse(rp.c);
+    if_node.@"else".?.body = try transExpr(rp, scope, false_expr, .used, .r_value);
+
+    if (gropued) {
+        const rparen = try appendToken(rp.c, .RParen, ")");
+        const grouped_expr = try rp.c.a().create(ast.Node.GroupedExpression);
+        grouped_expr.* = .{
+            .lparen = lparen,
+            .expr =  &if_node.base,
+            .rparen = rparen,
+        };
+        return maybeSuppressResult(rp, scope, used, &grouped_expr.base);
+    } else {
+        return maybeSuppressResult(rp, scope, used, &if_node.base);
+    }
 }
 
 fn maybeSuppressResult(

@@ -837,6 +837,18 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export var d: f64 = @intToFloat(f64, 3);
     });
 
+    cases.add_2("conditional operator",
+        \\int bar(void) {
+        \\    if (2 ? 5 : 5 ? 4 : 6) 2;
+        \\    return  2 ? 5 : 5 ? 4 : 6;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn bar() c_int {
+        \\    if ((if (2 != 0) 5 else (if (5 != 0) 4 else 6)) != 0) _ = 2;
+        \\    return if (2 != 0) 5 else if (5 != 0) 4 else 6;
+        \\}
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     if (builtin.os != builtin.Os.windows) {
