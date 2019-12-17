@@ -861,6 +861,7 @@ fn transStmt(
         .CaseStmtClass => return transCase(rp, scope, @ptrCast(*const ZigClangCaseStmt, stmt)),
         .DefaultStmtClass => return transDefault(rp, scope, @ptrCast(*const ZigClangDefaultStmt, stmt)),
         .ConstantExprClass => return transConstantExpr(rp, scope, @ptrCast(*const ZigClangExpr, stmt), result_used),
+        .PredefinedExprClass => return transPredefinedExpr(rp, scope, @ptrCast(*const ZigClangPredefinedExpr, stmt), result_used),
         else => {
             return revertAndWarn(
                 rp,
@@ -1748,6 +1749,10 @@ fn transConstantExpr(rp: RestorePoint, scope: *Scope, expr: *const ZigClangExpr,
     return maybeSuppressResult(rp, scope, used, try transCreateNodeAPInt(rp.c, ZigClangAPValue_getInt(&result.Val)));
 }
 
+fn transPredefinedExpr(rp: RestorePoint, scope: *Scope, expr: *const ZigClangPredefinedExpr, used: ResultUsed) TransError!*ast.Node {
+    return transStringLiteral(rp, scope, ZigClangPredefinedExpr_getFunctionName(expr), used);
+}
+
 fn transCPtrCast(
     rp: RestorePoint,
     loc: ZigClangSourceLocation,
@@ -2191,11 +2196,17 @@ fn transCreateNodePtrType(
     return node;
 }
 
-fn transCreateNodeAPInt(c: *Context, int: ?*const ZigClangAPSInt) !*ast.Node {
-    const num_limbs = ZigClangAPSInt_getNumWords(int.?);
+fn transCreateNodeAPInt(c: *Context, int: *const ZigClangAPSInt) !*ast.Node {
+    const num_limbs = ZigClangAPSInt_getNumWords(int);
+    var aps_int = int;
+    const is_negative = ZigClangAPSInt_isSigned(int) and ZigClangAPSInt_isNegative(int);
+    if (is_negative)
+        aps_int = ZigClangAPSInt_negate(aps_int);
     var big = try std.math.big.Int.initCapacity(c.a(), num_limbs);
+    if (is_negative)
+        big.negate();
     defer big.deinit();
-    const data = ZigClangAPSInt_getRawData(int.?);
+    const data = ZigClangAPSInt_getRawData(aps_int);
     var i: @TypeOf(num_limbs) = 0;
     while (i < num_limbs) : (i += 1) big.limbs[i] = data[i];
     const str = big.toString(c.a(), 10) catch |err| switch (err) {
@@ -2207,6 +2218,8 @@ fn transCreateNodeAPInt(c: *Context, int: ?*const ZigClangAPSInt) !*ast.Node {
     node.* = .{
         .token = token,
     };
+    if (is_negative)
+        ZigClangAPSInt_free(aps_int);
     return &node.base;
 }
 
@@ -2803,7 +2816,7 @@ fn finishTransFnProto(
                 const param = ZigClangFunctionDecl_getParamDecl(fn_decl.?, @intCast(c_uint, i));
                 var param_name: []const u8 = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, param)));
                 if (param_name.len < 1)
-                    param_name = "arg"[0..];
+                    param_name = try std.fmt.allocPrint(rp.c.a(), "arg_{}", .{rp.c.getMangle()});
                 const checked_param_name = if (try scope.createAlias(rp.c, param_name)) |a| blk: {
                     try fndef_scope.params.push(.{ .name = param_name, .alias = a });
                     break :blk a;

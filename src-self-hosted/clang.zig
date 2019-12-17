@@ -793,16 +793,16 @@ pub extern fn ZigClangInitListExpr_getInit(self: ?*const struct_ZigClangInitList
 pub extern fn ZigClangInitListExpr_getArrayFiller(self: ?*const struct_ZigClangInitListExpr) *const ZigClangExpr;
 pub extern fn ZigClangInitListExpr_getNumInits(self: ?*const struct_ZigClangInitListExpr) c_uint;
 pub extern fn ZigClangAPValue_getKind(self: ?*const struct_ZigClangAPValue) ZigClangAPValueKind;
-pub extern fn ZigClangAPValue_getInt(self: ?*const struct_ZigClangAPValue) ?*const struct_ZigClangAPSInt;
+pub extern fn ZigClangAPValue_getInt(self: ?*const struct_ZigClangAPValue) *const struct_ZigClangAPSInt;
 pub extern fn ZigClangAPValue_getArrayInitializedElts(self: ?*const struct_ZigClangAPValue) c_uint;
 pub extern fn ZigClangAPValue_getArraySize(self: ?*const struct_ZigClangAPValue) c_uint;
 pub extern fn ZigClangAPValue_getLValueBase(self: ?*const struct_ZigClangAPValue) struct_ZigClangAPValueLValueBase;
-pub extern fn ZigClangAPSInt_isSigned(self: ?*const struct_ZigClangAPSInt) bool;
-pub extern fn ZigClangAPSInt_isNegative(self: ?*const struct_ZigClangAPSInt) bool;
-pub extern fn ZigClangAPSInt_negate(self: ?*const struct_ZigClangAPSInt) ?*const struct_ZigClangAPSInt;
-pub extern fn ZigClangAPSInt_free(self: ?*const struct_ZigClangAPSInt) void;
-pub extern fn ZigClangAPSInt_getRawData(self: ?*const struct_ZigClangAPSInt) [*:0]const u64;
-pub extern fn ZigClangAPSInt_getNumWords(self: ?*const struct_ZigClangAPSInt) c_uint;
+pub extern fn ZigClangAPSInt_isSigned(self: *const struct_ZigClangAPSInt) bool;
+pub extern fn ZigClangAPSInt_isNegative(self: *const struct_ZigClangAPSInt) bool;
+pub extern fn ZigClangAPSInt_negate(self: *const struct_ZigClangAPSInt) *const struct_ZigClangAPSInt;
+pub extern fn ZigClangAPSInt_free(self: *const struct_ZigClangAPSInt) void;
+pub extern fn ZigClangAPSInt_getRawData(self: *const struct_ZigClangAPSInt) [*:0]const u64;
+pub extern fn ZigClangAPSInt_getNumWords(self: *const struct_ZigClangAPSInt) c_uint;
 
 pub extern fn ZigClangAPInt_getLimitedValue(self: *const struct_ZigClangAPInt, limit: u64) u64;
 pub extern fn ZigClangAPValueLValueBase_dyn_cast_Expr(self: struct_ZigClangAPValueLValueBase) ?*const struct_ZigClangExpr;
@@ -1074,3 +1074,6 @@ pub extern fn ZigClangCaseStmt_getSubStmt(*const ZigClangCaseStmt) *const ZigCla
 pub extern fn ZigClangDefaultStmt_getSubStmt(*const ZigClangDefaultStmt) *const ZigClangStmt;
 
 pub extern fn ZigClangExpr_EvaluateAsConstantExpr(*const ZigClangExpr, *ZigClangExprEvalResult, ZigClangExpr_ConstExprUsage, *const ZigClangASTContext) bool;
+
+pub extern fn ZigClangPredefinedExpr_getFunctionName(*const ZigClangPredefinedExpr) *const ZigClangStringLiteral;
+

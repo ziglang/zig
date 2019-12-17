@@ -426,6 +426,180 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         },
     );
 
+    cases.addC_both("null statements",
+        \\void foo(void) {
+        \\    ;;;;;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    {}
+        \\    {}
+        \\    {}
+        \\    {}
+        \\    {}
+        \\}
+    });
+
+    if (builtin.os != builtin.Os.windows) {
+        // Windows treats this as an enum with type c_int
+        cases.add_both("big negative enum init values when C ABI supports long long enums",
+            \\enum EnumWithInits {
+            \\    VAL01 = 0,
+            \\    VAL02 = 1,
+            \\    VAL03 = 2,
+            \\    VAL04 = 3,
+            \\    VAL05 = -1,
+            \\    VAL06 = -2,
+            \\    VAL07 = -3,
+            \\    VAL08 = -4,
+            \\    VAL09 = VAL02 + VAL08,
+            \\    VAL10 = -1000012000,
+            \\    VAL11 = -1000161000,
+            \\    VAL12 = -1000174001,
+            \\    VAL13 = VAL09,
+            \\    VAL14 = VAL10,
+            \\    VAL15 = VAL11,
+            \\    VAL16 = VAL13,
+            \\    VAL17 = (VAL16 - VAL10 + 1),
+            \\    VAL18 = 0x1000000000000000L,
+            \\    VAL19 = VAL18 + VAL18 + VAL18 - 1,
+            \\    VAL20 = VAL19 + VAL19,
+            \\    VAL21 = VAL20 + 0xFFFFFFFFFFFFFFFF,
+            \\    VAL22 = 0xFFFFFFFFFFFFFFFF + 1,
+            \\    VAL23 = 0xFFFFFFFFFFFFFFFF,
+            \\};
+        , &[_][]const u8{
+            \\pub const enum_EnumWithInits = extern enum(c_longlong) {
+            \\    VAL01 = 0,
+            \\    VAL02 = 1,
+            \\    VAL03 = 2,
+            \\    VAL04 = 3,
+            \\    VAL05 = -1,
+            \\    VAL06 = -2,
+            \\    VAL07 = -3,
+            \\    VAL08 = -4,
+            \\    VAL09 = -3,
+            \\    VAL10 = -1000012000,
+            \\    VAL11 = -1000161000,
+            \\    VAL12 = -1000174001,
+            \\    VAL13 = -3,
+            \\    VAL14 = -1000012000,
+            \\    VAL15 = -1000161000,
+            \\    VAL16 = -3,
+            \\    VAL17 = 1000011998,
+            \\    VAL18 = 1152921504606846976,
+            \\    VAL19 = 3458764513820540927,
+            \\    VAL20 = 6917529027641081854,
+            \\    VAL21 = 6917529027641081853,
+            \\    VAL22 = 0,
+            \\    VAL23 = -1,
+            \\};
+        });
+    }
+
+    cases.addC_both("predefined expressions",
+        \\void foo(void) {
+        \\    __func__;
+        \\    __FUNCTION__;
+        \\    __PRETTY_FUNCTION__;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    _ = "foo";
+        \\    _ = "foo";
+        \\    _ = "void foo(void)";
+        \\}
+    });
+
+    cases.addC_both("ignore result, no function arguments",
+        \\void foo() {
+        \\    int a;
+        \\    1;
+        \\    "hey";
+        \\    1 + 1;
+        \\    1 - 1;
+        \\    a = 1;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var a: c_int = undefined;
+        \\    _ = 1;
+        \\    _ = "hey";
+        \\    _ = (1 + 1);
+        \\    _ = (1 - 1);
+        \\    a = 1;
+        \\}
+    });
+
+    cases.add_2("qualified struct and enum",
+        \\struct Foo {
+        \\    int x;
+        \\    int y;
+        \\};
+        \\enum Bar {
+        \\    BarA,
+        \\    BarB,
+        \\};
+        \\void func(struct Foo *a, enum Bar **b);
+    , &[_][]const u8{
+        \\pub const struct_Foo = extern struct {
+        \\    x: c_int,
+        \\    y: c_int,
+        \\};
+        \\pub const BarA = enum_Bar.A;
+        \\pub const BarB = enum_Bar.B;
+        \\pub const enum_Bar = extern enum {
+        \\    A,
+        \\    B,
+        \\};
+        \\pub extern fn func(a: [*c]struct_Foo, b: [*c][*c]enum_Bar) void;
+    ,
+        \\pub const Foo = struct_Foo;
+        \\pub const Bar = enum_Bar;
+    });
+
+    cases.add_both("constant size array",
+        \\void func(int array[20]);
+    , &[_][]const u8{
+        \\pub extern fn func(array: [*c]c_int) void;
+    });
+
+    cases.add_both("__cdecl doesn't mess up function pointers",
+        \\void foo(void (__cdecl *fn_ptr)(void));
+    , &[_][]const u8{
+        \\pub extern fn foo(fn_ptr: ?extern fn () void) void;
+    });
+
+    cases.addC_both("void cast",
+        \\void foo(int a) {
+        \\    (void) a;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo(a: c_int) void {
+        \\    _ = a;
+        \\}
+    });
+
+    cases.addC_both("implicit cast to void *",
+        \\void *foo(unsigned short *x) {
+        \\    return x;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo(x: [*c]c_ushort) ?*c_void {
+        \\    return @ptrCast(?*c_void, x);
+        \\}
+    });
+
+    cases.addC_both("null pointer implicit cast",
+        \\int* foo(void) {
+        \\    return 0;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() [*c]c_int {
+        \\    return null;
+        \\}
+    });
+
     /////////////// Cases that pass for only stage2 ////////////////
 
     cases.add_2("Parameterless function prototypes",
@@ -904,144 +1078,74 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     });
 
+    cases.add_2("undefined array global",
+        \\int array[100] = {};
+    , &[_][]const u8{
+        \\pub export var array: [100]c_int = .{0} ** 100;
+    });
+
+    cases.add_2("restrict -> noalias",
+        \\void foo(void *restrict bar, void *restrict);
+    , &[_][]const u8{
+        \\pub extern fn foo(noalias bar: ?*c_void, noalias arg_1: ?*c_void) void;
+    });
+
+    cases.add_2("assign",
+        \\int max(int a) {
+        \\    int tmp;
+        \\    tmp = a;
+        \\    a = tmp;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(a: c_int) c_int {
+        \\    var tmp: c_int = undefined;
+        \\    tmp = a;
+        \\    a = tmp;
+        \\}
+    });
+
+    cases.add_2("chaining assign",
+        \\void max(int a) {
+        \\    int b, c;
+        \\    c = b = a;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(a: c_int) void {
+        \\    var b: c_int = undefined;
+        \\    var c: c_int = undefined;
+        \\    c = blk: {
+        \\        const _tmp_1 = a;
+        \\        b = _tmp_1;
+        \\        break :blk _tmp_1;
+        \\    };
+        \\}
+    });
+
+    cases.add_2("anonymous enum",
+        \\enum {
+        \\    One,
+        \\    Two,
+        \\};
+    , &[_][]const u8{
+        \\pub const One = enum_unnamed_1.One;
+        \\pub const Two = enum_unnamed_1.Two;
+        \\pub const enum_unnamed_1 = extern enum {
+        \\    One,
+        \\    Two,
+        \\};
+    });
+
+    cases.add_2("c style cast",
+        \\int float_to_int(float a) {
+        \\    return (int)a;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn float_to_int(a: f32) c_int {
+        \\    return @floatToInt(c_int, a);
+        \\}
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
-
-    if (builtin.os != builtin.Os.windows) {
-        // Windows treats this as an enum with type c_int
-        cases.add("big negative enum init values when C ABI supports long long enums",
-            \\enum EnumWithInits {
-            \\    VAL01 = 0,
-            \\    VAL02 = 1,
-            \\    VAL03 = 2,
-            \\    VAL04 = 3,
-            \\    VAL05 = -1,
-            \\    VAL06 = -2,
-            \\    VAL07 = -3,
-            \\    VAL08 = -4,
-            \\    VAL09 = VAL02 + VAL08,
-            \\    VAL10 = -1000012000,
-            \\    VAL11 = -1000161000,
-            \\    VAL12 = -1000174001,
-            \\    VAL13 = VAL09,
-            \\    VAL14 = VAL10,
-            \\    VAL15 = VAL11,
-            \\    VAL16 = VAL13,
-            \\    VAL17 = (VAL16 - VAL10 + 1),
-            \\    VAL18 = 0x1000000000000000L,
-            \\    VAL19 = VAL18 + VAL18 + VAL18 - 1,
-            \\    VAL20 = VAL19 + VAL19,
-            \\    VAL21 = VAL20 + 0xFFFFFFFFFFFFFFFF,
-            \\    VAL22 = 0xFFFFFFFFFFFFFFFF + 1,
-            \\    VAL23 = 0xFFFFFFFFFFFFFFFF,
-            \\};
-        , &[_][]const u8{
-            \\pub const enum_EnumWithInits = extern enum(c_longlong) {
-            \\    VAL01 = 0,
-            \\    VAL02 = 1,
-            \\    VAL03 = 2,
-            \\    VAL04 = 3,
-            \\    VAL05 = -1,
-            \\    VAL06 = -2,
-            \\    VAL07 = -3,
-            \\    VAL08 = -4,
-            \\    VAL09 = -3,
-            \\    VAL10 = -1000012000,
-            \\    VAL11 = -1000161000,
-            \\    VAL12 = -1000174001,
-            \\    VAL13 = -3,
-            \\    VAL14 = -1000012000,
-            \\    VAL15 = -1000161000,
-            \\    VAL16 = -3,
-            \\    VAL17 = 1000011998,
-            \\    VAL18 = 1152921504606846976,
-            \\    VAL19 = 3458764513820540927,
-            \\    VAL20 = 6917529027641081854,
-            \\    VAL21 = 6917529027641081853,
-            \\    VAL22 = 0,
-            \\    VAL23 = -1,
-            \\};
-        });
-    }
-
-    cases.add("predefined expressions",
-        \\void foo(void) {
-        \\    __func__;
-        \\    __FUNCTION__;
-        \\    __PRETTY_FUNCTION__;
-        \\}
-    , &[_][]const u8{
-        \\pub fn foo() void {
-        \\    _ = "foo";
-        \\    _ = "foo";
-        \\    _ = "void foo(void)";
-        \\}
-    });
-
-    cases.add("ignore result, no function arguments",
-        \\void foo() {
-        \\    int a;
-        \\    1;
-        \\    "hey";
-        \\    1 + 1;
-        \\    1 - 1;
-        \\    a = 1;
-        \\}
-    , &[_][]const u8{
-        \\pub fn foo() void {
-        \\    var a: c_int = undefined;
-        \\    _ = 1;
-        \\    _ = "hey";
-        \\    _ = (1 + 1);
-        \\    _ = (1 - 1);
-        \\    a = 1;
-        \\}
-    });
-
-    cases.add("for loop with var init but empty body",
-        \\void foo(void) {
-        \\    for (int x = 0; x < 10; x++);
-        \\}
-    , &[_][]const u8{
-        \\pub fn foo() void {
-        \\    {
-        \\        var x: c_int = 0;
-        \\        while (x < 10) : (x += 1) {}
-        \\    }
-        \\}
-    });
-
-    cases.add("do while with empty body",
-        \\void foo(void) {
-        \\    do ; while (1);
-        \\}
-    , &[_][]const u8{ // TODO this should be if (1 != 0) break
-        \\pub fn foo() void {
-        \\    while (true) {
-        \\        {}
-        \\        if (!1) break;
-        \\    }
-        \\}
-    });
-
-    cases.add("for with empty body",
-        \\void foo(void) {
-        \\    for (;;);
-        \\}
-    , &[_][]const u8{
-        \\pub fn foo() void {
-        \\    while (true) {}
-        \\}
-    });
-
-    cases.add("while with empty body",
-        \\void foo(void) {
-        \\    while (1);
-        \\}
-    , &[_][]const u8{
-        \\pub fn foo() void {
-        \\    while (1 != 0) {}
-        \\}
-    });
 
     cases.addAllowWarnings("simple data types",
         \\#include <stdint.h>
@@ -1065,56 +1169,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\export fn abs(a: c_int) c_int {
         \\    return if (a < 0) -a else a;
         \\}
-    });
-
-    cases.add("restrict -> noalias",
-        \\void foo(void *restrict bar, void *restrict);
-    , &[_][]const u8{
-        \\pub extern fn foo(noalias bar: ?*c_void, noalias arg1: ?*c_void) void;
-    });
-
-    cases.add("qualified struct and enum",
-        \\struct Foo {
-        \\    int x;
-        \\    int y;
-        \\};
-        \\enum Bar {
-        \\    BarA,
-        \\    BarB,
-        \\};
-        \\void func(struct Foo *a, enum Bar **b);
-    , &[_][]const u8{
-        \\pub const struct_Foo = extern struct {
-        \\    x: c_int,
-        \\    y: c_int,
-        \\};
-    ,
-        \\pub const enum_Bar = extern enum {
-        \\    A,
-        \\    B,
-        \\};
-    ,
-        \\pub const BarA = enum_Bar.A;
-    ,
-        \\pub const BarB = enum_Bar.B;
-    ,
-        \\pub extern fn func(a: [*c]struct_Foo, b: [*c]([*c]enum_Bar)) void;
-    ,
-        \\pub const Foo = struct_Foo;
-    ,
-        \\pub const Bar = enum_Bar;
-    });
-
-    cases.add("constant size array",
-        \\void func(int array[20]);
-    , &[_][]const u8{
-        \\pub extern fn func(array: [*c]c_int) void;
-    });
-
-    cases.add("__cdecl doesn't mess up function pointers",
-        \\void foo(void (__cdecl *fn_ptr)(void));
-    , &[_][]const u8{
-        \\pub extern fn foo(fn_ptr: ?extern fn () void) void;
     });
 
     cases.add("macro defines string literal with hex",
@@ -1266,38 +1320,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.addC("assign",
-        \\int max(int a) {
-        \\    int tmp;
-        \\    tmp = a;
-        \\    a = tmp;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn max(_arg_a: c_int) c_int {
-        \\    var a = _arg_a;
-        \\    var tmp: c_int = undefined;
-        \\    tmp = a;
-        \\    a = tmp;
-        \\}
-    });
-
-    cases.addC("chaining assign",
-        \\void max(int a) {
-        \\    int b, c;
-        \\    c = b = a;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn max(a: c_int) void {
-        \\    var b: c_int = undefined;
-        \\    var c: c_int = undefined;
-        \\    c = (x: {
-        \\        const _tmp = a;
-        \\        b = _tmp;
-        \\        break :x _tmp;
-        \\    });
-        \\}
-    });
-
     cases.addC("shift right assign with a fixed size type",
         \\#include <stdint.h>
         \\int log2(uint32_t a) {
@@ -1316,16 +1338,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    }
         \\    return i;
         \\}
-    });
-
-    cases.add("anonymous enum",
-        \\enum {
-        \\    One,
-        \\    Two,
-        \\};
-    , &[_][]const u8{
-        \\pub const One = 0;
-        \\pub const Two = 1;
     });
 
     cases.addC("function call",
@@ -1362,26 +1374,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.addC("null statements",
-        \\void foo(void) {
-        \\    ;;;;;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo() void {
-        \\    {}
-        \\    {}
-        \\    {}
-        \\    {}
-        \\    {}
-        \\}
-    });
-
-    cases.add("undefined array global",
-        \\int array[100];
-    , &[_][]const u8{
-        \\pub var array: [100]c_int = undefined;
-    });
-
     cases.addC("array access",
         \\int array[100];
         \\int foo(int index) {
@@ -1394,36 +1386,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.addC("c style cast",
-        \\int float_to_int(float a) {
-        \\    return (int)a;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn float_to_int(a: f32) c_int {
-        \\    return @as(c_int, a);
-        \\}
-    });
-
-    cases.addC("void cast",
-        \\void foo(int a) {
-        \\    (void) a;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo(a: c_int) void {
-        \\    _ = a;
-        \\}
-    });
-
-    cases.addC("implicit cast to void *",
-        \\void *foo(unsigned short *x) {
-        \\    return x;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo(x: [*c]c_ushort) ?*c_void {
-        \\    return @ptrCast(?*c_void, x);
-        \\}
-    });
-
     cases.addC("sizeof",
         \\#include <stddef.h>
         \\size_t size_of(void) {
@@ -1432,29 +1394,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn size_of() usize {
         \\    return @sizeOf(c_int);
-        \\}
-    });
-
-    cases.addC("null pointer implicit cast",
-        \\int* foo(void) {
-        \\    return 0;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo() [*c]c_int {
-        \\    return null;
-        \\}
-    });
-
-    cases.addC("comma operator",
-        \\int foo(void) {
-        \\    return 1, 2;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo() c_int {
-        \\    return x: {
-        \\        _ = 1;
-        \\        break :x 2;
-        \\    };
         \\}
     });
 
@@ -2290,6 +2229,161 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        }
         \\        res = 5;
         \\    }
+        \\}
+    });
+
+    cases.add("for loop with var init but empty body",
+        \\void foo(void) {
+        \\    for (int x = 0; x < 10; x++);
+        \\}
+    , &[_][]const u8{
+        \\pub fn foo() void {
+        \\    {
+        \\        var x: c_int = 0;
+        \\        while (x < 10) : (x += 1) {}
+        \\    }
+        \\}
+    });
+
+    cases.add("do while with empty body",
+        \\void foo(void) {
+        \\    do ; while (1);
+        \\}
+    , &[_][]const u8{ // TODO this should be if (1 != 0) break
+        \\pub fn foo() void {
+        \\    while (true) {
+        \\        {}
+        \\        if (!1) break;
+        \\    }
+        \\}
+    });
+
+    cases.add("for with empty body",
+        \\void foo(void) {
+        \\    for (;;);
+        \\}
+    , &[_][]const u8{
+        \\pub fn foo() void {
+        \\    while (true) {}
+        \\}
+    });
+
+    cases.add("while with empty body",
+        \\void foo(void) {
+        \\    while (1);
+        \\}
+    , &[_][]const u8{
+        \\pub fn foo() void {
+        \\    while (1 != 0) {}
+        \\}
+    });
+
+    cases.add("undefined array global",
+        \\int array[100];
+    , &[_][]const u8{
+        \\pub var array: [100]c_int = undefined;
+    });
+
+    cases.add("qualified struct and enum",
+        \\struct Foo {
+        \\    int x;
+        \\    int y;
+        \\};
+        \\enum Bar {
+        \\    BarA,
+        \\    BarB,
+        \\};
+        \\void func(struct Foo *a, enum Bar **b);
+    , &[_][]const u8{
+        \\pub const struct_Foo = extern struct {
+        \\    x: c_int,
+        \\    y: c_int,
+        \\};
+    ,
+        \\pub const enum_Bar = extern enum {
+        \\    A,
+        \\    B,
+        \\};
+    ,
+        \\pub const BarA = enum_Bar.A;
+    ,
+        \\pub const BarB = enum_Bar.B;
+    ,
+        \\pub extern fn func(a: [*c]struct_Foo, b: [*c]([*c]enum_Bar)) void;
+    ,
+        \\pub const Foo = struct_Foo;
+    ,
+        \\pub const Bar = enum_Bar;
+    });
+
+    cases.add("restrict -> noalias",
+        \\void foo(void *restrict bar, void *restrict);
+    , &[_][]const u8{
+        \\pub extern fn foo(noalias bar: ?*c_void, noalias arg1: ?*c_void) void;
+    });
+
+    cases.addC("assign",
+        \\int max(int a) {
+        \\    int tmp;
+        \\    tmp = a;
+        \\    a = tmp;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(_arg_a: c_int) c_int {
+        \\    var a = _arg_a;
+        \\    var tmp: c_int = undefined;
+        \\    tmp = a;
+        \\    a = tmp;
+        \\}
+    });
+
+    cases.addC("chaining assign",
+        \\void max(int a) {
+        \\    int b, c;
+        \\    c = b = a;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(a: c_int) void {
+        \\    var b: c_int = undefined;
+        \\    var c: c_int = undefined;
+        \\    c = (x: {
+        \\        const _tmp = a;
+        \\        b = _tmp;
+        \\        break :x _tmp;
+        \\    });
+        \\}
+    });
+
+    cases.add("anonymous enum",
+        \\enum {
+        \\    One,
+        \\    Two,
+        \\};
+    , &[_][]const u8{
+        \\pub const One = 0;
+        \\pub const Two = 1;
+    });
+
+    cases.addC("c style cast",
+        \\int float_to_int(float a) {
+        \\    return (int)a;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn float_to_int(a: f32) c_int {
+        \\    return @as(c_int, a);
+        \\}
+    });
+
+    cases.addC("comma operator",
+        \\int foo(void) {
+        \\    return 1, 2;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    return x: {
+        \\        _ = 1;
+        \\        break :x 2;
+        \\    };
         \\}
     });
 }
