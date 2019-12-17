@@ -35,27 +35,33 @@ pub const SpinLock = struct {
     pub fn acquire(self: *SpinLock) Held {
         while (true) {
             return self.tryAcquire() orelse {
-                // On native windows, SwitchToThread is too expensive,
-                // and yielding for 380-410 iterations was found to be
-                // a nice sweet spot. Posix systems on the other hand,
-                // especially linux, perform better by yielding the thread.
-                switch (builtin.os) {
-                    .windows => yield(400),
-                    else => std.os.sched_yield() catch yield(1),
-                }
+                yield();
                 continue;
             };
         }
     }
 
+    pub fn yield() void {
+        // On native windows, SwitchToThread is too expensive,
+        // and yielding for 380-410 iterations was found to be
+        // a nice sweet spot. Posix systems on the other hand,
+        // especially linux, perform better by yielding the thread.
+        switch (builtin.os) {
+            .windows => loopHint(400),
+            else => std.os.sched_yield() catch loopHint(1),
+        }
+    }
+
     /// Hint to the cpu that execution is spinning
     /// for the given amount of iterations.
-    pub fn yield(iterations: usize) void {
+    pub fn loopHint(iterations: usize) void {
         var i = iterations;
         while (i != 0) : (i -= 1) {
             switch (builtin.arch) {
-                .i386, .x86_64 => asm volatile ("pause"),
-                .arm, .aarch64 => asm volatile ("yield"),
+                // these instructions use a memory clobber as they
+                // flush the pipeline of any speculated reads/writes.
+                .i386, .x86_64 => asm volatile ("pause" ::: "memory"),
+                .arm, .aarch64 => asm volatile ("yield" ::: "memory"),
                 else => std.os.sched_yield() catch {},
             }
         }

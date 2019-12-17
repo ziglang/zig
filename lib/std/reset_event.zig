@@ -234,10 +234,7 @@ const AtomicEvent = struct {
                 timer = time.Timer.start() catch unreachable;
 
             while (@atomicLoad(i32, ptr, .Acquire) == expected) {
-                switch (builtin.os) {
-                    .windows => SpinLock.yield(400),
-                    else => os.sched_yield() catch SpinLock.yield(1),
-                }
+                SpinLock.yield();
                 if (timeout) |timeout_ns| {
                     if (timer.read() >= timeout_ns)
                         return error.TimedOut;
@@ -320,7 +317,7 @@ const AtomicEvent = struct {
                         return @intToPtr(?windows.HANDLE, handle);
                     },
                     LOADING => {
-                        SpinLock.yield(1000);
+                        SpinLock.yield();
                         handle = @atomicLoad(usize, &event_handle, .Monotonic);
                     },
                     else => {

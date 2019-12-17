@@ -75,7 +75,7 @@ else if (builtin.os == .windows)
 
         fn acquireSlow(self: *Mutex) Held {
             @setCold(true);
-            while (true) : (SpinLock.yield(1)) {
+            while (true) : (SpinLock.loopHint(1)) {
                 const waiters = @atomicLoad(u32, &self.waiters, .Monotonic);
 
                 // try and take lock if unlocked
@@ -99,7 +99,7 @@ else if (builtin.os == .windows)
                 // unlock without a rmw/cmpxchg instruction
                 @atomicStore(u8, @ptrCast(*u8, &self.mutex.locked), 0, .Release);
 
-                while (true) : (SpinLock.yield(1)) {
+                while (true) : (SpinLock.loopHint(1)) {
                     const waiters = @atomicLoad(u32, &self.mutex.waiters, .Monotonic);
                 
                     // no one is waiting
@@ -142,10 +142,6 @@ else if (builtin.link_libc or builtin.os == .linux)
             self.* = undefined;
         }
 
-        fn yield() void {
-            os.sched_yield() catch SpinLock.yield(30);
-        }
-
         pub fn tryAcquire(self: *Mutex) ?Held {
             if (@cmpxchgWeak(usize, &self.state, 0, MUTEX_LOCK, .Acquire, .Monotonic) != null)
                 return null;
@@ -175,7 +171,7 @@ else if (builtin.link_libc or builtin.os == .linux)
                     } else if (state & QUEUE_MASK == 0) {
                         break;
                     }
-                    yield();
+                    SpinLock.yield();
                     state = @atomicLoad(usize, &self.state, .Monotonic);
                 }
 
@@ -198,7 +194,7 @@ else if (builtin.link_libc or builtin.os == .linux)
                             break;
                         };
                     }
-                    yield();
+                    SpinLock.yield();
                     state = @atomicLoad(usize, &self.state, .Monotonic);
                 }
             }
@@ -225,7 +221,7 @@ else if (builtin.link_libc or builtin.os == .linux)
             // try and lock the LFIO queue to pop a node off,
             // stopping altogether if its already locked or the queue is empty
             var state = @atomicLoad(usize, &self.state, .Monotonic);
-            while (true) : (std.SpinLock.yield(1)) {
+            while (true) : (SpinLock.loopHint(1)) {
                 if (state & QUEUE_LOCK != 0 or state & QUEUE_MASK == 0)
                     return;
                 state = @cmpxchgWeak(usize, &self.state, state, state | QUEUE_LOCK, .Acquire, .Monotonic) orelse break;
@@ -234,7 +230,7 @@ else if (builtin.link_libc or builtin.os == .linux)
             // acquired the QUEUE_LOCK, try and pop a node to wake it.
             // if the mutex is locked, then unset QUEUE_LOCK and let
             // the thread who holds the mutex do the wake-up on unlock()
-            while (true) : (std.SpinLock.yield(1)) {
+            while (true) : (SpinLock.loopHint(1)) {
                 if ((state & MUTEX_LOCK) != 0) {
                     state = @cmpxchgWeak(usize, &self.state, state, state & ~QUEUE_LOCK, .Release, .Acquire) orelse return;
                 } else {
