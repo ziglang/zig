@@ -14959,9 +14959,9 @@ static IrInstruction *ir_analyze_bin_op_cmp_numeric(IrAnalyze *ira, IrInstructio
             op2_bits += 1;
         }
     }
-    uint32_t dest_int_bits = (op1_bits > op2_bits) ? op1_bits : op2_bits;
     ZigType *dest_scalar_type = (dest_float_type == nullptr) ?
-        get_int_type(ira->codegen, dest_int_is_signed, dest_int_bits) : dest_float_type;
+        get_int_type(ira->codegen, dest_int_is_signed, (op1_bits > op2_bits) ? op1_bits : op2_bits) :
+        dest_float_type;
     ZigType *dest_type = (result_type->id == ZigTypeIdVector) ?
         get_vector_type(ira->codegen, result_type->data.vector.len, dest_scalar_type) : dest_scalar_type;
 
