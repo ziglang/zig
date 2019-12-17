@@ -789,7 +789,7 @@ int main(int argc, char **argv) {
             } else if (strcmp(arg, "-ffunction-sections") == 0) {
                 function_sections = true;
             } else if (strcmp(arg, "--show-subfeatures") == 0) {
-                    targets_show_subfeatures = true;
+                targets_show_subfeatures = true;
             } else if (i + 1 >= argc) {
                 fprintf(stderr, "Expected another argument after %s\n", arg);
                 return print_error_usage(arg0);
