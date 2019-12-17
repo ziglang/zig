@@ -6,9 +6,12 @@ const io = std.io;
 const mem = std.mem;
 const fs = std.fs;
 const process = std.process;
+const feature = std.target.feature;
+const cpu = std.target.cpu;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const Buffer = std.Buffer;
+const Target = std.Target;
 const self_hosted_main = @import("main.zig");
 const errmsg = @import("errmsg.zig");
 const DepTokenizer = @import("dep_tokenizer.zig").Tokenizer;
@@ -526,4 +529,100 @@ export fn stage2_progress_update_node(node: *std.Progress.Node, done_count: usiz
     node.estimated_total_items = total_count;
     node.activate();
     node.context.maybeRefresh();
+}
+
+// ABI warning
+export fn stage2_list_features_for_arch(arch_name_ptr: [*]const u8, arch_name_len: usize, show_subfeatures: bool) void {
+    print_features_for_arch(arch_name_ptr[0..arch_name_len], show_subfeatures) catch |err| {
+        std.debug.warn("Failed to list features: {}\n", .{ @errorName(err) });
+    };
+}
+
+fn print_features_for_arch(arch_name: []const u8, show_subfeatures: bool) !void {
+    const stdout_stream = &std.io.getStdOut().outStream().stream;
+
+    const arch = Target.parseArchTag(arch_name) catch {
+        std.debug.warn("Failed to parse arch '{}'\nInvoke 'zig targets' for a list of valid architectures\n", .{ arch_name });
+        return;
+    };
+
+    inline for (@typeInfo(@TagType(Target.Arch)).Enum.fields) |arch_enum_field| {
+        if (@enumToInt(arch) == arch_enum_field.value) {
+            const enum_arch = @intToEnum(@TagType(Target.Arch), arch_enum_field.value);
+
+            const feature_infos = feature.ArchFeature(enum_arch).feature_infos;
+
+            try stdout_stream.print("Available features for {}:\n", .{ arch_enum_field.name });
+
+            var longest_len: usize = 0;
+            for (feature_infos) |feature_info| {
+                if (feature_info.name.len > longest_len) longest_len = feature_info.name.len;
+            }
+
+            for (feature_infos) |feature_info| {
+                try stdout_stream.print("  {}", .{ feature_info.name });
+                
+                var i: usize = 0;
+                while (i < longest_len - feature_info.name.len) : (i += 1) {
+                    try stdout_stream.write(" ");    
+                }
+
+                try stdout_stream.print(" - {}\n", .{ feature_info.description });
+
+                if (show_subfeatures and feature_info.subfeatures.len > 0) {
+                    for (feature_info.subfeatures) |subfeature| {
+                        try stdout_stream.print("    {}\n", .{ subfeature.getInfo().name });
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ABI warning
+export fn stage2_list_cpus_for_arch(arch_name_ptr: [*]const u8, arch_name_len: usize, show_subfeatures: bool) void {
+    print_cpus_for_arch(arch_name_ptr[0..arch_name_len], show_subfeatures) catch |err| {
+        std.debug.warn("Failed to list features: {}\n", .{ @errorName(err) });
+    };
+}
+
+fn print_cpus_for_arch(arch_name: []const u8, show_subfeatures: bool) !void {
+    const stdout_stream = &std.io.getStdOut().outStream().stream;
+
+    const arch = Target.parseArchTag(arch_name) catch {
+        std.debug.warn("Failed to parse arch '{}'\nInvoke 'zig targets' for a list of valid architectures\n", .{ arch_name });
+        return;
+    };
+
+    inline for (@typeInfo(@TagType(Target.Arch)).Enum.fields) |arch_enum_field| {
+        if (@enumToInt(arch) == arch_enum_field.value) {
+            const enum_arch = @intToEnum(@TagType(Target.Arch), arch_enum_field.value);
+
+            const cpu_infos = cpu.ArchCpu(enum_arch).cpu_infos;
+
+            try stdout_stream.print("Available cpus for {}:\n", .{ arch_enum_field.name });
+
+            var longest_len: usize = 0;
+            for (cpu_infos) |cpu_info| {
+                if (cpu_info.name.len > longest_len) longest_len = cpu_info.name.len;
+            }
+
+            for (cpu_infos) |cpu_info| {
+                try stdout_stream.print("  {}", .{ cpu_info.name });
+                
+                var i: usize = 0;
+                while (i < longest_len - cpu_info.name.len) : (i += 1) {
+                    try stdout_stream.write(" ");    
+                }
+
+                try stdout_stream.write("\n");
+
+                if (show_subfeatures and cpu_info.features.len > 0) {
+                    for (cpu_info.features) |subfeature| {
+                        try stdout_stream.print("    {}\n", .{ subfeature.getInfo().name });
+                    }
+                }
+            }
+        }
+    }
 }

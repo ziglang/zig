@@ -174,4 +174,10 @@ ZIG_EXTERN_C void stage2_progress_complete_one(Stage2ProgressNode *node);
 ZIG_EXTERN_C void stage2_progress_update_node(Stage2ProgressNode *node,
         size_t completed_count, size_t estimated_total_items);
 
+// ABI warning
+ZIG_EXTERN_C void stage2_list_features_for_arch(const char *arch_name_ptr, size_t arch_name_len, bool show_subfeatures);
+
+// ABI warning
+ZIG_EXTERN_C void stage2_list_cpus_for_arch(const char *arch_name_ptr, size_t arch_name_len, bool show_subfeatures);
+
 #endif
