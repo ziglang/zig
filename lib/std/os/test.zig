@@ -205,6 +205,8 @@ export fn iter_fn(info: *dl_phdr_info, size: usize, data: ?*usize) i32 {
 test "dl_iterate_phdr" {
     if (builtin.os == .windows or builtin.os == .wasi or builtin.os == .macosx)
         return error.SkipZigTest;
+    if (builtin.position_independent_executable)
+        return error.SkipZigTest;
 
     var counter: usize = 0;
     expect(os.dl_iterate_phdr(usize, iter_fn, &counter) != 0);

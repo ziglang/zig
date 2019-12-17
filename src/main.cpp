@@ -525,6 +525,7 @@ int main(int argc, char **argv) {
     Buf *main_pkg_path = nullptr;
     ValgrindSupport valgrind_support = ValgrindSupportAuto;
     WantPIC want_pic = WantPICAuto;
+    WantPIE want_pie = WantPIEAuto;
     WantStackCheck want_stack_check = WantStackCheckAuto;
     WantCSanitize want_sanitize_c = WantCSanitizeAuto;
     bool function_sections = false;
@@ -721,6 +722,10 @@ int main(int argc, char **argv) {
                 want_pic = WantPICEnabled;
             } else if (strcmp(arg, "-fno-PIC") == 0) {
                 want_pic = WantPICDisabled;
+            } else if (strcmp(arg, "-fPIE") == 0) {
+                want_pie = WantPIEEnabled;
+            } else if (strcmp(arg, "-fno-PIE") == 0) {
+                want_pie = WantPIEDisabled;
             } else if (strcmp(arg, "-fstack-check") == 0) {
                 want_stack_check = WantStackCheckEnabled;
             } else if (strcmp(arg, "-fno-stack-check") == 0) {
@@ -1099,6 +1104,7 @@ int main(int argc, char **argv) {
         g->subsystem = subsystem;
         g->valgrind_support = valgrind_support;
         g->want_pic = want_pic;
+        g->want_pie = want_pie;
         g->want_stack_check = want_stack_check;
         g->want_sanitize_c = want_sanitize_c;
         g->want_single_threaded = want_single_threaded;
@@ -1199,6 +1205,7 @@ int main(int argc, char **argv) {
             if (llvm_argv.length >= 2) codegen_set_llvm_argv(g, llvm_argv.items + 1, llvm_argv.length - 2);
             g->valgrind_support = valgrind_support;
             g->want_pic = want_pic;
+            g->want_pie = want_pie;
             g->want_stack_check = want_stack_check;
             g->want_sanitize_c = want_sanitize_c;
             g->subsystem = subsystem;

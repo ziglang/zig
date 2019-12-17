@@ -155,6 +155,12 @@ fn posixCallMainAndExit() noreturn {
         // Find the beginning of the auxiliary vector
         const auxv = @ptrCast([*]std.elf.Auxv, envp.ptr + envp_count + 1);
         std.os.linux.elf_aux_maybe = auxv;
+
+        // Do this as early as possible, the aux vector is needed
+        if (builtin.position_independent_executable) {
+            @import("os/linux/start_pie.zig").apply_relocations();
+        }
+
         // Initialize the TLS area
         const gnu_stack_phdr = std.os.linux.tls.initTLS() orelse @panic("ELF missing stack size");
 

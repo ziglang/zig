@@ -8233,18 +8233,39 @@ static bool detect_dynamic_link(CodeGen *g) {
     return false;
 }
 
-static bool detect_pic(CodeGen *g) {
-    if (target_requires_pic(g->zig_target, g->libc_link_lib != nullptr))
-        return true;
+static void detect_pic_pie(CodeGen *g) {
+    const bool requires_pic = target_requires_pic(g->zig_target, g->libc_link_lib != nullptr);
+    const bool requires_pie = target_requires_pie(g->zig_target);
+
+    bool have_pic = false;
+    bool have_pie = false;
+
+    switch (g->want_pie) {
+        case WantPIEDisabled:
+            have_pie = false;
+            break;
+        case WantPIEEnabled:
+            have_pie = true;
+            break;
+        case WantPIEAuto:
+            have_pie = requires_pie;
+            break;
+    }
+
     switch (g->want_pic) {
         case WantPICDisabled:
-            return false;
+            have_pic = false;
+            break;
         case WantPICEnabled:
-            return true;
+            have_pic = true;
+            break;
         case WantPICAuto:
-            return g->have_dynamic_link;
+            have_pic = have_pie || g->have_dynamic_link || requires_pic;
+            break;
     }
-    zig_unreachable();
+
+    g->have_pic = have_pic;
+    g->have_pie = have_pie;
 }
 
 static bool detect_stack_probing(CodeGen *g) {
@@ -8309,7 +8330,7 @@ static bool detect_err_ret_tracing(CodeGen *g) {
 
 Buf *codegen_generate_builtin_source(CodeGen *g) {
     g->have_dynamic_link = detect_dynamic_link(g);
-    g->have_pic = detect_pic(g);
+    detect_pic_pie(g);
     g->have_stack_probing = detect_stack_probing(g);
     g->have_sanitize_c = detect_sanitize_c(g);
     g->is_single_threaded = detect_single_threaded(g);
@@ -8465,6 +8486,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const have_error_return_tracing = %s;\n", bool_to_str(g->have_err_ret_tracing));
     buf_appendf(contents, "pub const valgrind_support = %s;\n", bool_to_str(want_valgrind_support(g)));
     buf_appendf(contents, "pub const position_independent_code = %s;\n", bool_to_str(g->have_pic));
+    buf_appendf(contents, "pub const position_independent_executable = %s;\n", bool_to_str(g->have_pie));
     buf_appendf(contents, "pub const strip_debug_info = %s;\n", bool_to_str(g->strip_debug_symbols));
 
     {
@@ -8526,6 +8548,8 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_bool(&cache_hash, g->libc_link_lib != nullptr);
     cache_bool(&cache_hash, g->valgrind_support);
     cache_int(&cache_hash, detect_subsystem(g));
+    cache_bool(&cache_hash, g->have_pic);
+    cache_bool(&cache_hash, g->have_pie);
 
     Buf digest = BUF_INIT;
     buf_resize(&digest, 0);
@@ -8595,7 +8619,7 @@ static void init(CodeGen *g) {
         return;
 
     g->have_dynamic_link = detect_dynamic_link(g);
-    g->have_pic = detect_pic(g);
+    detect_pic_pie(g);
     g->have_stack_probing = detect_stack_probing(g);
     g->have_sanitize_c = detect_sanitize_c(g);
     g->is_single_threaded = detect_single_threaded(g);
@@ -8638,6 +8662,14 @@ static void init(CodeGen *g) {
         reloc_mode = LLVMRelocDynamicNoPic;
     } else {
         reloc_mode = LLVMRelocStatic;
+    }
+
+    if (g->have_pic) {
+        ZigLLVMSetModulePICLevel(g->module);
+    }
+
+    if (g->have_pie) {
+        ZigLLVMSetModulePIELevel(g->module);
     }
 
     const char *target_specific_cpu_args;
@@ -9327,6 +9359,7 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     cache_bool(cache_hash, g->strip_debug_symbols);
     cache_int(cache_hash, g->build_mode);
     cache_bool(cache_hash, g->have_pic);
+    cache_bool(cache_hash, g->have_pie);
     cache_bool(cache_hash, g->have_sanitize_c);
     cache_bool(cache_hash, want_valgrind_support(g));
     cache_bool(cache_hash, g->function_sections);
@@ -10104,6 +10137,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_bool(ch, g->bundle_compiler_rt);
     cache_bool(ch, want_valgrind_support(g));
     cache_bool(ch, g->have_pic);
+    cache_bool(ch, g->have_pie);
     cache_bool(ch, g->have_dynamic_link);
     cache_bool(ch, g->have_stack_probing);
     cache_bool(ch, g->have_sanitize_c);
@@ -10224,7 +10258,7 @@ void codegen_build_and_link(CodeGen *g) {
     }
 
     g->have_dynamic_link = detect_dynamic_link(g);
-    g->have_pic = detect_pic(g);
+    detect_pic_pie(g);
     g->is_single_threaded = detect_single_threaded(g);
     g->have_err_ret_tracing = detect_err_ret_tracing(g);
     g->have_sanitize_c = detect_sanitize_c(g);
@@ -10429,6 +10463,7 @@ CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType o
 
     codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
     child_gen->want_pic = parent_gen->have_pic ? WantPICEnabled : WantPICDisabled;
+    child_gen->want_pie = parent_gen->have_pie ? WantPIEEnabled : WantPIEDisabled;
     child_gen->valgrind_support = ValgrindSupportDisabled;
 
     codegen_set_errmsg_color(child_gen, parent_gen->err_color);

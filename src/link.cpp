@@ -1469,6 +1469,14 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file, Stage2Pr
             c_file->args.append("-fno-stack-protector");
             c_file->args.append("-DCRT");
             return build_libc_object(parent, "crt1", c_file, progress_node);
+        } else if (strcmp(file, "rcrt1.o") == 0) {
+            CFile *c_file = allocate<CFile>(1);
+            c_file->source_path = path_from_libc(parent, "musl" OS_SEP "crt" OS_SEP "rcrt1.c");
+            musl_add_cc_args(parent, c_file, false);
+            c_file->args.append("-fno-stack-protector");
+            c_file->args.append("-DCRT");
+            c_file->args.append("-fPIC");
+            return build_libc_object(parent, "rcrt1", c_file, progress_node);
         } else if (strcmp(file, "Scrt1.o") == 0) {
             CFile *c_file = allocate<CFile>(1);
             c_file->source_path = path_from_libc(parent, "musl" OS_SEP "crt" OS_SEP "Scrt1.c");
@@ -1661,15 +1669,16 @@ static void construct_linker_job_elf(LinkJob *lj) {
         } else {
             lj->args.append("-static");
         }
+
+        if (g->out_type == OutTypeExe && g->have_pie) {
+            lj->args.append("-pie");
+            lj->args.append("--no-dynamic-linker");
+        }
     } else if (is_dyn_lib) {
         lj->args.append("-shared");
 
         assert(buf_len(&g->output_file_path) != 0);
         soname = buf_sprintf("lib%s.so.%" ZIG_PRI_usize, buf_ptr(g->root_out_name), g->version_major);
-    }
-
-    if (target_requires_pie(g->zig_target) && g->out_type == OutTypeExe) {
-        lj->args.append("-pie");
     }
 
     lj->args.append("-o");
@@ -1686,7 +1695,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
                 crt1o = "crtbegin_static.o";
             }
         } else if (!g->have_dynamic_link) {
-            crt1o = "crt1.o";
+            crt1o = g->have_pie ? "rcrt1.o" : "crt1.o";
         } else {
             crt1o = "Scrt1.o";
         }

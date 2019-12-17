@@ -1922,6 +1922,12 @@ enum WantPIC {
     WantPICEnabled,
 };
 
+enum WantPIE {
+    WantPIEAuto,
+    WantPIEDisabled,
+    WantPIEEnabled,
+};
+
 enum WantStackCheck {
     WantStackCheckAuto,
     WantStackCheckDisabled,
@@ -2101,6 +2107,7 @@ struct CodeGen {
     Stage2ProgressNode *sub_progress_node;
 
     WantPIC want_pic;
+    WantPIE want_pie;
     WantStackCheck want_stack_check;
     WantCSanitize want_sanitize_c;
     CacheHash cache_hash;
@@ -2175,6 +2182,7 @@ struct CodeGen {
     bool disable_gen_h;
     bool bundle_compiler_rt;
     bool have_pic;
+    bool have_pie;
     bool have_dynamic_link; // this is whether the final thing will be dynamically linked. see also is_dynamic
     bool have_stack_probing;
     bool have_sanitize_c;
