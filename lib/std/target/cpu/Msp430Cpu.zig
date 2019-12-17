@@ -6,19 +6,19 @@ pub const Msp430Cpu = enum {
     Msp430,
     Msp430x,
 
-    pub fn getInfo(self: @This()) CpuInfo {
+    const FeatureType = feature.Msp430Feature;
+
+    pub fn getInfo(self: @This()) CpuInfo(@This(), FeatureType) {
         return cpu_infos[@enumToInt(self)];
     }
 
-    pub const FeatureType = feature.Msp430Feature;
-
-    const cpu_infos = [@memberCount(@This())]CpuInfo(@This()) {
-        CpuInfo(@This()).create(.Generic, "generic", &[_]FeatureType {
-        },
-        CpuInfo(@This()).create(.Msp430, "msp430", &[_]FeatureType {
-        },
-        CpuInfo(@This()).create(.Msp430x, "msp430x", &[_]FeatureType {
+    pub const cpu_infos = [@memberCount(@This())]CpuInfo(@This(), FeatureType) {
+        CpuInfo(@This(), FeatureType).create(.Generic, "generic", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Msp430, "msp430", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Msp430x, "msp430x", &[_]FeatureType {
             .Ext,
-        },
+        }),
     };
 };

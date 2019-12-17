@@ -11,7 +11,7 @@ pub const RiscVFeature = enum {
     F,
     M,
 
-    pub fn getInfo(self: @This()) FeatureInfo {
+    pub fn getInfo(self: @This()) FeatureInfo(@This()) {
         return feature_infos[@enumToInt(self)];
     }
 

@@ -82,14 +82,14 @@ pub const X86Cpu = enum {
     Znver1,
     Znver2,
 
-    pub fn getInfo(self: @This()) CpuInfo {
+    const FeatureType = feature.X86Feature;
+
+    pub fn getInfo(self: @This()) CpuInfo(@This(), FeatureType) {
         return cpu_infos[@enumToInt(self)];
     }
 
-    pub const FeatureType = feature.X86Feature;
-
-    const cpu_infos = [@memberCount(@This())]CpuInfo(@This()) {
-        CpuInfo(@This()).create(.Amdfam10, "amdfam10", &[_]FeatureType {
+    pub const cpu_infos = [@memberCount(@This())]CpuInfo(@This(), FeatureType) {
+        CpuInfo(@This(), FeatureType).create(.Amdfam10, "amdfam10", &[_]FeatureType {
             .Mmx,
             .Dnowa3,
             .Bit64,
@@ -106,8 +106,8 @@ pub const X86Cpu = enum {
             .Sse4a,
             .SlowShld,
             .X87,
-        },
-        CpuInfo(@This()).create(.Athlon, "athlon", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Athlon, "athlon", &[_]FeatureType {
             .Mmx,
             .Dnowa3,
             .Cmov,
@@ -116,8 +116,8 @@ pub const X86Cpu = enum {
             .SlowShld,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Athlon4, "athlon-4", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Athlon4, "athlon-4", &[_]FeatureType {
             .Mmx,
             .Dnowa3,
             .Cmov,
@@ -128,8 +128,8 @@ pub const X86Cpu = enum {
             .SlowShld,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.AthlonFx, "athlon-fx", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.AthlonFx, "athlon-fx", &[_]FeatureType {
             .Mmx,
             .Dnowa3,
             .Bit64,
@@ -143,8 +143,8 @@ pub const X86Cpu = enum {
             .SlowShld,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.AthlonMp, "athlon-mp", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.AthlonMp, "athlon-mp", &[_]FeatureType {
             .Mmx,
             .Dnowa3,
             .Cmov,
@@ -155,8 +155,8 @@ pub const X86Cpu = enum {
             .SlowShld,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.AthlonTbird, "athlon-tbird", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.AthlonTbird, "athlon-tbird", &[_]FeatureType {
             .Mmx,
             .Dnowa3,
             .Cmov,
@@ -165,8 +165,8 @@ pub const X86Cpu = enum {
             .SlowShld,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.AthlonXp, "athlon-xp", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.AthlonXp, "athlon-xp", &[_]FeatureType {
             .Mmx,
             .Dnowa3,
             .Cmov,
@@ -177,8 +177,8 @@ pub const X86Cpu = enum {
             .SlowShld,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Athlon64, "athlon64", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Athlon64, "athlon64", &[_]FeatureType {
             .Mmx,
             .Dnowa3,
             .Bit64,
@@ -192,8 +192,8 @@ pub const X86Cpu = enum {
             .SlowShld,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Athlon64Sse3, "athlon64-sse3", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Athlon64Sse3, "athlon64-sse3", &[_]FeatureType {
             .Mmx,
             .Dnowa3,
             .Bit64,
@@ -208,8 +208,8 @@ pub const X86Cpu = enum {
             .SlowShld,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Atom, "atom", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Atom, "atom", &[_]FeatureType {
             .Bit64,
             .Cmov,
             .Cx8,
@@ -229,8 +229,8 @@ pub const X86Cpu = enum {
             .SlowTwoMemOps,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Barcelona, "barcelona", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Barcelona, "barcelona", &[_]FeatureType {
             .Mmx,
             .Dnowa3,
             .Bit64,
@@ -247,8 +247,8 @@ pub const X86Cpu = enum {
             .Sse4a,
             .SlowShld,
             .X87,
-        },
-        CpuInfo(@This()).create(.Bdver1, "bdver1", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Bdver1, "bdver1", &[_]FeatureType {
             .Bit64,
             .Sse,
             .Aes,
@@ -271,8 +271,8 @@ pub const X86Cpu = enum {
             .X87,
             .Xop,
             .Xsave,
-        },
-        CpuInfo(@This()).create(.Bdver2, "bdver2", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Bdver2, "bdver2", &[_]FeatureType {
             .Bit64,
             .Sse,
             .Aes,
@@ -300,8 +300,8 @@ pub const X86Cpu = enum {
             .X87,
             .Xop,
             .Xsave,
-        },
-        CpuInfo(@This()).create(.Bdver3, "bdver3", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Bdver3, "bdver3", &[_]FeatureType {
             .Bit64,
             .Sse,
             .Aes,
@@ -331,8 +331,8 @@ pub const X86Cpu = enum {
             .Xop,
             .Xsave,
             .Xsaveopt,
-        },
-        CpuInfo(@This()).create(.Bdver4, "bdver4", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Bdver4, "bdver4", &[_]FeatureType {
             .Bit64,
             .Sse,
             .Aes,
@@ -365,8 +365,8 @@ pub const X86Cpu = enum {
             .Xop,
             .Xsave,
             .Xsaveopt,
-        },
-        CpuInfo(@This()).create(.Bonnell, "bonnell", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Bonnell, "bonnell", &[_]FeatureType {
             .Bit64,
             .Cmov,
             .Cx8,
@@ -386,8 +386,8 @@ pub const X86Cpu = enum {
             .SlowTwoMemOps,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Broadwell, "broadwell", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Broadwell, "broadwell", &[_]FeatureType {
             .Bit64,
             .Adx,
             .Sse,
@@ -427,8 +427,8 @@ pub const X86Cpu = enum {
             .X87,
             .Xsave,
             .Xsaveopt,
-        },
-        CpuInfo(@This()).create(.Btver1, "btver1", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Btver1, "btver1", &[_]FeatureType {
             .Bit64,
             .Cmov,
             .Cx8,
@@ -448,8 +448,8 @@ pub const X86Cpu = enum {
             .Ssse3,
             .SlowShld,
             .X87,
-        },
-        CpuInfo(@This()).create(.Btver2, "btver2", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Btver2, "btver2", &[_]FeatureType {
             .Bit64,
             .Sse,
             .Aes,
@@ -481,14 +481,14 @@ pub const X86Cpu = enum {
             .X87,
             .Xsave,
             .Xsaveopt,
-        },
-        CpuInfo(@This()).create(.C3, "c3", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.C3, "c3", &[_]FeatureType {
             .Mmx,
             .Dnow3,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.C32, "c3-2", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.C32, "c3-2", &[_]FeatureType {
             .Cmov,
             .Cx8,
             .Fxsr,
@@ -496,8 +496,8 @@ pub const X86Cpu = enum {
             .Sse,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Cannonlake, "cannonlake", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Cannonlake, "cannonlake", &[_]FeatureType {
             .Bit64,
             .Adx,
             .Sse,
@@ -552,8 +552,8 @@ pub const X86Cpu = enum {
             .Xsavec,
             .Xsaveopt,
             .Xsaves,
-        },
-        CpuInfo(@This()).create(.Cascadelake, "cascadelake", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Cascadelake, "cascadelake", &[_]FeatureType {
             .Bit64,
             .Adx,
             .Sse,
@@ -607,8 +607,8 @@ pub const X86Cpu = enum {
             .Xsavec,
             .Xsaveopt,
             .Xsaves,
-        },
-        CpuInfo(@This()).create(.Cooperlake, "cooperlake", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Cooperlake, "cooperlake", &[_]FeatureType {
             .Bit64,
             .Adx,
             .Sse,
@@ -663,8 +663,8 @@ pub const X86Cpu = enum {
             .Xsavec,
             .Xsaveopt,
             .Xsaves,
-        },
-        CpuInfo(@This()).create(.CoreAvxI, "core-avx-i", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.CoreAvxI, "core-avx-i", &[_]FeatureType {
             .Bit64,
             .Sse,
             .Avx,
@@ -692,8 +692,8 @@ pub const X86Cpu = enum {
             .X87,
             .Xsave,
             .Xsaveopt,
-        },
-        CpuInfo(@This()).create(.CoreAvx2, "core-avx2", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.CoreAvx2, "core-avx2", &[_]FeatureType {
             .Bit64,
             .Sse,
             .Avx,
@@ -730,8 +730,8 @@ pub const X86Cpu = enum {
             .X87,
             .Xsave,
             .Xsaveopt,
-        },
-        CpuInfo(@This()).create(.Core2, "core2", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Core2, "core2", &[_]FeatureType {
             .Bit64,
             .Cmov,
             .Cx8,
@@ -745,8 +745,8 @@ pub const X86Cpu = enum {
             .Ssse3,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Corei7, "corei7", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Corei7, "corei7", &[_]FeatureType {
             .Bit64,
             .Cmov,
             .Cx8,
@@ -760,8 +760,8 @@ pub const X86Cpu = enum {
             .Sse,
             .Sse42,
             .X87,
-        },
-        CpuInfo(@This()).create(.Corei7Avx, "corei7-avx", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Corei7Avx, "corei7-avx", &[_]FeatureType {
             .Bit64,
             .Sse,
             .Avx,
@@ -786,20 +786,20 @@ pub const X86Cpu = enum {
             .X87,
             .Xsave,
             .Xsaveopt,
-        },
-        CpuInfo(@This()).create(.Generic, "generic", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Generic, "generic", &[_]FeatureType {
             .Cx8,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Geode, "geode", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Geode, "geode", &[_]FeatureType {
             .Mmx,
             .Dnowa3,
             .Cx8,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Goldmont, "goldmont", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Goldmont, "goldmont", &[_]FeatureType {
             .Bit64,
             .Sse,
             .Aes,
@@ -830,8 +830,8 @@ pub const X86Cpu = enum {
             .Xsavec,
             .Xsaveopt,
             .Xsaves,
-        },
-        CpuInfo(@This()).create(.GoldmontPlus, "goldmont-plus", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.GoldmontPlus, "goldmont-plus", &[_]FeatureType {
             .Bit64,
             .Sse,
             .Aes,
@@ -864,8 +864,8 @@ pub const X86Cpu = enum {
             .Xsavec,
             .Xsaveopt,
             .Xsaves,
-        },
-        CpuInfo(@This()).create(.Haswell, "haswell", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Haswell, "haswell", &[_]FeatureType {
             .Bit64,
             .Sse,
             .Avx,
@@ -902,27 +902,27 @@ pub const X86Cpu = enum {
             .X87,
             .Xsave,
             .Xsaveopt,
-        },
-        CpuInfo(@This()).create(.I386, "i386", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.I386, "i386", &[_]FeatureType {
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.I486, "i486", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.I486, "i486", &[_]FeatureType {
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.I586, "i586", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.I586, "i586", &[_]FeatureType {
             .Cx8,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.I686, "i686", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.I686, "i686", &[_]FeatureType {
             .Cmov,
             .Cx8,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.IcelakeClient, "icelake-client", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.IcelakeClient, "icelake-client", &[_]FeatureType {
             .Bit64,
             .Adx,
             .Sse,
@@ -986,8 +986,8 @@ pub const X86Cpu = enum {
             .Xsavec,
             .Xsaveopt,
             .Xsaves,
-        },
-        CpuInfo(@This()).create(.IcelakeServer, "icelake-server", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.IcelakeServer, "icelake-server", &[_]FeatureType {
             .Bit64,
             .Adx,
             .Sse,
@@ -1053,8 +1053,8 @@ pub const X86Cpu = enum {
             .Xsavec,
             .Xsaveopt,
             .Xsaves,
-        },
-        CpuInfo(@This()).create(.Ivybridge, "ivybridge", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Ivybridge, "ivybridge", &[_]FeatureType {
             .Bit64,
             .Sse,
             .Avx,
@@ -1082,28 +1082,28 @@ pub const X86Cpu = enum {
             .X87,
             .Xsave,
             .Xsaveopt,
-        },
-        CpuInfo(@This()).create(.K6, "k6", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.K6, "k6", &[_]FeatureType {
             .Cx8,
             .Mmx,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.K62, "k6-2", &[_]FeatureType {
-            .Mmx,
-            .Dnow3,
-            .Cx8,
-            .SlowUnalignedMem16,
-            .X87,
-        },
-        CpuInfo(@This()).create(.K63, "k6-3", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.K62, "k6-2", &[_]FeatureType {
             .Mmx,
             .Dnow3,
             .Cx8,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.K8, "k8", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.K63, "k6-3", &[_]FeatureType {
+            .Mmx,
+            .Dnow3,
+            .Cx8,
+            .SlowUnalignedMem16,
+            .X87,
+        }),
+        CpuInfo(@This(), FeatureType).create(.K8, "k8", &[_]FeatureType {
             .Mmx,
             .Dnowa3,
             .Bit64,
@@ -1117,8 +1117,8 @@ pub const X86Cpu = enum {
             .SlowShld,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.K8Sse3, "k8-sse3", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.K8Sse3, "k8-sse3", &[_]FeatureType {
             .Mmx,
             .Dnowa3,
             .Bit64,
@@ -1133,8 +1133,8 @@ pub const X86Cpu = enum {
             .SlowShld,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Knl, "knl", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Knl, "knl", &[_]FeatureType {
             .Bit64,
             .Adx,
             .Sse,
@@ -1173,8 +1173,8 @@ pub const X86Cpu = enum {
             .X87,
             .Xsave,
             .Xsaveopt,
-        },
-        CpuInfo(@This()).create(.Knm, "knm", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Knm, "knm", &[_]FeatureType {
             .Bit64,
             .Adx,
             .Sse,
@@ -1214,10 +1214,10 @@ pub const X86Cpu = enum {
             .X87,
             .Xsave,
             .Xsaveopt,
-        },
-        CpuInfo(@This()).create(.Lakemont, "lakemont", &[_]FeatureType {
-        },
-        CpuInfo(@This()).create(.Nehalem, "nehalem", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Lakemont, "lakemont", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Nehalem, "nehalem", &[_]FeatureType {
             .Bit64,
             .Cmov,
             .Cx8,
@@ -1231,8 +1231,8 @@ pub const X86Cpu = enum {
             .Sse,
             .Sse42,
             .X87,
-        },
-        CpuInfo(@This()).create(.Nocona, "nocona", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Nocona, "nocona", &[_]FeatureType {
             .Bit64,
             .Cmov,
             .Cx8,
@@ -1244,8 +1244,8 @@ pub const X86Cpu = enum {
             .Sse3,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Opteron, "opteron", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Opteron, "opteron", &[_]FeatureType {
             .Mmx,
             .Dnowa3,
             .Bit64,
@@ -1259,8 +1259,8 @@ pub const X86Cpu = enum {
             .SlowShld,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.OpteronSse3, "opteron-sse3", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.OpteronSse3, "opteron-sse3", &[_]FeatureType {
             .Mmx,
             .Dnowa3,
             .Bit64,
@@ -1275,8 +1275,8 @@ pub const X86Cpu = enum {
             .SlowShld,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Penryn, "penryn", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Penryn, "penryn", &[_]FeatureType {
             .Bit64,
             .Cmov,
             .Cx8,
@@ -1290,13 +1290,13 @@ pub const X86Cpu = enum {
             .Sse41,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Pentium, "pentium", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Pentium, "pentium", &[_]FeatureType {
             .Cx8,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.PentiumM, "pentium-m", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.PentiumM, "pentium-m", &[_]FeatureType {
             .Cmov,
             .Cx8,
             .Fxsr,
@@ -1306,14 +1306,14 @@ pub const X86Cpu = enum {
             .Sse2,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.PentiumMmx, "pentium-mmx", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.PentiumMmx, "pentium-mmx", &[_]FeatureType {
             .Cx8,
             .Mmx,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Pentium2, "pentium2", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Pentium2, "pentium2", &[_]FeatureType {
             .Cmov,
             .Cx8,
             .Fxsr,
@@ -1321,18 +1321,8 @@ pub const X86Cpu = enum {
             .Nopl,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Pentium3, "pentium3", &[_]FeatureType {
-            .Cmov,
-            .Cx8,
-            .Fxsr,
-            .Mmx,
-            .Nopl,
-            .Sse,
-            .SlowUnalignedMem16,
-            .X87,
-        },
-        CpuInfo(@This()).create(.Pentium3m, "pentium3m", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Pentium3, "pentium3", &[_]FeatureType {
             .Cmov,
             .Cx8,
             .Fxsr,
@@ -1341,19 +1331,18 @@ pub const X86Cpu = enum {
             .Sse,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Pentium4, "pentium4", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Pentium3m, "pentium3m", &[_]FeatureType {
             .Cmov,
             .Cx8,
             .Fxsr,
             .Mmx,
             .Nopl,
             .Sse,
-            .Sse2,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Pentium4m, "pentium4m", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Pentium4, "pentium4", &[_]FeatureType {
             .Cmov,
             .Cx8,
             .Fxsr,
@@ -1363,15 +1352,26 @@ pub const X86Cpu = enum {
             .Sse2,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Pentiumpro, "pentiumpro", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Pentium4m, "pentium4m", &[_]FeatureType {
+            .Cmov,
+            .Cx8,
+            .Fxsr,
+            .Mmx,
+            .Nopl,
+            .Sse,
+            .Sse2,
+            .SlowUnalignedMem16,
+            .X87,
+        }),
+        CpuInfo(@This(), FeatureType).create(.Pentiumpro, "pentiumpro", &[_]FeatureType {
             .Cmov,
             .Cx8,
             .Nopl,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Prescott, "prescott", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Prescott, "prescott", &[_]FeatureType {
             .Cmov,
             .Cx8,
             .Fxsr,
@@ -1381,8 +1381,8 @@ pub const X86Cpu = enum {
             .Sse3,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Sandybridge, "sandybridge", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Sandybridge, "sandybridge", &[_]FeatureType {
             .Bit64,
             .Sse,
             .Avx,
@@ -1407,8 +1407,8 @@ pub const X86Cpu = enum {
             .X87,
             .Xsave,
             .Xsaveopt,
-        },
-        CpuInfo(@This()).create(.Silvermont, "silvermont", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Silvermont, "silvermont", &[_]FeatureType {
             .Bit64,
             .Cmov,
             .Cx8,
@@ -1432,8 +1432,8 @@ pub const X86Cpu = enum {
             .SlowPmulld,
             .SlowTwoMemOps,
             .X87,
-        },
-        CpuInfo(@This()).create(.Skx, "skx", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Skx, "skx", &[_]FeatureType {
             .Bit64,
             .Adx,
             .Sse,
@@ -1486,8 +1486,8 @@ pub const X86Cpu = enum {
             .Xsavec,
             .Xsaveopt,
             .Xsaves,
-        },
-        CpuInfo(@This()).create(.Skylake, "skylake", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Skylake, "skylake", &[_]FeatureType {
             .Bit64,
             .Adx,
             .Sse,
@@ -1533,8 +1533,8 @@ pub const X86Cpu = enum {
             .Xsavec,
             .Xsaveopt,
             .Xsaves,
-        },
-        CpuInfo(@This()).create(.SkylakeAvx512, "skylake-avx512", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.SkylakeAvx512, "skylake-avx512", &[_]FeatureType {
             .Bit64,
             .Adx,
             .Sse,
@@ -1587,8 +1587,8 @@ pub const X86Cpu = enum {
             .Xsavec,
             .Xsaveopt,
             .Xsaves,
-        },
-        CpuInfo(@This()).create(.Slm, "slm", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Slm, "slm", &[_]FeatureType {
             .Bit64,
             .Cmov,
             .Cx8,
@@ -1612,8 +1612,8 @@ pub const X86Cpu = enum {
             .SlowPmulld,
             .SlowTwoMemOps,
             .X87,
-        },
-        CpuInfo(@This()).create(.Tigerlake, "tigerlake", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Tigerlake, "tigerlake", &[_]FeatureType {
             .Bit64,
             .Adx,
             .Sse,
@@ -1681,8 +1681,8 @@ pub const X86Cpu = enum {
             .Xsavec,
             .Xsaveopt,
             .Xsaves,
-        },
-        CpuInfo(@This()).create(.Tremont, "tremont", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Tremont, "tremont", &[_]FeatureType {
             .Bit64,
             .Sse,
             .Aes,
@@ -1720,8 +1720,8 @@ pub const X86Cpu = enum {
             .Xsavec,
             .Xsaveopt,
             .Xsaves,
-        },
-        CpuInfo(@This()).create(.Westmere, "westmere", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Westmere, "westmere", &[_]FeatureType {
             .Bit64,
             .Cmov,
             .Cx8,
@@ -1736,19 +1736,19 @@ pub const X86Cpu = enum {
             .Popcnt,
             .Sse42,
             .X87,
-        },
-        CpuInfo(@This()).create(.WinchipC6, "winchip-c6", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.WinchipC6, "winchip-c6", &[_]FeatureType {
             .Mmx,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Winchip2, "winchip2", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Winchip2, "winchip2", &[_]FeatureType {
             .Mmx,
             .Dnow3,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.X8664, "x86-64", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.X8664, "x86-64", &[_]FeatureType {
             .Bit64,
             .Cmov,
             .Cx8,
@@ -1761,8 +1761,8 @@ pub const X86Cpu = enum {
             .Slow3opsLea,
             .SlowIncdec,
             .X87,
-        },
-        CpuInfo(@This()).create(.Yonah, "yonah", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Yonah, "yonah", &[_]FeatureType {
             .Cmov,
             .Cx8,
             .Fxsr,
@@ -1772,8 +1772,8 @@ pub const X86Cpu = enum {
             .Sse3,
             .SlowUnalignedMem16,
             .X87,
-        },
-        CpuInfo(@This()).create(.Znver1, "znver1", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Znver1, "znver1", &[_]FeatureType {
             .Bit64,
             .Adx,
             .Sse,
@@ -1814,8 +1814,8 @@ pub const X86Cpu = enum {
             .Xsavec,
             .Xsaveopt,
             .Xsaves,
-        },
-        CpuInfo(@This()).create(.Znver2, "znver2", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Znver2, "znver2", &[_]FeatureType {
             .Bit64,
             .Adx,
             .Sse,
@@ -1859,6 +1859,6 @@ pub const X86Cpu = enum {
             .Xsavec,
             .Xsaveopt,
             .Xsaves,
-        },
+        }),
     };
 };

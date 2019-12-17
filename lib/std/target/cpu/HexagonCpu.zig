@@ -10,14 +10,14 @@ pub const HexagonCpu = enum {
     Hexagonv65,
     Hexagonv66,
 
-    pub fn getInfo(self: @This()) CpuInfo {
+    const FeatureType = feature.HexagonFeature;
+
+    pub fn getInfo(self: @This()) CpuInfo(@This(), FeatureType) {
         return cpu_infos[@enumToInt(self)];
     }
 
-    pub const FeatureType = feature.HexagonFeature;
-
-    const cpu_infos = [@memberCount(@This())]CpuInfo(@This()) {
-        CpuInfo(@This()).create(.Generic, "generic", &[_]FeatureType {
+    pub const cpu_infos = [@memberCount(@This())]CpuInfo(@This(), FeatureType) {
+        CpuInfo(@This(), FeatureType).create(.Generic, "generic", &[_]FeatureType {
             .V5,
             .V55,
             .V60,
@@ -27,8 +27,8 @@ pub const HexagonCpu = enum {
             .Nvj,
             .Nvs,
             .SmallData,
-        },
-        CpuInfo(@This()).create(.Hexagonv5, "hexagonv5", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Hexagonv5, "hexagonv5", &[_]FeatureType {
             .V5,
             .Duplex,
             .Memops,
@@ -36,8 +36,8 @@ pub const HexagonCpu = enum {
             .Nvj,
             .Nvs,
             .SmallData,
-        },
-        CpuInfo(@This()).create(.Hexagonv55, "hexagonv55", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Hexagonv55, "hexagonv55", &[_]FeatureType {
             .V5,
             .V55,
             .Duplex,
@@ -46,8 +46,8 @@ pub const HexagonCpu = enum {
             .Nvj,
             .Nvs,
             .SmallData,
-        },
-        CpuInfo(@This()).create(.Hexagonv60, "hexagonv60", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Hexagonv60, "hexagonv60", &[_]FeatureType {
             .V5,
             .V55,
             .V60,
@@ -57,8 +57,8 @@ pub const HexagonCpu = enum {
             .Nvj,
             .Nvs,
             .SmallData,
-        },
-        CpuInfo(@This()).create(.Hexagonv62, "hexagonv62", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Hexagonv62, "hexagonv62", &[_]FeatureType {
             .V5,
             .V55,
             .V60,
@@ -69,8 +69,8 @@ pub const HexagonCpu = enum {
             .Nvj,
             .Nvs,
             .SmallData,
-        },
-        CpuInfo(@This()).create(.Hexagonv65, "hexagonv65", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Hexagonv65, "hexagonv65", &[_]FeatureType {
             .V5,
             .V55,
             .V60,
@@ -83,8 +83,8 @@ pub const HexagonCpu = enum {
             .Nvj,
             .Nvs,
             .SmallData,
-        },
-        CpuInfo(@This()).create(.Hexagonv66, "hexagonv66", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Hexagonv66, "hexagonv66", &[_]FeatureType {
             .V5,
             .V55,
             .V60,
@@ -98,6 +98,6 @@ pub const HexagonCpu = enum {
             .Nvj,
             .Nvs,
             .SmallData,
-        },
+        }),
     };
 };

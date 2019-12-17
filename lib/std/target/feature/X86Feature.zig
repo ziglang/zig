@@ -128,7 +128,7 @@ pub const X86Feature = enum {
     BitMode32,
     BitMode64,
 
-    pub fn getInfo(self: @This()) FeatureInfo {
+    pub fn getInfo(self: @This()) FeatureInfo(@This()) {
         return feature_infos[@enumToInt(self)];
     }
 
@@ -254,8 +254,8 @@ pub const X86Feature = enum {
         FeatureInfo(@This()).create(.Rdseed, "rdseed", "Support RDSEED instruction", "rdseed"),
         FeatureInfo(@This()).create(.Rtm, "rtm", "Support RTM instructions", "rtm"),
         FeatureInfo(@This()).createWithSubfeatures(.Retpoline, "retpoline", "Remove speculation of indirect branches from the generated code, either by avoiding them entirely or lowering them with a speculation blocking construct", "retpoline", &[_]@This() {
-            .RetpolineIndirectBranches,
             .RetpolineIndirectCalls,
+            .RetpolineIndirectBranches,
         }),
         FeatureInfo(@This()).createWithSubfeatures(.RetpolineExternalThunk, "retpoline-external-thunk", "When lowering an indirect call or branch using a `retpoline`, rely on the specified user provided thunk rather than emitting one ourselves. Only has effect when combined with some other retpoline feature", "retpoline-external-thunk", &[_]@This() {
             .RetpolineIndirectCalls,

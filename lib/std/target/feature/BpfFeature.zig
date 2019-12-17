@@ -5,7 +5,7 @@ pub const BpfFeature = enum {
     Dummy,
     Dwarfris,
 
-    pub fn getInfo(self: @This()) FeatureInfo {
+    pub fn getInfo(self: @This()) FeatureInfo(@This()) {
         return feature_infos[@enumToInt(self)];
     }
 

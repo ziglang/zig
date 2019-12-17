@@ -17,7 +17,7 @@ pub const SystemZFeature = @import("feature/SystemZFeature.zig").SystemZFeature;
 pub const WebAssemblyFeature = @import("feature/WebAssemblyFeature.zig").WebAssemblyFeature;
 pub const X86Feature = @import("feature/X86Feature.zig").X86Feature;
 
-const EmptyFeature = @import("feature/empty.zig").EmptyFeature;
+pub const EmptyFeature = @import("feature/empty.zig").EmptyFeature;
 
 pub fn ArchFeature(comptime arch: @TagType(Arch)) type {
     return switch (arch) {
@@ -49,24 +49,30 @@ pub fn FeatureInfo(comptime EnumType: type) type {
     return struct {
         value: EnumType,
         name: []const u8,
+        description: []const u8,
+        llvm_name: []const u8,
 
         subfeatures: []const EnumType,
 
         const Self = @This();
 
-        fn create(value: EnumType, name: []const u8) Self {
+        pub fn create(value: EnumType, name: []const u8, description: []const u8, llvm_name: []const u8) Self {
             return Self {
                 .value = value,
                 .name = name,
+                .description = description,
+                .llvm_name = llvm_name,
 
                 .subfeatures = &[_]EnumType{},
             };
         }
 
-        fn createWithSubfeatures(value: EnumType, name: []const u8, subfeatures: []const EnumType) Self {
+        pub fn createWithSubfeatures(value: EnumType, name: []const u8, description: []const u8, llvm_name: []const u8, subfeatures: []const EnumType) Self {
             return Self {
                 .value = value,
                 .name = name,
+                .description = description,
+                .llvm_name = llvm_name,
 
                 .subfeatures = subfeatures,
             };

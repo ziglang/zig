@@ -5,19 +5,19 @@ pub const RiscVCpu = enum {
     GenericRv32,
     GenericRv64,
 
-    pub fn getInfo(self: @This()) CpuInfo {
+    const FeatureType = feature.RiscVFeature;
+
+    pub fn getInfo(self: @This()) CpuInfo(@This(), FeatureType) {
         return cpu_infos[@enumToInt(self)];
     }
 
-    pub const FeatureType = feature.RiscVFeature;
-
-    const cpu_infos = [@memberCount(@This())]CpuInfo(@This()) {
-        CpuInfo(@This()).create(.GenericRv32, "generic-rv32", &[_]FeatureType {
+    pub const cpu_infos = [@memberCount(@This())]CpuInfo(@This(), FeatureType) {
+        CpuInfo(@This(), FeatureType).create(.GenericRv32, "generic-rv32", &[_]FeatureType {
             .RvcHints,
-        },
-        CpuInfo(@This()).create(.GenericRv64, "generic-rv64", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.GenericRv64, "generic-rv64", &[_]FeatureType {
             .Bit64,
             .RvcHints,
-        },
+        }),
     };
 };

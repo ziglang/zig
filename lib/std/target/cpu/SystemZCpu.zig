@@ -16,14 +16,14 @@ pub const SystemZCpu = enum {
     Z196,
     ZEC12,
 
-    pub fn getInfo(self: @This()) CpuInfo {
+    const FeatureType = feature.SystemZFeature;
+
+    pub fn getInfo(self: @This()) CpuInfo(@This(), FeatureType) {
         return cpu_infos[@enumToInt(self)];
     }
 
-    pub const FeatureType = feature.SystemZFeature;
-
-    const cpu_infos = [@memberCount(@This())]CpuInfo(@This()) {
-        CpuInfo(@This()).create(.Arch10, "arch10", &[_]FeatureType {
+    pub const cpu_infos = [@memberCount(@This())]CpuInfo(@This(), FeatureType) {
+        CpuInfo(@This(), FeatureType).create(.Arch10, "arch10", &[_]FeatureType {
             .DfpZonedConversion,
             .DistinctOps,
             .EnhancedDat2,
@@ -41,8 +41,8 @@ pub const SystemZCpu = enum {
             .ProcessorAssist,
             .ResetReferenceBitsMultiple,
             .TransactionalExecution,
-        },
-        CpuInfo(@This()).create(.Arch11, "arch11", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Arch11, "arch11", &[_]FeatureType {
             .DfpPackedConversion,
             .DfpZonedConversion,
             .DistinctOps,
@@ -65,8 +65,8 @@ pub const SystemZCpu = enum {
             .ResetReferenceBitsMultiple,
             .TransactionalExecution,
             .Vector,
-        },
-        CpuInfo(@This()).create(.Arch12, "arch12", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Arch12, "arch12", &[_]FeatureType {
             .DfpPackedConversion,
             .DfpZonedConversion,
             .DistinctOps,
@@ -96,8 +96,8 @@ pub const SystemZCpu = enum {
             .Vector,
             .VectorEnhancements1,
             .VectorPackedDecimal,
-        },
-        CpuInfo(@This()).create(.Arch13, "arch13", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Arch13, "arch13", &[_]FeatureType {
             .DfpPackedConversion,
             .DfpZonedConversion,
             .DeflateConversion,
@@ -133,10 +133,10 @@ pub const SystemZCpu = enum {
             .VectorEnhancements2,
             .VectorPackedDecimal,
             .VectorPackedDecimalEnhancement,
-        },
-        CpuInfo(@This()).create(.Arch8, "arch8", &[_]FeatureType {
-        },
-        CpuInfo(@This()).create(.Arch9, "arch9", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Arch8, "arch8", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Arch9, "arch9", &[_]FeatureType {
             .DistinctOps,
             .FpExtension,
             .FastSerialization,
@@ -147,12 +147,12 @@ pub const SystemZCpu = enum {
             .MessageSecurityAssistExtension4,
             .PopulationCount,
             .ResetReferenceBitsMultiple,
-        },
-        CpuInfo(@This()).create(.Generic, "generic", &[_]FeatureType {
-        },
-        CpuInfo(@This()).create(.Z10, "z10", &[_]FeatureType {
-        },
-        CpuInfo(@This()).create(.Z13, "z13", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Generic, "generic", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Z10, "z10", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Z13, "z13", &[_]FeatureType {
             .DfpPackedConversion,
             .DfpZonedConversion,
             .DistinctOps,
@@ -175,8 +175,8 @@ pub const SystemZCpu = enum {
             .ResetReferenceBitsMultiple,
             .TransactionalExecution,
             .Vector,
-        },
-        CpuInfo(@This()).create(.Z14, "z14", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Z14, "z14", &[_]FeatureType {
             .DfpPackedConversion,
             .DfpZonedConversion,
             .DistinctOps,
@@ -206,8 +206,8 @@ pub const SystemZCpu = enum {
             .Vector,
             .VectorEnhancements1,
             .VectorPackedDecimal,
-        },
-        CpuInfo(@This()).create(.Z15, "z15", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Z15, "z15", &[_]FeatureType {
             .DfpPackedConversion,
             .DfpZonedConversion,
             .DeflateConversion,
@@ -243,8 +243,8 @@ pub const SystemZCpu = enum {
             .VectorEnhancements2,
             .VectorPackedDecimal,
             .VectorPackedDecimalEnhancement,
-        },
-        CpuInfo(@This()).create(.Z196, "z196", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.Z196, "z196", &[_]FeatureType {
             .DistinctOps,
             .FpExtension,
             .FastSerialization,
@@ -255,8 +255,8 @@ pub const SystemZCpu = enum {
             .MessageSecurityAssistExtension4,
             .PopulationCount,
             .ResetReferenceBitsMultiple,
-        },
-        CpuInfo(@This()).create(.ZEC12, "zEC12", &[_]FeatureType {
+        }),
+        CpuInfo(@This(), FeatureType).create(.ZEC12, "zEC12", &[_]FeatureType {
             .DfpZonedConversion,
             .DistinctOps,
             .EnhancedDat2,
@@ -274,6 +274,6 @@ pub const SystemZCpu = enum {
             .ProcessorAssist,
             .ResetReferenceBitsMultiple,
             .TransactionalExecution,
-        },
+        }),
     };
 };

@@ -12,7 +12,7 @@ pub const WebAssemblyFeature = enum {
     TailCall,
     UnimplementedSimd128,
 
-    pub fn getInfo(self: @This()) FeatureInfo {
+    pub fn getInfo(self: @This()) FeatureInfo(@This()) {
         return feature_infos[@enumToInt(self)];
     }
 
