@@ -228,7 +228,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    struct Foo *foo;
         \\};
     , &[_][]const u8{
-        \\pub const struct_Foo = @OpaqueType()
+        \\pub const struct_Foo = @OpaqueType();
     ,
         \\pub const struct_Bar = extern struct {
         \\    foo: ?*struct_Foo,
@@ -622,18 +622,15 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define glClearPFN PFNGLCLEARPROC
     , &[_][]const u8{
         \\pub const GLbitfield = c_uint;
-    ,
         \\pub const PFNGLCLEARPROC = ?extern fn (GLbitfield) void;
-    ,
         \\pub const OpenGLProc = ?extern fn () void;
-    ,
+        \\pub const struct_unnamed_1 = extern struct {
+        \\    Clear: PFNGLCLEARPROC,
+        \\};
         \\pub const union_OpenGLProcs = extern union {
         \\    ptr: [1]OpenGLProc,
-        \\    gl: extern struct {
-        \\        Clear: PFNGLCLEARPROC,
-        \\    },
+        \\    gl: struct_unnamed_1,
         \\};
-    ,
         \\pub extern var glProcs: union_OpenGLProcs;
     ,
         \\pub const glClearPFN = PFNGLCLEARPROC;
@@ -889,6 +886,22 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        res = 5;
         \\    }
         \\}
+    });
+
+    cases.add_2("type referenced struct",
+        \\struct Foo {
+        \\    struct Bar{
+        \\        int b;
+        \\    };
+        \\    struct Bar c;
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_Bar = extern struct {
+        \\    b: c_int,
+        \\};
+        \\pub const struct_Foo = extern struct {
+        \\    c: struct_Bar,
+        \\};
     });
 
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
