@@ -77,6 +77,7 @@ pub const struct_ZigClangPredefinedExpr = @OpaqueType();
 pub const struct_ZigClangInitListExpr = @OpaqueType();
 pub const ZigClangPreprocessingRecord = @OpaqueType();
 pub const ZigClangFloatingLiteral = @OpaqueType();
+pub const ZigClangConstantExpr = @OpaqueType();
 
 pub const ZigClangBO = extern enum {
     PtrMemD,
@@ -1059,3 +1060,17 @@ pub extern fn ZigClangAPFloat_getValueAsApproximateDouble(*const ZigClangFloatin
 pub extern fn ZigClangConditionalOperator_getCond(*const ZigClangConditionalOperator) *const ZigClangExpr;
 pub extern fn ZigClangConditionalOperator_getTrueExpr(*const ZigClangConditionalOperator) *const ZigClangExpr;
 pub extern fn ZigClangConditionalOperator_getFalseExpr(*const ZigClangConditionalOperator) *const ZigClangExpr;
+
+pub extern fn ZigClangSwitchStmt_getConditionVariableDeclStmt(*const ZigClangSwitchStmt) ?*const ZigClangDeclStmt;
+pub extern fn ZigClangSwitchStmt_getCond(*const ZigClangSwitchStmt) *const ZigClangExpr;
+pub extern fn ZigClangSwitchStmt_getBody(*const ZigClangSwitchStmt) *const ZigClangStmt;
+pub extern fn ZigClangSwitchStmt_isAllEnumCasesCovered(*const ZigClangSwitchStmt) bool;
+
+pub extern fn ZigClangCaseStmt_getLHS(*const ZigClangCaseStmt) *const ZigClangExpr;
+pub extern fn ZigClangCaseStmt_getRHS(*const ZigClangCaseStmt) ?*const ZigClangExpr;
+pub extern fn ZigClangCaseStmt_getBeginLoc(*const ZigClangCaseStmt) ZigClangSourceLocation;
+pub extern fn ZigClangCaseStmt_getSubStmt(*const ZigClangCaseStmt) *const ZigClangStmt;
+
+pub extern fn ZigClangDefaultStmt_getSubStmt(*const ZigClangDefaultStmt) *const ZigClangStmt;
+
+pub extern fn ZigClangExpr_EvaluateAsConstantExpr(*const ZigClangExpr, *ZigClangExprEvalResult, ZigClangExpr_ConstExprUsage, *const ZigClangASTContext) bool;

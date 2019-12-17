@@ -849,6 +849,48 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add_2("switch on int",
+        \\int switch_fn(int i) {
+        \\    int res = 0;
+        \\    switch (i) {
+        \\        case 0:
+        \\            res = 1;
+        \\        case 1:
+        \\            res = 2;
+        \\        default:
+        \\            res = 3 * i;
+        \\            break;
+        \\        case 2:
+        \\            res = 5;
+        \\    }
+        \\}
+    , &[_][]const u8{
+        \\pub export fn switch_fn(i: c_int) c_int {
+        \\    var res: c_int = 0;
+        \\    __switch: {
+        \\        __case_2: {
+        \\            __default: {
+        \\                __case_1: {
+        \\                    __case_0: {
+        \\                        switch (i) {
+        \\                            0 => break :__case_0,
+        \\                            1 => break :__case_1,
+        \\                            else => break :__default,
+        \\                            2 => break :__case_2,
+        \\                        }
+        \\                    }
+        \\                    res = 1;
+        \\                }
+        \\                res = 2;
+        \\            }
+        \\            res = (3 * i);
+        \\            break :__switch;
+        \\        }
+        \\        res = 5;
+        \\    }
+        \\}
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     if (builtin.os != builtin.Os.windows) {
@@ -1938,48 +1980,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("switch on int",
-        \\int switch_fn(int i) {
-        \\    int res = 0;
-        \\    switch (i) {
-        \\        case 0:
-        \\            res = 1;
-        \\        case 1:
-        \\            res = 2;
-        \\        default:
-        \\            res = 3 * i;
-        \\            break;
-        \\        case 2:
-        \\            res = 5;
-        \\    }
-        \\}
-    , &[_][]const u8{
-        \\pub fn switch_fn(i: c_int) c_int {
-        \\    var res: c_int = 0;
-        \\    __switch: {
-        \\        __case_2: {
-        \\            __default: {
-        \\                __case_1: {
-        \\                    __case_0: {
-        \\                        switch (i) {
-        \\                            0 => break :__case_0,
-        \\                            1 => break :__case_1,
-        \\                            else => break :__default,
-        \\                            2 => break :__case_2,
-        \\                        }
-        \\                    }
-        \\                    res = 1;
-        \\                }
-        \\                res = 2;
-        \\            }
-        \\            res = (3 * i);
-        \\            break :__switch;
-        \\        }
-        \\        res = 5;
-        \\    }
-        \\}
-    });
-
     cases.addC("implicit casts",
         \\#include <stdbool.h>
         \\
@@ -2236,5 +2236,47 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define NRF_GPIO ((NRF_GPIO_Type *) NRF_GPIO_BASE)
     , &[_][]const u8{
         \\pub const NRF_GPIO = if (@typeId(@TypeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Pointer) @ptrCast([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@TypeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Int) @intToPtr([*c]NRF_GPIO_Type, NRF_GPIO_BASE) else @as([*c]NRF_GPIO_Type, NRF_GPIO_BASE);
+    });
+
+    cases.add("switch on int",
+        \\int switch_fn(int i) {
+        \\    int res = 0;
+        \\    switch (i) {
+        \\        case 0:
+        \\            res = 1;
+        \\        case 1:
+        \\            res = 2;
+        \\        default:
+        \\            res = 3 * i;
+        \\            break;
+        \\        case 2:
+        \\            res = 5;
+        \\    }
+        \\}
+    , &[_][]const u8{
+        \\pub fn switch_fn(i: c_int) c_int {
+        \\    var res: c_int = 0;
+        \\    __switch: {
+        \\        __case_2: {
+        \\            __default: {
+        \\                __case_1: {
+        \\                    __case_0: {
+        \\                        switch (i) {
+        \\                            0 => break :__case_0,
+        \\                            1 => break :__case_1,
+        \\                            else => break :__default,
+        \\                            2 => break :__case_2,
+        \\                        }
+        \\                    }
+        \\                    res = 1;
+        \\                }
+        \\                res = 2;
+        \\            }
+        \\            res = (3 * i);
+        \\            break :__switch;
+        \\        }
+        \\        res = 5;
+        \\    }
+        \\}
     });
 }
