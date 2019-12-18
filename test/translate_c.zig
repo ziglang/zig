@@ -1494,6 +1494,35 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add_2("field access expression",
+        \\#define ARROW a->b
+        \\#define DOT a.b
+        \\extern struct Foo {
+        \\    int b;
+        \\}a;
+        \\float b = 2.0f;
+        \\int foo(void) {
+        \\    struct Foo *c;
+        \\    a.b;
+        \\    c->b;
+        \\}
+    , &[_][]const u8{
+        \\pub const struct_Foo = extern struct {
+        \\    b: c_int,
+        \\};
+        \\pub extern var a: struct_Foo;
+        \\pub export var b: f32 = 2;
+        \\pub export fn foo() c_int {
+        \\    var c: [*c]struct_Foo = undefined;
+        \\    _ = a.b;
+        \\    _ = c.*.b;
+        \\}
+    ,
+        \\pub const DOT = a.b;
+    ,
+        \\pub const ARROW = a.*.b;
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     cases.addAllowWarnings("simple data types",
@@ -1699,22 +1728,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() void {
         \\    bar();
         \\    _ = baz();
-        \\}
-    });
-
-    cases.addC("field access expression",
-        \\struct Foo {
-        \\    int field;
-        \\};
-        \\int read_field(struct Foo *foo) {
-        \\    return foo->field;
-        \\}
-    , &[_][]const u8{
-        \\pub const struct_Foo = extern struct {
-        \\    field: c_int,
-        \\};
-        \\pub export fn read_field(foo: [*c]struct_Foo) c_int {
-        \\    return foo.*.field;
         \\}
     });
 
@@ -2625,6 +2638,22 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        var a: c_int = 1;
         \\        break :x a;
         \\    };
+        \\}
+    });
+
+    cases.addC("field access expression",
+        \\struct Foo {
+        \\    int field;
+        \\};
+        \\int read_field(struct Foo *foo) {
+        \\    return foo->field;
+        \\}
+    , &[_][]const u8{
+        \\pub const struct_Foo = extern struct {
+        \\    field: c_int,
+        \\};
+        \\pub export fn read_field(foo: [*c]struct_Foo) c_int {
+        \\    return foo.*.field;
         \\}
     });
 }

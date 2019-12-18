@@ -49,9 +49,6 @@ const Scope = struct {
         Root,
         Condition,
         FnDef,
-
-        /// used when getting a member `a.b`
-        Ref,
         Loop,
     };
 
@@ -181,7 +178,6 @@ const Scope = struct {
     fn getAlias(scope: *Scope, name: []const u8) ?[]const u8 {
         return switch (scope.id) {
             .Root => null,
-            .Ref => null,
             .FnDef => @fieldParentPtr(FnDef, "base", scope).getAlias(name),
             .Block => @fieldParentPtr(Block, "base", scope).getAlias(name),
             .Switch, .Loop, .Condition => scope.parent.?.getAlias(name),
@@ -190,7 +186,6 @@ const Scope = struct {
 
     fn contains(scope: *Scope, name: []const u8) bool {
         return switch (scope.id) {
-            .Ref => false,
             .Root => @fieldParentPtr(Root, "base", scope).contains(name),
             .FnDef => @fieldParentPtr(FnDef, "base", scope).contains(name),
             .Block => @fieldParentPtr(Block, "base", scope).contains(name),
@@ -230,7 +225,6 @@ const Context = struct {
     decl_table: DeclTable,
     alias_list: AliasList,
     global_scope: *Scope.Root,
-    ptr_params: std.BufSet,
     clang_context: *ZigClangASTContext,
     mangle_count: u64 = 0,
 
@@ -316,7 +310,6 @@ pub fn translate(
         .decl_table = DeclTable.init(arena),
         .alias_list = AliasList.init(arena),
         .global_scope = try arena.create(Scope.Root),
-        .ptr_params = std.BufSet.init(arena),
         .clang_context = ZigClangASTUnit_getASTContext(ast_unit).?,
     };
     context.global_scope.* = Scope.Root.init(&context);
@@ -856,6 +849,7 @@ fn transStmt(
         .PredefinedExprClass => return transPredefinedExpr(rp, scope, @ptrCast(*const ZigClangPredefinedExpr, stmt), result_used),
         .CharacterLiteralClass => return transCharLiteral(rp, scope, @ptrCast(*const ZigClangCharacterLiteral, stmt), result_used),
         .StmtExprClass => return transStmtExpr(rp, scope, @ptrCast(*const ZigClangStmtExpr, stmt), result_used),
+        .MemberExprClass => return transMemberExpr(rp, scope, @ptrCast(*const ZigClangMemberExpr, stmt), result_used),
         else => {
             return revertAndWarn(
                 rp,
@@ -1147,7 +1141,6 @@ fn transDeclRefExpr(
     const value_decl = ZigClangDeclRefExpr_getDecl(expr);
     const name = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, value_decl)));
     const checked_name = if (scope.getAlias(name)) |a| a else name;
-    if (lrvalue == .l_value) try rp.c.ptr_params.put(checked_name);
     return transCreateNodeIdentifier(rp.c, checked_name);
 }
 
@@ -1990,6 +1983,18 @@ fn transStmtExpr(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangStmtExpr,
     return maybeSuppressResult(rp, scope, used, &grouped_expr.base);
 }
 
+fn transMemberExpr(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangMemberExpr, result_used: ResultUsed) TransError!*ast.Node {
+    var container_node = try transExpr(rp, scope, ZigClangMemberExpr_getBase(stmt), .used, .r_value);
+
+    if (ZigClangMemberExpr_isArrow(stmt)) {
+        container_node = try transCreateNodePtrDeref(rp.c, container_node);
+    }
+
+    const name = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, ZigClangMemberExpr_getMemberDecl(stmt))));
+    const node = try transCreateNodeFieldAccess(rp.c, container_node, name);
+    return maybeSuppressResult(rp, scope, result_used, node);
+}
+
 fn transCPtrCast(
     rp: RestorePoint,
     loc: ZigClangSourceLocation,
@@ -2213,8 +2218,8 @@ fn qualTypeToLog2IntRef(rp: RestorePoint, qt: ZigClangQualType, source_loc: ZigC
     import_fn_call.rparen_token = try appendToken(rp.c, .RParen, ")");
 
     const inner_field_access = try transCreateNodeFieldAccess(rp.c, &import_fn_call.base, "math");
-    const outer_field_access = try transCreateNodeFieldAccess(rp.c, &inner_field_access.base, "Log2Int");
-    const log2int_fn_call = try transCreateNodeFnCall(rp.c, &outer_field_access.base);
+    const outer_field_access = try transCreateNodeFieldAccess(rp.c, inner_field_access, "Log2Int");
+    const log2int_fn_call = try transCreateNodeFnCall(rp.c, outer_field_access);
     try @ptrCast(*ast.Node.SuffixOp.Op.Call, &log2int_fn_call.op).params.push(zig_type_node);
     log2int_fn_call.rtoken = try appendToken(rp.c, .RParen, ")");
 
@@ -2446,7 +2451,7 @@ fn transCreateNodeFnCall(c: *Context, fn_expr: *ast.Node) !*ast.Node.SuffixOp {
     return node;
 }
 
-fn transCreateNodeFieldAccess(c: *Context, container: *ast.Node, field_name: []const u8) !*ast.Node.InfixOp {
+fn transCreateNodeFieldAccess(c: *Context, container: *ast.Node, field_name: []const u8) !*ast.Node {
     const field_access_node = try c.a().create(ast.Node.InfixOp);
     field_access_node.* = .{
         .op_token = try appendToken(c, .Period, "."),
@@ -2454,7 +2459,7 @@ fn transCreateNodeFieldAccess(c: *Context, container: *ast.Node, field_name: []c
         .op = .Period,
         .rhs = try transCreateNodeIdentifier(c, field_name),
     };
-    return field_access_node;
+    return &field_access_node.base;
 }
 
 fn transCreateNodePrefixOp(
@@ -2924,9 +2929,9 @@ fn transCreateNodeShiftOp(
     rp: RestorePoint,
     scope: *Scope,
     stmt: *const ZigClangBinaryOperator,
-    comptime op: ast.Node.InfixOp.Op,
-    comptime op_tok_id: std.zig.Token.Id,
-    comptime bytes: []const u8,
+    op: ast.Node.InfixOp.Op,
+    op_tok_id: std.zig.Token.Id,
+    bytes: []const u8,
 ) !*ast.Node {
     std.debug.assert(op == .BitShiftLeft or op == .BitShiftRight);
 
@@ -2954,6 +2959,16 @@ fn transCreateNodeShiftOp(
         .rhs = &as_node.base,
     };
 
+    return &node.base;
+}
+
+fn transCreateNodePtrDeref(c: *Context, lhs: *ast.Node) !*ast.Node {
+    const node = try c.a().create(ast.Node.SuffixOp);
+    node.* = .{
+        .lhs = .{ .node = lhs },
+        .op = .Deref,
+        .rtoken = try appendToken(c, .PeriodAsterisk, ".*"),
+    };
     return &node.base;
 }
 
@@ -3862,16 +3877,21 @@ fn parseCSuffixOpExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc
                         .{},
                     );
 
-                const op_token = try appendToken(rp.c, .Period, ".");
-                const rhs = try transCreateNodeIdentifier(rp.c, name_tok.bytes);
-                const access_node = try rp.c.a().create(ast.Node.InfixOp);
-                access_node.* = .{
-                    .op_token = op_token,
-                    .lhs = node,
-                    .op = .Period,
-                    .rhs = rhs,
-                };
-                node = &access_node.base;
+                node = try transCreateNodeFieldAccess(rp.c, node, name_tok.bytes);
+            },
+            .Arrow => {
+                const name_tok = it.next().?;
+                if (name_tok.id != .Identifier)
+                    return revertAndWarn(
+                        rp,
+                        error.ParseError,
+                        source_loc,
+                        "unable to translate C expr",
+                        .{},
+                    );
+
+                const deref = try transCreateNodePtrDeref(rp.c, node);
+                node = try transCreateNodeFieldAccess(rp.c, deref, name_tok.bytes);
             },
             .Asterisk => {
                 if (it.peek().?.id == .RParen) {
@@ -3887,14 +3907,14 @@ fn parseCSuffixOpExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc
                     // expr * expr
                     const op_token = try appendToken(rp.c, .Asterisk, "*");
                     const rhs = try parseCPrimaryExpr(rp, it, source_loc, scope);
-                    const bitshift_node = try rp.c.a().create(ast.Node.InfixOp);
-                    bitshift_node.* = .{
+                    const mul_node = try rp.c.a().create(ast.Node.InfixOp);
+                    mul_node.* = .{
                         .op_token = op_token,
                         .lhs = node,
                         .op = .BitShiftLeft,
                         .rhs = rhs,
                     };
-                    node = &bitshift_node.base;
+                    node = &mul_node.base;
                 }
             },
             .Shl => {
@@ -3938,13 +3958,7 @@ fn parseCPrefixOpExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc
         },
         .Asterisk => {
             const prefix_op_expr = try parseCPrefixOpExpr(rp, it, source_loc, scope);
-            const node = try rp.c.a().create(ast.Node.SuffixOp);
-            node.* = .{
-                .lhs = .{ .node = prefix_op_expr },
-                .op = .Deref,
-                .rtoken = try appendToken(rp.c, .PeriodAsterisk, ".*"),
-            };
-            return &node.base;
+            return try transCreateNodePtrDeref(rp.c, prefix_op_expr);
         },
         else => {
             _ = it.prev();

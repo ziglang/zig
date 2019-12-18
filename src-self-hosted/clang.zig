@@ -1096,5 +1096,9 @@ pub extern fn ZigClangCharacterLiteral_getBeginLoc(*const ZigClangCharacterLiter
 pub extern fn ZigClangCharacterLiteral_getKind(*const ZigClangCharacterLiteral) ZigClangCharacterLiteral_CharacterKind;
 pub extern fn ZigClangCharacterLiteral_getValue(*const ZigClangCharacterLiteral) c_uint;
 
-pub extern fn ZigClangStmtExpr_getSubStmt( *const ZigClangStmtExpr) *const ZigClangCompoundStmt;
+pub extern fn ZigClangStmtExpr_getSubStmt(*const ZigClangStmtExpr) *const ZigClangCompoundStmt;
+
+pub extern fn ZigClangMemberExpr_getBase(*const ZigClangMemberExpr) *const ZigClangExpr;
+pub extern fn ZigClangMemberExpr_isArrow(*const ZigClangMemberExpr) bool;
+pub extern fn ZigClangMemberExpr_getMemberDecl(*const ZigClangMemberExpr) *const ZigClangValueDecl;
 
