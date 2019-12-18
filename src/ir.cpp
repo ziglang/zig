@@ -2967,18 +2967,21 @@ static IrInstruction *ir_build_memcpy(IrBuilder *irb, Scope *scope, AstNode *sou
 }
 
 static IrInstruction *ir_build_slice_src(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction *ptr, IrInstruction *start, IrInstruction *end, bool safety_check_on, ResultLoc *result_loc)
+    IrInstruction *ptr, IrInstruction *start, IrInstruction *end, IrInstruction *sentinel,
+    bool safety_check_on, ResultLoc *result_loc)
 {
     IrInstructionSliceSrc *instruction = ir_build_instruction<IrInstructionSliceSrc>(irb, scope, source_node);
     instruction->ptr = ptr;
     instruction->start = start;
     instruction->end = end;
+    instruction->sentinel = sentinel;
     instruction->safety_check_on = safety_check_on;
     instruction->result_loc = result_loc;
 
     ir_ref_instruction(ptr, irb->current_basic_block);
     ir_ref_instruction(start, irb->current_basic_block);
     if (end) ir_ref_instruction(end, irb->current_basic_block);
+    if (sentinel) ir_ref_instruction(sentinel, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -8483,6 +8486,7 @@ static IrInstruction *ir_gen_slice(IrBuilder *irb, Scope *scope, AstNode *node, 
     AstNode *array_node = slice_expr->array_ref_expr;
     AstNode *start_node = slice_expr->start;
     AstNode *end_node = slice_expr->end;
+    AstNode *sentinel_node = slice_expr->sentinel;
 
     IrInstruction *ptr_value = ir_gen_node_extra(irb, array_node, scope, LValPtr, nullptr);
     if (ptr_value == irb->codegen->invalid_instruction)
@@ -8501,7 +8505,17 @@ static IrInstruction *ir_gen_slice(IrBuilder *irb, Scope *scope, AstNode *node, 
         end_value = nullptr;
     }
 
-    IrInstruction *slice = ir_build_slice_src(irb, scope, node, ptr_value, start_value, end_value, true, result_loc);
+    IrInstruction *sentinel_value;
+    if (sentinel_node) {
+        sentinel_value = ir_gen_node(irb, sentinel_node, scope);
+        if (sentinel_value == irb->codegen->invalid_instruction)
+            return irb->codegen->invalid_instruction;
+    } else {
+        sentinel_value = nullptr;
+    }
+
+    IrInstruction *slice = ir_build_slice_src(irb, scope, node, ptr_value, start_value, end_value,
+            sentinel_value, true, result_loc);
     return ir_lval_wrap(irb, scope, slice, lval, result_loc);
 }
 
@@ -10531,6 +10545,18 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
         }
         if ((err = type_resolve(g, wanted_ptr_type->data.pointer.child_type, ResolveStatusAlignmentKnown))) {
             result.id = ConstCastResultIdInvalid;
+            return result;
+        }
+        bool ok_sentinels =
+            wanted_ptr_type->data.pointer.sentinel == nullptr ||
+            (actual_ptr_type->data.pointer.sentinel != nullptr &&
+             const_values_equal(ira->codegen, wanted_ptr_type->data.pointer.sentinel,
+                 actual_ptr_type->data.pointer.sentinel));
+        if (!ok_sentinels) {
+            result.id = ConstCastResultIdPtrSentinel;
+            result.data.bad_ptr_sentinel = allocate_nonzero<ConstCastPtrSentinel>(1);
+            result.data.bad_ptr_sentinel->wanted_type = wanted_ptr_type;
+            result.data.bad_ptr_sentinel->actual_type = actual_ptr_type;
             return result;
         }
         if ((!actual_ptr_type->data.pointer.is_const || wanted_ptr_type->data.pointer.is_const) &&
@@ -19313,6 +19339,20 @@ static ZigType *adjust_ptr_align(CodeGen *g, ZigType *ptr_type, uint32_t new_ali
             ptr_type->data.pointer.sentinel);
 }
 
+static ZigType *adjust_ptr_sentinel(CodeGen *g, ZigType *ptr_type, ZigValue *new_sentinel) {
+    assert(ptr_type->id == ZigTypeIdPointer);
+    return get_pointer_to_type_extra2(g,
+            ptr_type->data.pointer.child_type,
+            ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
+            ptr_type->data.pointer.ptr_len,
+            ptr_type->data.pointer.explicit_alignment,
+            ptr_type->data.pointer.bit_offset_in_host, ptr_type->data.pointer.host_int_bytes,
+            ptr_type->data.pointer.allow_zero,
+            ptr_type->data.pointer.vector_index,
+            ptr_type->data.pointer.inferred_struct_field,
+            new_sentinel);
+}
+
 static ZigType *adjust_slice_align(CodeGen *g, ZigType *slice_type, uint32_t new_align) {
     assert(is_slice(slice_type));
     ZigType *ptr_type = adjust_ptr_align(g, slice_type->data.structure.fields[slice_ptr_index]->type_entry,
@@ -25051,48 +25091,68 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
         end = nullptr;
     }
 
-    ZigType *return_type;
+    ZigType *non_sentinel_slice_ptr_type;
+    ZigType *elem_type;
 
     if (array_type->id == ZigTypeIdArray) {
+        elem_type = array_type->data.array.child_type;
         bool is_comptime_const = ptr_ptr->value->special == ConstValSpecialStatic &&
             ptr_ptr->value->data.x_ptr.mut == ConstPtrMutComptimeConst;
-        ZigType *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, array_type->data.array.child_type,
+        non_sentinel_slice_ptr_type = get_pointer_to_type_extra(ira->codegen, elem_type,
             ptr_ptr_type->data.pointer.is_const || is_comptime_const,
             ptr_ptr_type->data.pointer.is_volatile,
             PtrLenUnknown,
             ptr_ptr_type->data.pointer.explicit_alignment, 0, 0, false);
-        return_type = get_slice_type(ira->codegen, slice_ptr_type);
     } else if (array_type->id == ZigTypeIdPointer) {
         if (array_type->data.pointer.ptr_len == PtrLenSingle) {
             ZigType *main_type = array_type->data.pointer.child_type;
             if (main_type->id == ZigTypeIdArray) {
-                ZigType *slice_ptr_type = get_pointer_to_type_extra(ira->codegen,
-                        main_type->data.pointer.child_type,
+                elem_type = main_type->data.pointer.child_type;
+                non_sentinel_slice_ptr_type = get_pointer_to_type_extra(ira->codegen,
+                        elem_type,
                         array_type->data.pointer.is_const, array_type->data.pointer.is_volatile,
                         PtrLenUnknown,
                         array_type->data.pointer.explicit_alignment, 0, 0, false);
-                return_type = get_slice_type(ira->codegen, slice_ptr_type);
             } else {
                 ir_add_error(ira, &instruction->base, buf_sprintf("slice of single-item pointer"));
                 return ira->codegen->invalid_instruction;
             }
         } else {
+            elem_type = array_type->data.pointer.child_type;
             if (array_type->data.pointer.ptr_len == PtrLenC) {
                 array_type = adjust_ptr_len(ira->codegen, array_type, PtrLenUnknown);
             }
-            return_type = get_slice_type(ira->codegen, array_type);
+            non_sentinel_slice_ptr_type = array_type;
             if (!end) {
                 ir_add_error(ira, &instruction->base, buf_sprintf("slice of pointer must include end value"));
                 return ira->codegen->invalid_instruction;
             }
         }
     } else if (is_slice(array_type)) {
-        ZigType *ptr_type = array_type->data.structure.fields[slice_ptr_index]->type_entry;
-        return_type = get_slice_type(ira->codegen, ptr_type);
+        non_sentinel_slice_ptr_type = array_type->data.structure.fields[slice_ptr_index]->type_entry;
+        elem_type = non_sentinel_slice_ptr_type->data.pointer.child_type;
     } else {
         ir_add_error(ira, &instruction->base,
             buf_sprintf("slice of non-array type '%s'", buf_ptr(&array_type->name)));
         return ira->codegen->invalid_instruction;
+    }
+
+    ZigType *return_type;
+    ZigValue *sentinel_val = nullptr;
+    if (instruction->sentinel) {
+        IrInstruction *uncasted_sentinel = instruction->sentinel->child;
+        if (type_is_invalid(uncasted_sentinel->value->type))
+            return ira->codegen->invalid_instruction;
+        IrInstruction *sentinel = ir_implicit_cast(ira, uncasted_sentinel, elem_type);
+        if (type_is_invalid(sentinel->value->type))
+            return ira->codegen->invalid_instruction;
+        sentinel_val = ir_resolve_const(ira, sentinel, UndefBad);
+        if (sentinel_val == nullptr)
+            return ira->codegen->invalid_instruction;
+        ZigType *slice_ptr_type = adjust_ptr_sentinel(ira->codegen, non_sentinel_slice_ptr_type, sentinel_val);
+        return_type = get_slice_type(ira->codegen, slice_ptr_type);
+    } else {
+        return_type = get_slice_type(ira->codegen, non_sentinel_slice_ptr_type);
     }
 
     if (instr_is_comptime(ptr_ptr) &&

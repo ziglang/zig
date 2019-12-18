@@ -231,9 +231,10 @@ pub const Allocator = struct {
     pub fn free(self: *Allocator, memory: var) void {
         const Slice = @typeInfo(@TypeOf(memory)).Pointer;
         const bytes = @sliceToBytes(memory);
-        if (bytes.len == 0) return;
+        const bytes_len = bytes.len + @boolToInt(Slice.sentinel != null);
+        if (bytes_len == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
-        const shrink_result = self.shrinkFn(self, non_const_ptr[0..bytes.len], Slice.alignment, 0, 1);
+        const shrink_result = self.shrinkFn(self, non_const_ptr[0..bytes_len], Slice.alignment, 0, 1);
         assert(shrink_result.len == 0);
     }
 };

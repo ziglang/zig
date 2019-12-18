@@ -2,6 +2,17 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("slice sentinel mismatch",
+        \\fn foo() [:0]u8 {
+        \\    var x: []u8 = undefined;
+        \\    return x;
+        \\}
+        \\comptime { _ = foo; }
+    , &[_][]const u8{
+        "tmp.zig:3:12: error: expected type '[:0]u8', found '[]u8'",
+        "tmp.zig:3:12: note: destination pointer requires a terminating '0' sentinel",
+    });
+
     cases.add("intToPtr with misaligned address",
         \\pub fn main() void {
         \\    var y = @intToPtr([*]align(4) u8, 5);
