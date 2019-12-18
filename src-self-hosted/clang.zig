@@ -839,6 +839,7 @@ pub extern fn ZigClangFunctionType_getReturnType(self: *const ZigClangFunctionTy
 pub extern fn ZigClangFunctionProtoType_isVariadic(self: *const struct_ZigClangFunctionProtoType) bool;
 pub extern fn ZigClangFunctionProtoType_getNumParams(self: *const struct_ZigClangFunctionProtoType) c_uint;
 pub extern fn ZigClangFunctionProtoType_getParamType(self: *const struct_ZigClangFunctionProtoType, i: c_uint) ZigClangQualType;
+pub extern fn ZigClangFunctionProtoType_getReturnType(self: *const ZigClangFunctionProtoType) ZigClangQualType;
 
 pub const ZigClangSourceLocation = struct_ZigClangSourceLocation;
 pub const ZigClangQualType = struct_ZigClangQualType;
@@ -993,6 +994,7 @@ pub extern fn ZigClangIncompleteArrayType_getElementType(*const ZigClangIncomple
 pub extern fn ZigClangConstantArrayType_getElementType(self: *const struct_ZigClangConstantArrayType) ZigClangQualType;
 pub extern fn ZigClangConstantArrayType_getSize(self: *const struct_ZigClangConstantArrayType) *const struct_ZigClangAPInt;
 pub extern fn ZigClangDeclRefExpr_getDecl(*const ZigClangDeclRefExpr) *const ZigClangValueDecl;
+pub extern fn ZigClangDeclRefExpr_getFoundDecl(*const ZigClangDeclRefExpr) *const ZigClangNamedDecl;
 
 pub extern fn ZigClangParenType_getInnerType(*const ZigClangParenType) ZigClangQualType;
 
@@ -1104,4 +1106,8 @@ pub extern fn ZigClangMemberExpr_getMemberDecl(*const ZigClangMemberExpr) *const
 
 pub extern fn ZigClangArraySubscriptExpr_getBase(*const ZigClangArraySubscriptExpr) *const ZigClangExpr;
 pub extern fn ZigClangArraySubscriptExpr_getIdx(*const ZigClangArraySubscriptExpr) *const ZigClangExpr;
+
+pub extern fn ZigClangCallExpr_getCallee(*const ZigClangCallExpr) *const ZigClangExpr;
+pub extern fn ZigClangCallExpr_getNumArgs(*const ZigClangCallExpr) c_uint;
+pub extern fn ZigClangCallExpr_getArgs(*const ZigClangCallExpr) [*]const *const ZigClangExpr;
 

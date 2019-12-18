@@ -851,6 +851,7 @@ fn transStmt(
         .StmtExprClass => return transStmtExpr(rp, scope, @ptrCast(*const ZigClangStmtExpr, stmt), result_used),
         .MemberExprClass => return transMemberExpr(rp, scope, @ptrCast(*const ZigClangMemberExpr, stmt), result_used),
         .ArraySubscriptExprClass => return transArrayAccess(rp, scope, @ptrCast(*const ZigClangArraySubscriptExpr, stmt), result_used),
+        .CallExprClass => return transCallExpr(rp, scope, @ptrCast(*const ZigClangCallExpr, stmt), result_used),
         else => {
             return revertAndWarn(
                 rp,
@@ -2002,6 +2003,73 @@ fn transArrayAccess(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangArrayS
     node.op.ArrayAccess = try transExpr(rp, scope, ZigClangArraySubscriptExpr_getIdx(stmt), .used, .r_value);
     node.rtoken = try appendToken(rp.c, .RBrace, "]");
     return maybeSuppressResult(rp, scope, result_used, &node.base);
+}
+
+fn transCallExpr(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangCallExpr, result_used: ResultUsed) TransError!*ast.Node {
+    const callee = ZigClangCallExpr_getCallee(stmt);
+    var raw_fn_expr = try transExpr(rp, scope, callee, .used, .r_value);
+
+    var is_ptr = false;
+    const fn_ty = qualTypeGetFnProto(ZigClangExpr_getType(callee), &is_ptr);
+
+    const fn_expr = if (is_ptr and fn_ty != null) blk: {
+        if (ZigClangExpr_getStmtClass(callee) == .ImplicitCastExprClass) {
+            const implicit_cast = @ptrCast(*const ZigClangImplicitCastExpr, callee);
+
+            if (ZigClangImplicitCastExpr_getCastKind(implicit_cast) == .FunctionToPointerDecay) {
+                const subexpr = ZigClangImplicitCastExpr_getSubExpr(implicit_cast);
+                if (ZigClangExpr_getStmtClass(subexpr) == .DeclRefExprClass) {
+                    const decl_ref = @ptrCast(*const ZigClangDeclRefExpr, subexpr);
+                    const named_decl = ZigClangDeclRefExpr_getFoundDecl(decl_ref);
+                    if (ZigClangDecl_getKind(@ptrCast(*const ZigClangDecl, named_decl)) == .Function) {
+                        break :blk raw_fn_expr;
+                    }
+                }
+            }
+        }
+        break :blk try transCreateNodeUnwrapNull(rp.c, raw_fn_expr);
+    } else
+        raw_fn_expr;
+    const node = try transCreateNodeFnCall(rp.c, fn_expr);
+
+    const num_args = ZigClangCallExpr_getNumArgs(stmt);
+    const args = ZigClangCallExpr_getArgs(stmt);
+    var i: usize = 0;
+    while (i < num_args) : (i+=1) {
+        if (i != 0) {
+            _ = try appendToken(rp.c, .Comma, ",");
+        }
+        const arg = try transExpr(rp, scope, args[i], .used, .r_value);
+        try node.op.Call.params.push(arg);
+    }
+    node.rtoken = try appendToken(rp.c, .RParen, ")");
+
+    if (fn_ty) |ty| {
+        const canon = ZigClangQualType_getCanonicalType(ZigClangFunctionProtoType_getReturnType(ty));
+        const ret_ty = ZigClangQualType_getTypePtr(canon);
+        if (ZigClangType_isVoidType(ret_ty)) {
+            _ = try appendToken(rp.c, .Semicolon, ";");
+            return &node.base;
+        }
+    }
+    
+    return maybeSuppressResult(rp, scope, result_used, &node.base);
+}
+
+fn qualTypeGetFnProto(qt: ZigClangQualType, is_ptr: *bool) ?*const ZigClangFunctionProtoType {
+    const canon = ZigClangQualType_getCanonicalType(qt);
+    var ty = ZigClangQualType_getTypePtr(canon);
+    is_ptr.* = false;
+
+    if (ZigClangType_getTypeClass(ty) == .Pointer) {
+        is_ptr.* = true;
+        const child_qt = ZigClangType_getPointeeType(ty);
+        ty = ZigClangQualType_getTypePtr(child_qt);
+    }
+    if (ZigClangType_getTypeClass(ty) == .FunctionProto) {
+        return @ptrCast(*const ZigClangFunctionProtoType, ty);
+    }
+    return null;
 }
 
 fn transCPtrCast(
@@ -3946,6 +4014,22 @@ fn parseCSuffixOpExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc
                 node = &arr_node.base;
                 if (it.next().?.id != .RBrace)
                     return error.ParseError;
+            },
+            .LParen => {
+                const call_node = try transCreateNodeFnCall(rp.c, node);
+                while (true) {
+                    const arg = try parseCExpr(rp, it, source_loc, scope);
+                    try call_node.op.Call.params.push(arg);
+                    const next = it.next().?;
+                    if (next.id == .Comma)
+                        _ = try appendToken(rp.c, .Comma, ",")
+                    else if (next.id == .RParen)
+                        break
+                    else
+                        return error.ParseError;
+                }
+                call_node.rtoken = try appendToken(rp.c, .RParen, ")");
+                node = &call_node.base;
             },
             else => {
                 _ = it.prev();

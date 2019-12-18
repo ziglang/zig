@@ -702,6 +702,20 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.addC_both("function call",
+        \\static void bar(void) { }
+        \\void foo(int *(baz)(void)) {
+        \\    bar();
+        \\    baz();
+        \\}
+    , &[_][]const u8{
+        \\pub fn bar() void {}
+        \\pub export fn foo(baz: ?extern fn () [*c]c_int) void {
+        \\    bar();
+        \\    _ = baz.?();
+        \\}
+    });
+
     /////////////// Cases that pass for only stage2 ////////////////
 
     cases.add_2("Parameterless function prototypes",
@@ -1538,6 +1552,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const ACCESS = array[2];
     });
 
+    cases.add_2("macro call",
+        \\#define CALL(arg) bar(arg)
+    , &[_][]const u8{
+        \\pub inline fn CALL(arg: var) @TypeOf(bar(arg)) {
+        \\    return bar(arg);
+        \\}
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     cases.addAllowWarnings("simple data types",
@@ -1725,24 +1747,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        a >>= @as(u5, 1);
         \\    }
         \\    return i;
-        \\}
-    });
-
-    cases.addC("function call",
-        \\static void bar(void) { }
-        \\static int baz(void) { return 0; }
-        \\void foo(void) {
-        \\    bar();
-        \\    baz();
-        \\}
-    , &[_][]const u8{
-        \\pub fn bar() void {}
-        \\pub fn baz() c_int {
-        \\    return 0;
-        \\}
-        \\pub export fn foo() void {
-        \\    bar();
-        \\    _ = baz();
         \\}
     });
 
