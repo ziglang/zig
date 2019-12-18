@@ -855,6 +855,7 @@ fn transStmt(
         .ConstantExprClass => return transConstantExpr(rp, scope, @ptrCast(*const ZigClangExpr, stmt), result_used),
         .PredefinedExprClass => return transPredefinedExpr(rp, scope, @ptrCast(*const ZigClangPredefinedExpr, stmt), result_used),
         .CharacterLiteralClass => return transCharLiteral(rp, scope, @ptrCast(*const ZigClangCharacterLiteral, stmt), result_used),
+        .StmtExprClass => return transStmtExpr(rp, scope, @ptrCast(*const ZigClangStmtExpr, stmt), result_used),
         else => {
             return revertAndWarn(
                 rp,
@@ -1165,11 +1166,8 @@ fn transImplicitCastExpr(
             const src_type = getExprQualType(c, sub_expr);
             return transCCast(rp, scope, ZigClangImplicitCastExpr_getBeginLoc(expr), dest_type, src_type, sub_expr_node);
         },
-        .FunctionToPointerDecay, .ArrayToPointerDecay => {
+        .LValueToRValue, .NoOp, .FunctionToPointerDecay, .ArrayToPointerDecay => {
             return maybeSuppressResult(rp, scope, result_used, sub_expr_node);
-        },
-        .LValueToRValue, .NoOp => {
-            return transExpr(rp, scope, sub_expr, .used, .r_value);
         },
         .NullToPointer => {
             return try transCreateNodeNullLiteral(rp.c);
@@ -1958,6 +1956,38 @@ fn transCharLiteral(
         ),
         else => unreachable,
     }
+}
+
+fn transStmtExpr(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangStmtExpr, used: ResultUsed) TransError!*ast.Node {
+    const comp = ZigClangStmtExpr_getSubStmt(stmt);
+    if (used == .unused) {
+        return transCompoundStmt(rp, scope, comp);
+    }
+    const lparen = try appendToken(rp.c, .LParen, "(");
+    const block_scope = try Scope.Block.init(rp.c, scope, "blk");
+    const block = try transCreateNodeBlock(rp.c, "blk");
+    block_scope.block_node = block;
+
+    var it = ZigClangCompoundStmt_body_begin(comp);
+    const end_it = ZigClangCompoundStmt_body_end(comp);
+    while (it != end_it - 1) : (it += 1) {
+        const result = try transStmt(rp, &block_scope.base, it[0], .unused, .r_value);
+        if (result != &block.base)
+            try block.statements.push(result);
+    }
+    const break_node = try transCreateNodeBreak(rp.c, "blk");
+    break_node.rhs = try transStmt(rp, &block_scope.base, it[0], .used, .r_value);
+    _ = try appendToken(rp.c, .Semicolon, ";");
+    try block.statements.push(&break_node.base);
+    block.rbrace = try appendToken(rp.c, .RBrace, "}");
+    const rparen = try appendToken(rp.c, .RParen, ")");
+    const grouped_expr = try rp.c.a().create(ast.Node.GroupedExpression);
+    grouped_expr.* = .{
+        .lparen = lparen,
+        .expr = &block.base,
+        .rparen = rparen,
+    };
+    return maybeSuppressResult(rp, scope, used, &grouped_expr.base);
 }
 
 fn transCPtrCast(

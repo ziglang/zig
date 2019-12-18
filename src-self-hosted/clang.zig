@@ -79,6 +79,7 @@ pub const ZigClangPreprocessingRecord = @OpaqueType();
 pub const ZigClangFloatingLiteral = @OpaqueType();
 pub const ZigClangConstantExpr = @OpaqueType();
 pub const ZigClangCharacterLiteral = @OpaqueType();
+pub const ZigClangStmtExpr = @OpaqueType();
 
 pub const ZigClangBO = extern enum {
     PtrMemD,
@@ -1094,4 +1095,6 @@ pub extern fn ZigClangPredefinedExpr_getFunctionName(*const ZigClangPredefinedEx
 pub extern fn ZigClangCharacterLiteral_getBeginLoc(*const ZigClangCharacterLiteral) ZigClangSourceLocation;
 pub extern fn ZigClangCharacterLiteral_getKind(*const ZigClangCharacterLiteral) ZigClangCharacterLiteral_CharacterKind;
 pub extern fn ZigClangCharacterLiteral_getValue(*const ZigClangCharacterLiteral) c_uint;
+
+pub extern fn ZigClangStmtExpr_getSubStmt( *const ZigClangStmtExpr) *const ZigClangCompoundStmt;
 

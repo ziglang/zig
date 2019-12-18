@@ -1476,6 +1476,24 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add_2("statement expression",
+        \\int foo(void) {
+        \\    return ({
+        \\        int a = 1;
+        \\        a;
+        \\        a;
+        \\    });
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    return (blk: {
+        \\        var a: c_int = 1;
+        \\        _ = a;
+        \\        break :blk a;
+        \\    });
+        \\}
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     cases.addAllowWarnings("simple data types",
@@ -1720,22 +1738,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn size_of() usize {
         \\    return @sizeOf(c_int);
-        \\}
-    });
-
-    cases.addC("statement expression",
-        \\int foo(void) {
-        \\    return ({
-        \\        int a = 1;
-        \\        a;
-        \\    });
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo() c_int {
-        \\    return x: {
-        \\        var a: c_int = 1;
-        \\        break :x a;
-        \\    };
         \\}
     });
 
@@ -2607,6 +2609,22 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn max(a: c_int, b: c_int) c_int {
         \\    return (a & b) ^ (a | b);
+        \\}
+    });
+
+    cases.addC("statement expression",
+        \\int foo(void) {
+        \\    return ({
+        \\        int a = 1;
+        \\        a;
+        \\    });
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    return x: {
+        \\        var a: c_int = 1;
+        \\        break :x a;
+        \\    };
         \\}
     });
 }
