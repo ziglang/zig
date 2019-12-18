@@ -1,69 +1,77 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
-const time = std.time;
-const os = std.os;
 
 pub const SpinLock = struct {
-    lock: u8, // TODO use a bool or enum
+    state: State,
+
+    const State = enum(u8) {
+        Unlocked,
+        Locked,
+    };
 
     pub const Held = struct {
         spinlock: *SpinLock,
 
         pub fn release(self: Held) void {
-            @atomicStore(u8, &self.spinlock.lock, 0, .Release);
+            @atomicStore(State, &self.spinlock.state, .Unlocked, .Release);
         }
     };
 
     pub fn init() SpinLock {
-        return SpinLock{ .lock = 0 };
+        return SpinLock{ .state = .Unlocked };
+    }
+
+    pub fn deinit(self: *SpinLock) void {
+        self.* = undefined;
+    }
+
+    pub fn tryAcquire(self: *SpinLock) ?Held {
+        return switch (@atomicRmw(State, &self.state, .Xchg, .Locked, .Acquire)) {
+            .Unlocked => Held{ .spinlock = self },
+            .Locked => null,
+        };
     }
 
     pub fn acquire(self: *SpinLock) Held {
-        var backoff = Backoff.init();
-        while (@atomicRmw(u8, &self.lock, .Xchg, 1, .Acquire) != 0)
-            backoff.yield();
-        return Held{ .spinlock = self };
+        while (true) {
+            return self.tryAcquire() orelse {
+                yield();
+                continue;
+            };
+        }
     }
 
-    pub fn yield(iterations: usize) void {
+    pub fn yield() void {
+        // On native windows, SwitchToThread is too expensive,
+        // and yielding for 380-410 iterations was found to be
+        // a nice sweet spot. Posix systems on the other hand,
+        // especially linux, perform better by yielding the thread.
+        switch (builtin.os) {
+            .windows => loopHint(400),
+            else => std.os.sched_yield() catch loopHint(1),
+        }
+    }
+
+    /// Hint to the cpu that execution is spinning
+    /// for the given amount of iterations.
+    pub fn loopHint(iterations: usize) void {
         var i = iterations;
         while (i != 0) : (i -= 1) {
             switch (builtin.arch) {
-                .i386, .x86_64 => asm volatile ("pause"),
-                .arm, .aarch64 => asm volatile ("yield"),
-                else => time.sleep(0),
+                // these instructions use a memory clobber as they
+                // flush the pipeline of any speculated reads/writes.
+                .i386, .x86_64 => asm volatile ("pause" ::: "memory"),
+                .arm, .aarch64 => asm volatile ("yield" ::: "memory"),
+                else => std.os.sched_yield() catch {},
             }
         }
     }
-
-    /// Provides a method to incrementally yield longer each time its called.
-    pub const Backoff = struct {
-        iteration: usize,
-
-        pub fn init() @This() {
-            return @This(){ .iteration = 0 };
-        }
-
-        /// Modified hybrid yielding from
-        /// http://www.1024cores.net/home/lock-free-algorithms/tricks/spinning
-        pub fn yield(self: *@This()) void {
-            defer self.iteration +%= 1;
-            if (self.iteration < 20) {
-                SpinLock.yield(self.iteration);
-            } else if (self.iteration < 24) {
-                os.sched_yield() catch time.sleep(1);
-            } else if (self.iteration < 26) {
-                time.sleep(1 * time.millisecond);
-            } else {
-                time.sleep(10 * time.millisecond);
-            }
-        }
-    };
 };
 
 test "spinlock" {
     var lock = SpinLock.init();
+    defer lock.deinit();
+
     const held = lock.acquire();
     defer held.release();
 }
