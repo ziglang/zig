@@ -954,13 +954,6 @@ fn transBinaryOperator(
     }
     const lhs_node = try transExpr(rp, scope, ZigClangBinaryOperator_getLHS(stmt), .used, .l_value);
     switch (op) {
-        .PtrMemD, .PtrMemI, .Cmp => return revertAndWarn(
-            rp,
-            error.UnsupportedTranslation,
-            ZigClangBinaryOperator_getBeginLoc(stmt),
-            "TODO: handle more C binary operators: {}",
-            .{op},
-        ),
         .Add => {
             if (cIsUnsignedInteger(qt)) {
                 op_token = try appendToken(rp.c, .PlusPercent, "+%");
@@ -1205,6 +1198,26 @@ fn transBoolExpr(
         undefined;
     var res = try transExpr(rp, scope, expr, used, lrvalue);
 
+    if (isBoolRes(res))
+        return res;
+    const ty = ZigClangQualType_getTypePtr(getExprQualTypeBeforeImplicitCast(rp.c, expr));
+    const node = try finishBoolExpr(rp, scope, ZigClangExpr_getBeginLoc(expr), ty, res, used);
+
+    if (grouped) {
+        const rparen = try appendToken(rp.c, .RParen, ")");
+        const grouped_expr = try rp.c.a().create(ast.Node.GroupedExpression);
+        grouped_expr.* = .{
+            .lparen = lparen,
+            .expr = node,
+            .rparen = rparen,
+        };
+        return maybeSuppressResult(rp, scope, used, &grouped_expr.base);
+    } else {
+        return maybeSuppressResult(rp, scope, used, node);
+    }
+}
+
+fn isBoolRes(res: *ast.Node) bool {
     switch (res.id) {
         .InfixOp => switch (@fieldParentPtr(ast.Node.InfixOp, "base", res).op) {
             .BoolOr,
@@ -1215,23 +1228,20 @@ fn transBoolExpr(
             .GreaterThan,
             .LessOrEqual,
             .GreaterOrEqual,
-            => return res,
+            => return true,
 
             else => {},
         },
-
         .PrefixOp => switch (@fieldParentPtr(ast.Node.PrefixOp, "base", res).op) {
-            .BoolNot => return res,
+            .BoolNot => return true,
 
             else => {},
         },
-
-        .BoolLiteral => return res,
-
+        .BoolLiteral => return true,
+        .GroupedExpression => return isBoolRes(@fieldParentPtr(ast.Node.GroupedExpression, "base", res).expr),
         else => {},
     }
-    const ty = ZigClangQualType_getTypePtr(getExprQualTypeBeforeImplicitCast(rp.c, expr));
-    return finishBoolExpr(rp, scope, ZigClangExpr_getBeginLoc(expr), ty, res, used, grouped);
+    return false;
 }
 
 fn finishBoolExpr(
@@ -1241,14 +1251,13 @@ fn finishBoolExpr(
     ty: *const ZigClangType,
     node: *ast.Node,
     used: ResultUsed,
-    grouped: bool,
 ) TransError!*ast.Node {
     switch (ZigClangType_getTypeClass(ty)) {
         .Builtin => {
             const builtin_ty = @ptrCast(*const ZigClangBuiltinType, ty);
 
             switch (ZigClangBuiltinType_getKind(builtin_ty)) {
-                .Bool,
+                .Bool => return node,
                 .Char_U,
                 .UChar,
                 .Char_S,
@@ -1276,12 +1285,12 @@ fn finishBoolExpr(
                 => {
                     const op_token = try appendToken(rp.c, .BangEqual, "!=");
                     const rhs_node = try transCreateNodeInt(rp.c, 0);
-                    return transCreateNodeInfixOp(rp, scope, node, .BangEqual, op_token, rhs_node, used, grouped);
+                    return transCreateNodeInfixOp(rp, scope, node, .BangEqual, op_token, rhs_node, used, false);
                 },
                 .NullPtr => {
                     const op_token = try appendToken(rp.c, .EqualEqual, "==");
                     const rhs_node = try transCreateNodeNullLiteral(rp.c);
-                    return transCreateNodeInfixOp(rp, scope, node, .EqualEqual, op_token, rhs_node, used, grouped);
+                    return transCreateNodeInfixOp(rp, scope, node, .EqualEqual, op_token, rhs_node, used, false);
                 },
                 else => {},
             }
@@ -1289,13 +1298,13 @@ fn finishBoolExpr(
         .Pointer => {
             const op_token = try appendToken(rp.c, .BangEqual, "!=");
             const rhs_node = try transCreateNodeNullLiteral(rp.c);
-            return transCreateNodeInfixOp(rp, scope, node, .BangEqual, op_token, rhs_node, used, grouped);
+            return transCreateNodeInfixOp(rp, scope, node, .BangEqual, op_token, rhs_node, used, false);
         },
         .Typedef => {
             const typedef_ty = @ptrCast(*const ZigClangTypedefType, ty);
             const typedef_decl = ZigClangTypedefType_getDecl(typedef_ty);
             const underlying_type = ZigClangTypedefNameDecl_getUnderlyingType(typedef_decl);
-            return finishBoolExpr(rp, scope, loc, ZigClangQualType_getTypePtr(underlying_type), node, used, grouped);
+            return finishBoolExpr(rp, scope, loc, ZigClangQualType_getTypePtr(underlying_type), node, used);
         },
         .Enum => {
             const enum_ty = @ptrCast(*const ZigClangEnumType, ty);
@@ -1305,12 +1314,12 @@ fn finishBoolExpr(
 
             const op_token = try appendToken(rp.c, .BangEqual, "!=");
             const rhs_node = try transCreateNodeInt(rp.c, 0);
-            return transCreateNodeInfixOp(rp, scope, &builtin_node.base, .BangEqual, op_token, rhs_node, used, grouped);
+            return transCreateNodeInfixOp(rp, scope, &builtin_node.base, .BangEqual, op_token, rhs_node, used, false);
         },
         .Elaborated => {
             const elaborated_ty = @ptrCast(*const ZigClangElaboratedType, ty);
             const named_type = ZigClangElaboratedType_getNamedType(elaborated_ty);
-            return finishBoolExpr(rp, scope, loc, ZigClangQualType_getTypePtr(named_type), node, used, grouped);
+            return finishBoolExpr(rp, scope, loc, ZigClangQualType_getTypePtr(named_type), node, used);
         },
         else => {},
     }
@@ -2009,8 +2018,8 @@ fn transFloatingLiteral(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangFl
 }
 
 fn transConditionalOperator(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangConditionalOperator, used: ResultUsed) TransError!*ast.Node {
-    const gropued = scope.id == .Condition;
-    const lparen = if (gropued) try appendToken(rp.c, .LParen, "(") else undefined;
+    const grouped = scope.id == .Condition;
+    const lparen = if (grouped) try appendToken(rp.c, .LParen, "(") else undefined;
     const if_node = try transCreateNodeIf(rp.c);
     var cond_scope = Scope{
         .parent = scope,
@@ -2029,7 +2038,7 @@ fn transConditionalOperator(rp: RestorePoint, scope: *Scope, stmt: *const ZigCla
     if_node.@"else" = try transCreateNodeElse(rp.c);
     if_node.@"else".?.body = try transExpr(rp, scope, false_expr, .used, .r_value);
 
-    if (gropued) {
+    if (grouped) {
         const rparen = try appendToken(rp.c, .RParen, ")");
         const grouped_expr = try rp.c.a().create(ast.Node.GroupedExpression);
         grouped_expr.* = .{

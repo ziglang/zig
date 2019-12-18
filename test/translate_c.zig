@@ -1400,17 +1400,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const Bar = enum_Bar;
     });
 
-    cases.add_2("bitwise binary operators, simpler parens", // TODO can combine with "bitwise binary operators" when parens are correctly preserved/not added in translate-c-2
+    cases.add_2("bitwise binary operators, simpler parens",
         \\int max(int a, int b) {
-        \\    int c = (a & b);
-        \\    int d = (a | b);
-        \\    return (c ^ d);
+        \\    return (a & b) ^ (a | b);
         \\}
     , &[_][]const u8{
         \\pub export fn max(a: c_int, b: c_int) c_int {
-        \\    var c: c_int = (a & b);
-        \\    var d: c_int = (a | b);
-        \\    return (c ^ d);
+        \\    return ((a & b) ^ (a | b));
         \\}
     });
 
@@ -1438,17 +1434,19 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add_2("==, !=, no if", // TODO remove this test after `if` conversion supported, and switch "==, !=" to addC_both
+    cases.add_2("==, !=",
         \\int max(int a, int b) {
-        \\    int c = (a == b);
-        \\    int d = (a != b);
-        \\    return (c != d);
+        \\    if (a == b)
+        \\        return a;
+        \\    if (a != b)
+        \\        return b;
+        \\    return a;
         \\}
     , &[_][]const u8{
         \\pub export fn max(a: c_int, b: c_int) c_int {
-        \\    var c: c_int = (a == b);
-        \\    var d: c_int = (a != b);
-        \\    return (c != d);
+        \\    if ((a == b)) return a;
+        \\    if ((a != b)) return b;
+        \\    return a;
         \\}
     });
 
@@ -1461,6 +1459,20 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() c_int {
         \\    var a: c_int = 1 << @as(@import("std").math.Log2Int(c_int), 2);
         \\    return a >> @as(@import("std").math.Log2Int(c_int), 1);
+        \\}
+    });
+
+    cases.add_2("typedeffed bool expression",
+        \\typedef char* yes;
+        \\void foo(void) {
+        \\    yes a;
+        \\    if (a) 2;
+        \\}
+    , &[_][]const u8{
+        \\pub const yes = [*c]u8;
+        \\pub export fn foo() void {
+        \\    var a: yes = undefined;
+        \\    if (a != null) _ = 2;
         \\}
     });
 
@@ -1572,31 +1584,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    if (a < b) return b;
         \\    if (a < b) return b else return a;
         \\    if (a < b) {} else {}
-        \\}
-    });
-
-    cases.addC("==, !=",
-        \\int max(int a, int b) {
-        \\    if (a == b)
-        \\        return a;
-        \\    if (a != b)
-        \\        return b;
-        \\    return a;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn max(a: c_int, b: c_int) c_int {
-        \\    if (a == b) return a;
-        \\    if (a != b) return b;
-        \\    return a;
-        \\}
-    });
-    cases.addC("bitwise binary operators",
-        \\int max(int a, int b) {
-        \\    return (a & b) ^ (a | b);
-        \\}
-    , &[_][]const u8{
-        \\pub export fn max(a: c_int, b: c_int) c_int {
-        \\    return (a & b) ^ (a | b);
         \\}
     });
 
@@ -2594,6 +2581,32 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        b -= 1;
         \\        if (!(b != 0)) break;
         \\    }
+        \\}
+    });
+
+    cases.addC("==, !=",
+        \\int max(int a, int b) {
+        \\    if (a == b)
+        \\        return a;
+        \\    if (a != b)
+        \\        return b;
+        \\    return a;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(a: c_int, b: c_int) c_int {
+        \\    if (a == b) return a;
+        \\    if (a != b) return b;
+        \\    return a;
+        \\}
+    });
+
+    cases.addC("bitwise binary operators",
+        \\int max(int a, int b) {
+        \\    return (a & b) ^ (a | b);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(a: c_int, b: c_int) c_int {
+        \\    return (a & b) ^ (a | b);
         \\}
     });
 }
