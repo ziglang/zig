@@ -741,6 +741,11 @@ pub const ZigClangPreprocessedEntity_EntityKind = extern enum {
     InclusionDirectiveKind,
 };
 
+pub const ZigClangExpr_ConstExprUsage = extern enum {
+    EvaluateForCodeGen,
+    EvaluateForMangling,
+};
+
 pub extern fn ZigClangSourceManager_getSpellingLoc(self: ?*const struct_ZigClangSourceManager, Loc: struct_ZigClangSourceLocation) struct_ZigClangSourceLocation;
 pub extern fn ZigClangSourceManager_getFilename(self: *const struct_ZigClangSourceManager, SpellingLoc: struct_ZigClangSourceLocation) ?[*:0]const u8;
 pub extern fn ZigClangSourceManager_getSpellingLineNumber(self: ?*const struct_ZigClangSourceManager, Loc: struct_ZigClangSourceLocation) c_uint;

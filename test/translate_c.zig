@@ -531,33 +531,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add_2("qualified struct and enum",
-        \\struct Foo {
-        \\    int x;
-        \\    int y;
-        \\};
-        \\enum Bar {
-        \\    BarA,
-        \\    BarB,
-        \\};
-        \\void func(struct Foo *a, enum Bar **b);
-    , &[_][]const u8{
-        \\pub const struct_Foo = extern struct {
-        \\    x: c_int,
-        \\    y: c_int,
-        \\};
-        \\pub const BarA = enum_Bar.A;
-        \\pub const BarB = enum_Bar.B;
-        \\pub const enum_Bar = extern enum {
-        \\    A,
-        \\    B,
-        \\};
-        \\pub extern fn func(a: [*c]struct_Foo, b: [*c][*c]enum_Bar) void;
-    ,
-        \\pub const Foo = struct_Foo;
-        \\pub const Bar = enum_Bar;
-    });
-
     cases.add_both("constant size array",
         \\void func(int array[20]);
     , &[_][]const u8{
@@ -1388,15 +1361,107 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var h: c_int = ((a != 0) or (b != 0));
         \\    var i: c_int = ((b != 0) or (c != null));
         \\    var j: c_int = ((a != 0) or (c != null));
-        \\    var k: c_int = ((a != 0) or (@as(c_int, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0))));
-        \\    var l: c_int = ((@as(c_int, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0))) and (b != 0));
-        \\    var m: c_int = ((c != null) or (@as(c_int, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0))));
+        \\    var k: c_int = ((a != 0) or (@enumToInt(@as(c_uint, d)) != 0));
+        \\    var l: c_int = ((@enumToInt(@as(c_uint, d)) != 0) and (b != 0));
+        \\    var m: c_int = ((c != null) or (@enumToInt(@as(c_uint, d)) != 0));
         \\    var td: SomeTypedef = 44;
         \\    var o: c_int = ((td != 0) or (b != 0));
         \\    var p: c_int = ((c != null) and (td != 0));
         \\    return ((((((((((e + f) + g) + h) + i) + j) + k) + l) + m) + o) + p);
         \\}
+    ,
         \\pub const Foo = enum_Foo;
+    });
+
+    cases.add_2("qualified struct and enum",
+        \\struct Foo {
+        \\    int x;
+        \\    int y;
+        \\};
+        \\enum Bar {
+        \\    BarA,
+        \\    BarB,
+        \\};
+        \\void func(struct Foo *a, enum Bar **b);
+    , &[_][]const u8{
+        \\pub const struct_Foo = extern struct {
+        \\    x: c_int,
+        \\    y: c_int,
+        \\};
+        \\pub const BarA = enum_Bar.A;
+        \\pub const BarB = enum_Bar.B;
+        \\pub const enum_Bar = extern enum {
+        \\    A,
+        \\    B,
+        \\};
+        \\pub extern fn func(a: [*c]struct_Foo, b: [*c][*c]enum_Bar) void;
+    ,
+        \\pub const Foo = struct_Foo;
+        \\pub const Bar = enum_Bar;
+    });
+
+    cases.add_2("bitwise binary operators, simpler parens", // TODO can combine with "bitwise binary operators" when parens are correctly preserved/not added in translate-c-2
+        \\int max(int a, int b) {
+        \\    int c = (a & b);
+        \\    int d = (a | b);
+        \\    return (c ^ d);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(a: c_int, b: c_int) c_int {
+        \\    var c: c_int = (a & b);
+        \\    var d: c_int = (a | b);
+        \\    return (c ^ d);
+        \\}
+    });
+
+    cases.add_2("comparison operators (no if)", // TODO Come up with less contrived tests? Make sure to cover all these comparisons. Can use `if` after it is added to translate-c-2
+        \\int test_comparisons(int a, int b) {
+        \\    int c = (a < b);
+        \\    int d = (a > b);
+        \\    int e = (a <= b);
+        \\    int f = (a >= b);
+        \\    int g = (c < d);
+        \\    int h = (e < f);
+        \\    int i = (g < h);
+        \\    return i;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn test_comparisons(a: c_int, b: c_int) c_int {
+        \\    var c: c_int = (a < b);
+        \\    var d: c_int = (a > b);
+        \\    var e: c_int = (a <= b);
+        \\    var f: c_int = (a >= b);
+        \\    var g: c_int = (c < d);
+        \\    var h: c_int = (e < f);
+        \\    var i: c_int = (g < h);
+        \\    return i;
+        \\}
+    });
+
+    cases.add_2("==, !=, no if", // TODO remove this test after `if` conversion supported, and switch "==, !=" to addC_both
+        \\int max(int a, int b) {
+        \\    int c = (a == b);
+        \\    int d = (a != b);
+        \\    return (c != d);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(a: c_int, b: c_int) c_int {
+        \\    var c: c_int = (a == b);
+        \\    var d: c_int = (a != b);
+        \\    return (c != d);
+        \\}
+    });
+
+    cases.add_2("bitshift, no parens", // TODO can fold this into "bitshift" once parens are preserved correctly in translate-c-2
+        \\int foo(void) {
+        \\    int a = (1 << 2);
+        \\    return a >> 1;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    var a: c_int = 1 << @as(@import("std").math.Log2Int(c_int), 2);
+        \\    return a >> @as(@import("std").math.Log2Int(c_int), 1);
+        \\}
     });
 
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
@@ -1525,21 +1590,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return a;
         \\}
     });
-
-    cases.add_2("==, !=, no if", // TODO remove this test after `if` conversion supported, and switch "==, !=" to addC_both
-        \\int max(int a, int b) {
-        \\    int c = (a == b);
-        \\    int d = (a != b);
-        \\    return (c != d);
-        \\}
-    , &[_][]const u8{
-        \\pub export fn max(a: c_int, b: c_int) c_int {
-        \\    var c: c_int = (a == b);
-        \\    var d: c_int = (a != b);
-        \\    return (c != d);
-        \\}
-    });
-
     cases.addC("bitwise binary operators",
         \\int max(int a, int b) {
         \\    return (a & b) ^ (a | b);
@@ -1547,20 +1597,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn max(a: c_int, b: c_int) c_int {
         \\    return (a & b) ^ (a | b);
-        \\}
-    });
-
-    cases.add_2("bitwise binary operators, simpler parens", // TODO can combine with "bitwise binary operators" when parens are correctly preserved/not added in translate-c-2
-        \\int max(int a, int b) {
-        \\    int c = (a & b);
-        \\    int d = (a | b);
-        \\    return (c ^ d);
-        \\}
-    , &[_][]const u8{
-        \\pub export fn max(a: c_int, b: c_int) c_int {
-        \\    var c: c_int = (a & b);
-        \\    var d: c_int = (a | b);
-        \\    return (c ^ d);
         \\}
     });
 
@@ -1577,30 +1613,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    if ((a < b) or (a == b)) return b;
         \\    if ((a >= b) and (a == b)) return a;
         \\    return a;
-        \\}
-    });
-
-    cases.add_2("comparison operators (no if)", // TODO Come up with less contrived tests? Make sure to cover all these comparisons. Can use `if` after it is added to translate-c-2
-        \\int test_comparisons(int a, int b) {
-        \\    int c = (a < b);
-        \\    int d = (a > b);
-        \\    int e = (a <= b);
-        \\    int f = (a >= b);
-        \\    int g = (c < d);
-        \\    int h = (e < f);
-        \\    int i = (g < h);
-        \\    return i;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn test_comparisons(a: c_int, b: c_int) c_int {
-        \\    var c: c_int = (a < b);
-        \\    var d: c_int = (a > b);
-        \\    var e: c_int = (a <= b);
-        \\    var f: c_int = (a >= b);
-        \\    var g: c_int = (c < d);
-        \\    var h: c_int = (e < f);
-        \\    var i: c_int = (g < h);
-        \\    return i;
         \\}
     });
 
@@ -1640,9 +1652,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var h: c_int = (a != 0) or (b != 0);
         \\    var i: c_int = (b != 0) or (c != null);
         \\    var j: c_int = (a != 0) or (c != null);
-        \\    var k: c_int = (a != 0) or (@as(c_int, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0)));
-        \\    var l: c_int = (@as(c_int, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0))) and (b != 0);
-        \\    var m: c_int = (c != null) or (@as(c_int, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0)));
+        \\    var k: c_int = (a != 0) or (@as(c_uint, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0)));
+        \\    var l: c_int = (@as(c_uint, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0))) and (b != 0);
+        \\    var m: c_int = (c != null) or (@as(c_uint, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0)));
         \\    return (((((((e + f) + g) + h) + i) + j) + k) + l) + m;
         \\}
     });
@@ -1757,18 +1769,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() c_int {
         \\    return (1 << @as(@import("std").math.Log2Int(c_int), 2)) >> @as(@import("std").math.Log2Int(c_int), 1);
-        \\}
-    });
-
-    cases.add_2("bitshift, no parens", // TODO can fold this into "bitshift" once parens are preserved correctly in translate-c-2
-        \\int foo(void) {
-        \\    int a = (1 << 2);
-        \\    return a >> 1;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo() c_int {
-        \\    var a: c_int = 1 << @as(@import("std").math.Log2Int(c_int), 2);
-        \\    return a >> @as(@import("std").math.Log2Int(c_int), 1);
         \\}
     });
 
