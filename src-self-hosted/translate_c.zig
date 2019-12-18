@@ -375,7 +375,8 @@ fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
 }
 
 fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
-    if (c.decl_table.contains(@ptrToInt(fn_decl))) return; // Avoid processing this decl twice
+    if (c.decl_table.contains(@ptrToInt(ZigClangFunctionDecl_getCanonicalDecl(fn_decl)))) 
+        return; // Avoid processing this decl twice
     const rp = makeRestorePoint(c);
     const fn_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, fn_decl)));
     _ = try c.decl_table.put(@ptrToInt(fn_decl), fn_name);
@@ -442,7 +443,8 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
 }
 
 fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
-    if (c.decl_table.contains(@ptrToInt(var_decl))) return; // Avoid processing this decl twice
+    if (c.decl_table.contains(@ptrToInt(ZigClangVarDecl_getCanonicalDecl(var_decl)))) 
+        return; // Avoid processing this decl twice
     const rp = makeRestorePoint(c);
     const visib_tok = try appendToken(c, .Keyword_pub, "pub");
 
@@ -1115,10 +1117,17 @@ fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt)
                 node.type_node = try transQualType(rp, qual_type, loc);
 
                 node.eq_token = try appendToken(c, .Equal, "=");
-                node.init_node = if (ZigClangVarDecl_getInit(var_decl)) |expr|
+                var init_node = if (ZigClangVarDecl_getInit(var_decl)) |expr|
                     try transExpr(rp, scope, expr, .used, .r_value)
                 else
                     try transCreateNodeUndefinedLiteral(c);
+                if (isBoolRes(init_node)) {
+                    const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@boolToInt");
+                    try builtin_node.params.push(init_node);
+                    builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+                    init_node = &builtin_node.base;
+                }
+                node.init_node = init_node;
                 node.semicolon_token = try appendToken(c, .Semicolon, ";");
                 try block_scope.block_node.statements.push(&node.base);
             },
@@ -1300,14 +1309,9 @@ fn finishBoolExpr(
             return finishBoolExpr(rp, scope, loc, ZigClangQualType_getTypePtr(underlying_type), node, used);
         },
         .Enum => {
-            const enum_ty = @ptrCast(*const ZigClangEnumType, ty);
-            const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@enumToInt");
-            try builtin_node.params.push(node);
-            builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-
             const op_token = try appendToken(rp.c, .BangEqual, "!=");
             const rhs_node = try transCreateNodeInt(rp.c, 0);
-            return transCreateNodeInfixOp(rp, scope, &builtin_node.base, .BangEqual, op_token, rhs_node, used, false);
+            return transCreateNodeInfixOp(rp, scope, node, .BangEqual, op_token, rhs_node, used, false);
         },
         .Elaborated => {
             const elaborated_ty = @ptrCast(*const ZigClangElaboratedType, ty);
@@ -1472,6 +1476,31 @@ fn transCCast(
         builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
         return &builtin_node.base;
     }
+    if (ZigClangQualType_getTypeClass(src_type) == .Elaborated) {
+        const elaborated_ty = @ptrCast(*const ZigClangElaboratedType, ZigClangQualType_getTypePtr(src_type));
+        return transCCast(rp, scope, loc, dst_type, ZigClangElaboratedType_getNamedType(elaborated_ty), expr);
+    }
+    if (ZigClangQualType_getTypeClass(dst_type) == .Elaborated) {
+        const elaborated_ty = @ptrCast(*const ZigClangElaboratedType, ZigClangQualType_getTypePtr(dst_type));
+        return transCCast(rp, scope, loc, ZigClangElaboratedType_getNamedType(elaborated_ty), src_type, expr);
+    }
+    if (ZigClangQualType_getTypeClass(src_type) == .Enum and
+        ZigClangQualType_getTypeClass(dst_type) != .Enum) {
+        const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@enumToInt");
+        try builtin_node.params.push(expr);
+        builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+        return &builtin_node.base;
+    }
+    // TODO
+    // if (ZigClangQualType_getTypeClass(dst_type) == .Enum and
+    //     ZigClangQualType_getTypeClass(src_type) != .Enum) {
+    //     const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@intToEnum");
+    //     try builtin_node.params.push(try transQualType(rp, dst_type, loc));
+    //     _ = try appendToken(rp.c, .Comma, ",");
+    //     try builtin_node.params.push(expr);
+    //     builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+    //     return &builtin_node.base;
+    // }
     // TODO: maybe widen to increase size
     // TODO: maybe bitcast to change sign
     // TODO: maybe truncate to reduce size
@@ -2443,7 +2472,13 @@ fn transCreateNodeAssign(
     if (result_used == .unused) {
         const lhs_node = try transExpr(rp, scope, lhs, .used, .l_value);
         const eq_token = try appendToken(rp.c, .Equal, "=");
-        const rhs_node = try transExpr(rp, scope, rhs, .used, .r_value);
+        var rhs_node = try transExpr(rp, scope, rhs, .used, .r_value);
+        if (isBoolRes(rhs_node)) {
+            const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@boolToInt");
+            try builtin_node.params.push(rhs_node);
+            builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+            rhs_node = &builtin_node.base;
+        }
         if (scope.id != .Condition)
             _ = try appendToken(rp.c, .Semicolon, ";");
 
@@ -2471,7 +2506,14 @@ fn transCreateNodeAssign(
 
     const node = try transCreateNodeVarDecl(rp.c, false, true, tmp);
     node.eq_token = try appendToken(rp.c, .Equal, "=");
-    node.init_node = try transExpr(rp, scope, rhs, .used, .r_value);
+    var rhs_node = try transExpr(rp, scope, rhs, .used, .r_value);
+    if (isBoolRes(rhs_node)) {
+        const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@boolToInt");
+        try builtin_node.params.push(rhs_node);
+        builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+        rhs_node = &builtin_node.base;
+    }
+    node.init_node = rhs_node;
     node.semicolon_token = try appendToken(rp.c, .Semicolon, ";");
     try block_scope.block_node.statements.push(&node.base);
 

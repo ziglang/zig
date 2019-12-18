@@ -716,6 +716,38 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.addC_both("while on non-bool",
+        \\int while_none_bool(int a, float b, void *c) {
+        \\    while (a) return 0;
+        \\    while (b) return 1;
+        \\    while (c) return 2;
+        \\    return 3;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn while_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
+        \\    while (a != 0) return 0;
+        \\    while (b != 0) return 1;
+        \\    while (c != null) return 2;
+        \\    return 3;
+        \\}
+    });
+
+    cases.addC_both("for on non-bool",
+        \\int for_none_bool(int a, float b, void *c) {
+        \\    for (;a;) return 0;
+        \\    for (;b;) return 1;
+        \\    for (;c;) return 2;
+        \\    return 3;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn for_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
+        \\    while (a != 0) return 0;
+        \\    while (b != 0) return 1;
+        \\    while (c != null) return 2;
+        \\    return 3;
+        \\}
+    });
+
     /////////////// Cases that pass for only stage2 ////////////////
 
     cases.add_2("Parameterless function prototypes",
@@ -1369,18 +1401,18 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const SomeTypedef = c_int;
         \\pub export fn and_or_non_bool(a: c_int, b: f32, c: ?*c_void) c_int {
         \\    var d: enum_Foo = @as(enum_Foo, FooA);
-        \\    var e: c_int = ((a != 0) and (b != 0));
-        \\    var f: c_int = ((b != 0) and (c != null));
-        \\    var g: c_int = ((a != 0) and (c != null));
-        \\    var h: c_int = ((a != 0) or (b != 0));
-        \\    var i: c_int = ((b != 0) or (c != null));
-        \\    var j: c_int = ((a != 0) or (c != null));
-        \\    var k: c_int = ((a != 0) or (@enumToInt(@as(c_uint, d)) != 0));
-        \\    var l: c_int = ((@enumToInt(@as(c_uint, d)) != 0) and (b != 0));
-        \\    var m: c_int = ((c != null) or (@enumToInt(@as(c_uint, d)) != 0));
+        \\    var e: c_int = @boolToInt(((a != 0) and (b != 0)));
+        \\    var f: c_int = @boolToInt(((b != 0) and (c != null)));
+        \\    var g: c_int = @boolToInt(((a != 0) and (c != null)));
+        \\    var h: c_int = @boolToInt(((a != 0) or (b != 0)));
+        \\    var i: c_int = @boolToInt(((b != 0) or (c != null)));
+        \\    var j: c_int = @boolToInt(((a != 0) or (c != null)));
+        \\    var k: c_int = @boolToInt(((a != 0) or (@enumToInt(d) != 0)));
+        \\    var l: c_int = @boolToInt(((@enumToInt(d) != 0) and (b != 0)));
+        \\    var m: c_int = @boolToInt(((c != null) or (@enumToInt(d) != 0)));
         \\    var td: SomeTypedef = 44;
-        \\    var o: c_int = ((td != 0) or (b != 0));
-        \\    var p: c_int = ((c != null) and (td != 0));
+        \\    var o: c_int = @boolToInt(((td != 0) or (b != 0)));
+        \\    var p: c_int = @boolToInt(((c != null) and (td != 0)));
         \\    return ((((((((((e + f) + g) + h) + i) + j) + k) + l) + m) + o) + p);
         \\}
     ,
@@ -1437,13 +1469,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub export fn test_comparisons(a: c_int, b: c_int) c_int {
-        \\    var c: c_int = (a < b);
-        \\    var d: c_int = (a > b);
-        \\    var e: c_int = (a <= b);
-        \\    var f: c_int = (a >= b);
-        \\    var g: c_int = (c < d);
-        \\    var h: c_int = (e < f);
-        \\    var i: c_int = (g < h);
+        \\    var c: c_int = @boolToInt((a < b));
+        \\    var d: c_int = @boolToInt((a > b));
+        \\    var e: c_int = @boolToInt((a <= b));
+        \\    var f: c_int = @boolToInt((a >= b));
+        \\    var g: c_int = @boolToInt((c < d));
+        \\    var h: c_int = @boolToInt((e < f));
+        \\    var i: c_int = @boolToInt((g < h));
         \\    return i;
         \\}
     });
@@ -1560,6 +1592,69 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add_2("logical and, logical or",
+        \\int max(int a, int b) {
+        \\    if (a < b || a == b)
+        \\        return b;
+        \\    if (a >= b && a == b)
+        \\        return a;
+        \\    return a;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(a: c_int, b: c_int) c_int {
+        \\    if (((a < b) or (a == b))) return b;
+        \\    if (((a >= b) and (a == b))) return a;
+        \\    return a;
+        \\}
+    });
+
+    cases.add_2("if statement",
+        \\int max(int a, int b) {
+        \\    if (a < b)
+        \\        return b;
+        \\
+        \\    if (a < b)
+        \\        return b;
+        \\    else
+        \\        return a;
+        \\
+        \\    if (a < b) ; else ;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(a: c_int, b: c_int) c_int {
+        \\    if ((a < b)) return b;
+        \\    if ((a < b)) return b else return a;
+        \\    if ((a < b)) {} else {}
+        \\}
+    });
+
+    cases.add_2("if on non-bool",
+        \\enum SomeEnum { A, B, C };
+        \\int if_none_bool(int a, float b, void *c, enum SomeEnum d) {
+        \\    if (a) return 0;
+        \\    if (b) return 1;
+        \\    if (c) return 2;
+        \\    if (d) return 3;
+        \\    return 4;
+        \\}
+    , &[_][]const u8{
+        \\pub const A = enum_SomeEnum.A;
+        \\pub const B = enum_SomeEnum.B;
+        \\pub const C = enum_SomeEnum.C;
+        \\pub const enum_SomeEnum = extern enum {
+        \\    A,
+        \\    B,
+        \\    C,
+        \\};
+        \\pub export fn if_none_bool(a: c_int, b: f32, c: ?*c_void, d: enum_SomeEnum) c_int {
+        \\    if (a != 0) return 0;
+        \\    if (b != 0) return 1;
+        \\    if (c != null) return 2;
+        \\    if (d != 0) return 3;
+        \\    return 4;
+        \\}
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     cases.addAllowWarnings("simple data types",
@@ -1648,85 +1743,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        a >>= @as(@import("std").math.Log2Int(c_uint), 1);
         \\    }
         \\    return i;
-        \\}
-    });
-
-    cases.addC("if statement",
-        \\int max(int a, int b) {
-        \\    if (a < b)
-        \\        return b;
-        \\
-        \\    if (a < b)
-        \\        return b;
-        \\    else
-        \\        return a;
-        \\
-        \\    if (a < b) ; else ;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn max(a: c_int, b: c_int) c_int {
-        \\    if (a < b) return b;
-        \\    if (a < b) return b else return a;
-        \\    if (a < b) {} else {}
-        \\}
-    });
-
-    cases.addC("logical and, logical or",
-        \\int max(int a, int b) {
-        \\    if (a < b || a == b)
-        \\        return b;
-        \\    if (a >= b && a == b)
-        \\        return a;
-        \\    return a;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn max(a: c_int, b: c_int) c_int {
-        \\    if ((a < b) or (a == b)) return b;
-        \\    if ((a >= b) and (a == b)) return a;
-        \\    return a;
-        \\}
-    });
-
-    cases.addC("logical and, logical or, on non-bool values", // Note this gets cut off by extra C symbols being injected in middle: `pub const Foo = enum_Foo;`
-        \\enum Foo {
-        \\    FooA,
-        \\    FooB,
-        \\    FooC,
-        \\};
-        \\int and_or_non_bool(int a, float b, void *c) {
-        \\    enum Foo d = FooA;
-        \\    int e = (a && b);
-        \\    int f = (b && c);
-        \\    int g = (a && c);
-        \\    int h = (a || b);
-        \\    int i = (b || c);
-        \\    int j = (a || c);
-        \\    int k = (a || d);
-        \\    int l = (d && b);
-        \\    int m = (c || d);
-        \\    return (((((((e + f) + g) + h) + i) + j) + k) + l) + m;
-        \\}
-    , &[_][]const u8{
-        \\pub const FooA = enum_Foo.A;
-        \\pub const FooB = enum_Foo.B;
-        \\pub const FooC = enum_Foo.C;
-        \\pub const enum_Foo = extern enum {
-        \\    A,
-        \\    B,
-        \\    C,
-        \\};
-        \\pub export fn and_or_non_bool(a: c_int, b: f32, c: ?*c_void) c_int {
-        \\    var d: enum_Foo = @as(enum_Foo, FooA);
-        \\    var e: c_int = (a != 0) and (b != 0);
-        \\    var f: c_int = (b != 0) and (c != null);
-        \\    var g: c_int = (a != 0) and (c != null);
-        \\    var h: c_int = (a != 0) or (b != 0);
-        \\    var i: c_int = (b != 0) or (c != null);
-        \\    var j: c_int = (a != 0) or (c != null);
-        \\    var k: c_int = (a != 0) or (@as(c_uint, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0)));
-        \\    var l: c_int = (@as(c_uint, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0))) and (b != 0);
-        \\    var m: c_int = (c != null) or (@as(c_uint, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0)));
-        \\    return (((((((e + f) + g) + h) + i) + j) + k) + l) + m;
         \\}
     });
 
@@ -2043,26 +2059,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("variable name shadowing",
-        \\int foo(void) {
-        \\    int x = 1;
-        \\    {
-        \\        int x = 2;
-        \\        x += 1;
-        \\    }
-        \\    return x;
-        \\}
-    , &[_][]const u8{
-        \\pub fn foo() c_int {
-        \\    var x: c_int = 1;
-        \\    {
-        \\        var x_0: c_int = 2;
-        \\        x_0 += 1;
-        \\    }
-        \\    return x;
-        \\}
-    });
-
     cases.add("bin not",
         \\int foo(int x) {
         \\    return ~x;
@@ -2096,65 +2092,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub fn foo(u32_0: c_int) c_int {
         \\    return u32_0;
-        \\}
-    });
-
-    cases.add("if on non-bool",
-        \\enum SomeEnum { A, B, C };
-        \\int if_none_bool(int a, float b, void *c, enum SomeEnum d) {
-        \\    if (a) return 0;
-        \\    if (b) return 1;
-        \\    if (c) return 2;
-        \\    if (d) return 3;
-        \\    return 4;
-        \\}
-    , &[_][]const u8{
-        \\pub const A = enum_SomeEnum.A;
-        \\pub const B = enum_SomeEnum.B;
-        \\pub const C = enum_SomeEnum.C;
-        \\pub const enum_SomeEnum = extern enum {
-        \\    A,
-        \\    B,
-        \\    C,
-        \\};
-        \\pub fn if_none_bool(a: c_int, b: f32, c: ?*c_void, d: enum_SomeEnum) c_int {
-        \\    if (a != 0) return 0;
-        \\    if (b != 0) return 1;
-        \\    if (c != null) return 2;
-        \\    if (d != @bitCast(enum_SomeEnum, @as(@TagType(enum_SomeEnum), 0))) return 3;
-        \\    return 4;
-        \\}
-    });
-
-    cases.add("while on non-bool",
-        \\int while_none_bool(int a, float b, void *c) {
-        \\    while (a) return 0;
-        \\    while (b) return 1;
-        \\    while (c) return 2;
-        \\    return 3;
-        \\}
-    , &[_][]const u8{
-        \\pub fn while_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
-        \\    while (a != 0) return 0;
-        \\    while (b != 0) return 1;
-        \\    while (c != null) return 2;
-        \\    return 3;
-        \\}
-    });
-
-    cases.add("for on non-bool",
-        \\int for_none_bool(int a, float b, void *c) {
-        \\    for (;a;) return 0;
-        \\    for (;b;) return 1;
-        \\    for (;c;) return 2;
-        \\    return 3;
-        \\}
-    , &[_][]const u8{
-        \\pub fn for_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
-        \\    while (a != 0) return 0;
-        \\    while (b != 0) return 1;
-        \\    while (c != null) return 2;
-        \\    return 3;
         \\}
     });
 
@@ -2673,6 +2610,132 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub var array: [100]c_int = undefined;
         \\pub export fn foo(index: c_int) c_int {
         \\    return array[index];
+        \\}
+    });
+
+    cases.addC("logical and, logical or",
+        \\int max(int a, int b) {
+        \\    if (a < b || a == b)
+        \\        return b;
+        \\    if (a >= b && a == b)
+        \\        return a;
+        \\    return a;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(a: c_int, b: c_int) c_int {
+        \\    if ((a < b) or (a == b)) return b;
+        \\    if ((a >= b) and (a == b)) return a;
+        \\    return a;
+        \\}
+    });
+
+    cases.addC("if statement",
+        \\int max(int a, int b) {
+        \\    if (a < b)
+        \\        return b;
+        \\
+        \\    if (a < b)
+        \\        return b;
+        \\    else
+        \\        return a;
+        \\
+        \\    if (a < b) ; else ;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(a: c_int, b: c_int) c_int {
+        \\    if (a < b) return b;
+        \\    if (a < b) return b else return a;
+        \\    if (a < b) {} else {}
+        \\}
+    });
+
+    cases.addC("logical and, logical or, on non-bool values", // Note this gets cut off by extra C symbols being injected in middle: `pub const Foo = enum_Foo;`
+        \\enum Foo {
+        \\    FooA,
+        \\    FooB,
+        \\    FooC,
+        \\};
+        \\int and_or_non_bool(int a, float b, void *c) {
+        \\    enum Foo d = FooA;
+        \\    int e = (a && b);
+        \\    int f = (b && c);
+        \\    int g = (a && c);
+        \\    int h = (a || b);
+        \\    int i = (b || c);
+        \\    int j = (a || c);
+        \\    int k = (a || d);
+        \\    int l = (d && b);
+        \\    int m = (c || d);
+        \\    return (((((((e + f) + g) + h) + i) + j) + k) + l) + m;
+        \\}
+    , &[_][]const u8{
+        \\pub const FooA = enum_Foo.A;
+        \\pub const FooB = enum_Foo.B;
+        \\pub const FooC = enum_Foo.C;
+        \\pub const enum_Foo = extern enum {
+        \\    A,
+        \\    B,
+        \\    C,
+        \\};
+        \\pub export fn and_or_non_bool(a: c_int, b: f32, c: ?*c_void) c_int {
+        \\    var d: enum_Foo = @as(enum_Foo, FooA);
+        \\    var e: c_int = (a != 0) and (b != 0);
+        \\    var f: c_int = (b != 0) and (c != null);
+        \\    var g: c_int = (a != 0) and (c != null);
+        \\    var h: c_int = (a != 0) or (b != 0);
+        \\    var i: c_int = (b != 0) or (c != null);
+        \\    var j: c_int = (a != 0) or (c != null);
+        \\    var k: c_int = (a != 0) or (@as(c_uint, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0)));
+        \\    var l: c_int = (@as(c_uint, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0))) and (b != 0);
+        \\    var m: c_int = (c != null) or (@as(c_uint, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0)));
+        \\    return (((((((e + f) + g) + h) + i) + j) + k) + l) + m;
+        \\}
+    });
+
+    cases.add("variable name shadowing",
+        \\int foo(void) {
+        \\    int x = 1;
+        \\    {
+        \\        int x = 2;
+        \\        x += 1;
+        \\    }
+        \\    return x;
+        \\}
+    , &[_][]const u8{
+        \\pub fn foo() c_int {
+        \\    var x: c_int = 1;
+        \\    {
+        \\        var x_0: c_int = 2;
+        \\        x_0 += 1;
+        \\    }
+        \\    return x;
+        \\}
+    });
+
+    cases.add("if on non-bool",
+        \\enum SomeEnum { A, B, C };
+        \\int if_none_bool(int a, float b, void *c, enum SomeEnum d) {
+        \\    if (a) return 0;
+        \\    if (b) return 1;
+        \\    if (c) return 2;
+        \\    if (d) return 3;
+        \\    return 4;
+        \\}
+    , &[_][]const u8{
+        \\pub const A = enum_SomeEnum.A;
+        \\pub const B = enum_SomeEnum.B;
+        \\pub const C = enum_SomeEnum.C;
+        \\pub const enum_SomeEnum = extern enum {
+        \\    A,
+        \\    B,
+        \\    C,
+        \\};
+        \\pub fn if_none_bool(a: c_int, b: f32, c: ?*c_void, d: enum_SomeEnum) c_int {
+        \\    if (a != 0) return 0;
+        \\    if (b != 0) return 1;
+        \\    if (c != null) return 2;
+        \\    if (d != @bitCast(enum_SomeEnum, @as(@TagType(enum_SomeEnum), 0))) return 3;
+        \\    return 4;
         \\}
     });
 }
