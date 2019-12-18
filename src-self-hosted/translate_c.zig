@@ -850,6 +850,7 @@ fn transStmt(
         .CharacterLiteralClass => return transCharLiteral(rp, scope, @ptrCast(*const ZigClangCharacterLiteral, stmt), result_used),
         .StmtExprClass => return transStmtExpr(rp, scope, @ptrCast(*const ZigClangStmtExpr, stmt), result_used),
         .MemberExprClass => return transMemberExpr(rp, scope, @ptrCast(*const ZigClangMemberExpr, stmt), result_used),
+        .ArraySubscriptExprClass => return transArrayAccess(rp, scope, @ptrCast(*const ZigClangArraySubscriptExpr, stmt), result_used),
         else => {
             return revertAndWarn(
                 rp,
@@ -1523,7 +1524,7 @@ fn transInitListExpr(
     var cat_tok: ast.TokenIndex = undefined;
     if (init_count != 0) {
         const dot_tok = try appendToken(rp.c, .Period, ".");
-        init_node = try transCreateNodeArrayInitializer(rp.c, dot_tok);
+        init_node = try transCreateNodeContainerInitializer(rp.c, dot_tok);
         var i: c_uint = 0;
         while (i < init_count) : (i += 1) {
             const elem_expr = ZigClangInitListExpr_getInit(expr, i);
@@ -1538,7 +1539,7 @@ fn transInitListExpr(
     }
 
     const dot_tok = try appendToken(rp.c, .Period, ".");
-    var filler_init_node = try transCreateNodeArrayInitializer(rp.c, dot_tok);
+    var filler_init_node = try transCreateNodeContainerInitializer(rp.c, dot_tok);
     const filler_val_expr = ZigClangInitListExpr_getArrayFiller(expr);
     try filler_init_node.op.ArrayInitializer.push(try transExpr(rp, scope, filler_val_expr, .used, .r_value));
     filler_init_node.rtoken = try appendToken(rp.c, .RBrace, "}");
@@ -1993,6 +1994,14 @@ fn transMemberExpr(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangMemberE
     const name = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, ZigClangMemberExpr_getMemberDecl(stmt))));
     const node = try transCreateNodeFieldAccess(rp.c, container_node, name);
     return maybeSuppressResult(rp, scope, result_used, node);
+}
+
+fn transArrayAccess(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangArraySubscriptExpr, result_used: ResultUsed) TransError!*ast.Node {
+    const container_node = try transExpr(rp, scope, ZigClangArraySubscriptExpr_getBase(stmt), .used, .r_value);
+    const node = try transCreateNodeArrayAccess(rp.c, container_node);
+    node.op.ArrayAccess = try transExpr(rp, scope, ZigClangArraySubscriptExpr_getIdx(stmt), .used, .r_value);
+    node.rtoken = try appendToken(rp.c, .RBrace, "]");
+    return maybeSuppressResult(rp, scope, result_used, &node.base);
 }
 
 fn transCPtrCast(
@@ -2643,7 +2652,7 @@ fn transCreateNodeBoolLiteral(c: *Context, value: bool) !*ast.Node {
     return &node.base;
 }
 
-fn transCreateNodeArrayInitializer(c: *Context, dot_tok: ast.TokenIndex) !*ast.Node.SuffixOp {
+fn transCreateNodeContainerInitializer(c: *Context, dot_tok: ast.TokenIndex) !*ast.Node.SuffixOp {
     _ = try appendToken(c, .LBrace, "{");
     const node = try c.a().create(ast.Node.SuffixOp);
     node.* = ast.Node.SuffixOp{
@@ -2970,6 +2979,19 @@ fn transCreateNodePtrDeref(c: *Context, lhs: *ast.Node) !*ast.Node {
         .rtoken = try appendToken(c, .PeriodAsterisk, ".*"),
     };
     return &node.base;
+}
+
+fn transCreateNodeArrayAccess(c: *Context, lhs: *ast.Node) !*ast.Node.SuffixOp {
+    _  = try appendToken(c, .LBrace, "[");
+    const node = try c.a().create(ast.Node.SuffixOp);
+    node.* = .{
+        .lhs = .{ .node = lhs },
+        .op = .{
+            .ArrayAccess = undefined,
+        },
+        .rtoken = undefined,
+    };
+    return node;
 }
 
 const RestorePoint = struct {
@@ -3869,26 +3891,14 @@ fn parseCSuffixOpExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc
             .Dot => {
                 const name_tok = it.next().?;
                 if (name_tok.id != .Identifier)
-                    return revertAndWarn(
-                        rp,
-                        error.ParseError,
-                        source_loc,
-                        "unable to translate C expr",
-                        .{},
-                    );
+                    return error.ParseError;
 
                 node = try transCreateNodeFieldAccess(rp.c, node, name_tok.bytes);
             },
             .Arrow => {
                 const name_tok = it.next().?;
                 if (name_tok.id != .Identifier)
-                    return revertAndWarn(
-                        rp,
-                        error.ParseError,
-                        source_loc,
-                        "unable to translate C expr",
-                        .{},
-                    );
+                    return error.ParseError;
 
                 const deref = try transCreateNodePtrDeref(rp.c, node);
                 node = try transCreateNodeFieldAccess(rp.c, deref, name_tok.bytes);
@@ -3928,6 +3938,14 @@ fn parseCSuffixOpExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc
                     .rhs = rhs,
                 };
                 node = &bitshift_node.base;
+            },
+            .LBrace => {
+                const arr_node = try transCreateNodeArrayAccess(rp.c, node);
+                arr_node.op.ArrayAccess = try parseCPrimaryExpr(rp, it, source_loc, scope);
+                arr_node.rtoken = try appendToken(rp.c, .RBrace, "]");
+                node = &arr_node.base;
+                if (it.next().?.id != .RBrace)
+                    return error.ParseError;
             },
             else => {
                 _ = it.prev();

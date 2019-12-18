@@ -28,6 +28,8 @@ pub const CToken = struct {
         Comma,
         Fn,
         Arrow,
+        LBrace,
+        RBrace,
     };
 
     pub const NumLitSuffix = enum {
@@ -287,6 +289,14 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
                     },
                     ',' => {
                         result.id = .Comma;
+                        state = .Done;
+                    },
+                    '[' => {
+                        result.id = .LBrace;
+                        state = .Done;
+                    },
+                    ']' => {
+                        result.id = .RBrace;
                         state = .Done;
                     },
                     else => return error.TokenizingFailed,

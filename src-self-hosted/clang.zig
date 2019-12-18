@@ -1102,3 +1102,6 @@ pub extern fn ZigClangMemberExpr_getBase(*const ZigClangMemberExpr) *const ZigCl
 pub extern fn ZigClangMemberExpr_isArrow(*const ZigClangMemberExpr) bool;
 pub extern fn ZigClangMemberExpr_getMemberDecl(*const ZigClangMemberExpr) *const ZigClangValueDecl;
 
+pub extern fn ZigClangArraySubscriptExpr_getBase(*const ZigClangArraySubscriptExpr) *const ZigClangExpr;
+pub extern fn ZigClangArraySubscriptExpr_getIdx(*const ZigClangArraySubscriptExpr) *const ZigClangExpr;
+

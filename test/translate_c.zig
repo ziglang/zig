@@ -1523,6 +1523,21 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const ARROW = a.*.b;
     });
 
+    cases.add_2("array access",
+        \\#define ACCESS array[2]
+        \\int array[100] = {};
+        \\int foo(int index) {
+        \\    return array[index];
+        \\}
+    , &[_][]const u8{
+        \\pub export var array: [100]c_int = .{0} ** 100;
+        \\pub export fn foo(index: c_int) c_int {
+        \\    return array[index];
+        \\}
+    ,
+        \\pub const ACCESS = array[2];
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     cases.addAllowWarnings("simple data types",
@@ -1728,18 +1743,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() void {
         \\    bar();
         \\    _ = baz();
-        \\}
-    });
-
-    cases.addC("array access",
-        \\int array[100];
-        \\int foo(int index) {
-        \\    return array[index];
-        \\}
-    , &[_][]const u8{
-        \\pub var array: [100]c_int = undefined;
-        \\pub export fn foo(index: c_int) c_int {
-        \\    return array[index];
         \\}
     });
 
@@ -2654,6 +2657,18 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
         \\pub export fn read_field(foo: [*c]struct_Foo) c_int {
         \\    return foo.*.field;
+        \\}
+    });
+
+    cases.addC("array access",
+        \\int array[100];
+        \\int foo(int index) {
+        \\    return array[index];
+        \\}
+    , &[_][]const u8{
+        \\pub var array: [100]c_int = undefined;
+        \\pub export fn foo(index: c_int) c_int {
+        \\    return array[index];
         \\}
     });
 }
