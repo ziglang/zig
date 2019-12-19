@@ -1120,3 +1120,11 @@ pub extern fn ZigClangUnaryOperator_getOpcode(*const ZigClangUnaryOperator) ZigC
 pub extern fn ZigClangUnaryOperator_getType(*const ZigClangUnaryOperator) ZigClangQualType;
 pub extern fn ZigClangUnaryOperator_getSubExpr(*const ZigClangUnaryOperator) *const ZigClangExpr;
 pub extern fn ZigClangUnaryOperator_getBeginLoc(*const ZigClangUnaryOperator) ZigClangSourceLocation;
+
+pub extern fn ZigClangCompoundAssignOperator_getType(*const ZigClangCompoundAssignOperator) ZigClangQualType;
+pub extern fn ZigClangCompoundAssignOperator_getComputationLHSType(*const ZigClangCompoundAssignOperator) ZigClangQualType;
+pub extern fn ZigClangCompoundAssignOperator_getComputationResultType(*const ZigClangCompoundAssignOperator) ZigClangQualType;
+pub extern fn ZigClangCompoundAssignOperator_getBeginLoc(*const ZigClangCompoundAssignOperator) ZigClangSourceLocation;
+pub extern fn ZigClangCompoundAssignOperator_getOpcode(*const ZigClangCompoundAssignOperator) ZigClangBO;
+pub extern fn ZigClangCompoundAssignOperator_getLHS(*const ZigClangCompoundAssignOperator) *const ZigClangExpr;
+pub extern fn ZigClangCompoundAssignOperator_getRHS(*const ZigClangCompoundAssignOperator) *const ZigClangExpr;

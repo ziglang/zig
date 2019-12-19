@@ -898,6 +898,7 @@ fn transStmt(
         .CallExprClass => return transCallExpr(rp, scope, @ptrCast(*const ZigClangCallExpr, stmt), result_used),
         .UnaryExprOrTypeTraitExprClass => return transUnaryExprOrTypeTraitExpr(rp, scope, @ptrCast(*const ZigClangUnaryExprOrTypeTraitExpr, stmt), result_used),
         .UnaryOperatorClass => return transUnaryOperator(rp, scope, @ptrCast(*const ZigClangUnaryOperator, stmt), result_used),
+        .CompoundAssignOperatorClass => return transCompoundAssignOperator(rp, scope, @ptrCast(*const ZigClangCompoundAssignOperator, stmt), result_used),
         else => {
             return revertAndWarn(
                 rp,
@@ -2178,21 +2179,21 @@ fn transUnaryOperator(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangUnar
     const op_expr = ZigClangUnaryOperator_getSubExpr(stmt);
     switch (ZigClangUnaryOperator_getOpcode(stmt)) {
         .PostInc => if (qualTypeHaswrappingOverflow(ZigClangUnaryOperator_getType(stmt)))
-            return transCreatePostCrement(rp, scope, stmt, .AssignPlusWrap, .PlusPercentEqual, "+%=", used)
+            return transCreatePostCrement(rp, scope, stmt, .AssignAddWrap, .PlusPercentEqual, "+%=", used)
         else
-            return transCreatePostCrement(rp, scope, stmt, .AssignPlus, .PlusEqual, "+=", used),
+            return transCreatePostCrement(rp, scope, stmt, .AssignAdd, .PlusEqual, "+=", used),
         .PostDec => if (qualTypeHaswrappingOverflow(ZigClangUnaryOperator_getType(stmt)))
-            return transCreatePostCrement(rp, scope, stmt, .AssignMinusWrap, .MinusPercentEqual, "-%=", used)
+            return transCreatePostCrement(rp, scope, stmt, .AssignSubWrap, .MinusPercentEqual, "-%=", used)
         else
-            return transCreatePostCrement(rp, scope, stmt, .AssignMinus, .MinusEqual, "-=", used),
+            return transCreatePostCrement(rp, scope, stmt, .AssignSub, .MinusEqual, "-=", used),
         .PreInc => if (qualTypeHaswrappingOverflow(ZigClangUnaryOperator_getType(stmt)))
-            return transCreatePreCrement(rp, scope, stmt, .AssignPlusWrap, .PlusPercentEqual, "+%=", used)
+            return transCreatePreCrement(rp, scope, stmt, .AssignAddWrap, .PlusPercentEqual, "+%=", used)
         else
-            return transCreatePreCrement(rp, scope, stmt, .AssignPlus, .PlusEqual, "+=", used),
+            return transCreatePreCrement(rp, scope, stmt, .AssignAdd, .PlusEqual, "+=", used),
         .PreDec => if (qualTypeHaswrappingOverflow(ZigClangUnaryOperator_getType(stmt)))
-            return transCreatePreCrement(rp, scope, stmt, .AssignMinusWrap, .MinusPercentEqual, "-%=", used)
+            return transCreatePreCrement(rp, scope, stmt, .AssignSubWrap, .MinusPercentEqual, "-%=", used)
         else
-            return transCreatePreCrement(rp, scope, stmt, .AssignMinus, .MinusEqual, "-=", used),
+            return transCreatePreCrement(rp, scope, stmt, .AssignSub, .MinusEqual, "-=", used),
         .AddrOf => {
             const op_node = try transCreateNodePrefixOp(rp.c, .AddressOf, .Ampersand, "&");
             op_node.rhs = try transExpr(rp, scope, op_expr, used, .r_value);
@@ -2232,7 +2233,7 @@ fn transUnaryOperator(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangUnar
             op_node.rhs = try transBoolExpr(rp, scope, op_expr, .used, .r_value, true);
             return &op_node.base;
         },
-        else => return revertAndWarn(rp, error.UnsupportedTranslation, ZigClangUnaryOperator_getBeginLoc(stmt), "TODO handle C translation UO_Real", .{}),
+        else => return revertAndWarn(rp, error.UnsupportedTranslation, ZigClangUnaryOperator_getBeginLoc(stmt), "unsupported C translation {}", .{ZigClangUnaryOperator_getOpcode(stmt)}),
     }
 }
 
@@ -2353,10 +2354,126 @@ fn transCreatePostCrement(
     try block_scope.block_node.statements.push(assign);
 
     const break_node = try transCreateNodeBreak(rp.c, block_scope.label);
-    break_node.rhs = try transCreateNodeIdentifier(rp.c,tmp);
+    break_node.rhs = try transCreateNodeIdentifier(rp.c, tmp);
     try block_scope.block_node.statements.push(&break_node.base);
     _ = try appendToken(rp.c, .Semicolon, ";");
     block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
+    return &block_scope.block_node.base;
+}
+
+fn transCompoundAssignOperator(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangCompoundAssignOperator, used: ResultUsed) TransError!*ast.Node {
+    switch (ZigClangCompoundAssignOperator_getOpcode(stmt)) {
+        .MulAssign => if (qualTypeHaswrappingOverflow(ZigClangCompoundAssignOperator_getType(stmt)))
+            return transCreateCompoundAssign(rp, scope, stmt, .AssignMultWrap, .AsteriskPercentEqual, "*%=", .MultWrap, .AsteriskPercent, "*%", used)
+        else
+            return transCreateCompoundAssign(rp, scope, stmt, .AssignMult, .AsteriskEqual, "*=", .Mult, .Asterisk, "*", used),
+        .AddAssign => if (qualTypeHaswrappingOverflow(ZigClangCompoundAssignOperator_getType(stmt)))
+            return transCreateCompoundAssign(rp, scope, stmt, .AssignAddWrap, .PlusPercentEqual, "+%=", .AddWrap, .PlusPercent, "+%", used)
+        else
+            return transCreateCompoundAssign(rp, scope, stmt, .AssignAdd, .PlusEqual, "+=", .Add, .Plus, "+", used),
+        .SubAssign => if (qualTypeHaswrappingOverflow(ZigClangCompoundAssignOperator_getType(stmt)))
+            return transCreateCompoundAssign(rp, scope, stmt, .AssignSubWrap, .MinusPercentEqual, "-%=", .SubWrap, .MinusPercent, "-%", used)
+        else
+            return transCreateCompoundAssign(rp, scope, stmt, .AssignSub, .MinusPercentEqual, "-=", .Sub, .Minus, "-", used),
+        .ShlAssign => return transCreateCompoundAssign(rp, scope, stmt, .AssignBitShiftLeft, .AngleBracketAngleBracketLeftEqual, "<<=", .BitShiftLeft, .AngleBracketAngleBracketLeft, "<<", used),
+        .ShrAssign => return transCreateCompoundAssign(rp, scope, stmt, .AssignBitShiftRight, .AngleBracketAngleBracketRightEqual, ">>=", .BitShiftRight, .AngleBracketAngleBracketRight, ">>", used),
+        .AndAssign => return transCreateCompoundAssign(rp, scope, stmt, .AssignBitAnd, .AmpersandEqual, "&=", .BitAnd, .Ampersand, "&", used),
+        .XorAssign => return transCreateCompoundAssign(rp, scope, stmt, .AssignBitXor, .CaretEqual, "^=", .BitXor, .Caret, "^", used),
+        .OrAssign => return transCreateCompoundAssign(rp, scope, stmt, .AssignBitOr, .PipeEqual, "|=", .BitOr, .Pipe, "|", used),
+        else => return revertAndWarn(
+            rp,
+            error.UnsupportedTranslation,
+            ZigClangCompoundAssignOperator_getBeginLoc(stmt),
+            "unsupported C translation {}",
+            .{ZigClangCompoundAssignOperator_getOpcode(stmt)},
+        ),
+    }
+}
+
+fn transCreateCompoundAssign(
+    rp: RestorePoint,
+    scope: *Scope,
+    stmt: *const ZigClangCompoundAssignOperator,
+    assign_op: ast.Node.InfixOp.Op,
+    assign_tok_id: std.zig.Token.Id,
+    assign_bytes: []const u8,
+    bin_op: ast.Node.InfixOp.Op,
+    bin_tok_id: std.zig.Token.Id,
+    bin_bytes: []const u8,
+    used: ResultUsed,
+) TransError!*ast.Node {
+    const is_shift = bin_op == .BitShiftLeft or bin_op == .BitShiftRight;
+    const lhs = ZigClangCompoundAssignOperator_getLHS(stmt);
+    const rhs = ZigClangCompoundAssignOperator_getRHS(stmt);
+    const loc = ZigClangCompoundAssignOperator_getBeginLoc(stmt);
+    if (used == .unused) {
+        // common case
+        // c: lhs += rhs
+        // zig: lhs += rhs
+        const lhs_node = try transExpr(rp, scope, lhs, .used, .l_value);
+        const eq_token = try appendToken(rp.c, assign_tok_id, assign_bytes);
+        var rhs_node = try transExpr(rp, scope, rhs, .used, .r_value);
+
+        if (is_shift) {
+            const as_node = try transCreateNodeBuiltinFnCall(rp.c, "@as");
+            const rhs_type = try qualTypeToLog2IntRef(rp, getExprQualType(rp.c, rhs), loc);
+            try as_node.params.push(rhs_type);
+            _ = try appendToken(rp.c, .Comma, ",");
+            try as_node.params.push(rhs_node);
+            as_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+            rhs_node = &as_node.base;
+        }
+        if (scope.id != .Condition)
+            _ = try appendToken(rp.c, .Semicolon, ";");
+        return transCreateNodeInfixOp(rp, scope, lhs_node, assign_op, eq_token, rhs_node, .used, false);
+    }
+    // worst case
+    // c:   lhs += rhs
+    // zig: (blk: {
+    // zig:     const _ref = &lhs;
+    // zig:     _ref.* = _ref.* + rhs;
+    // zig:     break :blk _ref.*
+    // zig: })
+    const block_scope = try Scope.Block.init(rp.c, scope, "blk");
+    block_scope.block_node = try transCreateNodeBlock(rp.c, block_scope.label);
+    const ref = try std.fmt.allocPrint(rp.c.a(), "_ref_{}", .{rp.c.getMangle()});
+
+    const node = try transCreateNodeVarDecl(rp.c, false, true, ref);
+    node.eq_token = try appendToken(rp.c, .Equal, "=");
+    const addr_node = try transCreateNodePrefixOp(rp.c, .AddressOf, .Ampersand, "&");
+    addr_node.rhs = try transExpr(rp, scope, lhs, .used, .l_value);
+    node.init_node = &addr_node.base;
+    node.semicolon_token = try appendToken(rp.c, .Semicolon, ";");
+    try block_scope.block_node.statements.push(&node.base);
+
+    const lhs_node = try transCreateNodeIdentifier(rp.c, ref);
+    const ref_node = try transCreateNodePtrDeref(rp.c, lhs_node);
+    _ = try appendToken(rp.c, .Semicolon, ";");
+    const bin_token = try appendToken(rp.c, bin_tok_id, bin_bytes);
+    var rhs_node = try transExpr(rp, scope, rhs, .used, .r_value);
+    if (is_shift) {
+        const as_node = try transCreateNodeBuiltinFnCall(rp.c, "@as");
+        const rhs_type = try qualTypeToLog2IntRef(rp, getExprQualType(rp.c, rhs), loc);
+        try as_node.params.push(rhs_type);
+        _ = try appendToken(rp.c, .Comma, ",");
+        try as_node.params.push(rhs_node);
+        as_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+        rhs_node = &as_node.base;
+    }
+    const rhs_bin = try transCreateNodeInfixOp(rp, scope, ref_node, bin_op, bin_token, rhs_node, .used, false);
+
+    _ = try appendToken(rp.c, .Semicolon, ";");
+
+    const eq_token = try appendToken(rp.c, .Equal, "=");
+    const assign = try transCreateNodeInfixOp(rp, scope, ref_node, .Assign, eq_token, rhs_bin, .used, false);
+    try block_scope.block_node.statements.push(assign);
+
+    const break_node = try transCreateNodeBreak(rp.c, block_scope.label);
+    break_node.rhs = ref_node;
+    try block_scope.block_node.statements.push(&break_node.base);
+    block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
+    // semicolon must immediately follow rbrace because it is the last token in a block
+    _ = try appendToken(rp.c, .Semicolon, ";");
     return &block_scope.block_node.base;
 }
 
@@ -2585,7 +2702,7 @@ fn qualTypeToLog2IntRef(rp: RestorePoint, qt: ZigClangQualType, source_loc: ZigC
     const inner_field_access = try transCreateNodeFieldAccess(rp.c, &import_fn_call.base, "math");
     const outer_field_access = try transCreateNodeFieldAccess(rp.c, inner_field_access, "Log2Int");
     const log2int_fn_call = try transCreateNodeFnCall(rp.c, outer_field_access);
-    try @ptrCast(*ast.Node.SuffixOp.Op.Call, &log2int_fn_call.op).params.push(zig_type_node);
+    try @fieldParentPtr(ast.Node.SuffixOp, "base", &log2int_fn_call.base).op.Call.params.push(zig_type_node);
     log2int_fn_call.rtoken = try appendToken(rp.c, .RParen, ")");
 
     return &log2int_fn_call.base;
@@ -3317,7 +3434,7 @@ fn transCreateNodeShiftOp(
     const lhs_expr = ZigClangBinaryOperator_getLHS(stmt);
     const rhs_expr = ZigClangBinaryOperator_getRHS(stmt);
     const rhs_location = ZigClangExpr_getBeginLoc(rhs_expr);
-    // lhs >> u5(rh)
+    // lhs >> @as(u5, rh)
 
     const lhs = try transExpr(rp, scope, lhs_expr, .used, .l_value);
     const op_token = try appendToken(rp.c, op_tok_id, bytes);

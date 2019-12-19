@@ -1830,6 +1830,207 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add_2("shift right assign",
+        \\int log2(unsigned a) {
+        \\    int i = 0;
+        \\    while (a > 0) {
+        \\        a >>= 1;
+        \\    }
+        \\    return i;
+        \\}
+    , &[_][]const u8{// TODO function arguments should be copied
+        \\pub export fn log2(a: c_uint) c_int {
+        \\    var i: c_int = 0;
+        \\    while ((a > @as(c_uint, 0))) {
+        \\        a >>= @as(@import("std").math.Log2Int(c_int), 1);
+        \\    }
+        \\    return i;
+        \\}
+    });
+
+    cases.add_2("shift right assign with a fixed size type",
+        \\#include <stdint.h>
+        \\int log2(uint32_t a) {
+        \\    int i = 0;
+        \\    while (a > 0) {
+        \\        a >>= 1;
+        \\    }
+        \\    return i;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn log2(a: u32) c_int {
+        \\    var i: c_int = 0;
+        \\    while ((a > @as(c_uint, 0))) {
+        \\        a >>= @as(@import("std").math.Log2Int(c_int), 1);
+        \\    }
+        \\    return i;
+        \\}
+    });
+
+    cases.add_2("compound assignment operators",
+        \\void foo(void) {
+        \\    int a = 0;
+        \\    a += (a += 1);
+        \\    a -= (a -= 1);
+        \\    a *= (a *= 1);
+        \\    a &= (a &= 1);
+        \\    a |= (a |= 1);
+        \\    a ^= (a ^= 1);
+        \\    a >>= (a >>= 1);
+        \\    a <<= (a <<= 1);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var a: c_int = 0;
+        \\    a += (blk: {
+        \\        const _ref_1 = &a;
+        \\        _ref_1.* = _ref_1.* + 1;
+        \\        break :blk _ref_1.*;
+        \\    });
+        \\    a -= (blk: {
+        \\        const _ref_2 = &a;
+        \\        _ref_2.* = _ref_2.* - 1;
+        \\        break :blk _ref_2.*;
+        \\    });
+        \\    a *= (blk: {
+        \\        const _ref_3 = &a;
+        \\        _ref_3.* = _ref_3.* * 1;
+        \\        break :blk _ref_3.*;
+        \\    });
+        \\    a &= (blk: {
+        \\        const _ref_4 = &a;
+        \\        _ref_4.* = _ref_4.* & 1;
+        \\        break :blk _ref_4.*;
+        \\    });
+        \\    a |= (blk: {
+        \\        const _ref_5 = &a;
+        \\        _ref_5.* = _ref_5.* | 1;
+        \\        break :blk _ref_5.*;
+        \\    });
+        \\    a ^= (blk: {
+        \\        const _ref_6 = &a;
+        \\        _ref_6.* = _ref_6.* ^ 1;
+        \\        break :blk _ref_6.*;
+        \\    });
+        \\    a >>= @as(@import("std").math.Log2Int(c_int), (blk: {
+        \\        const _ref_7 = &a;
+        \\        _ref_7.* = _ref_7.* >> @as(@import("std").math.Log2Int(c_int), 1);
+        \\        break :blk _ref_7.*;
+        \\    }));
+        \\    a <<= @as(@import("std").math.Log2Int(c_int), (blk: {
+        \\        const _ref_8 = &a;
+        \\        _ref_8.* = _ref_8.* << @as(@import("std").math.Log2Int(c_int), 1);
+        \\        break :blk _ref_8.*;
+        \\    }));
+        \\}
+    });
+
+    cases.add_2("compound assignment operators unsigned",
+        \\void foo(void) {
+        \\    unsigned a = 0;
+        \\    a += (a += 1);
+        \\    a -= (a -= 1);
+        \\    a *= (a *= 1);
+        \\    a &= (a &= 1);
+        \\    a |= (a |= 1);
+        \\    a ^= (a ^= 1);
+        \\    a >>= (a >>= 1);
+        \\    a <<= (a <<= 1);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var a: c_uint = @as(c_uint, 0);
+        \\    a +%= (blk: {
+        \\        const _ref_1 = &a;
+        \\        _ref_1.* = _ref_1.* +% @as(c_uint, 1);
+        \\        break :blk _ref_1.*;
+        \\    });
+        \\    a -%= (blk: {
+        \\        const _ref_2 = &a;
+        \\        _ref_2.* = _ref_2.* -% @as(c_uint, 1);
+        \\        break :blk _ref_2.*;
+        \\    });
+        \\    a *%= (blk: {
+        \\        const _ref_3 = &a;
+        \\        _ref_3.* = _ref_3.* *% @as(c_uint, 1);
+        \\        break :blk _ref_3.*;
+        \\    });
+        \\    a &= (blk: {
+        \\        const _ref_4 = &a;
+        \\        _ref_4.* = _ref_4.* & @as(c_uint, 1);
+        \\        break :blk _ref_4.*;
+        \\    });
+        \\    a |= (blk: {
+        \\        const _ref_5 = &a;
+        \\        _ref_5.* = _ref_5.* | @as(c_uint, 1);
+        \\        break :blk _ref_5.*;
+        \\    });
+        \\    a ^= (blk: {
+        \\        const _ref_6 = &a;
+        \\        _ref_6.* = _ref_6.* ^ @as(c_uint, 1);
+        \\        break :blk _ref_6.*;
+        \\    });
+        \\    a >>= @as(@import("std").math.Log2Int(c_uint), (blk: {
+        \\        const _ref_7 = &a;
+        \\        _ref_7.* = _ref_7.* >> @as(@import("std").math.Log2Int(c_int), 1);
+        \\        break :blk _ref_7.*;
+        \\    }));
+        \\    a <<= @as(@import("std").math.Log2Int(c_uint), (blk: {
+        \\        const _ref_8 = &a;
+        \\        _ref_8.* = _ref_8.* << @as(@import("std").math.Log2Int(c_int), 1);
+        \\        break :blk _ref_8.*;
+        \\    }));
+        \\}
+    });
+
+    cases.add_2("post increment/decrement",
+        \\void foo(void) {
+        \\    int i = 0;
+        \\    unsigned u = 0;
+        \\    i++;
+        \\    i--;
+        \\    u++;
+        \\    u--;
+        \\    i = i++;
+        \\    i = i--;
+        \\    u = u++;
+        \\    u = u--;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var i: c_int = 0;
+        \\    var u: c_uint = @as(c_uint, 0);
+        \\    i += 1;
+        \\    i -= 1;
+        \\    u +%= 1;
+        \\    u -%= 1;
+        \\    i = blk: {
+        \\        const _ref_1 = &i;
+        \\        const _tmp_2 = _ref_1.*;
+        \\        _ref_1.* += 1;
+        \\        break :blk _tmp_2;
+        \\    };
+        \\    i = blk: {
+        \\        const _ref_3 = &i;
+        \\        const _tmp_4 = _ref_3.*;
+        \\        _ref_3.* -= 1;
+        \\        break :blk _tmp_4;
+        \\    };
+        \\    u = blk: {
+        \\        const _ref_5 = &u;
+        \\        const _tmp_6 = _ref_5.*;
+        \\        _ref_5.* +%= 1;
+        \\        break :blk _tmp_6;
+        \\    };
+        \\    u = blk: {
+        \\        const _ref_7 = &u;
+        \\        const _tmp_8 = _ref_7.*;
+        \\        _ref_7.* -%= 1;
+        \\        break :blk _tmp_8;
+        \\    };
+        \\}
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     cases.add("macro defines string literal with hex",
@@ -1856,45 +2057,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const FOO_CHAR = 63;
     });
 
-    cases.addC("shift right assign",
-        \\int log2(unsigned a) {
-        \\    int i = 0;
-        \\    while (a > 0) {
-        \\        a >>= 1;
-        \\    }
-        \\    return i;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn log2(_arg_a: c_uint) c_int {
-        \\    var a = _arg_a;
-        \\    var i: c_int = 0;
-        \\    while (a > @as(c_uint, 0)) {
-        \\        a >>= @as(@import("std").math.Log2Int(c_uint), 1);
-        \\    }
-        \\    return i;
-        \\}
-    });
-
-    cases.addC("shift right assign with a fixed size type",
-        \\#include <stdint.h>
-        \\int log2(uint32_t a) {
-        \\    int i = 0;
-        \\    while (a > 0) {
-        \\        a >>= 1;
-        \\    }
-        \\    return i;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn log2(_arg_a: u32) c_int {
-        \\    var a = _arg_a;
-        \\    var i: c_int = 0;
-        \\    while (a > @as(c_uint, 0)) {
-        \\        a >>= @as(u5, 1);
-        \\    }
-        \\    return i;
-        \\}
-    });
-
     cases.addC("__extension__ cast",
         \\int foo(void) {
         \\    return __extension__ 1;
@@ -1902,170 +2064,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() c_int {
         \\    return 1;
-        \\}
-    });
-
-    cases.addC("compound assignment operators",
-        \\void foo(void) {
-        \\    int a = 0;
-        \\    a += (a += 1);
-        \\    a -= (a -= 1);
-        \\    a *= (a *= 1);
-        \\    a &= (a &= 1);
-        \\    a |= (a |= 1);
-        \\    a ^= (a ^= 1);
-        \\    a >>= (a >>= 1);
-        \\    a <<= (a <<= 1);
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo() void {
-        \\    var a: c_int = 0;
-        \\    a += (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* + 1);
-        \\        break :x _ref.*;
-        \\    });
-        \\    a -= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* - 1);
-        \\        break :x _ref.*;
-        \\    });
-        \\    a *= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* * 1);
-        \\        break :x _ref.*;
-        \\    });
-        \\    a &= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* & 1);
-        \\        break :x _ref.*;
-        \\    });
-        \\    a |= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* | 1);
-        \\        break :x _ref.*;
-        \\    });
-        \\    a ^= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* ^ 1);
-        \\        break :x _ref.*;
-        \\    });
-        \\    a >>= @as(@import("std").math.Log2Int(c_int), (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* >> @as(@import("std").math.Log2Int(c_int), 1));
-        \\        break :x _ref.*;
-        \\    }));
-        \\    a <<= @as(@import("std").math.Log2Int(c_int), (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* << @as(@import("std").math.Log2Int(c_int), 1));
-        \\        break :x _ref.*;
-        \\    }));
-        \\}
-    });
-
-    cases.addC("compound assignment operators unsigned",
-        \\void foo(void) {
-        \\    unsigned a = 0;
-        \\    a += (a += 1);
-        \\    a -= (a -= 1);
-        \\    a *= (a *= 1);
-        \\    a &= (a &= 1);
-        \\    a |= (a |= 1);
-        \\    a ^= (a ^= 1);
-        \\    a >>= (a >>= 1);
-        \\    a <<= (a <<= 1);
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo() void {
-        \\    var a: c_uint = @as(c_uint, 0);
-        \\    a +%= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* +% @as(c_uint, 1));
-        \\        break :x _ref.*;
-        \\    });
-        \\    a -%= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* -% @as(c_uint, 1));
-        \\        break :x _ref.*;
-        \\    });
-        \\    a *%= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* *% @as(c_uint, 1));
-        \\        break :x _ref.*;
-        \\    });
-        \\    a &= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* & @as(c_uint, 1));
-        \\        break :x _ref.*;
-        \\    });
-        \\    a |= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* | @as(c_uint, 1));
-        \\        break :x _ref.*;
-        \\    });
-        \\    a ^= (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* ^ @as(c_uint, 1));
-        \\        break :x _ref.*;
-        \\    });
-        \\    a >>= @as(@import("std").math.Log2Int(c_uint), (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* >> @as(@import("std").math.Log2Int(c_uint), 1));
-        \\        break :x _ref.*;
-        \\    }));
-        \\    a <<= @as(@import("std").math.Log2Int(c_uint), (x: {
-        \\        const _ref = &a;
-        \\        _ref.* = (_ref.* << @as(@import("std").math.Log2Int(c_uint), 1));
-        \\        break :x _ref.*;
-        \\    }));
-        \\}
-    });
-
-    cases.addC("post increment/decrement",
-        \\void foo(void) {
-        \\    int i = 0;
-        \\    unsigned u = 0;
-        \\    i++;
-        \\    i--;
-        \\    u++;
-        \\    u--;
-        \\    i = i++;
-        \\    i = i--;
-        \\    u = u++;
-        \\    u = u--;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo() void {
-        \\    var i: c_int = 0;
-        \\    var u: c_uint = @as(c_uint, 0);
-        \\    i += 1;
-        \\    i -= 1;
-        \\    u +%= 1;
-        \\    u -%= 1;
-        \\    i = (x: {
-        \\        const _ref = &i;
-        \\        const _tmp = _ref.*;
-        \\        _ref.* += 1;
-        \\        break :x _tmp;
-        \\    });
-        \\    i = (x: {
-        \\        const _ref = &i;
-        \\        const _tmp = _ref.*;
-        \\        _ref.* -= 1;
-        \\        break :x _tmp;
-        \\    });
-        \\    u = (x: {
-        \\        const _ref = &u;
-        \\        const _tmp = _ref.*;
-        \\        _ref.* +%= 1;
-        \\        break :x _tmp;
-        \\    });
-        \\    u = (x: {
-        \\        const _ref = &u;
-        \\        const _tmp = _ref.*;
-        \\        _ref.* -%= 1;
-        \\        break :x _tmp;
-        \\    });
         \\}
     });
 
@@ -2786,6 +2784,209 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        const _ref = &u;
         \\        _ref.* -%= 1;
         \\        break :x _ref.*;
+        \\    });
+        \\}
+    });
+
+    cases.addC("shift right assign",
+        \\int log2(unsigned a) {
+        \\    int i = 0;
+        \\    while (a > 0) {
+        \\        a >>= 1;
+        \\    }
+        \\    return i;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn log2(_arg_a: c_uint) c_int {
+        \\    var a = _arg_a;
+        \\    var i: c_int = 0;
+        \\    while (a > @as(c_uint, 0)) {
+        \\        a >>= @as(@import("std").math.Log2Int(c_uint), 1);
+        \\    }
+        \\    return i;
+        \\}
+    });
+
+    cases.addC("shift right assign with a fixed size type",
+        \\#include <stdint.h>
+        \\int log2(uint32_t a) {
+        \\    int i = 0;
+        \\    while (a > 0) {
+        \\        a >>= 1;
+        \\    }
+        \\    return i;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn log2(_arg_a: u32) c_int {
+        \\    var a = _arg_a;
+        \\    var i: c_int = 0;
+        \\    while (a > @as(c_uint, 0)) {
+        \\        a >>= @as(u5, 1);
+        \\    }
+        \\    return i;
+        \\}
+    });
+
+    cases.addC("compound assignment operators",
+        \\void foo(void) {
+        \\    int a = 0;
+        \\    a += (a += 1);
+        \\    a -= (a -= 1);
+        \\    a *= (a *= 1);
+        \\    a &= (a &= 1);
+        \\    a |= (a |= 1);
+        \\    a ^= (a ^= 1);
+        \\    a >>= (a >>= 1);
+        \\    a <<= (a <<= 1);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var a: c_int = 0;
+        \\    a += (x: {
+        \\        const _ref = &a;
+        \\        _ref.* = (_ref.* + 1);
+        \\        break :x _ref.*;
+        \\    });
+        \\    a -= (x: {
+        \\        const _ref = &a;
+        \\        _ref.* = (_ref.* - 1);
+        \\        break :x _ref.*;
+        \\    });
+        \\    a *= (x: {
+        \\        const _ref = &a;
+        \\        _ref.* = (_ref.* * 1);
+        \\        break :x _ref.*;
+        \\    });
+        \\    a &= (x: {
+        \\        const _ref = &a;
+        \\        _ref.* = (_ref.* & 1);
+        \\        break :x _ref.*;
+        \\    });
+        \\    a |= (x: {
+        \\        const _ref = &a;
+        \\        _ref.* = (_ref.* | 1);
+        \\        break :x _ref.*;
+        \\    });
+        \\    a ^= (x: {
+        \\        const _ref = &a;
+        \\        _ref.* = (_ref.* ^ 1);
+        \\        break :x _ref.*;
+        \\    });
+        \\    a >>= @as(@import("std").math.Log2Int(c_int), (x: {
+        \\        const _ref = &a;
+        \\        _ref.* = (_ref.* >> @as(@import("std").math.Log2Int(c_int), 1));
+        \\        break :x _ref.*;
+        \\    }));
+        \\    a <<= @as(@import("std").math.Log2Int(c_int), (x: {
+        \\        const _ref = &a;
+        \\        _ref.* = (_ref.* << @as(@import("std").math.Log2Int(c_int), 1));
+        \\        break :x _ref.*;
+        \\    }));
+        \\}
+    });
+
+    cases.addC("compound assignment operators unsigned",
+        \\void foo(void) {
+        \\    unsigned a = 0;
+        \\    a += (a += 1);
+        \\    a -= (a -= 1);
+        \\    a *= (a *= 1);
+        \\    a &= (a &= 1);
+        \\    a |= (a |= 1);
+        \\    a ^= (a ^= 1);
+        \\    a >>= (a >>= 1);
+        \\    a <<= (a <<= 1);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var a: c_uint = @as(c_uint, 0);
+        \\    a +%= (x: {
+        \\        const _ref = &a;
+        \\        _ref.* = (_ref.* +% @as(c_uint, 1));
+        \\        break :x _ref.*;
+        \\    });
+        \\    a -%= (x: {
+        \\        const _ref = &a;
+        \\        _ref.* = (_ref.* -% @as(c_uint, 1));
+        \\        break :x _ref.*;
+        \\    });
+        \\    a *%= (x: {
+        \\        const _ref = &a;
+        \\        _ref.* = (_ref.* *% @as(c_uint, 1));
+        \\        break :x _ref.*;
+        \\    });
+        \\    a &= (x: {
+        \\        const _ref = &a;
+        \\        _ref.* = (_ref.* & @as(c_uint, 1));
+        \\        break :x _ref.*;
+        \\    });
+        \\    a |= (x: {
+        \\        const _ref = &a;
+        \\        _ref.* = (_ref.* | @as(c_uint, 1));
+        \\        break :x _ref.*;
+        \\    });
+        \\    a ^= (x: {
+        \\        const _ref = &a;
+        \\        _ref.* = (_ref.* ^ @as(c_uint, 1));
+        \\        break :x _ref.*;
+        \\    });
+        \\    a >>= @as(@import("std").math.Log2Int(c_uint), (x: {
+        \\        const _ref = &a;
+        \\        _ref.* = (_ref.* >> @as(@import("std").math.Log2Int(c_uint), 1));
+        \\        break :x _ref.*;
+        \\    }));
+        \\    a <<= @as(@import("std").math.Log2Int(c_uint), (x: {
+        \\        const _ref = &a;
+        \\        _ref.* = (_ref.* << @as(@import("std").math.Log2Int(c_uint), 1));
+        \\        break :x _ref.*;
+        \\    }));
+        \\}
+    });
+
+    cases.addC("post increment/decrement",
+        \\void foo(void) {
+        \\    int i = 0;
+        \\    unsigned u = 0;
+        \\    i++;
+        \\    i--;
+        \\    u++;
+        \\    u--;
+        \\    i = i++;
+        \\    i = i--;
+        \\    u = u++;
+        \\    u = u--;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var i: c_int = 0;
+        \\    var u: c_uint = @as(c_uint, 0);
+        \\    i += 1;
+        \\    i -= 1;
+        \\    u +%= 1;
+        \\    u -%= 1;
+        \\    i = (x: {
+        \\        const _ref = &i;
+        \\        const _tmp = _ref.*;
+        \\        _ref.* += 1;
+        \\        break :x _tmp;
+        \\    });
+        \\    i = (x: {
+        \\        const _ref = &i;
+        \\        const _tmp = _ref.*;
+        \\        _ref.* -= 1;
+        \\        break :x _tmp;
+        \\    });
+        \\    u = (x: {
+        \\        const _ref = &u;
+        \\        const _tmp = _ref.*;
+        \\        _ref.* +%= 1;
+        \\        break :x _tmp;
+        \\    });
+        \\    u = (x: {
+        \\        const _ref = &u;
+        \\        const _tmp = _ref.*;
+        \\        _ref.* -%= 1;
+        \\        break :x _tmp;
         \\    });
         \\}
     });
