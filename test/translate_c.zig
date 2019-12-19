@@ -769,6 +769,56 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.addC_both("normal deref",
+        \\void foo(int *x) {
+        \\    *x = 1;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo(x: [*c]c_int) void {
+        \\    x.?.* = 1;
+        \\}
+    });
+
+    cases.addC_both("address of operator",
+        \\int foo(void) {
+        \\    int x = 1234;
+        \\    int *ptr = &x;
+        \\    return *ptr;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    var x: c_int = 1234;
+        \\    var ptr: [*c]c_int = &x;
+        \\    return ptr.?.*;
+        \\}
+    });
+
+    cases.addC_both("bin not",
+        \\int foo(int x) {
+        \\    return ~x;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo(x: c_int) c_int {
+        \\    return ~x;
+        \\}
+    });
+
+    cases.addC_both("bool not",
+        \\int foo(int a, float b, void *c) {
+        \\    return !(a == 0);
+        \\    return !a;
+        \\    return !b;
+        \\    return !c;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo(a: c_int, b: f32, c: ?*c_void) c_int {
+        \\    return !(a == 0);
+        \\    return !(a != 0);
+        \\    return !(b != 0);
+        \\    return !(c != null);
+        \\}
+    });
+
     /////////////// Cases that pass for only stage2 ////////////////
 
     cases.add_2("Parameterless function prototypes",
@@ -1664,9 +1714,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
-
-    cases.addAllowWarnings("simple data types",
+    cases.add_2("simple data types",
         \\#include <stdint.h>
         \\int foo(char a, unsigned char b, signed char c);
         \\int foo(char a, unsigned char b, signed char c); // test a duplicate prototype
@@ -1674,21 +1722,71 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\void baz(int8_t a, int16_t b, int32_t c, int64_t d);
     , &[_][]const u8{
         \\pub extern fn foo(a: u8, b: u8, c: i8) c_int;
-    ,
         \\pub extern fn bar(a: u8, b: u16, c: u32, d: u64) void;
-    ,
         \\pub extern fn baz(a: i8, b: i16, c: i32, d: i64) void;
     });
 
-    cases.addC("simple function",
+    cases.add_2("simple function",
         \\int abs(int a) {
         \\    return a < 0 ? -a : a;
         \\}
     , &[_][]const u8{
-        \\export fn abs(a: c_int) c_int {
-        \\    return if (a < 0) -a else a;
+        \\pub export fn abs(a: c_int) c_int {
+        \\    return if ((a < 0)) -a else a;
         \\}
     });
+
+    cases.add_2("post increment",
+        \\unsigned foo1(unsigned a) {
+        \\    a++;
+        \\    return a;
+        \\}
+        \\int foo2(int a) {
+        \\    a++;
+        \\    return a;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo1(a: c_uint) c_uint {
+        \\    a +%= 1;
+        \\    return a;
+        \\}
+        \\pub export fn foo2(a: c_int) c_int {
+        \\    a += 1;
+        \\    return a;
+        \\}
+    });
+
+    cases.add_2("deref function pointer",
+        \\void foo(void) {}
+        \\int baz(void) { return 0; }
+        \\void bar(void) {
+        \\    void(*f)(void) = foo;
+        \\    int(*b)(void) = baz;
+        \\    f();
+        \\    (*(f))();
+        \\    foo();
+        \\    b();
+        \\    (*(b))();
+        \\    baz();
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {}
+        \\pub export fn baz() c_int {
+        \\    return 0;
+        \\}
+        \\pub export fn bar() void {
+        \\    var f: ?extern fn () void = foo;
+        \\    var b: ?extern fn () c_int = baz;
+        \\    f.?();
+        \\    (f).?();
+        \\    foo();
+        \\    _ = b.?();
+        \\    _ = (b).?();
+        \\    _ = baz();
+        \\}
+    });
+
+    /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     cases.add("macro defines string literal with hex",
         \\#define FOO "aoeu\xab derp"
@@ -1712,28 +1810,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const FOO2 = "aoeu\x134 derp";
     ,
         \\pub const FOO_CHAR = 63;
-    });
-
-    cases.addC("post increment",
-        \\unsigned foo1(unsigned a) {
-        \\    a++;
-        \\    return a;
-        \\}
-        \\int foo2(int a) {
-        \\    a++;
-        \\    return a;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo1(_arg_a: c_uint) c_uint {
-        \\    var a = _arg_a;
-        \\    a +%= 1;
-        \\    return a;
-        \\}
-        \\pub export fn foo2(_arg_a: c_int) c_int {
-        \\    var a = _arg_a;
-        \\    a += 1;
-        \\    return a;
-        \\}
     });
 
     cases.addC("shift right assign",
@@ -1990,96 +2066,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        _ref.* -%= 1;
         \\        break :x _ref.*;
         \\    });
-        \\}
-    });
-
-    cases.addC("deref function pointer",
-        \\void foo(void) {}
-        \\int baz(void) { return 0; }
-        \\void bar(void) {
-        \\    void(*f)(void) = foo;
-        \\    int(*b)(void) = baz;
-        \\    f();
-        \\    (*(f))();
-        \\    foo();
-        \\    b();
-        \\    (*(b))();
-        \\    baz();
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo() void {}
-        \\pub export fn baz() c_int {
-        \\    return 0;
-        \\}
-        \\pub export fn bar() void {
-        \\    var f: ?extern fn () void = foo;
-        \\    var b: ?extern fn () c_int = baz;
-        \\    f.?();
-        \\    f.?();
-        \\    foo();
-        \\    _ = b.?();
-        \\    _ = b.?();
-        \\    _ = baz();
-        \\}
-    });
-
-    cases.addC("normal deref",
-        \\void foo(int *x) {
-        \\    *x = 1;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo(x: [*c]c_int) void {
-        \\    x.?.* = 1;
-        \\}
-    });
-
-    cases.add("address of operator",
-        \\int foo(void) {
-        \\    int x = 1234;
-        \\    int *ptr = &x;
-        \\    return *ptr;
-        \\}
-    , &[_][]const u8{
-        \\pub fn foo() c_int {
-        \\    var x: c_int = 1234;
-        \\    var ptr: [*c]c_int = &x;
-        \\    return ptr.?.*;
-        \\}
-    });
-
-    cases.add("bin not",
-        \\int foo(int x) {
-        \\    return ~x;
-        \\}
-    , &[_][]const u8{
-        \\pub fn foo(x: c_int) c_int {
-        \\    return ~x;
-        \\}
-    });
-
-    cases.add("bool not",
-        \\int foo(int a, float b, void *c) {
-        \\    return !(a == 0);
-        \\    return !a;
-        \\    return !b;
-        \\    return !c;
-        \\}
-    , &[_][]const u8{
-        \\pub fn foo(a: c_int, b: f32, c: ?*c_void) c_int {
-        \\    return !(a == 0);
-        \\    return !(a != 0);
-        \\    return !(b != 0);
-        \\    return !(c != null);
-        \\}
-    });
-
-    cases.add("primitive types included in defined symbols",
-        \\int foo(int u32) {
-        \\    return u32;
-        \\}
-    , &[_][]const u8{
-        \\pub fn foo(u32_0: c_int) c_int {
-        \\    return u32_0;
         \\}
     });
 
@@ -2637,49 +2623,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.addC("logical and, logical or, on non-bool values", // Note this gets cut off by extra C symbols being injected in middle: `pub const Foo = enum_Foo;`
-        \\enum Foo {
-        \\    FooA,
-        \\    FooB,
-        \\    FooC,
-        \\};
-        \\int and_or_non_bool(int a, float b, void *c) {
-        \\    enum Foo d = FooA;
-        \\    int e = (a && b);
-        \\    int f = (b && c);
-        \\    int g = (a && c);
-        \\    int h = (a || b);
-        \\    int i = (b || c);
-        \\    int j = (a || c);
-        \\    int k = (a || d);
-        \\    int l = (d && b);
-        \\    int m = (c || d);
-        \\    return (((((((e + f) + g) + h) + i) + j) + k) + l) + m;
-        \\}
-    , &[_][]const u8{
-        \\pub const FooA = enum_Foo.A;
-        \\pub const FooB = enum_Foo.B;
-        \\pub const FooC = enum_Foo.C;
-        \\pub const enum_Foo = extern enum {
-        \\    A,
-        \\    B,
-        \\    C,
-        \\};
-        \\pub export fn and_or_non_bool(a: c_int, b: f32, c: ?*c_void) c_int {
-        \\    var d: enum_Foo = @as(enum_Foo, FooA);
-        \\    var e: c_int = (a != 0) and (b != 0);
-        \\    var f: c_int = (b != 0) and (c != null);
-        \\    var g: c_int = (a != 0) and (c != null);
-        \\    var h: c_int = (a != 0) or (b != 0);
-        \\    var i: c_int = (b != 0) or (c != null);
-        \\    var j: c_int = (a != 0) or (c != null);
-        \\    var k: c_int = (a != 0) or (@as(c_uint, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0)));
-        \\    var l: c_int = (@as(c_uint, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0))) and (b != 0);
-        \\    var m: c_int = (c != null) or (@as(c_uint, d) != @bitCast(enum_Foo, @as(@TagType(enum_Foo), 0)));
-        \\    return (((((((e + f) + g) + h) + i) + j) + k) + l) + m;
-        \\}
-    });
-
     cases.add("variable name shadowing",
         \\int foo(void) {
         \\    int x = 1;
@@ -2724,6 +2667,82 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    if (c != null) return 2;
         \\    if (d != @bitCast(enum_SomeEnum, @as(@TagType(enum_SomeEnum), 0))) return 3;
         \\    return 4;
+        \\}
+    });
+
+    cases.addAllowWarnings("simple data types",
+        \\#include <stdint.h>
+        \\int foo(char a, unsigned char b, signed char c);
+        \\int foo(char a, unsigned char b, signed char c); // test a duplicate prototype
+        \\void bar(uint8_t a, uint16_t b, uint32_t c, uint64_t d);
+        \\void baz(int8_t a, int16_t b, int32_t c, int64_t d);
+    , &[_][]const u8{
+        \\pub extern fn foo(a: u8, b: u8, c: i8) c_int;
+    ,
+        \\pub extern fn bar(a: u8, b: u16, c: u32, d: u64) void;
+    ,
+        \\pub extern fn baz(a: i8, b: i16, c: i32, d: i64) void;
+    });
+
+    cases.addC("simple function",
+        \\int abs(int a) {
+        \\    return a < 0 ? -a : a;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn abs(a: c_int) c_int {
+        \\    return if (a < 0) -a else a;
+        \\}
+    });
+
+    cases.addC("post increment",
+        \\unsigned foo1(unsigned a) {
+        \\    a++;
+        \\    return a;
+        \\}
+        \\int foo2(int a) {
+        \\    a++;
+        \\    return a;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo1(_arg_a: c_uint) c_uint {
+        \\    var a = _arg_a;
+        \\    a +%= 1;
+        \\    return a;
+        \\}
+        \\pub export fn foo2(_arg_a: c_int) c_int {
+        \\    var a = _arg_a;
+        \\    a += 1;
+        \\    return a;
+        \\}
+    });
+
+    cases.addC("deref function pointer",
+        \\void foo(void) {}
+        \\int baz(void) { return 0; }
+        \\void bar(void) {
+        \\    void(*f)(void) = foo;
+        \\    int(*b)(void) = baz;
+        \\    f();
+        \\    (*(f))();
+        \\    foo();
+        \\    b();
+        \\    (*(b))();
+        \\    baz();
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {}
+        \\pub export fn baz() c_int {
+        \\    return 0;
+        \\}
+        \\pub export fn bar() void {
+        \\    var f: ?extern fn () void = foo;
+        \\    var b: ?extern fn () c_int = baz;
+        \\    f.?();
+        \\    f.?();
+        \\    foo();
+        \\    _ = b.?();
+        \\    _ = b.?();
+        \\    _ = baz();
         \\}
     });
 }
