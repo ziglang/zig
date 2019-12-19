@@ -887,7 +887,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const a = enum_unnamed_1.a;
         \\pub const b = enum_unnamed_1.b;
         \\pub const c = enum_unnamed_1.c;
-        \\pub const enum_unnamed_1 = extern enum {
+        \\const enum_unnamed_1 = extern enum {
         \\    a,
         \\    b,
         \\    c,
@@ -896,7 +896,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const e = enum_unnamed_2.e;
         \\pub const f = enum_unnamed_2.f;
         \\pub const g = enum_unnamed_2.g;
-        \\pub const enum_unnamed_2 = extern enum {
+        \\const enum_unnamed_2 = extern enum {
         \\    e = 0,
         \\    f = 4,
         \\    g = 5,
@@ -905,7 +905,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const i = enum_unnamed_3.i;
         \\pub const j = enum_unnamed_3.j;
         \\pub const k = enum_unnamed_3.k;
-        \\pub const enum_unnamed_3 = extern enum {
+        \\const enum_unnamed_3 = extern enum {
         \\    i,
         \\    j,
         \\    k,
@@ -1027,10 +1027,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern var glProcs: union_OpenGLProcs;
     ,
         \\pub const glClearPFN = PFNGLCLEARPROC;
- // , // TODO
-    //     \\pub inline fn glClearUnion(arg_1: GLbitfield) void {
-    //     \\    return glProcs.gl.Clear.?(arg_1);
-    //     \\}
+    ,
+        \\pub inline fn glClearUnion(arg_2: GLbitfield) void {
+        \\    return glProcs.gl.Clear.?(arg_2);
+        \\}
         ,
         \\pub const OpenGLProcs = union_OpenGLProcs;
     });
@@ -1348,7 +1348,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const One = enum_unnamed_1.One;
         \\pub const Two = enum_unnamed_1.Two;
-        \\pub const enum_unnamed_1 = extern enum {
+        \\const enum_unnamed_1 = extern enum {
         \\    One,
         \\    Two,
         \\};

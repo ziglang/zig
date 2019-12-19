@@ -1981,7 +1981,7 @@ fn parseAssignOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const token = nextToken(it);
     const op = switch (token.ptr.id) {
-        .AsteriskEqual => Op{ .AssignMult = {} },
+        .AsteriskEqual => Op{ .AssignMul = {} },
         .SlashEqual => Op{ .AssignDiv = {} },
         .PercentEqual => Op{ .AssignMod = {} },
         .PlusEqual => Op{ .AssignAdd = {} },
@@ -1991,7 +1991,7 @@ fn parseAssignOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         .AmpersandEqual => Op{ .AssignBitAnd = {} },
         .CaretEqual => Op{ .AssignBitXor = {} },
         .PipeEqual => Op{ .AssignBitOr = {} },
-        .AsteriskPercentEqual => Op{ .AssignMultWrap = {} },
+        .AsteriskPercentEqual => Op{ .AssignMulWrap = {} },
         .PlusPercentEqual => Op{ .AssignAddWrap = {} },
         .MinusPercentEqual => Op{ .AssignSubWrap = {} },
         .Equal => Op{ .Assign = {} },
