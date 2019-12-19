@@ -1113,3 +1113,6 @@ pub extern fn ZigClangCallExpr_getCallee(*const ZigClangCallExpr) *const ZigClan
 pub extern fn ZigClangCallExpr_getNumArgs(*const ZigClangCallExpr) c_uint;
 pub extern fn ZigClangCallExpr_getArgs(*const ZigClangCallExpr) [*]const *const ZigClangExpr;
 
+pub extern fn ZigClangUnaryExprOrTypeTraitExpr_getTypeOfArgument(*const ZigClangUnaryExprOrTypeTraitExpr) ZigClangQualType;
+pub extern fn ZigClangUnaryExprOrTypeTraitExpr_getBeginLoc(*const ZigClangUnaryExprOrTypeTraitExpr) ZigClangSourceLocation;
+

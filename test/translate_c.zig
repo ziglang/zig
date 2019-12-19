@@ -748,6 +748,27 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.addC_both("bitshift",
+        \\int foo(void) {
+        \\    return (1 << 2) >> 1;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() c_int {
+        \\    return (1 << @as(@import("std").math.Log2Int(c_int), 2)) >> @as(@import("std").math.Log2Int(c_int), 1);
+        \\}
+    });
+
+    cases.addC_both("sizeof",
+        \\#include <stddef.h>
+        \\size_t size_of(void) {
+        \\        return sizeof(int);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn size_of() usize {
+        \\    return @sizeOf(c_int);
+        \\}
+    });
+
     /////////////// Cases that pass for only stage2 ////////////////
 
     cases.add_2("Parameterless function prototypes",
@@ -1353,15 +1374,15 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add_2("shift right with a fixed size type, no while", // TODO can fold this into "shift right assign with a fixed size type" once `while` and `>>=` and `uint32_t` are handled in translate-c-2
+    cases.add_2("shift right with a fixed size type, no while", // TODO can fold this into "shift right assign with a fixed size type" once `>>=` is handled in translate-c-2
         \\#include <stdint.h>
         \\uint32_t some_func(uint32_t a) {
         \\    uint32_t b = a >> 1;
         \\    return b;
         \\}
     , &[_][]const u8{
-        \\pub export fn some_func(a: uint32_t) uint32_t {
-        \\    var b: uint32_t = a >> @as(u5, 1);
+        \\pub export fn some_func(a: u32) u32 {
+        \\    var b: u32 = a >> @as(u5, 1);
         \\    return b;
         \\}
     });
@@ -1493,18 +1514,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    if ((a == b)) return a;
         \\    if ((a != b)) return b;
         \\    return a;
-        \\}
-    });
-
-    cases.add_2("bitshift, no parens", // TODO can fold this into "bitshift" once parens are preserved correctly in translate-c-2
-        \\int foo(void) {
-        \\    int a = (1 << 2);
-        \\    return a >> 1;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo() c_int {
-        \\    var a: c_int = 1 << @as(@import("std").math.Log2Int(c_int), 2);
-        \\    return a >> @as(@import("std").math.Log2Int(c_int), 1);
         \\}
     });
 
@@ -1766,17 +1775,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.addC("sizeof",
-        \\#include <stddef.h>
-        \\size_t size_of(void) {
-        \\        return sizeof(int);
-        \\}
-    , &[_][]const u8{
-        \\pub export fn size_of() usize {
-        \\    return @sizeOf(c_int);
-        \\}
-    });
-
     cases.addC("__extension__ cast",
         \\int foo(void) {
         \\    return __extension__ 1;
@@ -1784,16 +1782,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() c_int {
         \\    return 1;
-        \\}
-    });
-
-    cases.addC("bitshift",
-        \\int foo(void) {
-        \\    return (1 << 2) >> 1;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo() c_int {
-        \\    return (1 << @as(@import("std").math.Log2Int(c_int), 2)) >> @as(@import("std").math.Log2Int(c_int), 1);
         \\}
     });
 
