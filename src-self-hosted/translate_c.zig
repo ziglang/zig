@@ -2261,9 +2261,37 @@ fn transCreatePreCrement(
     // c: ++expr
     // zig: (blk: {
     // zig:     const _ref = &expr;
-    // zig:     *_ref += 1;
-    // zig:     break :blk *_ref
+    // zig:     _ref.* += 1;
+    // zig:     break :blk _ref.*
     // zig: })
+    const block_scope = try Scope.Block.init(rp.c, scope, "blk");
+    block_scope.block_node = try transCreateNodeBlock(rp.c, block_scope.label);
+    const ref = try std.fmt.allocPrint(rp.c.a(), "_ref_{}", .{rp.c.getMangle()});
+
+    const node = try transCreateNodeVarDecl(rp.c, false, true, ref);
+    node.eq_token = try appendToken(rp.c, .Equal, "=");
+    const rhs_node = try transCreateNodePrefixOp(rp.c, .AddressOf, .Ampersand, "&");
+    rhs_node.rhs = try transExpr(rp, scope, op_expr, .used, .r_value);
+    node.init_node = &rhs_node.base;
+    node.semicolon_token = try appendToken(rp.c, .Semicolon, ";");
+    try block_scope.block_node.statements.push(&node.base);
+
+    const lhs_node = try transCreateNodeIdentifier(rp.c, ref);
+    const ref_node = try transCreateNodePtrDeref(rp.c, lhs_node);
+    _ = try appendToken(rp.c, .Semicolon, ";");
+    const token = try appendToken(rp.c, op_tok_id, bytes);
+    const one = try transCreateNodeInt(rp.c, 1);
+    _ = try appendToken(rp.c, .Semicolon, ";");
+    const assign = try transCreateNodeInfixOp(rp, scope, ref_node, op, token, one, .used, false);
+    try block_scope.block_node.statements.push(assign);
+
+    const break_node = try transCreateNodeBreak(rp.c, block_scope.label);
+    break_node.rhs = ref_node;
+    try block_scope.block_node.statements.push(&break_node.base);
+    block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
+    // semicolon must immediately follow rbrace because it is the last token in a block
+    _ = try appendToken(rp.c, .Semicolon, ";");
+    return &block_scope.block_node.base;
 }
 
 fn transCreatePostCrement(
@@ -2291,10 +2319,45 @@ fn transCreatePostCrement(
     // c: expr++
     // zig: (blk: {
     // zig:     const _ref = &expr;
-    // zig:     const _tmp = *_ref;
-    // zig:     *_ref += 1;
+    // zig:     const _tmp = _ref.*;
+    // zig:     _ref.* += 1;
     // zig:     break :blk _tmp
     // zig: })
+    const block_scope = try Scope.Block.init(rp.c, scope, "blk");
+    block_scope.block_node = try transCreateNodeBlock(rp.c, block_scope.label);
+    const ref = try std.fmt.allocPrint(rp.c.a(), "_ref_{}", .{rp.c.getMangle()});
+
+    const node = try transCreateNodeVarDecl(rp.c, false, true, ref);
+    node.eq_token = try appendToken(rp.c, .Equal, "=");
+    const rhs_node = try transCreateNodePrefixOp(rp.c, .AddressOf, .Ampersand, "&");
+    rhs_node.rhs = try transExpr(rp, scope, op_expr, .used, .r_value);
+    node.init_node = &rhs_node.base;
+    node.semicolon_token = try appendToken(rp.c, .Semicolon, ";");
+    try block_scope.block_node.statements.push(&node.base);
+
+    const lhs_node = try transCreateNodeIdentifier(rp.c, ref);
+    const ref_node = try transCreateNodePtrDeref(rp.c, lhs_node);
+    _ = try appendToken(rp.c, .Semicolon, ";");
+
+    const tmp = try std.fmt.allocPrint(rp.c.a(), "_tmp_{}", .{rp.c.getMangle()});
+    const tmp_node = try transCreateNodeVarDecl(rp.c, false, true, tmp);
+    tmp_node.eq_token = try appendToken(rp.c, .Equal, "=");
+    tmp_node.init_node = ref_node;
+    tmp_node.semicolon_token = try appendToken(rp.c, .Semicolon, ";");
+    try block_scope.block_node.statements.push(&tmp_node.base);
+
+    const token = try appendToken(rp.c, op_tok_id, bytes);
+    const one = try transCreateNodeInt(rp.c, 1);
+    _ = try appendToken(rp.c, .Semicolon, ";");
+    const assign = try transCreateNodeInfixOp(rp, scope, ref_node, op, token, one, .used, false);
+    try block_scope.block_node.statements.push(assign);
+
+    const break_node = try transCreateNodeBreak(rp.c, block_scope.label);
+    break_node.rhs = try transCreateNodeIdentifier(rp.c,tmp);
+    try block_scope.block_node.statements.push(&break_node.base);
+    _ = try appendToken(rp.c, .Semicolon, ";");
+    block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
+    return &block_scope.block_node.base;
 }
 
 fn transCPtrCast(
@@ -2694,25 +2757,16 @@ fn transCreateNodeAssign(
         }
         if (scope.id != .Condition)
             _ = try appendToken(rp.c, .Semicolon, ";");
-
-        const node = try rp.c.a().create(ast.Node.InfixOp);
-        node.* = .{
-            .op_token = eq_token,
-            .lhs = lhs_node,
-            .op = .Assign,
-            .rhs = rhs_node,
-        };
-        return &node.base;
+        return transCreateNodeInfixOp(rp, scope, lhs_node, .Assign, eq_token, rhs_node, .used, false);
     }
 
     // worst case
     // c:   lhs = rhs
-    // zig: (x: {
+    // zig: (blk: {
     // zig:     const _tmp = rhs;
     // zig:     lhs = _tmp;
-    // zig:     break :x _tmp
+    // zig:     break :blk _tmp
     // zig: })
-    _ = try appendToken(rp.c, .LParen, "(");
     const block_scope = try Scope.Block.init(rp.c, scope, "blk");
     block_scope.block_node = try transCreateNodeBlock(rp.c, block_scope.label);
     const tmp = try std.fmt.allocPrint(rp.c.a(), "_tmp_{}", .{rp.c.getMangle()});
@@ -2735,14 +2789,8 @@ fn transCreateNodeAssign(
     const ident = try transCreateNodeIdentifier(rp.c, tmp);
     _ = try appendToken(rp.c, .Semicolon, ";");
 
-    const assign = try rp.c.a().create(ast.Node.InfixOp);
-    assign.* = .{
-        .op_token = eq_token,
-        .lhs = lhs_node,
-        .op = .Assign,
-        .rhs = ident,
-    };
-    try block_scope.block_node.statements.push(&assign.base);
+    const assign = try transCreateNodeInfixOp(rp, scope, lhs_node, .Assign, eq_token, ident, .used, false);
+    try block_scope.block_node.statements.push(assign);
 
     const break_node = try transCreateNodeBreak(rp.c, block_scope.label);
     break_node.rhs = try transCreateNodeIdentifier(rp.c, tmp);
@@ -2751,7 +2799,6 @@ fn transCreateNodeAssign(
     block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
     // semicolon must immediately follow rbrace because it is the last token in a block
     _ = try appendToken(rp.c, .Semicolon, ";");
-    _ = try appendToken(rp.c, .RParen, ")");
     return &block_scope.block_node.base;
 }
 

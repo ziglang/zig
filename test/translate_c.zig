@@ -1786,6 +1786,50 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add_2("pre increment/decrement",
+        \\void foo(void) {
+        \\    int i = 0;
+        \\    unsigned u = 0;
+        \\    ++i;
+        \\    --i;
+        \\    ++u;
+        \\    --u;
+        \\    i = ++i;
+        \\    i = --i;
+        \\    u = ++u;
+        \\    u = --u;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var i: c_int = 0;
+        \\    var u: c_uint = @as(c_uint, 0);
+        \\    i += 1;
+        \\    i -= 1;
+        \\    u +%= 1;
+        \\    u -%= 1;
+        \\    i = blk: {
+        \\        const _ref_1 = &i;
+        \\        _ref_1.* += 1;
+        \\        break :blk _ref_1.*;
+        \\    };
+        \\    i = blk: {
+        \\        const _ref_2 = &i;
+        \\        _ref_2.* -= 1;
+        \\        break :blk _ref_2.*;
+        \\    };
+        \\    u = blk: {
+        \\        const _ref_3 = &u;
+        \\        _ref_3.* +%= 1;
+        \\        break :blk _ref_3.*;
+        \\    };
+        \\    u = blk: {
+        \\        const _ref_4 = &u;
+        \\        _ref_4.* -%= 1;
+        \\        break :blk _ref_4.*;
+        \\    };
+        \\}
+    });
+
     /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
 
     cases.add("macro defines string literal with hex",
@@ -2021,50 +2065,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        const _tmp = _ref.*;
         \\        _ref.* -%= 1;
         \\        break :x _tmp;
-        \\    });
-        \\}
-    });
-
-    cases.addC("pre increment/decrement",
-        \\void foo(void) {
-        \\    int i = 0;
-        \\    unsigned u = 0;
-        \\    ++i;
-        \\    --i;
-        \\    ++u;
-        \\    --u;
-        \\    i = ++i;
-        \\    i = --i;
-        \\    u = ++u;
-        \\    u = --u;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo() void {
-        \\    var i: c_int = 0;
-        \\    var u: c_uint = @as(c_uint, 0);
-        \\    i += 1;
-        \\    i -= 1;
-        \\    u +%= 1;
-        \\    u -%= 1;
-        \\    i = (x: {
-        \\        const _ref = &i;
-        \\        _ref.* += 1;
-        \\        break :x _ref.*;
-        \\    });
-        \\    i = (x: {
-        \\        const _ref = &i;
-        \\        _ref.* -= 1;
-        \\        break :x _ref.*;
-        \\    });
-        \\    u = (x: {
-        \\        const _ref = &u;
-        \\        _ref.* +%= 1;
-        \\        break :x _ref.*;
-        \\    });
-        \\    u = (x: {
-        \\        const _ref = &u;
-        \\        _ref.* -%= 1;
-        \\        break :x _ref.*;
         \\    });
         \\}
     });
@@ -2743,6 +2743,50 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    _ = b.?();
         \\    _ = b.?();
         \\    _ = baz();
+        \\}
+    });
+
+    cases.addC("pre increment/decrement",
+        \\void foo(void) {
+        \\    int i = 0;
+        \\    unsigned u = 0;
+        \\    ++i;
+        \\    --i;
+        \\    ++u;
+        \\    --u;
+        \\    i = ++i;
+        \\    i = --i;
+        \\    u = ++u;
+        \\    u = --u;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var i: c_int = 0;
+        \\    var u: c_uint = @as(c_uint, 0);
+        \\    i += 1;
+        \\    i -= 1;
+        \\    u +%= 1;
+        \\    u -%= 1;
+        \\    i = (x: {
+        \\        const _ref = &i;
+        \\        _ref.* += 1;
+        \\        break :x _ref.*;
+        \\    });
+        \\    i = (x: {
+        \\        const _ref = &i;
+        \\        _ref.* -= 1;
+        \\        break :x _ref.*;
+        \\    });
+        \\    u = (x: {
+        \\        const _ref = &u;
+        \\        _ref.* +%= 1;
+        \\        break :x _ref.*;
+        \\    });
+        \\    u = (x: {
+        \\        const _ref = &u;
+        \\        _ref.* -%= 1;
+        \\        break :x _ref.*;
+        \\    });
         \\}
     });
 }
