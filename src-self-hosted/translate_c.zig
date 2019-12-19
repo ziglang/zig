@@ -1210,10 +1210,10 @@ fn transImplicitCastExpr(
     const c = rp.c;
     const sub_expr = ZigClangImplicitCastExpr_getSubExpr(expr);
     const sub_expr_node = try transExpr(rp, scope, @ptrCast(*const ZigClangExpr, sub_expr), .used, .r_value);
+    const dest_type = getExprQualType(c, @ptrCast(*const ZigClangExpr, expr));
+    const src_type = getExprQualType(c, sub_expr);
     switch (ZigClangImplicitCastExpr_getCastKind(expr)) {
         .BitCast, .FloatingCast, .FloatingToIntegral, .IntegralToFloating, .IntegralCast => {
-            const dest_type = getExprQualType(c, @ptrCast(*const ZigClangExpr, expr));
-            const src_type = getExprQualType(c, sub_expr);
             return transCCast(rp, scope, ZigClangImplicitCastExpr_getBeginLoc(expr), dest_type, src_type, sub_expr_node);
         },
         .LValueToRValue, .NoOp, .FunctionToPointerDecay, .ArrayToPointerDecay => {
@@ -1221,6 +1221,47 @@ fn transImplicitCastExpr(
         },
         .NullToPointer => {
             return try transCreateNodeNullLiteral(rp.c);
+        },
+        .PointerToBoolean => {
+            // @ptrToInt(val) != 0
+            const ptr_to_int = try transCreateNodeBuiltinFnCall(rp.c, "@ptrToInt");
+            try ptr_to_int.params.push(try transExpr(rp, scope, sub_expr, .used, .r_value));
+            ptr_to_int.rparen_token = try appendToken(rp.c, .RParen, ")");
+
+            const op_token = try appendToken(rp.c, .BangEqual, "!=");
+            const rhs_node = try transCreateNodeInt(rp.c, 0);
+            return transCreateNodeInfixOp(rp, scope, &ptr_to_int.base, .BangEqual, op_token, rhs_node, result_used, false);
+        },
+        .IntegralToBoolean => {
+            // val != 0
+            const node = try transExpr(rp, scope, sub_expr, .used, .r_value);
+
+            const op_token = try appendToken(rp.c, .BangEqual, "!=");
+            const rhs_node = try transCreateNodeInt(rp.c, 0);
+            return transCreateNodeInfixOp(rp, scope, node, .BangEqual, op_token, rhs_node, result_used, false);
+        },
+        .PointerToIntegral => {
+            // @intCast(dest_type, @ptrToInt(val))
+            const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@intCast");
+            try cast_node.params.push(try transQualType(rp, dest_type, ZigClangImplicitCastExpr_getBeginLoc(expr)));
+            _ = try appendToken(rp.c, .Comma, ",");
+
+            const ptr_to_int = try transCreateNodeBuiltinFnCall(rp.c, "@ptrToInt");
+            try ptr_to_int.params.push(try transExpr(rp, scope, sub_expr, .used, .r_value));
+            ptr_to_int.rparen_token = try appendToken(rp.c, .RParen, ")");
+            try cast_node.params.push(&ptr_to_int.base);
+            cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+            return maybeSuppressResult(rp, scope, result_used, &cast_node.base);
+        },
+        .IntegralToPointer => {
+            // @intToPtr(dest_type, val)
+            const int_to_ptr = try transCreateNodeBuiltinFnCall(rp.c, "@intToPtr");
+            try int_to_ptr.params.push(try transQualType(rp, dest_type, ZigClangImplicitCastExpr_getBeginLoc(expr)));
+            _ = try appendToken(rp.c, .Comma, ",");
+
+            try int_to_ptr.params.push(try transExpr(rp, scope, sub_expr, .used, .r_value));
+            int_to_ptr.rparen_token = try appendToken(rp.c, .RParen, ")");
+            return maybeSuppressResult(rp, scope, result_used, &int_to_ptr.base);
         },
         else => |kind| return revertAndWarn(
             rp,
@@ -2223,6 +2264,9 @@ fn transUnaryOperator(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangUnar
             const op_node = try transCreateNodePrefixOp(rp.c, .BoolNot, .Bang, "!");
             op_node.rhs = try transBoolExpr(rp, scope, op_expr, .used, .r_value, true);
             return &op_node.base;
+        },
+        .Extension => {
+            return transExpr(rp, scope, ZigClangUnaryOperator_getSubExpr(stmt), used, .l_value);
         },
         else => return revertAndWarn(rp, error.UnsupportedTranslation, ZigClangUnaryOperator_getBeginLoc(stmt), "unsupported C translation {}", .{ZigClangUnaryOperator_getOpcode(stmt)}),
     }
