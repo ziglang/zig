@@ -45,6 +45,7 @@ pub const Builder = struct {
     dest_dir: ?[]const u8,
     lib_dir: []const u8,
     exe_dir: []const u8,
+    h_dir: []const u8,
     install_path: []const u8,
     search_prefixes: ArrayList([]const u8),
     installed_files: ArrayList(InstalledFile),
@@ -145,6 +146,7 @@ pub const Builder = struct {
             .install_prefix = null,
             .lib_dir = undefined,
             .exe_dir = undefined,
+            .h_dir = undefined,
             .dest_dir = env_map.get("DESTDIR"),
             .installed_files = ArrayList(InstalledFile).init(allocator),
             .install_tls = TopLevelStep{
@@ -197,6 +199,7 @@ pub const Builder = struct {
         }
         self.lib_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "lib" }) catch unreachable;
         self.exe_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "bin" }) catch unreachable;
+        self.h_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "include" }) catch unreachable;
     }
 
     pub fn addExecutable(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
@@ -933,6 +936,7 @@ pub const Builder = struct {
             .Prefix => self.install_path,
             .Bin => self.exe_dir,
             .Lib => self.lib_dir,
+            .Header => self.h_dir,
         };
         return fs.path.resolve(
             self.allocator,
@@ -2171,6 +2175,7 @@ const InstallArtifactStep = struct {
     artifact: *LibExeObjStep,
     dest_dir: InstallDir,
     pdb_dir: ?InstallDir,
+    h_dir: ?InstallDir,
 
     const Self = @This();
 
@@ -2185,8 +2190,8 @@ const InstallArtifactStep = struct {
             .dest_dir = switch (artifact.kind) {
                 .Obj => unreachable,
                 .Test => unreachable,
-                .Exe => InstallDir.Bin,
-                .Lib => InstallDir.Lib,
+                .Exe => .Bin,
+                .Lib => .Lib,
             },
             .pdb_dir = if (artifact.producesPdbFile()) blk: {
                 if (artifact.kind == .Exe) {
@@ -2195,6 +2200,7 @@ const InstallArtifactStep = struct {
                     break :blk InstallDir.Lib;
                 }
             } else null,
+            .h_dir = if (artifact.kind == .Lib and !artifact.disable_gen_h) .Header else null,
         };
         self.step.dependOn(&artifact.step);
         artifact.install_step = self;
@@ -2209,6 +2215,9 @@ const InstallArtifactStep = struct {
         }
         if (self.pdb_dir) |pdb_dir| {
             builder.pushInstalledFile(pdb_dir, artifact.out_pdb_filename);
+        }
+        if (self.h_dir) |h_dir| {
+            builder.pushInstalledFile(h_dir, artifact.out_h_filename);
         }
         return self;
     }
@@ -2225,6 +2234,10 @@ const InstallArtifactStep = struct {
         if (self.pdb_dir) |pdb_dir| {
             const full_pdb_path = builder.getInstallPath(pdb_dir, self.artifact.out_pdb_filename);
             try builder.updateFile(self.artifact.getOutputPdbPath(), full_pdb_path);
+        }
+        if (self.h_dir) |h_dir| {
+            const full_pdb_path = builder.getInstallPath(h_dir, self.artifact.out_h_filename);
+            try builder.updateFile(self.artifact.getOutputHPath(), full_pdb_path);
         }
         self.artifact.installed_path = full_dest_path;
     }
@@ -2478,6 +2491,7 @@ pub const InstallDir = enum {
     Prefix,
     Lib,
     Bin,
+    Header,
 };
 
 pub const InstalledFile = struct {
