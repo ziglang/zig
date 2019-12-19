@@ -49,7 +49,6 @@ const Scope = struct {
         Block,
         Root,
         Condition,
-        FnDef,
         Loop,
     };
 
@@ -121,39 +120,6 @@ const Scope = struct {
         }
     };
 
-    const FnDef = struct {
-        base: Scope,
-        params: AliasList,
-
-        fn init(c: *Context) FnDef {
-            return .{
-                .base = .{
-                    .id = .FnDef,
-                    .parent = &c.global_scope.base,
-                },
-                .params = AliasList.init(c.a()),
-            };
-        }
-
-        fn getAlias(scope: *FnDef, name: []const u8) ?[]const u8 {
-            var it = scope.params.iterator(0);
-            while (it.next()) |p| {
-                if (mem.eql(u8, p.name, name))
-                    return p.alias;
-            }
-            return scope.base.parent.?.getAlias(name);
-        }
-
-        fn contains(scope: *FnDef, name: []const u8) bool {
-            var it = scope.params.iterator(0);
-            while (it.next()) |p| {
-                if (mem.eql(u8, p.name, name))
-                    return true;
-            }
-            return scope.base.parent.?.contains(name);
-        }
-    };
-
     fn findBlockScope(inner: *Scope, c: *Context) !*Scope.Block {
         var scope = inner;
         while (true) {
@@ -179,7 +145,6 @@ const Scope = struct {
     fn getAlias(scope: *Scope, name: []const u8) ?[]const u8 {
         return switch (scope.id) {
             .Root => null,
-            .FnDef => @fieldParentPtr(FnDef, "base", scope).getAlias(name),
             .Block => @fieldParentPtr(Block, "base", scope).getAlias(name),
             .Switch, .Loop, .Condition => scope.parent.?.getAlias(name),
         };
@@ -188,7 +153,6 @@ const Scope = struct {
     fn contains(scope: *Scope, name: []const u8) bool {
         return switch (scope.id) {
             .Root => @fieldParentPtr(Root, "base", scope).contains(name),
-            .FnDef => @fieldParentPtr(FnDef, "base", scope).contains(name),
             .Block => @fieldParentPtr(Block, "base", scope).contains(name),
             .Switch, .Loop, .Condition => scope.parent.?.contains(name),
         };
@@ -198,7 +162,7 @@ const Scope = struct {
         var scope = inner;
         while (true) {
             switch (scope.id) {
-                .FnDef => unreachable,
+                .Root => unreachable,
                 .Switch => return scope,
                 .Loop => return scope,
                 else => scope = scope.parent.?,
@@ -210,7 +174,7 @@ const Scope = struct {
         var scope = inner;
         while (true) {
             switch (scope.id) {
-                .FnDef => unreachable,
+                .Root => unreachable,
                 .Switch => return @fieldParentPtr(Switch, "base", scope),
                 else => scope = scope.parent.?,
             }
@@ -382,17 +346,12 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     const fn_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, fn_decl)));
     _ = try c.decl_table.put(@ptrToInt(fn_decl), fn_name);
     const fn_decl_loc = ZigClangFunctionDecl_getLocation(fn_decl);
-    const fn_qt = ZigClangFunctionDecl_getType(fn_decl);
-    const fn_type = ZigClangQualType_getTypePtr(fn_qt);
-    var fndef_scope = Scope.FnDef.init(c);
-    var scope = &fndef_scope.base;
     const has_body = ZigClangFunctionDecl_hasBody(fn_decl);
     const storage_class = ZigClangFunctionDecl_getStorageClass(fn_decl);
     const decl_ctx = FnDeclContext{
         .fn_name = fn_name,
         .has_body = has_body,
         .storage_class = storage_class,
-        .scope = &scope,
         .is_export = switch (storage_class) {
             .None => has_body,
             .Extern, .Static => false,
@@ -402,6 +361,15 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
             else => unreachable,
         },
     };
+
+    var fn_qt = ZigClangFunctionDecl_getType(fn_decl);
+    var fn_type = ZigClangQualType_getTypePtr(fn_qt);
+    if (ZigClangType_getTypeClass(fn_type) == .Attributed) {
+        const attr_type = @ptrCast(*const ZigClangAttributedType, fn_type);
+        fn_qt = ZigClangAttributedType_getEquivalentType(attr_type);
+        fn_type = ZigClangQualType_getTypePtr(fn_qt);
+    }
+
     const proto_node = switch (ZigClangType_getTypeClass(fn_type)) {
         .FunctionProto => blk: {
             const fn_proto_type = @ptrCast(*const ZigClangFunctionProtoType, fn_type);
@@ -431,15 +399,39 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
 
     // actual function definition with body
     const body_stmt = ZigClangFunctionDecl_getBody(fn_decl);
-    const body_node = transStmt(rp, scope, body_stmt, .unused, .r_value) catch |err| switch (err) {
+    const block_scope = try Scope.Block.init(rp.c, &c.global_scope.base, null);
+    var scope = &block_scope.base;
+    const block_node = try transCreateNodeBlock(rp.c, null);
+    block_scope.block_node = block_node;
+
+    var it = proto_node.params.iterator(0);
+    while (it.next()) |p| {
+        const param = @fieldParentPtr(ast.Node.ParamDecl, "base", p.*);
+        const param_name = tokenSlice(c, param.name_token.?);
+
+        const checked_param_name = if (try scope.createAlias(rp.c, param_name)) |a| blk: {
+            try block_scope.variables.push(.{ .name = param_name, .alias = a });
+            break :blk a;
+        } else param_name;
+        const arg_name = try std.fmt.allocPrint(c.a(), "_arg_{}", .{checked_param_name});
+
+        const node = try transCreateNodeVarDecl(c, false, false, checked_param_name);
+        node.eq_token = try appendToken(c, .Equal, "=");
+        node.init_node = try transCreateNodeIdentifier(c, arg_name);
+        node.semicolon_token = try appendToken(c, .Semicolon, ";");
+        try block_node.statements.push(&node.base);
+        param.name_token = try appendIdentifier(c, arg_name);
+        _ = try appendToken(c, .Colon, ":");
+    }
+
+    transCompoundStmtInline(rp, &block_scope.base, @ptrCast(*const ZigClangCompoundStmt, body_stmt), block_node) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
         error.UnsupportedTranslation,
         error.UnsupportedType,
         => return failDecl(c, fn_decl_loc, fn_name, "unable to translate function", .{}),
     };
-    assert(body_node.id == .Block);
-    proto_node.body_node = body_node;
-
+    block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
+    proto_node.body_node = &block_node.base;
     return addTopLevelDecl(c, fn_name, &proto_node.base);
 }
 
@@ -614,7 +606,7 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
     const name = try std.fmt.allocPrint(c.a(), "{}_{}", .{ container_kind_name, bare_name });
     _ = try c.decl_table.put(@ptrToInt(ZigClangRecordDecl_getCanonicalDecl(record_decl)), name);
 
-    const node = try transCreateNodeVarDecl(c, true, true, name);
+    const node = try transCreateNodeVarDecl(c, !is_unnamed, true, name);
 
     node.eq_token = try appendToken(c, .Equal, "=");
 
@@ -1020,10 +1012,10 @@ fn transBinaryOperator(
         .Mul => {
             if (cIsUnsignedInteger(qt)) {
                 op_token = try appendToken(rp.c, .AsteriskPercent, "*%");
-                op_id = .MultWrap;
+                op_id = .MulWrap;
             } else {
                 op_token = try appendToken(rp.c, .Asterisk, "*");
-                op_id = .Mult;
+                op_id = .Mul;
             }
         },
         .Div => {
@@ -1287,8 +1279,16 @@ fn transBoolExpr(
         undefined;
     var res = try transExpr(rp, scope, expr, used, lrvalue);
 
-    if (isBoolRes(res))
+    if (isBoolRes(res)) {
+        if (!grouped and res.id == .GroupedExpression) {
+            const group = @fieldParentPtr(ast.Node.GroupedExpression, "base", res);
+            res = group.expr;
+            // get zig fmt to work properly
+            tokenSlice(rp.c, group.lparen)[0] = ')';
+        }
         return res;
+    }
+
     const ty = ZigClangQualType_getTypePtr(getExprQualTypeBeforeImplicitCast(rp.c, expr));
     const node = try finishBoolExpr(rp, scope, ZigClangExpr_getBeginLoc(expr), ty, res, used);
 
@@ -2399,9 +2399,9 @@ fn transCreatePostCrement(
 fn transCompoundAssignOperator(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangCompoundAssignOperator, used: ResultUsed) TransError!*ast.Node {
     switch (ZigClangCompoundAssignOperator_getOpcode(stmt)) {
         .MulAssign => if (qualTypeHaswrappingOverflow(ZigClangCompoundAssignOperator_getType(stmt)))
-            return transCreateCompoundAssign(rp, scope, stmt, .AssignMulWrap, .AsteriskPercentEqual, "*%=", .MultWrap, .AsteriskPercent, "*%", used)
+            return transCreateCompoundAssign(rp, scope, stmt, .AssignMulWrap, .AsteriskPercentEqual, "*%=", .MulWrap, .AsteriskPercent, "*%", used)
         else
-            return transCreateCompoundAssign(rp, scope, stmt, .AssignMul, .AsteriskEqual, "*=", .Mult, .Asterisk, "*", used),
+            return transCreateCompoundAssign(rp, scope, stmt, .AssignMul, .AsteriskEqual, "*=", .Mul, .Asterisk, "*", used),
         .AddAssign => if (qualTypeHaswrappingOverflow(ZigClangCompoundAssignOperator_getType(stmt)))
             return transCreateCompoundAssign(rp, scope, stmt, .AssignAddWrap, .PlusPercentEqual, "+%=", .AddWrap, .PlusPercent, "+%", used)
         else
@@ -3688,7 +3688,6 @@ const FnDeclContext = struct {
     fn_name: []const u8,
     has_body: bool,
     storage_class: ZigClangStorageClass,
-    scope: **Scope,
     is_export: bool,
 };
 
@@ -3754,9 +3753,6 @@ fn finishTransFnProto(
     // TODO check for always_inline attribute
     // TODO check for align attribute
 
-    var fndef_scope = Scope.FnDef.init(rp.c);
-    const scope = &fndef_scope.base;
-
     // pub extern fn name(...) T
     const pub_tok = if (is_pub) try appendToken(rp.c, .Keyword_pub, "pub") else null;
     const cc_tok = if (cc == .Stdcall) try appendToken(rp.c, .Keyword_stdcallcc, "stdcallcc") else null;
@@ -3782,15 +3778,11 @@ fn finishTransFnProto(
         const param_name_tok: ?ast.TokenIndex = blk: {
             if (fn_decl != null) {
                 const param = ZigClangFunctionDecl_getParamDecl(fn_decl.?, @intCast(c_uint, i));
-                var param_name: []const u8 = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, param)));
+                const param_name: []const u8 = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, param)));
                 if (param_name.len < 1)
-                    param_name = try std.fmt.allocPrint(rp.c.a(), "arg_{}", .{rp.c.getMangle()});
-                const checked_param_name = if (try scope.createAlias(rp.c, param_name)) |a| blk: {
-                    try fndef_scope.params.push(.{ .name = param_name, .alias = a });
-                    break :blk a;
-                } else param_name;
+                    break :blk null;
 
-                const result = try appendIdentifier(rp.c, checked_param_name);
+                const result = try appendIdentifier(rp.c, param_name);
                 _ = try appendToken(rp.c, .Colon, ":");
                 break :blk result;
             }
@@ -4124,8 +4116,8 @@ fn transMacroDefine(c: *Context, it: *ctok.TokenList.Iterator, name: []const u8,
 
 fn transMacroFnDefine(c: *Context, it: *ctok.TokenList.Iterator, name: []const u8, source_loc: ZigClangSourceLocation) ParseError!void {
     const rp = makeRestorePoint(c);
-    var fndef_scope = Scope.FnDef.init(c);
-    const scope = &fndef_scope.base;
+    const block_scope = try Scope.Block.init(c, &c.global_scope.base, null);
+    const scope = &block_scope.base;
 
     const pub_tok = try appendToken(c, .Keyword_pub, "pub");
     const inline_tok = try appendToken(c, .Keyword_inline, "inline");
@@ -4143,7 +4135,7 @@ fn transMacroFnDefine(c: *Context, it: *ctok.TokenList.Iterator, name: []const u
             return error.ParseError;
 
         const checked_name = if (try scope.createAlias(c, param_tok.bytes)) |alias| blk: {
-            try fndef_scope.params.push(.{ .name = param_tok.bytes, .alias = alias });
+            try block_scope.variables.push(.{ .name = param_tok.bytes, .alias = alias });
             break :blk alias;
         } else param_tok.bytes;
 
@@ -4521,9 +4513,9 @@ fn parseCPrefixOpExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc
     }
 }
 
-fn tokenSlice(c: *Context, token: ast.TokenIndex) []const u8 {
+fn tokenSlice(c: *Context, token: ast.TokenIndex) []u8 {
     const tok = c.tree.tokens.at(token);
-    return c.source_buffer.toSliceConst()[tok.start..tok.end];
+    return c.source_buffer.toSlice()[tok.start..tok.end];
 }
 
 fn getContainer(c: *Context, node: *ast.Node) ?*ast.Node {

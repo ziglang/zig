@@ -127,16 +127,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.addC_both("add, sub, mul, div, rem",
-        \\int s(int a, int b) {
-        \\    int c;
+        \\int s() {
+        \\    int a, b, c;
         \\    c = a + b;
         \\    c = a - b;
         \\    c = a * b;
         \\    c = a / b;
         \\    c = a % b;
         \\}
-        \\unsigned u(unsigned a, unsigned b) {
-        \\    unsigned c;
+        \\unsigned u() {
+        \\    unsigned a, b, c;
         \\    c = a + b;
         \\    c = a - b;
         \\    c = a * b;
@@ -144,7 +144,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    c = a % b;
         \\}
     , &[_][]const u8{
-        \\pub export fn s(a: c_int, b: c_int) c_int {
+        \\pub export fn s() c_int {
+        \\    var a: c_int = undefined;
+        \\    var b: c_int = undefined;
         \\    var c: c_int = undefined;
         \\    c = (a + b);
         \\    c = (a - b);
@@ -152,7 +154,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    c = @divTrunc(a, b);
         \\    c = @rem(a, b);
         \\}
-        \\pub export fn u(a: c_uint, b: c_uint) c_uint {
+        \\pub export fn u() c_uint {
+        \\    var a: c_uint = undefined;
+        \\    var b: c_uint = undefined;
         \\    var c: c_uint = undefined;
         \\    c = (a +% b);
         \\    c = (a -% b);
@@ -544,21 +548,25 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.addC_both("void cast",
-        \\void foo(int a) {
+        \\void foo() {
+        \\    int a;
         \\    (void) a;
         \\}
     , &[_][]const u8{
-        \\pub export fn foo(a: c_int) void {
+        \\pub export fn foo() void {
+        \\    var a: c_int = undefined;
         \\    _ = a;
         \\}
     });
 
     cases.addC_both("implicit cast to void *",
-        \\void *foo(unsigned short *x) {
+        \\void *foo() {
+        \\    unsigned short *x;
         \\    return x;
         \\}
     , &[_][]const u8{
-        \\pub export fn foo(x: [*c]c_ushort) ?*c_void {
+        \\pub export fn foo() ?*c_void {
+        \\    var x: [*c]c_ushort = undefined;
         \\    return @ptrCast(?*c_void, x);
         \\}
     });
@@ -659,11 +667,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.addC_both("pointer casting",
-        \\float *ptrcast(int *a) {
+        \\float *ptrcast() {
+        \\    int *a;
         \\    return (float *)a;
         \\}
     , &[_][]const u8{
-        \\pub export fn ptrcast(a: [*c]c_int) [*c]f32 {
+        \\pub export fn ptrcast() [*c]f32 {
+        \\    var a: [*c]c_int = undefined;
         \\    return @ptrCast([*c]f32, @alignCast(@alignOf(f32), a));
         \\}
     });
@@ -702,29 +712,21 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.addC_both("function call",
-        \\static void bar(void) { }
-        \\void foo(int *(baz)(void)) {
-        \\    bar();
-        \\    baz();
-        \\}
-    , &[_][]const u8{
-        \\pub fn bar() void {}
-        \\pub export fn foo(baz: ?extern fn () [*c]c_int) void {
-        \\    bar();
-        \\    _ = baz.?();
-        \\}
-    });
-
     cases.addC_both("while on non-bool",
-        \\int while_none_bool(int a, float b, void *c) {
+        \\int while_none_bool() {
+        \\    int a;
+        \\    float b;
+        \\    void *c;
         \\    while (a) return 0;
         \\    while (b) return 1;
         \\    while (c) return 2;
         \\    return 3;
         \\}
     , &[_][]const u8{
-        \\pub export fn while_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
+        \\pub export fn while_none_bool() c_int {
+        \\    var a: c_int = undefined;
+        \\    var b: f32 = undefined;
+        \\    var c: ?*c_void = undefined;
         \\    while (a != 0) return 0;
         \\    while (b != 0) return 1;
         \\    while (c != null) return 2;
@@ -733,14 +735,20 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.addC_both("for on non-bool",
-        \\int for_none_bool(int a, float b, void *c) {
+        \\int for_none_bool() {
+        \\    int a;
+        \\    float b;
+        \\    void *c;
         \\    for (;a;) return 0;
         \\    for (;b;) return 1;
         \\    for (;c;) return 2;
         \\    return 3;
         \\}
     , &[_][]const u8{
-        \\pub export fn for_none_bool(a: c_int, b: f32, c: ?*c_void) c_int {
+        \\pub export fn for_none_bool() c_int {
+        \\    var a: c_int = undefined;
+        \\    var b: f32 = undefined;
+        \\    var c: ?*c_void = undefined;
         \\    while (a != 0) return 0;
         \\    while (b != 0) return 1;
         \\    while (c != null) return 2;
@@ -770,11 +778,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.addC_both("normal deref",
-        \\void foo(int *x) {
+        \\void foo() {
+        \\    int *x;
         \\    *x = 1;
         \\}
     , &[_][]const u8{
-        \\pub export fn foo(x: [*c]c_int) void {
+        \\pub export fn foo() void {
+        \\    var x: [*c]c_int = undefined;
         \\    x.?.* = 1;
         \\}
     });
@@ -794,24 +804,32 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.addC_both("bin not",
-        \\int foo(int x) {
+        \\int foo() {
+        \\    int x;
         \\    return ~x;
         \\}
     , &[_][]const u8{
-        \\pub export fn foo(x: c_int) c_int {
+        \\pub export fn foo() c_int {
+        \\    var x: c_int = undefined;
         \\    return ~x;
         \\}
     });
 
     cases.addC_both("bool not",
-        \\int foo(int a, float b, void *c) {
+        \\int foo() {
+        \\    int a;
+        \\    float b;
+        \\    void *c;
         \\    return !(a == 0);
         \\    return !a;
         \\    return !b;
         \\    return !c;
         \\}
     , &[_][]const u8{
-        \\pub export fn foo(a: c_int, b: f32, c: ?*c_void) c_int {
+        \\pub export fn foo() c_int {
+        \\    var a: c_int = undefined;
+        \\    var b: f32 = undefined;
+        \\    var c: ?*c_void = undefined;
         \\    return !(a == 0);
         \\    return !(a != 0);
         \\    return !(b != 0);
@@ -828,6 +846,15 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return 1;
         \\}
     });
+
+    if (builtin.os != builtin.Os.windows) {
+        // sysv_abi not currently supported on windows
+        cases.add_both("Macro qualified functions",
+            \\void __attribute__((sysv_abi)) foo(void);
+        , &[_][]const u8{
+            \\pub extern fn foo() void;
+        });
+    }
 
     /////////////// Cases that pass for only stage2 ////////////////
 
@@ -1027,7 +1054,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const GLbitfield = c_uint;
         \\pub const PFNGLCLEARPROC = ?extern fn (GLbitfield) void;
         \\pub const OpenGLProc = ?extern fn () void;
-        \\pub const struct_unnamed_1 = extern struct {
+        \\const struct_unnamed_1 = extern struct {
         \\    Clear: PFNGLCLEARPROC,
         \\};
         \\pub const union_OpenGLProcs = extern union {
@@ -1088,7 +1115,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub var a: c_long = @as(c_long, 2);
         \\pub var b: c_long = @as(c_long, 2);
         \\pub var c: c_int = 4;
-        \\pub export fn foo(c_1: u8) void {
+        \\pub export fn foo(_arg_c_1: u8) void {
+        \\    var c_1 = _arg_c_1;
         \\    var a_2: c_int = undefined;
         \\    var b_3: u8 = @as(u8, 123);
         \\    b_3 = @as(u8, a_2);
@@ -1105,7 +1133,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return 2, 4, 6;
         \\}
     , &[_][]const u8{
-        \\pub export fn foo(c: u8) c_int {
+        \\pub export fn foo(_arg_c: u8) c_int {
+        \\    var c = _arg_c;
         \\    _ = 2;
         \\    _ = 4;
         \\    _ = 2;
@@ -1121,7 +1150,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    a = b = 2;
         \\}
     , &[_][]const u8{
-        \\pub export fn foo(c: u8) c_int {
+        \\pub export fn foo(_arg_c: u8) c_int {
+        \\    var c = _arg_c;
         \\    var a: c_int = undefined;
         \\    var b: c_int = undefined;
         \\    a = blk: {
@@ -1142,7 +1172,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    }
         \\}
     , &[_][]const u8{
-        \\pub export fn foo(c: u8) c_int {
+        \\pub export fn foo(_arg_c: u8) c_int {
+        \\    var c = _arg_c;
         \\    if (2 != 0) {
         \\        var a: c_int = 2;
         \\    }
@@ -1265,7 +1296,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    }
         \\}
     , &[_][]const u8{
-        \\pub export fn switch_fn(i: c_int) c_int {
+        \\pub export fn switch_fn(_arg_i: c_int) c_int {
+        \\    var i = _arg_i;
         \\    var res: c_int = 0;
         \\    __switch: {
         \\        __case_2: {
@@ -1316,7 +1348,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add_2("restrict -> noalias",
         \\void foo(void *restrict bar, void *restrict);
     , &[_][]const u8{
-        \\pub extern fn foo(noalias bar: ?*c_void, noalias arg_1: ?*c_void) void;
+        \\pub extern fn foo(noalias bar: ?*c_void, noalias ?*c_void) void;
     });
 
     cases.add_2("assign",
@@ -1326,7 +1358,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    a = tmp;
         \\}
     , &[_][]const u8{
-        \\pub export fn max(a: c_int) c_int {
+        \\pub export fn max(_arg_a: c_int) c_int {
+        \\    var a = _arg_a;
         \\    var tmp: c_int = undefined;
         \\    tmp = a;
         \\    a = tmp;
@@ -1339,7 +1372,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    c = b = a;
         \\}
     , &[_][]const u8{
-        \\pub export fn max(a: c_int) void {
+        \\pub export fn max(_arg_a: c_int) void {
+        \\    var a = _arg_a;
         \\    var b: c_int = undefined;
         \\    var c: c_int = undefined;
         \\    c = blk: {
@@ -1369,7 +1403,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return (int)a;
         \\}
     , &[_][]const u8{
-        \\pub export fn float_to_int(a: f32) c_int {
+        \\pub export fn float_to_int(_arg_a: f32) c_int {
+        \\    var a = _arg_a;
         \\    return @floatToInt(c_int, a);
         \\}
     });
@@ -1434,19 +1469,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add_2("shift right with a fixed size type, no while", // TODO can fold this into "shift right assign with a fixed size type" once `>>=` is handled in translate-c-2
-        \\#include <stdint.h>
-        \\uint32_t some_func(uint32_t a) {
-        \\    uint32_t b = a >> 1;
-        \\    return b;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn some_func(a: u32) u32 {
-        \\    var b: u32 = a >> @as(u5, 1);
-        \\    return b;
-        \\}
-    });
-
     cases.add_2("logical and, logical or, on non-bool values, extra parens",
         \\enum Foo {
         \\    FooA,
@@ -1480,7 +1502,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    C,
         \\};
         \\pub const SomeTypedef = c_int;
-        \\pub export fn and_or_non_bool(a: c_int, b: f32, c: ?*c_void) c_int {
+        \\pub export fn and_or_non_bool(_arg_a: c_int, _arg_b: f32, _arg_c: ?*c_void) c_int {
+        \\    var a = _arg_a;
+        \\    var b = _arg_b;
+        \\    var c = _arg_c;
         \\    var d: enum_Foo = @as(enum_Foo, FooA);
         \\    var e: c_int = @boolToInt(((a != 0) and (b != 0)));
         \\    var f: c_int = @boolToInt(((b != 0) and (c != null)));
@@ -1532,12 +1557,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return (a & b) ^ (a | b);
         \\}
     , &[_][]const u8{
-        \\pub export fn max(a: c_int, b: c_int) c_int {
+        \\pub export fn max(_arg_a: c_int, _arg_b: c_int) c_int {
+        \\    var a = _arg_a;
+        \\    var b = _arg_b;
         \\    return ((a & b) ^ (a | b));
         \\}
     });
 
-    cases.add_2("comparison operators (no if)", // TODO Come up with less contrived tests? Make sure to cover all these comparisons. Can use `if` after it is added to translate-c-2
+    cases.add_2("comparison operators (no if)", // TODO Come up with less contrived tests? Make sure to cover all these comparisons.
         \\int test_comparisons(int a, int b) {
         \\    int c = (a < b);
         \\    int d = (a > b);
@@ -1549,7 +1576,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return i;
         \\}
     , &[_][]const u8{
-        \\pub export fn test_comparisons(a: c_int, b: c_int) c_int {
+        \\pub export fn test_comparisons(_arg_a: c_int, _arg_b: c_int) c_int {
+        \\    var a = _arg_a;
+        \\    var b = _arg_b;
         \\    var c: c_int = @boolToInt((a < b));
         \\    var d: c_int = @boolToInt((a > b));
         \\    var e: c_int = @boolToInt((a <= b));
@@ -1570,9 +1599,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return a;
         \\}
     , &[_][]const u8{
-        \\pub export fn max(a: c_int, b: c_int) c_int {
-        \\    if ((a == b)) return a;
-        \\    if ((a != b)) return b;
+        \\pub export fn max(_arg_a: c_int, _arg_b: c_int) c_int {
+        \\    var a = _arg_a;
+        \\    var b = _arg_b;
+        \\    if (a == b) return a;
+        \\    if (a != b) return b;
         \\    return a;
         \\}
     });
@@ -1646,7 +1677,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub export var array: [100]c_int = .{0} ** 100;
-        \\pub export fn foo(index: c_int) c_int {
+        \\pub export fn foo(_arg_index: c_int) c_int {
+        \\    var index = _arg_index;
         \\    return array[index];
         \\}
     ,
@@ -1670,9 +1702,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return a;
         \\}
     , &[_][]const u8{
-        \\pub export fn max(a: c_int, b: c_int) c_int {
-        \\    if (((a < b) or (a == b))) return b;
-        \\    if (((a >= b) and (a == b))) return a;
+        \\pub export fn max(_arg_a: c_int, _arg_b: c_int) c_int {
+        \\    var a = _arg_a;
+        \\    var b = _arg_b;
+        \\    if ((a < b) or (a == b)) return b;
+        \\    if ((a >= b) and (a == b)) return a;
         \\    return a;
         \\}
     });
@@ -1690,10 +1724,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    if (a < b) ; else ;
         \\}
     , &[_][]const u8{
-        \\pub export fn max(a: c_int, b: c_int) c_int {
-        \\    if ((a < b)) return b;
-        \\    if ((a < b)) return b else return a;
-        \\    if ((a < b)) {} else {}
+        \\pub export fn max(_arg_a: c_int, _arg_b: c_int) c_int {
+        \\    var a = _arg_a;
+        \\    var b = _arg_b;
+        \\    if (a < b) return b;
+        \\    if (a < b) return b else return a;
+        \\    if (a < b) {} else {}
         \\}
     });
 
@@ -1715,7 +1751,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    B,
         \\    C,
         \\};
-        \\pub export fn if_none_bool(a: c_int, b: f32, c: ?*c_void, d: enum_SomeEnum) c_int {
+        \\pub export fn if_none_bool(_arg_a: c_int, _arg_b: f32, _arg_c: ?*c_void, _arg_d: enum_SomeEnum) c_int {
+        \\    var a = _arg_a;
+        \\    var b = _arg_b;
+        \\    var c = _arg_c;
+        \\    var d = _arg_d;
         \\    if (a != 0) return 0;
         \\    if (b != 0) return 1;
         \\    if (c != null) return 2;
@@ -1741,8 +1781,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return a < 0 ? -a : a;
         \\}
     , &[_][]const u8{
-        \\pub export fn abs(a: c_int) c_int {
-        \\    return if ((a < 0)) -a else a;
+        \\pub export fn abs(_arg_a: c_int) c_int {
+        \\    var a = _arg_a;
+        \\    return if (a < 0) -a else a;
         \\}
     });
 
@@ -1756,11 +1797,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return a;
         \\}
     , &[_][]const u8{
-        \\pub export fn foo1(a: c_uint) c_uint {
+        \\pub export fn foo1(_arg_a: c_uint) c_uint {
+        \\    var a = _arg_a;
         \\    a +%= 1;
         \\    return a;
         \\}
-        \\pub export fn foo2(a: c_int) c_int {
+        \\pub export fn foo2(_arg_a: c_int) c_int {
+        \\    var a = _arg_a;
         \\    a += 1;
         \\    return a;
         \\}
@@ -1848,10 +1891,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    }
         \\    return i;
         \\}
-    , &[_][]const u8{// TODO function arguments should be copied
-        \\pub export fn log2(a: c_uint) c_int {
+    , &[_][]const u8{
+        \\pub export fn log2(_arg_a: c_uint) c_int {
+        \\    var a = _arg_a;
         \\    var i: c_int = 0;
-        \\    while ((a > @as(c_uint, 0))) {
+        \\    while (a > @as(c_uint, 0)) {
         \\        a >>= @as(@import("std").math.Log2Int(c_int), 1);
         \\    }
         \\    return i;
@@ -1868,9 +1912,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return i;
         \\}
     , &[_][]const u8{
-        \\pub export fn log2(a: u32) c_int {
+        \\pub export fn log2(_arg_a: u32) c_int {
+        \\    var a = _arg_a;
         \\    var i: c_int = 0;
-        \\    while ((a > @as(c_uint, 0))) {
+        \\    while (a > @as(c_uint, 0)) {
         \\        a >>= @as(@import("std").math.Log2Int(c_int), 1);
         \\    }
         \\    return i;
@@ -2076,7 +2121,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn fn_char(x: u8) void;
         \\pub extern fn fn_bool(x: bool) void;
         \\pub extern fn fn_ptr(x: ?*c_void) void;
-        \\pub export fn call(q: c_int) void {
+        \\pub export fn call(_arg_q: c_int) void {
+        \\    var q = _arg_q;
         \\    fn_int(@floatToInt(c_int, 3));
         \\    fn_int(@floatToInt(c_int, 3));
         \\    fn_int(@floatToInt(c_int, 3));
@@ -2093,6 +2139,21 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    fn_bool(@ptrToInt(&fn_int) != 0);
         \\    fn_int(@intCast(c_int, @ptrToInt(&fn_int)));
         \\    fn_ptr(@intToPtr(?*c_void, 42));
+        \\}
+    });
+
+    cases.add_2("function call",
+        \\static void bar(void) { }
+        \\void foo(int *(baz)(void)) {
+        \\    bar();
+        \\    baz();
+        \\}
+    , &[_][]const u8{
+        \\pub fn bar() void {}
+        \\pub export fn foo(_arg_baz: ?extern fn () [*c]c_int) void {
+        \\    var baz = _arg_baz;
+        \\    bar();
+        \\    _ = baz.?();
         \\}
     });
 
@@ -2121,15 +2182,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub const FOO_CHAR = 63;
     });
-
-    if (builtin.os != builtin.Os.windows) {
-        // sysv_abi not currently supported on windows
-        cases.add("Macro qualified functions",
-            \\void __attribute__((sysv_abi)) foo(void);
-        , &[_][]const u8{
-            \\pub extern fn foo() void;
-        });
-    }
 
     /////////////// Cases for only stage1 because stage2 behavior is better ////////////////
     cases.addC("Parameterless function prototypes",
@@ -3043,6 +3095,20 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    fn_bool(@ptrToInt(&fn_int) != 0);
         \\    fn_int(@intCast(c_int, @ptrToInt(&fn_int)));
         \\    fn_ptr(@intToPtr(?*c_void, 42));
+        \\}
+    });
+
+    cases.addC("function call",
+        \\static void bar(void) { }
+        \\void foo(int *(baz)(void)) {
+        \\    bar();
+        \\    baz();
+        \\}
+    , &[_][]const u8{
+        \\pub fn bar() void {}
+        \\pub export fn foo(baz: ?extern fn () [*c]c_int) void {
+        \\    bar();
+        \\    _ = baz.?();
         \\}
     });
 }
