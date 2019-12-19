@@ -367,3 +367,8 @@ test "data field is a compile-time value" {
     };
     comptime expect(@typeInfo(S).Struct.decls[0].data.Var == isize);
 }
+
+test "sentinel of opaque pointer type" {
+    const c_void_info = @typeInfo(*c_void);
+    expect(c_void_info.Pointer.sentinel == null);
+}

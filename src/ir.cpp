@@ -22688,11 +22688,11 @@ static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_type_ent
     // sentinel: var
     ensure_field_index(result->type, "sentinel", 6);
     fields[6]->special = ConstValSpecialStatic;
-    fields[6]->type = get_optional_type(ira->codegen, attrs_type->data.pointer.child_type);
-    if (attrs_type->data.pointer.sentinel != nullptr) {
+    if (attrs_type->data.pointer.child_type->id != ZigTypeIdOpaque) {
+        fields[6]->type = get_optional_type(ira->codegen, attrs_type->data.pointer.child_type);
         fields[6]->data.x_optional = attrs_type->data.pointer.sentinel;
     } else {
-        fields[6]->data.x_optional = nullptr;
+        fields[6]->type = ira->codegen->builtin_types.entry_null;
     }
 
     return result;
