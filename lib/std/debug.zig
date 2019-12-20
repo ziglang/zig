@@ -1084,7 +1084,7 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
             std.macho.LC_SYMTAB => break @ptrCast(*std.macho.symtab_command, ptr),
             else => {},
         }
-        ptr += lc.cmdsize; // TODO https://github.com/ziglang/zig/issues/1403
+        ptr = @alignCast(@alignOf(std.macho.load_command), ptr + lc.cmdsize);
     } else {
         return error.MissingDebugInfo;
     };
@@ -2129,7 +2129,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
                 std.macho.LC_SEGMENT_64 => break @ptrCast(*const std.macho.segment_command_64, @alignCast(@alignOf(std.macho.segment_command_64), ptr)),
                 else => {},
             }
-            ptr += lc.cmdsize; // TODO https://github.com/ziglang/zig/issues/1403
+            ptr = @alignCast(@alignOf(std.macho.load_command), ptr + lc.cmdsize);
         } else {
             return error.MissingDebugInfo;
         };
