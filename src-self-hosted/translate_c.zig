@@ -340,11 +340,10 @@ fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
 }
 
 fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
-    if (c.decl_table.contains(@ptrToInt(ZigClangFunctionDecl_getCanonicalDecl(fn_decl))))
+    const fn_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, fn_decl)));
+    if (c.global_scope.sym_table.contains(fn_name))
         return; // Avoid processing this decl twice
     const rp = makeRestorePoint(c);
-    const fn_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, fn_decl)));
-    _ = try c.decl_table.put(@ptrToInt(fn_decl), fn_name);
     const fn_decl_loc = ZigClangFunctionDecl_getLocation(fn_decl);
     const has_body = ZigClangFunctionDecl_hasBody(fn_decl);
     const storage_class = ZigClangFunctionDecl_getStorageClass(fn_decl);
@@ -436,7 +435,8 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
 }
 
 fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
-    if (c.decl_table.contains(@ptrToInt(ZigClangVarDecl_getCanonicalDecl(var_decl))))
+    const var_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, var_decl)));
+    if (c.global_scope.sym_table.contains(var_name))
         return; // Avoid processing this decl twice
     const rp = makeRestorePoint(c);
     const visib_tok = try appendToken(c, .Keyword_pub, "pub");
@@ -447,12 +447,10 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
         try appendToken(c, .Keyword_threadlocal, "threadlocal");
 
     const scope = &c.global_scope.base;
-    const var_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, var_decl)));
 
     // TODO https://github.com/ziglang/zig/issues/3756
     // TODO https://github.com/ziglang/zig/issues/1802
     const checked_name = if (isZigPrimitiveType(var_name)) try std.fmt.allocPrint(c.a(), "_{}", .{var_name}) else var_name;
-    _ = try c.decl_table.put(@ptrToInt(var_decl), checked_name);
     const var_decl_loc = ZigClangVarDecl_getLocation(var_decl);
 
     const qual_type = ZigClangVarDecl_getTypeSourceInfo_getType(var_decl);

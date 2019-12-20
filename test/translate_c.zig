@@ -2167,7 +2167,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const FOO = "aoeu\x13 derp";
     ,
-        \\pub const FOO2 = "aoeu\x9c derp";
+        \\pub const FOO2 = "aoeu\x134 derp";
     ,
         \\pub const FOO_CHAR = '\x3f';
     });

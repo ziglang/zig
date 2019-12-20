@@ -79,8 +79,6 @@ fn zigifyEscapeSequences(allocator: *std.mem.Allocator, tok: CToken) !CToken {
         Escape,
         Hex,
         Octal,
-        HexZero,
-        OctalZero,
     } = .Start;
     var i: usize = 0;
     var count: u8 = 0;
@@ -92,20 +90,15 @@ fn zigifyEscapeSequences(allocator: *std.mem.Allocator, tok: CToken) !CToken {
                     'n', 'r', 't', '\\', '\'', '\"' => {
                         bytes[i] = c;
                     },
-                    '0' => {
-                        state = .OctalZero;
-                        bytes[i] = 'x';
-                    },
-                    '1'...'7' => {
+                    '0'...'7' => {
                         count += 1;
-                        num *= 8;
                         num += c - '0';
                         state = .Octal;
                         bytes[i] = 'x';
                     },
                     'x' => {
-                        state = .HexZero;
-                        bytes[i] = c;
+                        state = .Hex;
+                        bytes[i] = 'x';
                     },
                     'a' => {
                         bytes[i] = 'x';
@@ -159,83 +152,37 @@ fn zigifyEscapeSequences(allocator: *std.mem.Allocator, tok: CToken) !CToken {
                 bytes[i] = c;
                 i += 1;
             },
-            .HexZero => {
-                switch (c) {
-                    '0' => { continue; },
-                    '1'...'9' => {
-                        count += 1;
-                        num *= 16;
-                        num += c - '0';
-                    },
-                    'a'...'f' => {
-                        count += 1;
-                        num *= 16;
-                        num += c - 'a' + 10;
-                    },
-                    'A'...'F' => {
-                        count += 1;
-                        num *= 16;
-                        num += c - 'A' + 10;
-                    },
-                    else => {},
-                }
-                state = .Hex;
-            },
             .Hex => {
                 switch (c) {
                     '0'...'9' => {
-                        count += 1;
-                        num *= 16;
+                        num = std.math.mul(u8, num, 16) catch return error.TokenizingFailed;
                         num += c - '0';
-                        if (count < 2)
-                            continue;
                     },
                     'a'...'f' => {
-                        count += 1;
-                        num *= 16;
+                        num = std.math.mul(u8, num, 16) catch return error.TokenizingFailed;
                         num += c - 'a' + 10;
-                        if (count < 2)
-                            continue;
                     },
                     'A'...'F' => {
-                        count += 1;
-                        num *= 16;
+                        num = std.math.mul(u8, num, 16) catch return error.TokenizingFailed;
                         num += c - 'A' + 10;
-                        if (count < 2)
-                            continue;
                     },
-                    else => {},
-                }
-                i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{.fill = '0', .width = 2});
-                switch (c) {
-                    '\\' => state = .Escape,
-                    '0'...'9', 'a'...'f','A'...'F' => state = .Start,
                     else => {
-                        state = .Start;
+                        i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{.fill = '0', .width = 2});
+                        num = 0;
+                        if (c == '\\')
+                            state = .Escape
+                        else
+                            state = .Start;
                         bytes[i] = c;
                         i += 1;
                     },
                 }
-                count = 0;
-                num = 0;
-            },
-            .OctalZero => {
-                switch (c) {
-                    '0' => { continue; },
-                    '1'...'7' => {
-                        count += 1;
-                        num *= 8;
-                        num += c - '0';
-                    },
-                    else => {},
-                }
-                state = .Octal;
             },
             .Octal => {
                 switch (c) {
                     '0'...'7' => {
                         count += 1;
-                        num *= 8;
+                        num = std.math.mul(u8, num, 8) catch return error.TokenizingFailed;
                         num += c - '0';
                         if (count < 3)
                             continue;
@@ -243,15 +190,7 @@ fn zigifyEscapeSequences(allocator: *std.mem.Allocator, tok: CToken) !CToken {
                     else => {},
                 }
                 i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{.fill = '0', .width = 2});
-                switch (c) {
-                    '\\' => state = .Escape,
-                    '0'...'7' => state = .Start,
-                    else => {
-                        state = .Start;
-                        bytes[i] = c;
-                        i += 1;
-                    },
-                }
+                state = .Start;
                 count = 0;
                 num = 0;
             },
@@ -799,12 +738,12 @@ test "escape sequences" {
     })).bytes, "\\x77"));
     expect(std.mem.eql(u8, (try zigifyEscapeSequences(a, .{
         .id = .StrLit,
-        .bytes = "\\00245",
-    })).bytes, "\\xa5"));
+        .bytes = "\\24500",
+    })).bytes, "\\xa500"));
     expect(std.mem.eql(u8, (try zigifyEscapeSequences(a, .{
         .id = .StrLit,
-        .bytes = "\\x0077abc",
-    })).bytes, "\\x77abc"));
+        .bytes = "\\x0077 abc",
+    })).bytes, "\\x77 abc"));
     expect(std.mem.eql(u8, (try zigifyEscapeSequences(a, .{
         .id = .StrLit,
         .bytes = "\\045abc",
