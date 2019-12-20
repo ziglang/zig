@@ -406,7 +406,9 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     var it = proto_node.params.iterator(0);
     while (it.next()) |p| {
         const param = @fieldParentPtr(ast.Node.ParamDecl, "base", p.*);
-        const param_name = tokenSlice(c, param.name_token.?);
+        const param_name = tokenSlice(c, param.name_token orelse
+            return failDecl(c, fn_decl_loc, fn_name, "function {} parameter has no name", .{fn_name})
+        );
 
         const checked_param_name = if (try scope.createAlias(rp.c, param_name)) |a| blk: {
             try block_scope.variables.push(.{ .name = param_name, .alias = a });
@@ -4387,8 +4389,8 @@ fn parseCPrimaryExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc:
             rp,
             error.UnsupportedTranslation,
             source_loc,
-            "unable to translate C expr",
-            .{},
+            "unable to translate C expr, unexpected token: {}",
+            .{tok.id},
         ),
     }
 }
@@ -4473,10 +4475,17 @@ fn parseCSuffixOpExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc
                 call_node.rtoken = try appendToken(rp.c, .RParen, ")");
                 node = &call_node.base;
             },
-            else => {
+            .Eof => {
                 _ = it.prev();
                 return node;
             },
+            else => return revertAndWarn(
+                rp,
+                error.UnsupportedTranslation,
+                source_loc,
+                "unable to translate C expr, unexpected token: {}",
+                .{tok.id},
+            ),
         }
     }
 }
