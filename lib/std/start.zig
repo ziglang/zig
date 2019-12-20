@@ -142,14 +142,14 @@ fn posixCallMainAndExit() noreturn {
     const argc = starting_stack_ptr[0];
     const argv = @ptrCast([*][*:0]u8, starting_stack_ptr + 1);
 
-    const envp_optional = @ptrCast([*:null]?[*:0]u8, argv + argc + 1);
+    const envp_optional = @ptrCast([*:null]?[*:0]u8, @alignCast(@alignOf(usize), argv + argc + 1));
     var envp_count: usize = 0;
     while (envp_optional[envp_count]) |_| : (envp_count += 1) {}
     const envp = @ptrCast([*][*:0]u8, envp_optional)[0..envp_count];
 
     if (builtin.os == .linux) {
         // Find the beginning of the auxiliary vector
-        const auxv = @ptrCast([*]std.elf.Auxv, envp.ptr + envp_count + 1);
+        const auxv = @ptrCast([*]std.elf.Auxv, @alignCast(@alignOf(usize), envp.ptr + envp_count + 1));
         std.os.linux.elf_aux_maybe = auxv;
         // Initialize the TLS area
         const gnu_stack_phdr = std.os.linux.tls.initTLS() orelse @panic("ELF missing stack size");
