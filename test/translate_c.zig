@@ -1286,12 +1286,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    switch (i) {
         \\        case 0:
         \\            res = 1;
-        \\        case 1:
+        \\        case 1 ... 3:
         \\            res = 2;
         \\        default:
         \\            res = 3 * i;
         \\            break;
-        \\        case 2:
+        \\        case 4:
         \\            res = 5;
         \\    }
         \\}
@@ -1306,9 +1306,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\                    __case_0: {
         \\                        switch (i) {
         \\                            0 => break :__case_0,
-        \\                            1 => break :__case_1,
+        \\                            1...3 => break :__case_1,
         \\                            else => break :__default,
-        \\                            2 => break :__case_2,
+        \\                            4 => break :__case_2,
         \\                        }
         \\                    }
         \\                    res = 1;

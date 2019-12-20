@@ -1945,7 +1945,7 @@ fn transCase(
     const expr = if (ZigClangCaseStmt_getRHS(stmt)) |rhs| blk: {
         const lhs_node = try transExpr(rp, scope, ZigClangCaseStmt_getLHS(stmt), .used, .r_value);
         const ellips = try appendToken(rp.c, .Ellipsis3, "...");
-        const rhs_node = try transExpr(rp, scope, ZigClangCaseStmt_getLHS(stmt), .used, .r_value);
+        const rhs_node = try transExpr(rp, scope, rhs, .used, .r_value);
 
         const node = try rp.c.a().create(ast.Node.InfixOp);
         node.* = .{
