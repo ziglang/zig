@@ -25122,14 +25122,16 @@ static IrInstruction *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstruction
             if (array_type->data.pointer.ptr_len == PtrLenC) {
                 array_type = adjust_ptr_len(ira->codegen, array_type, PtrLenUnknown);
             }
-            non_sentinel_slice_ptr_type = array_type;
+            ZigType *maybe_sentineled_slice_ptr_type = array_type;
+            non_sentinel_slice_ptr_type = adjust_ptr_sentinel(ira->codegen, maybe_sentineled_slice_ptr_type, nullptr);
             if (!end) {
                 ir_add_error(ira, &instruction->base, buf_sprintf("slice of pointer must include end value"));
                 return ira->codegen->invalid_instruction;
             }
         }
     } else if (is_slice(array_type)) {
-        non_sentinel_slice_ptr_type = array_type->data.structure.fields[slice_ptr_index]->type_entry;
+        ZigType *maybe_sentineled_slice_ptr_type = array_type->data.structure.fields[slice_ptr_index]->type_entry;
+        non_sentinel_slice_ptr_type = adjust_ptr_sentinel(ira->codegen, maybe_sentineled_slice_ptr_type, nullptr);
         elem_type = non_sentinel_slice_ptr_type->data.pointer.child_type;
     } else {
         ir_add_error(ira, &instruction->base,

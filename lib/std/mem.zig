@@ -364,11 +364,11 @@ pub fn len(comptime T: type, ptr: [*:0]const T) usize {
 }
 
 pub fn toSliceConst(comptime T: type, ptr: [*:0]const T) [:0]const T {
-    return ptr[0..len(T, ptr)];
+    return ptr[0..len(T, ptr) :0];
 }
 
 pub fn toSlice(comptime T: type, ptr: [*:0]T) [:0]T {
-    return ptr[0..len(T, ptr)];
+    return ptr[0..len(T, ptr) :0];
 }
 
 /// Returns true if all elements in a slice are equal to the scalar value provided

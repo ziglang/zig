@@ -219,7 +219,7 @@ pub fn panic(comptime format: []const u8, args: var) noreturn {
 }
 
 /// TODO multithreaded awareness
-var panicking: u8 = 0; // TODO make this a bool
+var panicking: u8 = 0;
 
 pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, comptime format: []const u8, args: var) noreturn {
     @setCold(true);
@@ -230,21 +230,25 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
         resetSegfaultHandler();
     }
 
-    if (@atomicRmw(u8, &panicking, builtin.AtomicRmwOp.Xchg, 1, builtin.AtomicOrder.SeqCst) == 1) {
-        // Panicked during a panic.
-
-        // TODO detect if a different thread caused the panic, because in that case
-        // we would want to return here instead of calling abort, so that the thread
-        // which first called panic can finish printing a stack trace.
-        os.abort();
+    switch (@atomicRmw(u8, &panicking, .Add, 1, .SeqCst)) {
+        0 => {
+            const stderr = getStderrStream();
+            stderr.print(format ++ "\n", args) catch os.abort();
+            if (trace) |t| {
+                dumpStackTrace(t.*);
+            }
+            dumpCurrentStackTrace(first_trace_addr);
+        },
+        1 => {
+            // TODO detect if a different thread caused the panic, because in that case
+            // we would want to return here instead of calling abort, so that the thread
+            // which first called panic can finish printing a stack trace.
+            warn("Panicked during a panic. Aborting.\n", .{});
+        },
+        else => {
+            // Panicked while printing "Panicked during a panic."
+        },
     }
-    const stderr = getStderrStream();
-    stderr.print(format ++ "\n", args) catch os.abort();
-    if (trace) |t| {
-        dumpStackTrace(t.*);
-    }
-    dumpCurrentStackTrace(first_trace_addr);
-
     os.abort();
 }
 
