@@ -19500,6 +19500,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
         }
 
         if (orig_array_ptr_val->special != ConstValSpecialRuntime &&
+            orig_array_ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr &&
             (orig_array_ptr_val->data.x_ptr.mut != ConstPtrMutRuntimeVar ||
                 array_type->id == ZigTypeIdArray))
         {

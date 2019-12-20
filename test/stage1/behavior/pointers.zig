@@ -282,3 +282,9 @@ test "pointer sentinel with +inf" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "pointer to array at fixed address" {
+    const array = @intToPtr(*volatile [1]u32, 0x10);
+    // Silly check just to reference `array`
+    expect(@ptrToInt(&array[0]) == 0x10);
+}
