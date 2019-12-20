@@ -303,7 +303,17 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const cc = parseFnCC(arena, it, tree);
     const fn_token = eatToken(it, .Keyword_fn) orelse {
-        if (cc == null) return null else return error.ParseError;
+        if (cc) |fnCC| {
+            if (fnCC == .Extern) {
+                putBackToken(it, fnCC.Extern); // 'extern' is also used in ContainerDecl
+            } else {
+                try tree.errors.push(AstError{
+                    .ExpectedToken = .{ .token = it.index, .expected_id = .Keyword_fn },
+                });
+                return error.ParseError;
+            }
+        }
+        return null;
     };
     const name_token = eatToken(it, .Identifier);
     const lparen = try expectToken(it, tree, .LParen);
