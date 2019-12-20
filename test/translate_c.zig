@@ -1089,13 +1089,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add_2("macro escape sequences",
+    cases.add_2("macro defines string literal with hex",
         \\#define FOO "aoeu\xab derp"
-        \\#define FOO2 "aoeu\a derp"
+        \\#define FOO2 "aoeu\x0007a derp"
+        \\#define FOO_CHAR '\xfF'
     , &[_][]const u8{
         \\pub const FOO = "aoeu\xab derp";
     ,
-        \\pub const FOO2 = "aoeu\x07 derp";
+        \\pub const FOO2 = "aoeu\x7a derp";
+    ,
+        \\pub const FOO_CHAR = '\xff';
     });
 
     cases.add_2("variable aliasing",
@@ -2157,30 +2160,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    /////////////// Cases for only stage1 which are TODO items for stage2 ////////////////
-
-    cases.add("macro defines string literal with hex",
-        \\#define FOO "aoeu\xab derp"
-        \\#define FOO2 "aoeu\x0007a derp"
-        \\#define FOO_CHAR '\xfF'
-    , &[_][]const u8{
-        \\pub const FOO = "aoeu\xab derp";
-    ,
-        \\pub const FOO2 = "aoeuz derp";
-    ,
-        \\pub const FOO_CHAR = 255;
-    });
-
-    cases.add("macro defines string literal with octal",
+    cases.add_2("macro defines string literal with octal",
         \\#define FOO "aoeu\023 derp"
         \\#define FOO2 "aoeu\0234 derp"
         \\#define FOO_CHAR '\077'
     , &[_][]const u8{
         \\pub const FOO = "aoeu\x13 derp";
     ,
-        \\pub const FOO2 = "aoeu\x134 derp";
+        \\pub const FOO2 = "aoeu\x9c derp";
     ,
-        \\pub const FOO_CHAR = 63;
+        \\pub const FOO_CHAR = '\x3f';
     });
 
     /////////////// Cases for only stage1 because stage2 behavior is better ////////////////
@@ -3110,5 +3099,29 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    bar();
         \\    _ = baz.?();
         \\}
+    });
+
+    cases.add("macro defines string literal with hex",
+        \\#define FOO "aoeu\xab derp"
+        \\#define FOO2 "aoeu\x0007a derp"
+        \\#define FOO_CHAR '\xfF'
+    , &[_][]const u8{
+        \\pub const FOO = "aoeu\xab derp";
+    ,
+        \\pub const FOO2 = "aoeuz derp";
+    ,
+        \\pub const FOO_CHAR = 255;
+    });
+
+    cases.add("macro defines string literal with octal",
+        \\#define FOO "aoeu\023 derp"
+        \\#define FOO2 "aoeu\0234 derp"
+        \\#define FOO_CHAR '\077'
+    , &[_][]const u8{
+        \\pub const FOO = "aoeu\x13 derp";
+    ,
+        \\pub const FOO2 = "aoeu\x134 derp";
+    ,
+        \\pub const FOO_CHAR = 63;
     });
 }

@@ -74,69 +74,191 @@ fn zigifyEscapeSequences(allocator: *std.mem.Allocator, tok: CToken) !CToken {
         }
     } else return tok;
     var bytes = try allocator.alloc(u8, tok.bytes.len * 2);
-    var escape = false;
+    var state: enum {
+        Start,
+        Escape,
+        Hex,
+        Octal,
+        HexZero,
+        OctalZero,
+    } = .Start;
     var i: usize = 0;
+    var count: u8 = 0;
+    var num: u8 = 0;
     for (tok.bytes) |c| {
-        if (escape) {
-            switch (c) {
-                'n', 'r', 't', '\\', '\'', '\"', 'x' => {
-                    bytes[i] = c;
-                },
-                'a' => {
-                    bytes[i] = 'x';
-                    i += 1;
-                    bytes[i] = '0';
-                    i += 1;
-                    bytes[i] = '7';
-                },
-                'b' => {
-                    bytes[i] = 'x';
-                    i += 1;
-                    bytes[i] = '0';
-                    i += 1;
-                    bytes[i] = '8';
-                },
-                'f' => {
-                    bytes[i] = 'x';
-                    i += 1;
-                    bytes[i] = '0';
-                    i += 1;
-                    bytes[i] = 'C';
-                },
-                'v' => {
-                    bytes[i] = 'x';
-                    i += 1;
-                    bytes[i] = '0';
-                    i += 1;
-                    bytes[i] = 'B';
-                },
-                '?' => {
-                    i -= 1;
-                    bytes[i] = '?';
-                },
-                'u', 'U' => {
-                    // TODO unicode escape sequences
-                    return error.TokenizingFailed;
-                },
-                '0'...'7' => {
-                    // TODO octal escape sequences
-                    return error.TokenizingFailed;
-                },
-                else => {
-                    // unknown escape sequence
-                    return error.TokenizingFailed;
-                },
-            }
-            i += 1;
-            escape = false;
-        } else {
-            if (c == '\\') {
-                escape = true;
-            }
-            bytes[i] = c;
-            i += 1;
+        switch (state) {
+            .Escape => {
+                switch (c) {
+                    'n', 'r', 't', '\\', '\'', '\"' => {
+                        bytes[i] = c;
+                    },
+                    '0' => {
+                        state = .OctalZero;
+                        bytes[i] = 'x';
+                    },
+                    '1'...'7' => {
+                        count += 1;
+                        num *= 8;
+                        num += c - '0';
+                        state = .Octal;
+                        bytes[i] = 'x';
+                    },
+                    'x' => {
+                        state = .HexZero;
+                        bytes[i] = c;
+                    },
+                    'a' => {
+                        bytes[i] = 'x';
+                        i += 1;
+                        bytes[i] = '0';
+                        i += 1;
+                        bytes[i] = '7';
+                    },
+                    'b' => {
+                        bytes[i] = 'x';
+                        i += 1;
+                        bytes[i] = '0';
+                        i += 1;
+                        bytes[i] = '8';
+                    },
+                    'f' => {
+                        bytes[i] = 'x';
+                        i += 1;
+                        bytes[i] = '0';
+                        i += 1;
+                        bytes[i] = 'C';
+                    },
+                    'v' => {
+                        bytes[i] = 'x';
+                        i += 1;
+                        bytes[i] = '0';
+                        i += 1;
+                        bytes[i] = 'B';
+                    },
+                    '?' => {
+                        i -= 1;
+                        bytes[i] = '?';
+                    },
+                    'u', 'U' => {
+                        // TODO unicode escape sequences
+                        return error.TokenizingFailed;
+                    },
+                    else => {
+                        // unknown escape sequence
+                        return error.TokenizingFailed;
+                    },
+                }
+                i += 1;
+                if (state == .Escape)
+                    state = .Start;
+            },
+            .Start => {
+                if (c == '\\') {
+                    state = .Escape;
+                }
+                bytes[i] = c;
+                i += 1;
+            },
+            .HexZero => {
+                switch (c) {
+                    '0' => { continue; },
+                    '1'...'9' => {
+                        count += 1;
+                        num *= 16;
+                        num += c - '0';
+                    },
+                    'a'...'f' => {
+                        count += 1;
+                        num *= 16;
+                        num += c - 'a' + 10;
+                    },
+                    'A'...'F' => {
+                        count += 1;
+                        num *= 16;
+                        num += c - 'A' + 10;
+                    },
+                    else => {},
+                }
+                state = .Hex;
+            },
+            .Hex => {
+                switch (c) {
+                    '0'...'9' => {
+                        count += 1;
+                        num *= 16;
+                        num += c - '0';
+                        if (count < 2)
+                            continue;
+                    },
+                    'a'...'f' => {
+                        count += 1;
+                        num *= 16;
+                        num += c - 'a' + 10;
+                        if (count < 2)
+                            continue;
+                    },
+                    'A'...'F' => {
+                        count += 1;
+                        num *= 16;
+                        num += c - 'A' + 10;
+                        if (count < 2)
+                            continue;
+                    },
+                    else => {},
+                }
+                i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{.fill = '0', .width = 2});
+                switch (c) {
+                    '\\' => state = .Escape,
+                    '0'...'9', 'a'...'f','A'...'F' => state = .Start,
+                    else => {
+                        state = .Start;
+                        bytes[i] = c;
+                        i += 1;
+                    },
+                }
+                count = 0;
+                num = 0;
+            },
+            .OctalZero => {
+                switch (c) {
+                    '0' => { continue; },
+                    '1'...'7' => {
+                        count += 1;
+                        num *= 8;
+                        num += c - '0';
+                    },
+                    else => {},
+                }
+                state = .Octal;
+            },
+            .Octal => {
+                switch (c) {
+                    '0'...'7' => {
+                        count += 1;
+                        num *= 8;
+                        num += c - '0';
+                        if (count < 3)
+                            continue;
+                    },
+                    else => {},
+                }
+                i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{.fill = '0', .width = 2});
+                switch (c) {
+                    '\\' => state = .Escape,
+                    '0'...'7' => state = .Start,
+                    else => {
+                        state = .Start;
+                        bytes[i] = c;
+                        i += 1;
+                    },
+                }
+                count = 0;
+                num = 0;
+            },
         }
     }
+    if (state == .Hex or state == .Octal)
+        i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{.fill = '0', .width = 2});
     return CToken{
         .id = tok.id,
         .bytes = bytes[0..i],
@@ -665,4 +787,26 @@ test "tokenize macro" {
     expect(it.next().?.id == .Eof);
     expect(it.next() == null);
     tl.shrink(0);
+}
+
+test "escape sequences" {
+    var buf: [1024]u8 = undefined;
+    var alloc = std.heap.FixedBufferAllocator.init(buf[0..]);
+    const a = &alloc.allocator;
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(a, .{
+        .id = .StrLit,
+        .bytes = "\\x0077",
+    })).bytes, "\\x77"));
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(a, .{
+        .id = .StrLit,
+        .bytes = "\\00245",
+    })).bytes, "\\xa5"));
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(a, .{
+        .id = .StrLit,
+        .bytes = "\\x0077abc",
+    })).bytes, "\\x77abc"));
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(a, .{
+        .id = .StrLit,
+        .bytes = "\\045abc",
+    })).bytes, "\\x25abc"));
 }
