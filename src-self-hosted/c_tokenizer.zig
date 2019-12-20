@@ -594,7 +594,7 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
                 switch (c) {
                     'l', 'L' => {
                         result.num_lit_suffix = .LLU;
-                        return result;
+                        state = .Done;
                     },
                     else => {
                         return result;
@@ -718,7 +718,7 @@ test "tokenize macro" {
     expect(it.next() == null);
     tl.shrink(0);
 
-    const src5 = "FOO 0l";
+    const src5 = "FOO 0ull";
     try tokenizeCMacro(&tl, src5);
     it = tl.iterator(0);
     expect(it.next().?.id == .Identifier);
