@@ -1425,7 +1425,12 @@ static void add_sentinel_check(CodeGen *g, LLVMValueRef sentinel_elem_ptr, ZigVa
     LLVMValueRef expected_sentinel = gen_const_val(g, sentinel, "");
 
     LLVMValueRef actual_sentinel = gen_load_untyped(g, sentinel_elem_ptr, 0, false, "");
-    LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, actual_sentinel, expected_sentinel, "");
+    LLVMValueRef ok_bit;
+    if (sentinel->type->id == ZigTypeIdFloat) {
+        ok_bit = LLVMBuildFCmp(g->builder, LLVMRealOEQ, actual_sentinel, expected_sentinel, "");
+    } else {
+        ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, actual_sentinel, expected_sentinel, "");
+    }
 
     LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "SentinelFail");
     LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "SentinelOk");
