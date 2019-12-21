@@ -4,7 +4,6 @@ const Cpu = @import("std").target.Cpu;
 pub const feature_alu32 = Feature{
     .name = "alu32",
     .description = "Enable ALU32 instructions",
-    .llvm_name = "alu32",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -12,7 +11,6 @@ pub const feature_alu32 = Feature{
 pub const feature_dummy = Feature{
     .name = "dummy",
     .description = "unused feature",
-    .llvm_name = "dummy",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -20,7 +18,6 @@ pub const feature_dummy = Feature{
 pub const feature_dwarfris = Feature{
     .name = "dwarfris",
     .description = "Disable MCAsmInfo DwarfUsesRelocationsAcrossSections",
-    .llvm_name = "dwarfris",
     .subfeatures = &[_]*const Feature {
     },
 };
