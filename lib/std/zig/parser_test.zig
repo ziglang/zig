@@ -419,10 +419,13 @@ test "zig fmt: pointer of unknown length" {
 test "zig fmt: spaces around slice operator" {
     try testCanonical(
         \\var a = b[c..d];
+        \\var a = b[c..d :0];
         \\var a = b[c + 1 .. d];
         \\var a = b[c + 1 ..];
         \\var a = b[c .. d + 1];
+        \\var a = b[c .. d + 1 :0];
         \\var a = b[c.a..d.e];
+        \\var a = b[c.a..d.e :0];
         \\
     );
 }
