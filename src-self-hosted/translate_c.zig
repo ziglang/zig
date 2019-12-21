@@ -249,6 +249,7 @@ pub fn translate(
             .arena_allocator = tree_arena,
             .tokens = undefined, // can't reference the allocator yet
             .errors = undefined, // can't reference the allocator yet
+            .generated = true,
         };
         break :blk tree;
     };

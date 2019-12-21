@@ -13,6 +13,7 @@ pub const Tree = struct {
     root_node: *Node.Root,
     arena_allocator: std.heap.ArenaAllocator,
     errors: ErrorList,
+    generated: bool = false,
 
     pub const TokenList = SegmentedList(Token, 64);
     pub const ErrorList = SegmentedList(Error, 0);
@@ -58,6 +59,8 @@ pub const Tree = struct {
             .line_start = start_index,
             .line_end = self.source.len,
         };
+        if (self.generated)
+            return loc;
         const token_start = token.start;
         for (self.source[start_index..]) |c, i| {
             if (i + start_index == token_start) {
