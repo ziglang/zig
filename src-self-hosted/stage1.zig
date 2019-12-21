@@ -6,8 +6,6 @@ const io = std.io;
 const mem = std.mem;
 const fs = std.fs;
 const process = std.process;
-const feature = std.target.feature;
-const cpu = std.target.cpu;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const Buffer = std.Buffer;
@@ -546,34 +544,30 @@ fn print_features_for_arch(arch_name: []const u8, show_subfeatures: bool) !void 
         return;
     };
 
-    inline for (@typeInfo(@TagType(Target.Arch)).Enum.fields) |arch_enum_field| {
-        if (@enumToInt(arch) == arch_enum_field.value) {
-            const enum_arch = @intToEnum(@TagType(Target.Arch), arch_enum_field.value);
+    try stdout_stream.print("Available features for {}:\n", .{ @tagName(arch) });
 
-            const feature_infos = feature.ArchFeature(enum_arch).feature_infos;
+    const features = std.target.getFeaturesForArch(arch);
 
-            try stdout_stream.print("Available features for {}:\n", .{ arch_enum_field.name });
+    var longest_len: usize = 0;
+    for (features) |feature| {
+        if (feature.name.len > longest_len) {
+            longest_len = feature.name.len;
+        }
+    }
 
-            var longest_len: usize = 0;
-            for (feature_infos) |feature_info| {
-                if (feature_info.name.len > longest_len) longest_len = feature_info.name.len;
-            }
+    for (features) |feature| {
+        try stdout_stream.print("  {}", .{ feature.name });
+        
+        var i: usize = 0;
+        while (i < longest_len - feature.name.len) : (i += 1) {
+            try stdout_stream.write(" ");    
+        }
 
-            for (feature_infos) |feature_info| {
-                try stdout_stream.print("  {}", .{ feature_info.name });
-                
-                var i: usize = 0;
-                while (i < longest_len - feature_info.name.len) : (i += 1) {
-                    try stdout_stream.write(" ");    
-                }
+        try stdout_stream.print(" - {}\n", .{ feature.description });
 
-                try stdout_stream.print(" - {}\n", .{ feature_info.description });
-
-                if (show_subfeatures and feature_info.subfeatures.len > 0) {
-                    for (feature_info.subfeatures) |subfeature| {
-                        try stdout_stream.print("    {}\n", .{ subfeature.getInfo().name });
-                    }
-                }
+        if (show_subfeatures and feature.subfeatures.len > 0) {
+            for (feature.subfeatures) |subfeature| {
+                try stdout_stream.print("    {}\n", .{ subfeature.name });
             }
         }
     }
@@ -594,35 +588,33 @@ fn print_cpus_for_arch(arch_name: []const u8, show_subfeatures: bool) !void {
         return;
     };
 
-    inline for (@typeInfo(@TagType(Target.Arch)).Enum.fields) |arch_enum_field| {
-        if (@enumToInt(arch) == arch_enum_field.value) {
-            const enum_arch = @intToEnum(@TagType(Target.Arch), arch_enum_field.value);
+    const cpus = std.target.getCpusForArch(arch);
 
-            const cpu_infos = cpu.ArchCpu(enum_arch).cpu_infos;
+    try stdout_stream.print("Available cpus for {}:\n", .{ @tagName(arch) });
 
-            try stdout_stream.print("Available cpus for {}:\n", .{ arch_enum_field.name });
+    var longest_len: usize = 0;
+    for (cpus) |cpu| {
+        if (cpu.name.len > longest_len) {
+            longest_len = cpu.name.len;
+        }
+    }
 
-            var longest_len: usize = 0;
-            for (cpu_infos) |cpu_info| {
-                if (cpu_info.name.len > longest_len) longest_len = cpu_info.name.len;
-            }
+    for (cpus) |cpu| {
+        try stdout_stream.print("  {}", .{ cpu.name });
+        
+        var i: usize = 0;
+        while (i < longest_len - cpu.name.len) : (i += 1) {
+            try stdout_stream.write(" ");    
+        }
 
-            for (cpu_infos) |cpu_info| {
-                try stdout_stream.print("  {}", .{ cpu_info.name });
-                
-                var i: usize = 0;
-                while (i < longest_len - cpu_info.name.len) : (i += 1) {
-                    try stdout_stream.write(" ");    
-                }
+        try stdout_stream.write("\n");
 
-                try stdout_stream.write("\n");
-
-                if (show_subfeatures and cpu_info.features.len > 0) {
-                    for (cpu_info.features) |subfeature| {
-                        try stdout_stream.print("    {}\n", .{ subfeature.getInfo().name });
-                    }
-                }
+        if (show_subfeatures and cpu.subfeatures.len > 0) {
+            for (cpu.subfeatures) |subfeature| {
+                try stdout_stream.print("    {}\n", .{ subfeature.name });
             }
         }
     }
 }
+
+// use target_arch_name(ZigLLVM_ArchType) to get name from main.cpp 'target'.
