@@ -890,15 +890,27 @@ fn renderExpression(
                         var i: usize = 0;
 
                         while (it.next()) |expr| : (i += 1) {
-                            if (expr.*.findFirstWithId(.MultilineStringLiteral) == null) {
-                                counting_stream.bytes_written = 0;
-                                var dummy_col: usize = 0;
-                                try renderExpression(allocator, &counting_stream.stream, tree, indent, &dummy_col, expr.*, Space.None);
-                                const width = @intCast(usize, counting_stream.bytes_written);
-                                const col = i % row_size;
-                                column_widths[col] = std.math.max(column_widths[col], width);
-                                expr_widths[i] = width;
+                            expr.*.dump(0);
+                            
+                            if (expr.*.findFirstWithId(.MultilineStringLiteral) != null
+                                or expr.*.findFirstWithId(.GroupedExpression) != null) {
+                                continue;
                             }
+                            
+                            if (expr.*.findFirstWithId(.SuffixOp)) |op| {
+                                const sfx_op = @fieldParentPtr(ast.Node.SuffixOp, "base", op);
+                                if (sfx_op.op == .ArrayInitializer) {
+                                    continue;
+                                }
+                            } 
+
+                            counting_stream.bytes_written = 0;
+                            var dummy_col: usize = 0;
+                            try renderExpression(allocator, &counting_stream.stream, tree, indent, &dummy_col, expr.*, Space.None);
+                            const width = @intCast(usize, counting_stream.bytes_written);
+                            const col = i % row_size;
+                            column_widths[col] = std.math.max(column_widths[col], width);
+                            expr_widths[i] = width;
                         }
 
                         var new_indent = indent + indent_delta;
