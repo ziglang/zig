@@ -100,6 +100,8 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --override-lib-dir [arg]     override path to Zig lib directory\n"
         "  -ffunction-sections          places each function in a separate section\n"
         "  -D[macro]=[value]            define C [macro] to [value] (1 if [value] omitted)\n"
+        "  --cpu [cpu]                  compile for [cpu] on the current target\n"
+        "  --features [feature_str]     compile with features in [feature_str] on the current target\n"
         "\n"
         "Link Options:\n"
         "  --bundle-compiler-rt         for static libraries, include compiler-rt symbols\n"
@@ -533,6 +535,8 @@ int main(int argc, char **argv) {
     WantStackCheck want_stack_check = WantStackCheckAuto;
     WantCSanitize want_sanitize_c = WantCSanitizeAuto;
     bool function_sections = false;
+    const char *cpu = "";
+    const char *features = "";
 
     const char *targets_list_features_arch = nullptr;
     const char *targets_list_cpus_arch = nullptr;
@@ -951,6 +955,10 @@ int main(int argc, char **argv) {
                     targets_list_features_arch = argv[i];
                 } else if (strcmp(arg, "--list-cpus") == 0) {
                     targets_list_cpus_arch = argv[i];
+                } else if (strcmp(arg, "--cpu") == 0) {
+                    cpu = argv[i];
+                } else if (strcmp(arg, "--features") == 0) {
+                    features = argv[i];
                 }else {
                     fprintf(stderr, "Invalid argument: %s\n", arg);
                     return print_error_usage(arg0);
@@ -1248,6 +1256,7 @@ int main(int argc, char **argv) {
             g->system_linker_hack = system_linker_hack;
             g->function_sections = function_sections;
 
+
             for (size_t i = 0; i < lib_dirs.length; i += 1) {
                 codegen_add_lib_dir(g, lib_dirs.at(i));
             }
@@ -1268,6 +1277,13 @@ int main(int argc, char **argv) {
             for (size_t i = 0; i < rpath_list.length; i += 1) {
                 codegen_add_rpath(g, rpath_list.at(i));
             }
+
+            if (!stage2_validate_cpu_and_features(target_arch_name(target.arch), cpu, features)) {
+                return 1;
+            }
+
+            g->llvm_cpu = cpu;
+            g->llvm_features = features;
 
             codegen_set_rdynamic(g, rdynamic);
             if (mmacosx_version_min && mios_version_min) {

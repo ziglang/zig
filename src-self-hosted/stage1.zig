@@ -531,12 +531,12 @@ export fn stage2_progress_update_node(node: *std.Progress.Node, done_count: usiz
 
 // ABI warning
 export fn stage2_list_features_for_arch(arch_name_ptr: [*]const u8, arch_name_len: usize, show_subfeatures: bool) void {
-    print_features_for_arch(arch_name_ptr[0..arch_name_len], show_subfeatures) catch |err| {
+    printFeaturesForArch(arch_name_ptr[0..arch_name_len], show_subfeatures) catch |err| {
         std.debug.warn("Failed to list features: {}\n", .{ @errorName(err) });
     };
 }
 
-fn print_features_for_arch(arch_name: []const u8, show_subfeatures: bool) !void {
+fn printFeaturesForArch(arch_name: []const u8, show_subfeatures: bool) !void {
     const stdout_stream = &std.io.getStdOut().outStream().stream;
 
     const arch = Target.parseArchTag(arch_name) catch {
@@ -575,12 +575,12 @@ fn print_features_for_arch(arch_name: []const u8, show_subfeatures: bool) !void 
 
 // ABI warning
 export fn stage2_list_cpus_for_arch(arch_name_ptr: [*]const u8, arch_name_len: usize, show_subfeatures: bool) void {
-    print_cpus_for_arch(arch_name_ptr[0..arch_name_len], show_subfeatures) catch |err| {
+    printCpusForArch(arch_name_ptr[0..arch_name_len], show_subfeatures) catch |err| {
         std.debug.warn("Failed to list features: {}\n", .{ @errorName(err) });
     };
 }
 
-fn print_cpus_for_arch(arch_name: []const u8, show_subfeatures: bool) !void {
+fn printCpusForArch(arch_name: []const u8, show_subfeatures: bool) !void {
     const stdout_stream = &std.io.getStdOut().outStream().stream;
 
     const arch = Target.parseArchTag(arch_name) catch {
@@ -618,3 +618,90 @@ fn print_cpus_for_arch(arch_name: []const u8, show_subfeatures: bool) !void {
 }
 
 // use target_arch_name(ZigLLVM_ArchType) to get name from main.cpp 'target'.
+// ABI warning
+export fn stage2_validate_cpu_and_features(
+    arch_name: [*:0]const u8, 
+    cpu: ?[*:0]const u8, 
+    features: ?[*:0]const u8, 
+) bool {
+    const arch = Target.parseArchTag(std.mem.toSliceConst(u8, arch_name)) catch {
+        std.debug.warn("Failed to parse arch '{}'\nInvoke 'zig targets' for a list of valid architectures\n", .{ arch_name });
+        return false;
+    };
+
+    const res = validateCpuAndFeatures(
+        arch, 
+        if (cpu) |def_cpu| std.mem.toSliceConst(u8, def_cpu) else "",
+        if (features) |def_features| std.mem.toSliceConst(u8, def_features) else "");
+
+    switch (res) {
+        .Ok => return true,
+        .InvalidCpu => |invalid_cpu| {
+            std.debug.warn("Invalid CPU '{}'\n", .{ invalid_cpu });
+            return false;
+        },
+        .InvalidFeaturesString => {
+            std.debug.warn("Invalid features string\n", .{});
+            std.debug.warn("Must have format \"+yes_feature,-no_feature\"\n", .{});
+            return false;
+        },
+        .InvalidFeature => |invalid_feature| {
+            std.debug.warn("Invalid feature '{}'\n", .{ invalid_feature });
+            return false;
+        }
+    }
+}
+
+const ValidateCpuAndFeaturesResult = union(enum) {
+    Ok,
+    InvalidCpu: []const u8,
+    InvalidFeaturesString,
+    InvalidFeature: []const u8,
+};
+
+fn validateCpuAndFeatures(arch: @TagType(std.Target.Arch), cpu: []const u8, features: []const u8) ValidateCpuAndFeaturesResult {
+
+    const known_cpus = std.target.getCpusForArch(arch);
+    const known_features = std.target.getFeaturesForArch(arch);
+    
+    if (cpu.len > 0) {
+        var found_cpu = false;
+        for (known_cpus) |known_cpu| {
+            if (std.mem.eql(u8, cpu, known_cpu.name)) {
+                found_cpu = true;
+                break;
+            }
+        }
+
+        if (!found_cpu) {
+            return .{ .InvalidCpu = cpu };
+        }
+    }
+
+    if (features.len > 0) {
+        var start: usize = 0;
+        while (start < features.len) {
+            const next_comma_pos = std.mem.indexOfScalar(u8, features[start..], ',') orelse features.len - start;
+            var feature = features[start..start+next_comma_pos];
+
+            if (feature.len < 2) return .{ .InvalidFeaturesString = {} };
+            
+            if (feature[0] != '+' and feature[0] != '-') return .{ .InvalidFeaturesString = {} };
+            feature = feature[1..];
+
+            var found_feature = false;
+            for (known_features) |known_feature| {
+                if (std.mem.eql(u8, feature, known_feature.name)) {
+                    found_feature = true;
+                    break;
+                }
+            }
+
+            if (!found_feature) return .{ .InvalidFeature = feature };
+
+            start += next_comma_pos + 1;
+        }
+    }
+
+    return .{ .Ok = {} };
+}
