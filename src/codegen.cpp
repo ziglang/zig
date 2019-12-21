@@ -8795,6 +8795,15 @@ static void init(CodeGen *g) {
         target_specific_features = "";
     }
 
+    // Override CPU and features if non-null.
+    if (g->llvm_cpu != nullptr) {
+        target_specific_cpu_args = g->llvm_cpu;
+    }
+    
+    if (g->llvm_features != nullptr) {
+        target_specific_features = g->llvm_features;
+    }
+
     g->target_machine = ZigLLVMCreateTargetMachine(target_ref, buf_ptr(&g->llvm_triple_str),
             target_specific_cpu_args, target_specific_features, opt_level, reloc_mode,
             LLVMCodeModelDefault, g->function_sections);

@@ -91,3 +91,4 @@ void stage2_progress_update_node(Stage2ProgressNode *node, size_t completed_coun
 
 void stage2_list_features_for_arch(const char *arch_name_ptr, size_t arch_name_len, bool show_subfeatures) {}
 void stage2_list_cpus_for_arch(const char *arch_name_ptr, size_t arch_name_len, bool show_subfeatures) {}
+bool stage2_validate_cpu_and_features(const char *arch_name, const char *cpu, const char *features) { return true; }

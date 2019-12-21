@@ -180,4 +180,7 @@ ZIG_EXTERN_C void stage2_list_features_for_arch(const char *arch_name_ptr, size_
 // ABI warning
 ZIG_EXTERN_C void stage2_list_cpus_for_arch(const char *arch_name_ptr, size_t arch_name_len, bool show_subfeatures);
 
+// ABI warning
+ZIG_EXTERN_C bool stage2_validate_cpu_and_features(const char *arch_name, const char *cpu, const char *features);
+
 #endif
