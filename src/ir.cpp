@@ -14467,6 +14467,32 @@ static bool optional_value_is_null(ZigValue *val) {
     }
 }
 
+static void set_optional_value_to_null(ZigValue *val) {
+    assert(val->special == ConstValSpecialStatic);
+    if (val->type->id == ZigTypeIdNull) return; // nothing to do
+    assert(val->type->id == ZigTypeIdOptional);
+    if (get_codegen_ptr_type(val->type) != nullptr) {
+        val->data.x_ptr.special = ConstPtrSpecialNull;
+    } else if (is_opt_err_set(val->type)) {
+        val->data.x_err_set = nullptr;
+    } else {
+        val->data.x_optional = nullptr;
+    }
+}
+
+static void set_optional_payload(ZigValue *opt_val, ZigValue *payload) {
+    assert(opt_val->special == ConstValSpecialStatic);
+    assert(opt_val->type->id == ZigTypeIdOptional);
+    if (payload == nullptr) {
+        set_optional_value_to_null(opt_val);
+    } else if (is_opt_err_set(opt_val->type)) {
+        assert(payload->type->id == ZigTypeIdErrorSet);
+        opt_val->data.x_err_set = payload->data.x_err_set;
+    } else {
+        opt_val->data.x_optional = payload;
+    }
+}
+
 static IrInstruction *ir_evaluate_bin_op_cmp(IrAnalyze *ira, ZigType *resolved_type,
     ZigValue *op1_val, ZigValue *op2_val, IrInstructionBinOp *bin_op_instruction, IrBinOp op_id,
     bool one_possible_value) {
@@ -22731,7 +22757,7 @@ static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_type_ent
     fields[6]->special = ConstValSpecialStatic;
     if (attrs_type->data.pointer.child_type->id != ZigTypeIdOpaque) {
         fields[6]->type = get_optional_type(ira->codegen, attrs_type->data.pointer.child_type);
-        fields[6]->data.x_optional = attrs_type->data.pointer.sentinel;
+        set_optional_payload(fields[6], attrs_type->data.pointer.sentinel);
     } else {
         fields[6]->type = ira->codegen->builtin_types.entry_null;
     }
