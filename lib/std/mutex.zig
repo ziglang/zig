@@ -49,8 +49,7 @@ pub const Mutex = if (builtin.single_threaded)
         }
 
         /// Free a mutex created with init. Calling this while the
-        /// mutex is held may result in safety-checked undefined
-        /// behavior.
+        /// mutex is held is illegal behavior.
         pub fn deinit(self: *Mutex) void {
             self.* = undefined;
         }
