@@ -2,9 +2,6 @@ const std = @import("std.zig");
 const mem = std.mem;
 const builtin = std.builtin;
 
-pub const feature = @import("target/feature.zig");
-pub const cpu = @import("target/cpu.zig");
-
 /// TODO Nearly all the functions in this namespace would be
 /// better off if https://github.com/ziglang/zig/issues/425
 /// was solved.
@@ -844,3 +841,78 @@ pub const Target = union(enum) {
         return .unavailable;
     }
 };
+
+pub const aarch64 = @import("target/aarch64.zig");
+pub const amdgpu = @import("target/amdgpu.zig");
+pub const arm = @import("target/arm.zig");
+pub const avr = @import("target/avr.zig");
+pub const bpf = @import("target/bpf.zig");
+pub const hexagon = @import("target/hexagon.zig");
+pub const mips = @import("target/mips.zig");
+pub const msp430 = @import("target/msp430.zig");
+pub const nvptx = @import("target/nvptx.zig");
+pub const powerpc = @import("target/powerpc.zig");
+pub const riscv = @import("target/riscv.zig");
+pub const sparc = @import("target/sparc.zig");
+pub const systemz = @import("target/systemz.zig");
+pub const wasm = @import("target/wasm.zig");
+pub const x86 = @import("target/x86.zig");
+
+pub const Feature = struct {
+    name: []const u8,
+    description: []const u8,
+    llvm_name: []const u8,
+
+    subfeatures: []*const Feature,
+};
+
+pub const Cpu = struct {
+    name: []const u8,
+    llvm_name: []const u8,
+
+    subfeatures: []*const Feature,
+};
+
+pub fn getFeaturesForArch(arch: @TagType(Target.Arch)) []*const Feature {
+    return switch (arch) {
+        .arm, .armeb, .thumb, .thumbeb => arm.features,
+        .aarch64, .aarch64_be, .aarch64_32 => aarch64.features,
+        .avr => avr.features,
+        .bpfel, .bpfeb => bpf.features,
+        .hexagon => hexagon.features,
+        .mips, .mipsel, .mips64, .mips64el => mips.features,
+        .msp430 => msp430.features,
+        .powerpc, .powerpc64, .powerpc64le => powerpc.features,
+        .amdgcn => amdgpu.features,
+        .riscv32, .riscv64 => riscv.features,
+        .sparc, .sparcv9, .sparcel => sparc.features,
+        .s390x => systemz.features,
+        .i386, .x86_64 => x86.features,
+        .nvptx, .nvptx64 => nvptx.features,
+        .wasm32, .wasm64 => wasm.features,
+
+        else => &[_]*const Feature{},
+    };
+}
+
+pub fn getCpusForArch(arch: @TagType(Target.Arch)) []*const Cpu {
+    return switch (arch) {
+        .arm, .armeb, .thumb, .thumbeb => arm.cpus,
+        .aarch64, .aarch64_be, .aarch64_32 => aarch64.cpus,
+        .avr => avr.cpus,
+        .bpfel, .bpfeb => bpf.cpus,
+        .hexagon => hexagon.cpus,
+        .mips, .mipsel, .mips64, .mips64el => mips.cpus,
+        .msp430 => msp430.cpus,
+        .powerpc, .powerpc64, .powerpc64le => powerpc.cpus,
+        .amdgcn => amdgpu.cpus,
+        .riscv32, .riscv64 => riscv.cpus,
+        .sparc, .sparcv9, .sparcel => sparc.cpus,
+        .s390x => systemz.cpus,
+        .i386, .x86_64 => x86.cpus,
+        .nvptx, .nvptx64 => nvptx.cpus,
+        .wasm32, .wasm64 => wasm.cpus,
+
+        else => &[_]*const Cpu{},
+    };
+}
