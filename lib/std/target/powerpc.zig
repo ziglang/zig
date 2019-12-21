@@ -4,7 +4,6 @@ const Cpu = @import("std").target.Cpu;
 pub const feature_bit64 = Feature{
     .name = "64bit",
     .description = "Enable 64-bit instructions",
-    .llvm_name = "64bit",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -12,7 +11,6 @@ pub const feature_bit64 = Feature{
 pub const feature_bitregs64 = Feature{
     .name = "64bitregs",
     .description = "Enable 64-bit registers usage for ppc32 [beta]",
-    .llvm_name = "64bitregs",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -20,7 +18,6 @@ pub const feature_bitregs64 = Feature{
 pub const feature_altivec = Feature{
     .name = "altivec",
     .description = "Enable Altivec instructions",
-    .llvm_name = "altivec",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -29,7 +26,6 @@ pub const feature_altivec = Feature{
 pub const feature_bpermd = Feature{
     .name = "bpermd",
     .description = "Enable the bpermd instruction",
-    .llvm_name = "bpermd",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -37,7 +33,6 @@ pub const feature_bpermd = Feature{
 pub const feature_booke = Feature{
     .name = "booke",
     .description = "Enable Book E instructions",
-    .llvm_name = "booke",
     .subfeatures = &[_]*const Feature {
         &feature_icbt,
     },
@@ -46,7 +41,6 @@ pub const feature_booke = Feature{
 pub const feature_cmpb = Feature{
     .name = "cmpb",
     .description = "Enable the cmpb instruction",
-    .llvm_name = "cmpb",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -54,7 +48,6 @@ pub const feature_cmpb = Feature{
 pub const feature_crbits = Feature{
     .name = "crbits",
     .description = "Use condition-register bits individually",
-    .llvm_name = "crbits",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -62,7 +55,6 @@ pub const feature_crbits = Feature{
 pub const feature_directMove = Feature{
     .name = "direct-move",
     .description = "Enable Power8 direct move instructions",
-    .llvm_name = "direct-move",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -71,7 +63,6 @@ pub const feature_directMove = Feature{
 pub const feature_e500 = Feature{
     .name = "e500",
     .description = "Enable E500/E500mc instructions",
-    .llvm_name = "e500",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -79,7 +70,6 @@ pub const feature_e500 = Feature{
 pub const feature_extdiv = Feature{
     .name = "extdiv",
     .description = "Enable extended divide instructions",
-    .llvm_name = "extdiv",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -87,7 +77,6 @@ pub const feature_extdiv = Feature{
 pub const feature_fcpsgn = Feature{
     .name = "fcpsgn",
     .description = "Enable the fcpsgn instruction",
-    .llvm_name = "fcpsgn",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -96,7 +85,6 @@ pub const feature_fcpsgn = Feature{
 pub const feature_fpcvt = Feature{
     .name = "fpcvt",
     .description = "Enable fc[ft]* (unsigned and single-precision) and lfiwzx instructions",
-    .llvm_name = "fpcvt",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -105,7 +93,6 @@ pub const feature_fpcvt = Feature{
 pub const feature_fprnd = Feature{
     .name = "fprnd",
     .description = "Enable the fri[mnpz] instructions",
-    .llvm_name = "fprnd",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -114,7 +101,6 @@ pub const feature_fprnd = Feature{
 pub const feature_fpu = Feature{
     .name = "fpu",
     .description = "Enable classic FPU instructions",
-    .llvm_name = "fpu",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -123,7 +109,6 @@ pub const feature_fpu = Feature{
 pub const feature_fre = Feature{
     .name = "fre",
     .description = "Enable the fre instruction",
-    .llvm_name = "fre",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -132,7 +117,6 @@ pub const feature_fre = Feature{
 pub const feature_fres = Feature{
     .name = "fres",
     .description = "Enable the fres instruction",
-    .llvm_name = "fres",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -141,7 +125,6 @@ pub const feature_fres = Feature{
 pub const feature_frsqrte = Feature{
     .name = "frsqrte",
     .description = "Enable the frsqrte instruction",
-    .llvm_name = "frsqrte",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -150,7 +133,6 @@ pub const feature_frsqrte = Feature{
 pub const feature_frsqrtes = Feature{
     .name = "frsqrtes",
     .description = "Enable the frsqrtes instruction",
-    .llvm_name = "frsqrtes",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -159,7 +141,6 @@ pub const feature_frsqrtes = Feature{
 pub const feature_fsqrt = Feature{
     .name = "fsqrt",
     .description = "Enable the fsqrt instruction",
-    .llvm_name = "fsqrt",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -168,7 +149,6 @@ pub const feature_fsqrt = Feature{
 pub const feature_float128 = Feature{
     .name = "float128",
     .description = "Enable the __float128 data type for IEEE-754R Binary128.",
-    .llvm_name = "float128",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -177,7 +157,6 @@ pub const feature_float128 = Feature{
 pub const feature_htm = Feature{
     .name = "htm",
     .description = "Enable Hardware Transactional Memory instructions",
-    .llvm_name = "htm",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -185,7 +164,6 @@ pub const feature_htm = Feature{
 pub const feature_hardFloat = Feature{
     .name = "hard-float",
     .description = "Enable floating-point instructions",
-    .llvm_name = "hard-float",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -193,7 +171,6 @@ pub const feature_hardFloat = Feature{
 pub const feature_icbt = Feature{
     .name = "icbt",
     .description = "Enable icbt instruction",
-    .llvm_name = "icbt",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -201,7 +178,6 @@ pub const feature_icbt = Feature{
 pub const feature_isaV30Instructions = Feature{
     .name = "isa-v30-instructions",
     .description = "Enable instructions added in ISA 3.0.",
-    .llvm_name = "isa-v30-instructions",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -209,7 +185,6 @@ pub const feature_isaV30Instructions = Feature{
 pub const feature_isel = Feature{
     .name = "isel",
     .description = "Enable the isel instruction",
-    .llvm_name = "isel",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -217,7 +192,6 @@ pub const feature_isel = Feature{
 pub const feature_invariantFunctionDescriptors = Feature{
     .name = "invariant-function-descriptors",
     .description = "Assume function descriptors are invariant",
-    .llvm_name = "invariant-function-descriptors",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -225,7 +199,6 @@ pub const feature_invariantFunctionDescriptors = Feature{
 pub const feature_ldbrx = Feature{
     .name = "ldbrx",
     .description = "Enable the ldbrx instruction",
-    .llvm_name = "ldbrx",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -233,7 +206,6 @@ pub const feature_ldbrx = Feature{
 pub const feature_lfiwax = Feature{
     .name = "lfiwax",
     .description = "Enable the lfiwax instruction",
-    .llvm_name = "lfiwax",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -242,7 +214,6 @@ pub const feature_lfiwax = Feature{
 pub const feature_longcall = Feature{
     .name = "longcall",
     .description = "Always use indirect calls",
-    .llvm_name = "longcall",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -250,7 +221,6 @@ pub const feature_longcall = Feature{
 pub const feature_mfocrf = Feature{
     .name = "mfocrf",
     .description = "Enable the MFOCRF instruction",
-    .llvm_name = "mfocrf",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -258,7 +228,6 @@ pub const feature_mfocrf = Feature{
 pub const feature_msync = Feature{
     .name = "msync",
     .description = "Has only the msync instruction instead of sync",
-    .llvm_name = "msync",
     .subfeatures = &[_]*const Feature {
         &feature_icbt,
     },
@@ -267,7 +236,6 @@ pub const feature_msync = Feature{
 pub const feature_power8Altivec = Feature{
     .name = "power8-altivec",
     .description = "Enable POWER8 Altivec instructions",
-    .llvm_name = "power8-altivec",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -276,7 +244,6 @@ pub const feature_power8Altivec = Feature{
 pub const feature_crypto = Feature{
     .name = "crypto",
     .description = "Enable POWER8 Crypto instructions",
-    .llvm_name = "crypto",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -285,7 +252,6 @@ pub const feature_crypto = Feature{
 pub const feature_power8Vector = Feature{
     .name = "power8-vector",
     .description = "Enable POWER8 vector instructions",
-    .llvm_name = "power8-vector",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -294,27 +260,24 @@ pub const feature_power8Vector = Feature{
 pub const feature_power9Altivec = Feature{
     .name = "power9-altivec",
     .description = "Enable POWER9 Altivec instructions",
-    .llvm_name = "power9-altivec",
     .subfeatures = &[_]*const Feature {
-        &feature_isaV30Instructions,
         &feature_hardFloat,
+        &feature_isaV30Instructions,
     },
 };
 
 pub const feature_power9Vector = Feature{
     .name = "power9-vector",
     .description = "Enable POWER9 vector instructions",
-    .llvm_name = "power9-vector",
     .subfeatures = &[_]*const Feature {
-        &feature_isaV30Instructions,
         &feature_hardFloat,
+        &feature_isaV30Instructions,
     },
 };
 
 pub const feature_popcntd = Feature{
     .name = "popcntd",
     .description = "Enable the popcnt[dw] instructions",
-    .llvm_name = "popcntd",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -322,7 +285,6 @@ pub const feature_popcntd = Feature{
 pub const feature_ppc4xx = Feature{
     .name = "ppc4xx",
     .description = "Enable PPC 4xx instructions",
-    .llvm_name = "ppc4xx",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -330,7 +292,6 @@ pub const feature_ppc4xx = Feature{
 pub const feature_ppc6xx = Feature{
     .name = "ppc6xx",
     .description = "Enable PPC 6xx instructions",
-    .llvm_name = "ppc6xx",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -338,7 +299,6 @@ pub const feature_ppc6xx = Feature{
 pub const feature_ppcPostraSched = Feature{
     .name = "ppc-postra-sched",
     .description = "Use PowerPC post-RA scheduling strategy",
-    .llvm_name = "ppc-postra-sched",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -346,7 +306,6 @@ pub const feature_ppcPostraSched = Feature{
 pub const feature_ppcPreraSched = Feature{
     .name = "ppc-prera-sched",
     .description = "Use PowerPC pre-RA scheduling strategy",
-    .llvm_name = "ppc-prera-sched",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -354,7 +313,6 @@ pub const feature_ppcPreraSched = Feature{
 pub const feature_partwordAtomics = Feature{
     .name = "partword-atomics",
     .description = "Enable l[bh]arx and st[bh]cx.",
-    .llvm_name = "partword-atomics",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -362,7 +320,6 @@ pub const feature_partwordAtomics = Feature{
 pub const feature_qpx = Feature{
     .name = "qpx",
     .description = "Enable QPX instructions",
-    .llvm_name = "qpx",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -371,7 +328,6 @@ pub const feature_qpx = Feature{
 pub const feature_recipprec = Feature{
     .name = "recipprec",
     .description = "Assume higher precision reciprocal estimates",
-    .llvm_name = "recipprec",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -379,7 +335,6 @@ pub const feature_recipprec = Feature{
 pub const feature_spe = Feature{
     .name = "spe",
     .description = "Enable SPE instructions",
-    .llvm_name = "spe",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -388,7 +343,6 @@ pub const feature_spe = Feature{
 pub const feature_stfiwx = Feature{
     .name = "stfiwx",
     .description = "Enable the stfiwx instruction",
-    .llvm_name = "stfiwx",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -397,7 +351,6 @@ pub const feature_stfiwx = Feature{
 pub const feature_securePlt = Feature{
     .name = "secure-plt",
     .description = "Enable secure plt mode",
-    .llvm_name = "secure-plt",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -405,7 +358,6 @@ pub const feature_securePlt = Feature{
 pub const feature_slowPopcntd = Feature{
     .name = "slow-popcntd",
     .description = "Has slow popcnt[dw] instructions",
-    .llvm_name = "slow-popcntd",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -413,7 +365,6 @@ pub const feature_slowPopcntd = Feature{
 pub const feature_twoConstNr = Feature{
     .name = "two-const-nr",
     .description = "Requires two constant Newton-Raphson computation",
-    .llvm_name = "two-const-nr",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -421,7 +372,6 @@ pub const feature_twoConstNr = Feature{
 pub const feature_vsx = Feature{
     .name = "vsx",
     .description = "Enable VSX instructions",
-    .llvm_name = "vsx",
     .subfeatures = &[_]*const Feature {
         &feature_hardFloat,
     },
@@ -430,7 +380,6 @@ pub const feature_vsx = Feature{
 pub const feature_vectorsUseTwoUnits = Feature{
     .name = "vectors-use-two-units",
     .description = "Vectors use two units",
-    .llvm_name = "vectors-use-two-units",
     .subfeatures = &[_]*const Feature {
     },
 };

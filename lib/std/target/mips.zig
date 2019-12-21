@@ -4,7 +4,6 @@ const Cpu = @import("std").target.Cpu;
 pub const feature_abs2008 = Feature{
     .name = "abs2008",
     .description = "Disable IEEE 754-2008 abs.fmt mode",
-    .llvm_name = "abs2008",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -12,7 +11,6 @@ pub const feature_abs2008 = Feature{
 pub const feature_crc = Feature{
     .name = "crc",
     .description = "Mips R6 CRC ASE",
-    .llvm_name = "crc",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -20,23 +18,21 @@ pub const feature_crc = Feature{
 pub const feature_cnmips = Feature{
     .name = "cnmips",
     .description = "Octeon cnMIPS Support",
-    .llvm_name = "cnmips",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_gp64,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
         &feature_fp64,
+        &feature_mips5_32r2,
+        &feature_gp64,
+        &feature_mips4_32,
     },
 };
 
 pub const feature_dsp = Feature{
     .name = "dsp",
     .description = "Mips DSP ASE",
-    .llvm_name = "dsp",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -44,7 +40,6 @@ pub const feature_dsp = Feature{
 pub const feature_dspr2 = Feature{
     .name = "dspr2",
     .description = "Mips DSP-R2 ASE",
-    .llvm_name = "dspr2",
     .subfeatures = &[_]*const Feature {
         &feature_dsp,
     },
@@ -53,7 +48,6 @@ pub const feature_dspr2 = Feature{
 pub const feature_dspr3 = Feature{
     .name = "dspr3",
     .description = "Mips DSP-R3 ASE",
-    .llvm_name = "dspr3",
     .subfeatures = &[_]*const Feature {
         &feature_dsp,
     },
@@ -62,7 +56,6 @@ pub const feature_dspr3 = Feature{
 pub const feature_eva = Feature{
     .name = "eva",
     .description = "Mips EVA ASE",
-    .llvm_name = "eva",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -70,7 +63,6 @@ pub const feature_eva = Feature{
 pub const feature_fp64 = Feature{
     .name = "fp64",
     .description = "Support 64-bit FP registers",
-    .llvm_name = "fp64",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -78,7 +70,6 @@ pub const feature_fp64 = Feature{
 pub const feature_fpxx = Feature{
     .name = "fpxx",
     .description = "Support for FPXX",
-    .llvm_name = "fpxx",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -86,7 +77,6 @@ pub const feature_fpxx = Feature{
 pub const feature_ginv = Feature{
     .name = "ginv",
     .description = "Mips Global Invalidate ASE",
-    .llvm_name = "ginv",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -94,7 +84,6 @@ pub const feature_ginv = Feature{
 pub const feature_gp64 = Feature{
     .name = "gp64",
     .description = "General Purpose Registers are 64-bit wide",
-    .llvm_name = "gp64",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -102,7 +91,6 @@ pub const feature_gp64 = Feature{
 pub const feature_longCalls = Feature{
     .name = "long-calls",
     .description = "Disable use of the jal instruction",
-    .llvm_name = "long-calls",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -110,7 +98,6 @@ pub const feature_longCalls = Feature{
 pub const feature_msa = Feature{
     .name = "msa",
     .description = "Mips MSA ASE",
-    .llvm_name = "msa",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -118,7 +105,6 @@ pub const feature_msa = Feature{
 pub const feature_mt = Feature{
     .name = "mt",
     .description = "Mips MT ASE",
-    .llvm_name = "mt",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -126,7 +112,6 @@ pub const feature_mt = Feature{
 pub const feature_nomadd4 = Feature{
     .name = "nomadd4",
     .description = "Disable 4-operand madd.fmt and related instructions",
-    .llvm_name = "nomadd4",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -134,7 +119,6 @@ pub const feature_nomadd4 = Feature{
 pub const feature_micromips = Feature{
     .name = "micromips",
     .description = "microMips mode",
-    .llvm_name = "micromips",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -142,7 +126,6 @@ pub const feature_micromips = Feature{
 pub const feature_mips1 = Feature{
     .name = "mips1",
     .description = "Mips I ISA Support [highly experimental]",
-    .llvm_name = "mips1",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -150,7 +133,6 @@ pub const feature_mips1 = Feature{
 pub const feature_mips2 = Feature{
     .name = "mips2",
     .description = "Mips II ISA Support [highly experimental]",
-    .llvm_name = "mips2",
     .subfeatures = &[_]*const Feature {
         &feature_mips1,
     },
@@ -159,20 +141,18 @@ pub const feature_mips2 = Feature{
 pub const feature_mips3 = Feature{
     .name = "mips3",
     .description = "MIPS III ISA Support [highly experimental]",
-    .llvm_name = "mips3",
     .subfeatures = &[_]*const Feature {
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_gp64,
         &feature_mips3_32,
+        &feature_mips1,
         &feature_fp64,
+        &feature_gp64,
     },
 };
 
 pub const feature_mips3_32 = Feature{
     .name = "mips3_32",
     .description = "Subset of MIPS-III that is also in MIPS32 [highly experimental]",
-    .llvm_name = "mips3_32",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -180,7 +160,6 @@ pub const feature_mips3_32 = Feature{
 pub const feature_mips3_32r2 = Feature{
     .name = "mips3_32r2",
     .description = "Subset of MIPS-III that is also in MIPS32r2 [highly experimental]",
-    .llvm_name = "mips3_32r2",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -188,22 +167,20 @@ pub const feature_mips3_32r2 = Feature{
 pub const feature_mips4 = Feature{
     .name = "mips4",
     .description = "MIPS IV ISA Support",
-    .llvm_name = "mips4",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_gp64,
-        &feature_mips4_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
         &feature_fp64,
+        &feature_gp64,
+        &feature_mips4_32,
     },
 };
 
 pub const feature_mips4_32 = Feature{
     .name = "mips4_32",
     .description = "Subset of MIPS-IV that is also in MIPS32 [highly experimental]",
-    .llvm_name = "mips4_32",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -211,7 +188,6 @@ pub const feature_mips4_32 = Feature{
 pub const feature_mips4_32r2 = Feature{
     .name = "mips4_32r2",
     .description = "Subset of MIPS-IV that is also in MIPS32r2 [highly experimental]",
-    .llvm_name = "mips4_32r2",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -219,23 +195,21 @@ pub const feature_mips4_32r2 = Feature{
 pub const feature_mips5 = Feature{
     .name = "mips5",
     .description = "MIPS V ISA Support [highly experimental]",
-    .llvm_name = "mips5",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_gp64,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
         &feature_fp64,
+        &feature_mips5_32r2,
+        &feature_gp64,
+        &feature_mips4_32,
     },
 };
 
 pub const feature_mips5_32r2 = Feature{
     .name = "mips5_32r2",
     .description = "Subset of MIPS-V that is also in MIPS32r2 [highly experimental]",
-    .llvm_name = "mips5_32r2",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -243,7 +217,6 @@ pub const feature_mips5_32r2 = Feature{
 pub const feature_mips16 = Feature{
     .name = "mips16",
     .description = "Mips16 mode",
-    .llvm_name = "mips16",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -251,159 +224,148 @@ pub const feature_mips16 = Feature{
 pub const feature_mips32 = Feature{
     .name = "mips32",
     .description = "Mips32 ISA Support",
-    .llvm_name = "mips32",
     .subfeatures = &[_]*const Feature {
+        &feature_mips1,
         &feature_mips4_32,
         &feature_mips3_32,
-        &feature_mips1,
     },
 };
 
 pub const feature_mips32r2 = Feature{
     .name = "mips32r2",
     .description = "Mips32r2 ISA Support",
-    .llvm_name = "mips32r2",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
+        &feature_mips5_32r2,
+        &feature_mips4_32,
     },
 };
 
 pub const feature_mips32r3 = Feature{
     .name = "mips32r3",
     .description = "Mips32r3 ISA Support",
-    .llvm_name = "mips32r3",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
+        &feature_mips5_32r2,
+        &feature_mips4_32,
     },
 };
 
 pub const feature_mips32r5 = Feature{
     .name = "mips32r5",
     .description = "Mips32r5 ISA Support",
-    .llvm_name = "mips32r5",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
+        &feature_mips5_32r2,
+        &feature_mips4_32,
     },
 };
 
 pub const feature_mips32r6 = Feature{
     .name = "mips32r6",
     .description = "Mips32r6 ISA Support [experimental]",
-    .llvm_name = "mips32r6",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
-        &feature_nan2008,
         &feature_mips3_32r2,
+        &feature_mips3_32,
+        &feature_nan2008,
+        &feature_mips4_32r2,
         &feature_mips1,
         &feature_abs2008,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
-        &feature_mips3_32,
         &feature_fp64,
+        &feature_mips5_32r2,
+        &feature_mips4_32,
     },
 };
 
 pub const feature_mips64 = Feature{
     .name = "mips64",
     .description = "Mips64 ISA Support",
-    .llvm_name = "mips64",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_gp64,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
         &feature_fp64,
+        &feature_mips5_32r2,
+        &feature_gp64,
+        &feature_mips4_32,
     },
 };
 
 pub const feature_mips64r2 = Feature{
     .name = "mips64r2",
     .description = "Mips64r2 ISA Support",
-    .llvm_name = "mips64r2",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_gp64,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
         &feature_fp64,
+        &feature_mips5_32r2,
+        &feature_gp64,
+        &feature_mips4_32,
     },
 };
 
 pub const feature_mips64r3 = Feature{
     .name = "mips64r3",
     .description = "Mips64r3 ISA Support",
-    .llvm_name = "mips64r3",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_gp64,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
         &feature_fp64,
+        &feature_mips5_32r2,
+        &feature_gp64,
+        &feature_mips4_32,
     },
 };
 
 pub const feature_mips64r5 = Feature{
     .name = "mips64r5",
     .description = "Mips64r5 ISA Support",
-    .llvm_name = "mips64r5",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_gp64,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
         &feature_fp64,
+        &feature_mips5_32r2,
+        &feature_gp64,
+        &feature_mips4_32,
     },
 };
 
 pub const feature_mips64r6 = Feature{
     .name = "mips64r6",
     .description = "Mips64r6 ISA Support [experimental]",
-    .llvm_name = "mips64r6",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
-        &feature_nan2008,
         &feature_mips3_32r2,
+        &feature_mips3_32,
+        &feature_nan2008,
+        &feature_mips4_32r2,
         &feature_mips1,
         &feature_abs2008,
-        &feature_gp64,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
-        &feature_mips3_32,
         &feature_fp64,
+        &feature_mips5_32r2,
+        &feature_gp64,
+        &feature_mips4_32,
     },
 };
 
 pub const feature_nan2008 = Feature{
     .name = "nan2008",
     .description = "IEEE 754-2008 NaN encoding",
-    .llvm_name = "nan2008",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -411,7 +373,6 @@ pub const feature_nan2008 = Feature{
 pub const feature_noabicalls = Feature{
     .name = "noabicalls",
     .description = "Disable SVR4-style position-independent code",
-    .llvm_name = "noabicalls",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -419,7 +380,6 @@ pub const feature_noabicalls = Feature{
 pub const feature_nooddspreg = Feature{
     .name = "nooddspreg",
     .description = "Disable odd numbered single-precision registers",
-    .llvm_name = "nooddspreg",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -427,7 +387,6 @@ pub const feature_nooddspreg = Feature{
 pub const feature_ptr64 = Feature{
     .name = "ptr64",
     .description = "Pointers are 64-bit wide",
-    .llvm_name = "ptr64",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -435,7 +394,6 @@ pub const feature_ptr64 = Feature{
 pub const feature_singleFloat = Feature{
     .name = "single-float",
     .description = "Only supports single precision float",
-    .llvm_name = "single-float",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -443,7 +401,6 @@ pub const feature_singleFloat = Feature{
 pub const feature_softFloat = Feature{
     .name = "soft-float",
     .description = "Does not support floating point instructions",
-    .llvm_name = "soft-float",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -451,7 +408,6 @@ pub const feature_softFloat = Feature{
 pub const feature_sym32 = Feature{
     .name = "sym32",
     .description = "Symbols are 32 bit on Mips64",
-    .llvm_name = "sym32",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -459,7 +415,6 @@ pub const feature_sym32 = Feature{
 pub const feature_useIndirectJumpHazard = Feature{
     .name = "use-indirect-jump-hazard",
     .description = "Use indirect jump guards to prevent certain speculation based attacks",
-    .llvm_name = "use-indirect-jump-hazard",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -467,7 +422,6 @@ pub const feature_useIndirectJumpHazard = Feature{
 pub const feature_useTccInDiv = Feature{
     .name = "use-tcc-in-div",
     .description = "Force the assembler to use trapping",
-    .llvm_name = "use-tcc-in-div",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -475,7 +429,6 @@ pub const feature_useTccInDiv = Feature{
 pub const feature_vfpu = Feature{
     .name = "vfpu",
     .description = "Enable vector FPU instructions",
-    .llvm_name = "vfpu",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -483,7 +436,6 @@ pub const feature_vfpu = Feature{
 pub const feature_virt = Feature{
     .name = "virt",
     .description = "Mips Virtualization ASE",
-    .llvm_name = "virt",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -491,7 +443,6 @@ pub const feature_virt = Feature{
 pub const feature_xgot = Feature{
     .name = "xgot",
     .description = "Assume 32-bit GOT",
-    .llvm_name = "xgot",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -499,14 +450,13 @@ pub const feature_xgot = Feature{
 pub const feature_p5600 = Feature{
     .name = "p5600",
     .description = "The P5600 Processor",
-    .llvm_name = "p5600",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
+        &feature_mips5_32r2,
+        &feature_mips4_32,
     },
 };
 
@@ -585,10 +535,10 @@ pub const cpu_mips3 = Cpu{
     .llvm_name = "mips3",
     .subfeatures = &[_]*const Feature {
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_gp64,
         &feature_mips3_32,
+        &feature_mips1,
         &feature_fp64,
+        &feature_gp64,
         &feature_mips3,
     },
 };
@@ -597,9 +547,9 @@ pub const cpu_mips32 = Cpu{
     .name = "mips32",
     .llvm_name = "mips32",
     .subfeatures = &[_]*const Feature {
+        &feature_mips1,
         &feature_mips4_32,
         &feature_mips3_32,
-        &feature_mips1,
         &feature_mips32,
     },
 };
@@ -608,12 +558,12 @@ pub const cpu_mips32r2 = Cpu{
     .name = "mips32r2",
     .llvm_name = "mips32r2",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
+        &feature_mips5_32r2,
+        &feature_mips4_32,
         &feature_mips32r2,
     },
 };
@@ -622,12 +572,12 @@ pub const cpu_mips32r3 = Cpu{
     .name = "mips32r3",
     .llvm_name = "mips32r3",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
+        &feature_mips5_32r2,
+        &feature_mips4_32,
         &feature_mips32r3,
     },
 };
@@ -636,12 +586,12 @@ pub const cpu_mips32r5 = Cpu{
     .name = "mips32r5",
     .llvm_name = "mips32r5",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
+        &feature_mips5_32r2,
+        &feature_mips4_32,
         &feature_mips32r5,
     },
 };
@@ -650,15 +600,15 @@ pub const cpu_mips32r6 = Cpu{
     .name = "mips32r6",
     .llvm_name = "mips32r6",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
-        &feature_nan2008,
         &feature_mips3_32r2,
+        &feature_mips3_32,
+        &feature_nan2008,
+        &feature_mips4_32r2,
         &feature_mips1,
         &feature_abs2008,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
-        &feature_mips3_32,
         &feature_fp64,
+        &feature_mips5_32r2,
+        &feature_mips4_32,
         &feature_mips32r6,
     },
 };
@@ -667,13 +617,13 @@ pub const cpu_mips4 = Cpu{
     .name = "mips4",
     .llvm_name = "mips4",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_gp64,
-        &feature_mips4_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
         &feature_fp64,
+        &feature_gp64,
+        &feature_mips4_32,
         &feature_mips4,
     },
 };
@@ -682,14 +632,14 @@ pub const cpu_mips5 = Cpu{
     .name = "mips5",
     .llvm_name = "mips5",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_gp64,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
         &feature_fp64,
+        &feature_mips5_32r2,
+        &feature_gp64,
+        &feature_mips4_32,
         &feature_mips5,
     },
 };
@@ -698,14 +648,14 @@ pub const cpu_mips64 = Cpu{
     .name = "mips64",
     .llvm_name = "mips64",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_gp64,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
         &feature_fp64,
+        &feature_mips5_32r2,
+        &feature_gp64,
+        &feature_mips4_32,
         &feature_mips64,
     },
 };
@@ -714,14 +664,14 @@ pub const cpu_mips64r2 = Cpu{
     .name = "mips64r2",
     .llvm_name = "mips64r2",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_gp64,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
         &feature_fp64,
+        &feature_mips5_32r2,
+        &feature_gp64,
+        &feature_mips4_32,
         &feature_mips64r2,
     },
 };
@@ -730,14 +680,14 @@ pub const cpu_mips64r3 = Cpu{
     .name = "mips64r3",
     .llvm_name = "mips64r3",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_gp64,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
         &feature_fp64,
+        &feature_mips5_32r2,
+        &feature_gp64,
+        &feature_mips4_32,
         &feature_mips64r3,
     },
 };
@@ -746,14 +696,14 @@ pub const cpu_mips64r5 = Cpu{
     .name = "mips64r5",
     .llvm_name = "mips64r5",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_gp64,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
         &feature_fp64,
+        &feature_mips5_32r2,
+        &feature_gp64,
+        &feature_mips4_32,
         &feature_mips64r5,
     },
 };
@@ -762,16 +712,16 @@ pub const cpu_mips64r6 = Cpu{
     .name = "mips64r6",
     .llvm_name = "mips64r6",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
-        &feature_nan2008,
         &feature_mips3_32r2,
+        &feature_mips3_32,
+        &feature_nan2008,
+        &feature_mips4_32r2,
         &feature_mips1,
         &feature_abs2008,
-        &feature_gp64,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
-        &feature_mips3_32,
         &feature_fp64,
+        &feature_mips5_32r2,
+        &feature_gp64,
+        &feature_mips4_32,
         &feature_mips64r6,
     },
 };
@@ -780,14 +730,14 @@ pub const cpu_octeon = Cpu{
     .name = "octeon",
     .llvm_name = "octeon",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_gp64,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
         &feature_fp64,
+        &feature_mips5_32r2,
+        &feature_gp64,
+        &feature_mips4_32,
         &feature_cnmips,
         &feature_mips64r2,
     },
@@ -797,12 +747,12 @@ pub const cpu_p5600 = Cpu{
     .name = "p5600",
     .llvm_name = "p5600",
     .subfeatures = &[_]*const Feature {
-        &feature_mips4_32,
         &feature_mips3_32r2,
-        &feature_mips1,
-        &feature_mips4_32r2,
-        &feature_mips5_32r2,
         &feature_mips3_32,
+        &feature_mips4_32r2,
+        &feature_mips1,
+        &feature_mips5_32r2,
+        &feature_mips4_32,
         &feature_p5600,
     },
 };

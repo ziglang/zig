@@ -4,7 +4,6 @@ const Cpu = @import("std").target.Cpu;
 pub const feature_detectroundchange = Feature{
     .name = "detectroundchange",
     .description = "LEON3 erratum detection: Detects any rounding mode change request: use only the round-to-nearest rounding mode",
-    .llvm_name = "detectroundchange",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -12,7 +11,6 @@ pub const feature_detectroundchange = Feature{
 pub const feature_hardQuadFloat = Feature{
     .name = "hard-quad-float",
     .description = "Enable quad-word floating point instructions",
-    .llvm_name = "hard-quad-float",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -20,7 +18,6 @@ pub const feature_hardQuadFloat = Feature{
 pub const feature_leon = Feature{
     .name = "leon",
     .description = "Enable LEON extensions",
-    .llvm_name = "leon",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -28,7 +25,6 @@ pub const feature_leon = Feature{
 pub const feature_noFmuls = Feature{
     .name = "no-fmuls",
     .description = "Disable the fmuls instruction.",
-    .llvm_name = "no-fmuls",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -36,7 +32,6 @@ pub const feature_noFmuls = Feature{
 pub const feature_noFsmuld = Feature{
     .name = "no-fsmuld",
     .description = "Disable the fsmuld instruction.",
-    .llvm_name = "no-fsmuld",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -44,7 +39,6 @@ pub const feature_noFsmuld = Feature{
 pub const feature_leonpwrpsr = Feature{
     .name = "leonpwrpsr",
     .description = "Enable the PWRPSR instruction",
-    .llvm_name = "leonpwrpsr",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -52,7 +46,6 @@ pub const feature_leonpwrpsr = Feature{
 pub const feature_softFloat = Feature{
     .name = "soft-float",
     .description = "Use software emulation for floating point",
-    .llvm_name = "soft-float",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -60,7 +53,6 @@ pub const feature_softFloat = Feature{
 pub const feature_softMulDiv = Feature{
     .name = "soft-mul-div",
     .description = "Use software emulation for integer multiply and divide",
-    .llvm_name = "soft-mul-div",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -68,7 +60,6 @@ pub const feature_softMulDiv = Feature{
 pub const feature_deprecatedV8 = Feature{
     .name = "deprecated-v8",
     .description = "Enable deprecated V8 instructions in V9 mode",
-    .llvm_name = "deprecated-v8",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -76,7 +67,6 @@ pub const feature_deprecatedV8 = Feature{
 pub const feature_v9 = Feature{
     .name = "v9",
     .description = "Enable SPARC-V9 instructions",
-    .llvm_name = "v9",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -84,7 +74,6 @@ pub const feature_v9 = Feature{
 pub const feature_vis = Feature{
     .name = "vis",
     .description = "Enable UltraSPARC Visual Instruction Set extensions",
-    .llvm_name = "vis",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -92,7 +81,6 @@ pub const feature_vis = Feature{
 pub const feature_vis2 = Feature{
     .name = "vis2",
     .description = "Enable Visual Instruction Set extensions II",
-    .llvm_name = "vis2",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -100,7 +88,6 @@ pub const feature_vis2 = Feature{
 pub const feature_vis3 = Feature{
     .name = "vis3",
     .description = "Enable Visual Instruction Set extensions III",
-    .llvm_name = "vis3",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -108,7 +95,6 @@ pub const feature_vis3 = Feature{
 pub const feature_fixallfdivsqrt = Feature{
     .name = "fixallfdivsqrt",
     .description = "LEON erratum fix: Fix FDIVS/FDIVD/FSQRTS/FSQRTD instructions with NOPs and floating-point store",
-    .llvm_name = "fixallfdivsqrt",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -116,7 +102,6 @@ pub const feature_fixallfdivsqrt = Feature{
 pub const feature_insertnopload = Feature{
     .name = "insertnopload",
     .description = "LEON3 erratum fix: Insert a NOP instruction after every single-cycle load instruction when the next instruction is another load/store instruction",
-    .llvm_name = "insertnopload",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -124,7 +109,6 @@ pub const feature_insertnopload = Feature{
 pub const feature_hasleoncasa = Feature{
     .name = "hasleoncasa",
     .description = "Enable CASA instruction for LEON3 and LEON4 processors",
-    .llvm_name = "hasleoncasa",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -132,7 +116,6 @@ pub const feature_hasleoncasa = Feature{
 pub const feature_leoncyclecounter = Feature{
     .name = "leoncyclecounter",
     .description = "Use the Leon cycle counter register",
-    .llvm_name = "leoncyclecounter",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -140,7 +123,6 @@ pub const feature_leoncyclecounter = Feature{
 pub const feature_hasumacsmac = Feature{
     .name = "hasumacsmac",
     .description = "Enable UMAC and SMAC for LEON3 and LEON4 processors",
-    .llvm_name = "hasumacsmac",
     .subfeatures = &[_]*const Feature {
     },
 };
@@ -148,7 +130,6 @@ pub const feature_hasumacsmac = Feature{
 pub const feature_popc = Feature{
     .name = "popc",
     .description = "Use the popc (population count) instruction",
-    .llvm_name = "popc",
     .subfeatures = &[_]*const Feature {
     },
 };
