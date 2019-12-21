@@ -2723,7 +2723,7 @@ static AstNode *ast_parse_prefix_type_op(ParseContext *pc) {
 }
 
 // SuffixOp
-//     <- LBRACKET Expr (DOT2 Expr?)? RBRACKET
+//     <- LBRACKET Expr (DOT2 (Expr (COLON Expr)?)?)? RBRACKET
 //      / DOT IDENTIFIER
 //      / DOTASTERISK
 //      / DOTQUESTIONMARK
@@ -2733,12 +2733,17 @@ static AstNode *ast_parse_suffix_op(ParseContext *pc) {
         AstNode *start = ast_expect(pc, ast_parse_expr);
         AstNode *end = nullptr;
         if (eat_token_if(pc, TokenIdEllipsis2) != nullptr) {
+            AstNode *sentinel = nullptr;
             end = ast_parse_expr(pc);
+            if (eat_token_if(pc, TokenIdColon) != nullptr) {
+                sentinel = ast_parse_expr(pc);
+            }
             expect_token(pc, TokenIdRBracket);
 
             AstNode *res = ast_create_node(pc, NodeTypeSliceExpr, lbracket);
             res->data.slice_expr.start = start;
             res->data.slice_expr.end = end;
+            res->data.slice_expr.sentinel = sentinel;
             return res;
         }
 
@@ -3041,6 +3046,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.slice_expr.array_ref_expr, visit, context);
             visit_field(&node->data.slice_expr.start, visit, context);
             visit_field(&node->data.slice_expr.end, visit, context);
+            visit_field(&node->data.slice_expr.sentinel, visit, context);
             break;
         case NodeTypeFieldAccessExpr:
             visit_field(&node->data.field_access_expr.struct_expr, visit, context);

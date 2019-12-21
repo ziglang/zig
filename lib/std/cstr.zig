@@ -31,13 +31,21 @@ fn testCStrFnsImpl() void {
     testing.expect(mem.len(u8, "123456789") == 9);
 }
 
-/// Returns a mutable slice with 1 more byte of length which is a null byte.
+/// Returns a mutable, null-terminated slice with the same length as `slice`.
 /// Caller owns the returned memory.
 pub fn addNullByte(allocator: *mem.Allocator, slice: []const u8) ![:0]u8 {
     const result = try allocator.alloc(u8, slice.len + 1);
     mem.copy(u8, result, slice);
     result[slice.len] = 0;
-    return result;
+    return result[0..slice.len :0];
+}
+
+test "addNullByte" {
+    var buf: [30]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(&buf).allocator;
+    const slice = try addNullByte(allocator, "hello"[0..4]);
+    testing.expect(slice.len == 4);
+    testing.expect(slice[4] == 0);
 }
 
 pub const NullTerminated2DArray = struct {

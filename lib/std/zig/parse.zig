@@ -2331,7 +2331,7 @@ fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 }
 
 /// SuffixOp
-///     <- LBRACKET Expr (DOT2 Expr?)? RBRACKET
+///     <- LBRACKET Expr (DOT2 (Expr (COLON Expr)?)?)? RBRACKET
 ///      / DOT IDENTIFIER
 ///      / DOTASTERISK
 ///      / DOTQUESTIONMARK
@@ -2349,11 +2349,16 @@ fn parseSuffixOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
             if (eatToken(it, .Ellipsis2) != null) {
                 const end_expr = try parseExpr(arena, it, tree);
+                const sentinel: ?*ast.Node = if (eatToken(it, .Colon) != null)
+                    try parseExpr(arena, it, tree)
+                else
+                    null;
                 break :blk OpAndToken{
                     .op = Op{
                         .Slice = Op.Slice{
                             .start = index_expr,
                             .end = end_expr,
+                            .sentinel = sentinel,
                         },
                     },
                     .token = try expectToken(it, tree, .RBracket),

@@ -221,16 +221,16 @@ pub const AtomicFile = struct {
         }
 
         tmp_path_buf[tmp_path_len] = 0;
+        const tmp_path_slice = tmp_path_buf[0..tmp_path_len :0];
 
         const my_cwd = cwd();
 
         while (true) {
             try crypto.randomBytes(rand_buf[0..]);
-            b64_fs_encoder.encode(tmp_path_buf[dirname_component_len..tmp_path_len], &rand_buf);
+            b64_fs_encoder.encode(tmp_path_slice[dirname_component_len..tmp_path_len], &rand_buf);
 
-            // TODO https://github.com/ziglang/zig/issues/3770 to clean up this @ptrCast
             const file = my_cwd.createFileC(
-                @ptrCast([*:0]u8, &tmp_path_buf),
+                tmp_path_slice, 
                 .{ .mode = mode, .exclusive = true },
             ) catch |err| switch (err) {
                 error.PathAlreadyExists => continue,
@@ -1488,8 +1488,7 @@ pub fn openSelfExe() OpenSelfExeError!File {
     var buf: [MAX_PATH_BYTES]u8 = undefined;
     const self_exe_path = try selfExePath(&buf);
     buf[self_exe_path.len] = 0;
-    // TODO avoid @ptrCast here using slice syntax with https://github.com/ziglang/zig/issues/3770
-    return openFileAbsoluteC(@ptrCast([*:0]u8, self_exe_path.ptr), .{});
+    return openFileAbsoluteC(self_exe_path[0..self_exe_path.len :0].ptr, .{});
 }
 
 test "openSelfExe" {

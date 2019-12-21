@@ -689,7 +689,13 @@ fn renderExpression(
                     try renderExpression(allocator, stream, tree, indent, start_col, range.start, after_start_space);
                     try renderToken(tree, stream, dotdot, indent, start_col, after_op_space); // ..
                     if (range.end) |end| {
-                        try renderExpression(allocator, stream, tree, indent, start_col, end, Space.None);
+                        const after_end_space = if (range.sentinel != null) Space.Space else Space.None;
+                        try renderExpression(allocator, stream, tree, indent, start_col, end, after_end_space);
+                    }
+                    if (range.sentinel) |sentinel| {
+                        const colon = tree.prevToken(sentinel.firstToken());
+                        try renderToken(tree, stream, colon, indent, start_col, Space.None); // :
+                        try renderExpression(allocator, stream, tree, indent, start_col, sentinel, Space.None);
                     }
                     return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space); // ]
                 },

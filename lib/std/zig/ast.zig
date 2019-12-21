@@ -1701,6 +1701,7 @@ pub const Node = struct {
             pub const Slice = struct {
                 start: *Node,
                 end: ?*Node,
+                sentinel: ?*Node,
             };
         };
 
@@ -1730,6 +1731,10 @@ pub const Node = struct {
 
                     if (range.end) |end| {
                         if (i < 1) return end;
+                        i -= 1;
+                    }
+                    if (range.sentinel) |sentinel| {
+                        if (i < 1) return sentinel;
                         i -= 1;
                     }
                 },

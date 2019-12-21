@@ -1,12 +1,85 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
-    cases.addRuntimeSafety("intToPtr with misaligned address",
+    cases.addRuntimeSafety("slice sentinel mismatch - optional pointers",
+        \\const std = @import("std");
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
-        \\    if (@import("std").mem.eql(u8, message, "incorrect alignment")) {
-        \\        @import("std").os.exit(126); // good
+        \\    if (std.mem.eql(u8, message, "sentinel mismatch")) {
+        \\        std.process.exit(126); // good
         \\    }
-        \\    @import("std").os.exit(0); // test failed
+        \\    std.process.exit(0); // test failed
+        \\}
+        \\pub fn main() void {
+        \\    var buf: [4]?*i32 = undefined;
+        \\    const slice = buf[0..3 :null];
+        \\}
+    );
+
+    cases.addRuntimeSafety("slice sentinel mismatch - floats",
+        \\const std = @import("std");
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    if (std.mem.eql(u8, message, "sentinel mismatch")) {
+        \\        std.process.exit(126); // good
+        \\    }
+        \\    std.process.exit(0); // test failed
+        \\}
+        \\pub fn main() void {
+        \\    var buf: [4]f32 = undefined;
+        \\    const slice = buf[0..3 :1.2];
+        \\}
+    );
+
+    cases.addRuntimeSafety("pointer slice sentinel mismatch",
+        \\const std = @import("std");
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    if (std.mem.eql(u8, message, "sentinel mismatch")) {
+        \\        std.process.exit(126); // good
+        \\    }
+        \\    std.process.exit(0); // test failed
+        \\}
+        \\pub fn main() void {
+        \\    var buf: [4]u8 = undefined;
+        \\    const ptr = buf[0..].ptr;
+        \\    const slice = ptr[0..3 :0];
+        \\}
+    );
+
+    cases.addRuntimeSafety("slice slice sentinel mismatch",
+        \\const std = @import("std");
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    if (std.mem.eql(u8, message, "sentinel mismatch")) {
+        \\        std.process.exit(126); // good
+        \\    }
+        \\    std.process.exit(0); // test failed
+        \\}
+        \\pub fn main() void {
+        \\    var buf: [4]u8 = undefined;
+        \\    const slice = buf[0..];
+        \\    const slice2 = slice[0..3 :0];
+        \\}
+    );
+
+    cases.addRuntimeSafety("array slice sentinel mismatch",
+        \\const std = @import("std");
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    if (std.mem.eql(u8, message, "sentinel mismatch")) {
+        \\        std.process.exit(126); // good
+        \\    }
+        \\    std.process.exit(0); // test failed
+        \\}
+        \\pub fn main() void {
+        \\    var buf: [4]u8 = undefined;
+        \\    const slice = buf[0..3 :0];
+        \\}
+    );
+
+    cases.addRuntimeSafety("intToPtr with misaligned address",
+        \\const std = @import("std");
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    if (std.mem.eql(u8, message, "incorrect alignment")) {
+        \\        std.os.exit(126); // good
+        \\    }
+        \\    std.os.exit(0); // test failed
         \\}
         \\pub fn main() void {
         \\    var x: usize = 5;

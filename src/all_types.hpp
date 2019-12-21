@@ -810,6 +810,7 @@ struct AstNodeSliceExpr {
     AstNode *array_ref_expr;
     AstNode *start;
     AstNode *end;
+    AstNode *sentinel; // can be null
 };
 
 struct AstNodeFieldAccessExpr {
@@ -1778,6 +1779,7 @@ enum PanicMsgId {
     PanicMsgIdResumedFnPendingAwait,
     PanicMsgIdBadNoAsyncCall,
     PanicMsgIdResumeNotSuspendedFn,
+    PanicMsgIdBadSentinel,
 
     PanicMsgIdCount,
 };
@@ -3388,6 +3390,7 @@ struct IrInstructionSliceSrc {
     IrInstruction *ptr;
     IrInstruction *start;
     IrInstruction *end;
+    IrInstruction *sentinel;
     ResultLoc *result_loc;
 };
 
