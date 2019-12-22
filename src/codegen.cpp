@@ -8655,6 +8655,8 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_bool(&cache_hash, g->valgrind_support);
     cache_bool(&cache_hash, g->link_eh_frame_hdr);
     cache_int(&cache_hash, detect_subsystem(g));
+    if (g->llvm_cpu) cache_str(&cache_hash, g->llvm_cpu);
+    if (g->llvm_features) cache_str(&cache_hash, g->llvm_features);
 
     Buf digest = BUF_INIT;
     buf_resize(&digest, 0);
@@ -10388,6 +10390,8 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     }
     cache_buf_opt(ch, g->dynamic_linker_path);
     cache_buf_opt(ch, g->version_script_path);
+    if (g->llvm_cpu) cache_str(ch, g->llvm_cpu);
+    if (g->llvm_features) cache_str(ch, g->llvm_features);
 
     // gen_c_objects appends objects to g->link_objects which we want to include in the hash
     gen_c_objects(g);
