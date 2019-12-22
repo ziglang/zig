@@ -442,6 +442,10 @@ pub fn formatType(
                 else => return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) }),
             },
             .Many, .C => {
+                if (ptr_info.sentinel) |sentinel| {
+                    const slice = mem.pointerToSlice([:sentinel]const ptr_info.child, value);
+                    return formatType(slice, fmt, options, context, Errors, output, max_depth);
+                }
                 if (ptr_info.child == u8) {
                     if (fmt.len > 0 and fmt[0] == 's') {
                         const len = mem.len(u8, value);
