@@ -30,6 +30,7 @@ pub const CToken = struct {
         Arrow,
         LBrace,
         RBrace,
+        Pipe,
     };
 
     pub const NumLitSuffix = enum {
@@ -358,6 +359,10 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
                     },
                     ']' => {
                         result.id = .RBrace;
+                        state = .Done;
+                    },
+                    '|' => {
+                        result.id = .Pipe;
                         state = .Done;
                     },
                     else => return error.TokenizingFailed,

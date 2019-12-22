@@ -781,7 +781,11 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
             _ = try appendToken(c, .Comma, ",");
             // In C each enum value is in the global namespace. So we put them there too.
             // At this point we can rely on the enum emitting successfully.
-            try addEnumTopLevel(c, name, field_name, enum_val_name);
+            const tld_node = try transCreateNodeVarDecl(c, true, true, enum_val_name);
+            tld_node.eq_token = try appendToken(c, .Equal, "=");
+            tld_node.init_node = try transCreateNodeAPInt(c, ZigClangEnumConstantDecl_getInitVal(enum_const));
+            tld_node.semicolon_token = try appendToken(c, .Semicolon, ";");
+            try addTopLevelDecl(c, field_name, &tld_node.base);
         }
         container_node.rbrace_token = try appendToken(c, .RBrace, "}");
 
@@ -795,25 +799,6 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
     if (!is_unnamed)
         try c.alias_list.push(.{ .alias = bare_name, .name = name });
     return transCreateNodeIdentifier(c, name);
-}
-
-fn addEnumTopLevel(c: *Context, enum_name: []const u8, field_name: []const u8, enum_val_name: []const u8) !void {
-    const node = try transCreateNodeVarDecl(c, true, true, enum_val_name);
-    node.eq_token = try appendToken(c, .Equal, "=");
-    const enum_ident = try transCreateNodeIdentifier(c, enum_name);
-    const period_tok = try appendToken(c, .Period, ".");
-    const field_ident = try transCreateNodeIdentifier(c, field_name);
-    node.semicolon_token = try appendToken(c, .Semicolon, ";");
-
-    const field_access_node = try c.a().create(ast.Node.InfixOp);
-    field_access_node.* = .{
-        .op_token = period_tok,
-        .lhs = enum_ident,
-        .op = .Period,
-        .rhs = field_ident,
-    };
-    node.init_node = &field_access_node.base;
-    try addTopLevelDecl(c, field_name, &node.base);
 }
 
 fn createAlias(c: *Context, alias: var) !void {
@@ -1569,6 +1554,15 @@ fn transCCast(
     if (ZigClangQualType_getTypeClass(dst_type) == .Elaborated) {
         const elaborated_ty = @ptrCast(*const ZigClangElaboratedType, ZigClangQualType_getTypePtr(dst_type));
         return transCCast(rp, scope, loc, ZigClangElaboratedType_getNamedType(elaborated_ty), src_type, expr);
+    }
+    if (ZigClangQualType_getTypeClass(dst_type) == .Enum)
+    {
+        const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@intToEnum");
+        try builtin_node.params.push(try transQualType(rp, dst_type, loc));
+        _ = try appendToken(rp.c, .Comma, ",");
+        try builtin_node.params.push(expr);
+        builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+        return &builtin_node.base;
     }
     if (ZigClangQualType_getTypeClass(src_type) == .Enum and
         ZigClangQualType_getTypeClass(dst_type) != .Enum)
@@ -2326,7 +2320,13 @@ fn transCreatePreCrement(
     block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
     // semicolon must immediately follow rbrace because it is the last token in a block
     _ = try appendToken(rp.c, .Semicolon, ";");
-    return &block_scope.block_node.base;
+    const grouped_expr = try rp.c.a().create(ast.Node.GroupedExpression);
+    grouped_expr.* = .{
+        .lparen = try appendToken(rp.c, .LParen, "("),
+        .expr = &block_scope.block_node.base,
+        .rparen = try appendToken(rp.c, .RParen, ")"),
+    };
+    return &grouped_expr.base;
 }
 
 fn transCreatePostCrement(
@@ -2392,7 +2392,13 @@ fn transCreatePostCrement(
     try block_scope.block_node.statements.push(&break_node.base);
     _ = try appendToken(rp.c, .Semicolon, ";");
     block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
-    return &block_scope.block_node.base;
+    const grouped_expr = try rp.c.a().create(ast.Node.GroupedExpression);
+    grouped_expr.* = .{
+        .lparen = try appendToken(rp.c, .LParen, "("),
+        .expr = &block_scope.block_node.base,
+        .rparen = try appendToken(rp.c, .RParen, ")"),
+    };
+    return &grouped_expr.base;
 }
 
 fn transCompoundAssignOperator(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangCompoundAssignOperator, used: ResultUsed) TransError!*ast.Node {
@@ -2508,7 +2514,13 @@ fn transCreateCompoundAssign(
     block_scope.block_node.rbrace = try appendToken(rp.c, .RBrace, "}");
     // semicolon must immediately follow rbrace because it is the last token in a block
     _ = try appendToken(rp.c, .Semicolon, ";");
-    return &block_scope.block_node.base;
+    const grouped_expr = try rp.c.a().create(ast.Node.GroupedExpression);
+    grouped_expr.* = .{
+        .lparen = try appendToken(rp.c, .LParen, "("),
+        .expr = &block_scope.block_node.base,
+        .rparen = try appendToken(rp.c, .RParen, ")"),
+    };
+    return &grouped_expr.base;
 }
 
 fn transCPtrCast(
@@ -4314,7 +4326,10 @@ fn parseCPrimaryExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc:
 
             if (it.peek().?.id == .RParen) {
                 _ = it.next();
-                return inner_node;
+                if (it.peek().?.id != .LParen) {
+                    return inner_node;
+                }
+                _ = it.next();
             }
 
             // hack to get zig fmt to render a comma in builtin calls
@@ -4458,7 +4473,7 @@ fn parseCSuffixOpExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc
             },
             .Shl => {
                 const op_token = try appendToken(rp.c, .AngleBracketAngleBracketLeft, "<<");
-                const rhs = try parseCPrimaryExpr(rp, it, source_loc, scope);
+                const rhs = try parseCExpr(rp, it, source_loc, scope);
                 const bitshift_node = try rp.c.a().create(ast.Node.InfixOp);
                 bitshift_node.* = .{
                     .op_token = op_token,
@@ -4468,9 +4483,21 @@ fn parseCSuffixOpExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc
                 };
                 node = &bitshift_node.base;
             },
+            .Pipe => {
+                const op_token = try appendToken(rp.c, .Pipe, "|");
+                const rhs = try parseCExpr(rp, it, source_loc, scope);
+                const or_node = try rp.c.a().create(ast.Node.InfixOp);
+                or_node.* = .{
+                    .op_token = op_token,
+                    .lhs = node,
+                    .op = .BitOr,
+                    .rhs = rhs,
+                };
+                node = &or_node.base;
+            },
             .LBrace => {
                 const arr_node = try transCreateNodeArrayAccess(rp.c, node);
-                arr_node.op.ArrayAccess = try parseCPrimaryExpr(rp, it, source_loc, scope);
+                arr_node.op.ArrayAccess = try parseCExpr(rp, it, source_loc, scope);
                 arr_node.rtoken = try appendToken(rp.c, .RBrace, "]");
                 node = &arr_node.base;
                 if (it.next().?.id != .RBrace)

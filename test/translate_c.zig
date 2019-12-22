@@ -166,50 +166,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add_both("enums",
-        \\enum Foo {
-        \\    FooA,
-        \\    FooB,
-        \\    Foo1,
-        \\};
-    , &[_][]const u8{
-        \\pub const enum_Foo = extern enum {
-        \\    A,
-        \\    B,
-        \\    @"1",
-        \\};
-    ,
-        \\pub const FooA = enum_Foo.A;
-    ,
-        \\pub const FooB = enum_Foo.B;
-    ,
-        \\pub const Foo1 = enum_Foo.@"1";
-    ,
-        \\pub const Foo = enum_Foo;
-    });
-
-    cases.add_both("enums",
-        \\enum Foo {
-        \\    FooA = 2,
-        \\    FooB = 5,
-        \\    Foo1,
-        \\};
-    , &[_][]const u8{
-        \\pub const enum_Foo = extern enum {
-        \\    A = 2,
-        \\    B = 5,
-        \\    @"1" = 6,
-        \\};
-    ,
-        \\pub const FooA = enum_Foo.A;
-    ,
-        \\pub const FooB = enum_Foo.B;
-    ,
-        \\pub const Foo1 = enum_Foo.@"1";
-    ,
-        \\pub const Foo = enum_Foo;
-    });
-
     cases.add_both("typedef of function in struct field",
         \\typedef void lws_callback_function(void);
         \\struct Foo {
@@ -921,27 +877,27 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    p,
         \\};
     , &[_][]const u8{
-        \\pub const a = enum_unnamed_1.a;
-        \\pub const b = enum_unnamed_1.b;
-        \\pub const c = enum_unnamed_1.c;
+        \\pub const a = 0;
+        \\pub const b = 1;
+        \\pub const c = 2;
         \\const enum_unnamed_1 = extern enum {
         \\    a,
         \\    b,
         \\    c,
         \\};
         \\pub const d = enum_unnamed_1;
-        \\pub const e = enum_unnamed_2.e;
-        \\pub const f = enum_unnamed_2.f;
-        \\pub const g = enum_unnamed_2.g;
+        \\pub const e = 0;
+        \\pub const f = 4;
+        \\pub const g = 5;
         \\const enum_unnamed_2 = extern enum {
         \\    e = 0,
         \\    f = 4,
         \\    g = 5,
         \\};
-        \\pub export var h: enum_unnamed_2 = @as(enum_unnamed_2, e);
-        \\pub const i = enum_unnamed_3.i;
-        \\pub const j = enum_unnamed_3.j;
-        \\pub const k = enum_unnamed_3.k;
+        \\pub export var h: enum_unnamed_2 = @intToEnum(enum_unnamed_2, e);
+        \\pub const i = 0;
+        \\pub const j = 1;
+        \\pub const k = 2;
         \\const enum_unnamed_3 = extern enum {
         \\    i,
         \\    j,
@@ -951,9 +907,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    l: enum_unnamed_3,
         \\    m: d,
         \\};
-        \\pub const n = enum_i.n;
-        \\pub const o = enum_i.o;
-        \\pub const p = enum_i.p;
+        \\pub const n = 0;
+        \\pub const o = 1;
+        \\pub const p = 2;
         \\pub const enum_i = extern enum {
         \\    n,
         \\    o,
@@ -1393,8 +1349,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    Two,
         \\};
     , &[_][]const u8{
-        \\pub const One = enum_unnamed_1.One;
-        \\pub const Two = enum_unnamed_1.Two;
+        \\pub const One = 0;
+        \\pub const Two = 1;
         \\const enum_unnamed_1 = extern enum {
         \\    One,
         \\    Two,
@@ -1496,9 +1452,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return ((((((((((e + f) + g) + h) + i) + j) + k) + l) + m) + o) + p);
         \\}
     , &[_][]const u8{
-        \\pub const FooA = enum_Foo.A;
-        \\pub const FooB = enum_Foo.B;
-        \\pub const FooC = enum_Foo.C;
         \\pub const enum_Foo = extern enum {
         \\    A,
         \\    B,
@@ -1509,7 +1462,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var a = _arg_a;
         \\    var b = _arg_b;
         \\    var c = _arg_c;
-        \\    var d: enum_Foo = @as(enum_Foo, FooA);
+        \\    var d: enum_Foo = @intToEnum(enum_Foo, FooA);
         \\    var e: c_int = @boolToInt(((a != 0) and (b != 0)));
         \\    var f: c_int = @boolToInt(((b != 0) and (c != null)));
         \\    var g: c_int = @boolToInt(((a != 0) and (c != null)));
@@ -1543,8 +1496,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    x: c_int,
         \\    y: c_int,
         \\};
-        \\pub const BarA = enum_Bar.A;
-        \\pub const BarB = enum_Bar.B;
+    ,
         \\pub const enum_Bar = extern enum {
         \\    A,
         \\    B,
@@ -1746,9 +1698,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return 4;
         \\}
     , &[_][]const u8{
-        \\pub const A = enum_SomeEnum.A;
-        \\pub const B = enum_SomeEnum.B;
-        \\pub const C = enum_SomeEnum.C;
         \\pub const enum_SomeEnum = extern enum {
         \\    A,
         \\    B,
@@ -1863,26 +1812,26 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    i -= 1;
         \\    u +%= 1;
         \\    u -%= 1;
-        \\    i = blk: {
+        \\    i = (blk: {
         \\        const _ref_1 = &i;
         \\        _ref_1.* += 1;
         \\        break :blk _ref_1.*;
-        \\    };
-        \\    i = blk: {
+        \\    });
+        \\    i = (blk: {
         \\        const _ref_2 = &i;
         \\        _ref_2.* -= 1;
         \\        break :blk _ref_2.*;
-        \\    };
-        \\    u = blk: {
+        \\    });
+        \\    u = (blk: {
         \\        const _ref_3 = &u;
         \\        _ref_3.* +%= 1;
         \\        break :blk _ref_3.*;
-        \\    };
-        \\    u = blk: {
+        \\    });
+        \\    u = (blk: {
         \\        const _ref_4 = &u;
         \\        _ref_4.* -%= 1;
         \\        break :blk _ref_4.*;
-        \\    };
+        \\    });
         \\}
     });
 
@@ -2062,30 +2011,30 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    i -= 1;
         \\    u +%= 1;
         \\    u -%= 1;
-        \\    i = blk: {
+        \\    i = (blk: {
         \\        const _ref_1 = &i;
         \\        const _tmp_2 = _ref_1.*;
         \\        _ref_1.* += 1;
         \\        break :blk _tmp_2;
-        \\    };
-        \\    i = blk: {
+        \\    });
+        \\    i = (blk: {
         \\        const _ref_3 = &i;
         \\        const _tmp_4 = _ref_3.*;
         \\        _ref_3.* -= 1;
         \\        break :blk _tmp_4;
-        \\    };
-        \\    u = blk: {
+        \\    });
+        \\    u = (blk: {
         \\        const _ref_5 = &u;
         \\        const _tmp_6 = _ref_5.*;
         \\        _ref_5.* +%= 1;
         \\        break :blk _tmp_6;
-        \\    };
-        \\    u = blk: {
+        \\    });
+        \\    u = (blk: {
         \\        const _ref_7 = &u;
         \\        const _tmp_8 = _ref_7.*;
         \\        _ref_7.* -%= 1;
         \\        break :blk _tmp_8;
-        \\    };
+        \\    });
         \\}
     });
 
@@ -2170,6 +2119,58 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const FOO2 = "aoeu\x134 derp";
     ,
         \\pub const FOO_CHAR = '\x3f';
+    });
+
+    cases.add_2("enums",
+        \\enum Foo {
+        \\    FooA,
+        \\    FooB,
+        \\    Foo1,
+        \\};
+    , &[_][]const u8{
+        \\pub const enum_Foo = extern enum {
+        \\    A,
+        \\    B,
+        \\    @"1",
+        \\};
+    ,
+        \\pub const FooA = 0;
+    ,
+        \\pub const FooB = 1;
+    ,
+        \\pub const Foo1 = 2;
+    ,
+        \\pub const Foo = enum_Foo;
+    });
+
+    cases.add_2("enums",
+        \\enum Foo {
+        \\    FooA = 2,
+        \\    FooB = 5,
+        \\    Foo1,
+        \\};
+    , &[_][]const u8{
+        \\pub const enum_Foo = extern enum {
+        \\    A = 2,
+        \\    B = 5,
+        \\    @"1" = 6,
+        \\};
+    ,
+        \\pub const FooA = 2;
+    ,
+        \\pub const FooB = 5;
+    ,
+        \\pub const Foo1 = 6;
+    ,
+        \\pub const Foo = enum_Foo;
+    });
+
+    cases.add_2("macro cast",
+    \\#define FOO(bar) baz((void *)(baz))
+    , &[_][]const u8{
+        \\pub inline fn FOO(bar: var) @TypeOf(baz(if (@typeId(@TypeOf(baz)) == .Pointer) @ptrCast([*c]void, baz) else if (@typeId(@TypeOf(baz)) == .Int) @intToPtr([*c]void, baz) else @as([*c]void, baz))) {
+        \\    return baz(if (@typeId(@TypeOf(baz)) == .Pointer) @ptrCast([*c]void, baz) else if (@typeId(@TypeOf(baz)) == .Int) @intToPtr([*c]void, baz) else @as([*c]void, baz));
+        \\}
     });
 
     /////////////// Cases for only stage1 because stage2 behavior is better ////////////////
@@ -3123,5 +3124,49 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const FOO2 = "aoeu\x134 derp";
     ,
         \\pub const FOO_CHAR = 63;
+    });
+
+    cases.add("enums",
+        \\enum Foo {
+        \\    FooA,
+        \\    FooB,
+        \\    Foo1,
+        \\};
+    , &[_][]const u8{
+        \\pub const enum_Foo = extern enum {
+        \\    A,
+        \\    B,
+        \\    @"1",
+        \\};
+    ,
+        \\pub const FooA = enum_Foo.A;
+    ,
+        \\pub const FooB = enum_Foo.B;
+    ,
+        \\pub const Foo1 = enum_Foo.@"1";
+    ,
+        \\pub const Foo = enum_Foo;
+    });
+
+    cases.add("enums",
+        \\enum Foo {
+        \\    FooA = 2,
+        \\    FooB = 5,
+        \\    Foo1,
+        \\};
+    , &[_][]const u8{
+        \\pub const enum_Foo = extern enum {
+        \\    A = 2,
+        \\    B = 5,
+        \\    @"1" = 6,
+        \\};
+    ,
+        \\pub const FooA = enum_Foo.A;
+    ,
+        \\pub const FooB = enum_Foo.B;
+    ,
+        \\pub const Foo1 = enum_Foo.@"1";
+    ,
+        \\pub const Foo = enum_Foo;
     });
 }
