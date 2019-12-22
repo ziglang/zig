@@ -1744,6 +1744,7 @@ enum BuiltinFnId {
     BuiltinFnIdFrameSize,
     BuiltinFnIdAs,
     BuiltinFnIdCall,
+    BuiltinFnIdExternWeak,
 };
 
 struct BuiltinFnEntry {
@@ -2660,6 +2661,8 @@ enum IrInstructionId {
     IrInstructionIdSpillBegin,
     IrInstructionIdSpillEnd,
     IrInstructionIdVectorExtractElem,
+    IrInstructionIdExternWeakSrc,
+    IrInstructionIdExternWeakGen,
 };
 
 struct IrInstruction {
@@ -4044,6 +4047,21 @@ struct IrInstructionVectorExtractElem {
 
     IrInstruction *vector;
     IrInstruction *index;
+};
+
+struct IrInstructionExternWeakSrc {
+    IrInstruction base;
+
+    IrInstruction *name;
+    IrInstruction *ptr_type;
+    ResultLoc *result_loc;
+};
+
+struct IrInstructionExternWeakGen {
+    IrInstruction base;
+
+    Buf *name;
+    IrInstruction *result_loc;
 };
 
 enum ResultLocId {

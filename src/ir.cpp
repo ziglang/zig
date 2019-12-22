@@ -613,6 +613,10 @@ static void destroy_instruction(IrInstruction *inst) {
             return destroy(reinterpret_cast<IrInstructionSpillEnd *>(inst), name);
         case IrInstructionIdVectorExtractElem:
             return destroy(reinterpret_cast<IrInstructionVectorExtractElem *>(inst), name);
+        case IrInstructionIdExternWeakSrc:
+            return destroy(reinterpret_cast<IrInstructionExternWeakSrc *>(inst), name);
+        case IrInstructionIdExternWeakGen:
+            return destroy(reinterpret_cast<IrInstructionExternWeakGen *>(inst), name);
     }
     zig_unreachable();
 }
@@ -889,6 +893,14 @@ static IrBasicBlock *ir_build_bb_from(IrBuilder *irb, IrBasicBlock *other_bb) {
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionDeclVarSrc *) {
     return IrInstructionIdDeclVarSrc;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionExternWeakSrc *) {
+    return IrInstructionIdExternWeakSrc;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionExternWeakGen *) {
+    return IrInstructionIdExternWeakGen;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionDeclVarGen *) {
@@ -1601,6 +1613,32 @@ static T *ir_build_instruction(IrBuilder *irb, Scope *scope, AstNode *source_nod
     T *special_instruction = ir_create_instruction<T>(irb, scope, source_node);
     ir_instruction_append(irb->current_basic_block, &special_instruction->base);
     return special_instruction;
+}
+
+static IrInstruction *ir_build_extern_weak_src(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *name,
+    IrInstruction *ptr_type, ResultLoc *result_loc)
+{
+    IrInstructionExternWeakSrc *instruction = ir_build_instruction<IrInstructionExternWeakSrc>(irb, scope, source_node);
+    instruction->name = name;
+    instruction->ptr_type = ptr_type;
+    instruction->result_loc = result_loc;
+
+    ir_ref_instruction(name, irb->current_basic_block);
+    ir_ref_instruction(ptr_type, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_extern_weak_gen(IrBuilder *irb, Scope *scope, AstNode *source_node, Buf *name,
+    IrInstruction *result_loc)
+{
+    IrInstructionExternWeakGen *instruction = ir_build_instruction<IrInstructionExternWeakGen>(irb, scope, source_node);
+    instruction->name = name;
+    instruction->result_loc = result_loc;
+
+    ir_ref_instruction(result_loc, irb->current_basic_block);
+
+    return &instruction->base;
 }
 
 static IrInstruction *ir_build_cast(IrBuilder *irb, Scope *scope, AstNode *source_node, ZigType *dest_type,
@@ -6460,6 +6498,21 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 IrInstruction *has_decl = ir_build_has_decl(irb, scope, node, arg0_value, arg1_value);
                 return ir_lval_wrap(irb, scope, has_decl, lval, result_loc);
+            }
+        case BuiltinFnIdExternWeak:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *extern_weak = ir_build_extern_weak_src(irb, scope, node, arg0_value, arg1_value, result_loc);
+                return ir_lval_wrap(irb, scope, extern_weak, lval, result_loc);
             }
         case BuiltinFnIdUnionInit:
             {
@@ -26692,6 +26745,44 @@ static IrInstruction *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstruct
             instruction->safety_check_on);
 }
 
+static IrInstruction *ir_analyze_instruction_extern_weak_src(IrAnalyze *ira, IrInstructionExternWeakSrc *instruction) {
+    IrInstruction *name_value = instruction->name->child;
+    Buf *symbol_name = ir_resolve_str(ira, name_value);
+    if (symbol_name == nullptr)
+        return ira->codegen->invalid_instruction;
+
+    if (buf_len(symbol_name) == 0) {
+        ir_add_error_node(ira, instruction->name->source_node,
+            buf_sprintf("symbol name cannot be empty"));
+        return ira->codegen->invalid_instruction;
+    }
+
+    IrInstruction *ptr_type_value = instruction->ptr_type->child;
+    ZigType *ptr_type = ir_resolve_type(ira, ptr_type_value);
+    if (type_is_invalid(ptr_type))
+        return ira->codegen->invalid_instruction;
+
+    if (ptr_type->id != ZigTypeIdPointer) {
+        ir_add_error_node(ira, instruction->ptr_type->source_node,
+            buf_sprintf("a pointer type is required, got '%s'", buf_ptr(&ptr_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    ZigType *opt_ptr_type = get_optional_type(ira->codegen, ptr_type);
+
+    IrInstruction *result_loc = ir_resolve_result(ira, &instruction->base, instruction->result_loc,
+            opt_ptr_type, nullptr, true, false, true);
+    if (type_is_invalid(result_loc->value->type) || instr_is_unreachable(result_loc)) {
+        return result_loc;
+    }
+
+    IrInstruction *result = ir_build_extern_weak_gen(&ira->new_irb, instruction->base.scope,
+        instruction->base.source_node, symbol_name, result_loc);
+    result->value->type = opt_ptr_type;
+
+    return result;
+}
+
 static void buf_write_value_bytes_array(CodeGen *codegen, uint8_t *buf, ZigValue *val, size_t len) {
     size_t buf_i = 0;
     // TODO optimize the buf case
@@ -28397,6 +28488,7 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
         case IrInstructionIdVectorExtractElem:
         case IrInstructionIdVectorStoreElem:
         case IrInstructionIdAsmGen:
+        case IrInstructionIdExternWeakGen:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -28583,6 +28675,8 @@ static IrInstruction *ir_analyze_instruction_base(IrAnalyze *ira, IrInstruction 
             return ir_analyze_instruction_panic(ira, (IrInstructionPanic *)instruction);
         case IrInstructionIdPtrCastSrc:
             return ir_analyze_instruction_ptr_cast(ira, (IrInstructionPtrCastSrc *)instruction);
+        case IrInstructionIdExternWeakSrc:
+            return ir_analyze_instruction_extern_weak_src(ira, (IrInstructionExternWeakSrc *)instruction);
         case IrInstructionIdIntToPtr:
             return ir_analyze_instruction_int_to_ptr(ira, (IrInstructionIntToPtr *)instruction);
         case IrInstructionIdPtrToInt:
@@ -28875,6 +28969,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdAwaitSrc:
         case IrInstructionIdAwaitGen:
         case IrInstructionIdSpillBegin:
+        case IrInstructionIdExternWeakSrc:
+        case IrInstructionIdExternWeakGen:
             return true;
 
         case IrInstructionIdPhi:

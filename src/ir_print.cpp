@@ -380,6 +380,10 @@ const char* ir_instruction_type_str(IrInstructionId id) {
             return "SpillEnd";
         case IrInstructionIdVectorExtractElem:
             return "VectorExtractElem";
+        case IrInstructionIdExternWeakSrc:
+            return "ExternWeakSrc";
+        case IrInstructionIdExternWeakGen:
+            return "ExternWeakGen";
     }
     zig_unreachable();
 }
@@ -2100,6 +2104,22 @@ static void ir_print_await_gen(IrPrint *irp, IrInstructionAwaitGen *instruction)
     fprintf(irp->f, ")");
 }
 
+static void ir_print_extern_weak_src(IrPrint *irp, IrInstructionExternWeakSrc *instruction) {
+    fprintf(irp->f, "@externWeak(");
+    ir_print_other_instruction(irp, instruction->name);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->ptr_type);
+    fprintf(irp->f, ",");
+    ir_print_result_loc(irp, instruction->result_loc);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_extern_weak_gen(IrPrint *irp, IrInstructionExternWeakGen *instruction) {
+    fprintf(irp->f, "@externWeak(\"%s\",", buf_ptr(instruction->name));
+    ir_print_other_instruction(irp, instruction->result_loc);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_spill_begin(IrPrint *irp, IrInstructionSpillBegin *instruction) {
     fprintf(irp->f, "@spillBegin(");
     ir_print_other_instruction(irp, instruction->operand);
@@ -2631,6 +2651,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction, bool 
             break;
         case IrInstructionIdVectorExtractElem:
             ir_print_vector_extract_elem(irp, (IrInstructionVectorExtractElem *)instruction);
+            break;
+        case IrInstructionIdExternWeakSrc:
+            ir_print_extern_weak_src(irp, (IrInstructionExternWeakSrc *)instruction);
+            break;
+        case IrInstructionIdExternWeakGen:
+            ir_print_extern_weak_gen(irp, (IrInstructionExternWeakGen *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

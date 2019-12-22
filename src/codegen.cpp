@@ -6148,6 +6148,49 @@ static LLVMValueRef ir_render_vector_extract_elem(CodeGen *g, IrExecutable *exec
     return LLVMBuildExtractElement(g->builder, vector, index, "");
 }
 
+static LLVMValueRef ir_render_extern_weak(CodeGen *g, IrExecutable *executable,
+        IrInstructionExternWeakGen *instruction)
+{
+    ZigType *wanted_type = instruction->base.value->type;
+    assert(wanted_type->id == ZigTypeIdOptional);
+    ZigType *ptr_type = wanted_type->data.maybe.child_type;
+    assert(ptr_type->id == ZigTypeIdPointer);
+    ZigType *child_type = ptr_type->data.pointer.child_type;
+
+    const char *symbol_name = buf_ptr(instruction->name);
+    LLVMValueRef global_sym = LLVMGetNamedGlobal(g->module, symbol_name);
+    if (global_sym == nullptr) {
+        global_sym = LLVMAddGlobal(g->module, get_llvm_type(g, child_type), symbol_name);
+        LLVMSetLinkage(global_sym, LLVMExternalWeakLinkage);
+        LLVMSetGlobalConstant(global_sym, true);
+    } else if (LLVMGetLinkage(global_sym) != LLVMExternalWeakLinkage) {
+        zig_unreachable();
+    }
+
+    LLVMValueRef sym_ptr = LLVMBuildBitCast(g->builder, global_sym, get_llvm_type(g, ptr_type), "");
+
+    LLVMValueRef result_loc = instruction->result_loc ? ir_llvm_value(g, instruction->result_loc) : nullptr;
+
+    if (!handle_is_ptr(wanted_type)) {
+        if (result_loc != nullptr) {
+            gen_store_untyped(g, sym_ptr, result_loc, 0, false);
+        }
+        return sym_ptr;
+    }
+
+    if (result_loc != nullptr) {
+        LLVMValueRef usize_zero = LLVMConstNull(g->builtin_types.entry_usize->llvm_type);
+        LLVMValueRef nonnull_bit = LLVMBuildICmp(g->builder, LLVMIntNE, sym_ptr, usize_zero, "");
+
+        LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, result_loc, maybe_child_index, "");
+        gen_assign_raw(g, val_ptr, ptr_type, sym_ptr);
+        LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, result_loc, maybe_null_index, "");
+        gen_store_untyped(g, nonnull_bit, maybe_ptr, 0, false);
+    }
+
+    return result_loc;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -6248,6 +6291,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdSplatSrc:
         case IrInstructionIdMergeErrSets:
         case IrInstructionIdAsmSrc:
+        case IrInstructionIdExternWeakSrc:
             zig_unreachable();
 
         case IrInstructionIdDeclVarGen:
@@ -6416,6 +6460,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_splat(g, executable, (IrInstructionSplatGen *) instruction);
         case IrInstructionIdVectorExtractElem:
             return ir_render_vector_extract_elem(g, executable, (IrInstructionVectorExtractElem *) instruction);
+        case IrInstructionIdExternWeakGen:
+            return ir_render_extern_weak(g, executable, (IrInstructionExternWeakGen *) instruction);
     }
     zig_unreachable();
 }
@@ -8230,6 +8276,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdFrameSize, "frameSize", 1);
     create_builtin_fn(g, BuiltinFnIdAs, "as", 2);
     create_builtin_fn(g, BuiltinFnIdCall, "call", 3);
+    create_builtin_fn(g, BuiltinFnIdExternWeak, "externWeak", 2);
 }
 
 static const char *bool_to_str(bool b) {

@@ -2,6 +2,22 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("externWeak with empty symbol name",
+        \\pub fn main() void {
+        \\    const p = @externWeak("", *u8);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:27: error: symbol name cannot be empty",
+    });
+
+    cases.add("externWeak with non-pointer type",
+        \\pub fn main() void {
+        \\    const p = @externWeak("foo", u8);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:34: error: a pointer type is required, got 'u8'",
+    });
+
     cases.add("slice sentinel mismatch",
         \\fn foo() [:0]u8 {
         \\    var x: []u8 = undefined;
