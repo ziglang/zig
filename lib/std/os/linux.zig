@@ -468,6 +468,14 @@ pub fn kill(pid: i32, sig: i32) usize {
     return syscall2(SYS_kill, @bitCast(usize, @as(isize, pid)), @bitCast(usize, @as(isize, sig)));
 }
 
+pub fn tkill(tid: pid_t, sig: i32) usize {
+    return syscall2(SYS_tkill, @bitCast(usize, @as(isize, tid)), @bitCast(usize, @as(isize, sig)));
+}
+
+pub fn tgkill(tgid: pid_t, tid: pid_t, sig: i32) usize {
+    return syscall2(SYS_tgkill, @bitCast(usize, @as(isize, tgid)), @bitCast(usize, @as(isize, tid)), @bitCast(usize, @as(isize, sig)));
+}
+
 pub fn unlink(path: [*:0]const u8) usize {
     if (@hasDecl(@This(), "SYS_unlink")) {
         return syscall1(SYS_unlink, @ptrToInt(path));
