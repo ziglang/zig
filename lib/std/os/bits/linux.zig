@@ -764,19 +764,14 @@ pub const winsize = extern struct {
     ws_ypixel: u16,
 };
 
+/// NSIG is the total number of signals defined.
+/// As signal numbers are sequential, NSIG is one greater than the largest defined signal number.
 pub const NSIG = if (is_mips) 128 else 65;
-pub const sigset_t = [128 / @sizeOf(usize)]usize;
 
-pub usingnamespace if (NSIG == 65)
-    struct {
-        pub const all_mask = [2]u32{ 0xffffffff, 0xffffffff };
-        pub const app_mask = [2]u32{ 0xfffffffc, 0x7fffffff };
-    }
-else
-    struct {
-        pub const all_mask = [4]u32{ 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff };
-        pub const app_mask = [4]u32{ 0xfffffffc, 0x7fffffff, 0xffffffff, 0xffffffff };
-    };
+pub const sigset_t = [1024 / 32]u32;
+
+pub const all_mask: sigset_t = [_]u32{0xffffffff} ** sigset_t.len;
+pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
 
 pub const k_sigaction = if (is_mips)
     extern struct {
@@ -804,7 +799,7 @@ pub const Sigaction = extern struct {
 pub const SIG_ERR = @intToPtr(extern fn (i32, *siginfo_t, *c_void) void, maxInt(usize));
 pub const SIG_DFL = @intToPtr(?extern fn (i32, *siginfo_t, *c_void) void, 0);
 pub const SIG_IGN = @intToPtr(extern fn (i32, *siginfo_t, *c_void) void, 1);
-pub const empty_sigset = [_]usize{0} ** sigset_t.len;
+pub const empty_sigset = [_]u32{0} ** sigset_t.len;
 
 pub const in_port_t = u16;
 pub const sa_family_t = u16;
