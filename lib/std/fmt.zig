@@ -76,6 +76,7 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 /// - `b`: output integer value in binary notation
 /// - `o`: output integer value in octal notation
 /// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
+/// - `u`: output integer as an UTF-8 sequence. Integer type must have 32 bits at max.
 /// - `*`: output the address of the value instead of the value itself.
 ///
 /// If a formatted user type contains a function of the type
@@ -555,6 +556,12 @@ pub fn formatIntValue(
         } else {
             @compileError("Cannot escape character with more than 8 bits");
         }
+    } else if (comptime std.mem.eql(u8, fmt, "u")) {
+        if (@TypeOf(int_value).bit_count <= 32) {
+            return formatUtf8Codepoint(@as(u32, int_value), options, context, Errors, output);
+        } else {
+            @compileError("Cannot print integer that is larger than 32 bits as an UTF-8 sequence");
+        }
     } else if (comptime std.mem.eql(u8, fmt, "b")) {
         radix = 2;
         uppercase = false;
@@ -639,6 +646,18 @@ pub fn formatAsciiChar(
     writer: anytype,
 ) !void {
     return writer.writeAll(@as(*const [1]u8, &c));
+}
+
+pub fn formatUtf8Codepoint(
+    c: u32,
+    options: FormatOptions,
+    context: anytype,
+    comptime Errors: type,
+    output: fn (@TypeOf(context), []const u8) Errors!void,
+) Errors!void {
+    var buf: [4]u8 = undefined;
+    const len = std.unicode.utf8Encode(c, buf[0..]) catch unreachable;
+    return output(context, @as(*const [4]u8, &buf)[0..len]);
 }
 
 pub fn formatBuf(
@@ -1384,6 +1403,14 @@ test "int.specifier" {
     {
         const value: u16 = 0o1234;
         try testFmt("u16: 0o1234\n", "u16: 0o{o}\n", .{value});
+    }
+    {
+        const value: u8 = 'a';
+        try testFmt("UTF-8: a\n", "UTF-8: {u}\n", .{value});
+    }
+    {
+        const value: u32 = 0x1F310;
+        try testFmt("UTF-8: 🌐\n", "UTF-8: {u}\n", .{value});
     }
 }
 
