@@ -13,7 +13,7 @@ const maxInt = std.math.maxInt;
 pub const DynLib = switch (builtin.os) {
     .linux => if (builtin.link_libc) DlDynlib else LinuxDynLib,
     .windows => WindowsDynLib,
-    .macosx, .tvos, .watchos, .ios => DlDynlib,
+    .macosx, .tvos, .watchos, .ios, .freebsd => DlDynlib,
     else => void,
 };
 
@@ -338,7 +338,7 @@ pub const DlDynlib = struct {
 
 test "dynamic_library" {
     const libname = switch (builtin.os) {
-        .linux => "invalid_so.so",
+        .linux, .freebsd => "invalid_so.so",
         .windows => "invalid_dll.dll",
         .macosx, .tvos, .watchos, .ios => "invalid_dylib.dylib",
         else => return error.SkipZigTest,
