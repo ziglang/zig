@@ -697,18 +697,6 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
     return 0;
 }
 
-pub fn blockAllSignals(set: *sigset_t) void {
-    _ = syscall4(SYS_rt_sigprocmask, SIG_BLOCK, @ptrToInt(&all_mask), @ptrToInt(set), NSIG / 8);
-}
-
-pub fn blockAppSignals(set: *sigset_t) void {
-    _ = syscall4(SYS_rt_sigprocmask, SIG_BLOCK, @ptrToInt(&app_mask), @ptrToInt(set), NSIG / 8);
-}
-
-pub fn restoreSignals(set: *sigset_t) void {
-    _ = syscall4(SYS_rt_sigprocmask, SIG_SETMASK, @ptrToInt(set), 0, NSIG / 8);
-}
-
 pub fn sigaddset(set: *sigset_t, sig: u6) void {
     const s = sig - 1;
     (set.*)[@intCast(usize, s) / usize.bit_count] |= @intCast(usize, 1) << (s & (usize.bit_count - 1));
