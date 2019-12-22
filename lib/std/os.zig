@@ -228,8 +228,8 @@ pub fn raise(sig: u8) RaiseError!void {
         // block application signals
         _ = linux.sigprocmask(SIG_BLOCK, &linux.app_mask, &set);
 
-        const tid = linux.syscall0(linux.SYS_gettid);
-        const rc = linux.syscall2(linux.SYS_tkill, tid, sig);
+        const tid = linux.gettid();
+        const rc = linux.tkill(tid, sig);
 
         // restore signal mask
         _ = linux.sigprocmask(SIG_SETMASK, &set, null);
