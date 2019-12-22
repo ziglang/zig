@@ -165,7 +165,7 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     }
     var i: usize = 0;
     while (i < expected.len) : (i += 1) {
-        if (expected[i] != actual[i]) {
+        if (!std.meta.eql(expected[i], actual[i])) {
             std.debug.panic("index {} incorrect. expected {}, found {}", .{ i, expected[i], actual[i] });
         }
     }
@@ -175,4 +175,18 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
 /// A message is printed to stderr and then abort is called.
 pub fn expect(ok: bool) void {
     if (!ok) @panic("test failure");
+}
+
+test "expectEqual nested array" {
+    const a = [2][2]f32{
+        [_]f32{ 1.0, 0.0 },
+        [_]f32{ 0.0, 1.0 },
+    };
+
+    const b = [2][2]f32{
+        [_]f32{ 1.0, 0.0 },
+        [_]f32{ 0.0, 1.0 },
+    };
+
+    expectEqual(a, b);
 }
