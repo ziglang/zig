@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const debug = std.debug;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const expectError = std.testing.expectError;
 
 /// Priority queue for storing generic data. Initialize with `init`.
 pub fn PriorityQueue(comptime T: type) type {
@@ -77,6 +78,8 @@ pub fn PriorityQueue(comptime T: type) type {
             return if (self.len > 0) self.remove() else null;
         }
 
+        /// Remove and return the highest priority element from the
+        /// queue.
         pub fn remove(self: *Self) T {
             const first = self.items[0];
             const last = self.items[self.len - 1];
@@ -84,6 +87,23 @@ pub fn PriorityQueue(comptime T: type) type {
             self.len -= 1;
             siftDown(self, 0);
             return first;
+        }
+
+        pub const Error = error{BoundsError};
+
+        /// Remove and return element at index. If there aren't enough
+        ///  elements to remove from idx, returns null. Indices are in
+        ///  the same order as iterator, which is not necessarily
+        ///  priority order.
+        pub fn removeIdx(self: *Self, idx: usize) !T {
+            if (self.len <= idx)
+                return Self.Error.BoundsError;
+            const last = self.items[self.len - 1];
+            const item = self.items[idx];
+            self.items[idx] = last;
+            self.len -= 1;
+            siftDown(self, 0);
+            return item;
         }
 
         /// Return the number of elements remaining in the priority
@@ -387,4 +407,28 @@ test "std.PriorityQueue: iterator" {
     }
 
     expectEqual(@as(usize, 0), map.count());
+}
+
+test "std.PriorityQueue: remove at index" {
+    var queue = PQ.init(debug.global_allocator, lessThan);
+    defer queue.deinit();
+
+    try queue.add(3);
+    try queue.add(2);
+    try queue.add(1);
+    expectError(PQ.Error.BoundsError, queue.removeIdx(5));
+
+    var it = queue.iterator();
+    var elem = it.next();
+    var idx: usize = 0;
+    const two_idx = while (elem != null) : (elem = it.next()) {
+        if (elem.? == 2)
+            break idx;
+        idx += 1;
+    } else unreachable;
+
+    expectEqual(queue.removeIdx(two_idx), 2);
+    expectEqual(queue.remove(), 1);
+    expectEqual(queue.remove(), 3);
+    expectEqual(queue.removeOrNull(), null);
 }
