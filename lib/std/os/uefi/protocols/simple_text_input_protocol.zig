@@ -27,4 +27,3 @@ pub const SimpleTextInputProtocol = extern struct {
         .node = [_]u8{ 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b },
     };
 };
-

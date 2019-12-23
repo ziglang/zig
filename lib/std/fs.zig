@@ -230,7 +230,7 @@ pub const AtomicFile = struct {
             b64_fs_encoder.encode(tmp_path_slice[dirname_component_len..tmp_path_len], &rand_buf);
 
             const file = my_cwd.createFileC(
-                tmp_path_slice, 
+                tmp_path_slice,
                 .{ .mode = mode, .exclusive = true },
             ) catch |err| switch (err) {
                 error.PathAlreadyExists => continue,

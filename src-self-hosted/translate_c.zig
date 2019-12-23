@@ -11,7 +11,7 @@ const CToken = ctok.CToken;
 const mem = std.mem;
 const math = std.math;
 
-const CallingConvention = std.builtin.TypeInfo.CallingConvention;
+const CallingConvention = std.builtin.CallingConvention;
 
 pub const ClangErrMsg = Stage2ErrorMsg;
 
@@ -3529,6 +3529,7 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
         .lib_name = null,
         .align_expr = null,
         .section_expr = null,
+        .callconv_expr = null,
     };
 
     const block = try transCreateNodeBlock(c, null);
@@ -4135,6 +4136,7 @@ fn finishTransFnProto(
         .lib_name = null,
         .align_expr = null,
         .section_expr = null,
+        .callconv_expr = null,
     };
     return fn_proto;
 }
@@ -4483,6 +4485,7 @@ fn transMacroFnDefine(c: *Context, it: *ctok.TokenList.Iterator, name: []const u
         .lib_name = null,
         .align_expr = null,
         .section_expr = null,
+        .callconv_expr = null,
     };
 
     const block = try transCreateNodeBlock(c, null);

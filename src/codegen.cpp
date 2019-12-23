@@ -284,14 +284,43 @@ static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
         case CallingConventionNaked:
             zig_unreachable();
         case CallingConventionStdcall:
-            // stdcall calling convention only works on x86.
-            if (g->zig_target->arch == ZigLLVM_x86) {
+            if (g->zig_target->arch == ZigLLVM_x86)
                 return LLVMX86StdcallCallConv;
-            } else {
-                return LLVMCCallConv;
-            }
+            return LLVMCCallConv;
+        case CallingConventionFastcall:
+            if (g->zig_target->arch == ZigLLVM_x86)
+                return LLVMX86FastcallCallConv;
+            return LLVMFastCallConv;
+        case CallingConventionVectorcall:
+            if (g->zig_target->arch == ZigLLVM_x86)
+                return LLVMX86VectorCallCallConv;
+            return LLVMCCallConv;
         case CallingConventionAsync:
             return LLVMFastCallConv;
+        case CallingConventionAPCS:
+            if (target_is_arm(g->zig_target))
+                return LLVMARMAPCSCallConv;
+            return LLVMCCallConv;
+        case CallingConventionAAPCS:
+            if (target_is_arm(g->zig_target))
+                return LLVMARMAAPCSCallConv;
+            return LLVMCCallConv;
+        case CallingConventionAAPCSVFP:
+            if (target_is_arm(g->zig_target))
+                return LLVMARMAAPCSVFPCallConv;
+            return LLVMCCallConv;
+        case CallingConventionInterrupt:
+            if (g->zig_target->arch == ZigLLVM_x86 || g->zig_target->arch == ZigLLVM_x86_64)
+                return LLVMX86INTRCallConv;
+            if (g->zig_target->arch == ZigLLVM_avr)
+                return LLVMAVRINTRCallConv;
+            if (g->zig_target->arch == ZigLLVM_msp430)
+                return LLVMMSP430INTRCallConv;
+            return LLVMCCallConv;
+        case CallingConventionSignal:
+            if (g->zig_target->arch == ZigLLVM_avr)
+                return LLVMAVRSIGNALCallConv;
+            return LLVMCCallConv;
     }
     zig_unreachable();
 }
@@ -383,7 +412,14 @@ static bool cc_want_sret_attr(CallingConvention cc) {
             zig_unreachable();
         case CallingConventionC:
         case CallingConventionCold:
+        case CallingConventionInterrupt:
+        case CallingConventionSignal:
         case CallingConventionStdcall:
+        case CallingConventionFastcall:
+        case CallingConventionVectorcall:
+        case CallingConventionAPCS:
+        case CallingConventionAAPCS:
+        case CallingConventionAAPCSVFP:
             return true;
         case CallingConventionAsync:
         case CallingConventionUnspecified:
@@ -8463,8 +8499,15 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     static_assert(CallingConventionC == 1, "");
     static_assert(CallingConventionCold == 2, "");
     static_assert(CallingConventionNaked == 3, "");
-    static_assert(CallingConventionStdcall == 4, "");
-    static_assert(CallingConventionAsync == 5, "");
+    static_assert(CallingConventionAsync == 4, "");
+    static_assert(CallingConventionInterrupt == 5, "");
+    static_assert(CallingConventionSignal == 6, "");
+    static_assert(CallingConventionStdcall == 7, "");
+    static_assert(CallingConventionFastcall == 8, "");
+    static_assert(CallingConventionVectorcall == 9, "");
+    static_assert(CallingConventionAPCS == 10, "");
+    static_assert(CallingConventionAAPCS == 11, "");
+    static_assert(CallingConventionAAPCSVFP == 12, "");
 
     static_assert(FnInlineAuto == 0, "");
     static_assert(FnInlineAlways == 1, "");

@@ -14,13 +14,12 @@ const windows = os.windows;
 pub const ResetEvent = struct {
     os_event: OsEvent,
 
-    pub const OsEvent = 
-        if (builtin.single_threaded)
-            DebugEvent
-        else if (builtin.link_libc and builtin.os != .windows and builtin.os != .linux)
-            PosixEvent
-        else
-            AtomicEvent;
+    pub const OsEvent = if (builtin.single_threaded)
+        DebugEvent
+    else if (builtin.link_libc and builtin.os != .windows and builtin.os != .linux)
+        PosixEvent
+    else
+        AtomicEvent;
 
     pub fn init() ResetEvent {
         return ResetEvent{ .os_event = OsEvent.init() };
@@ -105,7 +104,7 @@ const PosixEvent = struct {
     }
 
     fn deinit(self: *PosixEvent) void {
-        // on dragonfly, *destroy() functions can return EINVAL 
+        // on dragonfly, *destroy() functions can return EINVAL
         // for statically initialized pthread structures
         const err = if (builtin.os == .dragonfly) os.EINVAL else 0;
 
@@ -212,8 +211,7 @@ const AtomicEvent = struct {
     fn wait(self: *AtomicEvent, timeout: ?u64) !void {
         var waiters = @atomicLoad(u32, &self.waiters, .Acquire);
         while (waiters != WAKE) {
-            waiters = @cmpxchgWeak(u32, &self.waiters, waiters, waiters + WAIT, .Acquire, .Acquire)
-                orelse return Futex.wait(&self.waiters, timeout);
+            waiters = @cmpxchgWeak(u32, &self.waiters, waiters, waiters + WAIT, .Acquire, .Acquire) orelse return Futex.wait(&self.waiters, timeout);
         }
     }
 
@@ -281,7 +279,7 @@ const AtomicEvent = struct {
         pub fn wake(waiters: *u32, wake_count: u32) void {
             const handle = getEventHandle() orelse return SpinFutex.wake(waiters, wake_count);
             const key = @ptrCast(*const c_void, waiters);
-            
+
             var waiting = wake_count;
             while (waiting != 0) : (waiting -= 1) {
                 const rc = windows.ntdll.NtReleaseKeyedEvent(handle, key, windows.FALSE, null);
@@ -408,7 +406,7 @@ test "std.ResetEvent" {
             // wait for receiver to update value and signal output
             self.out.wait();
             testing.expect(self.value == 2);
-            
+
             // update value and signal final input
             self.value = 3;
             self.in.set();
@@ -418,12 +416,12 @@ test "std.ResetEvent" {
             // wait for sender to update value and signal input
             self.in.wait();
             assert(self.value == 1);
-            
+
             // update value and signal output
             self.in.reset();
             self.value = 2;
             self.out.set();
-            
+
             // wait for sender to update value and signal final input
             self.in.wait();
             assert(self.value == 3);

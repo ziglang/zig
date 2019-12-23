@@ -528,7 +528,7 @@ fn usesThumb1PreArmv6(arch: builtin.Arch) bool {
     };
 }
 
-nakedcc fn __aeabi_memcpy() noreturn {
+fn __aeabi_memcpy() callconv(.Naked) noreturn {
     @setRuntimeSafety(false);
     if (use_thumb_1) {
         asm volatile (
@@ -544,7 +544,7 @@ nakedcc fn __aeabi_memcpy() noreturn {
     unreachable;
 }
 
-nakedcc fn __aeabi_memmove() noreturn {
+fn __aeabi_memmove() callconv(.Naked) noreturn {
     @setRuntimeSafety(false);
     if (use_thumb_1) {
         asm volatile (
@@ -560,7 +560,7 @@ nakedcc fn __aeabi_memmove() noreturn {
     unreachable;
 }
 
-nakedcc fn __aeabi_memset() noreturn {
+fn __aeabi_memset() callconv(.Naked) noreturn {
     @setRuntimeSafety(false);
     if (use_thumb_1_pre_armv6) {
         asm volatile (
@@ -591,7 +591,7 @@ nakedcc fn __aeabi_memset() noreturn {
     unreachable;
 }
 
-nakedcc fn __aeabi_memclr() noreturn {
+fn __aeabi_memclr() callconv(.Naked) noreturn {
     @setRuntimeSafety(false);
     if (use_thumb_1_pre_armv6) {
         asm volatile (
@@ -619,7 +619,7 @@ nakedcc fn __aeabi_memclr() noreturn {
     unreachable;
 }
 
-nakedcc fn __aeabi_memcmp() noreturn {
+fn __aeabi_memcmp() callconv(.Naked) noreturn {
     @setRuntimeSafety(false);
     if (use_thumb_1) {
         asm volatile (

@@ -219,7 +219,7 @@ test "zig fmt: threadlocal" {
 test "zig fmt: linksection" {
     try testCanonical(
         \\export var aoeu: u64 linksection(".text.derp") = 1234;
-        \\export nakedcc fn _start() linksection(".text.boot") noreturn {}
+        \\export fn _start() linksection(".text.boot") callconv(.Naked) noreturn {}
         \\
     );
 }
@@ -2311,7 +2311,7 @@ test "zig fmt: fn type" {
         \\
         \\const a: fn (u8) u8 = undefined;
         \\const b: extern fn (u8) u8 = undefined;
-        \\const c: nakedcc fn (u8) u8 = undefined;
+        \\const c: fn (u8) callconv(.Naked) u8 = undefined;
         \\const ap: fn (u8) u8 = a;
         \\
     );

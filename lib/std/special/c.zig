@@ -195,7 +195,7 @@ extern fn __stack_chk_fail() noreturn {
 // TODO we should be able to put this directly in std/linux/x86_64.zig but
 // it causes a segfault in release mode. this is a workaround of calling it
 // across .o file boundaries. fix comptime @ptrCast of nakedcc functions.
-nakedcc fn clone() void {
+fn clone() callconv(.Naked) void {
     switch (builtin.arch) {
         .i386 => {
             // __clone(func, stack, flags, arg, ptid, tls, ctid)
