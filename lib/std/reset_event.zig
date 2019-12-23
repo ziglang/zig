@@ -280,7 +280,7 @@ const AtomicEvent = struct {
     const WindowsFutex = struct {
         pub fn wake(waiters: *u32, wake_count: u32) void {
             const handle = getEventHandle() orelse return SpinFutex.wake(waiters, wake_count);
-            const key = @ptrCast(*const c_void, ptr);
+            const key = @ptrCast(*const c_void, waiters);
             
             var waiting = wake_count;
             while (waiting != 0) : (waiting -= 1) {
@@ -291,7 +291,7 @@ const AtomicEvent = struct {
 
         pub fn wait(waiters: *u32, timeout: ?u64) !void {
             const handle = getEventHandle() orelse return SpinFutex.wait(waiters, timeout);
-            const key = @ptrCast(*const c_void, ptr);
+            const key = @ptrCast(*const c_void, waiters);
 
             // NT uses timeouts in units of 100ns with negative value being relative
             var timeout_ptr: ?*windows.LARGE_INTEGER = null;
