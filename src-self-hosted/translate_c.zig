@@ -1194,7 +1194,7 @@ fn transImplicitCastExpr(
     const dest_type = getExprQualType(c, @ptrCast(*const ZigClangExpr, expr));
     const src_type = getExprQualType(c, sub_expr);
     switch (ZigClangImplicitCastExpr_getCastKind(expr)) {
-        .BitCast, .FloatingCast, .FloatingToIntegral, .IntegralToFloating, .IntegralCast => {
+        .BitCast, .FloatingCast, .FloatingToIntegral, .IntegralToFloating, .IntegralCast, .PointerToIntegral, .IntegralToPointer => {
             return transCCast(rp, scope, ZigClangImplicitCastExpr_getBeginLoc(expr), dest_type, src_type, sub_expr_node);
         },
         .LValueToRValue, .NoOp, .FunctionToPointerDecay, .ArrayToPointerDecay => {
@@ -1220,29 +1220,6 @@ fn transImplicitCastExpr(
             const op_token = try appendToken(rp.c, .BangEqual, "!=");
             const rhs_node = try transCreateNodeInt(rp.c, 0);
             return transCreateNodeInfixOp(rp, scope, node, .BangEqual, op_token, rhs_node, result_used, false);
-        },
-        .PointerToIntegral => {
-            // @intCast(dest_type, @ptrToInt(val))
-            const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@intCast");
-            try cast_node.params.push(try transQualType(rp, dest_type, ZigClangImplicitCastExpr_getBeginLoc(expr)));
-            _ = try appendToken(rp.c, .Comma, ",");
-
-            const ptr_to_int = try transCreateNodeBuiltinFnCall(rp.c, "@ptrToInt");
-            try ptr_to_int.params.push(try transExpr(rp, scope, sub_expr, .used, .r_value));
-            ptr_to_int.rparen_token = try appendToken(rp.c, .RParen, ")");
-            try cast_node.params.push(&ptr_to_int.base);
-            cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-            return maybeSuppressResult(rp, scope, result_used, &cast_node.base);
-        },
-        .IntegralToPointer => {
-            // @intToPtr(dest_type, val)
-            const int_to_ptr = try transCreateNodeBuiltinFnCall(rp.c, "@intToPtr");
-            try int_to_ptr.params.push(try transQualType(rp, dest_type, ZigClangImplicitCastExpr_getBeginLoc(expr)));
-            _ = try appendToken(rp.c, .Comma, ",");
-
-            try int_to_ptr.params.push(try transExpr(rp, scope, sub_expr, .used, .r_value));
-            int_to_ptr.rparen_token = try appendToken(rp.c, .RParen, ")");
-            return maybeSuppressResult(rp, scope, result_used, &int_to_ptr.base);
         },
         else => |kind| return revertAndWarn(
             rp,
@@ -1509,8 +1486,18 @@ fn transCCast(
     if (ZigClangQualType_eq(dst_type, src_type)) return expr;
     if (qualTypeIsPtr(dst_type) and qualTypeIsPtr(src_type))
         return transCPtrCast(rp, loc, dst_type, src_type, expr);
-    if (cIsUnsignedInteger(dst_type) and qualTypeIsPtr(src_type)) {
-        const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@as");
+    if (cIsInteger(dst_type) and cIsInteger(src_type)) {
+        // @intCast(dest_type, val)
+        const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@intCast");
+        try cast_node.params.push(try transQualType(rp, dst_type, loc));
+        _ = try appendToken(rp.c, .Comma, ",");
+        try cast_node.params.push(expr);
+        cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+        return &cast_node.base;
+    }
+    if (cIsInteger(dst_type) and qualTypeIsPtr(src_type)) {
+        // @intCast(dest_type, @ptrToInt(val))
+        const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@intCast");
         try cast_node.params.push(try transQualType(rp, dst_type, loc));
         _ = try appendToken(rp.c, .Comma, ",");
         const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@ptrToInt");
@@ -1520,7 +1507,8 @@ fn transCCast(
         cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
         return &cast_node.base;
     }
-    if (cIsUnsignedInteger(src_type) and qualTypeIsPtr(dst_type)) {
+    if (cIsInteger(src_type) and qualTypeIsPtr(dst_type)) {
+        // @intToPtr(dest_type, val)
         const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@intToPtr");
         try builtin_node.params.push(try transQualType(rp, dst_type, loc));
         _ = try appendToken(rp.c, .Comma, ",");
@@ -2868,6 +2856,10 @@ fn typeIsOpaque(c: *Context, ty: *const ZigClangType, loc: ZigClangSourceLocatio
         },
         else => return false,
     }
+}
+
+fn cIsInteger(qt: ZigClangQualType) bool {
+    return cIsSignedInteger(qt) or cIsUnsignedInteger(qt);
 }
 
 fn cIsUnsignedInteger(qt: ZigClangQualType) bool {

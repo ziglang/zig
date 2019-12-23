@@ -21,9 +21,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() void {
         \\    var a: c_int = undefined;
-        \\    var b: u8 = @as(u8, 123);
+        \\    var b: u8 = @intCast(u8, 123);
         \\    const c: c_int = undefined;
-        \\    const d: c_uint = @as(c_uint, 440);
+        \\    const d: c_uint = @intCast(c_uint, 440);
         \\}
     });
 
@@ -110,7 +110,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn foo() void;
         \\pub export fn bar() void {
         \\    var func_ptr: ?*c_void = @ptrCast(?*c_void, foo);
-        \\    var typed_func_ptr: ?extern fn () void = @intToPtr(?extern fn () void, @as(c_ulong, @ptrToInt(func_ptr)));
+        \\    var typed_func_ptr: ?extern fn () void = @intToPtr(?extern fn () void, @intCast(c_ulong, @ptrToInt(func_ptr)));
         \\}
     });
 
@@ -855,7 +855,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub fn foo() void {
         \\    var arr: [10]u8 = .{
-        \\        @as(u8, 1),
+        \\        @intCast(u8, 1),
         \\    } ++ .{0} ** 9;
         \\    var arr1: [10][*c]u8 = .{
         \\        null,
@@ -1082,18 +1082,18 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    unsigned d = 440;
         \\}
     , &[_][]const u8{
-        \\pub var a: c_long = @as(c_long, 2);
-        \\pub var b: c_long = @as(c_long, 2);
+        \\pub var a: c_long = @intCast(c_long, 2);
+        \\pub var b: c_long = @intCast(c_long, 2);
         \\pub var c: c_int = 4;
         \\pub export fn foo(_arg_c_1: u8) void {
         \\    var c_1 = _arg_c_1;
         \\    var a_2: c_int = undefined;
-        \\    var b_3: u8 = @as(u8, 123);
-        \\    b_3 = @as(u8, a_2);
+        \\    var b_3: u8 = @intCast(u8, 123);
+        \\    b_3 = @intCast(u8, a_2);
         \\    {
         \\        var d: c_int = 5;
         \\    }
-        \\    var d: c_uint = @as(c_uint, 440);
+        \\    var d: c_uint = @intCast(c_uint, 440);
         \\}
     });
 
@@ -1216,14 +1216,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\            _ = 7;
         \\        }
         \\    }
-        \\    var i: u8 = @as(u8, 2);
+        \\    var i: u8 = @intCast(u8, 2);
         \\}
     });
 
     cases.add("shadowing primitive types",
         \\unsigned anyerror = 2;
     , &[_][]const u8{
-        \\pub export var _anyerror: c_uint = @as(c_uint, 2);
+        \\pub export var _anyerror: c_uint = @intCast(c_uint, 2);
     });
 
     cases.add("floats",
@@ -1397,17 +1397,17 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\
     , &[_][]const u8{
         \\pub export fn escapes() [*c]const u8 {
-        \\    var a: u8 = @as(u8, '\'');
-        \\    var b: u8 = @as(u8, '\\');
-        \\    var c: u8 = @as(u8, '\x07');
-        \\    var d: u8 = @as(u8, '\x08');
-        \\    var e: u8 = @as(u8, '\x0c');
-        \\    var f: u8 = @as(u8, '\n');
-        \\    var g: u8 = @as(u8, '\r');
-        \\    var h: u8 = @as(u8, '\t');
-        \\    var i: u8 = @as(u8, '\x0b');
-        \\    var j: u8 = @as(u8, '\x00');
-        \\    var k: u8 = @as(u8, '\"');
+        \\    var a: u8 = @intCast(u8, '\'');
+        \\    var b: u8 = @intCast(u8, '\\');
+        \\    var c: u8 = @intCast(u8, '\x07');
+        \\    var d: u8 = @intCast(u8, '\x08');
+        \\    var e: u8 = @intCast(u8, '\x0c');
+        \\    var f: u8 = @intCast(u8, '\n');
+        \\    var g: u8 = @intCast(u8, '\r');
+        \\    var h: u8 = @intCast(u8, '\t');
+        \\    var i: u8 = @intCast(u8, '\x0b');
+        \\    var j: u8 = @intCast(u8, '\x00');
+        \\    var k: u8 = @intCast(u8, '\"');
         \\    return "\'\\\x07\x08\x0c\n\r\t\x0b\x00\"";
         \\}
     });
@@ -1818,7 +1818,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() void {
         \\    var i: c_int = 0;
-        \\    var u: c_uint = @as(c_uint, 0);
+        \\    var u: c_uint = @intCast(c_uint, 0);
         \\    i += 1;
         \\    i -= 1;
         \\    u +%= 1;
@@ -1858,7 +1858,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn log2(_arg_a: c_uint) c_int {
         \\    var a = _arg_a;
         \\    var i: c_int = 0;
-        \\    while (a > @as(c_uint, 0)) {
+        \\    while (a > @intCast(c_uint, 0)) {
         \\        a >>= @as(@import("std").math.Log2Int(c_int), 1);
         \\    }
         \\    return i;
@@ -1878,7 +1878,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn log2(_arg_a: u32) c_int {
         \\    var a = _arg_a;
         \\    var i: c_int = 0;
-        \\    while (a > @as(c_uint, 0)) {
+        \\    while (a > @intCast(c_uint, 0)) {
         \\        a >>= @as(@import("std").math.Log2Int(c_int), 1);
         \\    }
         \\    return i;
@@ -1957,35 +1957,35 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub export fn foo() void {
-        \\    var a: c_uint = @as(c_uint, 0);
+        \\    var a: c_uint = @intCast(c_uint, 0);
         \\    a +%= (blk: {
         \\        const _ref_1 = &a;
-        \\        _ref_1.* = _ref_1.* +% @as(c_uint, 1);
+        \\        _ref_1.* = _ref_1.* +% @intCast(c_uint, 1);
         \\        break :blk _ref_1.*;
         \\    });
         \\    a -%= (blk: {
         \\        const _ref_2 = &a;
-        \\        _ref_2.* = _ref_2.* -% @as(c_uint, 1);
+        \\        _ref_2.* = _ref_2.* -% @intCast(c_uint, 1);
         \\        break :blk _ref_2.*;
         \\    });
         \\    a *%= (blk: {
         \\        const _ref_3 = &a;
-        \\        _ref_3.* = _ref_3.* *% @as(c_uint, 1);
+        \\        _ref_3.* = _ref_3.* *% @intCast(c_uint, 1);
         \\        break :blk _ref_3.*;
         \\    });
         \\    a &= (blk: {
         \\        const _ref_4 = &a;
-        \\        _ref_4.* = _ref_4.* & @as(c_uint, 1);
+        \\        _ref_4.* = _ref_4.* & @intCast(c_uint, 1);
         \\        break :blk _ref_4.*;
         \\    });
         \\    a |= (blk: {
         \\        const _ref_5 = &a;
-        \\        _ref_5.* = _ref_5.* | @as(c_uint, 1);
+        \\        _ref_5.* = _ref_5.* | @intCast(c_uint, 1);
         \\        break :blk _ref_5.*;
         \\    });
         \\    a ^= (blk: {
         \\        const _ref_6 = &a;
-        \\        _ref_6.* = _ref_6.* ^ @as(c_uint, 1);
+        \\        _ref_6.* = _ref_6.* ^ @intCast(c_uint, 1);
         \\        break :blk _ref_6.*;
         \\    });
         \\    a >>= @as(@import("std").math.Log2Int(c_uint), (blk: {
@@ -2017,7 +2017,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() void {
         \\    var i: c_int = 0;
-        \\    var u: c_uint = @as(c_uint, 0);
+        \\    var u: c_uint = @intCast(c_uint, 0);
         \\    i += 1;
         \\    i -= 1;
         \\    u +%= 1;
@@ -2092,9 +2092,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    fn_int(1094861636);
         \\    fn_f32(@intToFloat(f32, 3));
         \\    fn_f64(@intToFloat(f64, 3));
-        \\    fn_char(@as(u8, '3'));
-        \\    fn_char(@as(u8, '\x01'));
-        \\    fn_char(@as(u8, 0));
+        \\    fn_char(@intCast(u8, '3'));
+        \\    fn_char(@intCast(u8, '\x01'));
+        \\    fn_char(@intCast(u8, 0));
         \\    fn_f32(3);
         \\    fn_f64(3);
         \\    fn_bool(123 != 0);
