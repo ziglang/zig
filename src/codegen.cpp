@@ -290,10 +290,16 @@ static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
         case CallingConventionFastcall:
             if (g->zig_target->arch == ZigLLVM_x86)
                 return LLVMX86FastcallCallConv;
-            return LLVMFastCallConv;
+            return LLVMCCallConv;
         case CallingConventionVectorcall:
             if (g->zig_target->arch == ZigLLVM_x86)
                 return LLVMX86VectorCallCallConv;
+        // XXX Enable this when the C API exports this enum member too
+#if 0
+            if (target_is_arm(g->zig_target) &&
+                target_arch_pointer_bit_width(g->zig_target->arch) == 64)
+                return LLVMAARCH64VectorCallCallConv;
+#endif
             return LLVMCCallConv;
         case CallingConventionAsync:
             return LLVMFastCallConv;
@@ -310,7 +316,8 @@ static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
                 return LLVMARMAAPCSVFPCallConv;
             return LLVMCCallConv;
         case CallingConventionInterrupt:
-            if (g->zig_target->arch == ZigLLVM_x86 || g->zig_target->arch == ZigLLVM_x86_64)
+            if (g->zig_target->arch == ZigLLVM_x86 ||
+                g->zig_target->arch == ZigLLVM_x86_64)
                 return LLVMX86INTRCallConv;
             if (g->zig_target->arch == ZigLLVM_avr)
                 return LLVMAVRINTRCallConv;

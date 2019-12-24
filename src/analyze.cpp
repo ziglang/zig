@@ -2180,7 +2180,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
             ZigType *field_type = resolve_struct_field_type(g, field);
             if (field_type == nullptr) {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-                return err;
+                return ErrorSemanticAnalyzeFail;
             }
             if ((err = type_resolve(g, field->type_entry, ResolveStatusSizeKnown))) {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
@@ -2270,7 +2270,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
         ZigType *field_type = resolve_struct_field_type(g, field);
         if (field_type == nullptr) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            return err;
+            return ErrorSemanticAnalyzeFail;
         }
 
         if ((err = type_resolve(g, field_type, ResolveStatusSizeKnown))) {
@@ -2340,7 +2340,7 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
                         &field->align))
             {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-                return err;
+                return ErrorSemanticAnalyzeFail;
             }
             add_node_error(g, field->decl_node,
                 buf_create_from_str("TODO implement field alignment syntax for unions. https://github.com/ziglang/zig/issues/3125"));
@@ -2467,6 +2467,7 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
             return ErrorSemanticAnalyzeFail;
         }
+
         if (is_packed) {
             if ((err = emit_error_unless_type_allowed_in_packed_union(g, field_type, union_field->decl_node))) {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
@@ -2925,7 +2926,7 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
                         &field->align))
             {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-                return err;
+                return ErrorSemanticAnalyzeFail;
             }
         } else if (packed) {
             field->align = 1;
