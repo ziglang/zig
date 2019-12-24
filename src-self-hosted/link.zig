@@ -144,6 +144,7 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     //    lj->args.append(g->linker_script);
     //}
     try ctx.args.append("--gc-sections");
+    try ctx.args.append("--eh-frame-hdr");
 
     //lj->args.append("-m");
     //lj->args.append(getLDMOption(&g->zig_target));
