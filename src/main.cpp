@@ -93,6 +93,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --verbose-llvm-ir            enable compiler debug output for LLVM IR\n"
         "  --verbose-cimport            enable compiler debug output for C imports\n"
         "  --verbose-cc                 enable compiler debug output for C compilation\n"
+        "  --quiet-translate-c          disable translate C warnings\n"
         "  -dirafter [dir]              add directory to AFTER include search path\n"
         "  -isystem [dir]               add directory to SYSTEM include search path\n"
         "  -I[dir]                      add directory to include search path\n"
@@ -479,6 +480,7 @@ int main(int argc, char **argv) {
     bool verbose_llvm_ir = false;
     bool verbose_cimport = false;
     bool verbose_cc = false;
+    bool quiet_translate_c = false;
     ErrColor color = ErrColorAuto;
     CacheOpt enable_cache = CacheOptAuto;
     Buf *dynamic_linker = nullptr;
@@ -692,6 +694,8 @@ int main(int argc, char **argv) {
                 verbose_cimport = true;
             } else if (strcmp(arg, "--verbose-cc") == 0) {
                 verbose_cc = true;
+            } else if (strcmp(arg, "--quiet-translate-c") == 0) {
+                quiet_translate_c = true;
             } else if (strcmp(arg, "-rdynamic") == 0) {
                 rdynamic = true;
             } else if (strcmp(arg, "--each-lib-rpath") == 0) {
@@ -886,7 +890,7 @@ int main(int argc, char **argv) {
                 } else if (strcmp(arg, "--linker-script") == 0) {
                     linker_script = argv[i];
                 } else if (strcmp(arg, "--version-script") == 0) {
-                    version_script = buf_create_from_str(argv[i]); 
+                    version_script = buf_create_from_str(argv[i]);
                 } else if (strcmp(arg, "-target-glibc") == 0) {
                     target_glibc = argv[i];
                 } else if (strcmp(arg, "-rpath") == 0) {
@@ -1212,7 +1216,7 @@ int main(int argc, char **argv) {
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
             g->want_single_threaded = want_single_threaded;
             codegen_set_linker_script(g, linker_script);
-            g->version_script_path = version_script; 
+            g->version_script_path = version_script;
             if (each_lib_rpath)
                 codegen_set_each_lib_rpath(g, each_lib_rpath);
 
@@ -1228,6 +1232,7 @@ int main(int argc, char **argv) {
             g->verbose_llvm_ir = verbose_llvm_ir;
             g->verbose_cimport = verbose_cimport;
             g->verbose_cc = verbose_cc;
+            g->quiet_translate_c = quiet_translate_c;
             g->output_dir = output_dir;
             g->disable_gen_h = disable_gen_h;
             g->bundle_compiler_rt = bundle_compiler_rt;

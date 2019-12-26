@@ -17,6 +17,7 @@ enum CTokId {
     CTokIdNumLitInt,
     CTokIdNumLitFloat,
     CTokIdSymbol,
+    CTokIdPlus,
     CTokIdMinus,
     CTokIdLParen,
     CTokIdRParen,
@@ -26,7 +27,11 @@ enum CTokId {
     CTokIdBang,
     CTokIdTilde,
     CTokIdShl,
+    CTokIdShr,
     CTokIdLt,
+    CTokIdGt,
+    CTokIdInc,
+    CTokIdDec,
 };
 
 enum CNumLitSuffix {
@@ -38,9 +43,16 @@ enum CNumLitSuffix {
     CNumLitSuffixLLU,
 };
 
+enum CNumLitFormat {
+    CNumLitFormatNone,
+    CNumLitFormatHex,
+    CNumLitFormatOctal,
+};
+
 struct CNumLitInt {
     uint64_t x;
     CNumLitSuffix suffix;
+    CNumLitFormat format;
 };
 
 struct CTok {
@@ -81,6 +93,9 @@ enum CTokState {
     CTokStateNumLitIntSuffixLL,
     CTokStateNumLitIntSuffixUL,
     CTokStateGotLt,
+    CTokStateGotGt,
+    CTokStateGotPlus,
+    CTokStateGotMinus,
 };
 
 struct CTokenize {

@@ -326,11 +326,16 @@ static AstNode *trans_create_node_str_lit(Context *c, Buf *buf) {
     return node;
 }
 
-static AstNode *trans_create_node_unsigned_negative(Context *c, uint64_t x, bool is_negative) {
+static AstNode *trans_create_node_unsigned_negative_format(Context *c, uint64_t x, bool is_negative, IntLiteralFormat format) {
     AstNode *node = trans_create_node(c, NodeTypeIntLiteral);
     node->data.int_literal.bigint = allocate<BigInt>(1);
+    node->data.int_literal.format = format;
     bigint_init_data(node->data.int_literal.bigint, &x, 1, is_negative);
     return node;
+}
+
+static AstNode *trans_create_node_unsigned_negative(Context *c, uint64_t x, bool is_negative) {
+    return trans_create_node_unsigned_negative_format(c, x, is_negative, IntLiteralFormatNone);
 }
 
 static AstNode *trans_create_node_unsigned(Context *c, uint64_t x) {
@@ -338,9 +343,9 @@ static AstNode *trans_create_node_unsigned(Context *c, uint64_t x) {
 }
 
 static AstNode *trans_create_node_unsigned_negative_type(Context *c, uint64_t x, bool is_negative,
-        const char *type_name)
+        const char *type_name, IntLiteralFormat format)
 {
-    AstNode *lit_node = trans_create_node_unsigned_negative(c, x, is_negative);
+    AstNode *lit_node = trans_create_node_unsigned_negative_format(c, x, is_negative, format);
     return trans_create_node_cast(c, trans_create_node_symbol_str(c, type_name), lit_node);
 }
 
@@ -4848,19 +4853,31 @@ static AstNode *parse_ctok_num_lit(Context *c, CTokenize *ctok, size_t *tok_i, b
     CTok *tok = &ctok->tokens.at(*tok_i);
     if (tok->id == CTokIdNumLitInt) {
         *tok_i += 1;
+        IntLiteralFormat format;
+        switch (tok->data.num_lit_int.format) {
+            case CNumLitFormatHex:
+                format = IntLiteralFormatHex;
+                break;
+            case CNumLitFormatOctal:
+                format = IntLiteralFormatOctal;
+                break;
+            case CNumLitFormatNone:
+                format = IntLiteralFormatNone;
+                break;
+        };
         switch (tok->data.num_lit_int.suffix) {
             case CNumLitSuffixNone:
-                return trans_create_node_unsigned_negative(c, tok->data.num_lit_int.x, negate);
+                return trans_create_node_unsigned_negative_format(c, tok->data.num_lit_int.x, negate, format);
             case CNumLitSuffixL:
-                return trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate, "c_long");
+                return trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate, "c_long", format);
             case CNumLitSuffixU:
-                return trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate, "c_uint");
+                return trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate, "c_uint", format);
             case CNumLitSuffixLU:
-                return trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate, "c_ulong");
+                return trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate, "c_ulong", format);
             case CNumLitSuffixLL:
-                return trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate, "c_longlong");
+                return trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate, "c_longlong", format);
             case CNumLitSuffixLLU:
-                return trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate, "c_ulonglong");
+                return trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate, "c_ulonglong", format);
         }
         zig_unreachable();
     } else if (tok->id == CTokIdNumLitFloat) {
@@ -4947,6 +4964,7 @@ static AstNode *parse_ctok_primary_expr(Context *c, CTokenize *ctok, size_t *tok
                 outer_if_then->data.fn_call_expr.params.append(node_to_cast);
                 return trans_create_node_if(c, outer_if_cond, outer_if_then, inner_if);
             }
+        case CTokIdPlus:
         case CTokIdDot:
         case CTokIdEOF:
         case CTokIdRParen:
@@ -4954,7 +4972,11 @@ static AstNode *parse_ctok_primary_expr(Context *c, CTokenize *ctok, size_t *tok
         case CTokIdBang:
         case CTokIdTilde:
         case CTokIdShl:
+        case CTokIdShr:
         case CTokIdLt:
+        case CTokIdGt:
+        case CTokIdInc:
+        case CTokIdDec:
             // not able to make sense of this
             return nullptr;
     }
@@ -4993,6 +5015,27 @@ static AstNode *parse_ctok_suffix_op_expr(Context *c, CTokenize *ctok, size_t *t
             if (rhs_node == nullptr)
                 return nullptr;
             node = trans_create_node_bin_op(c, node, BinOpTypeBitShiftLeft, rhs_node);
+        } else if (first_tok->id == CTokIdShr) {
+            *tok_i += 1;
+
+            AstNode *rhs_node = parse_ctok_expr(c, ctok, tok_i);
+            if (rhs_node == nullptr)
+                return nullptr;
+            node = trans_create_node_bin_op(c, node, BinOpTypeBitShiftRight, rhs_node);
+        } else if (first_tok->id == CTokIdPlus) {
+            *tok_i += 1;
+
+            AstNode *rhs_node = parse_ctok_expr(c, ctok, tok_i);
+            if (rhs_node == nullptr)
+                return nullptr;
+            node = trans_create_node_bin_op(c, node, BinOpTypeAdd, rhs_node);
+        } else if (first_tok->id == CTokIdMinus) {
+            *tok_i += 1;
+
+            AstNode *rhs_node = parse_ctok_expr(c, ctok, tok_i);
+            if (rhs_node == nullptr)
+                return nullptr;
+            node = trans_create_node_bin_op(c, node, BinOpTypeSub, rhs_node);
         } else {
             return node;
         }
@@ -5040,11 +5083,11 @@ static AstNode *parse_ctok_prefix_op_expr(Context *c, CTokenize *ctok, size_t *t
     }
 }
 
-static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *char_ptr) {
+static const char *process_macro(Context *c, CTokenize *ctok, Buf *name, const char *char_ptr) {
     tokenize_c_macro(ctok, (const uint8_t *)char_ptr);
 
     if (ctok->error) {
-        return;
+        return "tokenize error";
     }
 
     size_t tok_i = 0;
@@ -5054,21 +5097,27 @@ static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *ch
 
     AstNode *result_node = parse_ctok_suffix_op_expr(c, ctok, &tok_i);
     if (result_node == nullptr) {
-        return;
+        return "unsupported expression";
     }
     CTok *eof_tok = &ctok->tokens.at(tok_i);
     if (eof_tok->id != CTokIdEOF) {
-        return;
+        return "missing end token";
     }
     if (result_node->type == NodeTypeSymbol) {
         // if it equals itself, ignore. for example, from stdio.h:
         // #define stdin stdin
         Buf *symbol_name = result_node->data.symbol_expr.symbol;
         if (buf_eql_buf(name, symbol_name)) {
-            return;
+            return "equals itself";
         }
     }
     c->macro_table.put(name, result_node);
+    return nullptr;
+}
+
+static const char *process_macro_expansion(Context *c, CTokenize *ctok, Buf *name, const char *char_ptr) {
+    // At least log an error
+    return "not implemented"; // TODO: This
 }
 
 static void process_preprocessor_entities(Context *c, ZigClangASTUnit *unit) {
@@ -5083,8 +5132,28 @@ static void process_preprocessor_entities(Context *c, ZigClangASTUnit *unit) {
         switch (ZigClangPreprocessedEntity_getKind(entity)) {
             case ZigClangPreprocessedEntity_InvalidKind:
             case ZigClangPreprocessedEntity_InclusionDirectiveKind:
-            case ZigClangPreprocessedEntity_MacroExpansionKind:
                 continue;
+            case ZigClangPreprocessedEntity_MacroExpansionKind:
+                {
+                    ZigClangMacroExpansion *macro_expansion = reinterpret_cast<ZigClangMacroExpansion *>(entity);
+                    const ZigClangMacroDefinitionRecord *macro = ZigClangMacroExpansion_getDefinition(macro_expansion);
+                    if (macro == nullptr) {
+                        continue; // It happens
+                    }
+                    const char *raw_name = ZigClangMacroDefinitionRecord_getName_getNameStart(macro);
+                    ZigClangSourceLocation begin_loc = ZigClangMacroDefinitionRecord_getSourceRange_getBegin(macro);
+                    Buf *name = buf_create_from_str(raw_name);
+                    if (name_exists_global(c, name)) {
+                        continue;
+                    }
+
+                    const char *begin_c = ZigClangSourceManager_getCharacterData(c->source_manager, begin_loc);
+                    const char *err = process_macro_expansion(c, &ctok, name, begin_c);
+                    if (err != nullptr) {
+                        emit_warning(c, begin_loc, "ignored macro expansion '%s': %s", buf_ptr(name), err);
+                    }
+                    continue;
+                }
             case ZigClangPreprocessedEntity_MacroDefinitionKind:
                 {
                     ZigClangMacroDefinitionRecord *macro = reinterpret_cast<ZigClangMacroDefinitionRecord *>(entity);
@@ -5101,9 +5170,11 @@ static void process_preprocessor_entities(Context *c, ZigClangASTUnit *unit) {
                     if (name_exists_global(c, name)) {
                         continue;
                     }
-
                     const char *begin_c = ZigClangSourceManager_getCharacterData(c->source_manager, begin_loc);
-                    process_macro(c, &ctok, name, begin_c);
+                    const char* err = process_macro(c, &ctok, name, begin_c);
+                    if (err != nullptr) {
+                        emit_warning(c, begin_loc, "ignored macro definition '%s': %s", buf_ptr(name), err);
+                    }
                 }
         }
     }
@@ -5116,7 +5187,11 @@ Error parse_h_file(CodeGen *codegen, AstNode **out_root_node,
 {
     Context context = {0};
     Context *c = &context;
-    c->warnings_on = codegen->verbose_cimport;
+
+    // This should be on by default otherwise users assume it correctly
+    // translated everything even if it doesn't
+    c->warnings_on = !codegen->quiet_translate_c;
+
     if (mode == TranslateModeImport) {
         c->want_export = false;
     } else {

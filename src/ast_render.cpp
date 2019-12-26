@@ -615,8 +615,21 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 Buf rendered_buf = BUF_INIT;
                 buf_resize(&rendered_buf, 0);
-                bigint_append_buf(&rendered_buf, node->data.int_literal.bigint, 10);
-                fprintf(ar->f, "%s", buf_ptr(&rendered_buf));
+
+                switch (node->data.int_literal.format) {
+                    case IntLiteralFormatHex:
+                        bigint_append_buf(&rendered_buf, node->data.int_literal.bigint, 16);
+                        fprintf(ar->f, "0x%s", buf_ptr(&rendered_buf));
+                        break;
+                    case IntLiteralFormatOctal:
+                        bigint_append_buf(&rendered_buf, node->data.int_literal.bigint, 8);
+                        fprintf(ar->f, "0o%s", buf_ptr(&rendered_buf));
+                        break;
+                    case IntLiteralFormatNone:
+                        bigint_append_buf(&rendered_buf, node->data.int_literal.bigint, 10);
+                        fprintf(ar->f, "%s", buf_ptr(&rendered_buf));
+                        break;
+                }
             }
             break;
         case NodeTypeStringLiteral:

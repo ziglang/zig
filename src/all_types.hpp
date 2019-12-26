@@ -1036,8 +1036,15 @@ struct AstNodeFloatLiteral {
     bool overflow;
 };
 
+enum IntLiteralFormat {
+    IntLiteralFormatNone,
+    IntLiteralFormatHex,
+    IntLiteralFormatOctal,
+};
+
 struct AstNodeIntLiteral {
     BigInt *bigint;
+    IntLiteralFormat format = IntLiteralFormatNone;
 };
 
 struct AstNodeStructValueField {
@@ -2129,6 +2136,7 @@ struct CodeGen {
     bool verbose_llvm_ir;
     bool verbose_cimport;
     bool verbose_cc;
+    bool quiet_translate_c;
     bool error_during_imports;
     bool generate_error_name_table;
     bool enable_cache; // mutually exclusive with output_dir

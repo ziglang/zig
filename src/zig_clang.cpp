@@ -2605,6 +2605,11 @@ struct ZigClangSourceLocation ZigClangMacroDefinitionRecord_getSourceRange_getEn
     return bitcast(casted->getSourceRange().getEnd());
 }
 
+const struct ZigClangMacroDefinitionRecord *ZigClangMacroExpansion_getDefinition(const struct ZigClangMacroExpansion *self) {
+    auto casted = reinterpret_cast<const clang::MacroExpansion *>(self);
+    return reinterpret_cast<const struct ZigClangMacroDefinitionRecord *>(casted->getDefinition());
+}
+
 ZigClangRecordDecl_field_iterator ZigClangRecordDecl_field_begin(const struct ZigClangRecordDecl *self) {
     auto casted = reinterpret_cast<const clang::RecordDecl *>(self);
     return bitcast(casted->field_begin());

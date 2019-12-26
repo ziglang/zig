@@ -116,6 +116,7 @@ static void begin_token(CTokenize *ctok, CTokId id) {
             break;
         case CTokIdCharLit:
         case CTokIdNumLitFloat:
+        case CTokIdPlus:
         case CTokIdMinus:
         case CTokIdLParen:
         case CTokIdRParen:
@@ -125,7 +126,11 @@ static void begin_token(CTokenize *ctok, CTokId id) {
         case CTokIdBang:
         case CTokIdTilde:
         case CTokIdShl:
+        case CTokIdShr:
         case CTokIdLt:
+        case CTokIdGt:
+        case CTokIdInc:
+        case CTokIdDec:
             break;
     }
 }
@@ -229,6 +234,10 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         begin_token(ctok, CTokIdLt);
                         ctok->state = CTokStateGotLt;
                         break;
+                    case '>':
+                        begin_token(ctok, CTokIdGt);
+                        ctok->state = CTokStateGotGt;
+                        break;
                     case '(':
                         begin_token(ctok, CTokIdLParen);
                         end_token(ctok);
@@ -241,8 +250,13 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         begin_token(ctok, CTokIdAsterisk);
                         end_token(ctok);
                         break;
+                    case '+':
+                        begin_token(ctok, CTokIdPlus);
+                        ctok->state = CTokStateGotPlus;
+                        break;
                     case '-':
                         begin_token(ctok, CTokIdMinus);
+                        ctok->state = CTokStateGotMinus;
                         end_token(ctok);
                         break;
                     case '!':
@@ -261,6 +275,45 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 switch (*c) {
                     case '<':
                         ctok->cur_tok->id = CTokIdShl;
+                        end_token(ctok);
+                        ctok->state = CTokStateStart;
+                        break;
+                    default:
+                        end_token(ctok);
+                        ctok->state = CTokStateStart;
+                        continue;
+                }
+                break;
+            case CTokStateGotGt:
+                switch (*c) {
+                    case '>':
+                        ctok->cur_tok->id = CTokIdShr;
+                        end_token(ctok);
+                        ctok->state = CTokStateStart;
+                        break;
+                    default:
+                        end_token(ctok);
+                        ctok->state = CTokStateStart;
+                        continue;
+                }
+                break;
+            case CTokStateGotPlus:
+                switch (*c) {
+                    case '+':
+                        ctok->cur_tok->id = CTokIdInc;
+                        end_token(ctok);
+                        ctok->state = CTokStateStart;
+                        break;
+                    default:
+                        end_token(ctok);
+                        ctok->state = CTokStateStart;
+                        continue;
+                }
+                break;
+            case CTokStateGotMinus:
+                switch (*c) {
+                    case '-':
+                        ctok->cur_tok->id = CTokIdDec;
                         end_token(ctok);
                         ctok->state = CTokStateStart;
                         break;
@@ -375,6 +428,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                     case 'x':
                     case 'X':
                         ctok->state = CTokStateHex;
+                        ctok->cur_tok->data.num_lit_int.format = CNumLitFormatHex;
                         break;
                     case '.':
                         ctok->state = CTokStateFloat;
@@ -391,6 +445,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                     default:
                         c -= 1;
                         ctok->state = CTokStateOctal;
+                        ctok->cur_tok->data.num_lit_int.format = CNumLitFormatOctal;
                         continue;
                 }
                 break;
@@ -811,6 +866,9 @@ found_end_of_macro:
         case CTokStateNumLitIntSuffixUL:
         case CTokStateNumLitIntSuffixLL:
         case CTokStateGotLt:
+        case CTokStateGotGt:
+        case CTokStateGotPlus:
+        case CTokStateGotMinus:
             end_token(ctok);
             break;
         case CTokStateFloat:

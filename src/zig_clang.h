@@ -112,6 +112,7 @@ struct ZigClangImplicitCastExpr;
 struct ZigClangIncompleteArrayType;
 struct ZigClangIntegerLiteral;
 struct ZigClangMacroDefinitionRecord;
+struct ZigClangMacroExpansion;
 struct ZigClangMacroQualifiedType;
 struct ZigClangMemberExpr;
 struct ZigClangNamedDecl;
@@ -1105,6 +1106,8 @@ ZIG_EXTERN_C const struct ZigClangExpr *ZigClangParenExpr_getSubExpr(const struc
 ZIG_EXTERN_C const char *ZigClangMacroDefinitionRecord_getName_getNameStart(const struct ZigClangMacroDefinitionRecord *);
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangMacroDefinitionRecord_getSourceRange_getBegin(const struct ZigClangMacroDefinitionRecord *);
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangMacroDefinitionRecord_getSourceRange_getEnd(const struct ZigClangMacroDefinitionRecord *);
+
+ZIG_EXTERN_C const struct ZigClangMacroDefinitionRecord *ZigClangMacroExpansion_getDefinition(const struct ZigClangMacroExpansion *);
 
 ZIG_EXTERN_C bool ZigClangFieldDecl_isBitField(const struct ZigClangFieldDecl *);
 ZIG_EXTERN_C struct ZigClangQualType ZigClangFieldDecl_getType(const struct ZigClangFieldDecl *);
