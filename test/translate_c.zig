@@ -195,6 +195,15 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const REDISMODULE_READ = 1 << 0;
     });
 
+    cases.add("macro with right shift",
+        \\#define FLASH_SIZE         0x200000UL          /* 2 MB   */
+        \\#define FLASH_BANK_SIZE    (FLASH_SIZE >> 1)   /* 1 MB   */
+    , &[_][]const u8{
+        \\pub const FLASH_SIZE = @as(c_ulong, 0x200000);
+    ,
+        \\pub const FLASH_BANK_SIZE = FLASH_SIZE >> 1;
+    });
+
     cases.add("double define struct",
         \\typedef struct Bar Bar;
         \\typedef struct Foo Foo;
@@ -1066,6 +1075,18 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const FOO2 = "aoeu\x7a derp";
     ,
         \\pub const FOO_CHAR = '\xff';
+    });
+
+    cases.add("macro add",
+        \\#define PERIPH_BASE               (0x40000000UL) /*!< Base address of : AHB/APB Peripherals                                                   */
+        \\#define D3_APB1PERIPH_BASE       (PERIPH_BASE + 0x18000000UL)
+        \\#define RCC_BASE              (D3_AHB1PERIPH_BASE + 0x4400UL)
+    , &[_][]const u8{
+        \\pub const PERIPH_BASE = @as(c_ulong, 0x40000000);
+    ,
+        \\pub const D3_APB1PERIPH_BASE = PERIPH_BASE + @as(c_ulong, 0x18000000);
+    ,
+        \\pub const RCC_BASE = D3_AHB1PERIPH_BASE + @as(c_ulong, 0x4400);
     });
 
     cases.add("variable aliasing",
