@@ -725,11 +725,15 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
         };
 
         const int_type = ZigClangEnumDecl_getIntegerType(enum_decl);
+        // The underlying type may be null in case of forward-declared enum
+        // types, while that's not ISO-C compliant many compilers allow this and
+        // default to the usual integer type used for all the enums.
 
         // TODO only emit this tag type if the enum tag type is not the default.
         // I don't know what the default is, need to figure out how clang is deciding.
         // it appears to at least be different across gcc/msvc
-        if (!isCBuiltinType(int_type, .UInt) and
+        if (int_type.ptr != null and
+            !isCBuiltinType(int_type, .UInt) and
             !isCBuiltinType(int_type, .Int))
         {
             _ = try appendToken(c, .LParen, "(");
@@ -1555,8 +1559,7 @@ fn transCCast(
         const elaborated_ty = @ptrCast(*const ZigClangElaboratedType, ZigClangQualType_getTypePtr(dst_type));
         return transCCast(rp, scope, loc, ZigClangElaboratedType_getNamedType(elaborated_ty), src_type, expr);
     }
-    if (ZigClangQualType_getTypeClass(dst_type) == .Enum)
-    {
+    if (ZigClangQualType_getTypeClass(dst_type) == .Enum) {
         const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@intToEnum");
         try builtin_node.params.push(try transQualType(rp, dst_type, loc));
         _ = try appendToken(rp.c, .Comma, ",");

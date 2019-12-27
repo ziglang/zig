@@ -814,6 +814,17 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     /////////////// Cases that pass for only stage2 ////////////////
 
+    cases.add_2("Forward-declared enum",
+        \\extern enum enum_ty my_enum;
+        \\enum enum_ty { FOO };
+    , &[_][]const u8{
+        \\pub const FOO = 0;
+        \\pub const enum_enum_ty = extern enum {
+        \\    FOO,
+        \\};
+        \\pub extern var my_enum: enum_enum_ty;
+    });
+
     cases.add_2("Parameterless function pointers",
         \\typedef void (*fn0)();
         \\typedef void (*fn1)(char);
