@@ -1377,14 +1377,14 @@ fn renderExpression(
             }
 
             if (fn_proto.callconv_expr) |callconv_expr| {
-                const section_rparen = tree.nextToken(callconv_expr.lastToken());
-                const section_lparen = tree.prevToken(callconv_expr.firstToken());
-                const section_kw = tree.prevToken(section_lparen);
+                const callconv_rparen = tree.nextToken(callconv_expr.lastToken());
+                const callconv_lparen = tree.prevToken(callconv_expr.firstToken());
+                const callconv_kw = tree.prevToken(callconv_lparen);
 
-                try renderToken(tree, stream, section_kw, indent, start_col, Space.None); // section
-                try renderToken(tree, stream, section_lparen, indent, start_col, Space.None); // (
+                try renderToken(tree, stream, callconv_kw, indent, start_col, Space.None); // section
+                try renderToken(tree, stream, callconv_lparen, indent, start_col, Space.None); // (
                 try renderExpression(allocator, stream, tree, indent, start_col, callconv_expr, Space.None);
-                try renderToken(tree, stream, section_rparen, indent, start_col, Space.Space); // )
+                try renderToken(tree, stream, callconv_rparen, indent, start_col, Space.Space); // )
             } else if (cc_rewrite_str) |str| {
                 try stream.write("callconv(");
                 try stream.write(mem.toSliceConst(u8, str));
