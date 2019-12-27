@@ -470,18 +470,31 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     return true;
 }
 
-pub fn len(comptime T: type, ptr: [*:0]const T) usize {
+pub fn len(comptime T: type, ptr: var) usize {
+    const sentinel: T = comptime meta.Sentinel(@TypeOf(ptr));
     var count: usize = 0;
-    while (ptr[count] != 0) : (count += 1) {}
+    while (ptr[count] != sentinel) : (count += 1) {}
     return count;
 }
 
-pub fn toSliceConst(comptime T: type, ptr: [*:0]const T) [:0]const T {
-    return ptr[0..len(T, ptr) :0];
+/// Given a sentintel-terminated pointer-to-many, find the sentintel and return a slice.
+pub fn pointerToSlice(comptime T: type, ptr: blk: {
+    var info = @typeInfo(T).Pointer;
+    info.size = .Many;
+    break :blk @Type(std.builtin.TypeInfo{ .Pointer = info });
+}) T {
+    const sentinel = comptime meta.Sentinel(T);
+    return ptr[0..len(meta.Child(T), ptr) :sentinel];
 }
 
+/// Deprecated; use pointerToSlice instead
+pub fn toSliceConst(comptime T: type, ptr: [*:0]const T) [:0]const T {
+    return pointerToSlice([:0]const T, ptr);
+}
+
+/// Deprecated; use pointerToSlice instead
 pub fn toSlice(comptime T: type, ptr: [*:0]T) [:0]T {
-    return ptr[0..len(T, ptr) :0];
+    return pointerToSlice([:0]T, ptr);
 }
 
 /// Returns true if all elements in a slice are equal to the scalar value provided
