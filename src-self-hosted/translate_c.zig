@@ -725,11 +725,15 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
         };
 
         const int_type = ZigClangEnumDecl_getIntegerType(enum_decl);
+        // The underlying type may be null in case of forward-declared enum
+        // types, while that's not ISO-C compliant many compilers allow this and
+        // default to the usual integer type used for all the enums.
 
         // TODO only emit this tag type if the enum tag type is not the default.
         // I don't know what the default is, need to figure out how clang is deciding.
         // it appears to at least be different across gcc/msvc
-        if (!isCBuiltinType(int_type, .UInt) and
+        if (int_type.ptr != null and
+            !isCBuiltinType(int_type, .UInt) and
             !isCBuiltinType(int_type, .Int))
         {
             _ = try appendToken(c, .LParen, "(");
@@ -1555,8 +1559,7 @@ fn transCCast(
         const elaborated_ty = @ptrCast(*const ZigClangElaboratedType, ZigClangQualType_getTypePtr(dst_type));
         return transCCast(rp, scope, loc, ZigClangElaboratedType_getNamedType(elaborated_ty), src_type, expr);
     }
-    if (ZigClangQualType_getTypeClass(dst_type) == .Enum)
-    {
+    if (ZigClangQualType_getTypeClass(dst_type) == .Enum) {
         const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@intToEnum");
         try builtin_node.params.push(try transQualType(rp, dst_type, loc));
         _ = try appendToken(rp.c, .Comma, ",");
@@ -2145,7 +2148,7 @@ fn transCallExpr(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangCallExpr,
     node.rtoken = try appendToken(rp.c, .RParen, ")");
 
     if (fn_ty) |ty| {
-        const canon = ZigClangQualType_getCanonicalType(ZigClangFunctionProtoType_getReturnType(ty));
+        const canon = ZigClangQualType_getCanonicalType(ty.getReturnType());
         const ret_ty = ZigClangQualType_getTypePtr(canon);
         if (ZigClangType_isVoidType(ret_ty)) {
             _ = try appendToken(rp.c, .Semicolon, ";");
@@ -2156,7 +2159,19 @@ fn transCallExpr(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangCallExpr,
     return maybeSuppressResult(rp, scope, result_used, &node.base);
 }
 
-fn qualTypeGetFnProto(qt: ZigClangQualType, is_ptr: *bool) ?*const ZigClangFunctionProtoType {
+const ClangFunctionType = union(enum) {
+    Proto: *const ZigClangFunctionProtoType,
+    NoProto: *const ZigClangFunctionType,
+
+    fn getReturnType(self: @This()) ZigClangQualType {
+        switch (@as(@TagType(@This()), self)) {
+            .Proto => return ZigClangFunctionProtoType_getReturnType(self.Proto),
+            .NoProto => return ZigClangFunctionType_getReturnType(self.NoProto),
+        }
+    }
+};
+
+fn qualTypeGetFnProto(qt: ZigClangQualType, is_ptr: *bool) ?ClangFunctionType {
     const canon = ZigClangQualType_getCanonicalType(qt);
     var ty = ZigClangQualType_getTypePtr(canon);
     is_ptr.* = false;
@@ -2167,7 +2182,10 @@ fn qualTypeGetFnProto(qt: ZigClangQualType, is_ptr: *bool) ?*const ZigClangFunct
         ty = ZigClangQualType_getTypePtr(child_qt);
     }
     if (ZigClangType_getTypeClass(ty) == .FunctionProto) {
-        return @ptrCast(*const ZigClangFunctionProtoType, ty);
+        return ClangFunctionType{ .Proto = @ptrCast(*const ZigClangFunctionProtoType, ty) };
+    }
+    if (ZigClangType_getTypeClass(ty) == .FunctionNoProto) {
+        return ClangFunctionType{ .NoProto = @ptrCast(*const ZigClangFunctionType, ty) };
     }
     return null;
 }
@@ -2771,7 +2789,10 @@ fn qualTypeChildIsFnProto(qt: ZigClangQualType) bool {
         .Paren => {
             const paren_type = @ptrCast(*const ZigClangParenType, ty);
             const inner_type = ZigClangParenType_getInnerType(paren_type);
-            return ZigClangQualType_getTypeClass(inner_type) == .FunctionProto;
+            switch (ZigClangQualType_getTypeClass(inner_type)) {
+                .FunctionProto, .FunctionNoProto => return true,
+                else => return false,
+            }
         },
         .Attributed => {
             const attr_type = @ptrCast(*const ZigClangAttributedType, ty);
@@ -3571,9 +3592,14 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
                 else => return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported builtin type", .{}),
             });
         },
-        .FunctionProto, .FunctionNoProto => {
+        .FunctionProto => {
             const fn_proto_ty = @ptrCast(*const ZigClangFunctionProtoType, ty);
             const fn_proto = try transFnProto(rp, null, fn_proto_ty, source_loc, null, false);
+            return &fn_proto.base;
+        },
+        .FunctionNoProto => {
+            const fn_no_proto_ty = @ptrCast(*const ZigClangFunctionType, ty);
+            const fn_proto = try transFnNoProto(rp, fn_no_proto_ty, source_loc, null, false);
             return &fn_proto.base;
         },
         .Paren => {
