@@ -3714,6 +3714,14 @@ fn typeNameLength(comptime T: type) usize {
 
 const assert = @import("std").debug.assert;
 
+test "if expression" {
+    // If expressions are used instead of a ternary expression.
+    const a: u32 = 5;
+    const b: u32 = 4;
+    const result = if (a != b) 47 else 3089;
+    assert(result == 47);
+}
+
 test "if boolean" {
     // If expressions test boolean conditions.
     const a: u32 = 5;
@@ -3725,10 +3733,6 @@ test "if boolean" {
     } else {
         unreachable;
     }
-
-    // If expressions are used instead of a ternary expression.
-    const result = if (a != b) 47 else 3089;
-    assert(result == 47);
 }
 
 test "if optional" {
