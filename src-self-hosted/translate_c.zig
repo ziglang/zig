@@ -4545,6 +4545,18 @@ fn parseCSuffixOpExpr(rp: RestorePoint, it: *ctok.TokenList.Iterator, source_loc
                 call_node.rtoken = try appendToken(rp.c, .RParen, ")");
                 node = &call_node.base;
             },
+            .QuestionMark => {
+                // must come immediately after expr
+                _ = try appendToken(rp.c, .RParen, ")");
+                const if_node = try transCreateNodeIf(rp.c);
+                if_node.condition = node;
+                if_node.body = try parseCPrimaryExpr(rp, it, source_loc, scope);
+                if (it.next().?.id != .Colon)
+                    return error.ParseError;
+                if_node.@"else" = try transCreateNodeElse(rp.c);
+                if_node.@"else".?.body = try parseCPrimaryExpr(rp, it, source_loc, scope);
+                node = &if_node.base;
+            },
             else => {
                 _ = it.prev();
                 return node;

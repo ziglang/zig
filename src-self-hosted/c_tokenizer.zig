@@ -31,6 +31,8 @@ pub const CToken = struct {
         LBrace,
         RBrace,
         Pipe,
+        QuestionMark,
+        Colon,
     };
 
     pub const NumLitSuffix = enum {
@@ -363,6 +365,14 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
                     },
                     '|' => {
                         result.id = .Pipe;
+                        state = .Done;
+                    },
+                    '?' => {
+                        result.id = .QuestionMark;
+                        state = .Done;
+                    },
+                    ':' => {
+                        result.id = .Colon;
                         state = .Done;
                     },
                     else => return error.TokenizingFailed,

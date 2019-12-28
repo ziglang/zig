@@ -2192,6 +2192,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add_2("macro conditional operator",
+        \\#define FOO a ? b : c
+    , &[_][]const u8{
+        \\pub const FOO = if (a) b else c;
+    });
+
     /////////////// Cases for only stage1 because stage2 behavior is better ////////////////
     cases.addC("Parameterless function prototypes",
         \\void foo() {}
