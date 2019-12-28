@@ -4104,7 +4104,7 @@ fn finishTransFnProto(
 
     const rparen_tok = try appendToken(rp.c, .RParen, ")");
 
-    const callconv_expr = if (cc == .C and is_extern) null else blk: {
+    const callconv_expr = if (extern_export_inline_tok != null) null else blk: {
         _ = try appendToken(rp.c, .Keyword_callconv, "callconv");
         _ = try appendToken(rp.c, .LParen, "(");
         const expr = try transCreateNodeEnumLiteral(rp.c, @tagName(cc));

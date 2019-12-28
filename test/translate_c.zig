@@ -106,7 +106,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\static void bar(void) {}
     , &[_][]const u8{
         \\pub export fn foo() void {}
-        \\pub fn bar() void {}
+        \\pub fn bar() callconv(.C) void {}
     });
 
     cases.add("typedef void",
@@ -843,6 +843,38 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const fn1 = ?extern fn (u8) void;
     });
 
+    cases.addWithTarget("Calling convention", tests.Target{
+        .Cross = .{ .os = .linux, .arch = .i386, .abi = .none },
+    },
+        \\void __attribute__((fastcall)) foo1(float *a);
+        \\void __attribute__((stdcall)) foo2(float *a);
+        \\void __attribute__((vectorcall)) foo3(float *a);
+        \\void __attribute__((cdecl)) foo4(float *a);
+    , &[_][]const u8{
+        \\pub fn foo1(a: [*c]f32) callconv(.Fastcall) void;
+        \\pub fn foo2(a: [*c]f32) callconv(.Stdcall) void;
+        \\pub fn foo3(a: [*c]f32) callconv(.Vectorcall) void;
+        \\pub extern fn foo4(a: [*c]f32) void;
+    });
+
+    cases.addWithTarget("Calling convention", tests.Target{
+        .Cross = .{ .os = .linux, .arch = .{ .arm = .v8_5a }, .abi = .none },
+    },
+        \\void __attribute__((pcs("aapcs"))) foo1(float *a);
+        \\void __attribute__((pcs("aapcs-vfp"))) foo2(float *a);
+    , &[_][]const u8{
+        \\pub fn foo1(a: [*c]f32) callconv(.AAPCS) void;
+        \\pub fn foo2(a: [*c]f32) callconv(.AAPCSVFP) void;
+    });
+
+    cases.addWithTarget("Calling convention", tests.Target{
+        .Cross = .{ .os = .linux, .arch = .{ .aarch64 = .v8_5a }, .abi = .none },
+    },
+        \\void __attribute__((aarch64_vector_pcs)) foo1(float *a);
+    , &[_][]const u8{
+        \\pub fn foo1(a: [*c]f32) callconv(.Vectorcall) void;
+    });
+
     cases.add("Parameterless function prototypes",
         \\void a() {}
         \\void b(void) {}
@@ -871,7 +903,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    char *arr1[10] ={0};
         \\}
     , &[_][]const u8{
-        \\pub fn foo() void {
+        \\pub fn foo() callconv(.C) void {
         \\    var arr: [10]u8 = .{
         \\        @bitCast(u8, @truncate(i8, @as(c_int, 1))),
         \\    } ++ .{0} ** 9;
@@ -2148,7 +2180,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    baz();
         \\}
     , &[_][]const u8{
-        \\pub fn bar() void {}
+        \\pub fn bar() callconv(.C) void {}
         \\pub export fn foo(arg_baz: ?extern fn () [*c]c_int) void {
         \\    var baz = arg_baz;
         \\    bar();

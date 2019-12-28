@@ -1422,6 +1422,7 @@ pub const TranslateCContext = struct {
         sources: ArrayList(SourceFile),
         expected_lines: ArrayList([]const u8),
         allow_warnings: bool,
+        target: Target = .Native,
 
         const SourceFile = struct {
             filename: []const u8,
@@ -1473,6 +1474,14 @@ pub const TranslateCContext = struct {
 
             var zig_args = ArrayList([]const u8).init(b.allocator);
             zig_args.append(b.zig_exe) catch unreachable;
+
+            switch (self.case.target) {
+                .Native => {},
+                .Cross => {
+                    try zig_args.append("-target");
+                    try zig_args.append(try self.case.target.zigTriple(b.allocator));
+                },
+            }
 
             const translate_c_cmd = "translate-c";
             zig_args.append(translate_c_cmd) catch unreachable;
@@ -1599,6 +1608,18 @@ pub const TranslateCContext = struct {
         expected_lines: []const []const u8,
     ) void {
         const tc = self.create(false, "source.h", name, source, expected_lines);
+        self.addCase(tc);
+    }
+
+    pub fn addWithTarget(
+        self: *TranslateCContext,
+        name: []const u8,
+        target: Target,
+        source: []const u8,
+        expected_lines: []const []const u8,
+    ) void {
+        const tc = self.create(false, "source.h", name, source, expected_lines);
+        tc.target = target;
         self.addCase(tc);
     }
 
