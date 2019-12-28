@@ -35,9 +35,9 @@ pub extern "NtDll" stdcallcc fn NtDeviceIoControlFile(
 ) NTSTATUS;
 pub extern "NtDll" stdcallcc fn NtClose(Handle: HANDLE) NTSTATUS;
 pub extern "NtDll" stdcallcc fn RtlDosPathNameToNtPathName_U(
-    DosPathName: [*]const u16,
+    DosPathName: [*:0]const u16,
     NtPathName: *UNICODE_STRING,
-    NtFileNamePart: ?*?[*]const u16,
+    NtFileNamePart: ?*?[*:0]const u16,
     DirectoryInfo: ?*CURDIR,
 ) BOOL;
 pub extern "NtDll" stdcallcc fn RtlFreeUnicodeString(UnicodeString: *UNICODE_STRING) void;
