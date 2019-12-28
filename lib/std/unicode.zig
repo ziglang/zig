@@ -555,9 +555,8 @@ pub fn utf8ToUtf16LeWithNull(allocator: *mem.Allocator, utf8: []const u8) ![]u16
             const short = @intCast(u16, codepoint);
             try result.append(mem.nativeToLittle(u16, short));
         } else {
-            const short = @intCast(u16, codepoint - 0x10000);
-            const high = (short >> 10) + 0xD800;
-            const low = (short & 0x3FF) + 0xDC00;
+            const high = @intCast(u16, (codepoint - 0x10000) >> 10) + 0xD800;
+            const low = @intCast(u16, codepoint & 0x3FF) + 0xDC00;
             var out: [2]u16 = undefined;
             out[0] = mem.nativeToLittle(u16, high);
             out[1] = mem.nativeToLittle(u16, low);
@@ -592,9 +591,8 @@ pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
                     utf16le[dest_i] = mem.nativeToLittle(u16, short);
                     dest_i += 1;
                 } else {
-                    const short = @intCast(u16, codepoint - 0x10000);
-                    const high = (short >> 10) + 0xD800;
-                    const low = (short & 0x3FF) + 0xDC00;
+                    const high = @intCast(u16, (codepoint - 0x10000) >> 10) + 0xD800;
+                    const low = @intCast(u16, codepoint & 0x3FF) + 0xDC00;
                     utf16le[dest_i] = mem.nativeToLittle(u16, high);
                     utf16le[dest_i + 1] = mem.nativeToLittle(u16, low);
                     dest_i += 2;
@@ -609,14 +607,29 @@ pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
 
 test "utf8ToUtf16Le" {
     var utf16le: [2]u16 = [_]u16{0} ** 2;
-    const length = try utf8ToUtf16Le(utf16le[0..], "𐐷");
-    testing.expect(@as(usize, 2) == length);
-    testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", @sliceToBytes(utf16le[0..]));
+    {
+        const length = try utf8ToUtf16Le(utf16le[0..], "𐐷");
+        testing.expectEqual(@as(usize, 2), length);
+        testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", @sliceToBytes(utf16le[0..]));
+    }
+    {
+        const length = try utf8ToUtf16Le(utf16le[0..], "\u{10FFFF}");
+        testing.expectEqual(@as(usize, 2), length);
+        testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", @sliceToBytes(utf16le[0..]));
+    }
 }
 
 test "utf8ToUtf16LeWithNull" {
-    var bytes: [128]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
-    const utf16 = try utf8ToUtf16LeWithNull(allocator, "𐐷");
-    testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc\x00\x00", @sliceToBytes(utf16[0..]));
+    {
+        var bytes: [128]u8 = undefined;
+        const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+        const utf16 = try utf8ToUtf16LeWithNull(allocator, "𐐷");
+        testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc\x00\x00", @sliceToBytes(utf16[0..]));
+    }
+    {
+        var bytes: [128]u8 = undefined;
+        const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+        const utf16 = try utf8ToUtf16LeWithNull(allocator, "\u{10FFFF}");
+        testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf\x00\x00", @sliceToBytes(utf16[0..]));
+    }
 }
