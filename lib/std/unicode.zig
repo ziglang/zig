@@ -576,33 +576,21 @@ pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
     var dest_i: usize = 0;
     var src_i: usize = 0;
     while (src_i < utf8.len) {
-        const byte = utf8[src_i];
-        const n = @clz(u8, ~byte);
-        switch (n) {
-            0 => {
-                utf16le[dest_i] = byte;
-                dest_i += 1;
-                src_i += 1;
-                continue;
-            },
-            2, 3, 4 => {
-                const next_src_i = src_i + n;
-                const codepoint = utf8Decode(utf8[src_i..next_src_i]) catch return error.InvalidUtf8;
-                if (codepoint < 0x10000) {
-                    const short = @intCast(u16, codepoint);
-                    utf16le[dest_i] = mem.nativeToLittle(u16, short);
-                    dest_i += 1;
-                } else {
-                    const high = @intCast(u16, (codepoint - 0x10000) >> 10) + 0xD800;
-                    const low = @intCast(u16, codepoint & 0x3FF) + 0xDC00;
-                    utf16le[dest_i] = mem.nativeToLittle(u16, high);
-                    utf16le[dest_i + 1] = mem.nativeToLittle(u16, low);
-                    dest_i += 2;
-                }
-                src_i = next_src_i;
-            },
-            else => return error.InvalidUtf8,
+        const n = utf8ByteSequenceLength(utf8[src_i]) catch return error.InvalidUtf8;
+        const next_src_i = src_i + n;
+        const codepoint = utf8Decode(utf8[src_i..next_src_i]) catch return error.InvalidUtf8;
+        if (codepoint < 0x10000) {
+            const short = @intCast(u16, codepoint);
+            utf16le[dest_i] = mem.nativeToLittle(u16, short);
+            dest_i += 1;
+        } else {
+            const high = @intCast(u16, (codepoint - 0x10000) >> 10) + 0xD800;
+            const low = @intCast(u16, codepoint & 0x3FF) + 0xDC00;
+            utf16le[dest_i] = mem.nativeToLittle(u16, high);
+            utf16le[dest_i + 1] = mem.nativeToLittle(u16, low);
+            dest_i += 2;
         }
+        src_i = next_src_i;
     }
     return dest_i;
 }
