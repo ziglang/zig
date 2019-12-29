@@ -76,7 +76,7 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 /// - `d`: output numeric value in decimal notation
 /// - `b`: output integer value in binary notation
 /// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
-/// - `u`: output integer as an UTF-8 sequence. Integer type must have 32 bits at max.
+/// - `u`: output integer as an UTF-8 sequence. Integer type must have 21 bits at max.
 /// - `*`: output the address of the value instead of the value itself.
 ///
 /// If a formatted user type contains a function of the type
@@ -522,10 +522,10 @@ pub fn formatIntValue(
             @compileError("Cannot print integer that is larger than 8 bits as a ascii");
         }
     } else if (comptime std.mem.eql(u8, fmt, "u")) {
-        if (@TypeOf(int_value).bit_count <= 32) {
-            return formatUtf8Codepoint(@as(u32, int_value), options, context, Errors, output);
+        if (@TypeOf(int_value).bit_count <= 21) {
+            return formatUtf8Codepoint(@as(u21, int_value), options, context, Errors, output);
         } else {
-            @compileError("Cannot print integer that is larger than 32 bits as an UTF-8 sequence");
+            @compileError("Cannot print integer that is larger than 21 bits as an UTF-8 sequence");
         }
     } else if (comptime std.mem.eql(u8, fmt, "b")) {
         radix = 2;
@@ -595,7 +595,7 @@ pub fn formatAsciiChar(
 }
 
 pub fn formatUtf8Codepoint(
-    c: u32,
+    c: u21,
     options: FormatOptions,
     context: var,
     comptime Errors: type,
@@ -1231,7 +1231,7 @@ test "int.specifier" {
         try testFmt("UTF-8: a\n", "UTF-8: {u}\n", .{value});
     }
     {
-        const value: u32 = 0x1F310;
+        const value: u21 = 0x1F310;
         try testFmt("UTF-8: 🌐\n", "UTF-8: {u}\n", .{value});
     }
     {
