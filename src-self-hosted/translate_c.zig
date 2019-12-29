@@ -853,15 +853,15 @@ fn transStmt(
         .ReturnStmtClass => return transReturnStmt(rp, scope, @ptrCast(*const ZigClangReturnStmt, stmt)),
         .StringLiteralClass => return transStringLiteral(rp, scope, @ptrCast(*const ZigClangStringLiteral, stmt), result_used),
         .ParenExprClass => {
-            const expr = try transExpr(rp, scope, ZigClangParenExpr_getSubExpr(@ptrCast(*const ZigClangParenExpr, stmt)), result_used, lrvalue);
-            if (expr.id == .GroupedExpression) return expr;
+            const expr = try transExpr(rp, scope, ZigClangParenExpr_getSubExpr(@ptrCast(*const ZigClangParenExpr, stmt)), .used, lrvalue);
+            if (expr.id == .GroupedExpression) return maybeSuppressResult(rp, scope, result_used, expr);
             const node = try rp.c.a().create(ast.Node.GroupedExpression);
             node.* = .{
                 .lparen = try appendToken(rp.c, .LParen, "("),
                 .expr = expr,
                 .rparen = try appendToken(rp.c, .RParen, ")"),
             };
-            return &node.base;
+            return maybeSuppressResult(rp, scope, result_used, &node.base);
         },
         .InitListExprClass => return transInitListExpr(rp, scope, @ptrCast(*const ZigClangInitListExpr, stmt), result_used),
         .ImplicitValueInitExprClass => return transImplicitValueInitExpr(rp, scope, @ptrCast(*const ZigClangExpr, stmt), result_used),
@@ -2098,6 +2098,9 @@ fn transMemberExpr(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangMemberE
     }
 
     const name = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, ZigClangMemberExpr_getMemberDecl(stmt))));
+    if (name.len == 0) {
+        return revertAndWarn(rp, error.UnsupportedTranslation, ZigClangStmt_getBeginLoc(@ptrCast(*const ZigClangStmt, stmt)), "TODO access of anonymous field", .{});
+    }
     const node = try transCreateNodeFieldAccess(rp.c, container_node, name);
     return maybeSuppressResult(rp, scope, result_used, node);
 }
