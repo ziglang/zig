@@ -8,7 +8,7 @@ pub const TokenList = std.SegmentedList(CToken, 32);
 
 pub const CToken = struct {
     id: Id,
-    bytes: []const u8,
+    bytes: []const u8 = "",
     num_lit_suffix: NumLitSuffix = .None,
 
     pub const Id = enum {
@@ -238,14 +238,14 @@ fn zigifyEscapeSequences(ctx: *Context, loc: ZigClangSourceLocation, name: []con
 fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:0]const u8, i: *usize) !CToken {
     var state: enum {
         Start,
-        GotLt,
-        GotGt,
-        GotPlus,
-        GotMinus,
-        GotAmpersand,
-        GotPipe,
-        GotBang,
-        GotEq,
+        SawLt,
+        SawGt,
+        SawPlus,
+        SawMinus,
+        SawAmpersand,
+        SawPipe,
+        SawBang,
+        SawEq,
         CharLit,
         OpenComment,
         Comment,
@@ -255,7 +255,7 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
         Identifier,
         Decimal,
         Octal,
-        GotZero,
+        SawZero,
         Hex,
         Bin,
         Float,
@@ -286,7 +286,7 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
                 .Hex,
                 .Bin,
                 .Octal,
-                .GotZero,
+                .SawZero,
                 .Float,
                 .FloatExp,
                 => {
@@ -294,19 +294,19 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
                     return result;
                 },
                 .Start,
-                .GotMinus,
+                .SawMinus,
                 .Done,
                 .NumLitIntSuffixU,
                 .NumLitIntSuffixL,
                 .NumLitIntSuffixUL,
                 .NumLitIntSuffixLL,
-                .GotLt,
-                .GotGt,
-                .GotPlus,
-                .GotAmpersand,
-                .GotPipe,
-                .GotBang,
-                .GotEq,
+                .SawLt,
+                .SawGt,
+                .SawPlus,
+                .SawAmpersand,
+                .SawPipe,
+                .SawBang,
+                .SawEq,
                 => {
                     return result;
                 },
@@ -358,7 +358,7 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
                         begin_index = i.*;
                     },
                     '0' => {
-                        state = .GotZero;
+                        state = .SawZero;
                         result.id = .NumLitInt;
                         begin_index = i.*;
                     },
@@ -368,11 +368,11 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
                     },
                     '<' => {
                         result.id = .Lt;
-                        state = .GotLt;
+                        state = .SawLt;
                     },
                     '>' => {
                         result.id = .Gt;
-                        state = .GotGt;
+                        state = .SawGt;
                     },
                     '(' => {
                         result.id = .LParen;
@@ -388,15 +388,15 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
                     },
                     '+' => {
                         result.id = .Plus;
-                        state = .GotPlus;
+                        state = .SawPlus;
                     },
                     '-' => {
                         result.id = .Minus;
-                        state = .GotMinus;
+                        state = .SawMinus;
                     },
                     '!' => {
                         result.id = .Bang;
-                        state = .GotBang;
+                        state = .SawBang;
                     },
                     '~' => {
                         result.id = .Tilde;
@@ -404,7 +404,7 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
                     },
                     '=' => {
                         result.id = .Assign;
-                        state = .GotEq;
+                        state = .SawEq;
                     },
                     ',' => {
                         result.id = .Comma;
@@ -420,11 +420,11 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
                     },
                     '|' => {
                         result.id = .Pipe;
-                        state = .GotPipe;
+                        state = .SawPipe;
                     },
                     '&' => {
                         result.id = .Ampersand;
-                        state = .GotAmpersand;
+                        state = .SawAmpersand;
                     },
                     '?' => {
                         result.id = .QuestionMark;
@@ -441,7 +441,7 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
                 }
             },
             .Done => return result,
-            .GotMinus => {
+            .SawMinus => {
                 switch (c) {
                     '>' => {
                         result.id = .Arrow;
@@ -454,7 +454,7 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
                     else => return result,
                 }
             },
-            .GotPlus => {
+            .SawPlus => {
                 switch (c) {
                     '+' => {
                         result.id = .Increment;
@@ -463,7 +463,7 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
                     else => return result,
                 }
             },
-            .GotLt => {
+            .SawLt => {
                 switch (c) {
                     '<' => {
                         result.id = .Shl;
@@ -476,7 +476,7 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
                     else => return result,
                 }
             },
-            .GotGt => {
+            .SawGt => {
                 switch (c) {
                     '>' => {
                         result.id = .Shr;
@@ -489,7 +489,7 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
                     else => return result,
                 }
             },
-            .GotPipe => {
+            .SawPipe => {
                 switch (c) {
                     '|' => {
                         result.id = .Or;
@@ -498,7 +498,7 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
                     else => return result,
                 }
             },
-            .GotAmpersand => {
+            .SawAmpersand => {
                 switch (c) {
                     '&' => {
                         result.id = .And;
@@ -507,7 +507,7 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
                     else => return result,
                 }
             },
-            .GotBang => {
+            .SawBang => {
                 switch (c) {
                     '=' => {
                         result.id = .Ne;
@@ -516,7 +516,7 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
                     else => return result,
                 }
             },
-            .GotEq => {
+            .SawEq => {
                 switch (c) {
                     '=' => {
                         result.id = .Eq;
@@ -557,7 +557,7 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
                     '0'...'9' => {
                         state = .FloatExp;
                     },
-                    else =>  {
+                    else => {
                         try failDecl(ctx, loc, name, "macro tokenizing failed: expected a digit or '+' or '-'", .{});
                         return error.TokenizingFailed;
                     },
@@ -617,7 +617,7 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
                     },
                 }
             },
-            .GotZero => {
+            .SawZero => {
                 switch (c) {
                     'x', 'X' => {
                         state = .Hex;
@@ -829,9 +829,9 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
     unreachable;
 }
 
-
 fn expectTokens(tl: *TokenList, src: [*:0]const u8, expected: []CToken) void {
-    tokenizeCMacro(tl, src) catch unreachable;
+    // these can be undefined since they are only used for error reporting
+    tokenizeCMacro(undefined, undefined, undefined, tl, src) catch unreachable;
     var it = tl.iterator(0);
     for (expected) |t| {
         var tok = it.next().?;
@@ -848,81 +848,74 @@ fn expectTokens(tl: *TokenList, src: [*:0]const u8, expected: []CToken) void {
     tl.shrink(0);
 }
 
-
 test "tokenize macro" {
     var tl = TokenList.init(std.heap.page_allocator);
     defer tl.deinit();
 
     expectTokens(&tl, "TEST(0\n", &[_]CToken{
-        ctoken(.Identifier, "TEST"),
-        ctoken(.Fn, ""),
-        ctoken(.LParen, ""),
-        ctoken(.NumLitInt, "0"),
-        ctoken(.Eof, ""),
+        .{ .id = .Identifier, .bytes = "TEST" },
+        .{ .id = .Fn },
+        .{ .id = .LParen },
+        .{ .id = .NumLitInt, .bytes = "0" },
+        .{ .id = .Eof },
     });
 
     expectTokens(&tl, "__FLT_MIN_10_EXP__ -37\n", &[_]CToken{
-        ctoken(.Identifier, "__FLT_MIN_10_EXP__"),
-        ctoken(.Minus, ""),
-        ctoken(.NumLitInt, "37"),
-        ctoken(.Eof, ""),
+        .{ .id = .Identifier, .bytes = "__FLT_MIN_10_EXP__" },
+        .{ .id = .Minus },
+        .{ .id = .NumLitInt, .bytes = "37" },
+        .{ .id = .Eof },
     });
 
     expectTokens(&tl, "__llvm__ 1\n#define", &[_]CToken{
-        ctoken(.Identifier, "__llvm__"),
-        ctoken(.NumLitInt, "1"),
-        ctoken(.Eof, ""),
-
+        .{ .id = .Identifier, .bytes = "__llvm__" },
+        .{ .id = .NumLitInt, .bytes = "1" },
+        .{ .id = .Eof },
     });
 
     expectTokens(&tl, "TEST 2", &[_]CToken{
-        ctoken(.Identifier, "TEST"),
-        ctoken(.NumLitInt, "2"),
-        ctoken(.Eof, ""),
-
+        .{ .id = .Identifier, .bytes = "TEST" },
+        .{ .id = .NumLitInt, .bytes = "2" },
+        .{ .id = .Eof },
     });
 
     expectTokens(&tl, "FOO 0ull", &[_]CToken{
-        ctoken(.Identifier, "FOO"),
-        cnumtoken(.LLU, "0"),
-        ctoken(.Eof, ""),
-
+        .{ .id = .Identifier, .bytes = "FOO" },
+        .{ .id = .NumLitInt, .bytes = "0", .num_lit_suffix = .LLU },
+        .{ .id = .Eof },
     });
-
 }
-
-
 
 test "tokenize macro ops" {
     var tl = TokenList.init(std.heap.page_allocator);
     defer tl.deinit();
 
     expectTokens(&tl, "ADD A + B", &[_]CToken{
-        ctoken(.Identifier, "ADD"),
-        ctoken(.Identifier, "A"),
-        ctoken(.Plus, ""),
-        ctoken(.Identifier, "B"),
-        ctoken(.Eof, ""),
-    });
-
-     expectTokens(&tl, "ADD (A) + B", &[_]CToken{
-        ctoken(.Identifier, "ADD"),
-        ctoken(.LParen, ""),
-        ctoken(.Identifier, "A"),
-        ctoken(.RParen, ""),
-        ctoken(.Plus, ""),
-        ctoken(.Identifier, "B"),
-        ctoken(.Eof, ""),
+        .{ .id = .Identifier, .bytes = "ADD" },
+        .{ .id = .Identifier, .bytes = "A" },
+        .{ .id = .Plus },
+        .{ .id = .Identifier, .bytes = "B" },
+        .{ .id = .Eof },
     });
 
     expectTokens(&tl, "ADD (A) + B", &[_]CToken{
-        ctoken(.Identifier, "ADD"),
-        ctoken(.LParen, ""),
-        ctoken(.Identifier, "A"),
-        ctoken(.RParen, ""),
-        ctoken(.Plus, ""),
-        ctoken(.Identifier, "B"),
-        ctoken(.Eof, ""),
+        .{ .id = .Identifier, .bytes = "ADD" },
+        .{ .id = .LParen },
+        .{ .id = .Identifier, .bytes = "A" },
+        .{ .id = .RParen },
+        .{ .id = .Plus },
+        .{ .id = .Identifier, .bytes = "B" },
+        .{ .id = .Eof },
+    });
+
+    expectTokens(&tl, "ADD (A) + B", &[_]CToken{
+        .{ .id = .Identifier, .bytes = "ADD" },
+        .{ .id = .LParen },
+        .{ .id = .Identifier, .bytes = "A" },
+        .{ .id = .RParen },
+        .{ .id = .Plus },
+        .{ .id = .Identifier, .bytes = "B" },
+        .{ .id = .Eof },
     });
 }
 
@@ -930,19 +923,20 @@ test "escape sequences" {
     var buf: [1024]u8 = undefined;
     var alloc = std.heap.FixedBufferAllocator.init(buf[0..]);
     const a = &alloc.allocator;
-    expect(std.mem.eql(u8, (try zigifyEscapeSequences(a, .{
+    // these can be undefined since they are only used for error reporting
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(undefined, undefined, undefined, a, .{
         .id = .StrLit,
         .bytes = "\\x0077",
     })).bytes, "\\x77"));
-    expect(std.mem.eql(u8, (try zigifyEscapeSequences(a, .{
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(undefined, undefined, undefined, a, .{
         .id = .StrLit,
         .bytes = "\\24500",
     })).bytes, "\\xa500"));
-    expect(std.mem.eql(u8, (try zigifyEscapeSequences(a, .{
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(undefined, undefined, undefined, a, .{
         .id = .StrLit,
         .bytes = "\\x0077 abc",
     })).bytes, "\\x77 abc"));
-    expect(std.mem.eql(u8, (try zigifyEscapeSequences(a, .{
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(undefined, undefined, undefined, a, .{
         .id = .StrLit,
         .bytes = "\\045abc",
     })).bytes, "\\x25abc"));
