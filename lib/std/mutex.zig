@@ -1,6 +1,8 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const os = std.os;
+const assert = std.debug.assert;
+const windows = os.windows;
 const testing = std.testing;
 const SpinLock = std.SpinLock;
 const ResetEvent = std.ResetEvent;
@@ -73,20 +75,33 @@ else if (builtin.os == .windows)
             return self.tryAcquire() orelse self.acquireSlow();
         }
 
-        fn acquireSlow(self: *Mutex) Held {
+        fn acquireSpinning(self: *Mutex) Held {
             @setCold(true);
+            while (true) : (SpinLock.yield()) {
+                return self.tryAcquire() orelse continue;
+            }
+        }
+
+        fn acquireSlow(self: *Mutex) Held {
+            // try to use NT keyed events for blocking, falling back to spinlock if unavailable
+            @setCold(true);
+            const handle = ResetEvent.OsEvent.Futex.getEventHandle() orelse return self.acquireSpinning();
+            const key = @ptrCast(*const c_void, &self.waiters);
+
             while (true) : (SpinLock.loopHint(1)) {
                 const waiters = @atomicLoad(u32, &self.waiters, .Monotonic);
 
                 // try and take lock if unlocked
                 if ((waiters & 1) == 0) {
-                    if (@atomicRmw(u8, &self.locked, .Xchg, 1, .Acquire) == 0)
+                    if (@atomicRmw(u8, &self.locked, .Xchg, 1, .Acquire) == 0) {
                         return Held{ .mutex = self };
+                    }
 
                 // otherwise, try and update the waiting count.
                 // then unset the WAKE bit so that another unlocker can wake up a thread.
                 } else if (@cmpxchgWeak(u32, &self.waiters, waiters, (waiters + WAIT) | 1, .Monotonic, .Monotonic) == null) {
-                    ResetEvent.OsEvent.Futex.wait(@ptrCast(*i32, &self.waiters), undefined, null) catch unreachable;
+                    const rc = windows.ntdll.NtWaitForKeyedEvent(handle, key, windows.FALSE, null);
+                    assert(rc == 0);
                     _ = @atomicRmw(u32, &self.waiters, .Sub, WAKE, .Monotonic);
                 }
             }
@@ -98,6 +113,8 @@ else if (builtin.os == .windows)
             pub fn release(self: Held) void {
                 // unlock without a rmw/cmpxchg instruction
                 @atomicStore(u8, @ptrCast(*u8, &self.mutex.locked), 0, .Release);
+                const handle = ResetEvent.OsEvent.Futex.getEventHandle() orelse return;
+                const key = @ptrCast(*const c_void, &self.mutex.waiters);
 
                 while (true) : (SpinLock.loopHint(1)) {
                     const waiters = @atomicLoad(u32, &self.mutex.waiters, .Monotonic);
@@ -110,8 +127,11 @@ else if (builtin.os == .windows)
                     if (waiters & WAKE != 0) return;
 
                     // try to decrease the waiter count & set the WAKE bit meaning a thread is waking up
-                    if (@cmpxchgWeak(u32, &self.mutex.waiters, waiters, waiters - WAIT + WAKE, .Release, .Monotonic) == null)
-                        return ResetEvent.OsEvent.Futex.wake(@ptrCast(*i32, &self.mutex.waiters));
+                    if (@cmpxchgWeak(u32, &self.mutex.waiters, waiters, waiters - WAIT + WAKE, .Release, .Monotonic) == null) {
+                        const rc = windows.ntdll.NtReleaseKeyedEvent(handle, key, windows.FALSE, null);
+                        assert(rc == 0);
+                        return;   
+                    }
                 }
             }
         };

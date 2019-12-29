@@ -1981,19 +1981,19 @@ fn parseAssignOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const token = nextToken(it);
     const op = switch (token.ptr.id) {
-        .AsteriskEqual => Op{ .AssignTimes = {} },
+        .AsteriskEqual => Op{ .AssignMul = {} },
         .SlashEqual => Op{ .AssignDiv = {} },
         .PercentEqual => Op{ .AssignMod = {} },
-        .PlusEqual => Op{ .AssignPlus = {} },
-        .MinusEqual => Op{ .AssignMinus = {} },
+        .PlusEqual => Op{ .AssignAdd = {} },
+        .MinusEqual => Op{ .AssignSub = {} },
         .AngleBracketAngleBracketLeftEqual => Op{ .AssignBitShiftLeft = {} },
         .AngleBracketAngleBracketRightEqual => Op{ .AssignBitShiftRight = {} },
         .AmpersandEqual => Op{ .AssignBitAnd = {} },
         .CaretEqual => Op{ .AssignBitXor = {} },
         .PipeEqual => Op{ .AssignBitOr = {} },
-        .AsteriskPercentEqual => Op{ .AssignTimesWarp = {} },
-        .PlusPercentEqual => Op{ .AssignPlusWrap = {} },
-        .MinusPercentEqual => Op{ .AssignMinusWrap = {} },
+        .AsteriskPercentEqual => Op{ .AssignMulWrap = {} },
+        .PlusPercentEqual => Op{ .AssignAddWrap = {} },
+        .MinusPercentEqual => Op{ .AssignSubWrap = {} },
         .Equal => Op{ .Assign = {} },
         else => {
             putBackToken(it, token.index);
@@ -2120,11 +2120,11 @@ fn parseMultiplyOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const token = nextToken(it);
     const op = switch (token.ptr.id) {
         .PipePipe => ops{ .BoolOr = {} },
-        .Asterisk => ops{ .Mult = {} },
+        .Asterisk => ops{ .Mul = {} },
         .Slash => ops{ .Div = {} },
         .Percent => ops{ .Mod = {} },
         .AsteriskAsterisk => ops{ .ArrayMult = {} },
-        .AsteriskPercent => ops{ .MultWrap = {} },
+        .AsteriskPercent => ops{ .MulWrap = {} },
         else => {
             putBackToken(it, token.index);
             return null;

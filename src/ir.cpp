@@ -17061,6 +17061,8 @@ static Error ir_result_has_type(IrAnalyze *ira, ResultLoc *result_loc, bool *out
 static IrInstruction *ir_resolve_no_result_loc(IrAnalyze *ira, IrInstruction *suspend_source_instr,
     ResultLoc *result_loc, ZigType *value_type, bool force_runtime, bool non_null_comptime)
 {
+    if (type_is_invalid(value_type))
+        return ira->codegen->invalid_instruction;
     IrInstructionAllocaGen *alloca_gen = ir_build_alloca_gen(ira, suspend_source_instr, 0, "");
     alloca_gen->base.value->type = get_pointer_to_type_extra(ira->codegen, value_type, false, false,
             PtrLenSingle, 0, 0, 0, false);

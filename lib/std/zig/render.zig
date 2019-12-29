@@ -1635,7 +1635,7 @@ fn renderExpression(
         .If => {
             const if_node = @fieldParentPtr(ast.Node.If, "base", base);
 
-            const lparen = tree.prevToken(if_node.condition.firstToken());
+            const lparen = tree.nextToken(if_node.if_token);
             const rparen = tree.nextToken(if_node.condition.lastToken());
 
             try renderToken(tree, stream, if_node.if_token, indent, start_col, Space.Space); // if

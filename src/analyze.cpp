@@ -2003,6 +2003,8 @@ bool type_is_invalid(ZigType *type_entry) {
             return type_entry->data.unionation.resolve_status == ResolveStatusInvalid;
         case ZigTypeIdEnum:
             return type_entry->data.enumeration.resolve_status == ResolveStatusInvalid;
+        case ZigTypeIdFnFrame:
+            return type_entry->data.frame.reported_loop_err;
         default:
             return false;
     }
