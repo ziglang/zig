@@ -4287,7 +4287,33 @@ fn transMacroFnDefine(c: *Context, it: *ctok.TokenList.Iterator, name: []const u
 const ParseError = Error || error{ParseError};
 
 fn parseCExpr(c: *Context, it: *ctok.TokenList.Iterator, source_loc: ZigClangSourceLocation, scope: *Scope) ParseError!*ast.Node {
-    return parseCPrefixOpExpr(c, it, source_loc, scope);
+    const node = try parseCPrefixOpExpr(c, it, source_loc, scope);
+    switch (it.next().?.id) {
+        .QuestionMark => {
+            // must come immediately after expr
+            _ = try appendToken(c, .RParen, ")");
+            const if_node = try transCreateNodeIf(c);
+            if_node.condition = node;
+            if_node.body = try parseCPrimaryExpr(c, it, source_loc, scope);
+            if (it.next().?.id != .Colon) {
+                try failDecl(
+                    c,
+                    source_loc,
+                    it.list.at(0).*.bytes,
+                    "unable to translate C expr: expected ':'",
+                    .{},
+                );
+                return error.ParseError;
+            }
+            if_node.@"else" = try transCreateNodeElse(c);
+            if_node.@"else".?.body = try parseCPrimaryExpr(c, it, source_loc, scope);
+            return &if_node.base;
+        },
+        else => {
+            _ = it.prev();
+            return node;
+        },
+    }
 }
 
 fn parseCNumLit(c: *Context, tok: *CToken, source_loc: ZigClangSourceLocation) ParseError!*ast.Node {
@@ -4532,7 +4558,7 @@ fn parseCSuffixOpExpr(c: *Context, it: *ctok.TokenList.Iterator, source_loc: Zig
             },
             .Shl => {
                 const op_token = try appendToken(c, .AngleBracketAngleBracketLeft, "<<");
-                const rhs = try parseCExpr(c, it, source_loc, scope);
+                const rhs = try parseCPrefixOpExpr(c, it, source_loc, scope);
                 const bitshift_node = try c.a().create(ast.Node.InfixOp);
                 bitshift_node.* = .{
                     .op_token = op_token,
@@ -4543,9 +4569,9 @@ fn parseCSuffixOpExpr(c: *Context, it: *ctok.TokenList.Iterator, source_loc: Zig
                 node = &bitshift_node.base;
             },
             .Shr => {
-                const op_token = try appendToken(rp.c, .AngleBracketAngleBracketRight, ">>");
-                const rhs = try parseCExpr(rp, it, source_loc, scope);
-                const bitshift_node = try rp.c.a().create(ast.Node.InfixOp);
+                const op_token = try appendToken(c, .AngleBracketAngleBracketRight, ">>");
+                const rhs = try parseCPrefixOpExpr(c, it, source_loc, scope);
+                const bitshift_node = try c.a().create(ast.Node.InfixOp);
                 bitshift_node.* = .{
                     .op_token = op_token,
                     .lhs = node,
@@ -4556,7 +4582,7 @@ fn parseCSuffixOpExpr(c: *Context, it: *ctok.TokenList.Iterator, source_loc: Zig
             },
             .Pipe => {
                 const op_token = try appendToken(c, .Pipe, "|");
-                const rhs = try parseCExpr(c, it, source_loc, scope);
+                const rhs = try parseCPrefixOpExpr(c, it, source_loc, scope);
                 const or_node = try c.a().create(ast.Node.InfixOp);
                 or_node.* = .{
                     .op_token = op_token,
@@ -4567,9 +4593,9 @@ fn parseCSuffixOpExpr(c: *Context, it: *ctok.TokenList.Iterator, source_loc: Zig
                 node = &or_node.base;
             },
             .Ampersand => {
-                const op_token = try appendToken(rp.c, .Ampersand, "&");
-                const rhs = try parseCExpr(rp, it, source_loc, scope);
-                const bitand_node = try rp.c.a().create(ast.Node.InfixOp);
+                const op_token = try appendToken(c, .Ampersand, "&");
+                const rhs = try parseCPrefixOpExpr(c, it, source_loc, scope);
+                const bitand_node = try c.a().create(ast.Node.InfixOp);
                 bitand_node.* = .{
                     .op_token = op_token,
                     .lhs = node,
@@ -4579,9 +4605,9 @@ fn parseCSuffixOpExpr(c: *Context, it: *ctok.TokenList.Iterator, source_loc: Zig
                 node = &bitand_node.base;
             },
             .Plus => {
-                const op_token = try appendToken(rp.c, .Plus, "+");
-                const rhs = try parseCExpr(rp, it, source_loc, scope);
-                const add_node = try rp.c.a().create(ast.Node.InfixOp);
+                const op_token = try appendToken(c, .Plus, "+");
+                const rhs = try parseCPrefixOpExpr(c, it, source_loc, scope);
+                const add_node = try c.a().create(ast.Node.InfixOp);
                 add_node.* = .{
                     .op_token = op_token,
                     .lhs = node,
@@ -4591,9 +4617,9 @@ fn parseCSuffixOpExpr(c: *Context, it: *ctok.TokenList.Iterator, source_loc: Zig
                 node = &add_node.base;
             },
             .Minus => {
-                const op_token = try appendToken(rp.c, .Minus, "-");
-                const rhs = try parseCExpr(rp, it, source_loc, scope);
-                const sub_node = try rp.c.a().create(ast.Node.InfixOp);
+                const op_token = try appendToken(c, .Minus, "-");
+                const rhs = try parseCPrefixOpExpr(c, it, source_loc, scope);
+                const sub_node = try c.a().create(ast.Node.InfixOp);
                 sub_node.* = .{
                     .op_token = op_token,
                     .lhs = node,
@@ -4603,9 +4629,9 @@ fn parseCSuffixOpExpr(c: *Context, it: *ctok.TokenList.Iterator, source_loc: Zig
                 node = &sub_node.base;
             },
             .And => {
-                const op_token = try appendToken(rp.c, .Keyword_and, "and");
-                const rhs = try parseCExpr(rp, it, source_loc, scope);
-                const and_node = try rp.c.a().create(ast.Node.InfixOp);
+                const op_token = try appendToken(c, .Keyword_and, "and");
+                const rhs = try parseCPrefixOpExpr(c, it, source_loc, scope);
+                const and_node = try c.a().create(ast.Node.InfixOp);
                 and_node.* = .{
                     .op_token = op_token,
                     .lhs = node,
@@ -4615,9 +4641,9 @@ fn parseCSuffixOpExpr(c: *Context, it: *ctok.TokenList.Iterator, source_loc: Zig
                 node = &and_node.base;
             },
             .Or => {
-                const op_token = try appendToken(rp.c, .Keyword_or, "or");
-                const rhs = try parseCExpr(rp, it, source_loc, scope);
-                const or_node = try rp.c.a().create(ast.Node.InfixOp);
+                const op_token = try appendToken(c, .Keyword_or, "or");
+                const rhs = try parseCPrefixOpExpr(c, it, source_loc, scope);
+                const or_node = try c.a().create(ast.Node.InfixOp);
                 or_node.* = .{
                     .op_token = op_token,
                     .lhs = node,
@@ -4626,9 +4652,57 @@ fn parseCSuffixOpExpr(c: *Context, it: *ctok.TokenList.Iterator, source_loc: Zig
                 };
                 node = &or_node.base;
             },
+            .Gt => {
+                const op_token = try appendToken(c, .AngleBracketRight, ">");
+                const rhs = try parseCPrefixOpExpr(c, it, source_loc, scope);
+                const and_node = try c.a().create(ast.Node.InfixOp);
+                and_node.* = .{
+                    .op_token = op_token,
+                    .lhs = node,
+                    .op = .GreaterThan,
+                    .rhs = rhs,
+                };
+                node = &and_node.base;
+            },
+            .Gte => {
+                const op_token = try appendToken(c, .AngleBracketRightEqual, ">=");
+                const rhs = try parseCPrefixOpExpr(c, it, source_loc, scope);
+                const and_node = try c.a().create(ast.Node.InfixOp);
+                and_node.* = .{
+                    .op_token = op_token,
+                    .lhs = node,
+                    .op = .GreaterOrEqual,
+                    .rhs = rhs,
+                };
+                node = &and_node.base;
+            },
+            .Lt => {
+                const op_token = try appendToken(c, .AngleBracketLeft, "<");
+                const rhs = try parseCPrefixOpExpr(c, it, source_loc, scope);
+                const and_node = try c.a().create(ast.Node.InfixOp);
+                and_node.* = .{
+                    .op_token = op_token,
+                    .lhs = node,
+                    .op = .LessThan,
+                    .rhs = rhs,
+                };
+                node = &and_node.base;
+            },
+            .Lte => {
+                const op_token = try appendToken(c, .AngleBracketLeftEqual, "<=");
+                const rhs = try parseCPrefixOpExpr(c, it, source_loc, scope);
+                const and_node = try c.a().create(ast.Node.InfixOp);
+                and_node.* = .{
+                    .op_token = op_token,
+                    .lhs = node,
+                    .op = .LessOrEqual,
+                    .rhs = rhs,
+                };
+                node = &and_node.base;
+            },
             .LBrace => {
                 const arr_node = try transCreateNodeArrayAccess(c, node);
-                arr_node.op.ArrayAccess = try parseCExpr(c, it, source_loc, scope);
+                arr_node.op.ArrayAccess = try parseCPrefixOpExpr(c, it, source_loc, scope);
                 arr_node.rtoken = try appendToken(c, .RBrace, "]");
                 node = &arr_node.base;
                 if (it.next().?.id != .RBrace) {
@@ -4645,7 +4719,7 @@ fn parseCSuffixOpExpr(c: *Context, it: *ctok.TokenList.Iterator, source_loc: Zig
             .LParen => {
                 const call_node = try transCreateNodeFnCall(c, node);
                 while (true) {
-                    const arg = try parseCExpr(c, it, source_loc, scope);
+                    const arg = try parseCPrefixOpExpr(c, it, source_loc, scope);
                     try call_node.op.Call.params.push(arg);
                     const next = it.next().?;
                     if (next.id == .Comma)
@@ -4665,26 +4739,6 @@ fn parseCSuffixOpExpr(c: *Context, it: *ctok.TokenList.Iterator, source_loc: Zig
                 }
                 call_node.rtoken = try appendToken(c, .RParen, ")");
                 node = &call_node.base;
-            },
-            .QuestionMark => {
-                // must come immediately after expr
-                _ = try appendToken(c, .RParen, ")");
-                const if_node = try transCreateNodeIf(c);
-                if_node.condition = node;
-                if_node.body = try parseCPrimaryExpr(c, it, source_loc, scope);
-                if (it.next().?.id != .Colon) {
-                    try failDecl(
-                        c,
-                        source_loc,
-                        it.list.at(0).*.bytes,
-                        "unable to translate C expr: expected ':'",
-                        .{},
-                    );
-                    return error.ParseError;
-                }
-                if_node.@"else" = try transCreateNodeElse(c);
-                if_node.@"else".?.body = try parseCPrimaryExpr(c, it, source_loc, scope);
-                node = &if_node.base;
             },
             else => {
                 _ = it.prev();

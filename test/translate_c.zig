@@ -2219,4 +2219,17 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    };
         \\}
     });
+
+    cases.add("macro comparisions",
+        \\#define MIN(a, b) ((b) < (a) ? (b) : (a))
+        \\#define MAX(a, b) ((b) > (a) ? (b) : (a))
+    , &[_][]const u8{
+        \\pub inline fn MIN(a: var, b: var) @TypeOf(if (b < a) b else a) {
+        \\    return if (b < a) b else a;
+        \\}
+    ,
+        \\pub inline fn MAX(a: var, b: var) @TypeOf(if (b > a) b else a) {
+        \\    return if (b > a) b else a;
+        \\}
+    });
 }
