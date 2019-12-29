@@ -104,6 +104,7 @@ pub const CallingConvention = enum {
     Stdcall,
     Fastcall,
     Vectorcall,
+    Thiscall,
     APCS,
     AAPCS,
     AAPCSVFP,

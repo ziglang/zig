@@ -929,6 +929,7 @@ const char *calling_convention_name(CallingConvention cc) {
         case CallingConventionStdcall: return "Stdcall";
         case CallingConventionFastcall: return "Fastcall";
         case CallingConventionVectorcall: return "Vectorcall";
+        case CallingConventionThiscall: return "Thiscall";
         case CallingConventionAPCS: return "Apcs";
         case CallingConventionAAPCS: return "Aapcs";
         case CallingConventionAAPCSVFP: return "Aapcsvfp";
@@ -949,6 +950,7 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
         case CallingConventionStdcall:
         case CallingConventionFastcall:
         case CallingConventionVectorcall:
+        case CallingConventionThiscall:
         case CallingConventionAPCS:
         case CallingConventionAAPCS:
         case CallingConventionAAPCSVFP:
@@ -1706,9 +1708,7 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
         case ZigTypeIdArray:
             return type_allowed_in_extern(g, type_entry->data.array.child_type, result);
         case ZigTypeIdFn:
-            *result = type_entry->data.fn.fn_type_id.cc == CallingConventionC ||
-                 type_entry->data.fn.fn_type_id.cc == CallingConventionStdcall ||
-                 type_entry->data.fn.fn_type_id.cc == CallingConventionAAPCS;
+            *result = !calling_convention_allows_zig_types(type_entry->data.fn.fn_type_id.cc);
             return ErrorNone;
         case ZigTypeIdPointer:
             if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
@@ -3445,22 +3445,19 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             fn_table_entry->cc = (CallingConvention)bigint_as_u32(&result_val->data.x_enum_tag);
         }
 
-        fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope, fn_table_entry);
-
         if (fn_proto->section_expr != nullptr) {
             if (!analyze_const_string(g, child_scope, fn_proto->section_expr, &fn_table_entry->section_name)) {
                 fn_table_entry->type_entry = g->builtin_types.entry_invalid;
+                tld_fn->base.resolution = TldResolutionInvalid;
+                return;
             }
         }
 
-        if (fn_table_entry->type_entry->id == ZigTypeIdInvalid) {
+        fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope, fn_table_entry);
+
+        if (type_is_invalid(fn_table_entry->type_entry)) {
             tld_fn->base.resolution = TldResolutionInvalid;
             return;
-        }
-
-        if (!fn_table_entry->type_entry->data.fn.is_generic) {
-            if (fn_def_node)
-                g->fn_defs.append(fn_table_entry);
         }
 
         const CallingConvention fn_cc = fn_table_entry->type_entry->data.fn.fn_type_id.cc;
@@ -3470,6 +3467,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                 case CallingConventionAsync:
                     add_node_error(g, fn_def_node,
                         buf_sprintf("exported function cannot be async"));
+                    fn_table_entry->type_entry = g->builtin_types.entry_invalid;
                     tld_fn->base.resolution = TldResolutionInvalid;
                     return;
                 case CallingConventionC:
@@ -3480,6 +3478,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                 case CallingConventionStdcall:
                 case CallingConventionFastcall:
                 case CallingConventionVectorcall:
+                case CallingConventionThiscall:
                 case CallingConventionAPCS:
                 case CallingConventionAAPCS:
                 case CallingConventionAAPCSVFP:
@@ -3493,6 +3492,11 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                                   GlobalLinkageIdStrong, CallingConventionC);
                     break;
             }
+        }
+
+        if (!fn_table_entry->type_entry->data.fn.is_generic) {
+            if (fn_def_node)
+                g->fn_defs.append(fn_table_entry);
         }
 
         // if the calling convention implies that it cannot be async, we save that for later

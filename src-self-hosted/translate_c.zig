@@ -3975,6 +3975,7 @@ fn transCC(
         .X86StdCall => return CallingConvention.Stdcall,
         .X86FastCall => return CallingConvention.Fastcall,
         .X86VectorCall, .AArch64VectorCall => return CallingConvention.Vectorcall,
+        .X86ThisCall => return CallingConvention.Thiscall,
         .AAPCS => return CallingConvention.AAPCS,
         .AAPCS_VFP => return CallingConvention.AAPCSVFP,
         else => return revertAndWarn(

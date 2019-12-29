@@ -850,11 +850,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\void __attribute__((stdcall)) foo2(float *a);
         \\void __attribute__((vectorcall)) foo3(float *a);
         \\void __attribute__((cdecl)) foo4(float *a);
+        \\void __attribute__((thiscall)) foo5(float *a);
     , &[_][]const u8{
         \\pub fn foo1(a: [*c]f32) callconv(.Fastcall) void;
         \\pub fn foo2(a: [*c]f32) callconv(.Stdcall) void;
         \\pub fn foo3(a: [*c]f32) callconv(.Vectorcall) void;
         \\pub extern fn foo4(a: [*c]f32) void;
+        \\pub fn foo5(a: [*c]f32) callconv(.Thiscall) void;
     });
 
     cases.addWithTarget("Calling convention", tests.Target{

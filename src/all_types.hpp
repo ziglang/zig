@@ -68,6 +68,7 @@ enum CallingConvention {
     CallingConventionStdcall,
     CallingConventionFastcall,
     CallingConventionVectorcall,
+    CallingConventionThiscall,
     CallingConventionAPCS,
     CallingConventionAAPCS,
     CallingConventionAAPCSVFP,

@@ -16752,6 +16752,7 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
                 case CallingConventionStdcall:
                 case CallingConventionFastcall:
                 case CallingConventionVectorcall:
+                case CallingConventionThiscall:
                 case CallingConventionAPCS:
                 case CallingConventionAAPCS:
                 case CallingConventionAAPCSVFP:

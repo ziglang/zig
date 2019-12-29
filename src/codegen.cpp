@@ -301,6 +301,10 @@ static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
                 return LLVMAARCH64VectorCallCallConv;
 #endif
             return LLVMCCallConv;
+        case CallingConventionThiscall:
+            if (g->zig_target->arch == ZigLLVM_x86)
+                return LLVMX86ThisCallCallConv;
+            return LLVMCCallConv;
         case CallingConventionAsync:
             return LLVMFastCallConv;
         case CallingConventionAPCS:
@@ -424,6 +428,7 @@ static bool cc_want_sret_attr(CallingConvention cc) {
         case CallingConventionStdcall:
         case CallingConventionFastcall:
         case CallingConventionVectorcall:
+        case CallingConventionThiscall:
         case CallingConventionAPCS:
         case CallingConventionAAPCS:
         case CallingConventionAAPCSVFP:
@@ -8512,9 +8517,10 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     static_assert(CallingConventionStdcall == 7, "");
     static_assert(CallingConventionFastcall == 8, "");
     static_assert(CallingConventionVectorcall == 9, "");
-    static_assert(CallingConventionAPCS == 10, "");
-    static_assert(CallingConventionAAPCS == 11, "");
-    static_assert(CallingConventionAAPCSVFP == 12, "");
+    static_assert(CallingConventionThiscall == 10, "");
+    static_assert(CallingConventionAPCS == 11, "");
+    static_assert(CallingConventionAAPCS == 12, "");
+    static_assert(CallingConventionAAPCSVFP == 13, "");
 
     static_assert(FnInlineAuto == 0, "");
     static_assert(FnInlineAlways == 1, "");
