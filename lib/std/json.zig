@@ -10,18 +10,18 @@ const maxInt = std.math.maxInt;
 
 pub const WriteStream = @import("json/write_stream.zig").WriteStream;
 
-// A single token slice into the parent string.
-//
-// Use `token.slice()` on the input at the current position to get the current slice.
+/// A single token slice into the parent string.
+///
+/// Use `token.slice()` on the input at the current position to get the current slice.
 pub const Token = struct {
     id: Id,
-    // How many bytes do we skip before counting
+    /// How many bytes do we skip before counting
     offset: u1,
-    // Whether string contains a \uXXXX sequence and cannot be zero-copied
+    /// Whether string contains an escape sequence and cannot be zero-copied
     string_has_escape: bool,
-    // Whether number is simple and can be represented by an integer (i.e. no `.` or `e`)
+    /// Whether number is simple and can be represented by an integer (i.e. no `.` or `e`)
     number_is_integer: bool,
-    // How many bytes from the current position behind the start of this token is.
+    /// How many bytes from the current position behind the start of this token is.
     count: usize,
 
     pub const Id = enum {
@@ -66,7 +66,7 @@ pub const Token = struct {
         };
     }
 
-    // A marker token is a zero-length
+    /// A marker token is a zero-length
     pub fn initMarker(id: Id) Token {
         return Token{
             .id = id,
@@ -77,19 +77,19 @@ pub const Token = struct {
         };
     }
 
-    // Slice into the underlying input string.
+    /// Slice into the underlying input string.
     pub fn slice(self: Token, input: []const u8, i: usize) []const u8 {
         return input[i + self.offset - self.count .. i + self.offset];
     }
 };
 
-// A small streaming JSON parser. This accepts input one byte at a time and returns tokens as
-// they are encountered. No copies or allocations are performed during parsing and the entire
-// parsing state requires ~40-50 bytes of stack space.
-//
-// Conforms strictly to RFC8529.
-//
-// For a non-byte based wrapper, consider using TokenStream instead.
+/// A small streaming JSON parser. This accepts input one byte at a time and returns tokens as
+/// they are encountered. No copies or allocations are performed during parsing and the entire
+/// parsing state requires ~40-50 bytes of stack space.
+///
+/// Conforms strictly to RFC8529.
+///
+/// For a non-byte based wrapper, consider using TokenStream instead.
 pub const StreamingParser = struct {
     // Current state
     state: State,
@@ -205,10 +205,10 @@ pub const StreamingParser = struct {
         InvalidControlCharacter,
     };
 
-    // Give another byte to the parser and obtain any new tokens. This may (rarely) return two
-    // tokens. token2 is always null if token1 is null.
-    //
-    // There is currently no error recovery on a bad stream.
+    /// Give another byte to the parser and obtain any new tokens. This may (rarely) return two
+    /// tokens. token2 is always null if token1 is null.
+    ///
+    /// There is currently no error recovery on a bad stream.
     pub fn feed(p: *StreamingParser, c: u8, token1: *?Token, token2: *?Token) Error!void {
         token1.* = null;
         token2.* = null;
@@ -866,7 +866,7 @@ pub const StreamingParser = struct {
     }
 };
 
-// A small wrapper over a StreamingParser for full slices. Returns a stream of json Tokens.
+/// A small wrapper over a StreamingParser for full slices. Returns a stream of json Tokens.
 pub const TokenStream = struct {
     i: usize,
     slice: []const u8,
@@ -905,7 +905,13 @@ pub const TokenStream = struct {
             }
         }
 
-        if (self.parser.complete) {
+        // Without this a bare number fails, becasue the streaming parser doesn't know it ended
+        try self.parser.feed(' ', &t1, &t2);
+        self.i += 1;
+
+        if (t1) |token| {
+            return token;
+        } else if (self.parser.complete) {
             return null;
         } else {
             return error.UnexpectedEndOfJson;
@@ -971,8 +977,8 @@ test "json.token" {
     testing.expect((try p.next()) == null);
 }
 
-// Validate a JSON string. This does not limit number precision so a decoder may not necessarily
-// be able to decode the string even if this returns true.
+/// Validate a JSON string. This does not limit number precision so a decoder may not necessarily
+/// be able to decode the string even if this returns true.
 pub fn validate(s: []const u8) bool {
     var p = StreamingParser.init();
 
@@ -1009,6 +1015,8 @@ pub const ValueTree = struct {
 pub const ObjectMap = StringHashMap(Value);
 pub const Array = ArrayList(Value);
 
+/// Represents a JSON value
+/// Currently only supports numbers that fit into i64 or f64.
 pub const Value = union(enum) {
     Null,
     Bool: bool,
@@ -1055,7 +1063,7 @@ pub const Value = union(enum) {
     }
 };
 
-// A non-stream JSON parser which constructs a tree of Value's.
+/// A non-stream JSON parser which constructs a tree of Value's.
 pub const Parser = struct {
     allocator: *Allocator,
     state: State,
@@ -1124,7 +1132,10 @@ pub const Parser = struct {
                     p.state = State.ObjectValue;
                 },
                 else => {
-                    unreachable;
+                    // The streaming parser would return an error eventually.
+                    // To prevent invalid state we return an error now.
+                    // TODO make the streaming parser return an error as soon as it encounters an invalid object key
+                    return error.InvalidLiteral;
                 },
             },
             State.ObjectValue => {
@@ -1266,7 +1277,7 @@ pub const Parser = struct {
         // TODO: We don't strictly have to copy values which do not contain any escape
         // characters if flagged with the option.
         const slice = token.slice(input, i);
-        return Value{ .String = try mem.dupe(allocator, u8, slice) };
+        return Value{ .String = try unescapeStringAlloc(allocator, slice) };
     }
 
     fn parseNumber(p: *Parser, token: Token, input: []const u8, i: usize) !Value {
@@ -1276,6 +1287,77 @@ pub const Parser = struct {
             Value{ .Float = try std.fmt.parseFloat(f64, token.slice(input, i)) };
     }
 };
+
+// Unescape a JSON string
+// Only to be used on strings already validated by the parser
+// (note the unreachable statements and lack of bounds checking)
+// Optimized for arena allocators, uses Allocator.shrink
+//
+// Idea: count how many bytes we will need to allocate in the streaming parser and store it
+// in the token to avoid allocating too much memory or iterating through the string again
+// Downside: need to find how many bytes a unicode escape sequence will produce twice
+fn unescapeStringAlloc(alloc: *Allocator, input: []const u8) ![]u8 {
+    const output = try alloc.alloc(u8, input.len);
+    errdefer alloc.free(output);
+    
+    var inIndex: usize = 0;
+    var outIndex: usize = 0;
+
+    while(inIndex < input.len) {
+        if(input[inIndex] != '\\'){
+            // not an escape sequence
+            output[outIndex] = input[inIndex];
+            inIndex += 1;
+            outIndex += 1;
+        } else if(input[inIndex + 1] != 'u'){
+            // a simple escape sequence
+            output[outIndex] = @as(u8,
+                switch(input[inIndex + 1]){
+                    '\\' => '\\',
+                    '/' => '/',
+                    'n' => '\n',
+                    'r' => '\r',
+                    't' => '\t',
+                    'f' => 12,
+                    'b' => 8,
+                    '"' => '"',
+                    else => unreachable
+                }
+            );
+            inIndex += 2;
+            outIndex += 1;
+        } else {
+            // a unicode escape sequence
+            const firstCodeUnit = std.fmt.parseInt(u16, input[inIndex+2 .. inIndex+6], 16) catch unreachable;
+
+            // guess optimistically that it's not a surrogate pair
+            if(std.unicode.utf8Encode(firstCodeUnit, output[outIndex..])) |byteCount| {
+                outIndex += byteCount;
+                inIndex += 6;
+            } else |err| {
+                // it might be a surrogate pair
+                if(err != error.Utf8CannotEncodeSurrogateHalf) {
+                    return error.InvalidUnicodeHexSymbol;
+                }
+                // check if a second code unit is present
+                if(inIndex + 7 >= input.len or input[inIndex + 6] != '\\' or input[inIndex + 7] != 'u'){
+                    return error.InvalidUnicodeHexSymbol;
+                }
+                
+                const secondCodeUnit = std.fmt.parseInt(u16, input[inIndex+8 .. inIndex+12], 16) catch unreachable;
+                
+                if(std.unicode.utf16leToUtf8(output[outIndex..], [2]u16{ firstCodeUnit, secondCodeUnit })) |byteCount| {
+                    outIndex += byteCount;
+                    inIndex += 12;
+                } else |_| {
+                    return error.InvalidUnicodeHexSymbol;
+                }
+            }
+        }
+    }
+
+    return alloc.shrink(output, outIndex);
+}
 
 test "json.parser.dynamic" {
     var p = Parser.init(debug.global_allocator, false);
@@ -1398,4 +1480,37 @@ test "integer after float has proper type" {
         \\}
     );
     std.testing.expect(json.Object.getValue("ints").?.Array.at(0) == .Integer);
+}
+
+test "escaped characters" {
+    const input =
+        \\{
+        \\  "backslash": "\\",
+        \\  "forwardslash": "\/",
+        \\  "newline": "\n",
+        \\  "carriagereturn": "\r",
+        \\  "tab": "\t",
+        \\  "formfeed": "\f",
+        \\  "backspace": "\b",
+        \\  "doublequote": "\"",
+        \\  "unicode": "\u0105",
+        \\  "surrogatepair": "\ud83d\ude02"
+        \\}
+    ;
+
+    var p = Parser.init(debug.global_allocator, false);
+    const tree = try p.parse(input);
+
+    const obj = tree.root.Object;
+
+    testing.expectEqualSlices(u8, obj.get("backslash").?.value.String, "\\");
+    testing.expectEqualSlices(u8, obj.get("forwardslash").?.value.String, "/");
+    testing.expectEqualSlices(u8, obj.get("newline").?.value.String, "\n");
+    testing.expectEqualSlices(u8, obj.get("carriagereturn").?.value.String, "\r");
+    testing.expectEqualSlices(u8, obj.get("tab").?.value.String, "\t");
+    testing.expectEqualSlices(u8, obj.get("formfeed").?.value.String, "\x0C");
+    testing.expectEqualSlices(u8, obj.get("backspace").?.value.String, "\x08");
+    testing.expectEqualSlices(u8, obj.get("doublequote").?.value.String, "\"");
+    testing.expectEqualSlices(u8, obj.get("unicode").?.value.String, "ą");
+    testing.expectEqualSlices(u8, obj.get("surrogatepair").?.value.String, "😂");
 }

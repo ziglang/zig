@@ -7,14 +7,46 @@ const std = @import("../std.zig");
 
 fn ok(comptime s: []const u8) void {
     std.testing.expect(std.json.validate(s));
+
+    var mem_buffer: [1024 * 20]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(&mem_buffer).allocator;
+    var p = std.json.Parser.init(allocator, false);
+
+    _ = p.parse(s) catch unreachable;
 }
 
 fn err(comptime s: []const u8) void {
     std.testing.expect(!std.json.validate(s));
+
+    var mem_buffer: [1024 * 20]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(&mem_buffer).allocator;
+    var p = std.json.Parser.init(allocator, false);
+
+    if(p.parse(s)) |_| {
+        unreachable;
+    } else |_| {}
 }
 
 fn any(comptime s: []const u8) void {
-    std.testing.expect(true);
+    _ = std.json.validate(s);
+
+    var mem_buffer: [1024 * 20]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(&mem_buffer).allocator;
+    var p = std.json.Parser.init(allocator, false);
+    
+    _ = p.parse(s) catch {};
+}
+
+fn anyStreamingErrNonStreaming(comptime s: []const u8) void {
+    _ = std.json.validate(s);
+
+    var mem_buffer: [1024 * 20]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(&mem_buffer).allocator;
+    var p = std.json.Parser.init(allocator, false);
+
+    if(p.parse(s)) |_| {
+        unreachable;
+    } else |_| {}
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -611,9 +643,9 @@ test "n_array_colon_instead_of_comma" {
 }
 
 test "n_array_comma_after_close" {
-    //err(
-    //    \\[""],
-    //);
+    err(
+        \\[""],
+    );
 }
 
 test "n_array_comma_and_number" {
@@ -641,9 +673,9 @@ test "n_array_extra_close" {
 }
 
 test "n_array_extra_comma" {
-    //err(
-    //    \\["",]
-    //);
+    err(
+        \\["",]
+    );
 }
 
 test "n_array_incomplete_invalid_value" {
@@ -1708,9 +1740,11 @@ test "i_number_double_huge_neg_exp" {
 }
 
 test "i_number_huge_exp" {
-    any(
-        \\[0.4e00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]
-    );
+    return error.SkipZigTest;
+    // FIXME Integer overflow in parseFloat
+//     any(
+//         \\[0.4e00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]
+//     );
 }
 
 test "i_number_neg_int_huge_exp" {
@@ -1762,49 +1796,49 @@ test "i_number_very_big_negative_int" {
 }
 
 test "i_object_key_lone_2nd_surrogate" {
-    any(
+    anyStreamingErrNonStreaming(
         \\{"\uDFAA":0}
     );
 }
 
 test "i_string_1st_surrogate_but_2nd_missing" {
-    any(
+    anyStreamingErrNonStreaming(
         \\["\uDADA"]
     );
 }
 
 test "i_string_1st_valid_surrogate_2nd_invalid" {
-    any(
+    anyStreamingErrNonStreaming(
         \\["\uD888\u1234"]
     );
 }
 
 test "i_string_incomplete_surrogate_and_escape_valid" {
-    any(
+    anyStreamingErrNonStreaming(
         \\["\uD800\n"]
     );
 }
 
 test "i_string_incomplete_surrogate_pair" {
-    any(
+    anyStreamingErrNonStreaming(
         \\["\uDd1ea"]
     );
 }
 
 test "i_string_incomplete_surrogates_escape_valid" {
-    any(
+    anyStreamingErrNonStreaming(
         \\["\uD800\uD800\n"]
     );
 }
 
 test "i_string_invalid_lonely_surrogate" {
-    any(
+    anyStreamingErrNonStreaming(
         \\["\ud800"]
     );
 }
 
 test "i_string_invalid_surrogate" {
-    any(
+    anyStreamingErrNonStreaming(
         \\["\ud800abc"]
     );
 }
@@ -1816,7 +1850,7 @@ test "i_string_invalid_utf-8" {
 }
 
 test "i_string_inverted_surrogates_U+1D11E" {
-    any(
+    anyStreamingErrNonStreaming(
         \\["\uDd1e\uD834"]
     );
 }
@@ -1828,7 +1862,7 @@ test "i_string_iso_latin_1" {
 }
 
 test "i_string_lone_second_surrogate" {
-    any(
+    anyStreamingErrNonStreaming(
         \\["\uDFAA"]
     );
 }
