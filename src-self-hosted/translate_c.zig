@@ -1792,7 +1792,10 @@ fn transDoWhileLoop(
         // zig:   b;
         // zig:   if (!cond) break;
         // zig: }
-        break :blk (try transStmt(rp, &loop_scope, ZigClangDoStmt_getBody(stmt), .unused, .r_value)).cast(ast.Node.Block).?;
+        const body = (try transStmt(rp, &loop_scope, ZigClangDoStmt_getBody(stmt), .unused, .r_value)).cast(ast.Node.Block).?;
+        // if this is used as an expression in Zig it needs to be immediately followed by a semicolon
+        _ = try appendToken(rp.c, .Semicolon, ";");
+        break :blk body;
     } else blk: {
         // the C statement is without a block, so we need to create a block to contain it.
         // c: do

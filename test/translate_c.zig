@@ -2185,4 +2185,17 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const FOO = if (a) b else c;
     });
+
+    cases.add("do while as expr",
+        \\static void foo(void) {
+        \\    if (1)
+        \\        do {} while (0);
+        \\}
+    , &[_][]const u8{
+        \\pub fn foo() void {
+        \\    if (1 != 0) while (true) {
+        \\        if (!(0 != 0)) break;
+        \\    };
+        \\}
+    });
 }
