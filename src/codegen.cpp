@@ -1725,11 +1725,14 @@ static void gen_var_debug_decl(CodeGen *g, ZigVar *var) {
 
 static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
     Error err;
-    if ((err = type_resolve(g, instruction->value->type, ResolveStatusZeroBitsKnown))) {
+
+    bool value_has_bits;
+    if ((err = type_has_bits2(g, instruction->value->type, &value_has_bits)))
         codegen_report_errors_and_exit(g);
-    }
-    if (!type_has_bits(instruction->value->type))
+
+    if (!value_has_bits)
         return nullptr;
+
     if (!instruction->llvm_value) {
         if (instruction->id == IrInstructionIdAwaitGen) {
             IrInstructionAwaitGen *await = reinterpret_cast<IrInstructionAwaitGen*>(instruction);
@@ -5560,13 +5563,21 @@ static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executab
 static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *executable,
         IrInstructionUnwrapErrPayload *instruction)
 {
+    Error err;
+
     if (instruction->base.value->special != ConstValSpecialRuntime)
         return nullptr;
 
     bool want_safety = instruction->safety_check_on && ir_want_runtime_safety(g, &instruction->base) &&
         g->errors_by_index.length > 1;
-    if (!want_safety && !type_has_bits(instruction->base.value->type))
+
+    bool value_has_bits;
+    if ((err = type_has_bits2(g, instruction->base.value->type, &value_has_bits)))
+        codegen_report_errors_and_exit(g);
+
+    if (!want_safety && !value_has_bits)
         return nullptr;
+
     ZigType *ptr_type = instruction->value->value->type;
     assert(ptr_type->id == ZigTypeIdPointer);
     ZigType *err_union_type = ptr_type->data.pointer.child_type;
