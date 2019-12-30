@@ -1346,7 +1346,7 @@ fn unescapeStringAlloc(alloc: *Allocator, input: []const u8) ![]u8 {
                 
                 const secondCodeUnit = std.fmt.parseInt(u16, input[inIndex+8 .. inIndex+12], 16) catch unreachable;
                 
-                if(std.unicode.utf16leToUtf8(output[outIndex..], [2]u16{ firstCodeUnit, secondCodeUnit })) |byteCount| {
+                if(std.unicode.utf16leToUtf8(output[outIndex..], &[2]u16{ firstCodeUnit, secondCodeUnit })) |byteCount| {
                     outIndex += byteCount;
                     inIndex += 12;
                 } else |_| {
