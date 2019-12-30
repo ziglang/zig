@@ -13,78 +13,38 @@ pub const WriteStream = @import("json/write_stream.zig").WriteStream;
 /// A single token slice into the parent string.
 ///
 /// Use `token.slice()` on the input at the current position to get the current slice.
-pub const Token = struct {
-    id: Id,
+pub const Token = union(enum) {
+    ObjectBegin,
+    ObjectEnd,
+    ArrayBegin,
+    ArrayEnd,
+    String: struct {
+        /// How many bytes the token is.
+        count: usize,
 
-    /// How many bytes do we skip before counting
-    offset: u1,
+        /// Whether string contains an escape sequence and cannot be zero-copied
+        has_escape: bool,
 
-    /// Whether string contains an escape sequence and cannot be zero-copied
-    string_has_escape: bool,
+        /// Slice into the underlying input string.
+        pub fn slice(self: @This(), input: []const u8, i: usize) []const u8 {
+            return input[i - self.count .. i];
+        }
+    },
+    Number: struct {
+        /// How many bytes the token is.
+        count: usize,
 
-    /// Whether number is simple and can be represented by an integer (i.e. no `.` or `e`)
-    number_is_integer: bool,
+        /// Whether number is simple and can be represented by an integer (i.e. no `.` or `e`)
+        is_integer: bool,
 
-    /// How many bytes from the current position behind the start of this token is.
-    count: usize,
-
-    pub const Id = enum {
-        ObjectBegin,
-        ObjectEnd,
-        ArrayBegin,
-        ArrayEnd,
-        String,
-        Number,
-        True,
-        False,
-        Null,
-    };
-
-    pub fn init(id: Id, count: usize, offset: u1) Token {
-        return Token{
-            .id = id,
-            .offset = offset,
-            .string_has_escape = false,
-            .number_is_integer = true,
-            .count = count,
-        };
-    }
-
-    pub fn initString(count: usize, has_unicode_escape: bool) Token {
-        return Token{
-            .id = Id.String,
-            .offset = 0,
-            .string_has_escape = has_unicode_escape,
-            .number_is_integer = true,
-            .count = count,
-        };
-    }
-
-    pub fn initNumber(count: usize, number_is_integer: bool) Token {
-        return Token{
-            .id = Id.Number,
-            .offset = 0,
-            .string_has_escape = false,
-            .number_is_integer = number_is_integer,
-            .count = count,
-        };
-    }
-
-    /// A marker token is a zero-length
-    pub fn initMarker(id: Id) Token {
-        return Token{
-            .id = id,
-            .offset = 0,
-            .string_has_escape = false,
-            .number_is_integer = true,
-            .count = 0,
-        };
-    }
-
-    /// Slice into the underlying input string.
-    pub fn slice(self: Token, input: []const u8, i: usize) []const u8 {
-        return input[i + self.offset - self.count .. i + self.offset];
-    }
+        /// Slice into the underlying input string.
+        pub fn slice(self: @This(), input: []const u8, i: usize) []const u8 {
+            return input[i - self.count .. i];
+        }
+    },
+    True,
+    False,
+    Null,
 };
 
 /// A small streaming JSON parser. This accepts input one byte at a time and returns tokens as
@@ -236,7 +196,7 @@ pub const StreamingParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ObjectSeparator;
 
-                    token.* = Token.initMarker(Token.Id.ObjectBegin);
+                    token.* = Token.ObjectBegin;
                 },
                 '[' => {
                     p.stack <<= 1;
@@ -246,7 +206,7 @@ pub const StreamingParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ValueEnd;
 
-                    token.* = Token.initMarker(Token.Id.ArrayBegin);
+                    token.* = Token.ArrayBegin;
                 },
                 '-' => {
                     p.number_is_integer = true;
@@ -334,7 +294,7 @@ pub const StreamingParser = struct {
                         },
                     }
 
-                    token.* = Token.initMarker(Token.Id.ObjectEnd);
+                    token.* = Token.ObjectEnd;
                 },
                 ']' => {
                     if (p.stack & 1 != array_bit) {
@@ -360,7 +320,7 @@ pub const StreamingParser = struct {
                         },
                     }
 
-                    token.* = Token.initMarker(Token.Id.ArrayEnd);
+                    token.* = Token.ArrayEnd;
                 },
                 '{' => {
                     if (p.stack_used == max_stack_size) {
@@ -374,7 +334,7 @@ pub const StreamingParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ObjectSeparator;
 
-                    token.* = Token.initMarker(Token.Id.ObjectBegin);
+                    token.* = Token.ObjectBegin;
                 },
                 '[' => {
                     if (p.stack_used == max_stack_size) {
@@ -388,7 +348,7 @@ pub const StreamingParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ValueEnd;
 
-                    token.* = Token.initMarker(Token.Id.ArrayBegin);
+                    token.* = Token.ArrayBegin;
                 },
                 '-' => {
                     p.number_is_integer = true;
@@ -443,7 +403,7 @@ pub const StreamingParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ObjectSeparator;
 
-                    token.* = Token.initMarker(Token.Id.ObjectBegin);
+                    token.* = Token.ObjectBegin;
                 },
                 '[' => {
                     if (p.stack_used == max_stack_size) {
@@ -457,7 +417,7 @@ pub const StreamingParser = struct {
                     p.state = State.ValueBegin;
                     p.after_string_state = State.ValueEnd;
 
-                    token.* = Token.initMarker(Token.Id.ArrayBegin);
+                    token.* = Token.ArrayBegin;
                 },
                 '-' => {
                     p.number_is_integer = true;
@@ -519,7 +479,7 @@ pub const StreamingParser = struct {
                         p.state = State.TopLevelEnd;
                     }
 
-                    token.* = Token.initMarker(Token.Id.ArrayEnd);
+                    token.* = Token.ArrayEnd;
                 },
                 '}' => {
                     if (p.stack_used == 0) {
@@ -537,7 +497,7 @@ pub const StreamingParser = struct {
                         p.state = State.TopLevelEnd;
                     }
 
-                    token.* = Token.initMarker(Token.Id.ObjectEnd);
+                    token.* = Token.ObjectEnd;
                 },
                 0x09, 0x0A, 0x0D, 0x20 => {
                     // whitespace
@@ -571,7 +531,12 @@ pub const StreamingParser = struct {
                         p.complete = true;
                     }
 
-                    token.* = Token.initString(p.count - 1, p.string_has_escape);
+                    token.* = .{
+                        .String = .{
+                            .count = p.count - 1,
+                            .has_escape = p.string_has_escape,
+                        },
+                    };
                 },
                 '\\' => {
                     p.state = State.StringEscapeCharacter;
@@ -686,7 +651,12 @@ pub const StreamingParser = struct {
                     },
                     else => {
                         p.state = p.after_value_state;
-                        token.* = Token.initNumber(p.count, p.number_is_integer);
+                        token.* = .{
+                            .Number = .{
+                                .count = p.count,
+                                .is_integer = p.number_is_integer,
+                            },
+                        };
                         return true;
                     },
                 }
@@ -708,7 +678,12 @@ pub const StreamingParser = struct {
                     },
                     else => {
                         p.state = p.after_value_state;
-                        token.* = Token.initNumber(p.count, p.number_is_integer);
+                        token.* = .{
+                            .Number = .{
+                                .count = p.count,
+                                .is_integer = p.number_is_integer,
+                            },
+                        };
                         return true;
                     },
                 }
@@ -738,7 +713,12 @@ pub const StreamingParser = struct {
                     },
                     else => {
                         p.state = p.after_value_state;
-                        token.* = Token.initNumber(p.count, p.number_is_integer);
+                        token.* = .{
+                            .Number = .{
+                                .count = p.count,
+                                .is_integer = p.number_is_integer,
+                            },
+                        };
                         return true;
                     },
                 }
@@ -753,7 +733,12 @@ pub const StreamingParser = struct {
                     },
                     else => {
                         p.state = p.after_value_state;
-                        token.* = Token.initNumber(p.count, p.number_is_integer);
+                        token.* = .{
+                            .Number = .{
+                                .count = p.count,
+                                .is_integer = p.number_is_integer,
+                            },
+                        };
                         return true;
                     },
                 }
@@ -791,7 +776,12 @@ pub const StreamingParser = struct {
                     },
                     else => {
                         p.state = p.after_value_state;
-                        token.* = Token.initNumber(p.count, p.number_is_integer);
+                        token.* = .{
+                            .Number = .{
+                                .count = p.count,
+                                .is_integer = p.number_is_integer,
+                            },
+                        };
                         return true;
                     },
                 }
@@ -811,7 +801,7 @@ pub const StreamingParser = struct {
                 'e' => {
                     p.state = p.after_value_state;
                     p.complete = p.state == State.TopLevelEnd;
-                    token.* = Token.init(Token.Id.True, p.count + 1, 1);
+                    token.* = Token.True;
                 },
                 else => {
                     return error.InvalidLiteral;
@@ -837,7 +827,7 @@ pub const StreamingParser = struct {
                 'e' => {
                     p.state = p.after_value_state;
                     p.complete = p.state == State.TopLevelEnd;
-                    token.* = Token.init(Token.Id.False, p.count + 1, 1);
+                    token.* = Token.False;
                 },
                 else => {
                     return error.InvalidLiteral;
@@ -858,7 +848,7 @@ pub const StreamingParser = struct {
                 'l' => {
                     p.state = p.after_value_state;
                     p.complete = p.state == State.TopLevelEnd;
-                    token.* = Token.init(Token.Id.Null, p.count + 1, 1);
+                    token.* = Token.Null;
                 },
                 else => {
                     return error.InvalidLiteral;
@@ -923,9 +913,9 @@ pub const TokenStream = struct {
     }
 };
 
-fn checkNext(p: *TokenStream, id: Token.Id) void {
+fn checkNext(p: *TokenStream, id: std.meta.TagType(Token)) void {
     const token = (p.next() catch unreachable).?;
-    debug.assert(token.id == id);
+    debug.assert(std.meta.activeTag(token) == id);
 }
 
 test "json.token" {
@@ -948,35 +938,35 @@ test "json.token" {
 
     var p = TokenStream.init(s);
 
-    checkNext(&p, Token.Id.ObjectBegin);
-    checkNext(&p, Token.Id.String); // Image
-    checkNext(&p, Token.Id.ObjectBegin);
-    checkNext(&p, Token.Id.String); // Width
-    checkNext(&p, Token.Id.Number);
-    checkNext(&p, Token.Id.String); // Height
-    checkNext(&p, Token.Id.Number);
-    checkNext(&p, Token.Id.String); // Title
-    checkNext(&p, Token.Id.String);
-    checkNext(&p, Token.Id.String); // Thumbnail
-    checkNext(&p, Token.Id.ObjectBegin);
-    checkNext(&p, Token.Id.String); // Url
-    checkNext(&p, Token.Id.String);
-    checkNext(&p, Token.Id.String); // Height
-    checkNext(&p, Token.Id.Number);
-    checkNext(&p, Token.Id.String); // Width
-    checkNext(&p, Token.Id.Number);
-    checkNext(&p, Token.Id.ObjectEnd);
-    checkNext(&p, Token.Id.String); // Animated
-    checkNext(&p, Token.Id.False);
-    checkNext(&p, Token.Id.String); // IDs
-    checkNext(&p, Token.Id.ArrayBegin);
-    checkNext(&p, Token.Id.Number);
-    checkNext(&p, Token.Id.Number);
-    checkNext(&p, Token.Id.Number);
-    checkNext(&p, Token.Id.Number);
-    checkNext(&p, Token.Id.ArrayEnd);
-    checkNext(&p, Token.Id.ObjectEnd);
-    checkNext(&p, Token.Id.ObjectEnd);
+    checkNext(&p, .ObjectBegin);
+    checkNext(&p, .String); // Image
+    checkNext(&p, .ObjectBegin);
+    checkNext(&p, .String); // Width
+    checkNext(&p, .Number);
+    checkNext(&p, .String); // Height
+    checkNext(&p, .Number);
+    checkNext(&p, .String); // Title
+    checkNext(&p, .String);
+    checkNext(&p, .String); // Thumbnail
+    checkNext(&p, .ObjectBegin);
+    checkNext(&p, .String); // Url
+    checkNext(&p, .String);
+    checkNext(&p, .String); // Height
+    checkNext(&p, .Number);
+    checkNext(&p, .String); // Width
+    checkNext(&p, .Number);
+    checkNext(&p, .ObjectEnd);
+    checkNext(&p, .String); // Animated
+    checkNext(&p, .False);
+    checkNext(&p, .String); // IDs
+    checkNext(&p, .ArrayBegin);
+    checkNext(&p, .Number);
+    checkNext(&p, .Number);
+    checkNext(&p, .Number);
+    checkNext(&p, .Number);
+    checkNext(&p, .ArrayEnd);
+    checkNext(&p, .ObjectEnd);
+    checkNext(&p, .ObjectEnd);
 
     testing.expect((try p.next()) == null);
 }
@@ -1122,8 +1112,8 @@ pub const Parser = struct {
     // can be cleaned up on error correctly during a `parse` on call.
     fn transition(p: *Parser, allocator: *Allocator, input: []const u8, i: usize, token: Token) !void {
         switch (p.state) {
-            State.ObjectKey => switch (token.id) {
-                Token.Id.ObjectEnd => {
+            State.ObjectKey => switch (token) {
+                .ObjectEnd => {
                     if (p.stack.len == 1) {
                         return;
                     }
@@ -1131,8 +1121,8 @@ pub const Parser = struct {
                     var value = p.stack.pop();
                     try p.pushToParent(&value);
                 },
-                Token.Id.String => {
-                    try p.stack.append(try p.parseString(allocator, token, input, i));
+                .String => |s| {
+                    try p.stack.append(try p.parseString(allocator, s, input, i));
                     p.state = State.ObjectValue;
                 },
                 else => {
@@ -1146,41 +1136,41 @@ pub const Parser = struct {
                 var object = &p.stack.items[p.stack.len - 2].Object;
                 var key = p.stack.items[p.stack.len - 1].String;
 
-                switch (token.id) {
-                    Token.Id.ObjectBegin => {
+                switch (token) {
+                    .ObjectBegin => {
                         try p.stack.append(Value{ .Object = ObjectMap.init(allocator) });
                         p.state = State.ObjectKey;
                     },
-                    Token.Id.ArrayBegin => {
+                    .ArrayBegin => {
                         try p.stack.append(Value{ .Array = Array.init(allocator) });
                         p.state = State.ArrayValue;
                     },
-                    Token.Id.String => {
-                        _ = try object.put(key, try p.parseString(allocator, token, input, i));
+                    .String => |s| {
+                        _ = try object.put(key, try p.parseString(allocator, s, input, i));
                         _ = p.stack.pop();
                         p.state = State.ObjectKey;
                     },
-                    Token.Id.Number => {
-                        _ = try object.put(key, try p.parseNumber(token, input, i));
+                    .Number => |n| {
+                        _ = try object.put(key, try p.parseNumber(n, input, i));
                         _ = p.stack.pop();
                         p.state = State.ObjectKey;
                     },
-                    Token.Id.True => {
+                    .True => {
                         _ = try object.put(key, Value{ .Bool = true });
                         _ = p.stack.pop();
                         p.state = State.ObjectKey;
                     },
-                    Token.Id.False => {
+                    .False => {
                         _ = try object.put(key, Value{ .Bool = false });
                         _ = p.stack.pop();
                         p.state = State.ObjectKey;
                     },
-                    Token.Id.Null => {
+                    .Null => {
                         _ = try object.put(key, Value.Null);
                         _ = p.stack.pop();
                         p.state = State.ObjectKey;
                     },
-                    Token.Id.ObjectEnd, Token.Id.ArrayEnd => {
+                    .ObjectEnd, .ArrayEnd => {
                         unreachable;
                     },
                 }
@@ -1188,8 +1178,8 @@ pub const Parser = struct {
             State.ArrayValue => {
                 var array = &p.stack.items[p.stack.len - 1].Array;
 
-                switch (token.id) {
-                    Token.Id.ArrayEnd => {
+                switch (token) {
+                    .ArrayEnd => {
                         if (p.stack.len == 1) {
                             return;
                         }
@@ -1197,59 +1187,59 @@ pub const Parser = struct {
                         var value = p.stack.pop();
                         try p.pushToParent(&value);
                     },
-                    Token.Id.ObjectBegin => {
+                    .ObjectBegin => {
                         try p.stack.append(Value{ .Object = ObjectMap.init(allocator) });
                         p.state = State.ObjectKey;
                     },
-                    Token.Id.ArrayBegin => {
+                    .ArrayBegin => {
                         try p.stack.append(Value{ .Array = Array.init(allocator) });
                         p.state = State.ArrayValue;
                     },
-                    Token.Id.String => {
-                        try array.append(try p.parseString(allocator, token, input, i));
+                    .String => |s| {
+                        try array.append(try p.parseString(allocator, s, input, i));
                     },
-                    Token.Id.Number => {
-                        try array.append(try p.parseNumber(token, input, i));
+                    .Number => |n| {
+                        try array.append(try p.parseNumber(n, input, i));
                     },
-                    Token.Id.True => {
+                    .True => {
                         try array.append(Value{ .Bool = true });
                     },
-                    Token.Id.False => {
+                    .False => {
                         try array.append(Value{ .Bool = false });
                     },
-                    Token.Id.Null => {
+                    .Null => {
                         try array.append(Value.Null);
                     },
-                    Token.Id.ObjectEnd => {
+                    .ObjectEnd => {
                         unreachable;
                     },
                 }
             },
-            State.Simple => switch (token.id) {
-                Token.Id.ObjectBegin => {
+            State.Simple => switch (token) {
+                .ObjectBegin => {
                     try p.stack.append(Value{ .Object = ObjectMap.init(allocator) });
                     p.state = State.ObjectKey;
                 },
-                Token.Id.ArrayBegin => {
+                .ArrayBegin => {
                     try p.stack.append(Value{ .Array = Array.init(allocator) });
                     p.state = State.ArrayValue;
                 },
-                Token.Id.String => {
-                    try p.stack.append(try p.parseString(allocator, token, input, i));
+                .String => |s| {
+                    try p.stack.append(try p.parseString(allocator, s, input, i));
                 },
-                Token.Id.Number => {
-                    try p.stack.append(try p.parseNumber(token, input, i));
+                .Number => |n| {
+                    try p.stack.append(try p.parseNumber(n, input, i));
                 },
-                Token.Id.True => {
+                .True => {
                     try p.stack.append(Value{ .Bool = true });
                 },
-                Token.Id.False => {
+                .False => {
                     try p.stack.append(Value{ .Bool = false });
                 },
-                Token.Id.Null => {
+                .Null => {
                     try p.stack.append(Value.Null);
                 },
-                Token.Id.ObjectEnd, Token.Id.ArrayEnd => {
+                .ObjectEnd, .ArrayEnd => {
                     unreachable;
                 },
             },
@@ -1277,18 +1267,18 @@ pub const Parser = struct {
         }
     }
 
-    fn parseString(p: *Parser, allocator: *Allocator, token: Token, input: []const u8, i: usize) !Value {
+    fn parseString(p: *Parser, allocator: *Allocator, s: std.meta.TagPayloadType(Token, Token.String), input: []const u8, i: usize) !Value {
         // TODO: We don't strictly have to copy values which do not contain any escape
         // characters if flagged with the option.
-        const slice = token.slice(input, i);
+        const slice = s.slice(input, i);
         return Value{ .String = try unescapeStringAlloc(allocator, slice) };
     }
 
-    fn parseNumber(p: *Parser, token: Token, input: []const u8, i: usize) !Value {
-        return if (token.number_is_integer)
-            Value{ .Integer = try std.fmt.parseInt(i64, token.slice(input, i), 10) }
+    fn parseNumber(p: *Parser, n: std.meta.TagPayloadType(Token, Token.Number), input: []const u8, i: usize) !Value {
+        return if (n.is_integer)
+            Value{ .Integer = try std.fmt.parseInt(i64, n.slice(input, i), 10) }
         else
-            Value{ .Float = try std.fmt.parseFloat(f64, token.slice(input, i)) };
+            Value{ .Float = try std.fmt.parseFloat(f64, n.slice(input, i)) };
     }
 };
 
