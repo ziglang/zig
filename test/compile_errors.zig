@@ -2,6 +2,16 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("comptime ptrcast of zero-sized type",
+        \\fn foo() void {
+        \\    const node: struct {} = undefined;
+        \\    const vla_ptr = @ptrCast([*]const u8, &node);
+        \\}
+        \\comptime { foo(); }
+    , &[_][]const u8{
+        "tmp.zig:3:21: error: '*const struct:2:17' and '[*]const u8' do not have the same in-memory representation",
+    });
+
     cases.add("slice sentinel mismatch",
         \\fn foo() [:0]u8 {
         \\    var x: []u8 = undefined;
