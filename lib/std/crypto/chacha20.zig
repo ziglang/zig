@@ -470,15 +470,15 @@ pub fn chacha20poly1305Seal(dst: []u8, plaintext: []const u8, data: []const u8, 
 }
 
 /// Verifies and decrypts an authenticated message produced by chacha20poly1305Seal.
-pub fn chacha20poly1305Open(dst: []u8, ciphertext: []const u8, data: []const u8, key: [32]u8, nonce: [12]u8) !void {
-    if (ciphertext.len < chacha20poly1305_tag_size) {
+pub fn chacha20poly1305Open(dst: []u8, msgAndTag: []const u8, data: []const u8, key: [32]u8, nonce: [12]u8) !void {
+    if (msgAndTag.len < chacha20poly1305_tag_size) {
         return error.InvalidMessage;
     }
 
     // split ciphertext and tag
-    assert(dst.len >= ciphertext.len - chacha20poly1305_tag_size);
-    var polyTag = ciphertext[ciphertext.len - chacha20poly1305_tag_size ..];
-    ciphertext = ciphertext[0 .. ciphertext.len - chacha20poly1305_tag_size];
+    assert(dst.len >= msgAndTag.len - chacha20poly1305_tag_size);
+    var ciphertext = msgAndTag[0 .. msgAndTag.len - chacha20poly1305_tag_size];
+    var polyTag = msgAndTag[ciphertext.len..];
 
     // derive poly1305 key
     var polyKey = [_]u8{0} ** 32;
@@ -534,7 +534,7 @@ test "seal" {
 
         var out: [exp_out.len]u8 = undefined;
         chacha20poly1305Seal(out[0..], plaintext, data, key, nonce);
-        testing.expectEqualSlices(u8, exp_out, out);
+        testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
     }
     {
         const plaintext = [_]u8{
@@ -567,7 +567,7 @@ test "seal" {
 
         var out: [exp_out.len]u8 = undefined;
         chacha20poly1305Seal(out[0..], plaintext[0..], data[0..], key, nonce);
-        testing.expectEqualSlices(u8, exp_out, out);
+        testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
     }
 }
 
@@ -584,7 +584,7 @@ test "open" {
 
         var out: [exp_out.len]u8 = undefined;
         try chacha20poly1305Open(out[0..], ciphertext[0..], data, key, nonce);
-        testing.expectEqualSlices(u8, exp_out, out);
+        testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
     }
     {
         const ciphertext = [_]u8{
@@ -617,23 +617,23 @@ test "open" {
 
         var out: [exp_out.len]u8 = undefined;
         try chacha20poly1305Open(out[0..], ciphertext[0..], data[0..], key, nonce);
-        testing.expectEqualSlices(u8, exp_out, out);
+        testing.expectEqualSlices(u8, exp_out[0..], out[0..]);
 
         // corrupting the ciphertext, data, key, or nonce should cause a failure
         var bad_ciphertext = ciphertext;
         bad_ciphertext[0] ^= 1;
-        testing.expectError(error.AuthenticationFailed, chacha20poly1305Open(out[0..], bad_ciphertext[0..], data, key, nonce));
+        testing.expectError(error.AuthenticationFailed, chacha20poly1305Open(out[0..], bad_ciphertext[0..], data[0..], key, nonce));
         var bad_data = data;
         bad_data[0] ^= 1;
-        testing.expectError(error.AuthenticationFailed, chacha20poly1305Open(out[0..], ciphertext[0..], bad_data, key, nonce));
+        testing.expectError(error.AuthenticationFailed, chacha20poly1305Open(out[0..], ciphertext[0..], bad_data[0..], key, nonce));
         var bad_key = key;
         bad_key[0] ^= 1;
-        testing.expectError(error.AuthenticationFailed, chacha20poly1305Open(out[0..], ciphertext[0..], data, bad_key, nonce));
+        testing.expectError(error.AuthenticationFailed, chacha20poly1305Open(out[0..], ciphertext[0..], data[0..], bad_key, nonce));
         var bad_nonce = nonce;
         bad_nonce[0] ^= 1;
-        testing.expectError(error.AuthenticationFailed, chacha20poly1305Open(out[0..], ciphertext[0..], data, key, bad_nonce));
+        testing.expectError(error.AuthenticationFailed, chacha20poly1305Open(out[0..], ciphertext[0..], data[0..], key, bad_nonce));
 
         // a short ciphertext should result in a different error
-        testing.expectError(error.InvalidMessage, chacha20poly1305Open(out[0..], "", data, key, bad_nonce));
+        testing.expectError(error.InvalidMessage, chacha20poly1305Open(out[0..], "", data[0..], key, bad_nonce));
     }
 }
