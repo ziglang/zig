@@ -2,6 +2,14 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("comparing against undefined",
+        \\pub fn main() void {
+        \\    _ = 2 == undefined;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:11: error: comparison of 'comptime_int' with undefined",
+    });
+
     cases.add("slice sentinel mismatch",
         \\fn foo() [:0]u8 {
         \\    var x: []u8 = undefined;

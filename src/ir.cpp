@@ -15118,6 +15118,11 @@ static IrInstruction *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *
         ir_add_error_node(ira, source_node, buf_sprintf("comparison of '%s' with null",
             buf_ptr(&non_null_type->name)));
         return ira->codegen->invalid_instruction;
+    } else if (op1->value->type->id == ZigTypeIdUndefined || op2->value->type->id == ZigTypeIdUndefined) {
+        ZigType *other_type = (op1->value->type->id == ZigTypeIdUndefined) ? op2->value->type : op1->value->type;
+        ir_add_error_node(ira, source_node, buf_sprintf("comparison of '%s' with undefined",
+            buf_ptr(&other_type->name)));
+        return ira->codegen->invalid_instruction;
     } else if (is_equality_cmp && (
         (op1->value->type->id == ZigTypeIdEnumLiteral && op2->value->type->id == ZigTypeIdUnion) ||
         (op2->value->type->id == ZigTypeIdEnumLiteral && op1->value->type->id == ZigTypeIdUnion)))
