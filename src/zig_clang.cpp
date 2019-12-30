@@ -13,6 +13,7 @@
  * 3. Prevent C++ from infecting the rest of the project.
  */
 #include "zig_clang.h"
+#include "list.hpp"
 
 #if __GNUC__ >= 8
 #pragma GCC diagnostic push
@@ -1947,35 +1948,28 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
     bool allow_pch_with_compiler_errors = false;
     bool single_file_parse = false;
     bool for_serialization = false;
-    std::unique_ptr<clang::ASTUnit> *err_unit = new std::unique_ptr<clang::ASTUnit>();
+    std::unique_ptr<clang::ASTUnit> err_unit;
     clang::ASTUnit *ast_unit = clang::ASTUnit::LoadFromCommandLine(
             args_begin, args_end,
             pch_container_ops, diags, resources_path,
             only_local_decls, clang::CaptureDiagsKind::All, clang::None, true, 0, clang::TU_Complete,
             false, false, allow_pch_with_compiler_errors, clang::SkipFunctionBodiesScope::None,
-            single_file_parse, user_files_are_volatile, for_serialization, clang::None, err_unit,
+            single_file_parse, user_files_are_volatile, for_serialization, clang::None, &err_unit,
             nullptr);
+
+    *errors_len = 0;
 
     // Early failures in LoadFromCommandLine may return with ErrUnit unset.
     if (!ast_unit && !err_unit) {
         return nullptr;
     }
 
-    if (diags->getClient()->getNumErrors() > 0) {
-        if (ast_unit) {
-            *err_unit = std::unique_ptr<clang::ASTUnit>(ast_unit);
-        }
+    if (diags->hasErrorOccurred()) {
+        clang::ASTUnit *unit = ast_unit ? ast_unit : err_unit.get();
+        ZigList<Stage2ErrorMsg> errors = {};
 
-        size_t cap = 4;
-        *errors_len = 0;
-        *errors_ptr = reinterpret_cast<Stage2ErrorMsg*>(malloc(cap * sizeof(Stage2ErrorMsg)));
-        if (*errors_ptr == nullptr) {
-            return nullptr;
-        }
-
-        for (clang::ASTUnit::stored_diag_iterator it = (*err_unit)->stored_diag_begin(),
-                it_end = (*err_unit)->stored_diag_end();
-                it != it_end; ++it)
+        for (clang::ASTUnit::stored_diag_iterator it = unit->stored_diag_begin(),
+             it_end = unit->stored_diag_end(); it != it_end; ++it)
         {
             switch (it->getLevel()) {
                 case clang::DiagnosticsEngine::Ignored:
@@ -1987,21 +1981,10 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
                 case clang::DiagnosticsEngine::Fatal:
                     break;
             }
+
             llvm::StringRef msg_str_ref = it->getMessage();
-            if (*errors_len >= cap) {
-                cap *= 2;
-                Stage2ErrorMsg *new_errors = reinterpret_cast<Stage2ErrorMsg *>(
-                        realloc(*errors_ptr, cap * sizeof(Stage2ErrorMsg)));
-                if (new_errors == nullptr) {
-                    free(*errors_ptr);
-                    *errors_ptr = nullptr;
-                    *errors_len = 0;
-                    return nullptr;
-                }
-                *errors_ptr = new_errors;
-            }
-            Stage2ErrorMsg *msg = *errors_ptr + *errors_len;
-            *errors_len += 1;
+
+            Stage2ErrorMsg *msg = errors.add_one();
             msg->msg_ptr = (const char *)msg_str_ref.bytes_begin();
             msg->msg_len = msg_str_ref.size();
 
@@ -2027,10 +2010,8 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
             }
         }
 
-        if (*errors_len == 0) {
-            free(*errors_ptr);
-            *errors_ptr = nullptr;
-        }
+        *errors_ptr = errors.items;
+        *errors_len = errors.length;
 
         return nullptr;
     }
