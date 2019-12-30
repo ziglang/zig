@@ -84,11 +84,11 @@ pub const StreamingParser = struct {
     }
 
     pub fn reset(p: *StreamingParser) void {
-        p.state = State.TopLevelBegin;
+        p.state = .TopLevelBegin;
         p.count = 0;
         // Set before ever read in main transition function
         p.after_string_state = undefined;
-        p.after_value_state = State.ValueEnd; // handle end of values normally
+        p.after_value_state = .ValueEnd; // handle end of values normally
         p.stack = 0;
         p.stack_used = 0;
         p.complete = false;
@@ -187,14 +187,14 @@ pub const StreamingParser = struct {
     // Perform a single transition on the state machine and return any possible token.
     fn transition(p: *StreamingParser, c: u8, token: *?Token) Error!bool {
         switch (p.state) {
-            State.TopLevelBegin => switch (c) {
+            .TopLevelBegin => switch (c) {
                 '{' => {
                     p.stack <<= 1;
                     p.stack |= object_bit;
                     p.stack_used += 1;
 
-                    p.state = State.ValueBegin;
-                    p.after_string_state = State.ObjectSeparator;
+                    p.state = .ValueBegin;
+                    p.after_string_state = .ObjectSeparator;
 
                     token.* = Token.ObjectBegin;
                 },
@@ -203,50 +203,50 @@ pub const StreamingParser = struct {
                     p.stack |= array_bit;
                     p.stack_used += 1;
 
-                    p.state = State.ValueBegin;
-                    p.after_string_state = State.ValueEnd;
+                    p.state = .ValueBegin;
+                    p.after_string_state = .ValueEnd;
 
                     token.* = Token.ArrayBegin;
                 },
                 '-' => {
                     p.number_is_integer = true;
-                    p.state = State.Number;
-                    p.after_value_state = State.TopLevelEnd;
+                    p.state = .Number;
+                    p.after_value_state = .TopLevelEnd;
                     p.count = 0;
                 },
                 '0' => {
                     p.number_is_integer = true;
-                    p.state = State.NumberMaybeDotOrExponent;
-                    p.after_value_state = State.TopLevelEnd;
+                    p.state = .NumberMaybeDotOrExponent;
+                    p.after_value_state = .TopLevelEnd;
                     p.count = 0;
                 },
                 '1'...'9' => {
                     p.number_is_integer = true;
-                    p.state = State.NumberMaybeDigitOrDotOrExponent;
-                    p.after_value_state = State.TopLevelEnd;
+                    p.state = .NumberMaybeDigitOrDotOrExponent;
+                    p.after_value_state = .TopLevelEnd;
                     p.count = 0;
                 },
                 '"' => {
-                    p.state = State.String;
-                    p.after_value_state = State.TopLevelEnd;
+                    p.state = .String;
+                    p.after_value_state = .TopLevelEnd;
                     // We don't actually need the following since after_value_state should override.
-                    p.after_string_state = State.ValueEnd;
+                    p.after_string_state = .ValueEnd;
                     p.string_has_escape = false;
                     p.count = 0;
                 },
                 't' => {
-                    p.state = State.TrueLiteral1;
-                    p.after_value_state = State.TopLevelEnd;
+                    p.state = .TrueLiteral1;
+                    p.after_value_state = .TopLevelEnd;
                     p.count = 0;
                 },
                 'f' => {
-                    p.state = State.FalseLiteral1;
-                    p.after_value_state = State.TopLevelEnd;
+                    p.state = .FalseLiteral1;
+                    p.after_value_state = .TopLevelEnd;
                     p.count = 0;
                 },
                 'n' => {
-                    p.state = State.NullLiteral1;
-                    p.after_value_state = State.TopLevelEnd;
+                    p.state = .NullLiteral1;
+                    p.after_value_state = .TopLevelEnd;
                     p.count = 0;
                 },
                 0x09, 0x0A, 0x0D, 0x20 => {
@@ -257,7 +257,7 @@ pub const StreamingParser = struct {
                 },
             },
 
-            State.TopLevelEnd => switch (c) {
+            .TopLevelEnd => switch (c) {
                 0x09, 0x0A, 0x0D, 0x20 => {
                     // whitespace
                 },
@@ -266,7 +266,7 @@ pub const StreamingParser = struct {
                 },
             },
 
-            State.ValueBegin => switch (c) {
+            .ValueBegin => switch (c) {
                 // NOTE: These are shared in ValueEnd as well, think we can reorder states to
                 // be a bit clearer and avoid this duplication.
                 '}' => {
@@ -278,7 +278,7 @@ pub const StreamingParser = struct {
                         return error.TooManyClosingItems;
                     }
 
-                    p.state = State.ValueBegin;
+                    p.state = .ValueBegin;
                     p.after_string_state = State.fromInt(p.stack & 1);
 
                     p.stack >>= 1;
@@ -287,10 +287,10 @@ pub const StreamingParser = struct {
                     switch (p.stack_used) {
                         0 => {
                             p.complete = true;
-                            p.state = State.TopLevelEnd;
+                            p.state = .TopLevelEnd;
                         },
                         else => {
-                            p.state = State.ValueEnd;
+                            p.state = .ValueEnd;
                         },
                     }
 
@@ -304,7 +304,7 @@ pub const StreamingParser = struct {
                         return error.TooManyClosingItems;
                     }
 
-                    p.state = State.ValueBegin;
+                    p.state = .ValueBegin;
                     p.after_string_state = State.fromInt(p.stack & 1);
 
                     p.stack >>= 1;
@@ -313,10 +313,10 @@ pub const StreamingParser = struct {
                     switch (p.stack_used) {
                         0 => {
                             p.complete = true;
-                            p.state = State.TopLevelEnd;
+                            p.state = .TopLevelEnd;
                         },
                         else => {
-                            p.state = State.ValueEnd;
+                            p.state = .ValueEnd;
                         },
                     }
 
@@ -331,8 +331,8 @@ pub const StreamingParser = struct {
                     p.stack |= object_bit;
                     p.stack_used += 1;
 
-                    p.state = State.ValueBegin;
-                    p.after_string_state = State.ObjectSeparator;
+                    p.state = .ValueBegin;
+                    p.after_string_state = .ObjectSeparator;
 
                     token.* = Token.ObjectBegin;
                 },
@@ -345,40 +345,40 @@ pub const StreamingParser = struct {
                     p.stack |= array_bit;
                     p.stack_used += 1;
 
-                    p.state = State.ValueBegin;
-                    p.after_string_state = State.ValueEnd;
+                    p.state = .ValueBegin;
+                    p.after_string_state = .ValueEnd;
 
                     token.* = Token.ArrayBegin;
                 },
                 '-' => {
                     p.number_is_integer = true;
-                    p.state = State.Number;
+                    p.state = .Number;
                     p.count = 0;
                 },
                 '0' => {
                     p.number_is_integer = true;
-                    p.state = State.NumberMaybeDotOrExponent;
+                    p.state = .NumberMaybeDotOrExponent;
                     p.count = 0;
                 },
                 '1'...'9' => {
                     p.number_is_integer = true;
-                    p.state = State.NumberMaybeDigitOrDotOrExponent;
+                    p.state = .NumberMaybeDigitOrDotOrExponent;
                     p.count = 0;
                 },
                 '"' => {
-                    p.state = State.String;
+                    p.state = .String;
                     p.count = 0;
                 },
                 't' => {
-                    p.state = State.TrueLiteral1;
+                    p.state = .TrueLiteral1;
                     p.count = 0;
                 },
                 'f' => {
-                    p.state = State.FalseLiteral1;
+                    p.state = .FalseLiteral1;
                     p.count = 0;
                 },
                 'n' => {
-                    p.state = State.NullLiteral1;
+                    p.state = .NullLiteral1;
                     p.count = 0;
                 },
                 0x09, 0x0A, 0x0D, 0x20 => {
@@ -390,7 +390,7 @@ pub const StreamingParser = struct {
             },
 
             // TODO: A bit of duplication here and in the following state, redo.
-            State.ValueBeginNoClosing => switch (c) {
+            .ValueBeginNoClosing => switch (c) {
                 '{' => {
                     if (p.stack_used == max_stack_size) {
                         return error.TooManyNestedItems;
@@ -400,8 +400,8 @@ pub const StreamingParser = struct {
                     p.stack |= object_bit;
                     p.stack_used += 1;
 
-                    p.state = State.ValueBegin;
-                    p.after_string_state = State.ObjectSeparator;
+                    p.state = .ValueBegin;
+                    p.after_string_state = .ObjectSeparator;
 
                     token.* = Token.ObjectBegin;
                 },
@@ -414,40 +414,40 @@ pub const StreamingParser = struct {
                     p.stack |= array_bit;
                     p.stack_used += 1;
 
-                    p.state = State.ValueBegin;
-                    p.after_string_state = State.ValueEnd;
+                    p.state = .ValueBegin;
+                    p.after_string_state = .ValueEnd;
 
                     token.* = Token.ArrayBegin;
                 },
                 '-' => {
                     p.number_is_integer = true;
-                    p.state = State.Number;
+                    p.state = .Number;
                     p.count = 0;
                 },
                 '0' => {
                     p.number_is_integer = true;
-                    p.state = State.NumberMaybeDotOrExponent;
+                    p.state = .NumberMaybeDotOrExponent;
                     p.count = 0;
                 },
                 '1'...'9' => {
                     p.number_is_integer = true;
-                    p.state = State.NumberMaybeDigitOrDotOrExponent;
+                    p.state = .NumberMaybeDigitOrDotOrExponent;
                     p.count = 0;
                 },
                 '"' => {
-                    p.state = State.String;
+                    p.state = .String;
                     p.count = 0;
                 },
                 't' => {
-                    p.state = State.TrueLiteral1;
+                    p.state = .TrueLiteral1;
                     p.count = 0;
                 },
                 'f' => {
-                    p.state = State.FalseLiteral1;
+                    p.state = .FalseLiteral1;
                     p.count = 0;
                 },
                 'n' => {
-                    p.state = State.NullLiteral1;
+                    p.state = .NullLiteral1;
                     p.count = 0;
                 },
                 0x09, 0x0A, 0x0D, 0x20 => {
@@ -458,17 +458,17 @@ pub const StreamingParser = struct {
                 },
             },
 
-            State.ValueEnd => switch (c) {
+            .ValueEnd => switch (c) {
                 ',' => {
                     p.after_string_state = State.fromInt(p.stack & 1);
-                    p.state = State.ValueBeginNoClosing;
+                    p.state = .ValueBeginNoClosing;
                 },
                 ']' => {
                     if (p.stack_used == 0) {
                         return error.UnbalancedBrackets;
                     }
 
-                    p.state = State.ValueEnd;
+                    p.state = .ValueEnd;
                     p.after_string_state = State.fromInt(p.stack & 1);
 
                     p.stack >>= 1;
@@ -476,7 +476,7 @@ pub const StreamingParser = struct {
 
                     if (p.stack_used == 0) {
                         p.complete = true;
-                        p.state = State.TopLevelEnd;
+                        p.state = .TopLevelEnd;
                     }
 
                     token.* = Token.ArrayEnd;
@@ -486,7 +486,7 @@ pub const StreamingParser = struct {
                         return error.UnbalancedBraces;
                     }
 
-                    p.state = State.ValueEnd;
+                    p.state = .ValueEnd;
                     p.after_string_state = State.fromInt(p.stack & 1);
 
                     p.stack >>= 1;
@@ -494,7 +494,7 @@ pub const StreamingParser = struct {
 
                     if (p.stack_used == 0) {
                         p.complete = true;
-                        p.state = State.TopLevelEnd;
+                        p.state = .TopLevelEnd;
                     }
 
                     token.* = Token.ObjectEnd;
@@ -507,10 +507,10 @@ pub const StreamingParser = struct {
                 },
             },
 
-            State.ObjectSeparator => switch (c) {
+            .ObjectSeparator => switch (c) {
                 ':' => {
-                    p.state = State.ValueBegin;
-                    p.after_string_state = State.ValueEnd;
+                    p.state = .ValueBegin;
+                    p.after_string_state = .ValueEnd;
                 },
                 0x09, 0x0A, 0x0D, 0x20 => {
                     // whitespace
@@ -520,14 +520,14 @@ pub const StreamingParser = struct {
                 },
             },
 
-            State.String => switch (c) {
+            .String => switch (c) {
                 0x00...0x1F => {
                     return error.InvalidControlCharacter;
                 },
                 '"' => {
                     p.state = p.after_string_state;
-                    if (p.after_value_state == State.TopLevelEnd) {
-                        p.state = State.TopLevelEnd;
+                    if (p.after_value_state == .TopLevelEnd) {
+                        p.state = .TopLevelEnd;
                         p.complete = true;
                     }
 
@@ -539,41 +539,41 @@ pub const StreamingParser = struct {
                     };
                 },
                 '\\' => {
-                    p.state = State.StringEscapeCharacter;
+                    p.state = .StringEscapeCharacter;
                 },
                 0x20, 0x21, 0x23...0x5B, 0x5D...0x7F => {
                     // non-control ascii
                 },
                 0xC0...0xDF => {
-                    p.state = State.StringUtf8Byte1;
+                    p.state = .StringUtf8Byte1;
                 },
                 0xE0...0xEF => {
-                    p.state = State.StringUtf8Byte2;
+                    p.state = .StringUtf8Byte2;
                 },
                 0xF0...0xFF => {
-                    p.state = State.StringUtf8Byte3;
+                    p.state = .StringUtf8Byte3;
                 },
                 else => {
                     return error.InvalidUtf8Byte;
                 },
             },
 
-            State.StringUtf8Byte3 => switch (c >> 6) {
-                0b10 => p.state = State.StringUtf8Byte2,
+            .StringUtf8Byte3 => switch (c >> 6) {
+                0b10 => p.state = .StringUtf8Byte2,
                 else => return error.InvalidUtf8Byte,
             },
 
-            State.StringUtf8Byte2 => switch (c >> 6) {
-                0b10 => p.state = State.StringUtf8Byte1,
+            .StringUtf8Byte2 => switch (c >> 6) {
+                0b10 => p.state = .StringUtf8Byte1,
                 else => return error.InvalidUtf8Byte,
             },
 
-            State.StringUtf8Byte1 => switch (c >> 6) {
-                0b10 => p.state = State.String,
+            .StringUtf8Byte1 => switch (c >> 6) {
+                0b10 => p.state = .String,
                 else => return error.InvalidUtf8Byte,
             },
 
-            State.StringEscapeCharacter => switch (c) {
+            .StringEscapeCharacter => switch (c) {
                 // NOTE: '/' is allowed as an escaped character but it also is allowed
                 // as unescaped according to the RFC. There is a reported errata which suggests
                 // removing the non-escaped variant but it makes more sense to simply disallow
@@ -584,53 +584,53 @@ pub const StreamingParser = struct {
                 // is further clarified.
                 '"', '\\', '/', 'b', 'f', 'n', 'r', 't' => {
                     p.string_has_escape = true;
-                    p.state = State.String;
+                    p.state = .String;
                 },
                 'u' => {
                     p.string_has_escape = true;
-                    p.state = State.StringEscapeHexUnicode4;
+                    p.state = .StringEscapeHexUnicode4;
                 },
                 else => {
                     return error.InvalidEscapeCharacter;
                 },
             },
 
-            State.StringEscapeHexUnicode4 => switch (c) {
+            .StringEscapeHexUnicode4 => switch (c) {
                 '0'...'9', 'A'...'F', 'a'...'f' => {
-                    p.state = State.StringEscapeHexUnicode3;
+                    p.state = .StringEscapeHexUnicode3;
                 },
                 else => return error.InvalidUnicodeHexSymbol,
             },
 
-            State.StringEscapeHexUnicode3 => switch (c) {
+            .StringEscapeHexUnicode3 => switch (c) {
                 '0'...'9', 'A'...'F', 'a'...'f' => {
-                    p.state = State.StringEscapeHexUnicode2;
+                    p.state = .StringEscapeHexUnicode2;
                 },
                 else => return error.InvalidUnicodeHexSymbol,
             },
 
-            State.StringEscapeHexUnicode2 => switch (c) {
+            .StringEscapeHexUnicode2 => switch (c) {
                 '0'...'9', 'A'...'F', 'a'...'f' => {
-                    p.state = State.StringEscapeHexUnicode1;
+                    p.state = .StringEscapeHexUnicode1;
                 },
                 else => return error.InvalidUnicodeHexSymbol,
             },
 
-            State.StringEscapeHexUnicode1 => switch (c) {
+            .StringEscapeHexUnicode1 => switch (c) {
                 '0'...'9', 'A'...'F', 'a'...'f' => {
-                    p.state = State.String;
+                    p.state = .String;
                 },
                 else => return error.InvalidUnicodeHexSymbol,
             },
 
-            State.Number => {
-                p.complete = p.after_value_state == State.TopLevelEnd;
+            .Number => {
+                p.complete = p.after_value_state == .TopLevelEnd;
                 switch (c) {
                     '0' => {
-                        p.state = State.NumberMaybeDotOrExponent;
+                        p.state = .NumberMaybeDotOrExponent;
                     },
                     '1'...'9' => {
-                        p.state = State.NumberMaybeDigitOrDotOrExponent;
+                        p.state = .NumberMaybeDigitOrDotOrExponent;
                     },
                     else => {
                         return error.InvalidNumber;
@@ -638,16 +638,16 @@ pub const StreamingParser = struct {
                 }
             },
 
-            State.NumberMaybeDotOrExponent => {
-                p.complete = p.after_value_state == State.TopLevelEnd;
+            .NumberMaybeDotOrExponent => {
+                p.complete = p.after_value_state == .TopLevelEnd;
                 switch (c) {
                     '.' => {
                         p.number_is_integer = false;
-                        p.state = State.NumberFractionalRequired;
+                        p.state = .NumberFractionalRequired;
                     },
                     'e', 'E' => {
                         p.number_is_integer = false;
-                        p.state = State.NumberExponent;
+                        p.state = .NumberExponent;
                     },
                     else => {
                         p.state = p.after_value_state;
@@ -662,16 +662,16 @@ pub const StreamingParser = struct {
                 }
             },
 
-            State.NumberMaybeDigitOrDotOrExponent => {
-                p.complete = p.after_value_state == State.TopLevelEnd;
+            .NumberMaybeDigitOrDotOrExponent => {
+                p.complete = p.after_value_state == .TopLevelEnd;
                 switch (c) {
                     '.' => {
                         p.number_is_integer = false;
-                        p.state = State.NumberFractionalRequired;
+                        p.state = .NumberFractionalRequired;
                     },
                     'e', 'E' => {
                         p.number_is_integer = false;
-                        p.state = State.NumberExponent;
+                        p.state = .NumberExponent;
                     },
                     '0'...'9' => {
                         // another digit
@@ -689,11 +689,11 @@ pub const StreamingParser = struct {
                 }
             },
 
-            State.NumberFractionalRequired => {
-                p.complete = p.after_value_state == State.TopLevelEnd;
+            .NumberFractionalRequired => {
+                p.complete = p.after_value_state == .TopLevelEnd;
                 switch (c) {
                     '0'...'9' => {
-                        p.state = State.NumberFractional;
+                        p.state = .NumberFractional;
                     },
                     else => {
                         return error.InvalidNumber;
@@ -701,15 +701,15 @@ pub const StreamingParser = struct {
                 }
             },
 
-            State.NumberFractional => {
-                p.complete = p.after_value_state == State.TopLevelEnd;
+            .NumberFractional => {
+                p.complete = p.after_value_state == .TopLevelEnd;
                 switch (c) {
                     '0'...'9' => {
                         // another digit
                     },
                     'e', 'E' => {
                         p.number_is_integer = false;
-                        p.state = State.NumberExponent;
+                        p.state = .NumberExponent;
                     },
                     else => {
                         p.state = p.after_value_state;
@@ -724,12 +724,12 @@ pub const StreamingParser = struct {
                 }
             },
 
-            State.NumberMaybeExponent => {
-                p.complete = p.after_value_state == State.TopLevelEnd;
+            .NumberMaybeExponent => {
+                p.complete = p.after_value_state == .TopLevelEnd;
                 switch (c) {
                     'e', 'E' => {
                         p.number_is_integer = false;
-                        p.state = State.NumberExponent;
+                        p.state = .NumberExponent;
                     },
                     else => {
                         p.state = p.after_value_state;
@@ -744,32 +744,32 @@ pub const StreamingParser = struct {
                 }
             },
 
-            State.NumberExponent => switch (c) {
+            .NumberExponent => switch (c) {
                 '-', '+' => {
                     p.complete = false;
-                    p.state = State.NumberExponentDigitsRequired;
+                    p.state = .NumberExponentDigitsRequired;
                 },
                 '0'...'9' => {
-                    p.complete = p.after_value_state == State.TopLevelEnd;
-                    p.state = State.NumberExponentDigits;
+                    p.complete = p.after_value_state == .TopLevelEnd;
+                    p.state = .NumberExponentDigits;
                 },
                 else => {
                     return error.InvalidNumber;
                 },
             },
 
-            State.NumberExponentDigitsRequired => switch (c) {
+            .NumberExponentDigitsRequired => switch (c) {
                 '0'...'9' => {
-                    p.complete = p.after_value_state == State.TopLevelEnd;
-                    p.state = State.NumberExponentDigits;
+                    p.complete = p.after_value_state == .TopLevelEnd;
+                    p.state = .NumberExponentDigits;
                 },
                 else => {
                     return error.InvalidNumber;
                 },
             },
 
-            State.NumberExponentDigits => {
-                p.complete = p.after_value_state == State.TopLevelEnd;
+            .NumberExponentDigits => {
+                p.complete = p.after_value_state == .TopLevelEnd;
                 switch (c) {
                     '0'...'9' => {
                         // another digit
@@ -787,20 +787,20 @@ pub const StreamingParser = struct {
                 }
             },
 
-            State.TrueLiteral1 => switch (c) {
-                'r' => p.state = State.TrueLiteral2,
+            .TrueLiteral1 => switch (c) {
+                'r' => p.state = .TrueLiteral2,
                 else => return error.InvalidLiteral,
             },
 
-            State.TrueLiteral2 => switch (c) {
-                'u' => p.state = State.TrueLiteral3,
+            .TrueLiteral2 => switch (c) {
+                'u' => p.state = .TrueLiteral3,
                 else => return error.InvalidLiteral,
             },
 
-            State.TrueLiteral3 => switch (c) {
+            .TrueLiteral3 => switch (c) {
                 'e' => {
                     p.state = p.after_value_state;
-                    p.complete = p.state == State.TopLevelEnd;
+                    p.complete = p.state == .TopLevelEnd;
                     token.* = Token.True;
                 },
                 else => {
@@ -808,25 +808,25 @@ pub const StreamingParser = struct {
                 },
             },
 
-            State.FalseLiteral1 => switch (c) {
-                'a' => p.state = State.FalseLiteral2,
+            .FalseLiteral1 => switch (c) {
+                'a' => p.state = .FalseLiteral2,
                 else => return error.InvalidLiteral,
             },
 
-            State.FalseLiteral2 => switch (c) {
-                'l' => p.state = State.FalseLiteral3,
+            .FalseLiteral2 => switch (c) {
+                'l' => p.state = .FalseLiteral3,
                 else => return error.InvalidLiteral,
             },
 
-            State.FalseLiteral3 => switch (c) {
-                's' => p.state = State.FalseLiteral4,
+            .FalseLiteral3 => switch (c) {
+                's' => p.state = .FalseLiteral4,
                 else => return error.InvalidLiteral,
             },
 
-            State.FalseLiteral4 => switch (c) {
+            .FalseLiteral4 => switch (c) {
                 'e' => {
                     p.state = p.after_value_state;
-                    p.complete = p.state == State.TopLevelEnd;
+                    p.complete = p.state == .TopLevelEnd;
                     token.* = Token.False;
                 },
                 else => {
@@ -834,20 +834,20 @@ pub const StreamingParser = struct {
                 },
             },
 
-            State.NullLiteral1 => switch (c) {
-                'u' => p.state = State.NullLiteral2,
+            .NullLiteral1 => switch (c) {
+                'u' => p.state = .NullLiteral2,
                 else => return error.InvalidLiteral,
             },
 
-            State.NullLiteral2 => switch (c) {
-                'l' => p.state = State.NullLiteral3,
+            .NullLiteral2 => switch (c) {
+                'l' => p.state = .NullLiteral3,
                 else => return error.InvalidLiteral,
             },
 
-            State.NullLiteral3 => switch (c) {
+            .NullLiteral3 => switch (c) {
                 'l' => {
                     p.state = p.after_value_state;
-                    p.complete = p.state == State.TopLevelEnd;
+                    p.complete = p.state == .TopLevelEnd;
                     token.* = Token.Null;
                 },
                 else => {
@@ -1075,7 +1075,7 @@ pub const Parser = struct {
     pub fn init(allocator: *Allocator, copy_strings: bool) Parser {
         return Parser{
             .allocator = allocator,
-            .state = State.Simple,
+            .state = .Simple,
             .copy_strings = copy_strings,
             .stack = Array.init(allocator),
         };
@@ -1086,7 +1086,7 @@ pub const Parser = struct {
     }
 
     pub fn reset(p: *Parser) void {
-        p.state = State.Simple;
+        p.state = .Simple;
         p.stack.shrink(0);
     }
 
@@ -1112,7 +1112,7 @@ pub const Parser = struct {
     // can be cleaned up on error correctly during a `parse` on call.
     fn transition(p: *Parser, allocator: *Allocator, input: []const u8, i: usize, token: Token) !void {
         switch (p.state) {
-            State.ObjectKey => switch (token) {
+            .ObjectKey => switch (token) {
                 .ObjectEnd => {
                     if (p.stack.len == 1) {
                         return;
@@ -1123,7 +1123,7 @@ pub const Parser = struct {
                 },
                 .String => |s| {
                     try p.stack.append(try p.parseString(allocator, s, input, i));
-                    p.state = State.ObjectValue;
+                    p.state = .ObjectValue;
                 },
                 else => {
                     // The streaming parser would return an error eventually.
@@ -1132,50 +1132,50 @@ pub const Parser = struct {
                     return error.InvalidLiteral;
                 },
             },
-            State.ObjectValue => {
+            .ObjectValue => {
                 var object = &p.stack.items[p.stack.len - 2].Object;
                 var key = p.stack.items[p.stack.len - 1].String;
 
                 switch (token) {
                     .ObjectBegin => {
                         try p.stack.append(Value{ .Object = ObjectMap.init(allocator) });
-                        p.state = State.ObjectKey;
+                        p.state = .ObjectKey;
                     },
                     .ArrayBegin => {
                         try p.stack.append(Value{ .Array = Array.init(allocator) });
-                        p.state = State.ArrayValue;
+                        p.state = .ArrayValue;
                     },
                     .String => |s| {
                         _ = try object.put(key, try p.parseString(allocator, s, input, i));
                         _ = p.stack.pop();
-                        p.state = State.ObjectKey;
+                        p.state = .ObjectKey;
                     },
                     .Number => |n| {
                         _ = try object.put(key, try p.parseNumber(n, input, i));
                         _ = p.stack.pop();
-                        p.state = State.ObjectKey;
+                        p.state = .ObjectKey;
                     },
                     .True => {
                         _ = try object.put(key, Value{ .Bool = true });
                         _ = p.stack.pop();
-                        p.state = State.ObjectKey;
+                        p.state = .ObjectKey;
                     },
                     .False => {
                         _ = try object.put(key, Value{ .Bool = false });
                         _ = p.stack.pop();
-                        p.state = State.ObjectKey;
+                        p.state = .ObjectKey;
                     },
                     .Null => {
                         _ = try object.put(key, Value.Null);
                         _ = p.stack.pop();
-                        p.state = State.ObjectKey;
+                        p.state = .ObjectKey;
                     },
                     .ObjectEnd, .ArrayEnd => {
                         unreachable;
                     },
                 }
             },
-            State.ArrayValue => {
+            .ArrayValue => {
                 var array = &p.stack.items[p.stack.len - 1].Array;
 
                 switch (token) {
@@ -1189,11 +1189,11 @@ pub const Parser = struct {
                     },
                     .ObjectBegin => {
                         try p.stack.append(Value{ .Object = ObjectMap.init(allocator) });
-                        p.state = State.ObjectKey;
+                        p.state = .ObjectKey;
                     },
                     .ArrayBegin => {
                         try p.stack.append(Value{ .Array = Array.init(allocator) });
-                        p.state = State.ArrayValue;
+                        p.state = .ArrayValue;
                     },
                     .String => |s| {
                         try array.append(try p.parseString(allocator, s, input, i));
@@ -1215,14 +1215,14 @@ pub const Parser = struct {
                     },
                 }
             },
-            State.Simple => switch (token) {
+            .Simple => switch (token) {
                 .ObjectBegin => {
                     try p.stack.append(Value{ .Object = ObjectMap.init(allocator) });
-                    p.state = State.ObjectKey;
+                    p.state = .ObjectKey;
                 },
                 .ArrayBegin => {
                     try p.stack.append(Value{ .Array = Array.init(allocator) });
-                    p.state = State.ArrayValue;
+                    p.state = .ArrayValue;
                 },
                 .String => |s| {
                     try p.stack.append(try p.parseString(allocator, s, input, i));
@@ -1254,12 +1254,12 @@ pub const Parser = struct {
 
                 var object = &p.stack.items[p.stack.len - 1].Object;
                 _ = try object.put(key, value.*);
-                p.state = State.ObjectKey;
+                p.state = .ObjectKey;
             },
             // Array Parent -> [ ..., <array>, value ]
             Value.Array => |*array| {
                 try array.append(value.*);
-                p.state = State.ArrayValue;
+                p.state = .ArrayValue;
             },
             else => {
                 unreachable;
