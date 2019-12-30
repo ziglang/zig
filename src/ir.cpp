@@ -12687,9 +12687,10 @@ static IrInstruction *ir_analyze_enum_to_union(IrAnalyze *ira, IrInstruction *so
         ZigType *field_type = resolve_union_field_type(ira->codegen, union_field);
         if (field_type == nullptr)
             return ira->codegen->invalid_instruction;
-        if ((err = type_resolve(ira->codegen, field_type, ResolveStatusZeroBitsKnown)))
+        bool has_bits;
+        if ((err = type_has_bits2(ira->codegen, field_type, &has_bits)))
             return ira->codegen->invalid_instruction;
-        if (type_has_bits(field_type)) {
+        if (has_bits) {
             AstNode *field_node = wanted_type->data.unionation.decl_node->data.container_decl.fields.at(i);
             add_error_note(ira->codegen, msg, field_node,
                     buf_sprintf("field '%s' has type '%s'",
@@ -13892,10 +13893,10 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         types_match_const_cast_only(ira, wanted_type->data.pointer.child_type,
             actual_type, source_node, !wanted_type->data.pointer.is_const).id == ConstCastResultIdOk)
     {
-        if ((err = type_resolve(ira->codegen, actual_type, ResolveStatusZeroBitsKnown))) {
+        bool has_bits;
+        if ((err = type_has_bits2(ira->codegen, actual_type, &has_bits)))
             return ira->codegen->invalid_instruction;
-        }
-        if (!type_has_bits(actual_type)) {
+        if (!has_bits) {
             return ir_get_ref(ira, source_instr, value, false, false);
         }
     }
@@ -17163,10 +17164,10 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                 if (is_comptime)
                     return nullptr;
             }
-            if ((err = type_resolve(ira->codegen, ira->explicit_return_type, ResolveStatusZeroBitsKnown))) {
+            bool has_bits;
+            if ((err = type_has_bits2(ira->codegen, ira->explicit_return_type, &has_bits)))
                 return ira->codegen->invalid_instruction;
-            }
-            if (!type_has_bits(ira->explicit_return_type) || !handle_is_ptr(ira->explicit_return_type)) {
+            if (!has_bits || !handle_is_ptr(ira->explicit_return_type)) {
                 ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
                 if (fn_entry == nullptr || fn_entry->inferred_async_node == nullptr) {
                     return nullptr;
@@ -26082,6 +26083,7 @@ static IrInstruction *ir_analyze_unwrap_error_payload(IrAnalyze *ira, IrInstruct
     ZigType *result_type = get_pointer_to_type_extra(ira->codegen, payload_type,
             ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
             PtrLenSingle, 0, 0, 0, false);
+
     if (instr_is_comptime(base_ptr)) {
         ZigValue *ptr_val = ir_resolve_const(ira, base_ptr, UndefBad);
         if (!ptr_val)
@@ -27136,14 +27138,15 @@ static IrInstruction *ir_analyze_instruction_int_to_ptr(IrAnalyze *ira, IrInstru
         return ira->codegen->invalid_instruction;
     }
 
-    if ((err = type_resolve(ira->codegen, dest_type, ResolveStatusZeroBitsKnown)))
+    bool has_bits;
+    if ((err = type_has_bits2(ira->codegen, dest_type, &has_bits)))
         return ira->codegen->invalid_instruction;
-    if (!type_has_bits(dest_type)) {
+
+    if (!has_bits) {
         ir_add_error(ira, dest_type_value,
                 buf_sprintf("type '%s' has 0 bits and cannot store information", buf_ptr(&dest_type->name)));
         return ira->codegen->invalid_instruction;
     }
-
 
     IrInstruction *target = instruction->target->child;
     if (type_is_invalid(target->value->type))
@@ -27182,9 +27185,11 @@ static IrInstruction *ir_analyze_instruction_ptr_to_int(IrAnalyze *ira, IrInstru
         return ira->codegen->invalid_instruction;
     }
 
-    if ((err = type_resolve(ira->codegen, target->value->type, ResolveStatusZeroBitsKnown)))
+    bool has_bits;
+    if ((err = type_has_bits2(ira->codegen, target->value->type, &has_bits)))
         return ira->codegen->invalid_instruction;
-    if (!type_has_bits(target->value->type)) {
+
+    if (!has_bits) {
         ir_add_error(ira, target,
                 buf_sprintf("pointer to size 0 type has no address"));
         return ira->codegen->invalid_instruction;
@@ -29067,9 +29072,10 @@ static ZigType *ir_resolve_lazy_fn_type(IrAnalyze *ira, AstNode *source_node, La
                 break;
             }
             if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
-                if ((err = type_resolve(ira->codegen, param_type, ResolveStatusZeroBitsKnown)))
+                bool has_bits;
+                if ((err = type_has_bits2(ira->codegen, param_type, &has_bits)))
                     return nullptr;
-                if (!type_has_bits(param_type)) {
+                if (!has_bits) {
                     ir_add_error(ira, param_type_inst,
                         buf_sprintf("parameter of type '%s' has 0 bits; not allowed in function with calling convention '%s'",
                             buf_ptr(&param_type->name), calling_convention_name(fn_type_id.cc)));

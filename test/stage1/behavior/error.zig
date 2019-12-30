@@ -1,6 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const expectError = std.testing.expectError;
+const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 const builtin = @import("builtin");
 
@@ -426,4 +427,18 @@ test "return result loc as peer result loc in inferred error set function" {
     };
     S.doTheTest();
     comptime S.doTheTest();
+}
+
+test "error payload type is correctly resolved" {
+    const MyIntWrapper = struct {
+        const Self = @This();
+
+        x: i32,
+
+        pub fn create() anyerror!Self {
+            return Self{ .x = 42 };
+        }
+    };
+
+    expectEqual(MyIntWrapper{ .x = 42 }, try MyIntWrapper.create());
 }

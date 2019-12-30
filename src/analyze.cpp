@@ -6372,10 +6372,11 @@ static Error resolve_pointer_zero_bits(CodeGen *g, ZigType *ty) {
 
     ZigType *elem_type = ty->data.pointer.child_type;
 
-    if ((err = type_resolve(g, elem_type, ResolveStatusZeroBitsKnown)))
+    bool has_bits;
+    if ((err = type_has_bits2(g, elem_type, &has_bits)))
         return err;
 
-    if (type_has_bits(elem_type)) {
+    if (has_bits) {
         ty->abi_size = g->builtin_types.entry_usize->abi_size;
         ty->size_in_bits = g->builtin_types.entry_usize->size_in_bits;
         ty->abi_align = g->builtin_types.entry_usize->abi_align;
