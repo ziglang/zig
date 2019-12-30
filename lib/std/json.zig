@@ -1379,10 +1379,15 @@ pub const Parser = struct {
         // TODO: We don't strictly have to copy values which do not contain any escape
         // characters if flagged with the option.
         const slice = s.slice(input, i);
-        return switch (s.escapes) {
-            .None => Value{ .String = try mem.dupe(allocator, u8, slice) },
-            .Some => |some_escapes| Value{ .String = try unescapeStringAlloc(allocator, some_escapes, slice) },
-        };
+        switch (s.escapes) {
+            .None => return Value{ .String = try mem.dupe(allocator, u8, slice) },
+            .Some => |some_escapes| {
+                const output = try allocator.alloc(u8, s.decodedLength());
+                errdefer allocator.free(output);
+                try unescapeString(output, slice);
+                return Value{ .String = output };
+            },
+        }
     }
 
     fn parseNumber(p: *Parser, n: std.meta.TagPayloadType(Token, Token.Number), input: []const u8, i: usize) !Value {
@@ -1396,12 +1401,7 @@ pub const Parser = struct {
 // Unescape a JSON string
 // Only to be used on strings already validated by the parser
 // (note the unreachable statements and lack of bounds checking)
-fn unescapeStringAlloc(alloc: *Allocator, escapes: std.meta.TagPayloadType(StringEscapes, StringEscapes.Some), input: []const u8) ![]u8 {
-    const result_size = input.len +% @bitCast(usize, escapes.size_diff);
-
-    const output = try alloc.alloc(u8, result_size);
-    errdefer alloc.free(output);
-
+fn unescapeString(output: []u8, input: []const u8) !void {
     var inIndex: usize = 0;
     var outIndex: usize = 0;
 
@@ -1455,9 +1455,7 @@ fn unescapeStringAlloc(alloc: *Allocator, escapes: std.meta.TagPayloadType(Strin
             }
         }
     }
-    assert(outIndex == result_size);
-
-    return output;
+    assert(outIndex == output.len);
 }
 
 test "json.parser.dynamic" {
