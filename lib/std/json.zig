@@ -4,11 +4,20 @@
 
 const std = @import("std.zig");
 const debug = std.debug;
+const assert = debug.assert;
 const testing = std.testing;
 const mem = std.mem;
 const maxInt = std.math.maxInt;
 
 pub const WriteStream = @import("json/write_stream.zig").WriteStream;
+
+const StringEscapes = union(enum) {
+    None,
+
+    Some: struct {
+        size_diff: isize,
+    },
+};
 
 /// A single token slice into the parent string.
 ///
@@ -23,7 +32,14 @@ pub const Token = union(enum) {
         count: usize,
 
         /// Whether string contains an escape sequence and cannot be zero-copied
-        has_escape: bool,
+        escapes: StringEscapes,
+
+        pub fn decodedLength(self: @This()) usize {
+            return self.count +% switch (self.escapes) {
+                .None => 0,
+                .Some => |s| @bitCast(usize, s.size_diff),
+            };
+        }
 
         /// Slice into the underlying input string.
         pub fn slice(self: @This(), input: []const u8, i: usize) []const u8 {
@@ -66,7 +82,12 @@ pub const StreamingParser = struct {
     // If we stopped now, would the complete parsed string to now be a valid json string
     complete: bool,
     // Current token flags to pass through to the next generated, see Token.
-    string_has_escape: bool,
+    string_escapes: StringEscapes,
+    // When in .String states, was the previous character a high surrogate?
+    string_last_was_high_surrogate: bool,
+    // Used inside of StringEscapeHexUnicode* states
+    string_unicode_codepoint: u21,
+    // When in .Number states, is the number a (still) valid integer?
     number_is_integer: bool,
 
     // Bit-stack for nested object/map literals (max 255 nestings).
@@ -92,8 +113,10 @@ pub const StreamingParser = struct {
         p.stack = 0;
         p.stack_used = 0;
         p.complete = false;
-        p.string_has_escape = false;
-        p.number_is_integer = true;
+        p.string_escapes = undefined;
+        p.string_last_was_high_surrogate = undefined;
+        p.string_unicode_codepoint = undefined;
+        p.number_is_integer = undefined;
     }
 
     pub const State = enum {
@@ -231,7 +254,8 @@ pub const StreamingParser = struct {
                     p.after_value_state = .TopLevelEnd;
                     // We don't actually need the following since after_value_state should override.
                     p.after_string_state = .ValueEnd;
-                    p.string_has_escape = false;
+                    p.string_escapes = .None;
+                    p.string_last_was_high_surrogate = false;
                     p.count = 0;
                 },
                 't' => {
@@ -367,6 +391,8 @@ pub const StreamingParser = struct {
                 },
                 '"' => {
                     p.state = .String;
+                    p.string_escapes = .None;
+                    p.string_last_was_high_surrogate = false;
                     p.count = 0;
                 },
                 't' => {
@@ -436,6 +462,8 @@ pub const StreamingParser = struct {
                 },
                 '"' => {
                     p.state = .String;
+                    p.string_escapes = .None;
+                    p.string_last_was_high_surrogate = false;
                     p.count = 0;
                 },
                 't' => {
@@ -534,15 +562,24 @@ pub const StreamingParser = struct {
                     token.* = .{
                         .String = .{
                             .count = p.count - 1,
-                            .has_escape = p.string_has_escape,
+                            .escapes = p.string_escapes,
                         },
                     };
+                    p.string_escapes = undefined;
+                    p.string_last_was_high_surrogate = undefined;
                 },
                 '\\' => {
                     p.state = .StringEscapeCharacter;
+                    switch (p.string_escapes) {
+                        .None => {
+                            p.string_escapes = .{ .Some = .{ .size_diff = 0 } };
+                        },
+                        .Some => {},
+                    }
                 },
                 0x20, 0x21, 0x23...0x5B, 0x5D...0x7F => {
                     // non-control ascii
+                    p.string_last_was_high_surrogate = false;
                 },
                 0xC0...0xDF => {
                     p.state = .StringUtf8Byte1;
@@ -569,7 +606,10 @@ pub const StreamingParser = struct {
             },
 
             .StringUtf8Byte1 => switch (c >> 6) {
-                0b10 => p.state = .String,
+                0b10 => {
+                    p.state = .String;
+                    p.string_last_was_high_surrogate = false;
+                },
                 else => return error.InvalidUtf8Byte,
             },
 
@@ -583,11 +623,11 @@ pub const StreamingParser = struct {
                 // however, so we default to the status quo where both are accepted until this
                 // is further clarified.
                 '"', '\\', '/', 'b', 'f', 'n', 'r', 't' => {
-                    p.string_has_escape = true;
+                    p.string_escapes.Some.size_diff -= 1;
                     p.state = .String;
+                    p.string_last_was_high_surrogate = false;
                 },
                 'u' => {
-                    p.string_has_escape = true;
                     p.state = .StringEscapeHexUnicode4;
                 },
                 else => {
@@ -595,32 +635,99 @@ pub const StreamingParser = struct {
                 },
             },
 
-            .StringEscapeHexUnicode4 => switch (c) {
-                '0'...'9', 'A'...'F', 'a'...'f' => {
-                    p.state = .StringEscapeHexUnicode3;
-                },
-                else => return error.InvalidUnicodeHexSymbol,
+            .StringEscapeHexUnicode4 => {
+                var codepoint: u21 = undefined;
+                switch (c) {
+                    else => return error.InvalidUnicodeHexSymbol,
+                    '0'...'9' => {
+                        codepoint = c - '0';
+                    },
+                    'A'...'F' => {
+                        codepoint = c - 'A' + 10;
+                    },
+                    'a'...'f' => {
+                        codepoint = c - 'a' + 10;
+                    },
+                }
+                p.state = .StringEscapeHexUnicode3;
+                p.string_unicode_codepoint = codepoint << 12;
             },
 
-            .StringEscapeHexUnicode3 => switch (c) {
-                '0'...'9', 'A'...'F', 'a'...'f' => {
-                    p.state = .StringEscapeHexUnicode2;
-                },
-                else => return error.InvalidUnicodeHexSymbol,
+            .StringEscapeHexUnicode3 => {
+                var codepoint: u21 = undefined;
+                switch (c) {
+                    else => return error.InvalidUnicodeHexSymbol,
+                    '0'...'9' => {
+                        codepoint = c - '0';
+                    },
+                    'A'...'F' => {
+                        codepoint = c - 'A' + 10;
+                    },
+                    'a'...'f' => {
+                        codepoint = c - 'a' + 10;
+                    },
+                }
+                p.state = .StringEscapeHexUnicode2;
+                p.string_unicode_codepoint |= codepoint << 8;
             },
 
-            .StringEscapeHexUnicode2 => switch (c) {
-                '0'...'9', 'A'...'F', 'a'...'f' => {
-                    p.state = .StringEscapeHexUnicode1;
-                },
-                else => return error.InvalidUnicodeHexSymbol,
+            .StringEscapeHexUnicode2 => {
+                var codepoint: u21 = undefined;
+                switch (c) {
+                    else => return error.InvalidUnicodeHexSymbol,
+                    '0'...'9' => {
+                        codepoint = c - '0';
+                    },
+                    'A'...'F' => {
+                        codepoint = c - 'A' + 10;
+                    },
+                    'a'...'f' => {
+                        codepoint = c - 'a' + 10;
+                    },
+                }
+                p.state = .StringEscapeHexUnicode1;
+                p.string_unicode_codepoint |= codepoint << 4;
             },
 
-            .StringEscapeHexUnicode1 => switch (c) {
-                '0'...'9', 'A'...'F', 'a'...'f' => {
-                    p.state = .String;
-                },
-                else => return error.InvalidUnicodeHexSymbol,
+            .StringEscapeHexUnicode1 => {
+                var codepoint: u21 = undefined;
+                switch (c) {
+                    else => return error.InvalidUnicodeHexSymbol,
+                    '0'...'9' => {
+                        codepoint = c - '0';
+                    },
+                    'A'...'F' => {
+                        codepoint = c - 'A' + 10;
+                    },
+                    'a'...'f' => {
+                        codepoint = c - 'a' + 10;
+                    },
+                }
+                p.state = .String;
+                p.string_unicode_codepoint |= codepoint;
+                if (p.string_unicode_codepoint < 0xD800 or p.string_unicode_codepoint >= 0xE000) {
+                    // not part of surrogate pair
+                    p.string_escapes.Some.size_diff -= @as(isize, 6 - (std.unicode.utf8CodepointSequenceLength(p.string_unicode_codepoint) catch unreachable));
+                    p.string_last_was_high_surrogate = false;
+                } else if (p.string_unicode_codepoint < 0xDC00) {
+                    // 'high' surrogate
+                    // takes 3 bytes to encode a half surrogate pair into wtf8
+                    p.string_escapes.Some.size_diff -= 6 - 3;
+                    p.string_last_was_high_surrogate = true;
+                } else {
+                    // 'low' surrogate
+                    p.string_escapes.Some.size_diff -= 6;
+                    if (p.string_last_was_high_surrogate) {
+                        // takes 4 bytes to encode a full surrogate pair into utf8
+                        // 3 bytes are already reserved by high surrogate
+                        p.string_escapes.Some.size_diff -= -1;
+                    } else {
+                        // takes 3 bytes to encode a half surrogate pair into wtf8
+                        p.string_escapes.Some.size_diff -= -3;
+                    }
+                    p.string_last_was_high_surrogate = false;
+                }
+                p.string_unicode_codepoint = undefined;
             },
 
             .Number => {
@@ -657,6 +764,7 @@ pub const StreamingParser = struct {
                                 .is_integer = p.number_is_integer,
                             },
                         };
+                        p.number_is_integer = undefined;
                         return true;
                     },
                 }
@@ -1271,7 +1379,10 @@ pub const Parser = struct {
         // TODO: We don't strictly have to copy values which do not contain any escape
         // characters if flagged with the option.
         const slice = s.slice(input, i);
-        return Value{ .String = try unescapeStringAlloc(allocator, slice) };
+        return switch (s.escapes) {
+            .None => Value{ .String = try mem.dupe(allocator, u8, slice) },
+            .Some => |some_escapes| Value{ .String = try unescapeStringAlloc(allocator, some_escapes, slice) },
+        };
     }
 
     fn parseNumber(p: *Parser, n: std.meta.TagPayloadType(Token, Token.Number), input: []const u8, i: usize) !Value {
@@ -1285,13 +1396,10 @@ pub const Parser = struct {
 // Unescape a JSON string
 // Only to be used on strings already validated by the parser
 // (note the unreachable statements and lack of bounds checking)
-// Optimized for arena allocators, uses Allocator.shrink
-//
-// Idea: count how many bytes we will need to allocate in the streaming parser and store it
-// in the token to avoid allocating too much memory or iterating through the string again
-// Downside: need to find how many bytes a unicode escape sequence will produce twice
-fn unescapeStringAlloc(alloc: *Allocator, input: []const u8) ![]u8 {
-    const output = try alloc.alloc(u8, input.len);
+fn unescapeStringAlloc(alloc: *Allocator, escapes: std.meta.TagPayloadType(StringEscapes, StringEscapes.Some), input: []const u8) ![]u8 {
+    const result_size = input.len +% @bitCast(usize, escapes.size_diff);
+
+    const output = try alloc.alloc(u8, result_size);
     errdefer alloc.free(output);
 
     var inIndex: usize = 0;
@@ -1347,8 +1455,9 @@ fn unescapeStringAlloc(alloc: *Allocator, input: []const u8) ![]u8 {
             }
         }
     }
+    assert(outIndex == result_size);
 
-    return alloc.shrink(output, outIndex);
+    return output;
 }
 
 test "json.parser.dynamic" {
