@@ -364,10 +364,8 @@ test "std.meta.activeTag" {
 
 ///Given a tagged union type, and an enum, return the type of the union
 /// field corresponding to the enum tag.
-pub fn TagPayloadType(comptime U: type, tag: var) type {
-    const Tag = @TypeOf(tag);
+pub fn TagPayloadType(comptime U: type, tag: @TagType(U)) type {
     testing.expect(trait.is(builtin.TypeId.Union)(U));
-    testing.expect(trait.is(builtin.TypeId.Enum)(Tag));
 
     const info = @typeInfo(U).Union;
 
