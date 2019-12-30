@@ -1,7 +1,7 @@
 ![ZIG](https://ziglang.org/zig-logo.svg)
 
-A general-purpose programming language for maintaining **robust**, **optimal**,
-and **reusable** code.
+A general-purpose programming language and toolchain for maintaining
+**robust**, **optimal**, and **reusable** software.
 
 ## Resources
 

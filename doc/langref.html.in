@@ -194,8 +194,8 @@
       <div id="contents-wrapper"><div id="contents">
       {#header_open|Introduction#}
       <p>
-      Zig is a general-purpose programming language for maintaining <strong>robust</strong>,
-      <strong>optimal</strong>, and <strong>reusable</strong> code.
+      Zig is a general-purpose programming language and toolchain for maintaining
+      <strong>robust</strong>, <strong>optimal</strong>, and <strong>reusable</strong> software.
       </p>
       <ul>
         <li><strong>Robust</strong> - behavior is correct even for edge cases such as out of memory.</li>
