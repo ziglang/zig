@@ -3257,13 +3257,10 @@ pub fn setsockopt(fd: fd_t, level: u32, optname: u32, opt: []const u8) !void {
         0 => {},
         EBADF => unreachable,
         EINVAL => unreachable,
-        EDOM => return error.TimeoutTooBig,
+        EFAULT => unreachable,
         EISCONN => return error.AlreadyConnected,
         ENOPROTOOPT => return error.InvalidProtocolOption,
-        ENOTSOCK => return error.NotSocket,
-        ENOMEM => return error.OutOfMemory,
-        ENOBUFS => return error.SystemResources,
-
-        else => |err| return std.os.unexpectedErrno(err),
+        ENOTSOCK => unreachable,
+        else => |err| return unexpectedErrno(err),
     }
 }
