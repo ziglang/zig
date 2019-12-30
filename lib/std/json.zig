@@ -1007,7 +1007,7 @@ pub const TokenStream = struct {
             }
         }
 
-        // Without this a bare number fails, becasue the streaming parser doesn't know it ended
+        // Without this a bare number fails, the streaming parser doesn't know the input ended
         try self.parser.feed(' ', &t1, &t2);
         self.i += 1;
 
