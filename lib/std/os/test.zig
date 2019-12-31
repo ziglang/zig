@@ -241,14 +241,11 @@ test "argsAlloc" {
 test "memfd_create" {
     // memfd_create is linux specific.
     if (builtin.os != .linux) return error.SkipZigTest;
-    // Zig's CI testing infrastructure uses QEMU. Currently the version is
-    // qemu 2.11 from Ubuntu 18.04, which does not have memfd_create support.
-    // memfd_create support is introduced in qemu 4.2. To avoid
-    // "invalid syscall" errors from qemu, we disable the test when not linking libc.
-    // https://github.com/ziglang/zig/issues/4019
-    if (!builtin.link_libc) return error.SkipZigTest;
-
-    const fd = try std.os.memfd_create("test", 0);
+    const fd = std.os.memfd_create("test", 0) catch |err| switch (err) {
+        // Related: https://github.com/ziglang/zig/issues/4019
+        error.SystemOutdated => return error.SkipZigTest,
+        else => |e| return e,
+    };
     defer std.os.close(fd);
     try std.os.write(fd, "test");
     try std.os.lseek_SET(fd, 0);

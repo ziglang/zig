@@ -3286,9 +3286,13 @@ pub const MemFdCreateError = error{
     SystemFdQuotaExceeded,
     ProcessFdQuotaExceeded,
     OutOfMemory,
+
+    /// memfd_create is available in Linux 3.17 and later. This error is returned
+    /// for older kernel versions.
+    SystemOutdated,
 } || UnexpectedError;
 
-pub fn memfd_createC(name: [*:0]const u8, flags: u32) !fd_t {
+pub fn memfd_createC(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
     // memfd_create is available only in glibc versions starting with 2.27.
     const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
     const sys = if (use_c) std.c else linux;
@@ -3301,6 +3305,7 @@ pub fn memfd_createC(name: [*:0]const u8, flags: u32) !fd_t {
         ENFILE => return error.SystemFdQuotaExceeded,
         EMFILE => return error.ProcessFdQuotaExceeded,
         ENOMEM => return error.OutOfMemory,
+        ENOSYS => return error.SystemOutdated,
         else => |err| return unexpectedErrno(err),
     }
 }
