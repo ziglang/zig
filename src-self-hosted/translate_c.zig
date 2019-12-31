@@ -3922,7 +3922,8 @@ fn emitWarning(c: *Context, loc: ZigClangSourceLocation, comptime format: []cons
 }
 
 pub fn failDecl(c: *Context, loc: ZigClangSourceLocation, name: []const u8, comptime format: []const u8, args: var) !void {
-    // const name = @compileError(msg);
+    // pub const name = @compileError(msg);
+    const pub_tok = try appendToken(c, .Keyword_pub, "pub");
     const const_tok = try appendToken(c, .Keyword_const, "const");
     const name_tok = try appendIdentifier(c, name);
     const eq_tok = try appendToken(c, .Equal, "=");
@@ -3951,7 +3952,7 @@ pub fn failDecl(c: *Context, loc: ZigClangSourceLocation, name: []const u8, comp
     var_decl_node.* = ast.Node.VarDecl{
         .base = ast.Node{ .id = ast.Node.Id.VarDecl },
         .doc_comments = null,
-        .visib_token = null,
+        .visib_token = pub_tok,
         .thread_local_token = null,
         .name_token = name_tok,
         .eq_token = eq_tok,
