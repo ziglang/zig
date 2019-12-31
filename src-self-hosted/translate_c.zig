@@ -2213,32 +2213,32 @@ fn transUnaryExprOrTypeTraitExpr(
     return maybeSuppressResult(rp, scope, result_used, &builtin_node.base);
 }
 
-fn qualTypeHaswrappingOverflow(qt: ZigClangQualType) bool {
-    if (cIsSignedInteger(qt) or cIsFloating(qt)) {
-        // float and signed integer overflow is undefined behavior.
-        return false;
-    } else {
+fn qualTypeHasWrappingOverflow(qt: ZigClangQualType) bool {
+    if (cIsUnsignedInteger(qt)) {
         // unsigned integer overflow wraps around.
         return true;
+    } else {
+        // float, signed integer, and pointer overflow is undefined behavior.
+        return false;
     }
 }
 
 fn transUnaryOperator(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangUnaryOperator, used: ResultUsed) TransError!*ast.Node {
     const op_expr = ZigClangUnaryOperator_getSubExpr(stmt);
     switch (ZigClangUnaryOperator_getOpcode(stmt)) {
-        .PostInc => if (qualTypeHaswrappingOverflow(ZigClangUnaryOperator_getType(stmt)))
+        .PostInc => if (qualTypeHasWrappingOverflow(ZigClangUnaryOperator_getType(stmt)))
             return transCreatePostCrement(rp, scope, stmt, .AssignAddWrap, .PlusPercentEqual, "+%=", used)
         else
             return transCreatePostCrement(rp, scope, stmt, .AssignAdd, .PlusEqual, "+=", used),
-        .PostDec => if (qualTypeHaswrappingOverflow(ZigClangUnaryOperator_getType(stmt)))
+        .PostDec => if (qualTypeHasWrappingOverflow(ZigClangUnaryOperator_getType(stmt)))
             return transCreatePostCrement(rp, scope, stmt, .AssignSubWrap, .MinusPercentEqual, "-%=", used)
         else
             return transCreatePostCrement(rp, scope, stmt, .AssignSub, .MinusEqual, "-=", used),
-        .PreInc => if (qualTypeHaswrappingOverflow(ZigClangUnaryOperator_getType(stmt)))
+        .PreInc => if (qualTypeHasWrappingOverflow(ZigClangUnaryOperator_getType(stmt)))
             return transCreatePreCrement(rp, scope, stmt, .AssignAddWrap, .PlusPercentEqual, "+%=", used)
         else
             return transCreatePreCrement(rp, scope, stmt, .AssignAdd, .PlusEqual, "+=", used),
-        .PreDec => if (qualTypeHaswrappingOverflow(ZigClangUnaryOperator_getType(stmt)))
+        .PreDec => if (qualTypeHasWrappingOverflow(ZigClangUnaryOperator_getType(stmt)))
             return transCreatePreCrement(rp, scope, stmt, .AssignSubWrap, .MinusPercentEqual, "-%=", used)
         else
             return transCreatePreCrement(rp, scope, stmt, .AssignSub, .MinusEqual, "-=", used),
@@ -2258,7 +2258,7 @@ fn transUnaryOperator(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangUnar
         },
         .Plus => return transExpr(rp, scope, op_expr, used, .r_value),
         .Minus => {
-            if (!qualTypeHaswrappingOverflow(ZigClangExpr_getType(op_expr))) {
+            if (!qualTypeHasWrappingOverflow(ZigClangExpr_getType(op_expr))) {
                 const op_node = try transCreateNodePrefixOp(rp.c, .Negation, .Minus, "-");
                 op_node.rhs = try transExpr(rp, scope, op_expr, .used, .r_value);
                 return &op_node.base;
@@ -2426,15 +2426,15 @@ fn transCreatePostCrement(
 
 fn transCompoundAssignOperator(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangCompoundAssignOperator, used: ResultUsed) TransError!*ast.Node {
     switch (ZigClangCompoundAssignOperator_getOpcode(stmt)) {
-        .MulAssign => if (qualTypeHaswrappingOverflow(ZigClangCompoundAssignOperator_getType(stmt)))
+        .MulAssign => if (qualTypeHasWrappingOverflow(ZigClangCompoundAssignOperator_getType(stmt)))
             return transCreateCompoundAssign(rp, scope, stmt, .AssignMulWrap, .AsteriskPercentEqual, "*%=", .MulWrap, .AsteriskPercent, "*%", used)
         else
             return transCreateCompoundAssign(rp, scope, stmt, .AssignMul, .AsteriskEqual, "*=", .Mul, .Asterisk, "*", used),
-        .AddAssign => if (qualTypeHaswrappingOverflow(ZigClangCompoundAssignOperator_getType(stmt)))
+        .AddAssign => if (qualTypeHasWrappingOverflow(ZigClangCompoundAssignOperator_getType(stmt)))
             return transCreateCompoundAssign(rp, scope, stmt, .AssignAddWrap, .PlusPercentEqual, "+%=", .AddWrap, .PlusPercent, "+%", used)
         else
             return transCreateCompoundAssign(rp, scope, stmt, .AssignAdd, .PlusEqual, "+=", .Add, .Plus, "+", used),
-        .SubAssign => if (qualTypeHaswrappingOverflow(ZigClangCompoundAssignOperator_getType(stmt)))
+        .SubAssign => if (qualTypeHasWrappingOverflow(ZigClangCompoundAssignOperator_getType(stmt)))
             return transCreateCompoundAssign(rp, scope, stmt, .AssignSubWrap, .MinusPercentEqual, "-%=", .SubWrap, .MinusPercent, "-%", used)
         else
             return transCreateCompoundAssign(rp, scope, stmt, .AssignSub, .MinusPercentEqual, "-=", .Sub, .Minus, "-", used),

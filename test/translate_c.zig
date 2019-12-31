@@ -1777,6 +1777,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    a++;
         \\    return a;
         \\}
+        \\int *foo3(int *a) {
+        \\    a++;
+        \\    return a;
+        \\}
     , &[_][]const u8{
         \\pub export fn foo1(_arg_a_1: c_uint) c_uint {
         \\    var a_1 = _arg_a_1;
@@ -1787,6 +1791,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var a_2 = _arg_a_2;
         \\    a_2 += 1;
         \\    return a_2;
+        \\}
+        \\pub export fn foo3(_arg_a_3: [*c]c_int) [*c]c_int {
+        \\    var a_3 = _arg_a_3;
+        \\    a_3 += 1;
+        \\    return a_3;
         \\}
     });
 
