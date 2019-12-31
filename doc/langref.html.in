@@ -6699,7 +6699,7 @@ async fn func(y: *i32) void {
       This builtin function atomically dereferences a pointer and returns the value.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#}
+      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#}, a float,
       an integer whose bit count meets these requirements:
       </p>
       <ul>
@@ -6734,7 +6734,7 @@ async fn func(y: *i32) void {
       Supported operations:
       </p>
       <ul>
-        <li>{#syntax#}.Xchg{#endsyntax#} - stores the operand unmodified.</li>
+        <li>{#syntax#}.Xchg{#endsyntax#} - stores the operand unmodified. Supports enums, integers and floats.</li>
         <li>{#syntax#}.Add{#endsyntax#} - for integers, twos complement wraparound addition.
             Also supports {#link|Floats#}.</li>
         <li>{#syntax#}.Sub{#endsyntax#} - for integers, twos complement wraparound subtraction.
@@ -6753,7 +6753,7 @@ async fn func(y: *i32) void {
       This builtin function atomically stores a value.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#}
+      {#syntax#}T{#endsyntax#} must be a pointer type, a {#syntax#}bool{#endsyntax#}, a float,
       an integer whose bit count meets these requirements:
       </p>
       <ul>
