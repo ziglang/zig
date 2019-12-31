@@ -237,3 +237,24 @@ test "argsAlloc" {
     var args = try std.process.argsAlloc(std.heap.page_allocator);
     std.process.argsFree(std.heap.page_allocator, args);
 }
+
+test "memfd_create" {
+    // memfd_create is linux specific.
+    if (builtin.os != .linux) return error.SkipZigTest;
+    // Zig's CI testing infrastructure uses QEMU. Currently the version is
+    // qemu 2.11 from Ubuntu 18.04, which does not have memfd_create support.
+    // memfd_create support is introduced in qemu 4.2. To avoid
+    // "invalid syscall" errors from qemu, we disable the test when not linking libc.
+    // https://github.com/ziglang/zig/issues/4019
+    if (!builtin.link_libc) return error.SkipZigTest;
+
+    const fd = try std.os.memfd_create("test", 0);
+    defer std.os.close(fd);
+    try std.os.write(fd, "test");
+    try std.os.lseek_SET(fd, 0);
+
+    var buf: [10]u8 = undefined;
+    const bytes_read = try std.os.read(fd, &buf);
+    expect(bytes_read == 4);
+    expect(mem.eql(u8, buf[0..4], "test"));
+}

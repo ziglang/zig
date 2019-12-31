@@ -649,17 +649,3 @@ test "updateTimes" {
     std.testing.expect(stat_new.atime < stat_old.atime);
     std.testing.expect(stat_new.mtime < stat_old.mtime);
 }
-
-test "memfd_create" {
-    if (builtin.os != .linux) return error.SkipZigTest;
-
-    const fd = try std.os.memfd_create("test", 0);
-    defer std.os.close(fd);
-    try std.os.write(fd, "test");
-    try std.os.lseek_SET(fd, 0);
-
-    var buf: [10]u8 = undefined;
-    const bytes_read = try std.os.read(fd, &buf);
-    expect(bytes_read == 4);
-    expect(mem.eql(u8, buf[0..4], "test"));
-}

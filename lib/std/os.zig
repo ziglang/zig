@@ -3282,9 +3282,19 @@ pub fn setsockopt(fd: fd_t, level: u32, optname: u32, opt: []const u8) SetSockOp
     }
 }
 
+pub const MemFdCreateError = error{
+    SystemFdQuotaExceeded,
+    ProcessFdQuotaExceeded,
+    OutOfMemory,
+} || UnexpectedError;
+
 pub fn memfd_createC(name: [*:0]const u8, flags: u32) !fd_t {
-    const rc = system.memfd_create(name, flags);
-    switch (errno(rc)) {
+    // memfd_create is available only in glibc versions starting with 2.27.
+    const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
+    const sys = if (use_c) std.c else linux;
+    const getErrno = if (use_c) std.c.getErrno else linux.getErrno;
+    const rc = sys.memfd_create(name, flags);
+    switch (getErrno(rc)) {
         0 => return @intCast(fd_t, rc),
         EFAULT => unreachable, // name has invalid memory
         EINVAL => unreachable, // name/flags are faulty
@@ -3308,5 +3318,5 @@ fn toMemFdPath(name: []const u8) ![MFD_MAX_NAME_LEN:0]u8 {
 
 pub fn memfd_create(name: []const u8, flags: u32) !fd_t {
     const name_t = try toMemFdPath(name);
-    return try memfd_createC(&name_t, flags);
+    return memfd_createC(&name_t, flags);
 }
