@@ -2,6 +2,14 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("comparing against undefined produces undefined value",
+        \\export fn entry() void {
+        \\    if (2 == undefined) {}
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:11: error: use of undefined value here causes undefined behavior",
+    });
+
     cases.add("comptime ptrcast of zero-sized type",
         \\fn foo() void {
         \\    const node: struct {} = undefined;

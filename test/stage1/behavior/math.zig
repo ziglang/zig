@@ -671,3 +671,10 @@ test "vector comparison" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "compare undefined literal with comptime_int" {
+    var x = undefined == 1;
+    // x is now undefined with type bool
+    x = true;
+    expect(x);
+}

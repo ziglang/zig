@@ -9243,6 +9243,7 @@ bool type_is_numeric(ZigType *ty) {
         case ZigTypeIdComptimeInt:
         case ZigTypeIdInt:
         case ZigTypeIdFloat:
+        case ZigTypeIdUndefined:
             return true;
 
         case ZigTypeIdVector:
@@ -9255,7 +9256,6 @@ bool type_is_numeric(ZigType *ty) {
         case ZigTypeIdPointer:
         case ZigTypeIdArray:
         case ZigTypeIdStruct:
-        case ZigTypeIdUndefined:
         case ZigTypeIdNull:
         case ZigTypeIdOptional:
         case ZigTypeIdErrorUnion:

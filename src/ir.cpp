@@ -14647,7 +14647,9 @@ never_mind_just_calculate_it_normally:
     }
 
 
-    if (op1_val->special == ConstValSpecialUndef || op2_val->special == ConstValSpecialUndef) {
+    if (op1_val->special == ConstValSpecialUndef || op2_val->special == ConstValSpecialUndef ||
+        op1_val->type->id == ZigTypeIdUndefined || op2_val->type->id == ZigTypeIdUndefined)
+    {
         out_val->special = ConstValSpecialUndef;
         return nullptr;
     }
