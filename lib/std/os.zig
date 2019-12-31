@@ -3250,3 +3250,34 @@ pub fn sched_yield() SchedYieldError!void {
         else => return error.SystemCannotYield,
     }
 }
+
+pub const SetSockOptError = error{
+    /// The socket is already connected, and a specified option cannot be set while the socket is connected.
+    AlreadyConnected,
+
+    /// The option is not supported by the protocol.
+    InvalidProtocolOption,
+
+    /// The send and receive timeout values are too big to fit into the timeout fields in the socket structure.
+    TimeoutTooBig,
+
+    /// Insufficient resources are available in the system to complete the call.
+    SystemResources,
+} || UnexpectedError;
+
+/// Set a socket's options.
+pub fn setsockopt(fd: fd_t, level: u32, optname: u32, opt: []const u8) SetSockOptError!void {
+    switch (errno(system.setsockopt(fd, level, optname, opt.ptr, @intCast(socklen_t, opt.len)))) {
+        0 => {},
+        EBADF => unreachable, // always a race condition
+        ENOTSOCK => unreachable, // always a race condition
+        EINVAL => unreachable,
+        EFAULT => unreachable,
+        EDOM => return error.TimeoutTooBig,
+        EISCONN => return error.AlreadyConnected,
+        ENOPROTOOPT => return error.InvalidProtocolOption,
+        ENOMEM => return error.SystemResources,
+        ENOBUFS => return error.SystemResources,
+        else => |err| return unexpectedErrno(err),
+    }
+}
