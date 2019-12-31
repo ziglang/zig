@@ -654,6 +654,7 @@ test "memfd_create" {
     if (builtin.os != .linux) return error.SkipZigTest;
 
     const fd = try std.os.memfd_create("test", 0);
+    defer std.os.close(fd);
     try std.os.write(fd, "test");
     try std.os.lseek_SET(fd, 0);
 
