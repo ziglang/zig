@@ -43,6 +43,7 @@ pub const struct_ZigClangImplicitCastExpr = @OpaqueType();
 pub const struct_ZigClangIncompleteArrayType = @OpaqueType();
 pub const struct_ZigClangIntegerLiteral = @OpaqueType();
 pub const struct_ZigClangMacroDefinitionRecord = @OpaqueType();
+pub const struct_ZigClangMacroExpansion = @OpaqueType();
 pub const struct_ZigClangMacroQualifiedType = @OpaqueType();
 pub const struct_ZigClangMemberExpr = @OpaqueType();
 pub const struct_ZigClangNamedDecl = @OpaqueType();
@@ -889,6 +890,7 @@ pub const ZigClangImplicitCastExpr = struct_ZigClangImplicitCastExpr;
 pub const ZigClangIncompleteArrayType = struct_ZigClangIncompleteArrayType;
 pub const ZigClangIntegerLiteral = struct_ZigClangIntegerLiteral;
 pub const ZigClangMacroDefinitionRecord = struct_ZigClangMacroDefinitionRecord;
+pub const ZigClangMacroExpansion = struct_ZigClangMacroExpansion;
 pub const ZigClangMacroQualifiedType = struct_ZigClangMacroQualifiedType;
 pub const ZigClangMemberExpr = struct_ZigClangMemberExpr;
 pub const ZigClangNamedDecl = struct_ZigClangNamedDecl;
@@ -1057,6 +1059,8 @@ pub extern fn ZigClangPreprocessedEntity_getKind(*const ZigClangPreprocessedEnti
 pub extern fn ZigClangMacroDefinitionRecord_getName_getNameStart(*const ZigClangMacroDefinitionRecord) [*:0]const u8;
 pub extern fn ZigClangMacroDefinitionRecord_getSourceRange_getBegin(*const ZigClangMacroDefinitionRecord) ZigClangSourceLocation;
 pub extern fn ZigClangMacroDefinitionRecord_getSourceRange_getEnd(*const ZigClangMacroDefinitionRecord) ZigClangSourceLocation;
+
+pub extern fn ZigClangMacroExpansion_getDefinition(*const ZigClangMacroExpansion) *const ZigClangMacroDefinitionRecord;
 
 pub extern fn ZigClangIfStmt_getThen(*const ZigClangIfStmt) *const ZigClangStmt;
 pub extern fn ZigClangIfStmt_getElse(*const ZigClangIfStmt) ?*const ZigClangStmt;

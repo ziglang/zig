@@ -15,7 +15,6 @@
 #include "hash_map.hpp"
 #include "ir.hpp"
 #include "os.hpp"
-#include "translate_c.hpp"
 #include "target.hpp"
 #include "util.hpp"
 #include "zig_llvm.h"
@@ -9104,7 +9103,7 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
 
 }
 
-void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file, bool use_userland_implementation) {
+void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file) {
     Error err;
     Buf *src_basename = buf_alloc();
     Buf *src_dirname = buf_alloc();
@@ -9116,10 +9115,6 @@ void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file, bool use_us
     detect_libc(g);
 
     init(g);
-
-    TranslateMode trans_mode = buf_ends_with_str(full_path, ".h") ?
-        TranslateModeImport : TranslateModeTranslate;
-
 
     ZigList<const char *> clang_argv = {0};
     add_cc_args(g, clang_argv, nullptr, true);
@@ -9140,15 +9135,9 @@ void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file, bool use_us
     Stage2ErrorMsg *errors_ptr;
     size_t errors_len;
     Stage2Ast *ast;
-    AstNode *root_node;
 
-    if (use_userland_implementation) {
-        err = stage2_translate_c(&ast, &errors_ptr, &errors_len,
-                        &clang_argv.at(0), &clang_argv.last(), resources_path);
-    } else {
-        err = parse_h_file(g, &root_node, &errors_ptr, &errors_len, &clang_argv.at(0), &clang_argv.last(),
-                trans_mode, resources_path);
-    }
+    err = stage2_translate_c(&ast, &errors_ptr, &errors_len,
+                    &clang_argv.at(0), &clang_argv.last(), resources_path);
 
     if (err == ErrorCCompileErrors && errors_len > 0) {
         for (size_t i = 0; i < errors_len; i += 1) {
@@ -9172,12 +9161,7 @@ void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file, bool use_us
         exit(1);
     }
 
-
-    if (use_userland_implementation) {
-        stage2_render_ast(ast, out_file);
-    } else {
-        ast_render(out_file, root_node, 4);
-    }
+    stage2_render_ast(ast, out_file);
 }
 
 static void update_test_functions_builtin_decl(CodeGen *g) {

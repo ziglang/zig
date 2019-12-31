@@ -448,7 +448,6 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/bigfloat.cpp"
     "${CMAKE_SOURCE_DIR}/src/bigint.cpp"
     "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
-    "${CMAKE_SOURCE_DIR}/src/c_tokenizer.cpp"
     "${CMAKE_SOURCE_DIR}/src/cache_hash.cpp"
     "${CMAKE_SOURCE_DIR}/src/codegen.cpp"
     "${CMAKE_SOURCE_DIR}/src/compiler.cpp"
@@ -465,7 +464,6 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/range_set.cpp"
     "${CMAKE_SOURCE_DIR}/src/target.cpp"
     "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
-    "${CMAKE_SOURCE_DIR}/src/translate_c.cpp"
     "${CMAKE_SOURCE_DIR}/src/util.cpp"
     "${ZIG_SOURCES_MEM_PROFILE}"
 )

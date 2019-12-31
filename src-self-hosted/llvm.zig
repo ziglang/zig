@@ -226,24 +226,24 @@ pub const PrintMessageAction = VerifierFailureAction.LLVMPrintMessageAction;
 pub const ReturnStatusAction = VerifierFailureAction.LLVMReturnStatusAction;
 pub const VerifierFailureAction = c.LLVMVerifierFailureAction;
 
-pub const CodeGenLevelNone = c.LLVMCodeGenOptLevel.LLVMCodeGenLevelNone;
-pub const CodeGenLevelLess = c.LLVMCodeGenOptLevel.LLVMCodeGenLevelLess;
-pub const CodeGenLevelDefault = c.LLVMCodeGenOptLevel.LLVMCodeGenLevelDefault;
-pub const CodeGenLevelAggressive = c.LLVMCodeGenOptLevel.LLVMCodeGenLevelAggressive;
+pub const CodeGenLevelNone = CodeGenOptLevel.LLVMCodeGenLevelNone;
+pub const CodeGenLevelLess = CodeGenOptLevel.LLVMCodeGenLevelLess;
+pub const CodeGenLevelDefault = CodeGenOptLevel.LLVMCodeGenLevelDefault;
+pub const CodeGenLevelAggressive = CodeGenOptLevel.LLVMCodeGenLevelAggressive;
 pub const CodeGenOptLevel = c.LLVMCodeGenOptLevel;
 
-pub const RelocDefault = c.LLVMRelocMode.LLVMRelocDefault;
-pub const RelocStatic = c.LLVMRelocMode.LLVMRelocStatic;
-pub const RelocPIC = c.LLVMRelocMode.LLVMRelocPIC;
-pub const RelocDynamicNoPic = c.LLVMRelocMode.LLVMRelocDynamicNoPic;
+pub const RelocDefault = RelocMode.LLVMRelocDefault;
+pub const RelocStatic = RelocMode.LLVMRelocStatic;
+pub const RelocPIC = RelocMode.LLVMRelocPIC;
+pub const RelocDynamicNoPic = RelocMode.LLVMRelocDynamicNoPic;
 pub const RelocMode = c.LLVMRelocMode;
 
-pub const CodeModelDefault = c.LLVMCodeModel.LLVMCodeModelDefault;
-pub const CodeModelJITDefault = c.LLVMCodeModel.LLVMCodeModelJITDefault;
-pub const CodeModelSmall = c.LLVMCodeModel.LLVMCodeModelSmall;
-pub const CodeModelKernel = c.LLVMCodeModel.LLVMCodeModelKernel;
-pub const CodeModelMedium = c.LLVMCodeModel.LLVMCodeModelMedium;
-pub const CodeModelLarge = c.LLVMCodeModel.LLVMCodeModelLarge;
+pub const CodeModelDefault = CodeModel.LLVMCodeModelDefault;
+pub const CodeModelJITDefault = CodeModel.LLVMCodeModelJITDefault;
+pub const CodeModelSmall = CodeModel.LLVMCodeModelSmall;
+pub const CodeModelKernel = CodeModel.LLVMCodeModelKernel;
+pub const CodeModelMedium = CodeModel.LLVMCodeModelMedium;
+pub const CodeModelLarge = CodeModel.LLVMCodeModelLarge;
 pub const CodeModel = c.LLVMCodeModel;
 
 pub const EmitAssembly = EmitOutputType.ZigLLVM_EmitAssembly;
@@ -251,13 +251,13 @@ pub const EmitBinary = EmitOutputType.ZigLLVM_EmitBinary;
 pub const EmitLLVMIr = EmitOutputType.ZigLLVM_EmitLLVMIr;
 pub const EmitOutputType = c.ZigLLVM_EmitOutputType;
 
-pub const CCallConv = c.LLVMCCallConv;
-pub const FastCallConv = c.LLVMFastCallConv;
-pub const ColdCallConv = c.LLVMColdCallConv;
-pub const WebKitJSCallConv = c.LLVMWebKitJSCallConv;
-pub const AnyRegCallConv = c.LLVMAnyRegCallConv;
-pub const X86StdcallCallConv = c.LLVMX86StdcallCallConv;
-pub const X86FastcallCallConv = c.LLVMX86FastcallCallConv;
+pub const CCallConv = CallConv.LLVMCCallConv;
+pub const FastCallConv = CallConv.LLVMFastCallConv;
+pub const ColdCallConv = CallConv.LLVMColdCallConv;
+pub const WebKitJSCallConv = CallConv.LLVMWebKitJSCallConv;
+pub const AnyRegCallConv = CallConv.LLVMAnyRegCallConv;
+pub const X86StdcallCallConv = CallConv.LLVMX86StdcallCallConv;
+pub const X86FastcallCallConv = CallConv.LLVMX86FastcallCallConv;
 pub const CallConv = c.LLVMCallConv;
 
 pub const CallAttr = extern enum {
@@ -288,6 +288,6 @@ extern fn ZigLLVMTargetMachineEmitToFile(
 ) bool;
 
 pub const BuildCall = ZigLLVMBuildCall;
-extern fn ZigLLVMBuildCall(B: *Builder, Fn: *Value, Args: [*]*Value, NumArgs: c_uint, CC: c_uint, fn_inline: CallAttr, Name: [*:0]const u8) ?*Value;
+extern fn ZigLLVMBuildCall(B: *Builder, Fn: *Value, Args: [*]*Value, NumArgs: c_uint, CC: CallConv, fn_inline: CallAttr, Name: [*:0]const u8) ?*Value;
 
 pub const PrivateLinkage = c.LLVMLinkage.LLVMPrivateLinkage;
