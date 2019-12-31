@@ -262,76 +262,66 @@ static const char *get_mangled_name(CodeGen *g, const char *original_name, bool 
     }
 }
 
-static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
+static ZigLLVM_CallingConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
     switch (cc) {
-        case CallingConventionUnspecified: return LLVMFastCallConv;
-        case CallingConventionC: return LLVMCCallConv;
+        case CallingConventionUnspecified:
+            return ZigLLVM_Fast;
+        case CallingConventionC:
+            return ZigLLVM_C;
         case CallingConventionCold:
-            // cold calling convention only works on x86.
-            if (g->zig_target->arch == ZigLLVM_x86 ||
-                g->zig_target->arch == ZigLLVM_x86_64)
-            {
-                // cold calling convention is not supported on windows
-                if (g->zig_target->os == OsWindows) {
-                    return LLVMCCallConv;
-                } else {
-                    return LLVMColdCallConv;
-                }
-            } else {
-                return LLVMCCallConv;
-            }
-            break;
+            if ((g->zig_target->arch == ZigLLVM_x86 ||
+                 g->zig_target->arch == ZigLLVM_x86_64) &&
+                g->zig_target->os != OsWindows)
+                return ZigLLVM_Cold;
+            return ZigLLVM_C;
         case CallingConventionNaked:
             zig_unreachable();
         case CallingConventionStdcall:
             if (g->zig_target->arch == ZigLLVM_x86)
-                return LLVMX86StdcallCallConv;
-            return LLVMCCallConv;
+                return ZigLLVM_X86_StdCall;
+            return ZigLLVM_C;
         case CallingConventionFastcall:
             if (g->zig_target->arch == ZigLLVM_x86)
-                return LLVMX86FastcallCallConv;
-            return LLVMCCallConv;
+                return ZigLLVM_X86_FastCall;
+            return ZigLLVM_C;
         case CallingConventionVectorcall:
             if (g->zig_target->arch == ZigLLVM_x86)
-                return LLVMX86VectorCallCallConv;
-        // XXX Enable this when the C API exports this enum member too
-#if 0
+                return ZigLLVM_X86_VectorCall;
             if (target_is_arm(g->zig_target) &&
                 target_arch_pointer_bit_width(g->zig_target->arch) == 64)
-                return LLVMAARCH64VectorCallCallConv;
-#endif
-            return LLVMCCallConv;
+                return ZigLLVM_AArch64_VectorCall;
+            return ZigLLVM_C;
         case CallingConventionThiscall:
             if (g->zig_target->arch == ZigLLVM_x86)
-                return LLVMX86ThisCallCallConv;
-            return LLVMCCallConv;
+                return ZigLLVM_X86_ThisCall;
+            return ZigLLVM_C;
         case CallingConventionAsync:
-            return LLVMFastCallConv;
+            return ZigLLVM_Fast;
         case CallingConventionAPCS:
             if (target_is_arm(g->zig_target))
-                return LLVMARMAPCSCallConv;
-            return LLVMCCallConv;
+                return ZigLLVM_ARM_APCS;
+            return ZigLLVM_C;
         case CallingConventionAAPCS:
             if (target_is_arm(g->zig_target))
-                return LLVMARMAAPCSCallConv;
-            return LLVMCCallConv;
+                return ZigLLVM_ARM_AAPCS;
+            return ZigLLVM_C;
         case CallingConventionAAPCSVFP:
             if (target_is_arm(g->zig_target))
-                return LLVMARMAAPCSVFPCallConv;
-            return LLVMCCallConv;
+                return ZigLLVM_ARM_AAPCS_VFP;
+            return ZigLLVM_C;
         case CallingConventionInterrupt:
             if (g->zig_target->arch == ZigLLVM_x86 ||
                 g->zig_target->arch == ZigLLVM_x86_64)
-                return LLVMX86INTRCallConv;
+                return ZigLLVM_X86_INTR;
             if (g->zig_target->arch == ZigLLVM_avr)
-                return LLVMAVRINTRCallConv;
+                return ZigLLVM_AVR_INTR;
             if (g->zig_target->arch == ZigLLVM_msp430)
-                return LLVMMSP430INTRCallConv;
-            return LLVMCCallConv;
+                return ZigLLVM_MSP430_INTR;
+            return ZigLLVM_C;
         case CallingConventionSignal:
             if (g->zig_target->arch == ZigLLVM_avr)
-                return LLVMAVRSIGNALCallConv;
-            return LLVMCCallConv;
+                return ZigLLVM_AVR_SIGNAL;
+            return ZigLLVM_C;
     }
     zig_unreachable();
 }
@@ -528,7 +518,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
     if (cc == CallingConventionNaked) {
         addLLVMFnAttr(llvm_fn, "naked");
     } else {
-        LLVMSetFunctionCallConv(llvm_fn, get_llvm_cc(g, fn_type->data.fn.fn_type_id.cc));
+        ZigLLVMFunctionSetCallingConv(llvm_fn, get_llvm_cc(g, fn_type->data.fn.fn_type_id.cc));
     }
 
     bool want_cold = fn->is_cold || cc == CallingConventionCold;
@@ -1023,7 +1013,7 @@ static void gen_panic(CodeGen *g, LLVMValueRef msg_arg, LLVMValueRef stack_trace
 {
     assert(g->panic_fn != nullptr);
     LLVMValueRef fn_val = fn_llvm_value(g, g->panic_fn);
-    LLVMCallConv llvm_cc = get_llvm_cc(g, g->panic_fn->type_entry->data.fn.fn_type_id.cc);
+    ZigLLVM_CallingConv llvm_cc = get_llvm_cc(g, g->panic_fn->type_entry->data.fn.fn_type_id.cc);
     if (stack_trace_arg == nullptr) {
         stack_trace_arg = LLVMConstNull(get_llvm_type(g, ptr_to_stack_trace_type(g)));
     }
@@ -1134,7 +1124,7 @@ static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
     LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type_ref);
     addLLVMFnAttr(fn_val, "alwaysinline");
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
-    LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
+    ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
     // Error return trace memory is in the stack, which is impossible to be at address 0
@@ -1215,7 +1205,7 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
     addLLVMFnAttr(fn_val, "noinline"); // so that we can look at return address
     addLLVMFnAttr(fn_val, "cold");
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
-    LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
+    ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
     if (codegen_have_frame_pointer(g)) {
@@ -1299,7 +1289,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     addLLVMFnAttr(fn_val, "noreturn");
     addLLVMFnAttr(fn_val, "cold");
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
-    LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
+    ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
     if (codegen_have_frame_pointer(g)) {
@@ -2195,7 +2185,7 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
     const char *fn_name = get_mangled_name(g, "__zig_merge_error_return_traces", false);
     LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type_ref);
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
-    LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
+    ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
     addLLVMArgAttr(fn_val, (unsigned)0, "noalias");
@@ -2372,7 +2362,7 @@ static LLVMValueRef gen_resume(CodeGen *g, LLVMValueRef fn_val, LLVMValueRef tar
     LLVMValueRef arg_val = LLVMConstSub(LLVMConstAllOnes(usize_type_ref),
             LLVMConstInt(usize_type_ref, resume_id, false));
     LLVMValueRef args[] = {target_frame_ptr, arg_val};
-    return ZigLLVMBuildCall(g->builder, fn_val, args, 2, LLVMFastCallConv, ZigLLVM_CallAttrAuto, "");
+    return ZigLLVMBuildCall(g->builder, fn_val, args, 2, ZigLLVM_Fast, ZigLLVM_CallAttrAuto, "");
 }
 
 static LLVMBasicBlockRef gen_suspend_begin(CodeGen *g, const char *name_hint) {
@@ -4262,7 +4252,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
             break;
     }
 
-    LLVMCallConv llvm_cc = get_llvm_cc(g, cc);
+    ZigLLVM_CallingConv llvm_cc = get_llvm_cc(g, cc);
     LLVMValueRef result;
 
     if (callee_is_async) {
@@ -4972,7 +4962,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
             buf_ptr(buf_sprintf("__zig_tag_name_%s", buf_ptr(&enum_type->name))), false);
     LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type_ref);
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
-    LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
+    ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
     if (codegen_have_frame_pointer(g)) {
