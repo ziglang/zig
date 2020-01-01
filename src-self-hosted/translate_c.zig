@@ -2971,7 +2971,7 @@ fn transCreateNodeAssign(
 
     const node = try transCreateNodeVarDecl(rp.c, false, true, tmp);
     node.eq_token = try appendToken(rp.c, .Equal, "=");
-    var rhs_node = try transExpr(rp, scope, rhs, .used, .r_value);
+    var rhs_node = try transExpr(rp, &block_scope.base, rhs, .used, .r_value);
     if (isBoolRes(rhs_node)) {
         const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@boolToInt");
         try builtin_node.params.push(rhs_node);
@@ -2982,12 +2982,12 @@ fn transCreateNodeAssign(
     node.semicolon_token = try appendToken(rp.c, .Semicolon, ";");
     try block_scope.block_node.statements.push(&node.base);
 
-    const lhs_node = try transExpr(rp, scope, lhs, .used, .l_value);
+    const lhs_node = try transExpr(rp, &block_scope.base, lhs, .used, .l_value);
     const eq_token = try appendToken(rp.c, .Equal, "=");
     const ident = try transCreateNodeIdentifier(rp.c, tmp);
     _ = try appendToken(rp.c, .Semicolon, ";");
 
-    const assign = try transCreateNodeInfixOp(rp, scope, lhs_node, .Assign, eq_token, ident, .used, false);
+    const assign = try transCreateNodeInfixOp(rp, &block_scope.base, lhs_node, .Assign, eq_token, ident, .used, false);
     try block_scope.block_node.statements.push(assign);
 
     const break_node = try transCreateNodeBreak(rp.c, block_scope.label);

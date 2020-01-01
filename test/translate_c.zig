@@ -2241,4 +2241,26 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return if (b > a) b else a;
         \\}
     });
+
+    // TODO: detect to use different block labels here
+    cases.add("nested assignment",
+        \\int foo(int *p, int x) {
+        \\    return *p++ = x;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo(arg_p: [*c]c_int, arg_x: c_int) c_int {
+        \\    var p = arg_p;
+        \\    var x = arg_x;
+        \\    return blk: {
+        \\        const tmp = x;
+        \\        (blk: {
+        \\            const ref = &p;
+        \\            const tmp_1 = ref.*;
+        \\            ref.* += 1;
+        \\            break :blk tmp_1;
+        \\        }).?.* = tmp;
+        \\        break :blk tmp;
+        \\    };
+        \\}
+    });
 }
