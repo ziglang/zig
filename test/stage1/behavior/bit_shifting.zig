@@ -96,3 +96,7 @@ test "comptime shr of BigInt" {
         std.debug.assert(n1 >> 64 == 0);
     }
 }
+
+test "comptime shift safety check" {
+    const x = @as(usize, 42) << @sizeOf(usize);
+}

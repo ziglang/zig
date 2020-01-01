@@ -15621,11 +15621,15 @@ static IrInstruction *ir_analyze_bit_shift(IrAnalyze *ira, IrInstructionBinOp *b
                 op1->value->type->data.integral.bit_count - 1);
         if (bin_op_instruction->op_id == IrBinOpBitShiftLeftLossy &&
             op2->value->type->id == ZigTypeIdComptimeInt) {
-            if (!bigint_fits_in_bits(&op2->value->data.x_bigint,
+
+            ZigValue *op2_val = ir_resolve_const(ira, op2, UndefBad);
+            if (op2_val == nullptr)
+                return ira->codegen->invalid_instruction;
+            if (!bigint_fits_in_bits(&op2_val->data.x_bigint,
                                      shift_amt_type->data.integral.bit_count,
-                                     op2->value->data.x_bigint.is_negative)) {
+                                     op2_val->data.x_bigint.is_negative)) {
                 Buf *val_buf = buf_alloc();
-                bigint_append_buf(val_buf, &op2->value->data.x_bigint, 10);
+                bigint_append_buf(val_buf, &op2_val->data.x_bigint, 10);
                 ErrorMsg* msg = ir_add_error(ira,
                     &bin_op_instruction->base,
                     buf_sprintf("RHS of shift is too large for LHS type"));
