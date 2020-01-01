@@ -1106,8 +1106,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub var a: c_long = @intCast(c_long, 2);
         \\pub var b: c_long = @intCast(c_long, 2);
         \\pub var c: c_int = 4;
-        \\pub export fn foo(_arg_c_1: u8) void {
-        \\    var c_1 = _arg_c_1;
+        \\pub export fn foo(arg_c_1: u8) void {
+        \\    var c_1 = arg_c_1;
         \\    var a_2: c_int = undefined;
         \\    var b_3: u8 = @intCast(u8, 123);
         \\    b_3 = @intCast(u8, a_2);
@@ -1144,9 +1144,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var a: c_int = undefined;
         \\    var b: c_int = undefined;
         \\    a = blk: {
-        \\        const _tmp_1 = 2;
-        \\        b = _tmp_1;
-        \\        break :blk _tmp_1;
+        \\        const tmp = 2;
+        \\        b = tmp;
+        \\        break :blk tmp;
         \\    };
         \\}
     });
@@ -1197,14 +1197,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var a: c_int = 5;
         \\    while (2 != 0) a = 2;
         \\    while (4 != 0) {
-        \\        var a: c_int = 4;
-        \\        a = 9;
+        \\        var a_1: c_int = 4;
+        \\        a_1 = 9;
         \\        _ = 6;
-        \\        return a;
+        \\        return a_1;
         \\    }
         \\    while (true) {
-        \\        var a: c_int = 2;
-        \\        a = 12;
+        \\        var a_1: c_int = 2;
+        \\        a_1 = 12;
         \\        if (!(4 != 0)) break;
         \\    }
         \\    while (true) {
@@ -1284,15 +1284,15 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    }
         \\}
     , &[_][]const u8{
-        \\pub export fn switch_fn(_arg_i_1: c_int) c_int {
-        \\    var i_1 = _arg_i_1;
+        \\pub export fn switch_fn(arg_i: c_int) c_int {
+        \\    var i = arg_i;
         \\    var res: c_int = 0;
         \\    __switch: {
         \\        __case_2: {
         \\            __default: {
         \\                __case_1: {
         \\                    __case_0: {
-        \\                        switch (i_1) {
+        \\                        switch (i) {
         \\                            0 => break :__case_0,
         \\                            1...3 => break :__case_1,
         \\                            else => break :__default,
@@ -1303,7 +1303,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\                }
         \\                res = 2;
         \\            }
-        \\            res = (3 * i_1);
+        \\            res = (3 * i);
         \\            break :__switch;
         \\        }
         \\        res = 5;
@@ -1346,11 +1346,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    a = tmp;
         \\}
     , &[_][]const u8{
-        \\pub export fn max(_arg_a_1: c_int) c_int {
-        \\    var a_1 = _arg_a_1;
+        \\pub export fn max(arg_a: c_int) c_int {
+        \\    var a = arg_a;
         \\    var tmp: c_int = undefined;
-        \\    tmp = a_1;
-        \\    a_1 = tmp;
+        \\    tmp = a;
+        \\    a = tmp;
         \\}
     });
 
@@ -1360,14 +1360,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    c = b = a;
         \\}
     , &[_][]const u8{
-        \\pub export fn max(_arg_a_1: c_int) void {
-        \\    var a_1 = _arg_a_1;
+        \\pub export fn max(arg_a: c_int) void {
+        \\    var a = arg_a;
         \\    var b: c_int = undefined;
         \\    var c: c_int = undefined;
         \\    c = blk: {
-        \\        const _tmp_2 = a_1;
-        \\        b = _tmp_2;
-        \\        break :blk _tmp_2;
+        \\        const tmp = a;
+        \\        b = tmp;
+        \\        break :blk tmp;
         \\    };
         \\}
     });
@@ -1391,9 +1391,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return (int)a;
         \\}
     , &[_][]const u8{
-        \\pub export fn float_to_int(_arg_a_1: f32) c_int {
-        \\    var a_1 = _arg_a_1;
-        \\    return @floatToInt(c_int, a_1);
+        \\pub export fn float_to_int(arg_a: f32) c_int {
+        \\    var a = arg_a;
+        \\    return @floatToInt(c_int, a);
         \\}
     });
 
@@ -1487,23 +1487,23 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    C,
         \\};
         \\pub const SomeTypedef = c_int;
-        \\pub export fn and_or_non_bool(_arg_a_1: c_int, _arg_b_2: f32, _arg_c_3: ?*c_void) c_int {
-        \\    var a_1 = _arg_a_1;
-        \\    var b_2 = _arg_b_2;
-        \\    var c_3 = _arg_c_3;
+        \\pub export fn and_or_non_bool(arg_a: c_int, arg_b: f32, arg_c: ?*c_void) c_int {
+        \\    var a = arg_a;
+        \\    var b = arg_b;
+        \\    var c = arg_c;
         \\    var d: enum_Foo = @intToEnum(enum_Foo, FooA);
-        \\    var e: c_int = @boolToInt(((a_1 != 0) and (b_2 != 0)));
-        \\    var f: c_int = @boolToInt(((b_2 != 0) and (c_3 != null)));
-        \\    var g: c_int = @boolToInt(((a_1 != 0) and (c_3 != null)));
-        \\    var h: c_int = @boolToInt(((a_1 != 0) or (b_2 != 0)));
-        \\    var i: c_int = @boolToInt(((b_2 != 0) or (c_3 != null)));
-        \\    var j: c_int = @boolToInt(((a_1 != 0) or (c_3 != null)));
-        \\    var k: c_int = @boolToInt(((a_1 != 0) or (@enumToInt(d) != 0)));
-        \\    var l: c_int = @boolToInt(((@enumToInt(d) != 0) and (b_2 != 0)));
-        \\    var m: c_int = @boolToInt(((c_3 != null) or (@enumToInt(d) != 0)));
+        \\    var e: c_int = @boolToInt(((a != 0) and (b != 0)));
+        \\    var f: c_int = @boolToInt(((b != 0) and (c != null)));
+        \\    var g: c_int = @boolToInt(((a != 0) and (c != null)));
+        \\    var h: c_int = @boolToInt(((a != 0) or (b != 0)));
+        \\    var i: c_int = @boolToInt(((b != 0) or (c != null)));
+        \\    var j: c_int = @boolToInt(((a != 0) or (c != null)));
+        \\    var k: c_int = @boolToInt(((a != 0) or (@enumToInt(d) != 0)));
+        \\    var l: c_int = @boolToInt(((@enumToInt(d) != 0) and (b != 0)));
+        \\    var m: c_int = @boolToInt(((c != null) or (@enumToInt(d) != 0)));
         \\    var td: SomeTypedef = 44;
-        \\    var o: c_int = @boolToInt(((td != 0) or (b_2 != 0)));
-        \\    var p: c_int = @boolToInt(((c_3 != null) and (td != 0)));
+        \\    var o: c_int = @boolToInt(((td != 0) or (b != 0)));
+        \\    var p: c_int = @boolToInt(((c != null) and (td != 0)));
         \\    return ((((((((((e + f) + g) + h) + i) + j) + k) + l) + m) + o) + p);
         \\}
     ,
@@ -1541,10 +1541,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return (a & b) ^ (a | b);
         \\}
     , &[_][]const u8{
-        \\pub export fn max(_arg_a_1: c_int, _arg_b_2: c_int) c_int {
-        \\    var a_1 = _arg_a_1;
-        \\    var b_2 = _arg_b_2;
-        \\    return ((a_1 & b_2) ^ (a_1 | b_2));
+        \\pub export fn max(arg_a: c_int, arg_b: c_int) c_int {
+        \\    var a = arg_a;
+        \\    var b = arg_b;
+        \\    return ((a & b) ^ (a | b));
         \\}
     });
 
@@ -1560,13 +1560,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return i;
         \\}
     , &[_][]const u8{
-        \\pub export fn test_comparisons(_arg_a_1: c_int, _arg_b_2: c_int) c_int {
-        \\    var a_1 = _arg_a_1;
-        \\    var b_2 = _arg_b_2;
-        \\    var c: c_int = @boolToInt((a_1 < b_2));
-        \\    var d: c_int = @boolToInt((a_1 > b_2));
-        \\    var e: c_int = @boolToInt((a_1 <= b_2));
-        \\    var f: c_int = @boolToInt((a_1 >= b_2));
+        \\pub export fn test_comparisons(arg_a: c_int, arg_b: c_int) c_int {
+        \\    var a = arg_a;
+        \\    var b = arg_b;
+        \\    var c: c_int = @boolToInt((a < b));
+        \\    var d: c_int = @boolToInt((a > b));
+        \\    var e: c_int = @boolToInt((a <= b));
+        \\    var f: c_int = @boolToInt((a >= b));
         \\    var g: c_int = @boolToInt((c < d));
         \\    var h: c_int = @boolToInt((e < f));
         \\    var i: c_int = @boolToInt((g < h));
@@ -1583,12 +1583,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return a;
         \\}
     , &[_][]const u8{
-        \\pub export fn max(_arg_a_1: c_int, _arg_b_2: c_int) c_int {
-        \\    var a_1 = _arg_a_1;
-        \\    var b_2 = _arg_b_2;
-        \\    if (a_1 == b_2) return a_1;
-        \\    if (a_1 != b_2) return b_2;
-        \\    return a_1;
+        \\pub export fn max(arg_a: c_int, arg_b: c_int) c_int {
+        \\    var a = arg_a;
+        \\    var b = arg_b;
+        \\    if (a == b) return a;
+        \\    if (a != b) return b;
+        \\    return a;
         \\}
     });
 
@@ -1661,9 +1661,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub export var array: [100]c_int = .{0} ** 100;
-        \\pub export fn foo(_arg_index_1: c_int) c_int {
-        \\    var index_1 = _arg_index_1;
-        \\    return array[index_1];
+        \\pub export fn foo(arg_index: c_int) c_int {
+        \\    var index = arg_index;
+        \\    return array[index];
         \\}
     ,
         \\pub const ACCESS = array[2];
@@ -1686,12 +1686,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return a;
         \\}
     , &[_][]const u8{
-        \\pub export fn max(_arg_a_1: c_int, _arg_b_2: c_int) c_int {
-        \\    var a_1 = _arg_a_1;
-        \\    var b_2 = _arg_b_2;
-        \\    if ((a_1 < b_2) or (a_1 == b_2)) return b_2;
-        \\    if ((a_1 >= b_2) and (a_1 == b_2)) return a_1;
-        \\    return a_1;
+        \\pub export fn max(arg_a: c_int, arg_b: c_int) c_int {
+        \\    var a = arg_a;
+        \\    var b = arg_b;
+        \\    if ((a < b) or (a == b)) return b;
+        \\    if ((a >= b) and (a == b)) return a;
+        \\    return a;
         \\}
     });
 
@@ -1708,12 +1708,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    if (a < b) ; else ;
         \\}
     , &[_][]const u8{
-        \\pub export fn max(_arg_a_1: c_int, _arg_b_2: c_int) c_int {
-        \\    var a_1 = _arg_a_1;
-        \\    var b_2 = _arg_b_2;
-        \\    if (a_1 < b_2) return b_2;
-        \\    if (a_1 < b_2) return b_2 else return a_1;
-        \\    if (a_1 < b_2) {} else {}
+        \\pub export fn max(arg_a: c_int, arg_b: c_int) c_int {
+        \\    var a = arg_a;
+        \\    var b = arg_b;
+        \\    if (a < b) return b;
+        \\    if (a < b) return b else return a;
+        \\    if (a < b) {} else {}
         \\}
     });
 
@@ -1732,15 +1732,15 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    B,
         \\    C,
         \\};
-        \\pub export fn if_none_bool(_arg_a_1: c_int, _arg_b_2: f32, _arg_c_3: ?*c_void, _arg_d_4: enum_SomeEnum) c_int {
-        \\    var a_1 = _arg_a_1;
-        \\    var b_2 = _arg_b_2;
-        \\    var c_3 = _arg_c_3;
-        \\    var d_4 = _arg_d_4;
-        \\    if (a_1 != 0) return 0;
-        \\    if (b_2 != 0) return 1;
-        \\    if (c_3 != null) return 2;
-        \\    if (d_4 != 0) return 3;
+        \\pub export fn if_none_bool(arg_a: c_int, arg_b: f32, arg_c: ?*c_void, arg_d: enum_SomeEnum) c_int {
+        \\    var a = arg_a;
+        \\    var b = arg_b;
+        \\    var c = arg_c;
+        \\    var d = arg_d;
+        \\    if (a != 0) return 0;
+        \\    if (b != 0) return 1;
+        \\    if (c != null) return 2;
+        \\    if (d != 0) return 3;
         \\    return 4;
         \\}
     });
@@ -1762,9 +1762,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return a < 0 ? -a : a;
         \\}
     , &[_][]const u8{
-        \\pub export fn abs(_arg_a_1: c_int) c_int {
-        \\    var a_1 = _arg_a_1;
-        \\    return if (a_1 < 0) -a_1 else a_1;
+        \\pub export fn abs(arg_a: c_int) c_int {
+        \\    var a = arg_a;
+        \\    return if (a < 0) -a else a;
         \\}
     });
 
@@ -1782,20 +1782,20 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return a;
         \\}
     , &[_][]const u8{
-        \\pub export fn foo1(_arg_a_1: c_uint) c_uint {
-        \\    var a_1 = _arg_a_1;
-        \\    a_1 +%= 1;
-        \\    return a_1;
+        \\pub export fn foo1(arg_a: c_uint) c_uint {
+        \\    var a = arg_a;
+        \\    a +%= 1;
+        \\    return a;
         \\}
-        \\pub export fn foo2(_arg_a_2: c_int) c_int {
-        \\    var a_2 = _arg_a_2;
-        \\    a_2 += 1;
-        \\    return a_2;
+        \\pub export fn foo2(arg_a: c_int) c_int {
+        \\    var a = arg_a;
+        \\    a += 1;
+        \\    return a;
         \\}
-        \\pub export fn foo3(_arg_a_3: [*c]c_int) [*c]c_int {
-        \\    var a_3 = _arg_a_3;
-        \\    a_3 += 1;
-        \\    return a_3;
+        \\pub export fn foo3(arg_a: [*c]c_int) [*c]c_int {
+        \\    var a = arg_a;
+        \\    a += 1;
+        \\    return a;
         \\}
     });
 
@@ -1851,24 +1851,24 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    u +%= 1;
         \\    u -%= 1;
         \\    i = (blk: {
-        \\        const _ref_1 = &i;
-        \\        _ref_1.* += 1;
-        \\        break :blk _ref_1.*;
+        \\        const ref = &i;
+        \\        ref.* += 1;
+        \\        break :blk ref.*;
         \\    });
         \\    i = (blk: {
-        \\        const _ref_2 = &i;
-        \\        _ref_2.* -= 1;
-        \\        break :blk _ref_2.*;
+        \\        const ref = &i;
+        \\        ref.* -= 1;
+        \\        break :blk ref.*;
         \\    });
         \\    u = (blk: {
-        \\        const _ref_3 = &u;
-        \\        _ref_3.* +%= 1;
-        \\        break :blk _ref_3.*;
+        \\        const ref = &u;
+        \\        ref.* +%= 1;
+        \\        break :blk ref.*;
         \\    });
         \\    u = (blk: {
-        \\        const _ref_4 = &u;
-        \\        _ref_4.* -%= 1;
-        \\        break :blk _ref_4.*;
+        \\        const ref = &u;
+        \\        ref.* -%= 1;
+        \\        break :blk ref.*;
         \\    });
         \\}
     });
@@ -1882,11 +1882,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return i;
         \\}
     , &[_][]const u8{
-        \\pub export fn log2(_arg_a_1: c_uint) c_int {
-        \\    var a_1 = _arg_a_1;
+        \\pub export fn log2(arg_a: c_uint) c_int {
+        \\    var a = arg_a;
         \\    var i: c_int = 0;
-        \\    while (a_1 > @intCast(c_uint, 0)) {
-        \\        a_1 >>= @as(@import("std").math.Log2Int(c_int), 1);
+        \\    while (a > @intCast(c_uint, 0)) {
+        \\        a >>= @as(@import("std").math.Log2Int(c_int), 1);
         \\    }
         \\    return i;
         \\}
@@ -1902,11 +1902,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return i;
         \\}
     , &[_][]const u8{
-        \\pub export fn log2(_arg_a_1: u32) c_int {
-        \\    var a_1 = _arg_a_1;
+        \\pub export fn log2(arg_a: u32) c_int {
+        \\    var a = arg_a;
         \\    var i: c_int = 0;
-        \\    while (a_1 > @intCast(c_uint, 0)) {
-        \\        a_1 >>= @as(@import("std").math.Log2Int(c_int), 1);
+        \\    while (a > @intCast(c_uint, 0)) {
+        \\        a >>= @as(@import("std").math.Log2Int(c_int), 1);
         \\    }
         \\    return i;
         \\}
@@ -1928,44 +1928,44 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() void {
         \\    var a: c_int = 0;
         \\    a += (blk: {
-        \\        const _ref_1 = &a;
-        \\        _ref_1.* = _ref_1.* + 1;
-        \\        break :blk _ref_1.*;
+        \\        const ref = &a;
+        \\        ref.* = ref.* + 1;
+        \\        break :blk ref.*;
         \\    });
         \\    a -= (blk: {
-        \\        const _ref_2 = &a;
-        \\        _ref_2.* = _ref_2.* - 1;
-        \\        break :blk _ref_2.*;
+        \\        const ref = &a;
+        \\        ref.* = ref.* - 1;
+        \\        break :blk ref.*;
         \\    });
         \\    a *= (blk: {
-        \\        const _ref_3 = &a;
-        \\        _ref_3.* = _ref_3.* * 1;
-        \\        break :blk _ref_3.*;
+        \\        const ref = &a;
+        \\        ref.* = ref.* * 1;
+        \\        break :blk ref.*;
         \\    });
         \\    a &= (blk: {
-        \\        const _ref_4 = &a;
-        \\        _ref_4.* = _ref_4.* & 1;
-        \\        break :blk _ref_4.*;
+        \\        const ref = &a;
+        \\        ref.* = ref.* & 1;
+        \\        break :blk ref.*;
         \\    });
         \\    a |= (blk: {
-        \\        const _ref_5 = &a;
-        \\        _ref_5.* = _ref_5.* | 1;
-        \\        break :blk _ref_5.*;
+        \\        const ref = &a;
+        \\        ref.* = ref.* | 1;
+        \\        break :blk ref.*;
         \\    });
         \\    a ^= (blk: {
-        \\        const _ref_6 = &a;
-        \\        _ref_6.* = _ref_6.* ^ 1;
-        \\        break :blk _ref_6.*;
+        \\        const ref = &a;
+        \\        ref.* = ref.* ^ 1;
+        \\        break :blk ref.*;
         \\    });
         \\    a >>= @as(@import("std").math.Log2Int(c_int), (blk: {
-        \\        const _ref_7 = &a;
-        \\        _ref_7.* = _ref_7.* >> @as(@import("std").math.Log2Int(c_int), 1);
-        \\        break :blk _ref_7.*;
+        \\        const ref = &a;
+        \\        ref.* = ref.* >> @as(@import("std").math.Log2Int(c_int), 1);
+        \\        break :blk ref.*;
         \\    }));
         \\    a <<= @as(@import("std").math.Log2Int(c_int), (blk: {
-        \\        const _ref_8 = &a;
-        \\        _ref_8.* = _ref_8.* << @as(@import("std").math.Log2Int(c_int), 1);
-        \\        break :blk _ref_8.*;
+        \\        const ref = &a;
+        \\        ref.* = ref.* << @as(@import("std").math.Log2Int(c_int), 1);
+        \\        break :blk ref.*;
         \\    }));
         \\}
     });
@@ -1986,44 +1986,44 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() void {
         \\    var a: c_uint = @intCast(c_uint, 0);
         \\    a +%= (blk: {
-        \\        const _ref_1 = &a;
-        \\        _ref_1.* = _ref_1.* +% @intCast(c_uint, 1);
-        \\        break :blk _ref_1.*;
+        \\        const ref = &a;
+        \\        ref.* = ref.* +% @intCast(c_uint, 1);
+        \\        break :blk ref.*;
         \\    });
         \\    a -%= (blk: {
-        \\        const _ref_2 = &a;
-        \\        _ref_2.* = _ref_2.* -% @intCast(c_uint, 1);
-        \\        break :blk _ref_2.*;
+        \\        const ref = &a;
+        \\        ref.* = ref.* -% @intCast(c_uint, 1);
+        \\        break :blk ref.*;
         \\    });
         \\    a *%= (blk: {
-        \\        const _ref_3 = &a;
-        \\        _ref_3.* = _ref_3.* *% @intCast(c_uint, 1);
-        \\        break :blk _ref_3.*;
+        \\        const ref = &a;
+        \\        ref.* = ref.* *% @intCast(c_uint, 1);
+        \\        break :blk ref.*;
         \\    });
         \\    a &= (blk: {
-        \\        const _ref_4 = &a;
-        \\        _ref_4.* = _ref_4.* & @intCast(c_uint, 1);
-        \\        break :blk _ref_4.*;
+        \\        const ref = &a;
+        \\        ref.* = ref.* & @intCast(c_uint, 1);
+        \\        break :blk ref.*;
         \\    });
         \\    a |= (blk: {
-        \\        const _ref_5 = &a;
-        \\        _ref_5.* = _ref_5.* | @intCast(c_uint, 1);
-        \\        break :blk _ref_5.*;
+        \\        const ref = &a;
+        \\        ref.* = ref.* | @intCast(c_uint, 1);
+        \\        break :blk ref.*;
         \\    });
         \\    a ^= (blk: {
-        \\        const _ref_6 = &a;
-        \\        _ref_6.* = _ref_6.* ^ @intCast(c_uint, 1);
-        \\        break :blk _ref_6.*;
+        \\        const ref = &a;
+        \\        ref.* = ref.* ^ @intCast(c_uint, 1);
+        \\        break :blk ref.*;
         \\    });
         \\    a >>= @as(@import("std").math.Log2Int(c_uint), (blk: {
-        \\        const _ref_7 = &a;
-        \\        _ref_7.* = _ref_7.* >> @as(@import("std").math.Log2Int(c_int), 1);
-        \\        break :blk _ref_7.*;
+        \\        const ref = &a;
+        \\        ref.* = ref.* >> @as(@import("std").math.Log2Int(c_int), 1);
+        \\        break :blk ref.*;
         \\    }));
         \\    a <<= @as(@import("std").math.Log2Int(c_uint), (blk: {
-        \\        const _ref_8 = &a;
-        \\        _ref_8.* = _ref_8.* << @as(@import("std").math.Log2Int(c_int), 1);
-        \\        break :blk _ref_8.*;
+        \\        const ref = &a;
+        \\        ref.* = ref.* << @as(@import("std").math.Log2Int(c_int), 1);
+        \\        break :blk ref.*;
         \\    }));
         \\}
     });
@@ -2050,28 +2050,28 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    u +%= 1;
         \\    u -%= 1;
         \\    i = (blk: {
-        \\        const _ref_1 = &i;
-        \\        const _tmp_2 = _ref_1.*;
-        \\        _ref_1.* += 1;
-        \\        break :blk _tmp_2;
+        \\        const ref = &i;
+        \\        const tmp = ref.*;
+        \\        ref.* += 1;
+        \\        break :blk tmp;
         \\    });
         \\    i = (blk: {
-        \\        const _ref_3 = &i;
-        \\        const _tmp_4 = _ref_3.*;
-        \\        _ref_3.* -= 1;
-        \\        break :blk _tmp_4;
+        \\        const ref = &i;
+        \\        const tmp = ref.*;
+        \\        ref.* -= 1;
+        \\        break :blk tmp;
         \\    });
         \\    u = (blk: {
-        \\        const _ref_5 = &u;
-        \\        const _tmp_6 = _ref_5.*;
-        \\        _ref_5.* +%= 1;
-        \\        break :blk _tmp_6;
+        \\        const ref = &u;
+        \\        const tmp = ref.*;
+        \\        ref.* +%= 1;
+        \\        break :blk tmp;
         \\    });
         \\    u = (blk: {
-        \\        const _ref_7 = &u;
-        \\        const _tmp_8 = _ref_7.*;
-        \\        _ref_7.* -%= 1;
-        \\        break :blk _tmp_8;
+        \\        const ref = &u;
+        \\        const tmp = ref.*;
+        \\        ref.* -%= 1;
+        \\        break :blk tmp;
         \\    });
         \\}
     });
@@ -2139,10 +2139,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub fn bar() void {}
-        \\pub export fn foo(_arg_baz_1: ?extern fn () [*c]c_int) void {
-        \\    var baz_1 = _arg_baz_1;
+        \\pub export fn foo(arg_baz: ?extern fn () [*c]c_int) void {
+        \\    var baz = arg_baz;
         \\    bar();
-        \\    _ = baz_1.?();
+        \\    _ = baz.?();
         \\}
     });
 

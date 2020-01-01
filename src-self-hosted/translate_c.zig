@@ -64,6 +64,7 @@ const Scope = struct {
         block_node: *ast.Node.Block,
         variables: AliasList,
         label: ?[]const u8,
+        mangle_count: u32 = 0,
 
         /// Don't forget to set rbrace token and block_node later
         fn init(c: *Context, parent: *Scope, label: ?[]const u8) !*Block {
@@ -80,7 +81,18 @@ const Scope = struct {
             return block;
         }
 
-        fn getAlias(scope: *Block, name: []const u8) ?[]const u8 {
+        /// Given the desired name, return a name that does not shadow anything from outer scopes.
+        fn makeMangledName(scope: *Block, c: *Context, name: []const u8) ![]const u8 {
+            var proposed_name = name;
+            while (scope.contains(proposed_name)) {
+                scope.mangle_count += 1;
+                proposed_name = try std.fmt.allocPrint(c.a(), "{}_{}", .{ name, scope.mangle_count });
+            }
+            try scope.variables.push(.{ .name = name, .alias = proposed_name });
+            return proposed_name;
+        }
+
+        fn getAlias(scope: *Block, name: []const u8) []const u8 {
             var it = scope.variables.iterator(0);
             while (it.next()) |p| {
                 if (mem.eql(u8, p.name, name))
@@ -89,12 +101,18 @@ const Scope = struct {
             return scope.base.parent.?.getAlias(name);
         }
 
-        fn contains(scope: *Block, name: []const u8) bool {
+        fn localContains(scope: *Block, name: []const u8) bool {
             var it = scope.variables.iterator(0);
             while (it.next()) |p| {
                 if (mem.eql(u8, p.name, name))
                     return true;
             }
+            return false;
+        }
+
+        fn contains(scope: *Block, name: []const u8) bool {
+            if (scope.localContains(name))
+                return true;
             return scope.base.parent.?.contains(name);
         }
     };
@@ -116,7 +134,9 @@ const Scope = struct {
         }
 
         fn contains(scope: *Root, name: []const u8) bool {
-            return scope.sym_table.contains(name) or scope.macro_table.contains(name);
+            return isZigPrimitiveType(name) or
+                scope.sym_table.contains(name) or
+                scope.macro_table.contains(name);
         }
     };
 
@@ -135,16 +155,9 @@ const Scope = struct {
         }
     }
 
-    fn createAlias(scope: *Scope, c: *Context, name: []const u8) !?[]const u8 {
-        if (isZigPrimitiveType(name) or scope.contains(name)) {
-            return try std.fmt.allocPrint(c.a(), "{}_{}", .{ name, c.getMangle() });
-        }
-        return null;
-    }
-
-    fn getAlias(scope: *Scope, name: []const u8) ?[]const u8 {
+    fn getAlias(scope: *Scope, name: []const u8) []const u8 {
         return switch (scope.id) {
-            .Root => null,
+            .Root => return name,
             .Block => @fieldParentPtr(Block, "base", scope).getAlias(name),
             .Switch, .Loop, .Condition => scope.parent.?.getAlias(name),
         };
@@ -191,9 +204,9 @@ pub const Context = struct {
     alias_list: AliasList,
     global_scope: *Scope.Root,
     clang_context: *ZigClangASTContext,
-    mangle_count: u64 = 0,
+    mangle_count: u32 = 0,
 
-    fn getMangle(c: *Context) u64 {
+    fn getMangle(c: *Context) u32 {
         c.mangle_count += 1;
         return c.mangle_count;
     }
@@ -410,19 +423,14 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
         const param_name = tokenSlice(c, param.name_token orelse
             return failDecl(c, fn_decl_loc, fn_name, "function {} parameter has no name", .{fn_name}));
 
-        // in Zig top level declarations are order-independent so this might be shadowed later
-        const checked_param_name = try std.fmt.allocPrint(c.a(), "{}_{}", .{ param_name, c.getMangle() });
-        try block_scope.variables.push(.{ .name = param_name, .alias = checked_param_name });
+        const mangled_param_name = try block_scope.makeMangledName(c, param_name);
 
         const arg_name = blk: {
-            const bare_arg_name = try std.fmt.allocPrint(c.a(), "_arg_{}", .{checked_param_name});
-            break :blk if (try scope.createAlias(rp.c, bare_arg_name)) |a|
-                a
-            else
-                bare_arg_name;
+            const bare_arg_name = try std.fmt.allocPrint(c.a(), "arg_{}", .{mangled_param_name});
+            break :blk try block_scope.makeMangledName(c, bare_arg_name);
         };
 
-        const node = try transCreateNodeVarDecl(c, false, false, checked_param_name);
+        const node = try transCreateNodeVarDecl(c, false, false, mangled_param_name);
         node.eq_token = try appendToken(c, .Equal, "=");
         node.init_node = try transCreateNodeIdentifier(c, arg_name);
         node.semicolon_token = try appendToken(c, .Semicolon, ";");
@@ -1143,11 +1151,8 @@ fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt)
                 const name = try c.str(ZigClangDecl_getName_bytes_begin(
                     @ptrCast(*const ZigClangDecl, var_decl),
                 ));
-                const checked_name = if (try scope.createAlias(c, name)) |a| blk: {
-                    try block_scope.variables.push(.{ .name = name, .alias = a });
-                    break :blk a;
-                } else name;
-                const node = try transCreateNodeVarDecl(c, false, ZigClangQualType_isConstQualified(qual_type), checked_name);
+                const mangled_name = try block_scope.makeMangledName(c, name);
+                const node = try transCreateNodeVarDecl(c, false, ZigClangQualType_isConstQualified(qual_type), mangled_name);
 
                 _ = try appendToken(c, .Colon, ":");
                 const loc = ZigClangStmt_getBeginLoc(@ptrCast(*const ZigClangStmt, stmt));
@@ -1188,8 +1193,8 @@ fn transDeclRefExpr(
 ) TransError!*ast.Node {
     const value_decl = ZigClangDeclRefExpr_getDecl(expr);
     const name = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, value_decl)));
-    const checked_name = if (scope.getAlias(name)) |a| a else name;
-    return transCreateNodeIdentifier(rp.c, checked_name);
+    const mangled_name = scope.getAlias(name);
+    return transCreateNodeIdentifier(rp.c, mangled_name);
 }
 
 fn transImplicitCastExpr(
@@ -2318,7 +2323,7 @@ fn transCreatePreCrement(
     // zig: })
     const block_scope = try Scope.Block.init(rp.c, scope, "blk");
     block_scope.block_node = try transCreateNodeBlock(rp.c, block_scope.label);
-    const ref = try std.fmt.allocPrint(rp.c.a(), "_ref_{}", .{rp.c.getMangle()});
+    const ref = try block_scope.makeMangledName(rp.c, "ref");
 
     const node = try transCreateNodeVarDecl(rp.c, false, true, ref);
     node.eq_token = try appendToken(rp.c, .Equal, "=");
@@ -2383,7 +2388,7 @@ fn transCreatePostCrement(
     // zig: })
     const block_scope = try Scope.Block.init(rp.c, scope, "blk");
     block_scope.block_node = try transCreateNodeBlock(rp.c, block_scope.label);
-    const ref = try std.fmt.allocPrint(rp.c.a(), "_ref_{}", .{rp.c.getMangle()});
+    const ref = try block_scope.makeMangledName(rp.c, "ref");
 
     const node = try transCreateNodeVarDecl(rp.c, false, true, ref);
     node.eq_token = try appendToken(rp.c, .Equal, "=");
@@ -2397,7 +2402,7 @@ fn transCreatePostCrement(
     const ref_node = try transCreateNodePtrDeref(rp.c, lhs_node);
     _ = try appendToken(rp.c, .Semicolon, ";");
 
-    const tmp = try std.fmt.allocPrint(rp.c.a(), "_tmp_{}", .{rp.c.getMangle()});
+    const tmp = try block_scope.makeMangledName(rp.c, "tmp");
     const tmp_node = try transCreateNodeVarDecl(rp.c, false, true, tmp);
     tmp_node.eq_token = try appendToken(rp.c, .Equal, "=");
     tmp_node.init_node = ref_node;
@@ -2499,7 +2504,7 @@ fn transCreateCompoundAssign(
     // zig: })
     const block_scope = try Scope.Block.init(rp.c, scope, "blk");
     block_scope.block_node = try transCreateNodeBlock(rp.c, block_scope.label);
-    const ref = try std.fmt.allocPrint(rp.c.a(), "_ref_{}", .{rp.c.getMangle()});
+    const ref = try block_scope.makeMangledName(rp.c, "ref");
 
     const node = try transCreateNodeVarDecl(rp.c, false, true, ref);
     node.eq_token = try appendToken(rp.c, .Equal, "=");
@@ -2962,7 +2967,7 @@ fn transCreateNodeAssign(
     // zig: })
     const block_scope = try Scope.Block.init(rp.c, scope, "blk");
     block_scope.block_node = try transCreateNodeBlock(rp.c, block_scope.label);
-    const tmp = try std.fmt.allocPrint(rp.c.a(), "_tmp_{}", .{rp.c.getMangle()});
+    const tmp = try block_scope.makeMangledName(rp.c, "tmp");
 
     const node = try transCreateNodeVarDecl(rp.c, false, true, tmp);
     node.eq_token = try appendToken(rp.c, .Equal, "=");
@@ -4198,12 +4203,8 @@ fn transMacroFnDefine(c: *Context, it: *ctok.TokenList.Iterator, name: []const u
             );
         }
 
-        const checked_name = if (try scope.createAlias(c, param_tok.bytes)) |alias| blk: {
-            try block_scope.variables.push(.{ .name = param_tok.bytes, .alias = alias });
-            break :blk alias;
-        } else param_tok.bytes;
-
-        const param_name_tok = try appendIdentifier(c, checked_name);
+        const mangled_name = try block_scope.makeMangledName(c, param_tok.bytes);
+        const param_name_tok = try appendIdentifier(c, mangled_name);
         _ = try appendToken(c, .Colon, ":");
 
         const token_index = try appendToken(c, .Keyword_var, "var");
@@ -4384,8 +4385,8 @@ fn parseCPrimaryExpr(c: *Context, it: *ctok.TokenList.Iterator, source_loc: ZigC
             return parseCNumLit(c, tok, source_loc);
         },
         .Identifier => {
-            const name = if (scope.getAlias(tok.bytes)) |a| a else tok.bytes;
-            return transCreateNodeIdentifier(c, name);
+            const mangled_name = scope.getAlias(tok.bytes);
+            return transCreateNodeIdentifier(c, mangled_name);
         },
         .LParen => {
             const inner_node = try parseCExpr(c, it, source_loc, scope);
