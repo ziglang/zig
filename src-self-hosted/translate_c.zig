@@ -9,6 +9,7 @@ usingnamespace @import("clang.zig");
 const ctok = @import("c_tokenizer.zig");
 const CToken = ctok.CToken;
 const mem = std.mem;
+const math = std.math;
 
 const CallingConvention = std.builtin.TypeInfo.CallingConvention;
 
@@ -498,10 +499,13 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
     var eq_tok: ast.TokenIndex = undefined;
     var init_node: ?*ast.Node = null;
 
+    // If the initialization expression is not present, initialize with undefined.
+    // If it is an integer literal, we can skip the @as since it will be redundant
+    // with the variable type.
     if (ZigClangVarDecl_hasInit(var_decl)) {
         eq_tok = try appendToken(c, .Equal, "=");
         init_node = if (ZigClangVarDecl_getInit(var_decl)) |expr|
-            transExpr(rp, &c.global_scope.base, expr, .used, .r_value) catch |err| switch (err) {
+            transExprCoercing(rp, &c.global_scope.base, expr, .used, .r_value) catch |err| switch (err) {
                 error.UnsupportedTranslation,
                 error.UnsupportedType,
                 => {
@@ -857,7 +861,7 @@ fn transStmt(
         .DeclStmtClass => return transDeclStmt(rp, scope, @ptrCast(*const ZigClangDeclStmt, stmt)),
         .DeclRefExprClass => return transDeclRefExpr(rp, scope, @ptrCast(*const ZigClangDeclRefExpr, stmt), lrvalue),
         .ImplicitCastExprClass => return transImplicitCastExpr(rp, scope, @ptrCast(*const ZigClangImplicitCastExpr, stmt), result_used),
-        .IntegerLiteralClass => return transIntegerLiteral(rp, scope, @ptrCast(*const ZigClangIntegerLiteral, stmt), result_used),
+        .IntegerLiteralClass => return transIntegerLiteral(rp, scope, @ptrCast(*const ZigClangIntegerLiteral, stmt), result_used, .with_as),
         .ReturnStmtClass => return transReturnStmt(rp, scope, @ptrCast(*const ZigClangReturnStmt, stmt)),
         .StringLiteralClass => return transStringLiteral(rp, scope, @ptrCast(*const ZigClangStringLiteral, stmt), result_used),
         .ParenExprClass => {
@@ -891,7 +895,7 @@ fn transStmt(
         .DefaultStmtClass => return transDefault(rp, scope, @ptrCast(*const ZigClangDefaultStmt, stmt)),
         .ConstantExprClass => return transConstantExpr(rp, scope, @ptrCast(*const ZigClangExpr, stmt), result_used),
         .PredefinedExprClass => return transPredefinedExpr(rp, scope, @ptrCast(*const ZigClangPredefinedExpr, stmt), result_used),
-        .CharacterLiteralClass => return transCharLiteral(rp, scope, @ptrCast(*const ZigClangCharacterLiteral, stmt), result_used),
+        .CharacterLiteralClass => return transCharLiteral(rp, scope, @ptrCast(*const ZigClangCharacterLiteral, stmt), result_used, .with_as),
         .StmtExprClass => return transStmtExpr(rp, scope, @ptrCast(*const ZigClangStmtExpr, stmt), result_used),
         .MemberExprClass => return transMemberExpr(rp, scope, @ptrCast(*const ZigClangMemberExpr, stmt), result_used),
         .ArraySubscriptExprClass => return transArrayAccess(rp, scope, @ptrCast(*const ZigClangArraySubscriptExpr, stmt), result_used),
@@ -1160,7 +1164,7 @@ fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt)
 
                 node.eq_token = try appendToken(c, .Equal, "=");
                 var init_node = if (ZigClangVarDecl_getInit(var_decl)) |expr|
-                    try transExpr(rp, scope, expr, .used, .r_value)
+                    try transExprCoercing(rp, scope, expr, .used, .r_value)
                 else
                     try transCreateNodeUndefinedLiteral(c);
                 if (isBoolRes(init_node)) {
@@ -1391,19 +1395,50 @@ fn finishBoolExpr(
     return revertAndWarn(rp, error.UnsupportedType, loc, "unsupported bool expression type", .{});
 }
 
+const SuppressCast = enum {
+    with_as,
+    no_as,
+};
 fn transIntegerLiteral(
     rp: RestorePoint,
     scope: *Scope,
     expr: *const ZigClangIntegerLiteral,
     result_used: ResultUsed,
+    suppress_as: SuppressCast,
 ) TransError!*ast.Node {
     var eval_result: ZigClangExprEvalResult = undefined;
     if (!ZigClangIntegerLiteral_EvaluateAsInt(expr, &eval_result, rp.c.clang_context)) {
         const loc = ZigClangIntegerLiteral_getBeginLoc(expr);
         return revertAndWarn(rp, error.UnsupportedTranslation, loc, "invalid integer literal", .{});
     }
-    const node = try transCreateNodeAPInt(rp.c, ZigClangAPValue_getInt(&eval_result.Val));
-    return maybeSuppressResult(rp, scope, result_used, node);
+
+    if (suppress_as == .no_as) {
+        const int_lit_node = try transCreateNodeAPInt(rp.c, ZigClangAPValue_getInt(&eval_result.Val));
+        return maybeSuppressResult(rp, scope, result_used, int_lit_node);
+    }
+
+    // Integer literals in C have types, and this can matter for several reasons.
+    // For example, this is valid C:
+    //     unsigned char y = 256;
+    // How this gets evaluated is the 256 is an integer, which gets truncated to signed char, then bit-casted
+    // to unsigned char, resulting in 0. In order for this to work, we have to emit this zig code:
+    //     var y = @bitCast(u8, @truncate(i8, @as(c_int, 256)));
+    // Ideally in translate-c we could flatten this out to simply:
+    //     var y: u8 = 0;
+    // But the first step is to be correct, and the next step is to make the output more elegant.
+
+    // @as(T, x)
+    const expr_base = @ptrCast(*const ZigClangExpr, expr);
+    const as_node = try transCreateNodeBuiltinFnCall(rp.c, "@as");
+    const ty_node = try transQualType(rp, ZigClangExpr_getType(expr_base), ZigClangExpr_getBeginLoc(expr_base));
+    try as_node.params.push(ty_node);
+    _ = try appendToken(rp.c, .Comma, ",");
+
+    const int_lit_node = try transCreateNodeAPInt(rp.c, ZigClangAPValue_getInt(&eval_result.Val));
+    try as_node.params.push(int_lit_node);
+
+    as_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+    return maybeSuppressResult(rp, scope, result_used, &as_node.base);
 }
 
 fn transReturnStmt(
@@ -1413,7 +1448,7 @@ fn transReturnStmt(
 ) TransError!*ast.Node {
     const node = try transCreateNodeReturnExpr(rp.c);
     if (ZigClangReturnStmt_getRetValue(expr)) |val_expr| {
-        node.rhs = try transExpr(rp, scope, val_expr, .used, .r_value);
+        node.rhs = try transExprCoercing(rp, scope, val_expr, .used, .r_value);
     }
     _ = try appendToken(rp.c, .Semicolon, ";");
     return &node.base;
@@ -1502,11 +1537,41 @@ fn transCCast(
     if (qualTypeIsPtr(dst_type) and qualTypeIsPtr(src_type))
         return transCPtrCast(rp, loc, dst_type, src_type, expr);
     if (cIsInteger(dst_type) and cIsInteger(src_type)) {
-        // @intCast(dest_type, val)
-        const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@intCast");
+        // 1. Extend or truncate without changing signed-ness.
+        // 2. Bit-cast to correct signed-ness
+
+        // @bitCast(dest_type, intermediate_value)
+        const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@bitCast");
         try cast_node.params.push(try transQualType(rp, dst_type, loc));
         _ = try appendToken(rp.c, .Comma, ",");
-        try cast_node.params.push(expr);
+
+        switch (cIntTypeCmp(dst_type, src_type)) {
+            .lt => {
+                // @truncate(SameSignSmallerInt, src_type)
+                const trunc_node = try transCreateNodeBuiltinFnCall(rp.c, "@truncate");
+                const ty_node = try transQualTypeIntWidthOf(rp.c, dst_type, cIsSignedInteger(src_type));
+                try trunc_node.params.push(ty_node);
+                _ = try appendToken(rp.c, .Comma, ",");
+                try trunc_node.params.push(expr);
+                trunc_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+
+                try cast_node.params.push(&trunc_node.base);
+            },
+            .gt => {
+                // @as(SameSignBiggerInt, src_type)
+                const as_node = try transCreateNodeBuiltinFnCall(rp.c, "@as");
+                const ty_node = try transQualTypeIntWidthOf(rp.c, dst_type, cIsSignedInteger(src_type));
+                try as_node.params.push(ty_node);
+                _ = try appendToken(rp.c, .Comma, ",");
+                try as_node.params.push(expr);
+                as_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+
+                try cast_node.params.push(&as_node.base);
+            },
+            .eq => {
+                try cast_node.params.push(expr);
+            },
+        }
         cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
         return &cast_node.base;
     }
@@ -1579,9 +1644,6 @@ fn transCCast(
         builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
         return &builtin_node.base;
     }
-    // TODO: maybe widen to increase size
-    // TODO: maybe bitcast to change sign
-    // TODO: maybe truncate to reduce size
     const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@as");
     try cast_node.params.push(try transQualType(rp, dst_type, loc));
     _ = try appendToken(rp.c, .Comma, ",");
@@ -1598,6 +1660,33 @@ fn transExpr(
     lrvalue: LRValue,
 ) TransError!*ast.Node {
     return transStmt(rp, scope, @ptrCast(*const ZigClangStmt, expr), used, lrvalue);
+}
+
+/// Same as `transExpr` but with the knowledge that the operand will be type coerced, and therefore
+/// an `@as` would be redundant. This is used to prevent redundant `@as` in integer literals.
+fn transExprCoercing(
+    rp: RestorePoint,
+    scope: *Scope,
+    expr: *const ZigClangExpr,
+    used: ResultUsed,
+    lrvalue: LRValue,
+) TransError!*ast.Node {
+    switch (ZigClangStmt_getStmtClass(@ptrCast(*const ZigClangStmt, expr))) {
+        .IntegerLiteralClass => {
+            return transIntegerLiteral(rp, scope, @ptrCast(*const ZigClangIntegerLiteral, expr), .used, .no_as);
+        },
+        .CharacterLiteralClass => {
+            return transCharLiteral(rp, scope, @ptrCast(*const ZigClangCharacterLiteral, expr), .used, .no_as);
+        },
+        .UnaryOperatorClass => {
+            const un_expr = @ptrCast(*const ZigClangUnaryOperator, expr);
+            if (ZigClangUnaryOperator_getOpcode(un_expr) == .Extension) {
+                return transExprCoercing(rp, scope, ZigClangUnaryOperator_getSubExpr(un_expr), used, lrvalue);
+            }
+        },
+        else => {},
+    }
+    return transExpr(rp, scope, expr, .used, .r_value);
 }
 
 fn transInitListExpr(
@@ -1625,7 +1714,7 @@ fn transInitListExpr(
     const init_count = ZigClangInitListExpr_getNumInits(expr);
     const const_arr_ty = @ptrCast(*const ZigClangConstantArrayType, qual_type);
     const size_ap_int = ZigClangConstantArrayType_getSize(const_arr_ty);
-    const all_count = ZigClangAPInt_getLimitedValue(size_ap_int, std.math.maxInt(usize));
+    const all_count = ZigClangAPInt_getLimitedValue(size_ap_int, math.maxInt(usize));
     const leftover_count = all_count - init_count;
 
     var init_node: *ast.Node.SuffixOp = undefined;
@@ -2033,16 +2122,17 @@ fn transCharLiteral(
     scope: *Scope,
     stmt: *const ZigClangCharacterLiteral,
     result_used: ResultUsed,
+    suppress_as: SuppressCast,
 ) TransError!*ast.Node {
     const kind = ZigClangCharacterLiteral_getKind(stmt);
-    switch (kind) {
-        .Ascii, .UTF8 => {
+    const int_lit_node = switch (kind) {
+        .Ascii, .UTF8 => blk: {
             const val = ZigClangCharacterLiteral_getValue(stmt);
             if (kind == .Ascii) {
                 // C has a somewhat obscure feature called multi-character character
                 // constant
                 if (val > 255)
-                    return transCreateNodeInt(rp.c, val);
+                    break :blk try transCreateNodeInt(rp.c, val);
             }
             var char_buf: [4]u8 = undefined;
             const token = try appendTokenFmt(rp.c, .CharLiteral, "'{}'", .{escapeChar(@intCast(u8, val), &char_buf)});
@@ -2050,7 +2140,7 @@ fn transCharLiteral(
             node.* = .{
                 .token = token,
             };
-            return maybeSuppressResult(rp, scope, result_used, &node.base);
+            break :blk &node.base;
         },
         .UTF16, .UTF32, .Wide => return revertAndWarn(
             rp,
@@ -2060,7 +2150,22 @@ fn transCharLiteral(
             .{kind},
         ),
         else => unreachable,
+    };
+    if (suppress_as == .no_as) {
+        return maybeSuppressResult(rp, scope, result_used, int_lit_node);
     }
+    // See comment in `transIntegerLiteral` for why this code is here.
+    // @as(T, x)
+    const expr_base = @ptrCast(*const ZigClangExpr, stmt);
+    const as_node = try transCreateNodeBuiltinFnCall(rp.c, "@as");
+    const ty_node = try transQualType(rp, ZigClangExpr_getType(expr_base), ZigClangExpr_getBeginLoc(expr_base));
+    try as_node.params.push(ty_node);
+    _ = try appendToken(rp.c, .Comma, ",");
+
+    try as_node.params.push(int_lit_node);
+
+    as_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+    return maybeSuppressResult(rp, scope, result_used, &as_node.base);
 }
 
 fn transStmtExpr(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangStmtExpr, used: ResultUsed) TransError!*ast.Node {
@@ -2480,7 +2585,10 @@ fn transCreateCompoundAssign(
         // zig: lhs += rhs
         const lhs_node = try transExpr(rp, scope, lhs, .used, .l_value);
         const eq_token = try appendToken(rp.c, assign_tok_id, assign_bytes);
-        var rhs_node = try transExpr(rp, scope, rhs, .used, .r_value);
+        var rhs_node = if (is_shift)
+            try transExprCoercing(rp, scope, rhs, .used, .r_value)
+        else
+            try transExpr(rp, scope, rhs, .used, .r_value);
 
         if (is_shift) {
             const as_node = try transCreateNodeBuiltinFnCall(rp.c, "@as");
@@ -2681,6 +2789,30 @@ fn transQualType(rp: RestorePoint, qt: ZigClangQualType, source_loc: ZigClangSou
     return transType(rp, ZigClangQualType_getTypePtr(qt), source_loc);
 }
 
+/// Produces a Zig AST node by translating a Clang QualType, respecting the width, but modifying the signed-ness.
+/// Asserts the type is an integer.
+fn transQualTypeIntWidthOf(c: *Context, ty: ZigClangQualType, is_signed: bool) TypeError!*ast.Node {
+    return transTypeIntWidthOf(c, qualTypeCanon(ty), is_signed);
+}
+
+/// Produces a Zig AST node by translating a Clang Type, respecting the width, but modifying the signed-ness.
+/// Asserts the type is an integer.
+fn transTypeIntWidthOf(c: *Context, ty: *const ZigClangType, is_signed: bool) TypeError!*ast.Node {
+    assert(ZigClangType_getTypeClass(ty) == .Builtin);
+    const builtin_ty = @ptrCast(*const ZigClangBuiltinType, ty);
+    return transCreateNodeIdentifier(c, switch (ZigClangBuiltinType_getKind(builtin_ty)) {
+        .Char_U, .Char_S, .UChar, .SChar, .Char8 => if (is_signed) "i8" else "u8",
+        .UShort, .Short => if (is_signed) "c_short" else "c_ushort",
+        .UInt, .Int => if (is_signed) "c_int" else "c_uint",
+        .ULong, .Long => if (is_signed) "c_long" else "c_ulong",
+        .ULongLong, .LongLong => if (is_signed) "c_longlong" else "c_ulonglong",
+        .UInt128, .Int128 => if (is_signed) "i128" else "u128",
+        .Char16 => if (is_signed) "i16" else "u16",
+        .Char32 => if (is_signed) "i32" else "u32",
+        else => unreachable, // only call this function when it has already been determined the type is int
+    });
+}
+
 fn isCBuiltinType(qt: ZigClangQualType, kind: ZigClangBuiltinTypeKind) bool {
     const c_type = qualTypeCanon(qt);
     if (ZigClangType_getTypeClass(c_type) != .Builtin)
@@ -2742,7 +2874,7 @@ fn qualTypeToLog2IntRef(rp: RestorePoint, qt: ZigClangQualType, source_loc: ZigC
 
     if (int_bit_width != 0) {
         // we can perform the log2 now.
-        const cast_bit_width = std.math.log2_int(u64, int_bit_width);
+        const cast_bit_width = math.log2_int(u64, int_bit_width);
         const node = try rp.c.a().create(ast.Node.IntegerLiteral);
         node.* = ast.Node.IntegerLiteral{
             .token = try appendTokenFmt(rp.c, .Identifier, "u{}", .{cast_bit_width}),
@@ -2902,6 +3034,28 @@ fn cIsUnsignedInteger(qt: ZigClangQualType) bool {
     };
 }
 
+fn cIntTypeToIndex(qt: ZigClangQualType) u8 {
+    const c_type = qualTypeCanon(qt);
+    assert(ZigClangType_getTypeClass(c_type) == .Builtin);
+    const builtin_ty = @ptrCast(*const ZigClangBuiltinType, c_type);
+    return switch (ZigClangBuiltinType_getKind(builtin_ty)) {
+        .Bool, .Char_U, .Char_S, .UChar, .SChar, .Char8 => 1,
+        .WChar_U, .WChar_S => 2,
+        .UShort, .Short, .Char16 => 3,
+        .UInt, .Int, .Char32 => 4,
+        .ULong, .Long => 5,
+        .ULongLong, .LongLong => 6,
+        .UInt128, .Int128 => 7,
+        else => unreachable,
+    };
+}
+
+fn cIntTypeCmp(a: ZigClangQualType, b: ZigClangQualType) math.Order {
+    const a_index = cIntTypeToIndex(a);
+    const b_index = cIntTypeToIndex(b);
+    return math.order(a_index, b_index);
+}
+
 fn cIsSignedInteger(qt: ZigClangQualType) bool {
     const c_type = qualTypeCanon(qt);
     if (ZigClangType_getTypeClass(c_type) != .Builtin) return false;
@@ -2946,7 +3100,7 @@ fn transCreateNodeAssign(
     if (result_used == .unused) {
         const lhs_node = try transExpr(rp, scope, lhs, .used, .l_value);
         const eq_token = try appendToken(rp.c, .Equal, "=");
-        var rhs_node = try transExpr(rp, scope, rhs, .used, .r_value);
+        var rhs_node = try transExprCoercing(rp, scope, rhs, .used, .r_value);
         if (isBoolRes(rhs_node)) {
             const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@boolToInt");
             try builtin_node.params.push(rhs_node);
@@ -3158,7 +3312,7 @@ fn transCreateNodeAPInt(c: *Context, int: *const ZigClangAPSInt) !*ast.Node {
     const is_negative = ZigClangAPSInt_isSigned(int) and ZigClangAPSInt_isNegative(int);
     if (is_negative)
         aps_int = ZigClangAPSInt_negate(aps_int);
-    var big = try std.math.big.Int.initCapacity(c.a(), num_limbs);
+    var big = try math.big.Int.initCapacity(c.a(), num_limbs);
     if (is_negative)
         big.negate();
     defer big.deinit();
@@ -3522,7 +3676,7 @@ fn transCreateNodeShiftOp(
     const rhs_type = try qualTypeToLog2IntRef(rp, ZigClangBinaryOperator_getType(stmt), rhs_location);
     try as_node.params.push(rhs_type);
     _ = try appendToken(rp.c, .Comma, ",");
-    const rhs = try transExpr(rp, scope, rhs_expr, .used, .r_value);
+    const rhs = try transExprCoercing(rp, scope, rhs_expr, .used, .r_value);
     try as_node.params.push(rhs);
     as_node.rparen_token = try appendToken(rp.c, .RParen, ")");
 
@@ -3652,7 +3806,7 @@ fn transType(rp: RestorePoint, ty: *const ZigClangType, source_loc: ZigClangSour
             const const_arr_ty = @ptrCast(*const ZigClangConstantArrayType, ty);
 
             const size_ap_int = ZigClangConstantArrayType_getSize(const_arr_ty);
-            const size = ZigClangAPInt_getLimitedValue(size_ap_int, std.math.maxInt(usize));
+            const size = ZigClangAPInt_getLimitedValue(size_ap_int, math.maxInt(usize));
             var node = try transCreateNodePrefixOp(
                 rp.c,
                 .{

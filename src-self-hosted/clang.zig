@@ -804,8 +804,8 @@ pub extern fn ZigClangType_getAsArrayTypeUnsafe(self: *const ZigClangType) *cons
 pub extern fn ZigClangStmt_getBeginLoc(self: *const struct_ZigClangStmt) struct_ZigClangSourceLocation;
 pub extern fn ZigClangStmt_getStmtClass(self: ?*const struct_ZigClangStmt) ZigClangStmtClass;
 pub extern fn ZigClangStmt_classof_Expr(self: ?*const struct_ZigClangStmt) bool;
-pub extern fn ZigClangExpr_getStmtClass(self: ?*const struct_ZigClangExpr) ZigClangStmtClass;
-pub extern fn ZigClangExpr_getType(self: ?*const struct_ZigClangExpr) struct_ZigClangQualType;
+pub extern fn ZigClangExpr_getStmtClass(self: *const struct_ZigClangExpr) ZigClangStmtClass;
+pub extern fn ZigClangExpr_getType(self: *const struct_ZigClangExpr) struct_ZigClangQualType;
 pub extern fn ZigClangExpr_getBeginLoc(self: *const struct_ZigClangExpr) struct_ZigClangSourceLocation;
 pub extern fn ZigClangInitListExpr_getInit(self: ?*const struct_ZigClangInitListExpr, i: c_uint) *const ZigClangExpr;
 pub extern fn ZigClangInitListExpr_getArrayFiller(self: ?*const struct_ZigClangInitListExpr) *const ZigClangExpr;
