@@ -237,3 +237,21 @@ test "argsAlloc" {
     var args = try std.process.argsAlloc(std.heap.page_allocator);
     std.process.argsFree(std.heap.page_allocator, args);
 }
+
+test "memfd_create" {
+    // memfd_create is linux specific.
+    if (builtin.os != .linux) return error.SkipZigTest;
+    const fd = std.os.memfd_create("test", 0) catch |err| switch (err) {
+        // Related: https://github.com/ziglang/zig/issues/4019
+        error.SystemOutdated => return error.SkipZigTest,
+        else => |e| return e,
+    };
+    defer std.os.close(fd);
+    try std.os.write(fd, "test");
+    try std.os.lseek_SET(fd, 0);
+
+    var buf: [10]u8 = undefined;
+    const bytes_read = try std.os.read(fd, &buf);
+    expect(bytes_read == 4);
+    expect(mem.eql(u8, buf[0..4], "test"));
+}

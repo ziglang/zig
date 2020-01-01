@@ -3281,3 +3281,47 @@ pub fn setsockopt(fd: fd_t, level: u32, optname: u32, opt: []const u8) SetSockOp
         else => |err| return unexpectedErrno(err),
     }
 }
+
+pub const MemFdCreateError = error{
+    SystemFdQuotaExceeded,
+    ProcessFdQuotaExceeded,
+    OutOfMemory,
+
+    /// memfd_create is available in Linux 3.17 and later. This error is returned
+    /// for older kernel versions.
+    SystemOutdated,
+} || UnexpectedError;
+
+pub fn memfd_createC(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
+    // memfd_create is available only in glibc versions starting with 2.27.
+    const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
+    const sys = if (use_c) std.c else linux;
+    const getErrno = if (use_c) std.c.getErrno else linux.getErrno;
+    const rc = sys.memfd_create(name, flags);
+    switch (getErrno(rc)) {
+        0 => return @intCast(fd_t, rc),
+        EFAULT => unreachable, // name has invalid memory
+        EINVAL => unreachable, // name/flags are faulty
+        ENFILE => return error.SystemFdQuotaExceeded,
+        EMFILE => return error.ProcessFdQuotaExceeded,
+        ENOMEM => return error.OutOfMemory,
+        ENOSYS => return error.SystemOutdated,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub const MFD_NAME_PREFIX = "memfd:";
+pub const MFD_MAX_NAME_LEN = NAME_MAX - MFD_NAME_PREFIX.len;
+fn toMemFdPath(name: []const u8) ![MFD_MAX_NAME_LEN:0]u8 {
+    var path_with_null: [MFD_MAX_NAME_LEN:0]u8 = undefined;
+    // >= rather than > to make room for the null byte
+    if (name.len >= MFD_MAX_NAME_LEN) return error.NameTooLong;
+    mem.copy(u8, &path_with_null, name);
+    path_with_null[name.len] = 0;
+    return path_with_null;
+}
+
+pub fn memfd_create(name: []const u8, flags: u32) !fd_t {
+    const name_t = try toMemFdPath(name);
+    return memfd_createC(&name_t, flags);
+}

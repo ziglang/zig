@@ -597,6 +597,13 @@ pub const Target = union(enum) {
         };
     }
 
+    pub fn isMusl(self: Target) bool {
+        return switch (self.getAbi()) {
+            .musl, .musleabi, .musleabihf => true,
+            else => false,
+        };
+    }
+
     pub fn isDarwin(self: Target) bool {
         return switch (self.getOs()) {
             .ios, .macosx, .watchos, .tvos => true,

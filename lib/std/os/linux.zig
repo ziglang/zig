@@ -1110,6 +1110,10 @@ pub fn io_uring_register(fd: i32, opcode: u32, arg: ?*const c_void, nr_args: u32
     return syscall4(SYS_io_uring_register, @bitCast(usize, @as(isize, fd)), opcode, @ptrToInt(arg), nr_args);
 }
 
+pub fn memfd_create(name: [*:0]const u8, flags: u32) usize {
+    return syscall2(SYS_memfd_create, @ptrToInt(name), flags);
+}
+
 test "" {
     if (builtin.os == .linux) {
         _ = @import("linux/test.zig");
