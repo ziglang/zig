@@ -224,7 +224,7 @@ test "crypto.chacha20 test vector sunscreen" {
     // Chacha20 is self-reversing.
     var plaintext: [114]u8 = undefined;
     chaCha20IETF(plaintext[0..], result[0..], 1, key, nonce);
-    testing.expect(mem.compare(u8, input, &plaintext) == mem.Compare.Equal);
+    testing.expect(mem.order(u8, input, &plaintext) == .eq);
 }
 
 // https://tools.ietf.org/html/draft-agl-tls-chacha20poly1305-04#section-7

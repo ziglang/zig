@@ -1,7 +1,7 @@
 const std = @import("std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
-const mem = std.mem; // For mem.Compare
+const Order = std.math.Order;
 
 const Color = enum(u1) {
     Black,
@@ -132,7 +132,7 @@ pub const Node = struct {
 
 pub const Tree = struct {
     root: ?*Node,
-    compareFn: fn (*Node, *Node) mem.Compare,
+    compareFn: fn (*Node, *Node) Order,
 
     /// If you have a need for a version that caches this, please file a bug.
     pub fn first(tree: *Tree) ?*Node {
@@ -389,7 +389,7 @@ pub const Tree = struct {
         var new = newconst;
 
         // I assume this can get optimized out if the caller already knows.
-        if (tree.compareFn(old, new) != mem.Compare.Equal) return ReplaceError.NotEqual;
+        if (tree.compareFn(old, new) != .eq) return ReplaceError.NotEqual;
 
         if (old.getParent()) |parent| {
             parent.setChild(new, parent.left == old);
@@ -404,7 +404,7 @@ pub const Tree = struct {
         new.* = old.*;
     }
 
-    pub fn init(tree: *Tree, f: fn (*Node, *Node) mem.Compare) void {
+    pub fn init(tree: *Tree, f: fn (*Node, *Node) Order) void {
         tree.root = null;
         tree.compareFn = f;
     }
@@ -469,19 +469,21 @@ fn doLookup(key: *Node, tree: *Tree, pparent: *?*Node, is_left: *bool) ?*Node {
     is_left.* = false;
 
     while (maybe_node) |node| {
-        var res: mem.Compare = tree.compareFn(node, key);
-        if (res == mem.Compare.Equal) {
+        const res = tree.compareFn(node, key);
+        if (res == .eq) {
             return node;
         }
         pparent.* = node;
-        if (res == mem.Compare.GreaterThan) {
-            is_left.* = true;
-            maybe_node = node.left;
-        } else if (res == mem.Compare.LessThan) {
-            is_left.* = false;
-            maybe_node = node.right;
-        } else {
-            unreachable;
+        switch (res) {
+            .gt => {
+                is_left.* = true;
+                maybe_node = node.left;
+            },
+            .lt => {
+                is_left.* = false;
+                maybe_node = node.right;
+            },
+            .eq => unreachable, // handled above
         }
     }
     return null;
@@ -496,16 +498,16 @@ fn testGetNumber(node: *Node) *testNumber {
     return @fieldParentPtr(testNumber, "node", node);
 }
 
-fn testCompare(l: *Node, r: *Node) mem.Compare {
+fn testCompare(l: *Node, r: *Node) Order {
     var left = testGetNumber(l);
     var right = testGetNumber(r);
 
     if (left.value < right.value) {
-        return mem.Compare.LessThan;
+        return .lt;
     } else if (left.value == right.value) {
-        return mem.Compare.Equal;
+        return .eq;
     } else if (left.value > right.value) {
-        return mem.Compare.GreaterThan;
+        return .gt;
     }
     unreachable;
 }
