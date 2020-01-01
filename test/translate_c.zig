@@ -2275,4 +2275,17 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return @bitCast(c_ushort, @truncate(c_short, x));
         \\}
     });
+
+    cases.add("arg name aliasing decl which comes after",
+        \\int foo(int bar) {
+        \\    bar = 2;
+        \\}
+        \\int bar = 4;
+    , &[_][]const u8{
+        \\pub export fn foo(arg_bar_1: c_int) c_int {
+        \\    var bar_1 = arg_bar_1;
+        \\    bar_1 = 2;
+        \\}
+        \\pub export var bar: c_int = 4;
+    });
 }

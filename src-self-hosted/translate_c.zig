@@ -122,6 +122,7 @@ const Scope = struct {
         base: Scope,
         sym_table: SymbolTable,
         macro_table: SymbolTable,
+        context: *Context,
 
         fn init(c: *Context) Root {
             return .{
@@ -131,13 +132,19 @@ const Scope = struct {
                 },
                 .sym_table = SymbolTable.init(c.a()),
                 .macro_table = SymbolTable.init(c.a()),
+                .context = c,
             };
         }
 
-        fn contains(scope: *Root, name: []const u8) bool {
-            return isZigPrimitiveType(name) or
-                scope.sym_table.contains(name) or
+        fn localContains(scope: *Root, name: []const u8) bool {
+            return scope.sym_table.contains(name) or
                 scope.macro_table.contains(name);
+        }
+
+        fn contains(scope: *Root, name: []const u8) bool {
+            return scope.localContains(name) or
+                isZigPrimitiveType(name) or
+                scope.context.global_names.contains(name);
         }
     };
 
@@ -206,6 +213,12 @@ pub const Context = struct {
     global_scope: *Scope.Root,
     clang_context: *ZigClangASTContext,
     mangle_count: u32 = 0,
+
+    /// This one is different than the root scope's name table. This contains
+    /// a list of names that we found by visiting all the top level decls without
+    /// translating them. The other maps are updated as we translate; this one is updated
+    /// up front in a pre-processing step.
+    global_names: std.StringHashMap(void),
 
     fn getMangle(c: *Context) u32 {
         c.mangle_count += 1;
@@ -291,8 +304,13 @@ pub fn translate(
         .alias_list = AliasList.init(arena),
         .global_scope = try arena.create(Scope.Root),
         .clang_context = ZigClangASTUnit_getASTContext(ast_unit).?,
+        .global_names = std.StringHashMap(void).init(arena),
     };
     context.global_scope.* = Scope.Root.init(&context);
+
+    if (!ZigClangASTUnit_visitLocalTopLevelDecls(ast_unit, &context, declVisitorNamesOnlyC)) {
+        return context.err;
+    }
 
     if (!ZigClangASTUnit_visitLocalTopLevelDecls(ast_unit, &context, declVisitorC)) {
         return context.err;
@@ -321,6 +339,15 @@ pub fn translate(
     return tree;
 }
 
+extern fn declVisitorNamesOnlyC(context: ?*c_void, decl: *const ZigClangDecl) bool {
+    const c = @ptrCast(*Context, @alignCast(@alignOf(Context), context));
+    declVisitorNamesOnly(c, decl) catch |err| {
+        c.err = err;
+        return false;
+    };
+    return true;
+}
+
 extern fn declVisitorC(context: ?*c_void, decl: *const ZigClangDecl) bool {
     const c = @ptrCast(*Context, @alignCast(@alignOf(Context), context));
     declVisitor(c, decl) catch |err| {
@@ -328,6 +355,11 @@ extern fn declVisitorC(context: ?*c_void, decl: *const ZigClangDecl) bool {
         return false;
     };
     return true;
+}
+
+fn declVisitorNamesOnly(c: *Context, decl: *const ZigClangDecl) Error!void {
+    const decl_name = try c.str(ZigClangDecl_getName_bytes_begin(decl));
+    _ = try c.global_names.put(decl_name, {});
 }
 
 fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
