@@ -3,6 +3,21 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
     /////////////// Cases that pass for both stage1/stage2 ////////////////
+    cases.add("simple ptrCast for casts between opaque types",
+        \\struct opaque;
+        \\struct opaque_2;
+        \\void function(struct opaque *opaque) {
+        \\    struct opaque_2 *cast = (struct opaque_2 *)opaque;
+        \\}
+    , &[_][]const u8{
+        \\pub const struct_opaque = @OpaqueType();
+        \\pub const struct_opaque_2 = @OpaqueType();
+        \\pub export fn function(arg_opaque_1: ?*struct_opaque) void {
+        \\    var opaque_1 = arg_opaque_1;
+        \\    var cast: ?*struct_opaque_2 = @ptrCast(?*struct_opaque_2, opaque_1);
+        \\}
+    });
+
     cases.add("simple function prototypes",
         \\void __attribute__((noreturn)) foo(void);
         \\int bar(void);
