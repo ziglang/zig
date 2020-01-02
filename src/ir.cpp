@@ -29200,8 +29200,8 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
             }
 
             uint32_t align_in_bytes;
-            if ((err = type_val_resolve_abi_align(ira->codegen, lazy_align_of->target_type->value,
-                            &align_in_bytes)))
+            if ((err = type_val_resolve_abi_align(ira->codegen, source_node,
+                    lazy_align_of->target_type->value, &align_in_bytes)))
             {
                 return err;
             }

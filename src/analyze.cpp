@@ -1331,7 +1331,7 @@ start_over:
     zig_unreachable();
 }
 
-Error type_val_resolve_abi_align(CodeGen *g, ZigValue *type_val, uint32_t *abi_align) {
+Error type_val_resolve_abi_align(CodeGen *g, AstNode *source_node, ZigValue *type_val, uint32_t *abi_align) {
     Error err;
     if (type_val->special != ConstValSpecialLazy) {
         assert(type_val->special == ConstValSpecialStatic);
@@ -1356,19 +1356,21 @@ Error type_val_resolve_abi_align(CodeGen *g, ZigValue *type_val, uint32_t *abi_a
             *abi_align = g->builtin_types.entry_usize->abi_align;
             return ErrorNone;
         case LazyValueIdOptType: {
-            LazyValueOptType *lazy_opt_type = reinterpret_cast<LazyValueOptType *>(type_val->data.x_lazy);
-            return type_val_resolve_abi_align(g, lazy_opt_type->payload_type->value, abi_align);
+            if ((err = ir_resolve_lazy(g, nullptr, type_val)))
+                return err;
+
+            return type_val_resolve_abi_align(g, source_node, type_val, abi_align);
         }
         case LazyValueIdArrayType: {
             LazyValueArrayType *lazy_array_type =
                 reinterpret_cast<LazyValueArrayType *>(type_val->data.x_lazy);
-            return type_val_resolve_abi_align(g, lazy_array_type->elem_type->value, abi_align);
+            return type_val_resolve_abi_align(g, source_node, lazy_array_type->elem_type->value, abi_align);
         }
         case LazyValueIdErrUnionType: {
             LazyValueErrUnionType *lazy_err_union_type =
                 reinterpret_cast<LazyValueErrUnionType *>(type_val->data.x_lazy);
             uint32_t payload_abi_align;
-            if ((err = type_val_resolve_abi_align(g, lazy_err_union_type->payload_type->value,
+            if ((err = type_val_resolve_abi_align(g, source_node, lazy_err_union_type->payload_type->value,
                             &payload_abi_align)))
             {
                 return err;
@@ -2335,7 +2337,7 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
             }
             field->align = field->type_entry->abi_align;
         } else {
-            if ((err = type_val_resolve_abi_align(g, field->type_val, &field->align))) {
+            if ((err = type_val_resolve_abi_align(g, field->decl_node, field->type_val, &field->align))) {
                 if (g->trace_err != nullptr) {
                     g->trace_err = add_error_note(g, g->trace_err, field->decl_node,
                         buf_create_from_str("while checking this field"));
@@ -2912,7 +2914,7 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
         } else if (packed) {
             field->align = 1;
         } else {
-            if ((err = type_val_resolve_abi_align(g, field->type_val, &field->align))) {
+            if ((err = type_val_resolve_abi_align(g, field->decl_node, field->type_val, &field->align))) {
                 if (g->trace_err != nullptr) {
                     g->trace_err = add_error_note(g, g->trace_err, field->decl_node,
                         buf_create_from_str("while checking this field"));
