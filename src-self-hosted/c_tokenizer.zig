@@ -207,23 +207,30 @@ fn zigifyEscapeSequences(ctx: *Context, loc: ZigClangSourceLocation, name: []con
                 }
             },
             .Octal => {
-                switch (c) {
-                    '0'...'7' => {
-                        count += 1;
-                        num = std.math.mul(u8, num, 8) catch {
-                            try failDecl(ctx, loc, name, "macro tokenizing failed: octal literal overflowed", .{});
-                            return error.TokenizingFailed;
-                        };
-                        num += c - '0';
-                        if (count < 3)
-                            continue;
-                    },
-                    else => {},
+                const accept_digit = switch (c) {
+                    // The maximum length of a octal literal is 3 digits
+                    '0'...'7' => count < 3,
+                    else => false,
+                };
+
+                if (accept_digit) {
+                    count += 1;
+                    num = std.math.mul(u8, num, 8) catch {
+                        try failDecl(ctx, loc, name, "macro tokenizing failed: octal literal overflowed", .{});
+                        return error.TokenizingFailed;
+                    };
+                    num += c - '0';
+                } else {
+                    i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
+                    num = 0;
+                    count = 0;
+                    if (c == '\\')
+                        state = .Escape
+                    else
+                        state = .Start;
+                    bytes[i] = c;
+                    i += 1;
                 }
-                i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
-                state = .Start;
-                count = 0;
-                num = 0;
             },
         }
     }
@@ -940,4 +947,21 @@ test "escape sequences" {
         .id = .StrLit,
         .bytes = "\\045abc",
     })).bytes, "\\x25abc"));
+
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(undefined, undefined, undefined, a, .{
+        .id = .CharLit,
+        .bytes = "\\0",
+    })).bytes, "\\x00"));
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(undefined, undefined, undefined, a, .{
+        .id = .CharLit,
+        .bytes = "\\00",
+    })).bytes, "\\x00"));
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(undefined, undefined, undefined, a, .{
+        .id = .CharLit,
+        .bytes = "\\000\\001",
+    })).bytes, "\\x00\\x01"));
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(undefined, undefined, undefined, a, .{
+        .id = .CharLit,
+        .bytes = "\\000abc",
+    })).bytes, "\\x00abc"));
 }
