@@ -813,7 +813,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\extern enum enum_ty my_enum;
         \\enum enum_ty { FOO };
     , &[_][]const u8{
-        \\pub const FOO = 0;
+        \\pub const FOO = @enumToInt(enum_enum_ty.FOO);
         \\pub const enum_enum_ty = extern enum {
         \\    FOO,
         \\};
@@ -891,27 +891,27 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    p,
         \\};
     , &[_][]const u8{
-        \\pub const a = 0;
-        \\pub const b = 1;
-        \\pub const c = 2;
+        \\pub const a = @enumToInt(enum_unnamed_1.a);
+        \\pub const b = @enumToInt(enum_unnamed_1.b);
+        \\pub const c = @enumToInt(enum_unnamed_1.c);
         \\const enum_unnamed_1 = extern enum {
         \\    a,
         \\    b,
         \\    c,
         \\};
         \\pub const d = enum_unnamed_1;
-        \\pub const e = 0;
-        \\pub const f = 4;
-        \\pub const g = 5;
+        \\pub const e = @enumToInt(enum_unnamed_2.e);
+        \\pub const f = @enumToInt(enum_unnamed_2.f);
+        \\pub const g = @enumToInt(enum_unnamed_2.g);
         \\const enum_unnamed_2 = extern enum {
         \\    e = 0,
         \\    f = 4,
         \\    g = 5,
         \\};
         \\pub export var h: enum_unnamed_2 = @intToEnum(enum_unnamed_2, e);
-        \\pub const i = 0;
-        \\pub const j = 1;
-        \\pub const k = 2;
+        \\pub const i = @enumToInt(enum_unnamed_3.i);
+        \\pub const j = @enumToInt(enum_unnamed_3.j);
+        \\pub const k = @enumToInt(enum_unnamed_3.k);
         \\const enum_unnamed_3 = extern enum {
         \\    i,
         \\    j,
@@ -921,9 +921,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    l: enum_unnamed_3,
         \\    m: d,
         \\};
-        \\pub const n = 0;
-        \\pub const o = 1;
-        \\pub const p = 2;
+        \\pub const n = @enumToInt(enum_i.n);
+        \\pub const o = @enumToInt(enum_i.o);
+        \\pub const p = @enumToInt(enum_i.p);
         \\pub const enum_i = extern enum {
         \\    n,
         \\    o,
@@ -1349,8 +1349,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    Two,
         \\};
     , &[_][]const u8{
-        \\pub const One = 0;
-        \\pub const Two = 1;
+        \\pub const One = @enumToInt(enum_unnamed_1.One);
+        \\pub const Two = @enumToInt(enum_unnamed_1.Two);
         \\const enum_unnamed_1 = extern enum {
         \\    One,
         \\    Two,
@@ -2155,44 +2155,19 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("enums",
         \\enum Foo {
-        \\    FooA,
-        \\    FooB,
-        \\    Foo1,
-        \\};
-    , &[_][]const u8{
-        \\pub const enum_Foo = extern enum {
-        \\    A,
-        \\    B,
-        \\    @"1",
-        \\};
-    ,
-        \\pub const FooA = 0;
-    ,
-        \\pub const FooB = 1;
-    ,
-        \\pub const Foo1 = 2;
-    ,
-        \\pub const Foo = enum_Foo;
-    });
-
-    cases.add("enums",
-        \\enum Foo {
         \\    FooA = 2,
         \\    FooB = 5,
         \\    Foo1,
         \\};
     , &[_][]const u8{
+        \\pub const FooA = @enumToInt(enum_Foo.A);
+        \\pub const FooB = @enumToInt(enum_Foo.B);
+        \\pub const Foo1 = @enumToInt(enum_Foo.@"1");
         \\pub const enum_Foo = extern enum {
         \\    A = 2,
         \\    B = 5,
         \\    @"1" = 6,
         \\};
-    ,
-        \\pub const FooA = 2;
-    ,
-        \\pub const FooB = 5;
-    ,
-        \\pub const Foo1 = 6;
     ,
         \\pub const Foo = enum_Foo;
     });

@@ -862,11 +862,25 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
 
             try container_node.fields_and_decls.push(&field_node.base);
             _ = try appendToken(c, .Comma, ",");
+
             // In C each enum value is in the global namespace. So we put them there too.
             // At this point we can rely on the enum emitting successfully.
             const tld_node = try transCreateNodeVarDecl(c, true, true, enum_val_name);
             tld_node.eq_token = try appendToken(c, .Equal, "=");
-            tld_node.init_node = try transCreateNodeAPInt(c, ZigClangEnumConstantDecl_getInitVal(enum_const));
+            const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@enumToInt");
+            const enum_ident = try transCreateNodeIdentifier(c, name);
+            const period_tok = try appendToken(c, .Period, ".");
+            const field_ident = try transCreateNodeIdentifier(c, field_name);
+            const field_access_node = try c.a().create(ast.Node.InfixOp);
+            field_access_node.* = .{
+                .op_token = period_tok,
+                .lhs = enum_ident,
+                .op = .Period,
+                .rhs = field_ident,
+            };
+            try cast_node.params.push(&field_access_node.base);
+            cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+            tld_node.init_node = &cast_node.base;
             tld_node.semicolon_token = try appendToken(c, .Semicolon, ";");
             try addTopLevelDecl(c, field_name, &tld_node.base);
         }
