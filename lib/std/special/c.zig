@@ -728,6 +728,29 @@ export fn sqrt(x: f64) f64 {
     return @bitCast(f64, uz);
 }
 
+test "sqrt" {
+    const epsilon = 0.000001;
+
+    std.testing.expect(sqrt(0.0) == 0.0);
+    std.testing.expect(std.math.approxEq(f64, sqrt(2.0), 1.414214, epsilon));
+    std.testing.expect(std.math.approxEq(f64, sqrt(3.6), 1.897367, epsilon));
+    std.testing.expect(sqrt(4.0) == 2.0);
+    std.testing.expect(std.math.approxEq(f64, sqrt(7.539840), 2.745877, epsilon));
+    std.testing.expect(std.math.approxEq(f64, sqrt(19.230934), 4.385309, epsilon));
+    std.testing.expect(sqrt(64.0) == 8.0);
+    std.testing.expect(std.math.approxEq(f64, sqrt(64.1), 8.006248, epsilon));
+    std.testing.expect(std.math.approxEq(f64, sqrt(8942.230469), 94.563367, epsilon));
+}
+
+test "sqrt special" {
+    std.testing.expect(std.math.isPositiveInf(sqrt(std.math.inf(f64))));
+    std.testing.expect(sqrt(0.0) == 0.0);
+    std.testing.expect(sqrt(-0.0) == -0.0);
+    std.testing.expect(std.math.isNan(sqrt(-1.0)));
+    std.testing.expect(std.math.isNan(sqrt(std.math.nan(f64))));
+}
+
+
 export fn sqrtf(x: f32) f32 {
     const tiny: f32 = 1.0e-30;
     const sign: i32 = @bitCast(i32, @as(u32, 0x80000000));
@@ -803,3 +826,26 @@ export fn sqrtf(x: f32) f32 {
     ix += m << 23;
     return @bitCast(f32, ix);
 }
+
+test "sqrtf" {
+    const epsilon = 0.000001;
+
+    std.testing.expect(sqrtf(0.0) == 0.0);
+    std.testing.expect(std.math.approxEq(f32, sqrtf(2.0), 1.414214, epsilon));
+    std.testing.expect(std.math.approxEq(f32, sqrtf(3.6), 1.897367, epsilon));
+    std.testing.expect(sqrtf(4.0) == 2.0);
+    std.testing.expect(std.math.approxEq(f32, sqrtf(7.539840), 2.745877, epsilon));
+    std.testing.expect(std.math.approxEq(f32, sqrtf(19.230934), 4.385309, epsilon));
+    std.testing.expect(sqrtf(64.0) == 8.0);
+    std.testing.expect(std.math.approxEq(f32, sqrtf(64.1), 8.006248, epsilon));
+    std.testing.expect(std.math.approxEq(f32, sqrtf(8942.230469), 94.563370, epsilon));
+}
+
+test "sqrtf special" {
+    std.testing.expect(std.math.isPositiveInf(sqrtf(std.math.inf(f32))));
+    std.testing.expect(sqrtf(0.0) == 0.0);
+    std.testing.expect(sqrtf(-0.0) == -0.0);
+    std.testing.expect(std.math.isNan(sqrtf(-1.0)));
+    std.testing.expect(std.math.isNan(sqrtf(std.math.nan(f32))));
+}
+

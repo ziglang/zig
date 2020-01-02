@@ -3840,9 +3840,8 @@ struct IrInstructionAddImplicitReturnType {
 struct IrInstructionFloatOp {
     IrInstruction base;
 
-    BuiltinFnId op;
-    IrInstruction *type;
-    IrInstruction *op1;
+    BuiltinFnId fn_id;
+    IrInstruction *operand;
 };
 
 struct IrInstructionCheckRuntimeScope {

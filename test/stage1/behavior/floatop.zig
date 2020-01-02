@@ -1,6 +1,8 @@
-const expect = @import("std").testing.expect;
-const pi = @import("std").math.pi;
-const e = @import("std").math.e;
+const std = @import("std");
+const expect = std.testing.expect;
+const math = std.math;
+const pi = std.math.pi;
+const e = std.math.e;
 
 test "@sqrt" {
     comptime testSqrt();
@@ -10,25 +12,47 @@ test "@sqrt" {
 fn testSqrt() void {
     {
         var a: f16 = 4;
-        expect(@sqrt(f16, a) == 2);
+        expect(@sqrt(a) == 2);
     }
     {
         var a: f32 = 9;
-        expect(@sqrt(f32, a) == 3);
+        expect(@sqrt(a) == 3);
     }
     {
         var a: f64 = 25;
-        expect(@sqrt(f64, a) == 5);
+        expect(@sqrt(a) == 5);
     }
     {
         const a: comptime_float = 25.0;
-        expect(@sqrt(comptime_float, a) == 5.0);
+        expect(@sqrt(a) == 5.0);
     }
-    // Waiting on a c.zig implementation
+    // TODO https://github.com/ziglang/zig/issues/4026
     //{
     //    var a: f128 = 49;
-    //    expect(@sqrt(f128, a) == 7);
+    //    expect(@sqrt(a) == 7);
     //}
+}
+
+test "more @sqrt f16 tests" {
+    // TODO these are not all passing at comptime
+    const epsilon = 0.000001;
+
+    expect(@sqrt(@as(f16, 0.0)) == 0.0);
+    expect(math.approxEq(f16, @sqrt(@as(f16, 2.0)), 1.414214, epsilon));
+    expect(math.approxEq(f16, @sqrt(@as(f16, 3.6)), 1.897367, epsilon));
+    expect(@sqrt(@as(f16, 4.0)) == 2.0);
+    expect(math.approxEq(f16, @sqrt(@as(f16, 7.539840)), 2.745877, epsilon));
+    expect(math.approxEq(f16, @sqrt(@as(f16, 19.230934)), 4.385309, epsilon));
+    expect(@sqrt(@as(f16, 64.0)) == 8.0);
+    expect(math.approxEq(f16, @sqrt(@as(f16, 64.1)), 8.006248, epsilon));
+    expect(math.approxEq(f16, @sqrt(@as(f16, 8942.230469)), 94.563370, epsilon));
+
+    // special cases
+    expect(math.isPositiveInf(@sqrt(@as(f16, math.inf(f16)))));
+    expect(@sqrt(@as(f16, 0.0)) == 0.0);
+    expect(@sqrt(@as(f16, -0.0)) == -0.0);
+    expect(math.isNan(@sqrt(@as(f16, -1.0))));
+    expect(math.isNan(@sqrt(@as(f16, math.nan(f16)))));
 }
 
 test "@sin" {
@@ -37,26 +61,16 @@ test "@sin" {
 }
 
 fn testSin() void {
-    // TODO - this is actually useful and should be implemented
-    // (all the trig functions for f16)
-    // but will probably wait till self-hosted
-    //{
-    //    var a: f16 = pi;
-    //    expect(@sin(f16, a/2) == 1);
-    //}
+    // TODO test f16, f128, and c_longdouble
+    // https://github.com/ziglang/zig/issues/4026
     {
         var a: f32 = 0;
-        expect(@sin(f32, a) == 0);
+        expect(@sin(a) == 0);
     }
     {
         var a: f64 = 0;
-        expect(@sin(f64, a) == 0);
+        expect(@sin(a) == 0);
     }
-    // TODO
-    //{
-    //    var a: f16 = pi;
-    //    expect(@sqrt(f128, a/2) == 1);
-    //}
 }
 
 test "@cos" {
@@ -65,13 +79,15 @@ test "@cos" {
 }
 
 fn testCos() void {
+    // TODO test f16, f128, and c_longdouble
+    // https://github.com/ziglang/zig/issues/4026
     {
         var a: f32 = 0;
-        expect(@cos(f32, a) == 1);
+        expect(@cos(a) == 1);
     }
     {
         var a: f64 = 0;
-        expect(@cos(f64, a) == 1);
+        expect(@cos(a) == 1);
     }
 }
 
@@ -81,13 +97,15 @@ test "@exp" {
 }
 
 fn testExp() void {
+    // TODO test f16, f128, and c_longdouble
+    // https://github.com/ziglang/zig/issues/4026
     {
         var a: f32 = 0;
-        expect(@exp(f32, a) == 1);
+        expect(@exp(a) == 1);
     }
     {
         var a: f64 = 0;
-        expect(@exp(f64, a) == 1);
+        expect(@exp(a) == 1);
     }
 }
 
@@ -97,13 +115,15 @@ test "@exp2" {
 }
 
 fn testExp2() void {
+    // TODO test f16, f128, and c_longdouble
+    // https://github.com/ziglang/zig/issues/4026
     {
         var a: f32 = 2;
-        expect(@exp2(f32, a) == 4);
+        expect(@exp2(a) == 4);
     }
     {
         var a: f64 = 2;
-        expect(@exp2(f64, a) == 4);
+        expect(@exp2(a) == 4);
     }
 }
 
@@ -115,13 +135,15 @@ test "@ln" {
 }
 
 fn testLn() void {
+    // TODO test f16, f128, and c_longdouble
+    // https://github.com/ziglang/zig/issues/4026
     {
         var a: f32 = e;
-        expect(@ln(f32, a) == 1 or @ln(f32, a) == @bitCast(f32, @as(u32, 0x3f7fffff)));
+        expect(@ln(a) == 1 or @ln(a) == @bitCast(f32, @as(u32, 0x3f7fffff)));
     }
     {
         var a: f64 = e;
-        expect(@ln(f64, a) == 1 or @ln(f64, a) == @bitCast(f64, @as(u64, 0x3ff0000000000000)));
+        expect(@ln(a) == 1 or @ln(a) == @bitCast(f64, @as(u64, 0x3ff0000000000000)));
     }
 }
 
@@ -131,13 +153,15 @@ test "@log2" {
 }
 
 fn testLog2() void {
+    // TODO test f16, f128, and c_longdouble
+    // https://github.com/ziglang/zig/issues/4026
     {
         var a: f32 = 4;
-        expect(@log2(f32, a) == 2);
+        expect(@log2(a) == 2);
     }
     {
         var a: f64 = 4;
-        expect(@log2(f64, a) == 2);
+        expect(@log2(a) == 2);
     }
 }
 
@@ -147,13 +171,15 @@ test "@log10" {
 }
 
 fn testLog10() void {
+    // TODO test f16, f128, and c_longdouble
+    // https://github.com/ziglang/zig/issues/4026
     {
         var a: f32 = 100;
-        expect(@log10(f32, a) == 2);
+        expect(@log10(a) == 2);
     }
     {
         var a: f64 = 1000;
-        expect(@log10(f64, a) == 3);
+        expect(@log10(a) == 3);
     }
 }
 
@@ -163,17 +189,19 @@ test "@fabs" {
 }
 
 fn testFabs() void {
+    // TODO test f16, f128, and c_longdouble
+    // https://github.com/ziglang/zig/issues/4026
     {
         var a: f32 = -2.5;
         var b: f32 = 2.5;
-        expect(@fabs(f32, a) == 2.5);
-        expect(@fabs(f32, b) == 2.5);
+        expect(@fabs(a) == 2.5);
+        expect(@fabs(b) == 2.5);
     }
     {
         var a: f64 = -2.5;
         var b: f64 = 2.5;
-        expect(@fabs(f64, a) == 2.5);
-        expect(@fabs(f64, b) == 2.5);
+        expect(@fabs(a) == 2.5);
+        expect(@fabs(b) == 2.5);
     }
 }
 
@@ -183,13 +211,15 @@ test "@floor" {
 }
 
 fn testFloor() void {
+    // TODO test f16, f128, and c_longdouble
+    // https://github.com/ziglang/zig/issues/4026
     {
         var a: f32 = 2.1;
-        expect(@floor(f32, a) == 2);
+        expect(@floor(a) == 2);
     }
     {
         var a: f64 = 3.5;
-        expect(@floor(f64, a) == 3);
+        expect(@floor(a) == 3);
     }
 }
 
@@ -199,13 +229,15 @@ test "@ceil" {
 }
 
 fn testCeil() void {
+    // TODO test f16, f128, and c_longdouble
+    // https://github.com/ziglang/zig/issues/4026
     {
         var a: f32 = 2.1;
-        expect(@ceil(f32, a) == 3);
+        expect(@ceil(a) == 3);
     }
     {
         var a: f64 = 3.5;
-        expect(@ceil(f64, a) == 4);
+        expect(@ceil(a) == 4);
     }
 }
 
@@ -215,29 +247,33 @@ test "@trunc" {
 }
 
 fn testTrunc() void {
+    // TODO test f16, f128, and c_longdouble
+    // https://github.com/ziglang/zig/issues/4026
     {
         var a: f32 = 2.1;
-        expect(@trunc(f32, a) == 2);
+        expect(@trunc(a) == 2);
     }
     {
         var a: f64 = -3.5;
-        expect(@trunc(f64, a) == -3);
+        expect(@trunc(a) == -3);
     }
 }
 
-// This is waiting on library support for the Windows build (not sure why the other's don't need it)
+// TODO This is waiting on library support for the Windows build (not sure why the other's don't need it)
 //test "@nearbyInt" {
 //    comptime testNearbyInt();
 //    testNearbyInt();
 //}
 
 //fn testNearbyInt() void {
+//    // TODO test f16, f128, and c_longdouble
+//    // https://github.com/ziglang/zig/issues/4026
 //    {
 //        var a: f32 = 2.1;
-//        expect(@nearbyInt(f32, a) == 2);
+//        expect(@nearbyInt(a) == 2);
 //    }
 //    {
 //        var a: f64 = -3.75;
-//        expect(@nearbyInt(f64, a) == -4);
+//        expect(@nearbyInt(a) == -4);
 //    }
 //}

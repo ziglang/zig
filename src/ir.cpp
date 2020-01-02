@@ -3162,14 +3162,14 @@ const char *float_op_to_name(BuiltinFnId op, bool llvm_name) {
     }
 }
 
-static IrInstruction *ir_build_float_op(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *type, IrInstruction *op1, BuiltinFnId op) {
+static IrInstruction *ir_build_float_op(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *operand,
+        BuiltinFnId fn_id)
+{
     IrInstructionFloatOp *instruction = ir_build_instruction<IrInstructionFloatOp>(irb, scope, source_node);
-    instruction->type = type;
-    instruction->op1 = op1;
-    instruction->op = op;
+    instruction->operand = operand;
+    instruction->fn_id = fn_id;
 
-    if (type != nullptr) ir_ref_instruction(type, irb->current_basic_block);
-    ir_ref_instruction(op1, irb->current_basic_block);
+    ir_ref_instruction(operand, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -5512,13 +5512,8 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg0_value == irb->codegen->invalid_instruction)
                     return arg0_value;
 
-                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
-                if (arg1_value == irb->codegen->invalid_instruction)
-                    return arg1_value;
-
-                IrInstruction *ir_sqrt = ir_build_float_op(irb, scope, node, arg0_value, arg1_value, builtin_fn->id);
-                return ir_lval_wrap(irb, scope, ir_sqrt, lval, result_loc);
+                IrInstruction *inst = ir_build_float_op(irb, scope, node, arg0_value, builtin_fn->id);
+                return ir_lval_wrap(irb, scope, inst, lval, result_loc);
             }
         case BuiltinFnIdTruncate:
             {
@@ -27811,81 +27806,59 @@ static void ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, Builti
     }
 }
 
-static IrInstruction *ir_analyze_float_op(IrAnalyze *ira, IrInstruction *source_instr,
-        ZigType *expr_type, AstNode *expr_type_src_node, IrInstruction *operand, BuiltinFnId op)
-{
-    // Only allow float types, and vectors of floats.
-    ZigType *float_type = (expr_type->id == ZigTypeIdVector) ? expr_type->data.vector.elem_type : expr_type;
-    if (float_type->id != ZigTypeIdFloat && float_type->id != ZigTypeIdComptimeFloat) {
-        ir_add_error_node(ira, expr_type_src_node,
-                buf_sprintf("@%s does not support type '%s'",
-                    float_op_to_name(op, false), buf_ptr(&float_type->name)));
+static IrInstruction *ir_analyze_instruction_float_op(IrAnalyze *ira, IrInstructionFloatOp *instruction) {
+    IrInstruction *operand = instruction->operand->child;
+    ZigType *operand_type = operand->value->type;
+    if (type_is_invalid(operand_type))
+        return ira->codegen->invalid_instruction;
+
+    // This instruction accepts floats and vectors of floats.
+    ZigType *scalar_type = (operand_type->id == ZigTypeIdVector) ?
+        operand_type->data.vector.elem_type : operand_type;
+
+    if (scalar_type->id != ZigTypeIdFloat && scalar_type->id != ZigTypeIdComptimeFloat) {
+        ir_add_error(ira, operand,
+            buf_sprintf("expected float type, found '%s'", buf_ptr(&scalar_type->name)));
         return ira->codegen->invalid_instruction;
     }
 
-    IrInstruction *casted_op = ir_implicit_cast(ira, operand, float_type);
-    if (type_is_invalid(casted_op->value->type))
-        return ira->codegen->invalid_instruction;
-
-    if (instr_is_comptime(casted_op)) {
-        if ((float_type->id == ZigTypeIdComptimeFloat ||
-            float_type->data.floating.bit_count == 16 ||
-            float_type->data.floating.bit_count == 128) &&
-            op != BuiltinFnIdSqrt)
-        {
-            ir_add_error(ira, source_instr,
-                    buf_sprintf("compiler bug: TODO make @%s support type '%s'",
-                        float_op_to_name(op, false), buf_ptr(&float_type->name)));
+    if (instr_is_comptime(operand)) {
+        ZigValue *operand_val = ir_resolve_const(ira, operand, UndefOk);
+        if (operand_val == nullptr)
             return ira->codegen->invalid_instruction;
-        }
+        if (operand_val->special == ConstValSpecialUndef)
+            return ir_const_undef(ira, &instruction->base, operand_type);
 
-        ZigValue *op1_const = ir_resolve_const(ira, casted_op, UndefBad);
-        if (!op1_const)
-            return ira->codegen->invalid_instruction;
-
-        IrInstruction *result = ir_const(ira, source_instr, expr_type);
+        IrInstruction *result = ir_const(ira, &instruction->base, operand_type);
         ZigValue *out_val = result->value;
 
-        if (expr_type->id == ZigTypeIdVector) {
-            expand_undef_array(ira->codegen, op1_const);
+        if (operand_type->id == ZigTypeIdVector) {
+            expand_undef_array(ira->codegen, operand_val);
             out_val->special = ConstValSpecialUndef;
             expand_undef_array(ira->codegen, out_val);
-            size_t len = expr_type->data.vector.len;
+            size_t len = operand_type->data.vector.len;
             for (size_t i = 0; i < len; i += 1) {
-                ZigValue *float_operand_op1 = &op1_const->data.x_array.data.s_none.elements[i];
+                ZigValue *float_operand_op1 = &operand_val->data.x_array.data.s_none.elements[i];
                 ZigValue *float_out_val = &out_val->data.x_array.data.s_none.elements[i];
-                assert(float_operand_op1->type == float_type);
-                assert(float_out_val->type == float_type);
-                ir_eval_float_op(ira, source_instr, op, float_type, op1_const, float_out_val);
-                float_out_val->type = float_type;
+                ir_assert(float_operand_op1->type == scalar_type, &instruction->base);
+                ir_assert(float_out_val->type == scalar_type, &instruction->base);
+                ir_eval_float_op(ira, &instruction->base, instruction->fn_id, scalar_type, operand_val, float_out_val);
+                float_out_val->type = scalar_type;
             }
-            out_val->type = expr_type;
+            out_val->type = operand_type;
             out_val->special = ConstValSpecialStatic;
         } else {
-            ir_eval_float_op(ira, source_instr, op, float_type, op1_const, out_val);
+            ir_eval_float_op(ira, &instruction->base, instruction->fn_id, scalar_type, operand_val, out_val);
         }
         return result;
     }
 
-    ir_assert(float_type->id == ZigTypeIdFloat, source_instr);
+    ir_assert(scalar_type->id == ZigTypeIdFloat, &instruction->base);
 
-    IrInstruction *result = ir_build_float_op(&ira->new_irb, source_instr->scope,
-            source_instr->source_node, nullptr, casted_op, op);
-    result->value->type = expr_type;
+    IrInstruction *result = ir_build_float_op(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, operand, instruction->fn_id);
+    result->value->type = operand_type;
     return result;
-}
-
-static IrInstruction *ir_analyze_instruction_float_op(IrAnalyze *ira, IrInstructionFloatOp *instruction) {
-    ZigType *expr_type = ir_resolve_type(ira, instruction->type->child);
-    if (type_is_invalid(expr_type))
-        return ira->codegen->invalid_instruction;
-
-    IrInstruction *operand = instruction->op1->child;
-    if (type_is_invalid(operand->value->type))
-        return ira->codegen->invalid_instruction;
-
-    return ir_analyze_float_op(ira, &instruction->base, expr_type, instruction->type->source_node,
-            operand, instruction->op);
 }
 
 static IrInstruction *ir_analyze_instruction_bswap(IrAnalyze *ira, IrInstructionBswap *instruction) {
