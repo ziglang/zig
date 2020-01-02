@@ -33,7 +33,7 @@ bool ir_has_side_effects(IrInstruction *instruction);
 struct IrAnalyze;
 ZigValue *const_ptr_pointee(IrAnalyze *ira, CodeGen *codegen, ZigValue *const_val,
         AstNode *source_node);
-const char *float_op_to_name(BuiltinFnId op, bool llvm_name);
+const char *float_op_to_name(BuiltinFnId op);
 
 // for debugging purposes
 void dbg_ir_break(const char *src_file, uint32_t line);

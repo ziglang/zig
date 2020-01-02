@@ -764,7 +764,7 @@ static LLVMValueRef get_float_fn(CodeGen *g, ZigType *type_entry, ZigLLVMFnId fn
         name = "fma";
         num_args = 3;
     } else if (fn_id == ZigLLVMFnIdFloatOp) {
-        name = float_op_to_name(op, true);
+        name = float_op_to_name(op);
         num_args = 1;
     } else {
         zig_unreachable();
@@ -5785,10 +5785,9 @@ static LLVMValueRef ir_render_atomic_store(CodeGen *g, IrExecutable *executable,
 }
 
 static LLVMValueRef ir_render_float_op(CodeGen *g, IrExecutable *executable, IrInstructionFloatOp *instruction) {
-    LLVMValueRef op = ir_llvm_value(g, instruction->op1);
-    assert(instruction->base.value->type->id == ZigTypeIdFloat);
-    LLVMValueRef fn_val = get_float_fn(g, instruction->base.value->type, ZigLLVMFnIdFloatOp, instruction->op);
-    return LLVMBuildCall(g->builder, fn_val, &op, 1, "");
+    LLVMValueRef operand = ir_llvm_value(g, instruction->operand);
+    LLVMValueRef fn_val = get_float_fn(g, instruction->base.value->type, ZigLLVMFnIdFloatOp, instruction->fn_id);
+    return LLVMBuildCall(g->builder, fn_val, &operand, 1, "");
 }
 
 static LLVMValueRef ir_render_mul_add(CodeGen *g, IrExecutable *executable, IrInstructionMulAdd *instruction) {
@@ -8201,20 +8200,20 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdDivFloor, "divFloor", 2);
     create_builtin_fn(g, BuiltinFnIdRem, "rem", 2);
     create_builtin_fn(g, BuiltinFnIdMod, "mod", 2);
-    create_builtin_fn(g, BuiltinFnIdSqrt, "sqrt", 2);
-    create_builtin_fn(g, BuiltinFnIdSin, "sin", 2);
-    create_builtin_fn(g, BuiltinFnIdCos, "cos", 2);
-    create_builtin_fn(g, BuiltinFnIdExp, "exp", 2);
-    create_builtin_fn(g, BuiltinFnIdExp2, "exp2", 2);
-    create_builtin_fn(g, BuiltinFnIdLn, "ln", 2);
-    create_builtin_fn(g, BuiltinFnIdLog2, "log2", 2);
-    create_builtin_fn(g, BuiltinFnIdLog10, "log10", 2);
-    create_builtin_fn(g, BuiltinFnIdFabs, "fabs", 2);
-    create_builtin_fn(g, BuiltinFnIdFloor, "floor", 2);
-    create_builtin_fn(g, BuiltinFnIdCeil, "ceil", 2);
-    create_builtin_fn(g, BuiltinFnIdTrunc, "trunc", 2);
-    create_builtin_fn(g, BuiltinFnIdNearbyInt, "nearbyInt", 2);
-    create_builtin_fn(g, BuiltinFnIdRound, "round", 2);
+    create_builtin_fn(g, BuiltinFnIdSqrt, "sqrt", 1);
+    create_builtin_fn(g, BuiltinFnIdSin, "sin", 1);
+    create_builtin_fn(g, BuiltinFnIdCos, "cos", 1);
+    create_builtin_fn(g, BuiltinFnIdExp, "exp", 1);
+    create_builtin_fn(g, BuiltinFnIdExp2, "exp2", 1);
+    create_builtin_fn(g, BuiltinFnIdLog, "log", 1);
+    create_builtin_fn(g, BuiltinFnIdLog2, "log2", 1);
+    create_builtin_fn(g, BuiltinFnIdLog10, "log10", 1);
+    create_builtin_fn(g, BuiltinFnIdFabs, "fabs", 1);
+    create_builtin_fn(g, BuiltinFnIdFloor, "floor", 1);
+    create_builtin_fn(g, BuiltinFnIdCeil, "ceil", 1);
+    create_builtin_fn(g, BuiltinFnIdTrunc, "trunc", 1);
+    create_builtin_fn(g, BuiltinFnIdNearbyInt, "nearbyInt", 1);
+    create_builtin_fn(g, BuiltinFnIdRound, "round", 1);
     create_builtin_fn(g, BuiltinFnIdMulAdd, "mulAdd", 4);
     create_builtin_fn(g, BuiltinFnIdNewStackCall, "newStackCall", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdAsyncCall, "asyncCall", SIZE_MAX);

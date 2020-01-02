@@ -587,12 +587,12 @@ test "@sqrt" {
 
     const x = 14.0;
     const y = x * x;
-    const z = @sqrt(@TypeOf(y), y);
+    const z = @sqrt(y);
     comptime expect(z == x);
 }
 
 fn testSqrt(comptime T: type, x: T) void {
-    expect(@sqrt(T, x * x) == x);
+    expect(@sqrt(x * x) == x);
 }
 
 test "comptime_int param and return" {
