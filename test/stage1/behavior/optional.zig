@@ -145,3 +145,11 @@ test "coerce an anon struct literal to optional struct" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "optional with void type" {
+    const Foo = struct {
+        x: ?void,
+    };
+    var x = Foo{ .x = null };
+    expect(x.x == null);
+}
