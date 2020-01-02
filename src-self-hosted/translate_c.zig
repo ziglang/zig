@@ -2472,7 +2472,8 @@ fn transCreatePreCrement(
         const expr = try transExpr(rp, scope, op_expr, .used, .r_value);
         const token = try appendToken(rp.c, op_tok_id, bytes);
         const one = try transCreateNodeInt(rp.c, 1);
-        _ = try appendToken(rp.c, .Semicolon, ";");
+        if (scope.id != .Condition)
+            _ = try appendToken(rp.c, .Semicolon, ";");
         return transCreateNodeInfixOp(rp, scope, expr, op, token, one, .used, false);
     }
     // worst case
@@ -2536,7 +2537,8 @@ fn transCreatePostCrement(
         const expr = try transExpr(rp, scope, op_expr, .used, .r_value);
         const token = try appendToken(rp.c, op_tok_id, bytes);
         const one = try transCreateNodeInt(rp.c, 1);
-        _ = try appendToken(rp.c, .Semicolon, ";");
+        if (scope.id != .Condition)
+            _ = try appendToken(rp.c, .Semicolon, ";");
         return transCreateNodeInfixOp(rp, scope, expr, op, token, one, .used, false);
     }
     // worst case

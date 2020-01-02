@@ -570,13 +570,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("for loop",
         \\void foo(void) {
-        \\    for (int i = 0; i; i = i + 1) { }
+        \\    for (int i = 0; i; i++) { }
         \\}
     , &[_][]const u8{
         \\pub export fn foo() void {
         \\    {
         \\        var i: c_int = 0;
-        \\        while (i != 0) : (i = (i + @as(c_int, 1))) {}
+        \\        while (i != 0) : (i += 1) {}
         \\    }
         \\}
     });
