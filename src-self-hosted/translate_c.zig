@@ -597,6 +597,20 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
         break :blk null;
     };
 
+    const align_expr = blk: {
+        const alignment = ZigClangVarDecl_getAlignedAttribute(var_decl, rp.c.clang_context);
+        if (alignment != 0) {
+            _ = try appendToken(rp.c, .Keyword_linksection, "align");
+            _ = try appendToken(rp.c, .LParen, "(");
+            // Clang reports the alignment in bits
+            const expr = try transCreateNodeInt(rp.c, alignment / 8);
+            _ = try appendToken(rp.c, .RParen, ")");
+
+            break :blk expr;
+        }
+        break :blk null;
+    };
+
     const node = try c.a().create(ast.Node.VarDecl);
     node.* = ast.Node.VarDecl{
         .doc_comments = null,
@@ -609,7 +623,7 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
         .extern_export_token = extern_tok,
         .lib_name = null,
         .type_node = type_node,
-        .align_node = null,
+        .align_node = align_expr,
         .section_node = linksection_expr,
         .init_node = init_node,
         .semicolon_token = try appendToken(c, .Semicolon, ";"),
@@ -4142,6 +4156,22 @@ fn finishTransFnProto(
         break :blk null;
     };
 
+    const align_expr = blk: {
+        if (fn_decl) |decl| {
+            const alignment = ZigClangFunctionDecl_getAlignedAttribute(decl, rp.c.clang_context);
+            if (alignment != 0) {
+                _ = try appendToken(rp.c, .Keyword_linksection, "align");
+                _ = try appendToken(rp.c, .LParen, "(");
+                // Clang reports the alignment in bits
+                const expr = try transCreateNodeInt(rp.c, alignment / 8);
+                _ = try appendToken(rp.c, .RParen, ")");
+
+                break :blk expr;
+            }
+        }
+        break :blk null;
+    };
+
     const return_type_node = blk: {
         if (ZigClangFunctionType_getNoReturnAttr(fn_ty)) {
             break :blk try transCreateNodeIdentifier(rp.c, "noreturn");
@@ -4175,7 +4205,7 @@ fn finishTransFnProto(
         .cc_token = cc_tok,
         .body_node = null,
         .lib_name = null,
-        .align_expr = null,
+        .align_expr = align_expr,
         .section_expr = linksection_expr,
     };
     return fn_proto;
