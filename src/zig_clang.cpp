@@ -1825,6 +1825,18 @@ const ZigClangArrayType *ZigClangType_getAsArrayTypeUnsafe(const ZigClangType *s
     return reinterpret_cast<const ZigClangArrayType *>(result);
 }
 
+const ZigClangRecordType *ZigClangType_getAsRecordType(const ZigClangType *self) {
+    auto casted = reinterpret_cast<const clang::Type *>(self);
+    const clang::RecordType *result = casted->getAsStructureType();
+    return reinterpret_cast<const ZigClangRecordType *>(result);
+}
+
+const ZigClangRecordType *ZigClangType_getAsUnionType(const ZigClangType *self) {
+    auto casted = reinterpret_cast<const clang::Type *>(self);
+    const clang::RecordType *result = casted->getAsUnionType();
+    return reinterpret_cast<const ZigClangRecordType *>(result);
+}
+
 ZigClangSourceLocation ZigClangStmt_getBeginLoc(const ZigClangStmt *self) {
     auto casted = reinterpret_cast<const clang::Stmt *>(self);
     return bitcast(casted->getBeginLoc());
@@ -1896,6 +1908,12 @@ const ZigClangExpr *ZigClangInitListExpr_getArrayFiller(const ZigClangInitListEx
     auto casted = reinterpret_cast<const clang::InitListExpr *>(self);
     const clang::Expr *result = casted->getArrayFiller();
     return reinterpret_cast<const ZigClangExpr *>(result);
+}
+
+const ZigClangFieldDecl *ZigClangInitListExpr_getInitializedFieldInUnion(const ZigClangInitListExpr *self) {
+    auto casted = reinterpret_cast<const clang::InitListExpr *>(self);
+    const clang::FieldDecl *result = casted->getInitializedFieldInUnion();
+    return reinterpret_cast<const ZigClangFieldDecl *>(result);
 }
 
 unsigned ZigClangInitListExpr_getNumInits(const ZigClangInitListExpr *self) {

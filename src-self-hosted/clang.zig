@@ -804,6 +804,8 @@ pub extern fn ZigClangType_getPointeeType(self: ?*const struct_ZigClangType) str
 pub extern fn ZigClangType_isVoidType(self: ?*const struct_ZigClangType) bool;
 pub extern fn ZigClangType_getTypeClassName(self: *const struct_ZigClangType) [*:0]const u8;
 pub extern fn ZigClangType_getAsArrayTypeUnsafe(self: *const ZigClangType) *const ZigClangArrayType;
+pub extern fn ZigClangType_getAsRecordType(self: *const ZigClangType) ?*const ZigClangRecordType;
+pub extern fn ZigClangType_getAsUnionType(self: *const ZigClangType) ?*const ZigClangRecordType;
 pub extern fn ZigClangStmt_getBeginLoc(self: *const struct_ZigClangStmt) struct_ZigClangSourceLocation;
 pub extern fn ZigClangStmt_getStmtClass(self: ?*const struct_ZigClangStmt) ZigClangStmtClass;
 pub extern fn ZigClangStmt_classof_Expr(self: ?*const struct_ZigClangStmt) bool;
@@ -813,6 +815,7 @@ pub extern fn ZigClangExpr_getBeginLoc(self: *const struct_ZigClangExpr) struct_
 pub extern fn ZigClangInitListExpr_getInit(self: ?*const struct_ZigClangInitListExpr, i: c_uint) *const ZigClangExpr;
 pub extern fn ZigClangInitListExpr_getArrayFiller(self: ?*const struct_ZigClangInitListExpr) *const ZigClangExpr;
 pub extern fn ZigClangInitListExpr_getNumInits(self: ?*const struct_ZigClangInitListExpr) c_uint;
+pub extern fn ZigClangInitListExpr_getInitializedFieldInUnion(self: ?*const struct_ZigClangInitListExpr) ?*ZigClangFieldDecl;
 pub extern fn ZigClangAPValue_getKind(self: ?*const struct_ZigClangAPValue) ZigClangAPValueKind;
 pub extern fn ZigClangAPValue_getInt(self: ?*const struct_ZigClangAPValue) *const struct_ZigClangAPSInt;
 pub extern fn ZigClangAPValue_getArrayInitializedElts(self: ?*const struct_ZigClangAPValue) c_uint;
