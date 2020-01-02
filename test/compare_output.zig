@@ -5,7 +5,11 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addC("hello world with libc",
-        \\const c = @cImport(@cInclude("stdio.h"));
+        \\const c = @cImport({
+        \\    // See https://github.com/ziglang/zig/issues/515
+        \\    @cDefine("_NO_CRT_STDIO_INLINE", "1");
+        \\    @cInclude("stdio.h");
+        \\});
         \\pub export fn main(argc: c_int, argv: [*][*]u8) c_int {
         \\    _ = c.puts("Hello, world!");
         \\    return 0;
