@@ -2735,6 +2735,9 @@ fn transCPtrCast(
     if (ZigClangType_isVoidType(qualTypeCanon(child_type))) {
         // void has 1-byte alignment, so @alignCast is not needed
         try ptrcast_node.params.push(expr);
+    } else if (typeIsOpaque(rp.c, qualTypeCanon(child_type), loc)) {
+        // For opaque types a ptrCast is enough
+        try ptrcast_node.params.push(expr);
     } else {
         const aligncast_node = try transCreateNodeBuiltinFnCall(rp.c, "@alignCast");
         const alignof_node = try transCreateNodeBuiltinFnCall(rp.c, "@alignOf");
