@@ -832,6 +832,8 @@ pub extern fn ZigClangFunctionDecl_hasBody(self: *const ZigClangFunctionDecl) bo
 pub extern fn ZigClangFunctionDecl_getStorageClass(self: *const ZigClangFunctionDecl) ZigClangStorageClass;
 pub extern fn ZigClangFunctionDecl_getParamDecl(self: *const ZigClangFunctionDecl, i: c_uint) *const struct_ZigClangParmVarDecl;
 pub extern fn ZigClangFunctionDecl_getBody(self: *const ZigClangFunctionDecl) *const struct_ZigClangStmt;
+pub extern fn ZigClangFunctionDecl_doesDeclarationForceExternallyVisibleDefinition(self: *const ZigClangFunctionDecl) bool;
+pub extern fn ZigClangFunctionDecl_isInlineSpecified(self: *const ZigClangFunctionDecl) bool;
 
 pub extern fn ZigClangBuiltinType_getKind(self: *const struct_ZigClangBuiltinType) ZigClangBuiltinTypeKind;
 

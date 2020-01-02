@@ -423,7 +423,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
         .has_body = has_body,
         .storage_class = storage_class,
         .is_export = switch (storage_class) {
-            .None => has_body,
+            .None => has_body and !ZigClangFunctionDecl_isInlineSpecified(fn_decl),
             .Extern, .Static => false,
             .PrivateExtern => return failDecl(c, fn_decl_loc, fn_name, "unsupported storage class: private extern", .{}),
             .Auto => unreachable, // Not legal on functions

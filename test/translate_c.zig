@@ -2302,4 +2302,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     ,
         \\pub const bar = 4;
     });
+
+    cases.add("don't export inline functions",
+        \\inline void a(void) {}
+        \\static void b(void) {}
+        \\void c(void) {}
+    , &[_][]const u8{
+        \\pub fn a() void {}
+        \\pub fn b() void {}
+        \\pub export fn c() void {}
+    });
 }
