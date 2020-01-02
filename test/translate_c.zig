@@ -3,6 +3,16 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
     /////////////// Cases that pass for both stage1/stage2 ////////////////
+    cases.add("linksection() attribute",
+        \\__attribute__ ((__section__(".data")))
+        \\extern char my_array[16];
+        \\__attribute__ ((__section__(".data")))
+        \\void my_fn(void) { }
+    , &[_][]const u8{
+        \\pub extern var my_array: [16]u8 linksection(".data");
+        \\pub export fn my_fn() linksection(".data") void {}
+    });
+
     cases.add("simple function prototypes",
         \\void __attribute__((noreturn)) foo(void);
         \\int bar(void);
