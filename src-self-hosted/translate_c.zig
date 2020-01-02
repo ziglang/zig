@@ -138,7 +138,7 @@ const Scope = struct {
         }
 
         /// Given the desired name, return a name that does not shadow anything from outer scopes.
-        /// Inserts the returned name into the scope.
+        /// Does not insert the returned name into the scope.
         /// Will allow `name` to be one of the preprocessed decl or macro names, but will not
         /// choose a mangled name that matches one of those.
         fn makeMangledName(scope: *Root, name: []const u8) ![]const u8 {
@@ -4328,9 +4328,12 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
                 const begin_loc = ZigClangMacroDefinitionRecord_getSourceRange_getBegin(macro);
 
                 const name = try c.str(raw_name);
+                // TODO https://github.com/ziglang/zig/issues/3756
+                // TODO https://github.com/ziglang/zig/issues/1802
+                const mangled_name = try scope.makeMangledName(name);
 
                 const begin_c = ZigClangSourceManager_getCharacterData(c.source_manager, begin_loc);
-                ctok.tokenizeCMacro(c, begin_loc, name, &tok_list, begin_c) catch |err| switch (err) {
+                ctok.tokenizeCMacro(c, begin_loc, mangled_name, &tok_list, begin_c) catch |err| switch (err) {
                     error.OutOfMemory => |e| return e,
                     else => {
                         continue;
@@ -4357,9 +4360,6 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
                     else => {},
                 }
 
-                // TODO https://github.com/ziglang/zig/issues/3756
-                // TODO https://github.com/ziglang/zig/issues/1802
-                const mangled_name = try scope.makeMangledName(name);
                 const macro_fn = if (tok_it.peek().?.id == .Fn) blk: {
                     _ = tok_it.next();
                     break :blk true;
