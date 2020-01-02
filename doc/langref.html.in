@@ -8130,8 +8130,8 @@ test "vector @splat" {
       <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
       </p>
       {#header_close#}
-      {#header_open|@ln#}
-      <pre>{#syntax#}@ln(value: var) @TypeOf(value){#endsyntax#}</pre>
+      {#header_open|@log#}
+      <pre>{#syntax#}@log(value: var) @TypeOf(value){#endsyntax#}</pre>
       <p>
       Returns the natural logarithm of a floating point number. Uses a dedicated hardware instruction
       when available.

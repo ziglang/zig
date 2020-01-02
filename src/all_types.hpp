@@ -1680,7 +1680,7 @@ enum BuiltinFnId {
     BuiltinFnIdCos,
     BuiltinFnIdExp,
     BuiltinFnIdExp2,
-    BuiltinFnIdLn,
+    BuiltinFnIdLog,
     BuiltinFnIdLog2,
     BuiltinFnIdLog10,
     BuiltinFnIdFabs,

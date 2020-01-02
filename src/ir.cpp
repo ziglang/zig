@@ -3125,9 +3125,7 @@ static IrInstruction *ir_build_overflow_op(IrBuilder *irb, Scope *scope, AstNode
 //TODO Powi, Pow, minnum, maxnum, maximum, minimum, copysign,
 // lround, llround, lrint, llrint
 // So far this is only non-complicated type functions.
-const char *float_op_to_name(BuiltinFnId op, bool llvm_name) {
-    const bool b = llvm_name;
-
+const char *float_op_to_name(BuiltinFnId op) {
     switch (op) {
     case BuiltinFnIdSqrt:
         return "sqrt";
@@ -3139,8 +3137,8 @@ const char *float_op_to_name(BuiltinFnId op, bool llvm_name) {
         return "exp";
     case BuiltinFnIdExp2:
         return "exp2";
-    case BuiltinFnIdLn:
-        return b ? "log" : "ln";
+    case BuiltinFnIdLog:
+        return "log";
     case BuiltinFnIdLog10:
         return "log10";
     case BuiltinFnIdLog2:
@@ -3154,7 +3152,7 @@ const char *float_op_to_name(BuiltinFnId op, bool llvm_name) {
     case BuiltinFnIdTrunc:
         return "trunc";
     case BuiltinFnIdNearbyInt:
-        return b ? "nearbyint" : "nearbyInt";
+        return "nearbyint";
     case BuiltinFnIdRound:
         return "round";
     default:
@@ -5497,7 +5495,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
         case BuiltinFnIdCos:
         case BuiltinFnIdExp:
         case BuiltinFnIdExp2:
-        case BuiltinFnIdLn:
+        case BuiltinFnIdLog:
         case BuiltinFnIdLog2:
         case BuiltinFnIdLog10:
         case BuiltinFnIdFabs:
@@ -27626,7 +27624,7 @@ static IrInstruction *ir_analyze_instruction_save_err_ret_addr(IrAnalyze *ira, I
     return result;
 }
 
-static void ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, BuiltinFnId fop, ZigType *float_type,
+static ErrorMsg *ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, BuiltinFnId fop, ZigType *float_type,
         ZigValue *op, ZigValue *out_val)
 {
     assert(ira && source_instr && float_type && out_val && op);
@@ -27653,24 +27651,49 @@ static void ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, Builti
             out_val->data.x_f16 = f16_sqrt(op->data.x_f16);
             break;
         case BuiltinFnIdSin:
+            out_val->data.x_f16 = zig_double_to_f16(sin(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdCos:
+            out_val->data.x_f16 = zig_double_to_f16(cos(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdExp:
+            out_val->data.x_f16 = zig_double_to_f16(exp(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdExp2:
-        case BuiltinFnIdLn:
+            out_val->data.x_f16 = zig_double_to_f16(exp2(zig_f16_to_double(op->data.x_f16)));
+            break;
+        case BuiltinFnIdLog:
+            out_val->data.x_f16 = zig_double_to_f16(log(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdLog10:
+            out_val->data.x_f16 = zig_double_to_f16(log10(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdLog2:
+            out_val->data.x_f16 = zig_double_to_f16(log2(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdFabs:
+            out_val->data.x_f16 = zig_double_to_f16(fabs(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdFloor:
+            out_val->data.x_f16 = zig_double_to_f16(floor(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdCeil:
+            out_val->data.x_f16 = zig_double_to_f16(ceil(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdTrunc:
+            out_val->data.x_f16 = zig_double_to_f16(trunc(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdNearbyInt:
+            out_val->data.x_f16 = zig_double_to_f16(nearbyint(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdRound:
-            zig_panic("unimplemented f16 builtin");
+            out_val->data.x_f16 = zig_double_to_f16(round(zig_f16_to_double(op->data.x_f16)));
+            break;
         default:
             zig_unreachable();
         };
         break;
-    };
+    }
     case 32: {
         switch (fop) {
         case BuiltinFnIdSqrt:
@@ -27688,7 +27711,7 @@ static void ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, Builti
         case BuiltinFnIdExp2:
             out_val->data.x_f32 = exp2f(op->data.x_f32);
             break;
-        case BuiltinFnIdLn:
+        case BuiltinFnIdLog:
             out_val->data.x_f32 = logf(op->data.x_f32);
             break;
         case BuiltinFnIdLog10:
@@ -27719,7 +27742,7 @@ static void ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, Builti
             zig_unreachable();
         };
         break;
-    };
+    }
     case 64: {
         switch (fop) {
         case BuiltinFnIdSqrt:
@@ -27737,7 +27760,7 @@ static void ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, Builti
         case BuiltinFnIdExp2:
             out_val->data.x_f64 = exp2(op->data.x_f64);
             break;
-        case BuiltinFnIdLn:
+        case BuiltinFnIdLog:
             out_val->data.x_f64 = log(op->data.x_f64);
             break;
         case BuiltinFnIdLog10:
@@ -27768,7 +27791,11 @@ static void ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, Builti
             zig_unreachable();
         }
         break;
-    };
+    }
+    case 80:
+        return ir_add_error(ira, source_instr,
+            buf_sprintf("compiler bug: TODO: implement '%s' for type '%s'. See https://github.com/ziglang/zig/issues/4026",
+                float_op_to_name(fop), buf_ptr(&float_type->name)));
     case 128: {
         float128_t *out, *in;
         if (float_type->id == ZigTypeIdComptimeFloat) {
@@ -27787,7 +27814,7 @@ static void ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, Builti
         case BuiltinFnIdCos:
         case BuiltinFnIdExp:
         case BuiltinFnIdExp2:
-        case BuiltinFnIdLn:
+        case BuiltinFnIdLog:
         case BuiltinFnIdLog10:
         case BuiltinFnIdLog2:
         case BuiltinFnIdFabs:
@@ -27795,15 +27822,19 @@ static void ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, Builti
         case BuiltinFnIdCeil:
         case BuiltinFnIdTrunc:
         case BuiltinFnIdRound:
-            zig_panic("unimplemented f128 builtin");
+            return ir_add_error(ira, source_instr,
+                buf_sprintf("compiler bug: TODO: implement '%s' for type '%s'. See https://github.com/ziglang/zig/issues/4026",
+                    float_op_to_name(fop), buf_ptr(&float_type->name)));
         default:
             zig_unreachable();
         }
         break;
-    };
+    }
     default:
         zig_unreachable();
     }
+    out_val->special = ConstValSpecialStatic;
+    return nullptr;
 }
 
 static IrInstruction *ir_analyze_instruction_float_op(IrAnalyze *ira, IrInstructionFloatOp *instruction) {
@@ -27838,17 +27869,27 @@ static IrInstruction *ir_analyze_instruction_float_op(IrAnalyze *ira, IrInstruct
             expand_undef_array(ira->codegen, out_val);
             size_t len = operand_type->data.vector.len;
             for (size_t i = 0; i < len; i += 1) {
-                ZigValue *float_operand_op1 = &operand_val->data.x_array.data.s_none.elements[i];
+                ZigValue *elem_operand = &operand_val->data.x_array.data.s_none.elements[i];
                 ZigValue *float_out_val = &out_val->data.x_array.data.s_none.elements[i];
-                ir_assert(float_operand_op1->type == scalar_type, &instruction->base);
+                ir_assert(elem_operand->type == scalar_type, &instruction->base);
                 ir_assert(float_out_val->type == scalar_type, &instruction->base);
-                ir_eval_float_op(ira, &instruction->base, instruction->fn_id, scalar_type, operand_val, float_out_val);
+                ErrorMsg *msg = ir_eval_float_op(ira, &instruction->base, instruction->fn_id, scalar_type,
+                        elem_operand, float_out_val);
+                if (msg != nullptr) {
+                    add_error_note(ira->codegen, msg, instruction->base.source_node,
+                        buf_sprintf("when computing vector element at index %" ZIG_PRI_usize, i));
+                    return ira->codegen->invalid_instruction;
+                }
                 float_out_val->type = scalar_type;
             }
             out_val->type = operand_type;
             out_val->special = ConstValSpecialStatic;
         } else {
-            ir_eval_float_op(ira, &instruction->base, instruction->fn_id, scalar_type, operand_val, out_val);
+            if (ir_eval_float_op(ira, &instruction->base, instruction->fn_id, scalar_type,
+                    operand_val, out_val) != nullptr)
+            {
+                return ira->codegen->invalid_instruction;
+            }
         }
         return result;
     }

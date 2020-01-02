@@ -764,7 +764,7 @@ static LLVMValueRef get_float_fn(CodeGen *g, ZigType *type_entry, ZigLLVMFnId fn
         name = "fma";
         num_args = 3;
     } else if (fn_id == ZigLLVMFnIdFloatOp) {
-        name = float_op_to_name(op, true);
+        name = float_op_to_name(op);
         num_args = 1;
     } else {
         zig_unreachable();
@@ -8205,7 +8205,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCos, "cos", 1);
     create_builtin_fn(g, BuiltinFnIdExp, "exp", 1);
     create_builtin_fn(g, BuiltinFnIdExp2, "exp2", 1);
-    create_builtin_fn(g, BuiltinFnIdLn, "ln", 1);
+    create_builtin_fn(g, BuiltinFnIdLog, "log", 1);
     create_builtin_fn(g, BuiltinFnIdLog2, "log2", 1);
     create_builtin_fn(g, BuiltinFnIdLog10, "log10", 1);
     create_builtin_fn(g, BuiltinFnIdFabs, "fabs", 1);

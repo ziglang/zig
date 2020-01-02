@@ -2005,7 +2005,7 @@ static void ir_print_add_implicit_return_type(IrPrint *irp, IrInstructionAddImpl
 }
 
 static void ir_print_float_op(IrPrint *irp, IrInstructionFloatOp *instruction) {
-    fprintf(irp->f, "@%s(", float_op_to_name(instruction->fn_id, false));
+    fprintf(irp->f, "@%s(", float_op_to_name(instruction->fn_id));
     ir_print_other_instruction(irp, instruction->operand);
     fprintf(irp->f, ")");
 }
