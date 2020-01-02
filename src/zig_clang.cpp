@@ -1582,6 +1582,16 @@ const ZigClangVarDecl *ZigClangVarDecl_getCanonicalDecl(const ZigClangVarDecl *s
     return reinterpret_cast<const ZigClangVarDecl *>(decl);
 }
 
+const char* ZigClangVarDecl_getSectionAttribute(const struct ZigClangVarDecl *self, size_t *len) {
+    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
+    if (const clang::SectionAttr *SA = casted->getAttr<clang::SectionAttr>()) {
+        llvm::StringRef str_ref = SA->getName();
+        *len = str_ref.size();
+        return (const char *)str_ref.bytes_begin();
+    }
+    return nullptr;
+}
+
 const ZigClangRecordDecl *ZigClangRecordDecl_getDefinition(const ZigClangRecordDecl *zig_record_decl) {
     const clang::RecordDecl *record_decl = reinterpret_cast<const clang::RecordDecl *>(zig_record_decl);
     const clang::RecordDecl *definition = record_decl->getDefinition();
@@ -1694,6 +1704,16 @@ bool ZigClangFunctionDecl_doesDeclarationForceExternallyVisibleDefinition(const 
 bool ZigClangFunctionDecl_isInlineSpecified(const struct ZigClangFunctionDecl *self) {
     auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
     return casted->isInlineSpecified();
+}
+
+const char* ZigClangFunctionDecl_getSectionAttribute(const struct ZigClangFunctionDecl *self, size_t *len) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    if (const clang::SectionAttr *SA = casted->getAttr<clang::SectionAttr>()) {
+        llvm::StringRef str_ref = SA->getName();
+        *len = str_ref.size();
+        return (const char *)str_ref.bytes_begin();
+    }
+    return nullptr;
 }
 
 const ZigClangTypedefNameDecl *ZigClangTypedefType_getDecl(const ZigClangTypedefType *self) {
