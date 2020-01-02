@@ -477,8 +477,14 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     var it = proto_node.params.iterator(0);
     while (it.next()) |p| {
         const param = @fieldParentPtr(ast.Node.ParamDecl, "base", p.*);
-        const param_name = tokenSlice(c, param.name_token orelse
-            return failDecl(c, fn_decl_loc, fn_name, "function {} parameter has no name", .{fn_name}));
+        const param_name = if (param.name_token) |name_tok|
+            tokenSlice(c, name_tok)
+        else if (param.var_args_token != null) {
+            assert(it.next() == null);
+            _ = proto_node.params.pop();
+            break;
+        } else
+            return failDecl(c, fn_decl_loc, fn_name, "function {} parameter has no name", .{fn_name});
 
         const mangled_param_name = try block_scope.makeMangledName(c, param_name);
 
