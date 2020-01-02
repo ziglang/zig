@@ -137,26 +137,6 @@ const Scope = struct {
             };
         }
 
-        /// Given the desired name, return a name that does not shadow anything from outer scopes.
-        /// Does not insert the returned name into the scope.
-        /// Will allow `name` to be one of the preprocessed decl or macro names, but will not
-        /// choose a mangled name that matches one of those.
-        fn makeMangledName(scope: *Root, name: []const u8) ![]const u8 {
-            if (!scope.containsNow(name)) {
-                _ = try scope.context.global_names.put(name, {});
-                return name;
-            }
-            var proposed_name = name;
-            while (scope.contains(proposed_name)) {
-                proposed_name = try std.fmt.allocPrint(scope.context.a(), "{}_{}", .{
-                    name,
-                    scope.context.getMangle(),
-                });
-            }
-            _ = try scope.context.global_names.put(proposed_name, {});
-            return proposed_name;
-        }
-
         /// Check if the global scope contains this name, without looking into the "future", e.g.
         /// ignore the preprocessed decl and macro names.
         fn containsNow(scope: *Root, name: []const u8) bool {
@@ -4330,7 +4310,10 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
                 const name = try c.str(raw_name);
                 // TODO https://github.com/ziglang/zig/issues/3756
                 // TODO https://github.com/ziglang/zig/issues/1802
-                const mangled_name = try scope.makeMangledName(name);
+                const mangled_name = if (isZigPrimitiveType(name)) try std.fmt.allocPrint(c.a(), "_{}", .{name}) else name;
+                if (scope.containsNow(mangled_name)) {
+                    continue;
+                }
 
                 const begin_c = ZigClangSourceManager_getCharacterData(c.source_manager, begin_loc);
                 ctok.tokenizeCMacro(c, begin_loc, mangled_name, &tok_list, begin_c) catch |err| switch (err) {
