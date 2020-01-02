@@ -83,6 +83,7 @@ const Scope = struct {
         }
 
         /// Given the desired name, return a name that does not shadow anything from outer scopes.
+        /// Inserts the returned name into the scope.
         fn makeMangledName(scope: *Block, c: *Context, name: []const u8) ![]const u8 {
             var proposed_name = name;
             while (scope.contains(proposed_name)) {
@@ -136,15 +137,37 @@ const Scope = struct {
             };
         }
 
-        fn localContains(scope: *Root, name: []const u8) bool {
-            return scope.sym_table.contains(name) or
+        /// Given the desired name, return a name that does not shadow anything from outer scopes.
+        /// Inserts the returned name into the scope.
+        /// Will allow `name` to be one of the preprocessed decl or macro names, but will not
+        /// choose a mangled name that matches one of those.
+        fn makeMangledName(scope: *Root, name: []const u8) ![]const u8 {
+            if (!scope.containsNow(name)) {
+                _ = try scope.context.global_names.put(name, {});
+                return name;
+            }
+            var proposed_name = name;
+            while (scope.contains(proposed_name)) {
+                proposed_name = try std.fmt.allocPrint(scope.context.a(), "{}_{}", .{
+                    name,
+                    scope.context.getMangle(),
+                });
+            }
+            _ = try scope.context.global_names.put(proposed_name, {});
+            return proposed_name;
+        }
+
+        /// Check if the global scope contains this name, without looking into the "future", e.g.
+        /// ignore the preprocessed decl and macro names.
+        fn containsNow(scope: *Root, name: []const u8) bool {
+            return isZigPrimitiveType(name) or
+                scope.sym_table.contains(name) or
                 scope.macro_table.contains(name);
         }
 
+        /// Check if the global scope contains the name, includes all decls that haven't been translated yet.
         fn contains(scope: *Root, name: []const u8) bool {
-            return scope.localContains(name) or
-                isZigPrimitiveType(name) or
-                scope.context.global_names.contains(name);
+            return scope.containsNow(name) or scope.context.global_names.contains(name);
         }
     };
 
@@ -308,9 +331,7 @@ pub fn translate(
     };
     context.global_scope.* = Scope.Root.init(&context);
 
-    if (!ZigClangASTUnit_visitLocalTopLevelDecls(ast_unit, &context, declVisitorNamesOnlyC)) {
-        return context.err;
-    }
+    try prepopulateGlobalNameTable(ast_unit, &context);
 
     if (!ZigClangASTUnit_visitLocalTopLevelDecls(ast_unit, &context, declVisitorC)) {
         return context.err;
@@ -337,6 +358,29 @@ pub fn translate(
         }
     }
     return tree;
+}
+
+fn prepopulateGlobalNameTable(ast_unit: *ZigClangASTUnit, c: *Context) !void {
+    if (!ZigClangASTUnit_visitLocalTopLevelDecls(ast_unit, c, declVisitorNamesOnlyC)) {
+        return c.err;
+    }
+
+    // TODO if we see #undef, delete it from the table
+    var it = ZigClangASTUnit_getLocalPreprocessingEntities_begin(ast_unit);
+    const it_end = ZigClangASTUnit_getLocalPreprocessingEntities_end(ast_unit);
+
+    while (it.I != it_end.I) : (it.I += 1) {
+        const entity = ZigClangPreprocessingRecord_iterator_deref(it);
+        switch (ZigClangPreprocessedEntity_getKind(entity)) {
+            .MacroDefinitionKind => {
+                const macro = @ptrCast(*ZigClangMacroDefinitionRecord, entity);
+                const raw_name = ZigClangMacroDefinitionRecord_getName_getNameStart(macro);
+                const name = try c.str(raw_name);
+                _ = try c.global_names.put(name, {});
+            },
+            else => {},
+        }
+    }
 }
 
 extern fn declVisitorNamesOnlyC(context: ?*c_void, decl: *const ZigClangDecl) bool {
@@ -4272,7 +4316,7 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
     var it = ZigClangASTUnit_getLocalPreprocessingEntities_begin(unit);
     const it_end = ZigClangASTUnit_getLocalPreprocessingEntities_end(unit);
     var tok_list = ctok.TokenList.init(c.a());
-    const scope = &c.global_scope.base;
+    const scope = c.global_scope;
 
     while (it.I != it_end.I) : (it.I += 1) {
         const entity = ZigClangPreprocessingRecord_iterator_deref(it);
@@ -4285,14 +4329,8 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
 
                 const name = try c.str(raw_name);
 
-                // TODO https://github.com/ziglang/zig/issues/3756
-                // TODO https://github.com/ziglang/zig/issues/1802
-                const checked_name = if (isZigPrimitiveType(name)) try std.fmt.allocPrint(c.a(), "_{}", .{name}) else name;
-                if (scope.contains(checked_name)) {
-                    continue;
-                }
                 const begin_c = ZigClangSourceManager_getCharacterData(c.source_manager, begin_loc);
-                ctok.tokenizeCMacro(c, begin_loc, checked_name, &tok_list, begin_c) catch |err| switch (err) {
+                ctok.tokenizeCMacro(c, begin_loc, name, &tok_list, begin_c) catch |err| switch (err) {
                     error.OutOfMemory => |e| return e,
                     else => {
                         continue;
@@ -4307,7 +4345,7 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
                     .Identifier => {
                         // if it equals itself, ignore. for example, from stdio.h:
                         // #define stdin stdin
-                        if (mem.eql(u8, checked_name, next.bytes)) {
+                        if (mem.eql(u8, name, next.bytes)) {
                             continue;
                         }
                     },
@@ -4318,15 +4356,19 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
                     },
                     else => {},
                 }
+
+                // TODO https://github.com/ziglang/zig/issues/3756
+                // TODO https://github.com/ziglang/zig/issues/1802
+                const mangled_name = try scope.makeMangledName(name);
                 const macro_fn = if (tok_it.peek().?.id == .Fn) blk: {
                     _ = tok_it.next();
                     break :blk true;
                 } else false;
 
                 (if (macro_fn)
-                    transMacroFnDefine(c, &tok_it, checked_name, begin_loc)
+                    transMacroFnDefine(c, &tok_it, mangled_name, begin_loc)
                 else
-                    transMacroDefine(c, &tok_it, checked_name, begin_loc)) catch |err| switch (err) {
+                    transMacroDefine(c, &tok_it, mangled_name, begin_loc)) catch |err| switch (err) {
                     error.ParseError => continue,
                     error.OutOfMemory => |e| return e,
                 };
