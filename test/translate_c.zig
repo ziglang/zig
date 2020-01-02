@@ -2266,7 +2266,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        do {} while (0);
         \\}
     , &[_][]const u8{
-        \\pub fn foo() void {
+        \\pub fn foo() callconv(.C) void {
         \\    if (@as(c_int, 1) != 0) while (true) {
         \\        if (!(@as(c_int, 0) != 0)) break;
         \\    };
@@ -2358,9 +2358,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\void c(void) {}
         \\static void foo() {}
     , &[_][]const u8{
-        \\pub fn a() void {}
-        \\pub fn b() void {}
+        \\pub fn a() callconv(.C) void {}
+        \\pub fn b() callconv(.C) void {}
         \\pub export fn c() void {}
-        \\pub fn foo() void {}
+        \\pub fn foo() callconv(.C) void {}
     });
 }
