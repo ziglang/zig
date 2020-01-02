@@ -1784,6 +1784,26 @@ fn dump(args: var) void {
     assert(args.@"3"[1] == 'i');
 }
       {#code_end#}
+      <p>
+      In other languages these {#link|Anonymous List Literals#} are often called
+      'tuples' and the same semantics for accessing fields and getting the length of {#link|Arrays#} can be used:
+      </p>
+      {#code_begin|test|tuples#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+test "tuples" {
+    const person = .{"Bobby", 20};
+
+    // This is syntactic sugar for: `const name = person.@"0";`
+    const name = person[0];
+    const age = person[1];
+
+    assert(person.len == 2);
+    assert(name[0] == 'B');
+    assert(age == 20);
+}
+      {#code_end#}
       {#header_close#}
 
       {#header_open|Multidimensional Arrays#}
