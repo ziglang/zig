@@ -1582,6 +1582,36 @@ const ZigClangVarDecl *ZigClangVarDecl_getCanonicalDecl(const ZigClangVarDecl *s
     return reinterpret_cast<const ZigClangVarDecl *>(decl);
 }
 
+const char* ZigClangVarDecl_getSectionAttribute(const struct ZigClangVarDecl *self, size_t *len) {
+    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
+    if (const clang::SectionAttr *SA = casted->getAttr<clang::SectionAttr>()) {
+        llvm::StringRef str_ref = SA->getName();
+        *len = str_ref.size();
+        return (const char *)str_ref.bytes_begin();
+    }
+    return nullptr;
+}
+
+unsigned ZigClangVarDecl_getAlignedAttribute(const struct ZigClangVarDecl *self, const ZigClangASTContext* ctx) {
+    auto casted_self = reinterpret_cast<const clang::VarDecl *>(self);
+    auto casted_ctx = const_cast<clang::ASTContext *>(reinterpret_cast<const clang::ASTContext *>(ctx));
+    if (const clang::AlignedAttr *AA = casted_self->getAttr<clang::AlignedAttr>()) {
+        return AA->getAlignment(*casted_ctx);
+    }
+    // Zero means no explicit alignment factor was specified
+    return 0;
+}
+
+unsigned ZigClangFunctionDecl_getAlignedAttribute(const struct ZigClangFunctionDecl *self, const ZigClangASTContext* ctx) {
+    auto casted_self = reinterpret_cast<const clang::FunctionDecl *>(self);
+    auto casted_ctx = const_cast<clang::ASTContext *>(reinterpret_cast<const clang::ASTContext *>(ctx));
+    if (const clang::AlignedAttr *AA = casted_self->getAttr<clang::AlignedAttr>()) {
+        return AA->getAlignment(*casted_ctx);
+    }
+    // Zero means no explicit alignment factor was specified
+    return 0;
+}
+
 const ZigClangRecordDecl *ZigClangRecordDecl_getDefinition(const ZigClangRecordDecl *zig_record_decl) {
     const clang::RecordDecl *record_decl = reinterpret_cast<const clang::RecordDecl *>(zig_record_decl);
     const clang::RecordDecl *definition = record_decl->getDefinition();
@@ -1694,6 +1724,16 @@ bool ZigClangFunctionDecl_doesDeclarationForceExternallyVisibleDefinition(const 
 bool ZigClangFunctionDecl_isInlineSpecified(const struct ZigClangFunctionDecl *self) {
     auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
     return casted->isInlineSpecified();
+}
+
+const char* ZigClangFunctionDecl_getSectionAttribute(const struct ZigClangFunctionDecl *self, size_t *len) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    if (const clang::SectionAttr *SA = casted->getAttr<clang::SectionAttr>()) {
+        llvm::StringRef str_ref = SA->getName();
+        *len = str_ref.size();
+        return (const char *)str_ref.bytes_begin();
+    }
+    return nullptr;
 }
 
 const ZigClangTypedefNameDecl *ZigClangTypedefType_getDecl(const ZigClangTypedefType *self) {

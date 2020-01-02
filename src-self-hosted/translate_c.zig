@@ -581,6 +581,36 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
         return failDecl(c, var_decl_loc, checked_name, "non-extern variable has no initializer", .{});
     }
 
+    const linksection_expr = blk: {
+        var str_len: usize = undefined;
+        if (ZigClangVarDecl_getSectionAttribute(var_decl, &str_len)) |str_ptr| {
+            _ = try appendToken(rp.c, .Keyword_linksection, "linksection");
+            _ = try appendToken(rp.c, .LParen, "(");
+            const expr = try transCreateNodeStringLiteral(
+                rp.c,
+                try std.fmt.allocPrint(rp.c.a(), "\"{}\"", .{str_ptr[0..str_len]}),
+            );
+            _ = try appendToken(rp.c, .RParen, ")");
+
+            break :blk expr;
+        }
+        break :blk null;
+    };
+
+    const align_expr = blk: {
+        const alignment = ZigClangVarDecl_getAlignedAttribute(var_decl, rp.c.clang_context);
+        if (alignment != 0) {
+            _ = try appendToken(rp.c, .Keyword_linksection, "align");
+            _ = try appendToken(rp.c, .LParen, "(");
+            // Clang reports the alignment in bits
+            const expr = try transCreateNodeInt(rp.c, alignment / 8);
+            _ = try appendToken(rp.c, .RParen, ")");
+
+            break :blk expr;
+        }
+        break :blk null;
+    };
+
     const node = try c.a().create(ast.Node.VarDecl);
     node.* = ast.Node.VarDecl{
         .doc_comments = null,
@@ -593,8 +623,8 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
         .extern_export_token = extern_tok,
         .lib_name = null,
         .type_node = type_node,
-        .align_node = null,
-        .section_node = null,
+        .align_node = align_expr,
+        .section_node = linksection_expr,
         .init_node = init_node,
         .semicolon_token = try appendToken(c, .Semicolon, ";"),
     };
@@ -3575,6 +3605,14 @@ fn transCreateNodeEnumLiteral(c: *Context, name: []const u8) !*ast.Node {
     return &node.base;
 }
 
+fn transCreateNodeStringLiteral(c: *Context, str: []const u8) !*ast.Node {
+    const node = try c.a().create(ast.Node.StringLiteral);
+    node.* = .{
+        .token = try appendToken(c, .StringLiteral, str),
+    };
+    return &node.base;
+}
+
 fn transCreateNodeIf(c: *Context) !*ast.Node.If {
     const if_tok = try appendToken(c, .Keyword_if, "if");
     _ = try appendToken(c, .LParen, "(");
@@ -4048,8 +4086,8 @@ fn finishTransFnProto(
         const noalias_tok = if (ZigClangQualType_isRestrictQualified(param_qt)) try appendToken(rp.c, .Keyword_noalias, "noalias") else null;
 
         const param_name_tok: ?ast.TokenIndex = blk: {
-            if (fn_decl != null) {
-                const param = ZigClangFunctionDecl_getParamDecl(fn_decl.?, @intCast(c_uint, i));
+            if (fn_decl) |decl| {
+                const param = ZigClangFunctionDecl_getParamDecl(decl, @intCast(c_uint, i));
                 const param_name: []const u8 = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, param)));
                 if (param_name.len < 1)
                     break :blk null;
@@ -4100,6 +4138,40 @@ fn finishTransFnProto(
 
     const rparen_tok = try appendToken(rp.c, .RParen, ")");
 
+    const linksection_expr = blk: {
+        if (fn_decl) |decl| {
+            var str_len: usize = undefined;
+            if (ZigClangFunctionDecl_getSectionAttribute(decl, &str_len)) |str_ptr| {
+                _ = try appendToken(rp.c, .Keyword_linksection, "linksection");
+                _ = try appendToken(rp.c, .LParen, "(");
+                const expr = try transCreateNodeStringLiteral(
+                    rp.c,
+                    try std.fmt.allocPrint(rp.c.a(), "\"{}\"", .{str_ptr[0..str_len]}),
+                );
+                _ = try appendToken(rp.c, .RParen, ")");
+
+                break :blk expr;
+            }
+        }
+        break :blk null;
+    };
+
+    const align_expr = blk: {
+        if (fn_decl) |decl| {
+            const alignment = ZigClangFunctionDecl_getAlignedAttribute(decl, rp.c.clang_context);
+            if (alignment != 0) {
+                _ = try appendToken(rp.c, .Keyword_linksection, "align");
+                _ = try appendToken(rp.c, .LParen, "(");
+                // Clang reports the alignment in bits
+                const expr = try transCreateNodeInt(rp.c, alignment / 8);
+                _ = try appendToken(rp.c, .RParen, ")");
+
+                break :blk expr;
+            }
+        }
+        break :blk null;
+    };
+
     const return_type_node = blk: {
         if (ZigClangFunctionType_getNoReturnAttr(fn_ty)) {
             break :blk try transCreateNodeIdentifier(rp.c, "noreturn");
@@ -4133,8 +4205,8 @@ fn finishTransFnProto(
         .cc_token = cc_tok,
         .body_node = null,
         .lib_name = null,
-        .align_expr = null,
-        .section_expr = null,
+        .align_expr = align_expr,
+        .section_expr = linksection_expr,
     };
     return fn_proto;
 }
