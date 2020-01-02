@@ -243,7 +243,6 @@ enum Cmd {
     CmdTargets,
     CmdTest,
     CmdTranslateC,
-    CmdTranslateCUserland,
     CmdVersion,
     CmdZen,
     CmdLibC,
@@ -960,8 +959,6 @@ int main(int argc, char **argv) {
                 cmd = CmdLibC;
             } else if (strcmp(arg, "translate-c") == 0) {
                 cmd = CmdTranslateC;
-            } else if (strcmp(arg, "translate-c-2") == 0) {
-                cmd = CmdTranslateCUserland;
             } else if (strcmp(arg, "test") == 0) {
                 cmd = CmdTest;
                 out_type = OutTypeExe;
@@ -978,7 +975,6 @@ int main(int argc, char **argv) {
                 case CmdBuild:
                 case CmdRun:
                 case CmdTranslateC:
-                case CmdTranslateCUserland:
                 case CmdTest:
                 case CmdLibC:
                     if (!in_file) {
@@ -1112,7 +1108,6 @@ int main(int argc, char **argv) {
     case CmdRun:
     case CmdBuild:
     case CmdTranslateC:
-    case CmdTranslateCUserland:
     case CmdTest:
         {
             if (cmd == CmdBuild && !in_file && objects.length == 0 &&
@@ -1124,7 +1119,7 @@ int main(int argc, char **argv) {
                     " * --object argument\n"
                     " * --c-source argument\n");
                 return print_error_usage(arg0);
-            } else if ((cmd == CmdTranslateC || cmd == CmdTranslateCUserland ||
+            } else if ((cmd == CmdTranslateC ||
                         cmd == CmdTest || cmd == CmdRun) && !in_file)
             {
                 fprintf(stderr, "Expected source file argument.\n");
@@ -1136,7 +1131,7 @@ int main(int argc, char **argv) {
 
             assert(cmd != CmdBuild || out_type != OutTypeUnknown);
 
-            bool need_name = (cmd == CmdBuild || cmd == CmdTranslateC || cmd == CmdTranslateCUserland);
+            bool need_name = (cmd == CmdBuild || cmd == CmdTranslateC);
 
             if (cmd == CmdRun) {
                 out_name = "run";
@@ -1170,8 +1165,7 @@ int main(int argc, char **argv) {
                 return print_error_usage(arg0);
             }
 
-            Buf *zig_root_source_file = (cmd == CmdTranslateC || cmd == CmdTranslateCUserland) ?
-                nullptr : in_file_buf;
+            Buf *zig_root_source_file = cmd == CmdTranslateC ? nullptr : in_file_buf;
 
             if (cmd == CmdRun && buf_out_name == nullptr) {
                 buf_out_name = buf_create_from_str("run");
@@ -1336,8 +1330,8 @@ int main(int argc, char **argv) {
                 } else {
                     zig_unreachable();
                 }
-            } else if (cmd == CmdTranslateC || cmd == CmdTranslateCUserland) {
-                codegen_translate_c(g, in_file_buf, stdout, cmd == CmdTranslateCUserland);
+            } else if (cmd == CmdTranslateC) {
+                codegen_translate_c(g, in_file_buf, stdout);
                 if (timing_info)
                     codegen_print_timing_report(g, stderr);
                 return main_exit(root_progress_node, EXIT_SUCCESS);

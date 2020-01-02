@@ -1686,6 +1686,16 @@ const struct ZigClangStmt *ZigClangFunctionDecl_getBody(const struct ZigClangFun
     return reinterpret_cast<const ZigClangStmt *>(stmt);
 }
 
+bool ZigClangFunctionDecl_doesDeclarationForceExternallyVisibleDefinition(const struct ZigClangFunctionDecl *self) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    return casted->doesDeclarationForceExternallyVisibleDefinition();
+}
+
+bool ZigClangFunctionDecl_isInlineSpecified(const struct ZigClangFunctionDecl *self) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    return casted->isInlineSpecified();
+}
+
 const ZigClangTypedefNameDecl *ZigClangTypedefType_getDecl(const ZigClangTypedefType *self) {
     auto casted = reinterpret_cast<const clang::TypedefType *>(self);
     const clang::TypedefNameDecl *name_decl = casted->getDecl();

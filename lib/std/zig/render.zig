@@ -643,7 +643,7 @@ fn renderExpression(
                 },
 
                 .ArrayAccess => |index_expr| {
-                    const lbracket = tree.prevToken(index_expr.firstToken());
+                    const lbracket = tree.nextToken(suffix_op.lhs.node.lastToken());
                     const rbracket = tree.nextToken(index_expr.lastToken());
 
                     try renderExpression(allocator, stream, tree, indent, start_col, suffix_op.lhs.node, Space.None);

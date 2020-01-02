@@ -1422,7 +1422,6 @@ pub const TranslateCContext = struct {
         sources: ArrayList(SourceFile),
         expected_lines: ArrayList([]const u8),
         allow_warnings: bool,
-        stage2: bool,
 
         const SourceFile = struct {
             filename: []const u8,
@@ -1475,7 +1474,7 @@ pub const TranslateCContext = struct {
             var zig_args = ArrayList([]const u8).init(b.allocator);
             zig_args.append(b.zig_exe) catch unreachable;
 
-            const translate_c_cmd = if (self.case.stage2) "translate-c-2" else "translate-c";
+            const translate_c_cmd = "translate-c";
             zig_args.append(translate_c_cmd) catch unreachable;
             zig_args.append(b.pathFromRoot(root_src)) catch unreachable;
 
@@ -1583,7 +1582,6 @@ pub const TranslateCContext = struct {
             .sources = ArrayList(TestCase.SourceFile).init(self.b.allocator),
             .expected_lines = ArrayList([]const u8).init(self.b.allocator),
             .allow_warnings = allow_warnings,
-            .stage2 = false,
         };
 
         tc.addSourceFile(filename, source);
@@ -1604,53 +1602,6 @@ pub const TranslateCContext = struct {
         self.addCase(tc);
     }
 
-    pub fn addC(
-        self: *TranslateCContext,
-        name: []const u8,
-        source: []const u8,
-        expected_lines: []const []const u8,
-    ) void {
-        const tc = self.create(false, "source.c", name, source, expected_lines);
-        self.addCase(tc);
-    }
-
-    pub fn add_both(
-        self: *TranslateCContext,
-        name: []const u8,
-        source: []const u8,
-        expected_lines: []const []const u8,
-    ) void {
-        for ([_]bool{ false, true }) |stage2| {
-            const tc = self.create(false, "source.h", name, source, expected_lines);
-            tc.stage2 = stage2;
-            self.addCase(tc);
-        }
-    }
-
-    pub fn addC_both(
-        self: *TranslateCContext,
-        name: []const u8,
-        source: []const u8,
-        expected_lines: []const []const u8,
-    ) void {
-        for ([_]bool{ false, true }) |stage2| {
-            const tc = self.create(false, "source.c", name, source, expected_lines);
-            tc.stage2 = stage2;
-            self.addCase(tc);
-        }
-    }
-
-    pub fn add_2(
-        self: *TranslateCContext,
-        name: []const u8,
-        source: []const u8,
-        expected_lines: []const []const u8,
-    ) void {
-        const tc = self.create(false, "source.h", name, source, expected_lines);
-        tc.stage2 = true;
-        self.addCase(tc);
-    }
-
     pub fn addAllowWarnings(
         self: *TranslateCContext,
         name: []const u8,
@@ -1664,7 +1615,7 @@ pub const TranslateCContext = struct {
     pub fn addCase(self: *TranslateCContext, case: *const TestCase) void {
         const b = self.b;
 
-        const translate_c_cmd = if (case.stage2) "translate-c-2" else "translate-c";
+        const translate_c_cmd = "translate-c";
         const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {}", .{ translate_c_cmd, case.name }) catch unreachable;
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;

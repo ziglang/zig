@@ -13,7 +13,6 @@
 #include "os.hpp"
 #include "range_set.hpp"
 #include "softfloat.hpp"
-#include "translate_c.hpp"
 #include "util.hpp"
 
 #include <errno.h>
@@ -23762,14 +23761,14 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
 
         clang_argv.append(nullptr); // to make the [start...end] argument work
 
-        AstNode *root_node;
         Stage2ErrorMsg *errors_ptr;
         size_t errors_len;
+        Stage2Ast *ast;
 
         const char *resources_path = buf_ptr(ira->codegen->zig_c_headers_dir);
 
-        if ((err = parse_h_file(ira->codegen, &root_node, &errors_ptr, &errors_len,
-            &clang_argv.at(0), &clang_argv.last(), TranslateModeImport, resources_path)))
+        if ((err = stage2_translate_c(&ast, &errors_ptr, &errors_len,
+                    &clang_argv.at(0), &clang_argv.last(), resources_path)))
         {
             if (err != ErrorCCompileErrors) {
                 ir_add_error_node(ira, node, buf_sprintf("C import failed: %s", err_str(err)));
@@ -23820,7 +23819,7 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
                     buf_sprintf("C import failed: unable to open output file: %s", strerror(errno)));
             return ira->codegen->invalid_instruction;
         }
-        ast_render(out_file, root_node, 4);
+        stage2_render_ast(ast, out_file);
         if (fclose(out_file) != 0) {
             ir_add_error_node(ira, node,
                     buf_sprintf("C import failed: unable to write to output file: %s", strerror(errno)));

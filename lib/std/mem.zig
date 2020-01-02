@@ -239,12 +239,6 @@ pub const Allocator = struct {
     }
 };
 
-pub const Compare = enum {
-    LessThan,
-    Equal,
-    GreaterThan,
-};
-
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// dest.ptr must be <= src.ptr.
@@ -297,46 +291,30 @@ test "mem.secureZero" {
     testing.expectEqualSlices(u8, a[0..], b[0..]);
 }
 
-pub fn compare(comptime T: type, lhs: []const T, rhs: []const T) Compare {
+pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
     const n = math.min(lhs.len, rhs.len);
     var i: usize = 0;
     while (i < n) : (i += 1) {
-        if (lhs[i] == rhs[i]) {
-            continue;
-        } else if (lhs[i] < rhs[i]) {
-            return Compare.LessThan;
-        } else if (lhs[i] > rhs[i]) {
-            return Compare.GreaterThan;
-        } else {
-            unreachable;
+        switch (math.order(lhs[i], rhs[i])) {
+            .eq => continue,
+            .lt => return .lt,
+            .gt => return .gt,
         }
     }
-
-    if (lhs.len == rhs.len) {
-        return Compare.Equal;
-    } else if (lhs.len < rhs.len) {
-        return Compare.LessThan;
-    } else if (lhs.len > rhs.len) {
-        return Compare.GreaterThan;
-    }
-    unreachable;
+    return math.order(lhs.len, rhs.len);
 }
 
-test "mem.compare" {
-    testing.expect(compare(u8, "abcd", "bee") == Compare.LessThan);
-    testing.expect(compare(u8, "abc", "abc") == Compare.Equal);
-    testing.expect(compare(u8, "abc", "abc0") == Compare.LessThan);
-    testing.expect(compare(u8, "", "") == Compare.Equal);
-    testing.expect(compare(u8, "", "a") == Compare.LessThan);
+test "order" {
+    testing.expect(order(u8, "abcd", "bee") == .lt);
+    testing.expect(order(u8, "abc", "abc") == .eq);
+    testing.expect(order(u8, "abc", "abc0") == .lt);
+    testing.expect(order(u8, "", "") == .eq);
+    testing.expect(order(u8, "", "a") == .lt);
 }
 
 /// Returns true if lhs < rhs, false otherwise
 pub fn lessThan(comptime T: type, lhs: []const T, rhs: []const T) bool {
-    var result = compare(T, lhs, rhs);
-    if (result == Compare.LessThan) {
-        return true;
-    } else
-        return false;
+    return order(T, lhs, rhs) == .lt;
 }
 
 test "mem.lessThan" {

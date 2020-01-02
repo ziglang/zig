@@ -70,12 +70,12 @@ const HeaderEntry = struct {
             }
 
             // Sort lexicographically on header name
-            return mem.compare(u8, a.name, b.name) == mem.Compare.LessThan;
+            return mem.order(u8, a.name, b.name) == .lt;
         }
 
         // Sort lexicographically on header value
         if (!mem.eql(u8, a.value, b.value)) {
-            return mem.compare(u8, a.value, b.value) == mem.Compare.LessThan;
+            return mem.order(u8, a.value, b.value) == .lt;
         }
 
         // Doesn't matter here; need to pick something for sort consistency
