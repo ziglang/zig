@@ -17394,11 +17394,23 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             }
             ZigType *parent_ptr_type = parent_result_loc->value->type;
             assert(parent_ptr_type->id == ZigTypeIdPointer);
-            if ((err = type_resolve(ira->codegen, parent_ptr_type->data.pointer.child_type,
-                            ResolveStatusAlignmentKnown)))
-            {
+            ZigType *child_type = parent_ptr_type->data.pointer.child_type;
+
+            bool has_bits;
+            if ((err = type_has_bits2(ira->codegen, child_type, &has_bits))) {
                 return ira->codegen->invalid_instruction;
             }
+
+            // This happens when the bitCast result is assigned to _
+            if (!has_bits) {
+                assert(allow_discard);
+                return parent_result_loc;
+            }
+
+            if ((err = type_resolve(ira->codegen, child_type, ResolveStatusAlignmentKnown))) {
+                return ira->codegen->invalid_instruction;
+            }
+
             uint64_t parent_ptr_align = get_ptr_align(ira->codegen, parent_ptr_type);
             if ((err = type_resolve(ira->codegen, value_type, ResolveStatusAlignmentKnown))) {
                 return ira->codegen->invalid_instruction;
