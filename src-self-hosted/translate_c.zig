@@ -898,11 +898,25 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
 
             try container_node.fields_and_decls.push(&field_node.base);
             _ = try appendToken(c, .Comma, ",");
+
             // In C each enum value is in the global namespace. So we put them there too.
             // At this point we can rely on the enum emitting successfully.
             const tld_node = try transCreateNodeVarDecl(c, true, true, enum_val_name);
             tld_node.eq_token = try appendToken(c, .Equal, "=");
-            tld_node.init_node = try transCreateNodeAPInt(c, ZigClangEnumConstantDecl_getInitVal(enum_const));
+            const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@enumToInt");
+            const enum_ident = try transCreateNodeIdentifier(c, name);
+            const period_tok = try appendToken(c, .Period, ".");
+            const field_ident = try transCreateNodeIdentifier(c, field_name);
+            const field_access_node = try c.a().create(ast.Node.InfixOp);
+            field_access_node.* = .{
+                .op_token = period_tok,
+                .lhs = enum_ident,
+                .op = .Period,
+                .rhs = field_ident,
+            };
+            try cast_node.params.push(&field_access_node.base);
+            cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+            tld_node.init_node = &cast_node.base;
             tld_node.semicolon_token = try appendToken(c, .Semicolon, ";");
             try addTopLevelDecl(c, field_name, &tld_node.base);
         }
@@ -1712,15 +1726,7 @@ fn transCCast(
         builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
         return &builtin_node.base;
     }
-    if (ZigClangQualType_getTypeClass(src_type) == .Elaborated) {
-        const elaborated_ty = @ptrCast(*const ZigClangElaboratedType, ZigClangQualType_getTypePtr(src_type));
-        return transCCast(rp, scope, loc, dst_type, ZigClangElaboratedType_getNamedType(elaborated_ty), expr);
-    }
-    if (ZigClangQualType_getTypeClass(dst_type) == .Elaborated) {
-        const elaborated_ty = @ptrCast(*const ZigClangElaboratedType, ZigClangQualType_getTypePtr(dst_type));
-        return transCCast(rp, scope, loc, ZigClangElaboratedType_getNamedType(elaborated_ty), src_type, expr);
-    }
-    if (ZigClangQualType_getTypeClass(dst_type) == .Enum) {
+    if (ZigClangQualType_getTypeClass(ZigClangQualType_getCanonicalType(dst_type)) == .Enum) {
         const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@intToEnum");
         try builtin_node.params.push(try transQualType(rp, dst_type, loc));
         _ = try appendToken(rp.c, .Comma, ",");
@@ -1728,8 +1734,8 @@ fn transCCast(
         builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
         return &builtin_node.base;
     }
-    if (ZigClangQualType_getTypeClass(src_type) == .Enum and
-        ZigClangQualType_getTypeClass(dst_type) != .Enum)
+    if (ZigClangQualType_getTypeClass(ZigClangQualType_getCanonicalType(src_type)) == .Enum and
+        ZigClangQualType_getTypeClass(ZigClangQualType_getCanonicalType(dst_type)) != .Enum)
     {
         const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@enumToInt");
         try builtin_node.params.push(expr);
