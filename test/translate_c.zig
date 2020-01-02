@@ -3,14 +3,26 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
     /////////////// Cases that pass for both stage1/stage2 ////////////////
-    cases.add("linksection() attribute",
-        \\__attribute__ ((__section__(".data")))
+    cases.add("align() attribute",
+        \\__attribute__ ((aligned(128)))
         \\extern char my_array[16];
-        \\__attribute__ ((__section__(".data")))
+        \\__attribute__ ((aligned(128)))
         \\void my_fn(void) { }
     , &[_][]const u8{
-        \\pub extern var my_array: [16]u8 linksection(".data");
-        \\pub export fn my_fn() linksection(".data") void {}
+        \\pub extern var my_array: [16]u8 align(128);
+        \\pub export fn my_fn() align(128) void {}
+    });
+
+    cases.add("linksection() attribute",
+        \\// Use the "segment,section" format to make this test pass when
+        \\// targeting the mach-o binary format
+        \\__attribute__ ((__section__("NEAR,.data")))
+        \\extern char my_array[16];
+        \\__attribute__ ((__section__("NEAR,.data")))
+        \\void my_fn(void) { }
+    , &[_][]const u8{
+        \\pub extern var my_array: [16]u8 linksection("NEAR,.data");
+        \\pub export fn my_fn() linksection("NEAR,.data") void {}
     });
 
     cases.add("simple function prototypes",
