@@ -2880,35 +2880,57 @@ fn transCPtrCast(
 ) !*ast.Node {
     const ty = ZigClangQualType_getTypePtr(dst_type);
     const child_type = ZigClangType_getPointeeType(ty);
+    const src_ty = ZigClangQualType_getTypePtr(src_type);
+    const src_child_type = ZigClangType_getPointeeType(src_ty);
 
-    // Implicit downcasting from higher to lower alignment values is forbidden,
-    // use @alignCast to side-step this problem
-    const ptrcast_node = try transCreateNodeBuiltinFnCall(rp.c, "@ptrCast");
-    const dst_type_node = try transType(rp, ty, loc);
-    try ptrcast_node.params.push(dst_type_node);
-    _ = try appendToken(rp.c, .Comma, ",");
-
-    if (ZigClangType_isVoidType(qualTypeCanon(child_type))) {
-        // void has 1-byte alignment, so @alignCast is not needed
-        try ptrcast_node.params.push(expr);
-    } else if (typeIsOpaque(rp.c, qualTypeCanon(child_type), loc)) {
-        // For opaque types a ptrCast is enough
-        try ptrcast_node.params.push(expr);
-    } else {
-        const aligncast_node = try transCreateNodeBuiltinFnCall(rp.c, "@alignCast");
-        const alignof_node = try transCreateNodeBuiltinFnCall(rp.c, "@alignOf");
-        const child_type_node = try transQualType(rp, child_type, loc);
-        try alignof_node.params.push(child_type_node);
-        alignof_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-        try aligncast_node.params.push(&alignof_node.base);
+    if ((ZigClangQualType_isConstQualified(src_child_type) and
+        !ZigClangQualType_isConstQualified(child_type)) or
+        (ZigClangQualType_isVolatileQualified(src_child_type) and
+        !ZigClangQualType_isVolatileQualified(child_type)))
+    {
+        // Casting away const or volatile requires us to use @intToPtr
+        const inttoptr_node = try transCreateNodeBuiltinFnCall(rp.c, "@intToPtr");
+        const dst_type_node = try transType(rp, ty, loc);
+        try inttoptr_node.params.push(dst_type_node);
         _ = try appendToken(rp.c, .Comma, ",");
-        try aligncast_node.params.push(expr);
-        aligncast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-        try ptrcast_node.params.push(&aligncast_node.base);
-    }
-    ptrcast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
 
-    return &ptrcast_node.base;
+        const ptrtoint_node = try transCreateNodeBuiltinFnCall(rp.c, "@ptrToInt");
+        try ptrtoint_node.params.push(expr);
+        ptrtoint_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+
+        try inttoptr_node.params.push(&ptrtoint_node.base);
+        inttoptr_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+        return &inttoptr_node.base;
+    } else {
+        // Implicit downcasting from higher to lower alignment values is forbidden,
+        // use @alignCast to side-step this problem
+        const ptrcast_node = try transCreateNodeBuiltinFnCall(rp.c, "@ptrCast");
+        const dst_type_node = try transType(rp, ty, loc);
+        try ptrcast_node.params.push(dst_type_node);
+        _ = try appendToken(rp.c, .Comma, ",");
+
+        if (ZigClangType_isVoidType(qualTypeCanon(child_type))) {
+            // void has 1-byte alignment, so @alignCast is not needed
+            try ptrcast_node.params.push(expr);
+        } else if (typeIsOpaque(rp.c, qualTypeCanon(child_type), loc)) {
+            // For opaque types a ptrCast is enough
+            try ptrcast_node.params.push(expr);
+        } else {
+            const aligncast_node = try transCreateNodeBuiltinFnCall(rp.c, "@alignCast");
+            const alignof_node = try transCreateNodeBuiltinFnCall(rp.c, "@alignOf");
+            const child_type_node = try transQualType(rp, child_type, loc);
+            try alignof_node.params.push(child_type_node);
+            alignof_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+            try aligncast_node.params.push(&alignof_node.base);
+            _ = try appendToken(rp.c, .Comma, ",");
+            try aligncast_node.params.push(expr);
+            aligncast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+            try ptrcast_node.params.push(&aligncast_node.base);
+        }
+        ptrcast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+
+        return &ptrcast_node.base;
+    }
 }
 
 fn transBreak(rp: RestorePoint, scope: *Scope) TransError!*ast.Node {
