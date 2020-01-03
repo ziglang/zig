@@ -2452,4 +2452,26 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn c() void {}
         \\pub fn foo() callconv(.C) void {}
     });
+
+    cases.add("casting away const and volatile",
+        \\void foo(int *a) {}
+        \\void bar(const int *a) {
+        \\    foo((int *)a);
+        \\}
+        \\void baz(volatile int *a) {
+        \\    foo((int *)a);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo(arg_a: [*c]c_int) void {
+        \\    var a = arg_a;
+        \\}
+        \\pub export fn bar(arg_a: [*c]const c_int) void {
+        \\    var a = arg_a;
+        \\    foo(@intToPtr([*c]c_int, @ptrToInt(a)));
+        \\}
+        \\pub export fn baz(arg_a: [*c]volatile c_int) void {
+        \\    var a = arg_a;
+        \\    foo(@intToPtr([*c]c_int, @ptrToInt(a)));
+        \\}
+    });
 }

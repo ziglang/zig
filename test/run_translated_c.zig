@@ -23,4 +23,20 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("casting away const and volatile",
+        \\void foo(int *a) {}
+        \\void bar(const int *a) {
+        \\    foo((int *)a);
+        \\}
+        \\void baz(volatile int *a) {
+        \\    foo((int *)a);
+        \\}
+        \\int main(int argc, char **argv) {
+        \\    int a = 0;
+        \\    bar((const int *)&a);
+        \\    baz((volatile int *)&a);
+        \\    return 0;
+        \\}
+    , "");
 }
