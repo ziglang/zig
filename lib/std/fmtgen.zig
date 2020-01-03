@@ -920,120 +920,109 @@ pub fn format(
 //     return output(context, buf);
 // }
 
-// pub fn formatInt(
-//     value: var,
-//     base: u8,
-//     uppercase: bool,
-//     options: FormatOptions,
-//     context: var,
-//     comptime Errors: type,
-//     output: fn (@TypeOf(context), []const u8) Errors!void,
-// ) Errors!void {
-//     const int_value = if (@TypeOf(value) == comptime_int) blk: {
-//         const Int = math.IntFittingRange(value, value);
-//         break :blk @as(Int, value);
-//     } else
-//         value;
+pub fn formatInt(
+    value: var,
+    base: u8,
+    uppercase: bool,
+    options: FormatOptions,
+    generator: *Generator([]const u8),
+) void {
+    const int_value = if (@TypeOf(value) == comptime_int) blk: {
+        const Int = math.IntFittingRange(value, value);
+        break :blk @as(Int, value);
+    } else
+        value;
 
-//     if (@TypeOf(int_value).is_signed) {
-//         return formatIntSigned(int_value, base, uppercase, options, context, Errors, output);
-//     } else {
-//         return formatIntUnsigned(int_value, base, uppercase, options, context, Errors, output);
-//     }
-// }
+    if (@TypeOf(int_value).is_signed) {
+        return formatIntSigned(int_value, base, uppercase, options, generator);
+    } else {
+        return formatIntUnsigned(int_value, base, uppercase, options, generator);
+    }
+}
 
-// fn formatIntSigned(
-//     value: var,
-//     base: u8,
-//     uppercase: bool,
-//     options: FormatOptions,
-//     context: var,
-//     comptime Errors: type,
-//     output: fn (@TypeOf(context), []const u8) Errors!void,
-// ) Errors!void {
-//     const new_options = FormatOptions{
-//         .width = if (options.width) |w| (if (w == 0) 0 else w - 1) else null,
-//         .precision = options.precision,
-//         .fill = options.fill,
-//     };
+fn formatIntSigned(
+    value: var,
+    base: u8,
+    uppercase: bool,
+    options: FormatOptions,
+    generator: *Generator([]const u8),
+) void {
+    const new_options = FormatOptions{
+        .width = if (options.width) |w| (if (w == 0) 0 else w - 1) else null,
+        .precision = options.precision,
+        .fill = options.fill,
+    };
 
-//     const uint = @IntType(false, @TypeOf(value).bit_count);
-//     if (value < 0) {
-//         const minus_sign: u8 = '-';
-//         try output(context, @as(*const [1]u8, &minus_sign)[0..]);
-//         const new_value = @intCast(uint, -(value + 1)) + 1;
-//         return formatIntUnsigned(new_value, base, uppercase, new_options, context, Errors, output);
-//     } else if (options.width == null or options.width.? == 0) {
-//         return formatIntUnsigned(@intCast(uint, value), base, uppercase, options, context, Errors, output);
-//     } else {
-//         const plus_sign: u8 = '+';
-//         try output(context, @as(*const [1]u8, &plus_sign)[0..]);
-//         const new_value = @intCast(uint, value);
-//         return formatIntUnsigned(new_value, base, uppercase, new_options, context, Errors, output);
-//     }
-// }
+    const uint = @IntType(false, @TypeOf(value).bit_count);
+    if (value < 0) {
+        const minus_sign: u8 = '-';
+        generator.yield(@as(*const [1]u8, &minus_sign)[0..]);
+        const new_value = @intCast(uint, -(value + 1)) + 1;
+        return formatIntUnsigned(new_value, base, uppercase, new_options, generator);
+    } else if (options.width == null or options.width.? == 0) {
+        return formatIntUnsigned(@intCast(uint, value), base, uppercase, options, generator);
+    } else {
+        const plus_sign: u8 = '+';
+        generator.yield(@as(*const [1]u8, &plus_sign)[0..]);
+        const new_value = @intCast(uint, value);
+        return formatIntUnsigned(new_value, base, uppercase, new_options, generator);
+    }
+}
 
-// fn formatIntUnsigned(
-//     value: var,
-//     base: u8,
-//     uppercase: bool,
-//     options: FormatOptions,
-//     context: var,
-//     comptime Errors: type,
-//     output: fn (@TypeOf(context), []const u8) Errors!void,
-// ) Errors!void {
-//     assert(base >= 2);
-//     var buf: [math.max(@TypeOf(value).bit_count, 1)]u8 = undefined;
-//     const min_int_bits = comptime math.max(@TypeOf(value).bit_count, @TypeOf(base).bit_count);
-//     const MinInt = @IntType(@TypeOf(value).is_signed, min_int_bits);
-//     var a: MinInt = value;
-//     var index: usize = buf.len;
+fn formatIntUnsigned(
+    value: var,
+    base: u8,
+    uppercase: bool,
+    options: FormatOptions,
+    generator: *Generator([]const u8),
+) void {
+    assert(base >= 2);
+    var buf: [math.max(@TypeOf(value).bit_count, 1)]u8 = undefined;
+    const min_int_bits = comptime math.max(@TypeOf(value).bit_count, @TypeOf(base).bit_count);
+    const MinInt = @IntType(@TypeOf(value).is_signed, min_int_bits);
+    var a: MinInt = value;
+    var index: usize = buf.len;
 
-//     while (true) {
-//         const digit = a % base;
-//         index -= 1;
-//         buf[index] = digitToChar(@intCast(u8, digit), uppercase);
-//         a /= base;
-//         if (a == 0) break;
-//     }
+    while (true) {
+        const digit = a % base;
+        index -= 1;
+        buf[index] = digitToChar(@intCast(u8, digit), uppercase);
+        a /= base;
+        if (a == 0) break;
+    }
 
-//     const digits_buf = buf[index..];
-//     const width = options.width orelse 0;
-//     const padding = if (width > digits_buf.len) (width - digits_buf.len) else 0;
+    const digits_buf = buf[index..];
+    const width = options.width orelse 0;
+    const padding = if (width > digits_buf.len) (width - digits_buf.len) else 0;
 
-//     if (padding > index) {
-//         const zero_byte: u8 = options.fill;
-//         var leftover_padding = padding - index;
-//         while (true) {
-//             try output(context, @as(*const [1]u8, &zero_byte)[0..]);
-//             leftover_padding -= 1;
-//             if (leftover_padding == 0) break;
-//         }
-//         mem.set(u8, buf[0..index], options.fill);
-//         return output(context, &buf);
-//     } else {
-//         const padded_buf = buf[index - padding ..];
-//         mem.set(u8, padded_buf[0..padding], options.fill);
-//         return output(context, padded_buf);
-//     }
-// }
+    if (padding > index) {
+        const zero_byte: u8 = options.fill;
+        var leftover_padding = padding - index;
+        while (true) {
+            generator.yield(@as(*const [1]u8, &zero_byte)[0..]);
+            leftover_padding -= 1;
+            if (leftover_padding == 0) break;
+        }
+        mem.set(u8, buf[0..index], options.fill);
+        return generator.yield(&buf);
+    } else {
+        const padded_buf = buf[index - padding ..];
+        mem.set(u8, padded_buf[0..padding], options.fill);
+        return generator.yield(padded_buf);
+    }
+}
 
-// pub fn formatIntBuf(out_buf: []u8, value: var, base: u8, uppercase: bool, options: FormatOptions) usize {
-//     var context = FormatIntBuf{
-//         .out_buf = out_buf,
-//         .index = 0,
-//     };
-//     formatInt(value, base, uppercase, options, &context, error{}, formatIntCallback) catch unreachable;
-//     return context.index;
-// }
-// const FormatIntBuf = struct {
-//     out_buf: []u8,
-//     index: usize,
-// };
-// fn formatIntCallback(context: *FormatIntBuf, bytes: []const u8) (error{}!void) {
-//     mem.copy(u8, context.out_buf[context.index..], bytes);
-//     context.index += bytes.len;
-// }
+pub fn formatIntBuf(out_buf: []u8, value: var, base: u8, uppercase: bool, options: FormatOptions) usize {
+    var index: usize = 0;
+
+    var generator = Generator([]const u8){};
+    _ = async formatInt(value, base, uppercase, options, &generator);
+    while (generator.next()) |bytes| {
+        mem.copy(u8, out_buf[index..], bytes);
+        index += bytes.len;
+    }
+    return index;
+}
 
 pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) !T {
     if (!T.is_signed) return parseUnsigned(T, buf, radix);
@@ -1173,27 +1162,27 @@ fn countSize(comptime fmt: []const u8, args: var) usize {
     return size;
 }
 
-// test "bufPrintInt" {
-//     var buffer: [100]u8 = undefined;
-//     const buf = buffer[0..];
-//     std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 2, false, FormatOptions{}), "-101111000110000101001110"));
-//     std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 10, false, FormatOptions{}), "-12345678"));
-//     std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 16, false, FormatOptions{}), "-bc614e"));
-//     std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 16, true, FormatOptions{}), "-BC614E"));
+test "bufPrintInt" {
+    var buffer: [100]u8 = undefined;
+    const buf = buffer[0..];
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 2, false, FormatOptions{}), "-101111000110000101001110"));
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 10, false, FormatOptions{}), "-12345678"));
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 16, false, FormatOptions{}), "-bc614e"));
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -12345678), 16, true, FormatOptions{}), "-BC614E"));
 
-//     std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 12345678), 10, true, FormatOptions{}), "12345678"));
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 12345678), 10, true, FormatOptions{}), "12345678"));
 
-//     std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 666), 10, false, FormatOptions{ .width = 6 }), "   666"));
-//     std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 6 }), "  1234"));
-//     std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 1 }), "1234"));
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 666), 10, false, FormatOptions{ .width = 6 }), "   666"));
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 6 }), "  1234"));
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, false, FormatOptions{ .width = 1 }), "1234"));
 
-//     std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, 42), 10, false, FormatOptions{ .width = 3 }), "+42"));
-//     std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -42), 10, false, FormatOptions{ .width = 3 }), "-42"));
-// }
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, 42), 10, false, FormatOptions{ .width = 3 }), "+42"));
+    std.testing.expect(mem.eql(u8, bufPrintIntToSlice(buf, @as(i32, -42), 10, false, FormatOptions{ .width = 3 }), "-42"));
+}
 
-// fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, options: FormatOptions) []u8 {
-//     return buf[0..formatIntBuf(buf, value, base, uppercase, options)];
-// }
+fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, options: FormatOptions) []u8 {
+    return buf[0..formatIntBuf(buf, value, base, uppercase, options)];
+}
 
 test "parse u64 digit too big" {
     _ = parseUnsigned(u64, "123a", 10) catch |err| {
