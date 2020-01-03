@@ -104,6 +104,10 @@ pub const Tokenizer = struct {
             Cr,
             StringLiteral,
             CharLiteral,
+            EscapeSequence,
+            OctalEscape,
+            HexEscape,
+            UnicodeEscape,
             Identifier,
             Equal,
             Bang,
@@ -117,9 +121,13 @@ pub const Tokenizer = struct {
             AngleBracketAngleBracketRight,
             Caret,
             Period,
+            Period2,
             Minus,
             Slash,
             Ampersand,
+            LineComment,
+            MultiLineComment,
+            MultiLineCommentAsterisk,
             Zero,
             IntegerLiteralOct,
             IntegerLiteralBinary,
@@ -130,7 +138,14 @@ pub const Tokenizer = struct {
             IntegerSuffixL,
             IntegerSuffixLL,
             IntegerSuffixUL,
+            FloatFraction,
+            FloatFractionHex,
+            FloatExponent,
+            FloatExponentDigits,
+            FloatSuffix,
         } = .Start;
+        var string = false;
+        var counter: u32 = 0;
         while (self.index < self.source.buffer.len) : (self.index += 1) {
             const c = self.source.buffer[self.index];
             switch (state) {
@@ -276,6 +291,89 @@ pub const Tokenizer = struct {
                         break;
                     },
                 },
+                // TODO l"" u"" U"" u8""
+                .StringLiteral => switch (c) {
+                    '\\' => {
+                        string = true;
+                        state = .EscapeSequence;
+                    },
+                    '"' => {
+                        result.id = .StringLiteral;
+                        self.index += 1;
+                        break;
+                    },
+                    '\n', '\r' => {
+                        result.id = .Invalid;
+                        break;
+                    },
+                    else => {},
+                },
+                // TODO l'' u'' U''
+                .CharLiteral => switch (c) {
+                    '\\' => {
+                        string = false;
+                        state = .EscapeSequence;
+                    },
+                    '\'', '\n' => {
+                        result.id = .Invalid;
+                        break;
+                    },
+                    else => {},
+                },
+                .EscapeSequence => switch (c) {
+                    '\'', '"', '?', '\\', 'a', 'b', 'f', 'n', 'r', 't', 'v' => {},
+                    '0'...'7' => {
+                        counter = 1;
+                        state = .OctalEscape;
+                    },
+                    'x' => {
+                        state = .HexEscape;
+                    },
+                    'u' => {
+                        counter = 4;
+                        state = .OctalEscape;
+                    },
+                    'U' => {
+                        counter = 8;
+                        state = .OctalEscape;
+                    },
+                    else => {
+                        result.id = .Invalid;
+                        break;
+                    },
+                },
+                .OctalEscape => switch (c) {
+                    '0'...'7' => {
+                        counter += 1;
+                        if (counter == 3) {
+                            state = if (string) .StringLiteral else .CharLiteral;
+                        }
+                    },
+                    else => {
+                        state = if (string) .StringLiteral else .CharLiteral;
+                    },
+                },
+                .HexEscape => switch (c) {
+                    '0'...'9', 'a'...'f', 'A'...'F' => {},
+                    else => {
+                        state = if (string) .StringLiteral else .CharLiteral;
+                    },
+                },
+                .UnicodeEscape => switch (c) {
+                    '0'...'9', 'a'...'f', 'A'...'F' => {
+                        counter -= 1;
+                        if (counter == 0) {
+                            state = if (string) .StringLiteral else .CharLiteral;
+                        }
+                    },
+                    else => {
+                        if (counter != 0) {
+                            result.id = .Invalid;
+                            break;
+                        }
+                        state = if (string) .StringLiteral else .CharLiteral;
+                    },
+                },
                 .Identifier => switch (c) {
                     'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
                     else => {
@@ -328,7 +426,7 @@ pub const Tokenizer = struct {
                         break;
                     },
                     else => {
-                        result.id = .Id.Percent;
+                        result.id = .Percent;
                         break;
                     },
                 },
@@ -468,7 +566,9 @@ pub const Tokenizer = struct {
                 .Slash => switch (c) {
                     '/' => {
                         state = .LineComment;
-                        result.id = .LineComment;
+                    },
+                    '*' => {
+                        state = .MultiLineComment;
                     },
                     '=' => {
                         result.id = .SlashEqual;
@@ -494,6 +594,30 @@ pub const Tokenizer = struct {
                     else => {
                         result.id = .Ampersand;
                         break;
+                    },
+                },
+                .LineComment => switch (c) {
+                    '\n' => {
+                        result.id = .LineComment;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {},
+                },
+                .MultiLineComment => switch (c) {
+                    '*' => {
+                        state = .MultiLineCommentAsterisk;
+                    },
+                    else => {},
+                },
+                .MultiLineCommentAsterisk => switch (c) {
+                    '/' => {
+                        result.id = .MultiLineComment;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        state = .MultiLineComment;
                     },
                 },
                 .Zero => switch (c) {
@@ -531,7 +655,7 @@ pub const Tokenizer = struct {
                         state = .FloatFractionHex;
                     },
                     'p', 'P' => {
-                        state = .FloatExponentUnsignedHex;
+                        state = .FloatExponent;
                     },
                     else => {
                         state = .IntegerSuffix;
@@ -544,7 +668,7 @@ pub const Tokenizer = struct {
                         state = .FloatFraction;
                     },
                     'e', 'E' => {
-                        state = .FloatExponentUnsigned;
+                        state = .FloatExponent;
                     },
                     else => {
                         state = .IntegerSuffix;
@@ -615,18 +739,90 @@ pub const Tokenizer = struct {
                         break;
                     },
                 },
+                .FloatFraction => switch (c) {
+                    '0'...'9' => {},
+                    'e', 'E' => {
+                        state = .FloatExponent;
+                    },
+                    else => {
+                        self.index -= 1;
+                        state = .FloatSuffix;
+                    },
+                },
+                .FloatFractionHex => switch (c) {
+                    '0'...'9', 'a'...'f', 'A'...'F' => {},
+                    'p', 'P' => {
+                        state = .FloatExponent;
+                    },
+                    else => {
+                        result.id = .Invalid;
+                        break;
+                    },
+                },
+                .FloatExponent => switch (c) {
+                    '+', '-' => {
+                        state = .FloatExponentDigits;
+                    },
+                    else => {
+                        self.index -= 1;
+                        state = .FloatExponentDigits;
+                    },
+                },
+                .FloatExponentDigits => switch (c) {
+                    '0'...'9' => {
+                        counter += 1;
+                    },
+                    else => {
+                        if (counter == 0) {
+                            result.id = .Invalid;
+                            break;
+                        }
+                        state = .FloatSuffix;
+                    },
+                },
+                .FloatSuffix => switch (c) {
+                    'l', 'L' => {
+                        result.id = .FloatLiteral;
+                        result.num_suffix = .L;
+                        self.index += 1;
+                        break;
+                    },
+                    'f', 'F' => {
+                        result.id = .FloatLiteral;
+                        result.num_suffix = .F;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = .FloatLiteral;
+                        break;
+                    },
+                },
             }
         } else if (self.index == self.source.buffer.len) {
             switch (state) {
+                .Start => {},
                 .Identifier => {
                     result.id = .Identifier;
                 },
-                .IntegerLiteralOct,
-                .IntegerLiteralBinary,
-                .IntegerLiteralHex,
-                .IntegerLiteral,
-                .IntegerSuffix,
-                .Zero => result.id = .IntegerLiteral,
+
+                .Cr,
+                .Period2,
+                .StringLiteral,
+                .CharLiteral,
+                .EscapeSequence,
+                .OctalEscape,
+                .HexEscape,
+                .UnicodeEscape,
+                .MultiLineComment,
+                .MultiLineCommentAsterisk,
+                .FloatFraction,
+                .FloatFractionHex,
+                .FloatExponent,
+                .FloatExponentDigits,
+                => result.id = .Invalid,
+
+                .IntegerLiteralOct, .IntegerLiteralBinary, .IntegerLiteralHex, .IntegerLiteral, .IntegerSuffix, .Zero => result.id = .IntegerLiteral,
                 .IntegerSuffixU => {
                     result.id = .IntegerLiteral;
                     result.num_suffix = .U;
@@ -641,16 +837,16 @@ pub const Tokenizer = struct {
                 },
                 .IntegerSuffixUL => {
                     result.id = .IntegerLiteral;
-                    result.num_suffix = .Ul;
+                    result.num_suffix = .LU;
                 },
 
+                .FloatSuffix => result.id = .FloatLiteral,
                 .Equal => result.id = .Equal,
                 .Bang => result.id = .Bang,
                 .Minus => result.id = .Minus,
                 .Slash => result.id = .Slash,
                 .Ampersand => result.id = .Ampersand,
                 .Period => result.id = .Period,
-                .Period2 => result.id = .Invalid,
                 .Pipe => result.id = .Pipe,
                 .AngleBracketAngleBracketRight => result.id = .AngleBracketAngleBracketRight,
                 .AngleBracketRight => result.id = .AngleBracketRight,
@@ -660,6 +856,7 @@ pub const Tokenizer = struct {
                 .Percent => result.id = .Percent,
                 .Caret => result.id = .Caret,
                 .Asterisk => result.id = .Asterisk,
+                .LineComment => result.id = .LineComment,
             }
         }
 
