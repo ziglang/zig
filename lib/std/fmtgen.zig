@@ -357,12 +357,12 @@ pub fn formatType(
         .ComptimeInt, .Int, .Float => {
             return formatValue(value, fmt, options, generator);
         },
-        // .Void => {
-        //     return output(context, "void");
-        // },
-        // .Bool => {
-        //     return output(context, if (value) "true" else "false");
-        // },
+        .Void => {
+            return generator.yield("void");
+        },
+        .Bool => {
+            return generator.yield(if (value) "true" else "false");
+        },
         // .Optional => {
         //     if (value) |payload| {
         //         return formatType(payload, fmt, options, context, Errors, output, max_depth);
@@ -490,8 +490,7 @@ pub fn formatType(
         //     return format(context, Errors, output, "{}@{x}", .{ @typeName(T), @ptrToInt(value) });
         // },
         // .Type => return output(context, @typeName(T)),
-        // else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
-        else => {},
+        else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
     }
 }
 
