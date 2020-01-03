@@ -437,33 +437,33 @@ pub fn formatType(
         // },
         .Pointer => |ptr_info| switch (ptr_info.size) {
             .One => switch (@typeInfo(ptr_info.child)) {
-                // builtin.TypeId.Array => |info| {
-                //     if (info.child == u8) {
-                //         return formatText(value, fmt, options, context, Errors, output);
-                //     }
-                //     return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
-                // },
+                builtin.TypeId.Array => |info| {
+                    if (info.child == u8) {
+                        return formatText(value, fmt, options, generator);
+                    }
+                    return formatPtr(T.Child, @ptrToInt(value), generator);
+                },
                 // builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
                 //     return formatType(value.*, fmt, options, context, Errors, output, max_depth);
                 // },
                 else => return formatPtr(T.Child, @ptrToInt(value), generator),
             },
             .Many => {
-                // if (ptr_info.child == u8) {
-                //     if (fmt.len > 0 and fmt[0] == 's') {
-                //         const len = mem.len(u8, value);
-                //         return formatText(value[0..len], fmt, options, context, Errors, output);
-                //     }
-                // }
+                if (ptr_info.child == u8) {
+                    if (fmt.len > 0 and fmt[0] == 's') {
+                        const len = mem.len(u8, value);
+                        return formatText(value[0..len], fmt, generator);
+                    }
+                }
                 return formatPtr(T.Child, @ptrToInt(value), generator);
             },
             .Slice => {
-                // if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
-                //     return formatText(value, fmt, options, context, Errors, output);
-                // }
-                // if (ptr_info.child == u8) {
-                //     return formatText(value, fmt, options, context, Errors, output);
-                // }
+                if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
+                    return formatText(value, fmt, options, generator);
+                }
+                if (ptr_info.child == u8) {
+                    return formatText(value, fmt, options, generator);
+                }
                 return formatPtr(ptr_info.child, @ptrToInt(value.ptr), generator);
             },
             .C => {
@@ -574,27 +574,25 @@ pub fn formatIntValue(
 //     }
 // }
 
-// pub fn formatText(
-//     bytes: []const u8,
-//     comptime fmt: []const u8,
-//     options: FormatOptions,
-//     context: var,
-//     comptime Errors: type,
-//     output: fn (@TypeOf(context), []const u8) Errors!void,
-// ) Errors!void {
-//     if (fmt.len == 0) {
-//         return output(context, bytes);
-//     } else if (comptime std.mem.eql(u8, fmt, "s")) {
-//         return formatBuf(bytes, options, context, Errors, output);
-//     } else if (comptime (std.mem.eql(u8, fmt, "x") or std.mem.eql(u8, fmt, "X"))) {
-//         for (bytes) |c| {
-//             try formatInt(c, 16, fmt[0] == 'X', FormatOptions{ .width = 2, .fill = '0' }, context, Errors, output);
-//         }
-//         return;
-//     } else {
-//         @compileError("Unknown format string: '" ++ fmt ++ "'");
-//     }
-// }
+pub fn formatText(
+    bytes: []const u8,
+    comptime fmt: []const u8,
+    options: FormatOptions,
+    generator: *Generator([]const u8),
+) void {
+    if (fmt.len == 0) {
+        generator.yield(bytes);
+    } else if (comptime std.mem.eql(u8, fmt, "s")) {
+        return formatBuf(bytes, options, generator);
+    } else if (comptime (std.mem.eql(u8, fmt, "x") or std.mem.eql(u8, fmt, "X"))) {
+        for (bytes) |c| {
+            formatInt(c, 16, fmt[0] == 'X', FormatOptions{ .width = 2, .fill = '0' }, generator);
+        }
+        return;
+    } else {
+        @compileError("Unknown format string: '" ++ fmt ++ "'");
+    }
+}
 
 pub fn formatAsciiChar(
     c: u8,
@@ -607,22 +605,20 @@ pub fn formatAsciiChar(
     // return format(context, Errors, output, "\\x{x:0<2}", .{c});
 }
 
-// pub fn formatBuf(
-//     buf: []const u8,
-//     options: FormatOptions,
-//     context: var,
-//     comptime Errors: type,
-//     output: fn (@TypeOf(context), []const u8) Errors!void,
-// ) Errors!void {
-//     try output(context, buf);
+pub fn formatBuf(
+    buf: []const u8,
+    options: FormatOptions,
+    generator: *Generator([]const u8),
+) void {
+    generator.yield(buf);
 
-//     const width = options.width orelse 0;
-//     var leftover_padding = if (width > buf.len) (width - buf.len) else return;
-//     const pad_byte: u8 = options.fill;
-//     while (leftover_padding > 0) : (leftover_padding -= 1) {
-//         try output(context, @as(*const [1]u8, &pad_byte)[0..1]);
-//     }
-// }
+    const width = options.width orelse 0;
+    var leftover_padding = if (width > buf.len) (width - buf.len) else return;
+    const pad_byte: u8 = options.fill;
+    while (leftover_padding > 0) : (leftover_padding -= 1) {
+        generator.yield(@as(*const [1]u8, &pad_byte)[0..1]);
+    }
+}
 
 // // Print a float in scientific notation to the specified precision. Null uses full precision.
 // // It should be the case that every full precision, printed value can be re-parsed back to the
@@ -1265,19 +1261,19 @@ test "int.padded" {
 //     }
 // }
 
-// test "slice" {
-//     {
-//         const value: []const u8 = "abc";
-//         try testFmt("slice: abc\n", "slice: {}\n", .{value});
-//     }
-//     {
-//         const value = @intToPtr([*]align(1) const []const u8, 0xdeadbeef)[0..0];
-//         try testFmt("slice: []const u8@deadbeef\n", "slice: {}\n", .{value});
-//     }
+test "slice" {
+    {
+        const value: []const u8 = "abc";
+        try testFmt("slice: abc\n", "slice: {}\n", .{value});
+    }
+    {
+        const value = @intToPtr([*]align(1) const []const u8, 0xdeadbeef)[0..0];
+        try testFmt("slice: []const u8@deadbeef\n", "slice: {}\n", .{value});
+    }
 
-//     try testFmt("buf: Test \n", "buf: {s:5}\n", .{"Test"});
-//     try testFmt("buf: Test\n Other text", "buf: {s}\n Other text", .{"Test"});
-// }
+    try testFmt("buf: Test \n", "buf: {s:5}\n", .{"Test"});
+    try testFmt("buf: Test\n Other text", "buf: {s}\n Other text", .{"Test"});
+}
 
 test "pointer" {
     {
@@ -1295,10 +1291,10 @@ test "pointer" {
     }
 }
 
-// test "cstr" {
-//     try testFmt("cstr: Test C\n", "cstr: {s}\n", .{"Test C"});
-//     try testFmt("cstr: Test C    \n", "cstr: {s:10}\n", .{"Test C"});
-// }
+test "cstr" {
+    try testFmt("cstr: Test C\n", "cstr: {s}\n", .{"Test C"});
+    try testFmt("cstr: Test C    \n", "cstr: {s:10}\n", .{"Test C"});
+}
 
 // test "filesize" {
 //     if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
