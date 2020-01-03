@@ -202,15 +202,13 @@ pub fn format(
                         @compileError("Too few arguments");
                     }
 
-                    // try formatType(
-                    //     args[arg_to_print],
-                    //     fmt[0..0],
-                    //     options,
-                    //     generator,
-                    //     error{},
-                    //     output,
-                    //     default_max_depth,
-                    // );
+                    formatType(
+                        args[arg_to_print],
+                        fmt[0..0],
+                        options,
+                        generator,
+                        default_max_depth,
+                    );
 
                     state = .Start;
                     start_index = i + 1;
@@ -235,15 +233,13 @@ pub fn format(
                 '}' => {
                     const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
 
-                    // try formatType(
-                    //     args[arg_to_print],
-                    //     fmt[specifier_start..i],
-                    //     options,
-                    //     generator,
-                    //     error{},
-                    //     output,
-                    //     default_max_depth,
-                    // );
+                    formatType(
+                        args[arg_to_print],
+                        fmt[specifier_start..i],
+                        options,
+                        generator,
+                        default_max_depth,
+                    );
                     state = .Start;
                     start_index = i + 1;
                 },
@@ -282,15 +278,13 @@ pub fn format(
                 '}' => {
                     const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
 
-                    // try formatType(
-                    //     args[arg_to_print],
-                    //     fmt[specifier_start..specifier_end],
-                    //     options,
-                    //     generator,
-                    //     error{},
-                    //     output,
-                    //     default_max_depth,
-                    // );
+                    formatType(
+                        args[arg_to_print],
+                        fmt[specifier_start..specifier_end],
+                        options,
+                        generator,
+                        default_max_depth,
+                    );
                     state = .Start;
                     start_index = i + 1;
                 },
@@ -310,15 +304,13 @@ pub fn format(
                 '}' => {
                     const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
 
-                    // try formatType(
-                    //     args[arg_to_print],
-                    //     fmt[specifier_start..specifier_end],
-                    //     options,
-                    //     generator,
-                    //     error{},
-                    //     output,
-                    //     default_max_depth,
-                    // );
+                    formatType(
+                        args[arg_to_print],
+                        fmt[specifier_start..specifier_end],
+                        options,
+                        generator,
+                        default_max_depth,
+                    );
                     state = .Start;
                     start_index = i + 1;
                 },
@@ -347,227 +339,220 @@ pub fn format(
     }
 }
 
-// pub fn formatType(
-//     value: var,
-//     comptime fmt: []const u8,
-//     options: FormatOptions,
-//     context: var,
-//     comptime Errors: type,
-//     output: fn (@TypeOf(context), []const u8) Errors!void,
-//     max_depth: usize,
-// ) Errors!void {
-//     if (comptime std.mem.eql(u8, fmt, "*")) {
-//         try output(context, @typeName(@TypeOf(value).Child));
-//         try output(context, "@");
-//         try formatInt(@ptrToInt(value), 16, false, FormatOptions{}, context, Errors, output);
-//         return;
-//     }
+pub fn formatType(
+    value: var,
+    comptime fmt: []const u8,
+    options: FormatOptions,
+    generator: *Generator([]const u8),
+    max_depth: usize,
+) void {
+    // if (comptime std.mem.eql(u8, fmt, "*")) {
+    //     try output(context, @typeName(@TypeOf(value).Child));
+    //     try output(context, "@");
+    //     try formatInt(@ptrToInt(value), 16, false, FormatOptions{}, context, Errors, output);
+    //     return;
+    // }
+    const T = @TypeOf(value);
+    switch (@typeInfo(T)) {
+        .ComptimeInt, .Int, .Float => {
+            return formatValue(value, fmt, options, generator);
+        },
+        // .Void => {
+        //     return output(context, "void");
+        // },
+        // .Bool => {
+        //     return output(context, if (value) "true" else "false");
+        // },
+        // .Optional => {
+        //     if (value) |payload| {
+        //         return formatType(payload, fmt, options, context, Errors, output, max_depth);
+        //     } else {
+        //         return output(context, "null");
+        //     }
+        // },
+        // .ErrorUnion => {
+        //     if (value) |payload| {
+        //         return formatType(payload, fmt, options, context, Errors, output, max_depth);
+        //     } else |err| {
+        //         return formatType(err, fmt, options, context, Errors, output, max_depth);
+        //     }
+        // },
+        // .ErrorSet => {
+        //     try output(context, "error.");
+        //     return output(context, @errorName(value));
+        // },
+        // .Enum => {
+        //     if (comptime std.meta.trait.hasFn("format")(T)) {
+        //         return value.format(fmt, options, context, Errors, output);
+        //     }
 
-//     const T = @TypeOf(value);
-//     switch (@typeInfo(T)) {
-//         .ComptimeInt, .Int, .Float => {
-//             return formatValue(value, fmt, options, context, Errors, output);
-//         },
-//         .Void => {
-//             return output(context, "void");
-//         },
-//         .Bool => {
-//             return output(context, if (value) "true" else "false");
-//         },
-//         .Optional => {
-//             if (value) |payload| {
-//                 return formatType(payload, fmt, options, context, Errors, output, max_depth);
-//             } else {
-//                 return output(context, "null");
-//             }
-//         },
-//         .ErrorUnion => {
-//             if (value) |payload| {
-//                 return formatType(payload, fmt, options, context, Errors, output, max_depth);
-//             } else |err| {
-//                 return formatType(err, fmt, options, context, Errors, output, max_depth);
-//             }
-//         },
-//         .ErrorSet => {
-//             try output(context, "error.");
-//             return output(context, @errorName(value));
-//         },
-//         .Enum => {
-//             if (comptime std.meta.trait.hasFn("format")(T)) {
-//                 return value.format(fmt, options, context, Errors, output);
-//             }
+        //     try output(context, @typeName(T));
+        //     try output(context, ".");
+        //     return formatType(@tagName(value), "", options, context, Errors, output, max_depth);
+        // },
+        // .Union => {
+        //     if (comptime std.meta.trait.hasFn("format")(T)) {
+        //         return value.format(fmt, options, context, Errors, output);
+        //     }
 
-//             try output(context, @typeName(T));
-//             try output(context, ".");
-//             return formatType(@tagName(value), "", options, context, Errors, output, max_depth);
-//         },
-//         .Union => {
-//             if (comptime std.meta.trait.hasFn("format")(T)) {
-//                 return value.format(fmt, options, context, Errors, output);
-//             }
+        //     try output(context, @typeName(T));
+        //     if (max_depth == 0) {
+        //         return output(context, "{ ... }");
+        //     }
+        //     const info = @typeInfo(T).Union;
+        //     if (info.tag_type) |UnionTagType| {
+        //         try output(context, "{ .");
+        //         try output(context, @tagName(@as(UnionTagType, value)));
+        //         try output(context, " = ");
+        //         inline for (info.fields) |u_field| {
+        //             if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
+        //                 try formatType(@field(value, u_field.name), "", options, context, Errors, output, max_depth - 1);
+        //             }
+        //         }
+        //         try output(context, " }");
+        //     } else {
+        //         try format(context, Errors, output, "@{x}", .{@ptrToInt(&value)});
+        //     }
+        // },
+        // .Struct => {
+        //     if (comptime std.meta.trait.hasFn("format")(T)) {
+        //         return value.format(fmt, options, context, Errors, output);
+        //     }
 
-//             try output(context, @typeName(T));
-//             if (max_depth == 0) {
-//                 return output(context, "{ ... }");
-//             }
-//             const info = @typeInfo(T).Union;
-//             if (info.tag_type) |UnionTagType| {
-//                 try output(context, "{ .");
-//                 try output(context, @tagName(@as(UnionTagType, value)));
-//                 try output(context, " = ");
-//                 inline for (info.fields) |u_field| {
-//                     if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
-//                         try formatType(@field(value, u_field.name), "", options, context, Errors, output, max_depth - 1);
-//                     }
-//                 }
-//                 try output(context, " }");
-//             } else {
-//                 try format(context, Errors, output, "@{x}", .{@ptrToInt(&value)});
-//             }
-//         },
-//         .Struct => {
-//             if (comptime std.meta.trait.hasFn("format")(T)) {
-//                 return value.format(fmt, options, context, Errors, output);
-//             }
+        //     try output(context, @typeName(T));
+        //     if (max_depth == 0) {
+        //         return output(context, "{ ... }");
+        //     }
+        //     comptime var field_i = 0;
+        //     try output(context, "{");
+        //     inline while (field_i < @memberCount(T)) : (field_i += 1) {
+        //         if (field_i == 0) {
+        //             try output(context, " .");
+        //         } else {
+        //             try output(context, ", .");
+        //         }
+        //         try output(context, @memberName(T, field_i));
+        //         try output(context, " = ");
+        //         try formatType(@field(value, @memberName(T, field_i)), "", options, context, Errors, output, max_depth - 1);
+        //     }
+        //     try output(context, " }");
+        // },
+        // .Pointer => |ptr_info| switch (ptr_info.size) {
+        //     .One => switch (@typeInfo(ptr_info.child)) {
+        //         builtin.TypeId.Array => |info| {
+        //             if (info.child == u8) {
+        //                 return formatText(value, fmt, options, context, Errors, output);
+        //             }
+        //             return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
+        //         },
+        //         builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
+        //             return formatType(value.*, fmt, options, context, Errors, output, max_depth);
+        //         },
+        //         else => return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) }),
+        //     },
+        //     .Many => {
+        //         if (ptr_info.child == u8) {
+        //             if (fmt.len > 0 and fmt[0] == 's') {
+        //                 const len = mem.len(u8, value);
+        //                 return formatText(value[0..len], fmt, options, context, Errors, output);
+        //             }
+        //         }
+        //         return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
+        //     },
+        //     .Slice => {
+        //         if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
+        //             return formatText(value, fmt, options, context, Errors, output);
+        //         }
+        //         if (ptr_info.child == u8) {
+        //             return formatText(value, fmt, options, context, Errors, output);
+        //         }
+        //         return format(context, Errors, output, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value.ptr) });
+        //     },
+        //     .C => {
+        //         return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
+        //     },
+        // },
+        // .Array => |info| {
+        //     const Slice = @Type(builtin.TypeInfo{
+        //         .Pointer = .{
+        //             .size = .Slice,
+        //             .is_const = true,
+        //             .is_volatile = false,
+        //             .is_allowzero = false,
+        //             .alignment = @alignOf(info.child),
+        //             .child = info.child,
+        //             .sentinel = null,
+        //         },
+        //     });
+        //     return formatType(@as(Slice, &value), fmt, options, context, Errors, output, max_depth);
+        // },
+        // .Fn => {
+        //     return format(context, Errors, output, "{}@{x}", .{ @typeName(T), @ptrToInt(value) });
+        // },
+        // .Type => return output(context, @typeName(T)),
+        // else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
+        else => {},
+    }
+}
 
-//             try output(context, @typeName(T));
-//             if (max_depth == 0) {
-//                 return output(context, "{ ... }");
-//             }
-//             comptime var field_i = 0;
-//             try output(context, "{");
-//             inline while (field_i < @memberCount(T)) : (field_i += 1) {
-//                 if (field_i == 0) {
-//                     try output(context, " .");
-//                 } else {
-//                     try output(context, ", .");
-//                 }
-//                 try output(context, @memberName(T, field_i));
-//                 try output(context, " = ");
-//                 try formatType(@field(value, @memberName(T, field_i)), "", options, context, Errors, output, max_depth - 1);
-//             }
-//             try output(context, " }");
-//         },
-//         .Pointer => |ptr_info| switch (ptr_info.size) {
-//             .One => switch (@typeInfo(ptr_info.child)) {
-//                 builtin.TypeId.Array => |info| {
-//                     if (info.child == u8) {
-//                         return formatText(value, fmt, options, context, Errors, output);
-//                     }
-//                     return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
-//                 },
-//                 builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
-//                     return formatType(value.*, fmt, options, context, Errors, output, max_depth);
-//                 },
-//                 else => return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) }),
-//             },
-//             .Many => {
-//                 if (ptr_info.child == u8) {
-//                     if (fmt.len > 0 and fmt[0] == 's') {
-//                         const len = mem.len(u8, value);
-//                         return formatText(value[0..len], fmt, options, context, Errors, output);
-//                     }
-//                 }
-//                 return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
-//             },
-//             .Slice => {
-//                 if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
-//                     return formatText(value, fmt, options, context, Errors, output);
-//                 }
-//                 if (ptr_info.child == u8) {
-//                     return formatText(value, fmt, options, context, Errors, output);
-//                 }
-//                 return format(context, Errors, output, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value.ptr) });
-//             },
-//             .C => {
-//                 return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
-//             },
-//         },
-//         .Array => |info| {
-//             const Slice = @Type(builtin.TypeInfo{
-//                 .Pointer = .{
-//                     .size = .Slice,
-//                     .is_const = true,
-//                     .is_volatile = false,
-//                     .is_allowzero = false,
-//                     .alignment = @alignOf(info.child),
-//                     .child = info.child,
-//                     .sentinel = null,
-//                 },
-//             });
-//             return formatType(@as(Slice, &value), fmt, options, context, Errors, output, max_depth);
-//         },
-//         .Fn => {
-//             return format(context, Errors, output, "{}@{x}", .{ @typeName(T), @ptrToInt(value) });
-//         },
-//         .Type => return output(context, @typeName(T)),
-//         else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
-//     }
-// }
+fn formatValue(
+    value: var,
+    comptime fmt: []const u8,
+    options: FormatOptions,
+    generator: *Generator([]const u8),
+) void {
+    // if (comptime std.mem.eql(u8, fmt, "B")) {
+    //     return formatBytes(value, options, 1000, context, Errors, output);
+    // } else if (comptime std.mem.eql(u8, fmt, "Bi")) {
+    //     return formatBytes(value, options, 1024, context, Errors, output);
+    // }
+    const T = @TypeOf(value);
+    switch (@typeId(T)) {
+        // .Float => return formatFloatValue(value, fmt, options, context, Errors, output),
+        .Int, .ComptimeInt => return formatIntValue(value, fmt, options, generator),
+        else => comptime unreachable,
+    }
+}
 
-// fn formatValue(
-//     value: var,
-//     comptime fmt: []const u8,
-//     options: FormatOptions,
-//     context: var,
-//     comptime Errors: type,
-//     output: fn (@TypeOf(context), []const u8) Errors!void,
-// ) Errors!void {
-//     if (comptime std.mem.eql(u8, fmt, "B")) {
-//         return formatBytes(value, options, 1000, context, Errors, output);
-//     } else if (comptime std.mem.eql(u8, fmt, "Bi")) {
-//         return formatBytes(value, options, 1024, context, Errors, output);
-//     }
+pub fn formatIntValue(
+    value: var,
+    comptime fmt: []const u8,
+    options: FormatOptions,
+    generator: *Generator([]const u8),
+) void {
+    comptime var radix = 10;
+    comptime var uppercase = false;
 
-//     const T = @TypeOf(value);
-//     switch (@typeId(T)) {
-//         .Float => return formatFloatValue(value, fmt, options, context, Errors, output),
-//         .Int, .ComptimeInt => return formatIntValue(value, fmt, options, context, Errors, output),
-//         else => comptime unreachable,
-//     }
-// }
+    const int_value = if (@TypeOf(value) == comptime_int) blk: {
+        const Int = math.IntFittingRange(value, value);
+        break :blk @as(Int, value);
+    } else
+        value;
 
-// pub fn formatIntValue(
-//     value: var,
-//     comptime fmt: []const u8,
-//     options: FormatOptions,
-//     context: var,
-//     comptime Errors: type,
-//     output: fn (@TypeOf(context), []const u8) Errors!void,
-// ) Errors!void {
-//     comptime var radix = 10;
-//     comptime var uppercase = false;
+    if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "d")) {
+        radix = 10;
+        uppercase = false;
+    } else if (comptime std.mem.eql(u8, fmt, "c")) {
+        if (@TypeOf(int_value).bit_count <= 8) {
+            return formatAsciiChar(@as(u8, int_value), options, generator);
+        } else {
+            @compileError("Cannot print integer that is larger than 8 bits as a ascii");
+        }
+    } else if (comptime std.mem.eql(u8, fmt, "b")) {
+        radix = 2;
+        uppercase = false;
+    } else if (comptime std.mem.eql(u8, fmt, "x")) {
+        radix = 16;
+        uppercase = false;
+    } else if (comptime std.mem.eql(u8, fmt, "X")) {
+        radix = 16;
+        uppercase = true;
+    } else {
+        @compileError("Unknown format string: '" ++ fmt ++ "'");
+    }
 
-//     const int_value = if (@TypeOf(value) == comptime_int) blk: {
-//         const Int = math.IntFittingRange(value, value);
-//         break :blk @as(Int, value);
-//     } else
-//         value;
-
-//     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "d")) {
-//         radix = 10;
-//         uppercase = false;
-//     } else if (comptime std.mem.eql(u8, fmt, "c")) {
-//         if (@TypeOf(int_value).bit_count <= 8) {
-//             return formatAsciiChar(@as(u8, int_value), options, context, Errors, output);
-//         } else {
-//             @compileError("Cannot print integer that is larger than 8 bits as a ascii");
-//         }
-//     } else if (comptime std.mem.eql(u8, fmt, "b")) {
-//         radix = 2;
-//         uppercase = false;
-//     } else if (comptime std.mem.eql(u8, fmt, "x")) {
-//         radix = 16;
-//         uppercase = false;
-//     } else if (comptime std.mem.eql(u8, fmt, "X")) {
-//         radix = 16;
-//         uppercase = true;
-//     } else {
-//         @compileError("Unknown format string: '" ++ fmt ++ "'");
-//     }
-
-//     return formatInt(int_value, radix, uppercase, options, context, Errors, output);
-// }
+    return formatInt(int_value, radix, uppercase, options, generator);
+}
 
 // fn formatFloatValue(
 //     value: var,
@@ -608,17 +593,16 @@ pub fn format(
 //     }
 // }
 
-// pub fn formatAsciiChar(
-//     c: u8,
-//     options: FormatOptions,
-//     context: var,
-//     comptime Errors: type,
-//     output: fn (@TypeOf(context), []const u8) Errors!void,
-// ) Errors!void {
-//     if (std.ascii.isPrint(c))
-//         return output(context, @as(*const [1]u8, &c)[0..]);
-//     return format(context, Errors, output, "\\x{x:0<2}", .{c});
-// }
+pub fn formatAsciiChar(
+    c: u8,
+    options: FormatOptions,
+    generator: *Generator([]const u8),
+) void {
+    if (std.ascii.isPrint(c))
+        return generator.yield(@as(*const [1]u8, &c)[0..]);
+    @panic("FIXME");
+    // return format(context, Errors, output, "\\x{x:0<2}", .{c});
+}
 
 // pub fn formatBuf(
 //     buf: []const u8,
@@ -1220,28 +1204,28 @@ test "parse unsigned comptime" {
 //     }
 // }
 
-// test "int.small" {
-//     {
-//         const value: u3 = 0b101;
-//         try testFmt("u3: 5\n", "u3: {}\n", .{value});
-//     }
-// }
+test "int.small" {
+    {
+        const value: u3 = 0b101;
+        try testFmt("u3: 5\n", "u3: {}\n", .{value});
+    }
+}
 
-// test "int.specifier" {
-//     {
-//         const value: u8 = 'a';
-//         try testFmt("u8: a\n", "u8: {c}\n", .{value});
-//     }
-//     {
-//         const value: u8 = 0b1100;
-//         try testFmt("u8: 0b1100\n", "u8: 0b{b}\n", .{value});
-//     }
-// }
+test "int.specifier" {
+    {
+        const value: u8 = 'a';
+        try testFmt("u8: a\n", "u8: {c}\n", .{value});
+    }
+    {
+        const value: u8 = 0b1100;
+        try testFmt("u8: 0b1100\n", "u8: 0b{b}\n", .{value});
+    }
+}
 
-// test "int.padded" {
-//     try testFmt("u8: '   1'", "u8: '{:4}'", .{@as(u8, 1)});
-//     try testFmt("u8: 'xxx1'", "u8: '{:x<4}'", .{@as(u8, 1)});
-// }
+test "int.padded" {
+    try testFmt("u8: '   1'", "u8: '{:4}'", .{@as(u8, 1)});
+    try testFmt("u8: 'xxx1'", "u8: '{:x<4}'", .{@as(u8, 1)});
+}
 
 // test "buffer" {
 //     {
@@ -1568,18 +1552,18 @@ test "parse unsigned comptime" {
 //     try testFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
 // }
 
-// fn testFmt(expected: []const u8, comptime template: []const u8, args: var) !void {
-//     var buf: [100]u8 = undefined;
-//     const result = try bufPrint(buf[0..], template, args);
-//     if (mem.eql(u8, result, expected)) return;
+fn testFmt(expected: []const u8, comptime template: []const u8, args: var) !void {
+    var buf: [100]u8 = undefined;
+    const result = try bufPrint(buf[0..], template, args);
+    if (mem.eql(u8, result, expected)) return;
 
-//     std.debug.warn("\n====== expected this output: =========\n", .{});
-//     std.debug.warn("{}", .{expected});
-//     std.debug.warn("\n======== instead found this: =========\n", .{});
-//     std.debug.warn("{}", .{result});
-//     std.debug.warn("\n======================================\n", .{});
-//     return error.TestFailed;
-// }
+    std.debug.warn("\n====== expected this output: =========\n", .{});
+    std.debug.warn("{}", .{expected});
+    std.debug.warn("\n======== instead found this: =========\n", .{});
+    std.debug.warn("{}", .{result});
+    std.debug.warn("\n======================================\n", .{});
+    return error.TestFailed;
+}
 
 pub fn trim(buf: []const u8) []const u8 {
     var start: usize = 0;
@@ -1633,13 +1617,18 @@ pub fn isWhiteSpace(byte: u8) bool {
 //     try testFmt(test_hex_str, "{X}", .{pb});
 // }
 
-// test "formatIntValue with comptime_int" {
-//     const value: comptime_int = 123456789123456789;
+test "formatIntValue with comptime_int" {
+    const value: comptime_int = 123456789123456789;
 
-//     var buf = try std.Buffer.init(std.debug.global_allocator, "");
-//     try formatIntValue(value, "", FormatOptions{}, &buf, @TypeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append);
-//     std.testing.expect(mem.eql(u8, buf.toSlice(), "123456789123456789"));
-// }
+    var buf = try std.Buffer.init(std.debug.global_allocator, "");
+
+    var generator = Generator([]const u8){};
+    _ = async formatIntValue(value, "", FormatOptions{}, &generator);
+    while (generator.next()) |bytes| {
+        try buf.append(bytes);
+    }
+    std.testing.expect(mem.eql(u8, buf.toSlice(), "123456789123456789"));
+}
 
 // test "formatType max_depth" {
 //     const Vec2 = struct {
