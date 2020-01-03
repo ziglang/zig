@@ -29,14 +29,8 @@ test "zig fmt: c pointer type" {
 test "zig fmt: builtin call with trailing comma" {
     try testCanonical(
         \\pub fn main() void {
-        \\    _ = @intToPtr(
-        \\        a,
-        \\        b,
-        \\    );
-        \\    _ = @ptrCast(
-        \\        a,
-        \\        b,
-        \\    );
+        \\    @breakpoint();
+        \\    _ = @boolToInt(a);
         \\    _ = @call(
         \\        a,
         \\        b,

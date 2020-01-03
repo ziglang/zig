@@ -1264,7 +1264,9 @@ fn renderExpression(
             }
 
             const src_params_trailing_comma = blk: {
-                const maybe_comma = tree.prevToken(builtin_call.rparen_token);
+                if (builtin_call.params.len < 2) break :blk false;
+                const last_node = builtin_call.params.at(builtin_call.params.len - 1).*;
+                const maybe_comma = tree.nextToken(last_node.lastToken());
                 break :blk tree.tokens.at(maybe_comma).id == .Comma;
             };
 
@@ -1277,7 +1279,6 @@ fn renderExpression(
                 var it = builtin_call.params.iterator(0);
                 while (it.next()) |param_node| {
                     try renderExpression(allocator, stream, tree, indent, start_col, param_node.*, Space.None);
-                    // try renderParamDecl(allocator, stream, tree, indent, start_col, param_node.*, Space.None);
 
                     if (it.peek() != null) {
                         const comma_token = tree.nextToken(param_node.*.lastToken());
