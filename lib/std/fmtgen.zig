@@ -346,12 +346,10 @@ pub fn formatType(
     generator: *Generator([]const u8),
     max_depth: usize,
 ) void {
-    // if (comptime std.mem.eql(u8, fmt, "*")) {
-    //     try output(context, @typeName(@TypeOf(value).Child));
-    //     try output(context, "@");
-    //     try formatInt(@ptrToInt(value), 16, false, FormatOptions{}, context, Errors, output);
-    //     return;
-    // }
+    if (comptime std.mem.eql(u8, fmt, "*")) {
+        return formatPtr(@TypeOf(value).Child, @ptrToInt(value), generator);
+    }
+
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
         .ComptimeInt, .Int, .Float => {
@@ -437,41 +435,41 @@ pub fn formatType(
         //     }
         //     try output(context, " }");
         // },
-        // .Pointer => |ptr_info| switch (ptr_info.size) {
-        //     .One => switch (@typeInfo(ptr_info.child)) {
-        //         builtin.TypeId.Array => |info| {
-        //             if (info.child == u8) {
-        //                 return formatText(value, fmt, options, context, Errors, output);
-        //             }
-        //             return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
-        //         },
-        //         builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
-        //             return formatType(value.*, fmt, options, context, Errors, output, max_depth);
-        //         },
-        //         else => return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) }),
-        //     },
-        //     .Many => {
-        //         if (ptr_info.child == u8) {
-        //             if (fmt.len > 0 and fmt[0] == 's') {
-        //                 const len = mem.len(u8, value);
-        //                 return formatText(value[0..len], fmt, options, context, Errors, output);
-        //             }
-        //         }
-        //         return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
-        //     },
-        //     .Slice => {
-        //         if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
-        //             return formatText(value, fmt, options, context, Errors, output);
-        //         }
-        //         if (ptr_info.child == u8) {
-        //             return formatText(value, fmt, options, context, Errors, output);
-        //         }
-        //         return format(context, Errors, output, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value.ptr) });
-        //     },
-        //     .C => {
-        //         return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
-        //     },
-        // },
+        .Pointer => |ptr_info| switch (ptr_info.size) {
+            .One => switch (@typeInfo(ptr_info.child)) {
+                // builtin.TypeId.Array => |info| {
+                //     if (info.child == u8) {
+                //         return formatText(value, fmt, options, context, Errors, output);
+                //     }
+                //     return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
+                // },
+                // builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
+                //     return formatType(value.*, fmt, options, context, Errors, output, max_depth);
+                // },
+                else => return formatPtr(T.Child, @ptrToInt(value), generator),
+            },
+            .Many => {
+                // if (ptr_info.child == u8) {
+                //     if (fmt.len > 0 and fmt[0] == 's') {
+                //         const len = mem.len(u8, value);
+                //         return formatText(value[0..len], fmt, options, context, Errors, output);
+                //     }
+                // }
+                return formatPtr(T.Child, @ptrToInt(value), generator);
+            },
+            .Slice => {
+                // if (fmt.len > 0 and ((fmt[0] == 'x') or (fmt[0] == 'X'))) {
+                //     return formatText(value, fmt, options, context, Errors, output);
+                // }
+                // if (ptr_info.child == u8) {
+                //     return formatText(value, fmt, options, context, Errors, output);
+                // }
+                return formatPtr(ptr_info.child, @ptrToInt(value.ptr), generator);
+            },
+            .C => {
+                return formatPtr(T.Child, @ptrToInt(value), generator);
+            },
+        },
         // .Array => |info| {
         //     const Slice = @Type(builtin.TypeInfo{
         //         .Pointer = .{
@@ -486,12 +484,18 @@ pub fn formatType(
         //     });
         //     return formatType(@as(Slice, &value), fmt, options, context, Errors, output, max_depth);
         // },
-        // .Fn => {
-        //     return format(context, Errors, output, "{}@{x}", .{ @typeName(T), @ptrToInt(value) });
-        // },
+        .Fn => {
+            return formatPtr(T, @ptrToInt(value), generator);
+        },
         // .Type => return output(context, @typeName(T)),
         else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
     }
+}
+
+fn formatPtr(comptime T: type, ptr: usize, generator: *Generator([]const u8)) void {
+    generator.yield(@typeName(T));
+    generator.yield("@");
+    return formatInt(ptr, 16, false, FormatOptions{}, generator);
 }
 
 fn formatValue(
@@ -1275,21 +1279,21 @@ test "int.padded" {
 //     try testFmt("buf: Test\n Other text", "buf: {s}\n Other text", .{"Test"});
 // }
 
-// test "pointer" {
-//     {
-//         const value = @intToPtr(*align(1) i32, 0xdeadbeef);
-//         try testFmt("pointer: i32@deadbeef\n", "pointer: {}\n", .{value});
-//         try testFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", .{value});
-//     }
-//     {
-//         const value = @intToPtr(fn () void, 0xdeadbeef);
-//         try testFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
-//     }
-//     {
-//         const value = @intToPtr(fn () void, 0xdeadbeef);
-//         try testFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
-//     }
-// }
+test "pointer" {
+    {
+        const value = @intToPtr(*align(1) i32, 0xdeadbeef);
+        try testFmt("pointer: i32@deadbeef\n", "pointer: {}\n", .{value});
+        try testFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", .{value});
+    }
+    {
+        const value = @intToPtr(fn () void, 0xdeadbeef);
+        try testFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
+    }
+    {
+        const value = @intToPtr(fn () void, 0xdeadbeef);
+        try testFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
+    }
+}
 
 // test "cstr" {
 //     try testFmt("cstr: Test C\n", "cstr: {s}\n", .{"Test C"});
