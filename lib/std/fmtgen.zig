@@ -379,15 +379,14 @@ pub fn formatType(
             generator.yield("error.");
             return generator.yield(@errorName(value));
         },
-        // .Enum => {
-        //     if (comptime std.meta.trait.hasFn("format")(T)) {
-        //         return value.format(fmt, options, context, Errors, output);
-        //     }
-
-        //     try output(context, @typeName(T));
-        //     try output(context, ".");
-        //     return formatType(@tagName(value), "", options, context, Errors, output, max_depth);
-        // },
+        .Enum => {
+            // if (comptime std.meta.trait.hasFn("format")(T)) {
+            //     return value.format(fmt, options, context, Errors, output);
+            // }
+            generator.yield(@typeName(T));
+            generator.yield(".");
+            return @call(.{ .modifier = .always_tail }, formatType, .{ @tagName(value), "", options, generator, max_depth });
+        },
         // .Union => {
         //     if (comptime std.meta.trait.hasFn("format")(T)) {
         //         return value.format(fmt, options, context, Errors, output);
@@ -1324,15 +1323,15 @@ test "cstr" {
 //     }
 // }
 
-// test "enum" {
-//     const Enum = enum {
-//         One,
-//         Two,
-//     };
-//     const value = Enum.Two;
-//     try testFmt("enum: Enum.Two\n", "enum: {}\n", .{value});
-//     try testFmt("enum: Enum.Two\n", "enum: {}\n", .{&value});
-// }
+test "enum" {
+    const Enum = enum {
+        One,
+        Two,
+    };
+    const value = Enum.Two;
+    try testFmt("enum: Enum.Two\n", "enum: {}\n", .{value});
+    try testFmt("enum: Enum.Two\n", "enum: {}\n", .{&value});
+}
 
 // test "float.scientific" {
 //     if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
@@ -1499,17 +1498,17 @@ test "cstr" {
 //     std.testing.expect(mem.eql(u8, uu_result[0..3], "EU@"));
 // }
 
-// test "enum" {
-//     const E = enum {
-//         One,
-//         Two,
-//         Three,
-//     };
+test "enum" {
+    const E = enum {
+        One,
+        Two,
+        Three,
+    };
 
-//     const inst = E.Two;
+    const inst = E.Two;
 
-//     try testFmt("E.Two", "{}", .{inst});
-// }
+    try testFmt("E.Two", "{}", .{inst});
+}
 
 // test "struct.self-referential" {
 //     const S = struct {
