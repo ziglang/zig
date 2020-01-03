@@ -412,29 +412,28 @@ pub fn formatType(
                 return formatInt(@ptrToInt(&value), 16, false, FormatOptions{}, generator);
             }
         },
-        // .Struct => {
-        //     if (comptime std.meta.trait.hasFn("format")(T)) {
-        //         return value.format(fmt, options, context, Errors, output);
-        //     }
-
-        //     try output(context, @typeName(T));
-        //     if (max_depth == 0) {
-        //         return output(context, "{ ... }");
-        //     }
-        //     comptime var field_i = 0;
-        //     try output(context, "{");
-        //     inline while (field_i < @memberCount(T)) : (field_i += 1) {
-        //         if (field_i == 0) {
-        //             try output(context, " .");
-        //         } else {
-        //             try output(context, ", .");
-        //         }
-        //         try output(context, @memberName(T, field_i));
-        //         try output(context, " = ");
-        //         try formatType(@field(value, @memberName(T, field_i)), "", options, context, Errors, output, max_depth - 1);
-        //     }
-        //     try output(context, " }");
-        // },
+        .Struct => {
+            // if (comptime std.meta.trait.hasFn("format")(T)) {
+            //     return value.format(fmt, options, context, Errors, output);
+            // }
+            generator.yield(@typeName(T));
+            if (max_depth == 0) {
+                return generator.yield("{ ... }");
+            }
+            comptime var field_i = 0;
+            generator.yield("{");
+            inline while (field_i < @memberCount(T)) : (field_i += 1) {
+                if (field_i == 0) {
+                    generator.yield(" .");
+                } else {
+                    generator.yield(", .");
+                }
+                generator.yield(@memberName(T, field_i));
+                generator.yield(" = ");
+                formatType(@field(value, @memberName(T, field_i)), "", options, generator, max_depth - 1);
+            }
+            generator.yield(" }");
+        },
         .Pointer => |ptr_info| switch (ptr_info.size) {
             .One => switch (@typeInfo(ptr_info.child)) {
                 builtin.TypeId.Array => |info| {
@@ -1305,24 +1304,24 @@ test "cstr" {
 //     try testFmt("file size: 66.06MB\n", "file size: {B:.2}\n", .{@as(usize, 63 * 1024 * 1024)});
 // }
 
-// test "struct" {
-//     {
-//         const Struct = struct {
-//             field: u8,
-//         };
-//         const value = Struct{ .field = 42 };
-//         try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", .{value});
-//         try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", .{&value});
-//     }
-//     {
-//         const Struct = struct {
-//             a: u0,
-//             b: u1,
-//         };
-//         const value = Struct{ .a = 0, .b = 1 };
-//         try testFmt("struct: Struct{ .a = 0, .b = 1 }\n", "struct: {}\n", .{value});
-//     }
-// }
+test "struct" {
+    {
+        const Struct = struct {
+            field: u8,
+        };
+        const value = Struct{ .field = 42 };
+        try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", .{value});
+        try testFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", .{&value});
+    }
+    {
+        const Struct = struct {
+            a: u0,
+            b: u1,
+        };
+        const value = Struct{ .a = 0, .b = 1 };
+        try testFmt("struct: Struct{ .a = 0, .b = 1 }\n", "struct: {}\n", .{value});
+    }
+}
 
 test "enum" {
     const Enum = enum {
@@ -1455,19 +1454,19 @@ test "enum" {
 //     try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", .{value});
 // }
 
-// test "struct" {
-//     const S = struct {
-//         a: u32,
-//         b: anyerror,
-//     };
+test "struct" {
+    const S = struct {
+        a: u32,
+        b: anyerror,
+    };
 
-//     const inst = S{
-//         .a = 456,
-//         .b = error.Unused,
-//     };
+    const inst = S{
+        .a = 456,
+        .b = error.Unused,
+    };
 
-//     try testFmt("S{ .a = 456, .b = error.Unused }", "{}", .{inst});
-// }
+    try testFmt("S{ .a = 456, .b = error.Unused }", "{}", .{inst});
+}
 
 test "union" {
     const TU = union(enum) {
