@@ -43,7 +43,6 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  libc [paths_file]            Display native libc paths file or validate one\n"
         "  run [source] [-- [args]]     create executable and run immediately\n"
         "  translate-c [source]         convert c code to zig code\n"
-        "  translate-c-2 [source]       experimental self-hosted translate-c\n"
         "  targets                      list available compilation targets\n"
         "  test [source]                create and run a test build\n"
         "  version                      print version number and exit\n"
