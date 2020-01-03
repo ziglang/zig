@@ -1695,13 +1695,13 @@ test "formatIntValue with comptime_int" {
 //     std.testing.expect(mem.eql(u8, buf3.toSlice(), "S{ .a = S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ .ptr = TU{ ... } } }, .e = E.Two, .vec = (10.200,2.220) }"));
 // }
 
-// test "positional" {
-//     try testFmt("2 1 0", "{2} {1} {0}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
-//     try testFmt("2 1 0", "{2} {1} {}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
-//     try testFmt("0 0", "{0} {0}", .{@as(usize, 0)});
-//     try testFmt("0 1", "{} {1}", .{ @as(usize, 0), @as(usize, 1) });
-//     try testFmt("1 0 0 1", "{1} {} {0} {}", .{ @as(usize, 0), @as(usize, 1) });
-// }
+test "positional" {
+    try testFmt("2 1 0", "{2} {1} {0}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
+    try testFmt("2 1 0", "{2} {1} {}", .{ @as(usize, 0), @as(usize, 1), @as(usize, 2) });
+    try testFmt("0 0", "{0} {0}", .{@as(usize, 0)});
+    try testFmt("0 1", "{} {1}", .{ @as(usize, 0), @as(usize, 1) });
+    try testFmt("1 0 0 1", "{1} {} {0} {}", .{ @as(usize, 0), @as(usize, 1) });
+}
 
 // test "positional with specifier" {
 //     try testFmt("10.0", "{0d:.1}", .{@as(f64, 9.999)});
