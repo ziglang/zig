@@ -470,20 +470,20 @@ pub fn formatType(
                 return formatPtr(T.Child, @ptrToInt(value), generator);
             },
         },
-        // .Array => |info| {
-        //     const Slice = @Type(builtin.TypeInfo{
-        //         .Pointer = .{
-        //             .size = .Slice,
-        //             .is_const = true,
-        //             .is_volatile = false,
-        //             .is_allowzero = false,
-        //             .alignment = @alignOf(info.child),
-        //             .child = info.child,
-        //             .sentinel = null,
-        //         },
-        //     });
-        //     return formatType(@as(Slice, &value), fmt, options, context, Errors, output, max_depth);
-        // },
+        .Array => |info| {
+            const Slice = @Type(builtin.TypeInfo{
+                .Pointer = .{
+                    .size = .Slice,
+                    .is_const = true,
+                    .is_volatile = false,
+                    .is_allowzero = false,
+                    .alignment = @alignOf(info.child),
+                    .child = info.child,
+                    .sentinel = null,
+                },
+            });
+            return @call(.{ .modifier = .always_tail }, formatType, .{ @as(Slice, &value), fmt, options, generator, max_depth });
+        },
         .Fn => {
             return formatPtr(T, @ptrToInt(value), generator);
         },
@@ -1246,20 +1246,20 @@ test "int.padded" {
 //     }
 // }
 
-// test "array" {
-//     {
-//         const value: [3]u8 = "abc".*;
-//         try testFmt("array: abc\n", "array: {}\n", .{value});
-//         try testFmt("array: abc\n", "array: {}\n", .{&value});
+test "array" {
+    {
+        const value: [3]u8 = "abc".*;
+        try testFmt("array: abc\n", "array: {}\n", .{value});
+        try testFmt("array: abc\n", "array: {}\n", .{&value});
 
-//         var buf: [100]u8 = undefined;
-//         try testFmt(
-//             try bufPrint(buf[0..], "array: [3]u8@{x}\n", .{@ptrToInt(&value)}),
-//             "array: {*}\n",
-//             .{&value},
-//         );
-//     }
-// }
+        var buf: [100]u8 = undefined;
+        try testFmt(
+            try bufPrint(buf[0..], "array: [3]u8@{x}\n", .{@ptrToInt(&value)}),
+            "array: {*}\n",
+            .{&value},
+        );
+    }
+}
 
 test "slice" {
     {
@@ -1540,16 +1540,16 @@ test "cstr" {
 //     try testFmt("B{ .a = A{ }, .c = 0 }", "{}", .{b});
 // }
 
-// test "bytes.hex" {
-//     const some_bytes = "\xCA\xFE\xBA\xBE";
-//     try testFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{some_bytes});
-//     try testFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{some_bytes});
-//     //Test Slices
-//     try testFmt("uppercase: CAFE\n", "uppercase: {X}\n", .{some_bytes[0..2]});
-//     try testFmt("lowercase: babe\n", "lowercase: {x}\n", .{some_bytes[2..]});
-//     const bytes_with_zeros = "\x00\x0E\xBA\xBE";
-//     try testFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
-// }
+test "bytes.hex" {
+    const some_bytes = "\xCA\xFE\xBA\xBE";
+    try testFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{some_bytes});
+    try testFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{some_bytes});
+    //Test Slices
+    try testFmt("uppercase: CAFE\n", "uppercase: {X}\n", .{some_bytes[0..2]});
+    try testFmt("lowercase: babe\n", "lowercase: {x}\n", .{some_bytes[2..]});
+    const bytes_with_zeros = "\x00\x0E\xBA\xBE";
+    try testFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
+}
 
 fn testFmt(expected: []const u8, comptime template: []const u8, args: var) !void {
     var buf: [100]u8 = undefined;
@@ -1597,24 +1597,24 @@ pub fn isWhiteSpace(byte: u8) bool {
     };
 }
 
-// pub fn hexToBytes(out: []u8, input: []const u8) !void {
-//     if (out.len * 2 < input.len)
-//         return error.InvalidLength;
+pub fn hexToBytes(out: []u8, input: []const u8) !void {
+    if (out.len * 2 < input.len)
+        return error.InvalidLength;
 
-//     var in_i: usize = 0;
-//     while (in_i != input.len) : (in_i += 2) {
-//         const hi = try charToDigit(input[in_i], 16);
-//         const lo = try charToDigit(input[in_i + 1], 16);
-//         out[in_i / 2] = (hi << 4) | lo;
-//     }
-// }
+    var in_i: usize = 0;
+    while (in_i != input.len) : (in_i += 2) {
+        const hi = try charToDigit(input[in_i], 16);
+        const lo = try charToDigit(input[in_i + 1], 16);
+        out[in_i / 2] = (hi << 4) | lo;
+    }
+}
 
-// test "hexToBytes" {
-//     const test_hex_str = "909A312BB12ED1F819B3521AC4C1E896F2160507FFC1C8381E3B07BB16BD1706";
-//     var pb: [32]u8 = undefined;
-//     try hexToBytes(pb[0..], test_hex_str);
-//     try testFmt(test_hex_str, "{X}", .{pb});
-// }
+test "hexToBytes" {
+    const test_hex_str = "909A312BB12ED1F819B3521AC4C1E896F2160507FFC1C8381E3B07BB16BD1706";
+    var pb: [32]u8 = undefined;
+    try hexToBytes(pb[0..], test_hex_str);
+    try testFmt(test_hex_str, "{X}", .{pb});
+}
 
 test "formatIntValue with comptime_int" {
     const value: comptime_int = 123456789123456789;
