@@ -150,6 +150,10 @@ pub fn format(
     comptime var specifier_end = 0;
     comptime var options = FormatOptions{};
 
+    // TODO: calculate this
+    var recur_stack: [0x10000]u8 = undefined;
+    var recur_allocator = std.heap.FixedBufferAllocator.init(&recur_stack);
+
     inline for (fmt) |c, i| {
         switch (state) {
             .Start => switch (c) {
@@ -207,6 +211,7 @@ pub fn format(
                         fmt[0..0],
                         options,
                         generator,
+                        &recur_allocator.allocator,
                         default_max_depth,
                     );
 
@@ -238,6 +243,7 @@ pub fn format(
                         fmt[specifier_start..i],
                         options,
                         generator,
+                        &recur_allocator.allocator,
                         default_max_depth,
                     );
                     state = .Start;
@@ -283,6 +289,7 @@ pub fn format(
                         fmt[specifier_start..specifier_end],
                         options,
                         generator,
+                        &recur_allocator.allocator,
                         default_max_depth,
                     );
                     state = .Start;
@@ -309,6 +316,7 @@ pub fn format(
                         fmt[specifier_start..specifier_end],
                         options,
                         generator,
+                        &recur_allocator.allocator,
                         default_max_depth,
                     );
                     state = .Start;
@@ -344,6 +352,7 @@ pub fn formatType(
     comptime fmt: []const u8,
     options: FormatOptions,
     generator: *Generator([]const u8),
+    allocator: *mem.Allocator,
     max_depth: usize,
 ) void {
     if (comptime std.mem.eql(u8, fmt, "*")) {
@@ -363,16 +372,25 @@ pub fn formatType(
         },
         .Optional => {
             if (value) |payload| {
-                return @call(.{ .modifier = .always_tail }, formatType, .{ payload, fmt, options, generator, max_depth });
+                // return @call(.{ .modifier = .always_tail }, formatType, .{ payload, fmt, options, generator, allocator, max_depth });
+                // TODO: reenable tail call once it is fixed https://github.com/ziglang/zig/issues/4060
+                var frame = allocator.create(
+                    @TypeOf(async formatType(payload, fmt, options, generator, allocator, max_depth)),
+                ) catch |err| switch (err) {
+                    error.OutOfMemory => return generator.yield(" ??OOM?? "),
+                };
+                defer allocator.destroy(frame);
+                frame.* = async formatType(payload, fmt, options, generator, allocator, max_depth);
+                await frame.*;
             } else {
                 return generator.yield("null");
             }
         },
         .ErrorUnion => {
             if (value) |payload| {
-                return @call(.{ .modifier = .always_tail }, formatType, .{ payload, fmt, options, generator, max_depth });
+                return @call(.{ .modifier = .always_tail }, formatType, .{ payload, fmt, options, generator, allocator, max_depth });
             } else |err| {
-                return @call(.{ .modifier = .always_tail }, formatType, .{ err, fmt, options, generator, max_depth });
+                return @call(.{ .modifier = .always_tail }, formatType, .{ err, fmt, options, generator, allocator, max_depth });
             }
         },
         .ErrorSet => {
@@ -385,7 +403,7 @@ pub fn formatType(
             // }
             generator.yield(@typeName(T));
             generator.yield(".");
-            return @call(.{ .modifier = .always_tail }, formatType, .{ @tagName(value), "", options, generator, max_depth });
+            return @call(.{ .modifier = .always_tail }, formatType, .{ @tagName(value), "", options, generator, allocator, max_depth });
         },
         .Union => {
             // if (comptime std.meta.trait.hasFn("format")(T)) {
@@ -402,8 +420,14 @@ pub fn formatType(
                 generator.yield(" = ");
                 inline for (info.fields) |u_field| {
                     if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
-                        // TODO: investigate why recursion just works
-                        formatType(@field(value, u_field.name), "", options, generator, max_depth - 1);
+                        var frame = allocator.create(
+                            @TypeOf(async formatType(@field(value, u_field.name), "", options, generator, allocator, max_depth - 1)),
+                        ) catch |err| switch (err) {
+                            error.OutOfMemory => return generator.yield(" ??OOM?? "),
+                        };
+                        defer allocator.destroy(frame);
+                        frame.* = async formatType(@field(value, u_field.name), "", options, generator, allocator, max_depth - 1);
+                        await frame.*;
                     }
                 }
                 generator.yield(" }");
@@ -430,7 +454,15 @@ pub fn formatType(
                 }
                 generator.yield(@memberName(T, field_i));
                 generator.yield(" = ");
-                formatType(@field(value, @memberName(T, field_i)), "", options, generator, max_depth - 1);
+
+                var frame = allocator.create(
+                    @TypeOf(async formatType(@field(value, @memberName(T, field_i)), "", options, generator, allocator, max_depth - 1)),
+                ) catch |err| switch (err) {
+                    error.OutOfMemory => return generator.yield(" ??OOM?? "),
+                };
+                defer allocator.destroy(frame);
+                frame.* = async formatType(@field(value, @memberName(T, field_i)), "", options, generator, allocator, max_depth - 1);
+                await frame.*;
             }
             generator.yield(" }");
         },
@@ -443,7 +475,7 @@ pub fn formatType(
                     return formatPtr(T.Child, @ptrToInt(value), generator);
                 },
                 builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
-                    return @call(.{ .modifier = .always_tail }, formatType, .{ value.*, fmt, options, generator, max_depth });
+                    return @call(.{ .modifier = .always_tail }, formatType, .{ value.*, fmt, options, generator, allocator, max_depth });
                 },
                 else => return formatPtr(T.Child, @ptrToInt(value), generator),
             },
@@ -481,7 +513,7 @@ pub fn formatType(
                     .sentinel = null,
                 },
             });
-            return @call(.{ .modifier = .always_tail }, formatType, .{ @as(Slice, &value), fmt, options, generator, max_depth });
+            return @call(.{ .modifier = .always_tail }, formatType, .{ @as(Slice, &value), fmt, options, generator, allocator, max_depth });
         },
         .Fn => {
             return formatPtr(T, @ptrToInt(value), generator);
@@ -1510,34 +1542,34 @@ test "enum" {
     try testFmt("E.Two", "{}", .{inst});
 }
 
-// test "struct.self-referential" {
-//     const S = struct {
-//         const SelfType = @This();
-//         a: ?*SelfType,
-//     };
+test "struct.self-referential" {
+    const S = struct {
+        const SelfType = @This();
+        a: ?*SelfType,
+    };
 
-//     var inst = S{
-//         .a = null,
-//     };
-//     inst.a = &inst;
+    var inst = S{
+        .a = null,
+    };
+    inst.a = &inst;
 
-//     try testFmt("S{ .a = S{ .a = S{ .a = S{ ... } } } }", "{}", .{inst});
-// }
+    try testFmt("S{ .a = S{ .a = S{ .a = S{ ... } } } }", "{}", .{inst});
+}
 
-// test "struct.zero-size" {
-//     const A = struct {
-//         fn foo() void {}
-//     };
-//     const B = struct {
-//         a: A,
-//         c: i32,
-//     };
+test "struct.zero-size" {
+    const A = struct {
+        fn foo() void {}
+    };
+    const B = struct {
+        a: A,
+        c: i32,
+    };
 
-//     const a = A{};
-//     const b = B{ .a = a, .c = 0 };
+    const a = A{};
+    const b = B{ .a = a, .c = 0 };
 
-//     try testFmt("B{ .a = A{ }, .c = 0 }", "{}", .{b});
-// }
+    try testFmt("B{ .a = A{ }, .c = 0 }", "{}", .{b});
+}
 
 test "bytes.hex" {
     const some_bytes = "\xCA\xFE\xBA\xBE";
