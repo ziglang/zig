@@ -21,6 +21,38 @@ pub const FormatOptions = struct {
     fill: u8 = ' ',
 };
 
+pub fn Generator(comptime Out: type) type {
+    return struct {
+        suspended: ?anyframe = null,
+        out: ?Out = undefined,
+        fresh: bool = true,
+
+        pub fn yield(self: *@This(), out: Out) void {
+            assert(self.suspended == null);
+            assert(self.out == null);
+            self.out = out;
+            self.suspended = @frame();
+            suspend;
+        }
+
+        pub fn next(self: *@This()) ?Out {
+            if (self.fresh) {
+                self.fresh = false;
+                return self.out;
+            } else if (self.suspended) |suspended| {
+                // Copy elision... bug?
+                const copy = suspended;
+                self.suspended = null;
+                self.out = null;
+                resume copy;
+                return self.out;
+            } else {
+                return null;
+            }
+        }
+    };
+}
+
 fn nextArg(comptime used_pos_args: *u32, comptime maybe_pos_arg: ?comptime_int, comptime next_arg: *comptime_int) comptime_int {
     if (maybe_pos_arg) |pos_arg| {
         used_pos_args.* |= 1 << pos_arg;
@@ -44,278 +76,276 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
     return false;
 }
 
-// /// Renders fmt string with args, calling output with slices of bytes.
-// /// If `output` returns an error, the error is returned from `format` and
-// /// `output` is not called again.
-// ///
-// /// The format string must be comptime known and may contain placeholders following
-// /// this format:
-// /// `{[position][specifier]:[fill][alignment][width].[precision]}`
-// ///
-// /// Each word between `[` and `]` is a parameter you have to replace with something:
-// ///
-// /// - *position* is the index of the argument that should be inserted
-// /// - *specifier* is a type-dependent formatting option that determines how a type should formatted (see below)
-// /// - *fill* is a single character which is used to pad the formatted text
-// /// - *alignment* is one of the three characters `<`, `^` or `>`. they define if the text is *left*, *center*, or *right* aligned
-// /// - *width* is the total width of the field in characters
-// /// - *precision* specifies how many decimals a formatted number should have
-// ///
-// /// Note that most of the parameters are optional and may be omitted. Also you can leave out separators like `:` and `.` when
-// /// all parameters after the separator are omitted.
-// /// Only exception is the *fill* parameter. If *fill* is required, one has to specify *alignment* as well, as otherwise
-// /// the digits after `:` is interpreted as *width*, not *fill*.
-// ///
-// /// The *specifier* has several options for types:
-// /// - `x` and `X`:
-// ///   - format the non-numeric value as a string of bytes in hexadecimal notation ("binary dump") in either lower case or upper case
-// ///   - output numeric value in hexadecimal notation
-// /// - `s`: print a pointer-to-many as a c-string, use zero-termination
-// /// - `B` and `Bi`: output a memory size in either metric (1000) or power-of-two (1024) based notation. works for both float and integer values.
-// /// - `e`: output floating point value in scientific notation
-// /// - `d`: output numeric value in decimal notation
-// /// - `b`: output integer value in binary notation
-// /// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
-// /// - `*`: output the address of the value instead of the value itself.
-// ///
-// /// If a formatted user type contains a function of the type
-// /// ```
-// /// fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, context: var, comptime Errors: type, output: fn (@TypeOf(context), []const u8) Errors!void) Errors!void
-// /// ```
-// /// with `?` being the type formatted, this function will be called instead of the default implementation.
-// /// This allows user types to be formatted in a logical manner instead of dumping all fields of the type.
-// ///
-// /// A user type may be a `struct`, `union` or `enum` type.
-// pub fn format(
-//     context: var,
-//     comptime Errors: type,
-//     output: fn (@TypeOf(context), []const u8) Errors!void,
-//     comptime fmt: []const u8,
-//     args: var,
-// ) Errors!void {
-//     const ArgSetType = @IntType(false, 32);
-//     if (@typeInfo(@TypeOf(args)) != .Struct) {
-//         @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
-//     }
-//     if (args.len > ArgSetType.bit_count) {
-//         @compileError("32 arguments max are supported per format call");
-//     }
+/// Renders fmt string with args, calling output with slices of bytes.
+/// If `output` returns an error, the error is returned from `format` and
+/// `output` is not called again.
+///
+/// The format string must be comptime known and may contain placeholders following
+/// this format:
+/// `{[position][specifier]:[fill][alignment][width].[precision]}`
+///
+/// Each word between `[` and `]` is a parameter you have to replace with something:
+///
+/// - *position* is the index of the argument that should be inserted
+/// - *specifier* is a type-dependent formatting option that determines how a type should formatted (see below)
+/// - *fill* is a single character which is used to pad the formatted text
+/// - *alignment* is one of the three characters `<`, `^` or `>`. they define if the text is *left*, *center*, or *right* aligned
+/// - *width* is the total width of the field in characters
+/// - *precision* specifies how many decimals a formatted number should have
+///
+/// Note that most of the parameters are optional and may be omitted. Also you can leave out separators like `:` and `.` when
+/// all parameters after the separator are omitted.
+/// Only exception is the *fill* parameter. If *fill* is required, one has to specify *alignment* as well, as otherwise
+/// the digits after `:` is interpreted as *width*, not *fill*.
+///
+/// The *specifier* has several options for types:
+/// - `x` and `X`:
+///   - format the non-numeric value as a string of bytes in hexadecimal notation ("binary dump") in either lower case or upper case
+///   - output numeric value in hexadecimal notation
+/// - `s`: print a pointer-to-many as a c-string, use zero-termination
+/// - `B` and `Bi`: output a memory size in either metric (1000) or power-of-two (1024) based notation. works for both float and integer values.
+/// - `e`: output floating point value in scientific notation
+/// - `d`: output numeric value in decimal notation
+/// - `b`: output integer value in binary notation
+/// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
+/// - `*`: output the address of the value instead of the value itself.
+///
+/// If a formatted user type contains a function of the type
+/// ```
+/// fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, context: var, comptime Errors: type, output: fn (@TypeOf(context), []const u8) Errors!void) Errors!void
+/// ```
+/// with `?` being the type formatted, this function will be called instead of the default implementation.
+/// This allows user types to be formatted in a logical manner instead of dumping all fields of the type.
+///
+/// A user type may be a `struct`, `union` or `enum` type.
+pub fn format(
+    generator: *Generator([]const u8),
+    comptime fmt: []const u8,
+    args: var,
+) void {
+    const ArgSetType = @IntType(false, 32);
+    if (@typeInfo(@TypeOf(args)) != .Struct) {
+        @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
+    }
+    if (args.len > ArgSetType.bit_count) {
+        @compileError("32 arguments max are supported per format call");
+    }
 
-//     const State = enum {
-//         Start,
-//         Positional,
-//         CloseBrace,
-//         Specifier,
-//         FormatFillAndAlign,
-//         FormatWidth,
-//         FormatPrecision,
-//     };
+    const State = enum {
+        Start,
+        Positional,
+        CloseBrace,
+        Specifier,
+        FormatFillAndAlign,
+        FormatWidth,
+        FormatPrecision,
+    };
 
-//     comptime var start_index = 0;
-//     comptime var state = State.Start;
-//     comptime var next_arg = 0;
-//     comptime var maybe_pos_arg: ?comptime_int = null;
-//     comptime var used_pos_args: ArgSetType = 0;
-//     comptime var specifier_start = 0;
-//     comptime var specifier_end = 0;
-//     comptime var options = FormatOptions{};
+    comptime var start_index = 0;
+    comptime var state = State.Start;
+    comptime var next_arg = 0;
+    comptime var maybe_pos_arg: ?comptime_int = null;
+    comptime var used_pos_args: ArgSetType = 0;
+    comptime var specifier_start = 0;
+    comptime var specifier_end = 0;
+    comptime var options = FormatOptions{};
 
-//     inline for (fmt) |c, i| {
-//         switch (state) {
-//             .Start => switch (c) {
-//                 '{' => {
-//                     if (start_index < i) {
-//                         try output(context, fmt[start_index..i]);
-//                     }
+    inline for (fmt) |c, i| {
+        switch (state) {
+            .Start => switch (c) {
+                '{' => {
+                    if (start_index < i) {
+                        generator.yield(fmt[start_index..i]);
+                    }
 
-//                     start_index = i;
-//                     specifier_start = i + 1;
-//                     specifier_end = i + 1;
-//                     maybe_pos_arg = null;
-//                     state = .Positional;
-//                     options = FormatOptions{};
-//                 },
-//                 '}' => {
-//                     if (start_index < i) {
-//                         try output(context, fmt[start_index..i]);
-//                     }
-//                     state = .CloseBrace;
-//                 },
-//                 else => {},
-//             },
-//             .Positional => switch (c) {
-//                 '{' => {
-//                     state = .Start;
-//                     start_index = i;
-//                 },
-//                 ':' => {
-//                     state = if (comptime peekIsAlign(fmt[i..])) State.FormatFillAndAlign else State.FormatWidth;
-//                     specifier_end = i;
-//                 },
-//                 '0'...'9' => {
-//                     if (maybe_pos_arg == null) {
-//                         maybe_pos_arg = 0;
-//                     }
+                    start_index = i;
+                    specifier_start = i + 1;
+                    specifier_end = i + 1;
+                    maybe_pos_arg = null;
+                    state = .Positional;
+                    options = FormatOptions{};
+                },
+                '}' => {
+                    if (start_index < i) {
+                        generator.yield(fmt[start_index..i]);
+                    }
+                    state = .CloseBrace;
+                },
+                else => {},
+            },
+            .Positional => switch (c) {
+                '{' => {
+                    state = .Start;
+                    start_index = i;
+                },
+                ':' => {
+                    state = if (comptime peekIsAlign(fmt[i..])) State.FormatFillAndAlign else State.FormatWidth;
+                    specifier_end = i;
+                },
+                '0'...'9' => {
+                    if (maybe_pos_arg == null) {
+                        maybe_pos_arg = 0;
+                    }
 
-//                     maybe_pos_arg.? *= 10;
-//                     maybe_pos_arg.? += c - '0';
-//                     specifier_start = i + 1;
+                    maybe_pos_arg.? *= 10;
+                    maybe_pos_arg.? += c - '0';
+                    specifier_start = i + 1;
 
-//                     if (maybe_pos_arg.? >= args.len) {
-//                         @compileError("Positional value refers to non-existent argument");
-//                     }
-//                 },
-//                 '}' => {
-//                     const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
+                    if (maybe_pos_arg.? >= args.len) {
+                        @compileError("Positional value refers to non-existent argument");
+                    }
+                },
+                '}' => {
+                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
 
-//                     if (arg_to_print >= args.len) {
-//                         @compileError("Too few arguments");
-//                     }
+                    if (arg_to_print >= args.len) {
+                        @compileError("Too few arguments");
+                    }
 
-//                     try formatType(
-//                         args[arg_to_print],
-//                         fmt[0..0],
-//                         options,
-//                         context,
-//                         Errors,
-//                         output,
-//                         default_max_depth,
-//                     );
+                    // try formatType(
+                    //     args[arg_to_print],
+                    //     fmt[0..0],
+                    //     options,
+                    //     generator,
+                    //     error{},
+                    //     output,
+                    //     default_max_depth,
+                    // );
 
-//                     state = .Start;
-//                     start_index = i + 1;
-//                 },
-//                 else => {
-//                     state = .Specifier;
-//                     specifier_start = i;
-//                 },
-//             },
-//             .CloseBrace => switch (c) {
-//                 '}' => {
-//                     state = .Start;
-//                     start_index = i;
-//                 },
-//                 else => @compileError("Single '}' encountered in format string"),
-//             },
-//             .Specifier => switch (c) {
-//                 ':' => {
-//                     specifier_end = i;
-//                     state = if (comptime peekIsAlign(fmt[i..])) State.FormatFillAndAlign else State.FormatWidth;
-//                 },
-//                 '}' => {
-//                     const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
+                    state = .Start;
+                    start_index = i + 1;
+                },
+                else => {
+                    state = .Specifier;
+                    specifier_start = i;
+                },
+            },
+            .CloseBrace => switch (c) {
+                '}' => {
+                    state = .Start;
+                    start_index = i;
+                },
+                else => @compileError("Single '}' encountered in format string"),
+            },
+            .Specifier => switch (c) {
+                ':' => {
+                    specifier_end = i;
+                    state = if (comptime peekIsAlign(fmt[i..])) State.FormatFillAndAlign else State.FormatWidth;
+                },
+                '}' => {
+                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
 
-//                     try formatType(
-//                         args[arg_to_print],
-//                         fmt[specifier_start..i],
-//                         options,
-//                         context,
-//                         Errors,
-//                         output,
-//                         default_max_depth,
-//                     );
-//                     state = .Start;
-//                     start_index = i + 1;
-//                 },
-//                 else => {},
-//             },
-//             // Only entered if the format string contains a fill/align segment.
-//             .FormatFillAndAlign => switch (c) {
-//                 '<' => {
-//                     options.alignment = Alignment.Left;
-//                     state = .FormatWidth;
-//                 },
-//                 '^' => {
-//                     options.alignment = Alignment.Center;
-//                     state = .FormatWidth;
-//                 },
-//                 '>' => {
-//                     options.alignment = Alignment.Right;
-//                     state = .FormatWidth;
-//                 },
-//                 else => {
-//                     options.fill = c;
-//                 },
-//             },
-//             .FormatWidth => switch (c) {
-//                 '0'...'9' => {
-//                     if (options.width == null) {
-//                         options.width = 0;
-//                     }
+                    // try formatType(
+                    //     args[arg_to_print],
+                    //     fmt[specifier_start..i],
+                    //     options,
+                    //     generator,
+                    //     error{},
+                    //     output,
+                    //     default_max_depth,
+                    // );
+                    state = .Start;
+                    start_index = i + 1;
+                },
+                else => {},
+            },
+            // Only entered if the format string contains a fill/align segment.
+            .FormatFillAndAlign => switch (c) {
+                '<' => {
+                    options.alignment = Alignment.Left;
+                    state = .FormatWidth;
+                },
+                '^' => {
+                    options.alignment = Alignment.Center;
+                    state = .FormatWidth;
+                },
+                '>' => {
+                    options.alignment = Alignment.Right;
+                    state = .FormatWidth;
+                },
+                else => {
+                    options.fill = c;
+                },
+            },
+            .FormatWidth => switch (c) {
+                '0'...'9' => {
+                    if (options.width == null) {
+                        options.width = 0;
+                    }
 
-//                     options.width.? *= 10;
-//                     options.width.? += c - '0';
-//                 },
-//                 '.' => {
-//                     state = .FormatPrecision;
-//                 },
-//                 '}' => {
-//                     const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
+                    options.width.? *= 10;
+                    options.width.? += c - '0';
+                },
+                '.' => {
+                    state = .FormatPrecision;
+                },
+                '}' => {
+                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
 
-//                     try formatType(
-//                         args[arg_to_print],
-//                         fmt[specifier_start..specifier_end],
-//                         options,
-//                         context,
-//                         Errors,
-//                         output,
-//                         default_max_depth,
-//                     );
-//                     state = .Start;
-//                     start_index = i + 1;
-//                 },
-//                 else => {
-//                     @compileError("Unexpected character in width value: " ++ [_]u8{c});
-//                 },
-//             },
-//             .FormatPrecision => switch (c) {
-//                 '0'...'9' => {
-//                     if (options.precision == null) {
-//                         options.precision = 0;
-//                     }
+                    // try formatType(
+                    //     args[arg_to_print],
+                    //     fmt[specifier_start..specifier_end],
+                    //     options,
+                    //     generator,
+                    //     error{},
+                    //     output,
+                    //     default_max_depth,
+                    // );
+                    state = .Start;
+                    start_index = i + 1;
+                },
+                else => {
+                    @compileError("Unexpected character in width value: " ++ [_]u8{c});
+                },
+            },
+            .FormatPrecision => switch (c) {
+                '0'...'9' => {
+                    if (options.precision == null) {
+                        options.precision = 0;
+                    }
 
-//                     options.precision.? *= 10;
-//                     options.precision.? += c - '0';
-//                 },
-//                 '}' => {
-//                     const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
+                    options.precision.? *= 10;
+                    options.precision.? += c - '0';
+                },
+                '}' => {
+                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
 
-//                     try formatType(
-//                         args[arg_to_print],
-//                         fmt[specifier_start..specifier_end],
-//                         options,
-//                         context,
-//                         Errors,
-//                         output,
-//                         default_max_depth,
-//                     );
-//                     state = .Start;
-//                     start_index = i + 1;
-//                 },
-//                 else => {
-//                     @compileError("Unexpected character in precision value: " ++ [_]u8{c});
-//                 },
-//             },
-//         }
-//     }
-//     comptime {
-//         // All arguments must have been printed but we allow mixing positional and fixed to achieve this.
-//         var i: usize = 0;
-//         inline while (i < next_arg) : (i += 1) {
-//             used_pos_args |= 1 << i;
-//         }
+                    // try formatType(
+                    //     args[arg_to_print],
+                    //     fmt[specifier_start..specifier_end],
+                    //     options,
+                    //     generator,
+                    //     error{},
+                    //     output,
+                    //     default_max_depth,
+                    // );
+                    state = .Start;
+                    start_index = i + 1;
+                },
+                else => {
+                    @compileError("Unexpected character in precision value: " ++ [_]u8{c});
+                },
+            },
+        }
+    }
+    comptime {
+        // All arguments must have been printed but we allow mixing positional and fixed to achieve this.
+        var i: usize = 0;
+        inline while (i < next_arg) : (i += 1) {
+            used_pos_args |= 1 << i;
+        }
 
-//         if (@popCount(ArgSetType, used_pos_args) != args.len) {
-//             @compileError("Unused arguments");
-//         }
-//         if (state != State.Start) {
-//             @compileError("Incomplete format string: " ++ fmt);
-//         }
-//     }
-//     if (start_index < fmt.len) {
-//         try output(context, fmt[start_index..]);
-//     }
-// }
+        if (@popCount(ArgSetType, used_pos_args) != args.len) {
+            @compileError("Unused arguments");
+        }
+        if (state != State.Start) {
+            @compileError("Incomplete format string: " ++ fmt);
+        }
+    }
+    if (start_index < fmt.len) {
+        generator.yield(fmt[start_index..]);
+    }
+}
 
 // pub fn formatType(
 //     value: var,
@@ -1102,43 +1132,46 @@ fn digitToChar(digit: u8, uppercase: bool) u8 {
     };
 }
 
-// const BufPrintContext = struct {
-//     remaining: []u8,
-// };
+pub const BufPrintError = error{
+    /// As much as possible was written to the buffer, but it was too small to fit all the printed bytes.
+    BufferTooSmall,
+};
+pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: var) BufPrintError![]u8 {
+    var remaining = buf;
 
-// fn bufPrintWrite(context: *BufPrintContext, bytes: []const u8) !void {
-//     if (context.remaining.len < bytes.len) {
-//         mem.copy(u8, context.remaining, bytes[0..context.remaining.len]);
-//         return error.BufferTooSmall;
-//     }
-//     mem.copy(u8, context.remaining, bytes);
-//     context.remaining = context.remaining[bytes.len..];
-// }
+    var generator = Generator([]const u8){};
+    _ = async format(&generator, fmt, args);
+    while (generator.next()) |bytes| {
+        if (remaining.len < bytes.len) {
+            mem.copy(u8, remaining, bytes[0..remaining.len]);
+            return error.BufferTooSmall;
+        }
+        mem.copy(u8, remaining, bytes);
+        remaining = remaining[bytes.len..];
+    }
+    return buf[0 .. buf.len - remaining.len];
+}
 
-// pub const BufPrintError = error{
-//     /// As much as possible was written to the buffer, but it was too small to fit all the printed bytes.
-//     BufferTooSmall,
-// };
-// pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: var) BufPrintError![]u8 {
-//     var context = BufPrintContext{ .remaining = buf };
-//     try format(&context, BufPrintError, bufPrintWrite, fmt, args);
-//     return buf[0 .. buf.len - context.remaining.len];
-// }
+pub const AllocPrintError = error{OutOfMemory};
 
-// pub const AllocPrintError = error{OutOfMemory};
+pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![]u8 {
+    const buf = try allocator.alloc(u8, countSize(fmt, args));
+    return bufPrint(buf, fmt, args) catch |err| switch (err) {
+        error.BufferTooSmall => unreachable, // we just counted the size above
+    };
+}
 
-// pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![]u8 {
-//     var size: usize = 0;
-//     format(&size, error{}, countSize, fmt, args) catch |err| switch (err) {};
-//     const buf = try allocator.alloc(u8, size);
-//     return bufPrint(buf, fmt, args) catch |err| switch (err) {
-//         error.BufferTooSmall => unreachable, // we just counted the size above
-//     };
-// }
+fn countSize(comptime fmt: []const u8, args: var) usize {
+    var size: usize = 0;
 
-// fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
-//     size.* += bytes.len;
-// }
+    var generator = Generator([]const u8){};
+    _ = async format(&generator, fmt, args);
+    while (generator.next()) |bytes| {
+        size += bytes.len;
+    }
+
+    return size;
+}
 
 // test "bufPrintInt" {
 //     var buffer: [100]u8 = undefined;
