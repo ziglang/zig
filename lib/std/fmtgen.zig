@@ -361,13 +361,13 @@ pub fn formatType(
         .Bool => {
             return generator.yield(if (value) "true" else "false");
         },
-        // .Optional => {
-        //     if (value) |payload| {
-        //         return formatType(payload, fmt, options, context, Errors, output, max_depth);
-        //     } else {
-        //         return output(context, "null");
-        //     }
-        // },
+        .Optional => {
+            if (value) |payload| {
+                return @call(.{ .modifier = .always_tail }, formatType, .{ payload, fmt, options, generator, max_depth });
+            } else {
+                return generator.yield("null");
+            }
+        },
         // .ErrorUnion => {
         //     if (value) |payload| {
         //         return formatType(payload, fmt, options, context, Errors, output, max_depth);
@@ -1185,16 +1185,16 @@ test "parse unsigned comptime" {
     }
 }
 
-// test "optional" {
-//     {
-//         const value: ?i32 = 1234;
-//         try testFmt("optional: 1234\n", "optional: {}\n", .{value});
-//     }
-//     {
-//         const value: ?i32 = null;
-//         try testFmt("optional: null\n", "optional: {}\n", .{value});
-//     }
-// }
+test "optional" {
+    {
+        const value: ?i32 = 1234;
+        try testFmt("optional: 1234\n", "optional: {}\n", .{value});
+    }
+    {
+        const value: ?i32 = null;
+        try testFmt("optional: null\n", "optional: {}\n", .{value});
+    }
+}
 
 // test "error" {
 //     {
