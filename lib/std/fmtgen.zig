@@ -443,9 +443,9 @@ pub fn formatType(
                     }
                     return formatPtr(T.Child, @ptrToInt(value), generator);
                 },
-                // builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
-                //     return formatType(value.*, fmt, options, context, Errors, output, max_depth);
-                // },
+                builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
+                    return @call(.{ .modifier = .always_tail }, formatType, .{ value.*, fmt, options, generator, max_depth });
+                },
                 else => return formatPtr(T.Child, @ptrToInt(value), generator),
             },
             .Many => {
@@ -487,7 +487,7 @@ pub fn formatType(
         .Fn => {
             return formatPtr(T, @ptrToInt(value), generator);
         },
-        // .Type => return output(context, @typeName(T)),
+        .Type => return generator.yield(@typeName(T)),
         else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
     }
 }
