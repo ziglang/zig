@@ -368,17 +368,17 @@ pub fn formatType(
                 return generator.yield("null");
             }
         },
-        // .ErrorUnion => {
-        //     if (value) |payload| {
-        //         return formatType(payload, fmt, options, context, Errors, output, max_depth);
-        //     } else |err| {
-        //         return formatType(err, fmt, options, context, Errors, output, max_depth);
-        //     }
-        // },
-        // .ErrorSet => {
-        //     try output(context, "error.");
-        //     return output(context, @errorName(value));
-        // },
+        .ErrorUnion => {
+            if (value) |payload| {
+                return @call(.{ .modifier = .always_tail }, formatType, .{ payload, fmt, options, generator, max_depth });
+            } else |err| {
+                return @call(.{ .modifier = .always_tail }, formatType, .{ err, fmt, options, generator, max_depth });
+            }
+        },
+        .ErrorSet => {
+            generator.yield("error.");
+            return generator.yield(@errorName(value));
+        },
         // .Enum => {
         //     if (comptime std.meta.trait.hasFn("format")(T)) {
         //         return value.format(fmt, options, context, Errors, output);
@@ -1196,16 +1196,16 @@ test "optional" {
     }
 }
 
-// test "error" {
-//     {
-//         const value: anyerror!i32 = 1234;
-//         try testFmt("error union: 1234\n", "error union: {}\n", .{value});
-//     }
-//     {
-//         const value: anyerror!i32 = error.InvalidChar;
-//         try testFmt("error union: error.InvalidChar\n", "error union: {}\n", .{value});
-//     }
-// }
+test "error" {
+    {
+        const value: anyerror!i32 = 1234;
+        try testFmt("error union: 1234\n", "error union: {}\n", .{value});
+    }
+    {
+        const value: anyerror!i32 = error.InvalidChar;
+        try testFmt("error union: error.InvalidChar\n", "error union: {}\n", .{value});
+    }
+}
 
 test "int.small" {
     {
