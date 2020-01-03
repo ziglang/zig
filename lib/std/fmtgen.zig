@@ -387,30 +387,31 @@ pub fn formatType(
             generator.yield(".");
             return @call(.{ .modifier = .always_tail }, formatType, .{ @tagName(value), "", options, generator, max_depth });
         },
-        // .Union => {
-        //     if (comptime std.meta.trait.hasFn("format")(T)) {
-        //         return value.format(fmt, options, context, Errors, output);
-        //     }
-
-        //     try output(context, @typeName(T));
-        //     if (max_depth == 0) {
-        //         return output(context, "{ ... }");
-        //     }
-        //     const info = @typeInfo(T).Union;
-        //     if (info.tag_type) |UnionTagType| {
-        //         try output(context, "{ .");
-        //         try output(context, @tagName(@as(UnionTagType, value)));
-        //         try output(context, " = ");
-        //         inline for (info.fields) |u_field| {
-        //             if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
-        //                 try formatType(@field(value, u_field.name), "", options, context, Errors, output, max_depth - 1);
-        //             }
-        //         }
-        //         try output(context, " }");
-        //     } else {
-        //         try format(context, Errors, output, "@{x}", .{@ptrToInt(&value)});
-        //     }
-        // },
+        .Union => {
+            // if (comptime std.meta.trait.hasFn("format")(T)) {
+            //     return value.format(fmt, options, context, Errors, output);
+            // }
+            generator.yield(@typeName(T));
+            if (max_depth == 0) {
+                return generator.yield("{ ... }");
+            }
+            const info = @typeInfo(T).Union;
+            if (info.tag_type) |UnionTagType| {
+                generator.yield("{ .");
+                generator.yield(@tagName(@as(UnionTagType, value)));
+                generator.yield(" = ");
+                inline for (info.fields) |u_field| {
+                    if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
+                        // TODO: investigate why recursion just works
+                        formatType(@field(value, u_field.name), "", options, generator, max_depth - 1);
+                    }
+                }
+                generator.yield(" }");
+            } else {
+                generator.yield("@");
+                return formatInt(@ptrToInt(&value), 16, false, FormatOptions{}, generator);
+            }
+        },
         // .Struct => {
         //     if (comptime std.meta.trait.hasFn("format")(T)) {
         //         return value.format(fmt, options, context, Errors, output);
@@ -1468,35 +1469,35 @@ test "enum" {
 //     try testFmt("S{ .a = 456, .b = error.Unused }", "{}", .{inst});
 // }
 
-// test "union" {
-//     const TU = union(enum) {
-//         float: f32,
-//         int: u32,
-//     };
+test "union" {
+    const TU = union(enum) {
+        float: f32,
+        int: u32,
+    };
 
-//     const UU = union {
-//         float: f32,
-//         int: u32,
-//     };
+    const UU = union {
+        float: f32,
+        int: u32,
+    };
 
-//     const EU = extern union {
-//         float: f32,
-//         int: u32,
-//     };
+    const EU = extern union {
+        float: f32,
+        int: u32,
+    };
 
-//     const tu_inst = TU{ .int = 123 };
-//     const uu_inst = UU{ .int = 456 };
-//     const eu_inst = EU{ .float = 321.123 };
+    const tu_inst = TU{ .int = 123 };
+    const uu_inst = UU{ .int = 456 };
+    const eu_inst = EU{ .float = 321.123 };
 
-//     try testFmt("TU{ .int = 123 }", "{}", .{tu_inst});
+    try testFmt("TU{ .int = 123 }", "{}", .{tu_inst});
 
-//     var buf: [100]u8 = undefined;
-//     const uu_result = try bufPrint(buf[0..], "{}", .{uu_inst});
-//     std.testing.expect(mem.eql(u8, uu_result[0..3], "UU@"));
+    var buf: [100]u8 = undefined;
+    const uu_result = try bufPrint(buf[0..], "{}", .{uu_inst});
+    std.testing.expect(mem.eql(u8, uu_result[0..3], "UU@"));
 
-//     const eu_result = try bufPrint(buf[0..], "{}", .{eu_inst});
-//     std.testing.expect(mem.eql(u8, uu_result[0..3], "EU@"));
-// }
+    const eu_result = try bufPrint(buf[0..], "{}", .{eu_inst});
+    std.testing.expect(mem.eql(u8, uu_result[0..3], "EU@"));
+}
 
 test "enum" {
     const E = enum {
