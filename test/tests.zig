@@ -14,6 +14,7 @@ const builtin = @import("builtin");
 const Mode = builtin.Mode;
 const LibExeObjStep = build.LibExeObjStep;
 
+// Cases
 const compare_output = @import("compare_output.zig");
 const standalone = @import("standalone.zig");
 const stack_traces = @import("stack_traces.zig");
@@ -21,7 +22,11 @@ const compile_errors = @import("compile_errors.zig");
 const assemble_and_link = @import("assemble_and_link.zig");
 const runtime_safety = @import("runtime_safety.zig");
 const translate_c = @import("translate_c.zig");
+const run_translated_c = @import("run_translated_c.zig");
 const gen_h = @import("gen_h.zig");
+
+// Implementations
+pub const RunTranslatedCContext = @import("src/run_translated_c.zig").RunTranslatedCContext;
 
 const TestTarget = struct {
     target: Target = .Native,
@@ -379,6 +384,20 @@ pub fn addTranslateCTests(b: *build.Builder, test_filter: ?[]const u8) *build.St
     };
 
     translate_c.addCases(cases);
+
+    return cases.step;
+}
+
+pub fn addRunTranslatedCTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
+    const cases = b.allocator.create(RunTranslatedCContext) catch unreachable;
+    cases.* = .{
+        .b = b,
+        .step = b.step("test-run-translated-c", "Run the Run-Translated-C tests"),
+        .test_index = 0,
+        .test_filter = test_filter,
+    };
+
+    run_translated_c.addCases(cases);
 
     return cases.step;
 }
