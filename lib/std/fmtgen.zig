@@ -747,152 +747,154 @@ pub fn formatFloatScientific(
     }
 }
 
-// // Print a float of the format x.yyyyy where the number of y is specified by the precision argument.
-// // By default floats are printed at full precision (no rounding).
-// pub fn formatFloatDecimal(
-//     value: var,
-//     options: FormatOptions,
-//     context: var,
-//     comptime Errors: type,
-//     output: fn (@TypeOf(context), []const u8) Errors!void,
-// ) Errors!void {
-//     var x = @as(f64, value);
+// Print a float of the format x.yyyyy where the number of y is specified by the precision argument.
+// By default floats are printed at full precision (no rounding).
+pub fn formatFloatDecimal(
+    value: var,
+    options: FormatOptions,
+    generator: *Generator([]const u8),
+) void {
+    var x = @as(f64, value);
 
-//     // Errol doesn't handle these special cases.
-//     if (math.signbit(x)) {
-//         try output(context, "-");
-//         x = -x;
-//     }
+    // Errol doesn't handle these special cases.
+    if (math.signbit(x)) {
+        generator.yield("-");
+        x = -x;
+    }
 
-//     if (math.isNan(x)) {
-//         return output(context, "nan");
-//     }
-//     if (math.isPositiveInf(x)) {
-//         return output(context, "inf");
-//     }
-//     if (x == 0.0) {
-//         try output(context, "0");
+    if (math.isNan(x)) {
+        return generator.yield("nan");
+    }
+    if (math.isPositiveInf(x)) {
+        return generator.yield("inf");
+    }
+    if (x == 0.0) {
+        generator.yield("0");
 
-//         if (options.precision) |precision| {
-//             if (precision != 0) {
-//                 try output(context, ".");
-//                 var i: usize = 0;
-//                 while (i < precision) : (i += 1) {
-//                     try output(context, "0");
-//                 }
-//             } else {
-//                 try output(context, ".0");
-//             }
-//         } else {
-//             try output(context, "0");
-//         }
+        if (options.precision) |prec_orig| {
+            // TODO: remove copy once this is fixed https://github.com/ziglang/zig/issues/4065
+            const precision = prec_orig;
+            if (precision != 0) {
+                generator.yield(".");
+                var i: usize = 0;
+                while (i < precision) : (i += 1) {
+                    generator.yield("0");
+                }
+            } else {
+                generator.yield(".0");
+            }
+        } else {
+            generator.yield("0");
+        }
 
-//         return;
-//     }
+        return;
+    }
 
-//     // non-special case, use errol3
-//     var buffer: [32]u8 = undefined;
-//     var float_decimal = errol.errol3(x, buffer[0..]);
+    // non-special case, use errol3
+    var buffer: [32]u8 = undefined;
+    var float_decimal = errol.errol3(x, buffer[0..]);
 
-//     if (options.precision) |precision| {
-//         errol.roundToPrecision(&float_decimal, precision, errol.RoundMode.Decimal);
+    if (options.precision) |prec_orig| {
+        // TODO: remove copy once this is fixed https://github.com/ziglang/zig/issues/4065
+        const precision = prec_orig;
+        errol.roundToPrecision(&float_decimal, precision, errol.RoundMode.Decimal);
 
-//         // exp < 0 means the leading is always 0 as errol result is normalized.
-//         var num_digits_whole = if (float_decimal.exp > 0) @intCast(usize, float_decimal.exp) else 0;
+        // exp < 0 means the leading is always 0 as errol result is normalized.
+        var num_digits_whole = if (float_decimal.exp > 0) @intCast(usize, float_decimal.exp) else 0;
 
-//         // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
-//         var num_digits_whole_no_pad = math.min(num_digits_whole, float_decimal.digits.len);
+        // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
+        var num_digits_whole_no_pad = math.min(num_digits_whole, float_decimal.digits.len);
 
-//         if (num_digits_whole > 0) {
-//             // We may have to zero pad, for instance 1e4 requires zero padding.
-//             try output(context, float_decimal.digits[0..num_digits_whole_no_pad]);
+        if (num_digits_whole > 0) {
+            // We may have to zero pad, for instance 1e4 requires zero padding.
+            generator.yield(float_decimal.digits[0..num_digits_whole_no_pad]);
 
-//             var i = num_digits_whole_no_pad;
-//             while (i < num_digits_whole) : (i += 1) {
-//                 try output(context, "0");
-//             }
-//         } else {
-//             try output(context, "0");
-//         }
+            var i = num_digits_whole_no_pad;
+            while (i < num_digits_whole) : (i += 1) {
+                generator.yield("0");
+            }
+        } else {
+            generator.yield("0");
+        }
 
-//         // {.0} special case doesn't want a trailing '.'
-//         if (precision == 0) {
-//             return;
-//         }
+        // {.0} special case doesn't want a trailing '.'
+        if (precision == 0) {
+            return;
+        }
 
-//         try output(context, ".");
+        generator.yield(".");
 
-//         // Keep track of fractional count printed for case where we pre-pad then post-pad with 0's.
-//         var printed: usize = 0;
+        // Keep track of fractional count printed for case where we pre-pad then post-pad with 0's.
+        var printed: usize = 0;
 
-//         // Zero-fill until we reach significant digits or run out of precision.
-//         if (float_decimal.exp <= 0) {
-//             const zero_digit_count = @intCast(usize, -float_decimal.exp);
-//             const zeros_to_print = math.min(zero_digit_count, precision);
+        // Zero-fill until we reach significant digits or run out of precision.
+        if (float_decimal.exp <= 0) {
+            const zero_digit_count = @intCast(usize, -float_decimal.exp);
+            const zeros_to_print = math.min(zero_digit_count, precision);
 
-//             var i: usize = 0;
-//             while (i < zeros_to_print) : (i += 1) {
-//                 try output(context, "0");
-//                 printed += 1;
-//             }
+            var i: usize = 0;
+            while (i < zeros_to_print) : (i += 1) {
+                generator.yield("0");
+                printed += 1;
+            }
 
-//             if (printed >= precision) {
-//                 return;
-//             }
-//         }
+            if (printed >= precision) {
+                return;
+            }
+        }
 
-//         // Remaining fractional portion, zero-padding if insufficient.
-//         assert(precision >= printed);
-//         if (num_digits_whole_no_pad + precision - printed < float_decimal.digits.len) {
-//             try output(context, float_decimal.digits[num_digits_whole_no_pad .. num_digits_whole_no_pad + precision - printed]);
-//             return;
-//         } else {
-//             try output(context, float_decimal.digits[num_digits_whole_no_pad..]);
-//             printed += float_decimal.digits.len - num_digits_whole_no_pad;
+        // Remaining fractional portion, zero-padding if insufficient.
+        assert(precision >= printed);
+        if (num_digits_whole_no_pad + precision - printed < float_decimal.digits.len) {
+            generator.yield(float_decimal.digits[num_digits_whole_no_pad .. num_digits_whole_no_pad + precision - printed]);
+            return;
+        } else {
+            generator.yield(float_decimal.digits[num_digits_whole_no_pad..]);
+            printed += float_decimal.digits.len - num_digits_whole_no_pad;
 
-//             while (printed < precision) : (printed += 1) {
-//                 try output(context, "0");
-//             }
-//         }
-//     } else {
-//         // exp < 0 means the leading is always 0 as errol result is normalized.
-//         var num_digits_whole = if (float_decimal.exp > 0) @intCast(usize, float_decimal.exp) else 0;
+            while (printed < precision) : (printed += 1) {
+                generator.yield("0");
+            }
+        }
+    } else {
+        // exp < 0 means the leading is always 0 as errol result is normalized.
+        var num_digits_whole = if (float_decimal.exp > 0) @intCast(usize, float_decimal.exp) else 0;
 
-//         // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
-//         var num_digits_whole_no_pad = math.min(num_digits_whole, float_decimal.digits.len);
+        // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
+        var num_digits_whole_no_pad = math.min(num_digits_whole, float_decimal.digits.len);
 
-//         if (num_digits_whole > 0) {
-//             // We may have to zero pad, for instance 1e4 requires zero padding.
-//             try output(context, float_decimal.digits[0..num_digits_whole_no_pad]);
+        if (num_digits_whole > 0) {
+            // We may have to zero pad, for instance 1e4 requires zero padding.
+            generator.yield(float_decimal.digits[0..num_digits_whole_no_pad]);
 
-//             var i = num_digits_whole_no_pad;
-//             while (i < num_digits_whole) : (i += 1) {
-//                 try output(context, "0");
-//             }
-//         } else {
-//             try output(context, "0");
-//         }
+            var i = num_digits_whole_no_pad;
+            while (i < num_digits_whole) : (i += 1) {
+                generator.yield("0");
+            }
+        } else {
+            generator.yield("0");
+        }
 
-//         // Omit `.` if no fractional portion
-//         if (float_decimal.exp >= 0 and num_digits_whole_no_pad == float_decimal.digits.len) {
-//             return;
-//         }
+        // Omit `.` if no fractional portion
+        if (float_decimal.exp >= 0 and num_digits_whole_no_pad == float_decimal.digits.len) {
+            return;
+        }
 
-//         try output(context, ".");
+        generator.yield(".");
 
-//         // Zero-fill until we reach significant digits or run out of precision.
-//         if (float_decimal.exp < 0) {
-//             const zero_digit_count = @intCast(usize, -float_decimal.exp);
+        // Zero-fill until we reach significant digits or run out of precision.
+        if (float_decimal.exp < 0) {
+            const zero_digit_count = @intCast(usize, -float_decimal.exp);
 
-//             var i: usize = 0;
-//             while (i < zero_digit_count) : (i += 1) {
-//                 try output(context, "0");
-//             }
-//         }
+            var i: usize = 0;
+            while (i < zero_digit_count) : (i += 1) {
+                generator.yield("0");
+            }
+        }
 
-//         try output(context, float_decimal.digits[num_digits_whole_no_pad..]);
-//     }
-// }
+        generator.yield(float_decimal.digits[num_digits_whole_no_pad..]);
+    }
+}
 
 // pub fn formatBytes(
 //     value: var,
@@ -1404,50 +1406,50 @@ test "float.special" {
     try testFmt("f64: -inf", "f64: {}", .{-math.inf_f64});
 }
 
-// test "float.decimal" {
-//     if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-//         // TODO https://github.com/ziglang/zig/issues/3289
-//         return error.SkipZigTest;
-//     }
-//     try testFmt("f64: 152314000000000000000000000000", "f64: {d}", .{@as(f64, 1.52314e+29)});
-//     try testFmt("f32: 1.1", "f32: {d:.1}", .{@as(f32, 1.1234)});
-//     try testFmt("f32: 1234.57", "f32: {d:.2}", .{@as(f32, 1234.567)});
-//     // -11.1234 is converted to f64 -11.12339... internally (errol3() function takes f64).
-//     // -11.12339... is rounded back up to -11.1234
-//     try testFmt("f32: -11.1234", "f32: {d:.4}", .{@as(f32, -11.1234)});
-//     try testFmt("f32: 91.12345", "f32: {d:.5}", .{@as(f32, 91.12345)});
-//     try testFmt("f64: 91.1234567890", "f64: {d:.10}", .{@as(f64, 91.12345678901235)});
-//     try testFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 0.0)});
-//     try testFmt("f64: 6", "f64: {d:.0}", .{@as(f64, 5.700)});
-//     try testFmt("f64: 10.0", "f64: {d:.1}", .{@as(f64, 9.999)});
-//     try testFmt("f64: 1.000", "f64: {d:.3}", .{@as(f64, 1.0)});
-//     try testFmt("f64: 0.00030000", "f64: {d:.8}", .{@as(f64, 0.0003)});
-//     try testFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 1.40130e-45)});
-//     try testFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 9.999960e-40)});
-// }
+test "float.decimal" {
+    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
+        // TODO https://github.com/ziglang/zig/issues/3289
+        return error.SkipZigTest;
+    }
+    try testFmt("f64: 152314000000000000000000000000", "f64: {d}", .{@as(f64, 1.52314e+29)});
+    try testFmt("f32: 1.1", "f32: {d:.1}", .{@as(f32, 1.1234)});
+    try testFmt("f32: 1234.57", "f32: {d:.2}", .{@as(f32, 1234.567)});
+    // -11.1234 is converted to f64 -11.12339... internally (errol3() function takes f64).
+    // -11.12339... is rounded back up to -11.1234
+    try testFmt("f32: -11.1234", "f32: {d:.4}", .{@as(f32, -11.1234)});
+    try testFmt("f32: 91.12345", "f32: {d:.5}", .{@as(f32, 91.12345)});
+    try testFmt("f64: 91.1234567890", "f64: {d:.10}", .{@as(f64, 91.12345678901235)});
+    try testFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 0.0)});
+    try testFmt("f64: 6", "f64: {d:.0}", .{@as(f64, 5.700)});
+    try testFmt("f64: 10.0", "f64: {d:.1}", .{@as(f64, 9.999)});
+    try testFmt("f64: 1.000", "f64: {d:.3}", .{@as(f64, 1.0)});
+    try testFmt("f64: 0.00030000", "f64: {d:.8}", .{@as(f64, 0.0003)});
+    try testFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 1.40130e-45)});
+    try testFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 9.999960e-40)});
+}
 
-// test "float.libc.sanity" {
-//     if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-//         // TODO https://github.com/ziglang/zig/issues/3289
-//         return error.SkipZigTest;
-//     }
-//     try testFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 916964781)))});
-//     try testFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 925353389)))});
-//     try testFmt("f64: 0.10000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1036831278)))});
-//     try testFmt("f64: 1.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1065353133)))});
-//     try testFmt("f64: 10.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1092616192)))});
+test "float.libc.sanity" {
+    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
+        // TODO https://github.com/ziglang/zig/issues/3289
+        return error.SkipZigTest;
+    }
+    try testFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 916964781)))});
+    try testFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 925353389)))});
+    try testFmt("f64: 0.10000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1036831278)))});
+    try testFmt("f64: 1.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1065353133)))});
+    try testFmt("f64: 10.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1092616192)))});
 
-//     // libc differences
-//     //
-//     // This is 0.015625 exactly according to gdb. We thus round down,
-//     // however glibc rounds up for some reason. This occurs for all
-//     // floats of the form x.yyyy25 on a precision point.
-//     try testFmt("f64: 0.01563", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1015021568)))});
-//     // errol3 rounds to ... 630 but libc rounds to ...632. Grisu3
-//     // also rounds to 630 so I'm inclined to believe libc is not
-//     // optimal here.
-//     try testFmt("f64: 18014400656965630.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1518338049)))});
-// }
+    // libc differences
+    //
+    // This is 0.015625 exactly according to gdb. We thus round down,
+    // however glibc rounds up for some reason. This occurs for all
+    // floats of the form x.yyyy25 on a precision point.
+    try testFmt("f64: 0.01563", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1015021568)))});
+    // errol3 rounds to ... 630 but libc rounds to ...632. Grisu3
+    // also rounds to 630 so I'm inclined to believe libc is not
+    // optimal here.
+    try testFmt("f64: 18014400656965630.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1518338049)))});
+}
 
 // test "custom" {
 //     const Vec2 = struct {
