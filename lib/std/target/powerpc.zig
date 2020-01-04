@@ -261,8 +261,8 @@ pub const feature_power9Altivec = Feature{
     .name = "power9-altivec",
     .description = "Enable POWER9 Altivec instructions",
     .subfeatures = &[_]*const Feature {
-        &feature_hardFloat,
         &feature_isaV30Instructions,
+        &feature_hardFloat,
     },
 };
 
@@ -270,8 +270,8 @@ pub const feature_power9Vector = Feature{
     .name = "power9-vector",
     .description = "Enable POWER9 vector instructions",
     .subfeatures = &[_]*const Feature {
-        &feature_hardFloat,
         &feature_isaV30Instructions,
+        &feature_hardFloat,
     },
 };
 

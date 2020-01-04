@@ -1,13 +1,6 @@
 const Feature = @import("std").target.Feature;
 const Cpu = @import("std").target.Cpu;
 
-pub const feature_detectroundchange = Feature{
-    .name = "detectroundchange",
-    .description = "LEON3 erratum detection: Detects any rounding mode change request: use only the round-to-nearest rounding mode",
-    .subfeatures = &[_]*const Feature {
-    },
-};
-
 pub const feature_hardQuadFloat = Feature{
     .name = "hard-quad-float",
     .description = "Enable quad-word floating point instructions",
@@ -92,50 +85,7 @@ pub const feature_vis3 = Feature{
     },
 };
 
-pub const feature_fixallfdivsqrt = Feature{
-    .name = "fixallfdivsqrt",
-    .description = "LEON erratum fix: Fix FDIVS/FDIVD/FSQRTS/FSQRTD instructions with NOPs and floating-point store",
-    .subfeatures = &[_]*const Feature {
-    },
-};
-
-pub const feature_insertnopload = Feature{
-    .name = "insertnopload",
-    .description = "LEON3 erratum fix: Insert a NOP instruction after every single-cycle load instruction when the next instruction is another load/store instruction",
-    .subfeatures = &[_]*const Feature {
-    },
-};
-
-pub const feature_hasleoncasa = Feature{
-    .name = "hasleoncasa",
-    .description = "Enable CASA instruction for LEON3 and LEON4 processors",
-    .subfeatures = &[_]*const Feature {
-    },
-};
-
-pub const feature_leoncyclecounter = Feature{
-    .name = "leoncyclecounter",
-    .description = "Use the Leon cycle counter register",
-    .subfeatures = &[_]*const Feature {
-    },
-};
-
-pub const feature_hasumacsmac = Feature{
-    .name = "hasumacsmac",
-    .description = "Enable UMAC and SMAC for LEON3 and LEON4 processors",
-    .subfeatures = &[_]*const Feature {
-    },
-};
-
-pub const feature_popc = Feature{
-    .name = "popc",
-    .description = "Use the popc (population count) instruction",
-    .subfeatures = &[_]*const Feature {
-    },
-};
-
 pub const features = &[_]*const Feature {
-    &feature_detectroundchange,
     &feature_hardQuadFloat,
     &feature_leon,
     &feature_noFmuls,
@@ -148,12 +98,6 @@ pub const features = &[_]*const Feature {
     &feature_vis,
     &feature_vis2,
     &feature_vis3,
-    &feature_fixallfdivsqrt,
-    &feature_insertnopload,
-    &feature_hasleoncasa,
-    &feature_leoncyclecounter,
-    &feature_hasumacsmac,
-    &feature_popc,
 };
 
 pub const cpu_at697e = Cpu{
@@ -161,7 +105,6 @@ pub const cpu_at697e = Cpu{
     .llvm_name = "at697e",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_insertnopload,
     },
 };
 
@@ -170,7 +113,6 @@ pub const cpu_at697f = Cpu{
     .llvm_name = "at697f",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_insertnopload,
     },
 };
 
@@ -193,7 +135,6 @@ pub const cpu_gr712rc = Cpu{
     .llvm_name = "gr712rc",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_hasleoncasa,
     },
 };
 
@@ -203,9 +144,6 @@ pub const cpu_gr740 = Cpu{
     .subfeatures = &[_]*const Feature {
         &feature_leon,
         &feature_leonpwrpsr,
-        &feature_hasleoncasa,
-        &feature_leoncyclecounter,
-        &feature_hasumacsmac,
     },
 };
 
@@ -229,7 +167,6 @@ pub const cpu_leon3 = Cpu{
     .llvm_name = "leon3",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_hasumacsmac,
     },
 };
 
@@ -238,8 +175,6 @@ pub const cpu_leon4 = Cpu{
     .llvm_name = "leon4",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_hasleoncasa,
-        &feature_hasumacsmac,
     },
 };
 
@@ -248,7 +183,6 @@ pub const cpu_ma2080 = Cpu{
     .llvm_name = "ma2080",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_hasleoncasa,
     },
 };
 
@@ -257,7 +191,6 @@ pub const cpu_ma2085 = Cpu{
     .llvm_name = "ma2085",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_hasleoncasa,
     },
 };
 
@@ -266,7 +199,6 @@ pub const cpu_ma2100 = Cpu{
     .llvm_name = "ma2100",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_hasleoncasa,
     },
 };
 
@@ -275,7 +207,6 @@ pub const cpu_ma2150 = Cpu{
     .llvm_name = "ma2150",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_hasleoncasa,
     },
 };
 
@@ -284,7 +215,6 @@ pub const cpu_ma2155 = Cpu{
     .llvm_name = "ma2155",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_hasleoncasa,
     },
 };
 
@@ -293,7 +223,6 @@ pub const cpu_ma2450 = Cpu{
     .llvm_name = "ma2450",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_hasleoncasa,
     },
 };
 
@@ -302,7 +231,6 @@ pub const cpu_ma2455 = Cpu{
     .llvm_name = "ma2455",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_hasleoncasa,
     },
 };
 
@@ -311,7 +239,6 @@ pub const cpu_ma2480 = Cpu{
     .llvm_name = "ma2480",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_hasleoncasa,
     },
 };
 
@@ -320,7 +247,6 @@ pub const cpu_ma2485 = Cpu{
     .llvm_name = "ma2485",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_hasleoncasa,
     },
 };
 
@@ -329,7 +255,6 @@ pub const cpu_ma2x5x = Cpu{
     .llvm_name = "ma2x5x",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_hasleoncasa,
     },
 };
 
@@ -338,7 +263,6 @@ pub const cpu_ma2x8x = Cpu{
     .llvm_name = "ma2x8x",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_hasleoncasa,
     },
 };
 
@@ -347,7 +271,6 @@ pub const cpu_myriad2 = Cpu{
     .llvm_name = "myriad2",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_hasleoncasa,
     },
 };
 
@@ -356,7 +279,6 @@ pub const cpu_myriad21 = Cpu{
     .llvm_name = "myriad2.1",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_hasleoncasa,
     },
 };
 
@@ -365,7 +287,6 @@ pub const cpu_myriad22 = Cpu{
     .llvm_name = "myriad2.2",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_hasleoncasa,
     },
 };
 
@@ -374,7 +295,6 @@ pub const cpu_myriad23 = Cpu{
     .llvm_name = "myriad2.3",
     .subfeatures = &[_]*const Feature {
         &feature_leon,
-        &feature_hasleoncasa,
     },
 };
 
@@ -397,7 +317,6 @@ pub const cpu_niagara2 = Cpu{
         &feature_v9,
         &feature_vis,
         &feature_vis2,
-        &feature_popc,
     },
 };
 
@@ -409,7 +328,6 @@ pub const cpu_niagara3 = Cpu{
         &feature_v9,
         &feature_vis,
         &feature_vis2,
-        &feature_popc,
     },
 };
 
@@ -422,7 +340,6 @@ pub const cpu_niagara4 = Cpu{
         &feature_vis,
         &feature_vis2,
         &feature_vis3,
-        &feature_popc,
     },
 };
 
@@ -489,8 +406,6 @@ pub const cpu_ut699 = Cpu{
         &feature_leon,
         &feature_noFmuls,
         &feature_noFsmuld,
-        &feature_fixallfdivsqrt,
-        &feature_insertnopload,
     },
 };
 
