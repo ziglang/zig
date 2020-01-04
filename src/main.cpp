@@ -55,6 +55,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --color [auto|off|on]        enable or disable colored error messages\n"
         "  --disable-gen-h              do not generate a C header file (.h)\n"
         "  --disable-valgrind           omit valgrind client requests in debug builds\n"
+        "  --eh-frame-hdr               enable C++ exception handling by passing --eh-frame-hdr to linker\n"
         "  --enable-valgrind            include valgrind client requests release builds\n"
         "  -fstack-check                enable stack probing in unsafe builds\n"
         "  -fno-stack-check             disable stack probing in safe builds\n"
@@ -477,6 +478,7 @@ int main(int argc, char **argv) {
     bool verbose_llvm_ir = false;
     bool verbose_cimport = false;
     bool verbose_cc = false;
+    bool link_eh_frame_hdr = false;
     ErrColor color = ErrColorAuto;
     CacheOpt enable_cache = CacheOptAuto;
     Buf *dynamic_linker = nullptr;
@@ -715,6 +717,8 @@ int main(int argc, char **argv) {
                 valgrind_support = ValgrindSupportEnabled;
             } else if (strcmp(arg, "--disable-valgrind") == 0) {
                 valgrind_support = ValgrindSupportDisabled;
+            } else if (strcmp(arg, "--eh-frame-hdr") == 0) {
+                link_eh_frame_hdr = true;
             } else if (strcmp(arg, "-fPIC") == 0) {
                 want_pic = WantPICEnabled;
             } else if (strcmp(arg, "-fno-PIC") == 0) {
@@ -1191,6 +1195,7 @@ int main(int argc, char **argv) {
                     override_lib_dir, libc, cache_dir_buf, cmd == CmdTest, root_progress_node);
             if (llvm_argv.length >= 2) codegen_set_llvm_argv(g, llvm_argv.items + 1, llvm_argv.length - 2);
             g->valgrind_support = valgrind_support;
+            g->link_eh_frame_hdr = link_eh_frame_hdr;
             g->want_pic = want_pic;
             g->want_stack_check = want_stack_check;
             g->want_sanitize_c = want_sanitize_c;

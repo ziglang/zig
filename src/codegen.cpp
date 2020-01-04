@@ -8582,6 +8582,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_bool(&cache_hash, g->have_err_ret_tracing);
     cache_bool(&cache_hash, g->libc_link_lib != nullptr);
     cache_bool(&cache_hash, g->valgrind_support);
+    cache_bool(&cache_hash, g->link_eh_frame_hdr);
     cache_int(&cache_hash, detect_subsystem(g));
 
     Buf digest = BUF_INIT;
@@ -9370,6 +9371,7 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     cache_int(cache_hash, g->build_mode);
     cache_bool(cache_hash, g->have_pic);
     cache_bool(cache_hash, g->have_sanitize_c);
+    cache_bool(cache_hash, g->link_eh_frame_hdr);
     cache_bool(cache_hash, want_valgrind_support(g));
     cache_bool(cache_hash, g->function_sections);
     for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
@@ -10139,6 +10141,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
         cache_buf_opt(ch, g->test_filter);
         cache_buf_opt(ch, g->test_name_prefix);
     }
+    cache_bool(ch, g->link_eh_frame_hdr);
     cache_bool(ch, g->is_single_threaded);
     cache_bool(ch, g->linker_rdynamic);
     cache_bool(ch, g->each_lib_rpath);
