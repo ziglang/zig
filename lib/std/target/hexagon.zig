@@ -1,111 +1,6 @@
 const Feature = @import("std").target.Feature;
 const Cpu = @import("std").target.Cpu;
 
-pub const feature_v5 = Feature{
-    .name = "v5",
-    .description = "Enable Hexagon V5 architecture",
-    .subfeatures = &[_]*const Feature {
-    },
-};
-
-pub const feature_v55 = Feature{
-    .name = "v55",
-    .description = "Enable Hexagon V55 architecture",
-    .subfeatures = &[_]*const Feature {
-    },
-};
-
-pub const feature_v60 = Feature{
-    .name = "v60",
-    .description = "Enable Hexagon V60 architecture",
-    .subfeatures = &[_]*const Feature {
-    },
-};
-
-pub const feature_v62 = Feature{
-    .name = "v62",
-    .description = "Enable Hexagon V62 architecture",
-    .subfeatures = &[_]*const Feature {
-    },
-};
-
-pub const feature_v65 = Feature{
-    .name = "v65",
-    .description = "Enable Hexagon V65 architecture",
-    .subfeatures = &[_]*const Feature {
-    },
-};
-
-pub const feature_v66 = Feature{
-    .name = "v66",
-    .description = "Enable Hexagon V66 architecture",
-    .subfeatures = &[_]*const Feature {
-    },
-};
-
-pub const feature_hvx = Feature{
-    .name = "hvx",
-    .description = "Hexagon HVX instructions",
-    .subfeatures = &[_]*const Feature {
-    },
-};
-
-pub const feature_hvxLength64b = Feature{
-    .name = "hvx-length64b",
-    .description = "Hexagon HVX 64B instructions",
-    .subfeatures = &[_]*const Feature {
-        &feature_hvx,
-    },
-};
-
-pub const feature_hvxLength128b = Feature{
-    .name = "hvx-length128b",
-    .description = "Hexagon HVX 128B instructions",
-    .subfeatures = &[_]*const Feature {
-        &feature_hvx,
-    },
-};
-
-pub const feature_hvxv60 = Feature{
-    .name = "hvxv60",
-    .description = "Hexagon HVX instructions",
-    .subfeatures = &[_]*const Feature {
-        &feature_hvx,
-    },
-};
-
-pub const feature_hvxv62 = Feature{
-    .name = "hvxv62",
-    .description = "Hexagon HVX instructions",
-    .subfeatures = &[_]*const Feature {
-        &feature_hvx,
-    },
-};
-
-pub const feature_hvxv65 = Feature{
-    .name = "hvxv65",
-    .description = "Hexagon HVX instructions",
-    .subfeatures = &[_]*const Feature {
-        &feature_hvx,
-    },
-};
-
-pub const feature_hvxv66 = Feature{
-    .name = "hvxv66",
-    .description = "Hexagon HVX instructions",
-    .subfeatures = &[_]*const Feature {
-        &feature_zreg,
-        &feature_hvx,
-    },
-};
-
-pub const feature_zreg = Feature{
-    .name = "zreg",
-    .description = "Hexagon ZReg extension instructions",
-    .subfeatures = &[_]*const Feature {
-    },
-};
-
 pub const feature_duplex = Feature{
     .name = "duplex",
     .description = "Enable generation of duplex instruction",
@@ -179,20 +74,6 @@ pub const feature_smallData = Feature{
 };
 
 pub const features = &[_]*const Feature {
-    &feature_v5,
-    &feature_v55,
-    &feature_v60,
-    &feature_v62,
-    &feature_v65,
-    &feature_v66,
-    &feature_hvx,
-    &feature_hvxLength64b,
-    &feature_hvxLength128b,
-    &feature_hvxv60,
-    &feature_hvxv62,
-    &feature_hvxv65,
-    &feature_hvxv66,
-    &feature_zreg,
     &feature_duplex,
     &feature_longCalls,
     &feature_mem_noshuf,
@@ -209,9 +90,6 @@ pub const cpu_generic = Cpu{
     .name = "generic",
     .llvm_name = "generic",
     .subfeatures = &[_]*const Feature {
-        &feature_v5,
-        &feature_v55,
-        &feature_v60,
         &feature_duplex,
         &feature_memops,
         &feature_packets,
@@ -225,7 +103,6 @@ pub const cpu_hexagonv5 = Cpu{
     .name = "hexagonv5",
     .llvm_name = "hexagonv5",
     .subfeatures = &[_]*const Feature {
-        &feature_v5,
         &feature_duplex,
         &feature_memops,
         &feature_packets,
@@ -239,8 +116,6 @@ pub const cpu_hexagonv55 = Cpu{
     .name = "hexagonv55",
     .llvm_name = "hexagonv55",
     .subfeatures = &[_]*const Feature {
-        &feature_v5,
-        &feature_v55,
         &feature_duplex,
         &feature_memops,
         &feature_packets,
@@ -254,9 +129,6 @@ pub const cpu_hexagonv60 = Cpu{
     .name = "hexagonv60",
     .llvm_name = "hexagonv60",
     .subfeatures = &[_]*const Feature {
-        &feature_v5,
-        &feature_v55,
-        &feature_v60,
         &feature_duplex,
         &feature_memops,
         &feature_packets,
@@ -270,10 +142,6 @@ pub const cpu_hexagonv62 = Cpu{
     .name = "hexagonv62",
     .llvm_name = "hexagonv62",
     .subfeatures = &[_]*const Feature {
-        &feature_v5,
-        &feature_v55,
-        &feature_v60,
-        &feature_v62,
         &feature_duplex,
         &feature_memops,
         &feature_packets,
@@ -287,11 +155,6 @@ pub const cpu_hexagonv65 = Cpu{
     .name = "hexagonv65",
     .llvm_name = "hexagonv65",
     .subfeatures = &[_]*const Feature {
-        &feature_v5,
-        &feature_v55,
-        &feature_v60,
-        &feature_v62,
-        &feature_v65,
         &feature_duplex,
         &feature_mem_noshuf,
         &feature_memops,
@@ -306,12 +169,6 @@ pub const cpu_hexagonv66 = Cpu{
     .name = "hexagonv66",
     .llvm_name = "hexagonv66",
     .subfeatures = &[_]*const Feature {
-        &feature_v5,
-        &feature_v55,
-        &feature_v60,
-        &feature_v62,
-        &feature_v65,
-        &feature_v66,
         &feature_duplex,
         &feature_mem_noshuf,
         &feature_memops,
