@@ -1,5 +1,5 @@
 const std = @import("std");
-const expect = std.testing.expect;
+const mem = std.mem;
 
 pub const Source = struct {
     buffer: []const u8,
@@ -7,11 +7,19 @@ pub const Source = struct {
 };
 
 pub const Token = struct {
-    id: union(enum) {
+    id: Id,
+    start: usize,
+    end: usize,
+    source: *Source,
+
+    pub const Id = union(enum) {
         Invalid,
         Eof,
         Nl,
         Identifier,
+
+        /// special case for #include <...>
+        MacroString,
         StringLiteral: StrKind,
         CharLiteral: StrKind,
         IntegerLiteral: NumSuffix,
@@ -68,10 +76,160 @@ pub const Token = struct {
         MultiLineComment,
         Hash,
         HashHash,
-    },
-    start: usize,
-    end: usize,
-    source: *Source,
+
+        Keyword_auto,
+        Keyword_break,
+        Keyword_case,
+        Keyword_char,
+        Keyword_const,
+        Keyword_continue,
+        Keyword_default,
+        Keyword_do,
+        Keyword_double,
+        Keyword_else,
+        Keyword_enum,
+        Keyword_extern,
+        Keyword_float,
+        Keyword_for,
+        Keyword_goto,
+        Keyword_if,
+        Keyword_int,
+        Keyword_long,
+        Keyword_register,
+        Keyword_return,
+        Keyword_short,
+        Keyword_signed,
+        Keyword_sizeof,
+        Keyword_static,
+        Keyword_struct,
+        Keyword_switch,
+        Keyword_typedef,
+        Keyword_union,
+        Keyword_unsigned,
+        Keyword_void,
+        Keyword_volatile,
+        Keyword_while,
+
+        // ISO C99
+        Keyword_bool,
+        Keyword_complex,
+        Keyword_imaginary,
+        Keyword_inline,
+        Keyword_restrict,
+
+        // ISO C11
+        Keyword_alignas,
+        Keyword_alignof,
+        Keyword_atomic,
+        Keyword_generic,
+        Keyword_noreturn,
+        Keyword_static_assert,
+        Keyword_thread_local,
+
+        // Preprocessor
+        Keyword_include,
+        Keyword_define,
+        Keyword_ifdef,
+        Keyword_ifndef,
+        Keyword_error,
+        Keyword_pragma,
+    };
+
+    pub const Keyword = struct {
+        bytes: []const u8,
+        id: Id,
+        hash: u32,
+
+        fn init(bytes: []const u8, id: Id) Keyword {
+            @setEvalBranchQuota(2000);
+            return .{
+                .bytes = bytes,
+                .id = id,
+                .hash = std.hash_map.hashString(bytes),
+            };
+        }
+    };
+
+    // TODO extensions
+    pub const keywords = [_]Keyword{
+        Keyword.init("auto", .Keyword_auto),
+        Keyword.init("break", .Keyword_break),
+        Keyword.init("case", .Keyword_case),
+        Keyword.init("char", .Keyword_char),
+        Keyword.init("const", .Keyword_const),
+        Keyword.init("continue", .Keyword_continue),
+        Keyword.init("default", .Keyword_default),
+        Keyword.init("do", .Keyword_do),
+        Keyword.init("double", .Keyword_double),
+        Keyword.init("else", .Keyword_else),
+        Keyword.init("enum", .Keyword_enum),
+        Keyword.init("extern", .Keyword_extern),
+        Keyword.init("float", .Keyword_float),
+        Keyword.init("for", .Keyword_for),
+        Keyword.init("goto", .Keyword_goto),
+        Keyword.init("if", .Keyword_if),
+        Keyword.init("int", .Keyword_int),
+        Keyword.init("long", .Keyword_long),
+        Keyword.init("register", .Keyword_register),
+        Keyword.init("return", .Keyword_return),
+        Keyword.init("short", .Keyword_short),
+        Keyword.init("signed", .Keyword_signed),
+        Keyword.init("sizeof", .Keyword_sizeof),
+        Keyword.init("static", .Keyword_static),
+        Keyword.init("struct", .Keyword_struct),
+        Keyword.init("switch", .Keyword_switch),
+        Keyword.init("typedef", .Keyword_typedef),
+        Keyword.init("union", .Keyword_union),
+        Keyword.init("unsigned", .Keyword_unsigned),
+        Keyword.init("void", .Keyword_void),
+        Keyword.init("volatile", .Keyword_volatile),
+        Keyword.init("while", .Keyword_while),
+
+        // ISO C99
+        Keyword.init("_Bool", .Keyword_bool),
+        Keyword.init("_Complex", .Keyword_complex),
+        Keyword.init("_Imaginary", .Keyword_imaginary),
+        Keyword.init("inline", .Keyword_inline),
+        Keyword.init("restrict", .Keyword_restrict),
+
+        // ISO C11
+        Keyword.init("_Alignas", .Keyword_alignas),
+        Keyword.init("_Alignof", .Keyword_alignof),
+        Keyword.init("_Atomic", .Keyword_atomic),
+        Keyword.init("_Generic", .Keyword_generic),
+        Keyword.init("_Noreturn", .Keyword_noreturn),
+        Keyword.init("_Static_assert", .Keyword_static_assert),
+        Keyword.init("_Thread_local", .Keyword_thread_local),
+
+        // Preprocessor
+        Keyword.init("include", .Keyword_include),
+        Keyword.init("define", .Keyword_define),
+        Keyword.init("ifdef", .Keyword_ifdef),
+        Keyword.init("ifndef", .Keyword_ifndef),
+        Keyword.init("error", .Keyword_error),
+        Keyword.init("pragma", .Keyword_pragma),
+    };
+
+    // TODO perfect hash at comptime
+    pub fn getKeyword(bytes: []const u8, macro: bool) ?Id {
+        var hash = std.hash_map.hashString(bytes);
+        for (keywords) |kw| {
+            if (kw.hash == hash and mem.eql(u8, kw.bytes, bytes)) {
+                switch (kw.id) {
+                    .Keyword_include,
+                    .Keyword_define,
+                    .Keyword_ifdef,
+                    .Keyword_ifndef,
+                    .Keyword_error,
+                    .Keyword_pragma,
+                    => if (!macro) return null,
+                    else => {},
+                }
+                return kw.id;
+            }
+        }
+        return null;
+    }
 
     pub const NumSuffix = enum {
         None,
@@ -95,6 +253,7 @@ pub const Token = struct {
 pub const Tokenizer = struct {
     source: *Source,
     index: usize = 0,
+    prev_tok_id: @TagType(Token.Id),
 
     pub fn next(self: *Tokenizer) Token {
         const start_index = self.index;
@@ -124,6 +283,9 @@ pub const Tokenizer = struct {
             Percent,
             Asterisk,
             Plus,
+
+            /// special case for #include <...>
+            MacroString,
             AngleBracketLeft,
             AngleBracketAngleBracketLeft,
             AngleBracketRight,
@@ -189,7 +351,6 @@ pub const Tokenizer = struct {
                     },
                     'a'...'t', 'v'...'z', 'A'...'K', 'M'...'T', 'V'...'Z', '_' => {
                         state = .Identifier;
-                        result.id = .Identifier;
                     },
                     '=' => {
                         state = .Equal;
@@ -250,7 +411,10 @@ pub const Tokenizer = struct {
                         state = .Plus;
                     },
                     '<' => {
-                        state = .AngleBracketLeft;
+                        if (self.prev_tok_id == .Keyword_include)
+                            state = .MacroString
+                        else
+                            state = .AngleBracketLeft;
                     },
                     '>' => {
                         state = .AngleBracketRight;
@@ -442,7 +606,7 @@ pub const Tokenizer = struct {
                 .Identifier => switch (c) {
                     'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
                     else => {
-                        result.id = .Identifier;
+                        result.id = Token.getKeyword(self.source.buffer[result.start..self.index], self.prev_tok_id == .Hash) orelse .Identifier;
                         break;
                     },
                 },
@@ -521,6 +685,14 @@ pub const Tokenizer = struct {
                         result.id = .Plus;
                         break;
                     },
+                },
+                .MacroString => switch (c) {
+                    '>' => {
+                        result.id = .MacroString;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {},
                 },
                 .AngleBracketLeft => switch (c) {
                     '<' => {
@@ -859,7 +1031,7 @@ pub const Tokenizer = struct {
             switch (state) {
                 .Start => {},
                 .u, .u8, .U, .L, .Identifier => {
-                    result.id = .Identifier;
+                    result.id = Token.getKeyword(self.source.buffer[result.start..self.index], self.prev_tok_id == .Hash) orelse .Identifier;
                 },
 
                 .Cr,
@@ -876,6 +1048,7 @@ pub const Tokenizer = struct {
                 .FloatFractionHex,
                 .FloatExponent,
                 .FloatExponentDigits,
+                .MacroString,
                 => result.id = .Invalid,
 
                 .IntegerLiteralOct,
@@ -910,6 +1083,7 @@ pub const Tokenizer = struct {
             }
         }
 
+        self.prev_tok_id = result.id;
         result.end = self.index;
         return result;
     }
