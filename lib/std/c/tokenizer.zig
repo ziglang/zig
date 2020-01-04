@@ -265,13 +265,17 @@ pub const Tokenizer = struct {
         var state: enum {
             Start,
             Cr,
+            BackSlash,
+            BackSlashCr,
             u,
             u8,
             U,
             L,
             StringLiteral,
+            CharLiteralStart,
             CharLiteral,
             EscapeSequence,
+            CrEscape,
             OctalEscape,
             HexEscape,
             UnicodeEscape,
@@ -344,7 +348,7 @@ pub const Tokenizer = struct {
                     },
                     '\'' => {
                         result.id = .{ .CharLiteral = .None };
-                        state = .CharLiteral;
+                        state = .CharLiteralStart;
                     },
                     'u' => {
                         state = .u;
@@ -464,6 +468,9 @@ pub const Tokenizer = struct {
                     '1'...'9' => {
                         state = .IntegerLiteral;
                     },
+                    '\\' => {
+                        state = .BackSlash;
+                    },
                     else => {
                         result.start = self.index + 1;
                     },
@@ -480,13 +487,34 @@ pub const Tokenizer = struct {
                         break;
                     },
                 },
+                .BackSlash => switch (c) {
+                    '\n' => {
+                        state = .Start;
+                    },
+                    '\r' => {
+                        state = .BackSlashCr;
+                    },
+                    else => {
+                        result.id = .Invalid;
+                        break;
+                    },
+                },
+                .BackSlashCr => switch (c) {
+                    '\n' => {
+                        state = .Start;
+                    },
+                    else => {
+                        result.id = .Invalid;
+                        break;
+                    },
+                },
                 .u => switch (c) {
                     '8' => {
                         state = .u8;
                     },
                     '\'' => {
                         result.id = .{ .CharLiteral = .Utf16 };
-                        state = .CharLiteral;
+                        state = .CharLiteralStart;
                     },
                     '\"' => {
                         result.id = .{ .StringLiteral = .Utf16 };
@@ -508,7 +536,7 @@ pub const Tokenizer = struct {
                 .U => switch (c) {
                     '\'' => {
                         result.id = .{ .CharLiteral = .Utf32 };
-                        state = .CharLiteral;
+                        state = .CharLiteralStart;
                     },
                     '\"' => {
                         result.id = .{ .StringLiteral = .Utf32 };
@@ -521,7 +549,7 @@ pub const Tokenizer = struct {
                 .L => switch (c) {
                     '\'' => {
                         result.id = .{ .CharLiteral = .Wide };
-                        state = .CharLiteral;
+                        state = .CharLiteralStart;
                     },
                     '\"' => {
                         result.id = .{ .StringLiteral = .Wide };
@@ -546,7 +574,7 @@ pub const Tokenizer = struct {
                     },
                     else => {},
                 },
-                .CharLiteral => switch (c) {
+                .CharLiteralStart => switch (c) {
                     '\\' => {
                         string = false;
                         state = .EscapeSequence;
@@ -555,10 +583,32 @@ pub const Tokenizer = struct {
                         result.id = .Invalid;
                         break;
                     },
+                    else => {
+                        state = .CharLiteral;
+                    },
+                },
+                .CharLiteral => switch (c) {
+                    '\\' => {
+                        string = false;
+                        state = .EscapeSequence;
+                    },
+                    '\'' => {
+                        self.index += 1;
+                        break;
+                    },
+                    '\n' => {
+                        result.id = .Invalid;
+                        break;
+                    },
                     else => {},
                 },
                 .EscapeSequence => switch (c) {
-                    '\'', '"', '?', '\\', 'a', 'b', 'f', 'n', 'r', 't', 'v' => {},
+                    '\'', '"', '?', '\\', 'a', 'b', 'f', 'n', 'r', 't', 'v', '\n' => {
+                        state = if (string) .StringLiteral else .CharLiteral;
+                    },
+                    '\r' => {
+                        state = .CrEscape;
+                    },
                     '0'...'7' => {
                         counter = 1;
                         state = .OctalEscape;
@@ -573,6 +623,15 @@ pub const Tokenizer = struct {
                     'U' => {
                         counter = 8;
                         state = .OctalEscape;
+                    },
+                    else => {
+                        result.id = .Invalid;
+                        break;
+                    },
+                },
+                .CrEscape => switch (c) {
+                    '\n' => {
+                        state = if (string) .StringLiteral else .CharLiteral;
                     },
                     else => {
                         result.id = .Invalid;
@@ -1056,10 +1115,14 @@ pub const Tokenizer = struct {
                 },
 
                 .Cr,
+                .BackSlash,
+                .BackSlashCr,
                 .Period2,
                 .StringLiteral,
+                .CharLiteralStart,
                 .CharLiteral,
                 .EscapeSequence,
+                .CrEscape,
                 .OctalEscape,
                 .HexEscape,
                 .UnicodeEscape,
@@ -1266,6 +1329,72 @@ test "preprocessor keywords" {
         .Hash,
         .Keyword_pragma,
         .Nl,
+    });
+}
+
+test "line continuation" {
+    expectTokens(
+        \\#define foo \
+        \\  bar
+        \\"foo\
+        \\ bar"
+        \\
+    , &[_]Token.Id{
+        .Hash,
+        .Keyword_define,
+        .Identifier,
+        .Identifier,
+        .Nl,
+        .{ .StringLiteral = .None },
+    });
+}
+
+test "string prefix" {
+    expectTokens(
+        \\"foo"
+        \\u"foo"
+        \\u8"foo"
+        \\U"foo"
+        \\L"foo"
+        \\'foo'
+        \\u'foo'
+        \\U'foo'
+        \\L'foo'
+        \\
+    , &[_]Token.Id{
+        .{ .StringLiteral = .None },
+        .{ .StringLiteral = .Utf16 },
+        .{ .StringLiteral = .Utf8 },
+        .{ .StringLiteral = .Utf32 },
+        .{ .StringLiteral = .Wide },
+        .{ .CharLiteral = .None },
+        .{ .CharLiteral = .Utf16 },
+        .{ .CharLiteral = .Utf32 },
+        .{ .CharLiteral = .Wide },
+    });
+}
+
+test "num suffixes" {
+    expectTokens(
+        \\ 1.0f 1.0L 1.0 .0 1.
+        \\ 0l 0lu 0ll 0llu 0
+        \\ 1u 1ul 1ull 1
+        \\
+    , &[_]Token.Id{
+        .{ .FloatLiteral = .F },
+        .{ .FloatLiteral = .L },
+        .{ .FloatLiteral = .None },
+        .{ .FloatLiteral = .None },
+        .{ .FloatLiteral = .None },
+        .{ .IntegerLiteral = .L },
+        .{ .IntegerLiteral = .LU },
+        .{ .IntegerLiteral = .LL },
+        .{ .IntegerLiteral = .LLU },
+        .{ .IntegerLiteral = .None },
+        .{ .IntegerLiteral = .U },
+        .{ .IntegerLiteral = .LU },
+        .{ .IntegerLiteral = .LLU },
+        .{ .IntegerLiteral = .None },
     });
 }
 
