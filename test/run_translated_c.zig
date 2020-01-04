@@ -1,4 +1,6 @@
+const std = @import("std");
 const tests = @import("tests.zig");
+const nl = std.cstr.line_sep;
 
 pub fn addCases(cases: *tests.RunTranslatedCContext) void {
     cases.add("hello world",
@@ -8,7 +10,7 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    printf("hello, world!\n");
         \\    return 0;
         \\}
-    , "hello, world!\n");
+    , "hello, world!" ++ nl);
 
     cases.add("anon struct init",
         \\#include <stdlib.h>
