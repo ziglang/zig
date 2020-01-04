@@ -535,11 +535,11 @@ fn formatValue(
     options: FormatOptions,
     generator: *Generator([]const u8),
 ) void {
-    // if (comptime std.mem.eql(u8, fmt, "B")) {
-    //     return formatBytes(value, options, 1000, context, Errors, output);
-    // } else if (comptime std.mem.eql(u8, fmt, "Bi")) {
-    //     return formatBytes(value, options, 1024, context, Errors, output);
-    // }
+    if (comptime std.mem.eql(u8, fmt, "B")) {
+        return formatBytes(value, options, 1000, generator);
+    } else if (comptime std.mem.eql(u8, fmt, "Bi")) {
+        return formatBytes(value, options, 1024, generator);
+    }
     const T = @TypeOf(value);
     switch (@typeId(T)) {
         .Float => return formatFloatValue(value, fmt, options, generator),
@@ -896,45 +896,43 @@ pub fn formatFloatDecimal(
     }
 }
 
-// pub fn formatBytes(
-//     value: var,
-//     options: FormatOptions,
-//     comptime radix: usize,
-//     context: var,
-//     comptime Errors: type,
-//     output: fn (@TypeOf(context), []const u8) Errors!void,
-// ) Errors!void {
-//     if (value == 0) {
-//         return output(context, "0B");
-//     }
+pub fn formatBytes(
+    value: var,
+    options: FormatOptions,
+    comptime radix: usize,
+    generator: *Generator([]const u8),
+) void {
+    if (value == 0) {
+        return generator.yield("0B");
+    }
 
-//     const mags_si = " kMGTPEZY";
-//     const mags_iec = " KMGTPEZY";
-//     const magnitude = switch (radix) {
-//         1000 => math.min(math.log2(value) / comptime math.log2(1000), mags_si.len - 1),
-//         1024 => math.min(math.log2(value) / 10, mags_iec.len - 1),
-//         else => unreachable,
-//     };
-//     const new_value = lossyCast(f64, value) / math.pow(f64, lossyCast(f64, radix), lossyCast(f64, magnitude));
-//     const suffix = switch (radix) {
-//         1000 => mags_si[magnitude],
-//         1024 => mags_iec[magnitude],
-//         else => unreachable,
-//     };
+    const mags_si = " kMGTPEZY";
+    const mags_iec = " KMGTPEZY";
+    const magnitude = switch (radix) {
+        1000 => math.min(math.log2(value) / comptime math.log2(1000), mags_si.len - 1),
+        1024 => math.min(math.log2(value) / 10, mags_iec.len - 1),
+        else => unreachable,
+    };
+    const new_value = lossyCast(f64, value) / math.pow(f64, lossyCast(f64, radix), lossyCast(f64, magnitude));
+    const suffix = switch (radix) {
+        1000 => mags_si[magnitude],
+        1024 => mags_iec[magnitude],
+        else => unreachable,
+    };
 
-//     try formatFloatDecimal(new_value, options, context, Errors, output);
+    formatFloatDecimal(new_value, options, generator);
 
-//     if (suffix == ' ') {
-//         return output(context, "B");
-//     }
+    if (suffix == ' ') {
+        return generator.yield("B");
+    }
 
-//     const buf = switch (radix) {
-//         1000 => &[_]u8{ suffix, 'B' },
-//         1024 => &[_]u8{ suffix, 'i', 'B' },
-//         else => unreachable,
-//     };
-//     return output(context, buf);
-// }
+    const buf = switch (radix) {
+        1000 => &[_]u8{ suffix, 'B' },
+        1024 => &[_]u8{ suffix, 'i', 'B' },
+        else => unreachable,
+    };
+    return generator.yield(buf);
+}
 
 pub fn formatInt(
     value: var,
@@ -1329,14 +1327,14 @@ test "cstr" {
     try testFmt("cstr: Test C    \n", "cstr: {s:10}\n", .{"Test C"});
 }
 
-// test "filesize" {
-//     if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-//         // TODO https://github.com/ziglang/zig/issues/3289
-//         return error.SkipZigTest;
-//     }
-//     try testFmt("file size: 63MiB\n", "file size: {Bi}\n", .{@as(usize, 63 * 1024 * 1024)});
-//     try testFmt("file size: 66.06MB\n", "file size: {B:.2}\n", .{@as(usize, 63 * 1024 * 1024)});
-// }
+test "filesize" {
+    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
+        // TODO https://github.com/ziglang/zig/issues/3289
+        return error.SkipZigTest;
+    }
+    try testFmt("file size: 63MiB\n", "file size: {Bi}\n", .{@as(usize, 63 * 1024 * 1024)});
+    try testFmt("file size: 66.06MB\n", "file size: {B:.2}\n", .{@as(usize, 63 * 1024 * 1024)});
+}
 
 test "struct" {
     {
@@ -1736,10 +1734,10 @@ test "positional" {
     try testFmt("1 0 0 1", "{1} {} {0} {}", .{ @as(usize, 0), @as(usize, 1) });
 }
 
-// test "positional with specifier" {
-//     try testFmt("10.0", "{0d:.1}", .{@as(f64, 9.999)});
-// }
+test "positional with specifier" {
+    try testFmt("10.0", "{0d:.1}", .{@as(f64, 9.999)});
+}
 
-// test "positional/alignment/width/precision" {
-//     try testFmt("10.0", "{0d: >3.1}", .{@as(f64, 9.999)});
-// }
+test "positional/alignment/width/precision" {
+    try testFmt("10.0", "{0d: >3.1}", .{@as(f64, 9.999)});
+}
