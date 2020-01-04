@@ -674,14 +674,15 @@ pub fn formatFloatScientific(
     if (x == 0.0) {
         generator.yield("0");
 
-        if (options.precision) |precision| {
+        if (options.precision) |prec_orig| {
+            // TODO: remove copy once this is fixed https://github.com/ziglang/zig/issues/4065
+            const precision = prec_orig;
             if (precision != 0) {
                 generator.yield(".");
                 var i: usize = 0;
-                // FIXME: Instruction does not dominate all uses!
-                // while (i < precision) : (i += 1) {
-                //     generator.yield( "0");
-                // }
+                while (i < precision) : (i += 1) {
+                    generator.yield("0");
+                }
             }
         } else {
             generator.yield(".0");
@@ -694,27 +695,28 @@ pub fn formatFloatScientific(
     var buffer: [32]u8 = undefined;
     var float_decimal = errol.errol3(x, buffer[0..]);
 
-    if (options.precision) |precision| {
+    if (options.precision) |prec_orig| {
+        // TODO: remove copy once this is fixed https://github.com/ziglang/zig/issues/4065
+        const precision = prec_orig;
         errol.roundToPrecision(&float_decimal, precision, errol.RoundMode.Scientific);
 
         generator.yield(float_decimal.digits[0..1]);
 
         // {e0} case prints no `.`
-        // FIXME: Instruction does not dominate all uses!
-        // if (precision != 0) {
-        //     generator.yield(".");
+        if (precision != 0) {
+            generator.yield(".");
 
-        //     var printed: usize = 0;
-        //     if (float_decimal.digits.len > 1) {
-        //         const num_digits = math.min(float_decimal.digits.len, precision + 1);
-        //         generator.yield(float_decimal.digits[1..num_digits]);
-        //         printed += num_digits - 1;
-        //     }
+            var printed: usize = 0;
+            if (float_decimal.digits.len > 1) {
+                const num_digits = math.min(float_decimal.digits.len, precision + 1);
+                generator.yield(float_decimal.digits[1..num_digits]);
+                printed += num_digits - 1;
+            }
 
-        //     while (printed < precision) : (printed += 1) {
-        //         generator.yield("0");
-        //     }
-        // }
+            while (printed < precision) : (printed += 1) {
+                generator.yield("0");
+            }
+        }
     } else {
         generator.yield(float_decimal.digits[0..1]);
         generator.yield(".");
@@ -1374,33 +1376,33 @@ test "float.scientific" {
     try testFmt("f64: 9.99996e-40", "f64: {e}", .{@as(f64, 9.999960e-40)});
 }
 
-// test "float.scientific.precision" {
-//     if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-//         // TODO https://github.com/ziglang/zig/issues/3289
-//         return error.SkipZigTest;
-//     }
-//     try testFmt("f64: 1.40971e-42", "f64: {e:.5}", .{@as(f64, 1.409706e-42)});
-//     try testFmt("f64: 1.00000e-09", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 814313563)))});
-//     try testFmt("f64: 7.81250e-03", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1006632960)))});
-//     // libc rounds 1.000005e+05 to 1.00000e+05 but zig does 1.00001e+05.
-//     // In fact, libc doesn't round a lot of 5 cases up when one past the precision point.
-//     try testFmt("f64: 1.00001e+05", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1203982400)))});
-// }
+test "float.scientific.precision" {
+    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
+        // TODO https://github.com/ziglang/zig/issues/3289
+        return error.SkipZigTest;
+    }
+    try testFmt("f64: 1.40971e-42", "f64: {e:.5}", .{@as(f64, 1.409706e-42)});
+    try testFmt("f64: 1.00000e-09", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 814313563)))});
+    try testFmt("f64: 7.81250e-03", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1006632960)))});
+    // libc rounds 1.000005e+05 to 1.00000e+05 but zig does 1.00001e+05.
+    // In fact, libc doesn't round a lot of 5 cases up when one past the precision point.
+    try testFmt("f64: 1.00001e+05", "f64: {e:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1203982400)))});
+}
 
-// test "float.special" {
-//     if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-//         // TODO https://github.com/ziglang/zig/issues/3289
-//         return error.SkipZigTest;
-//     }
-//     try testFmt("f64: nan", "f64: {}", .{math.nan_f64});
-//     // negative nan is not defined by IEE 754,
-//     // and ARM thus normalizes it to positive nan
-//     if (builtin.arch != builtin.Arch.arm) {
-//         try testFmt("f64: -nan", "f64: {}", .{-math.nan_f64});
-//     }
-//     try testFmt("f64: inf", "f64: {}", .{math.inf_f64});
-//     try testFmt("f64: -inf", "f64: {}", .{-math.inf_f64});
-// }
+test "float.special" {
+    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
+        // TODO https://github.com/ziglang/zig/issues/3289
+        return error.SkipZigTest;
+    }
+    try testFmt("f64: nan", "f64: {}", .{math.nan_f64});
+    // negative nan is not defined by IEE 754,
+    // and ARM thus normalizes it to positive nan
+    if (builtin.arch != builtin.Arch.arm) {
+        try testFmt("f64: -nan", "f64: {}", .{-math.nan_f64});
+    }
+    try testFmt("f64: inf", "f64: {}", .{math.inf_f64});
+    try testFmt("f64: -inf", "f64: {}", .{-math.inf_f64});
+}
 
 // test "float.decimal" {
 //     if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
