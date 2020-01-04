@@ -2,6 +2,12 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("#define hex literal with capital X",
+        \\#define VAL 0XF00D
+    , &[_][]const u8{
+        \\pub const VAL = 0xF00D;
+    });
+
     cases.add("union initializer",
         \\union { int x; char c[4]; }
         \\  ua = {1},
