@@ -7,11 +7,28 @@ const testing = std.testing;
 const SpinLock = std.SpinLock;
 const ResetEvent = std.ResetEvent;
 
-/// Lock may be held only once. If the same thread
-/// tries to acquire the same mutex twice, it deadlocks.
-/// This type supports static initialization and is at most `@sizeOf(usize)` in size.
-/// When an application is built in single threaded release mode, all the functions are
-/// no-ops. In single threaded debug mode, there is deadlock detection.
+/// Lock may be held only once. If the same thread tries to acquire
+/// the same mutex twice, it deadlocks.  This type supports static
+/// initialization and is at most `@sizeOf(usize)` in size.  When an
+/// application is built in single threaded release mode, all the
+/// functions are no-ops. In single threaded debug mode, there is
+/// deadlock detection.
+///
+/// Example usage:
+/// var m = Mutex.init();
+/// defer m.deinit();
+/// 
+/// const lock = m.acquire();
+/// defer lock.release();
+/// ... critical code
+///
+/// Non-blocking:
+/// if (m.tryAcquire) |lock| {
+///     defer lock.release();
+///     // ... critical section
+/// } else {
+///     // ... lock not acquired
+/// }
 pub const Mutex = if (builtin.single_threaded)
     struct {
         lock: @TypeOf(lock_init),
@@ -28,14 +45,20 @@ pub const Mutex = if (builtin.single_threaded)
             }
         };
 
+        /// Create a new mutex in unlocked state.
         pub fn init() Mutex {
             return Mutex{ .lock = lock_init };
         }
 
+        /// Free a mutex created with init. Calling this while the
+        /// mutex is held is illegal behavior.
         pub fn deinit(self: *Mutex) void {
             self.* = undefined;
         }
 
+        /// Try to acquire the mutex without blocking. Returns null if
+        /// the mutex is unavailable. Otherwise returns Held. Call
+        /// release on Held.
         pub fn tryAcquire(self: *Mutex) ?Held {
             if (std.debug.runtime_safety) {
                 if (self.lock) return null;
@@ -44,6 +67,8 @@ pub const Mutex = if (builtin.single_threaded)
             return Held{ .mutex = self };
         }
 
+        /// Acquire the mutex. Will deadlock if the mutex is already
+        /// held by the calling thread.
         pub fn acquire(self: *Mutex) Held {
             return self.tryAcquire() orelse @panic("deadlock detected");
         }
@@ -220,9 +245,12 @@ else if (builtin.link_libc or builtin.os == .linux)
             }
         }
 
+        /// Returned when the lock is acquired. Call release to
+        /// release.
         pub const Held = struct {
             mutex: *Mutex,
 
+            /// Release the held lock.
             pub fn release(self: Held) void {
                 // first, remove the lock bit so another possibly parallel acquire() can succeed.
                 // use .Sub since it can be usually compiled down more efficiency
