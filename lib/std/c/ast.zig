@@ -54,13 +54,47 @@ pub const Error = union(enum) {
     }
 };
 
-pub const Root = struct {
-    decls: DeclList,
-    eof_token: TokenIndex,
+pub const Node = struct {
+    id: Id,
 
-    pub const DeclList = SegmentedList(*Decl, 4);
-};
+    pub const Id = enum {
+        Root,
+        JumpStmt,
+        ExprStmt,
+        Label,
+    };
 
-pub const Decl = struct {
+    pub const Root = struct {
+        base: Node,
+        decls: DeclList,
+        eof: TokenIndex,
 
+        pub const DeclList = SegmentedList(*Node, 4);
+    };
+
+    pub const JumpStmt = struct {
+        base: Node = Node{ .id = .JumpStmt},
+        ltoken: TokenIndex,
+        kind: Kind,
+        semicolon: TokenIndex,
+
+        pub const Kind = union(enum) {
+            Break,
+            Continue,
+            Return: ?*Node,
+            Goto: TokenIndex,
+        };
+    };
+
+    pub const ExprStmt = struct {
+        base: Node = Node{ .id = .ExprStmt},
+        expr: ?*Node,
+        semicolon: TokenIndex,
+    };
+
+    pub const Label = struct {
+        base: Node = Node{ .id = .Label},
+        identifier: TokenIndex,
+        colon: TokenIndex,
+    };
 };
