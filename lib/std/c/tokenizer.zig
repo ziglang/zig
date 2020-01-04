@@ -4,6 +4,9 @@ const mem = std.mem;
 pub const Source = struct {
     buffer: []const u8,
     file_name: []const u8,
+    tokens: TokenList,
+
+    pub const TokenList = SegmentedList(Token, 64);
 };
 
 pub const Token = struct {
