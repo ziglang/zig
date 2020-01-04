@@ -21,7 +21,7 @@ pub fn ln(x: var) @TypeOf(x) {
     const T = @TypeOf(x);
     switch (@typeId(T)) {
         TypeId.ComptimeFloat => {
-            return @TypeOf(1.0)(ln_64(x));
+            return @as(comptime_float, ln_64(x));
         },
         TypeId.Float => {
             return switch (T) {
@@ -31,7 +31,7 @@ pub fn ln(x: var) @TypeOf(x) {
             };
         },
         TypeId.ComptimeInt => {
-            return @TypeOf(1)(math.floor(ln_64(@as(f64, x))));
+            return @as(comptime_int, math.floor(ln_64(@as(f64, x))));
         },
         TypeId.Int => {
             return @as(T, math.floor(ln_64(@as(f64, x))));
