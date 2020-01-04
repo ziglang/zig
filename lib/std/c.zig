@@ -5,6 +5,7 @@ const page_size = std.mem.page_size;
 const tokenizer = @import("c/tokenizer.zig");
 pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
+pub const parse = @import("c/parse.zig").parse;
 pub const ast = @import("c/ast.zig");
 
 pub usingnamespace @import("os/bits.zig");
