@@ -40,6 +40,7 @@ pub const Builder = struct {
     verbose_ir: bool,
     verbose_llvm_ir: bool,
     verbose_cimport: bool,
+    link_eh_frame_hdr: bool,
     invalid_user_input: bool,
     zig_exe: []const u8,
     default_step: *Step,
@@ -136,6 +137,7 @@ pub const Builder = struct {
             .verbose_ir = false,
             .verbose_llvm_ir = false,
             .verbose_cimport = false,
+            .link_eh_frame_hdr = false,
             .invalid_user_input = false,
             .allocator = allocator,
             .native_system_lib_paths = ArrayList([]const u8).init(allocator),
@@ -1175,6 +1177,8 @@ pub const LibExeObjStep = struct {
 
     valgrind_support: ?bool = null,
 
+    link_eh_frame_hdr: bool = false,
+
     /// Uses system Wine installation to run cross compiled Windows build artifacts.
     enable_wine: bool = false,
 
@@ -1623,6 +1627,10 @@ pub const LibExeObjStep = struct {
         self.verbose_cc = value;
     }
 
+    pub fn setLinkEhFrameHdr(self: *LibExeObjStep, value: bool) void {
+        self.link_eh_frame_hdr = value;
+    }
+
     pub fn setBuildMode(self: *LibExeObjStep, mode: builtin.Mode) void {
         self.build_mode = mode;
     }
@@ -1908,6 +1916,7 @@ pub const LibExeObjStep = struct {
         if (builder.verbose_llvm_ir) zig_args.append("--verbose-llvm-ir") catch unreachable;
         if (builder.verbose_link or self.verbose_link) zig_args.append("--verbose-link") catch unreachable;
         if (builder.verbose_cc or self.verbose_cc) zig_args.append("--verbose-cc") catch unreachable;
+        if (builder.link_eh_frame_hdr or self.link_eh_frame_hdr) zig_args.append("--eh-frame-hdr") catch unreachable;
 
         if (self.strip) {
             zig_args.append("--strip") catch unreachable;

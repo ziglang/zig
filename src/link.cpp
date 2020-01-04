@@ -1647,7 +1647,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append("--gc-sections");
     }
 
-    lj->args.append("--eh-frame-hdr");
+    if (g->link_eh_frame_hdr) {
+        lj->args.append("--eh-frame-hdr");
+    }
 
     lj->args.append("-m");
     lj->args.append(getLDMOption(g->zig_target));
