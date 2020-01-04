@@ -272,6 +272,7 @@ pub const Tokenizer = struct {
             U,
             L,
             StringLiteral,
+            AfterStringLiteral,
             CharLiteralStart,
             CharLiteral,
             EscapeSequence,
@@ -565,14 +566,22 @@ pub const Tokenizer = struct {
                         state = .EscapeSequence;
                     },
                     '"' => {
-                        self.index += 1;
-                        break;
+                        state = .AfterStringLiteral;
                     },
                     '\n', '\r' => {
                         result.id = .Invalid;
                         break;
                     },
                     else => {},
+                },
+                .AfterStringLiteral => switch (c) {
+                    '"' => {
+                        state = .StringLiteral;
+                    },
+                    '\n'...'\r', ' ' => {},
+                    else => {
+                        break;
+                    },
                 },
                 .CharLiteralStart => switch (c) {
                     '\\' => {
@@ -1109,6 +1118,7 @@ pub const Tokenizer = struct {
             }
         } else if (self.index == self.source.buffer.len) {
             switch (state) {
+                .AfterStringLiteral,
                 .Start => {},
                 .u, .u8, .U, .L, .Identifier => {
                     result.id = Token.getKeyword(self.source.buffer[result.start..self.index], self.prev_tok_id == .Hash and !self.pp_directive) orelse .Identifier;
@@ -1351,11 +1361,11 @@ test "line continuation" {
 
 test "string prefix" {
     expectTokens(
-        \\"foo"
-        \\u"foo"
-        \\u8"foo"
-        \\U"foo"
-        \\L"foo"
+        \\"foo" "bar"
+        \\u"foo" "bar"
+        \\u8"foo" "bar"
+        \\U"foo" "bar"
+        \\L"foo" "bar"
         \\'foo'
         \\u'foo'
         \\U'foo'
