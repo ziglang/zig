@@ -31,7 +31,6 @@ pub const Token = struct {
         PipeEqual,
         Equal,
         EqualEqual,
-        EqualAngleBracketRight,
         LParen,
         RParen,
         LBrace,
@@ -39,7 +38,6 @@ pub const Token = struct {
         LBracket,
         RBracket,
         Period,
-        PeriodAsterisk,
         Ellipsis,
         Caret,
         CaretEqual,
@@ -253,7 +251,7 @@ pub const Token = struct {
 pub const Tokenizer = struct {
     source: *Source,
     index: usize = 0,
-    prev_tok_id: @TagType(Token.Id),
+    prev_tok_id: @TagType(Token.Id) = .Invalid,
 
     pub fn next(self: *Tokenizer) Token {
         const start_index = self.index;
@@ -296,6 +294,7 @@ pub const Tokenizer = struct {
             Minus,
             Slash,
             Ampersand,
+            Hash,
             LineComment,
             MultiLineComment,
             MultiLineCommentAsterisk,
@@ -328,9 +327,6 @@ pub const Tokenizer = struct {
                     },
                     '\r' => {
                         state = .Cr;
-                    },
-                    ' ', '\t' => {
-                        result.start = self.index + 1;
                     },
                     '"' => {
                         result.id = .{ .StringLiteral = .None };
@@ -449,6 +445,9 @@ pub const Tokenizer = struct {
                     '&' => {
                         state = .Ampersand;
                     },
+                    '#' => {
+                        state = .Hash;
+                    },
                     '0' => {
                         state = .Zero;
                     },
@@ -456,9 +455,7 @@ pub const Tokenizer = struct {
                         state = .IntegerLiteral;
                     },
                     else => {
-                        result.id = .Invalid;
-                        self.index += 1;
-                        break;
+                        result.start = self.index + 1;
                     },
                 },
                 .Cr => switch (c) {
@@ -833,6 +830,17 @@ pub const Tokenizer = struct {
                         break;
                     },
                 },
+                .Hash => switch (c) {
+                    '#' => {
+                        result.id = .HashHash;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = .Hash;
+                        break;
+                    },
+                },
                 .LineComment => switch (c) {
                     '\n' => {
                         result.id = .LineComment;
@@ -1069,6 +1077,7 @@ pub const Tokenizer = struct {
                 .Minus => result.id = .Minus,
                 .Slash => result.id = .Slash,
                 .Ampersand => result.id = .Ampersand,
+                .Hash => result.id = .Hash,
                 .Period => result.id = .Period,
                 .Pipe => result.id = .Pipe,
                 .AngleBracketAngleBracketRight => result.id = .AngleBracketAngleBracketRight,
@@ -1089,16 +1098,192 @@ pub const Tokenizer = struct {
     }
 };
 
+test "operators" {
+    expectTokens(
+        \\ ! != | || |= = ==
+        \\ ( ) { } [ ] . .. ...
+        \\ ^ ^= + ++ += - -- -=
+        \\ * *= % %= -> : ; / /=
+        \\ , & && &= ? < <= <<
+        \\  <<= > >= >> >>= ~ # ##
+        \\
+    ,
+        &[_]Token.Id{
+            .Bang,
+            .BangEqual,
+            .Pipe,
+            .PipePipe,
+            .PipeEqual,
+            .Equal,
+            .EqualEqual,
+            .Nl,
+
+            .LParen,
+            .RParen,
+            .LBrace,
+            .RBrace,
+            .LBracket,
+            .RBracket,
+            .Period,
+            .Period,
+            .Period,
+            .Ellipsis,
+            .Nl,
+
+            .Caret,
+            .CaretEqual,
+            .Plus,
+            .PlusPlus,
+            .PlusEqual,
+            .Minus,
+            .MinusMinus,
+            .MinusEqual,
+            .Nl,
+
+            .Asterisk,
+            .AsteriskEqual,
+            .Percent,
+            .PercentEqual,
+            .Arrow,
+            .Colon,
+            .Semicolon,
+            .Slash,
+            .SlashEqual,
+            .Nl,
+
+            .Comma,
+            .Ampersand,
+            .AmpersandAmpersand,
+            .AmpersandEqual,
+            .QuestionMark,
+            .AngleBracketLeft,
+            .AngleBracketLeftEqual,
+            .AngleBracketAngleBracketLeft,
+            .Nl,
+
+            .AngleBracketAngleBracketLeftEqual,
+            .AngleBracketRight,
+            .AngleBracketRightEqual,
+            .AngleBracketAngleBracketRight,
+            .AngleBracketAngleBracketRightEqual,
+            .Tilde,
+            .Hash,
+            .HashHash,
+            .Nl,
+        },
+    );
+}
+
+test "keywords" {
+    expectTokens(
+        \\auto break case char const continue default do 
+        \\double else enum extern float for goto if int 
+        \\long register return short signed sizeof static 
+        \\struct switch typedef union unsigned void volatile 
+        \\while _Bool _Complex _Imaginary inline restrict _Alignas 
+        \\_Alignof _Atomic _Generic _Noreturn _Static_assert _Thread_local 
+        \\
+    , &[_]Token.Id{
+        .Keyword_auto,
+        .Keyword_break,
+        .Keyword_case,
+        .Keyword_char,
+        .Keyword_const,
+        .Keyword_continue,
+        .Keyword_default,
+        .Keyword_do,
+        .Nl,
+
+        .Keyword_double,
+        .Keyword_else,
+        .Keyword_enum,
+        .Keyword_extern,
+        .Keyword_float,
+        .Keyword_for,
+        .Keyword_goto,
+        .Keyword_if,
+        .Keyword_int,
+        .Nl,
+
+        .Keyword_long,
+        .Keyword_register,
+        .Keyword_return,
+        .Keyword_short,
+        .Keyword_signed,
+        .Keyword_sizeof,
+        .Keyword_static,
+        .Nl,
+
+        .Keyword_struct,
+        .Keyword_switch,
+        .Keyword_typedef,
+        .Keyword_union,
+        .Keyword_unsigned,
+        .Keyword_void,
+        .Keyword_volatile,
+        .Nl,
+
+        .Keyword_while,
+        .Keyword_bool,
+        .Keyword_complex,
+        .Keyword_imaginary,
+        .Keyword_inline,
+        .Keyword_restrict,
+        .Keyword_alignas,
+        .Nl,
+
+        .Keyword_alignof,
+        .Keyword_atomic,
+        .Keyword_generic,
+        .Keyword_noreturn,
+        .Keyword_static_assert,
+        .Keyword_thread_local,
+        .Nl,
+    });
+}
+
+test "preprocessor keywords" {
+    expectTokens(
+        \\#include <test>
+        \\#define
+        \\#ifdef
+        \\#ifndef
+        \\#error
+        \\#pragma
+        \\
+    , &[_]Token.Id{
+        .Hash,
+        .Keyword_include,
+        .MacroString,
+        .Nl,
+        .Hash,
+        .Keyword_define,
+        .Nl,
+        .Hash,
+        .Keyword_ifdef,
+        .Nl,
+        .Hash,
+        .Keyword_ifndef,
+        .Nl,
+        .Hash,
+        .Keyword_error,
+        .Nl,
+        .Hash,
+        .Keyword_pragma,
+        .Nl,
+    });
+}
+
 fn expectTokens(source: []const u8, expected_tokens: []const Token.Id) void {
     var tokenizer = Tokenizer{
-        .source = .{
+        .source = &Source{
             .buffer = source,
             .file_name = undefined,
         },
     };
     for (expected_tokens) |expected_token_id| {
         const token = tokenizer.next();
-        if (token.id != expected_token_id) {
+        if (!std.meta.eql(token.id, expected_token_id)) {
             std.debug.panic("expected {}, found {}\n", .{ @tagName(expected_token_id), @tagName(token.id) });
         }
     }
