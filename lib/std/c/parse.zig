@@ -109,34 +109,283 @@ const Parser = struct {
     fn staticAssertDeclaration(parser: *Parser) !?*Node {}
 
     /// DeclarationSpecifiers
-    ///     <- StorageClassSpecifier DeclarationSpecifiers?
-    ///     / TypeSpecifier DeclarationSpecifiers?
-    ///     / TypeQualifier DeclarationSpecifiers?
-    ///     / FunctionSpecifier DeclarationSpecifiers?
-    ///     / AlignmentSpecifier DeclarationSpecifiers?
+    ///     <- (Keyword_typedef / Keyword_extern / Keyword_static / Keyword_thread_local / Keyword_auto / Keyword_register
+    ///     / Type
+    ///     / Keyword_inline / Keyword_noreturn
+    ///     / Keyword_alignas LPAREN (TypeName / ConstExpr) RPAREN)*
     fn declarationSpecifiers(parser: *Parser) !*Node {}
 
-    /// StorageClassSpecifier
-    ///     <- Keyword_typedef / Keyword_extern / Keyword_static / Keyword_thread_local / Keyword_auto / Keyword_register
-    fn storageClassSpecifier(parser: *Parser) !*Node {}
-
-    /// TypeSpecifier
+    /// Type
     ///     <- Keyword_void / Keyword_char / Keyword_short / Keyword_int / Keyword_long / Keyword_float / Keyword_double
     ///     / Keyword_signed / Keyword_unsigned / Keyword_bool / Keyword_complex / Keyword_imaginary /
     ///     / Keyword_atomic LPAREN TypeName RPAREN
     ///     / EnumSpecifier
     ///     / RecordSpecifier
     ///     / IDENTIFIER // typedef name
-    fn typeSpecifier(parser: *Parser) !*Node {}
+    ///     / TypeQualifier
+    fn type(parser: *Parser, type: *Node.Type) !bool {
+        while (try parser.typeQualifier(type.qualifiers)) {}
+        blk: {
+            if (parser.eatToken(.Keyword_void)) |tok| {
+                if (type.specifier != .None)
+                    break :blk;
+                type.specifier = .{ .Void = tok };
+                return true;
+            } else if (parser.eatToken(.Keyword_char)) |tok| {
+                switch (type.specifier) {
+                    .None => {
+                        type.specifier = .{
+                            .Char = .{
+                                .char = tok,
+                            },
+                        };
+                    },
+                    .Int => |int| {
+                        if (int.int != null)
+                            break :blk;
+                        type.specifier = .{
+                            .Char = .{
+                                .char = tok,
+                                .sign = int.sign,
+                            },
+                        };
+                    },
+                    else => break :blk,
+                }
+                return true;
+            } else if (parser.eatToken(.Keyword_short)) |tok| {
+                switch (type.specifier) {
+                    .None => {
+                        type.specifier = .{
+                            .Short = .{
+                                .short = tok,
+                            },
+                        };
+                    },
+                    .Int => |int| {
+                        if (int.int != null)
+                            break :blk;
+                        type.specifier = .{
+                            .Short = .{
+                                .short = tok,
+                                .sign = int.sign,
+                            },
+                        };
+                    },
+                    else => break :blk,
+                }
+                return true;
+            } else if (parser.eatToken(.Keyword_long)) |tok| {
+                switch (type.specifier) {
+                    .None => {
+                        type.specifier = .{
+                            .Long = .{
+                                .long = tok,
+                            },
+                        };
+                    },
+                    .Int => |int| {
+                        type.specifier = .{
+                            .Long = .{
+                                .long = tok,
+                                .sign = int.sign,
+                                .int = int.int,
+                            },
+                        };
+                    },
+                    .Long => |*long| {
+                        if (long.longlong != null)
+                            break :blk;
+                        long.longlong = tok;
+                    },
+                    .Double => |*double| {
+                        if (double.long != null)
+                            break :blk;
+                        double.long = tok;
+                    },
+                    else => break :blk,
+                }
+                return true;
+            } else if (parser.eatToken(.Keyword_int)) |tok| {
+                switch (type.specifier) {
+                    .None => {
+                        type.specifier = .{
+                            .Int = .{
+                                .int = tok,
+                            },
+                        };
+                    },
+                    .Short => |*short| {
+                        if (short.int != null)
+                            break :blk;
+                        short.int = tok;
+                    },
+                    .Int => |*int| {
+                        if (int.int != null)
+                            break :blk;
+                        int.int = tok;
+                    },
+                    .Long => |*long| {
+                        if (long.int != null)
+                            break :blk;
+                        long.int = tok;
+                    },
+                    else => break :blk,
+                }
+                return true;
+            } else if (parser.eatToken(.Keyword_signed) orelse parser.eatToken(.Keyword_unsigned)) |tok| {
+                switch (type.specifier) {
+                    .None => {
+                        type.specifier = .{
+                            .Int = .{
+                                .sign = tok,
+                            },
+                        };
+                    },
+                    .Char => |*char| {
+                        if (char.sign != null)
+                            break :blk;
+                        char.sign = tok;
+                    },
+                    .Short => |*short| {
+                        if (short.sign != null)
+                            break :blk;
+                        short.sign = tok;
+                    },
+                    .Int => |*int| {
+                        if (int.sign != null)
+                            break :blk;
+                        int.sign = tok;
+                    },
+                    .Long => |*long| {
+                        if (long.sign != null)
+                            break :blk;
+                        long.sign = tok;
+                    },
+                    else => break :blk,
+                }
+                return true;
+            } else if (parser.eatToken(.Keyword_float)) |tok| {
+                if (type.specifier != .None)
+                    break :blk;
+                type.specifier = .{
+                    .Float = .{
+                        .float = tok,
+                    },
+                };
+                return true;
+            } else  if (parser.eatToken(.Keyword_double)) |tok| {
+                if (type.specifier != .None)
+                    break :blk;
+                type.specifier = .{
+                    .Double = .{
+                        .double = tok,
+                    },
+                };
+                return true;
+            } else  if (parser.eatToken(.Keyword_complex)) |tok| {
+                switch (type.specifier) {
+                    .None => {
+                        type.specifier = .{
+                            .Double = .{
+                                .complex = tok,
+                                .double = null
+                            },
+                        };
+                    },
+                    .Float => |*float| {
+                        if (float.complex != null)
+                            break :blk;
+                        float.complex = tok;
+                    },
+                    .Double => |*double| {
+                        if (double.complex != null)
+                            break :blk;
+                        double.complex = tok;
+                    },
+                    else => break :blk,
+                }
+                return true;
+            } if (parser.eatToken(.Keyword_bool)) |tok| {
+                if (type.specifier != .None)
+                    break :blk;
+                type.specifier = .{ .Bool = tok };
+                return true;
+            } else if (parser.eatToken(.Keyword_atomic)) |tok| {
+                if (type.specifier != .None)
+                    break :blk;
+                _ = try parser.expectToken(.LParen);
+                const name = try parser.expect(typeName, .{
+                    .ExpectedTypeName = .{ .tok = it.index },
+                });
+                type.specifier.Atomic = .{
+                    .atomic = tok,
+                    .typename = name,
+                    .rparen = try parser.expectToken(.RParen),
+                };
+                return true;
+            } else if (parser.eatToken(.Keyword_enum)) |tok| {
+                if (type.specifier != .None)
+                    break :blk;
+                @panic("TODO enum type");
+                // return true;
+            } else if (parser.eatToken(.Keyword_union) orelse parser.eatToken(.Keyword_struct)) |tok| {
+                if (type.specifier != .None)
+                    break :blk;
+                @panic("TODO record type");
+                // return true;
+            } else if (parser.eatToken(.Identifier)) |tok| {
+                if (!parser.typedefs.contains(tok)) {
+                    parser.putBackToken(tok);
+                    return false;
+                }
+                type.specifier = .{
+                    .Typedef = tok,
+                };
+                return true;
+            }
+        }
+        try parser.tree.errors.push(.{
+            .InvalidTypeSpecifier = .{
+                .token = parser.it.index,
+                .type = type,
+            },
+        });
+        return error.ParseError;
+    }
 
     /// TypeQualifier <- Keyword_const / Keyword_restrict / Keyword_volatile / Keyword_atomic
-    fn typeQualifier(parser: *Parser) !*Node {}
+    fn typeQualifier(parser: *Parser, qualifiers: *Node.Qualifiers) !bool {
+        if (parser.eatToken(.Keyword_const)) |tok| {
+            if (qualifiers.@"const" != null)
+                return parser.warning(.{
+                    .DuplicateQualifier = .{ .token = tok },
+                });
+            qualifiers.@"const" = tok;
+        } else if (parser.eatToken(.Keyword_restrict)) |tok| {
+            if (qualifiers.atomic != null)
+                return parser.warning(.{
+                    .DuplicateQualifier = .{ .token = tok },
+                });
+            qualifiers.atomic = tok;
+        } else if (parser.eatToken(.Keyword_volatile)) |tok| {
+            if (qualifiers.@"volatile" != null)
+                return parser.warning(.{
+                    .DuplicateQualifier = .{ .token = tok },
+                });
+            qualifiers.@"volatile" = tok;
+        } else if (parser.eatToken(.Keyword_atomic)) |tok| {
+            if (qualifiers.atomic != null)
+                return parser.warning(.{
+                    .DuplicateQualifier = .{ .token = tok },
+                });
+            qualifiers.atomic = tok;
+        } else return false;
+        return true;
+    }
 
     /// FunctionSpecifier <- Keyword_inline / Keyword_noreturn
     fn functionSpecifier(parser: *Parser) !*Node {}
-
-    /// AlignmentSpecifier <- Keyword_alignas LPAREN (TypeName / ConstExpr) RPAREN
-    fn alignmentSpecifier(parser: *Parser) !*Node {}
 
     /// EnumSpecifier <- Keyword_enum IDENTIFIER? (LBRACE EnumField RBRACE)?
     fn enumSpecifier(parser: *Parser) !*Node {}
@@ -148,18 +397,13 @@ const Parser = struct {
     fn recordSpecifier(parser: *Parser) !*Node {}
 
     /// RecordField
-    ///     <- SpecifierQualifer (RecordDeclarator (COMMA RecordDeclarator))? SEMICOLON
+    ///     <- Type* (RecordDeclarator (COMMA RecordDeclarator))? SEMICOLON
     ///     \ StaticAssertDeclaration
     fn recordField(parser: *Parser) !*Node {}
 
     /// TypeName
-    ///     <- SpecifierQualifer AbstractDeclarator?
+    ///     <- Type* AbstractDeclarator?
     fn typeName(parser: *Parser) !*Node {}
-
-    /// SpecifierQualifer
-    ///     <- TypeSpecifier SpecifierQualifer?
-    ///     / TypeQualifier SpecifierQualifer?
-    fn specifierQualifer(parser: *Parser) !*Node {}
 
     /// RecordDeclarator <- Declarator? (COLON ConstExpr)?
     fn recordDeclarator(parser: *Parser) !*Node {}
@@ -329,7 +573,7 @@ const Parser = struct {
             if (parser.eatToken(.Keyword_else)) |else_tok| {
                 node.@"else" = .{
                     .tok = else_tok,
-                    .stmt =  try parser.stmt(expr, .{
+                    .stmt = try parser.stmt(expr, .{
                         .ExpectedStmt = .{ .token = it.index },
                     }),
                 };
@@ -431,11 +675,11 @@ const Parser = struct {
         }
     }
 
-    fn putBackToken(it: *TokenIterator, putting_back: TokenIndex) void {
+    fn putBackToken(parser: *Parser, putting_back: TokenIndex) void {
         while (true) {
-            const prev_tok = it.prev() orelse return;
+            const prev_tok = parser.it.prev() orelse return;
             if (next_tok.id == .LineComment or next_tok.id == .MultiLineComment) continue;
-            assert(it.list.at(putting_back) == prev_tok);
+            assert(parser.it.list.at(putting_back) == prev_tok);
             return;
         }
     }
@@ -449,5 +693,11 @@ const Parser = struct {
             try parser.tree.errors.push(err);
             return error.ParseError;
         };
+    }
+
+    fn warning(parser: *Parser, err: ast.Error) Error {
+        // if (parser.warnaserror)
+        try parser.tree.errors.push(err);
+        return error.ParseError;
     }
 };

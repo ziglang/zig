@@ -26,10 +26,12 @@ pub const Tree = struct {
 };
 
 pub const Error = union(enum) {
-    InvalidToken: SingleTokenError("Invalid token '{}'"),
+    InvalidToken: SingleTokenError("invalid token '{}'"),
     ExpectedToken: ExpectedToken,
-    ExpectedExpr: SingleTokenError("Expected expression, found '{}'"),
-    ExpectedStmt: SingleTokenError("Expected statement, found '{}'"),
+    ExpectedExpr: SingleTokenError("expected expression, found '{}'"),
+    ExpectedStmt: SingleTokenError("expected statement, found '{}'"),
+    InvalidTypeSpecifier: InvalidTypeSpecifier,
+    DuplicateQualifier: SingleTokenError("duplicate type qualifier '{}'"),
 
     pub fn render(self: *const Error, tokens: *Tree.TokenList, stream: var) !void {
         switch (self.*) {
@@ -37,6 +39,8 @@ pub const Error = union(enum) {
             .ExpectedToken => |*x| return x.render(tokens, stream),
             .ExpectedExpr => |*x| return x.render(tokens, stream),
             .ExpectedStmt => |*x| return x.render(tokens, stream),
+            .InvalidTypeSpecifier => |*x| return x.render(tokens, stream),
+            .DuplicateQualifier => |*x| return x.render(tokens, stream),
         }
     }
 
@@ -46,6 +50,8 @@ pub const Error = union(enum) {
             .ExpectedToken => |x| return x.token,
             .ExpectedExpr => |x| return x.token,
             .ExpectedStmt => |x| return x.token,
+            .InvalidTypeSpecifier => |x| return x.token,
+            .DuplicateQualifier => |x| return x.token,
         }
     }
 
@@ -61,6 +67,18 @@ pub const Error = union(enum) {
                 const token_name = found_token.id.symbol();
                 return stream.print("expected '{}', found '{}'", .{ self.expected_id.symbol(), token_name });
             }
+        }
+    };
+
+    pub const InvalidTypeSpecifier = struct {
+        token: TokenIndex,
+        type: *Node.Type,
+
+        pub fn render(self: *const ExpectedToken, tokens: *Tree.TokenList, stream: var) !void {
+            try stream.write("invalid type specifier '");
+            try type.specifier.print(tokens, stream);
+            const token_name = tokens.at(self.token).id.symbol();
+            return stream.print("{}'", .{ token_name });
         }
     };
 
@@ -94,6 +112,69 @@ pub const Node = struct {
         eof: TokenIndex,
 
         pub const DeclList = SegmentedList(*Node, 4);
+    };
+
+    pub const Type = struct {
+        qualifiers: Qualifiers,
+        specifier: union(enum) {
+            /// error or default to int
+            None,
+            Void: TokenIndex,
+            Char: struct {
+                sign: ?TokenIndex = null,
+                char: TokenIndex,
+            },
+            Short: struct {
+                sign: ?TokenIndex = null,
+                short: TokenIndex = null,
+                int: ?TokenIndex = null,
+            },
+            Int: struct {
+                sign: ?TokenIndex = null,
+                int: ?TokenIndex = null,
+            },
+            Long: struct {
+                sign: ?TokenIndex = null,
+                long: TokenIndex,
+                longlong: ?TokenIndex = null,
+                int: ?TokenIndex = null,
+            },
+            Float: struct {
+                float: TokenIndex,
+                complex: ?TokenIndex = null,
+            },
+            Double: struct {
+                long: ?TokenIndex = null,
+                double: ?TokenIndex,
+                complex: ?TokenIndex = null,
+            },
+            Bool: TokenIndex,
+            Atomic: struct {
+                atomic: TokenIndex,
+                typename: *Node,
+                rparen: TokenIndex,
+            },
+
+            //todo
+            // @"enum",
+            // record,
+
+            Typedef: TokenIndex,
+
+            pub fn print(self: *@This(), self: *const @This(), tokens: *Tree.TokenList, stream: var) !void {
+                switch (self) {
+                    .None => unreachable,
+                    else => @panic("TODO print type specifier"),
+                }
+            }
+        },
+    };
+
+    pub const Qualifiers = struct {
+        @"const": ?TokenIndex = null,
+        atomic: ?TokenIndex = null,
+        @"volatile": ?TokenIndex = null,
+        restrict: ?TokenIndex = null,
     };
 
     pub const JumpStmt = struct {
