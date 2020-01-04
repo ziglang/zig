@@ -7,21 +7,15 @@ pub const Source = struct {
 };
 
 pub const Token = struct {
-    id: Id,
-    num_suffix: NumSuffix = .None,
-    start: usize,
-    end: usize,
-    source: *Source,
-
-    pub const Id = enum {
+    id: union(enum) {
         Invalid,
         Eof,
         Nl,
         Identifier,
-        StringLiteral,
-        CharLiteral,
-        IntegerLiteral,
-        FloatLiteral,
+        StringLiteral: StrKind,
+        CharLiteral: StrKind,
+        IntegerLiteral: NumSuffix,
+        FloatLiteral: NumSuffix,
         Bang,
         BangEqual,
         Pipe,
@@ -74,7 +68,10 @@ pub const Token = struct {
         MultiLineComment,
         Hash,
         HashHash,
-    };
+    },
+    start: usize,
+    end: usize,
+    source: *Source,
 
     pub const NumSuffix = enum {
         None,
@@ -84,6 +81,14 @@ pub const Token = struct {
         LU,
         LL,
         LLU,
+    };
+
+    pub const StrKind = enum {
+        None,
+        Wide,
+        Utf8,
+        Utf16,
+        Utf32,
     };
 };
 
@@ -102,6 +107,10 @@ pub const Tokenizer = struct {
         var state: enum {
             Start,
             Cr,
+            u,
+            u8,
+            U,
+            L,
             StringLiteral,
             CharLiteral,
             EscapeSequence,
@@ -162,13 +171,23 @@ pub const Tokenizer = struct {
                         result.start = self.index + 1;
                     },
                     '"' => {
+                        result.id = .{ .StringLiteral = .None };
                         state = .StringLiteral;
-                        result.id = .StringLiteral;
                     },
                     '\'' => {
+                        result.id = .{ .CharLiteral = .None };
                         state = .CharLiteral;
                     },
-                    'a'...'z', 'A'...'Z', '_' => {
+                    'u' => {
+                        state = .u;
+                    },
+                    'U' => {
+                        state = .U;
+                    },
+                    'L' => {
+                        state = .L;
+                    },
+                    'a'...'t', 'v'...'z', 'A'...'K', 'M'...'T', 'V'...'Z', '_' => {
                         state = .Identifier;
                         result.id = .Identifier;
                     },
@@ -268,11 +287,9 @@ pub const Tokenizer = struct {
                     },
                     '0' => {
                         state = .Zero;
-                        result.id = .IntegerLiteral;
                     },
                     '1'...'9' => {
                         state = .IntegerLiteral;
-                        result.id = .IntegerLiteral;
                     },
                     else => {
                         result.id = .Invalid;
@@ -291,14 +308,63 @@ pub const Tokenizer = struct {
                         break;
                     },
                 },
-                // TODO l"" u"" U"" u8""
+                .u => switch (c) {
+                    '8' => {
+                        state = .u8;
+                    },
+                    '\'' => {
+                        result.id = .{ .CharLiteral = .Utf16 };
+                        state = .CharLiteral;
+                    },
+                    '\"' => {
+                        result.id = .{ .StringLiteral = .Utf16 };
+                        state = .StringLiteral;
+                    },
+                    else => {
+                        state = .Identifier;
+                    },
+                },
+                .u8 => switch (c) {
+                    '\"' => {
+                        result.id = .{ .StringLiteral = .Utf8 };
+                        state = .StringLiteral;
+                    },
+                    else => {
+                        state = .Identifier;
+                    },
+                },
+                .U => switch (c) {
+                    '\'' => {
+                        result.id = .{ .CharLiteral = .Utf32 };
+                        state = .CharLiteral;
+                    },
+                    '\"' => {
+                        result.id = .{ .StringLiteral = .Utf32 };
+                        state = .StringLiteral;
+                    },
+                    else => {
+                        state = .Identifier;
+                    },
+                },
+                .L => switch (c) {
+                    '\'' => {
+                        result.id = .{ .CharLiteral = .Wide };
+                        state = .CharLiteral;
+                    },
+                    '\"' => {
+                        result.id = .{ .StringLiteral = .Wide };
+                        state = .StringLiteral;
+                    },
+                    else => {
+                        state = .Identifier;
+                    },
+                },
                 .StringLiteral => switch (c) {
                     '\\' => {
                         string = true;
                         state = .EscapeSequence;
                     },
                     '"' => {
-                        result.id = .StringLiteral;
                         self.index += 1;
                         break;
                     },
@@ -308,7 +374,6 @@ pub const Tokenizer = struct {
                     },
                     else => {},
                 },
-                // TODO l'' u'' U''
                 .CharLiteral => switch (c) {
                     '\\' => {
                         string = false;
@@ -683,7 +748,7 @@ pub const Tokenizer = struct {
                         state = .IntegerSuffixL;
                     },
                     else => {
-                        result.id = .IntegerLiteral;
+                        result.id = .{ .IntegerLiteral = .None };
                         break;
                     },
                 },
@@ -692,8 +757,7 @@ pub const Tokenizer = struct {
                         state = .IntegerSuffixUL;
                     },
                     else => {
-                        result.id = .IntegerLiteral;
-                        result.num_suffix = .U;
+                        result.id = .{ .IntegerLiteral = .U };
                         break;
                     },
                 },
@@ -702,40 +766,34 @@ pub const Tokenizer = struct {
                         state = .IntegerSuffixLL;
                     },
                     'u', 'U' => {
-                        result.id = .IntegerLiteral;
-                        result.num_suffix = .LU;
+                        result.id = .{ .IntegerLiteral = .LU };
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .IntegerLiteral;
-                        result.num_suffix = .L;
+                        result.id = .{ .IntegerLiteral = .L };
                         break;
                     },
                 },
                 .IntegerSuffixLL => switch (c) {
                     'u', 'U' => {
-                        result.id = .IntegerLiteral;
-                        result.num_suffix = .LLU;
+                        result.id = .{ .IntegerLiteral = .LLU };
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .IntegerLiteral;
-                        result.num_suffix = .LL;
+                        result.id = .{ .IntegerLiteral = .LL };
                         break;
                     },
                 },
                 .IntegerSuffixUL => switch (c) {
                     'l', 'L' => {
-                        result.id = .IntegerLiteral;
-                        result.num_suffix = .LLU;
+                        result.id = .{ .IntegerLiteral = .LLU };
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .IntegerLiteral;
-                        result.num_suffix = .LU;
+                        result.id = .{ .IntegerLiteral = .LU };
                         break;
                     },
                 },
@@ -782,19 +840,17 @@ pub const Tokenizer = struct {
                 },
                 .FloatSuffix => switch (c) {
                     'l', 'L' => {
-                        result.id = .FloatLiteral;
-                        result.num_suffix = .L;
+                        result.id = .{ .FloatLiteral = .L };
                         self.index += 1;
                         break;
                     },
                     'f', 'F' => {
-                        result.id = .FloatLiteral;
-                        result.num_suffix = .F;
+                        result.id = .{ .FloatLiteral = .F };
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = .FloatLiteral;
+                        result.id = .{ .FloatLiteral = .None };
                         break;
                     },
                 },
@@ -802,7 +858,7 @@ pub const Tokenizer = struct {
         } else if (self.index == self.source.buffer.len) {
             switch (state) {
                 .Start => {},
-                .Identifier => {
+                .u, .u8, .U, .L, .Identifier => {
                     result.id = .Identifier;
                 },
 
@@ -822,25 +878,19 @@ pub const Tokenizer = struct {
                 .FloatExponentDigits,
                 => result.id = .Invalid,
 
-                .IntegerLiteralOct, .IntegerLiteralBinary, .IntegerLiteralHex, .IntegerLiteral, .IntegerSuffix, .Zero => result.id = .IntegerLiteral,
-                .IntegerSuffixU => {
-                    result.id = .IntegerLiteral;
-                    result.num_suffix = .U;
-                },
-                .IntegerSuffixL => {
-                    result.id = .IntegerLiteral;
-                    result.num_suffix = .L;
-                },
-                .IntegerSuffixLL => {
-                    result.id = .IntegerLiteral;
-                    result.num_suffix = .LL;
-                },
-                .IntegerSuffixUL => {
-                    result.id = .IntegerLiteral;
-                    result.num_suffix = .LU;
-                },
+                .IntegerLiteralOct,
+                .IntegerLiteralBinary,
+                .IntegerLiteralHex,
+                .IntegerLiteral,
+                .IntegerSuffix,
+                .Zero,
+                => result.id = .{ .IntegerLiteral = .None },
+                .IntegerSuffixU => result.id = .{ .IntegerLiteral = .U },
+                .IntegerSuffixL => result.id = .{ .IntegerLiteral = .L },
+                .IntegerSuffixLL => result.id = .{ .IntegerLiteral = .LL },
+                .IntegerSuffixUL => result.id = .{ .IntegerLiteral = .LU },
 
-                .FloatSuffix => result.id = .FloatLiteral,
+                .FloatSuffix => result.id = .{ .FloatLiteral = .None },
                 .Equal => result.id = .Equal,
                 .Bang => result.id = .Bang,
                 .Minus => result.id = .Minus,
