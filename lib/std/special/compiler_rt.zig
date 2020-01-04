@@ -75,6 +75,9 @@ comptime {
     @export("__floatsisf", @import("compiler_rt/floatsiXf.zig").__floatsisf, linkage);
     @export("__floatdidf", @import("compiler_rt/floatdidf.zig").__floatdidf, linkage);
     @export("__floatsitf", @import("compiler_rt/floatsiXf.zig").__floatsitf, linkage);
+
+    @export("__floatunsisf", @import("compiler_rt/floatunsisf.zig").__floatunsisf, linkage);
+    @export("__floatundisf", @import("compiler_rt/floatundisf.zig").__floatundisf, linkage);
     @export("__floatunsidf", @import("compiler_rt/floatunsidf.zig").__floatunsidf, linkage);
     @export("__floatundidf", @import("compiler_rt/floatundidf.zig").__floatundidf, linkage);
 
@@ -183,6 +186,8 @@ comptime {
         @export("__aeabi_l2d", @import("compiler_rt/floatdidf.zig").__floatdidf, linkage);
         @export("__aeabi_ui2d", @import("compiler_rt/floatunsidf.zig").__floatunsidf, linkage);
         @export("__aeabi_ul2d", @import("compiler_rt/floatundidf.zig").__floatundidf, linkage);
+        @export("__aeabi_ui2f", @import("compiler_rt/floatunsisf.zig").__floatunsisf, linkage);
+        @export("__aeabi_ul2f", @import("compiler_rt/floatundisf.zig").__floatundisf, linkage);
 
         @export("__aeabi_fneg", @import("compiler_rt/negXf2.zig").__negsf2, linkage);
         @export("__aeabi_dneg", @import("compiler_rt/negXf2.zig").__negdf2, linkage);
