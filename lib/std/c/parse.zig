@@ -284,7 +284,19 @@ const Parser = struct {
     fn designator(parser: *Parser) !*Node {}
 
     /// CompoundStmt <- LBRACE (Declaration / Stmt)* RBRACE
-    fn compoundStmt(parser: *Parser) !?*Node {}
+    fn compoundStmt(parser: *Parser) !?*Node {
+        const lbrace = parser.eatToken(.LBrace) orelse return null;
+        const node = try parser.arena.create(Node.CompoundStmt);
+        node.* = .{
+            .lbrace = lbrace,
+            .statements = Node.JumpStmt.StmtList.init(parser.arena),
+            .rbrace = undefined,
+        };
+        while (parser.declaration() orelse parser.stmt()) |node|
+            try node.statements.push(node);
+        node.rbrace = try parser.expectToken(.RBrace);
+        return &node.base;
+    }
 
     /// Stmt
     ///     <- CompoundStmt
@@ -303,7 +315,27 @@ const Parser = struct {
     ///     / ExprStmt
     fn stmt(parser: *Parser) !?*Node {
         if (parser.compoundStmt()) |node| return node;
-        // if (parser.eatToken(.Keyword_if)) |tok| {}
+        if (parser.eatToken(.Keyword_if)) |tok| {
+            const node = try parser.arena.create(Node.IfStmt);
+            _ = try parser.expectToken(.LParen);
+            node.* = .{
+                .@"if" = tok,
+                .cond = try parser.expect(expr, .{
+                    .ExpectedExpr = .{ .token = it.index },
+                }),
+                .@"else" = null,
+            };
+            _ = try parser.expectToken(.RParen);
+            if (parser.eatToken(.Keyword_else)) |else_tok| {
+                node.@"else" = .{
+                    .tok = else_tok,
+                    .stmt =  try parser.stmt(expr, .{
+                        .ExpectedStmt = .{ .token = it.index },
+                    }),
+                };
+            }
+            return &node.base;
+        }
         // if (parser.eatToken(.Keyword_switch)) |tok| {}
         // if (parser.eatToken(.Keyword_while)) |tok| {}
         // if (parser.eatToken(.Keyword_do)) |tok| {}
@@ -406,5 +438,16 @@ const Parser = struct {
             assert(it.list.at(putting_back) == prev_tok);
             return;
         }
+    }
+
+    fn expect(
+        parser: *Parser,
+        parseFn: fn (*Parser) Error!?*Node,
+        err: ast.Error, // if parsing fails
+    ) Error!*Node {
+        return (try parseFn(arena, it, tree)) orelse {
+            try parser.tree.errors.push(err);
+            return error.ParseError;
+        };
     }
 };

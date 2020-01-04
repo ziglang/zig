@@ -26,21 +26,43 @@ pub const Tree = struct {
 };
 
 pub const Error = union(enum) {
-    InvalidToken: InvalidToken,
+    InvalidToken: SingleTokenError("Invalid token '{}'"),
+    ExpectedToken: ExpectedToken,
+    ExpectedExpr: SingleTokenError("Expected expression, found '{}'"),
+    ExpectedStmt: SingleTokenError("Expected statement, found '{}'"),
 
     pub fn render(self: *const Error, tokens: *Tree.TokenList, stream: var) !void {
         switch (self.*) {
             .InvalidToken => |*x| return x.render(tokens, stream),
+            .ExpectedToken => |*x| return x.render(tokens, stream),
+            .ExpectedExpr => |*x| return x.render(tokens, stream),
+            .ExpectedStmt => |*x| return x.render(tokens, stream),
         }
     }
 
     pub fn loc(self: *const Error) TokenIndex {
         switch (self.*) {
             .InvalidToken => |x| return x.token,
+            .ExpectedToken => |x| return x.token,
+            .ExpectedExpr => |x| return x.token,
+            .ExpectedStmt => |x| return x.token,
         }
     }
 
-    pub const InvalidToken = SingleTokenError("Invalid token '{}'");
+    pub const ExpectedToken = struct {
+        token: TokenIndex,
+        expected_id: @TagType(Token.Id),
+
+        pub fn render(self: *const ExpectedToken, tokens: *Tree.TokenList, stream: var) !void {
+            const found_token = tokens.at(self.token);
+            if (found_token.id == .Invalid) {
+                return stream.print("expected '{}', found invalid bytes", .{self.expected_id.symbol()});
+            } else {
+                const token_name = found_token.id.symbol();
+                return stream.print("expected '{}', found '{}'", .{ self.expected_id.symbol(), token_name });
+            }
+        }
+    };
 
     fn SingleTokenError(comptime msg: []const u8) type {
         return struct {
@@ -62,6 +84,8 @@ pub const Node = struct {
         JumpStmt,
         ExprStmt,
         Label,
+        CompoundStmt,
+        IfStmt,
     };
 
     pub const Root = struct {
@@ -73,7 +97,7 @@ pub const Node = struct {
     };
 
     pub const JumpStmt = struct {
-        base: Node = Node{ .id = .JumpStmt},
+        base: Node = Node{ .id = .JumpStmt },
         ltoken: TokenIndex,
         kind: Kind,
         semicolon: TokenIndex,
@@ -87,14 +111,33 @@ pub const Node = struct {
     };
 
     pub const ExprStmt = struct {
-        base: Node = Node{ .id = .ExprStmt},
+        base: Node = Node{ .id = .ExprStmt },
         expr: ?*Node,
         semicolon: TokenIndex,
     };
 
     pub const Label = struct {
-        base: Node = Node{ .id = .Label},
+        base: Node = Node{ .id = .Label },
         identifier: TokenIndex,
         colon: TokenIndex,
+    };
+
+    pub const CompoundStmt = struct {
+        base: Node = Node{ .id = .CompoundStmt },
+        lbrace: TokenIndex,
+        statements: StmtList,
+        rbrace: TokenIndex,
+
+        pub const StmtList = Root.DeclList;
+    };
+
+    pub const IfStmt = struct {
+        base: Node = Node{ .id = .IfStmt },
+        @"if": TokenIndex,
+        cond: *Node,
+        @"else": ?struct {
+            tok: TokenIndex,
+            stmt: *Node,
+        },
     };
 };
