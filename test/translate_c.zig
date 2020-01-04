@@ -696,6 +696,21 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add("for loop with simple init expression",
+        \\void foo(void) {
+        \\    int i;
+        \\    for (i = 3; i; i--) { }
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var i: c_int = undefined;
+        \\    {
+        \\        i = 3;
+        \\        while (i != 0) : (i -= 1) {}
+        \\    }
+        \\}
+    });
+
     cases.add("break statement",
         \\void foo(void) {
         \\    for (;;) {

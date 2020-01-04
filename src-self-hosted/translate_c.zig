@@ -2119,14 +2119,16 @@ fn transForLoop(
         .parent = scope,
         .id = .Loop,
     };
-    var block = false;
+
     var block_scope: ?*Scope.Block = null;
     if (ZigClangForStmt_getInit(stmt)) |init| {
         block_scope = try Scope.Block.init(rp.c, scope, null);
-        block_scope.?.block_node = try transCreateNodeBlock(rp.c, null);
+        const block = try transCreateNodeBlock(rp.c, null);
+        block_scope.?.block_node = block;
         loop_scope.parent = &block_scope.?.base;
-        const init_stmt = try transStmt(rp, &loop_scope, init, .unused, .r_value);
-        try block_scope.?.block_node.statements.push(init_stmt);
+        const result = try transStmt(rp, &block_scope.?.base, init, .unused, .r_value);
+        if (result != &block.base)
+            try block.statements.push(result);
     }
     var cond_scope = Scope{
         .parent = scope,
