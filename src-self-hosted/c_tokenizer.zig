@@ -1,11 +1,14 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const ZigClangSourceLocation = @import("clang.zig").ZigClangSourceLocation;
+const Context = @import("translate_c.zig").Context;
+const failDecl = @import("translate_c.zig").failDecl;
 
 pub const TokenList = std.SegmentedList(CToken, 32);
 
 pub const CToken = struct {
     id: Id,
-    bytes: []const u8,
+    bytes: []const u8 = "",
     num_lit_suffix: NumLitSuffix = .None,
 
     pub const Id = enum {
@@ -14,23 +17,38 @@ pub const CToken = struct {
         NumLitInt,
         NumLitFloat,
         Identifier,
+        Plus,
         Minus,
         Slash,
         LParen,
         RParen,
         Eof,
         Dot,
-        Asterisk,
-        Bang,
-        Tilde,
-        Shl,
-        Lt,
+        Asterisk, // *
+        Ampersand, // &
+        And, // &&
+        Assign, // =
+        Or, // ||
+        Bang, // !
+        Tilde, // ~
+        Shl, // <<
+        Shr, // >>
+        Lt, // <
+        Lte, // <=
+        Gt, // >
+        Gte, // >=
+        Eq, // ==
+        Ne, // !=
+        Increment, // ++
+        Decrement, // --
         Comma,
         Fn,
-        Arrow,
+        Arrow, // ->
         LBrace,
         RBrace,
         Pipe,
+        QuestionMark,
+        Colon,
     };
 
     pub const NumLitSuffix = enum {
@@ -44,13 +62,13 @@ pub const CToken = struct {
     };
 };
 
-pub fn tokenizeCMacro(tl: *TokenList, chars: [*:0]const u8) !void {
+pub fn tokenizeCMacro(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, tl: *TokenList, chars: [*:0]const u8) !void {
     var index: usize = 0;
     var first = true;
     while (true) {
-        const tok = try next(chars, &index);
+        const tok = try next(ctx, loc, name, chars, &index);
         if (tok.id == .StrLit or tok.id == .CharLit)
-            try tl.push(try zigifyEscapeSequences(tl.allocator, tok))
+            try tl.push(try zigifyEscapeSequences(ctx, loc, name, tl.allocator, tok))
         else
             try tl.push(tok);
         if (tok.id == .Eof)
@@ -68,7 +86,7 @@ pub fn tokenizeCMacro(tl: *TokenList, chars: [*:0]const u8) !void {
     }
 }
 
-fn zigifyEscapeSequences(allocator: *std.mem.Allocator, tok: CToken) !CToken {
+fn zigifyEscapeSequences(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, allocator: *std.mem.Allocator, tok: CToken) !CToken {
     for (tok.bytes) |c| {
         if (c == '\\') {
             break;
@@ -134,11 +152,11 @@ fn zigifyEscapeSequences(allocator: *std.mem.Allocator, tok: CToken) !CToken {
                         bytes[i] = '?';
                     },
                     'u', 'U' => {
-                        // TODO unicode escape sequences
+                        try failDecl(ctx, loc, name, "macro tokenizing failed: TODO unicode escape sequences", .{});
                         return error.TokenizingFailed;
                     },
                     else => {
-                        // unknown escape sequence
+                        try failDecl(ctx, loc, name, "macro tokenizing failed: unknown escape sequence", .{});
                         return error.TokenizingFailed;
                     },
                 }
@@ -156,19 +174,28 @@ fn zigifyEscapeSequences(allocator: *std.mem.Allocator, tok: CToken) !CToken {
             .Hex => {
                 switch (c) {
                     '0'...'9' => {
-                        num = std.math.mul(u8, num, 16) catch return error.TokenizingFailed;
+                        num = std.math.mul(u8, num, 16) catch {
+                            try failDecl(ctx, loc, name, "macro tokenizing failed: hex literal overflowed", .{});
+                            return error.TokenizingFailed;
+                        };
                         num += c - '0';
                     },
                     'a'...'f' => {
-                        num = std.math.mul(u8, num, 16) catch return error.TokenizingFailed;
+                        num = std.math.mul(u8, num, 16) catch {
+                            try failDecl(ctx, loc, name, "macro tokenizing failed: hex literal overflowed", .{});
+                            return error.TokenizingFailed;
+                        };
                         num += c - 'a' + 10;
                     },
                     'A'...'F' => {
-                        num = std.math.mul(u8, num, 16) catch return error.TokenizingFailed;
+                        num = std.math.mul(u8, num, 16) catch {
+                            try failDecl(ctx, loc, name, "macro tokenizing failed: hex literal overflowed", .{});
+                            return error.TokenizingFailed;
+                        };
                         num += c - 'A' + 10;
                     },
                     else => {
-                        i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{.fill = '0', .width = 2});
+                        i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
                         num = 0;
                         if (c == '\\')
                             state = .Escape
@@ -180,35 +207,52 @@ fn zigifyEscapeSequences(allocator: *std.mem.Allocator, tok: CToken) !CToken {
                 }
             },
             .Octal => {
-                switch (c) {
-                    '0'...'7' => {
-                        count += 1;
-                        num = std.math.mul(u8, num, 8) catch return error.TokenizingFailed;
-                        num += c - '0';
-                        if (count < 3)
-                            continue;
-                    },
-                    else => {},
+                const accept_digit = switch (c) {
+                    // The maximum length of a octal literal is 3 digits
+                    '0'...'7' => count < 3,
+                    else => false,
+                };
+
+                if (accept_digit) {
+                    count += 1;
+                    num = std.math.mul(u8, num, 8) catch {
+                        try failDecl(ctx, loc, name, "macro tokenizing failed: octal literal overflowed", .{});
+                        return error.TokenizingFailed;
+                    };
+                    num += c - '0';
+                } else {
+                    i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
+                    num = 0;
+                    count = 0;
+                    if (c == '\\')
+                        state = .Escape
+                    else
+                        state = .Start;
+                    bytes[i] = c;
+                    i += 1;
                 }
-                i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{.fill = '0', .width = 2});
-                state = .Start;
-                count = 0;
-                num = 0;
             },
         }
     }
     if (state == .Hex or state == .Octal)
-        i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{.fill = '0', .width = 2});
+        i += std.fmt.formatIntBuf(bytes[i..], num, 16, false, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
     return CToken{
         .id = tok.id,
         .bytes = bytes[0..i],
     };
 }
 
-fn next(chars: [*:0]const u8, i: *usize) !CToken {
+fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:0]const u8, i: *usize) !CToken {
     var state: enum {
         Start,
-        GotLt,
+        SawLt,
+        SawGt,
+        SawPlus,
+        SawMinus,
+        SawAmpersand,
+        SawPipe,
+        SawBang,
+        SawEq,
         CharLit,
         OpenComment,
         Comment,
@@ -218,7 +262,7 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
         Identifier,
         Decimal,
         Octal,
-        GotZero,
+        SawZero,
         Hex,
         Bin,
         Float,
@@ -229,7 +273,6 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
         NumLitIntSuffixL,
         NumLitIntSuffixLL,
         NumLitIntSuffixUL,
-        Minus,
         Done,
     } = .Start;
 
@@ -250,7 +293,7 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
                 .Hex,
                 .Bin,
                 .Octal,
-                .GotZero,
+                .SawZero,
                 .Float,
                 .FloatExp,
                 => {
@@ -258,13 +301,19 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
                     return result;
                 },
                 .Start,
-                .Minus,
+                .SawMinus,
                 .Done,
                 .NumLitIntSuffixU,
                 .NumLitIntSuffixL,
                 .NumLitIntSuffixUL,
                 .NumLitIntSuffixLL,
-                .GotLt,
+                .SawLt,
+                .SawGt,
+                .SawPlus,
+                .SawAmpersand,
+                .SawPipe,
+                .SawBang,
+                .SawEq,
                 => {
                     return result;
                 },
@@ -276,7 +325,10 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
                 .String,
                 .ExpSign,
                 .FloatExpFirst,
-                => return error.TokenizingFailed,
+                => {
+                    try failDecl(ctx, loc, name, "macro tokenizing failed: unexpected EOF", .{});
+                    return error.TokenizingFailed;
+                },
             }
         }
         switch (state) {
@@ -313,7 +365,7 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
                         begin_index = i.*;
                     },
                     '0' => {
-                        state = .GotZero;
+                        state = .SawZero;
                         result.id = .NumLitInt;
                         begin_index = i.*;
                     },
@@ -323,7 +375,11 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
                     },
                     '<' => {
                         result.id = .Lt;
-                        state = .GotLt;
+                        state = .SawLt;
+                    },
+                    '>' => {
+                        result.id = .Gt;
+                        state = .SawGt;
                     },
                     '(' => {
                         result.id = .LParen;
@@ -337,17 +393,25 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
                         result.id = .Asterisk;
                         state = .Done;
                     },
+                    '+' => {
+                        result.id = .Plus;
+                        state = .SawPlus;
+                    },
                     '-' => {
-                        state = .Minus;
                         result.id = .Minus;
+                        state = .SawMinus;
                     },
                     '!' => {
                         result.id = .Bang;
-                        state = .Done;
+                        state = .SawBang;
                     },
                     '~' => {
                         result.id = .Tilde;
                         state = .Done;
+                    },
+                    '=' => {
+                        result.id = .Assign;
+                        state = .SawEq;
                     },
                     ',' => {
                         result.id = .Comma;
@@ -363,32 +427,109 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
                     },
                     '|' => {
                         result.id = .Pipe;
+                        state = .SawPipe;
+                    },
+                    '&' => {
+                        result.id = .Ampersand;
+                        state = .SawAmpersand;
+                    },
+                    '?' => {
+                        result.id = .QuestionMark;
                         state = .Done;
                     },
-                    else => return error.TokenizingFailed,
+                    ':' => {
+                        result.id = .Colon;
+                        state = .Done;
+                    },
+                    else => {
+                        try failDecl(ctx, loc, name, "macro tokenizing failed: unexpected character '{c}'", .{c});
+                        return error.TokenizingFailed;
+                    },
                 }
             },
             .Done => return result,
-            .Minus => {
+            .SawMinus => {
                 switch (c) {
                     '>' => {
                         result.id = .Arrow;
                         state = .Done;
                     },
-                    else => {
-                        return result;
+                    '-' => {
+                        result.id = .Decrement;
+                        state = .Done;
                     },
+                    else => return result,
                 }
             },
-            .GotLt => {
+            .SawPlus => {
+                switch (c) {
+                    '+' => {
+                        result.id = .Increment;
+                        state = .Done;
+                    },
+                    else => return result,
+                }
+            },
+            .SawLt => {
                 switch (c) {
                     '<' => {
                         result.id = .Shl;
                         state = .Done;
                     },
-                    else => {
-                        return result;
+                    '=' => {
+                        result.id = .Lte;
+                        state = .Done;
                     },
+                    else => return result,
+                }
+            },
+            .SawGt => {
+                switch (c) {
+                    '>' => {
+                        result.id = .Shr;
+                        state = .Done;
+                    },
+                    '=' => {
+                        result.id = .Gte;
+                        state = .Done;
+                    },
+                    else => return result,
+                }
+            },
+            .SawPipe => {
+                switch (c) {
+                    '|' => {
+                        result.id = .Or;
+                        state = .Done;
+                    },
+                    else => return result,
+                }
+            },
+            .SawAmpersand => {
+                switch (c) {
+                    '&' => {
+                        result.id = .And;
+                        state = .Done;
+                    },
+                    else => return result,
+                }
+            },
+            .SawBang => {
+                switch (c) {
+                    '=' => {
+                        result.id = .Ne;
+                        state = .Done;
+                    },
+                    else => return result,
+                }
+            },
+            .SawEq => {
+                switch (c) {
+                    '=' => {
+                        result.id = .Eq;
+                        state = .Done;
+                    },
+                    else => return result,
                 }
             },
             .Float => {
@@ -423,7 +564,10 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
                     '0'...'9' => {
                         state = .FloatExp;
                     },
-                    else => return error.TokenizingFailed,
+                    else => {
+                        try failDecl(ctx, loc, name, "macro tokenizing failed: expected a digit or '+' or '-'", .{});
+                        return error.TokenizingFailed;
+                    },
                 }
             },
             .FloatExpFirst => {
@@ -431,7 +575,10 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
                     '0'...'9' => {
                         state = .FloatExp;
                     },
-                    else => return error.TokenizingFailed,
+                    else => {
+                        try failDecl(ctx, loc, name, "macro tokenizing failed: expected a digit", .{});
+                        return error.TokenizingFailed;
+                    },
                 }
             },
             .FloatExp => {
@@ -477,7 +624,7 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
                     },
                 }
             },
-            .GotZero => {
+            .SawZero => {
                 switch (c) {
                     'x', 'X' => {
                         state = .Hex;
@@ -508,7 +655,10 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
             .Octal => {
                 switch (c) {
                     '0'...'7' => {},
-                    '8', '9' => return error.TokenizingFailed,
+                    '8', '9' => {
+                        try failDecl(ctx, loc, name, "macro tokenizing failed: invalid digit '{c}' in octal number", .{c});
+                        return error.TokenizingFailed;
+                    },
                     else => {
                         result.bytes = chars[begin_index..i.*];
                         return result;
@@ -539,7 +689,10 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
             .Bin => {
                 switch (c) {
                     '0'...'1' => {},
-                    '2'...'9' => return error.TokenizingFailed,
+                    '2'...'9' => {
+                        try failDecl(ctx, loc, name, "macro tokenizing failed: invalid digit '{c}' in binary number", .{c});
+                        return error.TokenizingFailed;
+                    },
                     'u', 'U' => {
                         // marks the number literal as unsigned
                         state = .NumLitIntSuffixU;
@@ -671,7 +824,10 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
                     '\n', '\r' => {
                         state = .Start;
                     },
-                    else => return error.TokenizingFailed,
+                    else => {
+                        try failDecl(ctx, loc, name, "macro tokenizing failed: expected whitespace", .{});
+                        return error.TokenizingFailed;
+                    },
                 }
             },
         }
@@ -680,77 +836,132 @@ fn next(chars: [*:0]const u8, i: *usize) !CToken {
     unreachable;
 }
 
+fn expectTokens(tl: *TokenList, src: [*:0]const u8, expected: []CToken) void {
+    // these can be undefined since they are only used for error reporting
+    tokenizeCMacro(undefined, undefined, undefined, tl, src) catch unreachable;
+    var it = tl.iterator(0);
+    for (expected) |t| {
+        var tok = it.next().?;
+        std.testing.expectEqual(t.id, tok.id);
+        if (t.bytes.len > 0) {
+            //std.debug.warn("  {} = {}\n", .{tok.bytes, t.bytes});
+            std.testing.expectEqualSlices(u8, tok.bytes, t.bytes);
+        }
+        if (t.num_lit_suffix != .None) {
+            std.testing.expectEqual(t.num_lit_suffix, tok.num_lit_suffix);
+        }
+    }
+    std.testing.expect(it.next() == null);
+    tl.shrink(0);
+}
+
 test "tokenize macro" {
     var tl = TokenList.init(std.heap.page_allocator);
     defer tl.deinit();
 
-    const src = "TEST(0\n";
-    try tokenizeCMacro(&tl, src);
-    var it = tl.iterator(0);
-    expect(it.next().?.id == .Identifier);
-    expect(it.next().?.id == .Fn);
-    expect(it.next().?.id == .LParen);
-    expect(std.mem.eql(u8, it.next().?.bytes, "0"));
-    expect(it.next().?.id == .Eof);
-    expect(it.next() == null);
-    tl.shrink(0);
+    expectTokens(&tl, "TEST(0\n", &[_]CToken{
+        .{ .id = .Identifier, .bytes = "TEST" },
+        .{ .id = .Fn },
+        .{ .id = .LParen },
+        .{ .id = .NumLitInt, .bytes = "0" },
+        .{ .id = .Eof },
+    });
 
-    const src2 = "__FLT_MIN_10_EXP__ -37\n";
-    try tokenizeCMacro(&tl, src2);
-    it = tl.iterator(0);
-    expect(std.mem.eql(u8, it.next().?.bytes, "__FLT_MIN_10_EXP__"));
-    expect(it.next().?.id == .Minus);
-    expect(std.mem.eql(u8, it.next().?.bytes, "37"));
-    expect(it.next().?.id == .Eof);
-    expect(it.next() == null);
-    tl.shrink(0);
+    expectTokens(&tl, "__FLT_MIN_10_EXP__ -37\n", &[_]CToken{
+        .{ .id = .Identifier, .bytes = "__FLT_MIN_10_EXP__" },
+        .{ .id = .Minus },
+        .{ .id = .NumLitInt, .bytes = "37" },
+        .{ .id = .Eof },
+    });
 
-    const src3 = "__llvm__ 1\n#define";
-    try tokenizeCMacro(&tl, src3);
-    it = tl.iterator(0);
-    expect(std.mem.eql(u8, it.next().?.bytes, "__llvm__"));
-    expect(std.mem.eql(u8, it.next().?.bytes, "1"));
-    expect(it.next().?.id == .Eof);
-    expect(it.next() == null);
-    tl.shrink(0);
+    expectTokens(&tl, "__llvm__ 1\n#define", &[_]CToken{
+        .{ .id = .Identifier, .bytes = "__llvm__" },
+        .{ .id = .NumLitInt, .bytes = "1" },
+        .{ .id = .Eof },
+    });
 
-    const src4 = "TEST 2";
-    try tokenizeCMacro(&tl, src4);
-    it = tl.iterator(0);
-    expect(it.next().?.id == .Identifier);
-    expect(std.mem.eql(u8, it.next().?.bytes, "2"));
-    expect(it.next().?.id == .Eof);
-    expect(it.next() == null);
-    tl.shrink(0);
+    expectTokens(&tl, "TEST 2", &[_]CToken{
+        .{ .id = .Identifier, .bytes = "TEST" },
+        .{ .id = .NumLitInt, .bytes = "2" },
+        .{ .id = .Eof },
+    });
 
-    const src5 = "FOO 0ull";
-    try tokenizeCMacro(&tl, src5);
-    it = tl.iterator(0);
-    expect(it.next().?.id == .Identifier);
-    expect(std.mem.eql(u8, it.next().?.bytes, "0"));
-    expect(it.next().?.id == .Eof);
-    expect(it.next() == null);
-    tl.shrink(0);
+    expectTokens(&tl, "FOO 0ull", &[_]CToken{
+        .{ .id = .Identifier, .bytes = "FOO" },
+        .{ .id = .NumLitInt, .bytes = "0", .num_lit_suffix = .LLU },
+        .{ .id = .Eof },
+    });
+}
+
+test "tokenize macro ops" {
+    var tl = TokenList.init(std.heap.page_allocator);
+    defer tl.deinit();
+
+    expectTokens(&tl, "ADD A + B", &[_]CToken{
+        .{ .id = .Identifier, .bytes = "ADD" },
+        .{ .id = .Identifier, .bytes = "A" },
+        .{ .id = .Plus },
+        .{ .id = .Identifier, .bytes = "B" },
+        .{ .id = .Eof },
+    });
+
+    expectTokens(&tl, "ADD (A) + B", &[_]CToken{
+        .{ .id = .Identifier, .bytes = "ADD" },
+        .{ .id = .LParen },
+        .{ .id = .Identifier, .bytes = "A" },
+        .{ .id = .RParen },
+        .{ .id = .Plus },
+        .{ .id = .Identifier, .bytes = "B" },
+        .{ .id = .Eof },
+    });
+
+    expectTokens(&tl, "ADD (A) + B", &[_]CToken{
+        .{ .id = .Identifier, .bytes = "ADD" },
+        .{ .id = .LParen },
+        .{ .id = .Identifier, .bytes = "A" },
+        .{ .id = .RParen },
+        .{ .id = .Plus },
+        .{ .id = .Identifier, .bytes = "B" },
+        .{ .id = .Eof },
+    });
 }
 
 test "escape sequences" {
     var buf: [1024]u8 = undefined;
     var alloc = std.heap.FixedBufferAllocator.init(buf[0..]);
     const a = &alloc.allocator;
-    expect(std.mem.eql(u8, (try zigifyEscapeSequences(a, .{
+    // these can be undefined since they are only used for error reporting
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(undefined, undefined, undefined, a, .{
         .id = .StrLit,
         .bytes = "\\x0077",
     })).bytes, "\\x77"));
-    expect(std.mem.eql(u8, (try zigifyEscapeSequences(a, .{
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(undefined, undefined, undefined, a, .{
         .id = .StrLit,
         .bytes = "\\24500",
     })).bytes, "\\xa500"));
-    expect(std.mem.eql(u8, (try zigifyEscapeSequences(a, .{
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(undefined, undefined, undefined, a, .{
         .id = .StrLit,
         .bytes = "\\x0077 abc",
     })).bytes, "\\x77 abc"));
-    expect(std.mem.eql(u8, (try zigifyEscapeSequences(a, .{
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(undefined, undefined, undefined, a, .{
         .id = .StrLit,
         .bytes = "\\045abc",
     })).bytes, "\\x25abc"));
+
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(undefined, undefined, undefined, a, .{
+        .id = .CharLit,
+        .bytes = "\\0",
+    })).bytes, "\\x00"));
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(undefined, undefined, undefined, a, .{
+        .id = .CharLit,
+        .bytes = "\\00",
+    })).bytes, "\\x00"));
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(undefined, undefined, undefined, a, .{
+        .id = .CharLit,
+        .bytes = "\\000\\001",
+    })).bytes, "\\x00\\x01"));
+    expect(std.mem.eql(u8, (try zigifyEscapeSequences(undefined, undefined, undefined, a, .{
+        .id = .CharLit,
+        .bytes = "\\000abc",
+    })).bytes, "\\x00abc"));
 }

@@ -13,6 +13,7 @@
  * 3. Prevent C++ from infecting the rest of the project.
  */
 #include "zig_clang.h"
+#include "list.hpp"
 
 #if __GNUC__ >= 8
 #pragma GCC diagnostic push
@@ -1581,6 +1582,36 @@ const ZigClangVarDecl *ZigClangVarDecl_getCanonicalDecl(const ZigClangVarDecl *s
     return reinterpret_cast<const ZigClangVarDecl *>(decl);
 }
 
+const char* ZigClangVarDecl_getSectionAttribute(const struct ZigClangVarDecl *self, size_t *len) {
+    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
+    if (const clang::SectionAttr *SA = casted->getAttr<clang::SectionAttr>()) {
+        llvm::StringRef str_ref = SA->getName();
+        *len = str_ref.size();
+        return (const char *)str_ref.bytes_begin();
+    }
+    return nullptr;
+}
+
+unsigned ZigClangVarDecl_getAlignedAttribute(const struct ZigClangVarDecl *self, const ZigClangASTContext* ctx) {
+    auto casted_self = reinterpret_cast<const clang::VarDecl *>(self);
+    auto casted_ctx = const_cast<clang::ASTContext *>(reinterpret_cast<const clang::ASTContext *>(ctx));
+    if (const clang::AlignedAttr *AA = casted_self->getAttr<clang::AlignedAttr>()) {
+        return AA->getAlignment(*casted_ctx);
+    }
+    // Zero means no explicit alignment factor was specified
+    return 0;
+}
+
+unsigned ZigClangFunctionDecl_getAlignedAttribute(const struct ZigClangFunctionDecl *self, const ZigClangASTContext* ctx) {
+    auto casted_self = reinterpret_cast<const clang::FunctionDecl *>(self);
+    auto casted_ctx = const_cast<clang::ASTContext *>(reinterpret_cast<const clang::ASTContext *>(ctx));
+    if (const clang::AlignedAttr *AA = casted_self->getAttr<clang::AlignedAttr>()) {
+        return AA->getAlignment(*casted_ctx);
+    }
+    // Zero means no explicit alignment factor was specified
+    return 0;
+}
+
 const ZigClangRecordDecl *ZigClangRecordDecl_getDefinition(const ZigClangRecordDecl *zig_record_decl) {
     const clang::RecordDecl *record_decl = reinterpret_cast<const clang::RecordDecl *>(zig_record_decl);
     const clang::RecordDecl *definition = record_decl->getDefinition();
@@ -1685,6 +1716,26 @@ const struct ZigClangStmt *ZigClangFunctionDecl_getBody(const struct ZigClangFun
     return reinterpret_cast<const ZigClangStmt *>(stmt);
 }
 
+bool ZigClangFunctionDecl_doesDeclarationForceExternallyVisibleDefinition(const struct ZigClangFunctionDecl *self) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    return casted->doesDeclarationForceExternallyVisibleDefinition();
+}
+
+bool ZigClangFunctionDecl_isInlineSpecified(const struct ZigClangFunctionDecl *self) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    return casted->isInlineSpecified();
+}
+
+const char* ZigClangFunctionDecl_getSectionAttribute(const struct ZigClangFunctionDecl *self, size_t *len) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    if (const clang::SectionAttr *SA = casted->getAttr<clang::SectionAttr>()) {
+        llvm::StringRef str_ref = SA->getName();
+        *len = str_ref.size();
+        return (const char *)str_ref.bytes_begin();
+    }
+    return nullptr;
+}
+
 const ZigClangTypedefNameDecl *ZigClangTypedefType_getDecl(const ZigClangTypedefType *self) {
     auto casted = reinterpret_cast<const clang::TypedefType *>(self);
     const clang::TypedefNameDecl *name_decl = casted->getDecl();
@@ -1774,6 +1825,18 @@ const ZigClangArrayType *ZigClangType_getAsArrayTypeUnsafe(const ZigClangType *s
     return reinterpret_cast<const ZigClangArrayType *>(result);
 }
 
+const ZigClangRecordType *ZigClangType_getAsRecordType(const ZigClangType *self) {
+    auto casted = reinterpret_cast<const clang::Type *>(self);
+    const clang::RecordType *result = casted->getAsStructureType();
+    return reinterpret_cast<const ZigClangRecordType *>(result);
+}
+
+const ZigClangRecordType *ZigClangType_getAsUnionType(const ZigClangType *self) {
+    auto casted = reinterpret_cast<const clang::Type *>(self);
+    const clang::RecordType *result = casted->getAsUnionType();
+    return reinterpret_cast<const ZigClangRecordType *>(result);
+}
+
 ZigClangSourceLocation ZigClangStmt_getBeginLoc(const ZigClangStmt *self) {
     auto casted = reinterpret_cast<const clang::Stmt *>(self);
     return bitcast(casted->getBeginLoc());
@@ -1845,6 +1908,12 @@ const ZigClangExpr *ZigClangInitListExpr_getArrayFiller(const ZigClangInitListEx
     auto casted = reinterpret_cast<const clang::InitListExpr *>(self);
     const clang::Expr *result = casted->getArrayFiller();
     return reinterpret_cast<const ZigClangExpr *>(result);
+}
+
+const ZigClangFieldDecl *ZigClangInitListExpr_getInitializedFieldInUnion(const ZigClangInitListExpr *self) {
+    auto casted = reinterpret_cast<const clang::InitListExpr *>(self);
+    const clang::FieldDecl *result = casted->getInitializedFieldInUnion();
+    return reinterpret_cast<const ZigClangFieldDecl *>(result);
 }
 
 unsigned ZigClangInitListExpr_getNumInits(const ZigClangInitListExpr *self) {
@@ -1947,35 +2016,28 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
     bool allow_pch_with_compiler_errors = false;
     bool single_file_parse = false;
     bool for_serialization = false;
-    std::unique_ptr<clang::ASTUnit> *err_unit = new std::unique_ptr<clang::ASTUnit>();
+    std::unique_ptr<clang::ASTUnit> err_unit;
     clang::ASTUnit *ast_unit = clang::ASTUnit::LoadFromCommandLine(
             args_begin, args_end,
             pch_container_ops, diags, resources_path,
             only_local_decls, clang::CaptureDiagsKind::All, clang::None, true, 0, clang::TU_Complete,
             false, false, allow_pch_with_compiler_errors, clang::SkipFunctionBodiesScope::None,
-            single_file_parse, user_files_are_volatile, for_serialization, clang::None, err_unit,
+            single_file_parse, user_files_are_volatile, for_serialization, clang::None, &err_unit,
             nullptr);
+
+    *errors_len = 0;
 
     // Early failures in LoadFromCommandLine may return with ErrUnit unset.
     if (!ast_unit && !err_unit) {
         return nullptr;
     }
 
-    if (diags->getClient()->getNumErrors() > 0) {
-        if (ast_unit) {
-            *err_unit = std::unique_ptr<clang::ASTUnit>(ast_unit);
-        }
+    if (diags->hasErrorOccurred()) {
+        clang::ASTUnit *unit = ast_unit ? ast_unit : err_unit.get();
+        ZigList<Stage2ErrorMsg> errors = {};
 
-        size_t cap = 4;
-        *errors_len = 0;
-        *errors_ptr = reinterpret_cast<Stage2ErrorMsg*>(malloc(cap * sizeof(Stage2ErrorMsg)));
-        if (*errors_ptr == nullptr) {
-            return nullptr;
-        }
-
-        for (clang::ASTUnit::stored_diag_iterator it = (*err_unit)->stored_diag_begin(),
-                it_end = (*err_unit)->stored_diag_end();
-                it != it_end; ++it)
+        for (clang::ASTUnit::stored_diag_iterator it = unit->stored_diag_begin(),
+             it_end = unit->stored_diag_end(); it != it_end; ++it)
         {
             switch (it->getLevel()) {
                 case clang::DiagnosticsEngine::Ignored:
@@ -1987,21 +2049,10 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
                 case clang::DiagnosticsEngine::Fatal:
                     break;
             }
+
             llvm::StringRef msg_str_ref = it->getMessage();
-            if (*errors_len >= cap) {
-                cap *= 2;
-                Stage2ErrorMsg *new_errors = reinterpret_cast<Stage2ErrorMsg *>(
-                        realloc(*errors_ptr, cap * sizeof(Stage2ErrorMsg)));
-                if (new_errors == nullptr) {
-                    free(*errors_ptr);
-                    *errors_ptr = nullptr;
-                    *errors_len = 0;
-                    return nullptr;
-                }
-                *errors_ptr = new_errors;
-            }
-            Stage2ErrorMsg *msg = *errors_ptr + *errors_len;
-            *errors_len += 1;
+
+            Stage2ErrorMsg *msg = errors.add_one();
             msg->msg_ptr = (const char *)msg_str_ref.bytes_begin();
             msg->msg_len = msg_str_ref.size();
 
@@ -2027,10 +2078,8 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
             }
         }
 
-        if (*errors_len == 0) {
-            free(*errors_ptr);
-            *errors_ptr = nullptr;
-        }
+        *errors_ptr = errors.items;
+        *errors_len = errors.length;
 
         return nullptr;
     }

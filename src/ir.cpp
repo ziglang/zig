@@ -13,7 +13,6 @@
 #include "os.hpp"
 #include "range_set.hpp"
 #include "softfloat.hpp"
-#include "translate_c.hpp"
 #include "util.hpp"
 
 #include <errno.h>
@@ -3126,9 +3125,7 @@ static IrInstruction *ir_build_overflow_op(IrBuilder *irb, Scope *scope, AstNode
 //TODO Powi, Pow, minnum, maxnum, maximum, minimum, copysign,
 // lround, llround, lrint, llrint
 // So far this is only non-complicated type functions.
-const char *float_op_to_name(BuiltinFnId op, bool llvm_name) {
-    const bool b = llvm_name;
-
+const char *float_op_to_name(BuiltinFnId op) {
     switch (op) {
     case BuiltinFnIdSqrt:
         return "sqrt";
@@ -3140,8 +3137,8 @@ const char *float_op_to_name(BuiltinFnId op, bool llvm_name) {
         return "exp";
     case BuiltinFnIdExp2:
         return "exp2";
-    case BuiltinFnIdLn:
-        return b ? "log" : "ln";
+    case BuiltinFnIdLog:
+        return "log";
     case BuiltinFnIdLog10:
         return "log10";
     case BuiltinFnIdLog2:
@@ -3155,7 +3152,7 @@ const char *float_op_to_name(BuiltinFnId op, bool llvm_name) {
     case BuiltinFnIdTrunc:
         return "trunc";
     case BuiltinFnIdNearbyInt:
-        return b ? "nearbyint" : "nearbyInt";
+        return "nearbyint";
     case BuiltinFnIdRound:
         return "round";
     default:
@@ -3163,14 +3160,14 @@ const char *float_op_to_name(BuiltinFnId op, bool llvm_name) {
     }
 }
 
-static IrInstruction *ir_build_float_op(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *type, IrInstruction *op1, BuiltinFnId op) {
+static IrInstruction *ir_build_float_op(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *operand,
+        BuiltinFnId fn_id)
+{
     IrInstructionFloatOp *instruction = ir_build_instruction<IrInstructionFloatOp>(irb, scope, source_node);
-    instruction->type = type;
-    instruction->op1 = op1;
-    instruction->op = op;
+    instruction->operand = operand;
+    instruction->fn_id = fn_id;
 
-    if (type != nullptr) ir_ref_instruction(type, irb->current_basic_block);
-    ir_ref_instruction(op1, irb->current_basic_block);
+    ir_ref_instruction(operand, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -5498,7 +5495,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
         case BuiltinFnIdCos:
         case BuiltinFnIdExp:
         case BuiltinFnIdExp2:
-        case BuiltinFnIdLn:
+        case BuiltinFnIdLog:
         case BuiltinFnIdLog2:
         case BuiltinFnIdLog10:
         case BuiltinFnIdFabs:
@@ -5513,13 +5510,8 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg0_value == irb->codegen->invalid_instruction)
                     return arg0_value;
 
-                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
-                if (arg1_value == irb->codegen->invalid_instruction)
-                    return arg1_value;
-
-                IrInstruction *ir_sqrt = ir_build_float_op(irb, scope, node, arg0_value, arg1_value, builtin_fn->id);
-                return ir_lval_wrap(irb, scope, ir_sqrt, lval, result_loc);
+                IrInstruction *inst = ir_build_float_op(irb, scope, node, arg0_value, builtin_fn->id);
+                return ir_lval_wrap(irb, scope, inst, lval, result_loc);
             }
         case BuiltinFnIdTruncate:
             {
@@ -12687,9 +12679,10 @@ static IrInstruction *ir_analyze_enum_to_union(IrAnalyze *ira, IrInstruction *so
         ZigType *field_type = resolve_union_field_type(ira->codegen, union_field);
         if (field_type == nullptr)
             return ira->codegen->invalid_instruction;
-        if ((err = type_resolve(ira->codegen, field_type, ResolveStatusZeroBitsKnown)))
+        bool has_bits;
+        if ((err = type_has_bits2(ira->codegen, field_type, &has_bits)))
             return ira->codegen->invalid_instruction;
-        if (type_has_bits(field_type)) {
+        if (has_bits) {
             AstNode *field_node = wanted_type->data.unionation.decl_node->data.container_decl.fields.at(i);
             add_error_note(ira->codegen, msg, field_node,
                     buf_sprintf("field '%s' has type '%s'",
@@ -13892,10 +13885,10 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         types_match_const_cast_only(ira, wanted_type->data.pointer.child_type,
             actual_type, source_node, !wanted_type->data.pointer.is_const).id == ConstCastResultIdOk)
     {
-        if ((err = type_resolve(ira->codegen, actual_type, ResolveStatusZeroBitsKnown))) {
+        bool has_bits;
+        if ((err = type_has_bits2(ira->codegen, actual_type, &has_bits)))
             return ira->codegen->invalid_instruction;
-        }
-        if (!type_has_bits(actual_type)) {
+        if (!has_bits) {
             return ir_get_ref(ira, source_instr, value, false, false);
         }
     }
@@ -14646,7 +14639,9 @@ never_mind_just_calculate_it_normally:
     }
 
 
-    if (op1_val->special == ConstValSpecialUndef || op2_val->special == ConstValSpecialUndef) {
+    if (op1_val->special == ConstValSpecialUndef || op2_val->special == ConstValSpecialUndef ||
+        op1_val->type->id == ZigTypeIdUndefined || op2_val->type->id == ZigTypeIdUndefined)
+    {
         out_val->special = ConstValSpecialUndef;
         return nullptr;
     }
@@ -15618,11 +15613,15 @@ static IrInstruction *ir_analyze_bit_shift(IrAnalyze *ira, IrInstructionBinOp *b
                 op1->value->type->data.integral.bit_count - 1);
         if (bin_op_instruction->op_id == IrBinOpBitShiftLeftLossy &&
             op2->value->type->id == ZigTypeIdComptimeInt) {
-            if (!bigint_fits_in_bits(&op2->value->data.x_bigint,
+
+            ZigValue *op2_val = ir_resolve_const(ira, op2, UndefBad);
+            if (op2_val == nullptr)
+                return ira->codegen->invalid_instruction;
+            if (!bigint_fits_in_bits(&op2_val->data.x_bigint,
                                      shift_amt_type->data.integral.bit_count,
-                                     op2->value->data.x_bigint.is_negative)) {
+                                     op2_val->data.x_bigint.is_negative)) {
                 Buf *val_buf = buf_alloc();
-                bigint_append_buf(val_buf, &op2->value->data.x_bigint, 10);
+                bigint_append_buf(val_buf, &op2_val->data.x_bigint, 10);
                 ErrorMsg* msg = ir_add_error(ira,
                     &bin_op_instruction->base,
                     buf_sprintf("RHS of shift is too large for LHS type"));
@@ -17163,10 +17162,10 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
                 if (is_comptime)
                     return nullptr;
             }
-            if ((err = type_resolve(ira->codegen, ira->explicit_return_type, ResolveStatusZeroBitsKnown))) {
+            bool has_bits;
+            if ((err = type_has_bits2(ira->codegen, ira->explicit_return_type, &has_bits)))
                 return ira->codegen->invalid_instruction;
-            }
-            if (!type_has_bits(ira->explicit_return_type) || !handle_is_ptr(ira->explicit_return_type)) {
+            if (!has_bits || !handle_is_ptr(ira->explicit_return_type)) {
                 ZigFn *fn_entry = exec_fn_entry(ira->new_irb.exec);
                 if (fn_entry == nullptr || fn_entry->inferred_async_node == nullptr) {
                     return nullptr;
@@ -17388,11 +17387,23 @@ static IrInstruction *ir_resolve_result_raw(IrAnalyze *ira, IrInstruction *suspe
             }
             ZigType *parent_ptr_type = parent_result_loc->value->type;
             assert(parent_ptr_type->id == ZigTypeIdPointer);
-            if ((err = type_resolve(ira->codegen, parent_ptr_type->data.pointer.child_type,
-                            ResolveStatusAlignmentKnown)))
-            {
+            ZigType *child_type = parent_ptr_type->data.pointer.child_type;
+
+            bool has_bits;
+            if ((err = type_has_bits2(ira->codegen, child_type, &has_bits))) {
                 return ira->codegen->invalid_instruction;
             }
+
+            // This happens when the bitCast result is assigned to _
+            if (!has_bits) {
+                assert(allow_discard);
+                return parent_result_loc;
+            }
+
+            if ((err = type_resolve(ira->codegen, child_type, ResolveStatusAlignmentKnown))) {
+                return ira->codegen->invalid_instruction;
+            }
+
             uint64_t parent_ptr_align = get_ptr_align(ira->codegen, parent_ptr_type);
             if ((err = type_resolve(ira->codegen, value_type, ResolveStatusAlignmentKnown))) {
                 return ira->codegen->invalid_instruction;
@@ -23755,14 +23766,14 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
 
         clang_argv.append(nullptr); // to make the [start...end] argument work
 
-        AstNode *root_node;
         Stage2ErrorMsg *errors_ptr;
         size_t errors_len;
+        Stage2Ast *ast;
 
         const char *resources_path = buf_ptr(ira->codegen->zig_c_headers_dir);
 
-        if ((err = parse_h_file(ira->codegen, &root_node, &errors_ptr, &errors_len,
-            &clang_argv.at(0), &clang_argv.last(), TranslateModeImport, resources_path)))
+        if ((err = stage2_translate_c(&ast, &errors_ptr, &errors_len,
+                    &clang_argv.at(0), &clang_argv.last(), resources_path)))
         {
             if (err != ErrorCCompileErrors) {
                 ir_add_error_node(ira, node, buf_sprintf("C import failed: %s", err_str(err)));
@@ -23813,7 +23824,7 @@ static IrInstruction *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruct
                     buf_sprintf("C import failed: unable to open output file: %s", strerror(errno)));
             return ira->codegen->invalid_instruction;
         }
-        ast_render(out_file, root_node, 4);
+        stage2_render_ast(ast, out_file);
         if (fclose(out_file) != 0) {
             ir_add_error_node(ira, node,
                     buf_sprintf("C import failed: unable to write to output file: %s", strerror(errno)));
@@ -23955,6 +23966,12 @@ static IrInstruction *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstructi
     ZigType *operand_type = ir_resolve_atomic_operand_type(ira, instruction->type_value->child);
     if (type_is_invalid(operand_type))
         return ira->codegen->invalid_instruction;
+
+    if (operand_type->id == ZigTypeIdFloat) {
+        ir_add_error(ira, instruction->type_value->child,
+            buf_sprintf("expected integer, enum or pointer type, found '%s'", buf_ptr(&operand_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
 
     IrInstruction *ptr = instruction->ptr->child;
     if (type_is_invalid(ptr->value->type))
@@ -26082,6 +26099,7 @@ static IrInstruction *ir_analyze_unwrap_error_payload(IrAnalyze *ira, IrInstruct
     ZigType *result_type = get_pointer_to_type_extra(ira->codegen, payload_type,
             ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
             PtrLenSingle, 0, 0, 0, false);
+
     if (instr_is_comptime(base_ptr)) {
         ZigValue *ptr_val = ir_resolve_const(ira, base_ptr, UndefBad);
         if (!ptr_val)
@@ -26599,6 +26617,23 @@ static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_
     if ((err = resolve_ptr_align(ira, dest_type, &dest_align_bytes)))
         return ira->codegen->invalid_instruction;
 
+    if ((err = type_resolve(ira->codegen, dest_type, ResolveStatusZeroBitsKnown)))
+        return ira->codegen->invalid_instruction;
+
+    if ((err = type_resolve(ira->codegen, src_type, ResolveStatusZeroBitsKnown)))
+        return ira->codegen->invalid_instruction;
+
+    if (type_has_bits(dest_type) && !type_has_bits(src_type)) {
+        ErrorMsg *msg = ir_add_error(ira, source_instr,
+            buf_sprintf("'%s' and '%s' do not have the same in-memory representation",
+                buf_ptr(&src_type->name), buf_ptr(&dest_type->name)));
+        add_error_note(ira->codegen, msg, ptr->source_node,
+                buf_sprintf("'%s' has no in-memory bits", buf_ptr(&src_type->name)));
+        add_error_note(ira->codegen, msg, dest_type_src->source_node,
+                buf_sprintf("'%s' has in-memory bits", buf_ptr(&dest_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
     if (instr_is_comptime(ptr)) {
         bool dest_allows_addr_zero = ptr_allows_addr_zero(dest_type);
         UndefAllowed is_undef_allowed = dest_allows_addr_zero ? UndefOk : UndefBad;
@@ -26648,23 +26683,6 @@ static IrInstruction *ir_analyze_ptr_cast(IrAnalyze *ira, IrInstruction *source_
     }
 
     IrInstruction *casted_ptr = ir_build_ptr_cast_gen(ira, source_instr, dest_type, ptr, safety_check_on);
-
-    if ((err = type_resolve(ira->codegen, dest_type, ResolveStatusZeroBitsKnown)))
-        return ira->codegen->invalid_instruction;
-
-    if ((err = type_resolve(ira->codegen, src_type, ResolveStatusZeroBitsKnown)))
-        return ira->codegen->invalid_instruction;
-
-    if (type_has_bits(dest_type) && !type_has_bits(src_type)) {
-        ErrorMsg *msg = ir_add_error(ira, source_instr,
-            buf_sprintf("'%s' and '%s' do not have the same in-memory representation",
-                buf_ptr(&src_type->name), buf_ptr(&dest_type->name)));
-        add_error_note(ira->codegen, msg, ptr->source_node,
-                buf_sprintf("'%s' has no in-memory bits", buf_ptr(&src_type->name)));
-        add_error_note(ira->codegen, msg, dest_type_src->source_node,
-                buf_sprintf("'%s' has in-memory bits", buf_ptr(&dest_type->name)));
-        return ira->codegen->invalid_instruction;
-    }
 
     // Keep the bigger alignment, it can only help-
     // unless the target is zero bits.
@@ -27136,14 +27154,15 @@ static IrInstruction *ir_analyze_instruction_int_to_ptr(IrAnalyze *ira, IrInstru
         return ira->codegen->invalid_instruction;
     }
 
-    if ((err = type_resolve(ira->codegen, dest_type, ResolveStatusZeroBitsKnown)))
+    bool has_bits;
+    if ((err = type_has_bits2(ira->codegen, dest_type, &has_bits)))
         return ira->codegen->invalid_instruction;
-    if (!type_has_bits(dest_type)) {
+
+    if (!has_bits) {
         ir_add_error(ira, dest_type_value,
                 buf_sprintf("type '%s' has 0 bits and cannot store information", buf_ptr(&dest_type->name)));
         return ira->codegen->invalid_instruction;
     }
-
 
     IrInstruction *target = instruction->target->child;
     if (type_is_invalid(target->value->type))
@@ -27182,9 +27201,11 @@ static IrInstruction *ir_analyze_instruction_ptr_to_int(IrAnalyze *ira, IrInstru
         return ira->codegen->invalid_instruction;
     }
 
-    if ((err = type_resolve(ira->codegen, target->value->type, ResolveStatusZeroBitsKnown)))
+    bool has_bits;
+    if ((err = type_has_bits2(ira->codegen, target->value->type, &has_bits)))
         return ira->codegen->invalid_instruction;
-    if (!type_has_bits(target->value->type)) {
+
+    if (!has_bits) {
         ir_add_error(ira, target,
                 buf_sprintf("pointer to size 0 type has no address"));
         return ira->codegen->invalid_instruction;
@@ -27433,9 +27454,17 @@ static ZigType *ir_resolve_atomic_operand_type(IrAnalyze *ira, IrInstruction *op
                 buf_sprintf("%" PRIu32 "-bit enum tag type is not a power of 2", int_type->data.integral.bit_count));
             return ira->codegen->builtin_types.entry_invalid;
         }
+    } else if (operand_type->id == ZigTypeIdFloat) {
+        uint32_t max_atomic_bits = target_arch_largest_atomic_bits(ira->codegen->zig_target->arch);
+        if (operand_type->data.floating.bit_count > max_atomic_bits) {
+            ir_add_error(ira, op,
+                buf_sprintf("expected %" PRIu32 "-bit float or smaller, found %" PRIu32 "-bit float",
+                    max_atomic_bits, (uint32_t) operand_type->data.floating.bit_count));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
     } else if (get_codegen_ptr_type(operand_type) == nullptr) {
         ir_add_error(ira, op,
-            buf_sprintf("expected integer, enum or pointer type, found '%s'", buf_ptr(&operand_type->name)));
+            buf_sprintf("expected integer, float, enum or pointer type, found '%s'", buf_ptr(&operand_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 
@@ -27469,6 +27498,10 @@ static IrInstruction *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstru
     if (operand_type->id == ZigTypeIdEnum && op != AtomicRmwOp_xchg) {
         ir_add_error(ira, instruction->op,
             buf_sprintf("@atomicRmw on enum only works with .Xchg"));
+        return ira->codegen->invalid_instruction;
+    } else if (operand_type->id == ZigTypeIdFloat && op > AtomicRmwOp_sub) {
+        ir_add_error(ira, instruction->op,
+            buf_sprintf("@atomicRmw with float only works with .Xchg, .Add and .Sub"));
         return ira->codegen->invalid_instruction;
     }
 
@@ -27603,7 +27636,7 @@ static IrInstruction *ir_analyze_instruction_save_err_ret_addr(IrAnalyze *ira, I
     return result;
 }
 
-static void ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, BuiltinFnId fop, ZigType *float_type,
+static ErrorMsg *ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, BuiltinFnId fop, ZigType *float_type,
         ZigValue *op, ZigValue *out_val)
 {
     assert(ira && source_instr && float_type && out_val && op);
@@ -27630,24 +27663,49 @@ static void ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, Builti
             out_val->data.x_f16 = f16_sqrt(op->data.x_f16);
             break;
         case BuiltinFnIdSin:
+            out_val->data.x_f16 = zig_double_to_f16(sin(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdCos:
+            out_val->data.x_f16 = zig_double_to_f16(cos(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdExp:
+            out_val->data.x_f16 = zig_double_to_f16(exp(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdExp2:
-        case BuiltinFnIdLn:
+            out_val->data.x_f16 = zig_double_to_f16(exp2(zig_f16_to_double(op->data.x_f16)));
+            break;
+        case BuiltinFnIdLog:
+            out_val->data.x_f16 = zig_double_to_f16(log(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdLog10:
+            out_val->data.x_f16 = zig_double_to_f16(log10(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdLog2:
+            out_val->data.x_f16 = zig_double_to_f16(log2(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdFabs:
+            out_val->data.x_f16 = zig_double_to_f16(fabs(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdFloor:
+            out_val->data.x_f16 = zig_double_to_f16(floor(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdCeil:
+            out_val->data.x_f16 = zig_double_to_f16(ceil(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdTrunc:
+            out_val->data.x_f16 = zig_double_to_f16(trunc(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdNearbyInt:
+            out_val->data.x_f16 = zig_double_to_f16(nearbyint(zig_f16_to_double(op->data.x_f16)));
+            break;
         case BuiltinFnIdRound:
-            zig_panic("unimplemented f16 builtin");
+            out_val->data.x_f16 = zig_double_to_f16(round(zig_f16_to_double(op->data.x_f16)));
+            break;
         default:
             zig_unreachable();
         };
         break;
-    };
+    }
     case 32: {
         switch (fop) {
         case BuiltinFnIdSqrt:
@@ -27665,7 +27723,7 @@ static void ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, Builti
         case BuiltinFnIdExp2:
             out_val->data.x_f32 = exp2f(op->data.x_f32);
             break;
-        case BuiltinFnIdLn:
+        case BuiltinFnIdLog:
             out_val->data.x_f32 = logf(op->data.x_f32);
             break;
         case BuiltinFnIdLog10:
@@ -27696,7 +27754,7 @@ static void ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, Builti
             zig_unreachable();
         };
         break;
-    };
+    }
     case 64: {
         switch (fop) {
         case BuiltinFnIdSqrt:
@@ -27714,7 +27772,7 @@ static void ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, Builti
         case BuiltinFnIdExp2:
             out_val->data.x_f64 = exp2(op->data.x_f64);
             break;
-        case BuiltinFnIdLn:
+        case BuiltinFnIdLog:
             out_val->data.x_f64 = log(op->data.x_f64);
             break;
         case BuiltinFnIdLog10:
@@ -27745,7 +27803,11 @@ static void ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, Builti
             zig_unreachable();
         }
         break;
-    };
+    }
+    case 80:
+        return ir_add_error(ira, source_instr,
+            buf_sprintf("compiler bug: TODO: implement '%s' for type '%s'. See https://github.com/ziglang/zig/issues/4026",
+                float_op_to_name(fop), buf_ptr(&float_type->name)));
     case 128: {
         float128_t *out, *in;
         if (float_type->id == ZigTypeIdComptimeFloat) {
@@ -27764,7 +27826,7 @@ static void ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, Builti
         case BuiltinFnIdCos:
         case BuiltinFnIdExp:
         case BuiltinFnIdExp2:
-        case BuiltinFnIdLn:
+        case BuiltinFnIdLog:
         case BuiltinFnIdLog10:
         case BuiltinFnIdLog2:
         case BuiltinFnIdFabs:
@@ -27772,92 +27834,84 @@ static void ir_eval_float_op(IrAnalyze *ira, IrInstruction *source_instr, Builti
         case BuiltinFnIdCeil:
         case BuiltinFnIdTrunc:
         case BuiltinFnIdRound:
-            zig_panic("unimplemented f128 builtin");
+            return ir_add_error(ira, source_instr,
+                buf_sprintf("compiler bug: TODO: implement '%s' for type '%s'. See https://github.com/ziglang/zig/issues/4026",
+                    float_op_to_name(fop), buf_ptr(&float_type->name)));
         default:
             zig_unreachable();
         }
         break;
-    };
+    }
     default:
         zig_unreachable();
     }
+    out_val->special = ConstValSpecialStatic;
+    return nullptr;
 }
 
-static IrInstruction *ir_analyze_float_op(IrAnalyze *ira, IrInstruction *source_instr,
-        ZigType *expr_type, AstNode *expr_type_src_node, IrInstruction *operand, BuiltinFnId op)
-{
-    // Only allow float types, and vectors of floats.
-    ZigType *float_type = (expr_type->id == ZigTypeIdVector) ? expr_type->data.vector.elem_type : expr_type;
-    if (float_type->id != ZigTypeIdFloat && float_type->id != ZigTypeIdComptimeFloat) {
-        ir_add_error_node(ira, expr_type_src_node,
-                buf_sprintf("@%s does not support type '%s'",
-                    float_op_to_name(op, false), buf_ptr(&float_type->name)));
+static IrInstruction *ir_analyze_instruction_float_op(IrAnalyze *ira, IrInstructionFloatOp *instruction) {
+    IrInstruction *operand = instruction->operand->child;
+    ZigType *operand_type = operand->value->type;
+    if (type_is_invalid(operand_type))
+        return ira->codegen->invalid_instruction;
+
+    // This instruction accepts floats and vectors of floats.
+    ZigType *scalar_type = (operand_type->id == ZigTypeIdVector) ?
+        operand_type->data.vector.elem_type : operand_type;
+
+    if (scalar_type->id != ZigTypeIdFloat && scalar_type->id != ZigTypeIdComptimeFloat) {
+        ir_add_error(ira, operand,
+            buf_sprintf("expected float type, found '%s'", buf_ptr(&scalar_type->name)));
         return ira->codegen->invalid_instruction;
     }
 
-    IrInstruction *casted_op = ir_implicit_cast(ira, operand, float_type);
-    if (type_is_invalid(casted_op->value->type))
-        return ira->codegen->invalid_instruction;
-
-    if (instr_is_comptime(casted_op)) {
-        if ((float_type->id == ZigTypeIdComptimeFloat ||
-            float_type->data.floating.bit_count == 16 ||
-            float_type->data.floating.bit_count == 128) &&
-            op != BuiltinFnIdSqrt)
-        {
-            ir_add_error(ira, source_instr,
-                    buf_sprintf("compiler bug: TODO make @%s support type '%s'",
-                        float_op_to_name(op, false), buf_ptr(&float_type->name)));
+    if (instr_is_comptime(operand)) {
+        ZigValue *operand_val = ir_resolve_const(ira, operand, UndefOk);
+        if (operand_val == nullptr)
             return ira->codegen->invalid_instruction;
-        }
+        if (operand_val->special == ConstValSpecialUndef)
+            return ir_const_undef(ira, &instruction->base, operand_type);
 
-        ZigValue *op1_const = ir_resolve_const(ira, casted_op, UndefBad);
-        if (!op1_const)
-            return ira->codegen->invalid_instruction;
-
-        IrInstruction *result = ir_const(ira, source_instr, expr_type);
+        IrInstruction *result = ir_const(ira, &instruction->base, operand_type);
         ZigValue *out_val = result->value;
 
-        if (expr_type->id == ZigTypeIdVector) {
-            expand_undef_array(ira->codegen, op1_const);
+        if (operand_type->id == ZigTypeIdVector) {
+            expand_undef_array(ira->codegen, operand_val);
             out_val->special = ConstValSpecialUndef;
             expand_undef_array(ira->codegen, out_val);
-            size_t len = expr_type->data.vector.len;
+            size_t len = operand_type->data.vector.len;
             for (size_t i = 0; i < len; i += 1) {
-                ZigValue *float_operand_op1 = &op1_const->data.x_array.data.s_none.elements[i];
+                ZigValue *elem_operand = &operand_val->data.x_array.data.s_none.elements[i];
                 ZigValue *float_out_val = &out_val->data.x_array.data.s_none.elements[i];
-                assert(float_operand_op1->type == float_type);
-                assert(float_out_val->type == float_type);
-                ir_eval_float_op(ira, source_instr, op, float_type, op1_const, float_out_val);
-                float_out_val->type = float_type;
+                ir_assert(elem_operand->type == scalar_type, &instruction->base);
+                ir_assert(float_out_val->type == scalar_type, &instruction->base);
+                ErrorMsg *msg = ir_eval_float_op(ira, &instruction->base, instruction->fn_id, scalar_type,
+                        elem_operand, float_out_val);
+                if (msg != nullptr) {
+                    add_error_note(ira->codegen, msg, instruction->base.source_node,
+                        buf_sprintf("when computing vector element at index %" ZIG_PRI_usize, i));
+                    return ira->codegen->invalid_instruction;
+                }
+                float_out_val->type = scalar_type;
             }
-            out_val->type = expr_type;
+            out_val->type = operand_type;
             out_val->special = ConstValSpecialStatic;
         } else {
-            ir_eval_float_op(ira, source_instr, op, float_type, op1_const, out_val);
+            if (ir_eval_float_op(ira, &instruction->base, instruction->fn_id, scalar_type,
+                    operand_val, out_val) != nullptr)
+            {
+                return ira->codegen->invalid_instruction;
+            }
         }
         return result;
     }
 
-    ir_assert(float_type->id == ZigTypeIdFloat, source_instr);
+    ir_assert(scalar_type->id == ZigTypeIdFloat, &instruction->base);
 
-    IrInstruction *result = ir_build_float_op(&ira->new_irb, source_instr->scope,
-            source_instr->source_node, nullptr, casted_op, op);
-    result->value->type = expr_type;
+    IrInstruction *result = ir_build_float_op(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, operand, instruction->fn_id);
+    result->value->type = operand_type;
     return result;
-}
-
-static IrInstruction *ir_analyze_instruction_float_op(IrAnalyze *ira, IrInstructionFloatOp *instruction) {
-    ZigType *expr_type = ir_resolve_type(ira, instruction->type->child);
-    if (type_is_invalid(expr_type))
-        return ira->codegen->invalid_instruction;
-
-    IrInstruction *operand = instruction->op1->child;
-    if (type_is_invalid(operand->value->type))
-        return ira->codegen->invalid_instruction;
-
-    return ir_analyze_float_op(ira, &instruction->base, expr_type, instruction->type->source_node,
-            operand, instruction->op);
 }
 
 static IrInstruction *ir_analyze_instruction_bswap(IrAnalyze *ira, IrInstructionBswap *instruction) {
@@ -29067,9 +29121,10 @@ static ZigType *ir_resolve_lazy_fn_type(IrAnalyze *ira, AstNode *source_node, La
                 break;
             }
             if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
-                if ((err = type_resolve(ira->codegen, param_type, ResolveStatusZeroBitsKnown)))
+                bool has_bits;
+                if ((err = type_has_bits2(ira->codegen, param_type, &has_bits)))
                     return nullptr;
-                if (!type_has_bits(param_type)) {
+                if (!has_bits) {
                     ir_add_error(ira, param_type_inst,
                         buf_sprintf("parameter of type '%s' has 0 bits; not allowed in function with calling convention '%s'",
                             buf_ptr(&param_type->name), calling_convention_name(fn_type_id.cc)));
@@ -29145,8 +29200,8 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
             }
 
             uint32_t align_in_bytes;
-            if ((err = type_val_resolve_abi_align(ira->codegen, lazy_align_of->target_type->value,
-                            &align_in_bytes)))
+            if ((err = type_val_resolve_abi_align(ira->codegen, source_node,
+                    lazy_align_of->target_type->value, &align_in_bytes)))
             {
                 return err;
             }

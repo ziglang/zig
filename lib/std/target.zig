@@ -357,9 +357,9 @@ pub const Target = union(enum) {
         };
 
         if (linkage == .Static) {
-            return try mem.join(allocator, "-", [_][]const u8{ arch, os, "static" });
+            return try mem.join(allocator, "-", &[_][]const u8{ arch, os, "static" });
         } else {
-            return try mem.join(allocator, "-", [_][]const u8{ arch, os });
+            return try mem.join(allocator, "-", &[_][]const u8{ arch, os });
         }
     }
 
@@ -593,6 +593,13 @@ pub const Target = union(enum) {
     pub fn isGnu(self: Target) bool {
         return switch (self.getAbi()) {
             .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => true,
+            else => false,
+        };
+    }
+
+    pub fn isMusl(self: Target) bool {
+        return switch (self.getAbi()) {
+            .musl, .musleabi, .musleabihf => true,
             else => false,
         };
     }

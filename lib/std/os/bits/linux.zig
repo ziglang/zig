@@ -26,6 +26,7 @@ pub const uid_t = i32;
 pub const gid_t = u32;
 pub const clock_t = isize;
 
+pub const NAME_MAX = 255;
 pub const PATH_MAX = 4096;
 pub const IOV_MAX = 1024;
 
@@ -764,19 +765,14 @@ pub const winsize = extern struct {
     ws_ypixel: u16,
 };
 
+/// NSIG is the total number of signals defined.
+/// As signal numbers are sequential, NSIG is one greater than the largest defined signal number.
 pub const NSIG = if (is_mips) 128 else 65;
-pub const sigset_t = [128 / @sizeOf(usize)]usize;
 
-pub usingnamespace if (NSIG == 65)
-    struct {
-        pub const all_mask = [2]u32{ 0xffffffff, 0xffffffff };
-        pub const app_mask = [2]u32{ 0xfffffffc, 0x7fffffff };
-    }
-else
-    struct {
-        pub const all_mask = [4]u32{ 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff };
-        pub const app_mask = [4]u32{ 0xfffffffc, 0x7fffffff, 0xffffffff, 0xffffffff };
-    };
+pub const sigset_t = [1024 / 32]u32;
+
+pub const all_mask: sigset_t = [_]u32{0xffffffff} ** sigset_t.len;
+pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
 
 pub const k_sigaction = if (is_mips)
     extern struct {
@@ -804,7 +800,7 @@ pub const Sigaction = extern struct {
 pub const SIG_ERR = @intToPtr(extern fn (i32, *siginfo_t, *c_void) void, maxInt(usize));
 pub const SIG_DFL = @intToPtr(?extern fn (i32, *siginfo_t, *c_void) void, 0);
 pub const SIG_IGN = @intToPtr(extern fn (i32, *siginfo_t, *c_void) void, 1);
-pub const empty_sigset = [_]usize{0} ** sigset_t.len;
+pub const empty_sigset = [_]u32{0} ** sigset_t.len;
 
 pub const in_port_t = u16;
 pub const sa_family_t = u16;
@@ -1422,3 +1418,38 @@ pub const POLLHUP = 0x010;
 pub const POLLNVAL = 0x020;
 pub const POLLRDNORM = 0x040;
 pub const POLLRDBAND = 0x080;
+
+pub const MFD_CLOEXEC = 0x0001;
+pub const MFD_ALLOW_SEALING = 0x0002;
+pub const MFD_HUGETLB = 0x0004;
+pub const MFD_ALL_FLAGS = MFD_CLOEXEC | MFD_ALLOW_SEALING | MFD_HUGETLB;
+
+pub const HUGETLB_FLAG_ENCODE_SHIFT = 26;
+pub const HUGETLB_FLAG_ENCODE_MASK = 0x3f;
+pub const HUGETLB_FLAG_ENCODE_64KB = 16 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_512KB = 19 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_1MB = 20 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_2MB = 21 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_8MB = 23 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_16MB = 24 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_32MB = 25 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_256MB = 28 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_512MB = 29 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_1GB = 30 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_2GB = 31 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_16GB = 34 << HUGETLB_FLAG_ENCODE_SHIFT;
+
+pub const MFD_HUGE_SHIFT = HUGETLB_FLAG_ENCODE_SHIFT;
+pub const MFD_HUGE_MASK = HUGETLB_FLAG_ENCODE_MASK;
+pub const MFD_HUGE_64KB = HUGETLB_FLAG_ENCODE_64KB;
+pub const MFD_HUGE_512KB = HUGETLB_FLAG_ENCODE_512KB;
+pub const MFD_HUGE_1MB = HUGETLB_FLAG_ENCODE_1MB;
+pub const MFD_HUGE_2MB = HUGETLB_FLAG_ENCODE_2MB;
+pub const MFD_HUGE_8MB = HUGETLB_FLAG_ENCODE_8MB;
+pub const MFD_HUGE_16MB = HUGETLB_FLAG_ENCODE_16MB;
+pub const MFD_HUGE_32MB = HUGETLB_FLAG_ENCODE_32MB;
+pub const MFD_HUGE_256MB = HUGETLB_FLAG_ENCODE_256MB;
+pub const MFD_HUGE_512MB = HUGETLB_FLAG_ENCODE_512MB;
+pub const MFD_HUGE_1GB = HUGETLB_FLAG_ENCODE_1GB;
+pub const MFD_HUGE_2GB = HUGETLB_FLAG_ENCODE_2GB;
+pub const MFD_HUGE_16GB = HUGETLB_FLAG_ENCODE_16GB;

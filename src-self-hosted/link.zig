@@ -119,11 +119,11 @@ fn linkDiagCallbackErrorable(ctx: *Context, msg: []const u8) !void {
 
 fn toExternObjectFormatType(ofmt: ObjectFormat) c.ZigLLVM_ObjectFormatType {
     return switch (ofmt) {
-        .unknown => c.ZigLLVM_UnknownObjectFormat,
-        .coff => c.ZigLLVM_COFF,
-        .elf => c.ZigLLVM_ELF,
-        .macho => c.ZigLLVM_MachO,
-        .wasm => c.ZigLLVM_Wasm,
+        .unknown => .ZigLLVM_UnknownObjectFormat,
+        .coff => .ZigLLVM_COFF,
+        .elf => .ZigLLVM_ELF,
+        .macho => .ZigLLVM_MachO,
+        .wasm => .ZigLLVM_Wasm,
     };
 }
 

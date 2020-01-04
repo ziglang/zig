@@ -26,6 +26,21 @@ test "zig fmt: c pointer type" {
     );
 }
 
+test "zig fmt: builtin call with trailing comma" {
+    try testCanonical(
+        \\pub fn main() void {
+        \\    @breakpoint();
+        \\    _ = @boolToInt(a);
+        \\    _ = @call(
+        \\        a,
+        \\        b,
+        \\        c,
+        \\    );
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: asm expression with comptime content" {
     try testCanonical(
         \\comptime {

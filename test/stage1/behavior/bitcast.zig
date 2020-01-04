@@ -146,3 +146,7 @@ test "comptime bitcast used in expression has the correct type" {
     };
     expect(@bitCast(u8, Foo{ .value = 0xF }) == 0xf);
 }
+
+test "bitcast result to _" {
+    _ = @bitCast(u8, @as(i8, 1));
+}

@@ -144,3 +144,20 @@ fn testAtomicStore() void {
     @atomicStore(u32, &x, 12345678, .SeqCst);
     expect(@atomicLoad(u32, &x, .SeqCst) == 12345678);
 }
+
+test "atomicrmw with floats" {
+    if (builtin.arch == .aarch64 or builtin.arch == .arm)
+        return;
+    testAtomicRmwFloat();
+}
+
+fn testAtomicRmwFloat() void {
+    var x: f32 = 0;
+    expect(x == 0);
+    _ = @atomicRmw(f32, &x, .Xchg, 1, .SeqCst);
+    expect(x == 1);
+    _ = @atomicRmw(f32, &x, .Add, 5, .SeqCst);
+    expect(x == 6);
+    _ = @atomicRmw(f32, &x, .Sub, 2, .SeqCst);
+    expect(x == 4);
+}

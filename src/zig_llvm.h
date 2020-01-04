@@ -422,6 +422,26 @@ enum ZigLLVM_ObjectFormatType {
     ZigLLVM_XCOFF,
 };
 
+enum ZigLLVM_AtomicRMWBinOp {
+    ZigLLVMAtomicRMWBinOpXchg,
+    ZigLLVMAtomicRMWBinOpAdd,
+    ZigLLVMAtomicRMWBinOpSub,
+    ZigLLVMAtomicRMWBinOpAnd,
+    ZigLLVMAtomicRMWBinOpNand,
+    ZigLLVMAtomicRMWBinOpOr,
+    ZigLLVMAtomicRMWBinOpXor,
+    ZigLLVMAtomicRMWBinOpMax,
+    ZigLLVMAtomicRMWBinOpMin,
+    ZigLLVMAtomicRMWBinOpUMax,
+    ZigLLVMAtomicRMWBinOpUMin,
+    ZigLLVMAtomicRMWBinOpFAdd,
+    ZigLLVMAtomicRMWBinOpFSub,
+};
+
+LLVMValueRef ZigLLVMBuildAtomicRMW(LLVMBuilderRef B, enum ZigLLVM_AtomicRMWBinOp op,
+    LLVMValueRef PTR, LLVMValueRef Val,
+    LLVMAtomicOrdering ordering, LLVMBool singleThread);
+
 #define ZigLLVM_DIFlags_Zero 0U
 #define ZigLLVM_DIFlags_Private 1U
 #define ZigLLVM_DIFlags_Protected 2U

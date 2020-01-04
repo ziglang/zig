@@ -2,6 +2,24 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("comparing against undefined produces undefined value",
+        \\export fn entry() void {
+        \\    if (2 == undefined) {}
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:11: error: use of undefined value here causes undefined behavior",
+    });
+
+    cases.add("comptime ptrcast of zero-sized type",
+        \\fn foo() void {
+        \\    const node: struct {} = undefined;
+        \\    const vla_ptr = @ptrCast([*]const u8, &node);
+        \\}
+        \\comptime { foo(); }
+    , &[_][]const u8{
+        "tmp.zig:3:21: error: '*const struct:2:17' and '[*]const u8' do not have the same in-memory representation",
+    });
+
     cases.add("slice sentinel mismatch",
         \\fn foo() [:0]u8 {
         \\    var x: []u8 = undefined;
@@ -11,6 +29,26 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         "tmp.zig:3:12: error: expected type '[:0]u8', found '[]u8'",
         "tmp.zig:3:12: note: destination pointer requires a terminating '0' sentinel",
+    });
+
+    cases.add(
+        "cmpxchg with float",
+        \\export fn entry() void {
+        \\    var x: f32 = 0;
+        \\    _ = @cmpxchgWeak(f32, &x, 1, 2, .SeqCst, .SeqCst);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:22: error: expected integer, enum or pointer type, found 'f32'",
+    });
+
+    cases.add(
+        "atomicrmw with float op not .Xchg, .Add or .Sub",
+        \\export fn entry() void {
+        \\    var x: f32 = 0;
+        \\    _ = @atomicRmw(f32, &x, .And, 2, .SeqCst);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:29: error: @atomicRmw with float only works with .Xchg, .Add and .Sub",
     });
 
     cases.add("intToPtr with misaligned address",

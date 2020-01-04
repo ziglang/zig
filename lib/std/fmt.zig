@@ -94,6 +94,9 @@ pub fn format(
     args: var,
 ) Errors!void {
     const ArgSetType = @IntType(false, 32);
+    if (@typeInfo(@TypeOf(args)) != .Struct) {
+        @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
+    }
     if (args.len > ArgSetType.bit_count) {
         @compileError("32 arguments max are supported per format call");
     }

@@ -477,9 +477,12 @@ pub const Int = struct {
             }
 
             var q = try self.clone();
+            defer q.deinit();
             q.abs();
             var r = try Int.init(allocator);
+            defer r.deinit();
             var b = try Int.initSet(allocator, limb_base);
+            defer b.deinit();
 
             while (q.len() >= 2) {
                 try Int.divTrunc(&q, &r, q, b);

@@ -71,6 +71,11 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             return self.toSliceConst()[i];
         }
 
+        /// Safely access ptr to index i of the list.
+        pub fn ptrAt(self: Self, i: usize) *T {
+            return &self.toSlice()[i];
+        }
+
         /// Sets the value at index `i`, or returns `error.OutOfBounds` if
         /// the index is not in range.
         pub fn setOrError(self: Self, i: usize, item: T) !void {
