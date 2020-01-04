@@ -124,7 +124,7 @@ pub const Token = struct {
         Keyword_static_assert,
         Keyword_thread_local,
 
-        // Preprocessor
+        // Preprocessor directives
         Keyword_include,
         Keyword_define,
         Keyword_ifdef,
@@ -199,7 +199,7 @@ pub const Token = struct {
         Keyword.init("_Static_assert", .Keyword_static_assert),
         Keyword.init("_Thread_local", .Keyword_thread_local),
 
-        // Preprocessor
+        // Preprocessor directives
         Keyword.init("include", .Keyword_include),
         Keyword.init("define", .Keyword_define),
         Keyword.init("ifdef", .Keyword_ifdef),
@@ -209,7 +209,7 @@ pub const Token = struct {
     };
 
     // TODO perfect hash at comptime
-    pub fn getKeyword(bytes: []const u8, macro: bool) ?Id {
+    pub fn getKeyword(bytes: []const u8, pp_directive: bool) ?Id {
         var hash = std.hash_map.hashString(bytes);
         for (keywords) |kw| {
             if (kw.hash == hash and mem.eql(u8, kw.bytes, bytes)) {
@@ -220,7 +220,7 @@ pub const Token = struct {
                     .Keyword_ifndef,
                     .Keyword_error,
                     .Keyword_pragma,
-                    => if (!macro) return null,
+                    => if (!pp_directive) return null,
                     else => {},
                 }
                 return kw.id;
@@ -252,6 +252,7 @@ pub const Tokenizer = struct {
     source: *Source,
     index: usize = 0,
     prev_tok_id: @TagType(Token.Id) = .Invalid,
+    pp_directive: bool = false,
 
     pub fn next(self: *Tokenizer) Token {
         const start_index = self.index;
@@ -321,11 +322,20 @@ pub const Tokenizer = struct {
             switch (state) {
                 .Start => switch (c) {
                     '\n' => {
+                        if (!self.pp_directive) {
+                            result.start = self.index + 1;
+                            continue;
+                        }
+                        self.pp_directive = false;
                         result.id = .Nl;
                         self.index += 1;
                         break;
                     },
                     '\r' => {
+                        if (!self.pp_directive) {
+                            result.start = self.index + 1;
+                            continue;
+                        }
                         state = .Cr;
                     },
                     '"' => {
@@ -460,6 +470,7 @@ pub const Tokenizer = struct {
                 },
                 .Cr => switch (c) {
                     '\n' => {
+                        self.pp_directive = false;
                         result.id = .Nl;
                         self.index += 1;
                         break;
@@ -603,7 +614,9 @@ pub const Tokenizer = struct {
                 .Identifier => switch (c) {
                     'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
                     else => {
-                        result.id = Token.getKeyword(self.source.buffer[result.start..self.index], self.prev_tok_id == .Hash) orelse .Identifier;
+                        result.id = Token.getKeyword(self.source.buffer[result.start..self.index], self.prev_tok_id == .Hash and !self.pp_directive) orelse .Identifier;
+                        if (self.prev_tok_id == .Hash)
+                            self.pp_directive = true;
                         break;
                     },
                 },
@@ -1039,7 +1052,7 @@ pub const Tokenizer = struct {
             switch (state) {
                 .Start => {},
                 .u, .u8, .U, .L, .Identifier => {
-                    result.id = Token.getKeyword(self.source.buffer[result.start..self.index], self.prev_tok_id == .Hash) orelse .Identifier;
+                    result.id = Token.getKeyword(self.source.buffer[result.start..self.index], self.prev_tok_id == .Hash and !self.pp_directive) orelse .Identifier;
                 },
 
                 .Cr,
@@ -1116,8 +1129,6 @@ test "operators" {
             .PipeEqual,
             .Equal,
             .EqualEqual,
-            .Nl,
-
             .LParen,
             .RParen,
             .LBrace,
@@ -1128,8 +1139,6 @@ test "operators" {
             .Period,
             .Period,
             .Ellipsis,
-            .Nl,
-
             .Caret,
             .CaretEqual,
             .Plus,
@@ -1138,8 +1147,6 @@ test "operators" {
             .Minus,
             .MinusMinus,
             .MinusEqual,
-            .Nl,
-
             .Asterisk,
             .AsteriskEqual,
             .Percent,
@@ -1149,8 +1156,6 @@ test "operators" {
             .Semicolon,
             .Slash,
             .SlashEqual,
-            .Nl,
-
             .Comma,
             .Ampersand,
             .AmpersandAmpersand,
@@ -1159,8 +1164,6 @@ test "operators" {
             .AngleBracketLeft,
             .AngleBracketLeftEqual,
             .AngleBracketAngleBracketLeft,
-            .Nl,
-
             .AngleBracketAngleBracketLeftEqual,
             .AngleBracketRight,
             .AngleBracketRightEqual,
@@ -1169,7 +1172,6 @@ test "operators" {
             .Tilde,
             .Hash,
             .HashHash,
-            .Nl,
         },
     );
 }
@@ -1192,8 +1194,6 @@ test "keywords" {
         .Keyword_continue,
         .Keyword_default,
         .Keyword_do,
-        .Nl,
-
         .Keyword_double,
         .Keyword_else,
         .Keyword_enum,
@@ -1203,8 +1203,6 @@ test "keywords" {
         .Keyword_goto,
         .Keyword_if,
         .Keyword_int,
-        .Nl,
-
         .Keyword_long,
         .Keyword_register,
         .Keyword_return,
@@ -1212,8 +1210,6 @@ test "keywords" {
         .Keyword_signed,
         .Keyword_sizeof,
         .Keyword_static,
-        .Nl,
-
         .Keyword_struct,
         .Keyword_switch,
         .Keyword_typedef,
@@ -1221,8 +1217,6 @@ test "keywords" {
         .Keyword_unsigned,
         .Keyword_void,
         .Keyword_volatile,
-        .Nl,
-
         .Keyword_while,
         .Keyword_bool,
         .Keyword_complex,
@@ -1230,22 +1224,19 @@ test "keywords" {
         .Keyword_inline,
         .Keyword_restrict,
         .Keyword_alignas,
-        .Nl,
-
         .Keyword_alignof,
         .Keyword_atomic,
         .Keyword_generic,
         .Keyword_noreturn,
         .Keyword_static_assert,
         .Keyword_thread_local,
-        .Nl,
     });
 }
 
 test "preprocessor keywords" {
     expectTokens(
         \\#include <test>
-        \\#define
+        \\#define #include <1
         \\#ifdef
         \\#ifndef
         \\#error
@@ -1258,6 +1249,10 @@ test "preprocessor keywords" {
         .Nl,
         .Hash,
         .Keyword_define,
+        .Hash,
+        .Identifier,
+        .AngleBracketLeft,
+        .{ .IntegerLiteral = .None },
         .Nl,
         .Hash,
         .Keyword_ifdef,
