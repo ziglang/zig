@@ -194,6 +194,7 @@ static LLVMValueRef build_alloca(CodeGen *g, ZigType *type_entry, const char *na
 static LLVMValueRef gen_await_early_return(CodeGen *g, IrInstruction *source_instr,
         LLVMValueRef target_frame_ptr, ZigType *result_type, ZigType *ptr_result_type,
         LLVMValueRef result_loc, bool non_async);
+static Error get_tmp_filename(CodeGen *g, Buf *out, Buf *suffix);
 
 static void addLLVMAttr(LLVMValueRef val, LLVMAttributeIndex attr_index, const char *attr_name) {
     unsigned kind_id = LLVMGetEnumAttributeKindForName(attr_name, strlen(attr_name));
@@ -9102,8 +9103,9 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
 
 }
 
-void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file) {
+void codegen_translate_c(CodeGen *g, Buf *full_path) {
     Error err;
+
     Buf *src_basename = buf_alloc();
     Buf *src_dirname = buf_alloc();
     os_path_split(full_path, src_dirname, src_basename);
@@ -9111,12 +9113,61 @@ void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file) {
     Buf noextname = BUF_INIT;
     os_path_extname(src_basename, &noextname, nullptr);
 
+    Buf *zig_basename = buf_sprintf("%s.zig", buf_ptr(&noextname));
+
     detect_libc(g);
 
+    Buf cache_digest = BUF_INIT;
+    buf_resize(&cache_digest, 0);
+
+    CacheHash *cache_hash = nullptr;
+    if (g->enable_cache) {
+        if ((err = create_c_object_cache(g, &cache_hash, true))) {
+            // Already printed error; verbose = true
+            exit(1);
+        }
+        cache_file(cache_hash, full_path);
+        // to distinguish from generating a C object
+        cache_buf(cache_hash, buf_create_from_str("translate-c"));
+
+        if ((err = cache_hit(cache_hash, &cache_digest))) {
+            if (err != ErrorInvalidFormat) {
+                fprintf(stderr, "unable to check cache: %s\n", err_str(err));
+                exit(1);
+            }
+        }
+        if (cache_hash->manifest_file_path != nullptr) {
+            g->caches_to_release.append(cache_hash);
+        }
+    }
+
+    if (g->enable_cache && buf_len(&cache_digest) != 0) {
+        // cache hit
+        Buf *cached_path = buf_sprintf("%s" OS_SEP CACHE_OUT_SUBDIR OS_SEP "%s" OS_SEP "%s",
+                buf_ptr(g->cache_dir), buf_ptr(&cache_digest), buf_ptr(zig_basename));
+        fprintf(stdout, "%s\n", buf_ptr(cached_path));
+        return;
+    }
+
+    // cache miss or cache disabled
     init(g);
 
+    Buf *out_dep_path = nullptr;
+    const char *out_dep_path_cstr = nullptr;
+
+    if (g->enable_cache) {
+        buf_alloc();// we can't know the digest until we do the C compiler invocation, so we
+        // need a tmp filename.
+        out_dep_path = buf_alloc();
+        if ((err = get_tmp_filename(g, out_dep_path, buf_sprintf("%s.d", buf_ptr(zig_basename))))) {
+            fprintf(stderr, "unable to create tmp dir: %s\n", err_str(err));
+            exit(1);
+        }
+        out_dep_path_cstr = buf_ptr(out_dep_path);
+    }
+
     ZigList<const char *> clang_argv = {0};
-    add_cc_args(g, clang_argv, nullptr, true);
+    add_cc_args(g, clang_argv, out_dep_path_cstr, true);
 
     clang_argv.append(buf_ptr(full_path));
 
@@ -9160,7 +9211,50 @@ void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file) {
         exit(1);
     }
 
+    if (!g->enable_cache) {
+        stage2_render_ast(ast, stdout);
+        return;
+    }
+
+    // add the files depended on to the cache system
+    if ((err = cache_add_dep_file(cache_hash, out_dep_path, true))) {
+        // Don't treat the absence of the .d file as a fatal error, the
+        // compiler may not produce one eg. when compiling .s files
+        if (err != ErrorFileNotFound) {
+            fprintf(stderr, "Failed to add C source dependencies to cache: %s\n", err_str(err));
+            exit(1);
+        }
+    }
+    if (err != ErrorFileNotFound) {
+        os_delete_file(out_dep_path);
+    }
+
+    if ((err = cache_final(cache_hash, &cache_digest))) {
+        fprintf(stderr, "Unable to finalize cache hash: %s\n", err_str(err));
+        exit(1);
+    }
+
+    Buf *artifact_dir = buf_sprintf("%s" OS_SEP CACHE_OUT_SUBDIR OS_SEP "%s",
+            buf_ptr(g->cache_dir), buf_ptr(&cache_digest));
+
+    if ((err = os_make_path(artifact_dir))) {
+        fprintf(stderr, "Unable to make dir: %s\n", err_str(err));
+        exit(1);
+    }
+
+    Buf *cached_path = buf_sprintf("%s" OS_SEP "%s", buf_ptr(artifact_dir), buf_ptr(zig_basename));
+
+    FILE *out_file = fopen(buf_ptr(cached_path), "wb");
+    if (out_file == nullptr) {
+        fprintf(stderr, "Unable to open output file: %s\n", strerror(errno));
+        exit(1);
+    }
     stage2_render_ast(ast, out_file);
+    if (fclose(out_file) != 0) {
+        fprintf(stderr, "Unable to write to output file: %s\n", strerror(errno));
+        exit(1);
+    }
+    fprintf(stdout, "%s\n", buf_ptr(cached_path));
 }
 
 static void update_test_functions_builtin_decl(CodeGen *g) {

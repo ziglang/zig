@@ -1164,7 +1164,7 @@ int main(int argc, char **argv) {
                 return print_error_usage(arg0);
             }
 
-            Buf *zig_root_source_file = cmd == CmdTranslateC ? nullptr : in_file_buf;
+            Buf *zig_root_source_file = (cmd == CmdTranslateC) ? nullptr : in_file_buf;
 
             if (cmd == CmdRun && buf_out_name == nullptr) {
                 buf_out_name = buf_create_from_str("run");
@@ -1330,7 +1330,8 @@ int main(int argc, char **argv) {
                     zig_unreachable();
                 }
             } else if (cmd == CmdTranslateC) {
-                codegen_translate_c(g, in_file_buf, stdout);
+                g->enable_cache = get_cache_opt(enable_cache, false);
+                codegen_translate_c(g, in_file_buf);
                 if (timing_info)
                     codegen_print_timing_report(g, stderr);
                 return main_exit(root_progress_node, EXIT_SUCCESS);

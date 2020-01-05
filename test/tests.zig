@@ -14,6 +14,7 @@ const builtin = @import("builtin");
 const Mode = builtin.Mode;
 const LibExeObjStep = build.LibExeObjStep;
 
+// Cases
 const compare_output = @import("compare_output.zig");
 const standalone = @import("standalone.zig");
 const stack_traces = @import("stack_traces.zig");
@@ -21,7 +22,13 @@ const compile_errors = @import("compile_errors.zig");
 const assemble_and_link = @import("assemble_and_link.zig");
 const runtime_safety = @import("runtime_safety.zig");
 const translate_c = @import("translate_c.zig");
+const run_translated_c = @import("run_translated_c.zig");
 const gen_h = @import("gen_h.zig");
+
+// Implementations
+pub const TranslateCContext = @import("src/translate_c.zig").TranslateCContext;
+pub const RunTranslatedCContext = @import("src/run_translated_c.zig").RunTranslatedCContext;
+pub const CompareOutputContext = @import("src/compare_output.zig").CompareOutputContext;
 
 const TestTarget = struct {
     target: Target = .Native,
@@ -383,6 +390,20 @@ pub fn addTranslateCTests(b: *build.Builder, test_filter: ?[]const u8) *build.St
     return cases.step;
 }
 
+pub fn addRunTranslatedCTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
+    const cases = b.allocator.create(RunTranslatedCContext) catch unreachable;
+    cases.* = .{
+        .b = b,
+        .step = b.step("test-run-translated-c", "Run the Run-Translated-C tests"),
+        .test_index = 0,
+        .test_filter = test_filter,
+    };
+
+    run_translated_c.addCases(cases);
+
+    return cases.step;
+}
+
 pub fn addGenHTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
     const cases = b.allocator.create(GenHContext) catch unreachable;
     cases.* = GenHContext{
@@ -479,356 +500,6 @@ pub fn addPkgTests(
     return step;
 }
 
-pub const CompareOutputContext = struct {
-    b: *build.Builder,
-    step: *build.Step,
-    test_index: usize,
-    test_filter: ?[]const u8,
-    modes: []const Mode,
-
-    const Special = enum {
-        None,
-        Asm,
-        RuntimeSafety,
-    };
-
-    const TestCase = struct {
-        name: []const u8,
-        sources: ArrayList(SourceFile),
-        expected_output: []const u8,
-        link_libc: bool,
-        special: Special,
-        cli_args: []const []const u8,
-
-        const SourceFile = struct {
-            filename: []const u8,
-            source: []const u8,
-        };
-
-        pub fn addSourceFile(self: *TestCase, filename: []const u8, source: []const u8) void {
-            self.sources.append(SourceFile{
-                .filename = filename,
-                .source = source,
-            }) catch unreachable;
-        }
-
-        pub fn setCommandLineArgs(self: *TestCase, args: []const []const u8) void {
-            self.cli_args = args;
-        }
-    };
-
-    const RunCompareOutputStep = struct {
-        step: build.Step,
-        context: *CompareOutputContext,
-        exe: *LibExeObjStep,
-        name: []const u8,
-        expected_output: []const u8,
-        test_index: usize,
-        cli_args: []const []const u8,
-
-        pub fn create(
-            context: *CompareOutputContext,
-            exe: *LibExeObjStep,
-            name: []const u8,
-            expected_output: []const u8,
-            cli_args: []const []const u8,
-        ) *RunCompareOutputStep {
-            const allocator = context.b.allocator;
-            const ptr = allocator.create(RunCompareOutputStep) catch unreachable;
-            ptr.* = RunCompareOutputStep{
-                .context = context,
-                .exe = exe,
-                .name = name,
-                .expected_output = expected_output,
-                .test_index = context.test_index,
-                .step = build.Step.init("RunCompareOutput", allocator, make),
-                .cli_args = cli_args,
-            };
-            ptr.step.dependOn(&exe.step);
-            context.test_index += 1;
-            return ptr;
-        }
-
-        fn make(step: *build.Step) !void {
-            const self = @fieldParentPtr(RunCompareOutputStep, "step", step);
-            const b = self.context.b;
-
-            const full_exe_path = self.exe.getOutputPath();
-            var args = ArrayList([]const u8).init(b.allocator);
-            defer args.deinit();
-
-            args.append(full_exe_path) catch unreachable;
-            for (self.cli_args) |arg| {
-                args.append(arg) catch unreachable;
-            }
-
-            warn("Test {}/{} {}...", .{ self.test_index + 1, self.context.test_index, self.name });
-
-            const child = std.ChildProcess.init(args.toSliceConst(), b.allocator) catch unreachable;
-            defer child.deinit();
-
-            child.stdin_behavior = .Ignore;
-            child.stdout_behavior = .Pipe;
-            child.stderr_behavior = .Pipe;
-            child.env_map = b.env_map;
-
-            child.spawn() catch |err| debug.panic("Unable to spawn {}: {}\n", .{ full_exe_path, @errorName(err) });
-
-            var stdout = Buffer.initNull(b.allocator);
-            var stderr = Buffer.initNull(b.allocator);
-
-            var stdout_file_in_stream = child.stdout.?.inStream();
-            var stderr_file_in_stream = child.stderr.?.inStream();
-
-            stdout_file_in_stream.stream.readAllBuffer(&stdout, max_stdout_size) catch unreachable;
-            stderr_file_in_stream.stream.readAllBuffer(&stderr, max_stdout_size) catch unreachable;
-
-            const term = child.wait() catch |err| {
-                debug.panic("Unable to spawn {}: {}\n", .{ full_exe_path, @errorName(err) });
-            };
-            switch (term) {
-                .Exited => |code| {
-                    if (code != 0) {
-                        warn("Process {} exited with error code {}\n", .{ full_exe_path, code });
-                        printInvocation(args.toSliceConst());
-                        return error.TestFailed;
-                    }
-                },
-                else => {
-                    warn("Process {} terminated unexpectedly\n", .{full_exe_path});
-                    printInvocation(args.toSliceConst());
-                    return error.TestFailed;
-                },
-            }
-
-            if (!mem.eql(u8, self.expected_output, stdout.toSliceConst())) {
-                warn(
-                    \\
-                    \\========= Expected this output: =========
-                    \\{}
-                    \\========= But found: ====================
-                    \\{}
-                    \\
-                , .{ self.expected_output, stdout.toSliceConst() });
-                return error.TestFailed;
-            }
-            warn("OK\n", .{});
-        }
-    };
-
-    const RuntimeSafetyRunStep = struct {
-        step: build.Step,
-        context: *CompareOutputContext,
-        exe: *LibExeObjStep,
-        name: []const u8,
-        test_index: usize,
-
-        pub fn create(context: *CompareOutputContext, exe: *LibExeObjStep, name: []const u8) *RuntimeSafetyRunStep {
-            const allocator = context.b.allocator;
-            const ptr = allocator.create(RuntimeSafetyRunStep) catch unreachable;
-            ptr.* = RuntimeSafetyRunStep{
-                .context = context,
-                .exe = exe,
-                .name = name,
-                .test_index = context.test_index,
-                .step = build.Step.init("RuntimeSafetyRun", allocator, make),
-            };
-            ptr.step.dependOn(&exe.step);
-            context.test_index += 1;
-            return ptr;
-        }
-
-        fn make(step: *build.Step) !void {
-            const self = @fieldParentPtr(RuntimeSafetyRunStep, "step", step);
-            const b = self.context.b;
-
-            const full_exe_path = self.exe.getOutputPath();
-
-            warn("Test {}/{} {}...", .{ self.test_index + 1, self.context.test_index, self.name });
-
-            const child = std.ChildProcess.init(&[_][]const u8{full_exe_path}, b.allocator) catch unreachable;
-            defer child.deinit();
-
-            child.env_map = b.env_map;
-            child.stdin_behavior = .Ignore;
-            child.stdout_behavior = .Ignore;
-            child.stderr_behavior = .Ignore;
-
-            const term = child.spawnAndWait() catch |err| {
-                debug.panic("Unable to spawn {}: {}\n", .{ full_exe_path, @errorName(err) });
-            };
-
-            const expected_exit_code: u32 = 126;
-            switch (term) {
-                .Exited => |code| {
-                    if (code != expected_exit_code) {
-                        warn("\nProgram expected to exit with code {} but exited with code {}\n", .{
-                            expected_exit_code, code,
-                        });
-                        return error.TestFailed;
-                    }
-                },
-                .Signal => |sig| {
-                    warn("\nProgram expected to exit with code {} but instead signaled {}\n", .{
-                        expected_exit_code, sig,
-                    });
-                    return error.TestFailed;
-                },
-                else => {
-                    warn("\nProgram expected to exit with code {} but exited in an unexpected way\n", .{
-                        expected_exit_code,
-                    });
-                    return error.TestFailed;
-                },
-            }
-
-            warn("OK\n", .{});
-        }
-    };
-
-    pub fn createExtra(self: *CompareOutputContext, name: []const u8, source: []const u8, expected_output: []const u8, special: Special) TestCase {
-        var tc = TestCase{
-            .name = name,
-            .sources = ArrayList(TestCase.SourceFile).init(self.b.allocator),
-            .expected_output = expected_output,
-            .link_libc = false,
-            .special = special,
-            .cli_args = &[_][]const u8{},
-        };
-        const root_src_name = if (special == Special.Asm) "source.s" else "source.zig";
-        tc.addSourceFile(root_src_name, source);
-        return tc;
-    }
-
-    pub fn create(self: *CompareOutputContext, name: []const u8, source: []const u8, expected_output: []const u8) TestCase {
-        return createExtra(self, name, source, expected_output, Special.None);
-    }
-
-    pub fn addC(self: *CompareOutputContext, name: []const u8, source: []const u8, expected_output: []const u8) void {
-        var tc = self.create(name, source, expected_output);
-        tc.link_libc = true;
-        self.addCase(tc);
-    }
-
-    pub fn add(self: *CompareOutputContext, name: []const u8, source: []const u8, expected_output: []const u8) void {
-        const tc = self.create(name, source, expected_output);
-        self.addCase(tc);
-    }
-
-    pub fn addAsm(self: *CompareOutputContext, name: []const u8, source: []const u8, expected_output: []const u8) void {
-        const tc = self.createExtra(name, source, expected_output, Special.Asm);
-        self.addCase(tc);
-    }
-
-    pub fn addRuntimeSafety(self: *CompareOutputContext, name: []const u8, source: []const u8) void {
-        const tc = self.createExtra(name, source, undefined, Special.RuntimeSafety);
-        self.addCase(tc);
-    }
-
-    pub fn addCase(self: *CompareOutputContext, case: TestCase) void {
-        const b = self.b;
-
-        const root_src = fs.path.join(
-            b.allocator,
-            &[_][]const u8{ b.cache_root, case.sources.items[0].filename },
-        ) catch unreachable;
-
-        switch (case.special) {
-            Special.Asm => {
-                const annotated_case_name = fmt.allocPrint(self.b.allocator, "assemble-and-link {}", .{
-                    case.name,
-                }) catch unreachable;
-                if (self.test_filter) |filter| {
-                    if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
-                }
-
-                const exe = b.addExecutable("test", null);
-                exe.addAssemblyFile(root_src);
-
-                for (case.sources.toSliceConst()) |src_file| {
-                    const expanded_src_path = fs.path.join(
-                        b.allocator,
-                        &[_][]const u8{ b.cache_root, src_file.filename },
-                    ) catch unreachable;
-                    const write_src = b.addWriteFile(expanded_src_path, src_file.source);
-                    exe.step.dependOn(&write_src.step);
-                }
-
-                const run_and_cmp_output = RunCompareOutputStep.create(
-                    self,
-                    exe,
-                    annotated_case_name,
-                    case.expected_output,
-                    case.cli_args,
-                );
-
-                self.step.dependOn(&run_and_cmp_output.step);
-            },
-            Special.None => {
-                for (self.modes) |mode| {
-                    const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {} ({})", .{
-                        "compare-output",
-                        case.name,
-                        @tagName(mode),
-                    }) catch unreachable;
-                    if (self.test_filter) |filter| {
-                        if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
-                    }
-
-                    const exe = b.addExecutable("test", root_src);
-                    exe.setBuildMode(mode);
-                    if (case.link_libc) {
-                        exe.linkSystemLibrary("c");
-                    }
-
-                    for (case.sources.toSliceConst()) |src_file| {
-                        const expanded_src_path = fs.path.join(
-                            b.allocator,
-                            &[_][]const u8{ b.cache_root, src_file.filename },
-                        ) catch unreachable;
-                        const write_src = b.addWriteFile(expanded_src_path, src_file.source);
-                        exe.step.dependOn(&write_src.step);
-                    }
-
-                    const run_and_cmp_output = RunCompareOutputStep.create(
-                        self,
-                        exe,
-                        annotated_case_name,
-                        case.expected_output,
-                        case.cli_args,
-                    );
-
-                    self.step.dependOn(&run_and_cmp_output.step);
-                }
-            },
-            Special.RuntimeSafety => {
-                const annotated_case_name = fmt.allocPrint(self.b.allocator, "safety {}", .{case.name}) catch unreachable;
-                if (self.test_filter) |filter| {
-                    if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
-                }
-
-                const exe = b.addExecutable("test", root_src);
-                if (case.link_libc) {
-                    exe.linkSystemLibrary("c");
-                }
-
-                for (case.sources.toSliceConst()) |src_file| {
-                    const expanded_src_path = fs.path.join(
-                        b.allocator,
-                        &[_][]const u8{ b.cache_root, src_file.filename },
-                    ) catch unreachable;
-                    const write_src = b.addWriteFile(expanded_src_path, src_file.source);
-                    exe.step.dependOn(&write_src.step);
-                }
-
-                const run_and_cmp_output = RuntimeSafetyRunStep.create(self, exe, annotated_case_name);
-
-                self.step.dependOn(&run_and_cmp_output.step);
-            },
-        }
-    }
-};
-
 pub const StackTracesContext = struct {
     b: *build.Builder,
     step: *build.Step,
@@ -846,11 +517,6 @@ pub const StackTracesContext = struct {
     ) void {
         const b = self.b;
 
-        const source_pathname = fs.path.join(
-            b.allocator,
-            &[_][]const u8{ b.cache_root, "source.zig" },
-        ) catch unreachable;
-
         for (self.modes) |mode| {
             const expect_for_mode = expect[@enumToInt(mode)];
             if (expect_for_mode.len == 0) continue;
@@ -864,11 +530,10 @@ pub const StackTracesContext = struct {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
             }
 
-            const exe = b.addExecutable("test", source_pathname);
+            const src_basename = "source.zig";
+            const write_src = b.addWriteFile(src_basename, source);
+            const exe = b.addExecutableFromWriteFileStep("test", write_src, src_basename);
             exe.setBuildMode(mode);
-
-            const write_source = b.addWriteFile(source_pathname, source);
-            exe.step.dependOn(&write_source.step);
 
             const run_and_compare = RunAndCompareStep.create(
                 self,
@@ -1072,6 +737,7 @@ pub const CompileErrorContext = struct {
         test_index: usize,
         case: *const TestCase,
         build_mode: Mode,
+        write_src: *build.WriteFileStep,
 
         const ErrLineIter = struct {
             lines: mem.SplitIterator,
@@ -1091,7 +757,13 @@ pub const CompileErrorContext = struct {
             }
         };
 
-        pub fn create(context: *CompileErrorContext, name: []const u8, case: *const TestCase, build_mode: Mode) *CompileCmpOutputStep {
+        pub fn create(
+            context: *CompileErrorContext,
+            name: []const u8,
+            case: *const TestCase,
+            build_mode: Mode,
+            write_src: *build.WriteFileStep,
+        ) *CompileCmpOutputStep {
             const allocator = context.b.allocator;
             const ptr = allocator.create(CompileCmpOutputStep) catch unreachable;
             ptr.* = CompileCmpOutputStep{
@@ -1101,6 +773,7 @@ pub const CompileErrorContext = struct {
                 .test_index = context.test_index,
                 .case = case,
                 .build_mode = build_mode,
+                .write_src = write_src,
             };
 
             context.test_index += 1;
@@ -1110,11 +783,6 @@ pub const CompileErrorContext = struct {
         fn make(step: *build.Step) !void {
             const self = @fieldParentPtr(CompileCmpOutputStep, "step", step);
             const b = self.context.b;
-
-            const root_src = fs.path.join(
-                b.allocator,
-                &[_][]const u8{ b.cache_root, self.case.sources.items[0].filename },
-            ) catch unreachable;
 
             var zig_args = ArrayList([]const u8).init(b.allocator);
             zig_args.append(b.zig_exe) catch unreachable;
@@ -1126,7 +794,8 @@ pub const CompileErrorContext = struct {
             } else {
                 try zig_args.append("build-obj");
             }
-            zig_args.append(b.pathFromRoot(root_src)) catch unreachable;
+            const root_src_basename = self.case.sources.toSliceConst()[0].filename;
+            try zig_args.append(self.write_src.getOutputPath(root_src_basename));
 
             zig_args.append("--name") catch unreachable;
             zig_args.append("test") catch unreachable;
@@ -1325,18 +994,14 @@ pub const CompileErrorContext = struct {
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
         }
-
-        const compile_and_cmp_errors = CompileCmpOutputStep.create(self, annotated_case_name, case, .Debug);
-        self.step.dependOn(&compile_and_cmp_errors.step);
-
+        const write_src = b.addWriteFiles();
         for (case.sources.toSliceConst()) |src_file| {
-            const expanded_src_path = fs.path.join(
-                b.allocator,
-                &[_][]const u8{ b.cache_root, src_file.filename },
-            ) catch unreachable;
-            const write_src = b.addWriteFile(expanded_src_path, src_file.source);
-            compile_and_cmp_errors.step.dependOn(&write_src.step);
+            write_src.add(src_file.filename, src_file.source);
         }
+
+        const compile_and_cmp_errors = CompileCmpOutputStep.create(self, annotated_case_name, case, .Debug, write_src);
+        compile_and_cmp_errors.step.dependOn(&write_src.step);
+        self.step.dependOn(&compile_and_cmp_errors.step);
     }
 };
 
@@ -1407,230 +1072,6 @@ pub const StandaloneContext = struct {
             log_step.step.dependOn(&exe.step);
 
             self.step.dependOn(&log_step.step);
-        }
-    }
-};
-
-pub const TranslateCContext = struct {
-    b: *build.Builder,
-    step: *build.Step,
-    test_index: usize,
-    test_filter: ?[]const u8,
-
-    const TestCase = struct {
-        name: []const u8,
-        sources: ArrayList(SourceFile),
-        expected_lines: ArrayList([]const u8),
-        allow_warnings: bool,
-
-        const SourceFile = struct {
-            filename: []const u8,
-            source: []const u8,
-        };
-
-        pub fn addSourceFile(self: *TestCase, filename: []const u8, source: []const u8) void {
-            self.sources.append(SourceFile{
-                .filename = filename,
-                .source = source,
-            }) catch unreachable;
-        }
-
-        pub fn addExpectedLine(self: *TestCase, text: []const u8) void {
-            self.expected_lines.append(text) catch unreachable;
-        }
-    };
-
-    const TranslateCCmpOutputStep = struct {
-        step: build.Step,
-        context: *TranslateCContext,
-        name: []const u8,
-        test_index: usize,
-        case: *const TestCase,
-
-        pub fn create(context: *TranslateCContext, name: []const u8, case: *const TestCase) *TranslateCCmpOutputStep {
-            const allocator = context.b.allocator;
-            const ptr = allocator.create(TranslateCCmpOutputStep) catch unreachable;
-            ptr.* = TranslateCCmpOutputStep{
-                .step = build.Step.init("ParseCCmpOutput", allocator, make),
-                .context = context,
-                .name = name,
-                .test_index = context.test_index,
-                .case = case,
-            };
-
-            context.test_index += 1;
-            return ptr;
-        }
-
-        fn make(step: *build.Step) !void {
-            const self = @fieldParentPtr(TranslateCCmpOutputStep, "step", step);
-            const b = self.context.b;
-
-            const root_src = fs.path.join(
-                b.allocator,
-                &[_][]const u8{ b.cache_root, self.case.sources.items[0].filename },
-            ) catch unreachable;
-
-            var zig_args = ArrayList([]const u8).init(b.allocator);
-            zig_args.append(b.zig_exe) catch unreachable;
-
-            const translate_c_cmd = "translate-c";
-            zig_args.append(translate_c_cmd) catch unreachable;
-            zig_args.append(b.pathFromRoot(root_src)) catch unreachable;
-
-            warn("Test {}/{} {}...", .{ self.test_index + 1, self.context.test_index, self.name });
-
-            if (b.verbose) {
-                printInvocation(zig_args.toSliceConst());
-            }
-
-            const child = std.ChildProcess.init(zig_args.toSliceConst(), b.allocator) catch unreachable;
-            defer child.deinit();
-
-            child.env_map = b.env_map;
-            child.stdin_behavior = .Ignore;
-            child.stdout_behavior = .Pipe;
-            child.stderr_behavior = .Pipe;
-
-            child.spawn() catch |err| debug.panic("Unable to spawn {}: {}\n", .{
-                zig_args.toSliceConst()[0],
-                @errorName(err),
-            });
-
-            var stdout_buf = Buffer.initNull(b.allocator);
-            var stderr_buf = Buffer.initNull(b.allocator);
-
-            var stdout_file_in_stream = child.stdout.?.inStream();
-            var stderr_file_in_stream = child.stderr.?.inStream();
-
-            stdout_file_in_stream.stream.readAllBuffer(&stdout_buf, max_stdout_size) catch unreachable;
-            stderr_file_in_stream.stream.readAllBuffer(&stderr_buf, max_stdout_size) catch unreachable;
-
-            const term = child.wait() catch |err| {
-                debug.panic("Unable to spawn {}: {}\n", .{ zig_args.toSliceConst()[0], @errorName(err) });
-            };
-            switch (term) {
-                .Exited => |code| {
-                    if (code != 0) {
-                        warn("Compilation failed with exit code {}\n{}\n", .{ code, stderr_buf.toSliceConst() });
-                        printInvocation(zig_args.toSliceConst());
-                        return error.TestFailed;
-                    }
-                },
-                .Signal => |code| {
-                    warn("Compilation failed with signal {}\n", .{code});
-                    printInvocation(zig_args.toSliceConst());
-                    return error.TestFailed;
-                },
-                else => {
-                    warn("Compilation terminated unexpectedly\n", .{});
-                    printInvocation(zig_args.toSliceConst());
-                    return error.TestFailed;
-                },
-            }
-
-            const stdout = stdout_buf.toSliceConst();
-            const stderr = stderr_buf.toSliceConst();
-
-            if (stderr.len != 0 and !self.case.allow_warnings) {
-                warn(
-                    \\====== translate-c emitted warnings: =======
-                    \\{}
-                    \\============================================
-                    \\
-                , .{stderr});
-                printInvocation(zig_args.toSliceConst());
-                return error.TestFailed;
-            }
-
-            for (self.case.expected_lines.toSliceConst()) |expected_line| {
-                if (mem.indexOf(u8, stdout, expected_line) == null) {
-                    warn(
-                        \\
-                        \\========= Expected this output: ================
-                        \\{}
-                        \\========= But found: ===========================
-                        \\{}
-                        \\
-                    , .{ expected_line, stdout });
-                    printInvocation(zig_args.toSliceConst());
-                    return error.TestFailed;
-                }
-            }
-            warn("OK\n", .{});
-        }
-    };
-
-    fn printInvocation(args: []const []const u8) void {
-        for (args) |arg| {
-            warn("{} ", .{arg});
-        }
-        warn("\n", .{});
-    }
-
-    pub fn create(
-        self: *TranslateCContext,
-        allow_warnings: bool,
-        filename: []const u8,
-        name: []const u8,
-        source: []const u8,
-        expected_lines: []const []const u8,
-    ) *TestCase {
-        const tc = self.b.allocator.create(TestCase) catch unreachable;
-        tc.* = TestCase{
-            .name = name,
-            .sources = ArrayList(TestCase.SourceFile).init(self.b.allocator),
-            .expected_lines = ArrayList([]const u8).init(self.b.allocator),
-            .allow_warnings = allow_warnings,
-        };
-
-        tc.addSourceFile(filename, source);
-        var arg_i: usize = 0;
-        while (arg_i < expected_lines.len) : (arg_i += 1) {
-            tc.addExpectedLine(expected_lines[arg_i]);
-        }
-        return tc;
-    }
-
-    pub fn add(
-        self: *TranslateCContext,
-        name: []const u8,
-        source: []const u8,
-        expected_lines: []const []const u8,
-    ) void {
-        const tc = self.create(false, "source.h", name, source, expected_lines);
-        self.addCase(tc);
-    }
-
-    pub fn addAllowWarnings(
-        self: *TranslateCContext,
-        name: []const u8,
-        source: []const u8,
-        expected_lines: []const []const u8,
-    ) void {
-        const tc = self.create(true, "source.h", name, source, expected_lines);
-        self.addCase(tc);
-    }
-
-    pub fn addCase(self: *TranslateCContext, case: *const TestCase) void {
-        const b = self.b;
-
-        const translate_c_cmd = "translate-c";
-        const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {}", .{ translate_c_cmd, case.name }) catch unreachable;
-        if (self.test_filter) |filter| {
-            if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
-        }
-
-        const translate_c_and_cmp = TranslateCCmpOutputStep.create(self, annotated_case_name, case);
-        self.step.dependOn(&translate_c_and_cmp.step);
-
-        for (case.sources.toSliceConst()) |src_file| {
-            const expanded_src_path = fs.path.join(
-                b.allocator,
-                &[_][]const u8{ b.cache_root, src_file.filename },
-            ) catch unreachable;
-            const write_src = b.addWriteFile(expanded_src_path, src_file.source);
-            translate_c_and_cmp.step.dependOn(&write_src.step);
         }
     }
 };
@@ -1754,10 +1195,6 @@ pub const GenHContext = struct {
 
     pub fn addCase(self: *GenHContext, case: *const TestCase) void {
         const b = self.b;
-        const root_src = fs.path.join(
-            b.allocator,
-            &[_][]const u8{ b.cache_root, case.sources.items[0].filename },
-        ) catch unreachable;
 
         const mode = builtin.Mode.Debug;
         const annotated_case_name = fmt.allocPrint(self.b.allocator, "gen-h {} ({})", .{ case.name, @tagName(mode) }) catch unreachable;
@@ -1765,17 +1202,13 @@ pub const GenHContext = struct {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
         }
 
-        const obj = b.addObject("test", root_src);
-        obj.setBuildMode(mode);
-
+        const write_src = b.addWriteFiles();
         for (case.sources.toSliceConst()) |src_file| {
-            const expanded_src_path = fs.path.join(
-                b.allocator,
-                &[_][]const u8{ b.cache_root, src_file.filename },
-            ) catch unreachable;
-            const write_src = b.addWriteFile(expanded_src_path, src_file.source);
-            obj.step.dependOn(&write_src.step);
+            write_src.add(src_file.filename, src_file.source);
         }
+
+        const obj = b.addObjectFromWriteFileStep("test", write_src, case.sources.items[0].filename);
+        obj.setBuildMode(mode);
 
         const cmp_h = GenHCmpOutputStep.create(self, obj, annotated_case_name, case);
 
