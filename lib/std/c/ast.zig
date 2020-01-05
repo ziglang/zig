@@ -10,12 +10,11 @@ pub const Tree = struct {
     sources: SourceList,
     root_node: *Node.Root,
     arena_allocator: std.heap.ArenaAllocator,
-    errors: ErrorList,
-    warnings: ?ErrorList,
+    msgs: MsgList,
 
     pub const SourceList = SegmentedList(Source, 4);
     pub const TokenList = Source.TokenList;
-    pub const ErrorList = SegmentedList(Error, 0);
+    pub const MsgList = SegmentedList(Msg, 0);
 
     pub fn deinit(self: *Tree) void {
         // Here we copy the arena allocator into stack memory, because
@@ -24,6 +23,15 @@ pub const Tree = struct {
         arena_allocator.deinit();
         // self is destroyed
     }
+};
+
+pub const Msg = struct {
+    kind: enum {
+        Error,
+        Warning,
+        Note,
+    },
+    inner: Error,
 };
 
 pub const Error = union(enum) {
@@ -268,7 +276,7 @@ pub const Node = struct {
 
     pub const FnDef = struct {
         base: Node = Node{ .id = .FnDef },
-        decl_spec: *DeclSpec,
+        decl_spec: DeclSpec,
         declarator: *Node,
         old_decls: OldDeclList,
         body: *CompoundStmt,
