@@ -83,4 +83,17 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
+
+    cases.add("struct initializer - packed",
+        \\#define _NO_CRT_STDIO_INLINE 1
+        \\#include <stdio.h>
+        \\#include <stdint.h>
+        \\struct s {uint8_t x,y;
+        \\          uint32_t z;} __attribute__((packed)) s0 = {1, 2};
+        \\int main() {
+        \\  /* sizeof nor offsetof currently supported */
+        \\  printf("%x\n", (intptr_t)&s0.z - (intptr_t)&s0.x);
+        \\  return 0;
+        \\}
+    , "2" ++ nl);
 }
