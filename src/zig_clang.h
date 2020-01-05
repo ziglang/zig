@@ -931,6 +931,7 @@ ZIG_EXTERN_C bool ZigClangQualType_isRestrictQualified(struct ZigClangQualType);
 
 ZIG_EXTERN_C enum ZigClangTypeClass ZigClangType_getTypeClass(const struct ZigClangType *self);
 ZIG_EXTERN_C struct ZigClangQualType ZigClangType_getPointeeType(const struct ZigClangType *self);
+ZIG_EXTERN_C bool ZigClangType_isBooleanType(const struct ZigClangType *self);
 ZIG_EXTERN_C bool ZigClangType_isVoidType(const struct ZigClangType *self);
 ZIG_EXTERN_C bool ZigClangType_isArrayType(const struct ZigClangType *self);
 ZIG_EXTERN_C bool ZigClangType_isRecordType(const struct ZigClangType *self);

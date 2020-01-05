@@ -1273,7 +1273,7 @@ fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt)
                     try transExprCoercing(rp, scope, expr, .used, .r_value)
                 else
                     try transCreateNodeUndefinedLiteral(c);
-                if (isBoolRes(init_node)) {
+                if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node)) {
                     const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@boolToInt");
                     try builtin_node.params.push(init_node);
                     builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
@@ -1339,9 +1339,13 @@ fn transImplicitCastExpr(
             return transCreateNodeInfixOp(rp, scope, &ptr_to_int.base, .BangEqual, op_token, rhs_node, result_used, false);
         },
         .IntegralToBoolean => {
-            // val != 0
             const node = try transExpr(rp, scope, sub_expr, .used, .r_value);
 
+            // The expression is already a boolean one, return it as-is
+            if (isBoolRes(node))
+                return node;
+
+            // val != 0
             const op_token = try appendToken(rp.c, .BangEqual, "!=");
             const rhs_node = try transCreateNodeInt(rp.c, 0);
             return transCreateNodeInfixOp(rp, scope, node, .BangEqual, op_token, rhs_node, result_used, false);
@@ -1395,6 +1399,10 @@ fn transBoolExpr(
     } else {
         return maybeSuppressResult(rp, scope, used, node);
     }
+}
+
+fn exprIsBooleanType(expr: *const ZigClangExpr) bool {
+    return qualTypeIsBoolean(ZigClangExpr_getType(expr));
 }
 
 fn isBoolRes(res: *ast.Node) bool {
@@ -1722,6 +1730,14 @@ fn transCCast(
         const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@intToFloat");
         try builtin_node.params.push(try transQualType(rp, dst_type, loc));
         _ = try appendToken(rp.c, .Comma, ",");
+        try builtin_node.params.push(expr);
+        builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+        return &builtin_node.base;
+    }
+    if (ZigClangType_isBooleanType(qualTypeCanon(src_type)) and
+        !ZigClangType_isBooleanType(qualTypeCanon(dst_type)))
+    {
+        const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@boolToInt");
         try builtin_node.params.push(expr);
         builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
         return &builtin_node.base;
@@ -3040,6 +3056,10 @@ fn qualTypeIsPtr(qt: ZigClangQualType) bool {
     return ZigClangType_getTypeClass(qualTypeCanon(qt)) == .Pointer;
 }
 
+fn qualTypeIsBoolean(qt: ZigClangQualType) bool {
+    return ZigClangType_isBooleanType(qualTypeCanon(qt));
+}
+
 fn qualTypeIntBitWidth(rp: RestorePoint, qt: ZigClangQualType, source_loc: ZigClangSourceLocation) !u32 {
     const ty = ZigClangQualType_getTypePtr(qt);
 
@@ -3316,7 +3336,7 @@ fn transCreateNodeAssign(
         const lhs_node = try transExpr(rp, scope, lhs, .used, .l_value);
         const eq_token = try appendToken(rp.c, .Equal, "=");
         var rhs_node = try transExprCoercing(rp, scope, rhs, .used, .r_value);
-        if (isBoolRes(rhs_node)) {
+        if (!exprIsBooleanType(lhs) and isBoolRes(rhs_node)) {
             const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@boolToInt");
             try builtin_node.params.push(rhs_node);
             builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");
@@ -3341,7 +3361,7 @@ fn transCreateNodeAssign(
     const node = try transCreateNodeVarDecl(rp.c, false, true, tmp);
     node.eq_token = try appendToken(rp.c, .Equal, "=");
     var rhs_node = try transExpr(rp, &block_scope.base, rhs, .used, .r_value);
-    if (isBoolRes(rhs_node)) {
+    if (!exprIsBooleanType(lhs) and isBoolRes(rhs_node)) {
         const builtin_node = try transCreateNodeBuiltinFnCall(rp.c, "@boolToInt");
         try builtin_node.params.push(rhs_node);
         builtin_node.rparen_token = try appendToken(rp.c, .RParen, ")");

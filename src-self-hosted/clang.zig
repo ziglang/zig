@@ -804,6 +804,7 @@ pub extern fn ZigClangType_getPointeeType(self: ?*const struct_ZigClangType) str
 pub extern fn ZigClangType_isVoidType(self: ?*const struct_ZigClangType) bool;
 pub extern fn ZigClangType_isRecordType(self: ?*const struct_ZigClangType) bool;
 pub extern fn ZigClangType_isArrayType(self: ?*const struct_ZigClangType) bool;
+pub extern fn ZigClangType_isBooleanType(self: ?*const struct_ZigClangType) bool;
 pub extern fn ZigClangType_getTypeClassName(self: *const struct_ZigClangType) [*:0]const u8;
 pub extern fn ZigClangType_getAsArrayTypeUnsafe(self: *const ZigClangType) *const ZigClangArrayType;
 pub extern fn ZigClangType_getAsRecordType(self: *const ZigClangType) ?*const ZigClangRecordType;
