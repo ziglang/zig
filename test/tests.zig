@@ -517,11 +517,6 @@ pub const StackTracesContext = struct {
     ) void {
         const b = self.b;
 
-        const source_pathname = fs.path.join(
-            b.allocator,
-            &[_][]const u8{ b.cache_root, "source.zig" },
-        ) catch unreachable;
-
         for (self.modes) |mode| {
             const expect_for_mode = expect[@enumToInt(mode)];
             if (expect_for_mode.len == 0) continue;
@@ -535,11 +530,10 @@ pub const StackTracesContext = struct {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
             }
 
-            const exe = b.addExecutable("test", source_pathname);
+            const src_basename = "source.zig";
+            const write_src = b.addWriteFile(src_basename, source);
+            const exe = b.addExecutableFromWriteFileStep("test", write_src, src_basename);
             exe.setBuildMode(mode);
-
-            const write_source = b.addWriteFile(source_pathname, source);
-            exe.step.dependOn(&write_source.step);
 
             const run_and_compare = RunAndCompareStep.create(
                 self,
