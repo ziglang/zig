@@ -135,8 +135,8 @@ pub const Token = struct {
         Keyword_error,
         Keyword_pragma,
 
-        pub fn symbol(tok: Token) []const u8 {
-            return switch (tok.id) {
+        pub fn symbol(id: @TagType(Id)) []const u8 {
+            return switch (id) {
                 .Invalid => "Invalid",
                 .Eof => "Eof",
                 .Nl => "NewLine",
@@ -345,6 +345,10 @@ pub const Token = struct {
             }
         }
         return null;
+    }
+
+    pub fn slice(tok: Token) []const u8 {
+        return tok.source.buffer[tok.start..tok.end];
     }
 
     pub const NumSuffix = enum {

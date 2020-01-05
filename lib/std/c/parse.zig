@@ -1,7 +1,8 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ast = std.c.ast;
+const Node = ast.Node;
 const Tree = ast.Tree;
 const TokenIndex = ast.TokenIndex;
 const Token = std.c.Token;
@@ -69,6 +70,12 @@ const Parser = struct {
     arena: *Allocator,
     it: *TokenIterator,
     tree: *Tree,
+    typedefs: std.StringHashMap(void),
+
+    fn isTypedef(parser: *Parser, tok: TokenIndex) bool {
+        const token = parser.it.list.at(tok);
+        return parser.typedefs.contains(token.slice());
+    }
 
     /// Root <- ExternalDeclaration* eof
     fn root(parser: *Parser) Allocator.Error!*Node {
@@ -93,48 +100,89 @@ const Parser = struct {
     }
 
     /// ExternalDeclaration
-    ///     <- Declaration
-    ///     / DeclarationSpecifiers Declarator Declaration* CompoundStmt
+    ///     <- DeclSpec Declarator Declaration* CompoundStmt
+    ///     / DeclSpec (Declarator (EQUAL Initializer)?)* SEMICOLON
+    ///     / StaticAssert
     fn externalDeclarations(parser: *Parser) !?*Node {
         if (try Declaration(parser)) |decl| {}
         return null;
     }
 
     /// Declaration
-    ///     <- DeclarationSpecifiers (Declarator (EQUAL Initializer)?)* SEMICOLON
-    ///     \ StaticAssertDeclaration
+    ///     <- DeclSpec (Declarator (EQUAL Initializer)?)* SEMICOLON
+    ///     / StaticAssert
     fn declaration(parser: *Parser) !?*Node {}
 
-    /// StaticAssertDeclaration <- Keyword_static_assert LPAREN ConstExpr COMMA STRINGLITERAL RPAREN SEMICOLON
-    fn staticAssertDeclaration(parser: *Parser) !?*Node {}
+    /// StaticAssert <- Keyword_static_assert LPAREN ConstExpr COMMA STRINGLITERAL RPAREN SEMICOLON
+    fn StaticAssert(parser: *Parser) !?*Node {}
 
-    /// DeclarationSpecifiers
-    ///     <- (Keyword_typedef / Keyword_extern / Keyword_static / Keyword_thread_local / Keyword_auto / Keyword_register
-    ///     / Type
-    ///     / Keyword_inline / Keyword_noreturn
-    ///     / Keyword_alignas LPAREN (TypeName / ConstExpr) RPAREN)*
-    fn declarationSpecifiers(parser: *Parser) !*Node {}
+    /// DeclSpec <- (StorageClassSpec / TypeSpec / FnSpec / AlignSpec)*
+    fn declSpec(parser: *Parser) !*Node.DeclSpec {
+        const ds = try parser.arena.create(Node.DeclSpec);
+        ds.* = .{};
+        while ((try parser.storageClassSpec(ds)) or (try parser.typeSpec(&ds.type_spec)) or (try parser.fnSpec(ds)) or (try parser.alignSpec(ds))) {}
+        return ds;
+    }
 
-    /// Type
+    /// StorageClassSpec
+    ///     <- Keyword_typedef / Keyword_extern / Keyword_static / Keyword_thread_local / Keyword_auto / Keyword_register
+    fn storageClassSpec(parser: *Parser, ds: *Node.DeclSpec) !bool {
+        blk: {
+            if (parser.eatToken(.Keyword_typedef)) |tok| {
+                if (ds.storage_class != .None or ds.thread_local != null)
+                    break :blk;
+                ds.storage_class = .{ .Typedef = tok };
+            } else if (parser.eatToken(.Keyword_extern)) |tok| {
+                if (ds.storage_class != .None)
+                    break :blk;
+                ds.storage_class = .{ .Extern = tok };
+            } else if (parser.eatToken(.Keyword_static)) |tok| {
+                if (ds.storage_class != .None)
+                    break :blk;
+                ds.storage_class = .{ .Static = tok };
+            } else if (parser.eatToken(.Keyword_thread_local)) |tok| {
+                switch (ds.storage_class) {
+                    .None, .Extern, .Static => {},
+                    else => break :blk,
+                }
+                ds.thread_local = tok;
+            } else if (parser.eatToken(.Keyword_auto)) |tok| {
+                if (ds.storage_class != .None or ds.thread_local != null)
+                    break :blk;
+                ds.storage_class = .{ .Auto = tok };
+            } else if (parser.eatToken(.Keyword_register)) |tok| {
+                if (ds.storage_class != .None or ds.thread_local != null)
+                    break :blk;
+                ds.storage_class = .{ .Register = tok };
+            } else return false;
+            return true;
+        }
+        try parser.warning(.{
+            .DuplicateSpecifier = .{ .token = parser.it.index },
+        });
+        return true;
+    }
+
+    /// TypeSpec
     ///     <- Keyword_void / Keyword_char / Keyword_short / Keyword_int / Keyword_long / Keyword_float / Keyword_double
     ///     / Keyword_signed / Keyword_unsigned / Keyword_bool / Keyword_complex / Keyword_imaginary /
     ///     / Keyword_atomic LPAREN TypeName RPAREN
     ///     / EnumSpecifier
     ///     / RecordSpecifier
     ///     / IDENTIFIER // typedef name
-    ///     / TypeQualifier
-    fn type(parser: *Parser, type: *Node.Type) !bool {
-        while (try parser.typeQualifier(type.qualifiers)) {}
+    ///     / TypeQual
+    fn typeSpec(parser: *Parser, type_spec: *Node.TypeSpec) !bool {
+        while (try parser.typeQual(&type_spec.qual)) {}
         blk: {
             if (parser.eatToken(.Keyword_void)) |tok| {
-                if (type.specifier != .None)
+                if (type_spec.spec != .None)
                     break :blk;
-                type.specifier = .{ .Void = tok };
+                type_spec.spec = .{ .Void = tok };
                 return true;
             } else if (parser.eatToken(.Keyword_char)) |tok| {
-                switch (type.specifier) {
+                switch (type_spec.spec) {
                     .None => {
-                        type.specifier = .{
+                        type_spec.spec = .{
                             .Char = .{
                                 .char = tok,
                             },
@@ -143,7 +191,7 @@ const Parser = struct {
                     .Int => |int| {
                         if (int.int != null)
                             break :blk;
-                        type.specifier = .{
+                        type_spec.spec = .{
                             .Char = .{
                                 .char = tok,
                                 .sign = int.sign,
@@ -154,9 +202,9 @@ const Parser = struct {
                 }
                 return true;
             } else if (parser.eatToken(.Keyword_short)) |tok| {
-                switch (type.specifier) {
+                switch (type_spec.spec) {
                     .None => {
-                        type.specifier = .{
+                        type_spec.spec = .{
                             .Short = .{
                                 .short = tok,
                             },
@@ -165,7 +213,7 @@ const Parser = struct {
                     .Int => |int| {
                         if (int.int != null)
                             break :blk;
-                        type.specifier = .{
+                        type_spec.spec = .{
                             .Short = .{
                                 .short = tok,
                                 .sign = int.sign,
@@ -176,16 +224,16 @@ const Parser = struct {
                 }
                 return true;
             } else if (parser.eatToken(.Keyword_long)) |tok| {
-                switch (type.specifier) {
+                switch (type_spec.spec) {
                     .None => {
-                        type.specifier = .{
+                        type_spec.spec = .{
                             .Long = .{
                                 .long = tok,
                             },
                         };
                     },
                     .Int => |int| {
-                        type.specifier = .{
+                        type_spec.spec = .{
                             .Long = .{
                                 .long = tok,
                                 .sign = int.sign,
@@ -207,9 +255,9 @@ const Parser = struct {
                 }
                 return true;
             } else if (parser.eatToken(.Keyword_int)) |tok| {
-                switch (type.specifier) {
+                switch (type_spec.spec) {
                     .None => {
-                        type.specifier = .{
+                        type_spec.spec = .{
                             .Int = .{
                                 .int = tok,
                             },
@@ -234,9 +282,9 @@ const Parser = struct {
                 }
                 return true;
             } else if (parser.eatToken(.Keyword_signed) orelse parser.eatToken(.Keyword_unsigned)) |tok| {
-                switch (type.specifier) {
+                switch (type_spec.spec) {
                     .None => {
-                        type.specifier = .{
+                        type_spec.spec = .{
                             .Int = .{
                                 .sign = tok,
                             },
@@ -266,30 +314,30 @@ const Parser = struct {
                 }
                 return true;
             } else if (parser.eatToken(.Keyword_float)) |tok| {
-                if (type.specifier != .None)
+                if (type_spec.spec != .None)
                     break :blk;
-                type.specifier = .{
+                type_spec.spec = .{
                     .Float = .{
                         .float = tok,
                     },
                 };
                 return true;
-            } else  if (parser.eatToken(.Keyword_double)) |tok| {
-                if (type.specifier != .None)
+            } else if (parser.eatToken(.Keyword_double)) |tok| {
+                if (type_spec.spec != .None)
                     break :blk;
-                type.specifier = .{
+                type_spec.spec = .{
                     .Double = .{
                         .double = tok,
                     },
                 };
                 return true;
-            } else  if (parser.eatToken(.Keyword_complex)) |tok| {
-                switch (type.specifier) {
+            } else if (parser.eatToken(.Keyword_complex)) |tok| {
+                switch (type_spec.spec) {
                     .None => {
-                        type.specifier = .{
+                        type_spec.spec = .{
                             .Double = .{
                                 .complex = tok,
-                                .double = null
+                                .double = null,
                             },
                         };
                     },
@@ -306,40 +354,41 @@ const Parser = struct {
                     else => break :blk,
                 }
                 return true;
-            } if (parser.eatToken(.Keyword_bool)) |tok| {
-                if (type.specifier != .None)
+            }
+            if (parser.eatToken(.Keyword_bool)) |tok| {
+                if (type_spec.spec != .None)
                     break :blk;
-                type.specifier = .{ .Bool = tok };
+                type_spec.spec = .{ .Bool = tok };
                 return true;
             } else if (parser.eatToken(.Keyword_atomic)) |tok| {
-                if (type.specifier != .None)
+                if (type_spec.spec != .None)
                     break :blk;
                 _ = try parser.expectToken(.LParen);
                 const name = try parser.expect(typeName, .{
-                    .ExpectedTypeName = .{ .tok = it.index },
+                    .ExpectedTypeName = .{ .token = parser.it.index },
                 });
-                type.specifier.Atomic = .{
+                type_spec.spec.Atomic = .{
                     .atomic = tok,
                     .typename = name,
                     .rparen = try parser.expectToken(.RParen),
                 };
                 return true;
             } else if (parser.eatToken(.Keyword_enum)) |tok| {
-                if (type.specifier != .None)
+                if (type_spec.spec != .None)
                     break :blk;
                 @panic("TODO enum type");
                 // return true;
             } else if (parser.eatToken(.Keyword_union) orelse parser.eatToken(.Keyword_struct)) |tok| {
-                if (type.specifier != .None)
+                if (type_spec.spec != .None)
                     break :blk;
                 @panic("TODO record type");
                 // return true;
             } else if (parser.eatToken(.Identifier)) |tok| {
-                if (!parser.typedefs.contains(tok)) {
+                if (!parser.isTypedef(tok)) {
                     parser.putBackToken(tok);
                     return false;
                 }
-                type.specifier = .{
+                type_spec.spec = .{
                     .Typedef = tok,
                 };
                 return true;
@@ -348,44 +397,81 @@ const Parser = struct {
         try parser.tree.errors.push(.{
             .InvalidTypeSpecifier = .{
                 .token = parser.it.index,
-                .type = type,
+                .type_spec = type_spec,
             },
         });
         return error.ParseError;
     }
 
-    /// TypeQualifier <- Keyword_const / Keyword_restrict / Keyword_volatile / Keyword_atomic
-    fn typeQualifier(parser: *Parser, qualifiers: *Node.Qualifiers) !bool {
-        if (parser.eatToken(.Keyword_const)) |tok| {
-            if (qualifiers.@"const" != null)
-                return parser.warning(.{
-                    .DuplicateQualifier = .{ .token = tok },
-                });
-            qualifiers.@"const" = tok;
-        } else if (parser.eatToken(.Keyword_restrict)) |tok| {
-            if (qualifiers.atomic != null)
-                return parser.warning(.{
-                    .DuplicateQualifier = .{ .token = tok },
-                });
-            qualifiers.atomic = tok;
-        } else if (parser.eatToken(.Keyword_volatile)) |tok| {
-            if (qualifiers.@"volatile" != null)
-                return parser.warning(.{
-                    .DuplicateQualifier = .{ .token = tok },
-                });
-            qualifiers.@"volatile" = tok;
-        } else if (parser.eatToken(.Keyword_atomic)) |tok| {
-            if (qualifiers.atomic != null)
-                return parser.warning(.{
-                    .DuplicateQualifier = .{ .token = tok },
-                });
-            qualifiers.atomic = tok;
-        } else return false;
+    /// TypeQual <- Keyword_const / Keyword_restrict / Keyword_volatile / Keyword_atomic
+    fn typeQual(parser: *Parser, qual: *Node.TypeQual) !bool {
+        blk: {
+            if (parser.eatToken(.Keyword_const)) |tok| {
+                if (qual.@"const" != null)
+                    break :blk;
+                qual.@"const" = tok;
+            } else if (parser.eatToken(.Keyword_restrict)) |tok| {
+                if (qual.atomic != null)
+                    break :blk;
+                qual.atomic = tok;
+            } else if (parser.eatToken(.Keyword_volatile)) |tok| {
+                if (qual.@"volatile" != null)
+                    break :blk;
+                qual.@"volatile" = tok;
+            } else if (parser.eatToken(.Keyword_atomic)) |tok| {
+                if (qual.atomic != null)
+                    break :blk;
+                qual.atomic = tok;
+            } else return false;
+            return true;
+        }
+        try parser.warning(.{
+            .DuplicateQualifier = .{ .token = parser.it.index },
+        });
         return true;
     }
 
-    /// FunctionSpecifier <- Keyword_inline / Keyword_noreturn
-    fn functionSpecifier(parser: *Parser) !*Node {}
+    /// FnSpec <- Keyword_inline / Keyword_noreturn
+    fn fnSpec(parser: *Parser, ds: *Node.DeclSpec) !bool {
+        blk: {
+            if (parser.eatToken(.Keyword_inline)) |tok| {
+                if (ds.fn_spec != .None)
+                    break :blk;
+                ds.fn_spec = .{ .Inline = tok };
+            } else if (parser.eatToken(.Keyword_noreturn)) |tok| {
+                if (ds.fn_spec != .None)
+                    break :blk;
+                ds.fn_spec = .{ .Noreturn = tok };
+            } else return false;
+            return true;
+        }
+        try parser.warning(.{
+            .DuplicateSpecifier = .{ .token = parser.it.index },
+        });
+        return true;
+    }
+
+    /// AlignSpec <- Keyword_alignas LPAREN (TypeName / ConstExpr) RPAREN
+    fn alignSpec(parser: *Parser, ds: *Node.DeclSpec) !bool {
+        if (parser.eatToken(.Keyword_alignas)) |tok| {
+            _ = try parser.expectToken(.LParen);
+            const node = (try parser.typeName()) orelse (try parser.expect(conditionalExpr, .{
+                .ExpectedExpr = .{ .token = parser.it.index },
+            }));
+            if (ds.align_spec != null) {
+                try parser.warning(.{
+                    .DuplicateSpecifier = .{ .token = parser.it.index },
+                });
+            }
+            ds.align_spec = .{
+                .alignas = tok,
+                .expr = node,
+                .rparen = try parser.expectToken(.RParen),
+            };
+            return true;
+        }
+        return false;
+    }
 
     /// EnumSpecifier <- Keyword_enum IDENTIFIER? (LBRACE EnumField RBRACE)?
     fn enumSpecifier(parser: *Parser) !*Node {}
@@ -397,13 +483,13 @@ const Parser = struct {
     fn recordSpecifier(parser: *Parser) !*Node {}
 
     /// RecordField
-    ///     <- Type* (RecordDeclarator (COMMA RecordDeclarator))? SEMICOLON
-    ///     \ StaticAssertDeclaration
+    ///     <- TypeSpec* (RecordDeclarator (COMMA RecordDeclarator))? SEMICOLON
+    ///     \ StaticAssert
     fn recordField(parser: *Parser) !*Node {}
 
     /// TypeName
-    ///     <- Type* AbstractDeclarator?
-    fn typeName(parser: *Parser) !*Node {}
+    ///     <- TypeSpec* AbstractDeclarator?
+    fn typeName(parser: *Parser) !*Node {
 
     /// RecordDeclarator <- Declarator? (COLON ConstExpr)?
     fn recordDeclarator(parser: *Parser) !*Node {}
@@ -411,7 +497,7 @@ const Parser = struct {
     /// Declarator <- Pointer? DirectDeclarator
     fn declarator(parser: *Parser) !*Node {}
 
-    /// Pointer <- ASTERISK TypeQualifier* Pointer?
+    /// Pointer <- ASTERISK TypeQual* Pointer?
     fn pointer(parser: *Parser) !*Node {}
 
     /// DirectDeclarator
@@ -422,13 +508,13 @@ const Parser = struct {
     fn directDeclarator(parser: *Parser) !*Node {}
 
     /// BracketDeclarator
-    ///     <- Keyword_static TypeQualifier* AssignmentExpr
-    ///     / TypeQualifier+ (ASTERISK / Keyword_static AssignmentExpr)
-    ///     / TypeQualifier+ AssignmentExpr?
+    ///     <- Keyword_static TypeQual* AssignmentExpr
+    ///     / TypeQual+ (ASTERISK / Keyword_static AssignmentExpr)
+    ///     / TypeQual+ AssignmentExpr?
     ///     / AssignmentExpr
     fn bracketDeclarator(parser: *Parser) !*Node {}
 
-    /// ParamDecl <- DeclarationSpecifiers (Declarator / AbstractDeclarator)
+    /// ParamDecl <- DeclSpec (Declarator / AbstractDeclarator)
     fn paramDecl(parser: *Parser) !*Node {}
 
     /// AbstractDeclarator <- Pointer? DirectAbstractDeclarator?
@@ -647,25 +733,25 @@ const Parser = struct {
         return &node.base;
     }
 
-    fn eatToken(parser: *Parser, id: Token.Id) ?TokenIndex {
+    fn eatToken(parser: *Parser, id: @TagType(Token.Id)) ?TokenIndex {
         while (true) {
             const next_tok = parser.it.next() orelse return null;
             if (next_tok.id != .LineComment and next_tok.id != .MultiLineComment) {
                 if (next_tok.id == id) {
                     return parser.it.index;
                 }
-                parser.it.prev();
+                _ = parser.it.prev();
                 return null;
             }
         }
     }
 
-    fn expectToken(parser: *Parser, id: Token.Id) Error!TokenIndex {
+    fn expectToken(parser: *Parser, id: @TagType(Token.Id)) Error!TokenIndex {
         while (true) {
             const next_tok = parser.it.next() orelse return error.ParseError;
             if (next_tok.id != .LineComment and next_tok.id != .MultiLineComment) {
                 if (next_tok.id != id) {
-                    try tree.errors.push(.{
+                    try parser.tree.errors.push(.{
                         .ExpectedToken = .{ .token = parser.it.index, .expected_id = id },
                     });
                     return error.ParseError;
@@ -678,7 +764,7 @@ const Parser = struct {
     fn putBackToken(parser: *Parser, putting_back: TokenIndex) void {
         while (true) {
             const prev_tok = parser.it.prev() orelse return;
-            if (next_tok.id == .LineComment or next_tok.id == .MultiLineComment) continue;
+            if (prev_tok.id == .LineComment or prev_tok.id == .MultiLineComment) continue;
             assert(parser.it.list.at(putting_back) == prev_tok);
             return;
         }
@@ -689,14 +775,17 @@ const Parser = struct {
         parseFn: fn (*Parser) Error!?*Node,
         err: ast.Error, // if parsing fails
     ) Error!*Node {
-        return (try parseFn(arena, it, tree)) orelse {
+        return (try parseFn(parser)) orelse {
             try parser.tree.errors.push(err);
             return error.ParseError;
         };
     }
 
-    fn warning(parser: *Parser, err: ast.Error) Error {
-        // if (parser.warnaserror)
+    fn warning(parser: *Parser, err: ast.Error) Error!void {
+        if (parser.tree.warnings) |*w| {
+            try w.push(err);
+            return;
+        }
         try parser.tree.errors.push(err);
         return error.ParseError;
     }

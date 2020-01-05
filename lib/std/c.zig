@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const page_size = std.mem.page_size;
 
-const tokenizer = @import("c/tokenizer.zig");
+pub const tokenizer = @import("c/tokenizer.zig");
 pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
 pub const parse = @import("c/parse.zig").parse;

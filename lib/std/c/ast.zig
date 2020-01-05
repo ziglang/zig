@@ -1,4 +1,4 @@
-const std = @import("std.zig");
+const std = @import("std");
 const SegmentedList = std.SegmentedList;
 const Token = std.c.Token;
 const Source = std.c.tokenizer.Source;
@@ -11,6 +11,7 @@ pub const Tree = struct {
     root_node: *Node.Root,
     arena_allocator: std.heap.ArenaAllocator,
     errors: ErrorList,
+    warnings: ?ErrorList,
 
     pub const SourceList = SegmentedList(Source, 4);
     pub const TokenList = Source.TokenList;
@@ -30,8 +31,10 @@ pub const Error = union(enum) {
     ExpectedToken: ExpectedToken,
     ExpectedExpr: SingleTokenError("expected expression, found '{}'"),
     ExpectedStmt: SingleTokenError("expected statement, found '{}'"),
+    ExpectedTypeName: SingleTokenError("expected type name, found '{}'"),
     InvalidTypeSpecifier: InvalidTypeSpecifier,
     DuplicateQualifier: SingleTokenError("duplicate type qualifier '{}'"),
+    DuplicateSpecifier: SingleTokenError("duplicate declaration specifier '{}'"),
 
     pub fn render(self: *const Error, tokens: *Tree.TokenList, stream: var) !void {
         switch (self.*) {
@@ -39,8 +42,10 @@ pub const Error = union(enum) {
             .ExpectedToken => |*x| return x.render(tokens, stream),
             .ExpectedExpr => |*x| return x.render(tokens, stream),
             .ExpectedStmt => |*x| return x.render(tokens, stream),
+            .ExpectedTypeName => |*x| return x.render(tokens, stream),
             .InvalidTypeSpecifier => |*x| return x.render(tokens, stream),
             .DuplicateQualifier => |*x| return x.render(tokens, stream),
+            .DuplicateSpecifier => |*x| return x.render(tokens, stream),
         }
     }
 
@@ -50,8 +55,10 @@ pub const Error = union(enum) {
             .ExpectedToken => |x| return x.token,
             .ExpectedExpr => |x| return x.token,
             .ExpectedStmt => |x| return x.token,
+            .ExpectedTypeName => |x| return x.token,
             .InvalidTypeSpecifier => |x| return x.token,
             .DuplicateQualifier => |x| return x.token,
+            .DuplicateSpecifier => |x| return x.token,
         }
     }
 
@@ -72,11 +79,11 @@ pub const Error = union(enum) {
 
     pub const InvalidTypeSpecifier = struct {
         token: TokenIndex,
-        type: *Node.Type,
+        type_spec: *Node.TypeSpec,
 
         pub fn render(self: *const ExpectedToken, tokens: *Tree.TokenList, stream: var) !void {
             try stream.write("invalid type specifier '");
-            try type.specifier.print(tokens, stream);
+            try type_spec.spec.print(tokens, stream);
             const token_name = tokens.at(self.token).id.symbol();
             return stream.print("{}'", .{ token_name });
         }
@@ -114,9 +121,32 @@ pub const Node = struct {
         pub const DeclList = SegmentedList(*Node, 4);
     };
 
-    pub const Type = struct {
-        qualifiers: Qualifiers,
-        specifier: union(enum) {
+    pub const DeclSpec = struct {
+        storage_class: union(enum) {
+            Auto: TokenIndex,
+            Extern: TokenIndex,
+            Register: TokenIndex,
+            Static: TokenIndex,
+            Typedef: TokenIndex,
+            None,
+        } = .None,
+        thread_local: ?TokenIndex = null,
+        type_spec: TypeSpec = TypeSpec{},
+        fn_spec: union(enum) {
+            Inline: TokenIndex,
+            Noreturn: TokenIndex,
+            None,
+        } = .None,
+        align_spec: ?struct {
+            alignas: TokenIndex,
+            expr: *Node,
+            rparen: TokenIndex,
+        } = null,
+    };
+
+    pub const TypeSpec = struct {
+        qual: TypeQual = TypeQual{},
+        spec: union(enum) {
             /// error or default to int
             None,
             Void: TokenIndex,
@@ -167,10 +197,10 @@ pub const Node = struct {
                     else => @panic("TODO print type specifier"),
                 }
             }
-        },
+        } = .None,
     };
 
-    pub const Qualifiers = struct {
+    pub const TypeQual = struct {
         @"const": ?TokenIndex = null,
         atomic: ?TokenIndex = null,
         @"volatile": ?TokenIndex = null,
