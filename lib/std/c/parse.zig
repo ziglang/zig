@@ -588,12 +588,19 @@ const Parser = struct {
     /// RecordDeclarator <- Declarator? (COLON ConstExpr)?
     fn recordDeclarator(parser: *Parser) !*Node {}
 
-    /// Declarator <- Pointer? DirectDeclarator
-    fn declarator(parser: *Parser) !*Node {}
-
     /// Pointer <- ASTERISK TypeQual* Pointer?
-    fn pointer(parser: *Parser) !*Node {}
-
+    fn pointer(parser: *Parser) !?*Node.Pointer {
+        const asterisk = parser.eatToken(.Asterisk) orelse return null;
+        const node = try parser.arena.create(Node.Pointer);
+        node.* = .{
+            .asterisk = asterisk,
+            .qual = .{},
+            .pointer = null,
+        };
+        while (try parser.typeQual(&node.qual)) {}
+        node.pointer = try parser.pointer();
+        return node;
+    }
     /// DirectDeclarator
     ///     <- IDENTIFIER
     ///     / LPAREN Declarator RPAREN
@@ -687,7 +694,7 @@ const Parser = struct {
 
     /// PrimaryExpr
     ///     <- IDENTIFIER
-    ///     / INTEGERLITERAL / FLITERAL / STRINGLITERAL / CHARLITERAL
+    ///     / INTEGERLITERAL / FLOATLITERAL / STRINGLITERAL / CHARLITERAL
     ///     / LPAREN Expr RPAREN
     ///     / Keyword_generic LPAREN AssignmentExpr (COMMA Generic)+ RPAREN
     fn primaryExpr(parser: *Parser) !*Node {}
@@ -714,7 +721,7 @@ const Parser = struct {
     fn initializer(parser: *Parser) !*Node {}
 
     /// Designator
-    ///     <- LBRACKET Initializers RBRACKET
+    ///     <- LBRACKET ConstExpr RBRACKET
     ///     / PERIOD IDENTIFIER
     fn designator(parser: *Parser) !*Node {}
 

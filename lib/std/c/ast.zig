@@ -126,7 +126,9 @@ pub const Node = struct {
         CompoundStmt,
         IfStmt,
         StaticAssert,
-        FnDef,
+        Fn,
+        Typedef,
+        Var,
     };
 
     pub const Root = struct {
@@ -274,13 +276,85 @@ pub const Node = struct {
         semicolon: TokenIndex,
     };
 
-    pub const FnDef = struct {
-        base: Node = Node{ .id = .FnDef },
+    pub const Declarator = struct {
+        pointer: *Pointer,
+        identifier: ?TokenIndex,
+        kind: union(enum) {
+            Simple,
+            Complex: struct {
+                lparen: TokenIndex,
+                inner: *Declarator,
+                rparen: TokenIndex,
+            },
+            Fn: ParamList,
+            Array: ArrayList,
+        },
+
+        pub const ArrayList = std.SegmentedList(*Array, 2);
+        pub const ParamList = std.SegmentedList(*Param, 4);
+    };
+
+    pub const Array = union(enum) {
+        Unspecified,
+        Variable: TokenIndex,
+        Known: *Expr,
+    };
+
+    pub const Pointer = struct {
+        asterisk: TokenIndex,
+        qual: TypeQual,
+        pointer: ?*Pointer,
+    };
+
+    pub const Param = struct {
+        kind: union(enum) {
+            Variable,
+            Old: TokenIndex,
+            Normal: struct {
+                decl_spec: *DeclSpec,
+                declarator: *Declarator,
+            },
+        },
+    };
+
+    pub const Fn = struct {
+        base: Node = Node{ .id = .Fn },
         decl_spec: DeclSpec,
-        declarator: *Node,
+        declarator: *Declarator,
         old_decls: OldDeclList,
-        body: *CompoundStmt,
+        body: ?*CompoundStmt,
 
         pub const OldDeclList = SegmentedList(*Node, 0);
+    };
+
+    pub const Typedef = struct {
+        base: Node = Node{ .id = .Typedef },
+        decl_spec: DeclSpec,
+        declarators: DeclaratorList,
+
+        pub const DeclaratorList = std.SegmentedList(*Declarator, 2);
+    };
+
+    pub const Var = struct {
+        base: Node = Node{ .id = .Var },
+        decl_spec: DeclSpec,
+        initializers: Initializers,
+
+        pub const Initializers = std.SegmentedList(*Initialized, 2);
+    };
+
+    pub const Initialized = struct {
+        declarator: *Declarator,
+        eq: TokenIndex,
+        init: Initializer,
+    };
+
+    pub const Initializer = union(enum) {
+        list: struct {
+            initializers: InitializerList,
+            rbrace: TokenIndex,
+        },
+        expr: *Expr,
+        pub const InitializerList = std.SegmentedList(*Initializer, 4);
     };
 };
