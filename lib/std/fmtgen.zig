@@ -483,7 +483,7 @@ pub fn formatType(
                 if (ptr_info.child == u8) {
                     if (fmt.len > 0 and fmt[0] == 's') {
                         const len = mem.len(u8, value);
-                        return formatText(value[0..len], fmt, generator);
+                        return formatText(value[0..len], fmt, options, generator);
                     }
                 }
                 return formatPtr(T.Child, @ptrToInt(value), generator);

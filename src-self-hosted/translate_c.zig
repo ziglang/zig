@@ -88,7 +88,7 @@ const Scope = struct {
             var proposed_name = name;
             while (scope.contains(proposed_name)) {
                 scope.mangle_count += 1;
-                proposed_name = try std.fmt.allocPrint(c.a(), "{}_{}", .{ name, scope.mangle_count });
+                proposed_name = try std.fmtgen.allocPrint(c.a(), "{}_{}", .{ name, scope.mangle_count });
             }
             try scope.variables.push(.{ .name = name, .alias = proposed_name });
             return proposed_name;
@@ -245,7 +245,7 @@ pub const Context = struct {
 
         const line = ZigClangSourceManager_getSpellingLineNumber(c.source_manager, spelling_loc);
         const column = ZigClangSourceManager_getSpellingColumnNumber(c.source_manager, spelling_loc);
-        return std.fmt.allocPrint(c.a(), "{}:{}:{}", .{ filename, line, column });
+        return std.fmtgen.allocPrint(c.a(), "{}:{}:{}", .{ filename, line, column });
     }
 };
 
@@ -489,7 +489,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
         const mangled_param_name = try block_scope.makeMangledName(c, param_name);
 
         const arg_name = blk: {
-            const bare_arg_name = try std.fmt.allocPrint(c.a(), "arg_{}", .{mangled_param_name});
+            const bare_arg_name = try std.fmtgen.allocPrint(c.a(), "arg_{}", .{mangled_param_name});
             break :blk try block_scope.makeMangledName(c, bare_arg_name);
         };
 
@@ -529,7 +529,7 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
 
     // TODO https://github.com/ziglang/zig/issues/3756
     // TODO https://github.com/ziglang/zig/issues/1802
-    const checked_name = if (isZigPrimitiveType(var_name)) try std.fmt.allocPrint(c.a(), "_{}", .{var_name}) else var_name;
+    const checked_name = if (isZigPrimitiveType(var_name)) try std.fmtgen.allocPrint(c.a(), "_{}", .{var_name}) else var_name;
     const var_decl_loc = ZigClangVarDecl_getLocation(var_decl);
 
     const qual_type = ZigClangVarDecl_getTypeSourceInfo_getType(var_decl);
@@ -588,7 +588,7 @@ fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
             _ = try appendToken(rp.c, .LParen, "(");
             const expr = try transCreateNodeStringLiteral(
                 rp.c,
-                try std.fmt.allocPrint(rp.c.a(), "\"{}\"", .{str_ptr[0..str_len]}),
+                try std.fmtgen.allocPrint(rp.c.a(), "\"{}\"", .{str_ptr[0..str_len]}),
             );
             _ = try appendToken(rp.c, .RParen, ")");
 
@@ -645,7 +645,7 @@ fn transTypeDef(c: *Context, typedef_decl: *const ZigClangTypedefNameDecl) Error
 
     // TODO https://github.com/ziglang/zig/issues/3756
     // TODO https://github.com/ziglang/zig/issues/1802
-    const checked_name = if (isZigPrimitiveType(typedef_name)) try std.fmt.allocPrint(c.a(), "_{}", .{typedef_name}) else typedef_name;
+    const checked_name = if (isZigPrimitiveType(typedef_name)) try std.fmtgen.allocPrint(c.a(), "_{}", .{typedef_name}) else typedef_name;
 
     if (mem.eql(u8, checked_name, "uint8_t"))
         return transTypeDefAsBuiltin(c, typedef_decl, "u8")
@@ -700,7 +700,7 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
     var bare_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, record_decl)));
     var is_unnamed = false;
     if (ZigClangRecordDecl_isAnonymousStructOrUnion(record_decl) or bare_name.len == 0) {
-        bare_name = try std.fmt.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
+        bare_name = try std.fmtgen.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
         is_unnamed = true;
     }
 
@@ -717,7 +717,7 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
         return null;
     }
 
-    const name = try std.fmt.allocPrint(c.a(), "{}_{}", .{ container_kind_name, bare_name });
+    const name = try std.fmtgen.allocPrint(c.a(), "{}_{}", .{ container_kind_name, bare_name });
     _ = try c.decl_table.put(@ptrToInt(ZigClangRecordDecl_getCanonicalDecl(record_decl)), name);
 
     const node = try transCreateNodeVarDecl(c, !is_unnamed, true, name);
@@ -805,11 +805,11 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
     var bare_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, enum_decl)));
     var is_unnamed = false;
     if (bare_name.len == 0) {
-        bare_name = try std.fmt.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
+        bare_name = try std.fmtgen.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
         is_unnamed = true;
     }
 
-    const name = try std.fmt.allocPrint(c.a(), "enum_{}", .{bare_name});
+    const name = try std.fmtgen.allocPrint(c.a(), "enum_{}", .{bare_name});
     _ = try c.decl_table.put(@ptrToInt(ZigClangEnumDecl_getCanonicalDecl(enum_decl)), name);
     const node = try transCreateNodeVarDecl(c, !is_unnamed, true, name);
     node.eq_token = try appendToken(c, .Equal, "=");
@@ -1626,7 +1626,7 @@ fn escapeChar(c: u8, char_buf: *[4]u8) []const u8 {
         '\n' => "\\n"[0..],
         '\r' => "\\r"[0..],
         '\t' => "\\t"[0..],
-        else => std.fmt.bufPrint(char_buf[0..], "{c}", .{c}) catch unreachable,
+        else => std.fmtgen.bufPrint(char_buf[0..], "{c}", .{c}) catch unreachable,
     };
 }
 
@@ -2216,7 +2216,7 @@ fn transCase(
 ) TransError!*ast.Node {
     const block_scope = scope.findBlockScope(rp.c) catch unreachable;
     const switch_scope = scope.getSwitch();
-    const label = try std.fmt.allocPrint(rp.c.a(), "__case_{}", .{switch_scope.cases.len - @boolToInt(switch_scope.has_default)});
+    const label = try std.fmtgen.allocPrint(rp.c.a(), "__case_{}", .{switch_scope.cases.len - @boolToInt(switch_scope.has_default)});
     _ = try appendToken(rp.c, .Semicolon, ";");
 
     const expr = if (ZigClangCaseStmt_getRHS(stmt)) |rhs| blk: {
@@ -4252,7 +4252,7 @@ fn finishTransFnProto(
                 _ = try appendToken(rp.c, .LParen, "(");
                 const expr = try transCreateNodeStringLiteral(
                     rp.c,
-                    try std.fmt.allocPrint(rp.c.a(), "\"{}\"", .{str_ptr[0..str_len]}),
+                    try std.fmtgen.allocPrint(rp.c.a(), "\"{}\"", .{str_ptr[0..str_len]}),
                 );
                 _ = try appendToken(rp.c, .RParen, ")");
 
@@ -4388,15 +4388,14 @@ fn appendToken(c: *Context, token_id: Token.Id, bytes: []const u8) !ast.TokenInd
 }
 
 fn appendTokenFmt(c: *Context, token_id: Token.Id, comptime format: []const u8, args: var) !ast.TokenIndex {
-    const S = struct {
-        fn callback(context: *Context, bytes: []const u8) error{OutOfMemory}!void {
-            return context.source_buffer.append(bytes);
-        }
-    };
     const start_index = c.source_buffer.len();
     errdefer c.source_buffer.shrink(start_index);
 
-    try std.fmt.format(c, error{OutOfMemory}, S.callback, format, args);
+    var generator = std.fmtgen.Generator([]const u8){};
+    _ = async std.fmtgen.format(&generator, format, args);
+    while (generator.next()) |bytes| {
+        try c.source_buffer.append(bytes);
+    }
     const end_index = c.source_buffer.len();
     const token_index = c.tree.tokens.len;
     const new_token = try c.tree.tokens.addOne();
@@ -4499,7 +4498,7 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
                 const name = try c.str(raw_name);
                 // TODO https://github.com/ziglang/zig/issues/3756
                 // TODO https://github.com/ziglang/zig/issues/1802
-                const mangled_name = if (isZigPrimitiveType(name)) try std.fmt.allocPrint(c.a(), "_{}", .{name}) else name;
+                const mangled_name = if (isZigPrimitiveType(name)) try std.fmtgen.allocPrint(c.a(), "_{}", .{name}) else name;
                 if (scope.containsNow(mangled_name)) {
                     continue;
                 }
@@ -4725,7 +4724,7 @@ fn parseCNumLit(c: *Context, tok: *CToken, source_loc: ZigClangSourceLocation) P
                 switch (tok.bytes[1]) {
                     '0'...'7' => {
                         // octal
-                        return transCreateNodeInt(c, try std.fmt.allocPrint(c.a(), "0o{}", .{tok.bytes}));
+                        return transCreateNodeInt(c, try std.fmtgen.allocPrint(c.a(), "0o{}", .{tok.bytes}));
                     },
                     else => {},
                 }

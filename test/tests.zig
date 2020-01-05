@@ -8,7 +8,7 @@ const Buffer = std.Buffer;
 const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
-const fmt = std.fmt;
+const fmtgen = std.fmtgen;
 const ArrayList = std.ArrayList;
 const builtin = @import("builtin");
 const Mode = builtin.Mode;
@@ -735,7 +735,7 @@ pub const CompareOutputContext = struct {
 
         switch (case.special) {
             Special.Asm => {
-                const annotated_case_name = fmt.allocPrint(self.b.allocator, "assemble-and-link {}", .{
+                const annotated_case_name = fmtgen.allocPrint(self.b.allocator, "assemble-and-link {}", .{
                     case.name,
                 }) catch unreachable;
                 if (self.test_filter) |filter| {
@@ -766,7 +766,7 @@ pub const CompareOutputContext = struct {
             },
             Special.None => {
                 for (self.modes) |mode| {
-                    const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {} ({})", .{
+                    const annotated_case_name = fmtgen.allocPrint(self.b.allocator, "{} {} ({})", .{
                         "compare-output",
                         case.name,
                         @tagName(mode),
@@ -802,7 +802,7 @@ pub const CompareOutputContext = struct {
                 }
             },
             Special.RuntimeSafety => {
-                const annotated_case_name = fmt.allocPrint(self.b.allocator, "safety {}", .{case.name}) catch unreachable;
+                const annotated_case_name = fmtgen.allocPrint(self.b.allocator, "safety {}", .{case.name}) catch unreachable;
                 if (self.test_filter) |filter| {
                     if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
                 }
@@ -855,7 +855,7 @@ pub const StackTracesContext = struct {
             const expect_for_mode = expect[@enumToInt(mode)];
             if (expect_for_mode.len == 0) continue;
 
-            const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {} ({})", .{
+            const annotated_case_name = fmtgen.allocPrint(self.b.allocator, "{} {} ({})", .{
                 "stack-trace",
                 name,
                 @tagName(mode),
@@ -1319,7 +1319,7 @@ pub const CompileErrorContext = struct {
     pub fn addCase(self: *CompileErrorContext, case: *const TestCase) void {
         const b = self.b;
 
-        const annotated_case_name = fmt.allocPrint(self.b.allocator, "compile-error {}", .{
+        const annotated_case_name = fmtgen.allocPrint(self.b.allocator, "compile-error {}", .{
             case.name,
         }) catch unreachable;
         if (self.test_filter) |filter| {
@@ -1389,7 +1389,7 @@ pub const StandaloneContext = struct {
         const b = self.b;
 
         for (self.modes) |mode| {
-            const annotated_case_name = fmt.allocPrint(self.b.allocator, "build {} ({})", .{
+            const annotated_case_name = fmtgen.allocPrint(self.b.allocator, "build {} ({})", .{
                 root_src,
                 @tagName(mode),
             }) catch unreachable;
@@ -1616,7 +1616,7 @@ pub const TranslateCContext = struct {
         const b = self.b;
 
         const translate_c_cmd = "translate-c";
-        const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {}", .{ translate_c_cmd, case.name }) catch unreachable;
+        const annotated_case_name = fmtgen.allocPrint(self.b.allocator, "{} {}", .{ translate_c_cmd, case.name }) catch unreachable;
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
         }
@@ -1760,7 +1760,7 @@ pub const GenHContext = struct {
         ) catch unreachable;
 
         const mode = builtin.Mode.Debug;
-        const annotated_case_name = fmt.allocPrint(self.b.allocator, "gen-h {} ({})", .{ case.name, @tagName(mode) }) catch unreachable;
+        const annotated_case_name = fmtgen.allocPrint(self.b.allocator, "gen-h {} ({})", .{ case.name, @tagName(mode) }) catch unreachable;
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
         }

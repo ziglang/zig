@@ -1049,7 +1049,7 @@ pub const Compilation = struct {
     }
 
     fn addCompileError(self: *Compilation, tree_scope: *Scope.AstTree, span: Span, comptime fmt: []const u8, args: var) !void {
-        const text = try std.fmt.allocPrint(self.gpa(), fmt, args);
+        const text = try std.fmtgen.allocPrint(self.gpa(), fmt, args);
         errdefer self.gpa().free(text);
 
         const msg = try Msg.createFromScope(self, tree_scope, span, text);
@@ -1059,7 +1059,7 @@ pub const Compilation = struct {
     }
 
     fn addCompileErrorCli(self: *Compilation, realpath: []const u8, comptime fmt: []const u8, args: var) !void {
-        const text = try std.fmt.allocPrint(self.gpa(), fmt, args);
+        const text = try std.fmtgen.allocPrint(self.gpa(), fmt, args);
         errdefer self.gpa().free(text);
 
         const msg = try Msg.createFromCli(self, realpath, text);
@@ -1152,7 +1152,7 @@ pub const Compilation = struct {
         const tmp_dir = try self.getTmpDir();
         const file_prefix = self.getRandomFileName();
 
-        const file_name = try std.fmt.allocPrint(self.gpa(), "{}{}", .{ file_prefix[0..], suffix });
+        const file_name = try std.fmtgen.allocPrint(self.gpa(), "{}{}", .{ file_prefix[0..], suffix });
         defer self.gpa().free(file_name);
 
         const full_path = try std.fs.path.join(self.gpa(), &[_][]const u8{ tmp_dir, file_name[0..] });

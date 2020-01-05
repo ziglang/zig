@@ -155,7 +155,7 @@ pub fn main() !void {
         const fn_set = &target_funcs_gop.kv.value.list;
 
         for (lib_names) |lib_name, lib_name_index| {
-            const basename = try fmt.allocPrint(allocator, "lib{}.abilist", lib_name);
+            const basename = try fmtgen.allocPrint(allocator, "lib{}.abilist", lib_name);
             const abi_list_filename = blk: {
                 if (abi_list.targets[0].abi == .gnuabi64 and std.mem.eql(u8, lib_name, "c")) {
                     break :blk try fs.path.join(allocator, [_][]const u8{ prefix, abi_list.path, "n64", basename });

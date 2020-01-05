@@ -321,7 +321,7 @@ pub const Target = union(enum) {
     pub const stack_align = 16;
 
     pub fn zigTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
-        return std.fmt.allocPrint(allocator, "{}{}-{}-{}", .{
+        return std.fmtgen.allocPrint(allocator, "{}{}-{}-{}", .{
             @tagName(self.getArch()),
             Target.archSubArchName(self.getArch()),
             @tagName(self.getOs()),
@@ -370,7 +370,7 @@ pub const Target = union(enum) {
     }
 
     pub fn zigTripleNoSubArch(self: Target, allocator: *mem.Allocator) ![]u8 {
-        return std.fmt.allocPrint(allocator, "{}-{}-{}", .{
+        return std.fmtgen.allocPrint(allocator, "{}-{}-{}", .{
             @tagName(self.getArch()),
             @tagName(self.getOs()),
             @tagName(self.getAbi()),
@@ -378,7 +378,7 @@ pub const Target = union(enum) {
     }
 
     pub fn linuxTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
-        return std.fmt.allocPrint(allocator, "{}-{}-{}", .{
+        return std.fmtgen.allocPrint(allocator, "{}-{}-{}", .{
             @tagName(self.getArch()),
             @tagName(self.getOs()),
             @tagName(self.getAbi()),

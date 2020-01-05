@@ -344,7 +344,7 @@ test "std.atomic.Queue dump" {
     sos.reset();
     try queue.dumpToStream(SliceOutStream.Error, &sos.stream);
 
-    var expected = try std.fmt.bufPrint(expected_buffer[0..],
+    var expected = try std.fmtgen.bufPrint(expected_buffer[0..],
         \\head: 0x{x}=1
         \\ (null)
         \\tail: 0x{x}=1
@@ -364,7 +364,7 @@ test "std.atomic.Queue dump" {
     sos.reset();
     try queue.dumpToStream(SliceOutStream.Error, &sos.stream);
 
-    expected = try std.fmt.bufPrint(expected_buffer[0..],
+    expected = try std.fmtgen.bufPrint(expected_buffer[0..],
         \\head: 0x{x}=1
         \\ 0x{x}=2
         \\  (null)

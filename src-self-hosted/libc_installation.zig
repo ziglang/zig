@@ -393,7 +393,7 @@ pub const LibCInstallation = struct {
 /// caller owns returned memory
 fn ccPrintFileName(allocator: *Allocator, o_file: []const u8, want_dirname: bool) ![]u8 {
     const cc_exe = std.os.getenv("CC") orelse "cc";
-    const arg1 = try std.fmt.allocPrint(allocator, "-print-file-name={}", .{o_file});
+    const arg1 = try std.fmtgen.allocPrint(allocator, "-print-file-name={}", .{o_file});
     defer allocator.free(arg1);
     const argv = [_][]const u8{ cc_exe, arg1 };
 
