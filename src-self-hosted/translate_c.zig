@@ -1841,8 +1841,11 @@ fn transInitListExprRecord(
         //     .field_name = expr
         const period_tok = try appendToken(rp.c, .Period, ".");
 
-        const raw_name = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, field_decl)));
-        if (raw_name.len < 1) continue;
+        var raw_name = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, field_decl)));
+        if (ZigClangFieldDecl_isAnonymousStructOrUnion(field_decl)) {
+            const name = rp.c.decl_table.get(@ptrToInt(ZigClangFieldDecl_getCanonicalDecl(field_decl))).?;
+            raw_name = try mem.dupe(rp.c.a(), u8, name.value);
+        }
         const field_name_tok = try appendIdentifier(rp.c, raw_name);
 
         _ = try appendToken(rp.c, .Equal, "=");
