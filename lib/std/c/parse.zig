@@ -797,38 +797,42 @@ const Parser = struct {
 
     fn eatToken(parser: *Parser, id: @TagType(Token.Id)) ?TokenIndex {
         while (true) {
-            const next_tok = parser.it.next() orelse return null;
-            if (next_tok.id != .LineComment and next_tok.id != .MultiLineComment) {
-                if (next_tok.id == id) {
+            switch (parser.it.next() orelse return null) {
+                .LineComment, .MultiLineComment, .Nl => continue,
+                else => |next_id| if (next_id == id) {
                     return parser.it.index;
-                }
-                _ = parser.it.prev();
-                return null;
+                } else {
+                    _ = parser.it.prev();
+                    return null;
+                },
             }
         }
     }
 
     fn expectToken(parser: *Parser, id: @TagType(Token.Id)) Error!TokenIndex {
         while (true) {
-            const next_tok = parser.it.next() orelse return error.ParseError;
-            if (next_tok.id != .LineComment and next_tok.id != .MultiLineComment) {
-                if (next_tok.id != id) {
-                    try parser.tree.errors.push(.{
+            switch (parser.it.next() orelse return null) {
+                .LineComment, .MultiLineComment, .Nl => continue,
+                else => |next_id| if (next_id != id) {
+                    return parser.err(.{
                         .ExpectedToken = .{ .token = parser.it.index, .expected_id = id },
                     });
-                    return error.ParseError;
-                }
-                return parser.it.index;
+                } else {
+                    return parser.it.index;
+                },
             }
         }
     }
 
     fn putBackToken(parser: *Parser, putting_back: TokenIndex) void {
         while (true) {
-            const prev_tok = parser.it.prev() orelse return;
-            if (prev_tok.id == .LineComment or prev_tok.id == .MultiLineComment) continue;
-            assert(parser.it.list.at(putting_back) == prev_tok);
-            return;
+            switch (parser.it.next() orelse return null) {
+                .LineComment, .MultiLineComment, .Nl => continue,
+                else => |next_id| {
+                    assert(parser.it.list.at(putting_back) == prev_tok);
+                    return;
+                },
+            }
         }
     }
 

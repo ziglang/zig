@@ -449,20 +449,12 @@ pub const Tokenizer = struct {
             switch (state) {
                 .Start => switch (c) {
                     '\n' => {
-                        if (!self.pp_directive) {
-                            result.start = self.index + 1;
-                            continue;
-                        }
                         self.pp_directive = false;
                         result.id = .Nl;
                         self.index += 1;
                         break;
                     },
                     '\r' => {
-                        if (!self.pp_directive) {
-                            result.start = self.index + 1;
-                            continue;
-                        }
                         state = .Cr;
                     },
                     '"' => {
@@ -612,10 +604,13 @@ pub const Tokenizer = struct {
                 },
                 .BackSlash => switch (c) {
                     '\n' => {
-                        state = .Start;
+                        state = if (string) .AfterStringLiteral else .Start;
                     },
                     '\r' => {
                         state = .BackSlashCr;
+                    },
+                    '\t', '\x0B', '\x0C', ' ' => {
+                        // TODO warn
                     },
                     else => {
                         result.id = .Invalid;
@@ -624,7 +619,7 @@ pub const Tokenizer = struct {
                 },
                 .BackSlashCr => switch (c) {
                     '\n' => {
-                        state = .Start;
+                        state = if (string) .AfterStringLiteral else .Start;
                     },
                     else => {
                         result.id = .Invalid;
@@ -700,7 +695,14 @@ pub const Tokenizer = struct {
                     '"' => {
                         state = .StringLiteral;
                     },
-                    '\n'...'\r', ' ' => {},
+                    '\\' => {
+                        state = .BackSlash;
+                    },
+                    '\n', '\r' => {
+                        if (self.pp_directive)
+                            break;
+                    },
+                    '\t', '\x0B', '\x0C', ' ' => {},
                     else => {
                         break;
                     },
@@ -1314,60 +1316,64 @@ test "operators" {
         \\ , & && &= ? < <= <<
         \\  <<= > >= >> >>= ~ # ##
         \\
-    ,
-        &[_]Token.Id{
-            .Bang,
-            .BangEqual,
-            .Pipe,
-            .PipePipe,
-            .PipeEqual,
-            .Equal,
-            .EqualEqual,
-            .LParen,
-            .RParen,
-            .LBrace,
-            .RBrace,
-            .LBracket,
-            .RBracket,
-            .Period,
-            .Period,
-            .Period,
-            .Ellipsis,
-            .Caret,
-            .CaretEqual,
-            .Plus,
-            .PlusPlus,
-            .PlusEqual,
-            .Minus,
-            .MinusMinus,
-            .MinusEqual,
-            .Asterisk,
-            .AsteriskEqual,
-            .Percent,
-            .PercentEqual,
-            .Arrow,
-            .Colon,
-            .Semicolon,
-            .Slash,
-            .SlashEqual,
-            .Comma,
-            .Ampersand,
-            .AmpersandAmpersand,
-            .AmpersandEqual,
-            .QuestionMark,
-            .AngleBracketLeft,
-            .AngleBracketLeftEqual,
-            .AngleBracketAngleBracketLeft,
-            .AngleBracketAngleBracketLeftEqual,
-            .AngleBracketRight,
-            .AngleBracketRightEqual,
-            .AngleBracketAngleBracketRight,
-            .AngleBracketAngleBracketRightEqual,
-            .Tilde,
-            .Hash,
-            .HashHash,
-        },
-    );
+    , &[_]Token.Id{
+        .Bang,
+        .BangEqual,
+        .Pipe,
+        .PipePipe,
+        .PipeEqual,
+        .Equal,
+        .EqualEqual,
+        .Nl,
+        .LParen,
+        .RParen,
+        .LBrace,
+        .RBrace,
+        .LBracket,
+        .RBracket,
+        .Period,
+        .Period,
+        .Period,
+        .Ellipsis,
+        .Nl,
+        .Caret,
+        .CaretEqual,
+        .Plus,
+        .PlusPlus,
+        .PlusEqual,
+        .Minus,
+        .MinusMinus,
+        .MinusEqual,
+        .Nl,
+        .Asterisk,
+        .AsteriskEqual,
+        .Percent,
+        .PercentEqual,
+        .Arrow,
+        .Colon,
+        .Semicolon,
+        .Slash,
+        .SlashEqual,
+        .Nl,
+        .Comma,
+        .Ampersand,
+        .AmpersandAmpersand,
+        .AmpersandEqual,
+        .QuestionMark,
+        .AngleBracketLeft,
+        .AngleBracketLeftEqual,
+        .AngleBracketAngleBracketLeft,
+        .Nl,
+        .AngleBracketAngleBracketLeftEqual,
+        .AngleBracketRight,
+        .AngleBracketRightEqual,
+        .AngleBracketAngleBracketRight,
+        .AngleBracketAngleBracketRightEqual,
+        .Tilde,
+        .Hash,
+        .HashHash,
+        .Nl,
+    });
 }
 
 test "keywords" {
@@ -1388,6 +1394,7 @@ test "keywords" {
         .Keyword_continue,
         .Keyword_default,
         .Keyword_do,
+        .Nl,
         .Keyword_double,
         .Keyword_else,
         .Keyword_enum,
@@ -1397,6 +1404,7 @@ test "keywords" {
         .Keyword_goto,
         .Keyword_if,
         .Keyword_int,
+        .Nl,
         .Keyword_long,
         .Keyword_register,
         .Keyword_return,
@@ -1404,6 +1412,7 @@ test "keywords" {
         .Keyword_signed,
         .Keyword_sizeof,
         .Keyword_static,
+        .Nl,
         .Keyword_struct,
         .Keyword_switch,
         .Keyword_typedef,
@@ -1411,6 +1420,7 @@ test "keywords" {
         .Keyword_unsigned,
         .Keyword_void,
         .Keyword_volatile,
+        .Nl,
         .Keyword_while,
         .Keyword_bool,
         .Keyword_complex,
@@ -1418,12 +1428,14 @@ test "keywords" {
         .Keyword_inline,
         .Keyword_restrict,
         .Keyword_alignas,
+        .Nl,
         .Keyword_alignof,
         .Keyword_atomic,
         .Keyword_generic,
         .Keyword_noreturn,
         .Keyword_static_assert,
         .Keyword_thread_local,
+        .Nl,
     });
 }
 
@@ -1469,13 +1481,24 @@ test "line continuation" {
         \\  bar
         \\"foo\
         \\ bar"
-        \\
+        \\#define "foo"
+        \\ "bar"
+        \\#define "foo" \
+        \\ "bar"
     , &[_]Token.Id{
         .Hash,
         .Keyword_define,
         .Identifier,
         .Identifier,
         .Nl,
+        .{ .StringLiteral = .None },
+        .Hash,
+        .Keyword_define,
+        .{ .StringLiteral = .None },
+        .Nl,
+        .{ .StringLiteral = .None },
+        .Hash,
+        .Keyword_define,
         .{ .StringLiteral = .None },
     });
 }
@@ -1499,9 +1522,13 @@ test "string prefix" {
         .{ .StringLiteral = .Utf32 },
         .{ .StringLiteral = .Wide },
         .{ .CharLiteral = .None },
+        .Nl,
         .{ .CharLiteral = .Utf16 },
+        .Nl,
         .{ .CharLiteral = .Utf32 },
+        .Nl,
         .{ .CharLiteral = .Wide },
+        .Nl,
     });
 }
 
@@ -1517,15 +1544,18 @@ test "num suffixes" {
         .{ .FloatLiteral = .None },
         .{ .FloatLiteral = .None },
         .{ .FloatLiteral = .None },
+        .Nl,
         .{ .IntegerLiteral = .L },
         .{ .IntegerLiteral = .LU },
         .{ .IntegerLiteral = .LL },
         .{ .IntegerLiteral = .LLU },
         .{ .IntegerLiteral = .None },
+        .Nl,
         .{ .IntegerLiteral = .U },
         .{ .IntegerLiteral = .LU },
         .{ .IntegerLiteral = .LLU },
         .{ .IntegerLiteral = .None },
+        .Nl,
     });
 }
 
