@@ -1814,6 +1814,16 @@ bool ZigClangType_isVoidType(const ZigClangType *self) {
     return casted->isVoidType();
 }
 
+bool ZigClangType_isArrayType(const ZigClangType *self) {
+    auto casted = reinterpret_cast<const clang::Type *>(self);
+    return casted->isArrayType();
+}
+
+bool ZigClangType_isRecordType(const ZigClangType *self) {
+    auto casted = reinterpret_cast<const clang::Type *>(self);
+    return casted->isRecordType();
+}
+
 const char *ZigClangType_getTypeClassName(const ZigClangType *self) {
     auto casted = reinterpret_cast<const clang::Type *>(self);
     return casted->getTypeClassName();

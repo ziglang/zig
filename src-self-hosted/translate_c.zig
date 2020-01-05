@@ -1851,30 +1851,18 @@ fn transInitListExprRecord(
     return &init_node.base;
 }
 
-fn transInitListExpr(
+fn transInitListExprArray(
     rp: RestorePoint,
     scope: *Scope,
+    loc: ZigClangSourceLocation,
     expr: *const ZigClangInitListExpr,
+    ty: *const ZigClangType,
     used: ResultUsed,
 ) TransError!*ast.Node {
-    const qt = getExprQualType(rp.c, @ptrCast(*const ZigClangExpr, expr));
-    const qual_type = ZigClangQualType_getTypePtr(qt);
-    const source_loc = ZigClangExpr_getBeginLoc(@ptrCast(*const ZigClangExpr, expr));
-    switch (ZigClangType_getTypeClass(qual_type)) {
-        .ConstantArray => {},
-        .Record, .Elaborated => {
-            return transInitListExprRecord(rp, scope, source_loc, expr, qual_type, used);
-        },
-        else => {
-            const type_name = rp.c.str(ZigClangType_getTypeClassName(qual_type));
-            return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported initlist type: '{}'", .{type_name});
-        },
-    }
-
-    const arr_type = ZigClangType_getAsArrayTypeUnsafe(qual_type);
+    const arr_type = ZigClangType_getAsArrayTypeUnsafe(ty);
     const child_qt = ZigClangArrayType_getElementType(arr_type);
     const init_count = ZigClangInitListExpr_getNumInits(expr);
-    const const_arr_ty = @ptrCast(*const ZigClangConstantArrayType, qual_type);
+    const const_arr_ty = @ptrCast(*const ZigClangConstantArrayType, ty);
     const size_ap_int = ZigClangConstantArrayType_getSize(const_arr_ty);
     const all_count = ZigClangAPInt_getLimitedValue(size_ap_int, math.maxInt(usize));
     const leftover_count = all_count - init_count;
@@ -1929,6 +1917,40 @@ fn transInitListExpr(
         .rhs = rhs_node,
     };
     return &cat_node.base;
+}
+
+fn transInitListExpr(
+    rp: RestorePoint,
+    scope: *Scope,
+    expr: *const ZigClangInitListExpr,
+    used: ResultUsed,
+) TransError!*ast.Node {
+    const qt = getExprQualType(rp.c, @ptrCast(*const ZigClangExpr, expr));
+    var qual_type = ZigClangQualType_getTypePtr(qt);
+    const source_loc = ZigClangExpr_getBeginLoc(@ptrCast(*const ZigClangExpr, expr));
+
+    if (ZigClangType_isRecordType(qual_type)) {
+        return transInitListExprRecord(
+            rp,
+            scope,
+            source_loc,
+            expr,
+            qual_type,
+            used,
+        );
+    } else if (ZigClangType_isArrayType(qual_type)) {
+        return transInitListExprArray(
+            rp,
+            scope,
+            source_loc,
+            expr,
+            qual_type,
+            used,
+        );
+    } else {
+        const type_name = rp.c.str(ZigClangType_getTypeClassName(qual_type));
+        return revertAndWarn(rp, error.UnsupportedType, source_loc, "unsupported initlist type: '{}'", .{type_name});
+    }
 }
 
 fn transZeroInitExpr(
