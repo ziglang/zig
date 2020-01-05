@@ -1437,21 +1437,25 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("type referenced struct",
-        \\struct Foo {
-        \\    struct Bar{
-        \\        int b;
-        \\    };
-        \\    struct Bar c;
-        \\};
-    , &[_][]const u8{
-        \\pub const struct_Bar = extern struct {
-        \\    b: c_int,
-        \\};
-        \\pub const struct_Foo = extern struct {
-        \\    c: struct_Bar,
-        \\};
-    });
+    if (builtin.os != .windows) {
+        // When clang uses the <arch>-windows-none triple it behaves as MSVC and
+        // interprets the inner `struct Bar` as an anonymous structure
+        cases.add("type referenced struct",
+            \\struct Foo {
+            \\    struct Bar{
+            \\        int b;
+            \\    };
+            \\    struct Bar c;
+            \\};
+        , &[_][]const u8{
+            \\pub const struct_Bar = extern struct {
+            \\    b: c_int,
+            \\};
+            \\pub const struct_Foo = extern struct {
+            \\    c: struct_Bar,
+            \\};
+        });
+    }
 
     cases.add("undefined array global",
         \\int array[100] = {};
