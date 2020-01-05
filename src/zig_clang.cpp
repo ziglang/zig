@@ -1597,6 +1597,14 @@ const char* ZigClangVarDecl_getSectionAttribute(const struct ZigClangVarDecl *se
     return nullptr;
 }
 
+bool ZigClangRecordDecl_isPacked(const ZigClangRecordDecl *zig_record_decl) {
+    const clang::RecordDecl *record_decl = reinterpret_cast<const clang::RecordDecl *>(zig_record_decl);
+    if (record_decl->getAttr<clang::PackedAttr>()) {
+      return true;
+    }
+  return false;
+}
+
 unsigned ZigClangVarDecl_getAlignedAttribute(const struct ZigClangVarDecl *self, const ZigClangASTContext* ctx) {
     auto casted_self = reinterpret_cast<const clang::VarDecl *>(self);
     auto casted_ctx = const_cast<clang::ASTContext *>(reinterpret_cast<const clang::ASTContext *>(ctx));

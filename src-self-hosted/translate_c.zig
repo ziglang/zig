@@ -733,13 +733,16 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
             break :blk opaque;
         };
 
-        const extern_tok = try appendToken(c, .Keyword_extern, "extern");
+        const layout_tok = try if (ZigClangRecordDecl_isPacked(record_decl))
+            appendToken(c, .Keyword_packed, "packed")
+        else
+            appendToken(c, .Keyword_extern, "extern");
         const container_tok = try appendToken(c, container_kind, container_kind_name);
         const lbrace_token = try appendToken(c, .LBrace, "{");
 
         const container_node = try c.a().create(ast.Node.ContainerDecl);
         container_node.* = .{
-            .layout_token = extern_tok,
+            .layout_token = layout_tok,
             .kind_token = container_tok,
             .init_arg_expr = .None,
             .fields_and_decls = ast.Node.ContainerDecl.DeclList.init(c.a()),
