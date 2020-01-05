@@ -1,5 +1,5 @@
-// This is the implementation of the test harness for running translated
-// C code. For the actual test cases, see test/run_translated_c.zig.
+// This is the implementation of the test harness.
+// For the actual test cases, see test/translate_c.zig.
 const std = @import("std");
 const build = std.build;
 const ArrayList = std.ArrayList;
@@ -8,7 +8,7 @@ const mem = std.mem;
 const fs = std.fs;
 const warn = std.debug.warn;
 
-pub const RunTranslatedCContext = struct {
+pub const TranslateCContext = struct {
     b: *build.Builder,
     step: *build.Step,
     test_index: usize,
@@ -17,7 +17,7 @@ pub const RunTranslatedCContext = struct {
     const TestCase = struct {
         name: []const u8,
         sources: ArrayList(SourceFile),
-        expected_stdout: []const u8,
+        expected_lines: ArrayList([]const u8),
         allow_warnings: bool,
 
         const SourceFile = struct {
@@ -31,52 +31,61 @@ pub const RunTranslatedCContext = struct {
                 .source = source,
             }) catch unreachable;
         }
+
+        pub fn addExpectedLine(self: *TestCase, text: []const u8) void {
+            self.expected_lines.append(text) catch unreachable;
+        }
     };
 
     pub fn create(
-        self: *RunTranslatedCContext,
+        self: *TranslateCContext,
         allow_warnings: bool,
         filename: []const u8,
         name: []const u8,
         source: []const u8,
-        expected_stdout: []const u8,
+        expected_lines: []const []const u8,
     ) *TestCase {
         const tc = self.b.allocator.create(TestCase) catch unreachable;
         tc.* = TestCase{
             .name = name,
             .sources = ArrayList(TestCase.SourceFile).init(self.b.allocator),
-            .expected_stdout = expected_stdout,
+            .expected_lines = ArrayList([]const u8).init(self.b.allocator),
             .allow_warnings = allow_warnings,
         };
 
         tc.addSourceFile(filename, source);
+        var arg_i: usize = 0;
+        while (arg_i < expected_lines.len) : (arg_i += 1) {
+            tc.addExpectedLine(expected_lines[arg_i]);
+        }
         return tc;
     }
 
     pub fn add(
-        self: *RunTranslatedCContext,
+        self: *TranslateCContext,
         name: []const u8,
         source: []const u8,
-        expected_stdout: []const u8,
+        expected_lines: []const []const u8,
     ) void {
-        const tc = self.create(false, "source.c", name, source, expected_stdout);
+        const tc = self.create(false, "source.h", name, source, expected_lines);
         self.addCase(tc);
     }
 
     pub fn addAllowWarnings(
-        self: *RunTranslatedCContext,
+        self: *TranslateCContext,
         name: []const u8,
         source: []const u8,
-        expected_stdout: []const u8,
+        expected_lines: []const []const u8,
     ) void {
-        const tc = self.create(true, "source.c", name, source, expected_stdout);
+        const tc = self.create(true, "source.h", name, source, expected_lines);
         self.addCase(tc);
     }
 
-    pub fn addCase(self: *RunTranslatedCContext, case: *const TestCase) void {
+    pub fn addCase(self: *TranslateCContext, case: *const TestCase) void {
         const b = self.b;
 
-        const annotated_case_name = fmt.allocPrint(self.b.allocator, "run-translated-c {}", .{case.name}) catch unreachable;
+        const translate_c_cmd = "translate-c";
+        const annotated_case_name = fmt.allocPrint(self.b.allocator, "{} {}", .{ translate_c_cmd, case.name }) catch unreachable;
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
         }
@@ -85,20 +94,16 @@ pub const RunTranslatedCContext = struct {
         for (case.sources.toSliceConst()) |src_file| {
             write_src.add(src_file.filename, src_file.source);
         }
+
         const translate_c = b.addTranslateC(.{
             .write_file = .{
                 .step = write_src,
                 .basename = case.sources.toSliceConst()[0].filename,
             },
         });
-        const exe = translate_c.addExecutable();
-        exe.linkLibC();
-        const run = exe.run();
-        if (!case.allow_warnings) {
-            run.expectStdErrEqual("");
-        }
-        run.expectStdOutEqual(case.expected_stdout);
 
-        self.step.dependOn(&run.step);
+        const check_file = translate_c.addCheckFile(case.expected_lines.toSliceConst());
+
+        self.step.dependOn(&check_file.step);
     }
 };
