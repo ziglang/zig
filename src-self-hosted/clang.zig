@@ -768,7 +768,7 @@ pub extern fn ZigClangVarDecl_getCanonicalDecl(self: ?*const struct_ZigClangVarD
 pub extern fn ZigClangVarDecl_getSectionAttribute(self: *const ZigClangVarDecl, len: *usize) ?[*]const u8;
 pub extern fn ZigClangFunctionDecl_getAlignedAttribute(self: *const ZigClangFunctionDecl, *const ZigClangASTContext) c_uint;
 pub extern fn ZigClangVarDecl_getAlignedAttribute(self: *const ZigClangVarDecl, *const ZigClangASTContext) c_uint;
-pub extern fn ZigClangRecordDecl_isPacked(self: ?*const struct_ZigClangRecordDecl) bool;
+pub extern fn ZigClangRecordDecl_getPackedAttribute(self: ?*const struct_ZigClangRecordDecl) bool;
 pub extern fn ZigClangRecordDecl_getDefinition(self: ?*const struct_ZigClangRecordDecl) ?*const struct_ZigClangRecordDecl;
 pub extern fn ZigClangEnumDecl_getDefinition(self: ?*const struct_ZigClangEnumDecl) ?*const struct_ZigClangEnumDecl;
 pub extern fn ZigClangRecordDecl_getLocation(self: ?*const struct_ZigClangRecordDecl) struct_ZigClangSourceLocation;

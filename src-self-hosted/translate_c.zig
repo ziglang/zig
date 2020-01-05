@@ -733,7 +733,7 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
             break :blk opaque;
         };
 
-        const layout_tok = try if (ZigClangRecordDecl_isPacked(record_decl))
+        const layout_tok = try if (ZigClangRecordDecl_getPackedAttribute(record_decl))
             appendToken(c, .Keyword_packed, "packed")
         else
             appendToken(c, .Keyword_extern, "extern");

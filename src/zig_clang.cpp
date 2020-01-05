@@ -1597,7 +1597,7 @@ const char* ZigClangVarDecl_getSectionAttribute(const struct ZigClangVarDecl *se
     return nullptr;
 }
 
-bool ZigClangRecordDecl_isPacked(const ZigClangRecordDecl *zig_record_decl) {
+bool ZigClangRecordDecl_getPackedAttribute(const ZigClangRecordDecl *zig_record_decl) {
     const clang::RecordDecl *record_decl = reinterpret_cast<const clang::RecordDecl *>(zig_record_decl);
     if (record_decl->getAttr<clang::PackedAttr>()) {
       return true;
