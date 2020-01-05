@@ -1475,4 +1475,5 @@ pub const rusage = extern struct {
     nsignals: isize,
     nvcsw: isize,
     nivcsw: isize,
+    __reserved: [16]isize = [1]isize{0} ** 16,
 };
