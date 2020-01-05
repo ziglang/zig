@@ -759,8 +759,13 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
                 try emitWarning(c, field_loc, "{} demoted to opaque type - has bitfield", .{container_kind_name});
                 break :blk opaque;
             }
-            const raw_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, field_decl)));
-            if (raw_name.len < 1) continue; // fix weird windows bug?
+
+            var is_anon = false;
+            var raw_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, field_decl)));
+            if (ZigClangFieldDecl_isAnonymousStructOrUnion(field_decl) or raw_name.len == 0) {
+                raw_name = try std.fmt.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
+                is_anon = true;
+            }
             const field_name = try appendIdentifier(c, raw_name);
             _ = try appendToken(c, .Colon, ":");
             const field_type = transQualType(rp, ZigClangFieldDecl_getType(field_decl), field_loc) catch |err| switch (err) {
@@ -780,6 +785,13 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
                 .value_expr = null,
                 .align_expr = null,
             };
+
+            if (is_anon) {
+                _ = try c.decl_table.put(
+                    @ptrToInt(ZigClangFieldDecl_getCanonicalDecl(field_decl)),
+                    raw_name,
+                );
+            }
 
             try container_node.fields_and_decls.push(&field_node.base);
             _ = try appendToken(c, .Comma, ",");
@@ -2417,10 +2429,22 @@ fn transMemberExpr(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangMemberE
         container_node = try transCreateNodePtrDeref(rp.c, container_node);
     }
 
-    const name = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, ZigClangMemberExpr_getMemberDecl(stmt))));
-    if (name.len == 0) {
-        return revertAndWarn(rp, error.UnsupportedTranslation, ZigClangStmt_getBeginLoc(@ptrCast(*const ZigClangStmt, stmt)), "TODO access of anonymous field", .{});
-    }
+    const member_decl = ZigClangMemberExpr_getMemberDecl(stmt);
+    const name = blk: {
+        const decl_kind = ZigClangDecl_getKind(@ptrCast(*const ZigClangDecl, member_decl));
+        // If we're referring to a anonymous struct/enum find the bogus name
+        // we've assigned to it during the RecordDecl translation
+        if (decl_kind == .Field) {
+            const field_decl = @ptrCast(*const struct_ZigClangFieldDecl, member_decl);
+            if (ZigClangFieldDecl_isAnonymousStructOrUnion(field_decl)) {
+                const name = rp.c.decl_table.get(@ptrToInt(ZigClangFieldDecl_getCanonicalDecl(field_decl))).?;
+                break :blk try mem.dupe(rp.c.a(), u8, name.value);
+            }
+        }
+        const decl = @ptrCast(*const ZigClangDecl, member_decl);
+        break :blk try rp.c.str(ZigClangDecl_getName_bytes_begin(decl));
+    };
+
     const node = try transCreateNodeFieldAccess(rp.c, container_node, name);
     return maybeSuppressResult(rp, scope, result_used, node);
 }
