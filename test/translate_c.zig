@@ -835,7 +835,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub export fn foo() c_int {
-        \\    return (@as(c_int, 1) << @as(@import("std").math.Log2Int(c_int), 2)) >> @as(@import("std").math.Log2Int(c_int), 1);
+        \\    return (@as(c_int, 1) << @intCast(@import("std").math.Log2Int(c_int), 2)) >> @intCast(@import("std").math.Log2Int(c_int), 1);
         \\}
     });
 
@@ -2001,7 +2001,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var a = arg_a;
         \\    var i: c_int = 0;
         \\    while (a > @bitCast(c_uint, @as(c_int, 0))) {
-        \\        a >>= @as(@import("std").math.Log2Int(c_int), 1);
+        \\        a >>= @intCast(@import("std").math.Log2Int(c_int), 1);
         \\    }
         \\    return i;
         \\}
@@ -2021,7 +2021,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var a = arg_a;
         \\    var i: c_int = 0;
         \\    while (a > @bitCast(c_uint, @as(c_int, 0))) {
-        \\        a >>= @as(@import("std").math.Log2Int(c_int), 1);
+        \\        a >>= @intCast(@import("std").math.Log2Int(c_int), 1);
         \\    }
         \\    return i;
         \\}
@@ -2072,14 +2072,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        ref.* = ref.* ^ @as(c_int, 1);
         \\        break :blk ref.*;
         \\    });
-        \\    a >>= @as(@import("std").math.Log2Int(c_int), (blk: {
+        \\    a >>= @intCast(@import("std").math.Log2Int(c_int), (blk: {
         \\        const ref = &a;
-        \\        ref.* = ref.* >> @as(@import("std").math.Log2Int(c_int), @as(c_int, 1));
+        \\        ref.* = ref.* >> @intCast(@import("std").math.Log2Int(c_int), @as(c_int, 1));
         \\        break :blk ref.*;
         \\    }));
-        \\    a <<= @as(@import("std").math.Log2Int(c_int), (blk: {
+        \\    a <<= @intCast(@import("std").math.Log2Int(c_int), (blk: {
         \\        const ref = &a;
-        \\        ref.* = ref.* << @as(@import("std").math.Log2Int(c_int), @as(c_int, 1));
+        \\        ref.* = ref.* << @intCast(@import("std").math.Log2Int(c_int), @as(c_int, 1));
         \\        break :blk ref.*;
         \\    }));
         \\}
@@ -2130,14 +2130,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        ref.* = ref.* ^ @bitCast(c_uint, @as(c_int, 1));
         \\        break :blk ref.*;
         \\    });
-        \\    a >>= @as(@import("std").math.Log2Int(c_uint), (blk: {
+        \\    a >>= @intCast(@import("std").math.Log2Int(c_uint), (blk: {
         \\        const ref = &a;
-        \\        ref.* = ref.* >> @as(@import("std").math.Log2Int(c_int), @as(c_int, 1));
+        \\        ref.* = ref.* >> @intCast(@import("std").math.Log2Int(c_int), @as(c_int, 1));
         \\        break :blk ref.*;
         \\    }));
-        \\    a <<= @as(@import("std").math.Log2Int(c_uint), (blk: {
+        \\    a <<= @intCast(@import("std").math.Log2Int(c_uint), (blk: {
         \\        const ref = &a;
-        \\        ref.* = ref.* << @as(@import("std").math.Log2Int(c_int), @as(c_int, 1));
+        \\        ref.* = ref.* << @intCast(@import("std").math.Log2Int(c_int), @as(c_int, 1));
         \\        break :blk ref.*;
         \\    }));
         \\}

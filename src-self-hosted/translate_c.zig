@@ -2781,13 +2781,13 @@ fn transCreateCompoundAssign(
             try transExpr(rp, scope, rhs, .used, .r_value);
 
         if (is_shift) {
-            const as_node = try transCreateNodeBuiltinFnCall(rp.c, "@as");
+            const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@intCast");
             const rhs_type = try qualTypeToLog2IntRef(rp, getExprQualType(rp.c, rhs), loc);
-            try as_node.params.push(rhs_type);
+            try cast_node.params.push(rhs_type);
             _ = try appendToken(rp.c, .Comma, ",");
-            try as_node.params.push(rhs_node);
-            as_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-            rhs_node = &as_node.base;
+            try cast_node.params.push(rhs_node);
+            cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+            rhs_node = &cast_node.base;
         }
         if (scope.id != .Condition)
             _ = try appendToken(rp.c, .Semicolon, ";");
@@ -2818,13 +2818,13 @@ fn transCreateCompoundAssign(
     const bin_token = try appendToken(rp.c, bin_tok_id, bin_bytes);
     var rhs_node = try transExpr(rp, scope, rhs, .used, .r_value);
     if (is_shift) {
-        const as_node = try transCreateNodeBuiltinFnCall(rp.c, "@as");
+        const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@intCast");
         const rhs_type = try qualTypeToLog2IntRef(rp, getExprQualType(rp.c, rhs), loc);
-        try as_node.params.push(rhs_type);
+        try cast_node.params.push(rhs_type);
         _ = try appendToken(rp.c, .Comma, ",");
-        try as_node.params.push(rhs_node);
-        as_node.rparen_token = try appendToken(rp.c, .RParen, ")");
-        rhs_node = &as_node.base;
+        try cast_node.params.push(rhs_node);
+        cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+        rhs_node = &cast_node.base;
     }
     const rhs_bin = try transCreateNodeInfixOp(rp, scope, ref_node, bin_op, bin_token, rhs_node, .used, false);
 
@@ -3886,20 +3886,20 @@ fn transCreateNodeShiftOp(
     const lhs = try transExpr(rp, scope, lhs_expr, .used, .l_value);
     const op_token = try appendToken(rp.c, op_tok_id, bytes);
 
-    const as_node = try transCreateNodeBuiltinFnCall(rp.c, "@as");
+    const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@intCast");
     const rhs_type = try qualTypeToLog2IntRef(rp, ZigClangBinaryOperator_getType(stmt), rhs_location);
-    try as_node.params.push(rhs_type);
+    try cast_node.params.push(rhs_type);
     _ = try appendToken(rp.c, .Comma, ",");
     const rhs = try transExprCoercing(rp, scope, rhs_expr, .used, .r_value);
-    try as_node.params.push(rhs);
-    as_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+    try cast_node.params.push(rhs);
+    cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
 
     const node = try rp.c.a().create(ast.Node.InfixOp);
     node.* = ast.Node.InfixOp{
         .op_token = op_token,
         .lhs = lhs,
         .op = op,
-        .rhs = &as_node.base,
+        .rhs = &cast_node.base,
     };
 
     return &node.base;
