@@ -737,6 +737,7 @@ pub const CompileErrorContext = struct {
         test_index: usize,
         case: *const TestCase,
         build_mode: Mode,
+        write_src: *build.WriteFileStep,
 
         const ErrLineIter = struct {
             lines: mem.SplitIterator,
@@ -756,7 +757,13 @@ pub const CompileErrorContext = struct {
             }
         };
 
-        pub fn create(context: *CompileErrorContext, name: []const u8, case: *const TestCase, build_mode: Mode) *CompileCmpOutputStep {
+        pub fn create(
+            context: *CompileErrorContext,
+            name: []const u8,
+            case: *const TestCase,
+            build_mode: Mode,
+            write_src: *build.WriteFileStep,
+        ) *CompileCmpOutputStep {
             const allocator = context.b.allocator;
             const ptr = allocator.create(CompileCmpOutputStep) catch unreachable;
             ptr.* = CompileCmpOutputStep{
@@ -766,6 +773,7 @@ pub const CompileErrorContext = struct {
                 .test_index = context.test_index,
                 .case = case,
                 .build_mode = build_mode,
+                .write_src = write_src,
             };
 
             context.test_index += 1;
@@ -775,11 +783,6 @@ pub const CompileErrorContext = struct {
         fn make(step: *build.Step) !void {
             const self = @fieldParentPtr(CompileCmpOutputStep, "step", step);
             const b = self.context.b;
-
-            const root_src = fs.path.join(
-                b.allocator,
-                &[_][]const u8{ b.cache_root, self.case.sources.items[0].filename },
-            ) catch unreachable;
 
             var zig_args = ArrayList([]const u8).init(b.allocator);
             zig_args.append(b.zig_exe) catch unreachable;
@@ -791,7 +794,8 @@ pub const CompileErrorContext = struct {
             } else {
                 try zig_args.append("build-obj");
             }
-            zig_args.append(b.pathFromRoot(root_src)) catch unreachable;
+            const root_src_basename = self.case.sources.toSliceConst()[0].filename;
+            try zig_args.append(self.write_src.getOutputPath(root_src_basename));
 
             zig_args.append("--name") catch unreachable;
             zig_args.append("test") catch unreachable;
@@ -990,18 +994,14 @@ pub const CompileErrorContext = struct {
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
         }
-
-        const compile_and_cmp_errors = CompileCmpOutputStep.create(self, annotated_case_name, case, .Debug);
-        self.step.dependOn(&compile_and_cmp_errors.step);
-
+        const write_src = b.addWriteFiles();
         for (case.sources.toSliceConst()) |src_file| {
-            const expanded_src_path = fs.path.join(
-                b.allocator,
-                &[_][]const u8{ b.cache_root, src_file.filename },
-            ) catch unreachable;
-            const write_src = b.addWriteFile(expanded_src_path, src_file.source);
-            compile_and_cmp_errors.step.dependOn(&write_src.step);
+            write_src.add(src_file.filename, src_file.source);
         }
+
+        const compile_and_cmp_errors = CompileCmpOutputStep.create(self, annotated_case_name, case, .Debug, write_src);
+        compile_and_cmp_errors.step.dependOn(&write_src.step);
+        self.step.dependOn(&compile_and_cmp_errors.step);
     }
 };
 
@@ -1195,10 +1195,6 @@ pub const GenHContext = struct {
 
     pub fn addCase(self: *GenHContext, case: *const TestCase) void {
         const b = self.b;
-        const root_src = fs.path.join(
-            b.allocator,
-            &[_][]const u8{ b.cache_root, case.sources.items[0].filename },
-        ) catch unreachable;
 
         const mode = builtin.Mode.Debug;
         const annotated_case_name = fmt.allocPrint(self.b.allocator, "gen-h {} ({})", .{ case.name, @tagName(mode) }) catch unreachable;
@@ -1206,17 +1202,13 @@ pub const GenHContext = struct {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
         }
 
-        const obj = b.addObject("test", root_src);
-        obj.setBuildMode(mode);
-
+        const write_src = b.addWriteFiles();
         for (case.sources.toSliceConst()) |src_file| {
-            const expanded_src_path = fs.path.join(
-                b.allocator,
-                &[_][]const u8{ b.cache_root, src_file.filename },
-            ) catch unreachable;
-            const write_src = b.addWriteFile(expanded_src_path, src_file.source);
-            obj.step.dependOn(&write_src.step);
+            write_src.add(src_file.filename, src_file.source);
         }
+
+        const obj = b.addObjectFromWriteFileStep("test", write_src, case.sources.items[0].filename);
+        obj.setBuildMode(mode);
 
         const cmp_h = GenHCmpOutputStep.create(self, obj, annotated_case_name, case);
 

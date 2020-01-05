@@ -242,6 +242,20 @@ pub const Builder = struct {
         return LibExeObjStep.createObject(self, name, root_src_param);
     }
 
+    pub fn addObjectFromWriteFileStep(
+        self: *Builder,
+        name: []const u8,
+        wfs: *WriteFileStep,
+        basename: []const u8,
+    ) *LibExeObjStep {
+        return LibExeObjStep.createObject(self, name, @as(FileSource, .{
+            .write_file = .{
+                .step = wfs,
+                .basename = basename,
+            },
+        }));
+    }
+
     pub fn addSharedLibrary(self: *Builder, name: []const u8, root_src: ?[]const u8, ver: Version) *LibExeObjStep {
         const root_src_param = if (root_src) |p| @as(FileSource, .{ .path = p }) else null;
         return LibExeObjStep.createSharedLibrary(self, name, root_src_param, ver);
