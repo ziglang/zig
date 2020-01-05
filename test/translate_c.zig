@@ -2409,4 +2409,17 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn c() void {}
         \\pub fn foo() void {}
     });
+
+    cases.add("typedeffed return/argument in function pointer member of typedeffed struct",
+        \\typedef struct _Foo Foo;
+        \\typedef int A;
+        \\typedef int B;
+        \\struct _Foo { A (*func)(B b); };
+    , &[_][]const u8{
+        \\pub const B = c_int;
+        \\pub const A = c_int;
+        \\pub const struct__Foo = extern struct {
+        \\    func: ?extern fn (B) A,
+        \\};
+    });
 }
