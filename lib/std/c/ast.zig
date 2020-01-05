@@ -32,6 +32,8 @@ pub const Error = union(enum) {
     ExpectedExpr: SingleTokenError("expected expression, found '{}'"),
     ExpectedStmt: SingleTokenError("expected statement, found '{}'"),
     ExpectedTypeName: SingleTokenError("expected type name, found '{}'"),
+    ExpectedFnBody: SingleTokenError("expected function body, found '{}'"),
+    ExpectedInitializer: SingleTokenError("expected initializer, found '{}'"),
     InvalidTypeSpecifier: InvalidTypeSpecifier,
     DuplicateQualifier: SingleTokenError("duplicate type qualifier '{}'"),
     DuplicateSpecifier: SingleTokenError("duplicate declaration specifier '{}'"),
@@ -43,6 +45,8 @@ pub const Error = union(enum) {
             .ExpectedExpr => |*x| return x.render(tokens, stream),
             .ExpectedStmt => |*x| return x.render(tokens, stream),
             .ExpectedTypeName => |*x| return x.render(tokens, stream),
+            .ExpectedDeclarator => |*x| return x.render(tokens, stream),
+            .ExpectedFnBody => |*x| return x.render(tokens, stream),
             .InvalidTypeSpecifier => |*x| return x.render(tokens, stream),
             .DuplicateQualifier => |*x| return x.render(tokens, stream),
             .DuplicateSpecifier => |*x| return x.render(tokens, stream),
@@ -56,6 +60,8 @@ pub const Error = union(enum) {
             .ExpectedExpr => |x| return x.token,
             .ExpectedStmt => |x| return x.token,
             .ExpectedTypeName => |x| return x.token,
+            .ExpectedDeclarator => |x| return x.token,
+            .ExpectedFnBody => |x| return x.token,
             .InvalidTypeSpecifier => |x| return x.token,
             .DuplicateQualifier => |x| return x.token,
             .DuplicateSpecifier => |x| return x.token,
@@ -85,7 +91,7 @@ pub const Error = union(enum) {
             try stream.write("invalid type specifier '");
             try type_spec.spec.print(tokens, stream);
             const token_name = tokens.at(self.token).id.symbol();
-            return stream.print("{}'", .{ token_name });
+            return stream.print("{}'", .{token_name});
         }
     };
 
@@ -111,10 +117,12 @@ pub const Node = struct {
         Label,
         CompoundStmt,
         IfStmt,
+        StaticAssert,
+        FnDef,
     };
 
     pub const Root = struct {
-        base: Node,
+        base: Node = Node{ .id = .Root },
         decls: DeclList,
         eof: TokenIndex,
 
@@ -230,7 +238,6 @@ pub const Node = struct {
     pub const Label = struct {
         base: Node = Node{ .id = .Label },
         identifier: TokenIndex,
-        colon: TokenIndex,
     };
 
     pub const CompoundStmt = struct {
@@ -250,5 +257,22 @@ pub const Node = struct {
             tok: TokenIndex,
             stmt: *Node,
         },
+    };
+
+    pub const StaticAssert = struct {
+        base: Node = Node{ .id = .StaticAssert },
+        assert: TokenIndex,
+        expr: *Node,
+        semicolon: TokenIndex,
+    };
+
+    pub const FnDef = struct {
+        base: Node = Node{ .id = .FnDef },
+        decl_spec: *DeclSpec,
+        declarator: *Node,
+        old_decls: OldDeclList,
+        body: *CompoundStmt,
+
+        pub const OldDeclList = SegmentedList(*Node, 0);
     };
 };

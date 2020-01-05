@@ -78,10 +78,10 @@ const Parser = struct {
     }
 
     /// Root <- ExternalDeclaration* eof
-    fn root(parser: *Parser) Allocator.Error!*Node {
-        const node = try arena.create(ast.Root);
+    fn root(parser: *Parser) Allocator.Error!*Node.Root {
+        const node = try parser.arena.create(Node.Root);
         node.* = .{
-            .decls = ast.Node.DeclList.init(arena),
+            .decls = Node.Root.DeclList.init(parser.arena),
             .eof = undefined,
         };
         while (parser.externalDeclarations() catch |err| switch (err) {
@@ -90,31 +90,87 @@ const Parser = struct {
         }) |decl| {
             try node.decls.push(decl);
         }
-        node.eof = eatToken(it, .Eof) orelse {
-            try tree.errors.push(.{
-                .ExpectedDecl = .{ .token = it.index },
-            });
-            return node;
-        };
+        node.eof = parser.eatToken(.Eof) orelse return node;
         return node;
     }
 
     /// ExternalDeclaration
     ///     <- DeclSpec Declarator Declaration* CompoundStmt
-    ///     / DeclSpec (Declarator (EQUAL Initializer)?)* SEMICOLON
-    ///     / StaticAssert
+    ///     / Declaration
     fn externalDeclarations(parser: *Parser) !?*Node {
-        if (try Declaration(parser)) |decl| {}
-        return null;
+        if (try parser.staticAssert()) |decl| return decl;
+        const ds = try parser.declSpec();
+        const dr = (try parser.declarator());
+        if (dr == null)
+            try parser.warning(.{
+                .ExpectedDeclarator = .{ .token = parser.it.index },
+            });
+        // TODO disallow auto and register
+        const next_tok = parser.it.peek().?;
+        switch (next_tok.id) {
+            .Semicolon,
+            .Equal,
+            .Comma,
+            .Eof,
+            => return parser.declarationExtra(ds, dr, false),
+            else => {},
+        }
+        var old_decls = Node.FnDef.OldDeclList.init(parser.arena);
+        while (try parser.declaration()) |decl| {
+            // validate declaration
+            try old_decls.push(decl);
+        }
+        const body = try parser.expect(compoundStmt, .{
+            .ExpectedFnBody = .{ .token = parser.it.index },
+        });
+
+        const node = try parser.arena.create(Node.FnDef);
+        node.* = .{
+            .decl_spec = ds,
+            .declarator = dr orelse return null,
+            .old_decls = old_decls,
+            .body = @fieldParentPtr(Node.CompoundStmt, "base", body),
+        };
+        return &node.base;
     }
 
     /// Declaration
-    ///     <- DeclSpec (Declarator (EQUAL Initializer)?)* SEMICOLON
+    ///     <- DeclSpec (Declarator (EQUAL Initializer)? COMMA)* SEMICOLON
     ///     / StaticAssert
-    fn declaration(parser: *Parser) !?*Node {}
+    fn declaration(parser: *Parser) !?*Node {
+        if (try parser.staticAssert()) |decl| return decl;
+        const ds = try parser.declSpec();
+        const dr = (try parser.declarator());
+        if (dr == null)
+            try parser.warning(.{
+                .ExpectedDeclarator = .{ .token = parser.it.index },
+            });
+        // TODO disallow threadlocal without static or extern
+        return parser.declarationExtra(ds, dr, true);
+    }
+
+    fn declarationExtra(parser: *Parser, ds: *Node.DeclSpec, dr: ?*Node, local: bool) !?*Node {
+    }
 
     /// StaticAssert <- Keyword_static_assert LPAREN ConstExpr COMMA STRINGLITERAL RPAREN SEMICOLON
-    fn StaticAssert(parser: *Parser) !?*Node {}
+    fn staticAssert(parser: *Parser) !?*Node {
+        const tok = parser.eatToken(.Keyword_static_assert) orelse return null;
+        _ = try parser.expectToken(.LParen);
+        const const_expr = try parser.expect(constExpr, .{
+            .ExpectedExpr = .{ .token = parser.it.index },
+        });
+        _ = try parser.expectToken(.Comma);
+        const str = try parser.expectToken(.StringLiteral);
+        _ = try parser.expectToken(.RParen);
+        const semicolon = try parser.expectToken(.Semicolon);
+        const node = try parser.arena.create(Node.StaticAssert);
+        node.* = .{
+            .assert = tok,
+            .expr = const_expr,
+            .semicolon = semicolon,
+        };
+        return &node.base;
+    }
 
     /// DeclSpec <- (StorageClassSpec / TypeSpec / FnSpec / AlignSpec)*
     fn declSpec(parser: *Parser) !*Node.DeclSpec {
@@ -455,7 +511,7 @@ const Parser = struct {
     fn alignSpec(parser: *Parser, ds: *Node.DeclSpec) !bool {
         if (parser.eatToken(.Keyword_alignas)) |tok| {
             _ = try parser.expectToken(.LParen);
-            const node = (try parser.typeName()) orelse (try parser.expect(conditionalExpr, .{
+            const node = (try parser.typeName()) orelse (try parser.expect(constExpr, .{
                 .ExpectedExpr = .{ .token = parser.it.index },
             }));
             if (ds.align_spec != null) {
@@ -538,6 +594,8 @@ const Parser = struct {
     fn assignmentExpr(parser: *Parser) !*Node {}
 
     /// ConstExpr <- ConditionalExpr
+    const constExpr = conditionalExpr;
+
     /// ConditionalExpr <- LogicalOrExpr (QUESTIONMARK Expr COLON ConditionalExpr)?
     fn conditionalExpr(parser: *Parser) !*Node {}
 
@@ -613,19 +671,19 @@ const Parser = struct {
     ///     / PERIOD IDENTIFIER
     fn designator(parser: *Parser) !*Node {}
 
-    /// CompoundStmt <- LBRACE (Declaration / Stmt)* RBRACE
-    fn compoundStmt(parser: *Parser) !?*Node {
+    /// CompoundStmt <- LBRACE (Stmt / Declaration)* RBRACE
+    fn compoundStmt(parser: *Parser) Error!?*Node {
         const lbrace = parser.eatToken(.LBrace) orelse return null;
-        const node = try parser.arena.create(Node.CompoundStmt);
-        node.* = .{
+        const body_node = try parser.arena.create(Node.CompoundStmt);
+        body_node.* = .{
             .lbrace = lbrace,
-            .statements = Node.JumpStmt.StmtList.init(parser.arena),
+            .statements = Node.CompoundStmt.StmtList.init(parser.arena),
             .rbrace = undefined,
         };
-        while (parser.declaration() orelse parser.stmt()) |node|
-            try node.statements.push(node);
-        node.rbrace = try parser.expectToken(.RBrace);
-        return &node.base;
+        while ((try parser.stmt()) orelse (try parser.declaration())) |node|
+            try body_node.statements.push(node);
+        body_node.rbrace = try parser.expectToken(.RBrace);
+        return &body_node.base;
     }
 
     /// Stmt
@@ -643,15 +701,15 @@ const Parser = struct {
     ///     / Keyword_return Expr? SEMICOLON
     ///     / IDENTIFIER COLON Stmt
     ///     / ExprStmt
-    fn stmt(parser: *Parser) !?*Node {
-        if (parser.compoundStmt()) |node| return node;
+    fn stmt(parser: *Parser) Error!?*Node {
+        if (try parser.compoundStmt()) |node| return node;
         if (parser.eatToken(.Keyword_if)) |tok| {
             const node = try parser.arena.create(Node.IfStmt);
             _ = try parser.expectToken(.LParen);
             node.* = .{
                 .@"if" = tok,
                 .cond = try parser.expect(expr, .{
-                    .ExpectedExpr = .{ .token = it.index },
+                    .ExpectedExpr = .{ .token = parser.it.index },
                 }),
                 .@"else" = null,
             };
@@ -659,8 +717,8 @@ const Parser = struct {
             if (parser.eatToken(.Keyword_else)) |else_tok| {
                 node.@"else" = .{
                     .tok = else_tok,
-                    .stmt = try parser.stmt(expr, .{
-                        .ExpectedStmt = .{ .token = it.index },
+                    .stmt = try parser.expect(stmt, .{
+                        .ExpectedStmt = .{ .token = parser.it.index },
                     }),
                 };
             }
@@ -676,8 +734,8 @@ const Parser = struct {
             const node = try parser.arena.create(Node.JumpStmt);
             node.* = .{
                 .ltoken = tok,
-                .kind = .Goto,
-                .semicolon = parser.expectToken(.Semicolon),
+                .kind = .{ .Goto = tok },
+                .semicolon = try parser.expectToken(.Semicolon),
             };
             return &node.base;
         }
@@ -686,7 +744,7 @@ const Parser = struct {
             node.* = .{
                 .ltoken = tok,
                 .kind = .Continue,
-                .semicolon = parser.expectToken(.Semicolon),
+                .semicolon = try parser.expectToken(.Semicolon),
             };
             return &node.base;
         }
@@ -695,7 +753,7 @@ const Parser = struct {
             node.* = .{
                 .ltoken = tok,
                 .kind = .Break,
-                .semicolon = parser.expectToken(.Semicolon),
+                .semicolon = try parser.expectToken(.Semicolon),
             };
             return &node.base;
         }
@@ -704,31 +762,35 @@ const Parser = struct {
             node.* = .{
                 .ltoken = tok,
                 .kind = .{ .Return = try parser.expr() },
-                .semicolon = parser.expectToken(.Semicolon),
+                .semicolon = try parser.expectToken(.Semicolon),
             };
             return &node.base;
         }
         if (parser.eatToken(.Identifier)) |tok| {
-            if (parser.eatToken(.Colon)) |col| {
+            if (parser.eatToken(.Colon)) |_| {
                 const node = try parser.arena.create(Node.Label);
                 node.* = .{
                     .identifier = tok,
-                    .semicolon = parser.expectToken(.Colon),
                 };
                 return &node.base;
             }
-            putBackToken(tok);
+            parser.putBackToken(tok);
         }
-        if (parser.exprStmt()) |node| return node;
+        if (try parser.exprStmt()) |node| return node;
         return null;
     }
 
     /// ExprStmt <- Expr? SEMICOLON
-    fn exprStmt(parser: *Parser) !*Node {
+    fn exprStmt(parser: *Parser) !?*Node {
         const node = try parser.arena.create(Node.ExprStmt);
+        const expr_node = try parser.expr();
+        const semicolon = if (expr_node != null)
+            try parser.expectToken(.Semicolon)
+        else
+            parser.eatToken(.Semicolon) orelse return null;
         node.* = .{
-            .expr = try parser.expr(),
-            .semicolon = parser.expectToken(.Semicolon),
+            .expr = expr_node,
+            .semicolon = semicolon,
         };
         return &node.base;
     }
