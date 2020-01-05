@@ -2499,8 +2499,15 @@ fn transArrayAccess(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangArrayS
 
     const container_node = try transExpr(rp, scope, base_stmt, .used, .r_value);
     const node = try transCreateNodeArrayAccess(rp.c, container_node);
-    node.op.ArrayAccess = try transExpr(rp, scope, ZigClangArraySubscriptExpr_getIdx(stmt), .used, .r_value);
+
+    const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@intCast");
+    try cast_node.params.push(try transCreateNodeIdentifier(rp.c, "c_uint"));
+    _ = try appendToken(rp.c, .Comma, ",");
+    try cast_node.params.push(try transExpr(rp, scope, ZigClangArraySubscriptExpr_getIdx(stmt), .used, .r_value));
+    cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+
     node.rtoken = try appendToken(rp.c, .RBrace, "]");
+    node.op.ArrayAccess = &cast_node.base;
     return maybeSuppressResult(rp, scope, result_used, &node.base);
 }
 

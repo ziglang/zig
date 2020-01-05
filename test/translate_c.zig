@@ -1843,10 +1843,23 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export var array: [100]c_int = .{0} ** 100;
         \\pub export fn foo(arg_index: c_int) c_int {
         \\    var index = arg_index;
-        \\    return array[index];
+        \\    return array[@intCast(c_uint, index)];
         \\}
     ,
         \\pub const ACCESS = array[2];
+    });
+
+    cases.add("cast signed array index to unsigned",
+        \\void foo() {
+        \\  int a[10], i = 0;
+        \\  a[i] = 0;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var a: [10]c_int = undefined;
+        \\    var i: c_int = 0;
+        \\    a[@intCast(c_uint, i)] = 0;
+        \\}
     });
 
     cases.add("macro call",
