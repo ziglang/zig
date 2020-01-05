@@ -659,6 +659,16 @@ fn next(ctx: *Context, loc: ZigClangSourceLocation, name: []const u8, chars: [*:
                         try failDecl(ctx, loc, name, "macro tokenizing failed: invalid digit '{c}' in octal number", .{c});
                         return error.TokenizingFailed;
                     },
+                    'u', 'U' => {
+                        state = .NumLitIntSuffixU;
+                        result.num_lit_suffix = .U;
+                        result.bytes = chars[begin_index..i.*];
+                    },
+                    'l', 'L' => {
+                        state = .NumLitIntSuffixL;
+                        result.num_lit_suffix = .L;
+                        result.bytes = chars[begin_index..i.*];
+                    },
                     else => {
                         result.bytes = chars[begin_index..i.*];
                         return result;

@@ -2,6 +2,12 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("#define hex literal with capital X",
+        \\#define VAL 0XF00D
+    , &[_][]const u8{
+        \\pub const VAL = 0xF00D;
+    });
+
     cases.add("union initializer",
         \\union { int x; char c[4]; }
         \\  ua = {1},
@@ -687,6 +693,21 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo() void {
         \\    while (true) {}
+        \\}
+    });
+
+    cases.add("for loop with simple init expression",
+        \\void foo(void) {
+        \\    int i;
+        \\    for (i = 3; i; i--) { }
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var i: c_int = undefined;
+        \\    {
+        \\        i = 3;
+        \\        while (i != 0) : (i -= 1) {}
+        \\    }
         \\}
     });
 

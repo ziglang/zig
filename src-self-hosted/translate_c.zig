@@ -2119,13 +2119,16 @@ fn transForLoop(
         .parent = scope,
         .id = .Loop,
     };
-    var block = false;
+
     var block_scope: ?*Scope.Block = null;
     if (ZigClangForStmt_getInit(stmt)) |init| {
         block_scope = try Scope.Block.init(rp.c, scope, null);
-        block_scope.?.block_node = try transCreateNodeBlock(rp.c, null);
+        const block = try transCreateNodeBlock(rp.c, null);
+        block_scope.?.block_node = block;
         loop_scope.parent = &block_scope.?.base;
-        _ = try transStmt(rp, &loop_scope, init, .unused, .r_value);
+        const result = try transStmt(rp, &block_scope.?.base, init, .unused, .r_value);
+        if (result != &block.base)
+            try block.statements.push(result);
     }
     var cond_scope = Scope{
         .parent = scope,
@@ -4720,18 +4723,26 @@ fn parseCExpr(c: *Context, it: *ctok.TokenList.Iterator, source_loc: ZigClangSou
 
 fn parseCNumLit(c: *Context, tok: *CToken, source_loc: ZigClangSourceLocation) ParseError!*ast.Node {
     if (tok.id == .NumLitInt) {
-        if (tok.num_lit_suffix == .None) {
-            if (tok.bytes.len > 2 and tok.bytes[0] == '0') {
-                switch (tok.bytes[1]) {
-                    '0'...'7' => {
-                        // octal
-                        return transCreateNodeInt(c, try std.fmt.allocPrint(c.a(), "0o{}", .{tok.bytes}));
-                    },
-                    else => {},
-                }
+        var lit_bytes = tok.bytes;
+
+        if (tok.bytes.len > 2 and tok.bytes[0] == '0') {
+            switch (tok.bytes[1]) {
+                '0'...'7' => {
+                    // Octal
+                    lit_bytes = try std.fmt.allocPrint(c.a(), "0o{}", .{tok.bytes});
+                },
+                'X' => {
+                    // Hexadecimal with capital X, valid in C but not in Zig
+                    lit_bytes = try std.fmt.allocPrint(c.a(), "0x{}", .{tok.bytes[2..]});
+                },
+                else => {},
             }
-            return transCreateNodeInt(c, tok.bytes);
         }
+
+        if (tok.num_lit_suffix == .None) {
+            return transCreateNodeInt(c, lit_bytes);
+        }
+
         const cast_node = try transCreateNodeBuiltinFnCall(c, "@as");
         try cast_node.params.push(try transCreateNodeIdentifier(c, switch (tok.num_lit_suffix) {
             .U => "c_uint",
@@ -4742,7 +4753,7 @@ fn parseCNumLit(c: *Context, tok: *CToken, source_loc: ZigClangSourceLocation) P
             else => unreachable,
         }));
         _ = try appendToken(c, .Comma, ",");
-        try cast_node.params.push(try transCreateNodeInt(c, tok.bytes));
+        try cast_node.params.push(try transCreateNodeInt(c, lit_bytes));
         cast_node.rparen_token = try appendToken(c, .RParen, ")");
         return &cast_node.base;
     } else if (tok.id == .NumLitFloat) {
