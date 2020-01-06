@@ -216,13 +216,6 @@ pub fn raise(sig: u8) RaiseError!void {
         }
     }
 
-    if (builtin.os == .wasi) {
-        switch (wasi.proc_raise(SIGABRT)) {
-            0 => return,
-            else => |err| return unexpectedErrno(err),
-        }
-    }
-
     if (builtin.os == .linux) {
         var set: linux.sigset_t = undefined;
         // block application signals
