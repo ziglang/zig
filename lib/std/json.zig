@@ -87,6 +87,8 @@ pub const StreamingParser = struct {
     string_last_was_high_surrogate: bool,
     // Used inside of StringEscapeHexUnicode* states
     string_unicode_codepoint: u21,
+    // The first byte needs to be stored to validate 3- and 4-byte sequences.
+    sequence_first_byte: u8 = undefined,
     // When in .Number states, is the number a (still) valid integer?
     number_is_integer: bool,
 
@@ -132,9 +134,12 @@ pub const StreamingParser = struct {
         ValueBeginNoClosing,
 
         String,
-        StringUtf8Byte3,
-        StringUtf8Byte2,
-        StringUtf8Byte1,
+        StringUtf8Byte2Of2,
+        StringUtf8Byte2Of3,
+        StringUtf8Byte3Of3,
+        StringUtf8Byte2Of4,
+        StringUtf8Byte3Of4,
+        StringUtf8Byte4Of4,
         StringEscapeCharacter,
         StringEscapeHexUnicode4,
         StringEscapeHexUnicode3,
@@ -581,35 +586,68 @@ pub const StreamingParser = struct {
                     // non-control ascii
                     p.string_last_was_high_surrogate = false;
                 },
-                0xC0...0xDF => {
-                    p.state = .StringUtf8Byte1;
+                0xC2...0xDF => {
+                    p.state = .StringUtf8Byte2Of2;
                 },
                 0xE0...0xEF => {
-                    p.state = .StringUtf8Byte2;
+                    p.state = .StringUtf8Byte2Of3;
+                    p.sequence_first_byte = c;
                 },
-                0xF0...0xFF => {
-                    p.state = .StringUtf8Byte3;
+                0xF0...0xF4 => {
+                    p.state = .StringUtf8Byte2Of4;
+                    p.sequence_first_byte = c;
                 },
                 else => {
                     return error.InvalidUtf8Byte;
                 },
             },
 
-            .StringUtf8Byte3 => switch (c >> 6) {
-                0b10 => p.state = .StringUtf8Byte2,
+            .StringUtf8Byte2Of2 => switch (c >> 6) {
+                0b10 => p.state = .String,
                 else => return error.InvalidUtf8Byte,
             },
-
-            .StringUtf8Byte2 => switch (c >> 6) {
-                0b10 => p.state = .StringUtf8Byte1,
+            .StringUtf8Byte2Of3 => {
+                switch (p.sequence_first_byte) {
+                    0xE0 => switch (c) {
+                        0xA0...0xBF => {},
+                        else => return error.InvalidUtf8Byte,
+                    },
+                    0xE1...0xEF => switch (c) {
+                        0x80...0xBF => {},
+                        else => return error.InvalidUtf8Byte,
+                    },
+                    else => return error.InvalidUtf8Byte,
+                }
+                p.state = .StringUtf8Byte3Of3;
+            },
+            .StringUtf8Byte3Of3 => switch (c) {
+                0x80...0xBF => p.state = .String,
                 else => return error.InvalidUtf8Byte,
             },
-
-            .StringUtf8Byte1 => switch (c >> 6) {
-                0b10 => {
-                    p.state = .String;
-                    p.string_last_was_high_surrogate = false;
-                },
+            .StringUtf8Byte2Of4 => {
+                switch (p.sequence_first_byte) {
+                    0xF0 => switch (c) {
+                        0x90...0xBF => {},
+                        else => return error.InvalidUtf8Byte,
+                    },
+                    0xF1...0xF3 => switch (c) {
+                        0x80...0xBF => {},
+                        else => return error.InvalidUtf8Byte,
+                    },
+                    0xF4 => switch (c) {
+                        0x80...0x8F => {},
+                        else => return error.InvalidUtf8Byte,
+                    },
+                    else => return error.InvalidUtf8Byte,
+                }
+                p.state = .StringUtf8Byte3Of4;
+            },
+            .StringUtf8Byte3Of4 => switch (c) {
+                0x80...0xBF => p.state = .StringUtf8Byte4Of4,
+                else => return error.InvalidUtf8Byte,
+            },
+            .StringUtf8Byte4Of4 => switch (c) {
+                0x80...0xBF => p.state = .String,
                 else => return error.InvalidUtf8Byte,
             },
 
