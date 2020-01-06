@@ -17,7 +17,7 @@ const ResetEvent = std.ResetEvent;
 /// Example usage:
 /// var m = Mutex.init();
 /// defer m.deinit();
-/// 
+///
 /// const lock = m.acquire();
 /// defer lock.release();
 /// ... critical code

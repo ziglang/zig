@@ -53,17 +53,17 @@ fn floatsiXf(comptime T: type, a: i32) T {
     return @bitCast(T, result);
 }
 
-pub extern fn __floatsisf(arg: i32) f32 {
+pub fn __floatsisf(arg: i32) callconv(.C) f32 {
     @setRuntimeSafety(builtin.is_test);
     return @call(.{ .modifier = .always_inline }, floatsiXf, .{ f32, arg });
 }
 
-pub extern fn __floatsidf(arg: i32) f64 {
+pub fn __floatsidf(arg: i32) callconv(.C) f64 {
     @setRuntimeSafety(builtin.is_test);
     return @call(.{ .modifier = .always_inline }, floatsiXf, .{ f64, arg });
 }
 
-pub extern fn __floatsitf(arg: i32) f128 {
+pub fn __floatsitf(arg: i32) callconv(.C) f128 {
     @setRuntimeSafety(builtin.is_test);
     return @call(.{ .modifier = .always_inline }, floatsiXf, .{ f128, arg });
 }

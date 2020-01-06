@@ -9,7 +9,7 @@ pub fn main() !void {
     var lib = try std.DynLib.open(dynlib_name);
     defer lib.close();
 
-    const addFn = lib.lookup(extern fn (i32, i32) i32, "add") orelse return error.SymbolNotFound;
+    const addFn = lib.lookup(fn (i32, i32) callconv(.C) i32, "add") orelse return error.SymbolNotFound;
 
     const result = addFn(12, 34);
     std.debug.assert(result == 46);

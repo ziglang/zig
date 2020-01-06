@@ -19,7 +19,7 @@ comptime {
     @export("disabledExternFn", disabledExternFn, builtin.GlobalLinkage.Internal);
 }
 
-extern fn disabledExternFn() void {}
+fn disabledExternFn() callconv(.C) void {}
 
 test "call disabled extern fn" {
     disabledExternFn();

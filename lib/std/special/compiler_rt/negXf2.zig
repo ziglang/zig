@@ -1,10 +1,10 @@
 const std = @import("std");
 
-pub extern fn __negsf2(a: f32) f32 {
+pub fn __negsf2(a: f32) callconv(.C) f32 {
     return negXf2(f32, a);
 }
 
-pub extern fn __negdf2(a: f64) f64 {
+pub fn __negdf2(a: f64) callconv(.C) f64 {
     return negXf2(f64, a);
 }
 

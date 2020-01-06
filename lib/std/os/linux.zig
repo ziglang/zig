@@ -512,7 +512,7 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
     return syscall2(SYS_clock_gettime, @bitCast(usize, @as(isize, clk_id)), @ptrToInt(tp));
 }
 
-extern fn init_vdso_clock_gettime(clk: i32, ts: *timespec) usize {
+fn init_vdso_clock_gettime(clk: i32, ts: *timespec) callconv(.C) usize {
     const ptr = @intToPtr(?*const c_void, vdso.lookup(VDSO_CGT_VER, VDSO_CGT_SYM));
     // Note that we may not have a VDSO at all, update the stub address anyway
     // so that clock_gettime will fall back on the good old (and slow) syscall

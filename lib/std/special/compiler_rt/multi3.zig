@@ -5,7 +5,7 @@ const compiler_rt = @import("../compiler_rt.zig");
 // ae684fad6d34858c014c94da69c15e7774a633c3
 // 2018-08-13
 
-pub extern fn __multi3(a: i128, b: i128) i128 {
+pub fn __multi3(a: i128, b: i128) callconv(.C) i128 {
     @setRuntimeSafety(builtin.is_test);
     const x = twords{ .all = a };
     const y = twords{ .all = b };
@@ -15,7 +15,7 @@ pub extern fn __multi3(a: i128, b: i128) i128 {
 }
 
 const v128 = @Vector(2, u64);
-pub extern fn __multi3_windows_x86_64(a: v128, b: v128) v128 {
+pub fn __multi3_windows_x86_64(a: v128, b: v128) callconv(.C) v128 {
     return @bitCast(v128, @call(.{ .modifier = .always_inline }, __multi3, .{
         @bitCast(i128, a),
         @bitCast(i128, b),

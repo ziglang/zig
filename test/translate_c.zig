@@ -238,7 +238,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn foo() void;
         \\pub export fn bar() void {
         \\    var func_ptr: ?*c_void = @ptrCast(?*c_void, foo);
-        \\    var typed_func_ptr: ?extern fn () void = @intToPtr(?extern fn () void, @intCast(c_ulong, @ptrToInt(func_ptr)));
+        \\    var typed_func_ptr: ?fn () callconv(.C) void = @intToPtr(?fn () callconv(.C) void, @intCast(c_ulong, @ptrToInt(func_ptr)));
         \\}
     });
 
@@ -2297,7 +2297,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub fn bar() callconv(.C) void {}
-        \\pub export fn foo(arg_baz: ?extern fn () [*c]c_int) void {
+        \\pub export fn foo(arg_baz: ?fn () callconv(.C) [*c]c_int) void {
         \\    var baz = arg_baz;
         \\    bar();
         \\    _ = baz.?();

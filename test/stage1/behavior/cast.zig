@@ -477,7 +477,7 @@ test "compile time int to ptr of function" {
 }
 
 pub const FUNCTION_CONSTANT = @intToPtr(PFN_void, maxInt(usize));
-pub const PFN_void = extern fn (*c_void) void;
+pub const PFN_void = fn (*c_void) callconv(.C) void;
 
 fn foobar(func: PFN_void) void {
     std.testing.expect(@ptrToInt(func) == maxInt(usize));
@@ -587,7 +587,7 @@ test "peer cast *[0]T to []const T" {
 
 var global_array: [4]u8 = undefined;
 test "cast from array reference to fn" {
-    const f = @ptrCast(extern fn () void, &global_array);
+    const f = @ptrCast(fn () callconv(.C) void, &global_array);
     expect(@ptrToInt(f) == @ptrToInt(&global_array));
 }
 

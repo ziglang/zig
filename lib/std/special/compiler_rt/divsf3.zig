@@ -5,7 +5,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub extern fn __divsf3(a: f32, b: f32) f32 {
+pub fn __divsf3(a: f32, b: f32) callconv(.C) f32 {
     @setRuntimeSafety(builtin.is_test);
     const Z = @IntType(false, f32.bit_count);
 

@@ -5,7 +5,7 @@ const maxInt = std.math.maxInt;
 
 const LDBL_MANT_DIG = 113;
 
-pub extern fn __floatuntitf(arg: u128) f128 {
+pub fn __floatuntitf(arg: u128) callconv(.C) f128 {
     @setRuntimeSafety(is_test);
 
     if (arg == 0)

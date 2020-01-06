@@ -6,13 +6,13 @@ const std = @import("std");
 const builtin = @import("builtin");
 const compiler_rt = @import("../compiler_rt.zig");
 
-pub extern fn __multf3(a: f128, b: f128) f128 {
+pub fn __multf3(a: f128, b: f128) callconv(.C) f128 {
     return mulXf3(f128, a, b);
 }
-pub extern fn __muldf3(a: f64, b: f64) f64 {
+pub fn __muldf3(a: f64, b: f64) callconv(.C) f64 {
     return mulXf3(f64, a, b);
 }
-pub extern fn __mulsf3(a: f32, b: f32) f32 {
+pub fn __mulsf3(a: f32, b: f32) callconv(.C) f32 {
     return mulXf3(f32, a, b);
 }
 

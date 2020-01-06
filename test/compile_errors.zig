@@ -2972,7 +2972,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    foo(bar);
         \\}
         \\
-        \\extern fn bar(x: *void) void { }
+        \\fn bar(x: *void) callconv(.C) void { }
         \\export fn entry2() void {
         \\    bar(&{});
         \\}
@@ -3871,7 +3871,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@TypeOf(fns)); }
     , &[_][]const u8{
-        "tmp.zig:1:37: error: expected type 'fn(i32) i32', found 'extern fn(i32) i32'",
+        "tmp.zig:1:37: error: expected type 'fn(i32) i32', found 'fn(i32) callconv(.C) i32'",
     });
 
     cases.add("colliding invalid top level functions",
@@ -5618,7 +5618,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("wrong types given to @export",
-        \\extern fn entry() void { }
+        \\fn entry() callconv(.C) void { }
         \\comptime {
         \\    @export("entry", entry, @as(u32, 1234));
         \\}

@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 
-pub extern fn _allrem(a: i64, b: i64) callconv(.Stdcall) i64 {
+pub fn _allrem(a: i64, b: i64) callconv(.Stdcall) i64 {
     @setRuntimeSafety(builtin.is_test);
     const s_a = a >> (i64.bit_count - 1);
     const s_b = b >> (i64.bit_count - 1);

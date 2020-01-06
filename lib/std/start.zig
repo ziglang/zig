@@ -43,11 +43,7 @@ comptime {
     }
 }
 
-fn _DllMainCRTStartup(
-    hinstDLL: std.os.windows.HINSTANCE,
-    fdwReason: std.os.windows.DWORD,
-    lpReserved: std.os.windows.LPVOID,
-) callconv(.Stdcall) std.os.windows.BOOL {
+fn _DllMainCRTStartup(hinstDLL: std.os.windows.HINSTANCE, fdwReason: std.os.windows.DWORD, lpReserved: std.os.windows.LPVOID) callconv(.Stdcall) std.os.windows.BOOL {
     if (@hasDecl(root, "DllMain")) {
         return root.DllMain(hinstDLL, fdwReason, lpReserved);
     }
@@ -55,13 +51,13 @@ fn _DllMainCRTStartup(
     return std.os.windows.TRUE;
 }
 
-extern fn wasm_freestanding_start() void {
+fn wasm_freestanding_start() callconv(.C) void {
     // This is marked inline because for some reason LLVM in release mode fails to inline it,
     // and we want fewer call frames in stack traces.
     _ = @call(.{ .modifier = .always_inline }, callMain, .{});
 }
 
-extern fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) usize {
+fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv(.C) usize {
     const bad_efi_main_ret = "expected return type of main to be 'void', 'noreturn', or 'usize'";
     uefi.handle = handle;
     uefi.system_table = system_table;
@@ -198,7 +194,7 @@ fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     return initEventLoopAndCallMain();
 }
 
-extern fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) i32 {
+fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) callconv(.C) i32 {
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];
