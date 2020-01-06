@@ -27,6 +27,20 @@ fn err(comptime s: []const u8) void {
     } else |_| {}
 }
 
+fn utf8Error(comptime s: []const u8) void {
+    std.testing.expect(!std.json.validate(s));
+
+    var mem_buffer: [1024 * 20]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(&mem_buffer).allocator;
+    var p = std.json.Parser.init(allocator, false);
+
+    if (p.parse(s)) |_| {
+        unreachable;
+    } else |e| {
+        std.testing.expect(e == error.InvalidUtf8Byte);
+    }
+}
+
 fn any(comptime s: []const u8) void {
     _ = std.json.validate(s);
 
@@ -1935,4 +1949,56 @@ test "i_structure_UTF-8_BOM_empty_object" {
     any(
         \\ï»¿{}
     );
+}
+
+test "truncated UTF-8 sequence" {
+    utf8Error("\"\xc2\"");
+    utf8Error("\"\xdf\"");
+    utf8Error("\"\xed\xa0\"");
+    utf8Error("\"\xf0\x80\"");
+    utf8Error("\"\xf0\x80\x80\"");
+}
+
+test "invalid continuation byte" {
+    utf8Error("\"\xc2\x00\"");
+    utf8Error("\"\xc2\x7f\"");
+    utf8Error("\"\xc2\xc0\"");
+    utf8Error("\"\xc3\xc1\"");
+    utf8Error("\"\xc4\xf5\"");
+    utf8Error("\"\xc5\xff\"");
+    utf8Error("\"\xe4\x80\x00\"");
+    utf8Error("\"\xe5\x80\x10\"");
+    utf8Error("\"\xe6\x80\xc0\"");
+    utf8Error("\"\xe7\x80\xf5\"");
+    utf8Error("\"\xe8\x00\x80\"");
+    utf8Error("\"\xf2\x00\x80\x80\"");
+    utf8Error("\"\xf0\x80\x00\x80\"");
+    utf8Error("\"\xf1\x80\xc0\x80\"");
+    utf8Error("\"\xf2\x80\x80\x00\"");
+    utf8Error("\"\xf3\x80\x80\xc0\"");
+    utf8Error("\"\xf4\x80\x80\xf5\"");
+}
+
+test "disallowed overlong form" {
+    utf8Error("\"\xc0\x80\"");
+    utf8Error("\"\xc0\x90\"");
+    utf8Error("\"\xc1\x80\"");
+    utf8Error("\"\xc1\x90\"");
+    utf8Error("\"\xe0\x80\x80\"");
+    utf8Error("\"\xf0\x80\x80\x80\"");
+}
+
+test "out of UTF-16 range" {
+    utf8Error("\"\xf4\x90\x80\x80\"");
+    utf8Error("\"\xf5\x80\x80\x80\"");
+    utf8Error("\"\xf6\x80\x80\x80\"");
+    utf8Error("\"\xf7\x80\x80\x80\"");
+    utf8Error("\"\xf8\x80\x80\x80\"");
+    utf8Error("\"\xf9\x80\x80\x80\"");
+    utf8Error("\"\xfa\x80\x80\x80\"");
+    utf8Error("\"\xfb\x80\x80\x80\"");
+    utf8Error("\"\xfc\x80\x80\x80\"");
+    utf8Error("\"\xfd\x80\x80\x80\"");
+    utf8Error("\"\xfe\x80\x80\x80\"");
+    utf8Error("\"\xff\x80\x80\x80\"");
 }
