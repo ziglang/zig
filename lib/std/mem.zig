@@ -273,6 +273,33 @@ pub fn set(comptime T: type, dest: []T, value: T) void {
         d.* = value;
 }
 
+/// Zero initializes the type.
+/// This can be used to zero initialize a C-struct.
+pub fn zeroes(comptime T: type) T {
+    if (@sizeOf(T) == 0) return T{};
+
+    if (comptime meta.containerLayout(T) != .Extern) {
+        @compileError("TODO: Currently this only works for extern types");
+    }
+
+    var item: T = undefined;
+    @memset(@ptrCast([*]u8, &item), 0, @sizeOf(T));
+    return item;
+}
+
+test "mem.zeroes" {
+    const C_struct = extern struct {
+        x: u32,
+        y: u32,
+    };
+
+    var a = zeroes(C_struct);
+    a.y += 10;
+
+    testing.expect(a.x == 0);
+    testing.expect(a.y == 10);
+}
+
 pub fn secureZero(comptime T: type, s: []T) void {
     // NOTE: We do not use a volatile slice cast here since LLVM cannot
     // see that it can be replaced by a memset.
