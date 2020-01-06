@@ -1376,11 +1376,9 @@ pub const Parser = struct {
     }
 
     fn parseString(p: *Parser, allocator: *Allocator, s: std.meta.TagPayloadType(Token, Token.String), input: []const u8, i: usize) !Value {
-        // TODO: We don't strictly have to copy values which do not contain any escape
-        // characters if flagged with the option.
         const slice = s.slice(input, i);
         switch (s.escapes) {
-            .None => return Value{ .String = try mem.dupe(allocator, u8, slice) },
+            .None => return Value{ .String = if (p.copy_strings) try mem.dupe(allocator, u8, slice) else slice },
             .Some => |some_escapes| {
                 const output = try allocator.alloc(u8, s.decodedLength());
                 errdefer allocator.free(output);
@@ -1597,10 +1595,7 @@ test "escaped characters" {
         \\}
     ;
 
-    var p = Parser.init(debug.global_allocator, false);
-    const tree = try p.parse(input);
-
-    const obj = tree.root.Object;
+    const obj = (try test_parse(input)).Object;
 
     testing.expectEqualSlices(u8, obj.get("backslash").?.value.String, "\\");
     testing.expectEqualSlices(u8, obj.get("forwardslash").?.value.String, "/");
@@ -1612,4 +1607,37 @@ test "escaped characters" {
     testing.expectEqualSlices(u8, obj.get("doublequote").?.value.String, "\"");
     testing.expectEqualSlices(u8, obj.get("unicode").?.value.String, "ą");
     testing.expectEqualSlices(u8, obj.get("surrogatepair").?.value.String, "😂");
+}
+
+test "string copy option" {
+    const input =
+        \\{
+        \\  "noescape": "aą😂",
+        \\  "simple": "\\\/\n\r\t\f\b\"",
+        \\  "unicode": "\u0105",
+        \\  "surrogatepair": "\ud83d\ude02"
+        \\}
+    ;
+
+    const tree_nocopy = try Parser.init(debug.global_allocator, false).parse(input);
+    const obj_nocopy = tree_nocopy.root.Object;
+
+    const tree_copy = try Parser.init(debug.global_allocator, true).parse(input);
+    const obj_copy = tree_copy.root.Object;
+
+    for ([_][]const u8{ "noescape", "simple", "unicode", "surrogatepair" }) |field_name| {
+        testing.expectEqualSlices(u8, obj_nocopy.getValue(field_name).?.String, obj_copy.getValue(field_name).?.String);
+    }
+
+    const nocopy_addr = &obj_nocopy.getValue("noescape").?.String[0];
+    const copy_addr = &obj_copy.getValue("noescape").?.String[0];
+
+    var found_nocopy = false;
+    for (input) |_, index| {
+        testing.expect(copy_addr != &input[index]);
+        if (nocopy_addr == &input[index]) {
+            found_nocopy = true;
+        }
+    }
+    testing.expect(found_nocopy);
 }
