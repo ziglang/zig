@@ -2,6 +2,14 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("bitCast to enum type",
+        \\export fn entry() void {
+        \\    const y = @bitCast(enum(u32) { a, b }, @as(u32, 3));
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:24: error: cannot cast a value of type 'y'",
+    });
+
     cases.add("comparing against undefined produces undefined value",
         \\export fn entry() void {
         \\    if (2 == undefined) {}
@@ -31,8 +39,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:12: note: destination pointer requires a terminating '0' sentinel",
     });
 
-    cases.add(
-        "cmpxchg with float",
+    cases.add("cmpxchg with float",
         \\export fn entry() void {
         \\    var x: f32 = 0;
         \\    _ = @cmpxchgWeak(f32, &x, 1, 2, .SeqCst, .SeqCst);
@@ -41,8 +48,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:22: error: expected integer, enum or pointer type, found 'f32'",
     });
 
-    cases.add(
-        "atomicrmw with float op not .Xchg, .Add or .Sub",
+    cases.add("atomicrmw with float op not .Xchg, .Add or .Sub",
         \\export fn entry() void {
         \\    var x: f32 = 0;
         \\    _ = @atomicRmw(f32, &x, .And, 2, .SeqCst);

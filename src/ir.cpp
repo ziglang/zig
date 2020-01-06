@@ -27078,12 +27078,19 @@ static IrInstruction *ir_analyze_bit_cast(IrAnalyze *ira, IrInstruction *source_
     ir_assert(get_codegen_ptr_type(dest_type) == nullptr, source_instr);
     ir_assert(type_can_bit_cast(dest_type), source_instr);
 
+    if (dest_type->id == ZigTypeIdEnum) {
+        ErrorMsg *msg = ir_add_error_node(ira, source_instr->source_node,
+            buf_sprintf("cannot cast a value of type '%s'", buf_ptr(&dest_type->name)));
+        add_error_note(ira->codegen, msg, source_instr->source_node,
+            buf_sprintf("use @intToEnum for type coercion"));
+        return ira->codegen->invalid_instruction;
+    }
+
     if ((err = type_resolve(ira->codegen, dest_type, ResolveStatusSizeKnown)))
         return ira->codegen->invalid_instruction;
 
     if ((err = type_resolve(ira->codegen, src_type, ResolveStatusSizeKnown)))
         return ira->codegen->invalid_instruction;
-
 
     uint64_t dest_size_bytes = type_size(ira->codegen, dest_type);
     uint64_t src_size_bytes = type_size(ira->codegen, src_type);
