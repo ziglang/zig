@@ -311,6 +311,7 @@ fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const rparen = try expectToken(it, tree, .RParen);
     const align_expr = try parseByteAlign(arena, it, tree);
     const section_expr = try parseLinkSection(arena, it, tree);
+    const callconv_expr = try parseCallconv(arena, it, tree);
     const exclamation_token = eatToken(it, .Bang);
 
     const return_type_expr = (try parseVarType(arena, it, tree)) orelse
@@ -347,6 +348,7 @@ fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         .lib_name = null,
         .align_expr = align_expr,
         .section_expr = section_expr,
+        .callconv_expr = callconv_expr,
     };
 
     if (cc) |kind| {
@@ -1670,6 +1672,17 @@ fn parseWhileContinueExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?
 /// LinkSection <- KEYWORD_linksection LPAREN Expr RPAREN
 fn parseLinkSection(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     _ = eatToken(it, .Keyword_linksection) orelse return null;
+    _ = try expectToken(it, tree, .LParen);
+    const expr_node = try expectNode(arena, it, tree, parseExpr, AstError{
+        .ExpectedExpr = AstError.ExpectedExpr{ .token = it.index },
+    });
+    _ = try expectToken(it, tree, .RParen);
+    return expr_node;
+}
+
+/// CallConv <- KEYWORD_callconv LPAREN Expr RPAREN
+fn parseCallconv(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+    _ = eatToken(it, .Keyword_callconv) orelse return null;
     _ = try expectToken(it, tree, .LParen);
     const expr_node = try expectNode(arena, it, tree, parseExpr, AstError{
         .ExpectedExpr = AstError.ExpectedExpr{ .token = it.index },

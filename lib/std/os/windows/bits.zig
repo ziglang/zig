@@ -892,7 +892,7 @@ pub const EXCEPTION_POINTERS = extern struct {
     ContextRecord: *c_void,
 };
 
-pub const VECTORED_EXCEPTION_HANDLER = stdcallcc fn (ExceptionInfo: *EXCEPTION_POINTERS) c_long;
+pub const VECTORED_EXCEPTION_HANDLER = fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(.Stdcall) c_long;
 
 pub const OBJECT_ATTRIBUTES = extern struct {
     Length: ULONG,

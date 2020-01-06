@@ -752,7 +752,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @frame();
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:1: error: function with calling convention 'ccc' cannot be async",
+        "tmp.zig:1:1: error: function with calling convention 'C' cannot be async",
         "tmp.zig:5:9: note: @frame() causes function to be async",
     });
 
@@ -765,7 +765,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    suspend;
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:1: error: function with calling convention 'ccc' cannot be async",
+        "tmp.zig:1:1: error: function with calling convention 'C' cannot be async",
         "tmp.zig:3:18: note: await here is a suspend point",
     });
 
@@ -843,7 +843,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    suspend;
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:1: error: function with calling convention 'ccc' cannot be async",
+        "tmp.zig:1:1: error: function with calling convention 'C' cannot be async",
         "tmp.zig:2:8: note: async function call here",
         "tmp.zig:5:8: note: async function call here",
         "tmp.zig:8:5: note: suspends here",
@@ -1140,7 +1140,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    while (true) {}
         \\}
     , &[_][]const u8{
-        "error: expected type 'fn([]const u8, ?*std.builtin.StackTrace) noreturn', found 'fn([]const u8,var)var'",
+        "error: expected type 'fn([]const u8, ?*std.builtin.StackTrace) noreturn', found 'fn([]const u8,var) var'",
         "note: only one of the functions is generic",
     });
 
@@ -1362,7 +1362,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 0;
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:15: error: parameter of type 'var' not allowed in function with calling convention 'ccc'",
+        "tmp.zig:1:15: error: parameter of type 'var' not allowed in function with calling convention 'C'",
     });
 
     cases.add("C pointer to c_void",
@@ -2187,7 +2187,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    f(g);
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:9: error: parameter of type 'fn(var)var' must be declared comptime",
+        "tmp.zig:1:9: error: parameter of type 'fn(var) var' must be declared comptime",
     });
 
     cases.add("optional pointer to void in extern struct",
@@ -2859,7 +2859,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const Foo = enum { A, B, C };
         \\export fn entry(foo: Foo) void { }
     , &[_][]const u8{
-        "tmp.zig:2:22: error: parameter of type 'Foo' not allowed in function with calling convention 'ccc'",
+        "tmp.zig:2:22: error: parameter of type 'Foo' not allowed in function with calling convention 'C'",
     });
 
     cases.add("function with non-extern non-packed struct parameter",
@@ -2870,7 +2870,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\};
         \\export fn entry(foo: Foo) void { }
     , &[_][]const u8{
-        "tmp.zig:6:22: error: parameter of type 'Foo' not allowed in function with calling convention 'ccc'",
+        "tmp.zig:6:22: error: parameter of type 'Foo' not allowed in function with calling convention 'C'",
     });
 
     cases.add("function with non-extern non-packed union parameter",
@@ -2881,7 +2881,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\};
         \\export fn entry(foo: Foo) void { }
     , &[_][]const u8{
-        "tmp.zig:6:22: error: parameter of type 'Foo' not allowed in function with calling convention 'ccc'",
+        "tmp.zig:6:22: error: parameter of type 'Foo' not allowed in function with calling convention 'C'",
     });
 
     cases.add("switch on enum with 1 field with no prongs",
@@ -2977,8 +2977,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    bar(&{});
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:30: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'ccc'",
-        "tmp.zig:7:18: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'ccc'",
+        "tmp.zig:1:30: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'C'",
+        "tmp.zig:7:18: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'C'",
     });
 
     cases.add("implicit semicolon - block statement",
@@ -4552,7 +4552,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return x + y;
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:15: error: comptime parameter not allowed in function with calling convention 'ccc'",
+        "tmp.zig:1:15: error: comptime parameter not allowed in function with calling convention 'C'",
     });
 
     cases.add("extern function with comptime parameter",
@@ -4562,7 +4562,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
-        "tmp.zig:1:15: error: comptime parameter not allowed in function with calling convention 'ccc'",
+        "tmp.zig:1:15: error: comptime parameter not allowed in function with calling convention 'C'",
     });
 
     cases.add("convert fixed size array to slice with invalid size",
@@ -6303,7 +6303,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @TypeOf(generic).ReturnType;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:25: error: ReturnType has not been resolved because 'fn(var)var' is generic",
+        "tmp.zig:3:25: error: ReturnType has not been resolved because 'fn(var) var' is generic",
     });
 
     cases.add("getting @ArgType of generic function",
@@ -6312,7 +6312,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @ArgType(@TypeOf(generic), 0);
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:36: error: @ArgType could not resolve the type of arg 0 because 'fn(var)var' is generic",
+        "tmp.zig:3:36: error: @ArgType could not resolve the type of arg 0 because 'fn(var) var' is generic",
     });
 
     cases.add("unsupported modifier at start of asm output constraint",

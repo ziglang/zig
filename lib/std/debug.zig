@@ -2475,7 +2475,7 @@ extern fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: *con
     os.abort();
 }
 
-stdcallcc fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) c_long {
+fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(.Stdcall) c_long {
     const exception_address = @ptrToInt(info.ExceptionRecord.ExceptionAddress);
     switch (info.ExceptionRecord.ExceptionCode) {
         windows.EXCEPTION_DATATYPE_MISALIGNMENT => panicExtra(null, exception_address, "Unaligned Memory Access", .{}),

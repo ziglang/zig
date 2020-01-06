@@ -14,6 +14,7 @@ pub const TranslateCStep = struct {
     source: build.FileSource,
     output_dir: ?[]const u8,
     out_basename: []const u8,
+    target: std.Target = .Native,
 
     pub fn create(builder: *Builder, source: build.FileSource) *TranslateCStep {
         const self = builder.allocator.create(TranslateCStep) catch unreachable;
@@ -38,6 +39,10 @@ pub const TranslateCStep = struct {
         ) catch unreachable;
     }
 
+    pub fn setTarget(self: *TranslateCStep, target: std.Target) void {
+        self.target = target;
+    }
+
     /// Creates a step to build an executable from the translated source.
     pub fn addExecutable(self: *TranslateCStep) *LibExeObjStep {
         return self.builder.addExecutableSource("translated_c", @as(build.FileSource, .{ .translate_c = self }));
@@ -50,16 +55,25 @@ pub const TranslateCStep = struct {
     fn make(step: *Step) !void {
         const self = @fieldParentPtr(TranslateCStep, "step", step);
 
-        const argv = [_][]const u8{
-            self.builder.zig_exe,
-            "translate-c",
-            "-lc",
-            "--cache",
-            "on",
-            self.source.getPath(self.builder),
-        };
+        var argv_list = std.ArrayList([]const u8).init(self.builder.allocator);
+        try argv_list.append(self.builder.zig_exe);
+        try argv_list.append("translate-c");
+        try argv_list.append("-lc");
 
-        const output_path_nl = try self.builder.exec(&argv);
+        try argv_list.append("--cache");
+        try argv_list.append("on");
+
+        switch (self.target) {
+            .Native => {},
+            .Cross => {
+                try argv_list.append("-target");
+                try argv_list.append(try self.target.zigTriple(self.builder.allocator));
+            },
+        }
+
+        try argv_list.append(self.source.getPath(self.builder));
+
+        const output_path_nl = try self.builder.exec(argv_list.toSliceConst());
         const output_path = mem.trimRight(u8, output_path_nl, "\r\n");
 
         self.out_basename = fs.path.basename(output_path);

@@ -202,7 +202,7 @@ fn testUnion() void {
     expect(typeinfo_info.Union.fields[4].enum_field != null);
     expect(typeinfo_info.Union.fields[4].enum_field.?.value == 4);
     expect(typeinfo_info.Union.fields[4].field_type == @TypeOf(@typeInfo(u8).Int));
-    expect(typeinfo_info.Union.decls.len == 21);
+    expect(typeinfo_info.Union.decls.len == 20);
 
     const TestNoTagUnion = union {
         Foo: void,
@@ -266,7 +266,7 @@ test "type info: function type info" {
 fn testFunction() void {
     const fn_info = @typeInfo(@TypeOf(foo));
     expect(@as(TypeId, fn_info) == TypeId.Fn);
-    expect(fn_info.Fn.calling_convention == TypeInfo.CallingConvention.Unspecified);
+    expect(fn_info.Fn.calling_convention == .Unspecified);
     expect(fn_info.Fn.is_generic);
     expect(fn_info.Fn.args.len == 2);
     expect(fn_info.Fn.is_var_args);

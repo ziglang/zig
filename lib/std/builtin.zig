@@ -91,6 +91,25 @@ pub const Mode = enum {
     ReleaseSmall,
 };
 
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const CallingConvention = enum {
+    Unspecified,
+    C,
+    Cold,
+    Naked,
+    Async,
+    Interrupt,
+    Signal,
+    Stdcall,
+    Fastcall,
+    Vectorcall,
+    Thiscall,
+    APCS,
+    AAPCS,
+    AAPCSVFP,
+};
+
 pub const TypeId = @TagType(TypeInfo);
 
 /// This data structure is used by the Zig language code generation and
@@ -255,17 +274,6 @@ pub const TypeInfo = union(enum) {
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
-    pub const CallingConvention = enum {
-        Unspecified,
-        C,
-        Cold,
-        Naked,
-        Stdcall,
-        Async,
-    };
-
-    /// This data structure is used by the Zig language code generation and
-    /// therefore must be kept in sync with the compiler implementation.
     pub const FnArg = struct {
         is_generic: bool,
         is_noalias: bool,
@@ -416,7 +424,7 @@ pub const CallOptions = struct {
 /// therefore must be kept in sync with the compiler implementation.
 pub const TestFn = struct {
     name: []const u8,
-    func: fn()anyerror!void,
+    func: fn () anyerror!void,
 };
 
 /// This function type is used by the Zig language code generation and

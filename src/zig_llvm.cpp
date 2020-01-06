@@ -273,10 +273,10 @@ ZIG_EXTERN_C LLVMTypeRef ZigLLVMTokenTypeInContext(LLVMContextRef context_ref) {
 }
 
 LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
-        unsigned NumArgs, unsigned CC, ZigLLVM_CallAttr attr, const char *Name)
+        unsigned NumArgs, ZigLLVM_CallingConv CC, ZigLLVM_CallAttr attr, const char *Name)
 {
     CallInst *call_inst = CallInst::Create(unwrap(Fn), makeArrayRef(unwrap(Args), NumArgs), Name);
-    call_inst->setCallingConv(CC);
+    call_inst->setCallingConv(static_cast<CallingConv::ID>(CC));
     switch (attr) {
         case ZigLLVM_CallAttrAuto:
             break;
@@ -932,6 +932,9 @@ void ZigLLVMFunctionSetPrefixData(LLVMValueRef function, LLVMValueRef data) {
     unwrap<Function>(function)->setPrefixData(unwrap<Constant>(data));
 }
 
+void ZigLLVMFunctionSetCallingConv(LLVMValueRef function, ZigLLVM_CallingConv cc) {
+    unwrap<Function>(function)->setCallingConv(static_cast<CallingConv::ID>(cc));
+}
 
 class MyOStream: public raw_ostream {
     public:
@@ -1315,3 +1318,49 @@ static_assert((Triple::ObjectFormatType)ZigLLVM_ELF == Triple::ELF, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_MachO == Triple::MachO, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_Wasm == Triple::Wasm, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_XCOFF == Triple::XCOFF, "");
+
+static_assert((CallingConv::ID)ZigLLVM_C == llvm::CallingConv::C, "");
+static_assert((CallingConv::ID)ZigLLVM_Fast == llvm::CallingConv::Fast, "");
+static_assert((CallingConv::ID)ZigLLVM_Cold == llvm::CallingConv::Cold, "");
+static_assert((CallingConv::ID)ZigLLVM_GHC == llvm::CallingConv::GHC, "");
+static_assert((CallingConv::ID)ZigLLVM_HiPE == llvm::CallingConv::HiPE, "");
+static_assert((CallingConv::ID)ZigLLVM_WebKit_JS == llvm::CallingConv::WebKit_JS, "");
+static_assert((CallingConv::ID)ZigLLVM_AnyReg == llvm::CallingConv::AnyReg, "");
+static_assert((CallingConv::ID)ZigLLVM_PreserveMost == llvm::CallingConv::PreserveMost, "");
+static_assert((CallingConv::ID)ZigLLVM_PreserveAll == llvm::CallingConv::PreserveAll, "");
+static_assert((CallingConv::ID)ZigLLVM_Swift == llvm::CallingConv::Swift, "");
+static_assert((CallingConv::ID)ZigLLVM_CXX_FAST_TLS == llvm::CallingConv::CXX_FAST_TLS, "");
+static_assert((CallingConv::ID)ZigLLVM_FirstTargetCC == llvm::CallingConv::FirstTargetCC, "");
+static_assert((CallingConv::ID)ZigLLVM_X86_StdCall == llvm::CallingConv::X86_StdCall, "");
+static_assert((CallingConv::ID)ZigLLVM_X86_FastCall == llvm::CallingConv::X86_FastCall, "");
+static_assert((CallingConv::ID)ZigLLVM_ARM_APCS == llvm::CallingConv::ARM_APCS, "");
+static_assert((CallingConv::ID)ZigLLVM_ARM_AAPCS == llvm::CallingConv::ARM_AAPCS, "");
+static_assert((CallingConv::ID)ZigLLVM_ARM_AAPCS_VFP == llvm::CallingConv::ARM_AAPCS_VFP, "");
+static_assert((CallingConv::ID)ZigLLVM_MSP430_INTR == llvm::CallingConv::MSP430_INTR, "");
+static_assert((CallingConv::ID)ZigLLVM_X86_ThisCall == llvm::CallingConv::X86_ThisCall, "");
+static_assert((CallingConv::ID)ZigLLVM_PTX_Kernel == llvm::CallingConv::PTX_Kernel, "");
+static_assert((CallingConv::ID)ZigLLVM_PTX_Device == llvm::CallingConv::PTX_Device, "");
+static_assert((CallingConv::ID)ZigLLVM_SPIR_FUNC == llvm::CallingConv::SPIR_FUNC, "");
+static_assert((CallingConv::ID)ZigLLVM_SPIR_KERNEL == llvm::CallingConv::SPIR_KERNEL, "");
+static_assert((CallingConv::ID)ZigLLVM_Intel_OCL_BI == llvm::CallingConv::Intel_OCL_BI, "");
+static_assert((CallingConv::ID)ZigLLVM_X86_64_SysV == llvm::CallingConv::X86_64_SysV, "");
+static_assert((CallingConv::ID)ZigLLVM_Win64 == llvm::CallingConv::Win64, "");
+static_assert((CallingConv::ID)ZigLLVM_X86_VectorCall == llvm::CallingConv::X86_VectorCall, "");
+static_assert((CallingConv::ID)ZigLLVM_HHVM == llvm::CallingConv::HHVM, "");
+static_assert((CallingConv::ID)ZigLLVM_HHVM_C == llvm::CallingConv::HHVM_C, "");
+static_assert((CallingConv::ID)ZigLLVM_X86_INTR == llvm::CallingConv::X86_INTR, "");
+static_assert((CallingConv::ID)ZigLLVM_AVR_INTR == llvm::CallingConv::AVR_INTR, "");
+static_assert((CallingConv::ID)ZigLLVM_AVR_SIGNAL == llvm::CallingConv::AVR_SIGNAL, "");
+static_assert((CallingConv::ID)ZigLLVM_AVR_BUILTIN == llvm::CallingConv::AVR_BUILTIN, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_VS == llvm::CallingConv::AMDGPU_VS, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_GS == llvm::CallingConv::AMDGPU_GS, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_PS == llvm::CallingConv::AMDGPU_PS, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_CS == llvm::CallingConv::AMDGPU_CS, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_KERNEL == llvm::CallingConv::AMDGPU_KERNEL, "");
+static_assert((CallingConv::ID)ZigLLVM_X86_RegCall == llvm::CallingConv::X86_RegCall, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_HS == llvm::CallingConv::AMDGPU_HS, "");
+static_assert((CallingConv::ID)ZigLLVM_MSP430_BUILTIN == llvm::CallingConv::MSP430_BUILTIN, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_LS == llvm::CallingConv::AMDGPU_LS, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_ES == llvm::CallingConv::AMDGPU_ES, "");
+static_assert((CallingConv::ID)ZigLLVM_AArch64_VectorCall == llvm::CallingConv::AArch64_VectorCall, "");
+static_assert((CallingConv::ID)ZigLLVM_MaxID == llvm::CallingConv::MaxID, "");

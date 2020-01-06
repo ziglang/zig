@@ -19,6 +19,7 @@ pub const TranslateCContext = struct {
         sources: ArrayList(SourceFile),
         expected_lines: ArrayList([]const u8),
         allow_warnings: bool,
+        target: std.Target = .Native,
 
         const SourceFile = struct {
             filename: []const u8,
@@ -71,6 +72,18 @@ pub const TranslateCContext = struct {
         self.addCase(tc);
     }
 
+    pub fn addWithTarget(
+        self: *TranslateCContext,
+        name: []const u8,
+        target: std.Target,
+        source: []const u8,
+        expected_lines: []const []const u8,
+    ) void {
+        const tc = self.create(false, "source.h", name, source, expected_lines);
+        tc.target = target;
+        self.addCase(tc);
+    }
+
     pub fn addAllowWarnings(
         self: *TranslateCContext,
         name: []const u8,
@@ -101,6 +114,7 @@ pub const TranslateCContext = struct {
                 .basename = case.sources.toSliceConst()[0].filename,
             },
         });
+        translate_c.setTarget(case.target);
 
         const check_file = translate_c.addCheckFile(case.expected_lines.toSliceConst());
 

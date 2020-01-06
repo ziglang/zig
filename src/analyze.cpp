@@ -919,24 +919,20 @@ ZigType *get_bound_fn_type(CodeGen *g, ZigFn *fn_entry) {
 
 const char *calling_convention_name(CallingConvention cc) {
     switch (cc) {
-        case CallingConventionUnspecified: return "undefined";
-        case CallingConventionC: return "ccc";
-        case CallingConventionCold: return "coldcc";
-        case CallingConventionNaked: return "nakedcc";
-        case CallingConventionStdcall: return "stdcallcc";
-        case CallingConventionAsync: return "async";
-    }
-    zig_unreachable();
-}
-
-static const char *calling_convention_fn_type_str(CallingConvention cc) {
-    switch (cc) {
-        case CallingConventionUnspecified: return "";
-        case CallingConventionC: return "extern ";
-        case CallingConventionCold: return "coldcc ";
-        case CallingConventionNaked: return "nakedcc ";
-        case CallingConventionStdcall: return "stdcallcc ";
-        case CallingConventionAsync: return "async ";
+        case CallingConventionUnspecified: return "Unspecified";
+        case CallingConventionC: return "C";
+        case CallingConventionCold: return "Cold";
+        case CallingConventionNaked: return "Naked";
+        case CallingConventionAsync: return "Async";
+        case CallingConventionInterrupt: return "Interrupt";
+        case CallingConventionSignal: return "Signal";
+        case CallingConventionStdcall: return "Stdcall";
+        case CallingConventionFastcall: return "Fastcall";
+        case CallingConventionVectorcall: return "Vectorcall";
+        case CallingConventionThiscall: return "Thiscall";
+        case CallingConventionAPCS: return "Apcs";
+        case CallingConventionAAPCS: return "Aapcs";
+        case CallingConventionAAPCSVFP: return "Aapcsvfp";
     }
     zig_unreachable();
 }
@@ -949,7 +945,15 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
         case CallingConventionC:
         case CallingConventionCold:
         case CallingConventionNaked:
+        case CallingConventionInterrupt:
+        case CallingConventionSignal:
         case CallingConventionStdcall:
+        case CallingConventionFastcall:
+        case CallingConventionVectorcall:
+        case CallingConventionThiscall:
+        case CallingConventionAPCS:
+        case CallingConventionAAPCS:
+        case CallingConventionAAPCSVFP:
             return false;
     }
     zig_unreachable();
@@ -1006,8 +1010,8 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
 
     // populate the name of the type
     buf_resize(&fn_type->name, 0);
-    const char *cc_str = calling_convention_fn_type_str(fn_type->data.fn.fn_type_id.cc);
-    buf_appendf(&fn_type->name, "%s", cc_str);
+    if (fn_type->data.fn.fn_type_id.cc == CallingConventionC)
+        buf_append_str(&fn_type->name, "extern ");
     buf_appendf(&fn_type->name, "fn(");
     for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
         FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
@@ -1025,6 +1029,9 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     buf_appendf(&fn_type->name, ")");
     if (fn_type_id->alignment != 0) {
         buf_appendf(&fn_type->name, " align(%" PRIu32 ")", fn_type_id->alignment);
+    }
+    if (fn_type_id->cc != CallingConventionUnspecified && fn_type_id->cc != CallingConventionC) {
+        buf_appendf(&fn_type->name, " callconv(%s)", calling_convention_name(fn_type_id->cc));
     }
     buf_appendf(&fn_type->name, " %s", buf_ptr(&fn_type_id->return_type->name));
 
@@ -1444,8 +1451,8 @@ ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
 ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     ZigType *fn_type = new_type_table_entry(ZigTypeIdFn);
     buf_resize(&fn_type->name, 0);
-    const char *cc_str = calling_convention_fn_type_str(fn_type->data.fn.fn_type_id.cc);
-    buf_appendf(&fn_type->name, "%s", cc_str);
+    if (fn_type->data.fn.fn_type_id.cc == CallingConventionC)
+        buf_append_str(&fn_type->name, "extern ");
     buf_appendf(&fn_type->name, "fn(");
     size_t i = 0;
     for (; i < fn_type_id->next_param_index; i += 1) {
@@ -1457,7 +1464,11 @@ ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         const char *comma_str = (i == 0) ? "" : ",";
         buf_appendf(&fn_type->name, "%svar", comma_str);
     }
-    buf_appendf(&fn_type->name, ")var");
+    buf_append_str(&fn_type->name, ")");
+    if (fn_type_id->cc != CallingConventionUnspecified && fn_type_id->cc != CallingConventionC) {
+        buf_appendf(&fn_type->name, " callconv(%s)", calling_convention_name(fn_type_id->cc));
+    }
+    buf_append_str(&fn_type->name, " var");
 
     fn_type->data.fn.fn_type_id = *fn_type_id;
     fn_type->data.fn.is_generic = true;
@@ -1467,17 +1478,25 @@ ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     return fn_type;
 }
 
-void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_count_alloc) {
+CallingConvention cc_from_fn_proto(AstNodeFnProto *fn_proto) {
+    if (fn_proto->is_nakedcc)
+        return CallingConventionNaked;
+    if (fn_proto->is_stdcallcc)
+        return CallingConventionStdcall;
+    if (fn_proto->is_async)
+        return CallingConventionAsync;
+    // Compatible with the C ABI
+    if (fn_proto->is_extern || fn_proto->is_export)
+        return CallingConventionC;
+
+    return CallingConventionUnspecified;
+}
+
+void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, CallingConvention cc, size_t param_count_alloc) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
-    if (fn_proto->cc == CallingConventionUnspecified) {
-        bool extern_abi = fn_proto->is_extern || fn_proto->is_export;
-        fn_type_id->cc = extern_abi ? CallingConventionC : CallingConventionUnspecified;
-    } else {
-        fn_type_id->cc = fn_proto->cc;
-    }
-
+    fn_type_id->cc = cc;
     fn_type_id->param_count = fn_proto->params.length;
     fn_type_id->param_info = allocate<FnTypeParamInfo>(param_count_alloc);
     fn_type_id->next_param_index = 0;
@@ -1691,8 +1710,7 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
         case ZigTypeIdArray:
             return type_allowed_in_extern(g, type_entry->data.array.child_type, result);
         case ZigTypeIdFn:
-            *result = type_entry->data.fn.fn_type_id.cc == CallingConventionC ||
-                 type_entry->data.fn.fn_type_id.cc == CallingConventionStdcall;
+            *result = !calling_convention_allows_zig_types(type_entry->data.fn.fn_type_id.cc);
             return ErrorNone;
         case ZigTypeIdPointer:
             if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
@@ -1752,7 +1770,7 @@ static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_sc
     Error err;
 
     FnTypeId fn_type_id = {0};
-    init_fn_type_id(&fn_type_id, proto_node, proto_node->data.fn_proto.params.length);
+    init_fn_type_id(&fn_type_id, proto_node, fn_entry->cc, proto_node->data.fn_proto.params.length);
 
     for (; fn_type_id.next_param_index < fn_type_id.param_count; fn_type_id.next_param_index += 1) {
         AstNode *param_node = fn_proto->params.at(fn_type_id.next_param_index);
@@ -2164,7 +2182,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
             ZigType *field_type = resolve_struct_field_type(g, field);
             if (field_type == nullptr) {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-                return err;
+                return ErrorSemanticAnalyzeFail;
             }
             if ((err = type_resolve(g, field->type_entry, ResolveStatusSizeKnown))) {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
@@ -2254,7 +2272,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
         ZigType *field_type = resolve_struct_field_type(g, field);
         if (field_type == nullptr) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            return err;
+            return ErrorSemanticAnalyzeFail;
         }
 
         if ((err = type_resolve(g, field_type, ResolveStatusSizeKnown))) {
@@ -2324,7 +2342,7 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
                         &field->align))
             {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-                return err;
+                return ErrorSemanticAnalyzeFail;
             }
             add_node_error(g, field->decl_node,
                 buf_create_from_str("TODO implement field alignment syntax for unions. https://github.com/ziglang/zig/issues/3125"));
@@ -2451,6 +2469,7 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
             return ErrorSemanticAnalyzeFail;
         }
+
         if (is_packed) {
             if ((err = emit_error_unless_type_allowed_in_packed_union(g, field_type, union_field->decl_node))) {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
@@ -2909,7 +2928,7 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
                         &field->align))
             {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-                return err;
+                return ErrorSemanticAnalyzeFail;
             }
         } else if (packed) {
             field->align = 1;
@@ -3395,27 +3414,6 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             get_fully_qualified_decl_name(g, &fn_table_entry->symbol_name, &tld_fn->base, false);
         }
 
-        if (fn_proto->is_export) {
-            switch (fn_proto->cc) {
-                case CallingConventionAsync: {
-                    add_node_error(g, fn_def_node,
-                        buf_sprintf("exported function cannot be async"));
-                } break;
-                case CallingConventionC:
-                case CallingConventionNaked:
-                case CallingConventionCold:
-                case CallingConventionStdcall:
-                case CallingConventionUnspecified:
-                    // An exported function without a specific calling
-                    // convention defaults to C
-                    CallingConvention cc = (fn_proto->cc != CallingConventionUnspecified) ?
-                        fn_proto->cc : CallingConventionC;
-                    add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name),
-                                  GlobalLinkageIdStrong, cc);
-                    break;
-            }
-        }
-
         if (!is_extern) {
             fn_table_entry->fndef_scope = create_fndef_scope(g,
                 fn_table_entry->body_node, tld_fn->base.parent_scope, fn_table_entry);
@@ -3434,17 +3432,68 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
 
         Scope *child_scope = fn_table_entry->fndef_scope ? &fn_table_entry->fndef_scope->base : tld_fn->base.parent_scope;
 
-        fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope, fn_table_entry);
+        fn_table_entry->cc = cc_from_fn_proto(fn_proto);
+        if (fn_proto->callconv_expr != nullptr) {
+            ZigType *cc_enum_value = get_builtin_type(g, "CallingConvention");
+
+            ZigValue *result_val = analyze_const_value(g, child_scope, fn_proto->callconv_expr,
+                cc_enum_value, nullptr, UndefBad);
+            if (type_is_invalid(result_val->type)) {
+                fn_table_entry->type_entry = g->builtin_types.entry_invalid;
+                tld_fn->base.resolution = TldResolutionInvalid;
+                return;
+            }
+
+            fn_table_entry->cc = (CallingConvention)bigint_as_u32(&result_val->data.x_enum_tag);
+        }
 
         if (fn_proto->section_expr != nullptr) {
             if (!analyze_const_string(g, child_scope, fn_proto->section_expr, &fn_table_entry->section_name)) {
                 fn_table_entry->type_entry = g->builtin_types.entry_invalid;
+                tld_fn->base.resolution = TldResolutionInvalid;
+                return;
             }
         }
 
-        if (fn_table_entry->type_entry->id == ZigTypeIdInvalid) {
+        fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope, fn_table_entry);
+
+        if (type_is_invalid(fn_table_entry->type_entry)) {
             tld_fn->base.resolution = TldResolutionInvalid;
             return;
+        }
+
+        const CallingConvention fn_cc = fn_table_entry->type_entry->data.fn.fn_type_id.cc;
+
+        if (fn_proto->is_export) {
+            switch (fn_cc) {
+                case CallingConventionAsync:
+                    add_node_error(g, fn_def_node,
+                        buf_sprintf("exported function cannot be async"));
+                    fn_table_entry->type_entry = g->builtin_types.entry_invalid;
+                    tld_fn->base.resolution = TldResolutionInvalid;
+                    return;
+                case CallingConventionC:
+                case CallingConventionCold:
+                case CallingConventionNaked:
+                case CallingConventionInterrupt:
+                case CallingConventionSignal:
+                case CallingConventionStdcall:
+                case CallingConventionFastcall:
+                case CallingConventionVectorcall:
+                case CallingConventionThiscall:
+                case CallingConventionAPCS:
+                case CallingConventionAAPCS:
+                case CallingConventionAAPCSVFP:
+                    add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name),
+                                  GlobalLinkageIdStrong, fn_cc);
+                    break;
+                case CallingConventionUnspecified:
+                    // An exported function without a specific calling
+                    // convention defaults to C
+                    add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name),
+                                  GlobalLinkageIdStrong, CallingConventionC);
+                    break;
+            }
         }
 
         if (!fn_table_entry->type_entry->data.fn.is_generic) {
@@ -3455,7 +3504,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         // if the calling convention implies that it cannot be async, we save that for later
         // and leave the value to be nullptr to indicate that we have not emitted possible
         // compile errors for improperly calling async functions.
-        if (fn_table_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync) {
+        if (fn_cc == CallingConventionAsync) {
             fn_table_entry->inferred_async_node = fn_table_entry->proto_node;
         }
     } else if (source_node->type == NodeTypeTestDecl) {

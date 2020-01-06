@@ -1319,8 +1319,16 @@ fn renderExpression(
                 try renderExpression(allocator, stream, tree, indent, start_col, lib_name, Space.Space);
             }
 
+            // Some extra machinery is needed to rewrite the old-style cc
+            // notation to the new callconv one
+            var cc_rewrite_str: ?[*:0]const u8 = null;
             if (fn_proto.cc_token) |cc_token| {
-                try renderToken(tree, stream, cc_token, indent, start_col, Space.Space); // stdcallcc
+                var str = tree.tokenSlicePtr(tree.tokens.at(cc_token));
+                if (mem.eql(u8, str, "stdcallcc")) {
+                    cc_rewrite_str = ".Stdcall";
+                } else if (mem.eql(u8, str, "nakedcc")) {
+                    cc_rewrite_str = ".Naked";
+                } else try renderToken(tree, stream, cc_token, indent, start_col, Space.Space); // stdcallcc
             }
 
             const lparen = if (fn_proto.name_token) |name_token| blk: {
@@ -1390,6 +1398,21 @@ fn renderExpression(
                 try renderToken(tree, stream, section_lparen, indent, start_col, Space.None); // (
                 try renderExpression(allocator, stream, tree, indent, start_col, section_expr, Space.None);
                 try renderToken(tree, stream, section_rparen, indent, start_col, Space.Space); // )
+            }
+
+            if (fn_proto.callconv_expr) |callconv_expr| {
+                const callconv_rparen = tree.nextToken(callconv_expr.lastToken());
+                const callconv_lparen = tree.prevToken(callconv_expr.firstToken());
+                const callconv_kw = tree.prevToken(callconv_lparen);
+
+                try renderToken(tree, stream, callconv_kw, indent, start_col, Space.None); // section
+                try renderToken(tree, stream, callconv_lparen, indent, start_col, Space.None); // (
+                try renderExpression(allocator, stream, tree, indent, start_col, callconv_expr, Space.None);
+                try renderToken(tree, stream, callconv_rparen, indent, start_col, Space.Space); // )
+            } else if (cc_rewrite_str) |str| {
+                try stream.write("callconv(");
+                try stream.write(mem.toSliceConst(u8, str));
+                try stream.write(") ");
             }
 
             switch (fn_proto.return_type) {

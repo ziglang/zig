@@ -43,11 +43,11 @@ comptime {
     }
 }
 
-stdcallcc fn _DllMainCRTStartup(
+fn _DllMainCRTStartup(
     hinstDLL: std.os.windows.HINSTANCE,
     fdwReason: std.os.windows.DWORD,
     lpReserved: std.os.windows.LPVOID,
-) std.os.windows.BOOL {
+) callconv(.Stdcall) std.os.windows.BOOL {
     if (@hasDecl(root, "DllMain")) {
         return root.DllMain(hinstDLL, fdwReason, lpReserved);
     }
@@ -84,7 +84,7 @@ extern fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) u
     }
 }
 
-nakedcc fn _start() noreturn {
+fn _start() callconv(.Naked) noreturn {
     if (builtin.os == builtin.Os.wasi) {
         // This is marked inline because for some reason LLVM in release mode fails to inline it,
         // and we want fewer call frames in stack traces.
@@ -127,7 +127,7 @@ nakedcc fn _start() noreturn {
     @call(.{ .modifier = .never_inline }, posixCallMainAndExit, .{});
 }
 
-stdcallcc fn WinMainCRTStartup() noreturn {
+fn WinMainCRTStartup() callconv(.Stdcall) noreturn {
     @setAlignStack(16);
     if (!builtin.single_threaded) {
         _ = @import("start_windows_tls.zig");

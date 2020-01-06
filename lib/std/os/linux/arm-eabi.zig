@@ -97,7 +97,7 @@ pub extern fn getThreadPointer() usize {
     );
 }
 
-pub nakedcc fn restore() void {
+pub fn restore() callconv(.Naked) void {
     return asm volatile ("svc #0"
         :
         : [number] "{r7}" (@as(usize, SYS_sigreturn))
@@ -105,7 +105,7 @@ pub nakedcc fn restore() void {
     );
 }
 
-pub nakedcc fn restore_rt() void {
+pub fn restore_rt() callconv(.Naked) void {
     return asm volatile ("svc #0"
         :
         : [number] "{r7}" (@as(usize, SYS_rt_sigreturn))
