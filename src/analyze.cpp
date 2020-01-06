@@ -1010,8 +1010,6 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
 
     // populate the name of the type
     buf_resize(&fn_type->name, 0);
-    if (fn_type->data.fn.fn_type_id.cc == CallingConventionC)
-        buf_append_str(&fn_type->name, "extern ");
     buf_appendf(&fn_type->name, "fn(");
     for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
         FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
@@ -1030,8 +1028,8 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     if (fn_type_id->alignment != 0) {
         buf_appendf(&fn_type->name, " align(%" PRIu32 ")", fn_type_id->alignment);
     }
-    if (fn_type_id->cc != CallingConventionUnspecified && fn_type_id->cc != CallingConventionC) {
-        buf_appendf(&fn_type->name, " callconv(%s)", calling_convention_name(fn_type_id->cc));
+    if (fn_type_id->cc != CallingConventionUnspecified) {
+        buf_appendf(&fn_type->name, " callconv(.%s)", calling_convention_name(fn_type_id->cc));
     }
     buf_appendf(&fn_type->name, " %s", buf_ptr(&fn_type_id->return_type->name));
 
@@ -1464,7 +1462,7 @@ ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     }
     buf_append_str(&fn_type->name, ")");
     if (fn_type_id->cc != CallingConventionUnspecified) {
-        buf_appendf(&fn_type->name, " callconv(%s)", calling_convention_name(fn_type_id->cc));
+        buf_appendf(&fn_type->name, " callconv(.%s)", calling_convention_name(fn_type_id->cc));
     }
     buf_append_str(&fn_type->name, " var");
 
@@ -4385,7 +4383,7 @@ uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
     } else if (ptr_type->id == ZigTypeIdFn) {
         // I tried making this use LLVMABIAlignmentOfType but it trips this assertion in LLVM:
         // "Cannot getTypeInfo() on a type that is unsized!"
-        // when getting the alignment of `?extern fn() void`.
+        // when getting the alignment of `?fn() callconv(.C) void`.
         // See http://lists.llvm.org/pipermail/llvm-dev/2018-September/126142.html
         return (ptr_type->data.fn.fn_type_id.alignment == 0) ? 1 : ptr_type->data.fn.fn_type_id.alignment;
     } else if (ptr_type->id == ZigTypeIdAnyFrame) {

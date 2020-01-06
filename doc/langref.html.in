@@ -7735,7 +7735,7 @@ const Derp = @OpaqueType();
 const Wat = @OpaqueType();
 
 extern fn bar(d: *Derp) void;
-export fn foo(w: *Wat) void {
+fn foo(w: *Wat) callconv(.C) void {
     bar(w);
 }
 

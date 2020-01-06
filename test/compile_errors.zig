@@ -2843,7 +2843,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    foo();
         \\}
-        \\nakedcc fn foo() void { }
+        \\fn foo() callconv(.Naked) void { }
     , &[_][]const u8{
         "tmp.zig:2:5: error: unable to call function with naked calling convention",
         "tmp.zig:4:1: note: declared here",
@@ -2978,7 +2978,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     , &[_][]const u8{
         "tmp.zig:1:30: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'C'",
-        "tmp.zig:7:18: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'C'",
+        "tmp.zig:7:11: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'C'",
     });
 
     cases.add("implicit semicolon - block statement",
@@ -5663,7 +5663,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("@setAlignStack in naked function",
-        \\export nakedcc fn entry() void {
+        \\export fn entry() callconv(.Naked) void {
         \\    @setAlignStack(16);
         \\}
     , &[_][]const u8{
