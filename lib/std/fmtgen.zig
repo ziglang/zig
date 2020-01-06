@@ -150,10 +150,6 @@ pub fn format(
     comptime var specifier_end = 0;
     comptime var options = FormatOptions{};
 
-    // TODO: calculate this
-    var recur_stack: [0x10000]u8 = undefined;
-    var recur_allocator = std.heap.FixedBufferAllocator.init(&recur_stack);
-
     inline for (fmt) |c, i| {
         switch (state) {
             .Start => switch (c) {
@@ -211,7 +207,6 @@ pub fn format(
                         fmt[0..0],
                         options,
                         generator,
-                        &recur_allocator.allocator,
                         default_max_depth,
                     );
 
@@ -243,7 +238,6 @@ pub fn format(
                         fmt[specifier_start..i],
                         options,
                         generator,
-                        &recur_allocator.allocator,
                         default_max_depth,
                     );
                     state = .Start;
@@ -289,7 +283,6 @@ pub fn format(
                         fmt[specifier_start..specifier_end],
                         options,
                         generator,
-                        &recur_allocator.allocator,
                         default_max_depth,
                     );
                     state = .Start;
@@ -316,7 +309,6 @@ pub fn format(
                         fmt[specifier_start..specifier_end],
                         options,
                         generator,
-                        &recur_allocator.allocator,
                         default_max_depth,
                     );
                     state = .Start;
@@ -352,9 +344,14 @@ pub fn formatType(
     comptime fmt: []const u8,
     options: FormatOptions,
     generator: *Generator([]const u8),
-    allocator: *mem.Allocator,
-    max_depth: usize,
+    comptime max_depth: comptime_int,
 ) void {
+    if (max_depth < 0) {
+        // This shouldn't ever be reached as we account for it later in the function.
+        // But the compiler analysis phase gets confused and generates infinite versions of this function if there's no check.
+        @compileError("max_depth less than 0");
+    }
+
     if (comptime std.mem.eql(u8, fmt, "*")) {
         return formatPtr(@TypeOf(value).Child, @ptrToInt(value), generator);
     }
@@ -372,25 +369,16 @@ pub fn formatType(
         },
         .Optional => {
             if (value) |payload| {
-                // return @call(.{ .modifier = .always_tail }, formatType, .{ payload, fmt, options, generator, allocator, max_depth });
-                // TODO: reenable tail call once it is fixed https://github.com/ziglang/zig/issues/4060
-                var frame = allocator.create(
-                    @TypeOf(async formatType(payload, fmt, options, generator, allocator, max_depth)),
-                ) catch |err| switch (err) {
-                    error.OutOfMemory => return generator.yield(" ??OOM?? "),
-                };
-                defer allocator.destroy(frame);
-                frame.* = async formatType(payload, fmt, options, generator, allocator, max_depth);
-                await frame.*;
+                return @call(.{ .modifier = .always_tail }, formatType, .{ payload, fmt, options, generator, max_depth });
             } else {
                 return generator.yield("null");
             }
         },
         .ErrorUnion => {
             if (value) |payload| {
-                return @call(.{ .modifier = .always_tail }, formatType, .{ payload, fmt, options, generator, allocator, max_depth });
+                return @call(.{ .modifier = .always_tail }, formatType, .{ payload, fmt, options, generator, max_depth });
             } else |err| {
-                return @call(.{ .modifier = .always_tail }, formatType, .{ err, fmt, options, generator, allocator, max_depth });
+                return @call(.{ .modifier = .always_tail }, formatType, .{ err, fmt, options, generator, max_depth });
             }
         },
         .ErrorSet => {
@@ -403,7 +391,7 @@ pub fn formatType(
             // }
             generator.yield(@typeName(T));
             generator.yield(".");
-            return @call(.{ .modifier = .always_tail }, formatType, .{ @tagName(value), "", options, generator, allocator, max_depth });
+            return @call(.{ .modifier = .always_tail }, formatType, .{ @tagName(value), "", options, generator, max_depth });
         },
         .Union => {
             // if (comptime std.meta.trait.hasFn("format")(T)) {
@@ -420,14 +408,7 @@ pub fn formatType(
                 generator.yield(" = ");
                 inline for (info.fields) |u_field| {
                     if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
-                        var frame = allocator.create(
-                            @TypeOf(async formatType(@field(value, u_field.name), "", options, generator, allocator, max_depth - 1)),
-                        ) catch |err| switch (err) {
-                            error.OutOfMemory => return generator.yield(" ??OOM?? "),
-                        };
-                        defer allocator.destroy(frame);
-                        frame.* = async formatType(@field(value, u_field.name), "", options, generator, allocator, max_depth - 1);
-                        await frame.*;
+                        formatType(@field(value, u_field.name), "", options, generator, max_depth - 1);
                     }
                 }
                 generator.yield(" }");
@@ -455,14 +436,7 @@ pub fn formatType(
                 generator.yield(@memberName(T, field_i));
                 generator.yield(" = ");
 
-                var frame = allocator.create(
-                    @TypeOf(async formatType(@field(value, @memberName(T, field_i)), "", options, generator, allocator, max_depth - 1)),
-                ) catch |err| switch (err) {
-                    error.OutOfMemory => return generator.yield(" ??OOM?? "),
-                };
-                defer allocator.destroy(frame);
-                frame.* = async formatType(@field(value, @memberName(T, field_i)), "", options, generator, allocator, max_depth - 1);
-                await frame.*;
+                formatType(@field(value, @memberName(T, field_i)), "", options, generator, max_depth - 1);
             }
             generator.yield(" }");
         },
@@ -475,7 +449,7 @@ pub fn formatType(
                     return formatPtr(T.Child, @ptrToInt(value), generator);
                 },
                 builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
-                    return @call(.{ .modifier = .always_tail }, formatType, .{ value.*, fmt, options, generator, allocator, max_depth });
+                    return @call(.{ .modifier = .always_tail }, formatType, .{ value.*, fmt, options, generator, max_depth });
                 },
                 else => return formatPtr(T.Child, @ptrToInt(value), generator),
             },
@@ -513,7 +487,7 @@ pub fn formatType(
                     .sentinel = null,
                 },
             });
-            return @call(.{ .modifier = .always_tail }, formatType, .{ @as(Slice, &value), fmt, options, generator, allocator, max_depth });
+            return @call(.{ .modifier = .always_tail }, formatType, .{ @as(Slice, &value), fmt, options, generator, max_depth });
         },
         .Fn => {
             return formatPtr(T, @ptrToInt(value), generator);
