@@ -41,6 +41,7 @@ pub const Error = union(enum) {
     ExpectedStmt: SingleTokenError("expected statement, found '{}'"),
     ExpectedTypeName: SingleTokenError("expected type name, found '{}'"),
     ExpectedFnBody: SingleTokenError("expected function body, found '{}'"),
+    ExpectedDeclarator: SingleTokenError("expected declarator, found '{}'"),
     ExpectedInitializer: SingleTokenError("expected initializer, found '{}'"),
     InvalidTypeSpecifier: InvalidTypeSpecifier,
     DuplicateQualifier: SingleTokenError("duplicate type qualifier '{}'"),
@@ -55,6 +56,7 @@ pub const Error = union(enum) {
             .ExpectedTypeName => |*x| return x.render(tokens, stream),
             .ExpectedDeclarator => |*x| return x.render(tokens, stream),
             .ExpectedFnBody => |*x| return x.render(tokens, stream),
+            .ExpectedInitializer => |*x| return x.render(tokens, stream),
             .InvalidTypeSpecifier => |*x| return x.render(tokens, stream),
             .DuplicateQualifier => |*x| return x.render(tokens, stream),
             .DuplicateSpecifier => |*x| return x.render(tokens, stream),
@@ -70,6 +72,7 @@ pub const Error = union(enum) {
             .ExpectedTypeName => |x| return x.token,
             .ExpectedDeclarator => |x| return x.token,
             .ExpectedFnBody => |x| return x.token,
+            .ExpectedInitializer => |x| return x.token,
             .InvalidTypeSpecifier => |x| return x.token,
             .DuplicateQualifier => |x| return x.token,
             .DuplicateSpecifier => |x| return x.token,
@@ -277,30 +280,48 @@ pub const Node = struct {
     };
 
     pub const Declarator = struct {
+        base: Node = Node{ .id = .Declarator },
         pointer: *Pointer,
-        identifier: ?TokenIndex,
-        kind: union(enum) {
-            Simple,
+        prefix: union(enum) {
+            None,
+            Identifer: TokenIndex,
             Complex: struct {
                 lparen: TokenIndex,
-                inner: *Declarator,
+                inner: *Node,
                 rparen: TokenIndex,
             },
-            Fn: ParamList,
-            Array: ArrayList,
+        },
+        suffix: union(enum) {
+            None,
+            Fn: struct {
+                lparen: TokenIndex,
+                params: Params,
+                rparen: TokenIndex,
+            },
+            Array: Arrays,
         },
 
-        pub const ArrayList = std.SegmentedList(*Array, 2);
-        pub const ParamList = std.SegmentedList(*Param, 4);
+        pub const Arrays = std.SegmentedList(*Array, 2);
+        pub const Params = std.SegmentedList(*Param, 4);
     };
 
-    pub const Array = union(enum) {
-        Unspecified,
-        Variable: TokenIndex,
-        Known: *Expr,
+    pub const Array = struct {
+        rbracket: TokenIndex,
+        inner: union(enum) {
+            Inferred,
+            Unspecified: TokenIndex,
+            Variable: struct {
+                asterisk: ?TokenIndex,
+                static: ?TokenIndex,
+                qual: TypeQual,
+                expr: *Expr,
+            },
+        },
+        rbracket: TokenIndex,
     };
 
     pub const Pointer = struct {
+        base: Node = Node{ .id = .Pointer },
         asterisk: TokenIndex,
         qual: TypeQual,
         pointer: ?*Pointer,
@@ -312,7 +333,7 @@ pub const Node = struct {
             Old: TokenIndex,
             Normal: struct {
                 decl_spec: *DeclSpec,
-                declarator: *Declarator,
+                declarator: *Node,
             },
         },
     };
@@ -320,7 +341,7 @@ pub const Node = struct {
     pub const Fn = struct {
         base: Node = Node{ .id = .Fn },
         decl_spec: DeclSpec,
-        declarator: *Declarator,
+        declarator: *Node,
         old_decls: OldDeclList,
         body: ?*CompoundStmt,
 
@@ -332,7 +353,7 @@ pub const Node = struct {
         decl_spec: DeclSpec,
         declarators: DeclaratorList,
 
-        pub const DeclaratorList = std.SegmentedList(*Declarator, 2);
+        pub const DeclaratorList = Root.DeclList;
     };
 
     pub const Var = struct {
@@ -344,7 +365,7 @@ pub const Node = struct {
     };
 
     pub const Initialized = struct {
-        declarator: *Declarator,
+        declarator: *Node,
         eq: TokenIndex,
         init: Initializer,
     };

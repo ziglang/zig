@@ -589,7 +589,7 @@ const Parser = struct {
     fn recordDeclarator(parser: *Parser) !*Node {}
 
     /// Pointer <- ASTERISK TypeQual* Pointer?
-    fn pointer(parser: *Parser) !?*Node.Pointer {
+    fn pointer(parser: *Parser) Error!?*Node {
         const asterisk = parser.eatToken(.Asterisk) orelse return null;
         const node = try parser.arena.create(Node.Pointer);
         node.* = .{
@@ -599,34 +599,129 @@ const Parser = struct {
         };
         while (try parser.typeQual(&node.qual)) {}
         node.pointer = try parser.pointer();
+        return &node.base;
+    }
+
+    const Named = enum {
+        Must,
+        Allowed,
+        Forbidden,
+    };
+
+    /// Declarator <- Pointer? DeclaratorSuffix
+    /// DeclaratorPrefix
+    ///     <- IDENTIFIER // if named != .Forbidden
+    ///     / LPAREN Declarator RPAREN
+    ///     / (none) // if named != .Must
+    /// DeclaratorSuffix
+    ///     <. DeclaratorPrefix (LBRACKET ArrayDeclarator? RBRACKET)*
+    ///     / DeclaratorPrefix LPAREN (ParamDecl (COMMA ParamDecl)* (COMMA ELLIPSIS)?)? RPAREN
+    fn declarator(parser: *Parser, named: Named) Error!?*Node {
+        const ptr = try parser.pointer();
+        var node: *Node.Declarator = undefined;
+        // prefix
+        if (parser.eatToken(.LParen)) |lparen| {
+            const inner = (try parser.declarator(named)) orelse return parser.err(.{
+                .ExpectedDeclarator = .{ .token = lparen + 1 },
+            });
+            node = try parser.arena.create(Node.Declarator);
+            node.* = .{
+                .pointer = ptr,
+                .prefix = .{
+                    .Comples = .{
+                        .lparen = lparen,
+                        .inner = inner,
+                        .rparen = try parser.expectToken(.RParen),
+                    },
+                },
+                .suffix = .None,
+            };
+        } else if (named != .Forbidden) {
+            if (parser.eatToken(.Identifier)) |tok| {
+                node = try parser.arena.create(Node.Declarator);
+                node.* = .{
+                    .pointer = ptr,
+                    .prefix = .{ .Simple = tok },
+                    .suffix = .None,
+                };
+            } else if (named == .Must) {
+                return parser.err(.{
+                    .ExpectedToken = .{ .token = parser.it.index, .expected_id = .Identifier },
+                });
+            } else {
+                return ptr;
+            }
+        } else {
+            node = try parser.arena.create(Node.Declarator);
+            node.* = .{
+                .pointer = ptr,
+                .prefix = .None,
+                .suffix = .None,
+            };
+        }
+        // suffix
+        if (parser.eatToken(.LParen)) |lparen| {
+            node.suffix = .{
+                .Fn = .{
+                    .lparen = lparen,
+                    .params = .Node.Declarator.Params.init(parser.arena),
+                    .rparen = undefined,
+                },
+            };
+            try parser.ParamDecl(node);
+            node.suffix.Fn.rparen = try parser.expectToken(.RParen);
+        } else {
+            while (parser.arrayDeclarator()) |arr| {
+                if (node.suffix == .None)
+                    node.suffix = .{ .Array = .Node.Declarator.Arrays.init(parser.arena) };
+                try node.suffix.Array.push(arr);
+            }
+        }
+        if (parser.eatToken(.LParen) orelse parser.eatToken(.LBracket)) |tok|
+            return parser.err(.{
+                .InvalidDeclarator = .{ .token = tok },
+            });
         return node;
     }
-    /// DirectDeclarator
-    ///     <- IDENTIFIER
-    ///     / LPAREN Declarator RPAREN
-    ///     / DirectDeclarator LBRACKET (ASTERISK / BracketDeclarator)? RBRACKET
-    ///     / DirectDeclarator LPAREN (ParamDecl (COMMA ParamDecl)* (COMMA ELLIPSIS)?)? RPAREN
-    fn directDeclarator(parser: *Parser) !*Node {}
 
-    /// BracketDeclarator
-    ///     <- Keyword_static TypeQual* AssignmentExpr
+    /// ArrayDeclarator
+    ///     <- ASTERISK
+    ///     / Keyword_static TypeQual* AssignmentExpr
     ///     / TypeQual+ (ASTERISK / Keyword_static AssignmentExpr)
     ///     / TypeQual+ AssignmentExpr?
     ///     / AssignmentExpr
-    fn bracketDeclarator(parser: *Parser) !*Node {}
+    fn arrayDeclarator(parser: *Parser, dr: *Node.Declarator) !?*Node.Array {
+        const lbracket = parser.eatToken(.LBracket) orelse return null;
+        const arr = try parser.arena.create(Node.Array);
+        arr.* = .{
+            .lbracket = lbarcket,
+            .inner = .Inferred,
+            .rbracket = undefined,
+        };
+        if (parser.eatToken(.Asterisk)) |tok| {
+            arr.inner = .{ .Unspecified = tok };
+        } else {
+            // TODO
+        }
+        arr.rbracket = try parser.expectToken(.RBracket);
+        return arr;
+    }
 
+    /// Params <- ParamDecl (COMMA ParamDecl)* (COMMA ELLIPSIS)?
     /// ParamDecl <- DeclSpec (Declarator / AbstractDeclarator)
-    fn paramDecl(parser: *Parser) !*Node {}
-
-    /// AbstractDeclarator <- Pointer? DirectAbstractDeclarator?
-    fn abstractDeclarator(parser: *Parser) !*Node {}
-
-    /// DirectAbstractDeclarator
-    ///     <- IDENTIFIER
-    ///     / LPAREN DirectAbstractDeclarator RPAREN
-    ///     / DirectAbstractDeclarator? LBRACKET (ASTERISK / BracketDeclarator)? RBRACKET
-    ///     / DirectAbstractDeclarator? LPAREN (ParamDecl (COMMA ParamDecl)* (COMMA ELLIPSIS)?)? RPAREN
-    fn directAbstractDeclarator(parser: *Parser) !*Node {}
+    fn paramDecl(parser: *Parser, dr: *Node.Declarator) !void {
+        var old_style = false;
+        while (true) {
+            var ds = Node.DeclSpec;
+            if (try parser.declSpec(&ds)) {
+                //TODO
+            } else if (parser.eatToken(.Identifier)) {
+                old_style = true;
+            } else if (parser.eatToken(.Ellipsis)) {
+                // TODO
+            }
+        }
+    }
 
     /// Expr <- AssignmentExpr (COMMA Expr)*
     fn expr(parser: *Parser) !*Node {}
