@@ -1334,8 +1334,21 @@ fn transImplicitCastExpr(
         .BitCast, .FloatingCast, .FloatingToIntegral, .IntegralToFloating, .IntegralCast, .PointerToIntegral, .IntegralToPointer => {
             return transCCast(rp, scope, ZigClangImplicitCastExpr_getBeginLoc(expr), dest_type, src_type, sub_expr_node);
         },
-        .LValueToRValue, .NoOp, .FunctionToPointerDecay, .ArrayToPointerDecay => {
+        .LValueToRValue, .NoOp, .FunctionToPointerDecay => {
             return maybeSuppressResult(rp, scope, result_used, sub_expr_node);
+        },
+        .ArrayToPointerDecay => {
+            switch (ZigClangExpr_getStmtClass(sub_expr)) {
+                .StringLiteralClass, .PredefinedExprClass => {
+                    return maybeSuppressResult(rp, scope, result_used, sub_expr_node);
+                },
+                else => {
+                    const prefix_op = try transCreateNodePrefixOp(rp.c, .AddressOf, .Ampersand, "&");
+                    prefix_op.rhs = sub_expr_node;
+
+                    return maybeSuppressResult(rp, scope, result_used, &prefix_op.base);
+                },
+            }
         },
         .NullToPointer => {
             return try transCreateNodeNullLiteral(rp.c);
@@ -2469,7 +2482,19 @@ fn transMemberExpr(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangMemberE
 }
 
 fn transArrayAccess(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangArraySubscriptExpr, result_used: ResultUsed) TransError!*ast.Node {
-    const container_node = try transExpr(rp, scope, ZigClangArraySubscriptExpr_getBase(stmt), .used, .r_value);
+    var base_stmt = ZigClangArraySubscriptExpr_getBase(stmt);
+
+    // Unwrap the base statement if it's an array decayed to a bare pointer type
+    // so that we index the array itself
+    if (ZigClangStmt_getStmtClass(@ptrCast(*const ZigClangStmt, base_stmt)) == .ImplicitCastExprClass) {
+        const implicit_cast = @ptrCast(*const ZigClangImplicitCastExpr, base_stmt);
+
+        if (ZigClangImplicitCastExpr_getCastKind(implicit_cast) == .ArrayToPointerDecay) {
+            base_stmt = ZigClangImplicitCastExpr_getSubExpr(implicit_cast);
+        }
+    }
+
+    const container_node = try transExpr(rp, scope, base_stmt, .used, .r_value);
     const node = try transCreateNodeArrayAccess(rp.c, container_node);
     node.op.ArrayAccess = try transExpr(rp, scope, ZigClangArraySubscriptExpr_getIdx(stmt), .used, .r_value);
     node.rtoken = try appendToken(rp.c, .RBrace, "]");
