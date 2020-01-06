@@ -67,7 +67,6 @@ pub extern "wasi_unstable" fn path_unlink_file(fd: fd_t, path: [*]const u8, path
 pub extern "wasi_unstable" fn poll_oneoff(in: *const subscription_t, out: *event_t, nsubscriptions: usize, nevents: *usize) errno_t;
 
 pub extern "wasi_unstable" fn proc_exit(rval: exitcode_t) noreturn;
-pub extern "wasi_unstable" fn proc_raise(sig: signal_t) errno_t;
 
 pub extern "wasi_unstable" fn random_get(buf: [*]u8, buf_len: usize) errno_t;
 

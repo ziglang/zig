@@ -416,7 +416,7 @@ pub const CallOptions = struct {
 /// therefore must be kept in sync with the compiler implementation.
 pub const TestFn = struct {
     name: []const u8,
-    func: fn()anyerror!void,
+    func: fn () anyerror!void,
 };
 
 /// This function type is used by the Zig language code generation and
@@ -443,8 +443,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
         },
         .wasi => {
             std.debug.warn("{}", .{msg});
-            _ = std.os.wasi.proc_raise(std.os.wasi.SIGABRT);
-            unreachable;
+            std.os.abort();
         },
         .uefi => {
             // TODO look into using the debug info and logging helpful messages
