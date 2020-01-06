@@ -5,7 +5,7 @@ const maxInt = std.math.maxInt;
 
 const DBL_MANT_DIG = 53;
 
-pub extern fn __floatuntidf(arg: u128) f64 {
+pub fn __floatuntidf(arg: u128) callconv(.C) f64 {
     @setRuntimeSafety(is_test);
 
     if (arg == 0)

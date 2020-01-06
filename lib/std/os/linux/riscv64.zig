@@ -89,7 +89,7 @@ pub extern fn clone(func: extern fn (arg: usize) u8, stack: usize, flags: u32, a
 
 pub const restore = restore_rt;
 
-pub nakedcc fn restore_rt() void {
+pub fn restore_rt() callconv(.Naked) void {
     return asm volatile ("ecall"
         :
         : [number] "{x17}" (@as(usize, SYS_rt_sigreturn))

@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
 
 // Zig's own stack-probe routine (available only on x86 and x86_64)
-pub nakedcc fn zig_probe_stack() void {
+pub fn zig_probe_stack() callconv(.Naked) void {
     @setRuntimeSafety(false);
 
     // Versions of the Linux kernel before 5.1 treat any access below SP as
@@ -180,11 +180,11 @@ fn win_probe_stack_adjust_sp() void {
 // ___chkstk (__alloca) | yes    | yes    |
 // ___chkstk_ms         | no     | no     |
 
-pub nakedcc fn _chkstk() void {
+pub fn _chkstk() callconv(.Naked) void {
     @setRuntimeSafety(false);
     @call(.{ .modifier = .always_inline }, win_probe_stack_adjust_sp, .{});
 }
-pub nakedcc fn __chkstk() void {
+pub fn __chkstk() callconv(.Naked) void {
     @setRuntimeSafety(false);
     switch (builtin.arch) {
         .i386 => @call(.{ .modifier = .always_inline }, win_probe_stack_adjust_sp, .{}),
@@ -192,15 +192,15 @@ pub nakedcc fn __chkstk() void {
         else => unreachable,
     }
 }
-pub nakedcc fn ___chkstk() void {
+pub fn ___chkstk() callconv(.Naked) void {
     @setRuntimeSafety(false);
     @call(.{ .modifier = .always_inline }, win_probe_stack_adjust_sp, .{});
 }
-pub nakedcc fn __chkstk_ms() void {
+pub fn __chkstk_ms() callconv(.Naked) void {
     @setRuntimeSafety(false);
     @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{});
 }
-pub nakedcc fn ___chkstk_ms() void {
+pub fn ___chkstk_ms() callconv(.Naked) void {
     @setRuntimeSafety(false);
     @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{});
 }

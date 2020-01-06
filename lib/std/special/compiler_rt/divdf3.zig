@@ -5,7 +5,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub extern fn __divdf3(a: f64, b: f64) f64 {
+pub fn __divdf3(a: f64, b: f64) callconv(.C) f64 {
     @setRuntimeSafety(builtin.is_test);
     const Z = @IntType(false, f64.bit_count);
     const SignedZ = @IntType(true, f64.bit_count);

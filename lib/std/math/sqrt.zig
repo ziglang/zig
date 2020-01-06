@@ -70,4 +70,3 @@ pub fn Sqrt(comptime T: type) type {
         else => T,
     };
 }
-

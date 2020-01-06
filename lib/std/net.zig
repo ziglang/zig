@@ -451,11 +451,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
             .next = null,
         };
         var res: *os.addrinfo = undefined;
-        switch (os.system.getaddrinfo(
-                name_c.ptr,
-                @ptrCast([*:0]const u8, port_c.ptr),
-                &hints,
-                &res)) {
+        switch (os.system.getaddrinfo(name_c.ptr, @ptrCast([*:0]const u8, port_c.ptr), &hints, &res)) {
             0 => {},
             c.EAI_ADDRFAMILY => return error.HostLacksNetworkAddresses,
             c.EAI_AGAIN => return error.TemporaryNameServerFailure,

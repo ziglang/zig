@@ -17,7 +17,7 @@ const ResetEvent = std.ResetEvent;
 /// Example usage:
 /// var m = Mutex.init();
 /// defer m.deinit();
-/// 
+///
 /// const lock = m.acquire();
 /// defer lock.release();
 /// ... critical code
@@ -73,8 +73,8 @@ pub const Mutex = if (builtin.single_threaded)
             return self.tryAcquire() orelse @panic("deadlock detected");
         }
     }
-else if (builtin.os == .windows) 
-    // https://locklessinc.com/articles/keyed_events/
+else if (builtin.os == .windows)
+// https://locklessinc.com/articles/keyed_events/
     extern union {
         locked: u8,
         waiters: u32,
@@ -122,8 +122,8 @@ else if (builtin.os == .windows)
                         return Held{ .mutex = self };
                     }
 
-                // otherwise, try and update the waiting count.
-                // then unset the WAKE bit so that another unlocker can wake up a thread.
+                    // otherwise, try and update the waiting count.
+                    // then unset the WAKE bit so that another unlocker can wake up a thread.
                 } else if (@cmpxchgWeak(u32, &self.waiters, waiters, (waiters + WAIT) | 1, .Monotonic, .Monotonic) == null) {
                     const rc = windows.ntdll.NtWaitForKeyedEvent(handle, key, windows.FALSE, null);
                     assert(rc == 0);
@@ -143,7 +143,7 @@ else if (builtin.os == .windows)
 
                 while (true) : (SpinLock.loopHint(1)) {
                     const waiters = @atomicLoad(u32, &self.mutex.waiters, .Monotonic);
-                
+
                     // no one is waiting
                     if (waiters < WAIT) return;
                     // someone grabbed the lock and will do the wake instead
@@ -155,14 +155,14 @@ else if (builtin.os == .windows)
                     if (@cmpxchgWeak(u32, &self.mutex.waiters, waiters, waiters - WAIT + WAKE, .Release, .Monotonic) == null) {
                         const rc = windows.ntdll.NtReleaseKeyedEvent(handle, key, windows.FALSE, null);
                         assert(rc == 0);
-                        return;   
+                        return;
                     }
                 }
             }
         };
     }
 else if (builtin.link_libc or builtin.os == .linux)
-    // stack-based version of https://github.com/Amanieu/parking_lot/blob/master/core/src/word_lock.rs
+// stack-based version of https://github.com/Amanieu/parking_lot/blob/master/core/src/word_lock.rs
     struct {
         state: usize,
 
@@ -195,8 +195,8 @@ else if (builtin.link_libc or builtin.os == .linux)
 
         pub fn acquire(self: *Mutex) Held {
             return self.tryAcquire() orelse {
-               self.acquireSlow();
-               return Held{ .mutex = self };
+                self.acquireSlow();
+                return Held{ .mutex = self };
             };
         }
 
@@ -265,7 +265,7 @@ else if (builtin.link_libc or builtin.os == .linux)
 
         fn releaseSlow(self: *Mutex) void {
             @setCold(true);
-            
+
             // try and lock the LFIO queue to pop a node off,
             // stopping altogether if its already locked or the queue is empty
             var state = @atomicLoad(usize, &self.state, .Monotonic);
@@ -293,9 +293,10 @@ else if (builtin.link_libc or builtin.os == .linux)
         }
     }
 
-// for platforms without a known OS blocking
-// primitive, default to SpinLock for correctness
-else SpinLock;
+    // for platforms without a known OS blocking
+    // primitive, default to SpinLock for correctness
+else
+    SpinLock;
 
 const TestContext = struct {
     mutex: *Mutex,

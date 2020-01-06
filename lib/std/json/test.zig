@@ -22,7 +22,7 @@ fn err(comptime s: []const u8) void {
     const allocator = &std.heap.FixedBufferAllocator.init(&mem_buffer).allocator;
     var p = std.json.Parser.init(allocator, false);
 
-    if(p.parse(s)) |_| {
+    if (p.parse(s)) |_| {
         unreachable;
     } else |_| {}
 }
@@ -33,7 +33,7 @@ fn any(comptime s: []const u8) void {
     var mem_buffer: [1024 * 20]u8 = undefined;
     const allocator = &std.heap.FixedBufferAllocator.init(&mem_buffer).allocator;
     var p = std.json.Parser.init(allocator, false);
-    
+
     _ = p.parse(s) catch {};
 }
 
@@ -44,7 +44,7 @@ fn anyStreamingErrNonStreaming(comptime s: []const u8) void {
     const allocator = &std.heap.FixedBufferAllocator.init(&mem_buffer).allocator;
     var p = std.json.Parser.init(allocator, false);
 
-    if(p.parse(s)) |_| {
+    if (p.parse(s)) |_| {
         unreachable;
     } else |_| {}
 }
@@ -1742,9 +1742,9 @@ test "i_number_double_huge_neg_exp" {
 test "i_number_huge_exp" {
     return error.SkipZigTest;
     // FIXME Integer overflow in parseFloat
-//     any(
-//         \\[0.4e00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]
-//     );
+    //     any(
+    //         \\[0.4e00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]
+    //     );
 }
 
 test "i_number_neg_int_huge_exp" {

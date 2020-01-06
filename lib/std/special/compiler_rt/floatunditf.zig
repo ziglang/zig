@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 const is_test = builtin.is_test;
 const std = @import("std");
 
-pub extern fn __floatunditf(a: u128) f128 {
+pub fn __floatunditf(a: u128) callconv(.C) f128 {
     @setRuntimeSafety(is_test);
 
     if (a == 0) {

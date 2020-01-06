@@ -12,31 +12,31 @@ const ConditionalOperator = enum {
     Gt,
 };
 
-pub nakedcc fn __aeabi_dcmpeq() noreturn {
+pub fn __aeabi_dcmpeq() callconv(.Naked) noreturn {
     @setRuntimeSafety(false);
     @call(.{ .modifier = .always_inline }, aeabi_dcmp, .{.Eq});
     unreachable;
 }
 
-pub nakedcc fn __aeabi_dcmplt() noreturn {
+pub fn __aeabi_dcmplt() callconv(.Naked) noreturn {
     @setRuntimeSafety(false);
     @call(.{ .modifier = .always_inline }, aeabi_dcmp, .{.Lt});
     unreachable;
 }
 
-pub nakedcc fn __aeabi_dcmple() noreturn {
+pub fn __aeabi_dcmple() callconv(.Naked) noreturn {
     @setRuntimeSafety(false);
     @call(.{ .modifier = .always_inline }, aeabi_dcmp, .{.Le});
     unreachable;
 }
 
-pub nakedcc fn __aeabi_dcmpge() noreturn {
+pub fn __aeabi_dcmpge() callconv(.Naked) noreturn {
     @setRuntimeSafety(false);
     @call(.{ .modifier = .always_inline }, aeabi_dcmp, .{.Ge});
     unreachable;
 }
 
-pub nakedcc fn __aeabi_dcmpgt() noreturn {
+pub fn __aeabi_dcmpgt() callconv(.Naked) noreturn {
     @setRuntimeSafety(false);
     @call(.{ .modifier = .always_inline }, aeabi_dcmp, .{.Gt});
     unreachable;

@@ -11,7 +11,7 @@ const CToken = ctok.CToken;
 const mem = std.mem;
 const math = std.math;
 
-const CallingConvention = std.builtin.TypeInfo.CallingConvention;
+const CallingConvention = std.builtin.CallingConvention;
 
 pub const ClangErrMsg = Stage2ErrorMsg;
 
@@ -3690,6 +3690,7 @@ fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: *ast.Node, proto_a
         .lib_name = null,
         .align_expr = null,
         .section_expr = null,
+        .callconv_expr = null,
     };
 
     const block = try transCreateNodeBlock(c, null);
@@ -4141,6 +4142,11 @@ fn transCC(
     switch (clang_cc) {
         .C => return CallingConvention.C,
         .X86StdCall => return CallingConvention.Stdcall,
+        .X86FastCall => return CallingConvention.Fastcall,
+        .X86VectorCall, .AArch64VectorCall => return CallingConvention.Vectorcall,
+        .X86ThisCall => return CallingConvention.Thiscall,
+        .AAPCS => return CallingConvention.AAPCS,
+        .AAPCS_VFP => return CallingConvention.AAPCSVFP,
         else => return revertAndWarn(
             rp,
             error.UnsupportedType,
@@ -4189,14 +4195,13 @@ fn finishTransFnProto(
     is_pub: bool,
 ) !*ast.Node.FnProto {
     const is_export = if (fn_decl_context) |ctx| ctx.is_export else false;
-    const is_extern = if (fn_decl_context) |ctx| !ctx.has_body else true;
+    const is_extern = if (fn_decl_context) |ctx| !ctx.has_body else false;
 
     // TODO check for always_inline attribute
     // TODO check for align attribute
 
     // pub extern fn name(...) T
     const pub_tok = if (is_pub) try appendToken(rp.c, .Keyword_pub, "pub") else null;
-    const cc_tok = if (cc == .Stdcall) try appendToken(rp.c, .Keyword_stdcallcc, "stdcallcc") else null;
     const extern_export_inline_tok = if (is_export)
         try appendToken(rp.c, .Keyword_export, "export")
     else if (cc == .C and is_extern)
@@ -4303,6 +4308,14 @@ fn finishTransFnProto(
         break :blk null;
     };
 
+    const callconv_expr = if ((is_export or is_extern) and cc == .C) null else blk: {
+        _ = try appendToken(rp.c, .Keyword_callconv, "callconv");
+        _ = try appendToken(rp.c, .LParen, "(");
+        const expr = try transCreateNodeEnumLiteral(rp.c, @tagName(cc));
+        _ = try appendToken(rp.c, .RParen, ")");
+        break :blk expr;
+    };
+
     const return_type_node = blk: {
         if (ZigClangFunctionType_getNoReturnAttr(fn_ty)) {
             break :blk try transCreateNodeIdentifier(rp.c, "noreturn");
@@ -4333,11 +4346,12 @@ fn finishTransFnProto(
         .return_type = .{ .Explicit = return_type_node },
         .var_args_token = null, // TODO this field is broken in the AST data model
         .extern_export_inline_token = extern_export_inline_tok,
-        .cc_token = cc_tok,
+        .cc_token = null,
         .body_node = null,
         .lib_name = null,
         .align_expr = align_expr,
         .section_expr = linksection_expr,
+        .callconv_expr = callconv_expr,
     };
     return fn_proto;
 }
@@ -4686,6 +4700,7 @@ fn transMacroFnDefine(c: *Context, it: *ctok.TokenList.Iterator, name: []const u
         .lib_name = null,
         .align_expr = null,
         .section_expr = null,
+        .callconv_expr = null,
     };
 
     const block = try transCreateNodeBlock(c, null);

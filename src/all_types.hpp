@@ -57,6 +57,23 @@ enum PtrLen {
     PtrLenC,
 };
 
+enum CallingConvention {
+    CallingConventionUnspecified,
+    CallingConventionC,
+    CallingConventionCold,
+    CallingConventionNaked,
+    CallingConventionAsync,
+    CallingConventionInterrupt,
+    CallingConventionSignal,
+    CallingConventionStdcall,
+    CallingConventionFastcall,
+    CallingConventionVectorcall,
+    CallingConventionThiscall,
+    CallingConventionAPCS,
+    CallingConventionAAPCS,
+    CallingConventionAAPCSVFP,
+};
+
 // This one corresponds to the builtin.zig enum.
 enum BuiltinPtrSize {
     BuiltinPtrSizeOne,
@@ -398,6 +415,7 @@ struct LazyValueFnType {
     IrInstruction *align_inst; // can be null
     IrInstruction *return_type;
 
+    CallingConvention cc;
     bool is_generic;
 };
 
@@ -612,15 +630,6 @@ enum NodeType {
     NodeTypeVarFieldType,
 };
 
-enum CallingConvention {
-    CallingConventionUnspecified,
-    CallingConventionC,
-    CallingConventionCold,
-    CallingConventionNaked,
-    CallingConventionStdcall,
-    CallingConventionAsync,
-};
-
 enum FnInline {
     FnInlineAuto,
     FnInlineAlways,
@@ -639,10 +648,12 @@ struct AstNodeFnProto {
     AstNode *align_expr;
     // populated if the "section(S)" is present
     AstNode *section_expr;
+    // populated if the "callconv(S)" is present
+    AstNode *callconv_expr;
     Buf doc_comments;
 
     FnInline fn_inline;
-    CallingConvention cc;
+    bool is_async;
 
     VisibMod visib_mod;
     bool auto_err_set;
@@ -3549,6 +3560,7 @@ struct IrInstructionFnProto {
 
     IrInstruction **param_types;
     IrInstruction *align_value;
+    IrInstruction *callconv_value;
     IrInstruction *return_type;
     bool is_var_args;
 };

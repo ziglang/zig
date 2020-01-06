@@ -4,7 +4,7 @@ const std = @import("std");
 const twop52: f64 = 0x1.0p52;
 const twop32: f64 = 0x1.0p32;
 
-pub extern fn __floatdidf(a: i64) f64 {
+pub fn __floatdidf(a: i64) callconv(.C) f64 {
     @setRuntimeSafety(builtin.is_test);
 
     if (a == 0) return 0;

@@ -4,7 +4,7 @@ const maxInt = std.math.maxInt;
 
 const implicitBit = @as(u64, 1) << 52;
 
-pub extern fn __floatunsidf(arg: u32) f64 {
+pub fn __floatunsidf(arg: u32) callconv(.C) f64 {
     @setRuntimeSafety(builtin.is_test);
 
     if (arg == 0) return 0.0;

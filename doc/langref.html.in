@@ -2829,7 +2829,7 @@ test "@tagName" {
       <p>
       By default, enums are not guaranteed to be compatible with the C ABI:
       </p>
-      {#code_begin|obj_err|parameter of type 'Foo' not allowed in function with calling convention 'ccc'#}
+      {#code_begin|obj_err|parameter of type 'Foo' not allowed in function with calling convention 'C'#}
 const Foo = enum { A, B, C };
 export fn entry(foo: Foo) void { }
       {#code_end#}
@@ -3974,7 +3974,7 @@ test "noreturn" {
       <p>Another use case for {#syntax#}noreturn{#endsyntax#} is the {#syntax#}exit{#endsyntax#} function:</p>
       {#code_begin|test#}
       {#target_windows#}
-pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: c_uint) noreturn;
+pub extern "kernel32" fn ExitProcess(exit_code: c_uint) callconv(.Stdcall) noreturn;
 
 test "foo" {
     const value = bar() catch ExitProcess(1);
@@ -4008,8 +4008,8 @@ export fn sub(a: i8, b: i8) i8 { return a - b; }
 // The extern specifier is used to declare a function that will be resolved
 // at link time, when linking statically, or at runtime, when linking
 // dynamically.
-// The stdcallcc specifier changes the calling convention of the function.
-extern "kernel32" stdcallcc fn ExitProcess(exit_code: u32) noreturn;
+// The callconv specifier changes the calling convention of the function.
+extern "kernel32" fn ExitProcess(exit_code: u32) callconv(.Stdcall) noreturn;
 extern "c" fn atan2(a: f64, b: f64) f64;
 
 // The @setCold builtin tells the optimizer that a function is rarely called.
@@ -4018,9 +4018,9 @@ fn abort() noreturn {
     while (true) {}
 }
 
-// The nakedcc specifier makes a function not have any function prologue or epilogue.
+// The naked calling convention makes a function not have any function prologue or epilogue.
 // This can be useful when integrating with assembly.
-nakedcc fn _start() noreturn {
+fn _start() callconv(.Naked) noreturn {
     abort();
 }
 
@@ -7735,7 +7735,7 @@ const Derp = @OpaqueType();
 const Wat = @OpaqueType();
 
 extern fn bar(d: *Derp) void;
-export fn foo(w: *Wat) void {
+fn foo(w: *Wat) callconv(.C) void {
     bar(w);
 }
 
@@ -10382,9 +10382,7 @@ LinkSection &lt;- KEYWORD_linksection LPAREN Expr RPAREN
 
 # Fn specific
 FnCC
-    &lt;- KEYWORD_nakedcc
-     / KEYWORD_stdcallcc
-     / KEYWORD_extern
+    &lt;- KEYWORD_extern
      / KEYWORD_async
 
 ParamDecl &lt;- (KEYWORD_noalias / KEYWORD_comptime)? (IDENTIFIER COLON)? ParamType
@@ -10648,7 +10646,6 @@ KEYWORD_fn          &lt;- 'fn'          end_of_word
 KEYWORD_for         &lt;- 'for'         end_of_word
 KEYWORD_if          &lt;- 'if'          end_of_word
 KEYWORD_inline      &lt;- 'inline'      end_of_word
-KEYWORD_nakedcc     &lt;- 'nakedcc'     end_of_word
 KEYWORD_noalias     &lt;- 'noalias'     end_of_word
 KEYWORD_null        &lt;- 'null'        end_of_word
 KEYWORD_or          &lt;- 'or'          end_of_word
@@ -10659,7 +10656,6 @@ KEYWORD_pub         &lt;- 'pub'         end_of_word
 KEYWORD_resume      &lt;- 'resume'      end_of_word
 KEYWORD_return      &lt;- 'return'      end_of_word
 KEYWORD_linksection &lt;- 'linksection' end_of_word
-KEYWORD_stdcallcc   &lt;- 'stdcallcc'   end_of_word
 KEYWORD_struct      &lt;- 'struct'      end_of_word
 KEYWORD_suspend     &lt;- 'suspend'     end_of_word
 KEYWORD_switch      &lt;- 'switch'      end_of_word
@@ -10681,10 +10677,10 @@ keyword &lt;- KEYWORD_align / KEYWORD_and / KEYWORD_allowzero / KEYWORD_asm
          / KEYWORD_defer / KEYWORD_else / KEYWORD_enum / KEYWORD_errdefer
          / KEYWORD_error / KEYWORD_export / KEYWORD_extern / KEYWORD_false
          / KEYWORD_fn / KEYWORD_for / KEYWORD_if / KEYWORD_inline
-         / KEYWORD_nakedcc / KEYWORD_noalias / KEYWORD_null / KEYWORD_or
+         / KEYWORD_noalias / KEYWORD_null / KEYWORD_or
          / KEYWORD_orelse / KEYWORD_packed / KEYWORD_promise / KEYWORD_pub
          / KEYWORD_resume / KEYWORD_return / KEYWORD_linksection
-         / KEYWORD_stdcallcc / KEYWORD_struct / KEYWORD_suspend
+         / KEYWORD_struct / KEYWORD_suspend
          / KEYWORD_switch / KEYWORD_test / KEYWORD_threadlocal / KEYWORD_true / KEYWORD_try
          / KEYWORD_undefined / KEYWORD_union / KEYWORD_unreachable
          / KEYWORD_usingnamespace / KEYWORD_var / KEYWORD_volatile / KEYWORD_while</code></pre>

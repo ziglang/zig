@@ -166,7 +166,7 @@ test "sigaltstack" {
 // analyzed
 const dl_phdr_info = if (@hasDecl(os, "dl_phdr_info")) os.dl_phdr_info else c_void;
 
-export fn iter_fn(info: *dl_phdr_info, size: usize, data: ?*usize) i32 {
+fn iter_fn(info: *dl_phdr_info, size: usize, data: ?*usize) callconv(.C) i32 {
     if (builtin.os == .windows or builtin.os == .wasi or builtin.os == .macosx)
         return 0;
 
