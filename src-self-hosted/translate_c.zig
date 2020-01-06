@@ -4195,7 +4195,7 @@ fn finishTransFnProto(
     is_pub: bool,
 ) !*ast.Node.FnProto {
     const is_export = if (fn_decl_context) |ctx| ctx.is_export else false;
-    const is_extern = if (fn_decl_context) |ctx| !ctx.has_body else true;
+    const is_extern = if (fn_decl_context) |ctx| !ctx.has_body else false;
 
     // TODO check for always_inline attribute
     // TODO check for align attribute
@@ -4308,7 +4308,7 @@ fn finishTransFnProto(
         break :blk null;
     };
 
-    const callconv_expr = if (extern_export_inline_tok != null) null else blk: {
+    const callconv_expr = if ((is_export or is_extern) and cc == .C) null else blk: {
         _ = try appendToken(rp.c, .Keyword_callconv, "callconv");
         _ = try appendToken(rp.c, .LParen, "(");
         const expr = try transCreateNodeEnumLiteral(rp.c, @tagName(cc));
