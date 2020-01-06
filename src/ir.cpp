@@ -22601,40 +22601,40 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
                     // is_var_args: bool
                     ensure_field_index(fn_decl_val->type, "is_var_args", 2);
                     bool is_varargs = fn_node->is_var_args;
-                    fn_decl_fields[3]->special = ConstValSpecialStatic;
-                    fn_decl_fields[3]->type = ira->codegen->builtin_types.entry_bool;
-                    fn_decl_fields[3]->data.x_bool = is_varargs;
+                    fn_decl_fields[2]->special = ConstValSpecialStatic;
+                    fn_decl_fields[2]->type = ira->codegen->builtin_types.entry_bool;
+                    fn_decl_fields[2]->data.x_bool = is_varargs;
                     // is_extern: bool
                     ensure_field_index(fn_decl_val->type, "is_extern", 3);
-                    fn_decl_fields[4]->special = ConstValSpecialStatic;
-                    fn_decl_fields[4]->type = ira->codegen->builtin_types.entry_bool;
-                    fn_decl_fields[4]->data.x_bool = fn_node->is_extern;
+                    fn_decl_fields[3]->special = ConstValSpecialStatic;
+                    fn_decl_fields[3]->type = ira->codegen->builtin_types.entry_bool;
+                    fn_decl_fields[3]->data.x_bool = fn_node->is_extern;
                     // is_export: bool
                     ensure_field_index(fn_decl_val->type, "is_export", 4);
-                    fn_decl_fields[5]->special = ConstValSpecialStatic;
-                    fn_decl_fields[5]->type = ira->codegen->builtin_types.entry_bool;
-                    fn_decl_fields[5]->data.x_bool = fn_node->is_export;
+                    fn_decl_fields[4]->special = ConstValSpecialStatic;
+                    fn_decl_fields[4]->type = ira->codegen->builtin_types.entry_bool;
+                    fn_decl_fields[4]->data.x_bool = fn_node->is_export;
                     // lib_name: ?[]const u8
                     ensure_field_index(fn_decl_val->type, "lib_name", 5);
-                    fn_decl_fields[6]->special = ConstValSpecialStatic;
+                    fn_decl_fields[5]->special = ConstValSpecialStatic;
                     ZigType *u8_ptr = get_pointer_to_type_extra(
                         ira->codegen, ira->codegen->builtin_types.entry_u8,
                         true, false, PtrLenUnknown,
                         0, 0, 0, false);
-                    fn_decl_fields[6]->type = get_optional_type(ira->codegen, get_slice_type(ira->codegen, u8_ptr));
+                    fn_decl_fields[5]->type = get_optional_type(ira->codegen, get_slice_type(ira->codegen, u8_ptr));
                     if (fn_node->is_extern && fn_node->lib_name != nullptr && buf_len(fn_node->lib_name) > 0) {
-                        fn_decl_fields[6]->data.x_optional = create_const_vals(1);
+                        fn_decl_fields[5]->data.x_optional = create_const_vals(1);
                         ZigValue *lib_name = create_const_str_lit(ira->codegen, fn_node->lib_name)->data.x_ptr.data.ref.pointee;
-                        init_const_slice(ira->codegen, fn_decl_fields[6]->data.x_optional, lib_name, 0,
+                        init_const_slice(ira->codegen, fn_decl_fields[5]->data.x_optional, lib_name, 0,
                                 buf_len(fn_node->lib_name), true);
                     } else {
-                        fn_decl_fields[6]->data.x_optional = nullptr;
+                        fn_decl_fields[5]->data.x_optional = nullptr;
                     }
                     // return_type: type
                     ensure_field_index(fn_decl_val->type, "return_type", 6);
-                    fn_decl_fields[7]->special = ConstValSpecialStatic;
-                    fn_decl_fields[7]->type = ira->codegen->builtin_types.entry_type;
-                    fn_decl_fields[7]->data.x_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
+                    fn_decl_fields[6]->special = ConstValSpecialStatic;
+                    fn_decl_fields[6]->type = ira->codegen->builtin_types.entry_type;
+                    fn_decl_fields[6]->data.x_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
                     // arg_names: [][] const u8
                     ensure_field_index(fn_decl_val->type, "arg_names", 7);
                     size_t fn_arg_count = fn_entry->variable_list.length;
@@ -22645,7 +22645,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
                     fn_arg_name_array->data.x_array.special = ConstArraySpecialNone;
                     fn_arg_name_array->data.x_array.data.s_none.elements = create_const_vals(fn_arg_count);
 
-                    init_const_slice(ira->codegen, fn_decl_fields[8], fn_arg_name_array, 0, fn_arg_count, false);
+                    init_const_slice(ira->codegen, fn_decl_fields[7], fn_arg_name_array, 0, fn_arg_count, false);
 
                     for (size_t fn_arg_index = 0; fn_arg_index < fn_arg_count; fn_arg_index++) {
                         ZigVar *arg_var = fn_entry->variable_list.at(fn_arg_index);
