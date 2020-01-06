@@ -1451,8 +1451,6 @@ ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
 ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     ZigType *fn_type = new_type_table_entry(ZigTypeIdFn);
     buf_resize(&fn_type->name, 0);
-    if (fn_type->data.fn.fn_type_id.cc == CallingConventionC)
-        buf_append_str(&fn_type->name, "extern ");
     buf_appendf(&fn_type->name, "fn(");
     size_t i = 0;
     for (; i < fn_type_id->next_param_index; i += 1) {
@@ -1465,7 +1463,7 @@ ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         buf_appendf(&fn_type->name, "%svar", comma_str);
     }
     buf_append_str(&fn_type->name, ")");
-    if (fn_type_id->cc != CallingConventionUnspecified && fn_type_id->cc != CallingConventionC) {
+    if (fn_type_id->cc != CallingConventionUnspecified) {
         buf_appendf(&fn_type->name, " callconv(%s)", calling_convention_name(fn_type_id->cc));
     }
     buf_append_str(&fn_type->name, " var");
@@ -1479,10 +1477,6 @@ ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
 }
 
 CallingConvention cc_from_fn_proto(AstNodeFnProto *fn_proto) {
-    if (fn_proto->is_nakedcc)
-        return CallingConventionNaked;
-    if (fn_proto->is_stdcallcc)
-        return CallingConventionStdcall;
     if (fn_proto->is_async)
         return CallingConventionAsync;
     // Compatible with the C ABI
@@ -1764,13 +1758,15 @@ ZigType *get_auto_err_set_type(CodeGen *g, ZigFn *fn_entry) {
     return err_set_type;
 }
 
-static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_scope, ZigFn *fn_entry) {
+static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_scope, ZigFn *fn_entry,
+        CallingConvention cc)
+{
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
     Error err;
 
     FnTypeId fn_type_id = {0};
-    init_fn_type_id(&fn_type_id, proto_node, fn_entry->cc, proto_node->data.fn_proto.params.length);
+    init_fn_type_id(&fn_type_id, proto_node, cc, proto_node->data.fn_proto.params.length);
 
     for (; fn_type_id.next_param_index < fn_type_id.param_count; fn_type_id.next_param_index += 1) {
         AstNode *param_node = fn_proto->params.at(fn_type_id.next_param_index);
@@ -3432,7 +3428,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
 
         Scope *child_scope = fn_table_entry->fndef_scope ? &fn_table_entry->fndef_scope->base : tld_fn->base.parent_scope;
 
-        fn_table_entry->cc = cc_from_fn_proto(fn_proto);
+        CallingConvention cc;
         if (fn_proto->callconv_expr != nullptr) {
             ZigType *cc_enum_value = get_builtin_type(g, "CallingConvention");
 
@@ -3444,7 +3440,9 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                 return;
             }
 
-            fn_table_entry->cc = (CallingConvention)bigint_as_u32(&result_val->data.x_enum_tag);
+            cc = (CallingConvention)bigint_as_u32(&result_val->data.x_enum_tag);
+        } else {
+            cc = cc_from_fn_proto(fn_proto);
         }
 
         if (fn_proto->section_expr != nullptr) {
@@ -3455,7 +3453,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             }
         }
 
-        fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope, fn_table_entry);
+        fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope, fn_table_entry, cc);
 
         if (type_is_invalid(fn_table_entry->type_entry)) {
             tld_fn->base.resolution = TldResolutionInvalid;

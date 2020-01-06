@@ -10,13 +10,15 @@ test "zig fmt: change @typeOf to @TypeOf" {
 }
 
 // TODO: Remove nakedcc/stdcallcc once zig 0.6.0 is released. See https://github.com/ziglang/zig/pull/3977
-test "zig fmt: convert nakedcc/stdcallcc into callconv(...)" {
+test "zig fmt: convert extern/nakedcc/stdcallcc into callconv(...)" {
     try testTransform(
         \\nakedcc fn foo1() void {}
         \\stdcallcc fn foo2() void {}
+        \\extern fn foo3() void {}
     ,
         \\fn foo1() callconv(.Naked) void {}
         \\fn foo2() callconv(.Stdcall) void {}
+        \\fn foo3() callconv(.C) void {}
         \\
     );
 }

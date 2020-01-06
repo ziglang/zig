@@ -2117,20 +2117,10 @@ static AstNode *ast_parse_callconv(ParseContext *pc) {
 }
 
 // FnCC
-//     <- KEYWORD_nakedcc
-//      / KEYWORD_stdcallcc
-//      / KEYWORD_extern
+//     <- KEYWORD_extern
 //      / KEYWORD_async
 static Optional<AstNodeFnProto> ast_parse_fn_cc(ParseContext *pc) {
     AstNodeFnProto res = {};
-    if (eat_token_if(pc, TokenIdKeywordNakedCC) != nullptr) {
-        res.is_nakedcc = true;
-        return Optional<AstNodeFnProto>::some(res);
-    }
-    if (eat_token_if(pc, TokenIdKeywordStdcallCC) != nullptr) {
-        res.is_stdcallcc = true;
-        return Optional<AstNodeFnProto>::some(res);
-    }
     if (eat_token_if(pc, TokenIdKeywordAsync) != nullptr) {
         res.is_async = true;
         return Optional<AstNodeFnProto>::some(res);

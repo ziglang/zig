@@ -127,7 +127,6 @@ static const struct ZigKeyword zig_keywords[] = {
     {"for", TokenIdKeywordFor},
     {"if", TokenIdKeywordIf},
     {"inline", TokenIdKeywordInline},
-    {"nakedcc", TokenIdKeywordNakedCC},
     {"noalias", TokenIdKeywordNoAlias},
     {"noasync", TokenIdKeywordNoAsync},
     {"noinline", TokenIdKeywordNoInline},
@@ -139,7 +138,6 @@ static const struct ZigKeyword zig_keywords[] = {
     {"resume", TokenIdKeywordResume},
     {"return", TokenIdKeywordReturn},
     {"linksection", TokenIdKeywordLinkSection},
-    {"stdcallcc", TokenIdKeywordStdcallCC},
     {"struct", TokenIdKeywordStruct},
     {"suspend", TokenIdKeywordSuspend},
     {"switch", TokenIdKeywordSwitch},
@@ -1562,7 +1560,6 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordFor: return "for";
         case TokenIdKeywordIf: return "if";
         case TokenIdKeywordInline: return "inline";
-        case TokenIdKeywordNakedCC: return "nakedcc";
         case TokenIdKeywordNoAlias: return "noalias";
         case TokenIdKeywordNoAsync: return "noasync";
         case TokenIdKeywordNoInline: return "noinline";
@@ -1573,7 +1570,6 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordPub: return "pub";
         case TokenIdKeywordReturn: return "return";
         case TokenIdKeywordLinkSection: return "linksection";
-        case TokenIdKeywordStdcallCC: return "stdcallcc";
         case TokenIdKeywordStruct: return "struct";
         case TokenIdKeywordSwitch: return "switch";
         case TokenIdKeywordTest: return "test";

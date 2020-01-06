@@ -18263,7 +18263,6 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstruction *source_i
         buf_init_from_buf(&impl_fn->symbol_name, &fn_entry->symbol_name);
         impl_fn->fndef_scope = create_fndef_scope(ira->codegen, impl_fn->body_node, parent_scope, impl_fn);
         impl_fn->child_scope = &impl_fn->fndef_scope->base;
-        impl_fn->cc = fn_entry->cc;
         FnTypeId inst_fn_type_id = {0};
         init_fn_type_id(&inst_fn_type_id, fn_proto_node, fn_type_id->cc, new_fn_arg_count);
         inst_fn_type_id.param_count = 0;
@@ -22599,29 +22598,24 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
                     fn_decl_fields[1]->special = ConstValSpecialStatic;
                     fn_decl_fields[1]->type = type_info_fn_decl_inline_type;
                     bigint_init_unsigned(&fn_decl_fields[1]->data.x_enum_tag, fn_entry->fn_inline);
-                    // calling_convention: TypeInfo.CallingConvention
-                    ensure_field_index(fn_decl_val->type, "calling_convention", 2);
-                    fn_decl_fields[2]->special = ConstValSpecialStatic;
-                    fn_decl_fields[2]->type = get_builtin_type(ira->codegen, "CallingConvention");
-                    bigint_init_unsigned(&fn_decl_fields[2]->data.x_enum_tag, fn_entry->cc);
                     // is_var_args: bool
-                    ensure_field_index(fn_decl_val->type, "is_var_args", 3);
+                    ensure_field_index(fn_decl_val->type, "is_var_args", 2);
                     bool is_varargs = fn_node->is_var_args;
                     fn_decl_fields[3]->special = ConstValSpecialStatic;
                     fn_decl_fields[3]->type = ira->codegen->builtin_types.entry_bool;
                     fn_decl_fields[3]->data.x_bool = is_varargs;
                     // is_extern: bool
-                    ensure_field_index(fn_decl_val->type, "is_extern", 4);
+                    ensure_field_index(fn_decl_val->type, "is_extern", 3);
                     fn_decl_fields[4]->special = ConstValSpecialStatic;
                     fn_decl_fields[4]->type = ira->codegen->builtin_types.entry_bool;
                     fn_decl_fields[4]->data.x_bool = fn_node->is_extern;
                     // is_export: bool
-                    ensure_field_index(fn_decl_val->type, "is_export", 5);
+                    ensure_field_index(fn_decl_val->type, "is_export", 4);
                     fn_decl_fields[5]->special = ConstValSpecialStatic;
                     fn_decl_fields[5]->type = ira->codegen->builtin_types.entry_bool;
                     fn_decl_fields[5]->data.x_bool = fn_node->is_export;
                     // lib_name: ?[]const u8
-                    ensure_field_index(fn_decl_val->type, "lib_name", 6);
+                    ensure_field_index(fn_decl_val->type, "lib_name", 5);
                     fn_decl_fields[6]->special = ConstValSpecialStatic;
                     ZigType *u8_ptr = get_pointer_to_type_extra(
                         ira->codegen, ira->codegen->builtin_types.entry_u8,
@@ -22637,12 +22631,12 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInstruction *source_instr
                         fn_decl_fields[6]->data.x_optional = nullptr;
                     }
                     // return_type: type
-                    ensure_field_index(fn_decl_val->type, "return_type", 7);
+                    ensure_field_index(fn_decl_val->type, "return_type", 6);
                     fn_decl_fields[7]->special = ConstValSpecialStatic;
                     fn_decl_fields[7]->type = ira->codegen->builtin_types.entry_type;
                     fn_decl_fields[7]->data.x_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
                     // arg_names: [][] const u8
-                    ensure_field_index(fn_decl_val->type, "arg_names", 8);
+                    ensure_field_index(fn_decl_val->type, "arg_names", 7);
                     size_t fn_arg_count = fn_entry->variable_list.length;
                     ZigValue *fn_arg_name_array = create_const_vals(1);
                     fn_arg_name_array->special = ConstValSpecialStatic;

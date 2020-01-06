@@ -653,8 +653,6 @@ struct AstNodeFnProto {
     Buf doc_comments;
 
     FnInline fn_inline;
-    bool is_nakedcc;
-    bool is_stdcallcc;
     bool is_async;
 
     VisibMod visib_mod;
@@ -1610,7 +1608,6 @@ struct ZigFn {
     Buf **param_names;
     IrInstruction *err_code_spill;
     AstNode *assumed_non_async;
-    CallingConvention cc;
 
     AstNode *fn_no_inline_set_node;
     AstNode *fn_static_eval_set_node;

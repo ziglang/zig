@@ -322,7 +322,6 @@ pub const TypeInfo = union(enum) {
             pub const FnDecl = struct {
                 fn_type: type,
                 inline_type: Inline,
-                calling_convention: CallingConvention,
                 is_var_args: bool,
                 is_extern: bool,
                 is_export: bool,

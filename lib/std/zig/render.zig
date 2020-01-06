@@ -1311,17 +1311,22 @@ fn renderExpression(
                 try renderToken(tree, stream, visib_token_index, indent, start_col, Space.Space); // pub
             }
 
+            // Some extra machinery is needed to rewrite the old-style cc
+            // notation to the new callconv one
+            var cc_rewrite_str: ?[*:0]const u8 = null;
             if (fn_proto.extern_export_inline_token) |extern_export_inline_token| {
-                try renderToken(tree, stream, extern_export_inline_token, indent, start_col, Space.Space); // extern/export
+                const tok = tree.tokens.at(extern_export_inline_token);
+                if (tok.id != .Keyword_extern or fn_proto.body_node == null) {
+                    try renderToken(tree, stream, extern_export_inline_token, indent, start_col, Space.Space); // extern/export
+                } else {
+                    cc_rewrite_str = ".C";
+                }
             }
 
             if (fn_proto.lib_name) |lib_name| {
                 try renderExpression(allocator, stream, tree, indent, start_col, lib_name, Space.Space);
             }
 
-            // Some extra machinery is needed to rewrite the old-style cc
-            // notation to the new callconv one
-            var cc_rewrite_str: ?[*:0]const u8 = null;
             if (fn_proto.cc_token) |cc_token| {
                 var str = tree.tokenSlicePtr(tree.tokens.at(cc_token));
                 if (mem.eql(u8, str, "stdcallcc")) {
@@ -1405,7 +1410,7 @@ fn renderExpression(
                 const callconv_lparen = tree.prevToken(callconv_expr.firstToken());
                 const callconv_kw = tree.prevToken(callconv_lparen);
 
-                try renderToken(tree, stream, callconv_kw, indent, start_col, Space.None); // section
+                try renderToken(tree, stream, callconv_kw, indent, start_col, Space.None); // callconv
                 try renderToken(tree, stream, callconv_lparen, indent, start_col, Space.None); // (
                 try renderExpression(allocator, stream, tree, indent, start_col, callconv_expr, Space.None);
                 try renderToken(tree, stream, callconv_rparen, indent, start_col, Space.Space); // )
