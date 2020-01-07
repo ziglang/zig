@@ -188,8 +188,7 @@ fn printName(
 ) !void {
     // This doesn't use the name since we can just write to the stream.
     for (name.labels) |label| {
-        try stream.print("{}", label);
-        try stream.print(".");
+        try stream.print("{}.", .{label});
     }
 }
 
@@ -204,7 +203,7 @@ pub fn prettyRData(allocator: *std.mem.Allocator, rdata: DNSRData) ![]const u8 {
 
     switch (rdata) {
         .A, .AAAA => |addr| {
-            try stream.print("{}", addr);
+            try stream.print("{}", .{addr});
         },
 
         .NS, .MD, .MF, .MB, .MG, .MR, .CNAME, .PTR => |name| try printName(stream, name),
@@ -215,19 +214,18 @@ pub fn prettyRData(allocator: *std.mem.Allocator, rdata: DNSRData) ![]const u8 {
             try printName(stream, soa.rname);
             try stream.write(" ");
 
-            try stream.print(
-                "{} {} {} {} {}",
+            try stream.print("{} {} {} {} {}", .{
                 soa.serial,
                 soa.refresh,
                 soa.retry,
                 soa.expire,
                 soa.minimum,
-            );
+            });
             break :blk;
         },
 
         .MX => |mxdata| blk: {
-            try stream.print("{} ", mxdata.preference);
+            try stream.print("{} ", .{mxdata.preference});
             try printName(stream, mxdata.exchange);
         },
 
