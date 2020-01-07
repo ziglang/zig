@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const mem = std.mem;
 
 pub const rdata = @import("dns/rdata.zig");
 pub const RData = rdata.DNSRData;
@@ -61,21 +62,12 @@ pub const DNSType = enum(u16) {
     pub fn fromStr(str: []const u8) !DNSType {
         if (str.len > 10) return error.Overflow;
 
-        var uppercased = [_]u8{0} ** 10;
+        var uppercased: [10]u8 = undefined;
         toUpper(str, uppercased[0..]);
 
-        var to_compare: [10]u8 = undefined;
         const type_info = @typeInfo(DNSType).Enum;
-
         inline for (type_info.fields) |field| {
-            std.mem.copy(u8, to_compare[0..], field.name);
-
-            // we have to secureZero here because a previous comparison
-            // might have used those zero bytes for itself.
-            std.mem.secureZero(u8, to_compare[field.name.len..]);
-
-            std.debug.assert(uppercased.len == to_compare.len);
-            if (std.mem.eql(u8, &uppercased, &to_compare)) {
+            if (mem.eql(u8, uppercased[0..str.len], field.name)) {
                 return @intToEnum(DNSType, field.value);
             }
         }
