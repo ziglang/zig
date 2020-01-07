@@ -8,6 +8,32 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const VAL = 0xF00D;
     });
 
+    cases.add("anonymous struct & unions",
+        \\typedef struct {
+        \\    union {
+        \\        char x;
+        \\        struct { int y; };
+        \\    };
+        \\} outer;
+        \\void foo(outer *x) { x->y = x->x; }
+    , &[_][]const u8{
+        \\const struct_unnamed_5 = extern struct {
+        \\    y: c_int,
+        \\};
+        \\const union_unnamed_3 = extern union {
+        \\    x: u8,
+        \\    unnamed_4: struct_unnamed_5,
+        \\};
+        \\const struct_unnamed_1 = extern struct {
+        \\    unnamed_2: union_unnamed_3,
+        \\};
+        \\pub const outer = struct_unnamed_1;
+        \\pub export fn foo(arg_x: [*c]outer) void {
+        \\    var x = arg_x;
+        \\    x.*.unnamed_2.unnamed_4.y = @bitCast(c_int, @as(c_uint, x.*.unnamed_2.x));
+        \\}
+    });
+
     cases.add("union initializer",
         \\union { int x; char c[4]; }
         \\  ua = {1},
@@ -1445,21 +1471,25 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("type referenced struct",
-        \\struct Foo {
-        \\    struct Bar{
-        \\        int b;
-        \\    };
-        \\    struct Bar c;
-        \\};
-    , &[_][]const u8{
-        \\pub const struct_Bar = extern struct {
-        \\    b: c_int,
-        \\};
-        \\pub const struct_Foo = extern struct {
-        \\    c: struct_Bar,
-        \\};
-    });
+    if (builtin.os != .windows) {
+        // When clang uses the <arch>-windows-none triple it behaves as MSVC and
+        // interprets the inner `struct Bar` as an anonymous structure
+        cases.add("type referenced struct",
+            \\struct Foo {
+            \\    struct Bar{
+            \\        int b;
+            \\    };
+            \\    struct Bar c;
+            \\};
+        , &[_][]const u8{
+            \\pub const struct_Bar = extern struct {
+            \\    b: c_int,
+            \\};
+            \\pub const struct_Foo = extern struct {
+            \\    c: struct_Bar,
+            \\};
+        });
+    }
 
     cases.add("undefined array global",
         \\int array[100] = {};
