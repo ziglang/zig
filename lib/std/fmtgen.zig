@@ -404,16 +404,16 @@ pub fn formatType(
         },
         .Optional => {
             if (value) |payload| {
-                return @call(.{ .modifier = .always_tail }, formatType, .{ payload, fmt, options, generator, max_depth });
+                return formatType(payload, fmt, options, generator, max_depth);
             } else {
                 return generator.yield("null");
             }
         },
         .ErrorUnion => {
             if (value) |payload| {
-                return @call(.{ .modifier = .always_tail }, formatType, .{ payload, fmt, options, generator, max_depth });
+                return formatType(payload, fmt, options, generator, max_depth);
             } else |err| {
-                return @call(.{ .modifier = .always_tail }, formatType, .{ err, fmt, options, generator, max_depth });
+                return formatType(err, fmt, options, generator, max_depth);
             }
         },
         .ErrorSet => {
@@ -426,33 +426,31 @@ pub fn formatType(
             // }
             generator.yield(@typeName(T));
             generator.yield(".");
-            return @call(.{ .modifier = .always_tail }, formatType, .{ @tagName(value), "", options, generator, max_depth });
+            return generator.yield(@tagName(value));
         },
-        .Union => {
+        .Union => |union_info| {
             // if (comptime std.meta.trait.hasFn("format")(T)) {
             //     return value.format(fmt, options, context, Errors, output);
             // }
-            generator.yield(@typeName(T));
-            if (max_depth == 0) {
-                return generator.yield("{ ... }");
-            }
-            const info = @typeInfo(T).Union;
-            if (info.tag_type) |UnionTagType| {
+            if (union_info.tag_type) |UnionTagType| {
+                generator.yield(@typeName(T));
+                if (max_depth == 0) {
+                    return generator.yield("{ ... }");
+                }
                 generator.yield("{ .");
                 generator.yield(@tagName(@as(UnionTagType, value)));
                 generator.yield(" = ");
-                inline for (info.fields) |u_field| {
+                inline for (union_info.fields) |u_field| {
                     if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
                         formatType(@field(value, u_field.name), "", options, generator, max_depth - 1);
                     }
                 }
                 generator.yield(" }");
             } else {
-                generator.yield("@");
-                return formatInt(@ptrToInt(&value), 16, false, FormatOptions{}, generator);
+                return formatPtr(T, @ptrToInt(&value), generator);
             }
         },
-        .Struct => {
+        .Struct => |struct_info| {
             // if (comptime std.meta.trait.hasFn("format")(T)) {
             //     return value.format(fmt, options, context, Errors, output);
             // }
@@ -460,18 +458,18 @@ pub fn formatType(
             if (max_depth == 0) {
                 return generator.yield("{ ... }");
             }
-            comptime var field_i = 0;
+
             generator.yield("{");
-            inline while (field_i < @memberCount(T)) : (field_i += 1) {
-                if (field_i == 0) {
+            inline for (struct_info.fields) |field, i| {
+                if (i == 0) {
                     generator.yield(" .");
                 } else {
                     generator.yield(", .");
                 }
-                generator.yield(@memberName(T, field_i));
+                generator.yield(field.name);
                 generator.yield(" = ");
 
-                formatType(@field(value, @memberName(T, field_i)), "", options, generator, max_depth - 1);
+                formatType(@field(value, field.name), "", options, generator, max_depth - 1);
             }
             generator.yield(" }");
         },
@@ -484,7 +482,7 @@ pub fn formatType(
                     return formatPtr(T.Child, @ptrToInt(value), generator);
                 },
                 builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
-                    return @call(.{ .modifier = .always_tail }, formatType, .{ value.*, fmt, options, generator, max_depth });
+                    return formatType(value.*, fmt, options, generator, max_depth);
                 },
                 else => return formatPtr(T.Child, @ptrToInt(value), generator),
             },
@@ -522,7 +520,7 @@ pub fn formatType(
                     .sentinel = null,
                 },
             });
-            return @call(.{ .modifier = .always_tail }, formatType, .{ @as(Slice, &value), fmt, options, generator, max_depth });
+            return formatType(@as(Slice, &value), fmt, options, generator, max_depth);
         },
         .Fn => {
             return formatPtr(T, @ptrToInt(value), generator);
@@ -638,7 +636,7 @@ pub fn formatAsciiChar(
     generator: *Generator([]const u8),
 ) void {
     if (std.ascii.isPrint(c))
-        return generator.yield(@as(*const [1]u8, &c)[0..]);
+        return generator.yield(@as(*const [1]u8, &c));
     @panic("FIXME");
     // return format(context, Errors, output, "\\x{x:0<2}", .{c});
 }
@@ -654,7 +652,7 @@ pub fn formatBuf(
     var leftover_padding = if (width > buf.len) (width - buf.len) else return;
     const pad_byte: u8 = options.fill;
     while (leftover_padding > 0) : (leftover_padding -= 1) {
-        generator.yield(@as(*const [1]u8, &pad_byte)[0..1]);
+        generator.yield(@as(*const [1]u8, &pad_byte));
     }
 }
 
@@ -978,15 +976,13 @@ fn formatIntSigned(
 
     const uint = @IntType(false, @TypeOf(value).bit_count);
     if (value < 0) {
-        const minus_sign: u8 = '-';
-        generator.yield(@as(*const [1]u8, &minus_sign)[0..]);
+        generator.yield("-");
         const new_value = @intCast(uint, -(value + 1)) + 1;
         return formatIntUnsigned(new_value, base, uppercase, new_options, generator);
     } else if (options.width == null or options.width.? == 0) {
         return formatIntUnsigned(@intCast(uint, value), base, uppercase, options, generator);
     } else {
-        const plus_sign: u8 = '+';
-        generator.yield(@as(*const [1]u8, &plus_sign)[0..]);
+        generator.yield("+");
         const new_value = @intCast(uint, value);
         return formatIntUnsigned(new_value, base, uppercase, new_options, generator);
     }
@@ -1022,7 +1018,7 @@ fn formatIntUnsigned(
         const zero_byte: u8 = options.fill;
         var leftover_padding = padding - index;
         while (true) {
-            generator.yield(@as(*const [1]u8, &zero_byte)[0..]);
+            generator.yield(@as(*const [1]u8, &zero_byte));
             leftover_padding -= 1;
             if (leftover_padding == 0) break;
         }
