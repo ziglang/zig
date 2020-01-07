@@ -20,6 +20,21 @@ pub fn __truncdfsf2(a: f64) callconv(.C) f32 {
     return truncXfYf2(f32, f64, a);
 }
 
+pub fn __aeabi_d2f(a: f64) callconv(.AAPCS) f32 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __truncdfsf2, .{a});
+}
+
+pub fn __aeabi_d2h(a: f64) callconv(.AAPCS) u16 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __truncdfhf2, .{a});
+}
+
+pub fn __aeabi_f2h(a: f32) callconv(.AAPCS) u16 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __truncsfhf2, .{a});
+}
+
 inline fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t {
     const src_rep_t = @IntType(false, @typeInfo(src_t).Float.bits);
     const dst_rep_t = @IntType(false, @typeInfo(dst_t).Float.bits);

@@ -19,6 +19,11 @@ pub fn __floatundidf(a: u64) callconv(.C) f64 {
     return (@bitCast(f64, high) - twop84_plus_twop52) + @bitCast(f64, low);
 }
 
+pub fn __aeabi_ul2d(arg: u64) callconv(.AAPCS) f64 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __floatundidf, .{arg});
+}
+
 test "import floatundidf" {
     _ = @import("floatundidf_test.zig");
 }

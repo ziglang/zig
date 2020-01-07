@@ -117,6 +117,11 @@ pub fn __gtdf2(a: fp_t, b: fp_t) callconv(.C) c_int {
     return __gedf2(a, b);
 }
 
+pub fn __aeabi_dcmpun(a: fp_t, b: fp_t) callconv(.AAPCS) c_int {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __unorddf2, .{ a, b });
+}
+
 test "import comparedf2" {
     _ = @import("comparedf2_test.zig");
 }

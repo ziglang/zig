@@ -323,6 +323,11 @@ fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)) i32 {
     return 1 - shift;
 }
 
+pub fn __aeabi_ddiv(a: f64, b: f64) callconv(.AAPCS) f64 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __divdf3, .{ a, b });
+}
+
 test "import divdf3" {
     _ = @import("divdf3_test.zig");
 }

@@ -6,7 +6,7 @@ const significandBits = 23;
 const exponentBias = 127;
 const implicitBit = @as(u32, 1) << significandBits;
 
-pub extern fn __floatunsisf(arg: u32) f32 {
+pub fn __floatunsisf(arg: u32) callconv(.C) f32 {
     @setRuntimeSafety(builtin.is_test);
 
     if (arg == 0) return 0.0;
@@ -36,6 +36,11 @@ pub extern fn __floatunsisf(arg: u32) f32 {
     result += (exp + exponentBias) << significandBits;
 
     return @bitCast(f32, result);
+}
+
+pub fn __aeabi_ui2f(arg: u32) callconv(.AAPCS) f32 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __floatunsisf, .{arg});
 }
 
 fn test_one_floatunsisf(a: u32, expected: u32) void {
