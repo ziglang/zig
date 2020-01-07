@@ -17,6 +17,11 @@ pub fn __floatdidf(a: i64) callconv(.C) f64 {
     return (high - twop52) + @bitCast(f64, low);
 }
 
+pub fn __aeabi_l2d(arg: i64) callconv(.AAPCS) f64 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __floatdidf, .{arg});
+}
+
 test "import floatdidf" {
     _ = @import("floatdidf_test.zig");
 }

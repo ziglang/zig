@@ -33,6 +33,26 @@ pub fn __subtf3(a: f128, b: f128) callconv(.C) f128 {
     return addXf3(f128, a, neg_b);
 }
 
+pub fn __aeabi_fadd(a: f32, b: f32) callconv(.AAPCS) f32 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __addsf3, .{ a, b });
+}
+
+pub fn __aeabi_dadd(a: f64, b: f64) callconv(.AAPCS) f64 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __adddf3, .{ a, b });
+}
+
+pub fn __aeabi_fsub(a: f32, b: f32) callconv(.AAPCS) f32 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __subsf3, .{ a, b });
+}
+
+pub fn __aeabi_dsub(a: f64, b: f64) callconv(.AAPCS) f64 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __subdf3, .{ a, b });
+}
+
 // TODO: restore inline keyword, see: https://github.com/ziglang/zig/issues/2154
 fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)) i32 {
     const Z = @IntType(false, T.bit_count);

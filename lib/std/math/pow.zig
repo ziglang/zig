@@ -184,10 +184,6 @@ fn isOddInteger(x: f64) bool {
 }
 
 test "math.pow" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     const epsilon = 0.000001;
 
     expect(math.approxEq(f32, pow(f32, 0.0, 3.3), 0.0, epsilon));
@@ -206,10 +202,6 @@ test "math.pow" {
 }
 
 test "math.pow.special" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     const epsilon = 0.000001;
 
     expect(pow(f32, 4, 0.0) == 1.0);
@@ -252,10 +244,6 @@ test "math.pow.special" {
 }
 
 test "math.pow.overflow" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     expect(math.isPositiveInf(pow(f64, 2, 1 << 32)));
     expect(pow(f64, 2, -(1 << 32)) == 0);
     expect(math.isNegativeInf(pow(f64, -2, (1 << 32) + 1)));

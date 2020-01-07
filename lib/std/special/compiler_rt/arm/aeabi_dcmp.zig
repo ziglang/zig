@@ -2,8 +2,6 @@
 //
 // https://github.com/llvm/llvm-project/commit/d674d96bc56c0f377879d01c9d8dfdaaa7859cdb/compiler-rt/lib/builtins/arm/aeabi_dcmp.S
 
-const compiler_rt_armhf_target = false; // TODO
-
 const ConditionalOperator = enum {
     Eq,
     Lt,
@@ -42,22 +40,11 @@ pub fn __aeabi_dcmpgt() callconv(.Naked) noreturn {
     unreachable;
 }
 
-inline fn convert_dcmp_args_to_df2_args() void {
-    asm volatile (
-        \\ vmov      d0, r0, r1
-        \\ vmov      d1, r2, r3
-    );
-}
-
 fn aeabi_dcmp(comptime cond: ConditionalOperator) void {
     @setRuntimeSafety(false);
     asm volatile (
         \\ push      { r4, lr }
     );
-
-    if (compiler_rt_armhf_target) {
-        convert_dcmp_args_to_df2_args();
-    }
 
     switch (cond) {
         .Eq => asm volatile (

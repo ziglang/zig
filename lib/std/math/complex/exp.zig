@@ -131,10 +131,6 @@ test "complex.cexp32" {
 }
 
 test "complex.cexp64" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     const a = Complex(f64).new(5, 3);
     const c = exp(a);
 

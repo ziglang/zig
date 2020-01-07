@@ -117,6 +117,11 @@ pub fn __gtsf2(a: fp_t, b: fp_t) callconv(.C) c_int {
     return __gesf2(a, b);
 }
 
+pub fn __aeabi_fcmpun(a: fp_t, b: fp_t) callconv(.AAPCS) c_int {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __unordsf2, .{ a, b });
+}
+
 test "import comparesf2" {
     _ = @import("comparesf2_test.zig");
 }

@@ -6,6 +6,11 @@ pub fn __fixunssfdi(a: f32) callconv(.C) u64 {
     return fixuint(f32, u64, a);
 }
 
+pub fn __aeabi_f2ulz(a: f32) callconv(.AAPCS) u64 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __fixunssfdi, .{a});
+}
+
 test "import fixunssfdi" {
     _ = @import("fixunssfdi_test.zig");
 }

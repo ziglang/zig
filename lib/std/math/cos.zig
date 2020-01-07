@@ -100,10 +100,6 @@ test "math.cos32" {
 }
 
 test "math.cos64" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     const epsilon = 0.000001;
 
     expect(math.approxEq(f64, cos_(f64, 0.0), 1.0, epsilon));

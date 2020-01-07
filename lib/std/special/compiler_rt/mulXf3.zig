@@ -16,6 +16,16 @@ pub fn __mulsf3(a: f32, b: f32) callconv(.C) f32 {
     return mulXf3(f32, a, b);
 }
 
+pub fn __aeabi_fmul(a: f32, b: f32) callconv(.C) f32 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __mulsf3, .{ a, b });
+}
+
+pub fn __aeabi_dmul(a: f64, b: f64) callconv(.C) f64 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __muldf3, .{ a, b });
+}
+
 fn mulXf3(comptime T: type, a: T, b: T) T {
     @setRuntimeSafety(builtin.is_test);
     const Z = @IntType(false, T.bit_count);

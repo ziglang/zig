@@ -18,6 +18,11 @@ pub fn __floatunsidf(arg: u32) callconv(.C) f64 {
     return @bitCast(f64, mant | (exp + 1023) << 52);
 }
 
+pub fn __aeabi_ui2d(arg: u32) callconv(.AAPCS) f64 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __floatunsidf, .{arg});
+}
+
 fn test_one_floatunsidf(a: u32, expected: u64) void {
     const r = __floatunsidf(a);
     std.testing.expect(@bitCast(u64, r) == expected);

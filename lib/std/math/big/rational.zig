@@ -742,10 +742,6 @@ test "big.rational setFloatString" {
 }
 
 test "big.rational toFloat" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     var a = try Rational.init(al);
 
     // = 3.14159297943115234375
@@ -758,10 +754,6 @@ test "big.rational toFloat" {
 }
 
 test "big.rational set/to Float round-trip" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     var a = try Rational.init(al);
     var prng = std.rand.DefaultPrng.init(0x5EED);
     var i: usize = 0;

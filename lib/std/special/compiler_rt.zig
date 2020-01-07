@@ -181,62 +181,62 @@ comptime {
         @export("__aeabi_memcmp4", __aeabi_memcmp, linkage);
         @export("__aeabi_memcmp8", __aeabi_memcmp, linkage);
 
-        @export("__aeabi_f2d", @import("compiler_rt/extendXfYf2.zig").__extendsfdf2, linkage);
-        @export("__aeabi_i2d", @import("compiler_rt/floatsiXf.zig").__floatsidf, linkage);
-        @export("__aeabi_l2d", @import("compiler_rt/floatdidf.zig").__floatdidf, linkage);
-        @export("__aeabi_ui2d", @import("compiler_rt/floatunsidf.zig").__floatunsidf, linkage);
-        @export("__aeabi_ul2d", @import("compiler_rt/floatundidf.zig").__floatundidf, linkage);
-        @export("__aeabi_ui2f", @import("compiler_rt/floatunsisf.zig").__floatunsisf, linkage);
-        @export("__aeabi_ul2f", @import("compiler_rt/floatundisf.zig").__floatundisf, linkage);
+        @export("__aeabi_f2d", @import("compiler_rt/extendXfYf2.zig").__aeabi_f2d, linkage);
+        @export("__aeabi_i2d", @import("compiler_rt/floatsiXf.zig").__aeabi_i2d, linkage);
+        @export("__aeabi_l2d", @import("compiler_rt/floatdidf.zig").__aeabi_l2d, linkage);
+        @export("__aeabi_ui2d", @import("compiler_rt/floatunsidf.zig").__aeabi_ui2d, linkage);
+        @export("__aeabi_ul2d", @import("compiler_rt/floatundidf.zig").__aeabi_ul2d, linkage);
+        @export("__aeabi_ui2f", @import("compiler_rt/floatunsisf.zig").__aeabi_ui2f, linkage);
+        @export("__aeabi_ul2f", @import("compiler_rt/floatundisf.zig").__aeabi_ul2f, linkage);
 
-        @export("__aeabi_fneg", @import("compiler_rt/negXf2.zig").__negsf2, linkage);
-        @export("__aeabi_dneg", @import("compiler_rt/negXf2.zig").__negdf2, linkage);
+        @export("__aeabi_fneg", @import("compiler_rt/negXf2.zig").__aeabi_fneg, linkage);
+        @export("__aeabi_dneg", @import("compiler_rt/negXf2.zig").__aeabi_dneg, linkage);
 
-        @export("__aeabi_fmul", @import("compiler_rt/mulXf3.zig").__mulsf3, linkage);
-        @export("__aeabi_dmul", @import("compiler_rt/mulXf3.zig").__muldf3, linkage);
+        @export("__aeabi_fmul", @import("compiler_rt/mulXf3.zig").__aeabi_fmul, linkage);
+        @export("__aeabi_dmul", @import("compiler_rt/mulXf3.zig").__aeabi_dmul, linkage);
 
-        @export("__aeabi_d2h", @import("compiler_rt/truncXfYf2.zig").__truncdfhf2, linkage);
+        @export("__aeabi_d2h", @import("compiler_rt/truncXfYf2.zig").__aeabi_d2h, linkage);
 
-        @export("__aeabi_f2ulz", @import("compiler_rt/fixunssfdi.zig").__fixunssfdi, linkage);
-        @export("__aeabi_d2ulz", @import("compiler_rt/fixunsdfdi.zig").__fixunsdfdi, linkage);
+        @export("__aeabi_f2ulz", @import("compiler_rt/fixunssfdi.zig").__aeabi_f2ulz, linkage);
+        @export("__aeabi_d2ulz", @import("compiler_rt/fixunsdfdi.zig").__aeabi_d2ulz, linkage);
 
-        @export("__aeabi_f2lz", @import("compiler_rt/fixsfdi.zig").__fixsfdi, linkage);
-        @export("__aeabi_d2lz", @import("compiler_rt/fixdfdi.zig").__fixdfdi, linkage);
+        @export("__aeabi_f2lz", @import("compiler_rt/fixsfdi.zig").__aeabi_f2lz, linkage);
+        @export("__aeabi_d2lz", @import("compiler_rt/fixdfdi.zig").__aeabi_d2lz, linkage);
 
-        @export("__aeabi_d2uiz", @import("compiler_rt/fixunsdfsi.zig").__fixunsdfsi, linkage);
+        @export("__aeabi_d2uiz", @import("compiler_rt/fixunsdfsi.zig").__aeabi_d2uiz, linkage);
 
-        @export("__aeabi_h2f", @import("compiler_rt/extendXfYf2.zig").__extendhfsf2, linkage);
-        @export("__aeabi_f2h", @import("compiler_rt/truncXfYf2.zig").__truncsfhf2, linkage);
+        @export("__aeabi_h2f", @import("compiler_rt/extendXfYf2.zig").__aeabi_h2f, linkage);
+        @export("__aeabi_f2h", @import("compiler_rt/truncXfYf2.zig").__aeabi_f2h, linkage);
 
-        @export("__aeabi_i2f", @import("compiler_rt/floatsiXf.zig").__floatsisf, linkage);
-        @export("__aeabi_d2f", @import("compiler_rt/truncXfYf2.zig").__truncdfsf2, linkage);
+        @export("__aeabi_i2f", @import("compiler_rt/floatsiXf.zig").__aeabi_i2f, linkage);
+        @export("__aeabi_d2f", @import("compiler_rt/truncXfYf2.zig").__aeabi_d2f, linkage);
 
-        @export("__aeabi_fadd", @import("compiler_rt/addXf3.zig").__addsf3, linkage);
-        @export("__aeabi_dadd", @import("compiler_rt/addXf3.zig").__adddf3, linkage);
-        @export("__aeabi_fsub", @import("compiler_rt/addXf3.zig").__subsf3, linkage);
-        @export("__aeabi_dsub", @import("compiler_rt/addXf3.zig").__subdf3, linkage);
+        @export("__aeabi_fadd", @import("compiler_rt/addXf3.zig").__aeabi_fadd, linkage);
+        @export("__aeabi_dadd", @import("compiler_rt/addXf3.zig").__aeabi_dadd, linkage);
+        @export("__aeabi_fsub", @import("compiler_rt/addXf3.zig").__aeabi_fsub, linkage);
+        @export("__aeabi_dsub", @import("compiler_rt/addXf3.zig").__aeabi_dsub, linkage);
 
-        @export("__aeabi_f2uiz", @import("compiler_rt/fixunssfsi.zig").__fixunssfsi, linkage);
+        @export("__aeabi_f2uiz", @import("compiler_rt/fixunssfsi.zig").__aeabi_f2uiz, linkage);
 
-        @export("__aeabi_f2iz", @import("compiler_rt/fixsfsi.zig").__fixsfsi, linkage);
-        @export("__aeabi_d2iz", @import("compiler_rt/fixdfsi.zig").__fixdfsi, linkage);
+        @export("__aeabi_f2iz", @import("compiler_rt/fixsfsi.zig").__aeabi_f2iz, linkage);
+        @export("__aeabi_d2iz", @import("compiler_rt/fixdfsi.zig").__aeabi_d2iz, linkage);
 
-        @export("__aeabi_fdiv", @import("compiler_rt/divsf3.zig").__divsf3, linkage);
-        @export("__aeabi_ddiv", @import("compiler_rt/divdf3.zig").__divdf3, linkage);
+        @export("__aeabi_fdiv", @import("compiler_rt/divsf3.zig").__aeabi_fdiv, linkage);
+        @export("__aeabi_ddiv", @import("compiler_rt/divdf3.zig").__aeabi_ddiv, linkage);
 
         @export("__aeabi_fcmpeq", @import("compiler_rt/arm/aeabi_fcmp.zig").__aeabi_fcmpeq, linkage);
         @export("__aeabi_fcmplt", @import("compiler_rt/arm/aeabi_fcmp.zig").__aeabi_fcmplt, linkage);
         @export("__aeabi_fcmple", @import("compiler_rt/arm/aeabi_fcmp.zig").__aeabi_fcmple, linkage);
         @export("__aeabi_fcmpge", @import("compiler_rt/arm/aeabi_fcmp.zig").__aeabi_fcmpge, linkage);
         @export("__aeabi_fcmpgt", @import("compiler_rt/arm/aeabi_fcmp.zig").__aeabi_fcmpgt, linkage);
-        @export("__aeabi_fcmpun", @import("compiler_rt/comparesf2.zig").__unordsf2, linkage);
+        @export("__aeabi_fcmpun", @import("compiler_rt/comparesf2.zig").__aeabi_fcmpun, linkage);
 
         @export("__aeabi_dcmpeq", @import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmpeq, linkage);
         @export("__aeabi_dcmplt", @import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmplt, linkage);
         @export("__aeabi_dcmple", @import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmple, linkage);
         @export("__aeabi_dcmpge", @import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmpge, linkage);
         @export("__aeabi_dcmpgt", @import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmpgt, linkage);
-        @export("__aeabi_dcmpun", @import("compiler_rt/comparedf2.zig").__unorddf2, linkage);
+        @export("__aeabi_dcmpun", @import("compiler_rt/comparedf2.zig").__aeabi_dcmpun, linkage);
     }
     if (builtin.os == .windows) {
         // Default stack-probe functions emitted by LLVM
