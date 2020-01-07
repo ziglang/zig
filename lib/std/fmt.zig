@@ -522,9 +522,7 @@ fn formatValue(
     switch (@typeId(T)) {
         .Float => return formatFloatValue(value, fmt, options, context, Errors, output),
         .Int, .ComptimeInt => return formatIntValue(value, fmt, options, context, Errors, output),
-        .Bool => {
-            return output(context, if (value) "true" else "false");
-        },
+        .Bool => return output(context, if (value) "true" else "false"),
         else => comptime unreachable,
     }
 }
