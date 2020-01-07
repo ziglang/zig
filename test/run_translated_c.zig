@@ -3,6 +3,23 @@ const tests = @import("tests.zig");
 const nl = std.cstr.line_sep;
 
 pub fn addCases(cases: *tests.RunTranslatedCContext) void {
+    cases.add("ternary operator",
+        \\#include <assert.h>
+        \\static int cnt = 0;
+        \\int foo() { cnt++; return 42; }
+        \\int main(int argc, char **argv) {
+        \\  short q = 3;
+        \\  signed char z0 = q?:1;
+        \\  assert(z0 == 3);
+        \\  int z1 = 3?:1;
+        \\  assert(z1 == 3);
+        \\  int z2 = foo()?:-1;
+        \\  assert(z2 == 42);
+        \\  assert(cnt == 1);
+        \\  return 0;
+        \\}
+    , "");
+
     cases.add("boolean values and expressions",
         \\#include <stdlib.h>
         \\static const _Bool false_val = 0;
@@ -12,6 +29,7 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    if (!r) abort();
         \\    _Bool self = foo;
         \\    if (self == false_val) abort();
+        \\    if (((r) ? 'a' : 'b') != 'a') abort();
         \\}
         \\int main(int argc, char **argv) {
         \\    foo(2, 5);

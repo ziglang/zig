@@ -1749,6 +1749,11 @@ const char* ZigClangFunctionDecl_getSectionAttribute(const struct ZigClangFuncti
     return nullptr;
 }
 
+const ZigClangExpr *ZigClangOpaqueValueExpr_getSourceExpr(const ZigClangOpaqueValueExpr *self) {
+    auto casted = reinterpret_cast<const clang::OpaqueValueExpr *>(self);
+    return reinterpret_cast<const ZigClangExpr *>(casted->getSourceExpr());
+}
+
 const ZigClangTypedefNameDecl *ZigClangTypedefType_getDecl(const ZigClangTypedefType *self) {
     auto casted = reinterpret_cast<const clang::TypedefType *>(self);
     const clang::TypedefNameDecl *name_decl = casted->getDecl();
@@ -2429,18 +2434,18 @@ unsigned ZigClangCharacterLiteral_getValue(const struct ZigClangCharacterLiteral
     return casted->getValue();
 }
 
-const struct ZigClangExpr *ZigClangConditionalOperator_getCond(const struct ZigClangConditionalOperator *self) {
-    auto casted = reinterpret_cast<const clang::ConditionalOperator *>(self);
+const struct ZigClangExpr *ZigClangAbstractConditionalOperator_getCond(const struct ZigClangAbstractConditionalOperator *self) {
+    auto casted = reinterpret_cast<const clang::AbstractConditionalOperator *>(self);
     return reinterpret_cast<const struct ZigClangExpr *>(casted->getCond());
 }
 
-const struct ZigClangExpr *ZigClangConditionalOperator_getTrueExpr(const struct ZigClangConditionalOperator *self) {
-    auto casted = reinterpret_cast<const clang::ConditionalOperator *>(self);
+const struct ZigClangExpr *ZigClangAbstractConditionalOperator_getTrueExpr(const struct ZigClangAbstractConditionalOperator *self) {
+    auto casted = reinterpret_cast<const clang::AbstractConditionalOperator *>(self);
     return reinterpret_cast<const struct ZigClangExpr *>(casted->getTrueExpr());
 }
 
-const struct ZigClangExpr *ZigClangConditionalOperator_getFalseExpr(const struct ZigClangConditionalOperator *self) {
-    auto casted = reinterpret_cast<const clang::ConditionalOperator *>(self);
+const struct ZigClangExpr *ZigClangAbstractConditionalOperator_getFalseExpr(const struct ZigClangAbstractConditionalOperator *self) {
+    auto casted = reinterpret_cast<const clang::AbstractConditionalOperator *>(self);
     return reinterpret_cast<const struct ZigClangExpr *>(casted->getFalseExpr());
 }
 
