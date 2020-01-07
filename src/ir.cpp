@@ -17479,6 +17479,8 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
         field->decl_node = value ? value->source_node : suspend_source_instr->source_node;
         if (value && instr_is_comptime(value)) {
             ZigValue *val = ir_resolve_const(ira, value, UndefOk);
+            if (!val)
+                return ira->codegen->invalid_instruction;
             field->is_comptime = true;
             field->init_val = create_const_vals(1);
             copy_const_val(field->init_val, val);
