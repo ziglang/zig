@@ -19278,7 +19278,7 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
         return new_incoming_values.at(0);
     }
 
-    ZigType *resolved_type;
+    ZigType *resolved_type = nullptr;
     if (peer_parent != nullptr) {
         bool peer_parent_has_type;
         if ((err = ir_result_has_type(ira, peer_parent->parent, &peer_parent_has_type)))
@@ -19288,23 +19288,23 @@ static IrInstruction *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPh
                 resolved_type = ira->explicit_return_type;
             } else if (peer_parent->parent->id == ResultLocIdCast) {
                 resolved_type = ir_resolve_type(ira, peer_parent->parent->source_instruction->child);
-                if (type_is_invalid(resolved_type))
-                    return ira->codegen->invalid_instruction;
-            } else {
+            } else if (peer_parent->parent->resolved_loc) {
                 ZigType *resolved_loc_ptr_type = peer_parent->parent->resolved_loc->value->type;
                 ir_assert(resolved_loc_ptr_type->id == ZigTypeIdPointer, &phi_instruction->base);
                 resolved_type = resolved_loc_ptr_type->data.pointer.child_type;
             }
-            goto skip_resolve_peer_types;
+
+            if (resolved_type != nullptr && type_is_invalid(resolved_type))
+                return ira->codegen->invalid_instruction;
         }
     }
-    {
+
+    if (resolved_type == nullptr) {
         resolved_type = ir_resolve_peer_types(ira, phi_instruction->base.source_node, nullptr,
                 new_incoming_values.items, new_incoming_values.length);
         if (type_is_invalid(resolved_type))
             return ira->codegen->invalid_instruction;
     }
-skip_resolve_peer_types:
 
     switch (type_has_one_possible_value(ira->codegen, resolved_type)) {
     case OnePossibleValueInvalid:
