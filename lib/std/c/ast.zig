@@ -435,6 +435,12 @@ pub const Node = struct {
         pub const DeclaratorList = Root.DeclList;
     };
 
+    pub const RecordDeclarator = struct {
+        base: Node = Node{ .id = .RecordField },
+        declarator: *Declarator,
+        // bit_field_expr: ?*Expr,
+    };
+
     pub const TypeQual = struct {
         @"const": ?TokenIndex = null,
         atomic: ?TokenIndex = null,
