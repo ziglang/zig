@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ast = std.c.ast;
 const Node = ast.Node;
+const Type = ast.Type;
 const Tree = ast.Tree;
 const TokenIndex = ast.TokenIndex;
 const Token = std.c.Token;
@@ -57,10 +58,12 @@ pub fn parse(allocator: *Allocator, source: []const u8) !*Tree {
     }
 
     var parser = Parser{
+        .symbols = Parser.SymbolList.init(allocator),
         .arena = arena,
         .it = &it,
         .tree = tree,
     };
+    defer parser.symbols.deinit();
 
     tree.root_node = try parser.root();
     return tree;
@@ -72,19 +75,35 @@ const Parser = struct {
     tree: *Tree,
 
     /// only used for scopes
-    arena_allocator: std.heap.ArenaAllocator,
-    // scopes: std.SegmentedLists(Scope),
+    symbols: SymbolList,
     warnings: bool = true,
 
-    // const Scope = struct {
-    //     types:
-    //     syms:
-    // };
+    const SymbolList = std.ArrayList(Symbol);
 
-    fn getTypeDef(parser: *Parser, tok: TokenIndex) bool {
-        return false; // TODO
-        // const token = parser.it.list.at(tok);
-        // return parser.typedefs.contains(token.slice());
+    const Symbol = struct {
+        name: []const u8,
+        ty: *Type,
+    };
+
+    fn pushScope(parser: *Parser) usize {
+        return parser.symbols.len;
+    }
+
+    fn popScope(parser: *Parser, len: usize) void {
+        parser.symbols.resize(len) catch unreachable;
+    }
+
+    fn getSymbol(parser: *Parser, tok: TokenIndex) ?*Type {
+        const token = parser.it.list.at(tok);
+        const name = parser.tree.slice(token);
+        const syms = parser.symbols.toSliceConst();
+        var i = syms.len;
+        while (i > 0) : (i -= 1) {
+            if (mem.eql(u8, name, syms[i].name)) {
+                return syms[i].ty;
+            }
+        }
+        return null;
     }
 
     /// Root <- ExternalDeclaration* eof
@@ -264,8 +283,8 @@ const Parser = struct {
     ///     <- Keyword_void / Keyword_char / Keyword_short / Keyword_int / Keyword_long / Keyword_float / Keyword_double
     ///     / Keyword_signed / Keyword_unsigned / Keyword_bool / Keyword_complex / Keyword_imaginary /
     ///     / Keyword_atomic LPAREN TypeName RPAREN
-    ///     / EnumSpecifier
-    ///     / RecordSpecifier
+    ///     / EnumSpec
+    ///     / RecordSpec
     ///     / IDENTIFIER // typedef name
     ///     / TypeQual
     fn typeSpec(parser: *Parser, type_spec: *Node.TypeSpec) !bool {
@@ -473,22 +492,48 @@ const Parser = struct {
             } else if (parser.eatToken(.Keyword_enum)) |tok| {
                 if (type_spec.spec != .None)
                     break :blk;
-                @panic("TODO enum type");
-                // return true;
+                type_spec.Enum = try parser.enumSpec(tok);
+                return true;
             } else if (parser.eatToken(.Keyword_union) orelse parser.eatToken(.Keyword_struct)) |tok| {
                 if (type_spec.spec != .None)
                     break :blk;
-                @panic("TODO record type");
-                // return true;
+                type_spec.Record = try parser.recordSpec();
+                return true;
             } else if (parser.eatToken(.Identifier)) |tok| {
-                if (!parser.getTypeDef(tok)) {
+                const ty = parser.getSymbol(tok) orelse {
                     parser.putBackToken(tok);
                     return false;
-                }
-                type_spec.spec = .{
-                    .Typedef = tok,
                 };
-                return true;
+                switch (ty) {
+                    .Enum => |e| {
+                        return parser.err(.{
+                            .MustUseKwToRefer = .{ .kw = e.identifier, .sym = tok },
+                        });
+                    },
+                    .Record => |r| {
+                        return parser.err(.{
+                            .MustUseKwToRefer = .{
+                                .kw = switch (r.kind) {
+                                    .Struct, .Union => |kw| kw,
+                                },
+                                .sym = tok,
+                            },
+                        });
+                    },
+                    .Typedef => {
+                        type_spec.spec = .{
+                            .Typedef = .{
+                                .sym = tok,
+                                .sym_type = ty,
+                            },
+                        };
+                        return true;
+                    },
+                    else => {
+                        parser.putBackToken(tok);
+                        return false;
+                    },
+                }
             }
         }
         return parser.err(.{
@@ -567,13 +612,13 @@ const Parser = struct {
         return false;
     }
 
-    /// EnumSpecifier <- Keyword_enum IDENTIFIER? (LBRACE EnumField RBRACE)?
+    /// EnumSpec <- Keyword_enum IDENTIFIER? (LBRACE EnumField RBRACE)?
     fn enumSpecifier(parser: *Parser) !*Node {}
 
     /// EnumField <- IDENTIFIER (EQUAL ConstExpr)? (COMMA EnumField) COMMA?
     fn enumField(parser: *Parser) !*Node {}
 
-    /// RecordSpecifier <- (Keyword_struct / Keyword_union) IDENTIFIER? (LBRACE RecordField+ RBRACE)?
+    /// RecordSpec <- (Keyword_struct / Keyword_union) IDENTIFIER? (LBRACE RecordField+ RBRACE)?
     fn recordSpecifier(parser: *Parser) !*Node {}
 
     /// RecordField
@@ -581,8 +626,7 @@ const Parser = struct {
     ///     \ StaticAssert
     fn recordField(parser: *Parser) !*Node {}
 
-    /// TypeName
-    ///     <- TypeSpec* AbstractDeclarator?
+    /// TypeName <- TypeSpec* AbstractDeclarator?
     fn typeName(parser: *Parser) !*Node {
 
     /// RecordDeclarator <- Declarator? (COLON ConstExpr)?

@@ -23,6 +23,11 @@ pub const Tree = struct {
         arena_allocator.deinit();
         // self is destroyed
     }
+
+    pub fn slice(tree: *Tree, token: TokenIndex) []const u8 {
+        const tok = tree.tokens.at(token);
+        return tok.source.buffer[tok.start..tok.end];
+    }
 };
 
 pub const Msg = struct {
@@ -47,19 +52,19 @@ pub const Error = union(enum) {
     DuplicateQualifier: SingleTokenError("duplicate type qualifier '{}'"),
     DuplicateSpecifier: SingleTokenError("duplicate declaration specifier '{}'"),
 
-    pub fn render(self: *const Error, tokens: *Tree.TokenList, stream: var) !void {
+    pub fn render(self: *const Error, tree: *Tree, stream: var) !void {
         switch (self.*) {
-            .InvalidToken => |*x| return x.render(tokens, stream),
-            .ExpectedToken => |*x| return x.render(tokens, stream),
-            .ExpectedExpr => |*x| return x.render(tokens, stream),
-            .ExpectedStmt => |*x| return x.render(tokens, stream),
-            .ExpectedTypeName => |*x| return x.render(tokens, stream),
-            .ExpectedDeclarator => |*x| return x.render(tokens, stream),
-            .ExpectedFnBody => |*x| return x.render(tokens, stream),
-            .ExpectedInitializer => |*x| return x.render(tokens, stream),
-            .InvalidTypeSpecifier => |*x| return x.render(tokens, stream),
-            .DuplicateQualifier => |*x| return x.render(tokens, stream),
-            .DuplicateSpecifier => |*x| return x.render(tokens, stream),
+            .InvalidToken => |*x| return x.render(tree, stream),
+            .ExpectedToken => |*x| return x.render(tree, stream),
+            .ExpectedExpr => |*x| return x.render(tree, stream),
+            .ExpectedStmt => |*x| return x.render(tree, stream),
+            .ExpectedTypeName => |*x| return x.render(tree, stream),
+            .ExpectedDeclarator => |*x| return x.render(tree, stream),
+            .ExpectedFnBody => |*x| return x.render(tree, stream),
+            .ExpectedInitializer => |*x| return x.render(tree, stream),
+            .InvalidTypeSpecifier => |*x| return x.render(tree, stream),
+            .DuplicateQualifier => |*x| return x.render(tree, stream),
+            .DuplicateSpecifier => |*x| return x.render(tree, stream),
         }
     }
 
@@ -83,8 +88,8 @@ pub const Error = union(enum) {
         token: TokenIndex,
         expected_id: @TagType(Token.Id),
 
-        pub fn render(self: *const ExpectedToken, tokens: *Tree.TokenList, stream: var) !void {
-            const found_token = tokens.at(self.token);
+        pub fn render(self: *const ExpectedToken, tree: *Tree, stream: var) !void {
+            const found_token = tree.tokens.at(self.token);
             if (found_token.id == .Invalid) {
                 return stream.print("expected '{}', found invalid bytes", .{self.expected_id.symbol()});
             } else {
@@ -98,10 +103,10 @@ pub const Error = union(enum) {
         token: TokenIndex,
         type_spec: *Node.TypeSpec,
 
-        pub fn render(self: *const ExpectedToken, tokens: *Tree.TokenList, stream: var) !void {
+        pub fn render(self: *const ExpectedToken, tree: *Tree, stream: var) !void {
             try stream.write("invalid type specifier '");
-            try type_spec.spec.print(tokens, stream);
-            const token_name = tokens.at(self.token).id.symbol();
+            try type_spec.spec.print(tree, stream);
+            const token_name = tree.tokens.at(self.token).id.symbol();
             return stream.print("{}'", .{token_name});
         }
     };
@@ -110,12 +115,57 @@ pub const Error = union(enum) {
         return struct {
             token: TokenIndex,
 
-            pub fn render(self: *const @This(), tokens: *Tree.TokenList, stream: var) !void {
-                const actual_token = tokens.at(self.token);
+            pub fn render(self: *const @This(), tree: *Tree, stream: var) !void {
+                const actual_token = tree.tokens.at(self.token);
                 return stream.print(msg, .{actual_token.id.symbol()});
             }
         };
     }
+};
+
+pub const Type = struct {
+    pub const TypeList = std.SegmentedList(*Type, 4);
+    @"const": bool,
+    atomic: bool,
+    @"volatile": bool,
+    restrict: bool,
+
+    id: union(enum) {
+        Int: struct {
+            quals: Qualifiers,
+            id: Id,
+            is_signed: bool,
+
+            pub const Id = enum {
+                Char,
+                Short,
+                Int,
+                Long,
+                LongLong,
+            };
+        },
+        Float: struct {
+            quals: Qualifiers,
+            id: Id,
+
+            pub const Id = enum {
+                Float,
+                Double,
+                LongDouble,
+            };
+        },
+        Pointer: struct {
+            quals: Qualifiers,
+            child_type: *Type,
+        },
+        Function: struct {
+            return_type: *Type,
+            param_types: TypeList,
+        },
+        Typedef: *Type,
+        Record: *Node.RecordType,
+        Enum: *Node.EnumType,
+    },
 };
 
 pub const Node = struct {
@@ -205,20 +255,126 @@ pub const Node = struct {
                 typename: *Node,
                 rparen: TokenIndex,
             },
+            Enum: *EnumType,
+            Record: *RecordType,
+            Typedef: struct {
+                sym: TokenIndex,
+                sym_type: *Type,
+            },
 
-            //todo
-            // @"enum",
-            // record,
-
-            Typedef: TokenIndex,
-
-            pub fn print(self: *@This(), self: *const @This(), tokens: *Tree.TokenList, stream: var) !void {
-                switch (self) {
+            pub fn print(self: *@This(), self: *const @This(), tree: *Tree, stream: var) !void {
+                switch (self.spec) {
                     .None => unreachable,
-                    else => @panic("TODO print type specifier"),
+                    .Void => |index| try stream.write(tree.slice(index)),
+                    .Char => |char| {
+                        if (char.sign) |s| {
+                            try stream.write(tree.slice(s));
+                            try stream.writeByte(' ');
+                        }
+                        try stream.write(tree.slice(char.char));
+                    },
+                    .Short => |short| {
+                        if (short.sign) |s| {
+                            try stream.write(tree.slice(s));
+                            try stream.writeByte(' ');
+                        }
+                        try stream.write(tree.slice(short.short));
+                        if (short.int) |i| {
+                            try stream.writeByte(' ');
+                            try stream.write(tree.slice(i));
+                        }
+                    },
+                    .Int => |int| {
+                        if (int.sign) |s| {
+                            try stream.write(tree.slice(s));
+                            try stream.writeByte(' ');
+                        }
+                        if (int.int) |i| {
+                            try stream.writeByte(' ');
+                            try stream.write(tree.slice(i));
+                        }
+                    },
+                    .Long => |long| {
+                        if (long.sign) |s| {
+                            try stream.write(tree.slice(s));
+                            try stream.writeByte(' ');
+                        }
+                        try stream.write(tree.slice(long.long));
+                        if (long.longlong) |l| {
+                            try stream.writeByte(' ');
+                            try stream.write(tree.slice(l));
+                        }
+                        if (long.int) |i| {
+                            try stream.writeByte(' ');
+                            try stream.write(tree.slice(i));
+                        }
+                    },
+                    .Float => |float| {
+                        try stream.write(tree.slice(float.float));
+                        if (float.complex) |c| {
+                            try stream.writeByte(' ');
+                            try stream.write(tree.slice(c));
+                        }
+                    },
+                    .Double => |double| {
+                        if (double.long) |l| {
+                            try stream.write(tree.slice(l));
+                            try stream.writeByte(' ');
+                        }
+                        try stream.write(tree.slice(double.double));
+                        if (double.complex) |c| {
+                            try stream.writeByte(' ');
+                            try stream.write(tree.slice(c));
+                        }
+                    },
+                    .Bool => |index| try stream.write(tree.slice(index)),
+                    .Typedef => |typedef| try stream.write(tree.slice(typedef.sym)),
+                    else => try stream.print("TODO print {}", self.spec),
                 }
             }
         } = .None,
+    };
+
+    pub const EnumType = struct {
+        tok: TokenIndex,
+        name: ?TokenIndex,
+        body: ?struct {
+            lbrace: TokenIndex,
+
+            /// always EnumField
+            fields: FieldList,
+            rbrace: TokenIndex,
+        },
+
+        pub const FieldList = Root.DeclList;
+    };
+
+    pub const EnumField = struct {
+        base: Node = Node{ .id = EnumField },
+        name: TokenIndex,
+        value: ?*Node,
+    };
+
+    pub const RecordType = struct {
+        kind: union(enum) {
+            Struct: TokenIndex,
+            Union: TokenIndex,
+        },
+        name: ?TokenIndex,
+        body: ?struct {
+            lbrace: TokenIndex,
+
+            /// RecordField or StaticAssert
+            fields: FieldList,
+            rbrace: TokenIndex,
+        },
+
+        pub const FieldList = Root.DeclList;
+    };
+
+    pub const RecordField = struct {
+        base: Node = Node{ .id = RecordField },
+        // TODO
     };
 
     pub const TypeQual = struct {

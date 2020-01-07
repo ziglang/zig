@@ -327,6 +327,7 @@ pub const Token = struct {
     };
 
     // TODO perfect hash at comptime
+    // TODO do this in the preprocessor
     pub fn getKeyword(bytes: []const u8, pp_directive: bool) ?Id {
         var hash = std.hash_map.hashString(bytes);
         for (keywords) |kw| {
@@ -345,10 +346,6 @@ pub const Token = struct {
             }
         }
         return null;
-    }
-
-    pub fn slice(tok: Token) []const u8 {
-        return tok.source.buffer[tok.start..tok.end];
     }
 
     pub const NumSuffix = enum {
