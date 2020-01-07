@@ -229,6 +229,9 @@ pub const Node = struct {
         Label,
         CompoundStmt,
         IfStmt,
+        WhileStmt,
+        DoStmt,
+        ForStmt,
         StaticAssert,
         Declarator,
         Pointer,
@@ -438,7 +441,7 @@ pub const Node = struct {
     pub const RecordDeclarator = struct {
         base: Node = Node{ .id = .RecordField },
         declarator: *Declarator,
-        // bit_field_expr: ?*Expr,
+        bit_field_expr: ?*Expr,
     };
 
     pub const TypeQual = struct {
@@ -486,10 +489,39 @@ pub const Node = struct {
         base: Node = Node{ .id = .IfStmt },
         @"if": TokenIndex,
         cond: *Node,
+        body: *Node,
         @"else": ?struct {
             tok: TokenIndex,
-            stmt: *Node,
+            body: *Node,
         },
+    };
+
+    pub const WhileStmt = struct {
+        base: Node = Node{ .id = .WhileStmt },
+        @"while": TokenIndex,
+        cond: *Expr,
+        rparen: TokenIndex,
+        body: *Node,
+    };
+
+    pub const DoStmt = struct {
+        base: Node = Node{ .id = .DoStmt },
+        do: TokenIndex,
+        body: *Node,
+        @"while": TokenIndex,
+        cond: *Expr,
+        semicolon: TokenIndex,
+    };
+
+    pub const ForStmt = struct {
+        base: Node = Node{ .id = .ForStmt },
+        @"for": TokenIndex,
+        init: ?*Node,
+        cond: ?*Expr,
+        semicolon: TokenIndex,
+        incr: ?*Expr,
+        rparen: TokenIndex,
+        body: *Node,
     };
 
     pub const StaticAssert = struct {

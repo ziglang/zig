@@ -1119,23 +1119,88 @@ const Parser = struct {
                 .cond = (try parser.expr()) orelse return parser.err(.{
                     .ExpectedExpr = .{ .token = parser.it.index },
                 }),
+                .body = undefined,
                 .@"else" = null,
             };
             _ = try parser.expectToken(.RParen);
+            node.body = (try parser.stmt()) orelse return parser.err(.{
+                .ExpectedStmt = .{ .token = parser.it.index },
+            });
             if (parser.eatToken(.Keyword_else)) |else_tok| {
                 node.@"else" = .{
                     .tok = else_tok,
-                    .stmt = (try parser.stmt()) orelse return parser.err(.{
+                    .body = (try parser.stmt()) orelse return parser.err(.{
                         .ExpectedStmt = .{ .token = parser.it.index },
                     }),
                 };
             }
             return &node.base;
         }
+
+        // TODO loop scope
+        if (parser.eatToken(.Keyword_while)) |tok| {
+            _ = try parser.expectToken(.LParen);
+            const cond = (try parser.expr()) orelse return parser.err(.{
+                .ExpectedExpr = .{ .token = parser.it.index },
+            });
+            const rparen = try parser.expectToken(.RParen);
+            const node = try parser.arena.create(Node.WhileStmt);
+            node.* = .{
+                .@"while" = tok,
+                .cond = cond,
+                .rparen = rparen,
+                .body = (try parser.stmt()) orelse return parser.err(.{
+                    .ExpectedStmt = .{ .token = parser.it.index },
+                }),
+                .semicolon = try parser.expectToken(.Semicolon),
+            };
+            return &node.base;
+        }
+        if (parser.eatToken(.Keyword_do)) |tok| {
+            const body = (try parser.stmt()) orelse return parser.err(.{
+                .ExpectedStmt = .{ .token = parser.it.index },
+            });
+            const @"while" = try parser.expectToken(.Keyword_while);
+            _ = try parser.expectToken(.LParen);
+            const cond = (try parser.expr()) orelse return parser.err(.{
+                .ExpectedExpr = .{ .token = parser.it.index },
+            });
+            _ = try parser.expectToken(.RParen);
+            const node = try parser.arena.create(Node.DoStmt);
+            node.* = .{
+                .do = tok,
+                .body = body,
+                .cond = cond,
+                .@"while" = @"while",
+                .semicolon = try parser.expectToken(.Semicolon),
+            };
+            return &node.base;
+        }
+        if (parser.eatToken(.Keyword_for)) |tok| {
+            _ = try parser.expectToken(.LParen);
+            const init = if (try parser.declaration()) |decl| blk:{
+                // TODO disallow storage class other than auto and register
+                break :blk decl;
+            } else try parser.exprStmt();
+            const cond = try parser.expr();
+            const semicolon = try parser.expectToken(.Semicolon);
+            const incr = try parser.expr();
+            const rparen = try parser.expectToken(.RParen);
+            const node = try parser.arena.create(Node.ForStmt);
+            node.* = .{
+                .@"for" = tok,
+                .init = init,
+                .cond = cond,
+                .semicolon = semicolon,
+                .incr = incr,
+                .rparen = rparen,
+                .body = (try parser.stmt()) orelse return parser.err(.{
+                    .ExpectedStmt = .{ .token = parser.it.index },
+                }),
+            };
+            return &node.base;
+        }
         // if (parser.eatToken(.Keyword_switch)) |tok| {}
-        // if (parser.eatToken(.Keyword_while)) |tok| {}
-        // if (parser.eatToken(.Keyword_do)) |tok| {}
-        // if (parser.eatToken(.Keyword_for)) |tok| {}
         // if (parser.eatToken(.Keyword_default)) |tok| {}
         // if (parser.eatToken(.Keyword_case)) |tok| {}
         if (parser.eatToken(.Keyword_goto)) |tok| {
