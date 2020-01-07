@@ -2504,4 +2504,21 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    foo(@intToPtr([*c]c_int, @ptrToInt(a)));
         \\}
     });
+
+    cases.add("handling of _Bool type",
+        \\_Bool foo(_Bool x) {
+        \\    _Bool a = x != 1;
+        \\    _Bool b = a != 0;
+        \\    _Bool c = foo;
+        \\    return foo(c != b);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo(arg_x: bool) bool {
+        \\    var x = arg_x;
+        \\    var a: bool = (@boolToInt(x) != @as(c_int, 1));
+        \\    var b: bool = (@boolToInt(a) != @as(c_int, 0));
+        \\    var c: bool = @ptrToInt(foo) != 0;
+        \\    return foo((@boolToInt(c) != @boolToInt(b)));
+        \\}
+    });
 }

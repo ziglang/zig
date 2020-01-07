@@ -1814,6 +1814,11 @@ ZigClangQualType ZigClangType_getPointeeType(const ZigClangType *self) {
     return bitcast(casted->getPointeeType());
 }
 
+bool ZigClangType_isBooleanType(const ZigClangType *self) {
+    auto casted = reinterpret_cast<const clang::Type *>(self);
+    return casted->isBooleanType();
+}
+
 bool ZigClangType_isVoidType(const ZigClangType *self) {
     auto casted = reinterpret_cast<const clang::Type *>(self);
     return casted->isVoidType();
