@@ -24,9 +24,14 @@ pub const Tree = struct {
         // self is destroyed
     }
 
-    pub fn slice(tree: *Tree, token: TokenIndex) []const u8 {
-        const tok = tree.tokens.at(token);
-        return tok.source.buffer[tok.start..tok.end];
+    pub fn tokenSlice(tree: *Tree, token: TokenIndex) []const u8 {
+        return tree.tokens.at(token).slice();
+    }
+
+    pub fn tokenEql(tree: *Tree, a: TokenIndex, b: TokenIndex) bool {
+        const atok = tree.tokens.at(a);
+        const btok = tree.tokens.at(b);
+        return atok.eql(btok.*);
     }
 };
 
@@ -205,6 +210,10 @@ pub const Type = struct {
         Typedef: *Type,
         Record: *Node.RecordType,
         Enum: *Node.EnumType,
+
+        /// Special case for macro parameters that can be any type.
+        /// Only present if `retain_macros == true`.
+        Macro,
     },
 };
 
@@ -585,5 +594,17 @@ pub const Node = struct {
         },
         expr: *Expr,
         pub const InitializerList = std.SegmentedList(*Initializer, 4);
+    };
+
+    pub const Macro = struct {
+        base: Node = Node{ .id = Macro },
+        kind: union(enum) {
+            Undef: []const u8,
+            Fn: struct {
+                params: []const []const u8,
+                expr: *Expr,
+            },
+            Expr: *Expr,
+        },
     };
 };

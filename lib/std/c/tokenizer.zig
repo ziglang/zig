@@ -251,6 +251,16 @@ pub const Token = struct {
         }
     };
 
+    pub fn eql(a: Token, b: Token) bool {
+        // do we really need this cast here
+        if (@as(@TagType(Id), a.id) != b.id) return false;
+        return mem.eql(u8, a.slice(), b.slice());
+    }
+
+    pub fn slice(tok: Token) []const u8 {
+        return tok.source.buffer[tok.start..tok.end];
+    }
+
     pub const Keyword = struct {
         bytes: []const u8,
         id: Id,

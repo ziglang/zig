@@ -1,4 +1,5 @@
 const std = @import("std");
+const mem = std.mem;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ast = std.c.ast;
@@ -11,9 +12,26 @@ const TokenIterator = ast.Tree.TokenList.Iterator;
 
 pub const Error = error{ParseError} || Allocator.Error;
 
+pub const Options = struct {
+    /// Keep simple macros unexpanded and add the definitions to the ast
+    retain_macros: bool = false,
+
+    /// Warning or error
+    warn_as_err: union(enum) {
+        /// All warnings are warnings
+        None,
+
+        /// Some warnings are errors
+        Some: []@TagType(ast.Error),
+
+        /// All warnings are errors
+        All,
+    } = .All,
+};
+
 /// Result should be freed with tree.deinit() when there are
 /// no more references to any of the tokens or nodes.
-pub fn parse(allocator: *Allocator, source: []const u8) !*Tree {
+pub fn parse(allocator: *Allocator, source: []const u8, options: Options) !*Tree {
     const tree = blk: {
         // This block looks unnecessary, but is a "foot-shield" to prevent the SegmentedLists
         // from being initialized with a pointer to this `arena`, which is created on
@@ -62,6 +80,7 @@ pub fn parse(allocator: *Allocator, source: []const u8) !*Tree {
         .arena = arena,
         .it = &it,
         .tree = tree,
+        .options = options,
     };
     defer parser.symbols.deinit();
 
@@ -76,7 +95,7 @@ const Parser = struct {
 
     /// only used for scopes
     symbols: SymbolList,
-    warnings: bool = true,
+    options: Options,
 
     const SymbolList = std.ArrayList(Symbol);
 
@@ -94,11 +113,11 @@ const Parser = struct {
     }
 
     fn getSymbol(parser: *Parser, tok: TokenIndex) ?*Type {
-        const name = parser.tree.slice(tok);
+        const name = parser.tree.tokenSlice(tok);
         const syms = parser.symbols.toSliceConst();
         var i = syms.len;
         while (i > 0) : (i -= 1) {
-            if (std.mem.eql(u8, name, syms[i].name)) {
+            if (mem.eql(u8, name, syms[i].name)) {
                 return syms[i].ty;
             }
         }
@@ -249,7 +268,7 @@ const Parser = struct {
                     try node.initializers.push((try parser.initializer(dr)) orelse return parser.err(.{
                         .ExpectedInitializer = .{ .token = parser.it.index },
                     }));
-                } else 
+                } else
                     try node.initializers.push(&dr.base);
                 if (parser.eatToken(.Comma) != null) break;
                 dr = @fieldParentPtr(Node.Declarator, "base", (try parser.declarator(.Must)) orelse return parser.err(.{
@@ -558,12 +577,18 @@ const Parser = struct {
                     return false;
                 };
                 switch (ty.id) {
-                    .Enum => |e| {
+                    .Enum => |e| blk: {
+                        if (e.name) |some|
+                            if (!parser.tree.tokenEql(some, tok))
+                                break :blk;
                         return parser.err(.{
                             .MustUseKwToRefer = .{ .kw = e.tok, .name = tok },
                         });
                     },
-                    .Record => |r| {
+                    .Record => |r| blk: {
+                        if (r.name) |some|
+                            if (!parser.tree.tokenEql(some, tok))
+                                break :blk;
                         return parser.err(.{
                             .MustUseKwToRefer = .{
                                 .kw = r.tok,
@@ -580,11 +605,10 @@ const Parser = struct {
                         };
                         return true;
                     },
-                    else => {
-                        parser.putBackToken(tok);
-                        return false;
-                    },
+                    else => {},
                 }
+                parser.putBackToken(tok);
+                return false;
             }
         }
         return parser.err(.{
@@ -680,7 +704,7 @@ const Parser = struct {
         };
         if (name) |some|
             try parser.symbols.append(.{
-                .name = parser.tree.slice(some),
+                .name = parser.tree.tokenSlice(some),
                 .ty = ty,
             });
         if (parser.eatToken(.LBrace)) |lbrace| {
@@ -718,7 +742,7 @@ const Parser = struct {
     fn recordSpec(parser: *Parser, tok: TokenIndex) !*Node.RecordType {
         const node = try parser.arena.create(Node.RecordType);
         const name = parser.eatToken(.Identifier);
-        const is_struct = parser.tree.slice(tok)[0] == 's';
+        const is_struct = parser.tree.tokenSlice(tok)[0] == 's';
         node.* = .{
             .tok = tok,
             .kind = if (is_struct) .Struct else .Union,
@@ -733,7 +757,7 @@ const Parser = struct {
         };
         if (name) |some|
             try parser.symbols.append(.{
-                .name = parser.tree.slice(some),
+                .name = parser.tree.tokenSlice(some),
                 .ty = ty,
             });
         if (parser.eatToken(.LBrace)) |lbrace| {
@@ -1195,11 +1219,16 @@ const Parser = struct {
     }
 
     fn warn(parser: *Parser, msg: ast.Error) Error!void {
+        const is_warning = switch (parser.options.warn_as_err) {
+            .None => true,
+            .Some => |list| for (list) |item| (if (item == msg) break false) else true,
+            .All => false,
+        };
         try parser.tree.msgs.push(.{
-            .kind = if (parser.warnings) .Warning else .Error,
+            .kind = if (is_warning) .Warning else .Error,
             .inner = msg,
         });
-        if (!parser.warnings) return error.ParseError;
+        if (!is_warning) return error.ParseError;
     }
 
     fn note(parser: *Parser, msg: ast.Error) Error!void {
