@@ -4,28 +4,28 @@ const Cpu = @import("std").target.Cpu;
 pub const feature_hwmult16 = Feature{
     .name = "hwmult16",
     .description = "Enable 16-bit hardware multiplier",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_hwmult32 = Feature{
     .name = "hwmult32",
     .description = "Enable 32-bit hardware multiplier",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_hwmultf5 = Feature{
     .name = "hwmultf5",
     .description = "Enable F5 series hardware multiplier",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_ext = Feature{
     .name = "ext",
     .description = "Enable MSP430-X extensions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
@@ -39,21 +39,21 @@ pub const features = &[_]*const Feature {
 pub const cpu_generic = Cpu{
     .name = "generic",
     .llvm_name = "generic",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const cpu_msp430 = Cpu{
     .name = "msp430",
     .llvm_name = "msp430",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const cpu_msp430x = Cpu{
     .name = "msp430x",
     .llvm_name = "msp430x",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_ext,
     },
 };
