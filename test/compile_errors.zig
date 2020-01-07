@@ -2,6 +2,18 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("error in struct initializer doesn't crash the compiler",
+        \\pub export fn entry() void {
+        \\    const bitfield = struct {
+        \\        e: u8,
+        \\        e: u8,
+        \\    };
+        \\    var a = .{@sizeOf(bitfield)};
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:4:9: error: duplicate struct field: 'e'",
+    });
+
     cases.addTest("repeated invalid field access to generic function returning type crashes compiler. #2655",
         \\pub fn A() type {
         \\    return Q;
