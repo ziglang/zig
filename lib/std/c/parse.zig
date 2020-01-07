@@ -105,6 +105,10 @@ const Parser = struct {
         return null;
     }
 
+    fn declareSymbol(parser: *Parser, decl_spec: *Node.DeclSpec, dr: *Node.Declarator) Error!void {
+        return; // TODO
+    }
+
     /// Root <- ExternalDeclaration* eof
     fn root(parser: *Parser) Allocator.Error!*Node.Root {
         const node = try parser.arena.create(Node.Root);
@@ -140,75 +144,125 @@ const Parser = struct {
 
     fn declarationExtra(parser: *Parser, local: bool) !?*Node {
         if (try parser.staticAssert()) |decl| return decl;
+        const begin = parser.it.index + 1;
         var ds = Node.DeclSpec{};
         const got_ds = try parser.declSpec(&ds);
         if (local and !got_ds) {
             // not a declaration
             return null;
         }
-        var dr = try parser.declarator();
-        // TODO disallow auto and register
-        const next_tok = parser.it.peek().?;
-        if (next_tok.id == .Eof and !got_ds and dr == null) {
-            return null;
-        }
-        switch (next_tok.id) {
-            .Semicolon,
-            .Equal,
-            .Comma,
-            .Eof,
-            => {
-                while (dr != null) {
-                    if (parser.eatToken(.Equal)) |tok| {
-                        // TODO typedef
-                        // dr.?.init = try parser.expect(initializer, .{
-                        //     .ExpectedInitializer = .{ .token = parser.it.index },
-                        // });
-                    }
-                    if (parser.eatToken(.Comma) != null) break;
-                    dr = (try parser.declarator()) orelse return parser.err(.{
-                        .ExpectedDeclarator = .{ .token = parser.it.index },
-                    });
-                    // .push(dr);
-                }
-                const semicolon = try parser.expectToken(.Semicolon);
-
-                // TODO VarDecl, TypeDecl, TypeDef
-                return null;
-            },
-            else => {
-                if (dr == null)
-                    return parser.err(.{
-                        .ExpectedDeclarator = .{ .token = parser.it.index },
-                    });
-                var old_decls = Node.FnDef.OldDeclList.init(parser.arena);
-                while (true) {
-                    var old_ds = Node.DeclSpec{};
-                    if (!(try parser.declSpec(&old_ds))) {
-                        // not old decl
-                        break;
-                    }
-                    var old_dr = (try parser.declarator());
-                    // if (old_dr == null)
-                    //     try parser.err(.{
-                    //         .NoParamName = .{ .token = parser.it.index },
-                    //     });
-                    // try old_decls.push(decl);
-                }
-                const body = (try parser.compoundStmt()) orelse return parser.err(.{
-                    .ExpectedFnBody = .{ .token = parser.it.index },
-                });
-
-                const node = try parser.arena.create(Node.FnDef);
+        switch (ds.storage_class) {
+            .Auto, .Register => |tok| return parser.err(.{
+                .InvalidStorageClass = .{ .token = tok },
+            }),
+            .Typedef => {
+                const node = try parser.arena.create(Node.Typedef);
                 node.* = .{
                     .decl_spec = ds,
-                    .declarator = dr orelse return null,
-                    .old_decls = old_decls,
-                    .body = @fieldParentPtr(Node.CompoundStmt, "base", body),
+                    .declarators = Node.Typedef.DeclaratorList.init(parser.arena),
+                    .semicolon = undefined,
                 };
+                while (true) {
+                    const dr = @fieldParentPtr(Node.Declarator, "base", (try parser.declarator(.Must)) orelse return parser.err(.{
+                        .ExpectedDeclarator = .{ .token = parser.it.index },
+                    }));
+                    try parser.declareSymbol(&ds, dr);
+                    try node.declarators.push(&dr.base);
+                    if (parser.eatToken(.Comma)) |_| {} else break;
+                }
                 return &node.base;
             },
+            else => {},
         }
+        var first_dr = try parser.declarator(.Must);
+        if (first_dr != null and declaratorIsFunction(first_dr.?)) {
+            const dr = @fieldParentPtr(Node.Declarator, "base", first_dr.?);
+            try parser.declareSymbol(&ds, dr);
+            var old_decls = Node.FnDecl.OldDeclList.init(parser.arena);
+            const body = if (parser.eatToken(.Semicolon)) |_|
+                null
+            else blk: {
+                // TODO first_dr.is_old
+                // while (true) {
+                //     var old_ds = Node.DeclSpec{};
+                //     if (!(try parser.declSpec(&old_ds))) {
+                //         // not old decl
+                //         break;
+                //     }
+                //     var old_dr = (try parser.declarator(.Must));
+                //     // if (old_dr == null)
+                //     //     try parser.err(.{
+                //     //         .NoParamName = .{ .token = parser.it.index },
+                //     //     });
+                //     // try old_decls.push(decl);
+                // }
+                const body_node = (try parser.compoundStmt()) orelse return parser.err(.{
+                    .ExpectedFnBody = .{ .token = parser.it.index },
+                });
+                break :blk @fieldParentPtr(Node.CompoundStmt, "base", body_node);
+            };
+
+            const node = try parser.arena.create(Node.FnDecl);
+            node.* = .{
+                .decl_spec = ds,
+                .declarator = dr,
+                .old_decls = old_decls,
+                .body = body,
+            };
+            return &node.base;
+        } else {
+            switch (ds.fn_spec) {
+                .Inline, .Noreturn => |tok| return parser.err(.{
+                    .FnSpecOnNonFn = .{ .token = tok },
+                }),
+                else => {},
+            }
+            // TODO threadlocal without static or extern on local variable
+            const node = try parser.arena.create(Node.VarDecl);
+            node.* = .{
+                .decl_spec = ds,
+                .initializers = Node.VarDecl.Initializers.init(parser.arena),
+                .semicolon = undefined,
+            };
+            if (first_dr == null) {
+                node.semicolon = try parser.expectToken(.Semicolon);
+                const ok = switch (ds.type_spec.spec) {
+                    .Enum => |e| e.name != null,
+                    .Record => |r| r.name != null,
+                    else => false,
+                };
+                const q = ds.type_spec.qual;
+                if (!ok)
+                    try parser.warn(.{
+                        .NothingDeclared = .{ .token = begin },
+                    })
+                else if (q.@"const" orelse q.atomic orelse q.@"volatile" orelse q.restrict) |tok|
+                    try parser.warn(.{
+                        .QualifierIgnored = .{ .token = tok },
+                    });
+                return &node.base;
+            }
+            var dr = @fieldParentPtr(Node.Declarator, "base", first_dr.?);
+            while (true) {
+                try parser.declareSymbol(&ds, dr);
+                if (parser.eatToken(.Equal)) |tok| {
+                    try node.initializers.push((try parser.initializer(dr)) orelse return parser.err(.{
+                        .ExpectedInitializer = .{ .token = parser.it.index },
+                    }));
+                } else 
+                    try node.initializers.push(&dr.base);
+                if (parser.eatToken(.Comma) != null) break;
+                dr = @fieldParentPtr(Node.Declarator, "base", (try parser.declarator(.Must)) orelse return parser.err(.{
+                    .ExpectedDeclarator = .{ .token = parser.it.index },
+                }));
+            }
+            node.semicolon = try parser.expectToken(.Semicolon);
+            return &node.base;
+        }
+    }
+
+    fn declaratorIsFunction(dr: *Node) bool {
+        return false; // TODO
     }
 
     /// StaticAssert <- Keyword_static_assert LPAREN ConstExpr COMMA STRINGLITERAL RPAREN SEMICOLON
@@ -733,7 +787,7 @@ const Parser = struct {
     fn recordDeclarator(parser: *Parser) !*Node {}
 
     /// Pointer <- ASTERISK TypeQual* Pointer?
-    fn pointer(parser: *Parser) Error!?*Node {
+    fn pointer(parser: *Parser) Error!?*Node.Pointer {
         const asterisk = parser.eatToken(.Asterisk) orelse return null;
         const node = try parser.arena.create(Node.Pointer);
         node.* = .{
@@ -743,7 +797,7 @@ const Parser = struct {
         };
         while (try parser.typeQual(&node.qual)) {}
         node.pointer = try parser.pointer();
-        return &node.base;
+        return node;
     }
 
     const Named = enum {
@@ -772,7 +826,7 @@ const Parser = struct {
             node.* = .{
                 .pointer = ptr,
                 .prefix = .{
-                    .Comples = .{
+                    .Complex = .{
                         .lparen = lparen,
                         .inner = inner,
                         .rparen = try parser.expectToken(.RParen),
@@ -785,7 +839,7 @@ const Parser = struct {
                 node = try parser.arena.create(Node.Declarator);
                 node.* = .{
                     .pointer = ptr,
-                    .prefix = .{ .Simple = tok },
+                    .prefix = .{ .Identifer = tok },
                     .suffix = .None,
                 };
             } else if (named == .Must) {
@@ -793,7 +847,9 @@ const Parser = struct {
                     .ExpectedToken = .{ .token = parser.it.index, .expected_id = .Identifier },
                 });
             } else {
-                return ptr;
+                if (ptr) |some|
+                    return &some.base;
+                return null;
             }
         } else {
             node = try parser.arena.create(Node.Declarator);
@@ -808,16 +864,16 @@ const Parser = struct {
             node.suffix = .{
                 .Fn = .{
                     .lparen = lparen,
-                    .params = .Node.Declarator.Params.init(parser.arena),
+                    .params = Node.Declarator.Params.init(parser.arena),
                     .rparen = undefined,
                 },
             };
-            try parser.ParamDecl(node);
+            try parser.paramDecl(node);
             node.suffix.Fn.rparen = try parser.expectToken(.RParen);
         } else {
-            while (parser.arrayDeclarator()) |arr| {
+            while (try parser.arrayDeclarator()) |arr| {
                 if (node.suffix == .None)
-                    node.suffix = .{ .Array = .Node.Declarator.Arrays.init(parser.arena) };
+                    node.suffix = .{ .Array = Node.Declarator.Arrays.init(parser.arena) };
                 try node.suffix.Array.push(arr);
             }
         }
@@ -825,7 +881,7 @@ const Parser = struct {
             return parser.err(.{
                 .InvalidDeclarator = .{ .token = tok },
             });
-        return node;
+        return &node.base;
     }
 
     /// ArrayDeclarator
@@ -834,11 +890,11 @@ const Parser = struct {
     ///     / TypeQual+ (ASTERISK / Keyword_static AssignmentExpr)
     ///     / TypeQual+ AssignmentExpr?
     ///     / AssignmentExpr
-    fn arrayDeclarator(parser: *Parser, dr: *Node.Declarator) !?*Node.Array {
+    fn arrayDeclarator(parser: *Parser) !?*Node.Array {
         const lbracket = parser.eatToken(.LBracket) orelse return null;
         const arr = try parser.arena.create(Node.Array);
         arr.* = .{
-            .lbracket = lbarcket,
+            .lbracket = lbracket,
             .inner = .Inferred,
             .rbracket = undefined,
         };
@@ -856,12 +912,12 @@ const Parser = struct {
     fn paramDecl(parser: *Parser, dr: *Node.Declarator) !void {
         var old_style = false;
         while (true) {
-            var ds = Node.DeclSpec;
+            var ds = Node.DeclSpec{};
             if (try parser.declSpec(&ds)) {
                 //TODO
-            } else if (parser.eatToken(.Identifier)) {
+            } else if (parser.eatToken(.Identifier)) |tok| {
                 old_style = true;
-            } else if (parser.eatToken(.Ellipsis)) {
+            } else if (parser.eatToken(.Ellipsis)) |tok| {
                 // TODO
             }
         }

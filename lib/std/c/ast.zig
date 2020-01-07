@@ -51,9 +51,14 @@ pub const Error = union(enum) {
     ExpectedEnumField: SingleTokenError("expected enum field, found '{}'"),
     ExpectedType: SingleTokenError("expected enum field, found '{}'"),
     InvalidTypeSpecifier: InvalidTypeSpecifier,
+    InvalidStorageClass: SingleTokenError("invalid storage class, found '{}'"),
+    InvalidDeclarator: SimpleError("invalid declarator"),
     DuplicateQualifier: SingleTokenError("duplicate type qualifier '{}'"),
     DuplicateSpecifier: SingleTokenError("duplicate declaration specifier '{}'"),
     MustUseKwToRefer: MustUseKwToRefer,
+    FnSpecOnNonFn: SingleTokenError("function specifier '{}' on non function"),
+    NothingDeclared: SimpleError("declaration doesn't declare anything"),
+    QualifierIgnored: SingleTokenError("qualifier '{}' ignored"),
 
     pub fn render(self: *const Error, tree: *Tree, stream: var) !void {
         switch (self.*) {
@@ -68,9 +73,14 @@ pub const Error = union(enum) {
             .ExpectedEnumField => |*x| return x.render(tree, stream),
             .ExpectedType => |*x| return x.render(tree, stream),
             .InvalidTypeSpecifier => |*x| return x.render(tree, stream),
+            .InvalidStorageClass => |*x| return x.render(tree, stream),
+            .InvalidDeclarator => |*x| return x.render(tree, stream),
             .DuplicateQualifier => |*x| return x.render(tree, stream),
             .DuplicateSpecifier => |*x| return x.render(tree, stream),
             .MustUseKwToRefer => |*x| return x.render(tree, stream),
+            .FnSpecOnNonFn => |*x| return x.render(tree, stream),
+            .NothingDeclared => |*x| return x.render(tree, stream),
+            .QualifierIgnored => |*x| return x.render(tree, stream),
         }
     }
 
@@ -87,9 +97,14 @@ pub const Error = union(enum) {
             .ExpectedEnumField => |x| return x.token,
             .ExpectedType => |*x| return x.token,
             .InvalidTypeSpecifier => |x| return x.token,
+            .InvalidStorageClass => |x| return x.token,
+            .InvalidDeclarator => |x| return x.token,
             .DuplicateQualifier => |x| return x.token,
             .DuplicateSpecifier => |x| return x.token,
             .MustUseKwToRefer => |*x| return x.name,
+            .FnSpecOnNonFn => |*x| return x.name,
+            .NothingDeclared => |*x| return x.name,
+            .QualifierIgnored => |*x| return x.name,
         }
     }
 
@@ -125,7 +140,7 @@ pub const Error = union(enum) {
         name: TokenIndex,
 
         pub fn render(self: *const ExpectedToken, tree: *Tree, stream: var) !void {
-            return stream.print("must use '{}' tag to refer to type '{}'", .{tree.slice(kw), tree.slice(name)});
+            return stream.print("must use '{}' tag to refer to type '{}'", .{ tree.slice(kw), tree.slice(name) });
         }
     };
 
@@ -136,6 +151,18 @@ pub const Error = union(enum) {
             pub fn render(self: *const @This(), tree: *Tree, stream: var) !void {
                 const actual_token = tree.tokens.at(self.token);
                 return stream.print(msg, .{actual_token.id.symbol()});
+            }
+        };
+    }
+
+    fn SimpleError(comptime msg: []const u8) type {
+        return struct {
+            const ThisError = @This();
+
+            token: TokenIndex,
+
+            pub fn render(self: *const ThisError, tokens: *Tree.TokenList, stream: var) !void {
+                return stream.write(msg);
             }
         };
     }
@@ -194,9 +221,11 @@ pub const Node = struct {
         CompoundStmt,
         IfStmt,
         StaticAssert,
-        Fn,
+        Declarator,
+        Pointer,
+        FnDecl,
         Typedef,
-        Var,
+        VarDecl,
     };
 
     pub const Root = struct {
@@ -457,7 +486,7 @@ pub const Node = struct {
 
     pub const Declarator = struct {
         base: Node = Node{ .id = .Declarator },
-        pointer: *Pointer,
+        pointer: ?*Pointer,
         prefix: union(enum) {
             None,
             Identifer: TokenIndex,
@@ -482,7 +511,7 @@ pub const Node = struct {
     };
 
     pub const Array = struct {
-        rbracket: TokenIndex,
+        lbracket: TokenIndex,
         inner: union(enum) {
             Inferred,
             Unspecified: TokenIndex,
@@ -490,7 +519,7 @@ pub const Node = struct {
                 asterisk: ?TokenIndex,
                 static: ?TokenIndex,
                 qual: TypeQual,
-                expr: *Expr,
+                // expr: *Expr,
             },
         },
         rbracket: TokenIndex,
@@ -514,10 +543,10 @@ pub const Node = struct {
         },
     };
 
-    pub const Fn = struct {
-        base: Node = Node{ .id = .Fn },
+    pub const FnDecl = struct {
+        base: Node = Node{ .id = .FnDecl },
         decl_spec: DeclSpec,
-        declarator: *Node,
+        declarator: *Declarator,
         old_decls: OldDeclList,
         body: ?*CompoundStmt,
 
@@ -528,20 +557,23 @@ pub const Node = struct {
         base: Node = Node{ .id = .Typedef },
         decl_spec: DeclSpec,
         declarators: DeclaratorList,
+        semicolon: TokenIndex,
 
         pub const DeclaratorList = Root.DeclList;
     };
 
-    pub const Var = struct {
-        base: Node = Node{ .id = .Var },
+    pub const VarDecl = struct {
+        base: Node = Node{ .id = .VarDecl },
         decl_spec: DeclSpec,
         initializers: Initializers,
+        semicolon: TokenIndex,
 
-        pub const Initializers = std.SegmentedList(*Initialized, 2);
+        pub const Initializers = Root.DeclList;
     };
 
     pub const Initialized = struct {
-        declarator: *Node,
+        base: Node = Node{ .id = Initialized },
+        declarator: *Declarator,
         eq: TokenIndex,
         init: Initializer,
     };
