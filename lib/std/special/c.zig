@@ -40,19 +40,19 @@ comptime {
 extern var _fltused: c_int = 1;
 
 extern fn main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
-extern fn wasm_start() void {
+fn wasm_start() callconv(.C) void {
     _ = main(0, undefined);
 }
 
-extern fn strcmp(s1: [*:0]const u8, s2: [*:0]const u8) c_int {
+fn strcmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.C) c_int {
     return std.cstr.cmp(s1, s2);
 }
 
-extern fn strlen(s: [*:0]const u8) usize {
+fn strlen(s: [*:0]const u8) callconv(.C) usize {
     return std.mem.len(u8, s);
 }
 
-extern fn strncmp(_l: [*:0]const u8, _r: [*:0]const u8, _n: usize) c_int {
+fn strncmp(_l: [*:0]const u8, _r: [*:0]const u8, _n: usize) callconv(.C) c_int {
     if (_n == 0) return 0;
     var l = _l;
     var r = _r;
@@ -65,7 +65,7 @@ extern fn strncmp(_l: [*:0]const u8, _r: [*:0]const u8, _n: usize) c_int {
     return @as(c_int, l[0]) - @as(c_int, r[0]);
 }
 
-extern fn strerror(errnum: c_int) [*:0]const u8 {
+fn strerror(errnum: c_int) callconv(.C) [*:0]const u8 {
     return "TODO strerror implementation";
 }
 
@@ -188,14 +188,14 @@ comptime {
         @export("clone", clone, builtin.GlobalLinkage.Strong);
     }
 }
-extern fn __stack_chk_fail() noreturn {
+fn __stack_chk_fail() callconv(.C) noreturn {
     @panic("stack smashing detected");
 }
 
 // TODO we should be able to put this directly in std/linux/x86_64.zig but
 // it causes a segfault in release mode. this is a workaround of calling it
 // across .o file boundaries. fix comptime @ptrCast of nakedcc functions.
-nakedcc fn clone() void {
+fn clone() callconv(.Naked) void {
     switch (builtin.arch) {
         .i386 => {
             // __clone(func, stack, flags, arg, ptid, tls, ctid)
@@ -728,6 +728,28 @@ export fn sqrt(x: f64) f64 {
     return @bitCast(f64, uz);
 }
 
+test "sqrt" {
+    const epsilon = 0.000001;
+
+    std.testing.expect(sqrt(0.0) == 0.0);
+    std.testing.expect(std.math.approxEq(f64, sqrt(2.0), 1.414214, epsilon));
+    std.testing.expect(std.math.approxEq(f64, sqrt(3.6), 1.897367, epsilon));
+    std.testing.expect(sqrt(4.0) == 2.0);
+    std.testing.expect(std.math.approxEq(f64, sqrt(7.539840), 2.745877, epsilon));
+    std.testing.expect(std.math.approxEq(f64, sqrt(19.230934), 4.385309, epsilon));
+    std.testing.expect(sqrt(64.0) == 8.0);
+    std.testing.expect(std.math.approxEq(f64, sqrt(64.1), 8.006248, epsilon));
+    std.testing.expect(std.math.approxEq(f64, sqrt(8942.230469), 94.563367, epsilon));
+}
+
+test "sqrt special" {
+    std.testing.expect(std.math.isPositiveInf(sqrt(std.math.inf(f64))));
+    std.testing.expect(sqrt(0.0) == 0.0);
+    std.testing.expect(sqrt(-0.0) == -0.0);
+    std.testing.expect(std.math.isNan(sqrt(-1.0)));
+    std.testing.expect(std.math.isNan(sqrt(std.math.nan(f64))));
+}
+
 export fn sqrtf(x: f32) f32 {
     const tiny: f32 = 1.0e-30;
     const sign: i32 = @bitCast(i32, @as(u32, 0x80000000));
@@ -802,4 +824,26 @@ export fn sqrtf(x: f32) f32 {
     ix = (q >> 1) + 0x3f000000;
     ix += m << 23;
     return @bitCast(f32, ix);
+}
+
+test "sqrtf" {
+    const epsilon = 0.000001;
+
+    std.testing.expect(sqrtf(0.0) == 0.0);
+    std.testing.expect(std.math.approxEq(f32, sqrtf(2.0), 1.414214, epsilon));
+    std.testing.expect(std.math.approxEq(f32, sqrtf(3.6), 1.897367, epsilon));
+    std.testing.expect(sqrtf(4.0) == 2.0);
+    std.testing.expect(std.math.approxEq(f32, sqrtf(7.539840), 2.745877, epsilon));
+    std.testing.expect(std.math.approxEq(f32, sqrtf(19.230934), 4.385309, epsilon));
+    std.testing.expect(sqrtf(64.0) == 8.0);
+    std.testing.expect(std.math.approxEq(f32, sqrtf(64.1), 8.006248, epsilon));
+    std.testing.expect(std.math.approxEq(f32, sqrtf(8942.230469), 94.563370, epsilon));
+}
+
+test "sqrtf special" {
+    std.testing.expect(std.math.isPositiveInf(sqrtf(std.math.inf(f32))));
+    std.testing.expect(sqrtf(0.0) == 0.0);
+    std.testing.expect(sqrtf(-0.0) == -0.0);
+    std.testing.expect(std.math.isNan(sqrtf(-1.0)));
+    std.testing.expect(std.math.isNan(sqrtf(std.math.nan(f32))));
 }

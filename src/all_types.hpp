@@ -57,6 +57,23 @@ enum PtrLen {
     PtrLenC,
 };
 
+enum CallingConvention {
+    CallingConventionUnspecified,
+    CallingConventionC,
+    CallingConventionCold,
+    CallingConventionNaked,
+    CallingConventionAsync,
+    CallingConventionInterrupt,
+    CallingConventionSignal,
+    CallingConventionStdcall,
+    CallingConventionFastcall,
+    CallingConventionVectorcall,
+    CallingConventionThiscall,
+    CallingConventionAPCS,
+    CallingConventionAAPCS,
+    CallingConventionAAPCSVFP,
+};
+
 // This one corresponds to the builtin.zig enum.
 enum BuiltinPtrSize {
     BuiltinPtrSizeOne,
@@ -398,6 +415,7 @@ struct LazyValueFnType {
     IrInstruction *align_inst; // can be null
     IrInstruction *return_type;
 
+    CallingConvention cc;
     bool is_generic;
 };
 
@@ -612,15 +630,6 @@ enum NodeType {
     NodeTypeVarFieldType,
 };
 
-enum CallingConvention {
-    CallingConventionUnspecified,
-    CallingConventionC,
-    CallingConventionCold,
-    CallingConventionNaked,
-    CallingConventionStdcall,
-    CallingConventionAsync,
-};
-
 enum FnInline {
     FnInlineAuto,
     FnInlineAlways,
@@ -639,10 +648,12 @@ struct AstNodeFnProto {
     AstNode *align_expr;
     // populated if the "section(S)" is present
     AstNode *section_expr;
+    // populated if the "callconv(S)" is present
+    AstNode *callconv_expr;
     Buf doc_comments;
 
     FnInline fn_inline;
-    CallingConvention cc;
+    bool is_async;
 
     VisibMod visib_mod;
     bool auto_err_set;
@@ -1680,7 +1691,7 @@ enum BuiltinFnId {
     BuiltinFnIdCos,
     BuiltinFnIdExp,
     BuiltinFnIdExp2,
-    BuiltinFnIdLn,
+    BuiltinFnIdLog,
     BuiltinFnIdLog2,
     BuiltinFnIdLog10,
     BuiltinFnIdFabs,
@@ -2120,6 +2131,7 @@ struct CodeGen {
     bool have_winmain_crt_startup;
     bool have_dllmain_crt_startup;
     bool have_err_ret_tracing;
+    bool link_eh_frame_hdr;
     bool c_want_stdint;
     bool c_want_stdbool;
     bool verbose_tokenize;
@@ -3549,6 +3561,7 @@ struct IrInstructionFnProto {
 
     IrInstruction **param_types;
     IrInstruction *align_value;
+    IrInstruction *callconv_value;
     IrInstruction *return_type;
     bool is_var_args;
 };
@@ -3840,9 +3853,8 @@ struct IrInstructionAddImplicitReturnType {
 struct IrInstructionFloatOp {
     IrInstruction base;
 
-    BuiltinFnId op;
-    IrInstruction *type;
-    IrInstruction *op1;
+    BuiltinFnId fn_id;
+    IrInstruction *operand;
 };
 
 struct IrInstructionCheckRuntimeScope {

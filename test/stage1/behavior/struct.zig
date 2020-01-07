@@ -580,7 +580,7 @@ test "default struct initialization fields" {
     expectEqual(1239, x.a + x.b);
 }
 
-test "extern fn returns struct by value" {
+test "fn with C calling convention returns struct by value" {
     const S = struct {
         fn entry() void {
             var x = makeBar(10);
@@ -591,7 +591,7 @@ test "extern fn returns struct by value" {
             handle: i32,
         };
 
-        extern fn makeBar(t: i32) ExternBar {
+        fn makeBar(t: i32) callconv(.C) ExternBar {
             return ExternBar{
                 .handle = t,
             };

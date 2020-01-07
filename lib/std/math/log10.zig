@@ -22,7 +22,7 @@ pub fn log10(x: var) @TypeOf(x) {
     const T = @TypeOf(x);
     switch (@typeId(T)) {
         TypeId.ComptimeFloat => {
-            return @TypeOf(1.0)(log10_64(x));
+            return @as(comptime_float, log10_64(x));
         },
         TypeId.Float => {
             return switch (T) {
@@ -32,7 +32,7 @@ pub fn log10(x: var) @TypeOf(x) {
             };
         },
         TypeId.ComptimeInt => {
-            return @TypeOf(1)(math.floor(log10_64(@as(f64, x))));
+            return @as(comptime_int, math.floor(log10_64(@as(f64, x))));
         },
         TypeId.Int => {
             return @floatToInt(T, math.floor(log10_64(@intToFloat(f64, x))));

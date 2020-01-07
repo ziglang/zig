@@ -5,7 +5,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub extern fn __divdf3(a: f64, b: f64) f64 {
+pub fn __divdf3(a: f64, b: f64) callconv(.C) f64 {
     @setRuntimeSafety(builtin.is_test);
     const Z = @IntType(false, f64.bit_count);
     const SignedZ = @IntType(true, f64.bit_count);
@@ -321,6 +321,11 @@ fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)) i32 {
     const shift = @clz(Z, significand.*) - @clz(Z, implicitBit);
     significand.* <<= @intCast(std.math.Log2Int(Z), shift);
     return 1 - shift;
+}
+
+pub fn __aeabi_ddiv(a: f64, b: f64) callconv(.AAPCS) f64 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __divdf3, .{ a, b });
 }
 
 test "import divdf3" {

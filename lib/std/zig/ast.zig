@@ -860,6 +860,7 @@ pub const Node = struct {
         lib_name: ?*Node, // populated if this is an extern declaration
         align_expr: ?*Node, // populated if align(A) is present
         section_expr: ?*Node, // populated if linksection(A) is present
+        callconv_expr: ?*Node, // populated if callconv(A) is present
 
         pub const ParamList = SegmentedList(*Node, 2);
 

@@ -1,23 +1,38 @@
 const std = @import("std");
 
-pub extern fn __truncsfhf2(a: f32) u16 {
+pub fn __truncsfhf2(a: f32) callconv(.C) u16 {
     return @bitCast(u16, truncXfYf2(f16, f32, a));
 }
 
-pub extern fn __truncdfhf2(a: f64) u16 {
+pub fn __truncdfhf2(a: f64) callconv(.C) u16 {
     return @bitCast(u16, truncXfYf2(f16, f64, a));
 }
 
-pub extern fn __trunctfsf2(a: f128) f32 {
+pub fn __trunctfsf2(a: f128) callconv(.C) f32 {
     return truncXfYf2(f32, f128, a);
 }
 
-pub extern fn __trunctfdf2(a: f128) f64 {
+pub fn __trunctfdf2(a: f128) callconv(.C) f64 {
     return truncXfYf2(f64, f128, a);
 }
 
-pub extern fn __truncdfsf2(a: f64) f32 {
+pub fn __truncdfsf2(a: f64) callconv(.C) f32 {
     return truncXfYf2(f32, f64, a);
+}
+
+pub fn __aeabi_d2f(a: f64) callconv(.AAPCS) f32 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __truncdfsf2, .{a});
+}
+
+pub fn __aeabi_d2h(a: f64) callconv(.AAPCS) u16 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __truncdfhf2, .{a});
+}
+
+pub fn __aeabi_f2h(a: f32) callconv(.AAPCS) u16 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __truncsfhf2, .{a});
 }
 
 inline fn truncXfYf2(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t {

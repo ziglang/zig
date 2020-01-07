@@ -488,6 +488,11 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     render_node_grouped(ar, node->data.fn_proto.section_expr);
                     fprintf(ar->f, ")");
                 }
+                if (node->data.fn_proto.callconv_expr) {
+                    fprintf(ar->f, " callconv(");
+                    render_node_grouped(ar, node->data.fn_proto.callconv_expr);
+                    fprintf(ar->f, ")");
+                }
 
                 if (node->data.fn_proto.return_var_token != nullptr) {
                     fprintf(ar->f, "var");

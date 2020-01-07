@@ -33,17 +33,17 @@ pub const FARPROC = *@OpaqueType();
 pub const INT = c_int;
 pub const LPBYTE = *BYTE;
 pub const LPCH = *CHAR;
-pub const LPCSTR = [*]const CHAR;
-pub const LPCTSTR = [*]const TCHAR;
+pub const LPCSTR = [*:0]const CHAR;
+pub const LPCTSTR = [*:0]const TCHAR;
 pub const LPCVOID = *const c_void;
 pub const LPDWORD = *DWORD;
-pub const LPSTR = [*]CHAR;
+pub const LPSTR = [*:0]CHAR;
 pub const LPTSTR = if (UNICODE) LPWSTR else LPSTR;
 pub const LPVOID = *c_void;
-pub const LPWSTR = [*]WCHAR;
-pub const LPCWSTR = [*]const WCHAR;
+pub const LPWSTR = [*:0]WCHAR;
+pub const LPCWSTR = [*:0]const WCHAR;
 pub const PVOID = *c_void;
-pub const PWSTR = [*]WCHAR;
+pub const PWSTR = [*:0]WCHAR;
 pub const SIZE_T = usize;
 pub const TCHAR = if (UNICODE) WCHAR else u8;
 pub const UINT = c_uint;
@@ -892,7 +892,7 @@ pub const EXCEPTION_POINTERS = extern struct {
     ContextRecord: *c_void,
 };
 
-pub const VECTORED_EXCEPTION_HANDLER = stdcallcc fn (ExceptionInfo: *EXCEPTION_POINTERS) c_long;
+pub const VECTORED_EXCEPTION_HANDLER = fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(.Stdcall) c_long;
 
 pub const OBJECT_ATTRIBUTES = extern struct {
     Length: ULONG,

@@ -221,14 +221,14 @@ test "alignment of structs" {
     }) == @alignOf(usize));
 }
 
-test "alignment of extern() void" {
+test "alignment of function with c calling convention" {
     var runtime_nothing = nothing;
     const casted1 = @ptrCast(*const u8, runtime_nothing);
-    const casted2 = @ptrCast(extern fn () void, casted1);
+    const casted2 = @ptrCast(fn () callconv(.C) void, casted1);
     casted2();
 }
 
-extern fn nothing() void {}
+fn nothing() callconv(.C) void {}
 
 test "return error union with 128-bit integer" {
     expect(3 == try give());

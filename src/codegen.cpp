@@ -194,6 +194,7 @@ static LLVMValueRef build_alloca(CodeGen *g, ZigType *type_entry, const char *na
 static LLVMValueRef gen_await_early_return(CodeGen *g, IrInstruction *source_instr,
         LLVMValueRef target_frame_ptr, ZigType *result_type, ZigType *ptr_result_type,
         LLVMValueRef result_loc, bool non_async);
+static Error get_tmp_filename(CodeGen *g, Buf *out, Buf *suffix);
 
 static void addLLVMAttr(LLVMValueRef val, LLVMAttributeIndex attr_index, const char *attr_name) {
     unsigned kind_id = LLVMGetEnumAttributeKindForName(attr_name, strlen(attr_name));
@@ -262,36 +263,66 @@ static const char *get_mangled_name(CodeGen *g, const char *original_name, bool 
     }
 }
 
-static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
+static ZigLLVM_CallingConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
     switch (cc) {
-        case CallingConventionUnspecified: return LLVMFastCallConv;
-        case CallingConventionC: return LLVMCCallConv;
+        case CallingConventionUnspecified:
+            return ZigLLVM_Fast;
+        case CallingConventionC:
+            return ZigLLVM_C;
         case CallingConventionCold:
-            // cold calling convention only works on x86.
-            if (g->zig_target->arch == ZigLLVM_x86 ||
-                g->zig_target->arch == ZigLLVM_x86_64)
-            {
-                // cold calling convention is not supported on windows
-                if (g->zig_target->os == OsWindows) {
-                    return LLVMCCallConv;
-                } else {
-                    return LLVMColdCallConv;
-                }
-            } else {
-                return LLVMCCallConv;
-            }
-            break;
+            if ((g->zig_target->arch == ZigLLVM_x86 ||
+                 g->zig_target->arch == ZigLLVM_x86_64) &&
+                g->zig_target->os != OsWindows)
+                return ZigLLVM_Cold;
+            return ZigLLVM_C;
         case CallingConventionNaked:
             zig_unreachable();
         case CallingConventionStdcall:
-            // stdcall calling convention only works on x86.
-            if (g->zig_target->arch == ZigLLVM_x86) {
-                return LLVMX86StdcallCallConv;
-            } else {
-                return LLVMCCallConv;
-            }
+            if (g->zig_target->arch == ZigLLVM_x86)
+                return ZigLLVM_X86_StdCall;
+            return ZigLLVM_C;
+        case CallingConventionFastcall:
+            if (g->zig_target->arch == ZigLLVM_x86)
+                return ZigLLVM_X86_FastCall;
+            return ZigLLVM_C;
+        case CallingConventionVectorcall:
+            if (g->zig_target->arch == ZigLLVM_x86)
+                return ZigLLVM_X86_VectorCall;
+            if (target_is_arm(g->zig_target) &&
+                target_arch_pointer_bit_width(g->zig_target->arch) == 64)
+                return ZigLLVM_AArch64_VectorCall;
+            return ZigLLVM_C;
+        case CallingConventionThiscall:
+            if (g->zig_target->arch == ZigLLVM_x86)
+                return ZigLLVM_X86_ThisCall;
+            return ZigLLVM_C;
         case CallingConventionAsync:
-            return LLVMFastCallConv;
+            return ZigLLVM_Fast;
+        case CallingConventionAPCS:
+            if (target_is_arm(g->zig_target))
+                return ZigLLVM_ARM_APCS;
+            return ZigLLVM_C;
+        case CallingConventionAAPCS:
+            if (target_is_arm(g->zig_target))
+                return ZigLLVM_ARM_AAPCS;
+            return ZigLLVM_C;
+        case CallingConventionAAPCSVFP:
+            if (target_is_arm(g->zig_target))
+                return ZigLLVM_ARM_AAPCS_VFP;
+            return ZigLLVM_C;
+        case CallingConventionInterrupt:
+            if (g->zig_target->arch == ZigLLVM_x86 ||
+                g->zig_target->arch == ZigLLVM_x86_64)
+                return ZigLLVM_X86_INTR;
+            if (g->zig_target->arch == ZigLLVM_avr)
+                return ZigLLVM_AVR_INTR;
+            if (g->zig_target->arch == ZigLLVM_msp430)
+                return ZigLLVM_MSP430_INTR;
+            return ZigLLVM_C;
+        case CallingConventionSignal:
+            if (g->zig_target->arch == ZigLLVM_avr)
+                return ZigLLVM_AVR_SIGNAL;
+            return ZigLLVM_C;
     }
     zig_unreachable();
 }
@@ -383,7 +414,15 @@ static bool cc_want_sret_attr(CallingConvention cc) {
             zig_unreachable();
         case CallingConventionC:
         case CallingConventionCold:
+        case CallingConventionInterrupt:
+        case CallingConventionSignal:
         case CallingConventionStdcall:
+        case CallingConventionFastcall:
+        case CallingConventionVectorcall:
+        case CallingConventionThiscall:
+        case CallingConventionAPCS:
+        case CallingConventionAAPCS:
+        case CallingConventionAAPCSVFP:
             return true;
         case CallingConventionAsync:
         case CallingConventionUnspecified:
@@ -480,7 +519,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
     if (cc == CallingConventionNaked) {
         addLLVMFnAttr(llvm_fn, "naked");
     } else {
-        LLVMSetFunctionCallConv(llvm_fn, get_llvm_cc(g, fn_type->data.fn.fn_type_id.cc));
+        ZigLLVMFunctionSetCallingConv(llvm_fn, get_llvm_cc(g, cc));
     }
 
     bool want_cold = fn->is_cold || cc == CallingConventionCold;
@@ -764,7 +803,7 @@ static LLVMValueRef get_float_fn(CodeGen *g, ZigType *type_entry, ZigLLVMFnId fn
         name = "fma";
         num_args = 3;
     } else if (fn_id == ZigLLVMFnIdFloatOp) {
-        name = float_op_to_name(op, true);
+        name = float_op_to_name(op);
         num_args = 1;
     } else {
         zig_unreachable();
@@ -975,7 +1014,7 @@ static void gen_panic(CodeGen *g, LLVMValueRef msg_arg, LLVMValueRef stack_trace
 {
     assert(g->panic_fn != nullptr);
     LLVMValueRef fn_val = fn_llvm_value(g, g->panic_fn);
-    LLVMCallConv llvm_cc = get_llvm_cc(g, g->panic_fn->type_entry->data.fn.fn_type_id.cc);
+    ZigLLVM_CallingConv llvm_cc = get_llvm_cc(g, g->panic_fn->type_entry->data.fn.fn_type_id.cc);
     if (stack_trace_arg == nullptr) {
         stack_trace_arg = LLVMConstNull(get_llvm_type(g, ptr_to_stack_trace_type(g)));
     }
@@ -1086,7 +1125,7 @@ static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
     LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type_ref);
     addLLVMFnAttr(fn_val, "alwaysinline");
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
-    LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
+    ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
     // Error return trace memory is in the stack, which is impossible to be at address 0
@@ -1167,7 +1206,7 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
     addLLVMFnAttr(fn_val, "noinline"); // so that we can look at return address
     addLLVMFnAttr(fn_val, "cold");
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
-    LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
+    ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
     if (codegen_have_frame_pointer(g)) {
@@ -1251,7 +1290,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     addLLVMFnAttr(fn_val, "noreturn");
     addLLVMFnAttr(fn_val, "cold");
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
-    LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
+    ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
     if (codegen_have_frame_pointer(g)) {
@@ -2147,7 +2186,7 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
     const char *fn_name = get_mangled_name(g, "__zig_merge_error_return_traces", false);
     LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type_ref);
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
-    LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
+    ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
     addLLVMArgAttr(fn_val, (unsigned)0, "noalias");
@@ -2324,7 +2363,7 @@ static LLVMValueRef gen_resume(CodeGen *g, LLVMValueRef fn_val, LLVMValueRef tar
     LLVMValueRef arg_val = LLVMConstSub(LLVMConstAllOnes(usize_type_ref),
             LLVMConstInt(usize_type_ref, resume_id, false));
     LLVMValueRef args[] = {target_frame_ptr, arg_val};
-    return ZigLLVMBuildCall(g->builder, fn_val, args, 2, LLVMFastCallConv, ZigLLVM_CallAttrAuto, "");
+    return ZigLLVMBuildCall(g->builder, fn_val, args, 2, ZigLLVM_Fast, ZigLLVM_CallAttrAuto, "");
 }
 
 static LLVMBasicBlockRef gen_suspend_begin(CodeGen *g, const char *name_hint) {
@@ -4214,7 +4253,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
             break;
     }
 
-    LLVMCallConv llvm_cc = get_llvm_cc(g, cc);
+    ZigLLVM_CallingConv llvm_cc = get_llvm_cc(g, cc);
     LLVMValueRef result;
 
     if (callee_is_async) {
@@ -4924,7 +4963,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
             buf_ptr(buf_sprintf("__zig_tag_name_%s", buf_ptr(&enum_type->name))), false);
     LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type_ref);
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
-    LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
+    ZigLLVMFunctionSetCallingConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
     if (codegen_have_frame_pointer(g)) {
@@ -5785,10 +5824,9 @@ static LLVMValueRef ir_render_atomic_store(CodeGen *g, IrExecutable *executable,
 }
 
 static LLVMValueRef ir_render_float_op(CodeGen *g, IrExecutable *executable, IrInstructionFloatOp *instruction) {
-    LLVMValueRef op = ir_llvm_value(g, instruction->op1);
-    assert(instruction->base.value->type->id == ZigTypeIdFloat);
-    LLVMValueRef fn_val = get_float_fn(g, instruction->base.value->type, ZigLLVMFnIdFloatOp, instruction->op);
-    return LLVMBuildCall(g->builder, fn_val, &op, 1, "");
+    LLVMValueRef operand = ir_llvm_value(g, instruction->operand);
+    LLVMValueRef fn_val = get_float_fn(g, instruction->base.value->type, ZigLLVMFnIdFloatOp, instruction->fn_id);
+    return LLVMBuildCall(g->builder, fn_val, &operand, 1, "");
 }
 
 static LLVMValueRef ir_render_mul_add(CodeGen *g, IrExecutable *executable, IrInstructionMulAdd *instruction) {
@@ -8201,20 +8239,20 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdDivFloor, "divFloor", 2);
     create_builtin_fn(g, BuiltinFnIdRem, "rem", 2);
     create_builtin_fn(g, BuiltinFnIdMod, "mod", 2);
-    create_builtin_fn(g, BuiltinFnIdSqrt, "sqrt", 2);
-    create_builtin_fn(g, BuiltinFnIdSin, "sin", 2);
-    create_builtin_fn(g, BuiltinFnIdCos, "cos", 2);
-    create_builtin_fn(g, BuiltinFnIdExp, "exp", 2);
-    create_builtin_fn(g, BuiltinFnIdExp2, "exp2", 2);
-    create_builtin_fn(g, BuiltinFnIdLn, "ln", 2);
-    create_builtin_fn(g, BuiltinFnIdLog2, "log2", 2);
-    create_builtin_fn(g, BuiltinFnIdLog10, "log10", 2);
-    create_builtin_fn(g, BuiltinFnIdFabs, "fabs", 2);
-    create_builtin_fn(g, BuiltinFnIdFloor, "floor", 2);
-    create_builtin_fn(g, BuiltinFnIdCeil, "ceil", 2);
-    create_builtin_fn(g, BuiltinFnIdTrunc, "trunc", 2);
-    create_builtin_fn(g, BuiltinFnIdNearbyInt, "nearbyInt", 2);
-    create_builtin_fn(g, BuiltinFnIdRound, "round", 2);
+    create_builtin_fn(g, BuiltinFnIdSqrt, "sqrt", 1);
+    create_builtin_fn(g, BuiltinFnIdSin, "sin", 1);
+    create_builtin_fn(g, BuiltinFnIdCos, "cos", 1);
+    create_builtin_fn(g, BuiltinFnIdExp, "exp", 1);
+    create_builtin_fn(g, BuiltinFnIdExp2, "exp2", 1);
+    create_builtin_fn(g, BuiltinFnIdLog, "log", 1);
+    create_builtin_fn(g, BuiltinFnIdLog2, "log2", 1);
+    create_builtin_fn(g, BuiltinFnIdLog10, "log10", 1);
+    create_builtin_fn(g, BuiltinFnIdFabs, "fabs", 1);
+    create_builtin_fn(g, BuiltinFnIdFloor, "floor", 1);
+    create_builtin_fn(g, BuiltinFnIdCeil, "ceil", 1);
+    create_builtin_fn(g, BuiltinFnIdTrunc, "trunc", 1);
+    create_builtin_fn(g, BuiltinFnIdNearbyInt, "nearbyInt", 1);
+    create_builtin_fn(g, BuiltinFnIdRound, "round", 1);
     create_builtin_fn(g, BuiltinFnIdMulAdd, "mulAdd", 4);
     create_builtin_fn(g, BuiltinFnIdNewStackCall, "newStackCall", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdAsyncCall, "asyncCall", SIZE_MAX);
@@ -8463,8 +8501,16 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     static_assert(CallingConventionC == 1, "");
     static_assert(CallingConventionCold == 2, "");
     static_assert(CallingConventionNaked == 3, "");
-    static_assert(CallingConventionStdcall == 4, "");
-    static_assert(CallingConventionAsync == 5, "");
+    static_assert(CallingConventionAsync == 4, "");
+    static_assert(CallingConventionInterrupt == 5, "");
+    static_assert(CallingConventionSignal == 6, "");
+    static_assert(CallingConventionStdcall == 7, "");
+    static_assert(CallingConventionFastcall == 8, "");
+    static_assert(CallingConventionVectorcall == 9, "");
+    static_assert(CallingConventionThiscall == 10, "");
+    static_assert(CallingConventionAPCS == 11, "");
+    static_assert(CallingConventionAAPCS == 12, "");
+    static_assert(CallingConventionAAPCSVFP == 13, "");
 
     static_assert(FnInlineAuto == 0, "");
     static_assert(FnInlineAlways == 1, "");
@@ -8583,6 +8629,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_bool(&cache_hash, g->have_err_ret_tracing);
     cache_bool(&cache_hash, g->libc_link_lib != nullptr);
     cache_bool(&cache_hash, g->valgrind_support);
+    cache_bool(&cache_hash, g->link_eh_frame_hdr);
     cache_int(&cache_hash, detect_subsystem(g));
 
     Buf digest = BUF_INIT;
@@ -9103,8 +9150,9 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
 
 }
 
-void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file) {
+void codegen_translate_c(CodeGen *g, Buf *full_path) {
     Error err;
+
     Buf *src_basename = buf_alloc();
     Buf *src_dirname = buf_alloc();
     os_path_split(full_path, src_dirname, src_basename);
@@ -9112,12 +9160,61 @@ void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file) {
     Buf noextname = BUF_INIT;
     os_path_extname(src_basename, &noextname, nullptr);
 
+    Buf *zig_basename = buf_sprintf("%s.zig", buf_ptr(&noextname));
+
     detect_libc(g);
 
+    Buf cache_digest = BUF_INIT;
+    buf_resize(&cache_digest, 0);
+
+    CacheHash *cache_hash = nullptr;
+    if (g->enable_cache) {
+        if ((err = create_c_object_cache(g, &cache_hash, true))) {
+            // Already printed error; verbose = true
+            exit(1);
+        }
+        cache_file(cache_hash, full_path);
+        // to distinguish from generating a C object
+        cache_buf(cache_hash, buf_create_from_str("translate-c"));
+
+        if ((err = cache_hit(cache_hash, &cache_digest))) {
+            if (err != ErrorInvalidFormat) {
+                fprintf(stderr, "unable to check cache: %s\n", err_str(err));
+                exit(1);
+            }
+        }
+        if (cache_hash->manifest_file_path != nullptr) {
+            g->caches_to_release.append(cache_hash);
+        }
+    }
+
+    if (g->enable_cache && buf_len(&cache_digest) != 0) {
+        // cache hit
+        Buf *cached_path = buf_sprintf("%s" OS_SEP CACHE_OUT_SUBDIR OS_SEP "%s" OS_SEP "%s",
+                buf_ptr(g->cache_dir), buf_ptr(&cache_digest), buf_ptr(zig_basename));
+        fprintf(stdout, "%s\n", buf_ptr(cached_path));
+        return;
+    }
+
+    // cache miss or cache disabled
     init(g);
 
+    Buf *out_dep_path = nullptr;
+    const char *out_dep_path_cstr = nullptr;
+
+    if (g->enable_cache) {
+        buf_alloc();// we can't know the digest until we do the C compiler invocation, so we
+        // need a tmp filename.
+        out_dep_path = buf_alloc();
+        if ((err = get_tmp_filename(g, out_dep_path, buf_sprintf("%s.d", buf_ptr(zig_basename))))) {
+            fprintf(stderr, "unable to create tmp dir: %s\n", err_str(err));
+            exit(1);
+        }
+        out_dep_path_cstr = buf_ptr(out_dep_path);
+    }
+
     ZigList<const char *> clang_argv = {0};
-    add_cc_args(g, clang_argv, nullptr, true);
+    add_cc_args(g, clang_argv, out_dep_path_cstr, true);
 
     clang_argv.append(buf_ptr(full_path));
 
@@ -9161,7 +9258,50 @@ void codegen_translate_c(CodeGen *g, Buf *full_path, FILE *out_file) {
         exit(1);
     }
 
+    if (!g->enable_cache) {
+        stage2_render_ast(ast, stdout);
+        return;
+    }
+
+    // add the files depended on to the cache system
+    if ((err = cache_add_dep_file(cache_hash, out_dep_path, true))) {
+        // Don't treat the absence of the .d file as a fatal error, the
+        // compiler may not produce one eg. when compiling .s files
+        if (err != ErrorFileNotFound) {
+            fprintf(stderr, "Failed to add C source dependencies to cache: %s\n", err_str(err));
+            exit(1);
+        }
+    }
+    if (err != ErrorFileNotFound) {
+        os_delete_file(out_dep_path);
+    }
+
+    if ((err = cache_final(cache_hash, &cache_digest))) {
+        fprintf(stderr, "Unable to finalize cache hash: %s\n", err_str(err));
+        exit(1);
+    }
+
+    Buf *artifact_dir = buf_sprintf("%s" OS_SEP CACHE_OUT_SUBDIR OS_SEP "%s",
+            buf_ptr(g->cache_dir), buf_ptr(&cache_digest));
+
+    if ((err = os_make_path(artifact_dir))) {
+        fprintf(stderr, "Unable to make dir: %s\n", err_str(err));
+        exit(1);
+    }
+
+    Buf *cached_path = buf_sprintf("%s" OS_SEP "%s", buf_ptr(artifact_dir), buf_ptr(zig_basename));
+
+    FILE *out_file = fopen(buf_ptr(cached_path), "wb");
+    if (out_file == nullptr) {
+        fprintf(stderr, "Unable to open output file: %s\n", strerror(errno));
+        exit(1);
+    }
     stage2_render_ast(ast, out_file);
+    if (fclose(out_file) != 0) {
+        fprintf(stderr, "Unable to write to output file: %s\n", strerror(errno));
+        exit(1);
+    }
+    fprintf(stdout, "%s\n", buf_ptr(cached_path));
 }
 
 static void update_test_functions_builtin_decl(CodeGen *g) {
@@ -10140,6 +10280,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
         cache_buf_opt(ch, g->test_filter);
         cache_buf_opt(ch, g->test_name_prefix);
     }
+    cache_bool(ch, g->link_eh_frame_hdr);
     cache_bool(ch, g->is_single_threaded);
     cache_bool(ch, g->linker_rdynamic);
     cache_bool(ch, g->each_lib_rpath);

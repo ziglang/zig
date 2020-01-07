@@ -19,7 +19,7 @@ pub const SystemTable = extern struct {
     hdr: TableHeader,
 
     /// A null-terminated string that identifies the vendor that produces the system firmware of the platform.
-    firmware_vendor: [*]u16,
+    firmware_vendor: [*:0]u16,
     firmware_revision: u32,
     console_in_handle: ?Handle,
     con_in: ?*SimpleTextInputProtocol,

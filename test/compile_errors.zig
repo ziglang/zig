@@ -2,6 +2,38 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("error in struct initializer doesn't crash the compiler",
+        \\pub export fn entry() void {
+        \\    const bitfield = struct {
+        \\        e: u8,
+        \\        e: u8,
+        \\    };
+        \\    var a = .{@sizeOf(bitfield)};
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:4:9: error: duplicate struct field: 'e'",
+    });
+
+    cases.addTest("repeated invalid field access to generic function returning type crashes compiler. #2655",
+        \\pub fn A() type {
+        \\    return Q;
+        \\}
+        \\test "1" {
+        \\    _ = A().a;
+        \\    _ = A().a;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:12: error: use of undeclared identifier 'Q'",
+    });
+
+    cases.add("bitCast to enum type",
+        \\export fn entry() void {
+        \\    const y = @bitCast(enum(u32) { a, b }, @as(u32, 3));
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:24: error: cannot cast a value of type 'y'",
+    });
+
     cases.add("comparing against undefined produces undefined value",
         \\export fn entry() void {
         \\    if (2 == undefined) {}
@@ -31,8 +63,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:12: note: destination pointer requires a terminating '0' sentinel",
     });
 
-    cases.add(
-        "cmpxchg with float",
+    cases.add("cmpxchg with float",
         \\export fn entry() void {
         \\    var x: f32 = 0;
         \\    _ = @cmpxchgWeak(f32, &x, 1, 2, .SeqCst, .SeqCst);
@@ -41,8 +72,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:22: error: expected integer, enum or pointer type, found 'f32'",
     });
 
-    cases.add(
-        "atomicrmw with float op not .Xchg, .Add or .Sub",
+    cases.add("atomicrmw with float op not .Xchg, .Add or .Sub",
         \\export fn entry() void {
         \\    var x: f32 = 0;
         \\    _ = @atomicRmw(f32, &x, .And, 2, .SeqCst);
@@ -752,7 +782,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @frame();
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:1: error: function with calling convention 'ccc' cannot be async",
+        "tmp.zig:1:1: error: function with calling convention 'C' cannot be async",
         "tmp.zig:5:9: note: @frame() causes function to be async",
     });
 
@@ -765,7 +795,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    suspend;
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:1: error: function with calling convention 'ccc' cannot be async",
+        "tmp.zig:1:1: error: function with calling convention 'C' cannot be async",
         "tmp.zig:3:18: note: await here is a suspend point",
     });
 
@@ -843,7 +873,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    suspend;
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:1: error: function with calling convention 'ccc' cannot be async",
+        "tmp.zig:1:1: error: function with calling convention 'C' cannot be async",
         "tmp.zig:2:8: note: async function call here",
         "tmp.zig:5:8: note: async function call here",
         "tmp.zig:8:5: note: suspends here",
@@ -1140,7 +1170,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    while (true) {}
         \\}
     , &[_][]const u8{
-        "error: expected type 'fn([]const u8, ?*std.builtin.StackTrace) noreturn', found 'fn([]const u8,var)var'",
+        "error: expected type 'fn([]const u8, ?*std.builtin.StackTrace) noreturn', found 'fn([]const u8,var) var'",
         "note: only one of the functions is generic",
     });
 
@@ -1362,7 +1392,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return 0;
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:15: error: parameter of type 'var' not allowed in function with calling convention 'ccc'",
+        "tmp.zig:1:15: error: parameter of type 'var' not allowed in function with calling convention 'C'",
     });
 
     cases.add("C pointer to c_void",
@@ -2187,7 +2217,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    f(g);
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:9: error: parameter of type 'fn(var)var' must be declared comptime",
+        "tmp.zig:1:9: error: parameter of type 'fn(var) var' must be declared comptime",
     });
 
     cases.add("optional pointer to void in extern struct",
@@ -2843,7 +2873,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\export fn entry() void {
         \\    foo();
         \\}
-        \\nakedcc fn foo() void { }
+        \\fn foo() callconv(.Naked) void { }
     , &[_][]const u8{
         "tmp.zig:2:5: error: unable to call function with naked calling convention",
         "tmp.zig:4:1: note: declared here",
@@ -2859,7 +2889,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\const Foo = enum { A, B, C };
         \\export fn entry(foo: Foo) void { }
     , &[_][]const u8{
-        "tmp.zig:2:22: error: parameter of type 'Foo' not allowed in function with calling convention 'ccc'",
+        "tmp.zig:2:22: error: parameter of type 'Foo' not allowed in function with calling convention 'C'",
     });
 
     cases.add("function with non-extern non-packed struct parameter",
@@ -2870,7 +2900,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\};
         \\export fn entry(foo: Foo) void { }
     , &[_][]const u8{
-        "tmp.zig:6:22: error: parameter of type 'Foo' not allowed in function with calling convention 'ccc'",
+        "tmp.zig:6:22: error: parameter of type 'Foo' not allowed in function with calling convention 'C'",
     });
 
     cases.add("function with non-extern non-packed union parameter",
@@ -2881,7 +2911,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\};
         \\export fn entry(foo: Foo) void { }
     , &[_][]const u8{
-        "tmp.zig:6:22: error: parameter of type 'Foo' not allowed in function with calling convention 'ccc'",
+        "tmp.zig:6:22: error: parameter of type 'Foo' not allowed in function with calling convention 'C'",
     });
 
     cases.add("switch on enum with 1 field with no prongs",
@@ -2972,13 +3002,13 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    foo(bar);
         \\}
         \\
-        \\extern fn bar(x: *void) void { }
+        \\fn bar(x: *void) callconv(.C) void { }
         \\export fn entry2() void {
         \\    bar(&{});
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:30: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'ccc'",
-        "tmp.zig:7:18: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'ccc'",
+        "tmp.zig:1:30: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'C'",
+        "tmp.zig:7:11: error: parameter of type '*void' has 0 bits; not allowed in function with calling convention 'C'",
     });
 
     cases.add("implicit semicolon - block statement",
@@ -3871,7 +3901,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@TypeOf(fns)); }
     , &[_][]const u8{
-        "tmp.zig:1:37: error: expected type 'fn(i32) i32', found 'extern fn(i32) i32'",
+        "tmp.zig:1:37: error: expected type 'fn(i32) i32', found 'fn(i32) callconv(.C) i32'",
     });
 
     cases.add("colliding invalid top level functions",
@@ -4552,7 +4582,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return x + y;
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:15: error: comptime parameter not allowed in function with calling convention 'ccc'",
+        "tmp.zig:1:15: error: comptime parameter not allowed in function with calling convention 'C'",
     });
 
     cases.add("extern function with comptime parameter",
@@ -4562,7 +4592,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
         \\export fn entry() usize { return @sizeOf(@TypeOf(f)); }
     , &[_][]const u8{
-        "tmp.zig:1:15: error: comptime parameter not allowed in function with calling convention 'ccc'",
+        "tmp.zig:1:15: error: comptime parameter not allowed in function with calling convention 'C'",
     });
 
     cases.add("convert fixed size array to slice with invalid size",
@@ -5618,7 +5648,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("wrong types given to @export",
-        \\extern fn entry() void { }
+        \\fn entry() callconv(.C) void { }
         \\comptime {
         \\    @export("entry", entry, @as(u32, 1234));
         \\}
@@ -5663,7 +5693,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     });
 
     cases.add("@setAlignStack in naked function",
-        \\export nakedcc fn entry() void {
+        \\export fn entry() callconv(.Naked) void {
         \\    @setAlignStack(16);
         \\}
     , &[_][]const u8{
@@ -6303,7 +6333,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @TypeOf(generic).ReturnType;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:25: error: ReturnType has not been resolved because 'fn(var)var' is generic",
+        "tmp.zig:3:25: error: ReturnType has not been resolved because 'fn(var) var' is generic",
     });
 
     cases.add("getting @ArgType of generic function",
@@ -6312,7 +6342,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _ = @ArgType(@TypeOf(generic), 0);
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:36: error: @ArgType could not resolve the type of arg 0 because 'fn(var)var' is generic",
+        "tmp.zig:3:36: error: @ArgType could not resolve the type of arg 0 because 'fn(var) var' is generic",
     });
 
     cases.add("unsupported modifier at start of asm output constraint",

@@ -2,8 +2,6 @@
 //
 // https://github.com/llvm/llvm-project/commit/d674d96bc56c0f377879d01c9d8dfdaaa7859cdb/compiler-rt/lib/builtins/arm/aeabi_dcmp.S
 
-const compiler_rt_armhf_target = false; // TODO
-
 const ConditionalOperator = enum {
     Eq,
     Lt,
@@ -12,41 +10,34 @@ const ConditionalOperator = enum {
     Gt,
 };
 
-pub nakedcc fn __aeabi_dcmpeq() noreturn {
+pub fn __aeabi_dcmpeq() callconv(.Naked) noreturn {
     @setRuntimeSafety(false);
     @call(.{ .modifier = .always_inline }, aeabi_dcmp, .{.Eq});
     unreachable;
 }
 
-pub nakedcc fn __aeabi_dcmplt() noreturn {
+pub fn __aeabi_dcmplt() callconv(.Naked) noreturn {
     @setRuntimeSafety(false);
     @call(.{ .modifier = .always_inline }, aeabi_dcmp, .{.Lt});
     unreachable;
 }
 
-pub nakedcc fn __aeabi_dcmple() noreturn {
+pub fn __aeabi_dcmple() callconv(.Naked) noreturn {
     @setRuntimeSafety(false);
     @call(.{ .modifier = .always_inline }, aeabi_dcmp, .{.Le});
     unreachable;
 }
 
-pub nakedcc fn __aeabi_dcmpge() noreturn {
+pub fn __aeabi_dcmpge() callconv(.Naked) noreturn {
     @setRuntimeSafety(false);
     @call(.{ .modifier = .always_inline }, aeabi_dcmp, .{.Ge});
     unreachable;
 }
 
-pub nakedcc fn __aeabi_dcmpgt() noreturn {
+pub fn __aeabi_dcmpgt() callconv(.Naked) noreturn {
     @setRuntimeSafety(false);
     @call(.{ .modifier = .always_inline }, aeabi_dcmp, .{.Gt});
     unreachable;
-}
-
-inline fn convert_dcmp_args_to_df2_args() void {
-    asm volatile (
-        \\ vmov      d0, r0, r1
-        \\ vmov      d1, r2, r3
-    );
 }
 
 fn aeabi_dcmp(comptime cond: ConditionalOperator) void {
@@ -54,10 +45,6 @@ fn aeabi_dcmp(comptime cond: ConditionalOperator) void {
     asm volatile (
         \\ push      { r4, lr }
     );
-
-    if (compiler_rt_armhf_target) {
-        convert_dcmp_args_to_df2_args();
-    }
 
     switch (cond) {
         .Eq => asm volatile (

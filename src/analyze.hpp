@@ -100,7 +100,7 @@ ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node);
 void append_namespace_qualification(CodeGen *g, Buf *buf, ZigType *container_type);
 ZigFn *create_fn(CodeGen *g, AstNode *proto_node);
 ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value);
-void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_count_alloc);
+void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, CallingConvention cc, size_t param_count_alloc);
 AstNode *get_param_decl_node(ZigFn *fn_entry, size_t index);
 Error ATTRIBUTE_MUST_USE type_resolve(CodeGen *g, ZigType *type_entry, ResolveStatus status);
 void complete_enum(CodeGen *g, ZigType *enum_type);
@@ -259,8 +259,9 @@ ZigValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *
 
 void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn);
 bool fn_is_async(ZigFn *fn);
+CallingConvention cc_from_fn_proto(AstNodeFnProto *fn_proto);
 
-Error type_val_resolve_abi_align(CodeGen *g, ZigValue *type_val, uint32_t *abi_align);
+Error type_val_resolve_abi_align(CodeGen *g, AstNode *source_node, ZigValue *type_val, uint32_t *abi_align);
 Error type_val_resolve_abi_size(CodeGen *g, AstNode *source_node, ZigValue *type_val,
         size_t *abi_size, size_t *size_in_bits);
 Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent_type,

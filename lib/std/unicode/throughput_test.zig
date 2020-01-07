@@ -22,7 +22,7 @@ pub fn main() !void {
     const elapsed_ns_orig = timer.lap();
     @fence(.SeqCst);
 
-    var buffer2: [32767] u16 align(4096) = undefined;
+    var buffer2: [32767]u16 align(4096) = undefined;
     _ = try std.unicode.utf8ToUtf16Le_better(&buffer2, args[1]);
 
     @fence(.SeqCst);

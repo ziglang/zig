@@ -25,13 +25,13 @@ pub const RuntimeServices = extern struct {
     convertPointer: usize, // TODO
 
     /// Returns the value of a variable.
-    getVariable: extern fn ([*]const u16, *align(8) const Guid, ?*u32, *usize, ?*c_void) usize,
+    getVariable: extern fn ([*:0]const u16, *align(8) const Guid, ?*u32, *usize, ?*c_void) usize,
 
     /// Enumerates the current variable names.
     getNextVariableName: extern fn (*usize, [*]u16, *align(8) Guid) usize,
 
     /// Sets the value of a variable.
-    setVariable: extern fn ([*]const u16, *align(8) const Guid, u32, usize, *c_void) usize,
+    setVariable: extern fn ([*:0]const u16, *align(8) const Guid, u32, usize, *c_void) usize,
 
     getNextHighMonotonicCount: usize, // TODO
 

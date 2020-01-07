@@ -216,13 +216,6 @@ pub fn raise(sig: u8) RaiseError!void {
         }
     }
 
-    if (builtin.os == .wasi) {
-        switch (wasi.proc_raise(SIGABRT)) {
-            0 => return,
-            else => |err| return unexpectedErrno(err),
-        }
-    }
-
     if (builtin.os == .linux) {
         var set: linux.sigset_t = undefined;
         // block application signals
@@ -2639,9 +2632,7 @@ pub fn realpathW(pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BYTES]u8) Real
     defer windows.CloseHandle(h_file);
 
     var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
-    const wide_len = try windows.GetFinalPathNameByHandleW(h_file, &wide_buf, wide_buf.len, windows.VOLUME_NAME_DOS);
-    assert(wide_len <= wide_buf.len);
-    const wide_slice = wide_buf[0..wide_len];
+    const wide_slice = try windows.GetFinalPathNameByHandleW(h_file, &wide_buf, wide_buf.len, windows.VOLUME_NAME_DOS);
 
     // Windows returns \\?\ prepended to the path.
     // We strip it to make this function consistent across platforms.
@@ -3324,4 +3315,15 @@ fn toMemFdPath(name: []const u8) ![MFD_MAX_NAME_LEN:0]u8 {
 pub fn memfd_create(name: []const u8, flags: u32) !fd_t {
     const name_t = try toMemFdPath(name);
     return memfd_createC(&name_t, flags);
+}
+
+pub fn getrusage(who: i32) rusage {
+    var result: rusage = undefined;
+    const rc = system.getrusage(who, &result);
+    switch (errno(rc)) {
+        0 => return result,
+        EINVAL => unreachable,
+        EFAULT => unreachable,
+        else => unreachable,
+    }
 }

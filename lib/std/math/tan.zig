@@ -91,10 +91,6 @@ test "math.tan32" {
 }
 
 test "math.tan64" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     const epsilon = 0.000001;
 
     expect(math.approxEq(f64, tan_(f64, 0.0), 0.0, epsilon));

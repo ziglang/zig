@@ -92,6 +92,7 @@ static Token *ast_parse_block_label(ParseContext *pc);
 static AstNode *ast_parse_field_init(ParseContext *pc);
 static AstNode *ast_parse_while_continue_expr(ParseContext *pc);
 static AstNode *ast_parse_link_section(ParseContext *pc);
+static AstNode *ast_parse_callconv(ParseContext *pc);
 static Optional<AstNodeFnProto> ast_parse_fn_cc(ParseContext *pc);
 static AstNode *ast_parse_param_decl(ParseContext *pc);
 static AstNode *ast_parse_param_type(ParseContext *pc);
@@ -676,7 +677,9 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod, B
             fn_proto->column = first->start_column;
             fn_proto->data.fn_proto.visib_mod = visib_mod;
             fn_proto->data.fn_proto.doc_comments = *doc_comments;
-            fn_proto->data.fn_proto.is_extern = first->id == TokenIdKeywordExtern;
+            // ast_parse_fn_cc may set it
+            if (!fn_proto->data.fn_proto.is_extern)
+                fn_proto->data.fn_proto.is_extern = first->id == TokenIdKeywordExtern;
             fn_proto->data.fn_proto.is_export = first->id == TokenIdKeywordExport;
             switch (first->id) {
                 case TokenIdKeywordInline:
@@ -761,7 +764,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
         // The extern keyword for fn CC is also used for container decls.
         // We therefore put it back, as allow container decl to consume it
         // later.
-        if (fn_cc.cc == CallingConventionC) {
+        if (fn_cc.is_extern) {
             fn = eat_token_if(pc, TokenIdKeywordFn);
             if (fn == nullptr) {
                 put_back_token(pc);
@@ -784,6 +787,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
 
     AstNode *align_expr = ast_parse_byte_align(pc);
     AstNode *section_expr = ast_parse_link_section(pc);
+    AstNode *callconv_expr = ast_parse_callconv(pc);
     Token *var = eat_token_if(pc, TokenIdKeywordVar);
     Token *exmark = nullptr;
     AstNode *return_type = nullptr;
@@ -798,6 +802,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
     res->data.fn_proto.params = params;
     res->data.fn_proto.align_expr = align_expr;
     res->data.fn_proto.section_expr = section_expr;
+    res->data.fn_proto.callconv_expr = callconv_expr;
     res->data.fn_proto.return_var_token = var;
     res->data.fn_proto.auto_err_set = exmark != nullptr;
     res->data.fn_proto.return_type = return_type;
@@ -2099,27 +2104,29 @@ static AstNode *ast_parse_link_section(ParseContext *pc) {
     return res;
 }
 
+// CallConv <- KEYWORD_callconv LPAREN Expr RPAREN
+static AstNode *ast_parse_callconv(ParseContext *pc) {
+    Token *first = eat_token_if(pc, TokenIdKeywordCallconv);
+    if (first == nullptr)
+        return nullptr;
+
+    expect_token(pc, TokenIdLParen);
+    AstNode *res = ast_expect(pc, ast_parse_expr);
+    expect_token(pc, TokenIdRParen);
+    return res;
+}
+
 // FnCC
-//     <- KEYWORD_nakedcc
-//      / KEYWORD_stdcallcc
-//      / KEYWORD_extern
+//     <- KEYWORD_extern
 //      / KEYWORD_async
 static Optional<AstNodeFnProto> ast_parse_fn_cc(ParseContext *pc) {
     AstNodeFnProto res = {};
-    if (eat_token_if(pc, TokenIdKeywordNakedCC) != nullptr) {
-        res.cc = CallingConventionNaked;
-        return Optional<AstNodeFnProto>::some(res);
-    }
-    if (eat_token_if(pc, TokenIdKeywordStdcallCC) != nullptr) {
-        res.cc = CallingConventionStdcall;
+    if (eat_token_if(pc, TokenIdKeywordAsync) != nullptr) {
+        res.is_async = true;
         return Optional<AstNodeFnProto>::some(res);
     }
     if (eat_token_if(pc, TokenIdKeywordExtern) != nullptr) {
-        res.cc = CallingConventionC;
-        return Optional<AstNodeFnProto>::some(res);
-    }
-    if (eat_token_if(pc, TokenIdKeywordAsync) != nullptr) {
-        res.cc = CallingConventionAsync;
+        res.is_extern = true;
         return Optional<AstNodeFnProto>::some(res);
     }
 

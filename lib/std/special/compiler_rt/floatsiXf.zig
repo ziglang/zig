@@ -53,19 +53,29 @@ fn floatsiXf(comptime T: type, a: i32) T {
     return @bitCast(T, result);
 }
 
-pub extern fn __floatsisf(arg: i32) f32 {
+pub fn __floatsisf(arg: i32) callconv(.C) f32 {
     @setRuntimeSafety(builtin.is_test);
     return @call(.{ .modifier = .always_inline }, floatsiXf, .{ f32, arg });
 }
 
-pub extern fn __floatsidf(arg: i32) f64 {
+pub fn __floatsidf(arg: i32) callconv(.C) f64 {
     @setRuntimeSafety(builtin.is_test);
     return @call(.{ .modifier = .always_inline }, floatsiXf, .{ f64, arg });
 }
 
-pub extern fn __floatsitf(arg: i32) f128 {
+pub fn __floatsitf(arg: i32) callconv(.C) f128 {
     @setRuntimeSafety(builtin.is_test);
     return @call(.{ .modifier = .always_inline }, floatsiXf, .{ f128, arg });
+}
+
+pub fn __aeabi_i2d(arg: i32) callconv(.AAPCS) f64 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __floatsidf, .{arg});
+}
+
+pub fn __aeabi_i2f(arg: i32) callconv(.AAPCS) f32 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __floatsisf, .{arg});
 }
 
 fn test_one_floatsitf(a: i32, expected: u128) void {

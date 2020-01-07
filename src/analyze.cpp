@@ -919,24 +919,20 @@ ZigType *get_bound_fn_type(CodeGen *g, ZigFn *fn_entry) {
 
 const char *calling_convention_name(CallingConvention cc) {
     switch (cc) {
-        case CallingConventionUnspecified: return "undefined";
-        case CallingConventionC: return "ccc";
-        case CallingConventionCold: return "coldcc";
-        case CallingConventionNaked: return "nakedcc";
-        case CallingConventionStdcall: return "stdcallcc";
-        case CallingConventionAsync: return "async";
-    }
-    zig_unreachable();
-}
-
-static const char *calling_convention_fn_type_str(CallingConvention cc) {
-    switch (cc) {
-        case CallingConventionUnspecified: return "";
-        case CallingConventionC: return "extern ";
-        case CallingConventionCold: return "coldcc ";
-        case CallingConventionNaked: return "nakedcc ";
-        case CallingConventionStdcall: return "stdcallcc ";
-        case CallingConventionAsync: return "async ";
+        case CallingConventionUnspecified: return "Unspecified";
+        case CallingConventionC: return "C";
+        case CallingConventionCold: return "Cold";
+        case CallingConventionNaked: return "Naked";
+        case CallingConventionAsync: return "Async";
+        case CallingConventionInterrupt: return "Interrupt";
+        case CallingConventionSignal: return "Signal";
+        case CallingConventionStdcall: return "Stdcall";
+        case CallingConventionFastcall: return "Fastcall";
+        case CallingConventionVectorcall: return "Vectorcall";
+        case CallingConventionThiscall: return "Thiscall";
+        case CallingConventionAPCS: return "Apcs";
+        case CallingConventionAAPCS: return "Aapcs";
+        case CallingConventionAAPCSVFP: return "Aapcsvfp";
     }
     zig_unreachable();
 }
@@ -949,7 +945,15 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
         case CallingConventionC:
         case CallingConventionCold:
         case CallingConventionNaked:
+        case CallingConventionInterrupt:
+        case CallingConventionSignal:
         case CallingConventionStdcall:
+        case CallingConventionFastcall:
+        case CallingConventionVectorcall:
+        case CallingConventionThiscall:
+        case CallingConventionAPCS:
+        case CallingConventionAAPCS:
+        case CallingConventionAAPCSVFP:
             return false;
     }
     zig_unreachable();
@@ -1006,8 +1010,6 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
 
     // populate the name of the type
     buf_resize(&fn_type->name, 0);
-    const char *cc_str = calling_convention_fn_type_str(fn_type->data.fn.fn_type_id.cc);
-    buf_appendf(&fn_type->name, "%s", cc_str);
     buf_appendf(&fn_type->name, "fn(");
     for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
         FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
@@ -1025,6 +1027,9 @@ ZigType *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     buf_appendf(&fn_type->name, ")");
     if (fn_type_id->alignment != 0) {
         buf_appendf(&fn_type->name, " align(%" PRIu32 ")", fn_type_id->alignment);
+    }
+    if (fn_type_id->cc != CallingConventionUnspecified) {
+        buf_appendf(&fn_type->name, " callconv(.%s)", calling_convention_name(fn_type_id->cc));
     }
     buf_appendf(&fn_type->name, " %s", buf_ptr(&fn_type_id->return_type->name));
 
@@ -1331,7 +1336,7 @@ start_over:
     zig_unreachable();
 }
 
-Error type_val_resolve_abi_align(CodeGen *g, ZigValue *type_val, uint32_t *abi_align) {
+Error type_val_resolve_abi_align(CodeGen *g, AstNode *source_node, ZigValue *type_val, uint32_t *abi_align) {
     Error err;
     if (type_val->special != ConstValSpecialLazy) {
         assert(type_val->special == ConstValSpecialStatic);
@@ -1356,19 +1361,21 @@ Error type_val_resolve_abi_align(CodeGen *g, ZigValue *type_val, uint32_t *abi_a
             *abi_align = g->builtin_types.entry_usize->abi_align;
             return ErrorNone;
         case LazyValueIdOptType: {
-            LazyValueOptType *lazy_opt_type = reinterpret_cast<LazyValueOptType *>(type_val->data.x_lazy);
-            return type_val_resolve_abi_align(g, lazy_opt_type->payload_type->value, abi_align);
+            if ((err = ir_resolve_lazy(g, nullptr, type_val)))
+                return err;
+
+            return type_val_resolve_abi_align(g, source_node, type_val, abi_align);
         }
         case LazyValueIdArrayType: {
             LazyValueArrayType *lazy_array_type =
                 reinterpret_cast<LazyValueArrayType *>(type_val->data.x_lazy);
-            return type_val_resolve_abi_align(g, lazy_array_type->elem_type->value, abi_align);
+            return type_val_resolve_abi_align(g, source_node, lazy_array_type->elem_type->value, abi_align);
         }
         case LazyValueIdErrUnionType: {
             LazyValueErrUnionType *lazy_err_union_type =
                 reinterpret_cast<LazyValueErrUnionType *>(type_val->data.x_lazy);
             uint32_t payload_abi_align;
-            if ((err = type_val_resolve_abi_align(g, lazy_err_union_type->payload_type->value,
+            if ((err = type_val_resolve_abi_align(g, source_node, lazy_err_union_type->payload_type->value,
                             &payload_abi_align)))
             {
                 return err;
@@ -1442,8 +1449,6 @@ ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
 ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     ZigType *fn_type = new_type_table_entry(ZigTypeIdFn);
     buf_resize(&fn_type->name, 0);
-    const char *cc_str = calling_convention_fn_type_str(fn_type->data.fn.fn_type_id.cc);
-    buf_appendf(&fn_type->name, "%s", cc_str);
     buf_appendf(&fn_type->name, "fn(");
     size_t i = 0;
     for (; i < fn_type_id->next_param_index; i += 1) {
@@ -1455,7 +1460,11 @@ ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         const char *comma_str = (i == 0) ? "" : ",";
         buf_appendf(&fn_type->name, "%svar", comma_str);
     }
-    buf_appendf(&fn_type->name, ")var");
+    buf_append_str(&fn_type->name, ")");
+    if (fn_type_id->cc != CallingConventionUnspecified) {
+        buf_appendf(&fn_type->name, " callconv(.%s)", calling_convention_name(fn_type_id->cc));
+    }
+    buf_append_str(&fn_type->name, " var");
 
     fn_type->data.fn.fn_type_id = *fn_type_id;
     fn_type->data.fn.is_generic = true;
@@ -1465,17 +1474,21 @@ ZigType *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     return fn_type;
 }
 
-void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_count_alloc) {
+CallingConvention cc_from_fn_proto(AstNodeFnProto *fn_proto) {
+    if (fn_proto->is_async)
+        return CallingConventionAsync;
+    // Compatible with the C ABI
+    if (fn_proto->is_extern || fn_proto->is_export)
+        return CallingConventionC;
+
+    return CallingConventionUnspecified;
+}
+
+void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, CallingConvention cc, size_t param_count_alloc) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
-    if (fn_proto->cc == CallingConventionUnspecified) {
-        bool extern_abi = fn_proto->is_extern || fn_proto->is_export;
-        fn_type_id->cc = extern_abi ? CallingConventionC : CallingConventionUnspecified;
-    } else {
-        fn_type_id->cc = fn_proto->cc;
-    }
-
+    fn_type_id->cc = cc;
     fn_type_id->param_count = fn_proto->params.length;
     fn_type_id->param_info = allocate<FnTypeParamInfo>(param_count_alloc);
     fn_type_id->next_param_index = 0;
@@ -1689,8 +1702,7 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
         case ZigTypeIdArray:
             return type_allowed_in_extern(g, type_entry->data.array.child_type, result);
         case ZigTypeIdFn:
-            *result = type_entry->data.fn.fn_type_id.cc == CallingConventionC ||
-                 type_entry->data.fn.fn_type_id.cc == CallingConventionStdcall;
+            *result = !calling_convention_allows_zig_types(type_entry->data.fn.fn_type_id.cc);
             return ErrorNone;
         case ZigTypeIdPointer:
             if ((err = type_resolve(g, type_entry, ResolveStatusZeroBitsKnown)))
@@ -1744,13 +1756,15 @@ ZigType *get_auto_err_set_type(CodeGen *g, ZigFn *fn_entry) {
     return err_set_type;
 }
 
-static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_scope, ZigFn *fn_entry) {
+static ZigType *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_scope, ZigFn *fn_entry,
+        CallingConvention cc)
+{
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
     Error err;
 
     FnTypeId fn_type_id = {0};
-    init_fn_type_id(&fn_type_id, proto_node, proto_node->data.fn_proto.params.length);
+    init_fn_type_id(&fn_type_id, proto_node, cc, proto_node->data.fn_proto.params.length);
 
     for (; fn_type_id.next_param_index < fn_type_id.param_count; fn_type_id.next_param_index += 1) {
         AstNode *param_node = fn_proto->params.at(fn_type_id.next_param_index);
@@ -2162,7 +2176,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
             ZigType *field_type = resolve_struct_field_type(g, field);
             if (field_type == nullptr) {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-                return err;
+                return ErrorSemanticAnalyzeFail;
             }
             if ((err = type_resolve(g, field->type_entry, ResolveStatusSizeKnown))) {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
@@ -2252,7 +2266,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
         ZigType *field_type = resolve_struct_field_type(g, field);
         if (field_type == nullptr) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-            return err;
+            return ErrorSemanticAnalyzeFail;
         }
 
         if ((err = type_resolve(g, field_type, ResolveStatusSizeKnown))) {
@@ -2322,7 +2336,7 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
                         &field->align))
             {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
-                return err;
+                return ErrorSemanticAnalyzeFail;
             }
             add_node_error(g, field->decl_node,
                 buf_create_from_str("TODO implement field alignment syntax for unions. https://github.com/ziglang/zig/issues/3125"));
@@ -2335,7 +2349,7 @@ static Error resolve_union_alignment(CodeGen *g, ZigType *union_type) {
             }
             field->align = field->type_entry->abi_align;
         } else {
-            if ((err = type_val_resolve_abi_align(g, field->type_val, &field->align))) {
+            if ((err = type_val_resolve_abi_align(g, field->decl_node, field->type_val, &field->align))) {
                 if (g->trace_err != nullptr) {
                     g->trace_err = add_error_note(g, g->trace_err, field->decl_node,
                         buf_create_from_str("while checking this field"));
@@ -2449,6 +2463,7 @@ static Error resolve_union_type(CodeGen *g, ZigType *union_type) {
             union_type->data.unionation.resolve_status = ResolveStatusInvalid;
             return ErrorSemanticAnalyzeFail;
         }
+
         if (is_packed) {
             if ((err = emit_error_unless_type_allowed_in_packed_union(g, field_type, union_field->decl_node))) {
                 union_type->data.unionation.resolve_status = ResolveStatusInvalid;
@@ -2907,12 +2922,12 @@ static Error resolve_struct_alignment(CodeGen *g, ZigType *struct_type) {
                         &field->align))
             {
                 struct_type->data.structure.resolve_status = ResolveStatusInvalid;
-                return err;
+                return ErrorSemanticAnalyzeFail;
             }
         } else if (packed) {
             field->align = 1;
         } else {
-            if ((err = type_val_resolve_abi_align(g, field->type_val, &field->align))) {
+            if ((err = type_val_resolve_abi_align(g, field->decl_node, field->type_val, &field->align))) {
                 if (g->trace_err != nullptr) {
                     g->trace_err = add_error_note(g, g->trace_err, field->decl_node,
                         buf_create_from_str("while checking this field"));
@@ -3393,27 +3408,6 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             get_fully_qualified_decl_name(g, &fn_table_entry->symbol_name, &tld_fn->base, false);
         }
 
-        if (fn_proto->is_export) {
-            switch (fn_proto->cc) {
-                case CallingConventionAsync: {
-                    add_node_error(g, fn_def_node,
-                        buf_sprintf("exported function cannot be async"));
-                } break;
-                case CallingConventionC:
-                case CallingConventionNaked:
-                case CallingConventionCold:
-                case CallingConventionStdcall:
-                case CallingConventionUnspecified:
-                    // An exported function without a specific calling
-                    // convention defaults to C
-                    CallingConvention cc = (fn_proto->cc != CallingConventionUnspecified) ?
-                        fn_proto->cc : CallingConventionC;
-                    add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name),
-                                  GlobalLinkageIdStrong, cc);
-                    break;
-            }
-        }
-
         if (!is_extern) {
             fn_table_entry->fndef_scope = create_fndef_scope(g,
                 fn_table_entry->body_node, tld_fn->base.parent_scope, fn_table_entry);
@@ -3432,17 +3426,70 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
 
         Scope *child_scope = fn_table_entry->fndef_scope ? &fn_table_entry->fndef_scope->base : tld_fn->base.parent_scope;
 
-        fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope, fn_table_entry);
+        CallingConvention cc;
+        if (fn_proto->callconv_expr != nullptr) {
+            ZigType *cc_enum_value = get_builtin_type(g, "CallingConvention");
+
+            ZigValue *result_val = analyze_const_value(g, child_scope, fn_proto->callconv_expr,
+                cc_enum_value, nullptr, UndefBad);
+            if (type_is_invalid(result_val->type)) {
+                fn_table_entry->type_entry = g->builtin_types.entry_invalid;
+                tld_fn->base.resolution = TldResolutionInvalid;
+                return;
+            }
+
+            cc = (CallingConvention)bigint_as_u32(&result_val->data.x_enum_tag);
+        } else {
+            cc = cc_from_fn_proto(fn_proto);
+        }
 
         if (fn_proto->section_expr != nullptr) {
             if (!analyze_const_string(g, child_scope, fn_proto->section_expr, &fn_table_entry->section_name)) {
                 fn_table_entry->type_entry = g->builtin_types.entry_invalid;
+                tld_fn->base.resolution = TldResolutionInvalid;
+                return;
             }
         }
 
-        if (fn_table_entry->type_entry->id == ZigTypeIdInvalid) {
+        fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope, fn_table_entry, cc);
+
+        if (type_is_invalid(fn_table_entry->type_entry)) {
             tld_fn->base.resolution = TldResolutionInvalid;
             return;
+        }
+
+        const CallingConvention fn_cc = fn_table_entry->type_entry->data.fn.fn_type_id.cc;
+
+        if (fn_proto->is_export) {
+            switch (fn_cc) {
+                case CallingConventionAsync:
+                    add_node_error(g, fn_def_node,
+                        buf_sprintf("exported function cannot be async"));
+                    fn_table_entry->type_entry = g->builtin_types.entry_invalid;
+                    tld_fn->base.resolution = TldResolutionInvalid;
+                    return;
+                case CallingConventionC:
+                case CallingConventionCold:
+                case CallingConventionNaked:
+                case CallingConventionInterrupt:
+                case CallingConventionSignal:
+                case CallingConventionStdcall:
+                case CallingConventionFastcall:
+                case CallingConventionVectorcall:
+                case CallingConventionThiscall:
+                case CallingConventionAPCS:
+                case CallingConventionAAPCS:
+                case CallingConventionAAPCSVFP:
+                    add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name),
+                                  GlobalLinkageIdStrong, fn_cc);
+                    break;
+                case CallingConventionUnspecified:
+                    // An exported function without a specific calling
+                    // convention defaults to C
+                    add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name),
+                                  GlobalLinkageIdStrong, CallingConventionC);
+                    break;
+            }
         }
 
         if (!fn_table_entry->type_entry->data.fn.is_generic) {
@@ -3453,7 +3500,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         // if the calling convention implies that it cannot be async, we save that for later
         // and leave the value to be nullptr to indicate that we have not emitted possible
         // compile errors for improperly calling async functions.
-        if (fn_table_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync) {
+        if (fn_cc == CallingConventionAsync) {
             fn_table_entry->inferred_async_node = fn_table_entry->proto_node;
         }
     } else if (source_node->type == NodeTypeTestDecl) {
@@ -4336,7 +4383,7 @@ uint32_t get_ptr_align(CodeGen *g, ZigType *type) {
     } else if (ptr_type->id == ZigTypeIdFn) {
         // I tried making this use LLVMABIAlignmentOfType but it trips this assertion in LLVM:
         // "Cannot getTypeInfo() on a type that is unsized!"
-        // when getting the alignment of `?extern fn() void`.
+        // when getting the alignment of `?fn() callconv(.C) void`.
         // See http://lists.llvm.org/pipermail/llvm-dev/2018-September/126142.html
         return (ptr_type->data.fn.fn_type_id.alignment == 0) ? 1 : ptr_type->data.fn.fn_type_id.alignment;
     } else if (ptr_type->id == ZigTypeIdAnyFrame) {

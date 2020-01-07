@@ -87,6 +87,8 @@ pub const StreamingParser = struct {
     string_last_was_high_surrogate: bool,
     // Used inside of StringEscapeHexUnicode* states
     string_unicode_codepoint: u21,
+    // The first byte needs to be stored to validate 3- and 4-byte sequences.
+    sequence_first_byte: u8 = undefined,
     // When in .Number states, is the number a (still) valid integer?
     number_is_integer: bool,
 
@@ -132,9 +134,12 @@ pub const StreamingParser = struct {
         ValueBeginNoClosing,
 
         String,
-        StringUtf8Byte3,
-        StringUtf8Byte2,
-        StringUtf8Byte1,
+        StringUtf8Byte2Of2,
+        StringUtf8Byte2Of3,
+        StringUtf8Byte3Of3,
+        StringUtf8Byte2Of4,
+        StringUtf8Byte3Of4,
+        StringUtf8Byte4Of4,
         StringEscapeCharacter,
         StringEscapeHexUnicode4,
         StringEscapeHexUnicode3,
@@ -581,35 +586,68 @@ pub const StreamingParser = struct {
                     // non-control ascii
                     p.string_last_was_high_surrogate = false;
                 },
-                0xC0...0xDF => {
-                    p.state = .StringUtf8Byte1;
+                0xC2...0xDF => {
+                    p.state = .StringUtf8Byte2Of2;
                 },
                 0xE0...0xEF => {
-                    p.state = .StringUtf8Byte2;
+                    p.state = .StringUtf8Byte2Of3;
+                    p.sequence_first_byte = c;
                 },
-                0xF0...0xFF => {
-                    p.state = .StringUtf8Byte3;
+                0xF0...0xF4 => {
+                    p.state = .StringUtf8Byte2Of4;
+                    p.sequence_first_byte = c;
                 },
                 else => {
                     return error.InvalidUtf8Byte;
                 },
             },
 
-            .StringUtf8Byte3 => switch (c >> 6) {
-                0b10 => p.state = .StringUtf8Byte2,
+            .StringUtf8Byte2Of2 => switch (c >> 6) {
+                0b10 => p.state = .String,
                 else => return error.InvalidUtf8Byte,
             },
-
-            .StringUtf8Byte2 => switch (c >> 6) {
-                0b10 => p.state = .StringUtf8Byte1,
+            .StringUtf8Byte2Of3 => {
+                switch (p.sequence_first_byte) {
+                    0xE0 => switch (c) {
+                        0xA0...0xBF => {},
+                        else => return error.InvalidUtf8Byte,
+                    },
+                    0xE1...0xEF => switch (c) {
+                        0x80...0xBF => {},
+                        else => return error.InvalidUtf8Byte,
+                    },
+                    else => return error.InvalidUtf8Byte,
+                }
+                p.state = .StringUtf8Byte3Of3;
+            },
+            .StringUtf8Byte3Of3 => switch (c) {
+                0x80...0xBF => p.state = .String,
                 else => return error.InvalidUtf8Byte,
             },
-
-            .StringUtf8Byte1 => switch (c >> 6) {
-                0b10 => {
-                    p.state = .String;
-                    p.string_last_was_high_surrogate = false;
-                },
+            .StringUtf8Byte2Of4 => {
+                switch (p.sequence_first_byte) {
+                    0xF0 => switch (c) {
+                        0x90...0xBF => {},
+                        else => return error.InvalidUtf8Byte,
+                    },
+                    0xF1...0xF3 => switch (c) {
+                        0x80...0xBF => {},
+                        else => return error.InvalidUtf8Byte,
+                    },
+                    0xF4 => switch (c) {
+                        0x80...0x8F => {},
+                        else => return error.InvalidUtf8Byte,
+                    },
+                    else => return error.InvalidUtf8Byte,
+                }
+                p.state = .StringUtf8Byte3Of4;
+            },
+            .StringUtf8Byte3Of4 => switch (c) {
+                0x80...0xBF => p.state = .StringUtf8Byte4Of4,
+                else => return error.InvalidUtf8Byte,
+            },
+            .StringUtf8Byte4Of4 => switch (c) {
+                0x80...0xBF => p.state = .String,
                 else => return error.InvalidUtf8Byte,
             },
 
@@ -1376,11 +1414,9 @@ pub const Parser = struct {
     }
 
     fn parseString(p: *Parser, allocator: *Allocator, s: std.meta.TagPayloadType(Token, Token.String), input: []const u8, i: usize) !Value {
-        // TODO: We don't strictly have to copy values which do not contain any escape
-        // characters if flagged with the option.
         const slice = s.slice(input, i);
         switch (s.escapes) {
-            .None => return Value{ .String = try mem.dupe(allocator, u8, slice) },
+            .None => return Value{ .String = if (p.copy_strings) try mem.dupe(allocator, u8, slice) else slice },
             .Some => |some_escapes| {
                 const output = try allocator.alloc(u8, s.decodedLength());
                 errdefer allocator.free(output);
@@ -1459,7 +1495,10 @@ fn unescapeString(output: []u8, input: []const u8) !void {
 }
 
 test "json.parser.dynamic" {
-    var p = Parser.init(debug.global_allocator, false);
+    var memory: [1024 * 16]u8 = undefined;
+    var buf_alloc = std.heap.FixedBufferAllocator.init(&memory);
+
+    var p = Parser.init(&buf_alloc.allocator, false);
     defer p.deinit();
 
     const s =
@@ -1562,17 +1601,21 @@ test "write json then parse it" {
     testing.expect(mem.eql(u8, tree.root.Object.get("str").?.value.String, "hello"));
 }
 
-fn test_parse(json_str: []const u8) !Value {
-    var p = Parser.init(debug.global_allocator, false);
+fn test_parse(memory: []u8, json_str: []const u8) !Value {
+    // buf_alloc goes out of scope, but we don't use it after parsing
+    var buf_alloc = std.heap.FixedBufferAllocator.init(memory);
+    var p = Parser.init(&buf_alloc.allocator, false);
     return (try p.parse(json_str)).root;
 }
 
 test "parsing empty string gives appropriate error" {
-    testing.expectError(error.UnexpectedEndOfJson, test_parse(""));
+    var memory: [1024 * 4]u8 = undefined;
+    testing.expectError(error.UnexpectedEndOfJson, test_parse(&memory, ""));
 }
 
 test "integer after float has proper type" {
-    const json = try test_parse(
+    var memory: [1024 * 8]u8 = undefined;
+    const json = try test_parse(&memory,
         \\{
         \\  "float": 3.14,
         \\  "ints": [1, 2, 3]
@@ -1582,6 +1625,7 @@ test "integer after float has proper type" {
 }
 
 test "escaped characters" {
+    var memory: [1024 * 16]u8 = undefined;
     const input =
         \\{
         \\  "backslash": "\\",
@@ -1597,10 +1641,7 @@ test "escaped characters" {
         \\}
     ;
 
-    var p = Parser.init(debug.global_allocator, false);
-    const tree = try p.parse(input);
-
-    const obj = tree.root.Object;
+    const obj = (try test_parse(&memory, input)).Object;
 
     testing.expectEqualSlices(u8, obj.get("backslash").?.value.String, "\\");
     testing.expectEqualSlices(u8, obj.get("forwardslash").?.value.String, "/");
@@ -1612,4 +1653,40 @@ test "escaped characters" {
     testing.expectEqualSlices(u8, obj.get("doublequote").?.value.String, "\"");
     testing.expectEqualSlices(u8, obj.get("unicode").?.value.String, "ą");
     testing.expectEqualSlices(u8, obj.get("surrogatepair").?.value.String, "😂");
+}
+
+test "string copy option" {
+    const input =
+        \\{
+        \\  "noescape": "aą😂",
+        \\  "simple": "\\\/\n\r\t\f\b\"",
+        \\  "unicode": "\u0105",
+        \\  "surrogatepair": "\ud83d\ude02"
+        \\}
+    ;
+
+    var mem_buffer: [1024 * 16]u8 = undefined;
+    var buf_alloc = std.heap.FixedBufferAllocator.init(&mem_buffer);
+
+    const tree_nocopy = try Parser.init(&buf_alloc.allocator, false).parse(input);
+    const obj_nocopy = tree_nocopy.root.Object;
+
+    const tree_copy = try Parser.init(&buf_alloc.allocator, true).parse(input);
+    const obj_copy = tree_copy.root.Object;
+
+    for ([_][]const u8{ "noescape", "simple", "unicode", "surrogatepair" }) |field_name| {
+        testing.expectEqualSlices(u8, obj_nocopy.getValue(field_name).?.String, obj_copy.getValue(field_name).?.String);
+    }
+
+    const nocopy_addr = &obj_nocopy.getValue("noescape").?.String[0];
+    const copy_addr = &obj_copy.getValue("noescape").?.String[0];
+
+    var found_nocopy = false;
+    for (input) |_, index| {
+        testing.expect(copy_addr != &input[index]);
+        if (nocopy_addr == &input[index]) {
+            found_nocopy = true;
+        }
+    }
+    testing.expect(found_nocopy);
 }

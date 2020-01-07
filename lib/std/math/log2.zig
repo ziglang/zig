@@ -22,7 +22,7 @@ pub fn log2(x: var) @TypeOf(x) {
     const T = @TypeOf(x);
     switch (@typeId(T)) {
         TypeId.ComptimeFloat => {
-            return @TypeOf(1.0)(log2_64(x));
+            return @as(comptime_float, log2_64(x));
         },
         TypeId.Float => {
             return switch (T) {
