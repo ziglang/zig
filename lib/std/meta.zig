@@ -433,6 +433,14 @@ pub fn eql(a: var, b: @TypeOf(a)) bool {
                 if (!eql(e, b[i])) return false;
             return true;
         },
+        builtin.TypeId.Vector => {
+            const info = @typeInfo(T).Vector;
+            var i: usize = 0;
+            while (i < info.len) : (i += 1) {
+                if (!eql(a[i], b[i])) return false;
+            }
+            return true;
+        },
         builtin.TypeId.Pointer => {
             const info = @typeInfo(T).Pointer;
             switch (info.size) {
@@ -510,6 +518,13 @@ test "std.meta.eql" {
     testing.expect(eql(EU.tst(true), EU.tst(true)));
     testing.expect(eql(EU.tst(false), EU.tst(false)));
     testing.expect(!eql(EU.tst(false), EU.tst(true)));
+
+    var v1 = @splat(4, @as(u32, 1));
+    var v2 = @splat(4, @as(u32, 1));
+    var v3 = @splat(4, @as(u32, 2));
+
+    testing.expect(eql(v1, v2));
+    testing.expect(!eql(v1, v3));
 }
 
 test "intToEnum with error return" {
