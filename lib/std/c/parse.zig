@@ -94,12 +94,11 @@ const Parser = struct {
     }
 
     fn getSymbol(parser: *Parser, tok: TokenIndex) ?*Type {
-        const token = parser.it.list.at(tok);
-        const name = parser.tree.slice(token);
+        const name = parser.tree.slice(tok);
         const syms = parser.symbols.toSliceConst();
         var i = syms.len;
         while (i > 0) : (i -= 1) {
-            if (mem.eql(u8, name, syms[i].name)) {
+            if (std.mem.eql(u8, name, syms[i].name)) {
                 return syms[i].ty;
             }
         }
@@ -492,31 +491,29 @@ const Parser = struct {
             } else if (parser.eatToken(.Keyword_enum)) |tok| {
                 if (type_spec.spec != .None)
                     break :blk;
-                type_spec.Enum = try parser.enumSpec(tok);
+                type_spec.spec.Enum = try parser.enumSpec(tok);
                 return true;
             } else if (parser.eatToken(.Keyword_union) orelse parser.eatToken(.Keyword_struct)) |tok| {
                 if (type_spec.spec != .None)
                     break :blk;
-                type_spec.Record = try parser.recordSpec();
+                type_spec.spec.Record = try parser.recordSpec(tok);
                 return true;
             } else if (parser.eatToken(.Identifier)) |tok| {
                 const ty = parser.getSymbol(tok) orelse {
                     parser.putBackToken(tok);
                     return false;
                 };
-                switch (ty) {
+                switch (ty.id) {
                     .Enum => |e| {
                         return parser.err(.{
-                            .MustUseKwToRefer = .{ .kw = e.identifier, .sym = tok },
+                            .MustUseKwToRefer = .{ .kw = e.tok, .name = tok },
                         });
                     },
                     .Record => |r| {
                         return parser.err(.{
                             .MustUseKwToRefer = .{
-                                .kw = switch (r.kind) {
-                                    .Struct, .Union => |kw| kw,
-                                },
-                                .sym = tok,
+                                .kw = r.tok,
+                                .name = tok,
                             },
                         });
                     },
@@ -613,18 +610,121 @@ const Parser = struct {
     }
 
     /// EnumSpec <- Keyword_enum IDENTIFIER? (LBRACE EnumField RBRACE)?
-    fn enumSpecifier(parser: *Parser) !*Node {}
+    fn enumSpec(parser: *Parser, tok: TokenIndex) !*Node.EnumType {
+        const node = try parser.arena.create(Node.EnumType);
+        const name = parser.eatToken(.Identifier);
+        node.* = .{
+            .tok = tok,
+            .name = name,
+            .body = null,
+        };
+        const ty = try parser.arena.create(Type);
+        ty.* = .{
+            .id = .{
+                .Enum = node,
+            },
+        };
+        if (name) |some|
+            try parser.symbols.append(.{
+                .name = parser.tree.slice(some),
+                .ty = ty,
+            });
+        if (parser.eatToken(.LBrace)) |lbrace| {
+            var fields = Node.EnumType.FieldList.init(parser.arena);
+            try fields.push((try parser.enumField()) orelse return parser.err(.{
+                .ExpectedEnumField = .{ .token = parser.it.index },
+            }));
+            while (parser.eatToken(.Comma)) |_| {
+                try fields.push((try parser.enumField()) orelse break);
+            }
+            node.body = .{
+                .lbrace = lbrace,
+                .fields = fields,
+                .rbrace = try parser.expectToken(.RBrace),
+            };
+        }
+        return node;
+    }
 
     /// EnumField <- IDENTIFIER (EQUAL ConstExpr)? (COMMA EnumField) COMMA?
-    fn enumField(parser: *Parser) !*Node {}
+    fn enumField(parser: *Parser) !?*Node {
+        const name = parser.eatToken(.Identifier) orelse return null;
+        const node = try parser.arena.create(Node.EnumField);
+        node.* = .{
+            .name = name,
+            .value = null,
+        };
+        if (parser.eatToken(.Equal)) |eq| {
+            node.value = try parser.constExpr();
+        }
+        return &node.base;
+    }
 
     /// RecordSpec <- (Keyword_struct / Keyword_union) IDENTIFIER? (LBRACE RecordField+ RBRACE)?
-    fn recordSpecifier(parser: *Parser) !*Node {}
+    fn recordSpec(parser: *Parser, tok: TokenIndex) !*Node.RecordType {
+        const node = try parser.arena.create(Node.RecordType);
+        const name = parser.eatToken(.Identifier);
+        const is_struct = parser.tree.slice(tok)[0] == 's';
+        node.* = .{
+            .tok = tok,
+            .kind = if (is_struct) .Struct else .Union,
+            .name = name,
+            .body = null,
+        };
+        const ty = try parser.arena.create(Type);
+        ty.* = .{
+            .id = .{
+                .Record = node,
+            },
+        };
+        if (name) |some|
+            try parser.symbols.append(.{
+                .name = parser.tree.slice(some),
+                .ty = ty,
+            });
+        if (parser.eatToken(.LBrace)) |lbrace| {
+            var fields = Node.RecordType.FieldList.init(parser.arena);
+            while (true) {
+                if (parser.eatToken(.RBrace)) |rbrace| {
+                    node.body = .{
+                        .lbrace = lbrace,
+                        .fields = fields,
+                        .rbrace = rbrace,
+                    };
+                    break;
+                }
+                try fields.push(try parser.recordField());
+            }
+        }
+        return node;
+    }
 
     /// RecordField
     ///     <- TypeSpec* (RecordDeclarator (COMMA RecordDeclarator))? SEMICOLON
     ///     \ StaticAssert
-    fn recordField(parser: *Parser) !*Node {}
+    fn recordField(parser: *Parser) Error!*Node {
+        if (try parser.staticAssert()) |decl| return decl;
+        var got = false;
+        var type_spec = Node.TypeSpec{};
+        while (try parser.typeSpec(&type_spec)) got = true;
+        if (!got)
+            return parser.err(.{
+                .ExpectedType = .{ .token = parser.it.index },
+            });
+        const node = try parser.arena.create(Node.RecordField);
+        node.* = .{
+            .type_spec = type_spec,
+            .declarators = Node.RecordField.DeclaratorList.init(parser.arena),
+            .semicolon = undefined,
+        };
+        while (true) {
+            try node.declarators.push(try parser.recordDeclarator());
+            if (parser.eatToken(.Comma)) |_| {} else break;
+        }
+
+        node.semicolon = try parser.expectToken(.Semicolon);
+        return &node.base;
+    }
 
     /// TypeName <- TypeSpec* AbstractDeclarator?
     fn typeName(parser: *Parser) !*Node {

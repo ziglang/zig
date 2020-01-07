@@ -48,9 +48,12 @@ pub const Error = union(enum) {
     ExpectedFnBody: SingleTokenError("expected function body, found '{}'"),
     ExpectedDeclarator: SingleTokenError("expected declarator, found '{}'"),
     ExpectedInitializer: SingleTokenError("expected initializer, found '{}'"),
+    ExpectedEnumField: SingleTokenError("expected enum field, found '{}'"),
+    ExpectedType: SingleTokenError("expected enum field, found '{}'"),
     InvalidTypeSpecifier: InvalidTypeSpecifier,
     DuplicateQualifier: SingleTokenError("duplicate type qualifier '{}'"),
     DuplicateSpecifier: SingleTokenError("duplicate declaration specifier '{}'"),
+    MustUseKwToRefer: MustUseKwToRefer,
 
     pub fn render(self: *const Error, tree: *Tree, stream: var) !void {
         switch (self.*) {
@@ -62,9 +65,12 @@ pub const Error = union(enum) {
             .ExpectedDeclarator => |*x| return x.render(tree, stream),
             .ExpectedFnBody => |*x| return x.render(tree, stream),
             .ExpectedInitializer => |*x| return x.render(tree, stream),
+            .ExpectedEnumField => |*x| return x.render(tree, stream),
+            .ExpectedType => |*x| return x.render(tree, stream),
             .InvalidTypeSpecifier => |*x| return x.render(tree, stream),
             .DuplicateQualifier => |*x| return x.render(tree, stream),
             .DuplicateSpecifier => |*x| return x.render(tree, stream),
+            .MustUseKwToRefer => |*x| return x.render(tree, stream),
         }
     }
 
@@ -78,9 +84,12 @@ pub const Error = union(enum) {
             .ExpectedDeclarator => |x| return x.token,
             .ExpectedFnBody => |x| return x.token,
             .ExpectedInitializer => |x| return x.token,
+            .ExpectedEnumField => |x| return x.token,
+            .ExpectedType => |*x| return x.token,
             .InvalidTypeSpecifier => |x| return x.token,
             .DuplicateQualifier => |x| return x.token,
             .DuplicateSpecifier => |x| return x.token,
+            .MustUseKwToRefer => |*x| return x.name,
         }
     }
 
@@ -111,6 +120,15 @@ pub const Error = union(enum) {
         }
     };
 
+    pub const MustUseKwToRefer = struct {
+        kw: TokenIndex,
+        name: TokenIndex,
+
+        pub fn render(self: *const ExpectedToken, tree: *Tree, stream: var) !void {
+            return stream.print("must use '{}' tag to refer to type '{}'", .{tree.slice(kw), tree.slice(name)});
+        }
+    };
+
     fn SingleTokenError(comptime msg: []const u8) type {
         return struct {
             token: TokenIndex,
@@ -125,14 +143,13 @@ pub const Error = union(enum) {
 
 pub const Type = struct {
     pub const TypeList = std.SegmentedList(*Type, 4);
-    @"const": bool,
-    atomic: bool,
-    @"volatile": bool,
-    restrict: bool,
+    @"const": bool = false,
+    atomic: bool = false,
+    @"volatile": bool = false,
+    restrict: bool = false,
 
     id: union(enum) {
         Int: struct {
-            quals: Qualifiers,
             id: Id,
             is_signed: bool,
 
@@ -145,7 +162,6 @@ pub const Type = struct {
             };
         },
         Float: struct {
-            quals: Qualifiers,
             id: Id,
 
             pub const Id = enum {
@@ -154,10 +170,7 @@ pub const Type = struct {
                 LongDouble,
             };
         },
-        Pointer: struct {
-            quals: Qualifiers,
-            child_type: *Type,
-        },
+        Pointer: *Type,
         Function: struct {
             return_type: *Type,
             param_types: TypeList,
@@ -173,6 +186,8 @@ pub const Node = struct {
 
     pub const Id = enum {
         Root,
+        EnumField,
+        RecordField,
         JumpStmt,
         ExprStmt,
         Label,
@@ -350,15 +365,16 @@ pub const Node = struct {
     };
 
     pub const EnumField = struct {
-        base: Node = Node{ .id = EnumField },
+        base: Node = Node{ .id = .EnumField },
         name: TokenIndex,
         value: ?*Node,
     };
 
     pub const RecordType = struct {
-        kind: union(enum) {
-            Struct: TokenIndex,
-            Union: TokenIndex,
+        tok: TokenIndex,
+        kind: enum {
+            Struct,
+            Union,
         },
         name: ?TokenIndex,
         body: ?struct {
@@ -373,8 +389,12 @@ pub const Node = struct {
     };
 
     pub const RecordField = struct {
-        base: Node = Node{ .id = RecordField },
-        // TODO
+        base: Node = Node{ .id = .RecordField },
+        type_spec: TypeSpec,
+        declarators: DeclaratorList,
+        semicolon: TokenIndex,
+
+        pub const DeclaratorList = Root.DeclList;
     };
 
     pub const TypeQual = struct {
