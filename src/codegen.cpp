@@ -9511,7 +9511,6 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     cache_int(cache_hash, g->build_mode);
     cache_bool(cache_hash, g->have_pic);
     cache_bool(cache_hash, g->have_sanitize_c);
-    cache_bool(cache_hash, g->link_eh_frame_hdr);
     cache_bool(cache_hash, want_valgrind_support(g));
     cache_bool(cache_hash, g->function_sections);
     for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
