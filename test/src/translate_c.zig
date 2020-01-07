@@ -114,6 +114,7 @@ pub const TranslateCContext = struct {
                 .basename = case.sources.toSliceConst()[0].filename,
             },
         });
+        translate_c.step.name = annotated_case_name;
         translate_c.setTarget(case.target);
 
         const check_file = translate_c.addCheckFile(case.expected_lines.toSliceConst());

@@ -19,7 +19,7 @@ pub const TranslateCStep = struct {
     pub fn create(builder: *Builder, source: build.FileSource) *TranslateCStep {
         const self = builder.allocator.create(TranslateCStep) catch unreachable;
         self.* = TranslateCStep{
-            .step = Step.init("zig translate-c", builder.allocator, make),
+            .step = Step.init("translate-c", builder.allocator, make),
             .builder = builder,
             .source = source,
             .output_dir = null,
@@ -73,7 +73,7 @@ pub const TranslateCStep = struct {
 
         try argv_list.append(self.source.getPath(self.builder));
 
-        const output_path_nl = try self.builder.exec(argv_list.toSliceConst());
+        const output_path_nl = try self.builder.execFromStep(argv_list.toSliceConst(), &self.step);
         const output_path = mem.trimRight(u8, output_path_nl, "\r\n");
 
         self.out_basename = fs.path.basename(output_path);

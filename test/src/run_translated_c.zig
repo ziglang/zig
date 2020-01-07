@@ -91,9 +91,12 @@ pub const RunTranslatedCContext = struct {
                 .basename = case.sources.toSliceConst()[0].filename,
             },
         });
+        translate_c.step.name = b.fmt("{} translate-c", .{annotated_case_name});
         const exe = translate_c.addExecutable();
+        exe.step.name = b.fmt("{} build-exe", .{annotated_case_name});
         exe.linkLibC();
         const run = exe.run();
+        run.step.name = b.fmt("{} run", .{annotated_case_name});
         if (!case.allow_warnings) {
             run.expectStdErrEqual("");
         }
