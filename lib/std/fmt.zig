@@ -475,20 +475,23 @@ pub fn formatType(
             return formatType(@as(Slice, &value), fmt, options, context, Errors, output, max_depth);
         },
         .Vector => {
-            if (comptime std.meta.trait.hasFn("format")(T)) {
-                return value.format(fmt, options, context, Errors, output);
-            }
-
-            if (max_depth == 0) {
-                return output(context, "{ ... }");
-            }
-            comptime var i = 0;
             const len = @typeInfo(T).Vector.len; // TODO .len for vectors
             try output(context, "{ ");
-            inline while (i < len) : (i += 1) {
-                try formatValue(value[i], fmt, options, context, Errors, output);
-                if (i < len - 1) {
-                    try output(context, ", ");
+            if (len <= 16) {
+                comptime var i = 0;
+                inline while (i < len) : (i += 1) {
+                    try formatValue(value[i], fmt, options, context, Errors, output);
+                    if (i < len - 1) {
+                        try output(context, ", ");
+                    }
+                }
+            } else {
+                var i: usize = 0;
+                while (i < len) : (i += 1) {
+                    try formatValue(value[i], fmt, options, context, Errors, output);
+                    if (i < len - 1) {
+                        try output(context, ", ");
+                    }
                 }
             }
             try output(context, " }");
