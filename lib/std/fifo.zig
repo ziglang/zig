@@ -294,7 +294,7 @@ pub fn LinearFifo(
         pub usingnamespace if (T == u8)
             struct {
                 pub fn print(self: *Self, comptime format: []const u8, args: var) !void {
-                    var generator = std.fmtgen.Generator([]const u8){};
+                    var generator = std.fmtgen.Generator([]const u8).init();
                     _ = async std.fmtgen.format(&generator, format, args);
                     while (generator.next()) |bytes| {
                         try self.write(bytes);

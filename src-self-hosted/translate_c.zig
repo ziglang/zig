@@ -4391,7 +4391,7 @@ fn appendTokenFmt(c: *Context, token_id: Token.Id, comptime format: []const u8, 
     const start_index = c.source_buffer.len();
     errdefer c.source_buffer.shrink(start_index);
 
-    var generator = std.fmtgen.Generator([]const u8){};
+    var generator = std.fmtgen.Generator([]const u8).init();
     _ = async std.fmtgen.format(&generator, format, args);
     while (generator.next()) |bytes| {
         try c.source_buffer.append(bytes);

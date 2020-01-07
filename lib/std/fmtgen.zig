@@ -22,32 +22,67 @@ pub const FormatOptions = struct {
 };
 
 pub fn Generator(comptime Out: type) type {
-    return struct {
-        suspended: ?anyframe = null,
-        out: ?Out = undefined,
-        fresh: bool = true,
+    return union(enum) {
+        /// Newly initialized or completed.
+        inactive: void,
+
+        /// Currently running. This is not a reliable check and exists to help prevent accidental concurrent writes.
+        running: void,
+
+        /// Async function yielded a value that has not been consumed yet.
+        /// This exists because "priming the generator" dumps in a value without a next().
+        yielded: YieldResult,
+
+        /// Previously yielded result was consumed. next() will resume the suspended frame.
+        consumed: YieldResult,
+
+        const YieldResult = struct {
+            frame: anyframe,
+            out: Out,
+        };
+
+        pub fn init() @This() {
+            return .{ .inactive = {} };
+        }
 
         pub fn yield(self: *@This(), out: Out) void {
-            assert(self.suspended == null);
-            assert(self.out == null);
-            self.out = out;
-            self.suspended = @frame();
-            suspend;
+            const state = std.meta.activeTag(self.*);
+            assert(state == .inactive or state == .running);
+
+            suspend {
+                self.* = .{
+                    .yielded = .{
+                        .frame = @frame(),
+                        .out = out,
+                    },
+                };
+            }
+        }
+
+        fn consume(self: *@This(), result: YieldResult) Out {
+            self.* = .{ .consumed = result };
+            return result.out;
         }
 
         pub fn next(self: *@This()) ?Out {
-            if (self.fresh) {
-                self.fresh = false;
-                return self.out;
-            } else if (self.suspended) |suspended| {
-                // Copy elision... bug?
-                const copy = suspended;
-                self.suspended = null;
-                self.out = null;
-                resume copy;
-                return self.out;
-            } else {
-                return null;
+            switch (self.*) {
+                .running => unreachable, // Generator is already running. Probably a concurrency bug.
+                .inactive => return null,
+                .yielded => |result| return self.consume(result),
+                .consumed => |orig| {
+                    // Copy elision footgun
+                    const copy = orig;
+                    self.* = .{ .running = {} };
+                    resume copy.frame;
+                    switch (self.*) {
+                        .inactive, .consumed => unreachable, // Bad state. Probably a concurrency bug.
+                        .yielded => |result| return self.consume(result),
+                        .running => {
+                            self.* = .{ .inactive = {} };
+                            return null;
+                        },
+                    }
+                },
             }
         }
     };
@@ -1003,7 +1038,7 @@ fn formatIntUnsigned(
 pub fn formatIntBuf(out_buf: []u8, value: var, base: u8, uppercase: bool, options: FormatOptions) usize {
     var index: usize = 0;
 
-    var generator = Generator([]const u8){};
+    var generator = Generator([]const u8).init();
     _ = async formatInt(value, base, uppercase, options, &generator);
     while (generator.next()) |bytes| {
         mem.copy(u8, out_buf[index..], bytes);
@@ -1116,7 +1151,7 @@ pub const BufPrintError = error{
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: var) BufPrintError![]u8 {
     var remaining = buf;
 
-    var generator = Generator([]const u8){};
+    var generator = Generator([]const u8).init();
     _ = async format(&generator, fmt, args);
     while (generator.next()) |bytes| {
         if (remaining.len < bytes.len) {
@@ -1141,7 +1176,7 @@ pub fn allocPrint(allocator: *mem.Allocator, comptime fmt: []const u8, args: var
 fn countSize(comptime fmt: []const u8, args: var) usize {
     var size: usize = 0;
 
-    var generator = Generator([]const u8){};
+    var generator = Generator([]const u8).init();
     _ = async format(&generator, fmt, args);
     while (generator.next()) |bytes| {
         size += bytes.len;
@@ -1626,7 +1661,7 @@ test "formatIntValue with comptime_int" {
 
     var buf = try std.Buffer.init(std.debug.global_allocator, "");
 
-    var generator = Generator([]const u8){};
+    var generator = Generator([]const u8).init();
     _ = async formatIntValue(value, "", FormatOptions{}, &generator);
     while (generator.next()) |bytes| {
         try buf.append(bytes);
