@@ -154,6 +154,7 @@ const usage_build_generic =
     \\  --static                     Output will be statically linked
     \\  --strip                      Exclude debug symbols
     \\  -target [name]               <arch><sub>-<os>-<abi> see the targets command
+    \\  --eh-frame-hdr               enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  --verbose-tokenize           Turn on compiler debug output for tokenization
     \\  --verbose-ast-tree           Turn on compiler debug output for parsing into an AST (tree view)
     \\  --verbose-ast-fmt            Turn on compiler debug output for parsing into an AST (render source)
@@ -207,6 +208,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     var verbose_llvm_ir = false;
     var verbose_cimport = false;
     var linker_rdynamic = false;
+    var link_eh_frame_hdr = false;
     var macosx_version_min: ?[]const u8 = null;
     var ios_version_min: ?[]const u8 = null;
 
@@ -369,6 +371,8 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
                     verbose_ir = true;
                 } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
                     verbose_llvm_ir = true;
+                } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
+                    link_eh_frame_hdr = true;
                 } else if (mem.eql(u8, arg, "--verbose-cimport")) {
                     verbose_cimport = true;
                 } else if (mem.eql(u8, arg, "-rdynamic")) {
@@ -497,6 +501,8 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
     comp.verbose_ir = verbose_ir;
     comp.verbose_llvm_ir = verbose_llvm_ir;
     comp.verbose_cimport = verbose_cimport;
+
+    comp.link_eh_frame_hdr = link_eh_frame_hdr;
 
     comp.err_color = color;
 
