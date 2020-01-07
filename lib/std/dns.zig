@@ -154,10 +154,15 @@ pub const DNSName = struct {
     pub fn fromString(allocator: *Allocator, domain: []const u8) !@This() {
         if (domain.len > 255) return error.Overflow;
 
-        var period_count = splitCount(domain, '.');
-        var labels: [][]const u8 = try allocator.alloc([]u8, period_count);
-
+        const period_count = blk: {
+            var it = std.mem.separate(domain, ".");
+            var count: usize = 0;
+            while (it.next()) |_| count += 1;
+            break :blk count;
+        };
         var it = std.mem.separate(domain, ".");
+
+        var labels: [][]const u8 = try allocator.alloc([]u8, period_count);
         var labels_idx: usize = 0;
 
         while (labels_idx < period_count) : (labels_idx += 1) {
@@ -181,20 +186,6 @@ pub const DNSName = struct {
         try serializer.serialize(@as(u8, 0));
     }
 };
-
-/// Return the amount of elements as if they were split by `delim`.
-fn splitCount(data: []const u8, delim: u8) usize {
-    // TODO maybe some std.mem.count function?
-    var size: usize = 0;
-
-    for (data) |byte| {
-        if (byte == delim) size += 1;
-    }
-
-    size += 1;
-
-    return size;
-}
 
 /// Represents a DNS question sent on the packet's question list.
 pub const Question = struct {
