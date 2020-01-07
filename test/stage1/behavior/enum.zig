@@ -1,6 +1,33 @@
 const expect = @import("std").testing.expect;
 const mem = @import("std").mem;
 
+test "extern enum" {
+    const S = struct {
+        const i = extern enum {
+            n = 0,
+            o = 2,
+            p = 4,
+            q = 4,
+        };
+        fn doTheTest(y: c_int) void {
+            var x = i.o;
+            expect(@enumToInt(x) == 2);
+            x = @intToEnum(i, 12);
+            expect(@enumToInt(x) == 12);
+            x = @intToEnum(i, y);
+            expect(@enumToInt(x) == 52);
+            switch (x) {
+                .n,
+                .o,
+                .p => unreachable,
+                else => {},
+            }
+        }
+    };
+    S.doTheTest(52);
+    comptime S.doTheTest(52);
+}
+
 test "enum type" {
     const foo1 = Foo{ .One = 13 };
     const foo2 = Foo{

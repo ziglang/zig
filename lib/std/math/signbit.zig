@@ -4,7 +4,7 @@ const expect = std.testing.expect;
 
 /// Returns whether x is negative or negative 0.
 pub fn signbit(x: var) bool {
-    const T = @typeOf(x);
+    const T = @TypeOf(x);
     return switch (T) {
         f16 => signbit16(x),
         f32 => signbit32(x),

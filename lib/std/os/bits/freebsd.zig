@@ -4,6 +4,8 @@ const maxInt = std.math.maxInt;
 pub const fd_t = c_int;
 pub const pid_t = c_int;
 
+pub const socklen_t = u32;
+
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
 pub const Kevent = extern struct {
     ident: usize,
@@ -14,6 +16,32 @@ pub const Kevent = extern struct {
     udata: usize,
     // TODO ext
 };
+
+// Modes and flags for dlopen()
+// include/dlfcn.h
+
+/// Bind function calls lazily.
+pub const RTLD_LAZY = 1;
+
+/// Bind function calls immediately.
+pub const RTLD_NOW = 2;
+
+pub const RTLD_MODEMASK = 0x3;
+
+/// Make symbols globally available.
+pub const RTLD_GLOBAL = 0x100;
+
+/// Opposite of RTLD_GLOBAL, and the default.
+pub const RTLD_LOCAL = 0;
+
+/// Trace loaded objects and exit.
+pub const RTLD_TRACE = 0x200;
+
+/// Do not remove members.
+pub const RTLD_NODELETE = 0x01000;
+
+/// Do not load if not already loaded.
+pub const RTLD_NOLOAD = 0x02000;
 
 pub const dl_phdr_info = extern struct {
     dlpi_addr: usize,
@@ -134,7 +162,7 @@ pub const dirent = extern struct {
 };
 
 pub const in_port_t = u16;
-pub const sa_family_t = u16;
+pub const sa_family_t = u8;
 
 pub const sockaddr = extern struct {
     /// total length
@@ -342,97 +370,93 @@ pub const SOCK_SEQPACKET = 5;
 pub const SOCK_CLOEXEC = 0x10000000;
 pub const SOCK_NONBLOCK = 0x20000000;
 
-pub const PF_UNSPEC = 0;
-pub const PF_LOCAL = 1;
+pub const PF_UNSPEC = AF_UNSPEC;
+pub const PF_LOCAL = AF_LOCAL;
 pub const PF_UNIX = PF_LOCAL;
-pub const PF_FILE = PF_LOCAL;
-pub const PF_INET = 2;
-pub const PF_AX25 = 3;
-pub const PF_IPX = 4;
-pub const PF_APPLETALK = 5;
-pub const PF_NETROM = 6;
-pub const PF_BRIDGE = 7;
-pub const PF_ATMPVC = 8;
-pub const PF_X25 = 9;
-pub const PF_INET6 = 10;
-pub const PF_ROSE = 11;
-pub const PF_DECnet = 12;
-pub const PF_NETBEUI = 13;
-pub const PF_SECURITY = 14;
-pub const PF_KEY = 15;
-pub const PF_NETLINK = 16;
-pub const PF_ROUTE = PF_NETLINK;
-pub const PF_PACKET = 17;
-pub const PF_ASH = 18;
-pub const PF_ECONET = 19;
-pub const PF_ATMSVC = 20;
-pub const PF_RDS = 21;
-pub const PF_SNA = 22;
-pub const PF_IRDA = 23;
-pub const PF_PPPOX = 24;
-pub const PF_WANPIPE = 25;
-pub const PF_LLC = 26;
-pub const PF_IB = 27;
-pub const PF_MPLS = 28;
-pub const PF_CAN = 29;
-pub const PF_TIPC = 30;
-pub const PF_BLUETOOTH = 31;
-pub const PF_IUCV = 32;
-pub const PF_RXRPC = 33;
-pub const PF_ISDN = 34;
-pub const PF_PHONET = 35;
-pub const PF_IEEE802154 = 36;
-pub const PF_CAIF = 37;
-pub const PF_ALG = 38;
-pub const PF_NFC = 39;
-pub const PF_VSOCK = 40;
-pub const PF_MAX = 41;
+pub const PF_INET = AF_INET;
+pub const PF_IMPLINK = AF_IMPLINK;
+pub const PF_PUP = AF_PUP;
+pub const PF_CHAOS = AF_CHAOS;
+pub const PF_NETBIOS = AF_NETBIOS;
+pub const PF_ISO = AF_ISO;
+pub const PF_OSI = AF_ISO;
+pub const PF_ECMA = AF_ECMA;
+pub const PF_DATAKIT = AF_DATAKIT;
+pub const PF_CCITT = AF_CCITT;
+pub const PF_DECnet = AF_DECnet;
+pub const PF_DLI = AF_DLI;
+pub const PF_LAT = AF_LAT;
+pub const PF_HYLINK = AF_HYLINK;
+pub const PF_APPLETALK = AF_APPLETALK;
+pub const PF_ROUTE = AF_ROUTE;
+pub const PF_LINK = AF_LINK;
+pub const PF_XTP = pseudo_AF_XTP;
+pub const PF_COIP = AF_COIP;
+pub const PF_CNT = AF_CNT;
+pub const PF_SIP = AF_SIP;
+pub const PF_IPX = AF_IPX;
+pub const PF_RTIP = pseudo_AF_RTIP;
+pub const PF_PIP = psuedo_AF_PIP;
+pub const PF_ISDN = AF_ISDN;
+pub const PF_KEY = pseudo_AF_KEY;
+pub const PF_INET6 = pseudo_AF_INET6;
+pub const PF_NATM = AF_NATM;
+pub const PF_ATM = AF_ATM;
+pub const PF_NETGRAPH = AF_NETGRAPH;
+pub const PF_SLOW = AF_SLOW;
+pub const PF_SCLUSTER = AF_SCLUSTER;
+pub const PF_ARP = AF_ARP;
+pub const PF_BLUETOOTH = AF_BLUETOOTH;
+pub const PF_IEEE80211 = AF_IEE80211;
+pub const PF_INET_SDP = AF_INET_SDP;
+pub const PF_INET6_SDP = AF_INET6_SDP;
+pub const PF_MAX = AF_MAX;
 
-pub const AF_UNSPEC = PF_UNSPEC;
-pub const AF_LOCAL = PF_LOCAL;
-pub const AF_UNIX = AF_LOCAL;
+pub const AF_UNSPEC = 0;
+pub const AF_UNIX = 1;
+pub const AF_LOCAL = AF_UNIX;
 pub const AF_FILE = AF_LOCAL;
-pub const AF_INET = PF_INET;
-pub const AF_AX25 = PF_AX25;
-pub const AF_IPX = PF_IPX;
-pub const AF_APPLETALK = PF_APPLETALK;
-pub const AF_NETROM = PF_NETROM;
-pub const AF_BRIDGE = PF_BRIDGE;
-pub const AF_ATMPVC = PF_ATMPVC;
-pub const AF_X25 = PF_X25;
-pub const AF_INET6 = PF_INET6;
-pub const AF_ROSE = PF_ROSE;
-pub const AF_DECnet = PF_DECnet;
-pub const AF_NETBEUI = PF_NETBEUI;
-pub const AF_SECURITY = PF_SECURITY;
-pub const AF_KEY = PF_KEY;
-pub const AF_NETLINK = PF_NETLINK;
-pub const AF_ROUTE = PF_ROUTE;
-pub const AF_PACKET = PF_PACKET;
-pub const AF_ASH = PF_ASH;
-pub const AF_ECONET = PF_ECONET;
-pub const AF_ATMSVC = PF_ATMSVC;
-pub const AF_RDS = PF_RDS;
-pub const AF_SNA = PF_SNA;
-pub const AF_IRDA = PF_IRDA;
-pub const AF_PPPOX = PF_PPPOX;
-pub const AF_WANPIPE = PF_WANPIPE;
-pub const AF_LLC = PF_LLC;
-pub const AF_IB = PF_IB;
-pub const AF_MPLS = PF_MPLS;
-pub const AF_CAN = PF_CAN;
-pub const AF_TIPC = PF_TIPC;
-pub const AF_BLUETOOTH = PF_BLUETOOTH;
-pub const AF_IUCV = PF_IUCV;
-pub const AF_RXRPC = PF_RXRPC;
-pub const AF_ISDN = PF_ISDN;
-pub const AF_PHONET = PF_PHONET;
-pub const AF_IEEE802154 = PF_IEEE802154;
-pub const AF_CAIF = PF_CAIF;
-pub const AF_ALG = PF_ALG;
-pub const AF_NFC = PF_NFC;
-pub const AF_VSOCK = PF_VSOCK;
-pub const AF_MAX = PF_MAX;
+pub const AF_INET = 2;
+pub const AF_IMPLINK = 3;
+pub const AF_PUP = 4;
+pub const AF_CHAOS = 5;
+pub const AF_NETBIOS = 6;
+pub const AF_ISO = 7;
+pub const AF_OSI = AF_ISO;
+pub const AF_ECMA = 8;
+pub const AF_DATAKIT = 9;
+pub const AF_CCITT = 10;
+pub const AF_SNA = 11;
+pub const AF_DECnet = 12;
+pub const AF_DLI = 13;
+pub const AF_LAT = 14;
+pub const AF_HYLINK = 15;
+pub const AF_APPLETALK = 16;
+pub const AF_ROUTE = 17;
+pub const AF_LINK = 18;
+pub const pseudo_AF_XTP = 19;
+pub const AF_COIP = 20;
+pub const AF_CNT = 21;
+pub const pseudo_AF_RTIP = 22;
+pub const AF_IPX = 23;
+pub const AF_SIP = 24;
+pub const pseudo_AF_PIP = 25;
+pub const AF_ISDN = 26;
+pub const AF_E164 = AF_ISDN;
+pub const pseudo_AF_KEY = 27;
+pub const AF_INET6 = 28;
+pub const AF_NATM = 29;
+pub const AF_ATM = 30;
+pub const pseudo_AF_HDRCMPLT = 31;
+pub const AF_NETGRAPH = 32;
+pub const AF_SLOW = 33;
+pub const AF_SCLUSTER = 34;
+pub const AF_ARP = 35;
+pub const AF_BLUETOOTH = 36;
+pub const AF_IEEE80211 = 37;
+pub const AF_INET_SDP = 38;
+pub const AF_INET6_SDP = 39;
+pub const AF_MAX = 42;
 
 pub const DT_UNKNOWN = 0;
 pub const DT_FIFO = 1;
@@ -929,6 +953,17 @@ pub const AT_SYMLINK_FOLLOW = 0x0400;
 
 /// Remove directory instead of file
 pub const AT_REMOVEDIR = 0x0800;
+
+pub const addrinfo = extern struct {
+    flags: i32,
+    family: i32,
+    socktype: i32,
+    protocol: i32,
+    addrlen: socklen_t,
+    canonname: ?[*:0]u8,
+    addr: ?*sockaddr,
+    next: ?*addrinfo,
+};
 
 /// Fail if not under dirfd
 pub const AT_BENEATH = 0x1000;

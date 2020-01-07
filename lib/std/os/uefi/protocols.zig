@@ -5,6 +5,7 @@ pub const DevicePathProtocol = @import("protocols/device_path_protocol.zig").Dev
 pub const InputKey = @import("protocols/simple_text_input_ex_protocol.zig").InputKey;
 pub const KeyData = @import("protocols/simple_text_input_ex_protocol.zig").KeyData;
 pub const KeyState = @import("protocols/simple_text_input_ex_protocol.zig").KeyState;
+pub const SimpleTextInputProtocol = @import("protocols/simple_text_input_protocol.zig").SimpleTextInputProtocol;
 pub const SimpleTextInputExProtocol = @import("protocols/simple_text_input_ex_protocol.zig").SimpleTextInputExProtocol;
 
 pub const SimpleTextOutputMode = @import("protocols/simple_text_output_protocol.zig").SimpleTextOutputMode;

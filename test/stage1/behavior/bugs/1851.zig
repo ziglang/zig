@@ -15,7 +15,7 @@ test "allocation and looping over 3-byte integer" {
     x[1] = 0xFFFFFF;
 
     const bytes = @sliceToBytes(x);
-    expect(@typeOf(bytes) == []align(4) u8);
+    expect(@TypeOf(bytes) == []align(4) u8);
     expect(bytes.len == 8);
 
     for (bytes) |*b| {

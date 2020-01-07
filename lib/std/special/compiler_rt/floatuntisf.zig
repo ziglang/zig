@@ -5,7 +5,7 @@ const maxInt = std.math.maxInt;
 
 const FLT_MANT_DIG = 24;
 
-pub extern fn __floatuntisf(arg: u128) f32 {
+pub fn __floatuntisf(arg: u128) callconv(.C) f32 {
     @setRuntimeSafety(is_test);
 
     if (arg == 0)

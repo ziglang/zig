@@ -5,7 +5,7 @@ const maxInt = std.math.maxInt;
 
 /// Returns whether x is a finite value.
 pub fn isFinite(x: var) bool {
-    const T = @typeOf(x);
+    const T = @TypeOf(x);
     switch (T) {
         f16 => {
             const bits = @bitCast(u16, x);

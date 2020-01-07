@@ -1,12 +1,12 @@
 const builtin = @import("builtin");
 const expect = @import("std").testing.expect;
 
-test "@sizeOf and @typeOf" {
-    const y: @typeOf(x) = 120;
-    expect(@sizeOf(@typeOf(y)) == 2);
+test "@sizeOf and @TypeOf" {
+    const y: @TypeOf(x) = 120;
+    expect(@sizeOf(@TypeOf(y)) == 2);
 }
 const x: u16 = 13;
-const z: @typeOf(x) = 19;
+const z: @TypeOf(x) = 19;
 
 const A = struct {
     a: u8,
@@ -71,8 +71,8 @@ test "@bitOffsetOf" {
 test "@sizeOf on compile-time types" {
     expect(@sizeOf(comptime_int) == 0);
     expect(@sizeOf(comptime_float) == 0);
-    expect(@sizeOf(@typeOf(.hi)) == 0);
-    expect(@sizeOf(@typeOf(type)) == 0);
+    expect(@sizeOf(@TypeOf(.hi)) == 0);
+    expect(@sizeOf(@TypeOf(type)) == 0);
 }
 
 test "@sizeOf(T) == 0 doesn't force resolving struct size" {
@@ -90,7 +90,7 @@ test "@sizeOf(T) == 0 doesn't force resolving struct size" {
     expect(@sizeOf(S.Bar) == 8);
 }
 
-test "@typeOf() has no runtime side effects" {
+test "@TypeOf() has no runtime side effects" {
     const S = struct {
         fn foo(comptime T: type, ptr: *T) T {
             ptr.* += 1;
@@ -98,12 +98,12 @@ test "@typeOf() has no runtime side effects" {
         }
     };
     var data: i32 = 0;
-    const T = @typeOf(S.foo(i32, &data));
+    const T = @TypeOf(S.foo(i32, &data));
     comptime expect(T == i32);
     expect(data == 0);
 }
 
-test "branching logic inside @typeOf" {
+test "branching logic inside @TypeOf" {
     const S = struct {
         var data: i32 = 0;
         fn foo() anyerror!i32 {
@@ -111,7 +111,7 @@ test "branching logic inside @typeOf" {
             return undefined;
         }
     };
-    const T = @typeOf(S.foo() catch undefined);
+    const T = @TypeOf(S.foo() catch undefined);
     comptime expect(T == i32);
     expect(S.data == 0);
 }

@@ -91,6 +91,25 @@ pub const Mode = enum {
     ReleaseSmall,
 };
 
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const CallingConvention = enum {
+    Unspecified,
+    C,
+    Cold,
+    Naked,
+    Async,
+    Interrupt,
+    Signal,
+    Stdcall,
+    Fastcall,
+    Vectorcall,
+    Thiscall,
+    APCS,
+    AAPCS,
+    AAPCSVFP,
+};
+
 pub const TypeId = @TagType(TypeInfo);
 
 /// This data structure is used by the Zig language code generation and
@@ -116,7 +135,6 @@ pub const TypeInfo = union(enum) {
     Union: Union,
     Fn: Fn,
     BoundFn: Fn,
-    ArgTuple: void,
     Opaque: void,
     Frame: void,
     AnyFrame: AnyFrame,
@@ -256,17 +274,6 @@ pub const TypeInfo = union(enum) {
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
-    pub const CallingConvention = enum {
-        Unspecified,
-        C,
-        Cold,
-        Naked,
-        Stdcall,
-        Async,
-    };
-
-    /// This data structure is used by the Zig language code generation and
-    /// therefore must be kept in sync with the compiler implementation.
     pub const FnArg = struct {
         is_generic: bool,
         is_noalias: bool,
@@ -315,7 +322,6 @@ pub const TypeInfo = union(enum) {
             pub const FnDecl = struct {
                 fn_type: type,
                 inline_type: Inline,
-                calling_convention: CallingConvention,
                 is_var_args: bool,
                 is_extern: bool,
                 is_export: bool,
@@ -382,6 +388,9 @@ pub const CallOptions = struct {
         /// Equivalent to function call syntax.
         auto,
 
+        /// Equivalent to async keyword used with function call syntax.
+        async_kw,
+
         /// Prevents tail call optimization. This guarantees that the return
         /// address will point to the callsite, as opposed to the callsite's
         /// callsite. If the call is otherwise required to be tail-called
@@ -412,6 +421,13 @@ pub const CallOptions = struct {
 
 /// This function type is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const TestFn = struct {
+    name: []const u8,
+    func: fn () anyerror!void,
+};
+
+/// This function type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const PanicFn = fn ([]const u8, ?*StackTrace) noreturn;
 
 /// This function is used by the Zig language code generation and
@@ -422,6 +438,10 @@ pub const panic: PanicFn = if (@hasDecl(root, "panic")) root.panic else default_
 /// therefore must be kept in sync with the compiler implementation.
 pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn {
     @setCold(true);
+    if (@hasDecl(root, "os") and @hasDecl(root.os, "panic")) {
+        root.os.panic(msg, error_return_trace);
+        unreachable;
+    }
     switch (os) {
         .freestanding => {
             while (true) {
@@ -430,8 +450,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
         },
         .wasi => {
             std.debug.warn("{}", .{msg});
-            _ = std.os.wasi.proc_raise(std.os.wasi.SIGABRT);
-            unreachable;
+            std.os.abort();
         },
         .uefi => {
             // TODO look into using the debug info and logging helpful messages

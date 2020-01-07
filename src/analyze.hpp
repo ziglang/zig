@@ -100,7 +100,7 @@ ZigType *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node);
 void append_namespace_qualification(CodeGen *g, Buf *buf, ZigType *container_type);
 ZigFn *create_fn(CodeGen *g, AstNode *proto_node);
 ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value);
-void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_count_alloc);
+void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, CallingConvention cc, size_t param_count_alloc);
 AstNode *get_param_decl_node(ZigFn *fn_entry, size_t index);
 Error ATTRIBUTE_MUST_USE type_resolve(CodeGen *g, ZigType *type_entry, ResolveStatus status);
 void complete_enum(CodeGen *g, ZigType *enum_type);
@@ -170,9 +170,6 @@ ZigValue *create_const_ptr_array(CodeGen *g, ZigValue *array_val, size_t elem_in
 void init_const_slice(CodeGen *g, ZigValue *const_val, ZigValue *array_val,
         size_t start, size_t len, bool is_const);
 ZigValue *create_const_slice(CodeGen *g, ZigValue *array_val, size_t start, size_t len, bool is_const);
-
-void init_const_arg_tuple(CodeGen *g, ZigValue *const_val, size_t arg_index_start, size_t arg_index_end);
-ZigValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_t arg_index_end);
 
 void init_const_null(ZigValue *const_val, ZigType *type);
 ZigValue *create_const_null(ZigType *type);
@@ -262,8 +259,9 @@ ZigValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *
 
 void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn);
 bool fn_is_async(ZigFn *fn);
+CallingConvention cc_from_fn_proto(AstNodeFnProto *fn_proto);
 
-Error type_val_resolve_abi_align(CodeGen *g, ZigValue *type_val, uint32_t *abi_align);
+Error type_val_resolve_abi_align(CodeGen *g, AstNode *source_node, ZigValue *type_val, uint32_t *abi_align);
 Error type_val_resolve_abi_size(CodeGen *g, AstNode *source_node, ZigValue *type_val,
         size_t *abi_size, size_t *size_in_bits);
 Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent_type,
@@ -279,4 +277,8 @@ Error analyze_import(CodeGen *codegen, ZigType *source_import, Buf *import_targe
         ZigType **out_import, Buf **out_import_target_path, Buf *out_full_path);
 ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry);
 bool is_anon_container(ZigType *ty);
+void copy_const_val(ZigValue *dest, ZigValue *src);
+bool type_has_optional_repr(ZigType *ty);
+bool is_opt_err_set(ZigType *ty);
+bool type_is_numeric(ZigType *ty);
 #endif

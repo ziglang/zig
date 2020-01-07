@@ -5,7 +5,11 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addC("hello world with libc",
-        \\const c = @cImport(@cInclude("stdio.h"));
+        \\const c = @cImport({
+        \\    // See https://github.com/ziglang/zig/issues/515
+        \\    @cDefine("_NO_CRT_STDIO_INLINE", "1");
+        \\    @cInclude("stdio.h");
+        \\});
         \\pub export fn main(argc: c_int, argv: [*][*]u8) c_int {
         \\    _ = c.puts("Hello, world!");
         \\    return 0;
@@ -258,12 +262,12 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.add("order-independent declarations",
         \\const io = @import("std").io;
         \\const z = io.stdin_fileno;
-        \\const x : @typeOf(y) = 1234;
+        \\const x : @TypeOf(y) = 1234;
         \\const y : u16 = 5678;
         \\pub fn main() void {
         \\    var x_local : i32 = print_ok(x);
         \\}
-        \\fn print_ok(val: @typeOf(x)) @typeOf(foo) {
+        \\fn print_ok(val: @TypeOf(x)) @TypeOf(foo) {
         \\    const stdout = &io.getStdOut().outStream().stream;
         \\    stdout.print("OK\n", .{}) catch unreachable;
         \\    return 0;

@@ -226,33 +226,32 @@ fn testCastConstArrayRefToConstSlice() void {
     {
         const blah = "aoeu".*;
         const const_array_ref = &blah;
-        expect(@typeOf(const_array_ref) == *const [4:0]u8);
+        expect(@TypeOf(const_array_ref) == *const [4:0]u8);
         const slice: []const u8 = const_array_ref;
         expect(mem.eql(u8, slice, "aoeu"));
     }
     {
         const blah: [4]u8 = "aoeu".*;
         const const_array_ref = &blah;
-        expect(@typeOf(const_array_ref) == *const [4]u8);
+        expect(@TypeOf(const_array_ref) == *const [4]u8);
         const slice: []const u8 = const_array_ref;
         expect(mem.eql(u8, slice, "aoeu"));
     }
 }
 
 test "peer type resolution: error and [N]T" {
-    // TODO: implicit error!T to error!U where T can implicitly cast to U
-    //expect(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
-    //comptime expect(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
+    expect(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
+    comptime expect(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
     expect(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
     comptime expect(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
 }
 
-//fn testPeerErrorAndArray(x: u8) error![]const u8 {
-//    return switch (x) {
-//        0x00 => "OK",
-//        else => error.BadValue,
-//    };
-//}
+fn testPeerErrorAndArray(x: u8) anyerror![]const u8 {
+    return switch (x) {
+        0x00 => "OK",
+        else => error.BadValue,
+    };
+}
 fn testPeerErrorAndArray2(x: u8) anyerror![]const u8 {
     return switch (x) {
         0x00 => "OK",
@@ -353,29 +352,29 @@ test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
 
 test "@intCast comptime_int" {
     const result = @intCast(i32, 1234);
-    expect(@typeOf(result) == i32);
+    expect(@TypeOf(result) == i32);
     expect(result == 1234);
 }
 
 test "@floatCast comptime_int and comptime_float" {
     {
         const result = @floatCast(f16, 1234);
-        expect(@typeOf(result) == f16);
+        expect(@TypeOf(result) == f16);
         expect(result == 1234.0);
     }
     {
         const result = @floatCast(f16, 1234.0);
-        expect(@typeOf(result) == f16);
+        expect(@TypeOf(result) == f16);
         expect(result == 1234.0);
     }
     {
         const result = @floatCast(f32, 1234);
-        expect(@typeOf(result) == f32);
+        expect(@TypeOf(result) == f32);
         expect(result == 1234.0);
     }
     {
         const result = @floatCast(f32, 1234.0);
-        expect(@typeOf(result) == f32);
+        expect(@TypeOf(result) == f32);
         expect(result == 1234.0);
     }
 }
@@ -383,12 +382,12 @@ test "@floatCast comptime_int and comptime_float" {
 test "comptime_int @intToFloat" {
     {
         const result = @intToFloat(f16, 1234);
-        expect(@typeOf(result) == f16);
+        expect(@TypeOf(result) == f16);
         expect(result == 1234.0);
     }
     {
         const result = @intToFloat(f32, 1234);
-        expect(@typeOf(result) == f32);
+        expect(@TypeOf(result) == f32);
         expect(result == 1234.0);
     }
 }
@@ -396,7 +395,7 @@ test "comptime_int @intToFloat" {
 test "@bytesToSlice keeps pointer alignment" {
     var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
     const numbers = @bytesToSlice(u32, bytes[0..]);
-    comptime expect(@typeOf(numbers) == []align(@alignOf(@typeOf(bytes))) u32);
+    comptime expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
 }
 
 test "@intCast i32 to u7" {
@@ -478,7 +477,7 @@ test "compile time int to ptr of function" {
 }
 
 pub const FUNCTION_CONSTANT = @intToPtr(PFN_void, maxInt(usize));
-pub const PFN_void = extern fn (*c_void) void;
+pub const PFN_void = fn (*c_void) callconv(.C) void;
 
 fn foobar(func: PFN_void) void {
     std.testing.expect(@ptrToInt(func) == maxInt(usize));
@@ -588,7 +587,7 @@ test "peer cast *[0]T to []const T" {
 
 var global_array: [4]u8 = undefined;
 test "cast from array reference to fn" {
-    const f = @ptrCast(extern fn () void, &global_array);
+    const f = @ptrCast(fn () callconv(.C) void, &global_array);
     expect(@ptrToInt(f) == @ptrToInt(&global_array));
 }
 
@@ -619,6 +618,7 @@ test "peer resolution of string literals" {
                 .b => "two",
                 .c => "three",
                 .d => "four",
+                else => unreachable,
             };
             expect(mem.eql(u8, cmd, "two"));
         }
@@ -730,4 +730,42 @@ test "peer result null and comptime_int" {
     comptime expect(S.blah(10).? == 1);
     expect(S.blah(-10).? == -1);
     comptime expect(S.blah(-10).? == -1);
+}
+
+test "peer type resolution implicit cast to return type" {
+    const S = struct {
+        fn doTheTest() void {
+            for ("hello") |c| _ = f(c);
+        }
+        fn f(c: u8) []const u8 {
+            return switch (c) {
+                'h', 'e' => &[_]u8{c}, // should cast to slice
+                'l', ' ' => &[_]u8{ c, '.' }, // should cast to slice
+                else => ([_]u8{c})[0..], // is a slice
+            };
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "peer type resolution implicit cast to variable type" {
+    const S = struct {
+        fn doTheTest() void {
+            var x: []const u8 = undefined;
+            for ("hello") |c| x = switch (c) {
+                'h', 'e' => &[_]u8{c}, // should cast to slice
+                'l', ' ' => &[_]u8{ c, '.' }, // should cast to slice
+                else => ([_]u8{c})[0..], // is a slice
+            };
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "variable initialization uses result locations properly with regards to the type" {
+    var b = true;
+    const x: i32 = if (b) 1 else 2;
+    expect(x == 1);
 }

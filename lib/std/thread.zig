@@ -138,7 +138,7 @@ pub const Thread = struct {
     };
 
     /// caller must call wait on the returned thread
-    /// fn startFn(@typeOf(context)) T
+    /// fn startFn(@TypeOf(context)) T
     /// where T is u8, noreturn, void, or !void
     /// caller must call wait on the returned thread
     pub fn spawn(context: var, comptime startFn: var) SpawnError!*Thread {
@@ -147,8 +147,8 @@ pub const Thread = struct {
         // https://github.com/ziglang/zig/issues/157
         const default_stack_size = 16 * 1024 * 1024;
 
-        const Context = @typeOf(context);
-        comptime assert(@ArgType(@typeOf(startFn), 0) == Context);
+        const Context = @TypeOf(context);
+        comptime assert(@ArgType(@TypeOf(startFn), 0) == Context);
 
         if (builtin.os == builtin.Os.windows) {
             const WinThread = struct {
@@ -156,9 +156,9 @@ pub const Thread = struct {
                     thread: Thread,
                     inner: Context,
                 };
-                extern fn threadMain(raw_arg: windows.LPVOID) windows.DWORD {
+                fn threadMain(raw_arg: windows.LPVOID) callconv(.C) windows.DWORD {
                     const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), raw_arg)).*;
-                    switch (@typeId(@typeOf(startFn).ReturnType)) {
+                    switch (@typeId(@TypeOf(startFn).ReturnType)) {
                         .Int => {
                             return startFn(arg);
                         },
@@ -198,10 +198,10 @@ pub const Thread = struct {
         }
 
         const MainFuncs = struct {
-            extern fn linuxThreadMain(ctx_addr: usize) u8 {
+            fn linuxThreadMain(ctx_addr: usize) callconv(.C) u8 {
                 const arg = if (@sizeOf(Context) == 0) {} else @intToPtr(*const Context, ctx_addr).*;
 
-                switch (@typeId(@typeOf(startFn).ReturnType)) {
+                switch (@typeId(@TypeOf(startFn).ReturnType)) {
                     .Int => {
                         return startFn(arg);
                     },
@@ -212,7 +212,7 @@ pub const Thread = struct {
                     else => @compileError("expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'"),
                 }
             }
-            extern fn posixThreadMain(ctx: ?*c_void) ?*c_void {
+            fn posixThreadMain(ctx: ?*c_void) callconv(.C) ?*c_void {
                 if (@sizeOf(Context) == 0) {
                     _ = startFn({});
                     return null;

@@ -371,8 +371,8 @@ fn genToc(allocator: *mem.Allocator, tokenizer: *Tokenizer) !Toc {
                             .Separator => continue,
                             .TagContent => {
                                 const param = tokenizer.buffer[bracket_tok.start..bracket_tok.end];
-                                if (mem.eql(u8, param, "3col")) {
-                                    columns = 3;
+                                if (mem.eql(u8, param, "2col")) {
+                                    columns = 2;
                                 } else {
                                     return parseError(
                                         tokenizer,
@@ -818,6 +818,7 @@ fn tokenizeAndPrintRaw(docgen_tokenizer: *Tokenizer, out: var, source_token: Tok
             .Keyword_resume,
             .Keyword_return,
             .Keyword_linksection,
+            .Keyword_callconv,
             .Keyword_stdcallcc,
             .Keyword_struct,
             .Keyword_suspend,

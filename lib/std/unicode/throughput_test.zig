@@ -6,18 +6,23 @@ pub fn main() !void {
 
     const args = try std.process.argsAlloc(std.heap.page_allocator);
 
+    // Warm up runs
+    var buffer0: [32767]u16 align(4096) = undefined;
+    _ = try std.unicode.utf8ToUtf16Le(&buffer0, args[1]);
+    _ = try std.unicode.utf8ToUtf16Le_better(&buffer0, args[1]);
+
     @fence(.SeqCst);
     var timer = try std.time.Timer.start();
     @fence(.SeqCst);
 
-    var buffer1: [32767]u16 = undefined;
+    var buffer1: [32767]u16 align(4096) = undefined;
     _ = try std.unicode.utf8ToUtf16Le(&buffer1, args[1]);
 
     @fence(.SeqCst);
     const elapsed_ns_orig = timer.lap();
     @fence(.SeqCst);
 
-    var buffer2: [32767]u16 = undefined;
+    var buffer2: [32767]u16 align(4096) = undefined;
     _ = try std.unicode.utf8ToUtf16Le_better(&buffer2, args[1]);
 
     @fence(.SeqCst);

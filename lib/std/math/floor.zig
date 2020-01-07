@@ -15,8 +15,8 @@ const math = std.math;
 ///  - floor(+-0)   = +-0
 ///  - floor(+-inf) = +-inf
 ///  - floor(nan)   = nan
-pub fn floor(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn floor(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f16 => floor16(x),
         f32 => floor32(x),

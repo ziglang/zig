@@ -1807,7 +1807,7 @@ pub const Builder = struct {
         // Look at the params and ref() other instructions
         comptime var i = 0;
         inline while (i < @memberCount(I.Params)) : (i += 1) {
-            const FieldType = comptime @typeOf(@field(@as(I.Params, undefined), @memberName(I.Params, i)));
+            const FieldType = comptime @TypeOf(@field(@as(I.Params, undefined), @memberName(I.Params, i)));
             switch (FieldType) {
                 *Inst => @field(inst.params, @memberName(I.Params, i)).ref(self),
                 *BasicBlock => @field(inst.params, @memberName(I.Params, i)).ref(self),

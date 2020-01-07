@@ -268,7 +268,7 @@ pub const Int = struct {
     /// Sets an Int to value. Value must be an primitive integer type.
     pub fn set(self: *Int, value: var) Allocator.Error!void {
         self.assertWritable();
-        const T = @typeOf(value);
+        const T = @TypeOf(value);
 
         switch (@typeInfo(T)) {
             TypeId.Int => |info| {
@@ -477,9 +477,12 @@ pub const Int = struct {
             }
 
             var q = try self.clone();
+            defer q.deinit();
             q.abs();
             var r = try Int.init(allocator);
+            defer r.deinit();
             var b = try Int.initSet(allocator, limb_base);
+            defer b.deinit();
 
             while (q.len() >= 2) {
                 try Int.divTrunc(&q, &r, q, b);
@@ -522,7 +525,7 @@ pub const Int = struct {
         options: std.fmt.FormatOptions,
         context: var,
         comptime FmtError: type,
-        output: fn (@typeOf(context), []const u8) FmtError!void,
+        output: fn (@TypeOf(context), []const u8) FmtError!void,
     ) FmtError!void {
         self.assertWritable();
         // TODO look at fmt and support other bases

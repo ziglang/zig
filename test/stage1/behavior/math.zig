@@ -4,6 +4,7 @@ const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
+const mem = std.mem;
 
 test "division" {
     if (@import("builtin").arch == .riscv64) {
@@ -281,8 +282,8 @@ test "small int addition" {
     x += 1;
     expect(x == 3);
 
-    var result: @typeOf(x) = 3;
-    expect(@addWithOverflow(@typeOf(x), x, 1, &result));
+    var result: @TypeOf(x) = 3;
+    expect(@addWithOverflow(@TypeOf(x), x, 1, &result));
 
     expect(result == 0);
 }
@@ -586,12 +587,12 @@ test "@sqrt" {
 
     const x = 14.0;
     const y = x * x;
-    const z = @sqrt(@typeOf(y), y);
+    const z = @sqrt(y);
     comptime expect(z == x);
 }
 
 fn testSqrt(comptime T: type, x: T) void {
-    expect(@sqrt(T, x * x) == x);
+    expect(@sqrt(x * x) == x);
 }
 
 test "comptime_int param and return" {
@@ -652,4 +653,28 @@ test "128-bit multiplication" {
     var b: i128 = 2;
     var c = a * b;
     expect(c == 6);
+}
+
+test "vector comparison" {
+    const S = struct {
+        fn doTheTest() void {
+            var a: @Vector(6, i32) = [_]i32{1, 3, -1, 5, 7, 9};
+            var b: @Vector(6, i32) = [_]i32{-1, 3, 0, 6, 10, -10};
+            expect(mem.eql(bool, &@as([6]bool, a < b), &[_]bool{false, false, true, true, true, false}));
+            expect(mem.eql(bool, &@as([6]bool, a <= b), &[_]bool{false, true, true, true, true, false}));
+            expect(mem.eql(bool, &@as([6]bool, a == b), &[_]bool{false, true, false, false, false, false}));
+            expect(mem.eql(bool, &@as([6]bool, a != b), &[_]bool{true, false, true, true, true, true}));
+            expect(mem.eql(bool, &@as([6]bool, a > b), &[_]bool{true, false, false, false, false, true}));
+            expect(mem.eql(bool, &@as([6]bool, a >= b), &[_]bool{true, true, false, false, false, true}));
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "compare undefined literal with comptime_int" {
+    var x = undefined == 1;
+    // x is now undefined with type bool
+    x = true;
+    expect(x);
 }

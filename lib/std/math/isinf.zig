@@ -5,7 +5,7 @@ const maxInt = std.math.maxInt;
 
 /// Returns whether x is an infinity, ignoring sign.
 pub fn isInf(x: var) bool {
-    const T = @typeOf(x);
+    const T = @TypeOf(x);
     switch (T) {
         f16 => {
             const bits = @bitCast(u16, x);
@@ -31,7 +31,7 @@ pub fn isInf(x: var) bool {
 
 /// Returns whether x is an infinity with a positive sign.
 pub fn isPositiveInf(x: var) bool {
-    const T = @typeOf(x);
+    const T = @TypeOf(x);
     switch (T) {
         f16 => {
             return @bitCast(u16, x) == 0x7C00;
@@ -53,7 +53,7 @@ pub fn isPositiveInf(x: var) bool {
 
 /// Returns whether x is an infinity with a negative sign.
 pub fn isNegativeInf(x: var) bool {
-    const T = @typeOf(x);
+    const T = @TypeOf(x);
     switch (T) {
         f16 => {
             return @bitCast(u16, x) == 0xFC00;

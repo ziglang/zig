@@ -42,7 +42,7 @@ pub const Loop = struct {
             },
             else => {},
         };
-        pub const Overlapped = @typeOf(overlapped_init);
+        pub const Overlapped = @TypeOf(overlapped_init);
 
         pub const Id = enum {
             Basic,

@@ -271,7 +271,7 @@ pub const Address = extern union {
         options: std.fmt.FormatOptions,
         context: var,
         comptime Errors: type,
-        output: fn (@typeOf(context), []const u8) Errors!void,
+        output: fn (@TypeOf(context), []const u8) Errors!void,
     ) !void {
         switch (self.any.family) {
             os.AF_INET => {
@@ -451,7 +451,7 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
             .next = null,
         };
         var res: *os.addrinfo = undefined;
-        switch (os.system.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res)) {
+        switch (os.system.getaddrinfo(name_c.ptr, @ptrCast([*:0]const u8, port_c.ptr), &hints, &res)) {
             0 => {},
             c.EAI_ADDRFAMILY => return error.HostLacksNetworkAddresses,
             c.EAI_AGAIN => return error.TemporaryNameServerFailure,
@@ -1275,6 +1275,7 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
 pub const StreamServer = struct {
     /// Copied from `Options` on `init`.
     kernel_backlog: u32,
+    reuse_address: bool,
 
     /// `undefined` until `listen` returns successfully.
     listen_address: Address,
@@ -1286,6 +1287,9 @@ pub const StreamServer = struct {
         /// If more than this many connections pool in the kernel, clients will start
         /// seeing "Connection refused".
         kernel_backlog: u32 = 128,
+
+        /// Enable SO_REUSEADDR on the socket.
+        reuse_address: bool = false,
     };
 
     /// After this call succeeds, resources have been acquired and must
@@ -1294,6 +1298,7 @@ pub const StreamServer = struct {
         return StreamServer{
             .sockfd = null,
             .kernel_backlog = options.kernel_backlog,
+            .reuse_address = options.reuse_address,
             .listen_address = undefined,
         };
     }
@@ -1314,6 +1319,15 @@ pub const StreamServer = struct {
         errdefer {
             os.close(sockfd);
             self.sockfd = null;
+        }
+
+        if (self.reuse_address) {
+            try os.setsockopt(
+                self.sockfd.?,
+                os.SOL_SOCKET,
+                os.SO_REUSEADDR,
+                &mem.toBytes(@as(c_int, 1)),
+            );
         }
 
         var socklen = address.getOsSockLen();

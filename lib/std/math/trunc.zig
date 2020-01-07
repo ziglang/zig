@@ -15,8 +15,8 @@ const maxInt = std.math.maxInt;
 ///  - trunc(+-0)   = +-0
 ///  - trunc(+-inf) = +-inf
 ///  - trunc(nan)   = nan
-pub fn trunc(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn trunc(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => trunc32(x),
         f64 => trunc64(x),

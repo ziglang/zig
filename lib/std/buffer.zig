@@ -82,11 +82,11 @@ pub const Buffer = struct {
     }
 
     pub fn toSlice(self: Buffer) [:0]u8 {
-        return self.list.toSlice()[0..self.len()];
+        return self.list.toSlice()[0..self.len() :0];
     }
 
     pub fn toSliceConst(self: Buffer) [:0]const u8 {
-        return self.list.toSliceConst()[0..self.len()];
+        return self.list.toSliceConst()[0..self.len() :0];
     }
 
     pub fn shrink(self: *Buffer, new_len: usize) void {

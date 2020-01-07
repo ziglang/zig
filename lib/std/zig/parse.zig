@@ -56,7 +56,6 @@ pub fn parse(allocator: *Allocator, source: []const u8) !*Tree {
 fn parseRoot(arena: *Allocator, it: *TokenIterator, tree: *Tree) Allocator.Error!*Node.Root {
     const node = try arena.create(Node.Root);
     node.* = Node.Root{
-        .base = Node{ .id = .Root },
         .decls = undefined,
         .eof_token = undefined,
     };
@@ -176,7 +175,6 @@ fn parseContainerDocComments(arena: *Allocator, it: *TokenIterator, tree: *Tree)
 
     const node = try arena.create(Node.DocComment);
     node.* = Node.DocComment{
-        .base = Node{ .id = .DocComment },
         .lines = lines,
     };
     return &node.base;
@@ -194,7 +192,6 @@ fn parseTestDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const test_node = try arena.create(Node.TestDecl);
     test_node.* = Node.TestDecl{
-        .base = Node{ .id = .TestDecl },
         .doc_comments = null,
         .test_token = test_token,
         .name = name_node,
@@ -217,7 +214,6 @@ fn parseTopLevelComptime(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*
 
     const comptime_node = try arena.create(Node.Comptime);
     comptime_node.* = Node.Comptime{
-        .base = Node{ .id = .Comptime },
         .doc_comments = null,
         .comptime_token = tok,
         .expr = block_node,
@@ -315,6 +311,7 @@ fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const rparen = try expectToken(it, tree, .RParen);
     const align_expr = try parseByteAlign(arena, it, tree);
     const section_expr = try parseLinkSection(arena, it, tree);
+    const callconv_expr = try parseCallconv(arena, it, tree);
     const exclamation_token = eatToken(it, .Bang);
 
     const return_type_expr = (try parseVarType(arena, it, tree)) orelse
@@ -338,7 +335,6 @@ fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const fn_proto_node = try arena.create(Node.FnProto);
     fn_proto_node.* = Node.FnProto{
-        .base = Node{ .id = .FnProto },
         .doc_comments = null,
         .visib_token = null,
         .fn_token = fn_token,
@@ -352,6 +348,7 @@ fn parseFnProto(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         .lib_name = null,
         .align_expr = align_expr,
         .section_expr = section_expr,
+        .callconv_expr = callconv_expr,
     };
 
     if (cc) |kind| {
@@ -389,7 +386,6 @@ fn parseVarDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const node = try arena.create(Node.VarDecl);
     node.* = Node.VarDecl{
-        .base = Node{ .id = .VarDecl },
         .doc_comments = null,
         .visib_token = null,
         .thread_local_token = null,
@@ -477,7 +473,6 @@ fn parseStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*No
 
         const node = try arena.create(Node.Comptime);
         node.* = Node.Comptime{
-            .base = Node{ .id = .Comptime },
             .doc_comments = null,
             .comptime_token = token,
             .expr = block_expr,
@@ -496,7 +491,6 @@ fn parseStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*No
 
         const node = try arena.create(Node.Suspend);
         node.* = Node.Suspend{
-            .base = Node{ .id = .Suspend },
             .suspend_token = suspend_token,
             .body = body_node,
         };
@@ -510,7 +504,6 @@ fn parseStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) Error!?*No
         });
         const node = try arena.create(Node.Defer);
         node.* = Node.Defer{
-            .base = Node{ .id = .Defer },
             .defer_token = token,
             .expr = expr_node,
         };
@@ -558,7 +551,6 @@ fn parseIfStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
 
         const node = try arena.create(Node.Else);
         node.* = Node.Else{
-            .base = Node{ .id = .Else },
             .else_token = else_token,
             .payload = payload,
             .body = else_body,
@@ -652,7 +644,6 @@ fn parseForStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 
             const else_node = try arena.create(Node.Else);
             else_node.* = Node.Else{
-                .base = Node{ .id = .Else },
                 .else_token = else_token,
                 .payload = null,
                 .body = statement_node,
@@ -677,7 +668,6 @@ fn parseForStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 
             const else_node = try arena.create(Node.Else);
             else_node.* = Node.Else{
-                .base = Node{ .id = .Else },
                 .else_token = else_token,
                 .payload = null,
                 .body = statement_node,
@@ -714,7 +704,6 @@ fn parseWhileStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 
             const else_node = try arena.create(Node.Else);
             else_node.* = Node.Else{
-                .base = Node{ .id = .Else },
                 .else_token = else_token,
                 .payload = payload,
                 .body = statement_node,
@@ -741,7 +730,6 @@ fn parseWhileStatement(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 
             const else_node = try arena.create(Node.Else);
             else_node.* = Node.Else{
-                .base = Node{ .id = .Else },
                 .else_token = else_token,
                 .payload = payload,
                 .body = statement_node,
@@ -870,7 +858,6 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         const expr_node = try parseExpr(arena, it, tree);
         const node = try arena.create(Node.ControlFlowExpression);
         node.* = Node.ControlFlowExpression{
-            .base = Node{ .id = .ControlFlowExpression },
             .ltoken = token,
             .kind = Node.ControlFlowExpression.Kind{ .Break = label },
             .rhs = expr_node,
@@ -884,7 +871,6 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         });
         const node = try arena.create(Node.Comptime);
         node.* = Node.Comptime{
-            .base = Node{ .id = .Comptime },
             .doc_comments = null,
             .comptime_token = token,
             .expr = expr_node,
@@ -896,7 +882,6 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         const label = try parseBreakLabel(arena, it, tree);
         const node = try arena.create(Node.ControlFlowExpression);
         node.* = Node.ControlFlowExpression{
-            .base = Node{ .id = .ControlFlowExpression },
             .ltoken = token,
             .kind = Node.ControlFlowExpression.Kind{ .Continue = label },
             .rhs = null,
@@ -910,7 +895,6 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         });
         const node = try arena.create(Node.PrefixOp);
         node.* = Node.PrefixOp{
-            .base = Node{ .id = .PrefixOp },
             .op_token = token,
             .op = Node.PrefixOp.Op.Resume,
             .rhs = expr_node,
@@ -922,7 +906,6 @@ fn parsePrimaryExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
         const expr_node = try parseExpr(arena, it, tree);
         const node = try arena.create(Node.ControlFlowExpression);
         node.* = Node.ControlFlowExpression{
-            .base = Node{ .id = .ControlFlowExpression },
             .ltoken = token,
             .kind = Node.ControlFlowExpression.Kind.Return,
             .rhs = expr_node,
@@ -970,7 +953,6 @@ fn parseBlock(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const block_node = try arena.create(Node.Block);
     block_node.* = Node.Block{
-        .base = Node{ .id = .Block },
         .label = null,
         .lbrace = lbrace,
         .statements = statements,
@@ -1020,7 +1002,6 @@ fn parseForExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
         const else_node = try arena.create(Node.Else);
         else_node.* = Node.Else{
-            .base = Node{ .id = .Else },
             .else_token = else_token,
             .payload = null,
             .body = body,
@@ -1050,7 +1031,6 @@ fn parseWhileExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
         const else_node = try arena.create(Node.Else);
         else_node.* = Node.Else{
-            .base = Node{ .id = .Else },
             .else_token = else_token,
             .payload = payload,
             .body = body,
@@ -1102,7 +1082,6 @@ fn parseInitList(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node.Suf
 
     const node = try arena.create(Node.SuffixOp);
     node.* = Node.SuffixOp{
-        .base = Node{ .id = .SuffixOp },
         .lhs = .{ .node = undefined }, // set by caller
         .op = op,
         .rtoken = try expectToken(it, tree, .RBrace),
@@ -1171,7 +1150,6 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
         };
         const node = try arena.create(Node.SuffixOp);
         node.* = Node.SuffixOp{
-            .base = Node{ .id = .SuffixOp },
             .lhs = .{ .node = res },
             .op = Node.SuffixOp.Op{
                 .Call = Node.SuffixOp.Op.Call{
@@ -1199,7 +1177,6 @@ fn parseSuffixExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
             if (try parseFnCallArguments(arena, it, tree)) |params| {
                 const call = try arena.create(Node.SuffixOp);
                 call.* = Node.SuffixOp{
-                    .base = Node{ .id = .SuffixOp },
                     .lhs = .{ .node = res },
                     .op = Node.SuffixOp.Op{
                         .Call = Node.SuffixOp.Op.Call{
@@ -1248,7 +1225,6 @@ fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
     if (eatToken(it, .CharLiteral)) |token| {
         const node = try arena.create(Node.CharLiteral);
         node.* = Node.CharLiteral{
-            .base = Node{ .id = .CharLiteral },
             .token = token,
         };
         return &node.base;
@@ -1267,7 +1243,6 @@ fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
         const expr = (try parseTypeExpr(arena, it, tree)) orelse return null;
         const node = try arena.create(Node.Comptime);
         node.* = Node.Comptime{
-            .base = Node{ .id = .Comptime },
             .doc_comments = null,
             .comptime_token = token,
             .expr = expr,
@@ -1282,7 +1257,6 @@ fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
         const global_error_set = try createLiteral(arena, Node.ErrorType, token);
         const node = try arena.create(Node.InfixOp);
         node.* = Node.InfixOp{
-            .base = Node{ .id = .InfixOp },
             .op_token = period,
             .lhs = global_error_set,
             .op = Node.InfixOp.Op.Period,
@@ -1295,7 +1269,6 @@ fn parsePrimaryTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
     if (eatToken(it, .Keyword_anyframe)) |token| {
         const node = try arena.create(Node.AnyFrameType);
         node.* = Node.AnyFrameType{
-            .base = Node{ .id = .AnyFrameType },
             .anyframe_token = token,
             .result = null,
         };
@@ -1337,7 +1310,6 @@ fn parseErrorSetDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 
     const node = try arena.create(Node.ErrorSetDecl);
     node.* = Node.ErrorSetDecl{
-        .base = Node{ .id = .ErrorSetDecl },
         .error_token = error_token,
         .decls = decls,
         .rbrace_token = rbrace,
@@ -1355,7 +1327,6 @@ fn parseGroupedExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
 
     const node = try arena.create(Node.GroupedExpression);
     node.* = Node.GroupedExpression{
-        .base = Node{ .id = .GroupedExpression },
         .lparen = lparen,
         .expr = expr,
         .rparen = rparen,
@@ -1438,7 +1409,6 @@ fn parseForTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
 
         const else_node = try arena.create(Node.Else);
         else_node.* = Node.Else{
-            .base = Node{ .id = .Else },
             .else_token = else_token,
             .payload = null,
             .body = else_expr,
@@ -1469,7 +1439,6 @@ fn parseWhileTypeExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Nod
 
         const else_node = try arena.create(Node.Else);
         else_node.* = Node.Else{
-            .base = Node{ .id = .Else },
             .else_token = else_token,
             .payload = null,
             .body = else_expr,
@@ -1495,7 +1464,6 @@ fn parseSwitchExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const node = try arena.create(Node.Switch);
     node.* = Node.Switch{
-        .base = Node{ .id = .Switch },
         .switch_token = switch_token,
         .expr = expr_node,
         .cases = cases,
@@ -1515,7 +1483,6 @@ fn parseAsmExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const node = try arena.create(Node.Asm);
     node.* = Node.Asm{
-        .base = Node{ .id = .Asm },
         .asm_token = asm_token,
         .volatile_token = volatile_token,
         .template = template,
@@ -1538,7 +1505,6 @@ fn parseAnonLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
     if (eatToken(it, .Identifier)) |name| {
         const node = try arena.create(Node.EnumLiteral);
         node.* = Node.EnumLiteral{
-            .base = Node{ .id = .EnumLiteral },
             .dot = dot,
             .name = name,
         };
@@ -1591,7 +1557,6 @@ fn parseAsmOutputItem(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Nod
 
     const node = try arena.create(Node.AsmOutput);
     node.* = Node.AsmOutput{
-        .base = Node{ .id = .AsmOutput },
         .lbracket = lbracket,
         .symbolic_name = name,
         .constraint = constraint,
@@ -1628,7 +1593,6 @@ fn parseAsmInputItem(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 
     const node = try arena.create(Node.AsmInput);
     node.* = Node.AsmInput{
-        .base = Node{ .id = .AsmInput },
         .lbracket = lbracket,
         .symbolic_name = name,
         .constraint = constraint,
@@ -1687,7 +1651,6 @@ fn parseFieldInit(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const node = try arena.create(Node.FieldInitializer);
     node.* = Node.FieldInitializer{
-        .base = Node{ .id = .FieldInitializer },
         .period_token = period_token,
         .name_token = name_token,
         .expr = expr_node,
@@ -1709,6 +1672,17 @@ fn parseWhileContinueExpr(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?
 /// LinkSection <- KEYWORD_linksection LPAREN Expr RPAREN
 fn parseLinkSection(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     _ = eatToken(it, .Keyword_linksection) orelse return null;
+    _ = try expectToken(it, tree, .LParen);
+    const expr_node = try expectNode(arena, it, tree, parseExpr, AstError{
+        .ExpectedExpr = AstError.ExpectedExpr{ .token = it.index },
+    });
+    _ = try expectToken(it, tree, .RParen);
+    return expr_node;
+}
+
+/// CallConv <- KEYWORD_callconv LPAREN Expr RPAREN
+fn parseCallconv(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+    _ = eatToken(it, .Keyword_callconv) orelse return null;
     _ = try expectToken(it, tree, .LParen);
     const expr_node = try expectNode(arena, it, tree, parseExpr, AstError{
         .ExpectedExpr = AstError.ExpectedExpr{ .token = it.index },
@@ -1760,7 +1734,6 @@ fn parseParamDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const param_decl = try arena.create(Node.ParamDecl);
     param_decl.* = Node.ParamDecl{
-        .base = Node{ .id = .ParamDecl },
         .doc_comments = doc_comments,
         .comptime_token = comptime_token,
         .noalias_token = noalias_token,
@@ -1807,7 +1780,6 @@ fn parseIfPrefix(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const node = try arena.create(Node.If);
     node.* = Node.If{
-        .base = Node{ .id = .If },
         .if_token = if_token,
         .condition = condition,
         .payload = payload,
@@ -1832,7 +1804,6 @@ fn parseWhilePrefix(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
 
     const node = try arena.create(Node.While);
     node.* = Node.While{
-        .base = Node{ .id = .While },
         .label = null,
         .inline_token = null,
         .while_token = while_token,
@@ -1861,7 +1832,6 @@ fn parseForPrefix(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const node = try arena.create(Node.For);
     node.* = Node.For{
-        .base = Node{ .id = .For },
         .label = null,
         .inline_token = null,
         .for_token = for_token,
@@ -1883,7 +1853,6 @@ fn parsePayload(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const node = try arena.create(Node.Payload);
     node.* = Node.Payload{
-        .base = Node{ .id = .Payload },
         .lpipe = lpipe,
         .error_symbol = identifier,
         .rpipe = rpipe,
@@ -1902,7 +1871,6 @@ fn parsePtrPayload(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const node = try arena.create(Node.PointerPayload);
     node.* = Node.PointerPayload{
-        .base = Node{ .id = .PointerPayload },
         .lpipe = lpipe,
         .ptr_token = asterisk,
         .value_symbol = identifier,
@@ -1930,7 +1898,6 @@ fn parsePtrIndexPayload(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*N
 
     const node = try arena.create(Node.PointerIndexPayload);
     node.* = Node.PointerIndexPayload{
-        .base = Node{ .id = .PointerIndexPayload },
         .lpipe = lpipe,
         .ptr_token = asterisk,
         .value_symbol = identifier,
@@ -1972,7 +1939,6 @@ fn parseSwitchCase(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     } else if (eatToken(it, .Keyword_else)) |else_token| {
         const else_node = try arena.create(Node.SwitchElse);
         else_node.* = Node.SwitchElse{
-            .base = Node{ .id = .SwitchElse },
             .token = else_token,
         };
         try list.push(&else_node.base);
@@ -1980,7 +1946,6 @@ fn parseSwitchCase(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const node = try arena.create(Node.SwitchCase);
     node.* = Node.SwitchCase{
-        .base = Node{ .id = .SwitchCase },
         .items = list,
         .arrow_token = undefined, // set by caller
         .payload = null,
@@ -1999,7 +1964,6 @@ fn parseSwitchItem(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
         const node = try arena.create(Node.InfixOp);
         node.* = Node.InfixOp{
-            .base = Node{ .id = .InfixOp },
             .op_token = token,
             .lhs = expr,
             .op = Node.InfixOp.Op{ .Range = {} },
@@ -2030,19 +1994,19 @@ fn parseAssignOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const token = nextToken(it);
     const op = switch (token.ptr.id) {
-        .AsteriskEqual => Op{ .AssignTimes = {} },
+        .AsteriskEqual => Op{ .AssignMul = {} },
         .SlashEqual => Op{ .AssignDiv = {} },
         .PercentEqual => Op{ .AssignMod = {} },
-        .PlusEqual => Op{ .AssignPlus = {} },
-        .MinusEqual => Op{ .AssignMinus = {} },
+        .PlusEqual => Op{ .AssignAdd = {} },
+        .MinusEqual => Op{ .AssignSub = {} },
         .AngleBracketAngleBracketLeftEqual => Op{ .AssignBitShiftLeft = {} },
         .AngleBracketAngleBracketRightEqual => Op{ .AssignBitShiftRight = {} },
         .AmpersandEqual => Op{ .AssignBitAnd = {} },
         .CaretEqual => Op{ .AssignBitXor = {} },
         .PipeEqual => Op{ .AssignBitOr = {} },
-        .AsteriskPercentEqual => Op{ .AssignTimesWarp = {} },
-        .PlusPercentEqual => Op{ .AssignPlusWrap = {} },
-        .MinusPercentEqual => Op{ .AssignMinusWrap = {} },
+        .AsteriskPercentEqual => Op{ .AssignMulWrap = {} },
+        .PlusPercentEqual => Op{ .AssignAddWrap = {} },
+        .MinusPercentEqual => Op{ .AssignSubWrap = {} },
         .Equal => Op{ .Assign = {} },
         else => {
             putBackToken(it, token.index);
@@ -2052,7 +2016,6 @@ fn parseAssignOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const node = try arena.create(Node.InfixOp);
     node.* = Node.InfixOp{
-        .base = Node{ .id = .InfixOp },
         .op_token = token.index,
         .lhs = undefined, // set by caller
         .op = op,
@@ -2170,11 +2133,11 @@ fn parseMultiplyOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const token = nextToken(it);
     const op = switch (token.ptr.id) {
         .PipePipe => ops{ .BoolOr = {} },
-        .Asterisk => ops{ .Mult = {} },
+        .Asterisk => ops{ .Mul = {} },
         .Slash => ops{ .Div = {} },
         .Percent => ops{ .Mod = {} },
         .AsteriskAsterisk => ops{ .ArrayMult = {} },
-        .AsteriskPercent => ops{ .MultWrap = {} },
+        .AsteriskPercent => ops{ .MulWrap = {} },
         else => {
             putBackToken(it, token.index);
             return null;
@@ -2212,7 +2175,6 @@ fn parsePrefixOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const node = try arena.create(Node.PrefixOp);
     node.* = Node.PrefixOp{
-        .base = Node{ .id = .PrefixOp },
         .op_token = token.index,
         .op = op,
         .rhs = undefined,
@@ -2236,7 +2198,6 @@ fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
     if (eatToken(it, .QuestionMark)) |token| {
         const node = try arena.create(Node.PrefixOp);
         node.* = Node.PrefixOp{
-            .base = Node{ .id = .PrefixOp },
             .op_token = token,
             .op = Node.PrefixOp.Op.OptionalType,
             .rhs = undefined, // set by caller
@@ -2255,7 +2216,6 @@ fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
         };
         const node = try arena.create(Node.AnyFrameType);
         node.* = Node.AnyFrameType{
-            .base = Node{ .id = .AnyFrameType },
             .anyframe_token = token,
             .result = Node.AnyFrameType.Result{
                 .arrow_token = arrow,
@@ -2384,7 +2344,7 @@ fn parsePrefixTypeOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 }
 
 /// SuffixOp
-///     <- LBRACKET Expr (DOT2 Expr?)? RBRACKET
+///     <- LBRACKET Expr (DOT2 (Expr (COLON Expr)?)?)? RBRACKET
 ///      / DOT IDENTIFIER
 ///      / DOTASTERISK
 ///      / DOTQUESTIONMARK
@@ -2402,11 +2362,16 @@ fn parseSuffixOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
             if (eatToken(it, .Ellipsis2) != null) {
                 const end_expr = try parseExpr(arena, it, tree);
+                const sentinel: ?*ast.Node = if (eatToken(it, .Colon) != null)
+                    try parseExpr(arena, it, tree)
+                else
+                    null;
                 break :blk OpAndToken{
                     .op = Op{
                         .Slice = Op.Slice{
                             .start = index_expr,
                             .end = end_expr,
+                            .sentinel = sentinel,
                         },
                     },
                     .token = try expectToken(it, tree, .RBracket),
@@ -2430,7 +2395,6 @@ fn parseSuffixOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
                 // this grammar rule be altered?
                 const node = try arena.create(Node.InfixOp);
                 node.* = Node.InfixOp{
-                    .base = Node{ .id = .InfixOp },
                     .op_token = period,
                     .lhs = undefined, // set by caller
                     .op = Node.InfixOp.Op.Period,
@@ -2452,7 +2416,6 @@ fn parseSuffixOp(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const node = try arena.create(Node.SuffixOp);
     node.* = Node.SuffixOp{
-        .base = Node{ .id = .SuffixOp },
         .lhs = undefined, // set by caller
         .op = op_and_token.op,
         .rtoken = op_and_token.token,
@@ -2506,7 +2469,6 @@ fn parseArrayTypeStart(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
 
     const node = try arena.create(Node.PrefixOp);
     node.* = Node.PrefixOp{
-        .base = Node{ .id = .PrefixOp },
         .op_token = lbracket,
         .op = op,
         .rhs = undefined, // set by caller
@@ -2656,7 +2618,6 @@ fn parseContainerDeclType(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?
 
     const node = try arena.create(Node.ContainerDecl);
     node.* = Node.ContainerDecl{
-        .base = Node{ .id = .ContainerDecl },
         .layout_token = null,
         .kind_token = kind_token.index,
         .init_arg_expr = init_arg_expr,
@@ -2729,7 +2690,6 @@ fn SimpleBinOpParseFn(comptime token: Token.Id, comptime op: Node.InfixOp.Op) No
             const op_token = eatToken(it, token) orelse return null;
             const node = try arena.create(Node.InfixOp);
             node.* = Node.InfixOp{
-                .base = Node{ .id = .InfixOp },
                 .op_token = op_token,
                 .lhs = undefined, // set by caller
                 .op = op,
@@ -2752,7 +2712,6 @@ fn parseBuiltinCall(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node 
     };
     const node = try arena.create(Node.BuiltinCall);
     node.* = Node.BuiltinCall{
-        .base = Node{ .id = .BuiltinCall },
         .builtin_token = token,
         .params = params.list,
         .rparen_token = params.rparen,
@@ -2766,7 +2725,6 @@ fn parseErrorTag(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
 
     const node = try arena.create(Node.ErrorTag);
     node.* = Node.ErrorTag{
-        .base = Node{ .id = .ErrorTag },
         .doc_comments = doc_comments,
         .name_token = token,
     };
@@ -2777,7 +2735,6 @@ fn parseIdentifier(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const token = eatToken(it, .Identifier) orelse return null;
     const node = try arena.create(Node.Identifier);
     node.* = Node.Identifier{
-        .base = Node{ .id = .Identifier },
         .token = token,
     };
     return &node.base;
@@ -2787,7 +2744,6 @@ fn parseVarType(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const token = eatToken(it, .Keyword_var) orelse return null;
     const node = try arena.create(Node.VarType);
     node.* = Node.VarType{
-        .base = Node{ .id = .VarType },
         .token = token,
     };
     return &node.base;
@@ -2807,7 +2763,6 @@ fn parseStringLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Nod
     if (eatToken(it, .StringLiteral)) |token| {
         const node = try arena.create(Node.StringLiteral);
         node.* = Node.StringLiteral{
-            .base = Node{ .id = .StringLiteral },
             .token = token,
         };
         return &node.base;
@@ -2816,7 +2771,6 @@ fn parseStringLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Nod
     if (eatToken(it, .MultilineStringLiteralLine)) |first_line| {
         const node = try arena.create(Node.MultilineStringLiteral);
         node.* = Node.MultilineStringLiteral{
-            .base = Node{ .id = .MultilineStringLiteral },
             .lines = Node.MultilineStringLiteral.LineList.init(arena),
         };
         try node.lines.push(first_line);
@@ -2833,7 +2787,6 @@ fn parseIntegerLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*No
     const token = eatToken(it, .IntegerLiteral) orelse return null;
     const node = try arena.create(Node.IntegerLiteral);
     node.* = Node.IntegerLiteral{
-        .base = Node{ .id = .IntegerLiteral },
         .token = token,
     };
     return &node.base;
@@ -2843,7 +2796,6 @@ fn parseFloatLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
     const token = eatToken(it, .FloatLiteral) orelse return null;
     const node = try arena.create(Node.FloatLiteral);
     node.* = Node.FloatLiteral{
-        .base = Node{ .id = .FloatLiteral },
         .token = token,
     };
     return &node.base;
@@ -2853,7 +2805,6 @@ fn parseTry(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const token = eatToken(it, .Keyword_try) orelse return null;
     const node = try arena.create(Node.PrefixOp);
     node.* = Node.PrefixOp{
-        .base = Node{ .id = .PrefixOp },
         .op_token = token,
         .op = Node.PrefixOp.Op.Try,
         .rhs = undefined, // set by caller
@@ -2865,7 +2816,6 @@ fn parseUse(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const token = eatToken(it, .Keyword_usingnamespace) orelse return null;
     const node = try arena.create(Node.Use);
     node.* = Node.Use{
-        .base = Node{ .id = .Use },
         .doc_comments = null,
         .visib_token = null,
         .use_token = token,
@@ -2891,7 +2841,6 @@ fn parseIf(arena: *Allocator, it: *TokenIterator, tree: *Tree, bodyParseFn: Node
     });
     const else_node = try arena.create(Node.Else);
     else_node.* = Node.Else{
-        .base = Node{ .id = .Else },
         .else_token = else_token,
         .payload = payload,
         .body = else_expr,
@@ -2912,7 +2861,6 @@ fn parseDocComment(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node.D
 
     const node = try arena.create(Node.DocComment);
     node.* = Node.DocComment{
-        .base = Node{ .id = .DocComment },
         .lines = lines,
     };
     return node;
@@ -2924,7 +2872,6 @@ fn parseAppendedDocComment(arena: *Allocator, it: *TokenIterator, tree: *Tree, a
     if (tree.tokensOnSameLine(after_token, comment_token)) {
         const node = try arena.create(Node.DocComment);
         node.* = Node.DocComment{
-            .base = Node{ .id = .DocComment },
             .lines = Node.DocComment.LineList.init(arena),
         };
         try node.lines.push(comment_token);
@@ -3031,7 +2978,6 @@ fn parseBinOpExpr(
 fn createInfixOp(arena: *Allocator, index: TokenIndex, op: Node.InfixOp.Op) !*Node {
     const node = try arena.create(Node.InfixOp);
     node.* = Node.InfixOp{
-        .base = Node{ .id = .InfixOp },
         .op_token = index,
         .lhs = undefined,
         .op = op,

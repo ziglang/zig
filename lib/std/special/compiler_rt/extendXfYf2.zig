@@ -2,20 +2,30 @@ const std = @import("std");
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
 
-pub extern fn __extendsfdf2(a: f32) f64 {
+pub fn __extendsfdf2(a: f32) callconv(.C) f64 {
     return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f64, f32, @bitCast(u32, a) });
 }
 
-pub extern fn __extenddftf2(a: f64) f128 {
+pub fn __extenddftf2(a: f64) callconv(.C) f128 {
     return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f128, f64, @bitCast(u64, a) });
 }
 
-pub extern fn __extendsftf2(a: f32) f128 {
+pub fn __extendsftf2(a: f32) callconv(.C) f128 {
     return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f128, f32, @bitCast(u32, a) });
 }
 
-pub extern fn __extendhfsf2(a: u16) f32 {
+pub fn __extendhfsf2(a: u16) callconv(.C) f32 {
     return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f32, f16, a });
+}
+
+pub fn __aeabi_h2f(arg: u16) callconv(.AAPCS) f32 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __extendhfsf2, .{arg});
+}
+
+pub fn __aeabi_f2d(arg: f32) callconv(.AAPCS) f64 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __extendsfdf2, .{arg});
 }
 
 const CHAR_BIT = 8;

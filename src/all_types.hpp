@@ -57,6 +57,23 @@ enum PtrLen {
     PtrLenC,
 };
 
+enum CallingConvention {
+    CallingConventionUnspecified,
+    CallingConventionC,
+    CallingConventionCold,
+    CallingConventionNaked,
+    CallingConventionAsync,
+    CallingConventionInterrupt,
+    CallingConventionSignal,
+    CallingConventionStdcall,
+    CallingConventionFastcall,
+    CallingConventionVectorcall,
+    CallingConventionThiscall,
+    CallingConventionAPCS,
+    CallingConventionAAPCS,
+    CallingConventionAAPCSVFP,
+};
+
 // This one corresponds to the builtin.zig enum.
 enum BuiltinPtrSize {
     BuiltinPtrSizeOne,
@@ -398,6 +415,7 @@ struct LazyValueFnType {
     IrInstruction *align_inst; // can be null
     IrInstruction *return_type;
 
+    CallingConvention cc;
     bool is_generic;
 };
 
@@ -612,15 +630,6 @@ enum NodeType {
     NodeTypeVarFieldType,
 };
 
-enum CallingConvention {
-    CallingConventionUnspecified,
-    CallingConventionC,
-    CallingConventionCold,
-    CallingConventionNaked,
-    CallingConventionStdcall,
-    CallingConventionAsync,
-};
-
 enum FnInline {
     FnInlineAuto,
     FnInlineAlways,
@@ -639,10 +648,12 @@ struct AstNodeFnProto {
     AstNode *align_expr;
     // populated if the "section(S)" is present
     AstNode *section_expr;
+    // populated if the "callconv(S)" is present
+    AstNode *callconv_expr;
     Buf doc_comments;
 
     FnInline fn_inline;
-    CallingConvention cc;
+    bool is_async;
 
     VisibMod visib_mod;
     bool auto_err_set;
@@ -782,6 +793,7 @@ struct AstNodeUnwrapOptional {
 // Must be synchronized with std.builtin.CallOptions.Modifier
 enum CallModifier {
     CallModifierNone,
+    CallModifierAsync,
     CallModifierNeverTail,
     CallModifierNeverInline,
     CallModifierNoAsync,
@@ -791,7 +803,6 @@ enum CallModifier {
 
     // These are additional tags in the compiler, but not exposed in the std lib.
     CallModifierBuiltin,
-    CallModifierAsync,
 };
 
 struct AstNodeFnCallExpr {
@@ -810,6 +821,7 @@ struct AstNodeSliceExpr {
     AstNode *array_ref_expr;
     AstNode *start;
     AstNode *end;
+    AstNode *sentinel; // can be null
 };
 
 struct AstNodeFieldAccessExpr {
@@ -1471,7 +1483,6 @@ enum ZigTypeId {
     ZigTypeIdUnion,
     ZigTypeIdFn,
     ZigTypeIdBoundFn,
-    ZigTypeIdArgTuple,
     ZigTypeIdOpaque,
     ZigTypeIdFnFrame,
     ZigTypeIdAnyFrame,
@@ -1680,7 +1691,7 @@ enum BuiltinFnId {
     BuiltinFnIdCos,
     BuiltinFnIdExp,
     BuiltinFnIdExp2,
-    BuiltinFnIdLn,
+    BuiltinFnIdLog,
     BuiltinFnIdLog2,
     BuiltinFnIdLog10,
     BuiltinFnIdFabs,
@@ -1779,6 +1790,7 @@ enum PanicMsgId {
     PanicMsgIdResumedFnPendingAwait,
     PanicMsgIdBadNoAsyncCall,
     PanicMsgIdResumeNotSuspendedFn,
+    PanicMsgIdBadSentinel,
 
     PanicMsgIdCount,
 };
@@ -1929,6 +1941,12 @@ enum WantStackCheck {
     WantStackCheckEnabled,
 };
 
+enum WantCSanitize {
+    WantCSanitizeAuto,
+    WantCSanitizeDisabled,
+    WantCSanitizeEnabled,
+};
+
 struct CFile {
     ZigList<const char *> args;
     const char *source_path;
@@ -2004,10 +2022,11 @@ struct CodeGen {
     ZigPackage *std_package;
     ZigPackage *test_runner_package;
     ZigPackage *compile_var_package;
+    ZigPackage *root_pkg; // @import("root")
+    ZigPackage *main_pkg; // usually same as root_pkg, except for `zig test`
     ZigType *compile_var_import;
     ZigType *root_import;
     ZigType *start_import;
-    ZigType *test_runner_import;
 
     struct {
         ZigType *entry_bool;
@@ -2039,7 +2058,6 @@ struct CodeGen {
         ZigType *entry_null;
         ZigType *entry_var;
         ZigType *entry_global_error_set;
-        ZigType *entry_arg_tuple;
         ZigType *entry_enum_literal;
         ZigType *entry_any_frame;
     } builtin_types;
@@ -2097,6 +2115,7 @@ struct CodeGen {
 
     WantPIC want_pic;
     WantStackCheck want_stack_check;
+    WantCSanitize want_sanitize_c;
     CacheHash cache_hash;
     ErrColor err_color;
     uint32_t next_unresolved_index;
@@ -2171,6 +2190,7 @@ struct CodeGen {
     bool have_pic;
     bool have_dynamic_link; // this is whether the final thing will be dynamically linked. see also is_dynamic
     bool have_stack_probing;
+    bool have_sanitize_c;
     bool function_sections;
     bool enable_dump_analysis;
     bool enable_doc_generation;
@@ -2181,7 +2201,6 @@ struct CodeGen {
     Buf *root_out_name;
     Buf *test_filter;
     Buf *test_name_prefix;
-    ZigPackage *root_package;
     Buf *zig_lib_dir;
     Buf *zig_std_dir;
     Buf *dynamic_linker_path;
@@ -2395,7 +2414,7 @@ struct ScopeFnDef {
     ZigFn *fn_entry;
 };
 
-// This scope is created for a @typeOf.
+// This scope is created for a @TypeOf.
 // All runtime side-effects are elided within it.
 // NodeTypeFnCallExpr
 struct ScopeTypeOf {
@@ -3382,6 +3401,7 @@ struct IrInstructionSliceSrc {
     IrInstruction *ptr;
     IrInstruction *start;
     IrInstruction *end;
+    IrInstruction *sentinel;
     ResultLoc *result_loc;
 };
 
@@ -3540,6 +3560,7 @@ struct IrInstructionFnProto {
 
     IrInstruction **param_types;
     IrInstruction *align_value;
+    IrInstruction *callconv_value;
     IrInstruction *return_type;
     bool is_var_args;
 };
@@ -3831,9 +3852,8 @@ struct IrInstructionAddImplicitReturnType {
 struct IrInstructionFloatOp {
     IrInstruction base;
 
-    BuiltinFnId op;
-    IrInstruction *type;
-    IrInstruction *op1;
+    BuiltinFnId fn_id;
+    IrInstruction *operand;
 };
 
 struct IrInstructionCheckRuntimeScope {

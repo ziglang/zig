@@ -166,7 +166,7 @@ test "sigaltstack" {
 // analyzed
 const dl_phdr_info = if (@hasDecl(os, "dl_phdr_info")) os.dl_phdr_info else c_void;
 
-export fn iter_fn(info: *dl_phdr_info, size: usize, data: ?*usize) i32 {
+fn iter_fn(info: *dl_phdr_info, size: usize, data: ?*usize) callconv(.C) i32 {
     if (builtin.os == .windows or builtin.os == .wasi or builtin.os == .macosx)
         return 0;
 
@@ -236,4 +236,22 @@ test "pipe" {
 test "argsAlloc" {
     var args = try std.process.argsAlloc(std.heap.page_allocator);
     std.process.argsFree(std.heap.page_allocator, args);
+}
+
+test "memfd_create" {
+    // memfd_create is linux specific.
+    if (builtin.os != .linux) return error.SkipZigTest;
+    const fd = std.os.memfd_create("test", 0) catch |err| switch (err) {
+        // Related: https://github.com/ziglang/zig/issues/4019
+        error.SystemOutdated => return error.SkipZigTest,
+        else => |e| return e,
+    };
+    defer std.os.close(fd);
+    try std.os.write(fd, "test");
+    try std.os.lseek_SET(fd, 0);
+
+    var buf: [10]u8 = undefined;
+    const bytes_read = try std.os.read(fd, &buf);
+    expect(bytes_read == 4);
+    expect(mem.eql(u8, buf[0..4], "test"));
 }

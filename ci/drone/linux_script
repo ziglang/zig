@@ -20,7 +20,7 @@ cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$DISTDIR" -DZIG_STATIC=ON -DCMAKE_PREFIX_PATH=/deps/local
 
 make -j$(nproc) install
-./zig build test-fmt test-behavior test-std test-compiler-rt -Dskip-release
+./zig build test-fmt test-behavior test-std test-compiler-rt -Dskip-release -Dskip-non-native
 # TODO test-compare-output is hitting https://github.com/ziglang/zig/issues/3526
 ./zig build test-standalone test-stack-traces
 # TODO test-cli is hitting https://github.com/ziglang/zig/issues/3526

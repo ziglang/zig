@@ -106,7 +106,7 @@ pub fn Queue(comptime T: type) type {
         pub fn dump(self: *Self) void {
             var stderr_file = std.io.getStdErr() catch return;
             const stderr = &stderr_file.outStream().stream;
-            const Error = @typeInfo(@typeOf(stderr)).Pointer.child.Error;
+            const Error = @typeInfo(@TypeOf(stderr)).Pointer.child.Error;
 
             self.dumpToStream(Error, stderr) catch return;
         }

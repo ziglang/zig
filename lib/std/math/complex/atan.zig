@@ -12,8 +12,8 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns the arc-tangent of z.
-pub fn atan(z: var) @typeOf(z) {
-    const T = @typeOf(z.re);
+pub fn atan(z: var) @TypeOf(z) {
+    const T = @TypeOf(z.re);
     return switch (T) {
         f32 => atan32(z),
         f64 => atan64(z),
@@ -130,10 +130,6 @@ test "complex.catan32" {
 }
 
 test "complex.catan64" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     const a = Complex(f64).new(5, 3);
     const c = atan(a);
 

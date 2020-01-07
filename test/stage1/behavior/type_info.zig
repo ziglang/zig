@@ -198,11 +198,11 @@ fn testUnion() void {
     expect(@as(TypeId, typeinfo_info) == TypeId.Union);
     expect(typeinfo_info.Union.layout == TypeInfo.ContainerLayout.Auto);
     expect(typeinfo_info.Union.tag_type.? == TypeId);
-    expect(typeinfo_info.Union.fields.len == 26);
+    expect(typeinfo_info.Union.fields.len == 25);
     expect(typeinfo_info.Union.fields[4].enum_field != null);
     expect(typeinfo_info.Union.fields[4].enum_field.?.value == 4);
-    expect(typeinfo_info.Union.fields[4].field_type == @typeOf(@typeInfo(u8).Int));
-    expect(typeinfo_info.Union.decls.len == 21);
+    expect(typeinfo_info.Union.fields[4].field_type == @TypeOf(@typeInfo(u8).Int));
+    expect(typeinfo_info.Union.decls.len == 20);
 
     const TestNoTagUnion = union {
         Foo: void,
@@ -264,16 +264,16 @@ test "type info: function type info" {
 }
 
 fn testFunction() void {
-    const fn_info = @typeInfo(@typeOf(foo));
+    const fn_info = @typeInfo(@TypeOf(foo));
     expect(@as(TypeId, fn_info) == TypeId.Fn);
-    expect(fn_info.Fn.calling_convention == TypeInfo.CallingConvention.Unspecified);
+    expect(fn_info.Fn.calling_convention == .Unspecified);
     expect(fn_info.Fn.is_generic);
     expect(fn_info.Fn.args.len == 2);
     expect(fn_info.Fn.is_var_args);
     expect(fn_info.Fn.return_type == null);
 
     const test_instance: TestStruct = undefined;
-    const bound_fn_info = @typeInfo(@typeOf(test_instance.foo));
+    const bound_fn_info = @typeInfo(@TypeOf(test_instance.foo));
     expect(@as(TypeId, bound_fn_info) == TypeId.BoundFn);
     expect(bound_fn_info.BoundFn.args[0].arg_type.? == *const TestStruct);
 }
@@ -366,4 +366,9 @@ test "data field is a compile-time value" {
         const Bar = @as(isize, -1);
     };
     comptime expect(@typeInfo(S).Struct.decls[0].data.Var == isize);
+}
+
+test "sentinel of opaque pointer type" {
+    const c_void_info = @typeInfo(*c_void);
+    expect(c_void_info.Pointer.sentinel == null);
 }

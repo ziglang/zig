@@ -9,7 +9,7 @@ const expect = std.testing.expect;
 pub fn Stack(comptime T: type) type {
     return struct {
         root: ?*Node,
-        lock: @typeOf(lock_init),
+        lock: @TypeOf(lock_init),
 
         const lock_init = if (builtin.single_threaded) {} else @as(u8, 0);
 

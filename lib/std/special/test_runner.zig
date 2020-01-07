@@ -1,9 +1,9 @@
 const std = @import("std");
 const io = std.io;
 const builtin = @import("builtin");
-const test_fn_list = builtin.test_functions;
 
 pub fn main() anyerror!void {
+    const test_fn_list = builtin.test_functions;
     var ok_count: usize = 0;
     var skip_count: usize = 0;
     var progress = std.Progress{};
@@ -16,7 +16,9 @@ pub fn main() anyerror!void {
         var test_node = root_node.start(test_fn.name, null);
         test_node.activate();
         progress.refresh();
-        if (progress.terminal == null) std.debug.warn("{}/{} {}...", .{ i + 1, test_fn_list.len, test_fn.name });
+        if (progress.terminal == null) {
+            std.debug.warn("{}/{} {}...", .{ i + 1, test_fn_list.len, test_fn.name });
+        }
         if (test_fn.func()) |_| {
             ok_count += 1;
             test_node.end();

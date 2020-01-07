@@ -27,7 +27,7 @@ const LE_EQUAL = @as(c_int, 0);
 const LE_GREATER = @as(c_int, 1);
 const LE_UNORDERED = @as(c_int, 1);
 
-pub extern fn __lesf2(a: fp_t, b: fp_t) c_int {
+pub fn __lesf2(a: fp_t, b: fp_t) callconv(.C) c_int {
     @setRuntimeSafety(is_test);
     const aInt: srep_t = @bitCast(srep_t, a);
     const bInt: srep_t = @bitCast(srep_t, b);
@@ -70,7 +70,7 @@ const GE_EQUAL = @as(c_int, 0);
 const GE_GREATER = @as(c_int, 1);
 const GE_UNORDERED = @as(c_int, -1); // Note: different from LE_UNORDERED
 
-pub extern fn __gesf2(a: fp_t, b: fp_t) c_int {
+pub fn __gesf2(a: fp_t, b: fp_t) callconv(.C) c_int {
     @setRuntimeSafety(is_test);
     const aInt: srep_t = @bitCast(srep_t, a);
     const bInt: srep_t = @bitCast(srep_t, b);
@@ -94,27 +94,32 @@ pub extern fn __gesf2(a: fp_t, b: fp_t) c_int {
     }
 }
 
-pub extern fn __unordsf2(a: fp_t, b: fp_t) c_int {
+pub fn __unordsf2(a: fp_t, b: fp_t) callconv(.C) c_int {
     @setRuntimeSafety(is_test);
     const aAbs: rep_t = @bitCast(rep_t, a) & absMask;
     const bAbs: rep_t = @bitCast(rep_t, b) & absMask;
     return @boolToInt(aAbs > infRep or bAbs > infRep);
 }
 
-pub extern fn __eqsf2(a: fp_t, b: fp_t) c_int {
+pub fn __eqsf2(a: fp_t, b: fp_t) callconv(.C) c_int {
     return __lesf2(a, b);
 }
 
-pub extern fn __ltsf2(a: fp_t, b: fp_t) c_int {
+pub fn __ltsf2(a: fp_t, b: fp_t) callconv(.C) c_int {
     return __lesf2(a, b);
 }
 
-pub extern fn __nesf2(a: fp_t, b: fp_t) c_int {
+pub fn __nesf2(a: fp_t, b: fp_t) callconv(.C) c_int {
     return __lesf2(a, b);
 }
 
-pub extern fn __gtsf2(a: fp_t, b: fp_t) c_int {
+pub fn __gtsf2(a: fp_t, b: fp_t) callconv(.C) c_int {
     return __gesf2(a, b);
+}
+
+pub fn __aeabi_fcmpun(a: fp_t, b: fp_t) callconv(.AAPCS) c_int {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __unordsf2, .{ a, b });
 }
 
 test "import comparesf2" {

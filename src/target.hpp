@@ -194,6 +194,7 @@ bool target_is_riscv(const ZigTarget *target);
 bool target_is_android(const ZigTarget *target);
 bool target_is_single_threaded(const ZigTarget *target);
 bool target_supports_stack_probing(const ZigTarget *target);
+bool target_supports_sanitize_c(const ZigTarget *target);
 bool target_has_debug_info(const ZigTarget *target);
 const char *target_arch_musl_name(ZigLLVM_ArchType arch);
 bool target_supports_libunwind(const ZigTarget *target);

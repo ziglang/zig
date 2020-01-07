@@ -12,8 +12,8 @@ const Complex = cmath.Complex;
 
 /// Returns the square root of z. The real and imaginary parts of the result have the same sign
 /// as the imaginary part of z.
-pub fn sqrt(z: var) @typeOf(z) {
-    const T = @typeOf(z.re);
+pub fn sqrt(z: var) @TypeOf(z) {
+    const T = @TypeOf(z.re);
 
     return switch (T) {
         f32 => sqrt32(z),

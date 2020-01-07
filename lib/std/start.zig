@@ -1,8 +1,8 @@
 // This file is included in the compilation unit when exporting an executable.
 
 const root = @import("root");
-const std = @import("std");
-const builtin = @import("builtin");
+const std = @import("std.zig");
+const builtin = std.builtin;
 const assert = std.debug.assert;
 const uefi = std.os.uefi;
 
@@ -17,6 +17,7 @@ const is_mips = switch (builtin.arch) {
     .mips, .mipsel, .mips64, .mips64el => true,
     else => false,
 };
+const start_sym_name = if (is_mips) "__start" else "_start";
 
 comptime {
     if (builtin.output_mode == .Lib and builtin.link_mode == .Dynamic) {
@@ -25,7 +26,7 @@ comptime {
         }
     } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
         if (builtin.link_libc and @hasDecl(root, "main")) {
-            if (@typeInfo(@typeOf(root.main)).Fn.calling_convention != .C) {
+            if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
                 @export("main", main, .Weak);
             }
         } else if (builtin.os == .windows) {
@@ -34,23 +35,15 @@ comptime {
             }
         } else if (builtin.os == .uefi) {
             if (!@hasDecl(root, "EfiMain")) @export("EfiMain", EfiMain, .Strong);
-        } else if (builtin.os != .freestanding) {
-            if (is_mips) {
-                if (!@hasDecl(root, "__start")) @export("__start", _start, .Strong);
-            } else {
-                if (!@hasDecl(root, "_start")) @export("_start", _start, .Strong);
-            }
-        } else if (is_wasm) {
-            if (!@hasDecl(root, "_start")) @export("_start", wasm_freestanding_start, .Strong);
+        } else if (is_wasm and builtin.os == .freestanding) {
+            if (!@hasDecl(root, start_sym_name)) @export(start_sym_name, wasm_freestanding_start, .Strong);
+        } else if (builtin.os != .other and builtin.os != .freestanding) {
+            if (!@hasDecl(root, start_sym_name)) @export(start_sym_name, _start, .Strong);
         }
     }
 }
 
-stdcallcc fn _DllMainCRTStartup(
-    hinstDLL: std.os.windows.HINSTANCE,
-    fdwReason: std.os.windows.DWORD,
-    lpReserved: std.os.windows.LPVOID,
-) std.os.windows.BOOL {
+fn _DllMainCRTStartup(hinstDLL: std.os.windows.HINSTANCE, fdwReason: std.os.windows.DWORD, lpReserved: std.os.windows.LPVOID) callconv(.Stdcall) std.os.windows.BOOL {
     if (@hasDecl(root, "DllMain")) {
         return root.DllMain(hinstDLL, fdwReason, lpReserved);
     }
@@ -58,18 +51,18 @@ stdcallcc fn _DllMainCRTStartup(
     return std.os.windows.TRUE;
 }
 
-extern fn wasm_freestanding_start() void {
+fn wasm_freestanding_start() callconv(.C) void {
     // This is marked inline because for some reason LLVM in release mode fails to inline it,
     // and we want fewer call frames in stack traces.
     _ = @call(.{ .modifier = .always_inline }, callMain, .{});
 }
 
-extern fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) usize {
+fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv(.C) usize {
     const bad_efi_main_ret = "expected return type of main to be 'void', 'noreturn', or 'usize'";
     uefi.handle = handle;
     uefi.system_table = system_table;
 
-    switch (@typeInfo(@typeOf(root.main).ReturnType)) {
+    switch (@typeInfo(@TypeOf(root.main).ReturnType)) {
         .NoReturn => {
             root.main();
         },
@@ -87,7 +80,7 @@ extern fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) u
     }
 }
 
-nakedcc fn _start() noreturn {
+fn _start() callconv(.Naked) noreturn {
     if (builtin.os == builtin.Os.wasi) {
         // This is marked inline because for some reason LLVM in release mode fails to inline it,
         // and we want fewer call frames in stack traces.
@@ -130,7 +123,7 @@ nakedcc fn _start() noreturn {
     @call(.{ .modifier = .never_inline }, posixCallMainAndExit, .{});
 }
 
-stdcallcc fn WinMainCRTStartup() noreturn {
+fn WinMainCRTStartup() callconv(.Stdcall) noreturn {
     @setAlignStack(16);
     if (!builtin.single_threaded) {
         _ = @import("start_windows_tls.zig");
@@ -201,7 +194,7 @@ fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     return initEventLoopAndCallMain();
 }
 
-extern fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) i32 {
+fn main(c_argc: i32, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) callconv(.C) i32 {
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];
@@ -247,8 +240,8 @@ async fn callMainAsync(loop: *std.event.Loop) u8 {
 
 // This is not marked inline because it is called with @asyncCall when
 // there is an event loop.
-fn callMain() u8 {
-    switch (@typeInfo(@typeOf(root.main).ReturnType)) {
+pub fn callMain() u8 {
+    switch (@typeInfo(@TypeOf(root.main).ReturnType)) {
         .NoReturn => {
             root.main();
         },
@@ -270,7 +263,7 @@ fn callMain() u8 {
                 }
                 return 1;
             };
-            switch (@typeInfo(@typeOf(result))) {
+            switch (@typeInfo(@TypeOf(result))) {
                 .Void => return 0,
                 .Int => |info| {
                     if (info.bits != 8) {

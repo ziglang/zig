@@ -14,8 +14,8 @@ const Complex = cmath.Complex;
 const ldexp_cexp = @import("ldexp.zig").ldexp_cexp;
 
 /// Returns the hyperbolic arc-cosine of z.
-pub fn cosh(z: var) Complex(@typeOf(z.re)) {
-    const T = @typeOf(z.re);
+pub fn cosh(z: var) Complex(@TypeOf(z.re)) {
+    const T = @TypeOf(z.re);
     return switch (T) {
         f32 => cosh32(z),
         f64 => cosh64(z),
@@ -165,10 +165,6 @@ test "complex.ccosh32" {
 }
 
 test "complex.ccosh64" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     const a = Complex(f64).new(5, 3);
     const c = cosh(a);
 

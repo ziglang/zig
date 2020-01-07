@@ -1,7 +1,7 @@
 const udivmod = @import("udivmod.zig").udivmod;
 const builtin = @import("builtin");
 
-pub extern fn __divti3(a: i128, b: i128) i128 {
+pub fn __divti3(a: i128, b: i128) callconv(.C) i128 {
     @setRuntimeSafety(builtin.is_test);
 
     const s_a = a >> (i128.bit_count - 1);
@@ -16,7 +16,7 @@ pub extern fn __divti3(a: i128, b: i128) i128 {
 }
 
 const v128 = @Vector(2, u64);
-pub extern fn __divti3_windows_x86_64(a: v128, b: v128) v128 {
+pub fn __divti3_windows_x86_64(a: v128, b: v128) callconv(.C) v128 {
     return @bitCast(v128, @call(.{ .modifier = .always_inline }, __divti3, .{
         @bitCast(i128, a),
         @bitCast(i128, b),

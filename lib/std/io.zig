@@ -34,25 +34,52 @@ else
     Mode.blocking;
 pub const is_async = mode != .blocking;
 
-pub fn getStdOut() File {
+fn getStdOutHandle() os.fd_t {
     if (builtin.os == .windows) {
-        return File.openHandle(os.windows.peb().ProcessParameters.hStdOutput);
+        return os.windows.peb().ProcessParameters.hStdOutput;
     }
-    return File.openHandle(os.STDOUT_FILENO);
+
+    if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdOutHandle")) {
+        return root.os.io.getStdOutHandle();
+    }
+
+    return os.STDOUT_FILENO;
+}
+
+pub fn getStdOut() File {
+    return File.openHandle(getStdOutHandle());
+}
+
+fn getStdErrHandle() os.fd_t {
+    if (builtin.os == .windows) {
+        return os.windows.peb().ProcessParameters.hStdError;
+    }
+
+    if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdErrHandle")) {
+        return root.os.io.getStdErrHandle();
+    }
+
+    return os.STDERR_FILENO;
 }
 
 pub fn getStdErr() File {
+    return File.openHandle(getStdErrHandle());
+}
+
+fn getStdInHandle() os.fd_t {
     if (builtin.os == .windows) {
-        return File.openHandle(os.windows.peb().ProcessParameters.hStdError);
+        return os.windows.peb().ProcessParameters.hStdInput;
     }
-    return File.openHandle(os.STDERR_FILENO);
+
+    if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdInHandle")) {
+        return root.os.io.getStdInHandle();
+    }
+
+    return os.STDIN_FILENO;
 }
 
 pub fn getStdIn() File {
-    if (builtin.os == .windows) {
-        return File.openHandle(os.windows.peb().ProcessParameters.hStdInput);
-    }
-    return File.openHandle(os.STDIN_FILENO);
+    return File.openHandle(getStdInHandle());
 }
 
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
@@ -592,7 +619,16 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
         fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
             const self = @fieldParentPtr(Self, "stream", out_stream);
 
-            if (bytes.len >= self.buffer.len) {
+            if (bytes.len == 1) {
+                // This is not required logic but a shorter path
+                // for single byte writes
+                self.buffer[self.index] = bytes[0];
+                self.index += 1;
+                if (self.index == buffer_size) {
+                    try self.flush();
+                }
+                return;
+            } else if (bytes.len >= self.buffer.len) {
                 try self.flush();
                 return self.unbuffered_out_stream.write(bytes);
             }
@@ -663,7 +699,7 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
         pub fn writeBits(self: *Self, value: var, bits: usize) Error!void {
             if (bits == 0) return;
 
-            const U = @typeOf(value);
+            const U = @TypeOf(value);
             comptime assert(trait.isUnsignedInt(U));
 
             //by extending the buffer to a minimum of u8 we can cover a number of edge cases
@@ -962,7 +998,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
 
         /// Deserializes data into the type pointed to by `ptr`
         pub fn deserializeInto(self: *Self, ptr: var) !void {
-            const T = @typeOf(ptr);
+            const T = @TypeOf(ptr);
             comptime assert(trait.is(builtin.TypeId.Pointer)(T));
 
             if (comptime trait.isSlice(T) or comptime trait.isPtrTo(builtin.TypeId.Array)(T)) {
@@ -1091,7 +1127,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
         }
 
         fn serializeInt(self: *Self, value: var) Error!void {
-            const T = @typeOf(value);
+            const T = @TypeOf(value);
             comptime assert(trait.is(builtin.TypeId.Int)(T) or trait.is(builtin.TypeId.Float)(T));
 
             const t_bit_count = comptime meta.bitCount(T);
@@ -1123,7 +1159,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
 
         /// Serializes the passed value into the stream
         pub fn serialize(self: *Self, value: var) Error!void {
-            const T = comptime @typeOf(value);
+            const T = comptime @TypeOf(value);
 
             if (comptime trait.isIndexable(T)) {
                 for (value) |v|

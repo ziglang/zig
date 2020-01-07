@@ -78,3 +78,22 @@ test "access len index of sentinel-terminated slice" {
     S.doTheTest();
     comptime S.doTheTest();
 }
+
+test "obtaining a null terminated slice" {
+    // here we have a normal array
+    var buf: [50]u8 = undefined;
+
+    buf[0] = 'a';
+    buf[1] = 'b';
+    buf[2] = 'c';
+    buf[3] = 0;
+
+    // now we obtain a null terminated slice:
+    const ptr = buf[0..3 :0];
+
+    var runtime_len: usize = 3;
+    const ptr2 = buf[0..runtime_len :0];
+    // ptr2 is a null-terminated slice
+    comptime expect(@TypeOf(ptr2) == [:0]u8);
+    comptime expect(@TypeOf(ptr2[0..2]) == []u8);
+}

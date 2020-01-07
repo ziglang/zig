@@ -185,7 +185,7 @@ var a_promise: anyframe = undefined;
 var global_result = false;
 async fn testSuspendBlock() void {
     suspend {
-        comptime expect(@typeOf(@frame()) == *@Frame(testSuspendBlock));
+        comptime expect(@TypeOf(@frame()) == *@Frame(testSuspendBlock));
         a_promise = @frame();
     }
 
@@ -282,7 +282,7 @@ test "async fn pointer in a struct field" {
     var foo = Foo{ .bar = simpleAsyncFn2 };
     var bytes: [64]u8 align(16) = undefined;
     const f = @asyncCall(&bytes, {}, foo.bar, &data);
-    comptime expect(@typeOf(f) == anyframe->void);
+    comptime expect(@TypeOf(f) == anyframe->void);
     expect(data == 2);
     resume f;
     expect(data == 4);
@@ -332,7 +332,7 @@ test "async fn with inferred error set" {
         fn doTheTest() void {
             var frame: [1]@Frame(middle) = undefined;
             var fn_ptr = middle;
-            var result: @typeOf(fn_ptr).ReturnType.ErrorSet!void = undefined;
+            var result: @TypeOf(fn_ptr).ReturnType.ErrorSet!void = undefined;
             _ = @asyncCall(@sliceToBytes(frame[0..]), &result, fn_ptr);
             resume global_frame;
             std.testing.expectError(error.Fail, result);
@@ -952,7 +952,7 @@ test "@asyncCall with comptime-known function, but not awaited directly" {
 
         fn doTheTest() void {
             var frame: [1]@Frame(middle) = undefined;
-            var result: @typeOf(middle).ReturnType.ErrorSet!void = undefined;
+            var result: @TypeOf(middle).ReturnType.ErrorSet!void = undefined;
             _ = @asyncCall(@sliceToBytes(frame[0..]), &result, middle);
             resume global_frame;
             std.testing.expectError(error.Fail, result);
@@ -1009,7 +1009,7 @@ test "@asyncCall using the result location inside the frame" {
     var foo = Foo{ .bar = S.simple2 };
     var bytes: [64]u8 align(16) = undefined;
     const f = @asyncCall(&bytes, {}, foo.bar, &data);
-    comptime expect(@typeOf(f) == anyframe->i32);
+    comptime expect(@TypeOf(f) == anyframe->i32);
     expect(data == 2);
     resume f;
     expect(data == 4);
@@ -1017,18 +1017,18 @@ test "@asyncCall using the result location inside the frame" {
     expect(data == 1234);
 }
 
-test "@typeOf an async function call of generic fn with error union type" {
+test "@TypeOf an async function call of generic fn with error union type" {
     const S = struct {
         fn func(comptime x: var) anyerror!i32 {
-            const T = @typeOf(async func(x));
-            comptime expect(T == @typeOf(@frame()).Child);
+            const T = @TypeOf(async func(x));
+            comptime expect(T == @TypeOf(@frame()).Child);
             return undefined;
         }
     };
     _ = async S.func(i32);
 }
 
-test "using @typeOf on a generic function call" {
+test "using @TypeOf on a generic function call" {
     const S = struct {
         var global_frame: anyframe = undefined;
         var global_ok = false;
@@ -1043,7 +1043,7 @@ test "using @typeOf on a generic function call" {
             suspend {
                 global_frame = @frame();
             }
-            const F = @typeOf(async amain(x - 1));
+            const F = @TypeOf(async amain(x - 1));
             const frame = @intToPtr(*F, @ptrToInt(&buf));
             return await @asyncCall(frame, {}, amain, x - 1);
         }
@@ -1068,7 +1068,7 @@ test "recursive call of await @asyncCall with struct return type" {
             suspend {
                 global_frame = @frame();
             }
-            const F = @typeOf(async amain(x - 1));
+            const F = @TypeOf(async amain(x - 1));
             const frame = @intToPtr(*F, @ptrToInt(&buf));
             return await @asyncCall(frame, {}, amain, x - 1);
         }
@@ -1080,7 +1080,7 @@ test "recursive call of await @asyncCall with struct return type" {
         };
     };
     var res: S.Foo = undefined;
-    var frame: @typeOf(async S.amain(@as(u32, 1))) = undefined;
+    var frame: @TypeOf(async S.amain(@as(u32, 1))) = undefined;
     _ = @asyncCall(&frame, &res, S.amain, @as(u32, 1));
     resume S.global_frame;
     expect(S.global_ok);
@@ -1270,4 +1270,26 @@ test "spill target expr in a for loop, with a var decl in the loop body" {
     _ = async S.doTheTest();
     resume S.global_frame;
     resume S.global_frame;
+}
+
+test "async call with @call" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+        fn doTheTest() void {
+            _ = @call(.{ .modifier = .async_kw }, atest, .{});
+            resume global_frame;
+        }
+        fn atest() void {
+            var frame = @call(.{ .modifier = .async_kw }, afoo, .{});
+            const res = await frame;
+            expect(res == 42);
+        }
+        fn afoo() i32 {
+            suspend {
+                global_frame = @frame();
+            }
+            return 42;
+        }
+    };
+    S.doTheTest();
 }

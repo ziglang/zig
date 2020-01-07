@@ -39,7 +39,7 @@ fn __muldsi3(a: u32, b: u32) i64 {
     return r.all;
 }
 
-pub extern fn __muldi3(a: i64, b: i64) i64 {
+pub fn __muldi3(a: i64, b: i64) callconv(.C) i64 {
     @setRuntimeSafety(builtin.is_test);
 
     const x = dwords{ .all = a };

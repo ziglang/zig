@@ -65,18 +65,15 @@ pub fn dup3(old: i32, new: i32, flags: u32) usize {
     return syscall3(SYS_dup3, @bitCast(usize, @as(isize, old)), @bitCast(usize, @as(isize, new)), flags);
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn chdir(path: [*]const u8) usize {
+pub fn chdir(path: [*:0]const u8) usize {
     return syscall1(SYS_chdir, @ptrToInt(path));
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn chroot(path: [*]const u8) usize {
+pub fn chroot(path: [*:0]const u8) usize {
     return syscall1(SYS_chroot, @ptrToInt(path));
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn execve(path: [*]const u8, argv: [*]const ?[*]const u8, envp: [*]const ?[*]const u8) usize {
+pub fn execve(path: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) usize {
     return syscall3(SYS_execve, @ptrToInt(path), @ptrToInt(argv), @ptrToInt(envp));
 }
 
@@ -101,8 +98,7 @@ pub fn futimens(fd: i32, times: *const [2]timespec) usize {
     return utimensat(fd, null, times, 0);
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn utimensat(dirfd: i32, path: ?[*]const u8, times: *const [2]timespec, flags: u32) usize {
+pub fn utimensat(dirfd: i32, path: ?[*:0]const u8, times: *const [2]timespec, flags: u32) usize {
     return syscall4(SYS_utimensat, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), @ptrToInt(times), flags);
 }
 
@@ -140,7 +136,7 @@ pub fn inotify_init1(flags: u32) usize {
     return syscall1(SYS_inotify_init1, flags);
 }
 
-pub fn inotify_add_watch(fd: i32, pathname: [*]const u8, mask: u32) usize {
+pub fn inotify_add_watch(fd: i32, pathname: [*:0]const u8, mask: u32) usize {
     return syscall3(SYS_inotify_add_watch, @bitCast(usize, @as(isize, fd)), @ptrToInt(pathname), mask);
 }
 
@@ -148,8 +144,7 @@ pub fn inotify_rm_watch(fd: i32, wd: i32) usize {
     return syscall2(SYS_inotify_rm_watch, @bitCast(usize, @as(isize, fd)), @bitCast(usize, @as(isize, wd)));
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn readlink(noalias path: [*]const u8, noalias buf_ptr: [*]u8, buf_len: usize) usize {
+pub fn readlink(noalias path: [*:0]const u8, noalias buf_ptr: [*]u8, buf_len: usize) usize {
     if (@hasDecl(@This(), "SYS_readlink")) {
         return syscall3(SYS_readlink, @ptrToInt(path), @ptrToInt(buf_ptr), buf_len);
     } else {
@@ -157,13 +152,11 @@ pub fn readlink(noalias path: [*]const u8, noalias buf_ptr: [*]u8, buf_len: usiz
     }
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn readlinkat(dirfd: i32, noalias path: [*]const u8, noalias buf_ptr: [*]u8, buf_len: usize) usize {
+pub fn readlinkat(dirfd: i32, noalias path: [*:0]const u8, noalias buf_ptr: [*]u8, buf_len: usize) usize {
     return syscall4(SYS_readlinkat, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), @ptrToInt(buf_ptr), buf_len);
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn mkdir(path: [*]const u8, mode: u32) usize {
+pub fn mkdir(path: [*:0]const u8, mode: u32) usize {
     if (@hasDecl(@This(), "SYS_mkdir")) {
         return syscall2(SYS_mkdir, @ptrToInt(path), mode);
     } else {
@@ -171,23 +164,19 @@ pub fn mkdir(path: [*]const u8, mode: u32) usize {
     }
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn mkdirat(dirfd: i32, path: [*]const u8, mode: u32) usize {
+pub fn mkdirat(dirfd: i32, path: [*:0]const u8, mode: u32) usize {
     return syscall3(SYS_mkdirat, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), mode);
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn mount(special: [*]const u8, dir: [*]const u8, fstype: [*]const u8, flags: u32, data: usize) usize {
+pub fn mount(special: [*:0]const u8, dir: [*:0]const u8, fstype: [*:0]const u8, flags: u32, data: usize) usize {
     return syscall5(SYS_mount, @ptrToInt(special), @ptrToInt(dir), @ptrToInt(fstype), flags, data);
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn umount(special: [*]const u8) usize {
+pub fn umount(special: [*:0]const u8) usize {
     return syscall2(SYS_umount2, @ptrToInt(special), 0);
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn umount2(special: [*]const u8, flags: u32) usize {
+pub fn umount2(special: [*:0]const u8, flags: u32) usize {
     return syscall2(SYS_umount2, @ptrToInt(special), flags);
 }
 
@@ -307,8 +296,7 @@ pub fn pwritev2(fd: i32, iov: [*]const iovec_const, count: usize, offset: u64, f
     );
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn rmdir(path: [*]const u8) usize {
+pub fn rmdir(path: [*:0]const u8) usize {
     if (@hasDecl(@This(), "SYS_rmdir")) {
         return syscall1(SYS_rmdir, @ptrToInt(path));
     } else {
@@ -316,8 +304,7 @@ pub fn rmdir(path: [*]const u8) usize {
     }
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn symlink(existing: [*]const u8, new: [*]const u8) usize {
+pub fn symlink(existing: [*:0]const u8, new: [*:0]const u8) usize {
     if (@hasDecl(@This(), "SYS_symlink")) {
         return syscall2(SYS_symlink, @ptrToInt(existing), @ptrToInt(new));
     } else {
@@ -325,18 +312,15 @@ pub fn symlink(existing: [*]const u8, new: [*]const u8) usize {
     }
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn symlinkat(existing: [*]const u8, newfd: i32, newpath: [*]const u8) usize {
+pub fn symlinkat(existing: [*:0]const u8, newfd: i32, newpath: [*:0]const u8) usize {
     return syscall3(SYS_symlinkat, @ptrToInt(existing), @bitCast(usize, @as(isize, newfd)), @ptrToInt(newpath));
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
 pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: usize) usize {
     return syscall4(SYS_pread, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), count, offset);
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn access(path: [*]const u8, mode: u32) usize {
+pub fn access(path: [*:0]const u8, mode: u32) usize {
     if (@hasDecl(@This(), "SYS_access")) {
         return syscall2(SYS_access, @ptrToInt(path), mode);
     } else {
@@ -344,8 +328,7 @@ pub fn access(path: [*]const u8, mode: u32) usize {
     }
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn faccessat(dirfd: i32, path: [*]const u8, mode: u32, flags: u32) usize {
+pub fn faccessat(dirfd: i32, path: [*:0]const u8, mode: u32, flags: u32) usize {
     return syscall4(SYS_faccessat, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), mode, flags);
 }
 
@@ -371,8 +354,7 @@ pub fn pwrite(fd: i32, buf: [*]const u8, count: usize, offset: usize) usize {
     return syscall4(SYS_pwrite, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), count, offset);
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn rename(old: [*]const u8, new: [*]const u8) usize {
+pub fn rename(old: [*:0]const u8, new: [*:0]const u8) usize {
     if (@hasDecl(@This(), "SYS_rename")) {
         return syscall2(SYS_rename, @ptrToInt(old), @ptrToInt(new));
     } else if (@hasDecl(@This(), "SYS_renameat")) {
@@ -403,8 +385,7 @@ pub fn renameat(oldfd: i32, oldpath: [*]const u8, newfd: i32, newpath: [*]const 
     }
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn renameat2(oldfd: i32, oldpath: [*]const u8, newfd: i32, newpath: [*]const u8, flags: u32) usize {
+pub fn renameat2(oldfd: i32, oldpath: [*:0]const u8, newfd: i32, newpath: [*:0]const u8, flags: u32) usize {
     return syscall5(
         SYS_renameat2,
         @bitCast(usize, @as(isize, oldfd)),
@@ -415,8 +396,7 @@ pub fn renameat2(oldfd: i32, oldpath: [*]const u8, newfd: i32, newpath: [*]const
     );
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn open(path: [*]const u8, flags: u32, perm: usize) usize {
+pub fn open(path: [*:0]const u8, flags: u32, perm: usize) usize {
     if (@hasDecl(@This(), "SYS_open")) {
         return syscall3(SYS_open, @ptrToInt(path), flags, perm);
     } else {
@@ -430,13 +410,11 @@ pub fn open(path: [*]const u8, flags: u32, perm: usize) usize {
     }
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn create(path: [*]const u8, perm: usize) usize {
+pub fn create(path: [*:0]const u8, perm: usize) usize {
     return syscall2(SYS_creat, @ptrToInt(path), perm);
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn openat(dirfd: i32, path: [*]const u8, flags: u32, mode: usize) usize {
+pub fn openat(dirfd: i32, path: [*:0]const u8, flags: u32, mode: usize) usize {
     // dirfd could be negative, for example AT_FDCWD is -100
     return syscall4(SYS_openat, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), flags, mode);
 }
@@ -486,12 +464,19 @@ pub fn getrandom(buf: [*]u8, count: usize, flags: u32) usize {
     return syscall3(SYS_getrandom, @ptrToInt(buf), count, flags);
 }
 
-pub fn kill(pid: i32, sig: i32) usize {
+pub fn kill(pid: pid_t, sig: i32) usize {
     return syscall2(SYS_kill, @bitCast(usize, @as(isize, pid)), @bitCast(usize, @as(isize, sig)));
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn unlink(path: [*]const u8) usize {
+pub fn tkill(tid: pid_t, sig: i32) usize {
+    return syscall2(SYS_tkill, @bitCast(usize, @as(isize, tid)), @bitCast(usize, @as(isize, sig)));
+}
+
+pub fn tgkill(tgid: pid_t, tid: pid_t, sig: i32) usize {
+    return syscall2(SYS_tgkill, @bitCast(usize, @as(isize, tgid)), @bitCast(usize, @as(isize, tid)), @bitCast(usize, @as(isize, sig)));
+}
+
+pub fn unlink(path: [*:0]const u8) usize {
     if (@hasDecl(@This(), "SYS_unlink")) {
         return syscall1(SYS_unlink, @ptrToInt(path));
     } else {
@@ -499,12 +484,11 @@ pub fn unlink(path: [*]const u8) usize {
     }
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn unlinkat(dirfd: i32, path: [*]const u8, flags: u32) usize {
+pub fn unlinkat(dirfd: i32, path: [*:0]const u8, flags: u32) usize {
     return syscall3(SYS_unlinkat, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), flags);
 }
 
-pub fn waitpid(pid: i32, status: *u32, flags: u32) usize {
+pub fn waitpid(pid: pid_t, status: *u32, flags: u32) usize {
     return syscall4(SYS_wait4, @bitCast(usize, @as(isize, pid)), @ptrToInt(status), flags, 0);
 }
 
@@ -528,7 +512,7 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
     return syscall2(SYS_clock_gettime, @bitCast(usize, @as(isize, clk_id)), @ptrToInt(tp));
 }
 
-extern fn init_vdso_clock_gettime(clk: i32, ts: *timespec) usize {
+fn init_vdso_clock_gettime(clk: i32, ts: *timespec) callconv(.C) usize {
     const ptr = @intToPtr(?*const c_void, vdso.lookup(VDSO_CGT_VER, VDSO_CGT_SYM));
     // Note that we may not have a VDSO at all, update the stub address anyway
     // so that clock_gettime will fall back on the good old (and slow) syscall
@@ -681,15 +665,15 @@ pub fn setgroups(size: usize, list: *const u32) usize {
     }
 }
 
-pub fn getpid() i32 {
-    return @bitCast(i32, @truncate(u32, syscall0(SYS_getpid)));
+pub fn getpid() pid_t {
+    return @bitCast(pid_t, @truncate(u32, syscall0(SYS_getpid)));
 }
 
-pub fn gettid() i32 {
-    return @bitCast(i32, @truncate(u32, syscall0(SYS_gettid)));
+pub fn gettid() pid_t {
+    return @bitCast(pid_t, @truncate(u32, syscall0(SYS_gettid)));
 }
 
-pub fn sigprocmask(flags: u32, noalias set: *const sigset_t, noalias oldset: ?*sigset_t) usize {
+pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*sigset_t) usize {
     return syscall4(SYS_rt_sigprocmask, flags, @ptrToInt(set), @ptrToInt(oldset), NSIG / 8);
 }
 
@@ -706,7 +690,7 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
         .restorer = @ptrCast(extern fn () void, restorer_fn),
     };
     var ksa_old: k_sigaction = undefined;
-    const ksa_mask_size = @sizeOf(@typeOf(ksa_old.mask));
+    const ksa_mask_size = @sizeOf(@TypeOf(ksa_old.mask));
     @memcpy(@ptrCast([*]u8, &ksa.mask), @ptrCast([*]const u8, &act.mask), ksa_mask_size);
     const result = syscall4(SYS_rt_sigaction, sig, @ptrToInt(&ksa), @ptrToInt(&ksa_old), ksa_mask_size);
     const err = getErrno(result);
@@ -719,18 +703,6 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
         @memcpy(@ptrCast([*]u8, &old.mask), @ptrCast([*]const u8, &ksa_old.mask), ksa_mask_size);
     }
     return 0;
-}
-
-pub fn blockAllSignals(set: *sigset_t) void {
-    _ = syscall4(SYS_rt_sigprocmask, SIG_BLOCK, @ptrToInt(&all_mask), @ptrToInt(set), NSIG / 8);
-}
-
-pub fn blockAppSignals(set: *sigset_t) void {
-    _ = syscall4(SYS_rt_sigprocmask, SIG_BLOCK, @ptrToInt(&app_mask), @ptrToInt(set), NSIG / 8);
-}
-
-pub fn restoreSignals(set: *sigset_t) void {
-    _ = syscall4(SYS_rt_sigprocmask, SIG_SETMASK, @ptrToInt(set), 0, NSIG / 8);
 }
 
 pub fn sigaddset(set: *sigset_t, sig: u6) void {
@@ -786,7 +758,7 @@ pub fn sendmsg(fd: i32, msg: *msghdr_const, flags: u32) usize {
 }
 
 pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize {
-    if (@typeInfo(usize).Int.bits > @typeInfo(@typeOf(mmsghdr(undefined).msg_len)).Int.bits) {
+    if (@typeInfo(usize).Int.bits > @typeInfo(@TypeOf(mmsghdr(undefined).msg_len)).Int.bits) {
         // workaround kernel brokenness:
         // if adding up all iov_len overflows a i32 then split into multiple calls
         // see https://www.openwall.com/lists/musl/2014/06/07/5
@@ -903,8 +875,7 @@ pub fn fstat(fd: i32, stat_buf: *Stat) usize {
     }
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn stat(pathname: [*]const u8, statbuf: *Stat) usize {
+pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
     if (@hasDecl(@This(), "SYS_stat64")) {
         return syscall2(SYS_stat64, @ptrToInt(pathname), @ptrToInt(statbuf));
     } else {
@@ -912,8 +883,7 @@ pub fn stat(pathname: [*]const u8, statbuf: *Stat) usize {
     }
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn lstat(pathname: [*]const u8, statbuf: *Stat) usize {
+pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
     if (@hasDecl(@This(), "SYS_lstat64")) {
         return syscall2(SYS_lstat64, @ptrToInt(pathname), @ptrToInt(statbuf));
     } else {
@@ -921,8 +891,7 @@ pub fn lstat(pathname: [*]const u8, statbuf: *Stat) usize {
     }
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn fstatat(dirfd: i32, path: [*]const u8, stat_buf: *Stat, flags: u32) usize {
+pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usize {
     if (@hasDecl(@This(), "SYS_fstatat64")) {
         return syscall4(SYS_fstatat64, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), @ptrToInt(stat_buf), flags);
     } else {
@@ -944,13 +913,11 @@ pub fn statx(dirfd: i32, path: [*]const u8, flags: u32, mask: u32, statx_buf: *S
     return @bitCast(usize, @as(isize, -ENOSYS));
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn listxattr(path: [*]const u8, list: [*]u8, size: usize) usize {
+pub fn listxattr(path: [*:0]const u8, list: [*]u8, size: usize) usize {
     return syscall3(SYS_listxattr, @ptrToInt(path), @ptrToInt(list), size);
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn llistxattr(path: [*]const u8, list: [*]u8, size: usize) usize {
+pub fn llistxattr(path: [*:0]const u8, list: [*]u8, size: usize) usize {
     return syscall3(SYS_llistxattr, @ptrToInt(path), @ptrToInt(list), size);
 }
 
@@ -958,48 +925,39 @@ pub fn flistxattr(fd: usize, list: [*]u8, size: usize) usize {
     return syscall3(SYS_flistxattr, fd, @ptrToInt(list), size);
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn getxattr(path: [*]const u8, name: [*]const u8, value: [*]u8, size: usize) usize {
+pub fn getxattr(path: [*:0]const u8, name: [*:0]const u8, value: [*]u8, size: usize) usize {
     return syscall4(SYS_getxattr, @ptrToInt(path), @ptrToInt(name), @ptrToInt(value), size);
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn lgetxattr(path: [*]const u8, name: [*]const u8, value: [*]u8, size: usize) usize {
+pub fn lgetxattr(path: [*:0]const u8, name: [*:0]const u8, value: [*]u8, size: usize) usize {
     return syscall4(SYS_lgetxattr, @ptrToInt(path), @ptrToInt(name), @ptrToInt(value), size);
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn fgetxattr(fd: usize, name: [*]const u8, value: [*]u8, size: usize) usize {
+pub fn fgetxattr(fd: usize, name: [*:0]const u8, value: [*]u8, size: usize) usize {
     return syscall4(SYS_lgetxattr, fd, @ptrToInt(name), @ptrToInt(value), size);
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn setxattr(path: [*]const u8, name: [*]const u8, value: *const void, size: usize, flags: usize) usize {
+pub fn setxattr(path: [*:0]const u8, name: [*:0]const u8, value: *const void, size: usize, flags: usize) usize {
     return syscall5(SYS_setxattr, @ptrToInt(path), @ptrToInt(name), @ptrToInt(value), size, flags);
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn lsetxattr(path: [*]const u8, name: [*]const u8, value: *const void, size: usize, flags: usize) usize {
+pub fn lsetxattr(path: [*:0]const u8, name: [*:0]const u8, value: *const void, size: usize, flags: usize) usize {
     return syscall5(SYS_lsetxattr, @ptrToInt(path), @ptrToInt(name), @ptrToInt(value), size, flags);
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn fsetxattr(fd: usize, name: [*]const u8, value: *const void, size: usize, flags: usize) usize {
+pub fn fsetxattr(fd: usize, name: [*:0]const u8, value: *const void, size: usize, flags: usize) usize {
     return syscall5(SYS_fsetxattr, fd, @ptrToInt(name), @ptrToInt(value), size, flags);
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn removexattr(path: [*]const u8, name: [*]const u8) usize {
+pub fn removexattr(path: [*:0]const u8, name: [*:0]const u8) usize {
     return syscall2(SYS_removexattr, @ptrToInt(path), @ptrToInt(name));
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn lremovexattr(path: [*]const u8, name: [*]const u8) usize {
+pub fn lremovexattr(path: [*:0]const u8, name: [*:0]const u8) usize {
     return syscall2(SYS_lremovexattr, @ptrToInt(path), @ptrToInt(name));
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
-pub fn fremovexattr(fd: usize, name: [*]const u8) usize {
+pub fn fremovexattr(fd: usize, name: [*:0]const u8) usize {
     return syscall2(SYS_fremovexattr, fd, @ptrToInt(name));
 }
 
@@ -1007,7 +965,7 @@ pub fn sched_yield() usize {
     return syscall0(SYS_sched_yield);
 }
 
-pub fn sched_getaffinity(pid: i32, size: usize, set: *cpu_set_t) usize {
+pub fn sched_getaffinity(pid: pid_t, size: usize, set: *cpu_set_t) usize {
     const rc = syscall3(SYS_sched_getaffinity, @bitCast(usize, @as(isize, pid)), size, @ptrToInt(set));
     if (@bitCast(isize, rc) < 0) return rc;
     if (rc < size) @memset(@ptrCast([*]u8, set) + rc, 0, size - rc);
@@ -1150,6 +1108,14 @@ pub fn io_uring_enter(fd: i32, to_submit: u32, min_complete: u32, flags: u32, si
 
 pub fn io_uring_register(fd: i32, opcode: u32, arg: ?*const c_void, nr_args: u32) usize {
     return syscall4(SYS_io_uring_register, @bitCast(usize, @as(isize, fd)), opcode, @ptrToInt(arg), nr_args);
+}
+
+pub fn memfd_create(name: [*:0]const u8, flags: u32) usize {
+    return syscall2(SYS_memfd_create, @ptrToInt(name), flags);
+}
+
+pub fn getrusage(who: i32, usage: *rusage) usize {
+    return syscall2(SYS_getrusage, @bitCast(usize, @as(isize, who)), @ptrToInt(usage));
 }
 
 test "" {

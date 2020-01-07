@@ -43,7 +43,6 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  libc [paths_file]            Display native libc paths file or validate one\n"
         "  run [source] [-- [args]]     create executable and run immediately\n"
         "  translate-c [source]         convert c code to zig code\n"
-        "  translate-c-2 [source]       experimental self-hosted translate-c\n"
         "  targets                      list available compilation targets\n"
         "  test [source]                create and run a test build\n"
         "  version                      print version number and exit\n"
@@ -59,6 +58,8 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --enable-valgrind            include valgrind client requests release builds\n"
         "  -fstack-check                enable stack probing in unsafe builds\n"
         "  -fno-stack-check             disable stack probing in safe builds\n"
+        "  -fsanitize-c                 enable C undefined behavior detection in unsafe builds\n"
+        "  -fno-sanitize-c              disable C undefined behavior detection in safe builds\n"
         "  --emit [asm|bin|llvm-ir]     emit a specific file format as compilation output\n"
         "  -fPIC                        enable Position Independent Code\n"
         "  -fno-PIC                     disable Position Independent Code\n"
@@ -241,7 +242,6 @@ enum Cmd {
     CmdTargets,
     CmdTest,
     CmdTranslateC,
-    CmdTranslateCUserland,
     CmdVersion,
     CmdZen,
     CmdLibC,
@@ -524,6 +524,7 @@ int main(int argc, char **argv) {
     ValgrindSupport valgrind_support = ValgrindSupportAuto;
     WantPIC want_pic = WantPICAuto;
     WantStackCheck want_stack_check = WantStackCheckAuto;
+    WantCSanitize want_sanitize_c = WantCSanitizeAuto;
     bool function_sections = false;
 
     ZigList<const char *> llvm_argv = {0};
@@ -623,7 +624,7 @@ int main(int argc, char **argv) {
 
         ZigPackage *build_pkg = codegen_create_package(g, buf_ptr(&build_file_dirname),
                 buf_ptr(&build_file_basename), "std.special");
-        g->root_package->package_table.put(buf_create_from_str("@build"), build_pkg);
+        g->main_pkg->package_table.put(buf_create_from_str("@build"), build_pkg);
         g->enable_cache = get_cache_opt(enable_cache, true);
         codegen_build_and_link(g);
         if (root_progress_node != nullptr) {
@@ -722,6 +723,10 @@ int main(int argc, char **argv) {
                 want_stack_check = WantStackCheckEnabled;
             } else if (strcmp(arg, "-fno-stack-check") == 0) {
                 want_stack_check = WantStackCheckDisabled;
+            } else if (strcmp(arg, "-fsanitize-c") == 0) {
+                want_sanitize_c = WantCSanitizeEnabled;
+            } else if (strcmp(arg, "-fno-sanitize-c") == 0) {
+                want_sanitize_c = WantCSanitizeDisabled;
             } else if (strcmp(arg, "--system-linker-hack") == 0) {
                 system_linker_hack = true;
             } else if (strcmp(arg, "--single-threaded") == 0) {
@@ -953,8 +958,6 @@ int main(int argc, char **argv) {
                 cmd = CmdLibC;
             } else if (strcmp(arg, "translate-c") == 0) {
                 cmd = CmdTranslateC;
-            } else if (strcmp(arg, "translate-c-2") == 0) {
-                cmd = CmdTranslateCUserland;
             } else if (strcmp(arg, "test") == 0) {
                 cmd = CmdTest;
                 out_type = OutTypeExe;
@@ -971,7 +974,6 @@ int main(int argc, char **argv) {
                 case CmdBuild:
                 case CmdRun:
                 case CmdTranslateC:
-                case CmdTranslateCUserland:
                 case CmdTest:
                 case CmdLibC:
                     if (!in_file) {
@@ -1093,6 +1095,7 @@ int main(int argc, char **argv) {
         g->valgrind_support = valgrind_support;
         g->want_pic = want_pic;
         g->want_stack_check = want_stack_check;
+        g->want_sanitize_c = want_sanitize_c;
         g->want_single_threaded = want_single_threaded;
         Buf *builtin_source = codegen_generate_builtin_source(g);
         if (fwrite(buf_ptr(builtin_source), 1, buf_len(builtin_source), stdout) != buf_len(builtin_source)) {
@@ -1104,7 +1107,6 @@ int main(int argc, char **argv) {
     case CmdRun:
     case CmdBuild:
     case CmdTranslateC:
-    case CmdTranslateCUserland:
     case CmdTest:
         {
             if (cmd == CmdBuild && !in_file && objects.length == 0 &&
@@ -1116,7 +1118,7 @@ int main(int argc, char **argv) {
                     " * --object argument\n"
                     " * --c-source argument\n");
                 return print_error_usage(arg0);
-            } else if ((cmd == CmdTranslateC || cmd == CmdTranslateCUserland ||
+            } else if ((cmd == CmdTranslateC ||
                         cmd == CmdTest || cmd == CmdRun) && !in_file)
             {
                 fprintf(stderr, "Expected source file argument.\n");
@@ -1128,7 +1130,7 @@ int main(int argc, char **argv) {
 
             assert(cmd != CmdBuild || out_type != OutTypeUnknown);
 
-            bool need_name = (cmd == CmdBuild || cmd == CmdTranslateC || cmd == CmdTranslateCUserland);
+            bool need_name = (cmd == CmdBuild || cmd == CmdTranslateC);
 
             if (cmd == CmdRun) {
                 out_name = "run";
@@ -1162,8 +1164,7 @@ int main(int argc, char **argv) {
                 return print_error_usage(arg0);
             }
 
-            Buf *zig_root_source_file = (cmd == CmdTranslateC || cmd == CmdTranslateCUserland) ?
-                nullptr : in_file_buf;
+            Buf *zig_root_source_file = (cmd == CmdTranslateC) ? nullptr : in_file_buf;
 
             if (cmd == CmdRun && buf_out_name == nullptr) {
                 buf_out_name = buf_create_from_str("run");
@@ -1192,6 +1193,7 @@ int main(int argc, char **argv) {
             g->valgrind_support = valgrind_support;
             g->want_pic = want_pic;
             g->want_stack_check = want_stack_check;
+            g->want_sanitize_c = want_sanitize_c;
             g->subsystem = subsystem;
 
             g->enable_time_report = timing_info;
@@ -1269,7 +1271,7 @@ int main(int argc, char **argv) {
                 codegen_set_test_name_prefix(g, buf_create_from_str(test_name_prefix));
             }
 
-            add_package(g, cur_pkg, g->root_package);
+            add_package(g, cur_pkg, g->main_pkg);
 
             if (cmd == CmdBuild || cmd == CmdRun || cmd == CmdTest) {
                 g->c_source_files = c_source_files;
@@ -1327,8 +1329,9 @@ int main(int argc, char **argv) {
                 } else {
                     zig_unreachable();
                 }
-            } else if (cmd == CmdTranslateC || cmd == CmdTranslateCUserland) {
-                codegen_translate_c(g, in_file_buf, stdout, cmd == CmdTranslateCUserland);
+            } else if (cmd == CmdTranslateC) {
+                g->enable_cache = get_cache_opt(enable_cache, false);
+                codegen_translate_c(g, in_file_buf);
                 if (timing_info)
                     codegen_print_timing_report(g, stderr);
                 return main_exit(root_progress_node, EXIT_SUCCESS);

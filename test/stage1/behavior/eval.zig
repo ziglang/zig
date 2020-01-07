@@ -105,7 +105,7 @@ pub fn vec3(x: f32, y: f32, z: f32) Vec3 {
 
 test "constant expressions" {
     var array: [array_size]u8 = undefined;
-    expect(@sizeOf(@typeOf(array)) == 20);
+    expect(@sizeOf(@TypeOf(array)) == 20);
 }
 const array_size: u8 = 20;
 
@@ -598,7 +598,7 @@ test "pointer to type" {
         var T: type = i32;
         expect(T == i32);
         var ptr = &T;
-        expect(@typeOf(ptr) == *type);
+        expect(@TypeOf(ptr) == *type);
         ptr.* = f32;
         expect(T == f32);
         expect(*T == *f32);
@@ -670,10 +670,10 @@ fn loopNTimes(comptime n: usize) void {
 }
 
 test "variable inside inline loop that has different types on different iterations" {
-    testVarInsideInlineLoop(true, @as(u32, 42));
+    testVarInsideInlineLoop(.{true, @as(u32, 42)});
 }
 
-fn testVarInsideInlineLoop(args: ...) void {
+fn testVarInsideInlineLoop(args: var) void {
     comptime var i = 0;
     inline while (i < args.len) : (i += 1) {
         const x = args[i];

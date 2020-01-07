@@ -92,6 +92,7 @@ static Token *ast_parse_block_label(ParseContext *pc);
 static AstNode *ast_parse_field_init(ParseContext *pc);
 static AstNode *ast_parse_while_continue_expr(ParseContext *pc);
 static AstNode *ast_parse_link_section(ParseContext *pc);
+static AstNode *ast_parse_callconv(ParseContext *pc);
 static Optional<AstNodeFnProto> ast_parse_fn_cc(ParseContext *pc);
 static AstNode *ast_parse_param_decl(ParseContext *pc);
 static AstNode *ast_parse_param_type(ParseContext *pc);
@@ -676,7 +677,9 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod, B
             fn_proto->column = first->start_column;
             fn_proto->data.fn_proto.visib_mod = visib_mod;
             fn_proto->data.fn_proto.doc_comments = *doc_comments;
-            fn_proto->data.fn_proto.is_extern = first->id == TokenIdKeywordExtern;
+            // ast_parse_fn_cc may set it
+            if (!fn_proto->data.fn_proto.is_extern)
+                fn_proto->data.fn_proto.is_extern = first->id == TokenIdKeywordExtern;
             fn_proto->data.fn_proto.is_export = first->id == TokenIdKeywordExport;
             switch (first->id) {
                 case TokenIdKeywordInline:
@@ -761,7 +764,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
         // The extern keyword for fn CC is also used for container decls.
         // We therefore put it back, as allow container decl to consume it
         // later.
-        if (fn_cc.cc == CallingConventionC) {
+        if (fn_cc.is_extern) {
             fn = eat_token_if(pc, TokenIdKeywordFn);
             if (fn == nullptr) {
                 put_back_token(pc);
@@ -784,6 +787,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
 
     AstNode *align_expr = ast_parse_byte_align(pc);
     AstNode *section_expr = ast_parse_link_section(pc);
+    AstNode *callconv_expr = ast_parse_callconv(pc);
     Token *var = eat_token_if(pc, TokenIdKeywordVar);
     Token *exmark = nullptr;
     AstNode *return_type = nullptr;
@@ -798,16 +802,11 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
     res->data.fn_proto.params = params;
     res->data.fn_proto.align_expr = align_expr;
     res->data.fn_proto.section_expr = section_expr;
+    res->data.fn_proto.callconv_expr = callconv_expr;
     res->data.fn_proto.return_var_token = var;
     res->data.fn_proto.auto_err_set = exmark != nullptr;
     res->data.fn_proto.return_type = return_type;
 
-    // It seems that the Zig compiler expects varargs to be the
-    // last parameter in the decl list. This is not encoded in
-    // the grammar, which allows varargs anywhere in the decl.
-    // Since varargs is gonna be removed at some point, I'm not
-    // gonna encode this "varargs is always last" rule in the
-    // grammar, and just enforce it here, until varargs is removed.
     for (size_t i = 0; i < params.length; i++) {
         AstNode *param_decl = params.at(i);
         assert(param_decl->type == NodeTypeParamDecl);
@@ -1929,7 +1928,11 @@ static AstNode *ast_parse_anon_lit(ParseContext *pc) {
     }
 
     // anon container literal
-    return ast_parse_init_list(pc);
+    AstNode *res = ast_parse_init_list(pc);
+    if (res != nullptr)
+        return res;
+    put_back_token(pc);
+    return nullptr;
 }
 
 // AsmOutput <- COLON AsmOutputList AsmInput?
@@ -2101,27 +2104,29 @@ static AstNode *ast_parse_link_section(ParseContext *pc) {
     return res;
 }
 
+// CallConv <- KEYWORD_callconv LPAREN Expr RPAREN
+static AstNode *ast_parse_callconv(ParseContext *pc) {
+    Token *first = eat_token_if(pc, TokenIdKeywordCallconv);
+    if (first == nullptr)
+        return nullptr;
+
+    expect_token(pc, TokenIdLParen);
+    AstNode *res = ast_expect(pc, ast_parse_expr);
+    expect_token(pc, TokenIdRParen);
+    return res;
+}
+
 // FnCC
-//     <- KEYWORD_nakedcc
-//      / KEYWORD_stdcallcc
-//      / KEYWORD_extern
+//     <- KEYWORD_extern
 //      / KEYWORD_async
 static Optional<AstNodeFnProto> ast_parse_fn_cc(ParseContext *pc) {
     AstNodeFnProto res = {};
-    if (eat_token_if(pc, TokenIdKeywordNakedCC) != nullptr) {
-        res.cc = CallingConventionNaked;
-        return Optional<AstNodeFnProto>::some(res);
-    }
-    if (eat_token_if(pc, TokenIdKeywordStdcallCC) != nullptr) {
-        res.cc = CallingConventionStdcall;
+    if (eat_token_if(pc, TokenIdKeywordAsync) != nullptr) {
+        res.is_async = true;
         return Optional<AstNodeFnProto>::some(res);
     }
     if (eat_token_if(pc, TokenIdKeywordExtern) != nullptr) {
-        res.cc = CallingConventionC;
-        return Optional<AstNodeFnProto>::some(res);
-    }
-    if (eat_token_if(pc, TokenIdKeywordAsync) != nullptr) {
-        res.cc = CallingConventionAsync;
+        res.is_extern = true;
         return Optional<AstNodeFnProto>::some(res);
     }
 
@@ -2725,7 +2730,7 @@ static AstNode *ast_parse_prefix_type_op(ParseContext *pc) {
 }
 
 // SuffixOp
-//     <- LBRACKET Expr (DOT2 Expr?)? RBRACKET
+//     <- LBRACKET Expr (DOT2 (Expr (COLON Expr)?)?)? RBRACKET
 //      / DOT IDENTIFIER
 //      / DOTASTERISK
 //      / DOTQUESTIONMARK
@@ -2735,12 +2740,17 @@ static AstNode *ast_parse_suffix_op(ParseContext *pc) {
         AstNode *start = ast_expect(pc, ast_parse_expr);
         AstNode *end = nullptr;
         if (eat_token_if(pc, TokenIdEllipsis2) != nullptr) {
+            AstNode *sentinel = nullptr;
             end = ast_parse_expr(pc);
+            if (eat_token_if(pc, TokenIdColon) != nullptr) {
+                sentinel = ast_parse_expr(pc);
+            }
             expect_token(pc, TokenIdRBracket);
 
             AstNode *res = ast_create_node(pc, NodeTypeSliceExpr, lbracket);
             res->data.slice_expr.start = start;
             res->data.slice_expr.end = end;
+            res->data.slice_expr.sentinel = sentinel;
             return res;
         }
 
@@ -3043,6 +3053,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.slice_expr.array_ref_expr, visit, context);
             visit_field(&node->data.slice_expr.start, visit, context);
             visit_field(&node->data.slice_expr.end, visit, context);
+            visit_field(&node->data.slice_expr.sentinel, visit, context);
             break;
         case NodeTypeFieldAccessExpr:
             visit_field(&node->data.field_access_expr.struct_expr, visit, context);

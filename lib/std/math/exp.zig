@@ -14,8 +14,8 @@ const builtin = @import("builtin");
 /// Special Cases:
 ///  - exp(+inf) = +inf
 ///  - exp(nan)  = nan
-pub fn exp(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn exp(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => exp32(x),
         f64 => exp64(x),

@@ -41,7 +41,6 @@ pub const Type = struct {
             .Enum => @fieldParentPtr(Enum, "base", base).destroy(comp),
             .Union => @fieldParentPtr(Union, "base", base).destroy(comp),
             .BoundFn => @fieldParentPtr(BoundFn, "base", base).destroy(comp),
-            .ArgTuple => @fieldParentPtr(ArgTuple, "base", base).destroy(comp),
             .Opaque => @fieldParentPtr(Opaque, "base", base).destroy(comp),
             .Frame => @fieldParentPtr(Frame, "base", base).destroy(comp),
             .AnyFrame => @fieldParentPtr(AnyFrame, "base", base).destroy(comp),
@@ -76,7 +75,6 @@ pub const Type = struct {
             .Enum => return @fieldParentPtr(Enum, "base", base).getLlvmType(allocator, llvm_context),
             .Union => return @fieldParentPtr(Union, "base", base).getLlvmType(allocator, llvm_context),
             .BoundFn => return @fieldParentPtr(BoundFn, "base", base).getLlvmType(allocator, llvm_context),
-            .ArgTuple => unreachable,
             .Opaque => return @fieldParentPtr(Opaque, "base", base).getLlvmType(allocator, llvm_context),
             .Frame => return @fieldParentPtr(Frame, "base", base).getLlvmType(allocator, llvm_context),
             .AnyFrame => return @fieldParentPtr(AnyFrame, "base", base).getLlvmType(allocator, llvm_context),
@@ -93,7 +91,6 @@ pub const Type = struct {
             .Undefined,
             .Null,
             .BoundFn,
-            .ArgTuple,
             .Opaque,
             => unreachable,
 
@@ -128,7 +125,6 @@ pub const Type = struct {
             .Undefined,
             .Null,
             .BoundFn,
-            .ArgTuple,
             .Opaque,
             => unreachable,
 
@@ -341,7 +337,7 @@ pub const Type = struct {
             }
         };
 
-        const CallingConvention = builtin.TypeInfo.CallingConvention;
+        const CallingConvention = builtin.CallingConvention;
 
         pub const Param = struct {
             is_noalias: bool,
@@ -356,6 +352,7 @@ pub const Type = struct {
                 .Naked => "nakedcc ",
                 .Stdcall => "stdcallcc ",
                 .Async => "async ",
+                else => unreachable,
             };
         }
 
@@ -1004,14 +1001,6 @@ pub const Type = struct {
         }
     };
 
-    pub const ArgTuple = struct {
-        base: Type,
-
-        pub fn destroy(self: *ArgTuple, comp: *Compilation) void {
-            comp.gpa().destroy(self);
-        }
-    };
-
     pub const Opaque = struct {
         base: Type,
 
@@ -1050,14 +1039,14 @@ pub const Type = struct {
 };
 
 fn hashAny(x: var, comptime seed: u64) u32 {
-    switch (@typeInfo(@typeOf(x))) {
+    switch (@typeInfo(@TypeOf(x))) {
         .Int => |info| {
             comptime var rng = comptime std.rand.DefaultPrng.init(seed);
             const unsigned_x = @bitCast(@IntType(false, info.bits), x);
             if (info.bits <= 32) {
                 return @as(u32, unsigned_x) *% comptime rng.random.scalar(u32);
             } else {
-                return @truncate(u32, unsigned_x *% comptime rng.random.scalar(@typeOf(unsigned_x)));
+                return @truncate(u32, unsigned_x *% comptime rng.random.scalar(@TypeOf(unsigned_x)));
             }
         },
         .Pointer => |info| {
@@ -1081,6 +1070,6 @@ fn hashAny(x: var, comptime seed: u64) u32 {
                 return hashAny(@as(u32, 1), seed);
             }
         },
-        else => @compileError("implement hash function for " ++ @typeName(@typeOf(x))),
+        else => @compileError("implement hash function for " ++ @typeName(@TypeOf(x))),
     }
 }

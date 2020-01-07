@@ -1,3 +1,28 @@
+// TODO: Remove condition after deprecating 'typeOf'. See https://github.com/ziglang/zig/issues/1348
+test "zig fmt: change @typeOf to @TypeOf" {
+    try testTransform(
+        \\const a = @typeOf(@as(usize, 10));
+        \\
+    ,
+        \\const a = @TypeOf(@as(usize, 10));
+        \\
+    );
+}
+
+// TODO: Remove nakedcc/stdcallcc once zig 0.6.0 is released. See https://github.com/ziglang/zig/pull/3977
+test "zig fmt: convert extern/nakedcc/stdcallcc into callconv(...)" {
+    try testTransform(
+        \\nakedcc fn foo1() void {}
+        \\stdcallcc fn foo2() void {}
+        \\extern fn foo3() void {}
+    ,
+        \\fn foo1() callconv(.Naked) void {}
+        \\fn foo2() callconv(.Stdcall) void {}
+        \\fn foo3() callconv(.C) void {}
+        \\
+    );
+}
+
 test "zig fmt: comptime struct field" {
     try testCanonical(
         \\const Foo = struct {
@@ -11,6 +36,21 @@ test "zig fmt: comptime struct field" {
 test "zig fmt: c pointer type" {
     try testCanonical(
         \\pub extern fn repro() [*c]const u8;
+        \\
+    );
+}
+
+test "zig fmt: builtin call with trailing comma" {
+    try testCanonical(
+        \\pub fn main() void {
+        \\    @breakpoint();
+        \\    _ = @boolToInt(a);
+        \\    _ = @call(
+        \\        a,
+        \\        b,
+        \\        c,
+        \\    );
+        \\}
         \\
     );
 }
@@ -208,7 +248,7 @@ test "zig fmt: threadlocal" {
 test "zig fmt: linksection" {
     try testCanonical(
         \\export var aoeu: u64 linksection(".text.derp") = 1234;
-        \\export nakedcc fn _start() linksection(".text.boot") noreturn {}
+        \\export fn _start() linksection(".text.boot") callconv(.Naked) noreturn {}
         \\
     );
 }
@@ -408,10 +448,13 @@ test "zig fmt: pointer of unknown length" {
 test "zig fmt: spaces around slice operator" {
     try testCanonical(
         \\var a = b[c..d];
+        \\var a = b[c..d :0];
         \\var a = b[c + 1 .. d];
         \\var a = b[c + 1 ..];
         \\var a = b[c .. d + 1];
+        \\var a = b[c .. d + 1 :0];
         \\var a = b[c.a..d.e];
+        \\var a = b[c.a..d.e :0];
         \\
     );
 }
@@ -1060,7 +1103,7 @@ test "zig fmt: line comment after doc comment" {
 test "zig fmt: float literal with exponent" {
     try testCanonical(
         \\test "bit field alignment" {
-        \\    assert(@typeOf(&blah.b) == *align(1:3:6) const u3);
+        \\    assert(@TypeOf(&blah.b) == *align(1:3:6) const u3);
         \\}
         \\
     );
@@ -2297,7 +2340,7 @@ test "zig fmt: fn type" {
         \\
         \\const a: fn (u8) u8 = undefined;
         \\const b: extern fn (u8) u8 = undefined;
-        \\const c: nakedcc fn (u8) u8 = undefined;
+        \\const c: fn (u8) callconv(.Naked) u8 = undefined;
         \\const ap: fn (u8) u8 = a;
         \\
     );
@@ -2593,7 +2636,7 @@ test "zig fmt: comments at several places in struct init" {
     try testTransform(
         \\var bar = Bar{
         \\    .x = 10, // test
-        \\    .y = "test" 
+        \\    .y = "test"
         \\    // test
         \\};
         \\

@@ -118,7 +118,7 @@ test "atomic load and rmw with enum" {
 
     expect(@atomicLoad(Value, &x, .SeqCst) != .b);
 
-    _ = @atomicRmw(Value, &x, .Xchg, .c, .SeqCst); 
+    _ = @atomicRmw(Value, &x, .Xchg, .c, .SeqCst);
     expect(@atomicLoad(Value, &x, .SeqCst) == .c);
     expect(@atomicLoad(Value, &x, .SeqCst) != .a);
     expect(@atomicLoad(Value, &x, .SeqCst) != .b);
@@ -143,4 +143,21 @@ fn testAtomicStore() void {
     expect(@atomicLoad(u32, &x, .SeqCst) == 1);
     @atomicStore(u32, &x, 12345678, .SeqCst);
     expect(@atomicLoad(u32, &x, .SeqCst) == 12345678);
+}
+
+test "atomicrmw with floats" {
+    if (builtin.arch == .aarch64 or builtin.arch == .arm)
+        return;
+    testAtomicRmwFloat();
+}
+
+fn testAtomicRmwFloat() void {
+    var x: f32 = 0;
+    expect(x == 0);
+    _ = @atomicRmw(f32, &x, .Xchg, 1, .SeqCst);
+    expect(x == 1);
+    _ = @atomicRmw(f32, &x, .Add, 5, .SeqCst);
+    expect(x == 6);
+    _ = @atomicRmw(f32, &x, .Sub, 2, .SeqCst);
+    expect(x == 4);
 }
