@@ -1457,7 +1457,10 @@ fn unescapeString(output: []u8, input: []const u8) !void {
 }
 
 test "json.parser.dynamic" {
-    var p = Parser.init(debug.global_allocator, false);
+    var memory: [1024 * 16]u8 = undefined;
+    var buf_alloc = std.heap.FixedBufferAllocator.init(&memory);
+
+    var p = Parser.init(&buf_alloc.allocator, false);
     defer p.deinit();
 
     const s =
@@ -1560,17 +1563,21 @@ test "write json then parse it" {
     testing.expect(mem.eql(u8, tree.root.Object.get("str").?.value.String, "hello"));
 }
 
-fn test_parse(json_str: []const u8) !Value {
-    var p = Parser.init(debug.global_allocator, false);
+fn test_parse(memory: []u8, json_str: []const u8) !Value {
+    // buf_alloc goes out of scope, but we don't use it after parsing
+    var buf_alloc = std.heap.FixedBufferAllocator.init(memory);
+    var p = Parser.init(&buf_alloc.allocator, false);
     return (try p.parse(json_str)).root;
 }
 
 test "parsing empty string gives appropriate error" {
-    testing.expectError(error.UnexpectedEndOfJson, test_parse(""));
+    var memory: [1024 * 4]u8 = undefined;
+    testing.expectError(error.UnexpectedEndOfJson, test_parse(&memory, ""));
 }
 
 test "integer after float has proper type" {
-    const json = try test_parse(
+    var memory: [1024 * 8]u8 = undefined;
+    const json = try test_parse(&memory,
         \\{
         \\  "float": 3.14,
         \\  "ints": [1, 2, 3]
@@ -1580,6 +1587,7 @@ test "integer after float has proper type" {
 }
 
 test "escaped characters" {
+    var memory: [1024 * 16]u8 = undefined;
     const input =
         \\{
         \\  "backslash": "\\",
@@ -1595,7 +1603,7 @@ test "escaped characters" {
         \\}
     ;
 
-    const obj = (try test_parse(input)).Object;
+    const obj = (try test_parse(&memory, input)).Object;
 
     testing.expectEqualSlices(u8, obj.get("backslash").?.value.String, "\\");
     testing.expectEqualSlices(u8, obj.get("forwardslash").?.value.String, "/");
@@ -1619,10 +1627,13 @@ test "string copy option" {
         \\}
     ;
 
-    const tree_nocopy = try Parser.init(debug.global_allocator, false).parse(input);
+    var mem_buffer: [1024 * 16]u8 = undefined;
+    var buf_alloc = std.heap.FixedBufferAllocator.init(&mem_buffer);
+
+    const tree_nocopy = try Parser.init(&buf_alloc.allocator, false).parse(input);
     const obj_nocopy = tree_nocopy.root.Object;
 
-    const tree_copy = try Parser.init(debug.global_allocator, true).parse(input);
+    const tree_copy = try Parser.init(&buf_alloc.allocator, true).parse(input);
     const obj_copy = tree_copy.root.Object;
 
     for ([_][]const u8{ "noescape", "simple", "unicode", "surrogatepair" }) |field_name| {
