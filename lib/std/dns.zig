@@ -114,27 +114,6 @@ pub const Header = packed struct {
 
     /// Amount of additional recordsin the packet.
     arcount: u16 = 0,
-
-    /// Returns a "human-friendly" representation of the header for
-    /// debugging purposes
-    pub fn repr(self: *Header) ![]u8 {
-        var buf: [1024]u8 = undefined;
-        return std.fmt.bufPrint(&buf, "Header<{},{},{},{},{},{},{},{},{},{},{},{},{}>", .{
-            self.id,
-            self.qr_flag,
-            self.opcode,
-            self.aa_flag,
-            self.tc,
-            self.rd,
-            self.ra,
-            self.z,
-            self.rcode,
-            self.qdcount,
-            self.ancount,
-            self.nscount,
-            self.arcount,
-        });
-    }
 };
 
 /// Represents a single DNS domain-name, which is a slice of strings.
