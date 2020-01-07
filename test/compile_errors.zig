@@ -2,6 +2,18 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("repeated invalid field access to generic function returning type crashes compiler. #2655",
+        \\pub fn A() type {
+        \\    return Q;
+        \\}
+        \\test "1" {
+        \\    _ = A().a;
+        \\    _ = A().a;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:12: error: use of undeclared identifier 'Q'",
+    });
+
     cases.add("bitCast to enum type",
         \\export fn entry() void {
         \\    const y = @bitCast(enum(u32) { a, b }, @as(u32, 3));
