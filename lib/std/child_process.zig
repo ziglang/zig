@@ -582,9 +582,7 @@ pub const ChildProcess = struct {
         };
         var piProcInfo: windows.PROCESS_INFORMATION = undefined;
 
-        const cwd_slice = if (self.cwd) |cwd| try cstr.addNullByte(self.allocator, cwd) else null;
-        defer if (cwd_slice) |cwd| self.allocator.free(cwd);
-        const cwd_w = if (cwd_slice) |cwd| try unicode.utf8ToUtf16LeWithNull(self.allocator, cwd) else null;
+        const cwd_w = if (self.cwd) |cwd| try unicode.utf8ToUtf16LeWithNull(self.allocator, cwd) else null;
         defer if (cwd_w) |cwd| self.allocator.free(cwd);
         const cwd_w_ptr = if (cwd_w) |cwd| cwd.ptr else null;
 
@@ -701,7 +699,7 @@ pub const ChildProcess = struct {
     }
 };
 
-fn windowsCreateProcess(app_name: [*]u16, cmd_line: [*]u16, envp_ptr: ?[*]u16, cwd_ptr: ?[*]u16, lpStartupInfo: *windows.STARTUPINFOW, lpProcessInformation: *windows.PROCESS_INFORMATION) !void {
+fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u16, cwd_ptr: ?[*:0]u16, lpStartupInfo: *windows.STARTUPINFOW, lpProcessInformation: *windows.PROCESS_INFORMATION) !void {
     // TODO the docs for environment pointer say:
     // > A pointer to the environment block for the new process. If this parameter
     // > is NULL, the new process uses the environment of the calling process.

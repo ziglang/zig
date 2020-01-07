@@ -4,8 +4,8 @@ const Guid = uefi.Guid;
 /// Character output devices
 pub const SimpleTextOutputProtocol = extern struct {
     _reset: extern fn (*const SimpleTextOutputProtocol, bool) usize,
-    _output_string: extern fn (*const SimpleTextOutputProtocol, [*]const u16) usize,
-    _test_string: extern fn (*const SimpleTextOutputProtocol, [*]const u16) usize,
+    _output_string: extern fn (*const SimpleTextOutputProtocol, [*:0]const u16) usize,
+    _test_string: extern fn (*const SimpleTextOutputProtocol, [*:0]const u16) usize,
     _query_mode: extern fn (*const SimpleTextOutputProtocol, usize, *usize, *usize) usize,
     _set_mode: extern fn (*const SimpleTextOutputProtocol, usize) usize,
     _set_attribute: extern fn (*const SimpleTextOutputProtocol, usize) usize,
@@ -20,12 +20,12 @@ pub const SimpleTextOutputProtocol = extern struct {
     }
 
     /// Writes a string to the output device.
-    pub fn outputString(self: *const SimpleTextOutputProtocol, msg: [*]const u16) usize {
+    pub fn outputString(self: *const SimpleTextOutputProtocol, msg: [*:0]const u16) usize {
         return self._output_string(self, msg);
     }
 
     /// Verifies that all characters in a string can be output to the target device.
-    pub fn testString(self: *const SimpleTextOutputProtocol, msg: [*]const u16) usize {
+    pub fn testString(self: *const SimpleTextOutputProtocol, msg: [*:0]const u16) usize {
         return self._test_string(self, msg);
     }
 

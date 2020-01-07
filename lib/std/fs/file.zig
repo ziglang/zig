@@ -60,7 +60,7 @@ pub const File = struct {
     }
 
     /// Deprecated; call `std.fs.Dir.openFileW` directly.
-    pub fn openReadW(path_w: [*]const u16) OpenError!File {
+    pub fn openReadW(path_w: [*:0]const u16) OpenError!File {
         return std.fs.cwd().openFileW(path_w, .{});
     }
 
