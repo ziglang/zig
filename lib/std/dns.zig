@@ -72,7 +72,7 @@ pub const DNSType = enum(u16) {
             }
         }
 
-        return error.InvalidType;
+        return error.InvalidDnsType;
     }
 };
 
