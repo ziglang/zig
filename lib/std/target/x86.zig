@@ -4,7 +4,7 @@ const Cpu = @import("std").target.Cpu;
 pub const feature_dnow3 = Feature{
     .name = "3dnow",
     .description = "Enable 3DNow! instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
     },
 };
@@ -12,7 +12,7 @@ pub const feature_dnow3 = Feature{
 pub const feature_dnowa3 = Feature{
     .name = "3dnowa",
     .description = "Enable 3DNow! Athlon instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
     },
 };
@@ -20,21 +20,21 @@ pub const feature_dnowa3 = Feature{
 pub const feature_bit64 = Feature{
     .name = "64bit",
     .description = "Support 64-bit instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_adx = Feature{
     .name = "adx",
     .description = "Support ADX instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_aes = Feature{
     .name = "aes",
     .description = "Enable AES instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -42,7 +42,7 @@ pub const feature_aes = Feature{
 pub const feature_avx = Feature{
     .name = "avx",
     .description = "Enable AVX instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -50,7 +50,7 @@ pub const feature_avx = Feature{
 pub const feature_avx2 = Feature{
     .name = "avx2",
     .description = "Enable AVX2 instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -58,7 +58,7 @@ pub const feature_avx2 = Feature{
 pub const feature_avx512f = Feature{
     .name = "avx512f",
     .description = "Enable AVX-512 instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -66,7 +66,7 @@ pub const feature_avx512f = Feature{
 pub const feature_avx512bf16 = Feature{
     .name = "avx512bf16",
     .description = "Support bfloat16 floating point",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -74,7 +74,7 @@ pub const feature_avx512bf16 = Feature{
 pub const feature_avx512bitalg = Feature{
     .name = "avx512bitalg",
     .description = "Enable AVX-512 Bit Algorithms",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -82,21 +82,21 @@ pub const feature_avx512bitalg = Feature{
 pub const feature_bmi = Feature{
     .name = "bmi",
     .description = "Support BMI instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_bmi2 = Feature{
     .name = "bmi2",
     .description = "Support BMI2 instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_avx512bw = Feature{
     .name = "avx512bw",
     .description = "Enable AVX-512 Byte and Word Instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -104,14 +104,14 @@ pub const feature_avx512bw = Feature{
 pub const feature_branchfusion = Feature{
     .name = "branchfusion",
     .description = "CMP/TEST can be fused with conditional branches",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_avx512cd = Feature{
     .name = "avx512cd",
     .description = "Enable AVX-512 Conflict Detection Instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -119,49 +119,49 @@ pub const feature_avx512cd = Feature{
 pub const feature_cldemote = Feature{
     .name = "cldemote",
     .description = "Enable Cache Demote",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_clflushopt = Feature{
     .name = "clflushopt",
     .description = "Flush A Cache Line Optimized",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_clwb = Feature{
     .name = "clwb",
     .description = "Cache Line Write Back",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_clzero = Feature{
     .name = "clzero",
     .description = "Enable Cache Line Zero",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_cmov = Feature{
     .name = "cmov",
     .description = "Enable conditional move instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_cx8 = Feature{
     .name = "cx8",
     .description = "Support CMPXCHG8B instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_cx16 = Feature{
     .name = "cx16",
     .description = "64-bit with cmpxchg16b",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_cx8,
     },
 };
@@ -169,7 +169,7 @@ pub const feature_cx16 = Feature{
 pub const feature_avx512dq = Feature{
     .name = "avx512dq",
     .description = "Enable AVX-512 Doubleword and Quadword Instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -177,21 +177,21 @@ pub const feature_avx512dq = Feature{
 pub const feature_mpx = Feature{
     .name = "mpx",
     .description = "Deprecated. Support MPX instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_enqcmd = Feature{
     .name = "enqcmd",
     .description = "Has ENQCMD instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_avx512er = Feature{
     .name = "avx512er",
     .description = "Enable AVX-512 Exponential and Reciprocal Instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -199,14 +199,14 @@ pub const feature_avx512er = Feature{
 pub const feature_ermsb = Feature{
     .name = "ermsb",
     .description = "REP MOVS/STOS are fast",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_f16c = Feature{
     .name = "f16c",
     .description = "Support 16-bit floating point conversion instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -214,7 +214,7 @@ pub const feature_f16c = Feature{
 pub const feature_fma = Feature{
     .name = "fma",
     .description = "Enable three-operand fused multiple-add",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -222,7 +222,7 @@ pub const feature_fma = Feature{
 pub const feature_fma4 = Feature{
     .name = "fma4",
     .description = "Enable four-operand fused multiple-add",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -230,42 +230,42 @@ pub const feature_fma4 = Feature{
 pub const feature_fsgsbase = Feature{
     .name = "fsgsbase",
     .description = "Support FS/GS Base instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_fxsr = Feature{
     .name = "fxsr",
     .description = "Support fxsave/fxrestore instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_fast11bytenop = Feature{
     .name = "fast-11bytenop",
     .description = "Target can quickly decode up to 11 byte NOPs",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_fast15bytenop = Feature{
     .name = "fast-15bytenop",
     .description = "Target can quickly decode up to 15 byte NOPs",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_fastBextr = Feature{
     .name = "fast-bextr",
     .description = "Indicates that the BEXTR instruction is implemented as a single uop with good throughput",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_fastHops = Feature{
     .name = "fast-hops",
     .description = "Prefer horizontal vector math instructions (haddp, phsub, etc.) over normal vector instructions with shuffles",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -273,63 +273,63 @@ pub const feature_fastHops = Feature{
 pub const feature_fastLzcnt = Feature{
     .name = "fast-lzcnt",
     .description = "LZCNT instructions are as fast as most simple integer ops",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_fastPartialYmmOrZmmWrite = Feature{
     .name = "fast-partial-ymm-or-zmm-write",
     .description = "Partial writes to YMM/ZMM registers are fast",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_fastShldRotate = Feature{
     .name = "fast-shld-rotate",
     .description = "SHLD can be used as a faster rotate",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_fastScalarFsqrt = Feature{
     .name = "fast-scalar-fsqrt",
     .description = "Scalar SQRT is fast (disable Newton-Raphson)",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_fastScalarShiftMasks = Feature{
     .name = "fast-scalar-shift-masks",
     .description = "Prefer a left/right scalar logical shift pair over a shift+and pair",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_fastVariableShuffle = Feature{
     .name = "fast-variable-shuffle",
     .description = "Shuffles with variable masks are fast",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_fastVectorFsqrt = Feature{
     .name = "fast-vector-fsqrt",
     .description = "Vector SQRT is fast (disable Newton-Raphson)",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_fastVectorShiftMasks = Feature{
     .name = "fast-vector-shift-masks",
     .description = "Prefer a left/right vector logical shift pair over a shift+and pair",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_gfni = Feature{
     .name = "gfni",
     .description = "Enable Galois Field Arithmetic Instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -337,14 +337,14 @@ pub const feature_gfni = Feature{
 pub const feature_fastGather = Feature{
     .name = "fast-gather",
     .description = "Indicates if gather is reasonably fast",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_avx512ifma = Feature{
     .name = "avx512ifma",
     .description = "Enable AVX-512 Integer Fused Multiple-Add",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -352,112 +352,112 @@ pub const feature_avx512ifma = Feature{
 pub const feature_invpcid = Feature{
     .name = "invpcid",
     .description = "Invalidate Process-Context Identifier",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_sahf = Feature{
     .name = "sahf",
     .description = "Support LAHF and SAHF instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_leaSp = Feature{
     .name = "lea-sp",
     .description = "Use LEA for adjusting the stack pointer",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_leaUsesAg = Feature{
     .name = "lea-uses-ag",
     .description = "LEA instruction needs inputs at AG stage",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_lwp = Feature{
     .name = "lwp",
     .description = "Enable LWP instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_lzcnt = Feature{
     .name = "lzcnt",
     .description = "Support LZCNT instruction",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_falseDepsLzcntTzcnt = Feature{
     .name = "false-deps-lzcnt-tzcnt",
     .description = "LZCNT/TZCNT have a false dependency on dest register",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_mmx = Feature{
     .name = "mmx",
     .description = "Enable MMX instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_movbe = Feature{
     .name = "movbe",
     .description = "Support MOVBE instruction",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_movdir64b = Feature{
     .name = "movdir64b",
     .description = "Support movdir64b instruction",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_movdiri = Feature{
     .name = "movdiri",
     .description = "Support movdiri instruction",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_mwaitx = Feature{
     .name = "mwaitx",
     .description = "Enable MONITORX/MWAITX timer functionality",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_macrofusion = Feature{
     .name = "macrofusion",
     .description = "Various instructions can be fused with conditional branches",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_mergeToThreewayBranch = Feature{
     .name = "merge-to-threeway-branch",
     .description = "Merge branches to a three-way conditional branch",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_nopl = Feature{
     .name = "nopl",
     .description = "Enable NOPL instruction",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_pclmul = Feature{
     .name = "pclmul",
     .description = "Enable packed carry-less multiplication instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -465,14 +465,14 @@ pub const feature_pclmul = Feature{
 pub const feature_pconfig = Feature{
     .name = "pconfig",
     .description = "platform configuration instruction",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_avx512pf = Feature{
     .name = "avx512pf",
     .description = "Enable AVX-512 PreFetch Instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -480,107 +480,107 @@ pub const feature_avx512pf = Feature{
 pub const feature_pku = Feature{
     .name = "pku",
     .description = "Enable protection keys",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_popcnt = Feature{
     .name = "popcnt",
     .description = "Support POPCNT instruction",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_falseDepsPopcnt = Feature{
     .name = "false-deps-popcnt",
     .description = "POPCNT has a false dependency on dest register",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_prefetchwt1 = Feature{
     .name = "prefetchwt1",
     .description = "Prefetch with Intent to Write and T1 Hint",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_prfchw = Feature{
     .name = "prfchw",
     .description = "Support PRFCHW instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_ptwrite = Feature{
     .name = "ptwrite",
     .description = "Support ptwrite instruction",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_padShortFunctions = Feature{
     .name = "pad-short-functions",
     .description = "Pad short functions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_prefer128Bit = Feature{
     .name = "prefer-128-bit",
     .description = "Prefer 128-bit AVX instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_prefer256Bit = Feature{
     .name = "prefer-256-bit",
     .description = "Prefer 256-bit AVX instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_rdpid = Feature{
     .name = "rdpid",
     .description = "Support RDPID instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_rdrnd = Feature{
     .name = "rdrnd",
     .description = "Support RDRAND instruction",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_rdseed = Feature{
     .name = "rdseed",
     .description = "Support RDSEED instruction",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_rtm = Feature{
     .name = "rtm",
     .description = "Support RTM instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_retpoline = Feature{
     .name = "retpoline",
     .description = "Remove speculation of indirect branches from the generated code, either by avoiding them entirely or lowering them with a speculation blocking construct",
-    .subfeatures = &[_]*const Feature {
-        &feature_retpolineIndirectBranches,
+    .dependencies = &[_]*const Feature {
         &feature_retpolineIndirectCalls,
+        &feature_retpolineIndirectBranches,
     },
 };
 
 pub const feature_retpolineExternalThunk = Feature{
     .name = "retpoline-external-thunk",
     .description = "When lowering an indirect call or branch using a `retpoline`, rely on the specified user provided thunk rather than emitting one ourselves. Only has effect when combined with some other retpoline feature",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_retpolineIndirectCalls,
     },
 };
@@ -588,28 +588,28 @@ pub const feature_retpolineExternalThunk = Feature{
 pub const feature_retpolineIndirectBranches = Feature{
     .name = "retpoline-indirect-branches",
     .description = "Remove speculation of indirect branches from the generated code",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_retpolineIndirectCalls = Feature{
     .name = "retpoline-indirect-calls",
     .description = "Remove speculation of indirect calls from the generated code",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_sgx = Feature{
     .name = "sgx",
     .description = "Enable Software Guard Extensions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_sha = Feature{
     .name = "sha",
     .description = "Enable SHA instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -617,21 +617,21 @@ pub const feature_sha = Feature{
 pub const feature_shstk = Feature{
     .name = "shstk",
     .description = "Support CET Shadow-Stack instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_sse = Feature{
     .name = "sse",
     .description = "Enable SSE instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_sse2 = Feature{
     .name = "sse2",
     .description = "Enable SSE2 instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -639,7 +639,7 @@ pub const feature_sse2 = Feature{
 pub const feature_sse3 = Feature{
     .name = "sse3",
     .description = "Enable SSE3 instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -647,7 +647,7 @@ pub const feature_sse3 = Feature{
 pub const feature_sse4a = Feature{
     .name = "sse4a",
     .description = "Support SSE 4a instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -655,7 +655,7 @@ pub const feature_sse4a = Feature{
 pub const feature_sse41 = Feature{
     .name = "sse4.1",
     .description = "Enable SSE 4.1 instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -663,7 +663,7 @@ pub const feature_sse41 = Feature{
 pub const feature_sse42 = Feature{
     .name = "sse4.2",
     .description = "Enable SSE 4.2 instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -671,14 +671,14 @@ pub const feature_sse42 = Feature{
 pub const feature_sseUnalignedMem = Feature{
     .name = "sse-unaligned-mem",
     .description = "Allow unaligned memory operands with SSE instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_ssse3 = Feature{
     .name = "ssse3",
     .description = "Enable SSSE3 instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -686,105 +686,105 @@ pub const feature_ssse3 = Feature{
 pub const feature_slow3opsLea = Feature{
     .name = "slow-3ops-lea",
     .description = "LEA instruction with 3 ops or certain registers is slow",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_idivlToDivb = Feature{
     .name = "idivl-to-divb",
     .description = "Use 8-bit divide for positive values less than 256",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_idivqToDivl = Feature{
     .name = "idivq-to-divl",
     .description = "Use 32-bit divide for positive values less than 2^32",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_slowIncdec = Feature{
     .name = "slow-incdec",
     .description = "INC and DEC instructions are slower than ADD and SUB",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_slowLea = Feature{
     .name = "slow-lea",
     .description = "LEA instruction with certain arguments is slow",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_slowPmaddwd = Feature{
     .name = "slow-pmaddwd",
     .description = "PMADDWD is slower than PMULLD",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_slowPmulld = Feature{
     .name = "slow-pmulld",
     .description = "PMULLD instruction is slow",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_slowShld = Feature{
     .name = "slow-shld",
     .description = "SHLD instruction is slow",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_slowTwoMemOps = Feature{
     .name = "slow-two-mem-ops",
     .description = "Two memory operand instructions are slow",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_slowUnalignedMem16 = Feature{
     .name = "slow-unaligned-mem-16",
     .description = "Slow unaligned 16-byte memory access",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_slowUnalignedMem32 = Feature{
     .name = "slow-unaligned-mem-32",
     .description = "Slow unaligned 32-byte memory access",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_softFloat = Feature{
     .name = "soft-float",
     .description = "Use software floating point features",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_tbm = Feature{
     .name = "tbm",
     .description = "Enable TBM instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_useAa = Feature{
     .name = "use-aa",
     .description = "Use alias analysis during codegen",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_vaes = Feature{
     .name = "vaes",
     .description = "Promote selected AES instructions to AVX512/AVX registers",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -792,7 +792,7 @@ pub const feature_vaes = Feature{
 pub const feature_avx512vbmi = Feature{
     .name = "avx512vbmi",
     .description = "Enable AVX-512 Vector Byte Manipulation Instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -800,7 +800,7 @@ pub const feature_avx512vbmi = Feature{
 pub const feature_avx512vbmi2 = Feature{
     .name = "avx512vbmi2",
     .description = "Enable AVX-512 further Vector Byte Manipulation Instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -808,7 +808,7 @@ pub const feature_avx512vbmi2 = Feature{
 pub const feature_avx512vl = Feature{
     .name = "avx512vl",
     .description = "Enable AVX-512 Vector Length eXtensions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -816,7 +816,7 @@ pub const feature_avx512vl = Feature{
 pub const feature_avx512vnni = Feature{
     .name = "avx512vnni",
     .description = "Enable AVX-512 Vector Neural Network Instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -824,7 +824,7 @@ pub const feature_avx512vnni = Feature{
 pub const feature_avx512vp2intersect = Feature{
     .name = "avx512vp2intersect",
     .description = "Enable AVX-512 vp2intersect",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -832,7 +832,7 @@ pub const feature_avx512vp2intersect = Feature{
 pub const feature_vpclmulqdq = Feature{
     .name = "vpclmulqdq",
     .description = "Enable vpclmulqdq instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -840,7 +840,7 @@ pub const feature_vpclmulqdq = Feature{
 pub const feature_avx512vpopcntdq = Feature{
     .name = "avx512vpopcntdq",
     .description = "Enable AVX-512 Population Count Instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -848,28 +848,28 @@ pub const feature_avx512vpopcntdq = Feature{
 pub const feature_waitpkg = Feature{
     .name = "waitpkg",
     .description = "Wait and pause enhancements",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_wbnoinvd = Feature{
     .name = "wbnoinvd",
     .description = "Write Back No Invalidate",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_x87 = Feature{
     .name = "x87",
     .description = "Enable X87 float instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_xop = Feature{
     .name = "xop",
     .description = "Enable XOP instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_sse,
     },
 };
@@ -877,49 +877,49 @@ pub const feature_xop = Feature{
 pub const feature_xsave = Feature{
     .name = "xsave",
     .description = "Support xsave instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_xsavec = Feature{
     .name = "xsavec",
     .description = "Support xsavec instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_xsaveopt = Feature{
     .name = "xsaveopt",
     .description = "Support xsaveopt instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_xsaves = Feature{
     .name = "xsaves",
     .description = "Support xsaves instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_bitMode16 = Feature{
     .name = "16bit-mode",
     .description = "16-bit mode (i8086)",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_bitMode32 = Feature{
     .name = "32bit-mode",
     .description = "32-bit mode (80386)",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_bitMode64 = Feature{
     .name = "64bit-mode",
     .description = "64-bit mode (x86_64)",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
@@ -1055,7 +1055,7 @@ pub const features = &[_]*const Feature {
 pub const cpu_amdfam10 = Cpu{
     .name = "amdfam10",
     .llvm_name = "amdfam10",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnowa3,
         &feature_bit64,
@@ -1078,7 +1078,7 @@ pub const cpu_amdfam10 = Cpu{
 pub const cpu_athlon = Cpu{
     .name = "athlon",
     .llvm_name = "athlon",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnowa3,
         &feature_cmov,
@@ -1093,7 +1093,7 @@ pub const cpu_athlon = Cpu{
 pub const cpu_athlon4 = Cpu{
     .name = "athlon-4",
     .llvm_name = "athlon-4",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnowa3,
         &feature_cmov,
@@ -1110,7 +1110,7 @@ pub const cpu_athlon4 = Cpu{
 pub const cpu_athlonFx = Cpu{
     .name = "athlon-fx",
     .llvm_name = "athlon-fx",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnowa3,
         &feature_bit64,
@@ -1130,7 +1130,7 @@ pub const cpu_athlonFx = Cpu{
 pub const cpu_athlonMp = Cpu{
     .name = "athlon-mp",
     .llvm_name = "athlon-mp",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnowa3,
         &feature_cmov,
@@ -1147,7 +1147,7 @@ pub const cpu_athlonMp = Cpu{
 pub const cpu_athlonTbird = Cpu{
     .name = "athlon-tbird",
     .llvm_name = "athlon-tbird",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnowa3,
         &feature_cmov,
@@ -1162,7 +1162,7 @@ pub const cpu_athlonTbird = Cpu{
 pub const cpu_athlonXp = Cpu{
     .name = "athlon-xp",
     .llvm_name = "athlon-xp",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnowa3,
         &feature_cmov,
@@ -1179,7 +1179,7 @@ pub const cpu_athlonXp = Cpu{
 pub const cpu_athlon64 = Cpu{
     .name = "athlon64",
     .llvm_name = "athlon64",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnowa3,
         &feature_bit64,
@@ -1199,7 +1199,7 @@ pub const cpu_athlon64 = Cpu{
 pub const cpu_athlon64Sse3 = Cpu{
     .name = "athlon64-sse3",
     .llvm_name = "athlon64-sse3",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnowa3,
         &feature_bit64,
@@ -1220,7 +1220,7 @@ pub const cpu_athlon64Sse3 = Cpu{
 pub const cpu_atom = Cpu{
     .name = "atom",
     .llvm_name = "atom",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_cmov,
         &feature_cx8,
@@ -1246,7 +1246,7 @@ pub const cpu_atom = Cpu{
 pub const cpu_barcelona = Cpu{
     .name = "barcelona",
     .llvm_name = "barcelona",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnowa3,
         &feature_bit64,
@@ -1269,7 +1269,7 @@ pub const cpu_barcelona = Cpu{
 pub const cpu_bdver1 = Cpu{
     .name = "bdver1",
     .llvm_name = "bdver1",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_sse,
         &feature_aes,
@@ -1298,7 +1298,7 @@ pub const cpu_bdver1 = Cpu{
 pub const cpu_bdver2 = Cpu{
     .name = "bdver2",
     .llvm_name = "bdver2",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_sse,
         &feature_aes,
@@ -1332,7 +1332,7 @@ pub const cpu_bdver2 = Cpu{
 pub const cpu_bdver3 = Cpu{
     .name = "bdver3",
     .llvm_name = "bdver3",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_sse,
         &feature_aes,
@@ -1368,7 +1368,7 @@ pub const cpu_bdver3 = Cpu{
 pub const cpu_bdver4 = Cpu{
     .name = "bdver4",
     .llvm_name = "bdver4",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_sse,
         &feature_aes,
@@ -1407,7 +1407,7 @@ pub const cpu_bdver4 = Cpu{
 pub const cpu_bonnell = Cpu{
     .name = "bonnell",
     .llvm_name = "bonnell",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_cmov,
         &feature_cx8,
@@ -1433,7 +1433,7 @@ pub const cpu_bonnell = Cpu{
 pub const cpu_broadwell = Cpu{
     .name = "broadwell",
     .llvm_name = "broadwell",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_adx,
         &feature_sse,
@@ -1479,7 +1479,7 @@ pub const cpu_broadwell = Cpu{
 pub const cpu_btver1 = Cpu{
     .name = "btver1",
     .llvm_name = "btver1",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_cmov,
         &feature_cx8,
@@ -1505,7 +1505,7 @@ pub const cpu_btver1 = Cpu{
 pub const cpu_btver2 = Cpu{
     .name = "btver2",
     .llvm_name = "btver2",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_sse,
         &feature_aes,
@@ -1543,7 +1543,7 @@ pub const cpu_btver2 = Cpu{
 pub const cpu_c3 = Cpu{
     .name = "c3",
     .llvm_name = "c3",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnow3,
         &feature_slowUnalignedMem16,
@@ -1554,7 +1554,7 @@ pub const cpu_c3 = Cpu{
 pub const cpu_c32 = Cpu{
     .name = "c3-2",
     .llvm_name = "c3-2",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_cmov,
         &feature_cx8,
         &feature_fxsr,
@@ -1568,7 +1568,7 @@ pub const cpu_c32 = Cpu{
 pub const cpu_cannonlake = Cpu{
     .name = "cannonlake",
     .llvm_name = "cannonlake",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_adx,
         &feature_sse,
@@ -1629,7 +1629,7 @@ pub const cpu_cannonlake = Cpu{
 pub const cpu_cascadelake = Cpu{
     .name = "cascadelake",
     .llvm_name = "cascadelake",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_adx,
         &feature_sse,
@@ -1689,7 +1689,7 @@ pub const cpu_cascadelake = Cpu{
 pub const cpu_cooperlake = Cpu{
     .name = "cooperlake",
     .llvm_name = "cooperlake",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_adx,
         &feature_sse,
@@ -1750,7 +1750,7 @@ pub const cpu_cooperlake = Cpu{
 pub const cpu_coreAvxI = Cpu{
     .name = "core-avx-i",
     .llvm_name = "core-avx-i",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_sse,
         &feature_avx,
@@ -1784,7 +1784,7 @@ pub const cpu_coreAvxI = Cpu{
 pub const cpu_coreAvx2 = Cpu{
     .name = "core-avx2",
     .llvm_name = "core-avx2",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_sse,
         &feature_avx,
@@ -1827,7 +1827,7 @@ pub const cpu_coreAvx2 = Cpu{
 pub const cpu_core2 = Cpu{
     .name = "core2",
     .llvm_name = "core2",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_cmov,
         &feature_cx8,
@@ -1847,7 +1847,7 @@ pub const cpu_core2 = Cpu{
 pub const cpu_corei7 = Cpu{
     .name = "corei7",
     .llvm_name = "corei7",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_cmov,
         &feature_cx8,
@@ -1867,7 +1867,7 @@ pub const cpu_corei7 = Cpu{
 pub const cpu_corei7Avx = Cpu{
     .name = "corei7-avx",
     .llvm_name = "corei7-avx",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_sse,
         &feature_avx,
@@ -1898,7 +1898,7 @@ pub const cpu_corei7Avx = Cpu{
 pub const cpu_generic = Cpu{
     .name = "generic",
     .llvm_name = "generic",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_cx8,
         &feature_slowUnalignedMem16,
         &feature_x87,
@@ -1908,7 +1908,7 @@ pub const cpu_generic = Cpu{
 pub const cpu_geode = Cpu{
     .name = "geode",
     .llvm_name = "geode",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnowa3,
         &feature_cx8,
@@ -1920,7 +1920,7 @@ pub const cpu_geode = Cpu{
 pub const cpu_goldmont = Cpu{
     .name = "goldmont",
     .llvm_name = "goldmont",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_sse,
         &feature_aes,
@@ -1957,7 +1957,7 @@ pub const cpu_goldmont = Cpu{
 pub const cpu_goldmontPlus = Cpu{
     .name = "goldmont-plus",
     .llvm_name = "goldmont-plus",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_sse,
         &feature_aes,
@@ -1996,7 +1996,7 @@ pub const cpu_goldmontPlus = Cpu{
 pub const cpu_haswell = Cpu{
     .name = "haswell",
     .llvm_name = "haswell",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_sse,
         &feature_avx,
@@ -2039,7 +2039,7 @@ pub const cpu_haswell = Cpu{
 pub const cpu_i386 = Cpu{
     .name = "i386",
     .llvm_name = "i386",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_slowUnalignedMem16,
         &feature_x87,
     },
@@ -2048,7 +2048,7 @@ pub const cpu_i386 = Cpu{
 pub const cpu_i486 = Cpu{
     .name = "i486",
     .llvm_name = "i486",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_slowUnalignedMem16,
         &feature_x87,
     },
@@ -2057,7 +2057,7 @@ pub const cpu_i486 = Cpu{
 pub const cpu_i586 = Cpu{
     .name = "i586",
     .llvm_name = "i586",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_cx8,
         &feature_slowUnalignedMem16,
         &feature_x87,
@@ -2067,7 +2067,7 @@ pub const cpu_i586 = Cpu{
 pub const cpu_i686 = Cpu{
     .name = "i686",
     .llvm_name = "i686",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_cmov,
         &feature_cx8,
         &feature_slowUnalignedMem16,
@@ -2078,7 +2078,7 @@ pub const cpu_i686 = Cpu{
 pub const cpu_icelakeClient = Cpu{
     .name = "icelake-client",
     .llvm_name = "icelake-client",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_adx,
         &feature_sse,
@@ -2148,7 +2148,7 @@ pub const cpu_icelakeClient = Cpu{
 pub const cpu_icelakeServer = Cpu{
     .name = "icelake-server",
     .llvm_name = "icelake-server",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_adx,
         &feature_sse,
@@ -2220,7 +2220,7 @@ pub const cpu_icelakeServer = Cpu{
 pub const cpu_ivybridge = Cpu{
     .name = "ivybridge",
     .llvm_name = "ivybridge",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_sse,
         &feature_avx,
@@ -2254,7 +2254,7 @@ pub const cpu_ivybridge = Cpu{
 pub const cpu_k6 = Cpu{
     .name = "k6",
     .llvm_name = "k6",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_cx8,
         &feature_mmx,
         &feature_slowUnalignedMem16,
@@ -2265,7 +2265,7 @@ pub const cpu_k6 = Cpu{
 pub const cpu_k62 = Cpu{
     .name = "k6-2",
     .llvm_name = "k6-2",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnow3,
         &feature_cx8,
@@ -2277,7 +2277,7 @@ pub const cpu_k62 = Cpu{
 pub const cpu_k63 = Cpu{
     .name = "k6-3",
     .llvm_name = "k6-3",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnow3,
         &feature_cx8,
@@ -2289,7 +2289,7 @@ pub const cpu_k63 = Cpu{
 pub const cpu_k8 = Cpu{
     .name = "k8",
     .llvm_name = "k8",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnowa3,
         &feature_bit64,
@@ -2309,7 +2309,7 @@ pub const cpu_k8 = Cpu{
 pub const cpu_k8Sse3 = Cpu{
     .name = "k8-sse3",
     .llvm_name = "k8-sse3",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnowa3,
         &feature_bit64,
@@ -2330,7 +2330,7 @@ pub const cpu_k8Sse3 = Cpu{
 pub const cpu_knl = Cpu{
     .name = "knl",
     .llvm_name = "knl",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_adx,
         &feature_sse,
@@ -2375,7 +2375,7 @@ pub const cpu_knl = Cpu{
 pub const cpu_knm = Cpu{
     .name = "knm",
     .llvm_name = "knm",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_adx,
         &feature_sse,
@@ -2421,14 +2421,14 @@ pub const cpu_knm = Cpu{
 pub const cpu_lakemont = Cpu{
     .name = "lakemont",
     .llvm_name = "lakemont",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const cpu_nehalem = Cpu{
     .name = "nehalem",
     .llvm_name = "nehalem",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_cmov,
         &feature_cx8,
@@ -2448,7 +2448,7 @@ pub const cpu_nehalem = Cpu{
 pub const cpu_nocona = Cpu{
     .name = "nocona",
     .llvm_name = "nocona",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_cmov,
         &feature_cx8,
@@ -2466,7 +2466,7 @@ pub const cpu_nocona = Cpu{
 pub const cpu_opteron = Cpu{
     .name = "opteron",
     .llvm_name = "opteron",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnowa3,
         &feature_bit64,
@@ -2486,7 +2486,7 @@ pub const cpu_opteron = Cpu{
 pub const cpu_opteronSse3 = Cpu{
     .name = "opteron-sse3",
     .llvm_name = "opteron-sse3",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnowa3,
         &feature_bit64,
@@ -2507,7 +2507,7 @@ pub const cpu_opteronSse3 = Cpu{
 pub const cpu_penryn = Cpu{
     .name = "penryn",
     .llvm_name = "penryn",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_cmov,
         &feature_cx8,
@@ -2527,7 +2527,7 @@ pub const cpu_penryn = Cpu{
 pub const cpu_pentium = Cpu{
     .name = "pentium",
     .llvm_name = "pentium",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_cx8,
         &feature_slowUnalignedMem16,
         &feature_x87,
@@ -2537,7 +2537,7 @@ pub const cpu_pentium = Cpu{
 pub const cpu_pentiumM = Cpu{
     .name = "pentium-m",
     .llvm_name = "pentium-m",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_cmov,
         &feature_cx8,
         &feature_fxsr,
@@ -2553,7 +2553,7 @@ pub const cpu_pentiumM = Cpu{
 pub const cpu_pentiumMmx = Cpu{
     .name = "pentium-mmx",
     .llvm_name = "pentium-mmx",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_cx8,
         &feature_mmx,
         &feature_slowUnalignedMem16,
@@ -2564,7 +2564,7 @@ pub const cpu_pentiumMmx = Cpu{
 pub const cpu_pentium2 = Cpu{
     .name = "pentium2",
     .llvm_name = "pentium2",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_cmov,
         &feature_cx8,
         &feature_fxsr,
@@ -2578,7 +2578,7 @@ pub const cpu_pentium2 = Cpu{
 pub const cpu_pentium3 = Cpu{
     .name = "pentium3",
     .llvm_name = "pentium3",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_cmov,
         &feature_cx8,
         &feature_fxsr,
@@ -2593,7 +2593,7 @@ pub const cpu_pentium3 = Cpu{
 pub const cpu_pentium3m = Cpu{
     .name = "pentium3m",
     .llvm_name = "pentium3m",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_cmov,
         &feature_cx8,
         &feature_fxsr,
@@ -2608,7 +2608,7 @@ pub const cpu_pentium3m = Cpu{
 pub const cpu_pentium4 = Cpu{
     .name = "pentium4",
     .llvm_name = "pentium4",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_cmov,
         &feature_cx8,
         &feature_fxsr,
@@ -2624,7 +2624,7 @@ pub const cpu_pentium4 = Cpu{
 pub const cpu_pentium4m = Cpu{
     .name = "pentium4m",
     .llvm_name = "pentium4m",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_cmov,
         &feature_cx8,
         &feature_fxsr,
@@ -2640,7 +2640,7 @@ pub const cpu_pentium4m = Cpu{
 pub const cpu_pentiumpro = Cpu{
     .name = "pentiumpro",
     .llvm_name = "pentiumpro",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_cmov,
         &feature_cx8,
         &feature_nopl,
@@ -2652,7 +2652,7 @@ pub const cpu_pentiumpro = Cpu{
 pub const cpu_prescott = Cpu{
     .name = "prescott",
     .llvm_name = "prescott",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_cmov,
         &feature_cx8,
         &feature_fxsr,
@@ -2668,7 +2668,7 @@ pub const cpu_prescott = Cpu{
 pub const cpu_sandybridge = Cpu{
     .name = "sandybridge",
     .llvm_name = "sandybridge",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_sse,
         &feature_avx,
@@ -2699,7 +2699,7 @@ pub const cpu_sandybridge = Cpu{
 pub const cpu_silvermont = Cpu{
     .name = "silvermont",
     .llvm_name = "silvermont",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_cmov,
         &feature_cx8,
@@ -2729,7 +2729,7 @@ pub const cpu_silvermont = Cpu{
 pub const cpu_skx = Cpu{
     .name = "skx",
     .llvm_name = "skx",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_adx,
         &feature_sse,
@@ -2788,7 +2788,7 @@ pub const cpu_skx = Cpu{
 pub const cpu_skylake = Cpu{
     .name = "skylake",
     .llvm_name = "skylake",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_adx,
         &feature_sse,
@@ -2840,7 +2840,7 @@ pub const cpu_skylake = Cpu{
 pub const cpu_skylakeAvx512 = Cpu{
     .name = "skylake-avx512",
     .llvm_name = "skylake-avx512",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_adx,
         &feature_sse,
@@ -2899,7 +2899,7 @@ pub const cpu_skylakeAvx512 = Cpu{
 pub const cpu_slm = Cpu{
     .name = "slm",
     .llvm_name = "slm",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_cmov,
         &feature_cx8,
@@ -2929,7 +2929,7 @@ pub const cpu_slm = Cpu{
 pub const cpu_tigerlake = Cpu{
     .name = "tigerlake",
     .llvm_name = "tigerlake",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_adx,
         &feature_sse,
@@ -3003,7 +3003,7 @@ pub const cpu_tigerlake = Cpu{
 pub const cpu_tremont = Cpu{
     .name = "tremont",
     .llvm_name = "tremont",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_sse,
         &feature_aes,
@@ -3047,7 +3047,7 @@ pub const cpu_tremont = Cpu{
 pub const cpu_westmere = Cpu{
     .name = "westmere",
     .llvm_name = "westmere",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_cmov,
         &feature_cx8,
@@ -3068,7 +3068,7 @@ pub const cpu_westmere = Cpu{
 pub const cpu_winchipC6 = Cpu{
     .name = "winchip-c6",
     .llvm_name = "winchip-c6",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_slowUnalignedMem16,
         &feature_x87,
@@ -3078,7 +3078,7 @@ pub const cpu_winchipC6 = Cpu{
 pub const cpu_winchip2 = Cpu{
     .name = "winchip2",
     .llvm_name = "winchip2",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_mmx,
         &feature_dnow3,
         &feature_slowUnalignedMem16,
@@ -3089,7 +3089,7 @@ pub const cpu_winchip2 = Cpu{
 pub const cpu_x8664 = Cpu{
     .name = "x86-64",
     .llvm_name = "x86-64",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_cmov,
         &feature_cx8,
@@ -3108,7 +3108,7 @@ pub const cpu_x8664 = Cpu{
 pub const cpu_yonah = Cpu{
     .name = "yonah",
     .llvm_name = "yonah",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_cmov,
         &feature_cx8,
         &feature_fxsr,
@@ -3124,7 +3124,7 @@ pub const cpu_yonah = Cpu{
 pub const cpu_znver1 = Cpu{
     .name = "znver1",
     .llvm_name = "znver1",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_adx,
         &feature_sse,
@@ -3171,7 +3171,7 @@ pub const cpu_znver1 = Cpu{
 pub const cpu_znver2 = Cpu{
     .name = "znver2",
     .llvm_name = "znver2",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_bit64,
         &feature_adx,
         &feature_sse,

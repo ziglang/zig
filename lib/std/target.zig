@@ -824,14 +824,14 @@ pub const Feature = struct {
     name: []const u8,
     description: []const u8,
 
-    subfeatures: []*const Feature,
+    dependencies: []*const Feature,
 };
 
 pub const Cpu = struct {
     name: []const u8,
     llvm_name: []const u8,
 
-    subfeatures: []*const Feature,
+    dependencies: []*const Feature,
 };
 
 pub fn getFeaturesForArch(arch: @TagType(Target.Arch)) []*const Feature {

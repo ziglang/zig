@@ -4,35 +4,35 @@ const Cpu = @import("std").target.Cpu;
 pub const feature_duplex = Feature{
     .name = "duplex",
     .description = "Enable generation of duplex instruction",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_longCalls = Feature{
     .name = "long-calls",
     .description = "Use constant-extended calls",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_mem_noshuf = Feature{
     .name = "mem_noshuf",
     .description = "Supports mem_noshuf feature",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_memops = Feature{
     .name = "memops",
     .description = "Use memop instructions",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_nvj = Feature{
     .name = "nvj",
     .description = "Support for new-value jumps",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_packets,
     },
 };
@@ -40,7 +40,7 @@ pub const feature_nvj = Feature{
 pub const feature_nvs = Feature{
     .name = "nvs",
     .description = "Support for new-value stores",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_packets,
     },
 };
@@ -48,28 +48,28 @@ pub const feature_nvs = Feature{
 pub const feature_noreturnStackElim = Feature{
     .name = "noreturn-stack-elim",
     .description = "Eliminate stack allocation in a noreturn function when possible",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_packets = Feature{
     .name = "packets",
     .description = "Support for instruction packets",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_reservedR19 = Feature{
     .name = "reserved-r19",
     .description = "Reserve register R19",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
 pub const feature_smallData = Feature{
     .name = "small-data",
     .description = "Allow GP-relative addressing of global variables",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
     },
 };
 
@@ -89,7 +89,7 @@ pub const features = &[_]*const Feature {
 pub const cpu_generic = Cpu{
     .name = "generic",
     .llvm_name = "generic",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_duplex,
         &feature_memops,
         &feature_packets,
@@ -102,7 +102,7 @@ pub const cpu_generic = Cpu{
 pub const cpu_hexagonv5 = Cpu{
     .name = "hexagonv5",
     .llvm_name = "hexagonv5",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_duplex,
         &feature_memops,
         &feature_packets,
@@ -115,7 +115,7 @@ pub const cpu_hexagonv5 = Cpu{
 pub const cpu_hexagonv55 = Cpu{
     .name = "hexagonv55",
     .llvm_name = "hexagonv55",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_duplex,
         &feature_memops,
         &feature_packets,
@@ -128,7 +128,7 @@ pub const cpu_hexagonv55 = Cpu{
 pub const cpu_hexagonv60 = Cpu{
     .name = "hexagonv60",
     .llvm_name = "hexagonv60",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_duplex,
         &feature_memops,
         &feature_packets,
@@ -141,7 +141,7 @@ pub const cpu_hexagonv60 = Cpu{
 pub const cpu_hexagonv62 = Cpu{
     .name = "hexagonv62",
     .llvm_name = "hexagonv62",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_duplex,
         &feature_memops,
         &feature_packets,
@@ -154,7 +154,7 @@ pub const cpu_hexagonv62 = Cpu{
 pub const cpu_hexagonv65 = Cpu{
     .name = "hexagonv65",
     .llvm_name = "hexagonv65",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_duplex,
         &feature_mem_noshuf,
         &feature_memops,
@@ -168,7 +168,7 @@ pub const cpu_hexagonv65 = Cpu{
 pub const cpu_hexagonv66 = Cpu{
     .name = "hexagonv66",
     .llvm_name = "hexagonv66",
-    .subfeatures = &[_]*const Feature {
+    .dependencies = &[_]*const Feature {
         &feature_duplex,
         &feature_mem_noshuf,
         &feature_memops,

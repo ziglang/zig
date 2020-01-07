@@ -135,7 +135,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "Targets Options:\n"
         "  --list-features [arch]       list available features for the given architecture\n"
         "  --list-cpus [arch]           list available cpus for the given architecture\n"
-        "  --show-subfeatures           list subfeatures for each entry from --list-features or --list-cpus\n"
+        "  --show-dependencies          list feature dependencies for each entry from --list-{features,cpus}\n"
     , arg0);
     return return_code;
 }
@@ -540,7 +540,7 @@ int main(int argc, char **argv) {
 
     const char *targets_list_features_arch = nullptr;
     const char *targets_list_cpus_arch = nullptr;
-    bool targets_show_subfeatures = false;
+    bool targets_show_dependencies = false;
 
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
@@ -792,8 +792,8 @@ int main(int argc, char **argv) {
                 cur_pkg = cur_pkg->parent;
             } else if (strcmp(arg, "-ffunction-sections") == 0) {
                 function_sections = true;
-            } else if (strcmp(arg, "--show-subfeatures") == 0) {
-                targets_show_subfeatures = true;
+            } else if (strcmp(arg, "--show-dependencies") == 0) {
+                targets_show_dependencies = true;
             } else if (i + 1 >= argc) {
                 fprintf(stderr, "Expected another argument after %s\n", arg);
                 return print_error_usage(arg0);
@@ -1448,13 +1448,13 @@ int main(int argc, char **argv) {
             stage2_list_features_for_arch(
                 targets_list_features_arch,
                 strlen(targets_list_features_arch),
-                targets_show_subfeatures);
+                targets_show_dependencies);
             return 0;
         } else if (targets_list_cpus_arch != nullptr) {
             stage2_list_cpus_for_arch(
                 targets_list_cpus_arch,
                 strlen(targets_list_cpus_arch),
-                targets_show_subfeatures);
+                targets_show_dependencies);
             return 0;
         } else {
             return print_target_list(stdout);
