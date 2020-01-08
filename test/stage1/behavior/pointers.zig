@@ -290,17 +290,24 @@ test "pointer to array at fixed address" {
 }
 
 test "pointer arithmetic affects the alignment" {
-    var arr: [10]u8 align(2) = undefined;
-    var x: usize = 1;
+    {
+        var ptr: [*]align(8) u32 = undefined;
+        var x: usize = 1;
 
-    const ptr = @as([*]u8, &arr);
-    expect(@typeInfo(@TypeOf(ptr)).Pointer.alignment == 2);
-    const ptr1 = ptr + 1;
-    expect(@typeInfo(@TypeOf(ptr1)).Pointer.alignment == 1);
-    const ptr2 = ptr + 4;
-    expect(@typeInfo(@TypeOf(ptr2)).Pointer.alignment == 2);
-    const ptr3 = ptr + 0;
-    expect(@typeInfo(@TypeOf(ptr3)).Pointer.alignment == 2);
-    const ptr4 = ptr + x;
-    expect(@typeInfo(@TypeOf(ptr4)).Pointer.alignment == 1);
+        expect(@typeInfo(@TypeOf(ptr)).Pointer.alignment == 8);
+        const ptr1 = ptr + 1; // 1 * 4 = 4 -> lcd(4,8) = 4
+        expect(@typeInfo(@TypeOf(ptr1)).Pointer.alignment == 4);
+        const ptr2 = ptr + 4; // 4 * 4 = 16 -> lcd(16,8) = 8
+        expect(@typeInfo(@TypeOf(ptr2)).Pointer.alignment == 8);
+        const ptr3 = ptr + 0; // no-op
+        expect(@typeInfo(@TypeOf(ptr3)).Pointer.alignment == 8);
+        const ptr4 = ptr + x; // runtime-known addend
+        expect(@typeInfo(@TypeOf(ptr4)).Pointer.alignment == 1);
+    }
+    {
+        var ptr: [*]align(8) [3]u8 = undefined;
+
+        const ptr1 = ptr + 17; // 3 * 17 = 51
+        expect(@typeInfo(@TypeOf(ptr1)).Pointer.alignment == 1);
+    }
 }

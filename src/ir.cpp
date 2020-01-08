@@ -15801,8 +15801,15 @@ static IrInstruction *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp 
             if ((err = resolve_ptr_align(ira, op1->value->type, &align_bytes)))
                 return ira->codegen->invalid_instruction;
 
-            if (byte_offset != 0 && byte_offset % align_bytes != 0)
-                result_type = adjust_ptr_align(ira->codegen, result_type, 1);
+            if (byte_offset & (align_bytes - 1)) {
+                // The resulting pointer is aligned to the lcd between the
+                // offset (an arbitrary number) and the alignment factor (always
+                // a power of two, non zero)
+                uint32_t new_align = 1 << ctzll(byte_offset | align_bytes);
+                // Rough guard to prevent overflows
+                assert(new_align);
+                result_type = adjust_ptr_align(ira->codegen, result_type, new_align);
+            }
         } else {
             // The addend is not a comptime-known value
             result_type = adjust_ptr_align(ira->codegen, result_type, 1);
