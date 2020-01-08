@@ -363,7 +363,7 @@ fn prepopulateGlobalNameTable(ast_unit: *ZigClangASTUnit, c: *Context) !void {
     }
 }
 
-extern fn declVisitorNamesOnlyC(context: ?*c_void, decl: *const ZigClangDecl) bool {
+fn declVisitorNamesOnlyC(context: ?*c_void, decl: *const ZigClangDecl) callconv(.C) bool {
     const c = @ptrCast(*Context, @alignCast(@alignOf(Context), context));
     declVisitorNamesOnly(c, decl) catch |err| {
         c.err = err;
@@ -372,7 +372,7 @@ extern fn declVisitorNamesOnlyC(context: ?*c_void, decl: *const ZigClangDecl) bo
     return true;
 }
 
-extern fn declVisitorC(context: ?*c_void, decl: *const ZigClangDecl) bool {
+fn declVisitorC(context: ?*c_void, decl: *const ZigClangDecl) callconv(.C) bool {
     const c = @ptrCast(*Context, @alignCast(@alignOf(Context), context));
     declVisitor(c, decl) catch |err| {
         c.err = err;
@@ -2500,14 +2500,26 @@ fn transArrayAccess(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangArrayS
     const container_node = try transExpr(rp, scope, base_stmt, .used, .r_value);
     const node = try transCreateNodeArrayAccess(rp.c, container_node);
 
-    const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@intCast");
-    try cast_node.params.push(try transCreateNodeIdentifier(rp.c, "c_uint"));
-    _ = try appendToken(rp.c, .Comma, ",");
-    try cast_node.params.push(try transExpr(rp, scope, ZigClangArraySubscriptExpr_getIdx(stmt), .used, .r_value));
-    cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+    // cast if the index is long long or signed
+    const subscr_expr = ZigClangArraySubscriptExpr_getIdx(stmt);
+    const qt = getExprQualType(rp.c, subscr_expr);
+    const is_longlong = cIsLongLongInteger(qt);
+    const is_signed = cIsSignedInteger(qt);
 
-    node.rtoken = try appendToken(rp.c, .RBrace, "]");
-    node.op.ArrayAccess = &cast_node.base;
+    if (is_longlong or is_signed) {
+        const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@intCast");
+        // check if long long first so that signed long long doesn't just become unsigned long long
+        var typeid_node = if (is_longlong) try transCreateNodeIdentifier(rp.c, "c_uint") else try transQualTypeIntWidthOf(rp.c, qt, false);
+        try cast_node.params.push(typeid_node);
+        _ = try appendToken(rp.c, .Comma, ",");
+        try cast_node.params.push(try transExpr(rp, scope, subscr_expr, .used, .r_value));
+        cast_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+        node.rtoken = try appendToken(rp.c, .RBrace, "]");
+        node.op.ArrayAccess = &cast_node.base;
+    } else {
+        node.op.ArrayAccess = try transExpr(rp, scope, subscr_expr, .used, .r_value);
+        node.rtoken = try appendToken(rp.c, .RBrace, "]");
+    }
     return maybeSuppressResult(rp, scope, result_used, &node.base);
 }
 
@@ -3406,6 +3418,15 @@ fn cIsFloating(qt: ZigClangQualType) bool {
     };
 }
 
+fn cIsLongLongInteger(qt: ZigClangQualType) bool {
+    const c_type = qualTypeCanon(qt);
+    if (ZigClangType_getTypeClass(c_type) != .Builtin) return false;
+    const builtin_ty = @ptrCast(*const ZigClangBuiltinType, c_type);
+    return switch (ZigClangBuiltinType_getKind(builtin_ty)) {
+        .LongLong, .ULongLong, .Int128, .UInt128 => true,
+        else => false,
+    };
+}
 fn transCreateNodeAssign(
     rp: RestorePoint,
     scope: *Scope,

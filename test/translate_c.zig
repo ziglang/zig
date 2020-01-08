@@ -1862,6 +1862,32 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
+    cases.add("long long array index cast to unsigned",
+        \\void foo() {
+        \\  long long a[10], i = 0;
+        \\  a[i] = 0;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var a: [10]c_longlong = undefined;
+        \\    var i: c_longlong = @bitCast(c_longlong, @as(c_longlong, @as(c_int, 0)));
+        \\    a[@intCast(c_uint, i)] = @bitCast(c_longlong, @as(c_longlong, @as(c_int, 0)));
+        \\}
+    });
+
+    cases.add("unsigned array index skips cast",
+        \\void foo() {
+        \\  unsigned int a[10], i = 0;
+        \\  a[i] = 0;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var a: [10]c_uint = undefined;
+        \\    var i: c_uint = @bitCast(c_uint, @as(c_int, 0));
+        \\    a[i] = @bitCast(c_uint, @as(c_int, 0));
+        \\}
+    });
+
     cases.add("macro call",
         \\#define CALL(arg) bar(arg)
     , &[_][]const u8{
