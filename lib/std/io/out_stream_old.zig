@@ -11,7 +11,7 @@ else
 
 /// TODO this is not integrated with evented I/O yet.
 /// https://github.com/ziglang/zig/issues/3557
-pub fn OutStream(comptime WriteError: type) type {
+pub fn OutStreamOld(comptime WriteError: type) type {
     return struct {
         const Self = @This();
         pub const Error = WriteError;
@@ -36,11 +36,7 @@ pub fn OutStream(comptime WriteError: type) type {
         }
 
         pub fn print(self: *Self, comptime format: []const u8, args: var) Error!void {
-            var generator = std.fmtgen.Generator([]const u8).init();
-            _ = async std.fmtgen.format(&generator, format, args);
-            while (generator.next()) |bytes| {
-                try self.writeFn(self, bytes);
-            }
+            return std.fmt.format(self, Error, self.writeFn, format, args);
         }
 
         pub fn writeByte(self: *Self, byte: u8) Error!void {

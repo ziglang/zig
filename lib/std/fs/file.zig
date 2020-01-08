@@ -318,6 +318,13 @@ pub const File = struct {
         };
     }
 
+    pub fn outStreamOld(file: File) OutStreamOld {
+        return OutStreamOld{
+            .file = file,
+            .stream = OutStreamOld.Stream{ .writeFn = OutStreamOld.writeFn },
+        };
+    }
+
     pub fn seekableStream(file: File) SeekableStream {
         return SeekableStream{
             .file = file,
@@ -354,6 +361,20 @@ pub const File = struct {
 
         fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
             const self = @fieldParentPtr(OutStream, "stream", out_stream);
+            return self.file.write(bytes);
+        }
+    };
+
+    // TODO: delete
+    pub const OutStreamOld = struct {
+        file: File,
+        stream: Stream,
+
+        pub const Error = WriteError;
+        pub const Stream = io.OutStreamOld(Error);
+
+        fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
+            const self = @fieldParentPtr(OutStreamOld, "stream", out_stream);
             return self.file.write(bytes);
         }
     };
