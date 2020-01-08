@@ -9164,7 +9164,10 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
     ir_ref_bb(irb->current_basic_block);
 
     IrInstruction *result = ir_gen_node_extra(irb, node, scope, LValNone, nullptr);
-    assert(result);
+
+    if (result == irb->codegen->invalid_instruction)
+        return false;
+
     if (irb->exec->first_err_trace_msg != nullptr) {
         codegen->trace_err = irb->exec->first_err_trace_msg;
         return false;
@@ -12029,7 +12032,9 @@ ZigValue *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
     ir_executable->fn_entry = fn_entry;
     ir_executable->c_import_buf = c_import_buf;
     ir_executable->begin_scope = scope;
-    ir_gen(codegen, node, scope, ir_executable);
+
+    if (!ir_gen(codegen, node, scope, ir_executable))
+        return codegen->invalid_instruction->value;
 
     if (ir_executable->first_err_trace_msg != nullptr) {
         codegen->trace_err = ir_executable->first_err_trace_msg;
