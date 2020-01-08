@@ -475,23 +475,13 @@ pub fn formatType(
             return formatType(@as(Slice, &value), fmt, options, context, Errors, output, max_depth);
         },
         .Vector => {
-            const len = @typeInfo(T).Vector.len; // TODO .len for vectors
+            const len = @typeInfo(T).Vector.len;
             try output(context, "{ ");
-            if (len <= 16) {
-                comptime var i = 0;
-                inline while (i < len) : (i += 1) {
-                    try formatValue(value[i], fmt, options, context, Errors, output);
-                    if (i < len - 1) {
-                        try output(context, ", ");
-                    }
-                }
-            } else {
-                var i: usize = 0;
-                while (i < len) : (i += 1) {
-                    try formatValue(value[i], fmt, options, context, Errors, output);
-                    if (i < len - 1) {
-                        try output(context, ", ");
-                    }
+            var i: usize = 0;
+            while (i < len) : (i += 1) {
+                try formatValue(value[i], fmt, options, context, Errors, output);
+                if (i < len - 1) {
+                    try output(context, ", ");
                 }
             }
             try output(context, " }");
