@@ -4787,11 +4787,16 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
     ZigType *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
 
-    ir_gen_fn(g, fn_table_entry);
+    if (!ir_gen_fn(g, fn_table_entry)) {
+        fn_table_entry->anal_state = FnAnalStateInvalid;
+        return;
+    }
+
     if (fn_table_entry->ir_executable->first_err_trace_msg != nullptr) {
         fn_table_entry->anal_state = FnAnalStateInvalid;
         return;
     }
+
     if (g->verbose_ir) {
         fprintf(stderr, "\n");
         ast_render(stderr, fn_table_entry->body_node, 4);
