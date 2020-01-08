@@ -1468,10 +1468,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\                __case_1: {
         \\                    __case_0: {
         \\                        switch (i) {
-        \\                            0 => break :__case_0,
-        \\                            1...3 => break :__case_1,
+        \\                            @as(c_int, 0) => break :__case_0,
+        \\                            @as(c_int, 1)...@as(c_int, 3) => break :__case_1,
         \\                            else => break :__default,
-        \\                            4 => break :__case_2,
+        \\                            @as(c_int, 4) => break :__case_2,
         \\                        }
         \\                    }
         \\                    res = 1;

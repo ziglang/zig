@@ -2419,7 +2419,29 @@ fn transConstantExpr(rp: RestorePoint, scope: *Scope, expr: *const ZigClangExpr,
     var result: ZigClangExprEvalResult = undefined;
     if (!ZigClangExpr_EvaluateAsConstantExpr(expr, &result, .EvaluateForCodeGen, rp.c.clang_context))
         return revertAndWarn(rp, error.UnsupportedTranslation, ZigClangExpr_getBeginLoc(expr), "invalid constant expression", .{});
-    return maybeSuppressResult(rp, scope, used, try transCreateNodeAPInt(rp.c, ZigClangAPValue_getInt(&result.Val)));
+
+    var val_node: ?*ast.Node = null;
+    switch (ZigClangAPValue_getKind(&result.Val)) {
+        .Int => {
+            // See comment in `transIntegerLiteral` for why this code is here.
+            // @as(T, x)
+            const expr_base = @ptrCast(*const ZigClangExpr, expr);
+            const as_node = try transCreateNodeBuiltinFnCall(rp.c, "@as");
+            const ty_node = try transQualType(rp, ZigClangExpr_getType(expr_base), ZigClangExpr_getBeginLoc(expr_base));
+            try as_node.params.push(ty_node);
+            _ = try appendToken(rp.c, .Comma, ",");
+
+            const int_lit_node = try transCreateNodeAPInt(rp.c, ZigClangAPValue_getInt(&result.Val));
+            try as_node.params.push(int_lit_node);
+
+            as_node.rparen_token = try appendToken(rp.c, .RParen, ")");
+
+            return maybeSuppressResult(rp, scope, used, &as_node.base);
+        },
+        else => {
+            return revertAndWarn(rp, error.UnsupportedTranslation, ZigClangExpr_getBeginLoc(expr), "unsupported constant expression kind", .{});
+        },
+    }
 }
 
 fn transPredefinedExpr(rp: RestorePoint, scope: *Scope, expr: *const ZigClangPredefinedExpr, used: ResultUsed) TransError!*ast.Node {
