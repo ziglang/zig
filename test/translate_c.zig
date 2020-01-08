@@ -1468,10 +1468,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\                __case_1: {
         \\                    __case_0: {
         \\                        switch (i) {
-        \\                            0 => break :__case_0,
-        \\                            1...3 => break :__case_1,
+        \\                            @as(c_int, 0) => break :__case_0,
+        \\                            @as(c_int, 1)...@as(c_int, 3) => break :__case_1,
         \\                            else => break :__default,
-        \\                            4 => break :__case_2,
+        \\                            @as(c_int, 4) => break :__case_2,
         \\                        }
         \\                    }
         \\                    res = 1;
@@ -2530,10 +2530,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub export fn foo(arg_x: bool) bool {
         \\    var x = arg_x;
-        \\    var a: bool = (@boolToInt(x) != @as(c_int, 1));
-        \\    var b: bool = (@boolToInt(a) != @as(c_int, 0));
+        \\    var a: bool = (@intCast(c_int, @bitCast(i1, @intCast(u1, @boolToInt(x)))) != @as(c_int, 1));
+        \\    var b: bool = (@intCast(c_int, @bitCast(i1, @intCast(u1, @boolToInt(a)))) != @as(c_int, 0));
         \\    var c: bool = @ptrToInt(foo) != 0;
-        \\    return foo((@boolToInt(c) != @boolToInt(b)));
+        \\    return foo((@intCast(c_int, @bitCast(i1, @intCast(u1, @boolToInt(c)))) != @intCast(c_int, @bitCast(i1, @intCast(u1, @boolToInt(b))))));
         \\}
     });
 }
