@@ -4,18 +4,18 @@ const nl = std.cstr.line_sep;
 
 pub fn addCases(cases: *tests.RunTranslatedCContext) void {
     cases.add("ternary operator",
-        \\#include <assert.h>
+        \\#include <stdlib.h>
         \\static int cnt = 0;
         \\int foo() { cnt++; return 42; }
         \\int main(int argc, char **argv) {
         \\  short q = 3;
         \\  signed char z0 = q?:1;
-        \\  assert(z0 == 3);
+        \\  if (z0 != 3) abort();
         \\  int z1 = 3?:1;
-        \\  assert(z1 == 3);
+        \\  if (z1 != 3) abort();
         \\  int z2 = foo()?:-1;
-        \\  assert(z2 == 42);
-        \\  assert(cnt == 1);
+        \\  if (z2 != 42) abort();
+        \\  if (cnt != 1) abort();
         \\  return 0;
         \\}
     , "");
