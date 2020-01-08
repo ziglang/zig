@@ -1858,7 +1858,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() void {
         \\    var a: [10]c_int = undefined;
         \\    var i: c_int = 0;
-        \\    a[@intCast(c_uint, i)] = 0;
+        \\    a[@intCast(usize, i)] = 0;
         \\}
     });
 
@@ -1871,7 +1871,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() void {
         \\    var a: [10]c_longlong = undefined;
         \\    var i: c_longlong = @bitCast(c_longlong, @as(c_longlong, @as(c_int, 0)));
-        \\    a[@intCast(c_uint, i)] = @bitCast(c_longlong, @as(c_longlong, @as(c_int, 0)));
+        \\    a[@intCast(usize, i)] = @bitCast(c_longlong, @as(c_longlong, @as(c_int, 0)));
         \\}
     });
 

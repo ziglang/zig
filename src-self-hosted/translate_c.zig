@@ -2509,7 +2509,7 @@ fn transArrayAccess(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangArrayS
     if (is_longlong or is_signed) {
         const cast_node = try transCreateNodeBuiltinFnCall(rp.c, "@intCast");
         // check if long long first so that signed long long doesn't just become unsigned long long
-        var typeid_node = if (is_longlong) try transCreateNodeIdentifier(rp.c, "c_uint") else try transQualTypeIntWidthOf(rp.c, qt, false);
+        var typeid_node = if (is_longlong) try transCreateNodeIdentifier(rp.c, "usize") else try transQualTypeIntWidthOf(rp.c, qt, false);
         try cast_node.params.push(typeid_node);
         _ = try appendToken(rp.c, .Comma, ",");
         try cast_node.params.push(try transExpr(rp, scope, subscr_expr, .used, .r_value));
