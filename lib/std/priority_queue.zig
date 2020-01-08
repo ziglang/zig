@@ -88,11 +88,11 @@ pub fn PriorityQueue(comptime T: type) type {
         /// Remove and return element at index. Indices are in the
         /// same order as iterator, which is not necessarily priority
         /// order.
-        pub fn removeIndex(self: *Self, idx: usize) T {
-            assert(self.len > idx);
+        pub fn removeIndex(self: *Self, index: usize) T {
+            assert(self.len > index);
             const last = self.items[self.len - 1];
-            const item = self.items[idx];
-            self.items[idx] = last;
+            const item = self.items[index];
+            self.items[index] = last;
             self.len -= 1;
             siftDown(self, 0);
             return item;
