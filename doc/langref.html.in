@@ -6828,8 +6828,11 @@ async fn func(y: *i32) void {
       {#header_open|@mulAdd#}
       <pre>{#syntax#}@mulAdd(comptime T: type, a: T, b: T, c: T) T{#endsyntax#}</pre>
       <p>
-      Fused multiply add (for floats), similar to {#syntax#}(a * b) + c{#endsyntax#}, except
+      Fused multiply add, similar to {#syntax#}(a * b) + c{#endsyntax#}, except
       only rounds once, and is thus more accurate.
+      </p>
+      <p>
+      Supports Floats and Vectors of floats.
       </p>
       {#header_close#}
 
