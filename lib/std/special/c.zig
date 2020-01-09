@@ -23,17 +23,17 @@ const is_freestanding = switch (builtin.os) {
 };
 comptime {
     if (is_freestanding and is_wasm and builtin.link_libc) {
-        @export("_start", wasm_start, .Strong);
+        @export(wasm_start, .{ .name = "_start", .linkage = .Strong });
     }
     if (builtin.link_libc) {
-        @export("strcmp", strcmp, .Strong);
-        @export("strncmp", strncmp, .Strong);
-        @export("strerror", strerror, .Strong);
-        @export("strlen", strlen, .Strong);
+        @export(strcmp, .{ .name = "strcmp", .linkage = .Strong });
+        @export(strncmp, .{ .name = "strncmp", .linkage = .Strong });
+        @export(strerror, .{ .name = "strerror", .linkage = .Strong });
+        @export(strlen, .{ .name = "strlen", .linkage = .Strong });
     } else if (is_msvc) {
-        @export("_fltused", _fltused, .Strong);
+        @export(_fltused, .{ .name = "_fltused", .linkage = .Strong });
     } else if (builtin.arch == builtin.Arch.arm and builtin.os == .linux) {
-        @export("__aeabi_read_tp", std.os.linux.getThreadPointer, .Strong);
+        @export(std.os.linux.getThreadPointer, .{ .name = "__aeabi_read_tp", .linkage = .Strong });
     }
 }
 
@@ -182,10 +182,10 @@ comptime {
         builtin.mode != builtin.Mode.ReleaseSmall and
         builtin.os != builtin.Os.windows)
     {
-        @export("__stack_chk_fail", __stack_chk_fail, builtin.GlobalLinkage.Strong);
+        @export(__stack_chk_fail, .{ .name = "__stack_chk_fail" });
     }
     if (builtin.os == builtin.Os.linux) {
-        @export("clone", clone, builtin.GlobalLinkage.Strong);
+        @export(clone, .{ .name = "clone" });
     }
 }
 fn __stack_chk_fail() callconv(.C) noreturn {

@@ -5650,10 +5650,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.add("wrong types given to @export",
         \\fn entry() callconv(.C) void { }
         \\comptime {
-        \\    @export("entry", entry, @as(u32, 1234));
+        \\    @export(entry, .{.name = "entry", .linkage = @as(u32, 1234) });
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:29: error: expected type 'std.builtin.GlobalLinkage', found 'u32'",
+        "tmp.zig:3:50: error: expected type 'std.builtin.GlobalLinkage', found 'u32'",
     });
 
     cases.add("struct with invalid field",

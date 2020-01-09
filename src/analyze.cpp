@@ -3955,8 +3955,8 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     }
 
     if (var_decl->section_expr != nullptr) {
-        if (!analyze_const_string(g, tld_var->base.parent_scope, var_decl->section_expr, &tld_var->section_name)) {
-            tld_var->section_name = nullptr;
+        if (!analyze_const_string(g, tld_var->base.parent_scope, var_decl->section_expr, &tld_var->var->section_name)) {
+            tld_var->var->section_name = nullptr;
         }
     }
 

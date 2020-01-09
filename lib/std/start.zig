@@ -22,23 +22,23 @@ const start_sym_name = if (is_mips) "__start" else "_start";
 comptime {
     if (builtin.output_mode == .Lib and builtin.link_mode == .Dynamic) {
         if (builtin.os == .windows and !@hasDecl(root, "_DllMainCRTStartup")) {
-            @export("_DllMainCRTStartup", _DllMainCRTStartup, .Strong);
+            @export(_DllMainCRTStartup, .{ .name = "_DllMainCRTStartup" });
         }
     } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
         if (builtin.link_libc and @hasDecl(root, "main")) {
             if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
-                @export("main", main, .Weak);
+                @export(main, .{ .name = "main", .linkage = .Weak });
             }
         } else if (builtin.os == .windows) {
             if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup")) {
-                @export("WinMainCRTStartup", WinMainCRTStartup, .Strong);
+                @export(WinMainCRTStartup, .{ .name = "WinMainCRTStartup" });
             }
         } else if (builtin.os == .uefi) {
-            if (!@hasDecl(root, "EfiMain")) @export("EfiMain", EfiMain, .Strong);
+            if (!@hasDecl(root, "EfiMain")) @export(EfiMain, .{ .name = "EfiMain" });
         } else if (is_wasm and builtin.os == .freestanding) {
-            if (!@hasDecl(root, start_sym_name)) @export(start_sym_name, wasm_freestanding_start, .Strong);
+            if (!@hasDecl(root, start_sym_name)) @export(wasm_freestanding_start, .{ .name = start_sym_name });
         } else if (builtin.os != .other and builtin.os != .freestanding) {
-            if (!@hasDecl(root, start_sym_name)) @export(start_sym_name, _start, .Strong);
+            if (!@hasDecl(root, start_sym_name)) @export(_start, .{ .name = start_sym_name });
         }
     }
 }

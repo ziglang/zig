@@ -7327,21 +7327,21 @@ test "main" {
       {#header_close#}
 
       {#header_open|@export#}
-      <pre>{#syntax#}@export(comptime name: []const u8, target: var, linkage: builtin.GlobalLinkage) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@export(target: var, comptime options: std.builtin.ExportOptions) void{#endsyntax#}</pre>
       <p>
       Creates a symbol in the output object file.
       </p>
       <p>
       This function can be called from a {#link|comptime#} block to conditionally export symbols.
       When {#syntax#}target{#endsyntax#} is a function with the C calling convention and
-      {#syntax#}linkage{#endsyntax#} is {#syntax#}Strong{#endsyntax#}, this is equivalent to
+      {#syntax#}options.linkage{#endsyntax#} is {#syntax#}Strong{#endsyntax#}, this is equivalent to
       the {#syntax#}export{#endsyntax#} keyword used on a function:
       </p>
       {#code_begin|obj#}
 const builtin = @import("builtin");
 
 comptime {
-    @export("foo", internalName, builtin.GlobalLinkage.Strong);
+    @export(internalName, .{ .name = "foo", .linkage = .Strong });
 }
 
 extern fn internalName() void {}
