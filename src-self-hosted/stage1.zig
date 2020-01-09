@@ -625,6 +625,63 @@ const Stage2TargetDetails = struct {
     llvm_features_str: [:0]const u8,
 
     builtin_str: [:0]const u8,
+
+    const Self = @This();
+
+    fn initCpu(allocator: *std.mem.Allocator, arch: @TagType(std.Target.Arch), cpu: *const std.target.Cpu) !Self {
+        var builtin_str_buffer = try std.Buffer.init(
+            allocator,
+            "@import(\"std\").target.TargetDetails{.cpu=&@import(\"std\").target.");
+        defer builtin_str_buffer.deinit();
+
+        try builtin_str_buffer.append(@tagName(arch));
+        try builtin_str_buffer.append(".cpu_");
+        try builtin_str_buffer.append(cpu.name);
+        try builtin_str_buffer.append("};");
+        return Self{
+            .allocator = allocator,
+            .target_details = .{
+                .cpu = cpu,
+            },
+            .llvm_cpu_str = cpu.name,
+            .llvm_features_str = "",
+            .builtin_str = builtin_str_buffer.toOwnedSlice(),
+        };
+    }
+
+    fn initFeatures(allocator: *std.mem.Allocator, arch: @TagType(std.Target.Arch), features: []*const std.target.Feature) !Self {
+        var builtin_str_buffer = try std.Buffer.init(
+            allocator, 
+            "@import(\"std\").target.TargetDetails{.features=&[_]*const @import(\"std\").target.Feature{\n");
+        defer builtin_str_buffer.deinit();
+
+        var llvm_features_buffer = try std.Buffer.initSize(allocator, 0);
+        defer llvm_features_buffer.deinit();
+
+        for (features) |feature| {
+            try llvm_features_buffer.append("+");
+            try llvm_features_buffer.append(feature.llvm_name);
+            try llvm_features_buffer.append(",");
+            
+            try builtin_str_buffer.append("&@import(\"std\").target.");
+            try builtin_str_buffer.append(@tagName(arch));
+            try builtin_str_buffer.append(".feature_");
+            try builtin_str_buffer.append(feature.name);
+            try builtin_str_buffer.append(",");
+        }
+
+        try builtin_str_buffer.append("}};");
+
+        return Self{
+            .allocator = allocator,
+            .target_details = std.target.TargetDetails{
+                .features = features,
+            },
+            .llvm_cpu_str = "",
+            .llvm_features_str = llvm_features_buffer.toOwnedSlice(),
+            .builtin_str = builtin_str_buffer.toOwnedSlice(),
+        };
+    }
 };
 
 // ABI warning
@@ -658,32 +715,14 @@ export fn stage2_target_details_parse_features(arch_str: ?[*:0]const u8, feature
 }
 
 fn parseCpu(arch: @TagType(std.Target.Arch), str: []const u8) !*Stage2TargetDetails {
+    const allocator = std.heap.c_allocator;
+
     const cpus = std.target.getCpusForArch(arch);
 
     for (cpus) |cpu| {
         if (std.mem.eql(u8, str, cpu.name)) {
-            const allocator = std.heap.c_allocator;
-
-            var builtin_str_buffer = try std.Buffer.init(
-                allocator,
-                "@import(\"std\").target.TargetDetails{.cpu=&@import(\"std\").target.");
-            defer builtin_str_buffer.deinit();
-
-            try builtin_str_buffer.append(@tagName(arch));
-            try builtin_str_buffer.append(".cpu_");
-            try builtin_str_buffer.append(cpu.name);
-            try builtin_str_buffer.append("};");
-
             const ptr = try allocator.create(Stage2TargetDetails);
-            ptr.* = .{
-                .allocator = allocator,
-                .target_details = .{
-                    .cpu = cpu,
-                },
-                .llvm_cpu_str = cpu.name,
-                .llvm_features_str = "",
-                .builtin_str = builtin_str_buffer.toOwnedSlice(),
-            };
+            ptr.* = try Stage2TargetDetails.initCpu(std.heap.c_allocator, arch, cpu);
 
             return ptr;
         }
@@ -699,11 +738,6 @@ fn parseFeatures(arch: @TagType(std.Target.Arch), str: []const u8) !*Stage2Targe
 
     var features = std.ArrayList(*const std.target.Feature).init(allocator);
     defer features.deinit();
-
-    var builtin_str_buffer = try std.Buffer.init(
-        allocator, 
-        "@import(\"std\").target.TargetDetails{.features=&[_]*const @import(\"std\").target.Feature{\n");
-    defer builtin_str_buffer.deinit();
 
     var start: usize = 0;
     while (start < str.len) {
@@ -725,39 +759,15 @@ fn parseFeatures(arch: @TagType(std.Target.Arch), str: []const u8) !*Stage2Targe
         if (feature) |f| {
             features.append(f) catch @panic("out of memory");
 
-            try builtin_str_buffer.append("&@import(\"std\").target.");
-            try builtin_str_buffer.append(@tagName(arch));
-            try builtin_str_buffer.append(".feature_");
-            try builtin_str_buffer.append(f.name);
-            try builtin_str_buffer.append(",");
         } else {
             return error.InvalidFeature;
         }
     }
 
-    try builtin_str_buffer.append("}};");
-    
     const features_slice = features.toOwnedSlice();
 
-    var llvm_features_buffer = try std.Buffer.initSize(allocator, 0);
-    defer llvm_features_buffer.deinit();
-
-    for (features_slice) |feature| {
-        try llvm_features_buffer.append("+");
-        try llvm_features_buffer.append(feature.llvm_name);
-        try llvm_features_buffer.append(",");
-    }
-
     const ptr = try allocator.create(Stage2TargetDetails);
-    ptr.* = Stage2TargetDetails{
-        .allocator = allocator,
-        .target_details = std.target.TargetDetails{
-            .features = features_slice,
-        },
-        .llvm_cpu_str = "",
-        .llvm_features_str = llvm_features_buffer.toOwnedSlice(),
-        .builtin_str = builtin_str_buffer.toOwnedSlice(),
-    };
+    ptr.* = try Stage2TargetDetails.initFeatures(allocator, arch, features_slice);
 
     return ptr;
 }
@@ -799,4 +809,69 @@ export fn stage2_target_details_get_builtin_str(target_details: ?*const Stage2Ta
     }
 
     return @as([*:0]const u8, "");
+}
+
+const riscv_default_features: []*const std.target.Feature = &[_]*const std.target.Feature {
+    &std.target.riscv.feature_a,
+    &std.target.riscv.feature_c,
+    &std.target.riscv.feature_d,
+    &std.target.riscv.feature_f,
+    &std.target.riscv.feature_m,
+    &std.target.riscv.feature_relax,
+};
+
+const i386_default_features: []*const std.target.Feature = &[_]*const std.target.Feature {
+    &std.target.x86.feature_cmov,
+    &std.target.x86.feature_cx8,
+    &std.target.x86.feature_fxsr,
+    &std.target.x86.feature_mmx,
+    &std.target.x86.feature_nopl,
+    &std.target.x86.feature_sse,
+    &std.target.x86.feature_sse2,
+    &std.target.x86.feature_slowUnalignedMem16,
+    &std.target.x86.feature_x87,
+};
+
+// Same as above but without sse.
+const i386_default_features_freestanding: []*const std.target.Feature = &[_]*const std.target.Feature {
+    &std.target.x86.feature_cmov,
+    &std.target.x86.feature_cx8,
+    &std.target.x86.feature_fxsr,
+    &std.target.x86.feature_mmx,
+    &std.target.x86.feature_nopl,
+    &std.target.x86.feature_slowUnalignedMem16,
+    &std.target.x86.feature_x87,
+};
+
+// ABI warning
+export fn stage2_target_details_get_default(arch_str: ?[*:0]const u8, os_str: ?[*:0]const u8) ?*Stage2TargetDetails {
+    if (arch_str == null) return null;
+    if (os_str == null) return null;
+    
+    const arch = Target.parseArchTag(std.mem.toSliceConst(u8, arch_str.?)) catch return null;
+    const os = Target.parseOs(std.mem.toSliceConst(u8, os_str.?)) catch return null;
+
+    return createDefaultTargetDetails(arch, os) catch return null;
+}
+
+fn createDefaultTargetDetails(arch: @TagType(std.Target.Arch), os: std.Target.Os) !?*Stage2TargetDetails {
+    const allocator = std.heap.c_allocator;
+
+    return switch (arch) {
+        .riscv32, .riscv64 => blk: {
+            const ptr = try allocator.create(Stage2TargetDetails);
+            ptr.* = try Stage2TargetDetails.initFeatures(allocator, arch, riscv_default_features);
+            break :blk ptr;
+        },
+        .i386 => blk: {
+            const ptr = try allocator.create(Stage2TargetDetails);
+            const features = switch (os) {
+                .freestanding => i386_default_features_freestanding,
+                else => i386_default_features,
+            };
+            ptr.* = try Stage2TargetDetails.initFeatures(allocator, arch, features);
+            break :blk ptr;
+        },
+        else => null,
+    };
 }

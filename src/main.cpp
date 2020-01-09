@@ -1090,6 +1090,12 @@ int main(int argc, char **argv) {
             fprintf(stderr, "invalid --features value\n");
             return main_exit(root_progress_node, EXIT_FAILURE);
         }
+    } else {
+        // If no details are specified and we are not native, load
+        // cross-compilation default features.
+        if (!target.is_native) {
+            target_details = stage2_target_details_get_default(target_arch_name(target.arch), target_os_name(target.os));
+        }
     }
 
     if (output_dir != nullptr && enable_cache == CacheOptOn) {

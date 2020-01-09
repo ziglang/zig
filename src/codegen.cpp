@@ -8776,8 +8776,9 @@ static void init(CodeGen *g) {
         reloc_mode = LLVMRelocStatic;
     }
 
-    const char *target_specific_cpu_args;
-    const char *target_specific_features;
+    const char *target_specific_cpu_args = "";
+    const char *target_specific_features = "";
+
     if (g->zig_target->is_native) {
         // LLVM creates invalid binaries on Windows sometimes.
         // See https://github.com/ziglang/zig/issues/508
@@ -8789,22 +8790,6 @@ static void init(CodeGen *g) {
             target_specific_cpu_args = ZigLLVMGetHostCPUName();
             target_specific_features = ZigLLVMGetNativeFeatures();
         }
-    } else if (target_is_riscv(g->zig_target)) {
-        // TODO https://github.com/ziglang/zig/issues/2883
-        // Be aware of https://github.com/ziglang/zig/issues/3275
-        target_specific_cpu_args = "";
-        target_specific_features = riscv_default_features;
-    } else if (g->zig_target->arch == ZigLLVM_x86) {
-        // This is because we're really targeting i686 rather than i386.
-        // It's pretty much impossible to use many of the language features
-        // such as fp16 if you stick use the x87 only. This is also what clang
-        // uses as base cpu.
-        // TODO https://github.com/ziglang/zig/issues/2883
-        target_specific_cpu_args = "pentium4";
-        target_specific_features = (g->zig_target->os == OsFreestanding) ? "-sse": "";
-    } else {
-        target_specific_cpu_args = "";
-        target_specific_features = "";
     }
 
     // Override CPU and features if defined by user.
