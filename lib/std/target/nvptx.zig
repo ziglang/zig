@@ -3,6 +3,7 @@ const Cpu = @import("std").target.Cpu;
 
 pub const feature_ptx32 = Feature{
     .name = "ptx32",
+    .llvm_name = "ptx32",
     .description = "Use PTX version 3.2",
     .dependencies = &[_]*const Feature {
     },
@@ -10,6 +11,7 @@ pub const feature_ptx32 = Feature{
 
 pub const feature_ptx40 = Feature{
     .name = "ptx40",
+    .llvm_name = "ptx40",
     .description = "Use PTX version 4.0",
     .dependencies = &[_]*const Feature {
     },
@@ -17,6 +19,7 @@ pub const feature_ptx40 = Feature{
 
 pub const feature_ptx41 = Feature{
     .name = "ptx41",
+    .llvm_name = "ptx41",
     .description = "Use PTX version 4.1",
     .dependencies = &[_]*const Feature {
     },
@@ -24,6 +27,7 @@ pub const feature_ptx41 = Feature{
 
 pub const feature_ptx42 = Feature{
     .name = "ptx42",
+    .llvm_name = "ptx42",
     .description = "Use PTX version 4.2",
     .dependencies = &[_]*const Feature {
     },
@@ -31,6 +35,7 @@ pub const feature_ptx42 = Feature{
 
 pub const feature_ptx43 = Feature{
     .name = "ptx43",
+    .llvm_name = "ptx43",
     .description = "Use PTX version 4.3",
     .dependencies = &[_]*const Feature {
     },
@@ -38,6 +43,7 @@ pub const feature_ptx43 = Feature{
 
 pub const feature_ptx50 = Feature{
     .name = "ptx50",
+    .llvm_name = "ptx50",
     .description = "Use PTX version 5.0",
     .dependencies = &[_]*const Feature {
     },
@@ -45,6 +51,7 @@ pub const feature_ptx50 = Feature{
 
 pub const feature_ptx60 = Feature{
     .name = "ptx60",
+    .llvm_name = "ptx60",
     .description = "Use PTX version 6.0",
     .dependencies = &[_]*const Feature {
     },
@@ -52,6 +59,7 @@ pub const feature_ptx60 = Feature{
 
 pub const feature_ptx61 = Feature{
     .name = "ptx61",
+    .llvm_name = "ptx61",
     .description = "Use PTX version 6.1",
     .dependencies = &[_]*const Feature {
     },
@@ -59,6 +67,7 @@ pub const feature_ptx61 = Feature{
 
 pub const feature_ptx63 = Feature{
     .name = "ptx63",
+    .llvm_name = "ptx63",
     .description = "Use PTX version 6.3",
     .dependencies = &[_]*const Feature {
     },
@@ -66,6 +75,7 @@ pub const feature_ptx63 = Feature{
 
 pub const feature_ptx64 = Feature{
     .name = "ptx64",
+    .llvm_name = "ptx64",
     .description = "Use PTX version 6.4",
     .dependencies = &[_]*const Feature {
     },
@@ -73,6 +83,7 @@ pub const feature_ptx64 = Feature{
 
 pub const feature_sm_20 = Feature{
     .name = "sm_20",
+    .llvm_name = "sm_20",
     .description = "Target SM 2.0",
     .dependencies = &[_]*const Feature {
     },
@@ -80,6 +91,7 @@ pub const feature_sm_20 = Feature{
 
 pub const feature_sm_21 = Feature{
     .name = "sm_21",
+    .llvm_name = "sm_21",
     .description = "Target SM 2.1",
     .dependencies = &[_]*const Feature {
     },
@@ -87,6 +99,7 @@ pub const feature_sm_21 = Feature{
 
 pub const feature_sm_30 = Feature{
     .name = "sm_30",
+    .llvm_name = "sm_30",
     .description = "Target SM 3.0",
     .dependencies = &[_]*const Feature {
     },
@@ -94,6 +107,7 @@ pub const feature_sm_30 = Feature{
 
 pub const feature_sm_32 = Feature{
     .name = "sm_32",
+    .llvm_name = "sm_32",
     .description = "Target SM 3.2",
     .dependencies = &[_]*const Feature {
     },
@@ -101,6 +115,7 @@ pub const feature_sm_32 = Feature{
 
 pub const feature_sm_35 = Feature{
     .name = "sm_35",
+    .llvm_name = "sm_35",
     .description = "Target SM 3.5",
     .dependencies = &[_]*const Feature {
     },
@@ -108,6 +123,7 @@ pub const feature_sm_35 = Feature{
 
 pub const feature_sm_37 = Feature{
     .name = "sm_37",
+    .llvm_name = "sm_37",
     .description = "Target SM 3.7",
     .dependencies = &[_]*const Feature {
     },
@@ -115,6 +131,7 @@ pub const feature_sm_37 = Feature{
 
 pub const feature_sm_50 = Feature{
     .name = "sm_50",
+    .llvm_name = "sm_50",
     .description = "Target SM 5.0",
     .dependencies = &[_]*const Feature {
     },
@@ -122,6 +139,7 @@ pub const feature_sm_50 = Feature{
 
 pub const feature_sm_52 = Feature{
     .name = "sm_52",
+    .llvm_name = "sm_52",
     .description = "Target SM 5.2",
     .dependencies = &[_]*const Feature {
     },
@@ -129,6 +147,7 @@ pub const feature_sm_52 = Feature{
 
 pub const feature_sm_53 = Feature{
     .name = "sm_53",
+    .llvm_name = "sm_53",
     .description = "Target SM 5.3",
     .dependencies = &[_]*const Feature {
     },
@@ -136,6 +155,7 @@ pub const feature_sm_53 = Feature{
 
 pub const feature_sm_60 = Feature{
     .name = "sm_60",
+    .llvm_name = "sm_60",
     .description = "Target SM 6.0",
     .dependencies = &[_]*const Feature {
     },
@@ -143,6 +163,7 @@ pub const feature_sm_60 = Feature{
 
 pub const feature_sm_61 = Feature{
     .name = "sm_61",
+    .llvm_name = "sm_61",
     .description = "Target SM 6.1",
     .dependencies = &[_]*const Feature {
     },
@@ -150,6 +171,7 @@ pub const feature_sm_61 = Feature{
 
 pub const feature_sm_62 = Feature{
     .name = "sm_62",
+    .llvm_name = "sm_62",
     .description = "Target SM 6.2",
     .dependencies = &[_]*const Feature {
     },
@@ -157,6 +179,7 @@ pub const feature_sm_62 = Feature{
 
 pub const feature_sm_70 = Feature{
     .name = "sm_70",
+    .llvm_name = "sm_70",
     .description = "Target SM 7.0",
     .dependencies = &[_]*const Feature {
     },
@@ -164,6 +187,7 @@ pub const feature_sm_70 = Feature{
 
 pub const feature_sm_72 = Feature{
     .name = "sm_72",
+    .llvm_name = "sm_72",
     .description = "Target SM 7.2",
     .dependencies = &[_]*const Feature {
     },
@@ -171,6 +195,7 @@ pub const feature_sm_72 = Feature{
 
 pub const feature_sm_75 = Feature{
     .name = "sm_75",
+    .llvm_name = "sm_75",
     .description = "Target SM 7.5",
     .dependencies = &[_]*const Feature {
     },

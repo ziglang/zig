@@ -3,6 +3,7 @@ const Cpu = @import("std").target.Cpu;
 
 pub const feature_hwmult16 = Feature{
     .name = "hwmult16",
+    .llvm_name = "hwmult16",
     .description = "Enable 16-bit hardware multiplier",
     .dependencies = &[_]*const Feature {
     },
@@ -10,6 +11,7 @@ pub const feature_hwmult16 = Feature{
 
 pub const feature_hwmult32 = Feature{
     .name = "hwmult32",
+    .llvm_name = "hwmult32",
     .description = "Enable 32-bit hardware multiplier",
     .dependencies = &[_]*const Feature {
     },
@@ -17,6 +19,7 @@ pub const feature_hwmult32 = Feature{
 
 pub const feature_hwmultf5 = Feature{
     .name = "hwmultf5",
+    .llvm_name = "hwmultf5",
     .description = "Enable F5 series hardware multiplier",
     .dependencies = &[_]*const Feature {
     },
@@ -24,6 +27,7 @@ pub const feature_hwmultf5 = Feature{
 
 pub const feature_ext = Feature{
     .name = "ext",
+    .llvm_name = "ext",
     .description = "Enable MSP430-X extensions",
     .dependencies = &[_]*const Feature {
     },

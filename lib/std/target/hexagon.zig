@@ -3,6 +3,7 @@ const Cpu = @import("std").target.Cpu;
 
 pub const feature_duplex = Feature{
     .name = "duplex",
+    .llvm_name = "duplex",
     .description = "Enable generation of duplex instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -10,6 +11,7 @@ pub const feature_duplex = Feature{
 
 pub const feature_longCalls = Feature{
     .name = "long-calls",
+    .llvm_name = "long-calls",
     .description = "Use constant-extended calls",
     .dependencies = &[_]*const Feature {
     },
@@ -17,6 +19,7 @@ pub const feature_longCalls = Feature{
 
 pub const feature_mem_noshuf = Feature{
     .name = "mem_noshuf",
+    .llvm_name = "mem_noshuf",
     .description = "Supports mem_noshuf feature",
     .dependencies = &[_]*const Feature {
     },
@@ -24,6 +27,7 @@ pub const feature_mem_noshuf = Feature{
 
 pub const feature_memops = Feature{
     .name = "memops",
+    .llvm_name = "memops",
     .description = "Use memop instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -31,6 +35,7 @@ pub const feature_memops = Feature{
 
 pub const feature_nvj = Feature{
     .name = "nvj",
+    .llvm_name = "nvj",
     .description = "Support for new-value jumps",
     .dependencies = &[_]*const Feature {
         &feature_packets,
@@ -39,6 +44,7 @@ pub const feature_nvj = Feature{
 
 pub const feature_nvs = Feature{
     .name = "nvs",
+    .llvm_name = "nvs",
     .description = "Support for new-value stores",
     .dependencies = &[_]*const Feature {
         &feature_packets,
@@ -47,6 +53,7 @@ pub const feature_nvs = Feature{
 
 pub const feature_noreturnStackElim = Feature{
     .name = "noreturn-stack-elim",
+    .llvm_name = "noreturn-stack-elim",
     .description = "Eliminate stack allocation in a noreturn function when possible",
     .dependencies = &[_]*const Feature {
     },
@@ -54,6 +61,7 @@ pub const feature_noreturnStackElim = Feature{
 
 pub const feature_packets = Feature{
     .name = "packets",
+    .llvm_name = "packets",
     .description = "Support for instruction packets",
     .dependencies = &[_]*const Feature {
     },
@@ -61,6 +69,7 @@ pub const feature_packets = Feature{
 
 pub const feature_reservedR19 = Feature{
     .name = "reserved-r19",
+    .llvm_name = "reserved-r19",
     .description = "Reserve register R19",
     .dependencies = &[_]*const Feature {
     },
@@ -68,6 +77,7 @@ pub const feature_reservedR19 = Feature{
 
 pub const feature_smallData = Feature{
     .name = "small-data",
+    .llvm_name = "small-data",
     .description = "Allow GP-relative addressing of global variables",
     .dependencies = &[_]*const Feature {
     },

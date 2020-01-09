@@ -3,6 +3,7 @@ const Cpu = @import("std").target.Cpu;
 
 pub const feature_hardQuadFloat = Feature{
     .name = "hard-quad-float",
+    .llvm_name = "hard-quad-float",
     .description = "Enable quad-word floating point instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -10,6 +11,7 @@ pub const feature_hardQuadFloat = Feature{
 
 pub const feature_leon = Feature{
     .name = "leon",
+    .llvm_name = "leon",
     .description = "Enable LEON extensions",
     .dependencies = &[_]*const Feature {
     },
@@ -17,6 +19,7 @@ pub const feature_leon = Feature{
 
 pub const feature_noFmuls = Feature{
     .name = "no-fmuls",
+    .llvm_name = "no-fmuls",
     .description = "Disable the fmuls instruction.",
     .dependencies = &[_]*const Feature {
     },
@@ -24,6 +27,7 @@ pub const feature_noFmuls = Feature{
 
 pub const feature_noFsmuld = Feature{
     .name = "no-fsmuld",
+    .llvm_name = "no-fsmuld",
     .description = "Disable the fsmuld instruction.",
     .dependencies = &[_]*const Feature {
     },
@@ -31,6 +35,7 @@ pub const feature_noFsmuld = Feature{
 
 pub const feature_leonpwrpsr = Feature{
     .name = "leonpwrpsr",
+    .llvm_name = "leonpwrpsr",
     .description = "Enable the PWRPSR instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -38,6 +43,7 @@ pub const feature_leonpwrpsr = Feature{
 
 pub const feature_softFloat = Feature{
     .name = "soft-float",
+    .llvm_name = "soft-float",
     .description = "Use software emulation for floating point",
     .dependencies = &[_]*const Feature {
     },
@@ -45,6 +51,7 @@ pub const feature_softFloat = Feature{
 
 pub const feature_softMulDiv = Feature{
     .name = "soft-mul-div",
+    .llvm_name = "soft-mul-div",
     .description = "Use software emulation for integer multiply and divide",
     .dependencies = &[_]*const Feature {
     },
@@ -52,6 +59,7 @@ pub const feature_softMulDiv = Feature{
 
 pub const feature_deprecatedV8 = Feature{
     .name = "deprecated-v8",
+    .llvm_name = "deprecated-v8",
     .description = "Enable deprecated V8 instructions in V9 mode",
     .dependencies = &[_]*const Feature {
     },
@@ -59,6 +67,7 @@ pub const feature_deprecatedV8 = Feature{
 
 pub const feature_v9 = Feature{
     .name = "v9",
+    .llvm_name = "v9",
     .description = "Enable SPARC-V9 instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -66,6 +75,7 @@ pub const feature_v9 = Feature{
 
 pub const feature_vis = Feature{
     .name = "vis",
+    .llvm_name = "vis",
     .description = "Enable UltraSPARC Visual Instruction Set extensions",
     .dependencies = &[_]*const Feature {
     },
@@ -73,6 +83,7 @@ pub const feature_vis = Feature{
 
 pub const feature_vis2 = Feature{
     .name = "vis2",
+    .llvm_name = "vis2",
     .description = "Enable Visual Instruction Set extensions II",
     .dependencies = &[_]*const Feature {
     },
@@ -80,6 +91,7 @@ pub const feature_vis2 = Feature{
 
 pub const feature_vis3 = Feature{
     .name = "vis3",
+    .llvm_name = "vis3",
     .description = "Enable Visual Instruction Set extensions III",
     .dependencies = &[_]*const Feature {
     },

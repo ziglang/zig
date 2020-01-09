@@ -3,6 +3,7 @@ const Cpu = @import("std").target.Cpu;
 
 pub const feature_dnow3 = Feature{
     .name = "3dnow",
+    .llvm_name = "3dnow",
     .description = "Enable 3DNow! instructions",
     .dependencies = &[_]*const Feature {
         &feature_mmx,
@@ -11,6 +12,7 @@ pub const feature_dnow3 = Feature{
 
 pub const feature_dnowa3 = Feature{
     .name = "3dnowa",
+    .llvm_name = "3dnowa",
     .description = "Enable 3DNow! Athlon instructions",
     .dependencies = &[_]*const Feature {
         &feature_mmx,
@@ -19,6 +21,7 @@ pub const feature_dnowa3 = Feature{
 
 pub const feature_bit64 = Feature{
     .name = "64bit",
+    .llvm_name = "64bit",
     .description = "Support 64-bit instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -26,6 +29,7 @@ pub const feature_bit64 = Feature{
 
 pub const feature_adx = Feature{
     .name = "adx",
+    .llvm_name = "adx",
     .description = "Support ADX instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -33,6 +37,7 @@ pub const feature_adx = Feature{
 
 pub const feature_aes = Feature{
     .name = "aes",
+    .llvm_name = "aes",
     .description = "Enable AES instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -41,6 +46,7 @@ pub const feature_aes = Feature{
 
 pub const feature_avx = Feature{
     .name = "avx",
+    .llvm_name = "avx",
     .description = "Enable AVX instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -49,6 +55,7 @@ pub const feature_avx = Feature{
 
 pub const feature_avx2 = Feature{
     .name = "avx2",
+    .llvm_name = "avx2",
     .description = "Enable AVX2 instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -57,6 +64,7 @@ pub const feature_avx2 = Feature{
 
 pub const feature_avx512f = Feature{
     .name = "avx512f",
+    .llvm_name = "avx512f",
     .description = "Enable AVX-512 instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -65,6 +73,7 @@ pub const feature_avx512f = Feature{
 
 pub const feature_avx512bf16 = Feature{
     .name = "avx512bf16",
+    .llvm_name = "avx512bf16",
     .description = "Support bfloat16 floating point",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -73,6 +82,7 @@ pub const feature_avx512bf16 = Feature{
 
 pub const feature_avx512bitalg = Feature{
     .name = "avx512bitalg",
+    .llvm_name = "avx512bitalg",
     .description = "Enable AVX-512 Bit Algorithms",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -81,6 +91,7 @@ pub const feature_avx512bitalg = Feature{
 
 pub const feature_bmi = Feature{
     .name = "bmi",
+    .llvm_name = "bmi",
     .description = "Support BMI instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -88,6 +99,7 @@ pub const feature_bmi = Feature{
 
 pub const feature_bmi2 = Feature{
     .name = "bmi2",
+    .llvm_name = "bmi2",
     .description = "Support BMI2 instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -95,6 +107,7 @@ pub const feature_bmi2 = Feature{
 
 pub const feature_avx512bw = Feature{
     .name = "avx512bw",
+    .llvm_name = "avx512bw",
     .description = "Enable AVX-512 Byte and Word Instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -103,6 +116,7 @@ pub const feature_avx512bw = Feature{
 
 pub const feature_branchfusion = Feature{
     .name = "branchfusion",
+    .llvm_name = "branchfusion",
     .description = "CMP/TEST can be fused with conditional branches",
     .dependencies = &[_]*const Feature {
     },
@@ -110,6 +124,7 @@ pub const feature_branchfusion = Feature{
 
 pub const feature_avx512cd = Feature{
     .name = "avx512cd",
+    .llvm_name = "avx512cd",
     .description = "Enable AVX-512 Conflict Detection Instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -118,6 +133,7 @@ pub const feature_avx512cd = Feature{
 
 pub const feature_cldemote = Feature{
     .name = "cldemote",
+    .llvm_name = "cldemote",
     .description = "Enable Cache Demote",
     .dependencies = &[_]*const Feature {
     },
@@ -125,6 +141,7 @@ pub const feature_cldemote = Feature{
 
 pub const feature_clflushopt = Feature{
     .name = "clflushopt",
+    .llvm_name = "clflushopt",
     .description = "Flush A Cache Line Optimized",
     .dependencies = &[_]*const Feature {
     },
@@ -132,6 +149,7 @@ pub const feature_clflushopt = Feature{
 
 pub const feature_clwb = Feature{
     .name = "clwb",
+    .llvm_name = "clwb",
     .description = "Cache Line Write Back",
     .dependencies = &[_]*const Feature {
     },
@@ -139,6 +157,7 @@ pub const feature_clwb = Feature{
 
 pub const feature_clzero = Feature{
     .name = "clzero",
+    .llvm_name = "clzero",
     .description = "Enable Cache Line Zero",
     .dependencies = &[_]*const Feature {
     },
@@ -146,6 +165,7 @@ pub const feature_clzero = Feature{
 
 pub const feature_cmov = Feature{
     .name = "cmov",
+    .llvm_name = "cmov",
     .description = "Enable conditional move instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -153,6 +173,7 @@ pub const feature_cmov = Feature{
 
 pub const feature_cx8 = Feature{
     .name = "cx8",
+    .llvm_name = "cx8",
     .description = "Support CMPXCHG8B instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -160,6 +181,7 @@ pub const feature_cx8 = Feature{
 
 pub const feature_cx16 = Feature{
     .name = "cx16",
+    .llvm_name = "cx16",
     .description = "64-bit with cmpxchg16b",
     .dependencies = &[_]*const Feature {
         &feature_cx8,
@@ -168,6 +190,7 @@ pub const feature_cx16 = Feature{
 
 pub const feature_avx512dq = Feature{
     .name = "avx512dq",
+    .llvm_name = "avx512dq",
     .description = "Enable AVX-512 Doubleword and Quadword Instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -176,6 +199,7 @@ pub const feature_avx512dq = Feature{
 
 pub const feature_mpx = Feature{
     .name = "mpx",
+    .llvm_name = "mpx",
     .description = "Deprecated. Support MPX instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -183,6 +207,7 @@ pub const feature_mpx = Feature{
 
 pub const feature_enqcmd = Feature{
     .name = "enqcmd",
+    .llvm_name = "enqcmd",
     .description = "Has ENQCMD instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -190,6 +215,7 @@ pub const feature_enqcmd = Feature{
 
 pub const feature_avx512er = Feature{
     .name = "avx512er",
+    .llvm_name = "avx512er",
     .description = "Enable AVX-512 Exponential and Reciprocal Instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -198,6 +224,7 @@ pub const feature_avx512er = Feature{
 
 pub const feature_ermsb = Feature{
     .name = "ermsb",
+    .llvm_name = "ermsb",
     .description = "REP MOVS/STOS are fast",
     .dependencies = &[_]*const Feature {
     },
@@ -205,6 +232,7 @@ pub const feature_ermsb = Feature{
 
 pub const feature_f16c = Feature{
     .name = "f16c",
+    .llvm_name = "f16c",
     .description = "Support 16-bit floating point conversion instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -213,6 +241,7 @@ pub const feature_f16c = Feature{
 
 pub const feature_fma = Feature{
     .name = "fma",
+    .llvm_name = "fma",
     .description = "Enable three-operand fused multiple-add",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -221,6 +250,7 @@ pub const feature_fma = Feature{
 
 pub const feature_fma4 = Feature{
     .name = "fma4",
+    .llvm_name = "fma4",
     .description = "Enable four-operand fused multiple-add",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -229,6 +259,7 @@ pub const feature_fma4 = Feature{
 
 pub const feature_fsgsbase = Feature{
     .name = "fsgsbase",
+    .llvm_name = "fsgsbase",
     .description = "Support FS/GS Base instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -236,6 +267,7 @@ pub const feature_fsgsbase = Feature{
 
 pub const feature_fxsr = Feature{
     .name = "fxsr",
+    .llvm_name = "fxsr",
     .description = "Support fxsave/fxrestore instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -243,6 +275,7 @@ pub const feature_fxsr = Feature{
 
 pub const feature_fast11bytenop = Feature{
     .name = "fast-11bytenop",
+    .llvm_name = "fast-11bytenop",
     .description = "Target can quickly decode up to 11 byte NOPs",
     .dependencies = &[_]*const Feature {
     },
@@ -250,6 +283,7 @@ pub const feature_fast11bytenop = Feature{
 
 pub const feature_fast15bytenop = Feature{
     .name = "fast-15bytenop",
+    .llvm_name = "fast-15bytenop",
     .description = "Target can quickly decode up to 15 byte NOPs",
     .dependencies = &[_]*const Feature {
     },
@@ -257,6 +291,7 @@ pub const feature_fast15bytenop = Feature{
 
 pub const feature_fastBextr = Feature{
     .name = "fast-bextr",
+    .llvm_name = "fast-bextr",
     .description = "Indicates that the BEXTR instruction is implemented as a single uop with good throughput",
     .dependencies = &[_]*const Feature {
     },
@@ -264,6 +299,7 @@ pub const feature_fastBextr = Feature{
 
 pub const feature_fastHops = Feature{
     .name = "fast-hops",
+    .llvm_name = "fast-hops",
     .description = "Prefer horizontal vector math instructions (haddp, phsub, etc.) over normal vector instructions with shuffles",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -272,6 +308,7 @@ pub const feature_fastHops = Feature{
 
 pub const feature_fastLzcnt = Feature{
     .name = "fast-lzcnt",
+    .llvm_name = "fast-lzcnt",
     .description = "LZCNT instructions are as fast as most simple integer ops",
     .dependencies = &[_]*const Feature {
     },
@@ -279,6 +316,7 @@ pub const feature_fastLzcnt = Feature{
 
 pub const feature_fastPartialYmmOrZmmWrite = Feature{
     .name = "fast-partial-ymm-or-zmm-write",
+    .llvm_name = "fast-partial-ymm-or-zmm-write",
     .description = "Partial writes to YMM/ZMM registers are fast",
     .dependencies = &[_]*const Feature {
     },
@@ -286,6 +324,7 @@ pub const feature_fastPartialYmmOrZmmWrite = Feature{
 
 pub const feature_fastShldRotate = Feature{
     .name = "fast-shld-rotate",
+    .llvm_name = "fast-shld-rotate",
     .description = "SHLD can be used as a faster rotate",
     .dependencies = &[_]*const Feature {
     },
@@ -293,6 +332,7 @@ pub const feature_fastShldRotate = Feature{
 
 pub const feature_fastScalarFsqrt = Feature{
     .name = "fast-scalar-fsqrt",
+    .llvm_name = "fast-scalar-fsqrt",
     .description = "Scalar SQRT is fast (disable Newton-Raphson)",
     .dependencies = &[_]*const Feature {
     },
@@ -300,6 +340,7 @@ pub const feature_fastScalarFsqrt = Feature{
 
 pub const feature_fastScalarShiftMasks = Feature{
     .name = "fast-scalar-shift-masks",
+    .llvm_name = "fast-scalar-shift-masks",
     .description = "Prefer a left/right scalar logical shift pair over a shift+and pair",
     .dependencies = &[_]*const Feature {
     },
@@ -307,6 +348,7 @@ pub const feature_fastScalarShiftMasks = Feature{
 
 pub const feature_fastVariableShuffle = Feature{
     .name = "fast-variable-shuffle",
+    .llvm_name = "fast-variable-shuffle",
     .description = "Shuffles with variable masks are fast",
     .dependencies = &[_]*const Feature {
     },
@@ -314,6 +356,7 @@ pub const feature_fastVariableShuffle = Feature{
 
 pub const feature_fastVectorFsqrt = Feature{
     .name = "fast-vector-fsqrt",
+    .llvm_name = "fast-vector-fsqrt",
     .description = "Vector SQRT is fast (disable Newton-Raphson)",
     .dependencies = &[_]*const Feature {
     },
@@ -321,6 +364,7 @@ pub const feature_fastVectorFsqrt = Feature{
 
 pub const feature_fastVectorShiftMasks = Feature{
     .name = "fast-vector-shift-masks",
+    .llvm_name = "fast-vector-shift-masks",
     .description = "Prefer a left/right vector logical shift pair over a shift+and pair",
     .dependencies = &[_]*const Feature {
     },
@@ -328,6 +372,7 @@ pub const feature_fastVectorShiftMasks = Feature{
 
 pub const feature_gfni = Feature{
     .name = "gfni",
+    .llvm_name = "gfni",
     .description = "Enable Galois Field Arithmetic Instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -336,6 +381,7 @@ pub const feature_gfni = Feature{
 
 pub const feature_fastGather = Feature{
     .name = "fast-gather",
+    .llvm_name = "fast-gather",
     .description = "Indicates if gather is reasonably fast",
     .dependencies = &[_]*const Feature {
     },
@@ -343,6 +389,7 @@ pub const feature_fastGather = Feature{
 
 pub const feature_avx512ifma = Feature{
     .name = "avx512ifma",
+    .llvm_name = "avx512ifma",
     .description = "Enable AVX-512 Integer Fused Multiple-Add",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -351,6 +398,7 @@ pub const feature_avx512ifma = Feature{
 
 pub const feature_invpcid = Feature{
     .name = "invpcid",
+    .llvm_name = "invpcid",
     .description = "Invalidate Process-Context Identifier",
     .dependencies = &[_]*const Feature {
     },
@@ -358,6 +406,7 @@ pub const feature_invpcid = Feature{
 
 pub const feature_sahf = Feature{
     .name = "sahf",
+    .llvm_name = "sahf",
     .description = "Support LAHF and SAHF instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -365,6 +414,7 @@ pub const feature_sahf = Feature{
 
 pub const feature_leaSp = Feature{
     .name = "lea-sp",
+    .llvm_name = "lea-sp",
     .description = "Use LEA for adjusting the stack pointer",
     .dependencies = &[_]*const Feature {
     },
@@ -372,6 +422,7 @@ pub const feature_leaSp = Feature{
 
 pub const feature_leaUsesAg = Feature{
     .name = "lea-uses-ag",
+    .llvm_name = "lea-uses-ag",
     .description = "LEA instruction needs inputs at AG stage",
     .dependencies = &[_]*const Feature {
     },
@@ -379,6 +430,7 @@ pub const feature_leaUsesAg = Feature{
 
 pub const feature_lwp = Feature{
     .name = "lwp",
+    .llvm_name = "lwp",
     .description = "Enable LWP instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -386,6 +438,7 @@ pub const feature_lwp = Feature{
 
 pub const feature_lzcnt = Feature{
     .name = "lzcnt",
+    .llvm_name = "lzcnt",
     .description = "Support LZCNT instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -393,6 +446,7 @@ pub const feature_lzcnt = Feature{
 
 pub const feature_falseDepsLzcntTzcnt = Feature{
     .name = "false-deps-lzcnt-tzcnt",
+    .llvm_name = "false-deps-lzcnt-tzcnt",
     .description = "LZCNT/TZCNT have a false dependency on dest register",
     .dependencies = &[_]*const Feature {
     },
@@ -400,6 +454,7 @@ pub const feature_falseDepsLzcntTzcnt = Feature{
 
 pub const feature_mmx = Feature{
     .name = "mmx",
+    .llvm_name = "mmx",
     .description = "Enable MMX instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -407,6 +462,7 @@ pub const feature_mmx = Feature{
 
 pub const feature_movbe = Feature{
     .name = "movbe",
+    .llvm_name = "movbe",
     .description = "Support MOVBE instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -414,6 +470,7 @@ pub const feature_movbe = Feature{
 
 pub const feature_movdir64b = Feature{
     .name = "movdir64b",
+    .llvm_name = "movdir64b",
     .description = "Support movdir64b instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -421,6 +478,7 @@ pub const feature_movdir64b = Feature{
 
 pub const feature_movdiri = Feature{
     .name = "movdiri",
+    .llvm_name = "movdiri",
     .description = "Support movdiri instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -428,6 +486,7 @@ pub const feature_movdiri = Feature{
 
 pub const feature_mwaitx = Feature{
     .name = "mwaitx",
+    .llvm_name = "mwaitx",
     .description = "Enable MONITORX/MWAITX timer functionality",
     .dependencies = &[_]*const Feature {
     },
@@ -435,6 +494,7 @@ pub const feature_mwaitx = Feature{
 
 pub const feature_macrofusion = Feature{
     .name = "macrofusion",
+    .llvm_name = "macrofusion",
     .description = "Various instructions can be fused with conditional branches",
     .dependencies = &[_]*const Feature {
     },
@@ -442,6 +502,7 @@ pub const feature_macrofusion = Feature{
 
 pub const feature_mergeToThreewayBranch = Feature{
     .name = "merge-to-threeway-branch",
+    .llvm_name = "merge-to-threeway-branch",
     .description = "Merge branches to a three-way conditional branch",
     .dependencies = &[_]*const Feature {
     },
@@ -449,6 +510,7 @@ pub const feature_mergeToThreewayBranch = Feature{
 
 pub const feature_nopl = Feature{
     .name = "nopl",
+    .llvm_name = "nopl",
     .description = "Enable NOPL instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -456,6 +518,7 @@ pub const feature_nopl = Feature{
 
 pub const feature_pclmul = Feature{
     .name = "pclmul",
+    .llvm_name = "pclmul",
     .description = "Enable packed carry-less multiplication instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -464,6 +527,7 @@ pub const feature_pclmul = Feature{
 
 pub const feature_pconfig = Feature{
     .name = "pconfig",
+    .llvm_name = "pconfig",
     .description = "platform configuration instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -471,6 +535,7 @@ pub const feature_pconfig = Feature{
 
 pub const feature_avx512pf = Feature{
     .name = "avx512pf",
+    .llvm_name = "avx512pf",
     .description = "Enable AVX-512 PreFetch Instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -479,6 +544,7 @@ pub const feature_avx512pf = Feature{
 
 pub const feature_pku = Feature{
     .name = "pku",
+    .llvm_name = "pku",
     .description = "Enable protection keys",
     .dependencies = &[_]*const Feature {
     },
@@ -486,6 +552,7 @@ pub const feature_pku = Feature{
 
 pub const feature_popcnt = Feature{
     .name = "popcnt",
+    .llvm_name = "popcnt",
     .description = "Support POPCNT instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -493,6 +560,7 @@ pub const feature_popcnt = Feature{
 
 pub const feature_falseDepsPopcnt = Feature{
     .name = "false-deps-popcnt",
+    .llvm_name = "false-deps-popcnt",
     .description = "POPCNT has a false dependency on dest register",
     .dependencies = &[_]*const Feature {
     },
@@ -500,6 +568,7 @@ pub const feature_falseDepsPopcnt = Feature{
 
 pub const feature_prefetchwt1 = Feature{
     .name = "prefetchwt1",
+    .llvm_name = "prefetchwt1",
     .description = "Prefetch with Intent to Write and T1 Hint",
     .dependencies = &[_]*const Feature {
     },
@@ -507,6 +576,7 @@ pub const feature_prefetchwt1 = Feature{
 
 pub const feature_prfchw = Feature{
     .name = "prfchw",
+    .llvm_name = "prfchw",
     .description = "Support PRFCHW instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -514,6 +584,7 @@ pub const feature_prfchw = Feature{
 
 pub const feature_ptwrite = Feature{
     .name = "ptwrite",
+    .llvm_name = "ptwrite",
     .description = "Support ptwrite instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -521,6 +592,7 @@ pub const feature_ptwrite = Feature{
 
 pub const feature_padShortFunctions = Feature{
     .name = "pad-short-functions",
+    .llvm_name = "pad-short-functions",
     .description = "Pad short functions",
     .dependencies = &[_]*const Feature {
     },
@@ -528,6 +600,7 @@ pub const feature_padShortFunctions = Feature{
 
 pub const feature_prefer128Bit = Feature{
     .name = "prefer-128-bit",
+    .llvm_name = "prefer-128-bit",
     .description = "Prefer 128-bit AVX instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -535,6 +608,7 @@ pub const feature_prefer128Bit = Feature{
 
 pub const feature_prefer256Bit = Feature{
     .name = "prefer-256-bit",
+    .llvm_name = "prefer-256-bit",
     .description = "Prefer 256-bit AVX instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -542,6 +616,7 @@ pub const feature_prefer256Bit = Feature{
 
 pub const feature_rdpid = Feature{
     .name = "rdpid",
+    .llvm_name = "rdpid",
     .description = "Support RDPID instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -549,6 +624,7 @@ pub const feature_rdpid = Feature{
 
 pub const feature_rdrnd = Feature{
     .name = "rdrnd",
+    .llvm_name = "rdrnd",
     .description = "Support RDRAND instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -556,6 +632,7 @@ pub const feature_rdrnd = Feature{
 
 pub const feature_rdseed = Feature{
     .name = "rdseed",
+    .llvm_name = "rdseed",
     .description = "Support RDSEED instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -563,6 +640,7 @@ pub const feature_rdseed = Feature{
 
 pub const feature_rtm = Feature{
     .name = "rtm",
+    .llvm_name = "rtm",
     .description = "Support RTM instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -570,6 +648,7 @@ pub const feature_rtm = Feature{
 
 pub const feature_retpoline = Feature{
     .name = "retpoline",
+    .llvm_name = "retpoline",
     .description = "Remove speculation of indirect branches from the generated code, either by avoiding them entirely or lowering them with a speculation blocking construct",
     .dependencies = &[_]*const Feature {
         &feature_retpolineIndirectCalls,
@@ -579,6 +658,7 @@ pub const feature_retpoline = Feature{
 
 pub const feature_retpolineExternalThunk = Feature{
     .name = "retpoline-external-thunk",
+    .llvm_name = "retpoline-external-thunk",
     .description = "When lowering an indirect call or branch using a `retpoline`, rely on the specified user provided thunk rather than emitting one ourselves. Only has effect when combined with some other retpoline feature",
     .dependencies = &[_]*const Feature {
         &feature_retpolineIndirectCalls,
@@ -587,6 +667,7 @@ pub const feature_retpolineExternalThunk = Feature{
 
 pub const feature_retpolineIndirectBranches = Feature{
     .name = "retpoline-indirect-branches",
+    .llvm_name = "retpoline-indirect-branches",
     .description = "Remove speculation of indirect branches from the generated code",
     .dependencies = &[_]*const Feature {
     },
@@ -594,6 +675,7 @@ pub const feature_retpolineIndirectBranches = Feature{
 
 pub const feature_retpolineIndirectCalls = Feature{
     .name = "retpoline-indirect-calls",
+    .llvm_name = "retpoline-indirect-calls",
     .description = "Remove speculation of indirect calls from the generated code",
     .dependencies = &[_]*const Feature {
     },
@@ -601,6 +683,7 @@ pub const feature_retpolineIndirectCalls = Feature{
 
 pub const feature_sgx = Feature{
     .name = "sgx",
+    .llvm_name = "sgx",
     .description = "Enable Software Guard Extensions",
     .dependencies = &[_]*const Feature {
     },
@@ -608,6 +691,7 @@ pub const feature_sgx = Feature{
 
 pub const feature_sha = Feature{
     .name = "sha",
+    .llvm_name = "sha",
     .description = "Enable SHA instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -616,6 +700,7 @@ pub const feature_sha = Feature{
 
 pub const feature_shstk = Feature{
     .name = "shstk",
+    .llvm_name = "shstk",
     .description = "Support CET Shadow-Stack instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -623,6 +708,7 @@ pub const feature_shstk = Feature{
 
 pub const feature_sse = Feature{
     .name = "sse",
+    .llvm_name = "sse",
     .description = "Enable SSE instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -630,6 +716,7 @@ pub const feature_sse = Feature{
 
 pub const feature_sse2 = Feature{
     .name = "sse2",
+    .llvm_name = "sse2",
     .description = "Enable SSE2 instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -638,6 +725,7 @@ pub const feature_sse2 = Feature{
 
 pub const feature_sse3 = Feature{
     .name = "sse3",
+    .llvm_name = "sse3",
     .description = "Enable SSE3 instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -646,6 +734,7 @@ pub const feature_sse3 = Feature{
 
 pub const feature_sse4a = Feature{
     .name = "sse4a",
+    .llvm_name = "sse4a",
     .description = "Support SSE 4a instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -654,6 +743,7 @@ pub const feature_sse4a = Feature{
 
 pub const feature_sse41 = Feature{
     .name = "sse4.1",
+    .llvm_name = "sse4.1",
     .description = "Enable SSE 4.1 instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -662,6 +752,7 @@ pub const feature_sse41 = Feature{
 
 pub const feature_sse42 = Feature{
     .name = "sse4.2",
+    .llvm_name = "sse4.2",
     .description = "Enable SSE 4.2 instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -670,6 +761,7 @@ pub const feature_sse42 = Feature{
 
 pub const feature_sseUnalignedMem = Feature{
     .name = "sse-unaligned-mem",
+    .llvm_name = "sse-unaligned-mem",
     .description = "Allow unaligned memory operands with SSE instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -677,6 +769,7 @@ pub const feature_sseUnalignedMem = Feature{
 
 pub const feature_ssse3 = Feature{
     .name = "ssse3",
+    .llvm_name = "ssse3",
     .description = "Enable SSSE3 instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -685,6 +778,7 @@ pub const feature_ssse3 = Feature{
 
 pub const feature_slow3opsLea = Feature{
     .name = "slow-3ops-lea",
+    .llvm_name = "slow-3ops-lea",
     .description = "LEA instruction with 3 ops or certain registers is slow",
     .dependencies = &[_]*const Feature {
     },
@@ -692,6 +786,7 @@ pub const feature_slow3opsLea = Feature{
 
 pub const feature_idivlToDivb = Feature{
     .name = "idivl-to-divb",
+    .llvm_name = "idivl-to-divb",
     .description = "Use 8-bit divide for positive values less than 256",
     .dependencies = &[_]*const Feature {
     },
@@ -699,6 +794,7 @@ pub const feature_idivlToDivb = Feature{
 
 pub const feature_idivqToDivl = Feature{
     .name = "idivq-to-divl",
+    .llvm_name = "idivq-to-divl",
     .description = "Use 32-bit divide for positive values less than 2^32",
     .dependencies = &[_]*const Feature {
     },
@@ -706,6 +802,7 @@ pub const feature_idivqToDivl = Feature{
 
 pub const feature_slowIncdec = Feature{
     .name = "slow-incdec",
+    .llvm_name = "slow-incdec",
     .description = "INC and DEC instructions are slower than ADD and SUB",
     .dependencies = &[_]*const Feature {
     },
@@ -713,6 +810,7 @@ pub const feature_slowIncdec = Feature{
 
 pub const feature_slowLea = Feature{
     .name = "slow-lea",
+    .llvm_name = "slow-lea",
     .description = "LEA instruction with certain arguments is slow",
     .dependencies = &[_]*const Feature {
     },
@@ -720,6 +818,7 @@ pub const feature_slowLea = Feature{
 
 pub const feature_slowPmaddwd = Feature{
     .name = "slow-pmaddwd",
+    .llvm_name = "slow-pmaddwd",
     .description = "PMADDWD is slower than PMULLD",
     .dependencies = &[_]*const Feature {
     },
@@ -727,6 +826,7 @@ pub const feature_slowPmaddwd = Feature{
 
 pub const feature_slowPmulld = Feature{
     .name = "slow-pmulld",
+    .llvm_name = "slow-pmulld",
     .description = "PMULLD instruction is slow",
     .dependencies = &[_]*const Feature {
     },
@@ -734,6 +834,7 @@ pub const feature_slowPmulld = Feature{
 
 pub const feature_slowShld = Feature{
     .name = "slow-shld",
+    .llvm_name = "slow-shld",
     .description = "SHLD instruction is slow",
     .dependencies = &[_]*const Feature {
     },
@@ -741,6 +842,7 @@ pub const feature_slowShld = Feature{
 
 pub const feature_slowTwoMemOps = Feature{
     .name = "slow-two-mem-ops",
+    .llvm_name = "slow-two-mem-ops",
     .description = "Two memory operand instructions are slow",
     .dependencies = &[_]*const Feature {
     },
@@ -748,6 +850,7 @@ pub const feature_slowTwoMemOps = Feature{
 
 pub const feature_slowUnalignedMem16 = Feature{
     .name = "slow-unaligned-mem-16",
+    .llvm_name = "slow-unaligned-mem-16",
     .description = "Slow unaligned 16-byte memory access",
     .dependencies = &[_]*const Feature {
     },
@@ -755,6 +858,7 @@ pub const feature_slowUnalignedMem16 = Feature{
 
 pub const feature_slowUnalignedMem32 = Feature{
     .name = "slow-unaligned-mem-32",
+    .llvm_name = "slow-unaligned-mem-32",
     .description = "Slow unaligned 32-byte memory access",
     .dependencies = &[_]*const Feature {
     },
@@ -762,6 +866,7 @@ pub const feature_slowUnalignedMem32 = Feature{
 
 pub const feature_softFloat = Feature{
     .name = "soft-float",
+    .llvm_name = "soft-float",
     .description = "Use software floating point features",
     .dependencies = &[_]*const Feature {
     },
@@ -769,6 +874,7 @@ pub const feature_softFloat = Feature{
 
 pub const feature_tbm = Feature{
     .name = "tbm",
+    .llvm_name = "tbm",
     .description = "Enable TBM instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -776,6 +882,7 @@ pub const feature_tbm = Feature{
 
 pub const feature_useAa = Feature{
     .name = "use-aa",
+    .llvm_name = "use-aa",
     .description = "Use alias analysis during codegen",
     .dependencies = &[_]*const Feature {
     },
@@ -783,6 +890,7 @@ pub const feature_useAa = Feature{
 
 pub const feature_vaes = Feature{
     .name = "vaes",
+    .llvm_name = "vaes",
     .description = "Promote selected AES instructions to AVX512/AVX registers",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -791,6 +899,7 @@ pub const feature_vaes = Feature{
 
 pub const feature_avx512vbmi = Feature{
     .name = "avx512vbmi",
+    .llvm_name = "avx512vbmi",
     .description = "Enable AVX-512 Vector Byte Manipulation Instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -799,6 +908,7 @@ pub const feature_avx512vbmi = Feature{
 
 pub const feature_avx512vbmi2 = Feature{
     .name = "avx512vbmi2",
+    .llvm_name = "avx512vbmi2",
     .description = "Enable AVX-512 further Vector Byte Manipulation Instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -807,6 +917,7 @@ pub const feature_avx512vbmi2 = Feature{
 
 pub const feature_avx512vl = Feature{
     .name = "avx512vl",
+    .llvm_name = "avx512vl",
     .description = "Enable AVX-512 Vector Length eXtensions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -815,6 +926,7 @@ pub const feature_avx512vl = Feature{
 
 pub const feature_avx512vnni = Feature{
     .name = "avx512vnni",
+    .llvm_name = "avx512vnni",
     .description = "Enable AVX-512 Vector Neural Network Instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -823,6 +935,7 @@ pub const feature_avx512vnni = Feature{
 
 pub const feature_avx512vp2intersect = Feature{
     .name = "avx512vp2intersect",
+    .llvm_name = "avx512vp2intersect",
     .description = "Enable AVX-512 vp2intersect",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -831,6 +944,7 @@ pub const feature_avx512vp2intersect = Feature{
 
 pub const feature_vpclmulqdq = Feature{
     .name = "vpclmulqdq",
+    .llvm_name = "vpclmulqdq",
     .description = "Enable vpclmulqdq instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -839,6 +953,7 @@ pub const feature_vpclmulqdq = Feature{
 
 pub const feature_avx512vpopcntdq = Feature{
     .name = "avx512vpopcntdq",
+    .llvm_name = "avx512vpopcntdq",
     .description = "Enable AVX-512 Population Count Instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -847,6 +962,7 @@ pub const feature_avx512vpopcntdq = Feature{
 
 pub const feature_waitpkg = Feature{
     .name = "waitpkg",
+    .llvm_name = "waitpkg",
     .description = "Wait and pause enhancements",
     .dependencies = &[_]*const Feature {
     },
@@ -854,6 +970,7 @@ pub const feature_waitpkg = Feature{
 
 pub const feature_wbnoinvd = Feature{
     .name = "wbnoinvd",
+    .llvm_name = "wbnoinvd",
     .description = "Write Back No Invalidate",
     .dependencies = &[_]*const Feature {
     },
@@ -861,6 +978,7 @@ pub const feature_wbnoinvd = Feature{
 
 pub const feature_x87 = Feature{
     .name = "x87",
+    .llvm_name = "x87",
     .description = "Enable X87 float instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -868,6 +986,7 @@ pub const feature_x87 = Feature{
 
 pub const feature_xop = Feature{
     .name = "xop",
+    .llvm_name = "xop",
     .description = "Enable XOP instructions",
     .dependencies = &[_]*const Feature {
         &feature_sse,
@@ -876,6 +995,7 @@ pub const feature_xop = Feature{
 
 pub const feature_xsave = Feature{
     .name = "xsave",
+    .llvm_name = "xsave",
     .description = "Support xsave instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -883,6 +1003,7 @@ pub const feature_xsave = Feature{
 
 pub const feature_xsavec = Feature{
     .name = "xsavec",
+    .llvm_name = "xsavec",
     .description = "Support xsavec instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -890,6 +1011,7 @@ pub const feature_xsavec = Feature{
 
 pub const feature_xsaveopt = Feature{
     .name = "xsaveopt",
+    .llvm_name = "xsaveopt",
     .description = "Support xsaveopt instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -897,6 +1019,7 @@ pub const feature_xsaveopt = Feature{
 
 pub const feature_xsaves = Feature{
     .name = "xsaves",
+    .llvm_name = "xsaves",
     .description = "Support xsaves instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -904,6 +1027,7 @@ pub const feature_xsaves = Feature{
 
 pub const feature_bitMode16 = Feature{
     .name = "16bit-mode",
+    .llvm_name = "16bit-mode",
     .description = "16-bit mode (i8086)",
     .dependencies = &[_]*const Feature {
     },
@@ -911,6 +1035,7 @@ pub const feature_bitMode16 = Feature{
 
 pub const feature_bitMode32 = Feature{
     .name = "32bit-mode",
+    .llvm_name = "32bit-mode",
     .description = "32-bit mode (80386)",
     .dependencies = &[_]*const Feature {
     },
@@ -918,6 +1043,7 @@ pub const feature_bitMode32 = Feature{
 
 pub const feature_bitMode64 = Feature{
     .name = "64bit-mode",
+    .llvm_name = "64bit-mode",
     .description = "64-bit mode (x86_64)",
     .dependencies = &[_]*const Feature {
     },
