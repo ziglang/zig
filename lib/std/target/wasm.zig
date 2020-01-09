@@ -3,6 +3,7 @@ const Cpu = @import("std").target.Cpu;
 
 pub const feature_atomics = Feature{
     .name = "atomics",
+    .llvm_name = "atomics",
     .description = "Enable Atomics",
     .dependencies = &[_]*const Feature {
     },
@@ -10,6 +11,7 @@ pub const feature_atomics = Feature{
 
 pub const feature_bulkMemory = Feature{
     .name = "bulk-memory",
+    .llvm_name = "bulk-memory",
     .description = "Enable bulk memory operations",
     .dependencies = &[_]*const Feature {
     },
@@ -17,6 +19,7 @@ pub const feature_bulkMemory = Feature{
 
 pub const feature_exceptionHandling = Feature{
     .name = "exception-handling",
+    .llvm_name = "exception-handling",
     .description = "Enable Wasm exception handling",
     .dependencies = &[_]*const Feature {
     },
@@ -24,6 +27,7 @@ pub const feature_exceptionHandling = Feature{
 
 pub const feature_multivalue = Feature{
     .name = "multivalue",
+    .llvm_name = "multivalue",
     .description = "Enable multivalue blocks, instructions, and functions",
     .dependencies = &[_]*const Feature {
     },
@@ -31,6 +35,7 @@ pub const feature_multivalue = Feature{
 
 pub const feature_mutableGlobals = Feature{
     .name = "mutable-globals",
+    .llvm_name = "mutable-globals",
     .description = "Enable mutable globals",
     .dependencies = &[_]*const Feature {
     },
@@ -38,6 +43,7 @@ pub const feature_mutableGlobals = Feature{
 
 pub const feature_nontrappingFptoint = Feature{
     .name = "nontrapping-fptoint",
+    .llvm_name = "nontrapping-fptoint",
     .description = "Enable non-trapping float-to-int conversion operators",
     .dependencies = &[_]*const Feature {
     },
@@ -45,6 +51,7 @@ pub const feature_nontrappingFptoint = Feature{
 
 pub const feature_simd128 = Feature{
     .name = "simd128",
+    .llvm_name = "simd128",
     .description = "Enable 128-bit SIMD",
     .dependencies = &[_]*const Feature {
     },
@@ -52,6 +59,7 @@ pub const feature_simd128 = Feature{
 
 pub const feature_signExt = Feature{
     .name = "sign-ext",
+    .llvm_name = "sign-ext",
     .description = "Enable sign extension operators",
     .dependencies = &[_]*const Feature {
     },
@@ -59,6 +67,7 @@ pub const feature_signExt = Feature{
 
 pub const feature_tailCall = Feature{
     .name = "tail-call",
+    .llvm_name = "tail-call",
     .description = "Enable tail call instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -66,6 +75,7 @@ pub const feature_tailCall = Feature{
 
 pub const feature_unimplementedSimd128 = Feature{
     .name = "unimplemented-simd128",
+    .llvm_name = "unimplemented-simd128",
     .description = "Enable 128-bit SIMD not yet implemented in engines",
     .dependencies = &[_]*const Feature {
         &feature_simd128,

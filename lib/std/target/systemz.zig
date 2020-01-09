@@ -3,6 +3,7 @@ const Cpu = @import("std").target.Cpu;
 
 pub const feature_dfpPackedConversion = Feature{
     .name = "dfp-packed-conversion",
+    .llvm_name = "dfp-packed-conversion",
     .description = "Assume that the DFP packed-conversion facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -10,6 +11,7 @@ pub const feature_dfpPackedConversion = Feature{
 
 pub const feature_dfpZonedConversion = Feature{
     .name = "dfp-zoned-conversion",
+    .llvm_name = "dfp-zoned-conversion",
     .description = "Assume that the DFP zoned-conversion facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -17,6 +19,7 @@ pub const feature_dfpZonedConversion = Feature{
 
 pub const feature_deflateConversion = Feature{
     .name = "deflate-conversion",
+    .llvm_name = "deflate-conversion",
     .description = "Assume that the deflate-conversion facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -24,6 +27,7 @@ pub const feature_deflateConversion = Feature{
 
 pub const feature_distinctOps = Feature{
     .name = "distinct-ops",
+    .llvm_name = "distinct-ops",
     .description = "Assume that the distinct-operands facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -31,6 +35,7 @@ pub const feature_distinctOps = Feature{
 
 pub const feature_enhancedDat2 = Feature{
     .name = "enhanced-dat-2",
+    .llvm_name = "enhanced-dat-2",
     .description = "Assume that the enhanced-DAT facility 2 is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -38,6 +43,7 @@ pub const feature_enhancedDat2 = Feature{
 
 pub const feature_enhancedSort = Feature{
     .name = "enhanced-sort",
+    .llvm_name = "enhanced-sort",
     .description = "Assume that the enhanced-sort facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -45,6 +51,7 @@ pub const feature_enhancedSort = Feature{
 
 pub const feature_executionHint = Feature{
     .name = "execution-hint",
+    .llvm_name = "execution-hint",
     .description = "Assume that the execution-hint facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -52,6 +59,7 @@ pub const feature_executionHint = Feature{
 
 pub const feature_fpExtension = Feature{
     .name = "fp-extension",
+    .llvm_name = "fp-extension",
     .description = "Assume that the floating-point extension facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -59,6 +67,7 @@ pub const feature_fpExtension = Feature{
 
 pub const feature_fastSerialization = Feature{
     .name = "fast-serialization",
+    .llvm_name = "fast-serialization",
     .description = "Assume that the fast-serialization facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -66,6 +75,7 @@ pub const feature_fastSerialization = Feature{
 
 pub const feature_guardedStorage = Feature{
     .name = "guarded-storage",
+    .llvm_name = "guarded-storage",
     .description = "Assume that the guarded-storage facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -73,6 +83,7 @@ pub const feature_guardedStorage = Feature{
 
 pub const feature_highWord = Feature{
     .name = "high-word",
+    .llvm_name = "high-word",
     .description = "Assume that the high-word facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -80,6 +91,7 @@ pub const feature_highWord = Feature{
 
 pub const feature_insertReferenceBitsMultiple = Feature{
     .name = "insert-reference-bits-multiple",
+    .llvm_name = "insert-reference-bits-multiple",
     .description = "Assume that the insert-reference-bits-multiple facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -87,6 +99,7 @@ pub const feature_insertReferenceBitsMultiple = Feature{
 
 pub const feature_interlockedAccess1 = Feature{
     .name = "interlocked-access1",
+    .llvm_name = "interlocked-access1",
     .description = "Assume that interlocked-access facility 1 is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -94,6 +107,7 @@ pub const feature_interlockedAccess1 = Feature{
 
 pub const feature_loadAndTrap = Feature{
     .name = "load-and-trap",
+    .llvm_name = "load-and-trap",
     .description = "Assume that the load-and-trap facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -101,6 +115,7 @@ pub const feature_loadAndTrap = Feature{
 
 pub const feature_loadAndZeroRightmostByte = Feature{
     .name = "load-and-zero-rightmost-byte",
+    .llvm_name = "load-and-zero-rightmost-byte",
     .description = "Assume that the load-and-zero-rightmost-byte facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -108,6 +123,7 @@ pub const feature_loadAndZeroRightmostByte = Feature{
 
 pub const feature_loadStoreOnCond = Feature{
     .name = "load-store-on-cond",
+    .llvm_name = "load-store-on-cond",
     .description = "Assume that the load/store-on-condition facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -115,6 +131,7 @@ pub const feature_loadStoreOnCond = Feature{
 
 pub const feature_loadStoreOnCond2 = Feature{
     .name = "load-store-on-cond-2",
+    .llvm_name = "load-store-on-cond-2",
     .description = "Assume that the load/store-on-condition facility 2 is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -122,6 +139,7 @@ pub const feature_loadStoreOnCond2 = Feature{
 
 pub const feature_messageSecurityAssistExtension3 = Feature{
     .name = "message-security-assist-extension3",
+    .llvm_name = "message-security-assist-extension3",
     .description = "Assume that the message-security-assist extension facility 3 is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -129,6 +147,7 @@ pub const feature_messageSecurityAssistExtension3 = Feature{
 
 pub const feature_messageSecurityAssistExtension4 = Feature{
     .name = "message-security-assist-extension4",
+    .llvm_name = "message-security-assist-extension4",
     .description = "Assume that the message-security-assist extension facility 4 is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -136,6 +155,7 @@ pub const feature_messageSecurityAssistExtension4 = Feature{
 
 pub const feature_messageSecurityAssistExtension5 = Feature{
     .name = "message-security-assist-extension5",
+    .llvm_name = "message-security-assist-extension5",
     .description = "Assume that the message-security-assist extension facility 5 is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -143,6 +163,7 @@ pub const feature_messageSecurityAssistExtension5 = Feature{
 
 pub const feature_messageSecurityAssistExtension7 = Feature{
     .name = "message-security-assist-extension7",
+    .llvm_name = "message-security-assist-extension7",
     .description = "Assume that the message-security-assist extension facility 7 is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -150,6 +171,7 @@ pub const feature_messageSecurityAssistExtension7 = Feature{
 
 pub const feature_messageSecurityAssistExtension8 = Feature{
     .name = "message-security-assist-extension8",
+    .llvm_name = "message-security-assist-extension8",
     .description = "Assume that the message-security-assist extension facility 8 is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -157,6 +179,7 @@ pub const feature_messageSecurityAssistExtension8 = Feature{
 
 pub const feature_messageSecurityAssistExtension9 = Feature{
     .name = "message-security-assist-extension9",
+    .llvm_name = "message-security-assist-extension9",
     .description = "Assume that the message-security-assist extension facility 9 is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -164,6 +187,7 @@ pub const feature_messageSecurityAssistExtension9 = Feature{
 
 pub const feature_miscellaneousExtensions = Feature{
     .name = "miscellaneous-extensions",
+    .llvm_name = "miscellaneous-extensions",
     .description = "Assume that the miscellaneous-extensions facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -171,6 +195,7 @@ pub const feature_miscellaneousExtensions = Feature{
 
 pub const feature_miscellaneousExtensions2 = Feature{
     .name = "miscellaneous-extensions-2",
+    .llvm_name = "miscellaneous-extensions-2",
     .description = "Assume that the miscellaneous-extensions facility 2 is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -178,6 +203,7 @@ pub const feature_miscellaneousExtensions2 = Feature{
 
 pub const feature_miscellaneousExtensions3 = Feature{
     .name = "miscellaneous-extensions-3",
+    .llvm_name = "miscellaneous-extensions-3",
     .description = "Assume that the miscellaneous-extensions facility 3 is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -185,6 +211,7 @@ pub const feature_miscellaneousExtensions3 = Feature{
 
 pub const feature_populationCount = Feature{
     .name = "population-count",
+    .llvm_name = "population-count",
     .description = "Assume that the population-count facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -192,6 +219,7 @@ pub const feature_populationCount = Feature{
 
 pub const feature_processorAssist = Feature{
     .name = "processor-assist",
+    .llvm_name = "processor-assist",
     .description = "Assume that the processor-assist facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -199,6 +227,7 @@ pub const feature_processorAssist = Feature{
 
 pub const feature_resetReferenceBitsMultiple = Feature{
     .name = "reset-reference-bits-multiple",
+    .llvm_name = "reset-reference-bits-multiple",
     .description = "Assume that the reset-reference-bits-multiple facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -206,6 +235,7 @@ pub const feature_resetReferenceBitsMultiple = Feature{
 
 pub const feature_transactionalExecution = Feature{
     .name = "transactional-execution",
+    .llvm_name = "transactional-execution",
     .description = "Assume that the transactional-execution facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -213,6 +243,7 @@ pub const feature_transactionalExecution = Feature{
 
 pub const feature_vector = Feature{
     .name = "vector",
+    .llvm_name = "vector",
     .description = "Assume that the vectory facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -220,6 +251,7 @@ pub const feature_vector = Feature{
 
 pub const feature_vectorEnhancements1 = Feature{
     .name = "vector-enhancements-1",
+    .llvm_name = "vector-enhancements-1",
     .description = "Assume that the vector enhancements facility 1 is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -227,6 +259,7 @@ pub const feature_vectorEnhancements1 = Feature{
 
 pub const feature_vectorEnhancements2 = Feature{
     .name = "vector-enhancements-2",
+    .llvm_name = "vector-enhancements-2",
     .description = "Assume that the vector enhancements facility 2 is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -234,6 +267,7 @@ pub const feature_vectorEnhancements2 = Feature{
 
 pub const feature_vectorPackedDecimal = Feature{
     .name = "vector-packed-decimal",
+    .llvm_name = "vector-packed-decimal",
     .description = "Assume that the vector packed decimal facility is installed",
     .dependencies = &[_]*const Feature {
     },
@@ -241,6 +275,7 @@ pub const feature_vectorPackedDecimal = Feature{
 
 pub const feature_vectorPackedDecimalEnhancement = Feature{
     .name = "vector-packed-decimal-enhancement",
+    .llvm_name = "vector-packed-decimal-enhancement",
     .description = "Assume that the vector packed decimal enhancement facility is installed",
     .dependencies = &[_]*const Feature {
     },

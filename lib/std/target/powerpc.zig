@@ -3,6 +3,7 @@ const Cpu = @import("std").target.Cpu;
 
 pub const feature_bit64 = Feature{
     .name = "64bit",
+    .llvm_name = "64bit",
     .description = "Enable 64-bit instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -10,6 +11,7 @@ pub const feature_bit64 = Feature{
 
 pub const feature_bitregs64 = Feature{
     .name = "64bitregs",
+    .llvm_name = "64bitregs",
     .description = "Enable 64-bit registers usage for ppc32 [beta]",
     .dependencies = &[_]*const Feature {
     },
@@ -17,6 +19,7 @@ pub const feature_bitregs64 = Feature{
 
 pub const feature_altivec = Feature{
     .name = "altivec",
+    .llvm_name = "altivec",
     .description = "Enable Altivec instructions",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -25,6 +28,7 @@ pub const feature_altivec = Feature{
 
 pub const feature_bpermd = Feature{
     .name = "bpermd",
+    .llvm_name = "bpermd",
     .description = "Enable the bpermd instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -32,6 +36,7 @@ pub const feature_bpermd = Feature{
 
 pub const feature_booke = Feature{
     .name = "booke",
+    .llvm_name = "booke",
     .description = "Enable Book E instructions",
     .dependencies = &[_]*const Feature {
         &feature_icbt,
@@ -40,6 +45,7 @@ pub const feature_booke = Feature{
 
 pub const feature_cmpb = Feature{
     .name = "cmpb",
+    .llvm_name = "cmpb",
     .description = "Enable the cmpb instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -47,6 +53,7 @@ pub const feature_cmpb = Feature{
 
 pub const feature_crbits = Feature{
     .name = "crbits",
+    .llvm_name = "crbits",
     .description = "Use condition-register bits individually",
     .dependencies = &[_]*const Feature {
     },
@@ -54,6 +61,7 @@ pub const feature_crbits = Feature{
 
 pub const feature_directMove = Feature{
     .name = "direct-move",
+    .llvm_name = "direct-move",
     .description = "Enable Power8 direct move instructions",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -62,6 +70,7 @@ pub const feature_directMove = Feature{
 
 pub const feature_e500 = Feature{
     .name = "e500",
+    .llvm_name = "e500",
     .description = "Enable E500/E500mc instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -69,6 +78,7 @@ pub const feature_e500 = Feature{
 
 pub const feature_extdiv = Feature{
     .name = "extdiv",
+    .llvm_name = "extdiv",
     .description = "Enable extended divide instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -76,6 +86,7 @@ pub const feature_extdiv = Feature{
 
 pub const feature_fcpsgn = Feature{
     .name = "fcpsgn",
+    .llvm_name = "fcpsgn",
     .description = "Enable the fcpsgn instruction",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -84,6 +95,7 @@ pub const feature_fcpsgn = Feature{
 
 pub const feature_fpcvt = Feature{
     .name = "fpcvt",
+    .llvm_name = "fpcvt",
     .description = "Enable fc[ft]* (unsigned and single-precision) and lfiwzx instructions",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -92,6 +104,7 @@ pub const feature_fpcvt = Feature{
 
 pub const feature_fprnd = Feature{
     .name = "fprnd",
+    .llvm_name = "fprnd",
     .description = "Enable the fri[mnpz] instructions",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -100,6 +113,7 @@ pub const feature_fprnd = Feature{
 
 pub const feature_fpu = Feature{
     .name = "fpu",
+    .llvm_name = "fpu",
     .description = "Enable classic FPU instructions",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -108,6 +122,7 @@ pub const feature_fpu = Feature{
 
 pub const feature_fre = Feature{
     .name = "fre",
+    .llvm_name = "fre",
     .description = "Enable the fre instruction",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -116,6 +131,7 @@ pub const feature_fre = Feature{
 
 pub const feature_fres = Feature{
     .name = "fres",
+    .llvm_name = "fres",
     .description = "Enable the fres instruction",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -124,6 +140,7 @@ pub const feature_fres = Feature{
 
 pub const feature_frsqrte = Feature{
     .name = "frsqrte",
+    .llvm_name = "frsqrte",
     .description = "Enable the frsqrte instruction",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -132,6 +149,7 @@ pub const feature_frsqrte = Feature{
 
 pub const feature_frsqrtes = Feature{
     .name = "frsqrtes",
+    .llvm_name = "frsqrtes",
     .description = "Enable the frsqrtes instruction",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -140,6 +158,7 @@ pub const feature_frsqrtes = Feature{
 
 pub const feature_fsqrt = Feature{
     .name = "fsqrt",
+    .llvm_name = "fsqrt",
     .description = "Enable the fsqrt instruction",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -148,6 +167,7 @@ pub const feature_fsqrt = Feature{
 
 pub const feature_float128 = Feature{
     .name = "float128",
+    .llvm_name = "float128",
     .description = "Enable the __float128 data type for IEEE-754R Binary128.",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -156,6 +176,7 @@ pub const feature_float128 = Feature{
 
 pub const feature_htm = Feature{
     .name = "htm",
+    .llvm_name = "htm",
     .description = "Enable Hardware Transactional Memory instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -163,6 +184,7 @@ pub const feature_htm = Feature{
 
 pub const feature_hardFloat = Feature{
     .name = "hard-float",
+    .llvm_name = "hard-float",
     .description = "Enable floating-point instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -170,6 +192,7 @@ pub const feature_hardFloat = Feature{
 
 pub const feature_icbt = Feature{
     .name = "icbt",
+    .llvm_name = "icbt",
     .description = "Enable icbt instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -177,6 +200,7 @@ pub const feature_icbt = Feature{
 
 pub const feature_isaV30Instructions = Feature{
     .name = "isa-v30-instructions",
+    .llvm_name = "isa-v30-instructions",
     .description = "Enable instructions added in ISA 3.0.",
     .dependencies = &[_]*const Feature {
     },
@@ -184,6 +208,7 @@ pub const feature_isaV30Instructions = Feature{
 
 pub const feature_isel = Feature{
     .name = "isel",
+    .llvm_name = "isel",
     .description = "Enable the isel instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -191,6 +216,7 @@ pub const feature_isel = Feature{
 
 pub const feature_invariantFunctionDescriptors = Feature{
     .name = "invariant-function-descriptors",
+    .llvm_name = "invariant-function-descriptors",
     .description = "Assume function descriptors are invariant",
     .dependencies = &[_]*const Feature {
     },
@@ -198,6 +224,7 @@ pub const feature_invariantFunctionDescriptors = Feature{
 
 pub const feature_ldbrx = Feature{
     .name = "ldbrx",
+    .llvm_name = "ldbrx",
     .description = "Enable the ldbrx instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -205,6 +232,7 @@ pub const feature_ldbrx = Feature{
 
 pub const feature_lfiwax = Feature{
     .name = "lfiwax",
+    .llvm_name = "lfiwax",
     .description = "Enable the lfiwax instruction",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -213,6 +241,7 @@ pub const feature_lfiwax = Feature{
 
 pub const feature_longcall = Feature{
     .name = "longcall",
+    .llvm_name = "longcall",
     .description = "Always use indirect calls",
     .dependencies = &[_]*const Feature {
     },
@@ -220,6 +249,7 @@ pub const feature_longcall = Feature{
 
 pub const feature_mfocrf = Feature{
     .name = "mfocrf",
+    .llvm_name = "mfocrf",
     .description = "Enable the MFOCRF instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -227,6 +257,7 @@ pub const feature_mfocrf = Feature{
 
 pub const feature_msync = Feature{
     .name = "msync",
+    .llvm_name = "msync",
     .description = "Has only the msync instruction instead of sync",
     .dependencies = &[_]*const Feature {
         &feature_icbt,
@@ -235,6 +266,7 @@ pub const feature_msync = Feature{
 
 pub const feature_power8Altivec = Feature{
     .name = "power8-altivec",
+    .llvm_name = "power8-altivec",
     .description = "Enable POWER8 Altivec instructions",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -243,6 +275,7 @@ pub const feature_power8Altivec = Feature{
 
 pub const feature_crypto = Feature{
     .name = "crypto",
+    .llvm_name = "crypto",
     .description = "Enable POWER8 Crypto instructions",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -251,6 +284,7 @@ pub const feature_crypto = Feature{
 
 pub const feature_power8Vector = Feature{
     .name = "power8-vector",
+    .llvm_name = "power8-vector",
     .description = "Enable POWER8 vector instructions",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -259,24 +293,27 @@ pub const feature_power8Vector = Feature{
 
 pub const feature_power9Altivec = Feature{
     .name = "power9-altivec",
+    .llvm_name = "power9-altivec",
     .description = "Enable POWER9 Altivec instructions",
     .dependencies = &[_]*const Feature {
-        &feature_isaV30Instructions,
         &feature_hardFloat,
+        &feature_isaV30Instructions,
     },
 };
 
 pub const feature_power9Vector = Feature{
     .name = "power9-vector",
+    .llvm_name = "power9-vector",
     .description = "Enable POWER9 vector instructions",
     .dependencies = &[_]*const Feature {
-        &feature_isaV30Instructions,
         &feature_hardFloat,
+        &feature_isaV30Instructions,
     },
 };
 
 pub const feature_popcntd = Feature{
     .name = "popcntd",
+    .llvm_name = "popcntd",
     .description = "Enable the popcnt[dw] instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -284,6 +321,7 @@ pub const feature_popcntd = Feature{
 
 pub const feature_ppc4xx = Feature{
     .name = "ppc4xx",
+    .llvm_name = "ppc4xx",
     .description = "Enable PPC 4xx instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -291,6 +329,7 @@ pub const feature_ppc4xx = Feature{
 
 pub const feature_ppc6xx = Feature{
     .name = "ppc6xx",
+    .llvm_name = "ppc6xx",
     .description = "Enable PPC 6xx instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -298,6 +337,7 @@ pub const feature_ppc6xx = Feature{
 
 pub const feature_ppcPostraSched = Feature{
     .name = "ppc-postra-sched",
+    .llvm_name = "ppc-postra-sched",
     .description = "Use PowerPC post-RA scheduling strategy",
     .dependencies = &[_]*const Feature {
     },
@@ -305,6 +345,7 @@ pub const feature_ppcPostraSched = Feature{
 
 pub const feature_ppcPreraSched = Feature{
     .name = "ppc-prera-sched",
+    .llvm_name = "ppc-prera-sched",
     .description = "Use PowerPC pre-RA scheduling strategy",
     .dependencies = &[_]*const Feature {
     },
@@ -312,6 +353,7 @@ pub const feature_ppcPreraSched = Feature{
 
 pub const feature_partwordAtomics = Feature{
     .name = "partword-atomics",
+    .llvm_name = "partword-atomics",
     .description = "Enable l[bh]arx and st[bh]cx.",
     .dependencies = &[_]*const Feature {
     },
@@ -319,6 +361,7 @@ pub const feature_partwordAtomics = Feature{
 
 pub const feature_qpx = Feature{
     .name = "qpx",
+    .llvm_name = "qpx",
     .description = "Enable QPX instructions",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -327,6 +370,7 @@ pub const feature_qpx = Feature{
 
 pub const feature_recipprec = Feature{
     .name = "recipprec",
+    .llvm_name = "recipprec",
     .description = "Assume higher precision reciprocal estimates",
     .dependencies = &[_]*const Feature {
     },
@@ -334,6 +378,7 @@ pub const feature_recipprec = Feature{
 
 pub const feature_spe = Feature{
     .name = "spe",
+    .llvm_name = "spe",
     .description = "Enable SPE instructions",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -342,6 +387,7 @@ pub const feature_spe = Feature{
 
 pub const feature_stfiwx = Feature{
     .name = "stfiwx",
+    .llvm_name = "stfiwx",
     .description = "Enable the stfiwx instruction",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -350,6 +396,7 @@ pub const feature_stfiwx = Feature{
 
 pub const feature_securePlt = Feature{
     .name = "secure-plt",
+    .llvm_name = "secure-plt",
     .description = "Enable secure plt mode",
     .dependencies = &[_]*const Feature {
     },
@@ -357,6 +404,7 @@ pub const feature_securePlt = Feature{
 
 pub const feature_slowPopcntd = Feature{
     .name = "slow-popcntd",
+    .llvm_name = "slow-popcntd",
     .description = "Has slow popcnt[dw] instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -364,6 +412,7 @@ pub const feature_slowPopcntd = Feature{
 
 pub const feature_twoConstNr = Feature{
     .name = "two-const-nr",
+    .llvm_name = "two-const-nr",
     .description = "Requires two constant Newton-Raphson computation",
     .dependencies = &[_]*const Feature {
     },
@@ -371,6 +420,7 @@ pub const feature_twoConstNr = Feature{
 
 pub const feature_vsx = Feature{
     .name = "vsx",
+    .llvm_name = "vsx",
     .description = "Enable VSX instructions",
     .dependencies = &[_]*const Feature {
         &feature_hardFloat,
@@ -379,6 +429,7 @@ pub const feature_vsx = Feature{
 
 pub const feature_vectorsUseTwoUnits = Feature{
     .name = "vectors-use-two-units",
+    .llvm_name = "vectors-use-two-units",
     .description = "Vectors use two units",
     .dependencies = &[_]*const Feature {
     },

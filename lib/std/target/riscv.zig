@@ -3,6 +3,7 @@ const Cpu = @import("std").target.Cpu;
 
 pub const feature_bit64 = Feature{
     .name = "64bit",
+    .llvm_name = "64bit",
     .description = "Implements RV64",
     .dependencies = &[_]*const Feature {
     },
@@ -10,6 +11,7 @@ pub const feature_bit64 = Feature{
 
 pub const feature_e = Feature{
     .name = "e",
+    .llvm_name = "e",
     .description = "Implements RV32E (provides 16 rather than 32 GPRs)",
     .dependencies = &[_]*const Feature {
     },
@@ -17,6 +19,7 @@ pub const feature_e = Feature{
 
 pub const feature_rvcHints = Feature{
     .name = "rvc-hints",
+    .llvm_name = "rvc-hints",
     .description = "Enable RVC Hint Instructions.",
     .dependencies = &[_]*const Feature {
     },
@@ -24,6 +27,7 @@ pub const feature_rvcHints = Feature{
 
 pub const feature_relax = Feature{
     .name = "relax",
+    .llvm_name = "relax",
     .description = "Enable Linker relaxation.",
     .dependencies = &[_]*const Feature {
     },
@@ -31,6 +35,7 @@ pub const feature_relax = Feature{
 
 pub const feature_a = Feature{
     .name = "a",
+    .llvm_name = "a",
     .description = "'A' (Atomic Instructions)",
     .dependencies = &[_]*const Feature {
     },
@@ -38,6 +43,7 @@ pub const feature_a = Feature{
 
 pub const feature_c = Feature{
     .name = "c",
+    .llvm_name = "c",
     .description = "'C' (Compressed Instructions)",
     .dependencies = &[_]*const Feature {
     },
@@ -45,6 +51,7 @@ pub const feature_c = Feature{
 
 pub const feature_d = Feature{
     .name = "d",
+    .llvm_name = "d",
     .description = "'D' (Double-Precision Floating-Point)",
     .dependencies = &[_]*const Feature {
         &feature_f,
@@ -53,6 +60,7 @@ pub const feature_d = Feature{
 
 pub const feature_f = Feature{
     .name = "f",
+    .llvm_name = "f",
     .description = "'F' (Single-Precision Floating-Point)",
     .dependencies = &[_]*const Feature {
     },
@@ -60,6 +68,7 @@ pub const feature_f = Feature{
 
 pub const feature_m = Feature{
     .name = "m",
+    .llvm_name = "m",
     .description = "'M' (Integer Multiplication and Division)",
     .dependencies = &[_]*const Feature {
     },

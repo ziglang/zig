@@ -3,6 +3,7 @@ const Cpu = @import("std").target.Cpu;
 
 pub const feature_msecext8 = Feature{
     .name = "8msecext",
+    .llvm_name = "8msecext",
     .description = "Enable support for ARMv8-M Security Extensions",
     .dependencies = &[_]*const Feature {
     },
@@ -10,6 +11,7 @@ pub const feature_msecext8 = Feature{
 
 pub const feature_aclass = Feature{
     .name = "aclass",
+    .llvm_name = "aclass",
     .description = "Is application profile ('A' series)",
     .dependencies = &[_]*const Feature {
     },
@@ -17,6 +19,7 @@ pub const feature_aclass = Feature{
 
 pub const feature_aes = Feature{
     .name = "aes",
+    .llvm_name = "aes",
     .description = "Enable AES support",
     .dependencies = &[_]*const Feature {
         &feature_d32,
@@ -26,6 +29,7 @@ pub const feature_aes = Feature{
 
 pub const feature_acquireRelease = Feature{
     .name = "acquire-release",
+    .llvm_name = "acquire-release",
     .description = "Has v8 acquire/release (lda/ldaex  etc) instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -33,6 +37,7 @@ pub const feature_acquireRelease = Feature{
 
 pub const feature_avoidMovsShop = Feature{
     .name = "avoid-movs-shop",
+    .llvm_name = "avoid-movs-shop",
     .description = "Avoid movs instructions with shifter operand",
     .dependencies = &[_]*const Feature {
     },
@@ -40,6 +45,7 @@ pub const feature_avoidMovsShop = Feature{
 
 pub const feature_avoidPartialCpsr = Feature{
     .name = "avoid-partial-cpsr",
+    .llvm_name = "avoid-partial-cpsr",
     .description = "Avoid CPSR partial update for OOO execution",
     .dependencies = &[_]*const Feature {
     },
@@ -47,6 +53,7 @@ pub const feature_avoidPartialCpsr = Feature{
 
 pub const feature_crc = Feature{
     .name = "crc",
+    .llvm_name = "crc",
     .description = "Enable support for CRC instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -54,6 +61,7 @@ pub const feature_crc = Feature{
 
 pub const feature_cheapPredicableCpsr = Feature{
     .name = "cheap-predicable-cpsr",
+    .llvm_name = "cheap-predicable-cpsr",
     .description = "Disable +1 predication cost for instructions updating CPSR",
     .dependencies = &[_]*const Feature {
     },
@@ -61,6 +69,7 @@ pub const feature_cheapPredicableCpsr = Feature{
 
 pub const feature_vldnAlign = Feature{
     .name = "vldn-align",
+    .llvm_name = "vldn-align",
     .description = "Check for VLDn unaligned access",
     .dependencies = &[_]*const Feature {
     },
@@ -68,6 +77,7 @@ pub const feature_vldnAlign = Feature{
 
 pub const feature_crypto = Feature{
     .name = "crypto",
+    .llvm_name = "crypto",
     .description = "Enable support for Cryptography extensions",
     .dependencies = &[_]*const Feature {
         &feature_d32,
@@ -77,6 +87,7 @@ pub const feature_crypto = Feature{
 
 pub const feature_d32 = Feature{
     .name = "d32",
+    .llvm_name = "d32",
     .description = "Extend FP to 32 double registers",
     .dependencies = &[_]*const Feature {
     },
@@ -84,6 +95,7 @@ pub const feature_d32 = Feature{
 
 pub const feature_db = Feature{
     .name = "db",
+    .llvm_name = "db",
     .description = "Has data barrier (dmb/dsb) instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -91,6 +103,7 @@ pub const feature_db = Feature{
 
 pub const feature_dfb = Feature{
     .name = "dfb",
+    .llvm_name = "dfb",
     .description = "Has full data barrier (dfb) instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -98,6 +111,7 @@ pub const feature_dfb = Feature{
 
 pub const feature_dsp = Feature{
     .name = "dsp",
+    .llvm_name = "dsp",
     .description = "Supports DSP instructions in ARM and/or Thumb2",
     .dependencies = &[_]*const Feature {
     },
@@ -105,6 +119,7 @@ pub const feature_dsp = Feature{
 
 pub const feature_dontWidenVmovs = Feature{
     .name = "dont-widen-vmovs",
+    .llvm_name = "dont-widen-vmovs",
     .description = "Don't widen VMOVS to VMOVD",
     .dependencies = &[_]*const Feature {
     },
@@ -112,6 +127,7 @@ pub const feature_dontWidenVmovs = Feature{
 
 pub const feature_dotprod = Feature{
     .name = "dotprod",
+    .llvm_name = "dotprod",
     .description = "Enable support for dot product instructions",
     .dependencies = &[_]*const Feature {
         &feature_d32,
@@ -121,6 +137,7 @@ pub const feature_dotprod = Feature{
 
 pub const feature_executeOnly = Feature{
     .name = "execute-only",
+    .llvm_name = "execute-only",
     .description = "Enable the generation of execute only code.",
     .dependencies = &[_]*const Feature {
     },
@@ -128,6 +145,7 @@ pub const feature_executeOnly = Feature{
 
 pub const feature_expandFpMlx = Feature{
     .name = "expand-fp-mlx",
+    .llvm_name = "expand-fp-mlx",
     .description = "Expand VFP/NEON MLA/MLS instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -135,6 +153,7 @@ pub const feature_expandFpMlx = Feature{
 
 pub const feature_fp16 = Feature{
     .name = "fp16",
+    .llvm_name = "fp16",
     .description = "Enable half-precision floating point",
     .dependencies = &[_]*const Feature {
     },
@@ -142,6 +161,7 @@ pub const feature_fp16 = Feature{
 
 pub const feature_fp16fml = Feature{
     .name = "fp16fml",
+    .llvm_name = "fp16fml",
     .description = "Enable full half-precision floating point fml instructions",
     .dependencies = &[_]*const Feature {
         &feature_fp16,
@@ -151,6 +171,7 @@ pub const feature_fp16fml = Feature{
 
 pub const feature_fp64 = Feature{
     .name = "fp64",
+    .llvm_name = "fp64",
     .description = "Floating point unit supports double precision",
     .dependencies = &[_]*const Feature {
         &feature_fpregs,
@@ -159,6 +180,7 @@ pub const feature_fp64 = Feature{
 
 pub const feature_fpao = Feature{
     .name = "fpao",
+    .llvm_name = "fpao",
     .description = "Enable fast computation of positive address offsets",
     .dependencies = &[_]*const Feature {
     },
@@ -166,16 +188,18 @@ pub const feature_fpao = Feature{
 
 pub const feature_fpArmv8 = Feature{
     .name = "fp-armv8",
+    .llvm_name = "fp-armv8",
     .description = "Enable ARMv8 FP",
     .dependencies = &[_]*const Feature {
-        &feature_fpregs,
-        &feature_d32,
         &feature_fp16,
+        &feature_d32,
+        &feature_fpregs,
     },
 };
 
 pub const feature_fpArmv8d16 = Feature{
     .name = "fp-armv8d16",
+    .llvm_name = "fp-armv8d16",
     .description = "Enable ARMv8 FP with only 16 d-registers",
     .dependencies = &[_]*const Feature {
         &feature_fp16,
@@ -185,6 +209,7 @@ pub const feature_fpArmv8d16 = Feature{
 
 pub const feature_fpArmv8d16sp = Feature{
     .name = "fp-armv8d16sp",
+    .llvm_name = "fp-armv8d16sp",
     .description = "Enable ARMv8 FP with only 16 d-registers and no double precision",
     .dependencies = &[_]*const Feature {
         &feature_fp16,
@@ -194,16 +219,18 @@ pub const feature_fpArmv8d16sp = Feature{
 
 pub const feature_fpArmv8sp = Feature{
     .name = "fp-armv8sp",
+    .llvm_name = "fp-armv8sp",
     .description = "Enable ARMv8 FP with no double precision",
     .dependencies = &[_]*const Feature {
-        &feature_fpregs,
-        &feature_d32,
         &feature_fp16,
+        &feature_d32,
+        &feature_fpregs,
     },
 };
 
 pub const feature_fpregs = Feature{
     .name = "fpregs",
+    .llvm_name = "fpregs",
     .description = "Enable FP registers",
     .dependencies = &[_]*const Feature {
     },
@@ -211,6 +238,7 @@ pub const feature_fpregs = Feature{
 
 pub const feature_fpregs16 = Feature{
     .name = "fpregs16",
+    .llvm_name = "fpregs16",
     .description = "Enable 16-bit FP registers",
     .dependencies = &[_]*const Feature {
         &feature_fpregs,
@@ -219,6 +247,7 @@ pub const feature_fpregs16 = Feature{
 
 pub const feature_fpregs64 = Feature{
     .name = "fpregs64",
+    .llvm_name = "fpregs64",
     .description = "Enable 64-bit FP registers",
     .dependencies = &[_]*const Feature {
         &feature_fpregs,
@@ -227,15 +256,17 @@ pub const feature_fpregs64 = Feature{
 
 pub const feature_fullfp16 = Feature{
     .name = "fullfp16",
+    .llvm_name = "fullfp16",
     .description = "Enable full half-precision floating point",
     .dependencies = &[_]*const Feature {
-        &feature_fpregs,
         &feature_fp16,
+        &feature_fpregs,
     },
 };
 
 pub const feature_fuseAes = Feature{
     .name = "fuse-aes",
+    .llvm_name = "fuse-aes",
     .description = "CPU fuses AES crypto operations",
     .dependencies = &[_]*const Feature {
     },
@@ -243,6 +274,7 @@ pub const feature_fuseAes = Feature{
 
 pub const feature_fuseLiterals = Feature{
     .name = "fuse-literals",
+    .llvm_name = "fuse-literals",
     .description = "CPU fuses literal generation operations",
     .dependencies = &[_]*const Feature {
     },
@@ -250,6 +282,7 @@ pub const feature_fuseLiterals = Feature{
 
 pub const feature_hwdivArm = Feature{
     .name = "hwdiv-arm",
+    .llvm_name = "hwdiv-arm",
     .description = "Enable divide instructions in ARM mode",
     .dependencies = &[_]*const Feature {
     },
@@ -257,6 +290,7 @@ pub const feature_hwdivArm = Feature{
 
 pub const feature_hwdiv = Feature{
     .name = "hwdiv",
+    .llvm_name = "hwdiv",
     .description = "Enable divide instructions in Thumb",
     .dependencies = &[_]*const Feature {
     },
@@ -264,6 +298,7 @@ pub const feature_hwdiv = Feature{
 
 pub const feature_noBranchPredictor = Feature{
     .name = "no-branch-predictor",
+    .llvm_name = "no-branch-predictor",
     .description = "Has no branch predictor",
     .dependencies = &[_]*const Feature {
     },
@@ -271,6 +306,7 @@ pub const feature_noBranchPredictor = Feature{
 
 pub const feature_retAddrStack = Feature{
     .name = "ret-addr-stack",
+    .llvm_name = "ret-addr-stack",
     .description = "Has return address stack",
     .dependencies = &[_]*const Feature {
     },
@@ -278,6 +314,7 @@ pub const feature_retAddrStack = Feature{
 
 pub const feature_slowfpvmlx = Feature{
     .name = "slowfpvmlx",
+    .llvm_name = "slowfpvmlx",
     .description = "Disable VFP / NEON MAC instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -285,6 +322,7 @@ pub const feature_slowfpvmlx = Feature{
 
 pub const feature_vmlxHazards = Feature{
     .name = "vmlx-hazards",
+    .llvm_name = "vmlx-hazards",
     .description = "Has VMLx hazards",
     .dependencies = &[_]*const Feature {
     },
@@ -292,6 +330,7 @@ pub const feature_vmlxHazards = Feature{
 
 pub const feature_lob = Feature{
     .name = "lob",
+    .llvm_name = "lob",
     .description = "Enable Low Overhead Branch extensions",
     .dependencies = &[_]*const Feature {
     },
@@ -299,6 +338,7 @@ pub const feature_lob = Feature{
 
 pub const feature_longCalls = Feature{
     .name = "long-calls",
+    .llvm_name = "long-calls",
     .description = "Generate calls via indirect call instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -306,6 +346,7 @@ pub const feature_longCalls = Feature{
 
 pub const feature_mclass = Feature{
     .name = "mclass",
+    .llvm_name = "mclass",
     .description = "Is microcontroller profile ('M' series)",
     .dependencies = &[_]*const Feature {
     },
@@ -313,6 +354,7 @@ pub const feature_mclass = Feature{
 
 pub const feature_mp = Feature{
     .name = "mp",
+    .llvm_name = "mp",
     .description = "Supports Multiprocessing extension",
     .dependencies = &[_]*const Feature {
     },
@@ -320,6 +362,7 @@ pub const feature_mp = Feature{
 
 pub const feature_mve1beat = Feature{
     .name = "mve1beat",
+    .llvm_name = "mve1beat",
     .description = "Model MVE instructions as a 1 beat per tick architecture",
     .dependencies = &[_]*const Feature {
     },
@@ -327,6 +370,7 @@ pub const feature_mve1beat = Feature{
 
 pub const feature_mve2beat = Feature{
     .name = "mve2beat",
+    .llvm_name = "mve2beat",
     .description = "Model MVE instructions as a 2 beats per tick architecture",
     .dependencies = &[_]*const Feature {
     },
@@ -334,6 +378,7 @@ pub const feature_mve2beat = Feature{
 
 pub const feature_mve4beat = Feature{
     .name = "mve4beat",
+    .llvm_name = "mve4beat",
     .description = "Model MVE instructions as a 4 beats per tick architecture",
     .dependencies = &[_]*const Feature {
     },
@@ -341,6 +386,7 @@ pub const feature_mve4beat = Feature{
 
 pub const feature_muxedUnits = Feature{
     .name = "muxed-units",
+    .llvm_name = "muxed-units",
     .description = "Has muxed AGU and NEON/FPU",
     .dependencies = &[_]*const Feature {
     },
@@ -348,6 +394,7 @@ pub const feature_muxedUnits = Feature{
 
 pub const feature_neon = Feature{
     .name = "neon",
+    .llvm_name = "neon",
     .description = "Enable NEON instructions",
     .dependencies = &[_]*const Feature {
         &feature_d32,
@@ -357,6 +404,7 @@ pub const feature_neon = Feature{
 
 pub const feature_neonfp = Feature{
     .name = "neonfp",
+    .llvm_name = "neonfp",
     .description = "Use NEON for single precision FP",
     .dependencies = &[_]*const Feature {
     },
@@ -364,6 +412,7 @@ pub const feature_neonfp = Feature{
 
 pub const feature_neonFpmovs = Feature{
     .name = "neon-fpmovs",
+    .llvm_name = "neon-fpmovs",
     .description = "Convert VMOVSR, VMOVRS, VMOVS to NEON",
     .dependencies = &[_]*const Feature {
     },
@@ -371,6 +420,7 @@ pub const feature_neonFpmovs = Feature{
 
 pub const feature_naclTrap = Feature{
     .name = "nacl-trap",
+    .llvm_name = "nacl-trap",
     .description = "NaCl trap",
     .dependencies = &[_]*const Feature {
     },
@@ -378,6 +428,7 @@ pub const feature_naclTrap = Feature{
 
 pub const feature_noarm = Feature{
     .name = "noarm",
+    .llvm_name = "noarm",
     .description = "Does not support ARM mode execution",
     .dependencies = &[_]*const Feature {
     },
@@ -385,6 +436,7 @@ pub const feature_noarm = Feature{
 
 pub const feature_noMovt = Feature{
     .name = "no-movt",
+    .llvm_name = "no-movt",
     .description = "Don't use movt/movw pairs for 32-bit imms",
     .dependencies = &[_]*const Feature {
     },
@@ -392,6 +444,7 @@ pub const feature_noMovt = Feature{
 
 pub const feature_noNegImmediates = Feature{
     .name = "no-neg-immediates",
+    .llvm_name = "no-neg-immediates",
     .description = "Convert immediates and instructions to their negated or complemented equivalent when the immediate does not fit in the encoding.",
     .dependencies = &[_]*const Feature {
     },
@@ -399,6 +452,7 @@ pub const feature_noNegImmediates = Feature{
 
 pub const feature_disablePostraScheduler = Feature{
     .name = "disable-postra-scheduler",
+    .llvm_name = "disable-postra-scheduler",
     .description = "Don't schedule again after register allocation",
     .dependencies = &[_]*const Feature {
     },
@@ -406,6 +460,7 @@ pub const feature_disablePostraScheduler = Feature{
 
 pub const feature_nonpipelinedVfp = Feature{
     .name = "nonpipelined-vfp",
+    .llvm_name = "nonpipelined-vfp",
     .description = "VFP instructions are not pipelined",
     .dependencies = &[_]*const Feature {
     },
@@ -413,6 +468,7 @@ pub const feature_nonpipelinedVfp = Feature{
 
 pub const feature_perfmon = Feature{
     .name = "perfmon",
+    .llvm_name = "perfmon",
     .description = "Enable support for Performance Monitor extensions",
     .dependencies = &[_]*const Feature {
     },
@@ -420,6 +476,7 @@ pub const feature_perfmon = Feature{
 
 pub const feature_bit32 = Feature{
     .name = "32bit",
+    .llvm_name = "32bit",
     .description = "Prefer 32-bit Thumb instrs",
     .dependencies = &[_]*const Feature {
     },
@@ -427,6 +484,7 @@ pub const feature_bit32 = Feature{
 
 pub const feature_preferIshst = Feature{
     .name = "prefer-ishst",
+    .llvm_name = "prefer-ishst",
     .description = "Prefer ISHST barriers",
     .dependencies = &[_]*const Feature {
     },
@@ -434,6 +492,7 @@ pub const feature_preferIshst = Feature{
 
 pub const feature_loopAlign = Feature{
     .name = "loop-align",
+    .llvm_name = "loop-align",
     .description = "Prefer 32-bit alignment for loops",
     .dependencies = &[_]*const Feature {
     },
@@ -441,6 +500,7 @@ pub const feature_loopAlign = Feature{
 
 pub const feature_preferVmovsr = Feature{
     .name = "prefer-vmovsr",
+    .llvm_name = "prefer-vmovsr",
     .description = "Prefer VMOVSR",
     .dependencies = &[_]*const Feature {
     },
@@ -448,6 +508,7 @@ pub const feature_preferVmovsr = Feature{
 
 pub const feature_profUnpr = Feature{
     .name = "prof-unpr",
+    .llvm_name = "prof-unpr",
     .description = "Is profitable to unpredicate",
     .dependencies = &[_]*const Feature {
     },
@@ -455,6 +516,7 @@ pub const feature_profUnpr = Feature{
 
 pub const feature_ras = Feature{
     .name = "ras",
+    .llvm_name = "ras",
     .description = "Enable Reliability, Availability and Serviceability extensions",
     .dependencies = &[_]*const Feature {
     },
@@ -462,6 +524,7 @@ pub const feature_ras = Feature{
 
 pub const feature_rclass = Feature{
     .name = "rclass",
+    .llvm_name = "rclass",
     .description = "Is realtime profile ('R' series)",
     .dependencies = &[_]*const Feature {
     },
@@ -469,6 +532,7 @@ pub const feature_rclass = Feature{
 
 pub const feature_readTpHard = Feature{
     .name = "read-tp-hard",
+    .llvm_name = "read-tp-hard",
     .description = "Reading thread pointer from register",
     .dependencies = &[_]*const Feature {
     },
@@ -476,6 +540,7 @@ pub const feature_readTpHard = Feature{
 
 pub const feature_reserveR9 = Feature{
     .name = "reserve-r9",
+    .llvm_name = "reserve-r9",
     .description = "Reserve R9, making it unavailable as GPR",
     .dependencies = &[_]*const Feature {
     },
@@ -483,6 +548,7 @@ pub const feature_reserveR9 = Feature{
 
 pub const feature_sb = Feature{
     .name = "sb",
+    .llvm_name = "sb",
     .description = "Enable v8.5a Speculation Barrier",
     .dependencies = &[_]*const Feature {
     },
@@ -490,6 +556,7 @@ pub const feature_sb = Feature{
 
 pub const feature_sha2 = Feature{
     .name = "sha2",
+    .llvm_name = "sha2",
     .description = "Enable SHA1 and SHA256 support",
     .dependencies = &[_]*const Feature {
         &feature_d32,
@@ -499,6 +566,7 @@ pub const feature_sha2 = Feature{
 
 pub const feature_slowFpBrcc = Feature{
     .name = "slow-fp-brcc",
+    .llvm_name = "slow-fp-brcc",
     .description = "FP compare + branch is slow",
     .dependencies = &[_]*const Feature {
     },
@@ -506,6 +574,7 @@ pub const feature_slowFpBrcc = Feature{
 
 pub const feature_slowLoadDSubreg = Feature{
     .name = "slow-load-D-subreg",
+    .llvm_name = "slow-load-D-subreg",
     .description = "Loading into D subregs is slow",
     .dependencies = &[_]*const Feature {
     },
@@ -513,6 +582,7 @@ pub const feature_slowLoadDSubreg = Feature{
 
 pub const feature_slowOddReg = Feature{
     .name = "slow-odd-reg",
+    .llvm_name = "slow-odd-reg",
     .description = "VLDM/VSTM starting with an odd register is slow",
     .dependencies = &[_]*const Feature {
     },
@@ -520,6 +590,7 @@ pub const feature_slowOddReg = Feature{
 
 pub const feature_slowVdup32 = Feature{
     .name = "slow-vdup32",
+    .llvm_name = "slow-vdup32",
     .description = "Has slow VDUP32 - prefer VMOV",
     .dependencies = &[_]*const Feature {
     },
@@ -527,6 +598,7 @@ pub const feature_slowVdup32 = Feature{
 
 pub const feature_slowVgetlni32 = Feature{
     .name = "slow-vgetlni32",
+    .llvm_name = "slow-vgetlni32",
     .description = "Has slow VGETLNi32 - prefer VMOV",
     .dependencies = &[_]*const Feature {
     },
@@ -534,6 +606,7 @@ pub const feature_slowVgetlni32 = Feature{
 
 pub const feature_splatVfpNeon = Feature{
     .name = "splat-vfp-neon",
+    .llvm_name = "splat-vfp-neon",
     .description = "Splat register from VFP to NEON",
     .dependencies = &[_]*const Feature {
         &feature_dontWidenVmovs,
@@ -542,6 +615,7 @@ pub const feature_splatVfpNeon = Feature{
 
 pub const feature_strictAlign = Feature{
     .name = "strict-align",
+    .llvm_name = "strict-align",
     .description = "Disallow all unaligned memory access",
     .dependencies = &[_]*const Feature {
     },
@@ -549,6 +623,7 @@ pub const feature_strictAlign = Feature{
 
 pub const feature_thumb2 = Feature{
     .name = "thumb2",
+    .llvm_name = "thumb2",
     .description = "Enable Thumb2 instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -556,6 +631,7 @@ pub const feature_thumb2 = Feature{
 
 pub const feature_trustzone = Feature{
     .name = "trustzone",
+    .llvm_name = "trustzone",
     .description = "Enable support for TrustZone security extensions",
     .dependencies = &[_]*const Feature {
     },
@@ -563,6 +639,7 @@ pub const feature_trustzone = Feature{
 
 pub const feature_useAa = Feature{
     .name = "use-aa",
+    .llvm_name = "use-aa",
     .description = "Use alias analysis during codegen",
     .dependencies = &[_]*const Feature {
     },
@@ -570,6 +647,7 @@ pub const feature_useAa = Feature{
 
 pub const feature_useMisched = Feature{
     .name = "use-misched",
+    .llvm_name = "use-misched",
     .description = "Use the MachineScheduler",
     .dependencies = &[_]*const Feature {
     },
@@ -577,6 +655,7 @@ pub const feature_useMisched = Feature{
 
 pub const feature_wideStrideVfp = Feature{
     .name = "wide-stride-vfp",
+    .llvm_name = "wide-stride-vfp",
     .description = "Use a wide stride when allocating VFP registers",
     .dependencies = &[_]*const Feature {
     },
@@ -584,6 +663,7 @@ pub const feature_wideStrideVfp = Feature{
 
 pub const feature_v7clrex = Feature{
     .name = "v7clrex",
+    .llvm_name = "v7clrex",
     .description = "Has v7 clrex instruction",
     .dependencies = &[_]*const Feature {
     },
@@ -591,6 +671,7 @@ pub const feature_v7clrex = Feature{
 
 pub const feature_vfp2 = Feature{
     .name = "vfp2",
+    .llvm_name = "vfp2",
     .description = "Enable VFP2 instructions",
     .dependencies = &[_]*const Feature {
         &feature_fpregs,
@@ -599,6 +680,7 @@ pub const feature_vfp2 = Feature{
 
 pub const feature_vfp2sp = Feature{
     .name = "vfp2sp",
+    .llvm_name = "vfp2sp",
     .description = "Enable VFP2 instructions with no double precision",
     .dependencies = &[_]*const Feature {
         &feature_fpregs,
@@ -607,6 +689,7 @@ pub const feature_vfp2sp = Feature{
 
 pub const feature_vfp3 = Feature{
     .name = "vfp3",
+    .llvm_name = "vfp3",
     .description = "Enable VFP3 instructions",
     .dependencies = &[_]*const Feature {
         &feature_d32,
@@ -616,6 +699,7 @@ pub const feature_vfp3 = Feature{
 
 pub const feature_vfp3d16 = Feature{
     .name = "vfp3d16",
+    .llvm_name = "vfp3d16",
     .description = "Enable VFP3 instructions with only 16 d-registers",
     .dependencies = &[_]*const Feature {
         &feature_fpregs,
@@ -624,6 +708,7 @@ pub const feature_vfp3d16 = Feature{
 
 pub const feature_vfp3d16sp = Feature{
     .name = "vfp3d16sp",
+    .llvm_name = "vfp3d16sp",
     .description = "Enable VFP3 instructions with only 16 d-registers and no double precision",
     .dependencies = &[_]*const Feature {
         &feature_fpregs,
@@ -632,6 +717,7 @@ pub const feature_vfp3d16sp = Feature{
 
 pub const feature_vfp3sp = Feature{
     .name = "vfp3sp",
+    .llvm_name = "vfp3sp",
     .description = "Enable VFP3 instructions with no double precision",
     .dependencies = &[_]*const Feature {
         &feature_d32,
@@ -641,44 +727,49 @@ pub const feature_vfp3sp = Feature{
 
 pub const feature_vfp4 = Feature{
     .name = "vfp4",
+    .llvm_name = "vfp4",
     .description = "Enable VFP4 instructions",
     .dependencies = &[_]*const Feature {
-        &feature_fpregs,
-        &feature_d32,
         &feature_fp16,
+        &feature_d32,
+        &feature_fpregs,
     },
 };
 
 pub const feature_vfp4d16 = Feature{
     .name = "vfp4d16",
+    .llvm_name = "vfp4d16",
     .description = "Enable VFP4 instructions with only 16 d-registers",
     .dependencies = &[_]*const Feature {
-        &feature_fpregs,
         &feature_fp16,
+        &feature_fpregs,
     },
 };
 
 pub const feature_vfp4d16sp = Feature{
     .name = "vfp4d16sp",
+    .llvm_name = "vfp4d16sp",
     .description = "Enable VFP4 instructions with only 16 d-registers and no double precision",
     .dependencies = &[_]*const Feature {
-        &feature_fpregs,
         &feature_fp16,
+        &feature_fpregs,
     },
 };
 
 pub const feature_vfp4sp = Feature{
     .name = "vfp4sp",
+    .llvm_name = "vfp4sp",
     .description = "Enable VFP4 instructions with no double precision",
     .dependencies = &[_]*const Feature {
-        &feature_fpregs,
-        &feature_d32,
         &feature_fp16,
+        &feature_d32,
+        &feature_fpregs,
     },
 };
 
 pub const feature_vmlxForwarding = Feature{
     .name = "vmlx-forwarding",
+    .llvm_name = "vmlx-forwarding",
     .description = "Has multiplier accumulator forwarding",
     .dependencies = &[_]*const Feature {
     },
@@ -686,6 +777,7 @@ pub const feature_vmlxForwarding = Feature{
 
 pub const feature_virtualization = Feature{
     .name = "virtualization",
+    .llvm_name = "virtualization",
     .description = "Supports Virtualization extension",
     .dependencies = &[_]*const Feature {
         &feature_hwdiv,
@@ -695,6 +787,7 @@ pub const feature_virtualization = Feature{
 
 pub const feature_zcz = Feature{
     .name = "zcz",
+    .llvm_name = "zcz",
     .description = "Has zero-cycle zeroing instructions",
     .dependencies = &[_]*const Feature {
     },
@@ -854,8 +947,8 @@ pub const cpu_arm1156t2S = Cpu{
     .name = "arm1156t2-s",
     .llvm_name = "arm1156t2-s",
     .dependencies = &[_]*const Feature {
-        &feature_thumb2,
         &feature_dsp,
+        &feature_thumb2,
     },
 };
 
@@ -863,8 +956,8 @@ pub const cpu_arm1156t2fS = Cpu{
     .name = "arm1156t2f-s",
     .llvm_name = "arm1156t2f-s",
     .dependencies = &[_]*const Feature {
-        &feature_thumb2,
         &feature_dsp,
+        &feature_thumb2,
         &feature_slowfpvmlx,
         &feature_fpregs,
         &feature_vfp2,
@@ -1021,13 +1114,13 @@ pub const cpu_cortexA12 = Cpu{
     .name = "cortex-a12",
     .llvm_name = "cortex-a12",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
+        &feature_db,
         &feature_perfmon,
         &feature_fpregs,
-        &feature_db,
-        &feature_thumb2,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_thumb2,
         &feature_aclass,
         &feature_avoidPartialCpsr,
         &feature_retAddrStack,
@@ -1046,13 +1139,13 @@ pub const cpu_cortexA15 = Cpu{
     .name = "cortex-a15",
     .llvm_name = "cortex-a15",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
+        &feature_db,
         &feature_perfmon,
         &feature_fpregs,
-        &feature_db,
-        &feature_thumb2,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_thumb2,
         &feature_aclass,
         &feature_avoidPartialCpsr,
         &feature_vldnAlign,
@@ -1074,13 +1167,13 @@ pub const cpu_cortexA17 = Cpu{
     .name = "cortex-a17",
     .llvm_name = "cortex-a17",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
+        &feature_db,
         &feature_perfmon,
         &feature_fpregs,
-        &feature_db,
-        &feature_thumb2,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_thumb2,
         &feature_aclass,
         &feature_avoidPartialCpsr,
         &feature_retAddrStack,
@@ -1099,20 +1192,20 @@ pub const cpu_cortexA32 = Cpu{
     .name = "cortex-a32",
     .llvm_name = "cortex-a32",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
         &feature_db,
-        &feature_crc,
-        &feature_fp16,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_mp,
-        &feature_acquireRelease,
-        &feature_hwdiv,
         &feature_trustzone,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_crc,
+        &feature_fp16,
+        &feature_hwdiv,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_aclass,
         &feature_crypto,
     },
@@ -1122,20 +1215,20 @@ pub const cpu_cortexA35 = Cpu{
     .name = "cortex-a35",
     .llvm_name = "cortex-a35",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
         &feature_db,
-        &feature_crc,
-        &feature_fp16,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_mp,
-        &feature_acquireRelease,
-        &feature_hwdiv,
         &feature_trustzone,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_crc,
+        &feature_fp16,
+        &feature_hwdiv,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_aclass,
         &feature_crypto,
     },
@@ -1145,13 +1238,13 @@ pub const cpu_cortexA5 = Cpu{
     .name = "cortex-a5",
     .llvm_name = "cortex-a5",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
+        &feature_db,
         &feature_perfmon,
         &feature_fpregs,
-        &feature_db,
-        &feature_thumb2,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_thumb2,
         &feature_aclass,
         &feature_retAddrStack,
         &feature_slowfpvmlx,
@@ -1168,20 +1261,20 @@ pub const cpu_cortexA53 = Cpu{
     .name = "cortex-a53",
     .llvm_name = "cortex-a53",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
         &feature_db,
-        &feature_crc,
-        &feature_fp16,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_mp,
-        &feature_acquireRelease,
-        &feature_hwdiv,
         &feature_trustzone,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_crc,
+        &feature_fp16,
+        &feature_hwdiv,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_aclass,
         &feature_crypto,
         &feature_fpao,
@@ -1192,21 +1285,21 @@ pub const cpu_cortexA55 = Cpu{
     .name = "cortex-a55",
     .llvm_name = "cortex-a55",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
-        &feature_db,
-        &feature_crc,
-        &feature_fp16,
         &feature_ras,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_mp,
-        &feature_acquireRelease,
-        &feature_hwdiv,
+        &feature_db,
         &feature_trustzone,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_crc,
+        &feature_fp16,
+        &feature_hwdiv,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_aclass,
         &feature_dotprod,
     },
@@ -1216,20 +1309,20 @@ pub const cpu_cortexA57 = Cpu{
     .name = "cortex-a57",
     .llvm_name = "cortex-a57",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
         &feature_db,
-        &feature_crc,
-        &feature_fp16,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_mp,
-        &feature_acquireRelease,
-        &feature_hwdiv,
         &feature_trustzone,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_crc,
+        &feature_fp16,
+        &feature_hwdiv,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_aclass,
         &feature_avoidPartialCpsr,
         &feature_cheapPredicableCpsr,
@@ -1242,13 +1335,13 @@ pub const cpu_cortexA7 = Cpu{
     .name = "cortex-a7",
     .llvm_name = "cortex-a7",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
+        &feature_db,
         &feature_perfmon,
         &feature_fpregs,
-        &feature_db,
-        &feature_thumb2,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_thumb2,
         &feature_aclass,
         &feature_retAddrStack,
         &feature_slowfpvmlx,
@@ -1269,20 +1362,20 @@ pub const cpu_cortexA72 = Cpu{
     .name = "cortex-a72",
     .llvm_name = "cortex-a72",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
         &feature_db,
-        &feature_crc,
-        &feature_fp16,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_mp,
-        &feature_acquireRelease,
-        &feature_hwdiv,
         &feature_trustzone,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_crc,
+        &feature_fp16,
+        &feature_hwdiv,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_aclass,
         &feature_crypto,
     },
@@ -1292,20 +1385,20 @@ pub const cpu_cortexA73 = Cpu{
     .name = "cortex-a73",
     .llvm_name = "cortex-a73",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
         &feature_db,
-        &feature_crc,
-        &feature_fp16,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_mp,
-        &feature_acquireRelease,
-        &feature_hwdiv,
         &feature_trustzone,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_crc,
+        &feature_fp16,
+        &feature_hwdiv,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_aclass,
         &feature_crypto,
     },
@@ -1315,21 +1408,21 @@ pub const cpu_cortexA75 = Cpu{
     .name = "cortex-a75",
     .llvm_name = "cortex-a75",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
-        &feature_db,
-        &feature_crc,
-        &feature_fp16,
         &feature_ras,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_mp,
-        &feature_acquireRelease,
-        &feature_hwdiv,
+        &feature_db,
         &feature_trustzone,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_crc,
+        &feature_fp16,
+        &feature_hwdiv,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_aclass,
         &feature_dotprod,
     },
@@ -1339,21 +1432,21 @@ pub const cpu_cortexA76 = Cpu{
     .name = "cortex-a76",
     .llvm_name = "cortex-a76",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
-        &feature_db,
-        &feature_crc,
-        &feature_fp16,
         &feature_ras,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_mp,
-        &feature_acquireRelease,
-        &feature_hwdiv,
+        &feature_db,
         &feature_trustzone,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_crc,
+        &feature_fp16,
+        &feature_hwdiv,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_aclass,
         &feature_crypto,
         &feature_dotprod,
@@ -1365,21 +1458,21 @@ pub const cpu_cortexA76ae = Cpu{
     .name = "cortex-a76ae",
     .llvm_name = "cortex-a76ae",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
-        &feature_db,
-        &feature_crc,
-        &feature_fp16,
         &feature_ras,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_mp,
-        &feature_acquireRelease,
-        &feature_hwdiv,
+        &feature_db,
         &feature_trustzone,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_crc,
+        &feature_fp16,
+        &feature_hwdiv,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_aclass,
         &feature_crypto,
         &feature_dotprod,
@@ -1391,13 +1484,13 @@ pub const cpu_cortexA8 = Cpu{
     .name = "cortex-a8",
     .llvm_name = "cortex-a8",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
+        &feature_db,
         &feature_perfmon,
         &feature_fpregs,
-        &feature_db,
-        &feature_thumb2,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_thumb2,
         &feature_aclass,
         &feature_retAddrStack,
         &feature_slowfpvmlx,
@@ -1413,13 +1506,13 @@ pub const cpu_cortexA9 = Cpu{
     .name = "cortex-a9",
     .llvm_name = "cortex-a9",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
+        &feature_db,
         &feature_perfmon,
         &feature_fpregs,
-        &feature_db,
-        &feature_thumb2,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_thumb2,
         &feature_aclass,
         &feature_avoidPartialCpsr,
         &feature_vldnAlign,
@@ -1441,9 +1534,9 @@ pub const cpu_cortexM0 = Cpu{
     .llvm_name = "cortex-m0",
     .dependencies = &[_]*const Feature {
         &feature_db,
-        &feature_mclass,
         &feature_strictAlign,
         &feature_noarm,
+        &feature_mclass,
     },
 };
 
@@ -1452,9 +1545,9 @@ pub const cpu_cortexM0plus = Cpu{
     .llvm_name = "cortex-m0plus",
     .dependencies = &[_]*const Feature {
         &feature_db,
-        &feature_mclass,
         &feature_strictAlign,
         &feature_noarm,
+        &feature_mclass,
     },
 };
 
@@ -1463,9 +1556,9 @@ pub const cpu_cortexM1 = Cpu{
     .llvm_name = "cortex-m1",
     .dependencies = &[_]*const Feature {
         &feature_db,
-        &feature_mclass,
         &feature_strictAlign,
         &feature_noarm,
+        &feature_mclass,
     },
 };
 
@@ -1473,14 +1566,14 @@ pub const cpu_cortexM23 = Cpu{
     .name = "cortex-m23",
     .llvm_name = "cortex-m23",
     .dependencies = &[_]*const Feature {
-        &feature_mclass,
         &feature_db,
-        &feature_msecext8,
         &feature_strictAlign,
         &feature_acquireRelease,
-        &feature_hwdiv,
         &feature_v7clrex,
         &feature_noarm,
+        &feature_mclass,
+        &feature_hwdiv,
+        &feature_msecext8,
         &feature_noMovt,
     },
 };
@@ -1489,13 +1582,13 @@ pub const cpu_cortexM3 = Cpu{
     .name = "cortex-m3",
     .llvm_name = "cortex-m3",
     .dependencies = &[_]*const Feature {
-        &feature_perfmon,
         &feature_db,
-        &feature_mclass,
-        &feature_thumb2,
-        &feature_hwdiv,
+        &feature_perfmon,
         &feature_v7clrex,
         &feature_noarm,
+        &feature_mclass,
+        &feature_hwdiv,
+        &feature_thumb2,
         &feature_noBranchPredictor,
         &feature_loopAlign,
         &feature_useAa,
@@ -1507,15 +1600,15 @@ pub const cpu_cortexM33 = Cpu{
     .name = "cortex-m33",
     .llvm_name = "cortex-m33",
     .dependencies = &[_]*const Feature {
-        &feature_perfmon,
-        &feature_mclass,
         &feature_db,
-        &feature_msecext8,
-        &feature_thumb2,
+        &feature_perfmon,
         &feature_acquireRelease,
-        &feature_hwdiv,
         &feature_v7clrex,
         &feature_noarm,
+        &feature_mclass,
+        &feature_hwdiv,
+        &feature_thumb2,
+        &feature_msecext8,
         &feature_dsp,
         &feature_fp16,
         &feature_fpregs,
@@ -1532,15 +1625,15 @@ pub const cpu_cortexM35p = Cpu{
     .name = "cortex-m35p",
     .llvm_name = "cortex-m35p",
     .dependencies = &[_]*const Feature {
-        &feature_perfmon,
-        &feature_mclass,
         &feature_db,
-        &feature_msecext8,
-        &feature_thumb2,
+        &feature_perfmon,
         &feature_acquireRelease,
-        &feature_hwdiv,
         &feature_v7clrex,
         &feature_noarm,
+        &feature_mclass,
+        &feature_hwdiv,
+        &feature_thumb2,
+        &feature_msecext8,
         &feature_dsp,
         &feature_fp16,
         &feature_fpregs,
@@ -1557,21 +1650,21 @@ pub const cpu_cortexM4 = Cpu{
     .name = "cortex-m4",
     .llvm_name = "cortex-m4",
     .dependencies = &[_]*const Feature {
-        &feature_perfmon,
         &feature_db,
-        &feature_mclass,
-        &feature_thumb2,
-        &feature_hwdiv,
+        &feature_perfmon,
         &feature_v7clrex,
         &feature_dsp,
         &feature_noarm,
+        &feature_mclass,
+        &feature_hwdiv,
+        &feature_thumb2,
         &feature_noBranchPredictor,
         &feature_slowfpvmlx,
         &feature_loopAlign,
         &feature_useAa,
         &feature_useMisched,
-        &feature_fpregs,
         &feature_fp16,
+        &feature_fpregs,
         &feature_vfp4d16sp,
     },
 };
@@ -1580,14 +1673,14 @@ pub const cpu_cortexM7 = Cpu{
     .name = "cortex-m7",
     .llvm_name = "cortex-m7",
     .dependencies = &[_]*const Feature {
-        &feature_perfmon,
         &feature_db,
-        &feature_mclass,
-        &feature_thumb2,
-        &feature_hwdiv,
+        &feature_perfmon,
         &feature_v7clrex,
         &feature_dsp,
         &feature_noarm,
+        &feature_mclass,
+        &feature_hwdiv,
+        &feature_thumb2,
         &feature_fp16,
         &feature_fpregs,
         &feature_fpArmv8d16,
@@ -1598,13 +1691,13 @@ pub const cpu_cortexR4 = Cpu{
     .name = "cortex-r4",
     .llvm_name = "cortex-r4",
     .dependencies = &[_]*const Feature {
-        &feature_perfmon,
         &feature_db,
-        &feature_thumb2,
+        &feature_perfmon,
         &feature_rclass,
-        &feature_hwdiv,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_hwdiv,
+        &feature_thumb2,
         &feature_avoidPartialCpsr,
         &feature_retAddrStack,
     },
@@ -1614,13 +1707,13 @@ pub const cpu_cortexR4f = Cpu{
     .name = "cortex-r4f",
     .llvm_name = "cortex-r4f",
     .dependencies = &[_]*const Feature {
-        &feature_perfmon,
         &feature_db,
-        &feature_thumb2,
+        &feature_perfmon,
         &feature_rclass,
-        &feature_hwdiv,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_hwdiv,
+        &feature_thumb2,
         &feature_avoidPartialCpsr,
         &feature_retAddrStack,
         &feature_slowfpvmlx,
@@ -1634,13 +1727,13 @@ pub const cpu_cortexR5 = Cpu{
     .name = "cortex-r5",
     .llvm_name = "cortex-r5",
     .dependencies = &[_]*const Feature {
-        &feature_perfmon,
         &feature_db,
-        &feature_thumb2,
+        &feature_perfmon,
         &feature_rclass,
-        &feature_hwdiv,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_hwdiv,
+        &feature_thumb2,
         &feature_avoidPartialCpsr,
         &feature_hwdivArm,
         &feature_retAddrStack,
@@ -1655,21 +1748,21 @@ pub const cpu_cortexR52 = Cpu{
     .name = "cortex-r52",
     .llvm_name = "cortex-r52",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
         &feature_db,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_rclass,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
+        &feature_v7clrex,
+        &feature_dsp,
         &feature_crc,
         &feature_fp16,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_rclass,
-        &feature_mp,
-        &feature_acquireRelease,
         &feature_hwdiv,
-        &feature_v7clrex,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_dfb,
-        &feature_dsp,
         &feature_fpao,
         &feature_useAa,
         &feature_useMisched,
@@ -1680,13 +1773,13 @@ pub const cpu_cortexR7 = Cpu{
     .name = "cortex-r7",
     .llvm_name = "cortex-r7",
     .dependencies = &[_]*const Feature {
-        &feature_perfmon,
         &feature_db,
-        &feature_thumb2,
+        &feature_perfmon,
         &feature_rclass,
-        &feature_hwdiv,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_hwdiv,
+        &feature_thumb2,
         &feature_avoidPartialCpsr,
         &feature_fp16,
         &feature_hwdivArm,
@@ -1703,13 +1796,13 @@ pub const cpu_cortexR8 = Cpu{
     .name = "cortex-r8",
     .llvm_name = "cortex-r8",
     .dependencies = &[_]*const Feature {
-        &feature_perfmon,
         &feature_db,
-        &feature_thumb2,
+        &feature_perfmon,
         &feature_rclass,
-        &feature_hwdiv,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_hwdiv,
+        &feature_thumb2,
         &feature_avoidPartialCpsr,
         &feature_fp16,
         &feature_hwdivArm,
@@ -1726,20 +1819,20 @@ pub const cpu_cyclone = Cpu{
     .name = "cyclone",
     .llvm_name = "cyclone",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
         &feature_db,
-        &feature_crc,
-        &feature_fp16,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_mp,
-        &feature_acquireRelease,
-        &feature_hwdiv,
         &feature_trustzone,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_crc,
+        &feature_fp16,
+        &feature_hwdiv,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_aclass,
         &feature_avoidMovsShop,
         &feature_avoidPartialCpsr,
@@ -1765,33 +1858,33 @@ pub const cpu_exynosM1 = Cpu{
     .name = "exynos-m1",
     .llvm_name = "exynos-m1",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
         &feature_db,
-        &feature_crc,
-        &feature_fp16,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_mp,
-        &feature_acquireRelease,
-        &feature_hwdiv,
         &feature_trustzone,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_crc,
+        &feature_fp16,
+        &feature_hwdiv,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_aclass,
-        &feature_fuseLiterals,
-        &feature_profUnpr,
-        &feature_wideStrideVfp,
-        &feature_slowVdup32,
-        &feature_slowVgetlni32,
-        &feature_dontWidenVmovs,
-        &feature_fuseAes,
-        &feature_retAddrStack,
         &feature_expandFpMlx,
-        &feature_zcz,
-        &feature_useAa,
+        &feature_fuseLiterals,
+        &feature_fuseAes,
+        &feature_slowVgetlni32,
+        &feature_wideStrideVfp,
+        &feature_profUnpr,
+        &feature_slowVdup32,
         &feature_slowfpvmlx,
+        &feature_dontWidenVmovs,
+        &feature_useAa,
+        &feature_retAddrStack,
+        &feature_zcz,
         &feature_slowFpBrcc,
     },
 };
@@ -1800,33 +1893,33 @@ pub const cpu_exynosM2 = Cpu{
     .name = "exynos-m2",
     .llvm_name = "exynos-m2",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
         &feature_db,
-        &feature_crc,
-        &feature_fp16,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_mp,
-        &feature_acquireRelease,
-        &feature_hwdiv,
         &feature_trustzone,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_crc,
+        &feature_fp16,
+        &feature_hwdiv,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_aclass,
-        &feature_fuseLiterals,
-        &feature_profUnpr,
-        &feature_wideStrideVfp,
-        &feature_slowVdup32,
-        &feature_slowVgetlni32,
-        &feature_dontWidenVmovs,
-        &feature_fuseAes,
-        &feature_retAddrStack,
         &feature_expandFpMlx,
-        &feature_zcz,
-        &feature_useAa,
+        &feature_fuseLiterals,
+        &feature_fuseAes,
+        &feature_slowVgetlni32,
+        &feature_wideStrideVfp,
+        &feature_profUnpr,
+        &feature_slowVdup32,
         &feature_slowfpvmlx,
+        &feature_dontWidenVmovs,
+        &feature_useAa,
+        &feature_retAddrStack,
+        &feature_zcz,
         &feature_slowFpBrcc,
     },
 };
@@ -1835,33 +1928,33 @@ pub const cpu_exynosM3 = Cpu{
     .name = "exynos-m3",
     .llvm_name = "exynos-m3",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
         &feature_db,
-        &feature_crc,
-        &feature_fp16,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_mp,
-        &feature_acquireRelease,
-        &feature_hwdiv,
         &feature_trustzone,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_crc,
+        &feature_fp16,
+        &feature_hwdiv,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_aclass,
-        &feature_fuseLiterals,
-        &feature_profUnpr,
-        &feature_wideStrideVfp,
-        &feature_slowVdup32,
-        &feature_slowVgetlni32,
-        &feature_dontWidenVmovs,
-        &feature_fuseAes,
-        &feature_retAddrStack,
         &feature_expandFpMlx,
-        &feature_zcz,
-        &feature_useAa,
+        &feature_fuseLiterals,
+        &feature_fuseAes,
+        &feature_slowVgetlni32,
+        &feature_wideStrideVfp,
+        &feature_profUnpr,
+        &feature_slowVdup32,
         &feature_slowfpvmlx,
+        &feature_dontWidenVmovs,
+        &feature_useAa,
+        &feature_retAddrStack,
+        &feature_zcz,
         &feature_slowFpBrcc,
     },
 };
@@ -1870,36 +1963,36 @@ pub const cpu_exynosM4 = Cpu{
     .name = "exynos-m4",
     .llvm_name = "exynos-m4",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
-        &feature_db,
-        &feature_crc,
-        &feature_fp16,
         &feature_ras,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_mp,
-        &feature_acquireRelease,
-        &feature_hwdiv,
+        &feature_db,
         &feature_trustzone,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_crc,
+        &feature_fp16,
+        &feature_hwdiv,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_aclass,
         &feature_dotprod,
         &feature_fullfp16,
-        &feature_fuseLiterals,
-        &feature_profUnpr,
-        &feature_wideStrideVfp,
-        &feature_slowVdup32,
-        &feature_slowVgetlni32,
-        &feature_dontWidenVmovs,
-        &feature_fuseAes,
-        &feature_retAddrStack,
         &feature_expandFpMlx,
-        &feature_zcz,
-        &feature_useAa,
+        &feature_fuseLiterals,
+        &feature_fuseAes,
+        &feature_slowVgetlni32,
+        &feature_wideStrideVfp,
+        &feature_profUnpr,
+        &feature_slowVdup32,
         &feature_slowfpvmlx,
+        &feature_dontWidenVmovs,
+        &feature_useAa,
+        &feature_retAddrStack,
+        &feature_zcz,
         &feature_slowFpBrcc,
     },
 };
@@ -1908,36 +2001,36 @@ pub const cpu_exynosM5 = Cpu{
     .name = "exynos-m5",
     .llvm_name = "exynos-m5",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
-        &feature_db,
-        &feature_crc,
-        &feature_fp16,
         &feature_ras,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_mp,
-        &feature_acquireRelease,
-        &feature_hwdiv,
+        &feature_db,
         &feature_trustzone,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_crc,
+        &feature_fp16,
+        &feature_hwdiv,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_aclass,
         &feature_dotprod,
         &feature_fullfp16,
-        &feature_fuseLiterals,
-        &feature_profUnpr,
-        &feature_wideStrideVfp,
-        &feature_slowVdup32,
-        &feature_slowVgetlni32,
-        &feature_dontWidenVmovs,
-        &feature_fuseAes,
-        &feature_retAddrStack,
         &feature_expandFpMlx,
-        &feature_zcz,
-        &feature_useAa,
+        &feature_fuseLiterals,
+        &feature_fuseAes,
+        &feature_slowVgetlni32,
+        &feature_wideStrideVfp,
+        &feature_profUnpr,
+        &feature_slowVdup32,
         &feature_slowfpvmlx,
+        &feature_dontWidenVmovs,
+        &feature_useAa,
+        &feature_retAddrStack,
+        &feature_zcz,
         &feature_slowFpBrcc,
     },
 };
@@ -1960,13 +2053,13 @@ pub const cpu_krait = Cpu{
     .name = "krait",
     .llvm_name = "krait",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
+        &feature_db,
         &feature_perfmon,
         &feature_fpregs,
-        &feature_db,
-        &feature_thumb2,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_thumb2,
         &feature_aclass,
         &feature_avoidPartialCpsr,
         &feature_vldnAlign,
@@ -1984,20 +2077,20 @@ pub const cpu_kryo = Cpu{
     .name = "kryo",
     .llvm_name = "kryo",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
         &feature_db,
-        &feature_crc,
-        &feature_fp16,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_mp,
-        &feature_acquireRelease,
-        &feature_hwdiv,
         &feature_trustzone,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_crc,
+        &feature_fp16,
+        &feature_hwdiv,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_aclass,
         &feature_crypto,
     },
@@ -2024,21 +2117,21 @@ pub const cpu_neoverseN1 = Cpu{
     .name = "neoverse-n1",
     .llvm_name = "neoverse-n1",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
-        &feature_hwdivArm,
-        &feature_fpregs,
-        &feature_db,
-        &feature_crc,
-        &feature_fp16,
         &feature_ras,
-        &feature_perfmon,
-        &feature_thumb2,
-        &feature_mp,
-        &feature_acquireRelease,
-        &feature_hwdiv,
+        &feature_db,
         &feature_trustzone,
+        &feature_perfmon,
+        &feature_fpregs,
+        &feature_acquireRelease,
+        &feature_mp,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_crc,
+        &feature_fp16,
+        &feature_hwdiv,
+        &feature_hwdivArm,
+        &feature_thumb2,
         &feature_aclass,
         &feature_crypto,
         &feature_dotprod,
@@ -2050,9 +2143,9 @@ pub const cpu_sc000 = Cpu{
     .llvm_name = "sc000",
     .dependencies = &[_]*const Feature {
         &feature_db,
-        &feature_mclass,
         &feature_strictAlign,
         &feature_noarm,
+        &feature_mclass,
     },
 };
 
@@ -2060,13 +2153,13 @@ pub const cpu_sc300 = Cpu{
     .name = "sc300",
     .llvm_name = "sc300",
     .dependencies = &[_]*const Feature {
-        &feature_perfmon,
         &feature_db,
-        &feature_mclass,
-        &feature_thumb2,
-        &feature_hwdiv,
+        &feature_perfmon,
         &feature_v7clrex,
         &feature_noarm,
+        &feature_mclass,
+        &feature_hwdiv,
+        &feature_thumb2,
         &feature_noBranchPredictor,
         &feature_useAa,
         &feature_useMisched,
@@ -2105,13 +2198,13 @@ pub const cpu_swift = Cpu{
     .name = "swift",
     .llvm_name = "swift",
     .dependencies = &[_]*const Feature {
-        &feature_d32,
+        &feature_db,
         &feature_perfmon,
         &feature_fpregs,
-        &feature_db,
-        &feature_thumb2,
+        &feature_d32,
         &feature_v7clrex,
         &feature_dsp,
+        &feature_thumb2,
         &feature_aclass,
         &feature_avoidMovsShop,
         &feature_avoidPartialCpsr,
