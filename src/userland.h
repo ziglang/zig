@@ -181,6 +181,21 @@ ZIG_EXTERN_C void stage2_list_features_for_arch(const char *arch_name_ptr, size_
 ZIG_EXTERN_C void stage2_list_cpus_for_arch(const char *arch_name_ptr, size_t arch_name_len, bool show_subfeatures);
 
 // ABI warning
-ZIG_EXTERN_C bool stage2_validate_cpu_and_features(const char *arch_name, const char *cpu, const char *features);
+struct Stage2TargetDetails;
+
+// ABI warning
+ZIG_EXTERN_C Stage2TargetDetails *stage2_target_details_parse_cpu(const char *arch, const char *str);
+
+// ABI warning
+ZIG_EXTERN_C Stage2TargetDetails *stage2_target_details_parse_features(const char *arch, const char *str);
+
+// ABI warning
+ZIG_EXTERN_C const char *stage2_target_details_get_cache_str(const Stage2TargetDetails *target_details);
+
+// ABI warning
+ZIG_EXTERN_C const char *stage2_target_details_get_llvm_cpu(const Stage2TargetDetails *target_details);
+
+// ABI warning
+ZIG_EXTERN_C const char *stage2_target_details_get_llvm_features(const Stage2TargetDetails *target_details);
 
 #endif

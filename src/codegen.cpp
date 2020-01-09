@@ -8655,8 +8655,10 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_bool(&cache_hash, g->valgrind_support);
     cache_bool(&cache_hash, g->link_eh_frame_hdr);
     cache_int(&cache_hash, detect_subsystem(g));
-    if (g->llvm_cpu) cache_str(&cache_hash, g->llvm_cpu);
-    if (g->llvm_features) cache_str(&cache_hash, g->llvm_features);
+
+    if (g->target_details) {
+        cache_str(&cache_hash, stage2_target_details_get_cache_str(g->target_details));
+    }
 
     Buf digest = BUF_INIT;
     buf_resize(&digest, 0);
@@ -8802,15 +8804,12 @@ static void init(CodeGen *g) {
         target_specific_features = "";
     }
 
-    // Override CPU and features if non-null.
-    if (g->llvm_cpu != nullptr) {
-        target_specific_cpu_args = g->llvm_cpu;
+    // Override CPU and features if defined by user.
+    if (g->target_details) {
+        target_specific_cpu_args = stage2_target_details_get_llvm_cpu(g->target_details);
+        target_specific_features = stage2_target_details_get_llvm_features(g->target_details);
     }
     
-    if (g->llvm_features != nullptr) {
-        target_specific_features = g->llvm_features;
-    }
-
     g->target_machine = ZigLLVMCreateTargetMachine(target_ref, buf_ptr(&g->llvm_triple_str),
             target_specific_cpu_args, target_specific_features, opt_level, reloc_mode,
             LLVMCodeModelDefault, g->function_sections);
@@ -10390,8 +10389,10 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     }
     cache_buf_opt(ch, g->dynamic_linker_path);
     cache_buf_opt(ch, g->version_script_path);
-    if (g->llvm_cpu) cache_str(ch, g->llvm_cpu);
-    if (g->llvm_features) cache_str(ch, g->llvm_features);
+
+    if (g->target_details) {
+        cache_str(ch, stage2_target_details_get_cache_str(g->target_details));
+    }
 
     // gen_c_objects appends objects to g->link_objects which we want to include in the hash
     gen_c_objects(g);
