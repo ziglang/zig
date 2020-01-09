@@ -81,7 +81,7 @@ test "strncmp" {
 pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
     if (builtin.is_test) {
         @setCold(true);
-        std.debug.panic("{}", msg);
+        std.debug.panic("{}", .{msg});
     }
     if (builtin.os != .freestanding and builtin.os != .other) {
         std.os.abort();

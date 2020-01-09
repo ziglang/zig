@@ -330,11 +330,11 @@ pub fn translate(
     tree.root_node.eof_token = try appendToken(&context, .Eof, "");
     tree.source = source_buffer.toOwnedSlice();
     if (false) {
-        std.debug.warn("debug source:\n{}\n==EOF==\ntokens:\n", tree.source);
+        std.debug.warn("debug source:\n{}\n==EOF==\ntokens:\n", .{tree.source});
         var i: usize = 0;
         while (i < tree.tokens.len) : (i += 1) {
             const token = tree.tokens.at(i);
-            std.debug.warn("{}\n", token);
+            std.debug.warn("{}\n", .{token});
         }
     }
     return tree;
