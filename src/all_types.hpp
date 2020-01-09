@@ -526,7 +526,6 @@ struct TldVar {
 
     ZigVar *var;
     Buf *extern_lib_name;
-    Buf *section_name;
     bool analyzing_type; // flag to detect dependency loops
 };
 
@@ -2231,6 +2230,8 @@ struct ZigVar {
     size_t mem_slot_index;
     IrExecutable *owner_exec;
 
+    Buf *section_name;
+
     // In an inline loop, multiple variables may be created,
     // In this case, a reference to a variable should follow
     // this pointer to the redefined variable.
@@ -3785,9 +3786,8 @@ struct IrInstructionArgType {
 struct IrInstructionExport {
     IrInstruction base;
 
-    IrInstruction *name;
-    IrInstruction *linkage;
     IrInstruction *target;
+    IrInstruction *options;
 };
 
 struct IrInstructionErrorReturnTrace {
