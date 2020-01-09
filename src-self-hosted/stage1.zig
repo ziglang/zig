@@ -623,6 +623,8 @@ const Stage2TargetDetails = struct {
     
     llvm_cpu_str: [:0]const u8,
     llvm_features_str: [:0]const u8,
+
+    builtin_str: [:0]const u8,
 };
 
 // ABI warning
@@ -662,6 +664,16 @@ fn parseCpu(arch: @TagType(std.Target.Arch), str: []const u8) !*Stage2TargetDeta
         if (std.mem.eql(u8, str, cpu.name)) {
             const allocator = std.heap.c_allocator;
 
+            var builtin_str_buffer = try std.Buffer.init(
+                allocator,
+                "@import(\"std\").target.TargetDetails{.cpu=&@import(\"std\").target.");
+            defer builtin_str_buffer.deinit();
+
+            try builtin_str_buffer.append(@tagName(arch));
+            try builtin_str_buffer.append(".cpu_");
+            try builtin_str_buffer.append(cpu.name);
+            try builtin_str_buffer.append("};");
+
             const ptr = try allocator.create(Stage2TargetDetails);
             ptr.* = .{
                 .allocator = allocator,
@@ -670,6 +682,7 @@ fn parseCpu(arch: @TagType(std.Target.Arch), str: []const u8) !*Stage2TargetDeta
                 },
                 .llvm_cpu_str = cpu.name,
                 .llvm_features_str = "",
+                .builtin_str = builtin_str_buffer.toOwnedSlice(),
             };
 
             return ptr;
@@ -686,6 +699,11 @@ fn parseFeatures(arch: @TagType(std.Target.Arch), str: []const u8) !*Stage2Targe
 
     var features = std.ArrayList(*const std.target.Feature).init(allocator);
     defer features.deinit();
+
+    var builtin_str_buffer = try std.Buffer.init(
+        allocator, 
+        "@import(\"std\").target.TargetDetails{.features=&[_]*const @import(\"std\").target.Feature{\n");
+    defer builtin_str_buffer.deinit();
 
     var start: usize = 0;
     while (start < str.len) {
@@ -706,10 +724,18 @@ fn parseFeatures(arch: @TagType(std.Target.Arch), str: []const u8) !*Stage2Targe
 
         if (feature) |f| {
             features.append(f) catch @panic("out of memory");
+
+            try builtin_str_buffer.append("&@import(\"std\").target.");
+            try builtin_str_buffer.append(@tagName(arch));
+            try builtin_str_buffer.append(".feature_");
+            try builtin_str_buffer.append(f.name);
+            try builtin_str_buffer.append(",");
         } else {
             return error.InvalidFeature;
         }
     }
+
+    try builtin_str_buffer.append("}};");
     
     const features_slice = features.toOwnedSlice();
 
@@ -730,6 +756,7 @@ fn parseFeatures(arch: @TagType(std.Target.Arch), str: []const u8) !*Stage2Targe
         },
         .llvm_cpu_str = "",
         .llvm_features_str = llvm_features_buffer.toOwnedSlice(),
+        .builtin_str = builtin_str_buffer.toOwnedSlice(),
     };
 
     return ptr;
@@ -760,6 +787,15 @@ export fn stage2_target_details_get_llvm_cpu(target_details: ?*const Stage2Targe
 export fn stage2_target_details_get_llvm_features(target_details: ?*const Stage2TargetDetails) [*:0]const u8 {
     if (target_details) |td| {
         return @as([*:0]const u8, td.llvm_features_str);
+    }
+
+    return @as([*:0]const u8, "");
+}
+
+// ABI warning
+export fn stage2_target_details_get_builtin_str(target_details: ?*const Stage2TargetDetails) [*:0]const u8 {
+    if (target_details) |td| {
+        return @as([*:0]const u8, td.builtin_str);
     }
 
     return @as([*:0]const u8, "");

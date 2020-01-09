@@ -2,7 +2,7 @@ const Feature = @import("std").target.Feature;
 const Cpu = @import("std").target.Cpu;
 
 pub const feature_hardQuadFloat = Feature{
-    .name = "hard-quad-float",
+    .name = "hardQuadFloat",
     .llvm_name = "hard-quad-float",
     .description = "Enable quad-word floating point instructions",
     .dependencies = &[_]*const Feature {
@@ -18,7 +18,7 @@ pub const feature_leon = Feature{
 };
 
 pub const feature_noFmuls = Feature{
-    .name = "no-fmuls",
+    .name = "noFmuls",
     .llvm_name = "no-fmuls",
     .description = "Disable the fmuls instruction.",
     .dependencies = &[_]*const Feature {
@@ -26,7 +26,7 @@ pub const feature_noFmuls = Feature{
 };
 
 pub const feature_noFsmuld = Feature{
-    .name = "no-fsmuld",
+    .name = "noFsmuld",
     .llvm_name = "no-fsmuld",
     .description = "Disable the fsmuld instruction.",
     .dependencies = &[_]*const Feature {
@@ -42,7 +42,7 @@ pub const feature_leonpwrpsr = Feature{
 };
 
 pub const feature_softFloat = Feature{
-    .name = "soft-float",
+    .name = "softFloat",
     .llvm_name = "soft-float",
     .description = "Use software emulation for floating point",
     .dependencies = &[_]*const Feature {
@@ -50,7 +50,7 @@ pub const feature_softFloat = Feature{
 };
 
 pub const feature_softMulDiv = Feature{
-    .name = "soft-mul-div",
+    .name = "softMulDiv",
     .llvm_name = "soft-mul-div",
     .description = "Use software emulation for integer multiply and divide",
     .dependencies = &[_]*const Feature {
@@ -58,7 +58,7 @@ pub const feature_softMulDiv = Feature{
 };
 
 pub const feature_deprecatedV8 = Feature{
-    .name = "deprecated-v8",
+    .name = "deprecatedV8",
     .llvm_name = "deprecated-v8",
     .description = "Enable deprecated V8 instructions in V9 mode",
     .dependencies = &[_]*const Feature {
@@ -287,7 +287,7 @@ pub const cpu_myriad2 = Cpu{
 };
 
 pub const cpu_myriad21 = Cpu{
-    .name = "myriad2.1",
+    .name = "myriad21",
     .llvm_name = "myriad2.1",
     .dependencies = &[_]*const Feature {
         &feature_leon,
@@ -295,7 +295,7 @@ pub const cpu_myriad21 = Cpu{
 };
 
 pub const cpu_myriad22 = Cpu{
-    .name = "myriad2.2",
+    .name = "myriad22",
     .llvm_name = "myriad2.2",
     .dependencies = &[_]*const Feature {
         &feature_leon,
@@ -303,7 +303,7 @@ pub const cpu_myriad22 = Cpu{
 };
 
 pub const cpu_myriad23 = Cpu{
-    .name = "myriad2.3",
+    .name = "myriad23",
     .llvm_name = "myriad2.3",
     .dependencies = &[_]*const Feature {
         &feature_leon,

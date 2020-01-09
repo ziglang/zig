@@ -2,7 +2,7 @@ const Feature = @import("std").target.Feature;
 const Cpu = @import("std").target.Cpu;
 
 pub const feature_bit64 = Feature{
-    .name = "64bit",
+    .name = "bit64",
     .llvm_name = "64bit",
     .description = "Implements RV64",
     .dependencies = &[_]*const Feature {
@@ -18,7 +18,7 @@ pub const feature_e = Feature{
 };
 
 pub const feature_rvcHints = Feature{
-    .name = "rvc-hints",
+    .name = "rvcHints",
     .llvm_name = "rvc-hints",
     .description = "Enable RVC Hint Instructions.",
     .dependencies = &[_]*const Feature {
@@ -87,7 +87,7 @@ pub const features = &[_]*const Feature {
 };
 
 pub const cpu_genericRv32 = Cpu{
-    .name = "generic-rv32",
+    .name = "genericRv32",
     .llvm_name = "generic-rv32",
     .dependencies = &[_]*const Feature {
         &feature_rvcHints,
@@ -95,7 +95,7 @@ pub const cpu_genericRv32 = Cpu{
 };
 
 pub const cpu_genericRv64 = Cpu{
-    .name = "generic-rv64",
+    .name = "genericRv64",
     .llvm_name = "generic-rv64",
     .dependencies = &[_]*const Feature {
         &feature_bit64,

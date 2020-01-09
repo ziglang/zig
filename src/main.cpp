@@ -1074,6 +1074,24 @@ int main(int argc, char **argv) {
         }
     }
 
+    Stage2TargetDetails *target_details = nullptr;
+    if (cpu && features) {
+        fprintf(stderr, "--cpu and --features options not allowed together\n");
+        return main_exit(root_progress_node, EXIT_FAILURE);
+    } else if (cpu) {
+        target_details = stage2_target_details_parse_cpu(target_arch_name(target.arch), cpu);
+        if (!target_details) {
+            fprintf(stderr, "invalid --cpu value\n");
+            return main_exit(root_progress_node, EXIT_FAILURE);
+        }
+    } else if (features) {
+        target_details = stage2_target_details_parse_features(target_arch_name(target.arch), features);
+        if (!target_details) {
+            fprintf(stderr, "invalid --features value\n");
+            return main_exit(root_progress_node, EXIT_FAILURE);
+        }
+    }
+
     if (output_dir != nullptr && enable_cache == CacheOptOn) {
         fprintf(stderr, "`--output-dir` is incompatible with --cache on.\n");
         return print_error_usage(arg0);
@@ -1124,6 +1142,7 @@ int main(int argc, char **argv) {
         g->want_stack_check = want_stack_check;
         g->want_sanitize_c = want_sanitize_c;
         g->want_single_threaded = want_single_threaded;
+        g->target_details = target_details;
         Buf *builtin_source = codegen_generate_builtin_source(g);
         if (fwrite(buf_ptr(builtin_source), 1, buf_len(builtin_source), stdout) != buf_len(builtin_source)) {
             fprintf(stderr, "unable to write to stdout: %s\n", strerror(ferror(stdout)));
@@ -1276,24 +1295,6 @@ int main(int argc, char **argv) {
             }
             for (size_t i = 0; i < rpath_list.length; i += 1) {
                 codegen_add_rpath(g, rpath_list.at(i));
-            }
-
-            Stage2TargetDetails *target_details = nullptr;
-            if (cpu && features) {
-                fprintf(stderr, "--cpu and --features options not allowed together\n");
-                return main_exit(root_progress_node, EXIT_FAILURE);
-            } else if (cpu) {
-                target_details = stage2_target_details_parse_cpu(target_arch_name(target.arch), cpu);
-                if (!target_details) {
-                    fprintf(stderr, "invalid --cpu value\n");
-                    return main_exit(root_progress_node, EXIT_FAILURE);
-                }
-            } else if (features) {
-                target_details = stage2_target_details_parse_features(target_arch_name(target.arch), features);
-                if (!target_details) {
-                    fprintf(stderr, "invalid --features value\n");
-                    return main_exit(root_progress_node, EXIT_FAILURE);
-                }
             }
 
             g->target_details = target_details;
