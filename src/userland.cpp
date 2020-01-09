@@ -106,3 +106,6 @@ const char *stage2_target_details_get_llvm_cpu(const Stage2TargetDetails *target
 const char *stage2_target_details_get_llvm_features(const Stage2TargetDetails *target_details) {
     return "";
 }
+const char *stage2_target_details_get_builtin_str(const Stage2TargetDetails *target_details) {
+    return "";
+}

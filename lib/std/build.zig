@@ -1988,10 +1988,16 @@ pub const LibExeObjStep = struct {
                 },
                 .features => |features| {
                     try zig_args.append("--features");
+                    
+                    var feature_str_buffer = try std.Buffer.initSize(builder.allocator, 0);
+                    defer feature_str_buffer.deinit();
+
                     for (features) |feature| {
-                        try zig_args.append(feature.name);
-                        try zig_args.append(",");
+                        try feature_str_buffer.append(feature.name);
+                        try feature_str_buffer.append(",");
                     }
+
+                    try zig_args.append(feature_str_buffer.toOwnedSlice());
                 },
             }
         }

@@ -10,7 +10,7 @@ pub const feature_duplex = Feature{
 };
 
 pub const feature_longCalls = Feature{
-    .name = "long-calls",
+    .name = "longCalls",
     .llvm_name = "long-calls",
     .description = "Use constant-extended calls",
     .dependencies = &[_]*const Feature {
@@ -52,7 +52,7 @@ pub const feature_nvs = Feature{
 };
 
 pub const feature_noreturnStackElim = Feature{
-    .name = "noreturn-stack-elim",
+    .name = "noreturnStackElim",
     .llvm_name = "noreturn-stack-elim",
     .description = "Eliminate stack allocation in a noreturn function when possible",
     .dependencies = &[_]*const Feature {
@@ -68,7 +68,7 @@ pub const feature_packets = Feature{
 };
 
 pub const feature_reservedR19 = Feature{
-    .name = "reserved-r19",
+    .name = "reservedR19",
     .llvm_name = "reserved-r19",
     .description = "Reserve register R19",
     .dependencies = &[_]*const Feature {
@@ -76,7 +76,7 @@ pub const feature_reservedR19 = Feature{
 };
 
 pub const feature_smallData = Feature{
-    .name = "small-data",
+    .name = "smallData",
     .llvm_name = "small-data",
     .description = "Allow GP-relative addressing of global variables",
     .dependencies = &[_]*const Feature {

@@ -8602,6 +8602,14 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             "pub var test_functions: []TestFn = undefined; // overwritten later\n"
         );
     }
+    
+    buf_appendf(contents, "pub const target_details: ?@import(\"std\").target.TargetDetails = ");
+    if (g->target_details) {
+        buf_appendf(contents, "%s", stage2_target_details_get_builtin_str(g->target_details));
+    } else {
+        buf_appendf(contents, "null;");
+    }
+    buf_appendf(contents, "\n");
 
     return contents;
 }

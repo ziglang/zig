@@ -198,4 +198,7 @@ ZIG_EXTERN_C const char *stage2_target_details_get_llvm_cpu(const Stage2TargetDe
 // ABI warning
 ZIG_EXTERN_C const char *stage2_target_details_get_llvm_features(const Stage2TargetDetails *target_details);
 
+// ABI warning
+ZIG_EXTERN_C const char *stage2_target_details_get_builtin_str(const Stage2TargetDetails *target_details);
+
 #endif
