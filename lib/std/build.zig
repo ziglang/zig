@@ -1199,8 +1199,7 @@ pub const LibExeObjStep = struct {
 
     subsystem: ?builtin.SubSystem = null,
 
-    cpu: ?[]const u8 = null,
-    features: ?[]const u8 = null,
+    target_details: ?std.target.TargetDetails = null,
 
     const LinkObject = union(enum) {
         StaticPath: []const u8,
@@ -1387,21 +1386,8 @@ pub const LibExeObjStep = struct {
         self.computeOutFileNames();
     }
 
-    pub fn setCpu(self: *LibExeObjStep, cpu: *const std.target.Cpu) void {
-        self.cpu = cpu.name;
-    }
-
-    pub fn setFeatures(self: *LibExeObjStep, features: []*const std.target.Feature) void {
-        var features_str_buffer = std.Buffer.init(self.builder.allocator, "") catch unreachable;
-        defer features_str_buffer.deinit();
-
-        for (features) |feature| {
-            features_str_buffer.append("+") catch unreachable;
-            features_str_buffer.append(feature.name) catch unreachable;
-            features_str_buffer.append(",") catch unreachable;
-        }
-
-        self.features = features_str_buffer.toOwnedSlice();
+    pub fn setTargetDetails(self: *LibExeObjStep, target_details: std.target.TargetDetails) void {
+        self.target_details = target_details;
     }
 
     pub fn setTargetGLibC(self: *LibExeObjStep, major: u32, minor: u32, patch: u32) void {
@@ -1994,14 +1980,20 @@ pub const LibExeObjStep = struct {
             },
         }
 
-        if (self.cpu) |cpu| {
-            try zig_args.append("--cpu");
-            try zig_args.append(cpu);
-        }
-
-        if (self.features) |features| {
-            try zig_args.append("--features");
-            try zig_args.append(features);
+        if (self.target_details) |td| {
+            switch (td) {
+                .cpu => |cpu| {
+                    try zig_args.append("--cpu");
+                    try zig_args.append(cpu.name);
+                },
+                .features => |features| {
+                    try zig_args.append("--features");
+                    for (features) |feature| {
+                        try zig_args.append(feature.name);
+                        try zig_args.append(",");
+                    }
+                },
+            }
         }
 
         if (self.target_glibc) |ver| {

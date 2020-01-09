@@ -535,8 +535,8 @@ int main(int argc, char **argv) {
     WantStackCheck want_stack_check = WantStackCheckAuto;
     WantCSanitize want_sanitize_c = WantCSanitizeAuto;
     bool function_sections = false;
-    const char *cpu = "";
-    const char *features = "";
+    const char *cpu = nullptr;
+    const char *features = nullptr;
 
     const char *targets_list_features_arch = nullptr;
     const char *targets_list_cpus_arch = nullptr;
@@ -1278,12 +1278,25 @@ int main(int argc, char **argv) {
                 codegen_add_rpath(g, rpath_list.at(i));
             }
 
-            if (!stage2_validate_cpu_and_features(target_arch_name(target.arch), cpu, features)) {
-                return 1;
+            Stage2TargetDetails *target_details = nullptr;
+            if (cpu && features) {
+                fprintf(stderr, "--cpu and --features options not allowed together\n");
+                return main_exit(root_progress_node, EXIT_FAILURE);
+            } else if (cpu) {
+                target_details = stage2_target_details_parse_cpu(target_arch_name(target.arch), cpu);
+                if (!target_details) {
+                    fprintf(stderr, "invalid --cpu value\n");
+                    return main_exit(root_progress_node, EXIT_FAILURE);
+                }
+            } else if (features) {
+                target_details = stage2_target_details_parse_features(target_arch_name(target.arch), features);
+                if (!target_details) {
+                    fprintf(stderr, "invalid --features value\n");
+                    return main_exit(root_progress_node, EXIT_FAILURE);
+                }
             }
 
-            g->llvm_cpu = cpu;
-            g->llvm_features = features;
+            g->target_details = target_details;
 
             codegen_set_rdynamic(g, rdynamic);
             if (mmacosx_version_min && mios_version_min) {

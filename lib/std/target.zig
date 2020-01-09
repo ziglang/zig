@@ -822,6 +822,7 @@ pub const x86 = @import("target/x86.zig");
 
 pub const Feature = struct {
     name: []const u8,
+    llvm_name: []const u8,
     description: []const u8,
 
     dependencies: []*const Feature,
@@ -832,6 +833,11 @@ pub const Cpu = struct {
     llvm_name: []const u8,
 
     dependencies: []*const Feature,
+};
+
+pub const TargetDetails = union(enum) {
+    cpu: *const Cpu,
+    features: []*const Feature,
 };
 
 pub fn getFeaturesForArch(arch: @TagType(Target.Arch)) []*const Feature {

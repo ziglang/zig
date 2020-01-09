@@ -91,4 +91,18 @@ void stage2_progress_update_node(Stage2ProgressNode *node, size_t completed_coun
 
 void stage2_list_features_for_arch(const char *arch_name_ptr, size_t arch_name_len, bool show_subfeatures) {}
 void stage2_list_cpus_for_arch(const char *arch_name_ptr, size_t arch_name_len, bool show_subfeatures) {}
-bool stage2_validate_cpu_and_features(const char *arch_name, const char *cpu, const char *features) { return true; }
+Stage2TargetDetails *stage2_target_details_parse_cpu(const char *arch, const char *str) {
+    return nullptr;
+}
+Stage2TargetDetails *stage2_target_details_parse_features(const char *arch, const char *str) {
+    return nullptr;
+}
+const char *stage2_target_details_get_cache_str(const Stage2TargetDetails *target_details) {
+    return "";
+}
+const char *stage2_target_details_get_llvm_cpu(const Stage2TargetDetails *target_details) {
+    return "";
+}
+const char *stage2_target_details_get_llvm_features(const Stage2TargetDetails *target_details) {
+    return "";
+}
