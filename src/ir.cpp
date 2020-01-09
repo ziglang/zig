@@ -15776,6 +15776,10 @@ static IrInstruction *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp 
                 return ir_const_undef(ira, &instruction->base, op1->value->type);
         }
 
+        ZigType *elem_type = op1->value->type->data.pointer.child_type;
+        if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusSizeKnown)))
+            return ira->codegen->invalid_instruction;
+
         // NOTE: this variable is meaningful iff op2_val is not null!
         uint64_t byte_offset;
         if (op2_val != nullptr) {
@@ -15783,9 +15787,6 @@ static IrInstruction *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp 
             if (!ir_resolve_usize(ira, casted_op2, &elem_offset))
                 return ira->codegen->invalid_instruction;
 
-            ZigType *elem_type = op1->value->type->data.pointer.child_type;
-            if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusSizeKnown)))
-                return ira->codegen->invalid_instruction;
             byte_offset = type_size(ira->codegen, elem_type) * elem_offset;
         }
 
@@ -15795,24 +15796,23 @@ static IrInstruction *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp 
         }
 
         ZigType *result_type = op1->value->type;
-        // The resulting pointer may not be aligned anymore
-        if (op2_val != nullptr) {
+        // Calculate the new alignment of the pointer
+        {
             uint32_t align_bytes;
             if ((err = resolve_ptr_align(ira, op1->value->type, &align_bytes)))
                 return ira->codegen->invalid_instruction;
 
-            if (byte_offset & (align_bytes - 1)) {
-                // The resulting pointer is aligned to the lcd between the
-                // offset (an arbitrary number) and the alignment factor (always
-                // a power of two, non zero)
-                uint32_t new_align = 1 << ctzll(byte_offset | align_bytes);
-                // Rough guard to prevent overflows
-                assert(new_align);
-                result_type = adjust_ptr_align(ira->codegen, result_type, new_align);
-            }
-        } else {
-            // The addend is not a comptime-known value
-            result_type = adjust_ptr_align(ira->codegen, result_type, 1);
+            // If the addend is not a comptime-known value we can still count on
+            // it being a multiple of the type size
+            uint32_t addend = op2_val ? byte_offset : type_size(ira->codegen, elem_type);
+
+            // The resulting pointer is aligned to the lcd between the
+            // offset (an arbitrary number) and the alignment factor (always
+            // a power of two, non zero)
+            uint32_t new_align = 1 << ctzll(addend | align_bytes);
+            // Rough guard to prevent overflows
+            assert(new_align);
+            result_type = adjust_ptr_align(ira->codegen, result_type, new_align);
         }
 
         if (op2_val != nullptr && op1_val != nullptr &&

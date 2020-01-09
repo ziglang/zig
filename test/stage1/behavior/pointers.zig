@@ -302,12 +302,19 @@ test "pointer arithmetic affects the alignment" {
         const ptr3 = ptr + 0; // no-op
         expect(@typeInfo(@TypeOf(ptr3)).Pointer.alignment == 8);
         const ptr4 = ptr + x; // runtime-known addend
-        expect(@typeInfo(@TypeOf(ptr4)).Pointer.alignment == 1);
+        expect(@typeInfo(@TypeOf(ptr4)).Pointer.alignment == 4);
     }
     {
         var ptr: [*]align(8) [3]u8 = undefined;
+        var x: usize = 1;
 
         const ptr1 = ptr + 17; // 3 * 17 = 51
         expect(@typeInfo(@TypeOf(ptr1)).Pointer.alignment == 1);
+        const ptr2 = ptr + x; // runtime-known addend
+        expect(@typeInfo(@TypeOf(ptr2)).Pointer.alignment == 1);
+        const ptr3 = ptr + 8; // 3 * 8 = 24 -> lcd(8,24) = 8
+        expect(@typeInfo(@TypeOf(ptr3)).Pointer.alignment == 8);
+        const ptr4 = ptr + 4; // 3 * 4 = 12 -> lcd(8,12) = 4
+        expect(@typeInfo(@TypeOf(ptr4)).Pointer.alignment == 4);
     }
 }
