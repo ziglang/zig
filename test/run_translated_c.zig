@@ -3,6 +3,22 @@ const tests = @import("tests.zig");
 const nl = std.cstr.line_sep;
 
 pub fn addCases(cases: *tests.RunTranslatedCContext) void {
+    cases.add("typedef and function pointer",
+        \\#include <stdlib.h>
+        \\typedef struct _Foo Foo;
+        \\typedef int Ret;
+        \\typedef int Param;
+        \\struct _Foo { Ret (*func)(Param p); };
+        \\static Ret add1(Param p) {
+        \\    return p + 1;
+        \\}
+        \\int main(int argc, char **argv) {
+        \\    Foo strct = { .func = add1 };
+        \\    if (strct.func(16) != 17) abort();
+        \\    return 0;
+        \\}
+    , "");
+    
     cases.add("ternary operator",
         \\#include <stdlib.h>
         \\static int cnt = 0;
