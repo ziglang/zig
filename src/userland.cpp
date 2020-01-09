@@ -109,3 +109,6 @@ const char *stage2_target_details_get_llvm_features(const Stage2TargetDetails *t
 const char *stage2_target_details_get_builtin_str(const Stage2TargetDetails *target_details) {
     return "";
 }
+Stage2TargetDetails *stage2_target_details_get_default(const char *arch, const char *os) {
+    return nullptr;
+}

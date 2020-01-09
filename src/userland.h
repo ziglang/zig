@@ -201,4 +201,7 @@ ZIG_EXTERN_C const char *stage2_target_details_get_llvm_features(const Stage2Tar
 // ABI warning
 ZIG_EXTERN_C const char *stage2_target_details_get_builtin_str(const Stage2TargetDetails *target_details);
 
+// ABI warning
+ZIG_EXTERN_C Stage2TargetDetails *stage2_target_details_get_default(const char *arch, const char *os);
+
 #endif
