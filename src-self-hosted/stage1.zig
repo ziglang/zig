@@ -617,6 +617,15 @@ fn printCpusForArch(arch_name: []const u8, show_dependencies: bool) !void {
     }
 }
 
+fn toNullTerminatedStringAlloc(allocator: *std.mem.Allocator, str: []const u8) ![:0]const u8 {
+    var buffer = try std.Buffer.init(allocator, str);
+    
+    const len = buffer.len();
+
+    // Don't deinit since we steal all the buffer's memory here.
+    return buffer.list.toOwnedSlice()[0..len :0];
+}
+
 const Stage2TargetDetails = struct {
     allocator: *std.mem.Allocator,
     target_details: std.target.TargetDetails,
@@ -643,8 +652,8 @@ const Stage2TargetDetails = struct {
             .target_details = .{
                 .cpu = cpu,
             },
-            .llvm_cpu_str = cpu.name,
-            .llvm_features_str = "",
+            .llvm_cpu_str = try toNullTerminatedStringAlloc(allocator, cpu.name),
+            .llvm_features_str = try toNullTerminatedStringAlloc(allocator, ""),
             .builtin_str = builtin_str_buffer.toOwnedSlice(),
         };
     }
@@ -672,13 +681,16 @@ const Stage2TargetDetails = struct {
 
         try builtin_str_buffer.append("}};");
 
+        // This is needed here because llvm_features_buffer.len() is no longer valid after toOwnedSlice().
+        const llvm_features_buffer_len = llvm_features_buffer.len();
+
         return Self{
             .allocator = allocator,
             .target_details = std.target.TargetDetails{
                 .features = features,
             },
-            .llvm_cpu_str = "",
-            .llvm_features_str = llvm_features_buffer.toOwnedSlice(),
+            .llvm_cpu_str = try toNullTerminatedStringAlloc(allocator, ""),
+            .llvm_features_str = llvm_features_buffer.toOwnedSlice()[0..llvm_features_buffer_len :0],
             .builtin_str = builtin_str_buffer.toOwnedSlice(),
         };
     }
