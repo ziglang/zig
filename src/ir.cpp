@@ -15783,19 +15783,51 @@ static IrInstruction *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp 
                 return ir_const_undef(ira, &instruction->base, op1->value->type);
         }
 
+        ZigType *elem_type = op1->value->type->data.pointer.child_type;
+        if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusSizeKnown)))
+            return ira->codegen->invalid_instruction;
+
+        // NOTE: this variable is meaningful iff op2_val is not null!
+        uint64_t byte_offset;
+        if (op2_val != nullptr) {
+            uint64_t elem_offset;
+            if (!ir_resolve_usize(ira, casted_op2, &elem_offset))
+                return ira->codegen->invalid_instruction;
+
+            byte_offset = type_size(ira->codegen, elem_type) * elem_offset;
+        }
+
+        // Fast path for cases where the RHS is zero
+        if (op2_val != nullptr && byte_offset == 0) {
+            return op1;
+        }
+
+        ZigType *result_type = op1->value->type;
+        // Calculate the new alignment of the pointer
+        {
+            uint32_t align_bytes;
+            if ((err = resolve_ptr_align(ira, op1->value->type, &align_bytes)))
+                return ira->codegen->invalid_instruction;
+
+            // If the addend is not a comptime-known value we can still count on
+            // it being a multiple of the type size
+            uint32_t addend = op2_val ? byte_offset : type_size(ira->codegen, elem_type);
+
+            // The resulting pointer is aligned to the lcd between the
+            // offset (an arbitrary number) and the alignment factor (always
+            // a power of two, non zero)
+            uint32_t new_align = 1 << ctzll(addend | align_bytes);
+            // Rough guard to prevent overflows
+            assert(new_align);
+            result_type = adjust_ptr_align(ira->codegen, result_type, new_align);
+        }
+
         if (op2_val != nullptr && op1_val != nullptr &&
             (op1->value->data.x_ptr.special == ConstPtrSpecialHardCodedAddr ||
             op1->value->data.x_ptr.special == ConstPtrSpecialNull))
         {
             uint64_t start_addr = (op1_val->data.x_ptr.special == ConstPtrSpecialNull) ?
                 0 : op1_val->data.x_ptr.data.hard_coded_addr.addr;
-            uint64_t elem_offset;
-            if (!ir_resolve_usize(ira, casted_op2, &elem_offset))
-                return ira->codegen->invalid_instruction;
-            ZigType *elem_type = op1_val->type->data.pointer.child_type;
-            if ((err = type_resolve(ira->codegen, elem_type, ResolveStatusSizeKnown)))
-                return ira->codegen->invalid_instruction;
-            uint64_t byte_offset = type_size(ira->codegen, elem_type) * elem_offset;
             uint64_t new_addr;
             if (op_id == IrBinOpAdd) {
                 new_addr = start_addr + byte_offset;
@@ -15804,7 +15836,7 @@ static IrInstruction *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp 
             } else {
                 zig_unreachable();
             }
-            IrInstruction *result = ir_const(ira, &instruction->base, op1_val->type);
+            IrInstruction *result = ir_const(ira, &instruction->base, result_type);
             result->value->data.x_ptr.special = ConstPtrSpecialHardCodedAddr;
             result->value->data.x_ptr.mut = ConstPtrMutRuntimeVar;
             result->value->data.x_ptr.data.hard_coded_addr.addr = new_addr;
@@ -15813,7 +15845,7 @@ static IrInstruction *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp 
 
         IrInstruction *result = ir_build_bin_op(&ira->new_irb, instruction->base.scope,
                 instruction->base.source_node, op_id, op1, casted_op2, true);
-        result->value->type = op1->value->type;
+        result->value->type = result_type;
         return result;
     }
 

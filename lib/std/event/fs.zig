@@ -1263,7 +1263,7 @@ pub fn Watch(comptime V: type) type {
                         var ptr = event_buf[0..].ptr;
                         const end_ptr = ptr + event_buf.len;
                         var ev: *os.linux.inotify_event = undefined;
-                        while (@ptrToInt(ptr) < @ptrToInt(end_ptr)) : (ptr += @sizeOf(os.linux.inotify_event) + ev.len) {
+                        while (@ptrToInt(ptr) < @ptrToInt(end_ptr)) {
                             ev = @ptrCast(*os.linux.inotify_event, ptr);
                             if (ev.mask & os.linux.IN_CLOSE_WRITE == os.linux.IN_CLOSE_WRITE) {
                                 const basename_ptr = ptr + @sizeOf(os.linux.inotify_event);
@@ -1287,6 +1287,8 @@ pub fn Watch(comptime V: type) type {
                                     });
                                 }
                             }
+
+                            ptr = @alignCast(@alignOf(os.linux.inotify_event), ptr + @sizeOf(os.linux.inotify_event) + ev.len);
                         }
                     },
                     os.linux.EINTR => continue,
