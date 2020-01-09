@@ -8156,7 +8156,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
 
     if (first_packed_bits_offset_misalign != SIZE_MAX) {
         size_t full_bit_count = packed_bits_offset - first_packed_bits_offset_misalign;
-        size_t full_abi_size = get_store_size_bytes(full_bit_count); //get_abi_size_bytes(full_bit_count, g->pointer_size_bytes);
+        size_t full_abi_size = get_store_size_bytes(full_bit_count);
         element_types[gen_field_index] = get_llvm_type_of_n_bytes(full_abi_size);
         gen_field_index += 1;
     }
