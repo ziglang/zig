@@ -155,7 +155,7 @@ pub fn main() !void {
         const fn_set = &target_funcs_gop.kv.value.list;
 
         for (lib_names) |lib_name, lib_name_index| {
-            const basename = try fmt.allocPrint(allocator, "lib{}.abilist", lib_name);
+            const basename = try fmt.allocPrint(allocator, "lib{}.abilist", .{lib_name});
             const abi_list_filename = blk: {
                 if (abi_list.targets[0].abi == .gnuabi64 and std.mem.eql(u8, lib_name, "c")) {
                     break :blk try fs.path.join(allocator, [_][]const u8{ prefix, abi_list.path, "n64", basename });
@@ -177,7 +177,7 @@ pub fn main() !void {
                 break :blk try fs.path.join(allocator, [_][]const u8{ prefix, abi_list.path, basename });
             };
             const contents = std.io.readFileAlloc(allocator, abi_list_filename) catch |err| {
-                std.debug.warn("unable to open {}: {}\n", abi_list_filename, err);
+                std.debug.warn("unable to open {}: {}\n", .{abi_list_filename, err});
                 std.process.exit(1);
             };
             var lines_it = std.mem.tokenize(contents, "\n");
@@ -235,7 +235,7 @@ pub fn main() !void {
         const vers_txt = &buffered.stream;
         for (global_ver_list) |name, i| {
             _ = global_ver_set.put(name, i) catch unreachable;
-            try vers_txt.print("{}\n", name);
+            try vers_txt.print("{}\n", .{name});
         }
         try buffered.flush();
     }
@@ -248,7 +248,7 @@ pub fn main() !void {
         for (global_fn_list) |name, i| {
             const kv = global_fn_set.get(name).?;
             kv.value.index = i;
-            try fns_txt.print("{} {}\n", name, kv.value.lib);
+            try fns_txt.print("{} {}\n", .{name, kv.value.lib});
         }
         try buffered.flush();
     }
@@ -282,7 +282,7 @@ pub fn main() !void {
             const fn_vers_list = &target_functions.get(@ptrToInt(abi_list)).?.value.fn_vers_list;
             for (abi_list.targets) |target, it_i| {
                 if (it_i != 0) try abilist_txt.writeByte(' ');
-                try abilist_txt.print("{}-linux-{}", @tagName(target.arch), @tagName(target.abi));
+                try abilist_txt.print("{}-linux-{}", .{@tagName(target.arch), @tagName(target.abi)});
             }
             try abilist_txt.writeByte('\n');
             // next, each line implicitly corresponds to a function
@@ -293,7 +293,7 @@ pub fn main() !void {
                 };
                 for (kv.value.toSliceConst()) |ver_index, it_i| {
                     if (it_i != 0) try abilist_txt.writeByte(' ');
-                    try abilist_txt.print("{d}", ver_index);
+                    try abilist_txt.print("{d}", .{ver_index});
                 }
                 try abilist_txt.writeByte('\n');
             }

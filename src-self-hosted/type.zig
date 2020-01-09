@@ -162,7 +162,7 @@ pub const Type = struct {
     }
 
     pub fn dump(base: *const Type) void {
-        std.debug.warn("{}", @tagName(base.id));
+        std.debug.warn("{}", .{@tagName(base.id)});
     }
 
     fn init(base: *Type, comp: *Compilation, id: Id, name: []const u8) void {

@@ -81,7 +81,7 @@ pub const TestContext = struct {
         msg: []const u8,
     ) !void {
         var file_index_buf: [20]u8 = undefined;
-        const file_index = try std.fmt.bufPrint(file_index_buf[0..], "{}", self.file_index.incr());
+        const file_index = try std.fmt.bufPrint(file_index_buf[0..], "{}", .{self.file_index.incr()});
         const file1_path = try std.fs.path.join(allocator, [_][]const u8{ tmp_dir_name, file_index, file1 });
 
         if (std.fs.path.dirname(file1_path)) |dirname| {
@@ -114,10 +114,10 @@ pub const TestContext = struct {
         expected_output: []const u8,
     ) !void {
         var file_index_buf: [20]u8 = undefined;
-        const file_index = try std.fmt.bufPrint(file_index_buf[0..], "{}", self.file_index.incr());
+        const file_index = try std.fmt.bufPrint(file_index_buf[0..], "{}", .{self.file_index.incr()});
         const file1_path = try std.fs.path.join(allocator, [_][]const u8{ tmp_dir_name, file_index, file1 });
 
-        const output_file = try std.fmt.allocPrint(allocator, "{}-out{}", file1_path, (Target{ .Native = {} }).exeFileExt());
+        const output_file = try std.fmt.allocPrint(allocator, "{}-out{}", .{ file1_path, (Target{ .Native = {} }).exeFileExt() });
         if (std.fs.path.dirname(file1_path)) |dirname| {
             try std.fs.makePath(allocator, dirname);
         }
@@ -214,21 +214,20 @@ pub const TestContext = struct {
                         }
                     }
                 }
-                std.debug.warn(
-                    "\n=====source:=======\n{}\n====expected:========\n{}:{}:{}: error: {}\n",
+                std.debug.warn("\n=====source:=======\n{}\n====expected:========\n{}:{}:{}: error: {}\n", .{
                     source,
                     path,
                     line,
                     column,
                     text,
-                );
-                std.debug.warn("\n====found:========\n");
+                });
+                std.debug.warn("\n====found:========\n", .{});
                 const stderr = std.io.getStdErr();
                 for (msgs) |msg| {
                     defer msg.destroy();
                     try msg.printToFile(stderr, errmsg.Color.Auto);
                 }
-                std.debug.warn("============\n");
+                std.debug.warn("============\n", .{});
                 return error.TestFailed;
             },
         }

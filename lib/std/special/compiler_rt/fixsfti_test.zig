@@ -6,12 +6,12 @@ const warn = std.debug.warn;
 
 fn test__fixsfti(a: f32, expected: i128) void {
     const x = __fixsfti(a);
-    //warn("a={}:{x} x={}:{x} expected={}:{x}:@as(u128, {x})\n", a, @bitCast(u32, a), x, x, expected, expected, @bitCast(u128, expected));
+    //warn("a={}:{x} x={}:{x} expected={}:{x}:@as(u128, {x})\n", .{a, @bitCast(u32, a), x, x, expected, expected, @bitCast(u128, expected)});
     testing.expect(x == expected);
 }
 
 test "fixsfti" {
-    //warn("\n");
+    //warn("\n", .{});
     test__fixsfti(-math.f32_max, math.minInt(i128));
 
     test__fixsfti(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i128));

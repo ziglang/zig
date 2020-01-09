@@ -6,12 +6,12 @@ const warn = std.debug.warn;
 
 fn test__fixdfsi(a: f64, expected: i32) void {
     const x = __fixdfsi(a);
-    //warn("a={}:{x} x={}:{x} expected={}:{x}:@as(u64, {x})\n", a, @bitCast(u64, a), x, x, expected, expected, @bitCast(u32, expected));
+    //warn("a={}:{x} x={}:{x} expected={}:{x}:@as(u64, {x})\n", .{a, @bitCast(u64, a), x, x, expected, expected, @bitCast(u32, expected)});
     testing.expect(x == expected);
 }
 
 test "fixdfsi" {
-    //warn("\n");
+    //warn("\n", .{});
     test__fixdfsi(-math.f64_max, math.minInt(i32));
 
     test__fixdfsi(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i32));
