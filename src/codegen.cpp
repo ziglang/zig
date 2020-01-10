@@ -8017,7 +8017,8 @@ static void define_builtin_types(CodeGen *g) {
         buf_init_from_str(&entry->name, info->name);
 
         entry->llvm_di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                size_in_bits, is_signed ? ZigLLVMEncoding_DW_ATE_signed() : ZigLLVMEncoding_DW_ATE_unsigned());
+                8*LLVMStoreSizeOfType(g->target_data_ref, entry->llvm_type),
+                is_signed ? ZigLLVMEncoding_DW_ATE_signed() : ZigLLVMEncoding_DW_ATE_unsigned());
         entry->data.integral.is_signed = is_signed;
         entry->data.integral.bit_count = size_in_bits;
         g->primitive_type_table.put(&entry->name, entry);
@@ -8033,7 +8034,8 @@ static void define_builtin_types(CodeGen *g) {
         entry->abi_align = LLVMABIAlignmentOfType(g->target_data_ref, entry->llvm_type);
         buf_init_from_str(&entry->name, "bool");
         entry->llvm_di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits, ZigLLVMEncoding_DW_ATE_boolean());
+                8*LLVMStoreSizeOfType(g->target_data_ref, entry->llvm_type),
+                ZigLLVMEncoding_DW_ATE_boolean());
         g->builtin_types.entry_bool = entry;
         g->primitive_type_table.put(&entry->name, entry);
     }
@@ -8055,7 +8057,7 @@ static void define_builtin_types(CodeGen *g) {
         entry->data.integral.bit_count = g->pointer_size_bytes * 8;
 
         entry->llvm_di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits,
+                8*LLVMStoreSizeOfType(g->target_data_ref, entry->llvm_type),
                 is_signed ? ZigLLVMEncoding_DW_ATE_signed() : ZigLLVMEncoding_DW_ATE_unsigned());
         g->primitive_type_table.put(&entry->name, entry);
 
