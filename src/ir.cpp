@@ -17052,6 +17052,7 @@ static IrInstruction *ir_analyze_alloca(IrAnalyze *ira, IrInstruction *source_in
 
     ZigValue *pointee = create_const_vals(1);
     pointee->special = ConstValSpecialUndef;
+    pointee->llvm_align = align;
 
     IrInstructionAllocaGen *result = ir_build_alloca_gen(ira, source_inst, align, name_hint);
     result->base.value->special = ConstValSpecialStatic;

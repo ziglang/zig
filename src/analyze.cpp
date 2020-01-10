@@ -9303,7 +9303,9 @@ bool type_has_optional_repr(ZigType *ty) {
 }
 
 void copy_const_val(ZigValue *dest, ZigValue *src) {
+    uint32_t prev_align = dest->llvm_align;
     memcpy(dest, src, sizeof(ZigValue));
+    dest->llvm_align = prev_align;
     if (src->special != ConstValSpecialStatic)
         return;
     dest->parent.id = ConstParentIdNone;
