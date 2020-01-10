@@ -149,4 +149,24 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\  return 0;
         \\}
     , "");
+
+    cases.add("cast signed array index to unsigned",
+        \\#include <stdlib.h>
+        \\int main(int argc, char **argv) {
+        \\  int a[10], i = 0;
+        \\  a[i] = 0;
+        \\  if (a[i] != 0) abort();
+        \\  return 0;
+        \\}
+    , "");
+
+    cases.add("cast long long array index to unsigned",
+        \\#include <stdlib.h>
+        \\int main(int argc, char **argv) {
+        \\  long long a[10], i = 0;
+        \\  a[i] = 0;
+        \\  if (a[i] != 0) abort();
+        \\  return 0;
+        \\}
+    , "");
 }
