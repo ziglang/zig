@@ -3498,6 +3498,121 @@ pub fn send(
     return sendto(sockfd, buf, flags, null, 0);
 }
 
+pub const SendFileError = error{
+    /// There was an unspecified error while reading from infd.
+    InputOutput,
+
+    /// There was insufficient resources for processing.
+    SystemResources,
+
+    /// The value provided for count overflows the maximum size of either
+    /// infd or outfd.
+    Overflow,
+
+    /// Offset was provided, but infd is not seekable.
+    Unseekable,
+
+    /// The outfd is marked nonblocking and the requested operation would block, and
+    /// there is no global event loop configured.
+    WouldBlock,
+} || WriteError || UnexpectedError;
+
+pub const sf_hdtr = struct {
+    headers: []iovec_const,
+    trailers: []iovec_const,
+};
+
+/// Transfer data between file descriptors.
+///
+/// The `sendfile` call copies `count` bytes from one file descriptor to another within the kernel. This can
+/// be more performant than transferring data from the kernel to user space and back, such as with
+/// `read` and `write` calls.
+///
+/// The `infd` should be a file descriptor opened for reading, and `outfd` should be a file descriptor
+/// opened for writing. Copying will begin at `offset`, if not null, which will be updated to reflect
+/// the number of bytes read. If `offset` is null, the copying will begin at the current seek position,
+/// and the file position will be updated.
+pub fn sendfile(infd: fd_t, outfd: fd_t, offset: u64, count: usize, optional_hdtr: ?*const sf_hdtr, flags: u32) SendFileError!usize {
+    // XXX: check if offset is > length of file, return 0 bytes written
+    // XXX: document systems where headers are sent atomically.
+    // XXX: compute new offset on EINTR/EAGAIN
+    var rc: usize = undefined;
+    var err: usize = undefined;
+    if (builtin.os == .linux) {
+        while (true) {
+            try lseek_SET(infd, offset);
+
+            if (optional_hdtr) |hdtr| {
+                try writev(outfd, hdtr.headers);
+            }
+
+            rc = system.sendfile(outfd, infd, null, count);
+            err = errno(rc);
+
+            if (optional_hdtr) |hdtr| {
+                try writev(outfd, hdtr.trailers);
+            }
+
+            switch (err) {
+                0 => return @intCast(usize, rc),
+                else => return unexpectedErrno(err),
+
+                EBADF => unreachable,
+                EINVAL => unreachable,
+                EFAULT => unreachable,
+                EAGAIN => if (std.event.Loop.instance) |loop| {
+                    loop.waitUntilFdWritable(outfd);
+                    continue;
+                } else {
+                    return error.WouldBlock;
+                },
+                EIO => return error.InputOutput,
+                ENOMEM => return error.SystemResources,
+                EOVERFLOW => return error.Overflow,
+                ESPIPE => return error.Unseekable,
+            }
+        }
+    } else if (builtin.os == .freebsd) {
+        while (true) {
+            var rcount: u64 = 0;
+            var hdtr: std.c.sf_hdtr = undefined;
+            if (optional_hdtr) |h| {
+                hdtr = std.c.sf_hdtr{
+                    .headers = h.headers.ptr,
+                    .hdr_cnt = @intCast(c_int, h.headers.len),
+                    .trailers = h.trailers.ptr,
+                    .trl_cnt = @intCast(c_int, h.trailers.len),
+                };
+            }
+            err = errno(system.sendfile(infd, outfd, offset, count, &hdtr, &rcount, @intCast(c_int, flags)));
+            switch (err) {
+                0 => return @intCast(usize, rcount),
+                else => return unexpectedErrno(err),
+
+                EBADF => unreachable,
+                EFAULT => unreachable,
+                EINVAL => unreachable,
+                ENOTCAPABLE => unreachable,
+                ENOTCONN => unreachable,
+                ENOTSOCK => unreachable,
+                EAGAIN => if (std.event.Loop.instance) |loop| {
+                    loop.waitUntilFdWritable(outfd);
+                    continue;
+                } else {
+                    return error.WouldBlock;
+                },
+                EBUSY => return error.DeviceBusy,
+                EINTR => continue,
+                EIO => return error.InputOutput,
+                ENOBUFS => return error.SystemResources,
+                EPIPE => return error.BrokenPipe,
+            }
+        }
+    } else {
+        @compileError("sendfile unimplemented for this target");
+    }
+}
+
 pub const PollError = error{
     /// The kernel had no space to allocate file descriptor tables.
     SystemResources,
