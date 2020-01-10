@@ -634,12 +634,12 @@ pub const ChildProcess = struct {
 
             var it = mem.tokenize(PATH, ";");
             retry: while (it.next()) |search_path| {
+                const path_no_ext = try fs.path.join(self.allocator, &[_][]const u8{ search_path, app_name });
+                defer self.allocator.free(path_no_ext);
+
                 var ext_it = mem.tokenize(PATHEXT, ";");
                 while (ext_it.next()) |app_ext| {
-                    const app_basename = try mem.concat(self.allocator, u8, &[_][]const u8{ app_name[0 .. app_name.len - 1], app_ext });
-                    defer self.allocator.free(app_basename);
-
-                    const joined_path = try fs.path.join(self.allocator, &[_][]const u8{ search_path, app_basename });
+                    const joined_path = try mem.concat(self.allocator, u8, &[_][]const u8{ path_no_ext, app_ext });
                     defer self.allocator.free(joined_path);
 
                     const joined_path_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, joined_path);
