@@ -414,6 +414,13 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     const fn_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, fn_decl)));
     if (c.global_scope.sym_table.contains(fn_name))
         return; // Avoid processing this decl twice
+
+    // Skip this declaration if a proper definition exists
+    if (!ZigClangFunctionDecl_isThisDeclarationADefinition(fn_decl)) {
+        if (ZigClangFunctionDecl_getDefinition(fn_decl)) |def|
+            return visitFnDecl(c, def);
+    }
+
     const rp = makeRestorePoint(c);
     const fn_decl_loc = ZigClangFunctionDecl_getLocation(fn_decl);
     const has_body = ZigClangFunctionDecl_hasBody(fn_decl);
@@ -671,7 +678,7 @@ fn transTypeDef(c: *Context, typedef_decl: *const ZigClangTypedefNameDecl, top_l
         return transTypeDefAsBuiltin(c, typedef_decl, "isize")
     else if (mem.eql(u8, checked_name, "size_t"))
         return transTypeDefAsBuiltin(c, typedef_decl, "usize");
-    
+
     if (!top_level_visit) {
         return transCreateNodeIdentifier(c, checked_name);
     }
@@ -703,7 +710,9 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
 
     var bare_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, record_decl)));
     var is_unnamed = false;
-    if (ZigClangRecordDecl_isAnonymousStructOrUnion(record_decl) or bare_name.len == 0) {
+    // Record declarations such as `struct {...} x` have no name but they're not
+    // anonymous hence here isAnonymousStructOrUnion is not needed
+    if (bare_name.len == 0) {
         bare_name = try std.fmt.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
         is_unnamed = true;
     }
@@ -769,7 +778,7 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
 
             var is_anon = false;
             var raw_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, field_decl)));
-            if (ZigClangFieldDecl_isAnonymousStructOrUnion(field_decl) or raw_name.len == 0) {
+            if (ZigClangFieldDecl_isAnonymousStructOrUnion(field_decl)) {
                 raw_name = try std.fmt.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
                 is_anon = true;
             }

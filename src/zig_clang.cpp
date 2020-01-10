@@ -1734,6 +1734,31 @@ bool ZigClangFunctionDecl_doesDeclarationForceExternallyVisibleDefinition(const 
     return casted->doesDeclarationForceExternallyVisibleDefinition();
 }
 
+bool ZigClangFunctionDecl_isThisDeclarationADefinition(const struct ZigClangFunctionDecl *self) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    return casted->isThisDeclarationADefinition();
+}
+
+bool ZigClangFunctionDecl_doesThisDeclarationHaveABody(const struct ZigClangFunctionDecl *self) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    return casted->doesThisDeclarationHaveABody();
+}
+
+bool ZigClangFunctionDecl_isDefined(const struct ZigClangFunctionDecl *self) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    return casted->isDefined();
+}
+
+const ZigClangFunctionDecl* ZigClangFunctionDecl_getDefinition(const struct ZigClangFunctionDecl *self) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    return reinterpret_cast<const ZigClangFunctionDecl *>(casted->getDefinition());
+}
+
+bool ZigClangTagDecl_isThisDeclarationADefinition(const struct ZigClangTagDecl *self) {
+    auto casted = reinterpret_cast<const clang::TagDecl *>(self);
+    return casted->isThisDeclarationADefinition();
+}
+
 bool ZigClangFunctionDecl_isInlineSpecified(const struct ZigClangFunctionDecl *self) {
     auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
     return casted->isInlineSpecified();

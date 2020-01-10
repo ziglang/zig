@@ -3,6 +3,16 @@ const tests = @import("tests.zig");
 const nl = std.cstr.line_sep;
 
 pub fn addCases(cases: *tests.RunTranslatedCContext) void {
+    cases.add("forward declarations",
+        \\#include <stdlib.h>
+        \\int foo(int);
+        \\int foo(int x) { return x + 1; }
+        \\int main(int argc, char **argv) {
+        \\    if (foo(2) != 3) abort();
+        \\    return 0;
+        \\}
+    , "");
+
     cases.add("typedef and function pointer",
         \\#include <stdlib.h>
         \\typedef struct _Foo Foo;
@@ -18,7 +28,7 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    return 0;
         \\}
     , "");
-    
+
     cases.add("ternary operator",
         \\#include <stdlib.h>
         \\static int cnt = 0;
