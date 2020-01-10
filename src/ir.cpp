@@ -17921,8 +17921,12 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
         var = var->next_var;
     }
 
+    bool is_volatile = false;
+    ZigType *var_ptr_type = get_pointer_to_type_extra(ira->codegen, var->var_type,
+            var->src_is_const, is_volatile, PtrLenSingle, var->align_bytes, 0, 0, false);
+
     if (var->ptr_instruction != nullptr) {
-        return var->ptr_instruction;
+        return ir_implicit_cast(ira, var->ptr_instruction, var_ptr_type);
     }
 
     if (var->var_type == nullptr || type_is_invalid(var->var_type))
@@ -17932,12 +17936,10 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
 
     bool comptime_var_mem = ir_get_var_is_comptime(var);
     bool linkage_makes_it_runtime = var->decl_node->data.variable_declaration.is_extern;
-    bool is_volatile = false;
 
     IrInstruction *result = ir_build_var_ptr(&ira->new_irb,
             instruction->scope, instruction->source_node, var);
-    result->value->type = get_pointer_to_type_extra(ira->codegen, var->var_type,
-            var->src_is_const, is_volatile, PtrLenSingle, var->align_bytes, 0, 0, false);
+    result->value->type = var_ptr_type;
 
     if (linkage_makes_it_runtime || var->is_thread_local)
         goto no_mem_slot;
