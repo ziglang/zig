@@ -846,6 +846,14 @@ pub fn sendto(fd: i32, buf: [*]const u8, len: usize, flags: u32, addr: ?*const s
     return syscall6(SYS_sendto, @bitCast(usize, @as(isize, fd)), @ptrToInt(buf), len, flags, @ptrToInt(addr), @intCast(usize, alen));
 }
 
+pub fn sendfile(outfd: i32, infd: i32, offset: ?*u64, count: usize) usize {
+    if (@hasDecl(@This(), "SYS_sendfile64")) {
+        return syscall4(SYS_sendfile64, @bitCast(usize, @as(isize, outfd)), @bitCast(usize, @as(isize, infd)), @ptrToInt(offset), count);
+    } else {
+        return syscall4(SYS_sendfile, @bitCast(usize, @as(isize, outfd)), @bitCast(usize, @as(isize, infd)), @ptrToInt(offset), count);
+    }
+}
+
 pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: [2]i32) usize {
     if (builtin.arch == .i386) {
         return socketcall(SC_socketpair, &[4]usize{ @intCast(usize, domain), @intCast(usize, socket_type), @intCast(usize, protocol), @ptrToInt(&fd[0]) });
