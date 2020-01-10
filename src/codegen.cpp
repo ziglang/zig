@@ -7604,7 +7604,7 @@ static void do_code_gen(CodeGen *g) {
         } else {
             if (want_sret) {
                 g->cur_ret_ptr = LLVMGetParam(fn, 0);
-            } else if (handle_is_ptr(fn_type_id->return_type)) {
+            } else if (type_has_bits(fn_type_id->return_type)) {
                 g->cur_ret_ptr = build_alloca(g, fn_type_id->return_type, "result", 0);
                 // TODO add debug info variable for this
             } else {
