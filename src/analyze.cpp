@@ -3622,9 +3622,11 @@ void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source
 }
 
 void update_compile_var(CodeGen *g, Buf *name, ZigValue *value) {
-    Tld *tld = get_container_scope(g->compile_var_import)->decl_table.get(name);
+    ScopeDecls *builtin_scope = get_container_scope(g->compile_var_import);
+    Tld *tld = find_container_decl(g, builtin_scope, name);
+    assert(tld != nullptr);
     resolve_top_level_decl(g, tld, tld->source_node, false);
-    assert(tld->id == TldIdVar);
+    assert(tld->id == TldIdVar && tld->resolution == TldResolutionOk);
     TldVar *tld_var = (TldVar *)tld;
     copy_const_val(tld_var->var->const_value, value);
     tld_var->var->var_type = value->type;
@@ -7588,9 +7590,11 @@ bool err_ptr_eql(const ErrorTableEntry *a, const ErrorTableEntry *b) {
 }
 
 ZigValue *get_builtin_value(CodeGen *codegen, const char *name) {
-    Tld *tld = get_container_scope(codegen->compile_var_import)->decl_table.get(buf_create_from_str(name));
+    ScopeDecls *builtin_scope = get_container_scope(codegen->compile_var_import);
+    Tld *tld = find_container_decl(codegen, builtin_scope, buf_create_from_str(name));
+    assert(tld != nullptr);
     resolve_top_level_decl(codegen, tld, nullptr, false);
-    assert(tld->id == TldIdVar);
+    assert(tld->id == TldIdVar && tld->resolution == TldResolutionOk);
     TldVar *tld_var = (TldVar *)tld;
     ZigValue *var_value = tld_var->var->const_value;
     assert(var_value != nullptr);
