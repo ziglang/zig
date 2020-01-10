@@ -99,7 +99,6 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
 
     cases.add("cast signed array index to unsigned",
         \\#include <stdlib.h>
-        \\#define _NO_CRT_STDIO_INLINE 1
         \\void main(int argc, char **argv) {
         \\  int a[10], i = 0;
         \\  a[i] = 0;
@@ -109,7 +108,6 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
 
     cases.add("cast long long array index to unsigned",
         \\#include <stdlib.h>
-        \\#define _NO_CRT_STDIO_INLINE 1
         \\void main(int argc, char **argv) {
         \\  long long a[10], i = 0;
         \\  a[i] = 0;

@@ -363,7 +363,7 @@ fn prepopulateGlobalNameTable(ast_unit: *ZigClangASTUnit, c: *Context) !void {
     }
 }
 
-extern fn declVisitorNamesOnlyC(context: ?*c_void, decl: *const ZigClangDecl) bool {
+fn declVisitorNamesOnlyC(context: ?*c_void, decl: *const ZigClangDecl) callconv(.C) bool {
     const c = @ptrCast(*Context, @alignCast(@alignOf(Context), context));
     declVisitorNamesOnly(c, decl) catch |err| {
         c.err = err;
@@ -372,7 +372,7 @@ extern fn declVisitorNamesOnlyC(context: ?*c_void, decl: *const ZigClangDecl) bo
     return true;
 }
 
-extern fn declVisitorC(context: ?*c_void, decl: *const ZigClangDecl) bool {
+fn declVisitorC(context: ?*c_void, decl: *const ZigClangDecl) callconv(.C) bool {
     const c = @ptrCast(*Context, @alignCast(@alignOf(Context), context));
     declVisitor(c, decl) catch |err| {
         c.err = err;
