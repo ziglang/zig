@@ -9242,15 +9242,12 @@ void codegen_translate_c(CodeGen *g, Buf *full_path) {
         for (size_t i = 0; i < errors_len; i += 1) {
             Stage2ErrorMsg *clang_err = &errors_ptr[i];
 
-            // Clang can emit "too many errors, stopping now", in which case `source` and `filename_ptr` are null
-            if (clang_err->source && clang_err->filename_ptr) {
-                ErrorMsg *err_msg = err_msg_create_with_offset(
-                        clang_err->filename_ptr ?
-                            buf_create_from_mem(clang_err->filename_ptr, clang_err->filename_len) : buf_alloc(),
-                        clang_err->line, clang_err->column, clang_err->offset, clang_err->source,
-                        buf_create_from_mem(clang_err->msg_ptr, clang_err->msg_len));
-                print_err_msg(err_msg, g->err_color);
-            }
+            ErrorMsg *err_msg = err_msg_create_with_offset(
+                clang_err->filename_ptr ?
+                buf_create_from_mem(clang_err->filename_ptr, clang_err->filename_len) : nullptr,
+                clang_err->line, clang_err->column, clang_err->offset, clang_err->source,
+                buf_create_from_mem(clang_err->msg_ptr, clang_err->msg_len));
+            print_err_msg(err_msg, g->err_color);
         }
         exit(1);
     }
