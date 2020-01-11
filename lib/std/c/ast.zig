@@ -48,7 +48,6 @@ pub const Error = union(enum) {
     InvalidToken: SingleTokenError("invalid token '{}'"),
     ExpectedToken: ExpectedToken,
     ExpectedExpr: SingleTokenError("expected expression, found '{}'"),
-    ExpectedStmt: SingleTokenError("expected statement, found '{}'"),
     ExpectedTypeName: SingleTokenError("expected type name, found '{}'"),
     ExpectedFnBody: SingleTokenError("expected function body, found '{}'"),
     ExpectedDeclarator: SingleTokenError("expected declarator, found '{}'"),
@@ -70,7 +69,6 @@ pub const Error = union(enum) {
             .InvalidToken => |*x| return x.render(tree, stream),
             .ExpectedToken => |*x| return x.render(tree, stream),
             .ExpectedExpr => |*x| return x.render(tree, stream),
-            .ExpectedStmt => |*x| return x.render(tree, stream),
             .ExpectedTypeName => |*x| return x.render(tree, stream),
             .ExpectedDeclarator => |*x| return x.render(tree, stream),
             .ExpectedFnBody => |*x| return x.render(tree, stream),
@@ -94,7 +92,6 @@ pub const Error = union(enum) {
             .InvalidToken => |x| return x.token,
             .ExpectedToken => |x| return x.token,
             .ExpectedExpr => |x| return x.token,
-            .ExpectedStmt => |x| return x.token,
             .ExpectedTypeName => |x| return x.token,
             .ExpectedDeclarator => |x| return x.token,
             .ExpectedFnBody => |x| return x.token,
@@ -226,9 +223,10 @@ pub const Node = struct {
         RecordField,
         JumpStmt,
         ExprStmt,
-        Label,
+        LabeledStmt,
         CompoundStmt,
         IfStmt,
+        SwitchStmt,
         WhileStmt,
         DoStmt,
         ForStmt,
@@ -454,26 +452,29 @@ pub const Node = struct {
     pub const JumpStmt = struct {
         base: Node = Node{ .id = .JumpStmt },
         ltoken: TokenIndex,
-        kind: Kind,
-        semicolon: TokenIndex,
-
-        pub const Kind = union(enum) {
+        kind: union(enum) {
             Break,
             Continue,
             Return: ?*Node,
             Goto: TokenIndex,
-        };
+        },
+        semicolon: TokenIndex,
     };
 
     pub const ExprStmt = struct {
         base: Node = Node{ .id = .ExprStmt },
-        expr: ?*Node,
+        expr: ?*Expr,
         semicolon: TokenIndex,
     };
 
-    pub const Label = struct {
-        base: Node = Node{ .id = .Label },
-        identifier: TokenIndex,
+    pub const LabeledStmt = struct {
+        base: Node = Node{ .id = .LabeledStmt },
+        kind: union(enum) {
+            Label: TokenIndex,
+            Case: TokenIndex,
+            Default: TokenIndex,
+        },
+        stmt: *Node,
     };
 
     pub const CompoundStmt = struct {
@@ -494,6 +495,14 @@ pub const Node = struct {
             tok: TokenIndex,
             body: *Node,
         },
+    };
+
+    pub const SwitchStmt = struct {
+        base: Node = Node{ .id = .SwitchStmt },
+        @"switch": TokenIndex,
+        expr: *Expr,
+        rparen: TokenIndex,
+        stmt: *Node,
     };
 
     pub const WhileStmt = struct {
