@@ -54,7 +54,7 @@ comptime {
     _ = @import("behavior/byteswap.zig");
     _ = @import("behavior/byval_arg_var.zig");
     _ = @import("behavior/call.zig");
-    //_ = @import("behavior/cast.zig");
+    _ = @import("behavior/cast.zig");
     _ = @import("behavior/const_slice_child.zig");
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/enum.zig");
@@ -81,9 +81,9 @@ comptime {
     _ = @import("behavior/muladd.zig");
     _ = @import("behavior/namespace_depends_on_compile_var.zig");
     _ = @import("behavior/new_stack_call.zig");
-    //_ = @import("behavior/null.zig");
+    _ = @import("behavior/null.zig");
     //_ = @import("behavior/optional.zig");
-    //_ = @import("behavior/pointers.zig");
+    _ = @import("behavior/pointers.zig");
     _ = @import("behavior/popcount.zig");
     _ = @import("behavior/ptrcast.zig");
     _ = @import("behavior/pub_enum.zig");

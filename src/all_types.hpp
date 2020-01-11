@@ -473,6 +473,9 @@ struct ZigValue {
     // uncomment these to find bugs. can't leave them uncommented because of a gcc-9 warning
     //ZigValue(const ZigValue &other) = delete; // plz zero initialize with {}
     //ZigValue& operator= (const ZigValue &other) = delete; // use copy_const_val
+
+    // for use in debuggers
+    void dump();
 };
 
 enum ReturnKnowledge {

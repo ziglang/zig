@@ -9304,11 +9304,12 @@ bool type_has_optional_repr(ZigType *ty) {
 
 void copy_const_val(ZigValue *dest, ZigValue *src) {
     uint32_t prev_align = dest->llvm_align;
+    ConstParent prev_parent = dest->parent;
     memcpy(dest, src, sizeof(ZigValue));
     dest->llvm_align = prev_align;
     if (src->special != ConstValSpecialStatic)
         return;
-    dest->parent.id = ConstParentIdNone;
+    dest->parent = prev_parent;
     if (dest->type->id == ZigTypeIdStruct) {
         dest->data.x_struct.fields = alloc_const_vals_ptrs(dest->type->data.structure.src_field_count);
         for (size_t i = 0; i < dest->type->data.structure.src_field_count; i += 1) {
@@ -9361,4 +9362,129 @@ bool type_is_numeric(ZigType *ty) {
             return false;
     }
     zig_unreachable();
+}
+
+static void dump_value_indent(ZigValue *val, int indent) {
+    for (int i = 0; i < indent; i += 1) {
+        fprintf(stderr, " ");
+    }
+    fprintf(stderr, "Value@%p(", val);
+    if (val->type != nullptr) {
+        fprintf(stderr, "%s)", buf_ptr(&val->type->name));
+    } else {
+        fprintf(stderr, "type=nullptr)");
+    }
+    switch (val->special) {
+        case ConstValSpecialUndef:
+            fprintf(stderr, "[undefined]\n");
+            return;
+        case ConstValSpecialLazy:
+            fprintf(stderr, "[lazy]\n");
+            return;
+        case ConstValSpecialRuntime:
+            fprintf(stderr, "[runtime]\n");
+            return;
+        case ConstValSpecialStatic:
+            break;
+    }
+    if (val->type == nullptr)
+        return;
+    switch (val->type->id) {
+        case ZigTypeIdInvalid:
+            fprintf(stderr, "<invalid>\n");
+            return;
+        case ZigTypeIdUnreachable:
+            fprintf(stderr, "<unreachable>\n");
+            return;
+        case ZigTypeIdVoid:
+            fprintf(stderr, "<{}>\n");
+            return;
+        case ZigTypeIdMetaType:
+            fprintf(stderr, "<%s>\n", buf_ptr(&val->data.x_type->name));
+            return;
+        case ZigTypeIdBool:
+            fprintf(stderr, "<%s>\n", val->data.x_bool ? "true" : "false");
+            return;
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdInt:
+        case ZigTypeIdFloat:
+        case ZigTypeIdUndefined:
+            fprintf(stderr, "<TODO dump number>\n");
+            return;
+
+        case ZigTypeIdStruct:
+            fprintf(stderr, "<struct\n");
+            for (size_t i = 0; i < val->type->data.structure.src_field_count; i += 1) {
+                for (int j = 0; j < indent; j += 1) {
+                    fprintf(stderr, " ");
+                }
+                fprintf(stderr, "%s: ", buf_ptr(val->type->data.structure.fields[i]->name));
+                dump_value_indent(val->data.x_struct.fields[i], 1);
+            }
+            for (int i = 0; i < indent; i += 1) {
+                fprintf(stderr, " ");
+            }
+            fprintf(stderr, ">\n");
+            return;
+
+        case ZigTypeIdOptional:
+            fprintf(stderr, "<\n");
+            dump_value_indent(val->data.x_optional, indent + 1);
+
+            for (int i = 0; i < indent; i += 1) {
+                fprintf(stderr, " ");
+            }
+            fprintf(stderr, ">\n");
+            return;
+
+        case ZigTypeIdErrorUnion:
+            if (val->data.x_err_union.payload != nullptr) {
+                fprintf(stderr, "<\n");
+                dump_value_indent(val->data.x_err_union.payload, indent + 1);
+            } else {
+                fprintf(stderr, "<\n");
+                dump_value_indent(val->data.x_err_union.error_set, 0);
+            }
+            for (int i = 0; i < indent; i += 1) {
+                fprintf(stderr, " ");
+            }
+            fprintf(stderr, ">\n");
+            return;
+
+        case ZigTypeIdPointer:
+            switch (val->data.x_ptr.special) {
+                case ConstPtrSpecialRef:
+                    fprintf(stderr, "<ref\n");
+                    dump_value_indent(val->data.x_ptr.data.ref.pointee, indent + 1);
+                    break;
+                default:
+                    fprintf(stderr, "TODO dump more pointer things\n");
+            }
+            for (int i = 0; i < indent; i += 1) {
+                fprintf(stderr, " ");
+            }
+            fprintf(stderr, ">\n");
+            return;
+
+        case ZigTypeIdVector:
+        case ZigTypeIdArray:
+        case ZigTypeIdNull:
+        case ZigTypeIdErrorSet:
+        case ZigTypeIdEnum:
+        case ZigTypeIdUnion:
+        case ZigTypeIdFn:
+        case ZigTypeIdBoundFn:
+        case ZigTypeIdOpaque:
+        case ZigTypeIdFnFrame:
+        case ZigTypeIdAnyFrame:
+        case ZigTypeIdEnumLiteral:
+            fprintf(stderr, "<TODO dump value>\n");
+            return;
+    }
+    zig_unreachable();
+}
+
+void ZigValue::dump() {
+    dump_value_indent(this, 0);
 }
