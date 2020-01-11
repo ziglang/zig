@@ -8390,13 +8390,16 @@ pub const TypeId = enum {
     Null,
     Optional,
     ErrorUnion,
-    Error,
+    ErrorSet,
     Enum,
     Union,
     Fn,
-    Block,
     BoundFn,
     Opaque,
+    Frame,
+    AnyFrame,
+    Vector,
+    EnumLiteral,
 };
       {#code_end#}
       {#header_close#}
