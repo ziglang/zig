@@ -2,6 +2,10 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("empty declaration",
+        \\;
+    , &[_][]const u8{""});
+
     cases.add("#define hex literal with capital X",
         \\#define VAL 0XF00D
     , &[_][]const u8{

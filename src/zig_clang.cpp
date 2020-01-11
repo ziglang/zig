@@ -1649,10 +1649,15 @@ bool ZigClangRecordDecl_isAnonymousStructOrUnion(const ZigClangRecordDecl *recor
     return reinterpret_cast<const clang::RecordDecl*>(record_decl)->isAnonymousStructOrUnion();
 }
 
-const char *ZigClangDecl_getName_bytes_begin(const ZigClangDecl *zig_decl) {
-    const clang::Decl *decl = reinterpret_cast<const clang::Decl *>(zig_decl);
-    const clang::NamedDecl *named_decl = static_cast<const clang::NamedDecl *>(decl);
-    return (const char *)named_decl->getName().bytes_begin();
+const ZigClangNamedDecl* ZigClangDecl_castToNamedDecl(const ZigClangDecl *self) {
+    auto casted = reinterpret_cast<const clang::Decl *>(self);
+    auto cast = clang::dyn_cast<const clang::NamedDecl>(casted);
+    return reinterpret_cast<const ZigClangNamedDecl *>(cast);
+}
+
+const char *ZigClangNamedDecl_getName_bytes_begin(const ZigClangNamedDecl *self) {
+    auto casted = reinterpret_cast<const clang::NamedDecl *>(self);
+    return (const char *)casted->getName().bytes_begin();
 }
 
 ZigClangDeclKind ZigClangDecl_getKind(const struct ZigClangDecl *self) {
