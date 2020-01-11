@@ -188,6 +188,10 @@ pub const WaitForSingleObjectError = error{
     Unexpected,
 };
 
+pub fn WaitForSingleObject(handle: HANDLE, milliseconds: DWORD) WaitForSingleObjectError!void {
+    return WaitForSingleObjectEx(handle, milliseconds, false);
+}
+
 pub fn WaitForSingleObjectEx(handle: HANDLE, milliseconds: DWORD, alertable: bool) WaitForSingleObjectError!void {
     switch (kernel32.WaitForSingleObjectEx(handle, milliseconds, @boolToInt(alertable))) {
         WAIT_ABANDONED => return error.WaitAbandoned,
