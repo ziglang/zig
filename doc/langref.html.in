@@ -1818,7 +1818,7 @@ test "multidimensional arrays" {
 
       {#header_open|Sentinel-Terminated Arrays#}
       <p>
-      The syntax {#syntax#}[N:x]T{#endsyntax#} describes an array which has a sentinel element at the
+      The syntax {#syntax#}[N:x]T{#endsyntax#} describes an array which has a sentinel element of value {#syntax#}x{#endsyntax#} at the
       index corresponding to {#syntax#}len{#endsyntax#}.
       </p>
       {#code_begin|test|null_terminated_array#}
