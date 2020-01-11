@@ -382,8 +382,10 @@ fn declVisitorC(context: ?*c_void, decl: *const ZigClangDecl) callconv(.C) bool 
 }
 
 fn declVisitorNamesOnly(c: *Context, decl: *const ZigClangDecl) Error!void {
-    const decl_name = try c.str(ZigClangDecl_getName_bytes_begin(decl));
-    _ = try c.global_names.put(decl_name, {});
+    if (ZigClangDecl_castToNamedDecl(decl)) |named_decl| {
+        const decl_name = try c.str(ZigClangNamedDecl_getName_bytes_begin(named_decl));
+        _ = try c.global_names.put(decl_name, {});
+    }
 }
 
 fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
@@ -403,6 +405,9 @@ fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
         .Var => {
             return visitVarDecl(c, @ptrCast(*const ZigClangVarDecl, decl));
         },
+        .Empty => {
+            // Do nothing
+        },
         else => {
             const decl_name = try c.str(ZigClangDecl_getDeclKindName(decl));
             try emitWarning(c, ZigClangDecl_getLocation(decl), "ignoring {} declaration", .{decl_name});
@@ -411,7 +416,7 @@ fn declVisitor(c: *Context, decl: *const ZigClangDecl) Error!void {
 }
 
 fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
-    const fn_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, fn_decl)));
+    const fn_name = try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, fn_decl)));
     if (c.global_scope.sym_table.contains(fn_name))
         return; // Avoid processing this decl twice
 
@@ -521,7 +526,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
 }
 
 fn visitVarDecl(c: *Context, var_decl: *const ZigClangVarDecl) Error!void {
-    const var_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, var_decl)));
+    const var_name = try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, var_decl)));
     if (c.global_scope.sym_table.contains(var_name))
         return; // Avoid processing this decl twice
     const rp = makeRestorePoint(c);
@@ -648,7 +653,7 @@ fn transTypeDef(c: *Context, typedef_decl: *const ZigClangTypedefNameDecl, top_l
         return transCreateNodeIdentifier(c, kv.value); // Avoid processing this decl twice
     const rp = makeRestorePoint(c);
 
-    const typedef_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, typedef_decl)));
+    const typedef_name = try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, typedef_decl)));
 
     // TODO https://github.com/ziglang/zig/issues/3756
     // TODO https://github.com/ziglang/zig/issues/1802
@@ -708,7 +713,7 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
         return try transCreateNodeIdentifier(c, kv.value); // Avoid processing this decl twice
     const record_loc = ZigClangRecordDecl_getLocation(record_decl);
 
-    var bare_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, record_decl)));
+    var bare_name = try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, record_decl)));
     var is_unnamed = false;
     // Record declarations such as `struct {...} x` have no name but they're not
     // anonymous hence here isAnonymousStructOrUnion is not needed
@@ -777,7 +782,7 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
             }
 
             var is_anon = false;
-            var raw_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, field_decl)));
+            var raw_name = try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, field_decl)));
             if (ZigClangFieldDecl_isAnonymousStructOrUnion(field_decl)) {
                 raw_name = try std.fmt.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
                 is_anon = true;
@@ -830,7 +835,7 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
     const rp = makeRestorePoint(c);
     const enum_loc = ZigClangEnumDecl_getLocation(enum_decl);
 
-    var bare_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, enum_decl)));
+    var bare_name = try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, enum_decl)));
     var is_unnamed = false;
     if (bare_name.len == 0) {
         bare_name = try std.fmt.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
@@ -899,7 +904,7 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
         while (ZigClangEnumDecl_enumerator_iterator_neq(it, end_it)) : (it = ZigClangEnumDecl_enumerator_iterator_next(it)) {
             const enum_const = ZigClangEnumDecl_enumerator_iterator_deref(it);
 
-            const enum_val_name = try c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, enum_const)));
+            const enum_val_name = try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, enum_const)));
 
             const field_name = if (!is_unnamed and mem.startsWith(u8, enum_val_name, bare_name))
                 enum_val_name[bare_name.len..]
@@ -1303,8 +1308,8 @@ fn transDeclStmt(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangDeclStmt)
                 else
                     try appendToken(c, .Keyword_threadlocal, "threadlocal");
                 const qual_type = ZigClangVarDecl_getTypeSourceInfo_getType(var_decl);
-                const name = try c.str(ZigClangDecl_getName_bytes_begin(
-                    @ptrCast(*const ZigClangDecl, var_decl),
+                const name = try c.str(ZigClangNamedDecl_getName_bytes_begin(
+                    @ptrCast(*const ZigClangNamedDecl, var_decl),
                 ));
                 const mangled_name = try block_scope.makeMangledName(c, name);
                 const node = try transCreateNodeVarDecl(c, false, ZigClangQualType_isConstQualified(qual_type), mangled_name);
@@ -1347,7 +1352,7 @@ fn transDeclRefExpr(
     lrvalue: LRValue,
 ) TransError!*ast.Node {
     const value_decl = ZigClangDeclRefExpr_getDecl(expr);
-    const name = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, value_decl)));
+    const name = try rp.c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, value_decl)));
     const mangled_name = scope.getAlias(name);
     return transCreateNodeIdentifier(rp.c, mangled_name);
 }
@@ -1938,7 +1943,7 @@ fn transInitListExprRecord(
         //     .field_name = expr
         const period_tok = try appendToken(rp.c, .Period, ".");
 
-        var raw_name = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, field_decl)));
+        var raw_name = try rp.c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, field_decl)));
         if (ZigClangFieldDecl_isAnonymousStructOrUnion(field_decl)) {
             const name = rp.c.decl_table.get(@ptrToInt(ZigClangFieldDecl_getCanonicalDecl(field_decl))).?;
             raw_name = try mem.dupe(rp.c.a(), u8, name.value);
@@ -2563,8 +2568,8 @@ fn transMemberExpr(rp: RestorePoint, scope: *Scope, stmt: *const ZigClangMemberE
                 break :blk try mem.dupe(rp.c.a(), u8, name.value);
             }
         }
-        const decl = @ptrCast(*const ZigClangDecl, member_decl);
-        break :blk try rp.c.str(ZigClangDecl_getName_bytes_begin(decl));
+        const decl = @ptrCast(*const ZigClangNamedDecl, member_decl);
+        break :blk try rp.c.str(ZigClangNamedDecl_getName_bytes_begin(decl));
     };
 
     const node = try transCreateNodeFieldAccess(rp.c, container_node, name);
@@ -3326,7 +3331,7 @@ fn qualTypeIntBitWidth(rp: RestorePoint, qt: ZigClangQualType, source_loc: ZigCl
         .Typedef => {
             const typedef_ty = @ptrCast(*const ZigClangTypedefType, ty);
             const typedef_decl = ZigClangTypedefType_getDecl(typedef_ty);
-            const type_name = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, typedef_decl)));
+            const type_name = try rp.c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, typedef_decl)));
 
             if (mem.eql(u8, type_name, "uint8_t") or mem.eql(u8, type_name, "int8_t")) {
                 return 8;
@@ -4487,7 +4492,7 @@ fn finishTransFnProto(
         const param_name_tok: ?ast.TokenIndex = blk: {
             if (fn_decl) |decl| {
                 const param = ZigClangFunctionDecl_getParamDecl(decl, @intCast(c_uint, i));
-                const param_name: []const u8 = try rp.c.str(ZigClangDecl_getName_bytes_begin(@ptrCast(*const ZigClangDecl, param)));
+                const param_name: []const u8 = try rp.c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, param)));
                 if (param_name.len < 1)
                     break :blk null;
 

@@ -793,7 +793,8 @@ pub extern fn ZigClangEnumDecl_enumerator_end(*const ZigClangEnumDecl) ZigClangE
 pub extern fn ZigClangEnumDecl_enumerator_iterator_next(ZigClangEnumDecl_enumerator_iterator) ZigClangEnumDecl_enumerator_iterator;
 pub extern fn ZigClangEnumDecl_enumerator_iterator_deref(ZigClangEnumDecl_enumerator_iterator) *const ZigClangEnumConstantDecl;
 pub extern fn ZigClangEnumDecl_enumerator_iterator_neq(ZigClangEnumDecl_enumerator_iterator, ZigClangEnumDecl_enumerator_iterator) bool;
-pub extern fn ZigClangDecl_getName_bytes_begin(decl: ?*const struct_ZigClangDecl) [*:0]const u8;
+pub extern fn ZigClangDecl_castToNamedDecl(decl: *const struct_ZigClangDecl) ?*const ZigClangNamedDecl;
+pub extern fn ZigClangNamedDecl_getName_bytes_begin(decl: ?*const struct_ZigClangNamedDecl) [*:0]const u8;
 pub extern fn ZigClangSourceLocation_eq(a: struct_ZigClangSourceLocation, b: struct_ZigClangSourceLocation) bool;
 pub extern fn ZigClangTypedefType_getDecl(self: ?*const struct_ZigClangTypedefType) *const struct_ZigClangTypedefNameDecl;
 pub extern fn ZigClangTypedefNameDecl_getUnderlyingType(self: ?*const struct_ZigClangTypedefNameDecl) struct_ZigClangQualType;
