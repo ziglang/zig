@@ -592,7 +592,7 @@ pub const ChildProcess = struct {
 
         // the cwd set in ChildProcess is in effect when choosing the executable path
         // to match posix semantics
-        const app_name = x: {
+        const app_path = x: {
             if (self.cwd) |cwd| {
                 const resolved = try fs.path.resolve(self.allocator, &[_][]const u8{ cwd, self.argv[0] });
                 defer self.allocator.free(resolved);
@@ -601,15 +601,15 @@ pub const ChildProcess = struct {
                 break :x try cstr.addNullByte(self.allocator, self.argv[0]);
             }
         };
-        defer self.allocator.free(app_name);
+        defer self.allocator.free(app_path);
 
-        const app_name_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, app_name);
-        defer self.allocator.free(app_name_w);
+        const app_path_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, app_path);
+        defer self.allocator.free(app_path_w);
 
         const cmd_line_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, cmd_line);
         defer self.allocator.free(cmd_line_w);
 
-        windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
+        windowsCreateProcess(app_path_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
             if (no_path_err != error.FileNotFound) return no_path_err;
 
             var free_path = true;
@@ -631,6 +631,8 @@ pub const ChildProcess = struct {
                 else => |e| return e,
             };
             defer if (free_path_ext) self.allocator.free(PATHEXT);
+
+            const app_name = self.argv[0];
 
             var it = mem.tokenize(PATH, ";");
             retry: while (it.next()) |search_path| {
