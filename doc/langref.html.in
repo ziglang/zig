@@ -10323,6 +10323,7 @@ PrimaryTypeExpr
      / CHAR_LITERAL
      / ContainerDecl
      / DOT IDENTIFIER
+     / DOT InitList
      / ErrorSetDecl
      / FLOAT
      / FnProto
@@ -10546,7 +10547,6 @@ string_char
 
 line_comment &lt;- '//'[^\n]*
 line_string &lt;- ("\\\\" [^\n]* [ \n]*)+
-line_cstring &lt;- ("c\\\\" [^\n]* [ \n]*)+
 skip &lt;- ([ \n] / line_comment)*
 
 CHAR_LITERAL &lt;- "'" char_char "'" skip
@@ -10561,11 +10561,11 @@ INTEGER
      / "0x" hex+   skip
      /      [0-9]+ skip
 STRINGLITERAL
-    &lt;- "c"? "\"" string_char* "\"" skip
+    &lt;- "\"" string_char* "\"" skip
      / line_string                 skip
      / line_cstring                skip
 IDENTIFIER
-    &lt;- !keyword ("c" !["\\] / [A-Zabd-z_]) [A-Za-z0-9_]* skip
+    &lt;- !keyword [A-Za-z_] [A-Za-z0-9_]* skip
      / "@\"" string_char* "\""                            skip
 BUILTINIDENTIFIER &lt;- "@"[A-Za-z_][A-Za-z0-9_]* skip
 
