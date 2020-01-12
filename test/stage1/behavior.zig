@@ -100,6 +100,7 @@ comptime {
     _ = @import("behavior/switch_prong_err_enum.zig");
     _ = @import("behavior/switch_prong_implicit_cast.zig");
     _ = @import("behavior/syntax.zig");
+    _ = @import("behavior/tautological_int_comparison.zig");
     _ = @import("behavior/this.zig");
     _ = @import("behavior/truncate.zig");
     _ = @import("behavior/try.zig");

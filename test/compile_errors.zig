@@ -6546,4 +6546,40 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         "tmp.zig:2:27: error: type 'u32' does not support array initialization",
     });
+
+    cases.add("overeager elision of tautological comparison pos eq",
+        \\export fn entry() void {
+        \\    var x: u8 = undefined;
+        \\    if (255 == x) @compileError("this branch should be analyzed");
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:19: error: this branch should be analyzed",
+    });
+
+    cases.add("overeager elision of tautological comparison pos neq",
+        \\export fn entry() void {
+        \\    var x: u8 = undefined;
+        \\    if (x != 255) {} else @compileError("this branch should be analyzed");
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:27: error: this branch should be analyzed",
+    });
+
+    cases.add("overeager elision of tautological comparison pos gte",
+        \\export fn entry() void {
+        \\    var x: u8 = undefined;
+        \\    if (255 >= x) @compileError("this branch should be analyzed");
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:19: error: this branch should be analyzed",
+    });
+
+    cases.add("overeager elision of tautological comparison neg gt",
+        \\export fn entry() void {
+        \\    var x: i8 = undefined;
+        \\    if (x > -128) {} else @compileError("this branch should be analyzed");
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:27: error: this branch should be analyzed",
+    });
 }

@@ -14890,6 +14890,117 @@ static IrInstruction *ir_analyze_bin_op_cmp_numeric(IrAnalyze *ira, IrInstructio
         }
     }
 
+    // If one operand is a comptime-known integer which is too large (has too many bits) to fit
+    // into the other's type, the expression result can be determined without runtime evaluation.
+    IrInstruction *oversized_op = nullptr;
+    IrInstruction *undersized_op = nullptr;
+    bool swap_sides;
+    if (op1->value->type->id == ZigTypeIdInt &&
+        (op2->value->type->id == ZigTypeIdComptimeInt ||
+        (op2->value->type->id == ZigTypeIdInt && instr_is_comptime(op2))))
+    {
+        oversized_op = op2;
+        undersized_op = op1;
+        swap_sides = false;
+    } else if (op2->value->type->id == ZigTypeIdInt &&
+        (op1->value->type->id == ZigTypeIdComptimeInt ||
+        (op1->value->type->id == ZigTypeIdInt && instr_is_comptime(op1))))
+    {
+        oversized_op = op1;
+        undersized_op = op2;
+        swap_sides = true;
+    }
+
+    if (oversized_op != nullptr && undersized_op != nullptr) {
+        ir_resolve_const(ira, oversized_op, UndefOk);
+
+        IrBinOp normalized_op = op_id;
+        BigInt oversized_val;
+        bigint_init_bigint(&oversized_val, &oversized_op->value->data.x_bigint);
+
+        // Normalize operation so that we can assume the constant operand is on the RHS.
+        if (swap_sides) {
+            switch (normalized_op) {
+                case IrBinOpCmpGreaterThan:
+                    normalized_op = IrBinOpCmpLessThan;
+                    break;
+                case IrBinOpCmpGreaterOrEq:
+                    normalized_op = IrBinOpCmpLessOrEq;
+                    break;
+                case IrBinOpCmpLessThan:
+                    normalized_op = IrBinOpCmpGreaterThan;
+                    break;
+                case IrBinOpCmpLessOrEq:
+                    normalized_op = IrBinOpCmpGreaterOrEq;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        // Normalize LT/LTE/GT/GTE operations such that the const value is made larger if possible.
+        // This might, for example, push 7 to 8, or -8 to -9, increasing the number of required
+        // bits, making an oversized constant easier to detect.
+        switch (normalized_op) {
+            case IrBinOpCmpGreaterThan:
+                if (!oversized_val.is_negative) {
+                    normalized_op = IrBinOpCmpGreaterOrEq;
+                    bigint_incr(&oversized_val);
+                }
+                break;
+            case IrBinOpCmpGreaterOrEq:
+                if (oversized_val.is_negative) {
+                    normalized_op = IrBinOpCmpGreaterThan;
+                    bigint_decr(&oversized_val);
+                }
+                break;
+            case IrBinOpCmpLessThan:
+                if (oversized_val.is_negative) {
+                    normalized_op = IrBinOpCmpLessOrEq;
+                    bigint_decr(&oversized_val);
+                }
+                break;
+            case IrBinOpCmpLessOrEq:
+                if (!oversized_val.is_negative) {
+                    normalized_op = IrBinOpCmpLessThan;
+                    bigint_incr(&oversized_val);
+                }
+                break;
+            default:
+                break;
+        }
+
+        // Now we can easily decide to skip evaluation if the value won't fit in the other's bits.
+        if (!bigint_fits_in_bits(
+            &oversized_val,
+            undersized_op->value->type->data.integral.bit_count,
+            undersized_op->value->type->data.integral.is_signed))
+        {
+            // x ==  oversized_y    // false
+            // x !=  oversized_y    // true
+            // x <  +oversized_y    // true
+            // x >= +oversized_y    // false
+            // x >  -oversized_y    // true
+            // x <= -oversized_y    // false
+            switch (normalized_op) {
+                case IrBinOpCmpEq:
+                    return ir_const_bool(ira, source_instr, false);
+                case IrBinOpCmpNotEq:
+                    return ir_const_bool(ira, source_instr, true);
+                case IrBinOpCmpLessThan:
+                    return ir_const_bool(ira, source_instr, true);
+                case IrBinOpCmpLessOrEq:
+                    return ir_const_bool(ira, source_instr, false);
+                case IrBinOpCmpGreaterThan:
+                    return ir_const_bool(ira, source_instr, true);
+                case IrBinOpCmpGreaterOrEq:
+                    return ir_const_bool(ira, source_instr, false);
+                default:
+                    break;
+            }
+        }
+    }
+
     // It must be a runtime comparison.
     // For floats, emit a float comparison instruction.
     bool op1_is_float = op1_scalar_type->id == ZigTypeIdFloat || op1_scalar_type->id == ZigTypeIdComptimeFloat;
