@@ -38,6 +38,10 @@ const import_aes = @import("crypto/aes.zig");
 pub const AES128 = import_aes.AES128;
 pub const AES256 = import_aes.AES256;
 
+const import_des = @import("crypto/des.zig");
+pub const DES = import_des.DES;
+pub const TDES = import_des.TDES;
+
 const std = @import("std.zig");
 pub const randomBytes = std.os.getrandom;
 
@@ -45,6 +49,7 @@ test "crypto" {
     _ = @import("crypto/aes.zig");
     _ = @import("crypto/blake2.zig");
     _ = @import("crypto/chacha20.zig");
+    _ = @import("crypto/des.zig");
     _ = @import("crypto/gimli.zig");
     _ = @import("crypto/hmac.zig");
     _ = @import("crypto/md5.zig");
