@@ -7456,6 +7456,8 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     // it's actually in break statements, handled similarly to return statements.
     // That is why we set those values in loop_scope above and not in this ir_gen_node call.
     IrInstruction *body_result = ir_gen_node(irb, body_node, &loop_scope->base);
+    if (body_result == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
 
     if (!instr_is_unreachable(body_result)) {
         ir_mark_gen(ir_build_check_statement_is_void(irb, child_scope, node->data.for_expr.body, body_result));
