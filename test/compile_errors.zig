@@ -2,6 +2,15 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("errors in for loop bodies are propagated",
+        \\pub export fn entry() void {
+        \\    var arr: [100]u8 = undefined;
+        \\    for (arr) |bits| _ = @popCount(bits);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:26: error: expected 2 arguments, found 1",
+    });
+
     cases.addTest("error in struct initializer doesn't crash the compiler",
         \\pub export fn entry() void {
         \\    const bitfield = struct {
