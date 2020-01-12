@@ -21,11 +21,32 @@ static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type) 
 
     // Show the error location, if available
     if (err->path != nullptr) {
+        const char *path = buf_ptr(err->path);
+        Slice<const char> pathslice{path, strlen(path)};
+
+        // Cache cwd
+        static Buf *cwdbuf{nullptr};
+        static Slice<const char> cwd;
+
+        if (cwdbuf == nullptr) {
+            cwdbuf = buf_alloc();
+            Error err = os_get_cwd(cwdbuf);
+            if (err != ErrorNone)
+                zig_panic("get cwd failed");
+            buf_append_char(cwdbuf, ZIG_OS_SEP_CHAR);
+            cwd.ptr = buf_ptr(cwdbuf);
+            cwd.len = strlen(cwd.ptr);
+        }
+
         const size_t line = err->line_start + 1;
         const size_t col = err->column_start + 1;
-
         if (use_colors) os_stderr_set_color(TermColorBold);
-        fprintf(stderr, "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ": ", buf_ptr(err->path), line, col);
+
+        // Strip cwd from path
+        if (memStartsWith(pathslice, cwd))
+            fprintf(stderr, ".%c%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ": ", ZIG_OS_SEP_CHAR, path+cwd.len, line, col);
+        else
+            fprintf(stderr, "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ": ", path, line, col);
     }
 
     // Write out the error type
