@@ -30,8 +30,6 @@
 
 #else
 
-#include <signal.h>
-
 #define ATTRIBUTE_COLD         __attribute__((cold))
 #define ATTRIBUTE_PRINTF(a, b) __attribute__((format(printf, a, b)))
 #define ATTRIBUTE_RETURNS_NOALIAS __attribute__((__malloc__))
@@ -40,7 +38,12 @@
 
 #if defined(__MINGW32__) || defined(__MINGW64__)
 #define BREAKPOINT __debugbreak()
+#elif defined(__clang__)
+#define BREAKPOINT __builtin_debugtrap()
+#elif defined(__GNUC__)
+#define BREAKPOINT __builtin_trap()
 #else
+#include <signal.h>
 #define BREAKPOINT raise(SIGTRAP)
 #endif
 
