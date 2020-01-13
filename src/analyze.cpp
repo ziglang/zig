@@ -6393,6 +6393,8 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         }
         instruction->field_index = fields.length;
 
+        src_assert(child_type->id != ZigTypeIdPointer || child_type->data.pointer.inferred_struct_field == nullptr,
+                instruction->base.source_node);
         fields.append({name, child_type, instruction->align});
     }
 
