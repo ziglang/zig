@@ -193,7 +193,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:5:14: error: unable to perform 'never_inline' call at compile-time",
         "tmp.zig:8:14: error: unable to perform 'never_tail' call at compile-time",
         "tmp.zig:11:5: error: no-inline call of inline function",
-        "tmp.zig:15:43: error: unable to evaluate constant expression",
+        "tmp.zig:15:5: error: the specified modifier requires a comptime-known function",
     });
 
     cases.add("exported async function",
