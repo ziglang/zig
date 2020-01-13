@@ -60,7 +60,7 @@ comptime {
     _ = @import("behavior/enum.zig");
     _ = @import("behavior/enum_with_members.zig");
     //_ = @import("behavior/error.zig");
-    //_ = @import("behavior/eval.zig");
+    _ = @import("behavior/eval.zig");
     _ = @import("behavior/field_parent_ptr.zig");
     _ = @import("behavior/floatop.zig");
     _ = @import("behavior/fn.zig");
@@ -93,7 +93,7 @@ comptime {
     _ = @import("behavior/sizeof_and_typeof.zig");
     _ = @import("behavior/slice.zig");
     _ = @import("behavior/slicetobytes.zig");
-    //_ = @import("behavior/struct.zig");
+    _ = @import("behavior/struct.zig");
     _ = @import("behavior/struct_contains_null_ptr_itself.zig");
     _ = @import("behavior/struct_contains_slice_of_itself.zig");
     _ = @import("behavior/switch.zig");
@@ -111,7 +111,7 @@ comptime {
     _ = @import("behavior/underscore.zig");
     _ = @import("behavior/union.zig");
     _ = @import("behavior/usingnamespace.zig");
-    //_ = @import("behavior/var_args.zig");
+    _ = @import("behavior/var_args.zig");
     _ = @import("behavior/vector.zig");
     _ = @import("behavior/void.zig");
     _ = @import("behavior/while.zig");

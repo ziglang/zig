@@ -17519,7 +17519,6 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
     {
         result_loc_pass1 = no_result_loc();
     }
-    bool was_already_resolved = result_loc_pass1->resolved_loc != nullptr;
     IrInstruction *result_loc = ir_resolve_result_raw(ira, suspend_source_instr, result_loc_pass1, value_type,
             value, force_runtime, allow_discard);
     if (result_loc == nullptr || (instr_is_unreachable(result_loc) || type_is_invalid(result_loc->value->type)))
@@ -17532,56 +17531,63 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
     }
 
     InferredStructField *isf = result_loc->value->type->data.pointer.inferred_struct_field;
-    if (!was_already_resolved && isf != nullptr) {
-        // Now it's time to add the field to the struct type.
-        uint32_t old_field_count = isf->inferred_struct_type->data.structure.src_field_count;
-        uint32_t new_field_count = old_field_count + 1;
-        isf->inferred_struct_type->data.structure.src_field_count = new_field_count;
-        isf->inferred_struct_type->data.structure.fields = realloc_type_struct_fields(
-                isf->inferred_struct_type->data.structure.fields, old_field_count, new_field_count);
-
-        TypeStructField *field = isf->inferred_struct_type->data.structure.fields[old_field_count];
-        field->name = isf->field_name;
-        field->type_entry = value_type;
-        field->type_val = create_const_type(ira->codegen, field->type_entry);
-        field->src_index = old_field_count;
-        field->decl_node = value ? value->source_node : suspend_source_instr->source_node;
-        if (value && instr_is_comptime(value)) {
-            ZigValue *val = ir_resolve_const(ira, value, UndefOk);
-            if (!val)
-                return ira->codegen->invalid_instruction;
-            field->is_comptime = true;
-            field->init_val = create_const_vals(1);
-            copy_const_val(field->init_val, val);
-            return result_loc;
-        }
-
-        ZigType *struct_ptr_type = get_pointer_to_type(ira->codegen, isf->inferred_struct_type, false);
+    if (isf != nullptr) {
+        TypeStructField *field;
         IrInstruction *casted_ptr;
-        if (instr_is_comptime(result_loc)) {
-            casted_ptr = ir_const(ira, suspend_source_instr, struct_ptr_type);
-            copy_const_val(casted_ptr->value, result_loc->value);
-            casted_ptr->value->type = struct_ptr_type;
-        } else {
+        if (isf->already_resolved) {
+            field = find_struct_type_field(isf->inferred_struct_type, isf->field_name);
             casted_ptr = result_loc;
-        }
-        if (instr_is_comptime(casted_ptr)) {
-            ZigValue *ptr_val = ir_resolve_const(ira, casted_ptr, UndefBad);
-            if (!ptr_val)
-                return ira->codegen->invalid_instruction;
-            if (ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
-                ZigValue *struct_val = const_ptr_pointee(ira, ira->codegen, ptr_val,
-                        suspend_source_instr->source_node);
-                struct_val->special = ConstValSpecialStatic;
-                struct_val->data.x_struct.fields = realloc_const_vals_ptrs(struct_val->data.x_struct.fields,
-                        old_field_count, new_field_count);
+        } else {
+            isf->already_resolved = true;
+            // Now it's time to add the field to the struct type.
+            uint32_t old_field_count = isf->inferred_struct_type->data.structure.src_field_count;
+            uint32_t new_field_count = old_field_count + 1;
+            isf->inferred_struct_type->data.structure.src_field_count = new_field_count;
+            isf->inferred_struct_type->data.structure.fields = realloc_type_struct_fields(
+                    isf->inferred_struct_type->data.structure.fields, old_field_count, new_field_count);
 
-                ZigValue *field_val = struct_val->data.x_struct.fields[old_field_count];
-                field_val->special = ConstValSpecialUndef;
-                field_val->type = field->type_entry;
-                field_val->parent.id = ConstParentIdStruct;
-                field_val->parent.data.p_struct.struct_val = struct_val;
-                field_val->parent.data.p_struct.field_index = old_field_count;
+            field = isf->inferred_struct_type->data.structure.fields[old_field_count];
+            field->name = isf->field_name;
+            field->type_entry = value_type;
+            field->type_val = create_const_type(ira->codegen, field->type_entry);
+            field->src_index = old_field_count;
+            field->decl_node = value ? value->source_node : suspend_source_instr->source_node;
+            if (value && instr_is_comptime(value)) {
+                ZigValue *val = ir_resolve_const(ira, value, UndefOk);
+                if (!val)
+                    return ira->codegen->invalid_instruction;
+                field->is_comptime = true;
+                field->init_val = create_const_vals(1);
+                copy_const_val(field->init_val, val);
+                return result_loc;
+            }
+
+            ZigType *struct_ptr_type = get_pointer_to_type(ira->codegen, isf->inferred_struct_type, false);
+            if (instr_is_comptime(result_loc)) {
+                casted_ptr = ir_const(ira, suspend_source_instr, struct_ptr_type);
+                copy_const_val(casted_ptr->value, result_loc->value);
+                casted_ptr->value->type = struct_ptr_type;
+            } else {
+                casted_ptr = result_loc;
+            }
+            if (instr_is_comptime(casted_ptr)) {
+                ZigValue *ptr_val = ir_resolve_const(ira, casted_ptr, UndefBad);
+                if (!ptr_val)
+                    return ira->codegen->invalid_instruction;
+                if (ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
+                    ZigValue *struct_val = const_ptr_pointee(ira, ira->codegen, ptr_val,
+                            suspend_source_instr->source_node);
+                    struct_val->special = ConstValSpecialStatic;
+                    struct_val->data.x_struct.fields = realloc_const_vals_ptrs(struct_val->data.x_struct.fields,
+                            old_field_count, new_field_count);
+
+                    ZigValue *field_val = struct_val->data.x_struct.fields[old_field_count];
+                    field_val->special = ConstValSpecialUndef;
+                    field_val->type = field->type_entry;
+                    field_val->parent.id = ConstParentIdStruct;
+                    field_val->parent.data.p_struct.struct_val = struct_val;
+                    field_val->parent.data.p_struct.field_index = old_field_count;
+                }
             }
         }
 

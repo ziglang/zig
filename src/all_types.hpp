@@ -1230,6 +1230,7 @@ static const uint32_t VECTOR_INDEX_RUNTIME = UINT32_MAX - 1;
 struct InferredStructField {
     ZigType *inferred_struct_type;
     Buf *field_name;
+    bool already_resolved;
 };
 
 struct ZigTypePointer {
