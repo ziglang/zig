@@ -1893,21 +1893,11 @@ static void ir_print_enum_tag_type(IrPrint *irp, IrInstructionTagType *instructi
 }
 
 static void ir_print_export(IrPrint *irp, IrInstructionExport *instruction) {
-    if (instruction->linkage == nullptr) {
-        fprintf(irp->f, "@export(");
-        ir_print_other_instruction(irp, instruction->name);
-        fprintf(irp->f, ",");
-        ir_print_other_instruction(irp, instruction->target);
-        fprintf(irp->f, ")");
-    } else {
-        fprintf(irp->f, "@exportWithLinkage(");
-        ir_print_other_instruction(irp, instruction->name);
-        fprintf(irp->f, ",");
-        ir_print_other_instruction(irp, instruction->target);
-        fprintf(irp->f, ",");
-        ir_print_other_instruction(irp, instruction->linkage);
-        fprintf(irp->f, ")");
-    }
+    fprintf(irp->f, "@export(");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->options);
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_error_return_trace(IrPrint *irp, IrInstructionErrorReturnTrace *instruction) {

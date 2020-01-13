@@ -10,6 +10,7 @@ pub const TokenIndex = usize;
 pub const Tree = struct {
     source: []const u8,
     tokens: TokenList,
+    /// undefined on parse error (errors not empty)
     root_node: *Node.Root,
     arena_allocator: std.heap.ArenaAllocator,
     errors: ErrorList,
@@ -612,7 +613,7 @@ pub const Node = struct {
         visib_token: ?TokenIndex,
         thread_local_token: ?TokenIndex,
         name_token: TokenIndex,
-        eq_token: TokenIndex,
+        eq_token: ?TokenIndex,
         mut_token: TokenIndex,
         comptime_token: ?TokenIndex,
         extern_export_token: ?TokenIndex,

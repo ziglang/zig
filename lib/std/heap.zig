@@ -1063,3 +1063,7 @@ fn testAllocatorAlignedShrink(allocator: *mem.Allocator) mem.Allocator.Error!voi
     testing.expect(slice[0] == 0x12);
     testing.expect(slice[60] == 0x34);
 }
+
+test "heap" {
+    _ = @import("heap/logging_allocator.zig");
+}

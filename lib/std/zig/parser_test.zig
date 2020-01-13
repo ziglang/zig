@@ -2714,6 +2714,13 @@ test "zig fmt: top level doc comments" {
     );
 }
 
+test "zig fmt: extern without container keyword returns error" {
+    try testError(
+        \\const container = extern {};
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
@@ -2819,4 +2826,12 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
 
 fn testCanonical(source: []const u8) !void {
     return testTransform(source, source);
+}
+
+fn testError(source: []const u8) !void {
+    var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+    const tree = try std.zig.parse(&fixed_allocator.allocator, source);
+    defer tree.deinit();
+
+    std.testing.expect(tree.errors.len != 0);
 }

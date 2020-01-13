@@ -7538,8 +7538,8 @@ static void do_code_gen(CodeGen *g) {
                 LLVMSetLinkage(global_value, to_llvm_linkage(linkage));
                 maybe_export_dll(g, global_value, GlobalLinkageIdStrong);
             }
-            if (tld_var->section_name) {
-                LLVMSetSection(global_value, buf_ptr(tld_var->section_name));
+            if (var->section_name) {
+                LLVMSetSection(global_value, buf_ptr(var->section_name));
             }
             LLVMSetAlignment(global_value, var->align_bytes);
 
@@ -8017,7 +8017,8 @@ static void define_builtin_types(CodeGen *g) {
         buf_init_from_str(&entry->name, info->name);
 
         entry->llvm_di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                size_in_bits, is_signed ? ZigLLVMEncoding_DW_ATE_signed() : ZigLLVMEncoding_DW_ATE_unsigned());
+                8*LLVMStoreSizeOfType(g->target_data_ref, entry->llvm_type),
+                is_signed ? ZigLLVMEncoding_DW_ATE_signed() : ZigLLVMEncoding_DW_ATE_unsigned());
         entry->data.integral.is_signed = is_signed;
         entry->data.integral.bit_count = size_in_bits;
         g->primitive_type_table.put(&entry->name, entry);
@@ -8033,7 +8034,8 @@ static void define_builtin_types(CodeGen *g) {
         entry->abi_align = LLVMABIAlignmentOfType(g->target_data_ref, entry->llvm_type);
         buf_init_from_str(&entry->name, "bool");
         entry->llvm_di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits, ZigLLVMEncoding_DW_ATE_boolean());
+                8*LLVMStoreSizeOfType(g->target_data_ref, entry->llvm_type),
+                ZigLLVMEncoding_DW_ATE_boolean());
         g->builtin_types.entry_bool = entry;
         g->primitive_type_table.put(&entry->name, entry);
     }
@@ -8055,7 +8057,7 @@ static void define_builtin_types(CodeGen *g) {
         entry->data.integral.bit_count = g->pointer_size_bytes * 8;
 
         entry->llvm_di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits,
+                8*LLVMStoreSizeOfType(g->target_data_ref, entry->llvm_type),
                 is_signed ? ZigLLVMEncoding_DW_ATE_signed() : ZigLLVMEncoding_DW_ATE_unsigned());
         g->primitive_type_table.put(&entry->name, entry);
 
@@ -8264,7 +8266,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdOpaqueType, "OpaqueType", 0);
     create_builtin_fn(g, BuiltinFnIdSetAlignStack, "setAlignStack", 1);
     create_builtin_fn(g, BuiltinFnIdArgType, "ArgType", 2);
-    create_builtin_fn(g, BuiltinFnIdExport, "export", 3);
+    create_builtin_fn(g, BuiltinFnIdExport, "export", 2);
     create_builtin_fn(g, BuiltinFnIdErrorReturnTrace, "errorReturnTrace", 0);
     create_builtin_fn(g, BuiltinFnIdAtomicRmw, "atomicRmw", 5);
     create_builtin_fn(g, BuiltinFnIdAtomicLoad, "atomicLoad", 3);
@@ -9240,15 +9242,12 @@ void codegen_translate_c(CodeGen *g, Buf *full_path) {
         for (size_t i = 0; i < errors_len; i += 1) {
             Stage2ErrorMsg *clang_err = &errors_ptr[i];
 
-            // Clang can emit "too many errors, stopping now", in which case `source` and `filename_ptr` are null
-            if (clang_err->source && clang_err->filename_ptr) {
-                ErrorMsg *err_msg = err_msg_create_with_offset(
-                        clang_err->filename_ptr ?
-                            buf_create_from_mem(clang_err->filename_ptr, clang_err->filename_len) : buf_alloc(),
-                        clang_err->line, clang_err->column, clang_err->offset, clang_err->source,
-                        buf_create_from_mem(clang_err->msg_ptr, clang_err->msg_len));
-                print_err_msg(err_msg, g->err_color);
-            }
+            ErrorMsg *err_msg = err_msg_create_with_offset(
+                clang_err->filename_ptr ?
+                buf_create_from_mem(clang_err->filename_ptr, clang_err->filename_len) : nullptr,
+                clang_err->line, clang_err->column, clang_err->offset, clang_err->source,
+                buf_create_from_mem(clang_err->msg_ptr, clang_err->msg_len));
+            print_err_msg(err_msg, g->err_color);
         }
         exit(1);
     }

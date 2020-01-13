@@ -8,7 +8,7 @@ const fixint = @import("fixint.zig").fixint;
 
 fn test__fixint(comptime fp_t: type, comptime fixint_t: type, a: fp_t, expected: fixint_t) void {
     const x = fixint(fp_t, fixint_t, a);
-    //warn("a={} x={}:{x} expected={}:{x})\n", a, x, x, expected, expected);
+    //warn("a={} x={}:{x} expected={}:{x})\n", .{a, x, x, expected, expected});
     testing.expect(x == expected);
 }
 
