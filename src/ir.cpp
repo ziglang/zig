@@ -17606,12 +17606,15 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
     if (actual_elem_type->id == ZigTypeIdOptional && value_type->id != ZigTypeIdOptional &&
             value_type->id != ZigTypeIdNull)
     {
-        bool has_bits;
-        if ((err = type_has_bits2(ira->codegen, value_type, &has_bits)))
-            return ira->codegen->invalid_instruction;
-        if (has_bits) {
-            result_loc_pass1->written = false;
-            return ir_analyze_unwrap_optional_payload(ira, suspend_source_instr, result_loc, false, true);
+        bool same_comptime_repr = types_have_same_zig_comptime_repr(ira->codegen, actual_elem_type, value_type);
+        if (!same_comptime_repr) {
+            bool has_bits;
+            if ((err = type_has_bits2(ira->codegen, value_type, &has_bits)))
+                return ira->codegen->invalid_instruction;
+            if (has_bits) {
+                result_loc_pass1->written = false;
+                return ir_analyze_unwrap_optional_payload(ira, suspend_source_instr, result_loc, false, true);
+            }
         }
     } else if (actual_elem_type->id == ZigTypeIdErrorUnion && value_type->id != ZigTypeIdErrorUnion) {
         bool has_bits;

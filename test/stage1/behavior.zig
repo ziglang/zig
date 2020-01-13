@@ -82,7 +82,7 @@ comptime {
     _ = @import("behavior/namespace_depends_on_compile_var.zig");
     _ = @import("behavior/new_stack_call.zig");
     _ = @import("behavior/null.zig");
-    //_ = @import("behavior/optional.zig");
+    _ = @import("behavior/optional.zig");
     _ = @import("behavior/pointers.zig");
     _ = @import("behavior/popcount.zig");
     _ = @import("behavior/ptrcast.zig");
