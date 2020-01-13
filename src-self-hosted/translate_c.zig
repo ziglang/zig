@@ -751,7 +751,8 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
             break :blk opaque;
         };
 
-        const layout_tok = try if (ZigClangRecordDecl_getPackedAttribute(record_decl))
+        const is_packed = ZigClangRecordDecl_getPackedAttribute(record_decl);
+        const layout_tok = try if (is_packed)
             appendToken(c, .Keyword_packed, "packed")
         else
             appendToken(c, .Keyword_extern, "extern");
@@ -768,33 +769,39 @@ fn transRecordDecl(c: *Context, record_decl: *const ZigClangRecordDecl) Error!?*
             .rbrace_token = undefined,
         };
 
+        const layout = ZigClangASTContext_getASTRecordLayout(c.clang_context, record_def);
         var it = ZigClangRecordDecl_field_begin(record_def);
         const end_it = ZigClangRecordDecl_field_end(record_def);
         while (ZigClangRecordDecl_field_iterator_neq(it, end_it)) : (it = ZigClangRecordDecl_field_iterator_next(it)) {
             const field_decl = ZigClangRecordDecl_field_iterator_deref(it);
             const field_loc = ZigClangFieldDecl_getLocation(field_decl);
 
-            if (ZigClangFieldDecl_isBitField(field_decl)) {
-                const opaque = try transCreateNodeOpaqueType(c);
-                semicolon = try appendToken(c, .Semicolon, ";");
-                try emitWarning(c, field_loc, "{} demoted to opaque type - has bitfield", .{container_kind_name});
-                break :blk opaque;
-            }
+            const is_bitfield = ZigClangFieldDecl_isBitField(field_decl);
+            const offset = ZigClangASTRecordLayout_getFieldOffset(layout, ZigClangFieldDecl_getFieldIndex(field_decl));
 
             var is_anon = false;
             var raw_name = try c.str(ZigClangNamedDecl_getName_bytes_begin(@ptrCast(*const ZigClangNamedDecl, field_decl)));
-            if (ZigClangFieldDecl_isAnonymousStructOrUnion(field_decl)) {
+            if (ZigClangFieldDecl_isAnonymousStructOrUnion(field_decl) or (is_bitfield and ZigClangFieldDecl_isUnnamedBitfield(field_decl))) {
                 raw_name = try std.fmt.allocPrint(c.a(), "unnamed_{}", .{c.getMangle()});
                 is_anon = true;
             }
             const field_name = try appendIdentifier(c, raw_name);
             _ = try appendToken(c, .Colon, ":");
-            const field_type = transQualType(rp, ZigClangFieldDecl_getType(field_decl), field_loc) catch |err| switch (err) {
-                error.UnsupportedType => {
-                    try failDecl(c, record_loc, name, "unable to translate {} member type", .{container_kind_name});
-                    return null;
-                },
-                else => |e| return e,
+
+            const field_type = if (is_bitfield) ty: {
+                const field_qt = ZigClangFieldDecl_getType(field_decl);
+                const sign = if (cIsSignedInteger(field_qt)) "i" else "u";
+                const bit_width = ZigClangFieldDecl_getBitWidthValue(field_decl, c.clang_context);
+                const type_name = try std.fmt.allocPrint(c.a(), "{}{}", .{ sign, bit_width });
+                break :ty try transCreateNodeIdentifier(c, type_name);
+            } else ty: {
+                break :ty transQualType(rp, ZigClangFieldDecl_getType(field_decl), field_loc) catch |err| switch (err) {
+                    error.UnsupportedType => {
+                        try failDecl(c, record_loc, name, "unable to translate {} member type", .{container_kind_name});
+                        return null;
+                    },
+                    else => |e| return e,
+                };
             };
 
             const field_node = try c.a().create(ast.Node.ContainerField);
@@ -3459,15 +3466,6 @@ fn typeIsOpaque(c: *Context, ty: *const ZigClangType, loc: ZigClangSourceLocatio
             const record_decl = ZigClangRecordType_getDecl(record_ty);
             const record_def = ZigClangRecordDecl_getDefinition(record_decl) orelse
                 return true;
-            var it = ZigClangRecordDecl_field_begin(record_def);
-            const end_it = ZigClangRecordDecl_field_end(record_def);
-            while (ZigClangRecordDecl_field_iterator_neq(it, end_it)) : (it = ZigClangRecordDecl_field_iterator_next(it)) {
-                const field_decl = ZigClangRecordDecl_field_iterator_deref(it);
-
-                if (ZigClangFieldDecl_isBitField(field_decl)) {
-                    return true;
-                }
-            }
             return false;
         },
         .Elaborated => {

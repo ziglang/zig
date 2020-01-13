@@ -1682,18 +1682,12 @@ Error type_allowed_in_extern(CodeGen *g, ZigType *type_entry, bool *result) {
             *result = true;
             return ErrorNone;
         case ZigTypeIdInt:
-            switch (type_entry->data.integral.bit_count) {
-                case 8:
-                case 16:
-                case 32:
-                case 64:
-                case 128:
-                    *result = true;
-                    return ErrorNone;
-                default:
-                    *result = false;
-                    return ErrorNone;
+            if (type_entry->data.integral.bit_count <= 128) {
+                *result = true;
+            } else {
+                *result = false;
             }
+            return ErrorNone;
         case ZigTypeIdVector:
             return type_allowed_in_extern(g, type_entry->data.vector.elem_type, result);
         case ZigTypeIdFloat:

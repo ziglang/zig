@@ -261,3 +261,18 @@ export fn zig_big_struct_both(x: BigStruct) BigStruct {
     };
     return s;
 }
+
+test "C struct with bit fields" {
+    const C_struct = extern struct {
+        a: u4,
+        b: u6,
+        c: i2,
+        d: u0, // 0-width field aligns to next byte boundary
+        e: u1,
+    };
+    std.testing.expectEqual(0, @bitOffsetOf(C_struct, "a"));
+    std.testing.expectEqual(4, @bitOffsetOf(C_struct, "b"));
+    std.testing.expectEqual(10, @bitOffsetOf(C_struct, "c"));
+    std.testing.expectEqual(16, @bitOffsetOf(C_struct, "d"));
+    std.testing.expectEqual(16, @bitOffsetOf(C_struct, "e"));
+}

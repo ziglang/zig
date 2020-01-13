@@ -69,6 +69,7 @@ struct ZigClangAPInt;
 struct ZigClangAPSInt;
 struct ZigClangAPValue;
 struct ZigClangASTContext;
+struct ZigClangASTRecordLayout;
 struct ZigClangASTUnit;
 struct ZigClangArraySubscriptExpr;
 struct ZigClangArrayType;
@@ -831,7 +832,10 @@ ZIG_EXTERN_C const char* ZigClangSourceManager_getCharacterData(const struct Zig
         struct ZigClangSourceLocation SL);
 
 ZIG_EXTERN_C struct ZigClangQualType ZigClangASTContext_getPointerType(const struct ZigClangASTContext*, struct ZigClangQualType T);
+ZIG_EXTERN_C const ZigClangASTRecordLayout *ZigClangASTContext_getASTRecordLayout(const struct ZigClangASTContext* self, const ZigClangRecordDecl *D);
 
+ZIG_EXTERN_C unsigned ZigClangASTRecordLayout_getFieldCount(const ZigClangASTRecordLayout *self);
+ZIG_EXTERN_C uint64_t ZigClangASTRecordLayout_getFieldOffset(const ZigClangASTRecordLayout *self, unsigned field_no);
 
 // Can return null.
 ZIG_EXTERN_C struct ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char **args_end,
@@ -1130,8 +1134,11 @@ ZIG_EXTERN_C const char *ZigClangMacroDefinitionRecord_getName_getNameStart(cons
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangMacroDefinitionRecord_getSourceRange_getBegin(const struct ZigClangMacroDefinitionRecord *);
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangMacroDefinitionRecord_getSourceRange_getEnd(const struct ZigClangMacroDefinitionRecord *);
 
+ZIG_EXTERN_C unsigned ZigClangFieldDecl_getFieldIndex(const struct ZigClangFieldDecl *self);
+ZIG_EXTERN_C unsigned ZigClangFieldDecl_getBitWidthValue(const struct ZigClangFieldDecl *self, const struct ZigClangASTContext *ctx);
 ZIG_EXTERN_C bool ZigClangFieldDecl_isBitField(const struct ZigClangFieldDecl *);
 ZIG_EXTERN_C bool ZigClangFieldDecl_isAnonymousStructOrUnion(const ZigClangFieldDecl *);
+ZIG_EXTERN_C bool ZigClangFieldDecl_isUnnamedBitfield(const ZigClangFieldDecl *);
 ZIG_EXTERN_C struct ZigClangQualType ZigClangFieldDecl_getType(const struct ZigClangFieldDecl *);
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangFieldDecl_getLocation(const struct ZigClangFieldDecl *);
 

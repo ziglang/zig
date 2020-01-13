@@ -7,6 +7,7 @@ pub const struct_ZigClangAPInt = @OpaqueType();
 pub const struct_ZigClangAPSInt = @OpaqueType();
 pub const struct_ZigClangAPFloat = @OpaqueType();
 pub const struct_ZigClangASTContext = @OpaqueType();
+pub const struct_ZigClangASTRecordLayout = @OpaqueType();
 pub const struct_ZigClangASTUnit = @OpaqueType();
 pub const struct_ZigClangArraySubscriptExpr = @OpaqueType();
 pub const struct_ZigClangArrayType = @OpaqueType();
@@ -757,6 +758,9 @@ pub extern fn ZigClangSourceManager_getSpellingLineNumber(self: ?*const struct_Z
 pub extern fn ZigClangSourceManager_getSpellingColumnNumber(self: ?*const struct_ZigClangSourceManager, Loc: struct_ZigClangSourceLocation) c_uint;
 pub extern fn ZigClangSourceManager_getCharacterData(self: ?*const struct_ZigClangSourceManager, SL: struct_ZigClangSourceLocation) [*:0]const u8;
 pub extern fn ZigClangASTContext_getPointerType(self: ?*const struct_ZigClangASTContext, T: struct_ZigClangQualType) struct_ZigClangQualType;
+pub extern fn ZigClangASTContext_getASTRecordLayout(self: ?*const struct_ZigClangASTContext, D: ?*const struct_ZigClangRecordDecl) ?*const struct_ZigClangASTRecordLayout;
+pub extern fn ZigClangASTRecordLayout_getFieldCount(self: ?*const struct_ZigClangASTRecordLayout) c_uint;
+pub extern fn ZigClangASTRecordLayout_getFieldOffset(self: ?*const struct_ZigClangASTRecordLayout, field_no: c_uint) u64;
 pub extern fn ZigClangASTUnit_getASTContext(self: ?*struct_ZigClangASTUnit) ?*struct_ZigClangASTContext;
 pub extern fn ZigClangASTUnit_getSourceManager(self: *struct_ZigClangASTUnit) *struct_ZigClangSourceManager;
 pub extern fn ZigClangASTUnit_visitLocalTopLevelDecls(self: *struct_ZigClangASTUnit, context: ?*c_void, Fn: ?extern fn (?*c_void, *const struct_ZigClangDecl) bool) bool;
@@ -1072,6 +1076,9 @@ pub extern fn ZigClangParenExpr_getSubExpr(*const ZigClangParenExpr) *const ZigC
 
 pub extern fn ZigClangFieldDecl_isAnonymousStructOrUnion(*const struct_ZigClangFieldDecl) bool;
 pub extern fn ZigClangFieldDecl_isBitField(*const struct_ZigClangFieldDecl) bool;
+pub extern fn ZigClangFieldDecl_isUnnamedBitfield(*const struct_ZigClangFieldDecl) bool;
+pub extern fn ZigClangFieldDecl_getFieldIndex(*const struct_ZigClangFieldDecl) c_uint;
+pub extern fn ZigClangFieldDecl_getBitWidthValue(*const struct_ZigClangFieldDecl, *const struct_ZigClangASTContext) c_uint;
 pub extern fn ZigClangFieldDecl_getType(*const struct_ZigClangFieldDecl) struct_ZigClangQualType;
 pub extern fn ZigClangFieldDecl_getLocation(*const struct_ZigClangFieldDecl) struct_ZigClangSourceLocation;
 

@@ -24,6 +24,7 @@
 #include <clang/Frontend/CompilerInstance.h>
 #include <clang/AST/APValue.h>
 #include <clang/AST/Expr.h>
+#include <clang/AST/RecordLayout.h>
 
 #if __GNUC__ >= 8
 #pragma GCC diagnostic pop
@@ -1504,6 +1505,20 @@ ZigClangQualType ZigClangASTContext_getPointerType(const ZigClangASTContext* sel
     return bitcast(reinterpret_cast<const clang::ASTContext *>(self)->getPointerType(bitcast(T)));
 }
 
+const ZigClangASTRecordLayout *ZigClangASTContext_getASTRecordLayout(const ZigClangASTContext* self, const ZigClangRecordDecl *D) {
+    const clang::RecordDecl *record_decl = reinterpret_cast<const clang::RecordDecl *>(D);
+    const clang::ASTRecordLayout *result = &reinterpret_cast<const clang::ASTContext *>(self)->getASTRecordLayout(record_decl);
+    return reinterpret_cast<const ZigClangASTRecordLayout *>(result);
+}
+
+unsigned ZigClangASTRecordLayout_getFieldCount(const struct ZigClangASTRecordLayout *self) {
+    return reinterpret_cast<const clang::ASTRecordLayout *>(self)->getFieldCount();
+}
+
+uint64_t ZigClangASTRecordLayout_getFieldOffset(const ZigClangASTRecordLayout *self, unsigned field_no) {
+    return reinterpret_cast<const clang::ASTRecordLayout *>(self)->getFieldOffset(field_no);
+}
+
 unsigned ZigClangASTContext_getTypeAlign(const ZigClangASTContext* self, ZigClangQualType T) {
     return reinterpret_cast<const clang::ASTContext *>(self)->getTypeAlign(bitcast(T));
 }
@@ -2746,6 +2761,22 @@ bool ZigClangFieldDecl_isBitField(const struct ZigClangFieldDecl *self) {
 
 bool ZigClangFieldDecl_isAnonymousStructOrUnion(const ZigClangFieldDecl *field_decl) {
     return reinterpret_cast<const clang::FieldDecl*>(field_decl)->isAnonymousStructOrUnion();
+}
+
+bool ZigClangFieldDecl_isUnnamedBitfield(const struct ZigClangFieldDecl *self) {
+    auto casted = reinterpret_cast<const clang::FieldDecl *>(self);
+    return casted->isUnnamedBitfield();
+}
+
+unsigned ZigClangFieldDecl_getFieldIndex(const struct ZigClangFieldDecl *self) {
+    auto casted = reinterpret_cast<const clang::FieldDecl *>(self);
+    return casted->getFieldIndex();
+}
+
+unsigned ZigClangFieldDecl_getBitWidthValue(const struct ZigClangFieldDecl *self, const struct ZigClangASTContext *ctx) {
+    auto casted = reinterpret_cast<const clang::FieldDecl *>(self);
+    auto casted_ctx = reinterpret_cast<const clang::ASTContext *>(ctx);
+    return casted->getBitWidthValue(*casted_ctx);
 }
 
 ZigClangSourceLocation ZigClangFieldDecl_getLocation(const struct ZigClangFieldDecl *self) {

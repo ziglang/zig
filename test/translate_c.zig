@@ -347,18 +347,35 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     });
 
-    cases.add("pointer to struct demoted to opaque due to bit fields",
-        \\struct Foo {
-        \\    unsigned int: 1;
-        \\};
-        \\struct Bar {
-        \\    struct Foo *foo;
+    cases.add("bit fields",
+        \\struct bitfield {
+        \\    unsigned int a : 3;
+        \\    signed int b : 6;
+        \\    unsigned int c : 6;
+        \\    unsigned int d : 6;
+        \\    unsigned int : 0;
+        \\    unsigned long long e : 22;
+        \\    unsigned int a2 : 3;
+        \\    unsigned int b2 : 6;
+        \\    unsigned int c2 : 6;
+        \\    unsigned int d2 : 6;
+        \\    unsigned int : 0;
+        \\    unsigned long long e2 : 22;
         \\};
     , &[_][]const u8{
-        \\pub const struct_Foo = @OpaqueType();
-    ,
-        \\pub const struct_Bar = extern struct {
-        \\    foo: ?*struct_Foo,
+        \\pub const struct_bitfield = extern struct {
+        \\    a: u3,
+        \\    b: i6,
+        \\    c: u6,
+        \\    d: u6,
+        \\    unnamed_1: u0,
+        \\    e: u22,
+        \\    a2: u3,
+        \\    b2: u6,
+        \\    c2: u6,
+        \\    d2: u6,
+        \\    unnamed_2: u0,
+        \\    e2: u22,
         \\};
     });
 
