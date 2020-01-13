@@ -26394,12 +26394,18 @@ static IrInstruction *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
             if (type_is_invalid(end_value->value->type))
                 return ira->codegen->invalid_instruction;
 
+            assert(start_value->value->type->id == ZigTypeIdEnum);
             BigInt start_index;
             bigint_init_bigint(&start_index, &start_value->value->data.x_enum_tag);
 
             assert(end_value->value->type->id == ZigTypeIdEnum);
             BigInt end_index;
             bigint_init_bigint(&end_index, &end_value->value->data.x_enum_tag);
+
+            if (bigint_cmp(&start_index, &end_index) == CmpGT) {
+                ir_add_error(ira, start_value,
+                    buf_sprintf("range start value is greater than the end value"));
+            }
 
             BigInt field_index;
             bigint_init_bigint(&field_index, &start_index);
@@ -26530,6 +26536,12 @@ static IrInstruction *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
 
             assert(start_val->type->id == ZigTypeIdInt || start_val->type->id == ZigTypeIdComptimeInt);
             assert(end_val->type->id == ZigTypeIdInt || end_val->type->id == ZigTypeIdComptimeInt);
+
+            if (bigint_cmp(&start_val->data.x_bigint, &end_val->data.x_bigint) == CmpGT) {
+                ir_add_error(ira, start_value,
+                    buf_sprintf("range start value is greater than the end value"));
+            }
+
             AstNode *prev_node = rangeset_add_range(&rs, &start_val->data.x_bigint, &end_val->data.x_bigint,
                     start_value->source_node);
             if (prev_node != nullptr) {
