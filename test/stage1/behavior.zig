@@ -66,7 +66,7 @@ comptime {
     _ = @import("behavior/fn.zig");
     _ = @import("behavior/fn_in_struct_in_comptime.zig");
     _ = @import("behavior/fn_delegation.zig");
-    //_ = @import("behavior/for.zig");
+    _ = @import("behavior/for.zig");
     _ = @import("behavior/generics.zig");
     _ = @import("behavior/hasdecl.zig");
     _ = @import("behavior/hasfield.zig");
@@ -107,7 +107,7 @@ comptime {
     _ = @import("behavior/type.zig");
     _ = @import("behavior/type_info.zig");
     _ = @import("behavior/typename.zig");
-    //_ = @import("behavior/undefined.zig");
+    _ = @import("behavior/undefined.zig");
     _ = @import("behavior/underscore.zig");
     _ = @import("behavior/union.zig");
     _ = @import("behavior/usingnamespace.zig");

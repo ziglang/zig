@@ -17918,6 +17918,9 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
         var = var->next_var;
     }
 
+    if (var->var_type == nullptr || type_is_invalid(var->var_type))
+        return ira->codegen->invalid_instruction;
+
     bool is_volatile = false;
     ZigType *var_ptr_type = get_pointer_to_type_extra(ira->codegen, var->var_type,
             var->src_is_const, is_volatile, PtrLenSingle, var->align_bytes, 0, 0, false);
@@ -17925,9 +17928,6 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
     if (var->ptr_instruction != nullptr) {
         return ir_implicit_cast(ira, var->ptr_instruction, var_ptr_type);
     }
-
-    if (var->var_type == nullptr || type_is_invalid(var->var_type))
-        return ira->codegen->invalid_instruction;
 
     ZigValue *mem_slot = nullptr;
 
@@ -19761,7 +19761,7 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
                     array_ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr))
             {
                 if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec,
-                    elem_ptr_instruction->base.source_node, array_ptr_val, UndefBad)))
+                    elem_ptr_instruction->base.source_node, array_ptr_val, UndefOk)))
                 {
                     return ira->codegen->invalid_instruction;
                 }

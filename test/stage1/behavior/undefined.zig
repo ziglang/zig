@@ -1,5 +1,6 @@
-const expect = @import("std").testing.expect;
-const mem = @import("std").mem;
+const std = @import("std");
+const expect = std.testing.expect;
+const mem = std.mem;
 
 fn initStaticArray() [10]i32 {
     var array: [10]i32 = undefined;
