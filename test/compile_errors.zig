@@ -11,6 +11,24 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:3:26: error: expected 2 arguments, found 1",
     });
 
+    cases.addTest("@call rejects non comptime-known fn - always_inline",
+        \\pub export fn entry() void {
+        \\    var call_me: fn () void = undefined;
+        \\    @call(.{ .modifier = .always_inline }, call_me, .{});
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:5: error: the specified modifier requires a comptime-known function",
+    });
+
+    cases.addTest("@call rejects non comptime-known fn - compile_time",
+        \\pub export fn entry() void {
+        \\    var call_me: fn () void = undefined;
+        \\    @call(.{ .modifier = .compile_time }, call_me, .{});
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:5: error: the specified modifier requires a comptime-known function",
+    });
+
     cases.addTest("error in struct initializer doesn't crash the compiler",
         \\pub export fn entry() void {
         \\    const bitfield = struct {
@@ -175,7 +193,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:5:14: error: unable to perform 'never_inline' call at compile-time",
         "tmp.zig:8:14: error: unable to perform 'never_tail' call at compile-time",
         "tmp.zig:11:5: error: no-inline call of inline function",
-        "tmp.zig:15:43: error: unable to evaluate constant expression",
+        "tmp.zig:15:5: error: the specified modifier requires a comptime-known function",
     });
 
     cases.add("exported async function",

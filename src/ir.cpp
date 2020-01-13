@@ -18687,18 +18687,6 @@ static IrInstruction *ir_analyze_call_extra(IrAnalyze *ira, IrInstruction *sourc
     IrInstruction *fn_ref = pass1_fn_ref->child;
     if (type_is_invalid(fn_ref->value->type))
         return ira->codegen->invalid_instruction;
-    IrInstruction *first_arg_ptr = nullptr;
-    ZigFn *fn = nullptr;
-    if (fn_ref->value->type->id == ZigTypeIdBoundFn) {
-        assert(fn_ref->value->special == ConstValSpecialStatic);
-        fn = fn_ref->value->data.x_bound_fn.fn;
-        first_arg_ptr = fn_ref->value->data.x_bound_fn.first_arg;
-        if (type_is_invalid(first_arg_ptr->value->type))
-            return ira->codegen->invalid_instruction;
-    } else {
-        fn = ir_resolve_fn(ira, fn_ref);
-    }
-    ZigType *fn_type = (fn != nullptr) ? fn->type_entry : fn_ref->value->type;
 
     TypeStructField *modifier_field = find_struct_type_field(options->value->type, buf_create_from_str("modifier"));
     ir_assert(modifier_field != nullptr, source_instr);
@@ -18733,22 +18721,52 @@ static IrInstruction *ir_analyze_call_extra(IrAnalyze *ira, IrInstruction *sourc
         }
     }
 
+    IrInstruction *first_arg_ptr = nullptr;
+    ZigFn *fn = nullptr;
+    if (instr_is_comptime(fn_ref)) {
+        if (fn_ref->value->type->id == ZigTypeIdBoundFn) {
+            assert(fn_ref->value->special == ConstValSpecialStatic);
+            fn = fn_ref->value->data.x_bound_fn.fn;
+            first_arg_ptr = fn_ref->value->data.x_bound_fn.first_arg;
+            if (type_is_invalid(first_arg_ptr->value->type))
+                return ira->codegen->invalid_instruction;
+        } else {
+            fn = ir_resolve_fn(ira, fn_ref);
+        }
+    }
+
+    // Some modifiers require the callee to be comptime-known
+    switch (modifier) {
+        case CallModifierCompileTime:
+        case CallModifierAlwaysInline:
+        case CallModifierAsync:
+            if (fn == nullptr) {
+                ir_add_error(ira, modifier_inst,
+                    buf_sprintf("the specified modifier requires a comptime-known function"));
+                return ira->codegen->invalid_instruction;
+            }
+        default:
+            break;
+    }
+
+    ZigType *fn_type = (fn != nullptr) ? fn->type_entry : fn_ref->value->type;
+
     TypeStructField *stack_field = find_struct_type_field(options->value->type, buf_create_from_str("stack"));
     ir_assert(stack_field != nullptr, source_instr);
     IrInstruction *opt_stack = ir_analyze_struct_value_field_value(ira, source_instr, options, stack_field);
     if (type_is_invalid(opt_stack->value->type))
         return ira->codegen->invalid_instruction;
+
     IrInstruction *stack_is_non_null_inst = ir_analyze_test_non_null(ira, source_instr, opt_stack);
     bool stack_is_non_null;
     if (!ir_resolve_bool(ira, stack_is_non_null_inst, &stack_is_non_null))
         return ira->codegen->invalid_instruction;
-    IrInstruction *stack;
+
+    IrInstruction *stack = nullptr;
     if (stack_is_non_null) {
         stack = ir_analyze_optional_value_payload_value(ira, source_instr, opt_stack, false);
-    if (type_is_invalid(stack->value->type))
-        return ira->codegen->invalid_instruction;
-    } else {
-        stack = nullptr;
+        if (type_is_invalid(stack->value->type))
+            return ira->codegen->invalid_instruction;
     }
 
     return ir_analyze_fn_call(ira, source_instr, fn, fn_type, fn_ref, first_arg_ptr,

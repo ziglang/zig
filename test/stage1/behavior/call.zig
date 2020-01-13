@@ -20,6 +20,13 @@ test "basic invocations" {
         const result = @call(.{ .modifier = .compile_time }, foo, .{}) == 1234;
         comptime expect(result);
     }
+    {
+        // call of non comptime-known function
+        var alias_foo = foo;
+        expect(@call(.{ .modifier = .no_async }, alias_foo, .{}) == 1234);
+        expect(@call(.{ .modifier = .never_tail }, alias_foo, .{}) == 1234);
+        expect(@call(.{ .modifier = .never_inline }, alias_foo, .{}) == 1234);
+    }
 }
 
 test "tuple parameters" {
