@@ -72,7 +72,7 @@ test "const result loc, runtime if cond, else unreachable" {
 
     var t = true;
     const x = if (t) Num.Two else unreachable;
-    if (x != .Two) @compileError("bad");
+    expect(x == .Two);
 }
 
 test "if prongs cast to expected type instead of peer type resolution" {
