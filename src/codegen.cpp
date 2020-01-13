@@ -20,6 +20,7 @@
 #include "zig_llvm.h"
 #include "userland.h"
 #include "dump_analysis.hpp"
+#include "softfloat.hpp"
 
 #include <stdio.h>
 #include <errno.h>

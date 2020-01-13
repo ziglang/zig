@@ -9396,6 +9396,9 @@ static void dump_value_indent(ZigValue *val, int indent) {
         case ZigTypeIdUnreachable:
             fprintf(stderr, "<unreachable>\n");
             return;
+        case ZigTypeIdUndefined:
+            fprintf(stderr, "<undefined>\n");
+            return;
         case ZigTypeIdVoid:
             fprintf(stderr, "<{}>\n");
             return;
@@ -9405,11 +9408,16 @@ static void dump_value_indent(ZigValue *val, int indent) {
         case ZigTypeIdBool:
             fprintf(stderr, "<%s>\n", val->data.x_bool ? "true" : "false");
             return;
-        case ZigTypeIdComptimeFloat:
         case ZigTypeIdComptimeInt:
-        case ZigTypeIdInt:
+        case ZigTypeIdInt: {
+            Buf *tmp_buf = buf_alloc();
+            bigint_append_buf(tmp_buf, &val->data.x_bigint, 10);
+            fprintf(stderr, "<%s>\n", buf_ptr(tmp_buf));
+            buf_destroy(tmp_buf);
+            return;
+        }
+        case ZigTypeIdComptimeFloat:
         case ZigTypeIdFloat:
-        case ZigTypeIdUndefined:
             fprintf(stderr, "<TODO dump number>\n");
             return;
 
@@ -9458,6 +9466,23 @@ static void dump_value_indent(ZigValue *val, int indent) {
                     fprintf(stderr, "<ref\n");
                     dump_value_indent(val->data.x_ptr.data.ref.pointee, indent + 1);
                     break;
+                case ConstPtrSpecialBaseStruct: {
+                    ZigValue *struct_val = val->data.x_ptr.data.base_struct.struct_val;
+                    size_t field_index = val->data.x_ptr.data.base_struct.field_index;
+                    fprintf(stderr, "<struct %p field %zu\n", struct_val, field_index);
+                    if (struct_val != nullptr) {
+                        ZigValue *field_val = struct_val->data.x_struct.fields[field_index];
+                        if (field_val != nullptr) {
+                            dump_value_indent(field_val, indent + 1);
+                        } else {
+                            for (int i = 0; i < indent; i += 1) {
+                                fprintf(stderr, " ");
+                            }
+                            fprintf(stderr, "(invalid null field)\n");
+                        }
+                    }
+                    break;
+                }
                 default:
                     fprintf(stderr, "TODO dump more pointer things\n");
             }

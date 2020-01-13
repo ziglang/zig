@@ -12313,8 +12313,8 @@ static IrInstruction *ir_analyze_err_wrap_payload(IrAnalyze *ira, IrInstruction 
         if (type_is_invalid(casted_payload->value->type))
             return ira->codegen->invalid_instruction;
 
-        ZigValue *val = ir_resolve_const(ira, casted_payload, UndefBad);
-        if (!val)
+        ZigValue *val = ir_resolve_const(ira, casted_payload, UndefOk);
+        if (val == nullptr)
             return ira->codegen->invalid_instruction;
 
         ZigValue *err_set_val = create_const_vals(1);
@@ -17519,6 +17519,7 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
     {
         result_loc_pass1 = no_result_loc();
     }
+    bool was_written = result_loc_pass1->written;
     IrInstruction *result_loc = ir_resolve_result_raw(ira, suspend_source_instr, result_loc_pass1, value_type,
             value, force_runtime, allow_discard);
     if (result_loc == nullptr || (instr_is_unreachable(result_loc) || type_is_invalid(result_loc->value->type)))
@@ -17596,6 +17597,9 @@ static IrInstruction *ir_resolve_result(IrAnalyze *ira, IrInstruction *suspend_s
         result_loc_pass1->resolved_loc = result_loc;
     }
 
+    if (was_written) {
+        return result_loc;
+    }
 
     ir_assert(result_loc->value->type->id == ZigTypeIdPointer, suspend_source_instr);
     ZigType *actual_elem_type = result_loc->value->type->data.pointer.child_type;
@@ -18241,13 +18245,6 @@ static IrInstruction *ir_analyze_fn_call(IrAnalyze *ira, IrInstruction *source_i
             if (!ir_analyze_fn_call_inline_arg(ira, fn_proto_node, first_arg, &exec_scope, &next_proto_i))
                 return ira->codegen->invalid_instruction;
         }
-
-        if (fn_proto_node->data.fn_proto.is_var_args) {
-            ir_add_error(ira, source_instr,
-                    buf_sprintf("compiler bug: unable to call var args function at compile time. https://github.com/ziglang/zig/issues/313"));
-            return ira->codegen->invalid_instruction;
-        }
-
 
         for (size_t call_i = 0; call_i < args_len; call_i += 1) {
             IrInstruction *old_arg = args_ptr[call_i];
