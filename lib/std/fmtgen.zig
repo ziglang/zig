@@ -26,61 +26,50 @@ pub fn Generator(comptime Out: type) type {
         /// Newly initialized or completed.
         inactive: void,
 
-        /// Currently running. This is not a reliable check and exists to help prevent accidental concurrent writes.
-        running: void,
-
-        /// Async function yielded a value that has not been consumed yet.
-        /// This exists because "priming the generator" dumps in a value without a next().
-        yielded: YieldResult,
-
-        /// Previously yielded result was consumed. next() will resume the suspended frame.
-        consumed: YieldResult,
-
-        const YieldResult = struct {
+        /// Async function yielded a value.
+        active: struct {
             frame: anyframe,
             out: Out,
-        };
+
+            /// This exists because "priming the generator" dumps in a value before next() is called
+            consumed: bool,
+        },
 
         pub fn init() @This() {
             return .{ .inactive = {} };
         }
 
         pub fn yield(self: *@This(), out: Out) void {
-            const state = std.meta.activeTag(self.*);
-            assert(state == .inactive or state == .running);
+            std.debug.assert(self.* == .inactive or self.active.consumed);
 
             suspend {
                 self.* = .{
-                    .yielded = .{
+                    .active = .{
                         .frame = @frame(),
                         .out = out,
+                        .consumed = false,
                     },
                 };
             }
         }
 
-        fn consume(self: *@This(), result: YieldResult) Out {
-            self.* = .{ .consumed = result };
-            return result.out;
-        }
-
         pub fn next(self: *@This()) ?Out {
             switch (self.*) {
-                .running => unreachable, // Generator is already running. Probably a concurrency bug.
                 .inactive => return null,
-                .yielded => |result| return self.consume(result),
-                .consumed => |orig| {
-                    // Copy elision footgun
-                    const copy = orig;
-                    self.* = .{ .running = {} };
-                    resume copy.frame;
-                    switch (self.*) {
-                        .inactive, .consumed => unreachable, // Bad state. Probably a concurrency bug.
-                        .yielded => |result| return self.consume(result),
-                        .running => {
-                            self.* = .{ .inactive = {} };
-                            return null;
-                        },
+                .active => |*active| {
+                    if (!active.consumed) {
+                        active.consumed = true;
+                        return active.out;
+                    }
+
+                    resume active.frame;
+                    std.debug.assert(self.* == .active);
+                    if (!active.consumed) {
+                        active.consumed = true;
+                        return active.out;
+                    } else {
+                        self.* = .inactive;
+                        return null;
                     }
                 },
             }
