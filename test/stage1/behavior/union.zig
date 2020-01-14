@@ -620,3 +620,12 @@ test "0-sized extern union definition" {
 
     expect(U.f == 1);
 }
+
+test "union initializer generates padding only if needed" {
+    const U = union(enum) {
+        A: u24,
+    };
+
+    var v = U{ .A = 532 };
+    expect(v.A == 532);
+}
