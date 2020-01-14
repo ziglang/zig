@@ -285,7 +285,12 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 
     if (extern_export_inline_token) |token| {
         if (lib_name) |string_literal_node|
-            putBackToken(it, string_literal_node.cast(Node.StringLiteral).?.token);
+            if (string_literal_node.cast(Node.StringLiteral)) |single| {
+                putBackToken(it, single.token);
+            } else if (string_literal_node.cast(Node.MultilineStringLiteral)) |multi| {
+                while (multi.lines.pop()) |line|
+                    putBackToken(it, line);
+            } else unreachable;
         putBackToken(it, token);
         return null;
     }

@@ -2721,6 +2721,16 @@ test "zig fmt: extern without container keyword returns error" {
     );
 }
 
+test "zig fmt: extern multiline lib name" {
+    try testError(
+        \\extern \\super
+        \\    \\long
+        \\    \\library
+        \\    \\name
+        \\
+    );
+}
+
 const std = @import("std");
 const mem = std.mem;
 const warn = std.debug.warn;
