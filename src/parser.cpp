@@ -141,16 +141,9 @@ static void ast_error(ParseContext *pc, Token *token, const char *format, ...) {
     exit(EXIT_FAILURE);
 }
 
-static Buf ast_token_str(Buf *input, Token *token) {
-    Buf str = BUF_INIT;
-    buf_init_from_mem(&str, buf_ptr(input) + token->start_pos, token->end_pos - token->start_pos);
-    return str;
-}
-
 ATTRIBUTE_NORETURN
 static void ast_invalid_token_error(ParseContext *pc, Token *token) {
-    Buf token_value = ast_token_str(pc->buf, token);
-    ast_error(pc, token, "invalid token: '%s'", buf_ptr(&token_value));
+    ast_error(pc, token, "invalid token: '%s'", token_name(token->id));
 }
 
 static AstNode *ast_create_node_no_line_info(ParseContext *pc, NodeType type) {
@@ -213,7 +206,7 @@ static void put_back_token(ParseContext *pc) {
 static Buf *token_buf(Token *token) {
     if (token == nullptr)
         return nullptr;
-    assert(token->id == TokenIdStringLiteral || token->id == TokenIdSymbol);
+    assert(token->id == TokenIdStringLiteral || token->id == TokenIdMultilineStringLiteral || token->id == TokenIdSymbol);
     return &token->data.str_lit.str;
 }
 
@@ -596,7 +589,7 @@ static AstNodeContainerDecl ast_parse_container_members(ParseContext *pc) {
     return res;
 }
 
-// TestDecl <- KEYWORD_test STRINGLITERAL Block
+// TestDecl <- KEYWORD_test STRINGLITERALSINGLE Block
 static AstNode *ast_parse_test_decl(ParseContext *pc) {
     Token *test = eat_token_if(pc, TokenIdKeywordTest);
     if (test == nullptr)
@@ -630,8 +623,8 @@ static AstNode *ast_parse_top_level_comptime(ParseContext *pc) {
 }
 
 // TopLevelDecl
-//     <- (KEYWORD_export / KEYWORD_extern STRINGLITERAL? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
-//      / (KEYWORD_export / KEYWORD_extern STRINGLITERAL?)? KEYWORD_threadlocal? VarDecl
+//     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
+//      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
 //      / KEYWORD_use Expr SEMICOLON
 static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod, Buf *doc_comments) {
     Token *first = eat_token_if(pc, TokenIdKeywordExport);
@@ -1729,6 +1722,8 @@ static AstNode *ast_parse_primary_type_expr(ParseContext *pc) {
         return ast_create_node(pc, NodeTypeUnreachable, unreachable);
 
     Token *string_lit = eat_token_if(pc, TokenIdStringLiteral);
+    if (string_lit == nullptr)
+        string_lit = eat_token_if(pc, TokenIdMultilineStringLiteral);
     if (string_lit != nullptr) {
         AstNode *res = ast_create_node(pc, NodeTypeStringLiteral, string_lit);
         res->data.string_literal.buf = token_buf(string_lit);
@@ -1957,7 +1952,9 @@ static AsmOutput *ast_parse_asm_output_item(ParseContext *pc) {
     Token *sym_name = expect_token(pc, TokenIdSymbol);
     expect_token(pc, TokenIdRBracket);
 
-    Token *str = expect_token(pc, TokenIdStringLiteral);
+    Token *str = eat_token_if(pc, TokenIdMultilineStringLiteral);
+    if (str == nullptr)
+        str = expect_token(pc, TokenIdStringLiteral);
     expect_token(pc, TokenIdLParen);
 
     Token *var_name = eat_token_if(pc, TokenIdSymbol);
@@ -1999,7 +1996,9 @@ static AsmInput *ast_parse_asm_input_item(ParseContext *pc) {
     Token *sym_name = expect_token(pc, TokenIdSymbol);
     expect_token(pc, TokenIdRBracket);
 
-    Token *constraint = expect_token(pc, TokenIdStringLiteral);
+    Token *constraint = eat_token_if(pc, TokenIdMultilineStringLiteral);
+    if (constraint == nullptr)
+        constraint = expect_token(pc, TokenIdStringLiteral);
     expect_token(pc, TokenIdLParen);
     AstNode *expr = ast_expect(pc, ast_parse_expr);
     expect_token(pc, TokenIdRParen);
@@ -2018,6 +2017,8 @@ static AstNode *ast_parse_asm_clobbers(ParseContext *pc) {
 
     ZigList<Buf *> clobber_list = ast_parse_list<Buf>(pc, TokenIdComma, [](ParseContext *context) {
         Token *str = eat_token_if(context, TokenIdStringLiteral);
+        if (str == nullptr)
+            str = eat_token_if(context, TokenIdMultilineStringLiteral);
         if (str != nullptr)
             return token_buf(str);
         return (Buf*)nullptr;

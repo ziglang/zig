@@ -209,7 +209,6 @@ enum TokenizeState {
     TokenizeStateLineString,
     TokenizeStateLineStringEnd,
     TokenizeStateLineStringContinue,
-    TokenizeStateLineStringContinueC,
     TokenizeStateSawEq,
     TokenizeStateSawBang,
     TokenizeStateSawLessThan,
@@ -266,7 +265,7 @@ static void set_token_id(Tokenize *t, Token *token, TokenId id) {
     } else if (id == TokenIdFloatLiteral) {
         bigfloat_init_32(&token->data.float_lit.bigfloat, 0.0f);
         token->data.float_lit.overflow = false;
-    } else if (id == TokenIdStringLiteral || id == TokenIdSymbol) {
+    } else if (id == TokenIdStringLiteral || id == TokenIdMultilineStringLiteral || id == TokenIdSymbol) {
         memset(&token->data.str_lit.str, 0, sizeof(Buf));
         buf_resize(&token->data.str_lit.str, 0);
     }
@@ -503,7 +502,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.state = TokenizeStateSawSlash;
                         break;
                     case '\\':
-                        begin_token(&t, TokenIdStringLiteral);
+                        begin_token(&t, TokenIdMultilineStringLiteral);
                         t.state = TokenizeStateSawBackslash;
                         break;
                     case '%':
@@ -935,18 +934,6 @@ void tokenize(Buf *buf, Tokenization *out) {
                 switch (c) {
                     case WHITESPACE:
                         break;
-                    case '\\':
-                        t.state = TokenizeStateLineStringContinue;
-                        break;
-                    default:
-                        t.pos -= 1;
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        continue;
-                }
-                break;
-            case TokenizeStateLineStringContinueC:
-                switch (c) {
                     case '\\':
                         t.state = TokenizeStateLineStringContinue;
                         break;
@@ -1471,7 +1458,6 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateSawDotDot:
         case TokenizeStateSawBackslash:
         case TokenizeStateLineStringContinue:
-        case TokenizeStateLineStringContinueC:
             tokenize_error(&t, "unexpected EOF");
             break;
         case TokenizeStateLineComment:
@@ -1607,6 +1593,7 @@ const char * token_name(TokenId id) {
         case TokenIdStar: return "*";
         case TokenIdStarStar: return "**";
         case TokenIdStringLiteral: return "StringLiteral";
+        case TokenIdMultilineStringLiteral: return "MultilineStringLiteral";
         case TokenIdSymbol: return "Symbol";
         case TokenIdTilde: return "~";
         case TokenIdTimesEq: return "*=";

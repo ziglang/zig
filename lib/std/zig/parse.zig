@@ -183,10 +183,10 @@ fn parseContainerDocComments(arena: *Allocator, it: *TokenIterator, tree: *Tree)
     return &node.base;
 }
 
-/// TestDecl <- KEYWORD_test STRINGLITERAL Block
+/// TestDecl <- KEYWORD_test STRINGLITERALSINGLE Block
 fn parseTestDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     const test_token = eatToken(it, .Keyword_test) orelse return null;
-    const name_node = try expectNode(arena, it, tree, parseStringLiteral, AstError{
+    const name_node = try expectNode(arena, it, tree, parseStringLiteralSingle, AstError{
         .ExpectedStringLiteral = AstError.ExpectedStringLiteral{ .token = it.index },
     });
     const block_node = try expectNode(arena, it, tree, parseBlock, AstError{
@@ -225,15 +225,15 @@ fn parseTopLevelComptime(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*
 }
 
 /// TopLevelDecl
-///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERAL? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
-///      / (KEYWORD_export / KEYWORD_extern STRINGLITERAL?)? KEYWORD_threadlocal? VarDecl
+///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / (KEYWORD_inline / KEYWORD_noinline))? FnProto (SEMICOLON / Block)
+///      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
 ///      / KEYWORD_usingnamespace Expr SEMICOLON
 fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     var lib_name: ?*Node = null;
     const extern_export_inline_token = blk: {
         if (eatToken(it, .Keyword_export)) |token| break :blk token;
         if (eatToken(it, .Keyword_extern)) |token| {
-            lib_name = try parseStringLiteral(arena, it, tree);
+            lib_name = try parseStringLiteralSingle(arena, it, tree);
             break :blk token;
         }
         if (eatToken(it, .Keyword_inline)) |token| break :blk token;
@@ -285,12 +285,7 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
 
     if (extern_export_inline_token) |token| {
         if (lib_name) |string_literal_node|
-            if (string_literal_node.cast(Node.StringLiteral)) |single| {
-                putBackToken(it, single.token);
-            } else if (string_literal_node.cast(Node.MultilineStringLiteral)) |multi| {
-                while (multi.lines.pop()) |line|
-                    putBackToken(it, line);
-            } else unreachable;
+            putBackToken(it, string_literal_node.cast(Node.StringLiteral).?.token);
         putBackToken(it, token);
         return null;
     }
@@ -2776,8 +2771,7 @@ fn createLiteral(arena: *Allocator, comptime T: type, token: TokenIndex) !*Node 
     return &result.base;
 }
 
-// string literal or multiline string literal
-fn parseStringLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+fn parseStringLiteralSingle(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
     if (eatToken(it, .StringLiteral)) |token| {
         const node = try arena.create(Node.StringLiteral);
         node.* = Node.StringLiteral{
@@ -2785,6 +2779,12 @@ fn parseStringLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Nod
         };
         return &node.base;
     }
+    return null;
+}
+
+// string literal or multiline string literal
+fn parseStringLiteral(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node {
+    if (try parseStringLiteralSingle(arena, it, tree)) |node| return node;
 
     if (eatToken(it, .MultilineStringLiteralLine)) |first_line| {
         const node = try arena.create(Node.MultilineStringLiteral);
