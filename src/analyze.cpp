@@ -9318,6 +9318,16 @@ void copy_const_val(ZigValue *dest, ZigValue *src) {
             dest->data.x_struct.fields[i]->parent.data.p_struct.struct_val = dest;
             dest->data.x_struct.fields[i]->parent.data.p_struct.field_index = i;
         }
+    } else if (dest->type->id == ZigTypeIdArray) {
+        if (dest->data.x_array.special == ConstArraySpecialNone) {
+            dest->data.x_array.data.s_none.elements = create_const_vals(dest->type->data.array.len);
+            for (uint64_t i = 0; i < dest->type->data.array.len; i += 1) {
+                copy_const_val(&dest->data.x_array.data.s_none.elements[i], &src->data.x_array.data.s_none.elements[i]);
+                dest->data.x_array.data.s_none.elements[i].parent.id = ConstParentIdArray;
+                dest->data.x_array.data.s_none.elements[i].parent.data.p_array.array_val = dest;
+                dest->data.x_array.data.s_none.elements[i].parent.data.p_array.elem_index = i;
+            }
+        }
     } else if (type_has_optional_repr(dest->type) && dest->data.x_optional != nullptr) {
         dest->data.x_optional = create_const_vals(1);
         copy_const_val(dest->data.x_optional, src->data.x_optional);

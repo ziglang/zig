@@ -1,7 +1,7 @@
 comptime {
     _ = @import("behavior/align.zig");
     _ = @import("behavior/alignof.zig");
-    //_ = @import("behavior/array.zig");
+    _ = @import("behavior/array.zig");
     _ = @import("behavior/asm.zig");
     _ = @import("behavior/async_fn.zig");
     _ = @import("behavior/atomics.zig");
