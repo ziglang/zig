@@ -2,6 +2,20 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("switch ranges endpoints are validated",
+        \\pub export fn entry() void {
+        \\    var x: i32 = 0;
+        \\    switch (x) {
+        \\        6...1 => {},
+        \\        -1...-5 => {},
+        \\        else => unreachable,
+        \\    }
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:4:9: error: range start value is greater than the end value",
+        "tmp.zig:5:9: error: range start value is greater than the end value",
+    });
+
     cases.addTest("errors in for loop bodies are propagated",
         \\pub export fn entry() void {
         \\    var arr: [100]u8 = undefined;

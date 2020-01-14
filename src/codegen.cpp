@@ -4876,14 +4876,30 @@ static LLVMValueRef ir_render_pop_count(CodeGen *g, IrExecutable *executable, Ir
 }
 
 static LLVMValueRef ir_render_switch_br(CodeGen *g, IrExecutable *executable, IrInstructionSwitchBr *instruction) {
-    LLVMValueRef target_value = ir_llvm_value(g, instruction->target_value);
+    ZigType *target_type = instruction->target_value->value->type;
     LLVMBasicBlockRef else_block = instruction->else_block->llvm_block;
+
+    LLVMValueRef target_value = ir_llvm_value(g, instruction->target_value);
+    if (target_type->id == ZigTypeIdPointer) {
+        const ZigType *usize = g->builtin_types.entry_usize;
+        target_value = LLVMBuildPtrToInt(g->builder, target_value, usize->llvm_type, "");
+    }
+
     LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, target_value, else_block,
-            (unsigned)instruction->case_count);
+                                                (unsigned)instruction->case_count);
+
     for (size_t i = 0; i < instruction->case_count; i += 1) {
         IrInstructionSwitchBrCase *this_case = &instruction->cases[i];
-        LLVMAddCase(switch_instr, ir_llvm_value(g, this_case->value), this_case->block->llvm_block);
+
+        LLVMValueRef case_value = ir_llvm_value(g, this_case->value);
+        if (target_type->id == ZigTypeIdPointer) {
+            const ZigType *usize = g->builtin_types.entry_usize;
+            case_value = LLVMBuildPtrToInt(g->builder, case_value, usize->llvm_type, "");
+        }
+
+        LLVMAddCase(switch_instr, case_value, this_case->block->llvm_block);
     }
+
     return nullptr;
 }
 
