@@ -424,8 +424,7 @@ pub fn formatType(
             // if (comptime std.meta.trait.hasFn("format")(T)) {
             //     return value.format(fmt, options, context, Errors, output);
             // }
-            generator.yield(@typeName(T));
-            generator.yield(".");
+            generator.yield(@typeName(T) ++ ".");
             return generator.yield(@tagName(value));
         },
         .Union => |union_info| {
@@ -461,13 +460,8 @@ pub fn formatType(
 
             generator.yield("{");
             inline for (struct_info.fields) |field, i| {
-                if (i == 0) {
-                    generator.yield(" .");
-                } else {
-                    generator.yield(", .");
-                }
-                generator.yield(field.name);
-                generator.yield(" = ");
+                const prefix = if (i == 0) " ." else ", .";
+                generator.yield(prefix ++ field.name ++ " = ");
 
                 formatType(@field(value, field.name), "", options, generator, max_depth - 1);
             }
@@ -531,8 +525,7 @@ pub fn formatType(
 }
 
 fn formatPtr(comptime T: type, ptr: usize, generator: *Generator([]const u8)) void {
-    generator.yield(@typeName(T));
-    generator.yield("@");
+    generator.yield(@typeName(T) ++ "@");
     return formatInt(ptr, 16, false, FormatOptions{}, generator);
 }
 
