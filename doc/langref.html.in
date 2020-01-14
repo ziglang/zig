@@ -2157,6 +2157,7 @@ test "allowzero" {
       against buffer overflow and overreads.
       </p>
       {#code_begin|exe_build_err#}
+      {#link_libc#}
 const std = @import("std");
 
 // This is also available as `std.c.printf`.
