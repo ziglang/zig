@@ -124,6 +124,7 @@ enum TokenId {
     TokenIdStar,
     TokenIdStarStar,
     TokenIdStringLiteral,
+    TokenIdMultilineStringLiteral,
     TokenIdSymbol,
     TokenIdTilde,
     TokenIdTimesEq,
@@ -165,7 +166,7 @@ struct Token {
         // TokenIdFloatLiteral
         TokenFloatLit float_lit;
 
-        // TokenIdStringLiteral or TokenIdSymbol
+        // TokenIdStringLiteral, TokenIdMultilineStringLiteral or TokenIdSymbol
         TokenStrLit str_lit;
 
         // TokenIdCharLiteral

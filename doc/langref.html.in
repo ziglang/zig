@@ -10212,13 +10212,13 @@ ContainerMembers
      / ContainerField
      /
 
-TestDecl &lt;- KEYWORD_test STRINGLITERAL Block
+TestDecl &lt;- KEYWORD_test STRINGLITERALSINGLE Block
 
 TopLevelComptime &lt;- KEYWORD_comptime BlockExpr
 
 TopLevelDecl
-    &lt;- (KEYWORD_export / KEYWORD_extern STRINGLITERAL? / KEYWORD_inline)? FnProto (SEMICOLON / Block)
-     / (KEYWORD_export / KEYWORD_extern STRINGLITERAL?)? KEYWORD_threadlocal? VarDecl
+    &lt;- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / KEYWORD_inline)? FnProto (SEMICOLON / Block)
+     / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
      / KEYWORD_usingnamespace Expr SEMICOLON
 
 FnProto &lt;- FnCC? KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
@@ -10561,10 +10561,10 @@ INTEGER
      / "0o" [0-7]+ skip
      / "0x" hex+   skip
      /      [0-9]+ skip
+STRINGLITERALSINGLE &lt;- "\"" string_char* "\"" skip
 STRINGLITERAL
-    &lt;- "\"" string_char* "\"" skip
+    &lt;- STRINGLITERALSINGLE
      / line_string                 skip
-     / line_cstring                skip
 IDENTIFIER
     &lt;- !keyword [A-Za-z_] [A-Za-z0-9_]* skip
      / "@\"" string_char* "\""                            skip
