@@ -5289,7 +5289,10 @@ static uint32_t hash_const_val(ZigValue *const_val) {
         case ZigTypeIdAnyFrame:
             // TODO better hashing algorithm
             return 3747294894;
-        case ZigTypeIdBoundFn:
+        case ZigTypeIdBoundFn: {
+            assert(const_val->data.x_bound_fn.fn != nullptr);
+            return 3677364617 ^ hash_ptr(const_val->data.x_bound_fn.fn);
+        }
         case ZigTypeIdInvalid:
         case ZigTypeIdUnreachable:
             zig_unreachable();
