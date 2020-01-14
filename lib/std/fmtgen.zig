@@ -31,7 +31,7 @@ pub fn Generator(comptime Out: type) type {
             frame: anyframe,
             out: Out,
 
-            /// This exists because "priming the generator" dumps in a value before next() is called
+            /// This exists because "priming the generator" dumps in a value without a next().
             consumed: bool,
         },
 
@@ -39,38 +39,37 @@ pub fn Generator(comptime Out: type) type {
             return .{ .inactive = {} };
         }
 
-        pub fn yield(self: *@This(), out: Out) void {
+        /// Example usage: `suspend generator.yield(@frame(), value);`
+        /// Requiring suspend and @frame() to be outside of this function improves performance by ~35%
+        pub fn yield(self: *@This(), frame: anyframe, out: Out) void {
             std.debug.assert(self.* == .inactive or self.active.consumed);
 
-            suspend {
-                self.* = .{
-                    .active = .{
-                        .frame = @frame(),
-                        .out = out,
-                        .consumed = false,
-                    },
-                };
-            }
+            self.* = .{
+                .active = .{
+                    .frame = frame,
+                    .out = out,
+                    .consumed = false,
+                },
+            };
         }
 
         pub fn next(self: *@This()) ?Out {
             switch (self.*) {
                 .inactive => return null,
                 .active => |*active| {
-                    if (!active.consumed) {
-                        active.consumed = true;
-                        return active.out;
+                    if (active.consumed) {
+                        resume active.frame;
+
+                        std.debug.assert(self.* == .active);
+                        // Consumed didn't change == no yield == generator complete
+                        if (active.consumed) {
+                            self.* = .inactive;
+                            return null;
+                        }
                     }
 
-                    resume active.frame;
-                    std.debug.assert(self.* == .active);
-                    if (!active.consumed) {
-                        active.consumed = true;
-                        return active.out;
-                    } else {
-                        self.* = .inactive;
-                        return null;
-                    }
+                    active.consumed = true;
+                    return active.out;
                 },
             }
         }
@@ -179,7 +178,7 @@ pub fn format(
             .Start => switch (c) {
                 '{' => {
                     if (start_index < i) {
-                        generator.yield(fmt[start_index..i]);
+                        suspend generator.yield(@frame(), fmt[start_index..i]);
                     }
 
                     start_index = i;
@@ -191,7 +190,7 @@ pub fn format(
                 },
                 '}' => {
                     if (start_index < i) {
-                        generator.yield(fmt[start_index..i]);
+                        suspend generator.yield(@frame(), fmt[start_index..i]);
                     }
                     state = .CloseBrace;
                 },
@@ -359,7 +358,7 @@ pub fn format(
         }
     }
     if (start_index < fmt.len) {
-        generator.yield(fmt[start_index..]);
+        suspend generator.yield(@frame(), fmt[start_index..]);
     }
 }
 
@@ -386,16 +385,19 @@ pub fn formatType(
             return formatValue(value, fmt, options, generator);
         },
         .Void => {
-            return generator.yield("void");
+            suspend generator.yield(@frame(), "void");
+            return;
         },
         .Bool => {
-            return generator.yield(if (value) "true" else "false");
+            suspend generator.yield(@frame(), if (value) "true" else "false");
+            return;
         },
         .Optional => {
             if (value) |payload| {
                 return formatType(payload, fmt, options, generator, max_depth);
             } else {
-                return generator.yield("null");
+                suspend generator.yield(@frame(), "null");
+                return;
             }
         },
         .ErrorUnion => {
@@ -406,34 +408,37 @@ pub fn formatType(
             }
         },
         .ErrorSet => {
-            generator.yield("error.");
-            return generator.yield(@errorName(value));
+            suspend generator.yield(@frame(), "error.");
+            suspend generator.yield(@frame(), @errorName(value));
+            return;
         },
         .Enum => {
             // if (comptime std.meta.trait.hasFn("format")(T)) {
             //     return value.format(fmt, options, context, Errors, output);
             // }
-            generator.yield(@typeName(T) ++ ".");
-            return generator.yield(@tagName(value));
+            suspend generator.yield(@frame(), @typeName(T) ++ ".");
+            suspend generator.yield(@frame(), @tagName(value));
+            return;
         },
         .Union => |union_info| {
             // if (comptime std.meta.trait.hasFn("format")(T)) {
             //     return value.format(fmt, options, context, Errors, output);
             // }
             if (union_info.tag_type) |UnionTagType| {
-                generator.yield(@typeName(T));
+                suspend generator.yield(@frame(), @typeName(T));
                 if (max_depth == 0) {
-                    return generator.yield("{ ... }");
+                    suspend generator.yield(@frame(), "{ ... }");
+                    return;
                 }
-                generator.yield("{ .");
-                generator.yield(@tagName(@as(UnionTagType, value)));
-                generator.yield(" = ");
+                suspend generator.yield(@frame(), "{ .");
+                suspend generator.yield(@frame(), @tagName(@as(UnionTagType, value)));
+                suspend generator.yield(@frame(), " = ");
                 inline for (union_info.fields) |u_field| {
                     if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
                         formatType(@field(value, u_field.name), "", options, generator, max_depth - 1);
                     }
                 }
-                generator.yield(" }");
+                suspend generator.yield(@frame(), " }");
             } else {
                 return formatPtr(T, @ptrToInt(&value), generator);
             }
@@ -442,19 +447,20 @@ pub fn formatType(
             // if (comptime std.meta.trait.hasFn("format")(T)) {
             //     return value.format(fmt, options, context, Errors, output);
             // }
-            generator.yield(@typeName(T));
+            suspend generator.yield(@frame(), @typeName(T));
             if (max_depth == 0) {
-                return generator.yield("{ ... }");
+                suspend generator.yield(@frame(), "{ ... }");
+                return;
             }
 
-            generator.yield("{");
+            suspend generator.yield(@frame(), "{");
             inline for (struct_info.fields) |field, i| {
                 const prefix = if (i == 0) " ." else ", .";
-                generator.yield(prefix ++ field.name ++ " = ");
+                suspend generator.yield(@frame(), prefix ++ field.name ++ " = ");
 
                 formatType(@field(value, field.name), "", options, generator, max_depth - 1);
             }
-            generator.yield(" }");
+            suspend generator.yield(@frame(), " }");
         },
         .Pointer => |ptr_info| switch (ptr_info.size) {
             .One => switch (@typeInfo(ptr_info.child)) {
@@ -508,13 +514,16 @@ pub fn formatType(
         .Fn => {
             return formatPtr(T, @ptrToInt(value), generator);
         },
-        .Type => return generator.yield(@typeName(T)),
+        .Type => {
+            suspend generator.yield(@frame(), @typeName(T));
+            return;
+        },
         else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
     }
 }
 
 fn formatPtr(comptime T: type, ptr: usize, generator: *Generator([]const u8)) void {
-    generator.yield(@typeName(T) ++ "@");
+    suspend generator.yield(@frame(), @typeName(T) ++ "@");
     return formatInt(ptr, 16, false, FormatOptions{}, generator);
 }
 
@@ -599,7 +608,7 @@ pub fn formatText(
     generator: *Generator([]const u8),
 ) void {
     if (fmt.len == 0) {
-        generator.yield(bytes);
+        suspend generator.yield(@frame(), bytes);
     } else if (comptime std.mem.eql(u8, fmt, "s")) {
         return formatBuf(bytes, options, generator);
     } else if (comptime (std.mem.eql(u8, fmt, "x") or std.mem.eql(u8, fmt, "X"))) {
@@ -617,8 +626,10 @@ pub fn formatAsciiChar(
     options: FormatOptions,
     generator: *Generator([]const u8),
 ) void {
-    if (std.ascii.isPrint(c))
-        return generator.yield(@as(*const [1]u8, &c));
+    if (std.ascii.isPrint(c)) {
+        suspend generator.yield(@frame(), @as(*const [1]u8, &c));
+        return;
+    }
     @panic("FIXME");
     // return format(context, Errors, output, "\\x{x:0<2}", .{c});
 }
@@ -628,13 +639,13 @@ pub fn formatBuf(
     options: FormatOptions,
     generator: *Generator([]const u8),
 ) void {
-    generator.yield(buf);
+    suspend generator.yield(@frame(), buf);
 
     const width = options.width orelse 0;
     var leftover_padding = if (width > buf.len) (width - buf.len) else return;
     const pad_byte: u8 = options.fill;
     while (leftover_padding > 0) : (leftover_padding -= 1) {
-        generator.yield(@as(*const [1]u8, &pad_byte));
+        suspend generator.yield(@frame(), @as(*const [1]u8, &pad_byte));
     }
 }
 
@@ -650,34 +661,36 @@ pub fn formatFloatScientific(
 
     // Errol doesn't handle these special cases.
     if (math.signbit(x)) {
-        generator.yield("-");
+        suspend generator.yield(@frame(), "-");
         x = -x;
     }
 
     if (math.isNan(x)) {
-        return generator.yield("nan");
+        suspend generator.yield(@frame(), "nan");
+        return;
     }
     if (math.isPositiveInf(x)) {
-        return generator.yield("inf");
+        suspend generator.yield(@frame(), "inf");
+        return;
     }
     if (x == 0.0) {
-        generator.yield("0");
+        suspend generator.yield(@frame(), "0");
 
         if (options.precision) |prec_orig| {
             // TODO: remove copy once this is fixed https://github.com/ziglang/zig/issues/4065
             const precision = prec_orig;
             if (precision != 0) {
-                generator.yield(".");
+                suspend generator.yield(@frame(), ".");
                 var i: usize = 0;
                 while (i < precision) : (i += 1) {
-                    generator.yield("0");
+                    suspend generator.yield(@frame(), "0");
                 }
             }
         } else {
-            generator.yield(".0");
+            suspend generator.yield(@frame(), ".0");
         }
 
-        generator.yield("e+00");
+        suspend generator.yield(@frame(), "e+00");
         return;
     }
 
@@ -689,48 +702,48 @@ pub fn formatFloatScientific(
         const precision = prec_orig;
         errol.roundToPrecision(&float_decimal, precision, errol.RoundMode.Scientific);
 
-        generator.yield(float_decimal.digits[0..1]);
+        suspend generator.yield(@frame(), float_decimal.digits[0..1]);
 
         // {e0} case prints no `.`
         if (precision != 0) {
-            generator.yield(".");
+            suspend generator.yield(@frame(), ".");
 
             var printed: usize = 0;
             if (float_decimal.digits.len > 1) {
                 const num_digits = math.min(float_decimal.digits.len, precision + 1);
-                generator.yield(float_decimal.digits[1..num_digits]);
+                suspend generator.yield(@frame(), float_decimal.digits[1..num_digits]);
                 printed += num_digits - 1;
             }
 
             while (printed < precision) : (printed += 1) {
-                generator.yield("0");
+                suspend generator.yield(@frame(), "0");
             }
         }
     } else {
-        generator.yield(float_decimal.digits[0..1]);
-        generator.yield(".");
+        suspend generator.yield(@frame(), float_decimal.digits[0..1]);
+        suspend generator.yield(@frame(), ".");
         if (float_decimal.digits.len > 1) {
             const num_digits = if (@TypeOf(value) == f32) math.min(@as(usize, 9), float_decimal.digits.len) else float_decimal.digits.len;
 
-            generator.yield(float_decimal.digits[1..num_digits]);
+            suspend generator.yield(@frame(), float_decimal.digits[1..num_digits]);
         } else {
-            generator.yield("0");
+            suspend generator.yield(@frame(), "0");
         }
     }
 
-    generator.yield("e");
+    suspend generator.yield(@frame(), "e");
     const exp = float_decimal.exp - 1;
 
     if (exp >= 0) {
-        generator.yield("+");
+        suspend generator.yield(@frame(), "+");
         if (exp > -10 and exp < 10) {
-            generator.yield("0");
+            suspend generator.yield(@frame(), "0");
         }
         formatInt(exp, 10, false, FormatOptions{ .width = 0 }, generator);
     } else {
-        generator.yield("-");
+        suspend generator.yield(@frame(), "-");
         if (exp > -10 and exp < 10) {
-            generator.yield("0");
+            suspend generator.yield(@frame(), "0");
         }
         formatInt(-exp, 10, false, FormatOptions{ .width = 0 }, generator);
     }
@@ -747,33 +760,35 @@ pub fn formatFloatDecimal(
 
     // Errol doesn't handle these special cases.
     if (math.signbit(x)) {
-        generator.yield("-");
+        suspend generator.yield(@frame(), "-");
         x = -x;
     }
 
     if (math.isNan(x)) {
-        return generator.yield("nan");
+        suspend generator.yield(@frame(), "nan");
+        return;
     }
     if (math.isPositiveInf(x)) {
-        return generator.yield("inf");
+        suspend generator.yield(@frame(), "inf");
+        return;
     }
     if (x == 0.0) {
-        generator.yield("0");
+        suspend generator.yield(@frame(), "0");
 
         if (options.precision) |prec_orig| {
             // TODO: remove copy once this is fixed https://github.com/ziglang/zig/issues/4065
             const precision = prec_orig;
             if (precision != 0) {
-                generator.yield(".");
+                suspend generator.yield(@frame(), ".");
                 var i: usize = 0;
                 while (i < precision) : (i += 1) {
-                    generator.yield("0");
+                    suspend generator.yield(@frame(), "0");
                 }
             } else {
-                generator.yield(".0");
+                suspend generator.yield(@frame(), ".0");
             }
         } else {
-            generator.yield("0");
+            suspend generator.yield(@frame(), "0");
         }
 
         return;
@@ -796,14 +811,14 @@ pub fn formatFloatDecimal(
 
         if (num_digits_whole > 0) {
             // We may have to zero pad, for instance 1e4 requires zero padding.
-            generator.yield(float_decimal.digits[0..num_digits_whole_no_pad]);
+            suspend generator.yield(@frame(), float_decimal.digits[0..num_digits_whole_no_pad]);
 
             var i = num_digits_whole_no_pad;
             while (i < num_digits_whole) : (i += 1) {
-                generator.yield("0");
+                suspend generator.yield(@frame(), "0");
             }
         } else {
-            generator.yield("0");
+            suspend generator.yield(@frame(), "0");
         }
 
         // {.0} special case doesn't want a trailing '.'
@@ -811,7 +826,7 @@ pub fn formatFloatDecimal(
             return;
         }
 
-        generator.yield(".");
+        suspend generator.yield(@frame(), ".");
 
         // Keep track of fractional count printed for case where we pre-pad then post-pad with 0's.
         var printed: usize = 0;
@@ -823,7 +838,7 @@ pub fn formatFloatDecimal(
 
             var i: usize = 0;
             while (i < zeros_to_print) : (i += 1) {
-                generator.yield("0");
+                suspend generator.yield(@frame(), "0");
                 printed += 1;
             }
 
@@ -835,14 +850,14 @@ pub fn formatFloatDecimal(
         // Remaining fractional portion, zero-padding if insufficient.
         assert(precision >= printed);
         if (num_digits_whole_no_pad + precision - printed < float_decimal.digits.len) {
-            generator.yield(float_decimal.digits[num_digits_whole_no_pad .. num_digits_whole_no_pad + precision - printed]);
+            suspend generator.yield(@frame(), float_decimal.digits[num_digits_whole_no_pad .. num_digits_whole_no_pad + precision - printed]);
             return;
         } else {
-            generator.yield(float_decimal.digits[num_digits_whole_no_pad..]);
+            suspend generator.yield(@frame(), float_decimal.digits[num_digits_whole_no_pad..]);
             printed += float_decimal.digits.len - num_digits_whole_no_pad;
 
             while (printed < precision) : (printed += 1) {
-                generator.yield("0");
+                suspend generator.yield(@frame(), "0");
             }
         }
     } else {
@@ -854,14 +869,14 @@ pub fn formatFloatDecimal(
 
         if (num_digits_whole > 0) {
             // We may have to zero pad, for instance 1e4 requires zero padding.
-            generator.yield(float_decimal.digits[0..num_digits_whole_no_pad]);
+            suspend generator.yield(@frame(), float_decimal.digits[0..num_digits_whole_no_pad]);
 
             var i = num_digits_whole_no_pad;
             while (i < num_digits_whole) : (i += 1) {
-                generator.yield("0");
+                suspend generator.yield(@frame(), "0");
             }
         } else {
-            generator.yield("0");
+            suspend generator.yield(@frame(), "0");
         }
 
         // Omit `.` if no fractional portion
@@ -869,7 +884,7 @@ pub fn formatFloatDecimal(
             return;
         }
 
-        generator.yield(".");
+        suspend generator.yield(@frame(), ".");
 
         // Zero-fill until we reach significant digits or run out of precision.
         if (float_decimal.exp < 0) {
@@ -877,11 +892,11 @@ pub fn formatFloatDecimal(
 
             var i: usize = 0;
             while (i < zero_digit_count) : (i += 1) {
-                generator.yield("0");
+                suspend generator.yield(@frame(), "0");
             }
         }
 
-        generator.yield(float_decimal.digits[num_digits_whole_no_pad..]);
+        suspend generator.yield(@frame(), float_decimal.digits[num_digits_whole_no_pad..]);
     }
 }
 
@@ -892,7 +907,8 @@ pub fn formatBytes(
     generator: *Generator([]const u8),
 ) void {
     if (value == 0) {
-        return generator.yield("0B");
+        suspend generator.yield(@frame(), "0B");
+        return;
     }
 
     const mags_si = " kMGTPEZY";
@@ -912,7 +928,8 @@ pub fn formatBytes(
     formatFloatDecimal(new_value, options, generator);
 
     if (suffix == ' ') {
-        return generator.yield("B");
+        suspend generator.yield(@frame(), "B");
+        return;
     }
 
     const buf = switch (radix) {
@@ -920,7 +937,8 @@ pub fn formatBytes(
         1024 => &[_]u8{ suffix, 'i', 'B' },
         else => unreachable,
     };
-    return generator.yield(buf);
+    suspend generator.yield(@frame(), buf);
+    return;
 }
 
 pub fn formatInt(
@@ -958,13 +976,13 @@ fn formatIntSigned(
 
     const uint = @IntType(false, @TypeOf(value).bit_count);
     if (value < 0) {
-        generator.yield("-");
+        suspend generator.yield(@frame(), "-");
         const new_value = @intCast(uint, -(value + 1)) + 1;
         return formatIntUnsigned(new_value, base, uppercase, new_options, generator);
     } else if (options.width == null or options.width.? == 0) {
         return formatIntUnsigned(@intCast(uint, value), base, uppercase, options, generator);
     } else {
-        generator.yield("+");
+        suspend generator.yield(@frame(), "+");
         const new_value = @intCast(uint, value);
         return formatIntUnsigned(new_value, base, uppercase, new_options, generator);
     }
@@ -1000,16 +1018,18 @@ fn formatIntUnsigned(
         const zero_byte: u8 = options.fill;
         var leftover_padding = padding - index;
         while (true) {
-            generator.yield(@as(*const [1]u8, &zero_byte));
+            suspend generator.yield(@frame(), @as(*const [1]u8, &zero_byte));
             leftover_padding -= 1;
             if (leftover_padding == 0) break;
         }
         mem.set(u8, buf[0..index], options.fill);
-        return generator.yield(&buf);
+        suspend generator.yield(@frame(), &buf);
+        return;
     } else {
         const padded_buf = buf[index - padding ..];
         mem.set(u8, padded_buf[0..padding], options.fill);
-        return generator.yield(padded_buf);
+        suspend generator.yield(@frame(), padded_buf);
+        return;
     }
 }
 
