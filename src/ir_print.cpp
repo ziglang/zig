@@ -930,6 +930,10 @@ static void ir_print_set_float_mode(IrPrint *irp, IrInstructionSetFloatMode *ins
 static void ir_print_array_type(IrPrint *irp, IrInstructionArrayType *instruction) {
     fprintf(irp->f, "[");
     ir_print_other_instruction(irp, instruction->size);
+    if (instruction->sentinel != nullptr) {
+        fprintf(irp->f, ":");
+        ir_print_other_instruction(irp, instruction->sentinel);
+    }
     fprintf(irp->f, "]");
     ir_print_other_instruction(irp, instruction->child_type);
 }
