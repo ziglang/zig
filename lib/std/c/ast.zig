@@ -221,6 +221,7 @@ pub const Node = struct {
         Root,
         EnumField,
         RecordField,
+        RecordDeclarator,
         JumpStmt,
         ExprStmt,
         LabeledStmt,
@@ -437,8 +438,8 @@ pub const Node = struct {
     };
 
     pub const RecordDeclarator = struct {
-        base: Node = Node{ .id = .RecordField },
-        declarator: *Declarator,
+        base: Node = Node{ .id = .RecordDeclarator },
+        declarator: ?*Declarator,
         bit_field_expr: ?*Expr,
     };
 

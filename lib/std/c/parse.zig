@@ -13,8 +13,8 @@ const TokenIterator = ast.Tree.TokenList.Iterator;
 pub const Error = error{ParseError} || Allocator.Error;
 
 pub const Options = struct {
-    /// Keep simple macros unexpanded and add the definitions to the ast
-    retain_macros: bool = false,
+    // /// Keep simple macros unexpanded and add the definitions to the ast
+    // retain_macros: bool = false,
 
     /// Warning or error
     warn_as_err: union(enum) {
@@ -204,12 +204,16 @@ const Parser = struct {
         }
         var first_dr = try parser.declarator(.Must);
         if (first_dr != null and declaratorIsFunction(first_dr.?)) {
+            // TODO typedeffed fn proto-only
             const dr = @fieldParentPtr(Node.Declarator, "base", first_dr.?);
             try parser.declareSymbol(ds.type_spec, dr);
             var old_decls = Node.FnDecl.OldDeclList.init(parser.arena);
             const body = if (parser.eatToken(.Semicolon)) |_|
                 null
             else blk: {
+                if (local) {
+                    // TODO nested function warning
+                }
                 // TODO first_dr.is_old
                 // while (true) {
                 //     var old_ds = Node.DeclSpec{};
@@ -387,13 +391,11 @@ const Parser = struct {
     ///     / IDENTIFIER // typedef name
     ///     / TypeQual
     fn typeSpec(parser: *Parser, type_spec: *Node.TypeSpec) !bool {
-        while (try parser.typeQual(&type_spec.qual)) {}
         blk: {
             if (parser.eatToken(.Keyword_void)) |tok| {
                 if (type_spec.spec != .None)
                     break :blk;
                 type_spec.spec = .{ .Void = tok };
-                return true;
             } else if (parser.eatToken(.Keyword_char)) |tok| {
                 switch (type_spec.spec) {
                     .None => {
@@ -415,7 +417,6 @@ const Parser = struct {
                     },
                     else => break :blk,
                 }
-                return true;
             } else if (parser.eatToken(.Keyword_short)) |tok| {
                 switch (type_spec.spec) {
                     .None => {
@@ -437,7 +438,6 @@ const Parser = struct {
                     },
                     else => break :blk,
                 }
-                return true;
             } else if (parser.eatToken(.Keyword_long)) |tok| {
                 switch (type_spec.spec) {
                     .None => {
@@ -468,7 +468,6 @@ const Parser = struct {
                     },
                     else => break :blk,
                 }
-                return true;
             } else if (parser.eatToken(.Keyword_int)) |tok| {
                 switch (type_spec.spec) {
                     .None => {
@@ -495,7 +494,6 @@ const Parser = struct {
                     },
                     else => break :blk,
                 }
-                return true;
             } else if (parser.eatToken(.Keyword_signed) orelse parser.eatToken(.Keyword_unsigned)) |tok| {
                 switch (type_spec.spec) {
                     .None => {
@@ -527,7 +525,6 @@ const Parser = struct {
                     },
                     else => break :blk,
                 }
-                return true;
             } else if (parser.eatToken(.Keyword_float)) |tok| {
                 if (type_spec.spec != .None)
                     break :blk;
@@ -536,7 +533,6 @@ const Parser = struct {
                         .float = tok,
                     },
                 };
-                return true;
             } else if (parser.eatToken(.Keyword_double)) |tok| {
                 if (type_spec.spec != .None)
                     break :blk;
@@ -545,7 +541,6 @@ const Parser = struct {
                         .double = tok,
                     },
                 };
-                return true;
             } else if (parser.eatToken(.Keyword_complex)) |tok| {
                 switch (type_spec.spec) {
                     .None => {
@@ -568,36 +563,34 @@ const Parser = struct {
                     },
                     else => break :blk,
                 }
-                return true;
-            }
-            if (parser.eatToken(.Keyword_bool)) |tok| {
+            } else if (parser.eatToken(.Keyword_bool)) |tok| {
                 if (type_spec.spec != .None)
                     break :blk;
                 type_spec.spec = .{ .Bool = tok };
-                return true;
             } else if (parser.eatToken(.Keyword_atomic)) |tok| {
-                if (type_spec.spec != .None)
-                    break :blk;
-                _ = try parser.expectToken(.LParen);
-                const name = (try parser.typeName()) orelse return parser.err(.{
-                    .ExpectedTypeName = .{ .token = parser.it.index },
-                });
-                type_spec.spec.Atomic = .{
-                    .atomic = tok,
-                    .typename = name,
-                    .rparen = try parser.expectToken(.RParen),
-                };
-                return true;
+                // might be _Atomic qualifier
+                if (parser.eatToken(.LParen)) |_| {
+                    if (type_spec.spec != .None)
+                        break :blk;
+                    const name = (try parser.typeName()) orelse return parser.err(.{
+                        .ExpectedTypeName = .{ .token = parser.it.index },
+                    });
+                    type_spec.spec.Atomic = .{
+                        .atomic = tok,
+                        .typename = name,
+                        .rparen = try parser.expectToken(.RParen),
+                    };
+                } else {
+                    parser.putBackToken(tok);
+                }
             } else if (parser.eatToken(.Keyword_enum)) |tok| {
                 if (type_spec.spec != .None)
                     break :blk;
                 type_spec.spec.Enum = try parser.enumSpec(tok);
-                return true;
             } else if (parser.eatToken(.Keyword_union) orelse parser.eatToken(.Keyword_struct)) |tok| {
                 if (type_spec.spec != .None)
                     break :blk;
                 type_spec.spec.Record = try parser.recordSpec(tok);
-                return true;
             } else if (parser.eatToken(.Identifier)) |tok| {
                 const ty = parser.getSymbol(tok) orelse {
                     parser.putBackToken(tok);
@@ -637,6 +630,7 @@ const Parser = struct {
                 parser.putBackToken(tok);
                 return false;
             }
+            return parser.typeQual(&type_spec.qual);
         }
         return parser.err(.{
             .InvalidTypeSpecifier = .{
@@ -874,6 +868,7 @@ const Parser = struct {
         var node: *Node.Declarator = undefined;
         var inner_fn = false;
 
+        // TODO sizof(int (int))
         // prefix
         if (parser.eatToken(.LParen)) |lparen| {
             const inner = (try parser.declarator(named)) orelse return parser.err(.{
@@ -981,6 +976,7 @@ const Parser = struct {
             var ds = Node.DeclSpec{};
             if (try parser.declSpec(&ds)) {
                 //TODO
+                // TODO try parser.declareSymbol(ds.type_spec, dr);
             } else if (parser.eatToken(.Identifier)) |tok| {
                 old_style = true;
             } else if (parser.eatToken(.Ellipsis)) |tok| {

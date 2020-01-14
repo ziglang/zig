@@ -593,8 +593,14 @@ pub const Tokenizer = struct {
                     '\\' => {
                         state = .BackSlash;
                     },
-                    else => {
+                    '\t', '\x0B', '\x0C', ' ' => {
                         result.start = self.index + 1;
+                    },
+                    else => {
+                        // TODO handle invalid bytes better
+                        result.id = .Invalid;
+                        self.index += 1;
+                        break;
                     },
                 },
                 .Cr => switch (c) {
