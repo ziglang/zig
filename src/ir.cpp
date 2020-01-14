@@ -17942,8 +17942,6 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
         return ir_implicit_cast(ira, var->ptr_instruction, var_ptr_type);
     }
 
-    ZigValue *mem_slot = nullptr;
-
     bool comptime_var_mem = ir_get_var_is_comptime(var);
     bool linkage_makes_it_runtime = var->decl_node->data.variable_declaration.is_extern;
 
@@ -17951,17 +17949,11 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
             instruction->scope, instruction->source_node, var);
     result->value->type = var_ptr_type;
 
-    if (linkage_makes_it_runtime || var->is_thread_local)
-        goto no_mem_slot;
-
-    if (value_is_comptime(var->const_value)) {
-        mem_slot = var->const_value;
-    }
-
-    if (mem_slot != nullptr) {
-        switch (mem_slot->special) {
+    if (!linkage_makes_it_runtime && !var->is_thread_local && value_is_comptime(var->const_value)) {
+        ZigValue *val = var->const_value;
+        switch (val->special) {
             case ConstValSpecialRuntime:
-                goto no_mem_slot;
+                break;
             case ConstValSpecialStatic: // fallthrough
             case ConstValSpecialLazy: // fallthrough
             case ConstValSpecialUndef: {
@@ -17977,14 +17969,11 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
                 result->value->special = ConstValSpecialStatic;
                 result->value->data.x_ptr.mut = ptr_mut;
                 result->value->data.x_ptr.special = ConstPtrSpecialRef;
-                result->value->data.x_ptr.data.ref.pointee = mem_slot;
+                result->value->data.x_ptr.data.ref.pointee = val;
                 return result;
             }
         }
-        zig_unreachable();
     }
-
-no_mem_slot:
 
     bool in_fn_scope = (scope_fn_entry(var->parent_scope) != nullptr);
     result->value->data.rh_ptr = in_fn_scope ? RuntimeHintPtrStack : RuntimeHintPtrNonStack;
@@ -19699,9 +19688,12 @@ static IrInstruction *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruct
             return_type = adjust_ptr_align(ira->codegen, return_type, chosen_align);
         }
 
+        // TODO The `array_type->id == ZigTypeIdArray` exception here should not be an exception;
+        // the `orig_array_ptr_val->data.x_ptr.mut != ConstPtrMutRuntimeVar` clause should be omitted completely.
+        // However there are bugs to fix before this improvement can be made.
         if (orig_array_ptr_val->special != ConstValSpecialRuntime &&
             orig_array_ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr &&
-            (orig_array_ptr_val->data.x_ptr.mut != ConstPtrMutRuntimeVar))
+            (orig_array_ptr_val->data.x_ptr.mut != ConstPtrMutRuntimeVar || array_type->id == ZigTypeIdArray))
         {
             ZigValue *array_ptr_val = const_ptr_pointee(ira, ira->codegen, orig_array_ptr_val,
                                         elem_ptr_instruction->base.source_node);

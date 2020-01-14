@@ -1,7 +1,7 @@
 comptime {
     _ = @import("behavior/align.zig");
     _ = @import("behavior/alignof.zig");
-    _ = @import("behavior/array.zig");
+    //_ = @import("behavior/array.zig");
     _ = @import("behavior/asm.zig");
     _ = @import("behavior/async_fn.zig");
     _ = @import("behavior/atomics.zig");
@@ -77,7 +77,7 @@ comptime {
     _ = @import("behavior/ir_block_deps.zig");
     _ = @import("behavior/math.zig");
     _ = @import("behavior/merge_error_sets.zig");
-    //_ = @import("behavior/misc.zig");
+    _ = @import("behavior/misc.zig");
     _ = @import("behavior/muladd.zig");
     _ = @import("behavior/namespace_depends_on_compile_var.zig");
     _ = @import("behavior/new_stack_call.zig");
