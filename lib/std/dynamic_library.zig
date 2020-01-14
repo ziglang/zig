@@ -24,7 +24,7 @@ pub const DynLib = switch (builtin.os) {
 // fashion.
 const LinkMap = extern struct {
     l_addr: usize,
-    l_name: [*]const u8,
+    l_name: [*:0]const u8,
     l_ld: ?*elf.Dyn,
     l_next: ?*LinkMap,
     l_prev: ?*LinkMap,

@@ -1042,7 +1042,7 @@ pub fn uname(uts: *utsname) usize {
 }
 
 // XXX: This should be weak
-extern const __ehdr_start: elf.Ehdr = undefined;
+extern const __ehdr_start: elf.Ehdr;
 
 pub fn dl_iterate_phdr(comptime T: type, callback: extern fn (info: *dl_phdr_info, size: usize, data: ?*T) i32, data: ?*T) isize {
     if (builtin.link_libc) {
