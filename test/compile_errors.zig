@@ -2,6 +2,15 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("@export with empty name string",
+        \\pub export fn entry() void { }
+        \\comptime {
+        \\    @export(entry, .{ .name = "" });
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:5: error: exported symbol name cannot be empty",
+    });
+
     cases.addTest("switch ranges endpoints are validated",
         \\pub export fn entry() void {
         \\    var x: i32 = 0;

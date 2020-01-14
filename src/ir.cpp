@@ -16766,6 +16766,12 @@ static IrInstruction *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructio
     if (!symbol_name)
         return ira->codegen->invalid_instruction;
 
+    if (buf_len(symbol_name) < 1) {
+        ir_add_error(ira, name_inst,
+            buf_sprintf("exported symbol name cannot be empty"));
+        return ira->codegen->invalid_instruction;
+    }
+
     GlobalLinkageId global_linkage_id;
     if (!ir_resolve_global_linkage(ira, linkage_inst, &global_linkage_id))
         return ira->codegen->invalid_instruction;
