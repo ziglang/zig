@@ -303,6 +303,25 @@ test "math.max" {
     testing.expect(max(@as(i32, -1), @as(i32, 2)) == 2);
 }
 
+pub fn clamp(clamped_val: var, bound_1: var, bound_2: var) Min(@TypeOf(bound_1), @TypeOf(bound_2)) {
+    const upper_bound = max(bound_1, bound_2);
+    const lower_bound = min(bound_1, bound_2);
+    return min(upper_bound, max(clamped_val, lower_bound));
+}
+test "math.clamp" {
+    // Within range
+    testing.expect(std.math.clamp(@as(i32, -1), @as(i32, -4), @as(i32, 7)) == -1);
+    // Below
+    testing.expect(std.math.clamp(@as(i32, -5), @as(i32, -4), @as(i32, 7)) == -4);
+    // Above
+    testing.expect(std.math.clamp(@as(i32, 8), @as(i32, -4), @as(i32, 7)) == 7);
+
+    // Reverse
+    testing.expect(std.math.clamp(@as(i32, -1), @as(i32, 7), @as(i32, -4)) == -1);
+    testing.expect(std.math.clamp(@as(i32, -5), @as(i32, 7), @as(i32, -4)) == -4);
+    testing.expect(std.math.clamp(@as(i32, 8), @as(i32, 7), @as(i32, -4)) == 7);
+}
+
 pub fn mul(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     var answer: T = undefined;
     return if (@mulWithOverflow(T, a, b, &answer)) error.Overflow else answer;
