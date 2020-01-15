@@ -1706,6 +1706,20 @@ pub fn chdirC(dir_path: [*:0]const u8) ChangeCurDirError!void {
     }
 }
 
+pub fn fchdir(dirfd: fd_t) ChangeCurDirError!void {
+    while (true) {
+        switch (errno(system.fchdir(dirfd))) {
+            0 => return,
+            EACCES => return error.AccessDenied,
+            EBADF => unreachable,
+            ENOTDIR => return error.NotDir,
+            EINTR => continue,
+            EIO => return error.FileSystem,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
 pub const ReadLinkError = error{
     AccessDenied,
     FileSystem,

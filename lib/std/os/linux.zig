@@ -76,6 +76,10 @@ pub fn chdir(path: [*:0]const u8) usize {
     return syscall1(SYS_chdir, @ptrToInt(path));
 }
 
+pub fn fchdir(fd: fd_t) usize {
+    return syscall1(SYS_fchdir, @bitCast(usize, @as(isize, fd)));
+}
+
 pub fn chroot(path: [*:0]const u8) usize {
     return syscall1(SYS_chroot, @ptrToInt(path));
 }
