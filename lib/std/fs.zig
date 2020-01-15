@@ -706,7 +706,6 @@ pub const Dir = struct {
     /// Call `File.close` to release the resource.
     /// Asserts that the path parameter has no null bytes.
     pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
-        if (std.debug.runtime_safety) for (sub_path) |byte| assert(byte != 0);
         if (builtin.os.tag == .windows) {
             const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.openFileW(&path_w, flags);
@@ -756,7 +755,6 @@ pub const Dir = struct {
     /// Call `File.close` on the result when done.
     /// Asserts that the path parameter has no null bytes.
     pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
-        if (std.debug.runtime_safety) for (sub_path) |byte| assert(byte != 0);
         if (builtin.os.tag == .windows) {
             const path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.createFileW(&path_w, flags);
@@ -909,7 +907,6 @@ pub const Dir = struct {
     ///
     /// Asserts that the path parameter has no null bytes.
     pub fn openDirTraverse(self: Dir, sub_path: []const u8) OpenError!Dir {
-        if (std.debug.runtime_safety) for (sub_path) |byte| assert(byte != 0);
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.openDirTraverseW(&sub_path_w);
@@ -927,7 +924,6 @@ pub const Dir = struct {
     ///
     /// Asserts that the path parameter has no null bytes.
     pub fn openDirList(self: Dir, sub_path: []const u8) OpenError!Dir {
-        if (std.debug.runtime_safety) for (sub_path) |byte| assert(byte != 0);
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.openDirListW(&sub_path_w);
@@ -1091,7 +1087,6 @@ pub const Dir = struct {
     /// To delete a directory recursively, see `deleteTree`.
     /// Asserts that the path parameter has no null bytes.
     pub fn deleteDir(self: Dir, sub_path: []const u8) DeleteDirError!void {
-        if (std.debug.runtime_safety) for (sub_path) |byte| assert(byte != 0);
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
             return self.deleteDirW(&sub_path_w);
@@ -1121,7 +1116,6 @@ pub const Dir = struct {
     /// The return value is a slice of `buffer`, from index `0`.
     /// Asserts that the path parameter has no null bytes.
     pub fn readLink(self: Dir, sub_path: []const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
-        if (std.debug.runtime_safety) for (sub_path) |byte| assert(byte != 0);
         const sub_path_c = try os.toPosixPath(sub_path);
         return self.readLinkC(&sub_path_c, buffer);
     }
