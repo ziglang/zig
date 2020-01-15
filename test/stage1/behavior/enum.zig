@@ -11,17 +11,41 @@ test "extern enum" {
         };
         fn doTheTest(y: c_int) void {
             var x = i.o;
-            expect(@enumToInt(x) == 2);
-            x = @intToEnum(i, 12);
-            expect(@enumToInt(x) == 12);
-            x = @intToEnum(i, y);
-            expect(@enumToInt(x) == 52);
             switch (x) {
-                .n,
-                .o,
-                .p => unreachable,
+                .n, .p => unreachable,
+                .o => {},
+            }
+        }
+    };
+    S.doTheTest(52);
+    comptime S.doTheTest(52);
+}
+
+test "non-exhaustive enum" {
+    const S = struct {
+        const E = enum(u8) {
+            a,
+            b,
+            _,
+        };
+        fn doTheTest(y: u8) void {
+            var e: E = .b;
+            switch (e) {
+                .a => {},
+                .b => {},
+                _ => {},
+            }
+
+            switch (e) {
+                .a => {},
+                .b => {},
                 else => {},
             }
+            expect(@enumToInt(e) == 1);
+            e = @intToEnum(E, 12);
+            expect(@enumToInt(e) == 12);
+            e = @intToEnum(E, y);
+            expect(@enumToInt(e) == 52);
         }
     };
     S.doTheTest(52);

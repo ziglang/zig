@@ -440,7 +440,6 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
             .PrivateExtern => return failDecl(c, fn_decl_loc, fn_name, "unsupported storage class: private extern", .{}),
             .Auto => unreachable, // Not legal on functions
             .Register => unreachable, // Not legal on functions
-            else => unreachable,
         },
     };
 
@@ -953,6 +952,19 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
             tld_node.semicolon_token = try appendToken(c, .Semicolon, ";");
             try addTopLevelDecl(c, field_name, &tld_node.base);
         }
+        // make non exhaustive
+        const field_node = try c.a().create(ast.Node.ContainerField);
+        field_node.* = .{
+            .doc_comments = null,
+            .comptime_token = null,
+            .name_token = try appendIdentifier(c, "_"),
+            .type_expr = null,
+            .value_expr = null,
+            .align_expr = null,
+        };
+
+        try container_node.fields_and_decls.push(&field_node.base);
+        _ = try appendToken(c, .Comma, ",");
         container_node.rbrace_token = try appendToken(c, .RBrace, "}");
 
         break :blk &container_node.base;
@@ -1231,18 +1243,6 @@ fn transBinaryOperator(
             op_id = .BitOr;
             op_token = try appendToken(rp.c, .Pipe, "|");
         },
-        .Assign,
-        .MulAssign,
-        .DivAssign,
-        .RemAssign,
-        .AddAssign,
-        .SubAssign,
-        .ShlAssign,
-        .ShrAssign,
-        .AndAssign,
-        .XorAssign,
-        .OrAssign,
-        => unreachable,
         else => unreachable,
     }
 
@@ -1678,7 +1678,6 @@ fn transStringLiteral(
             "TODO: support string literal kind {}",
             .{kind},
         ),
-        else => unreachable,
     }
 }
 
