@@ -2371,6 +2371,29 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
     }
 }
 
+const FStatAtError = FStatError || error{NameTooLong};
+
+pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError![]Stat {
+    const pathname_c = try toPosixPath(pathname);
+    return fstatatC(dirfd, &pathname_c, flags);
+}
+
+pub fn fstatatC(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!Stat {
+    var stat: Stat = undefined;
+    switch (errno(system.fstatat(dirfd, pathname, &stat, flags))) {
+        0 => return stat,
+        EINVAL => unreachable,
+        EBADF => unreachable, // Always a race condition.
+        ENOMEM => return error.SystemResources,
+        EACCES => return error.AccessDenied,
+        EFAULT => unreachable,
+        ENAMETOOLONG => return error.NameTooLong,
+        ENOENT => return error.FileNotFound,
+        ENOTDIR => return error.FileNotFound,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
 pub const KQueueError = error{
     /// The per-process limit on the number of open file descriptors has been reached.
     ProcessFdQuotaExceeded,
