@@ -667,6 +667,14 @@ const Stage2TargetDetails = struct {
         var llvm_features_buffer = try std.Buffer.initSize(allocator, 0);
         defer llvm_features_buffer.deinit();
 
+        // First, disable all features.
+        // This way, we only get the ones the user requests.
+        for (std.target.getFeaturesForArch(arch)) |feature| {
+            try llvm_features_buffer.append("-");
+            try llvm_features_buffer.append(feature.llvm_name);
+            try llvm_features_buffer.append(",");
+        }
+
         for (features) |feature| {
             try llvm_features_buffer.append("+");
             try llvm_features_buffer.append(feature.llvm_name);
