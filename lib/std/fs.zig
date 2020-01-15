@@ -301,35 +301,32 @@ pub fn makeDirW(dir_path: [*:0]const u16) !void {
 /// already exists and is a directory.
 /// This function is not atomic, and if it returns an error, the file system may
 /// have been modified regardless.
-/// TODO determine if we can remove the allocator requirement from this function
-pub fn makePath(allocator: *Allocator, full_path: []const u8) !void {
-    const resolved_path = try path.resolve(allocator, &[_][]const u8{full_path});
-    defer allocator.free(resolved_path);
-
-    var end_index: usize = resolved_path.len;
+pub fn makePath(full_path: []const u8) !void {
+    var end_index: usize = full_path.len;
     while (true) {
-        makeDir(resolved_path[0..end_index]) catch |err| switch (err) {
+        cwd().makeDir(full_path[0..end_index]) catch |err| switch (err) {
             error.PathAlreadyExists => {
                 // TODO stat the file and return an error if it's not a directory
                 // this is important because otherwise a dangling symlink
                 // could cause an infinite loop
-                if (end_index == resolved_path.len) return;
+                if (end_index == full_path.len) return;
             },
             error.FileNotFound => {
+                if (end_index == 0) return err;
                 // march end_index backward until next path component
                 while (true) {
                     end_index -= 1;
-                    if (path.isSep(resolved_path[end_index])) break;
+                    if (path.isSep(full_path[end_index])) break;
                 }
                 continue;
             },
             else => return err,
         };
-        if (end_index == resolved_path.len) return;
+        if (end_index == full_path.len) return;
         // march end_index forward until next path component
         while (true) {
             end_index += 1;
-            if (end_index == resolved_path.len or path.isSep(resolved_path[end_index])) break;
+            if (end_index == full_path.len or path.isSep(full_path[end_index])) break;
         }
     }
 }
