@@ -22357,6 +22357,8 @@ static IrInstruction *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrIns
     if (instr_is_comptime(target)) {
         if ((err = type_resolve(ira->codegen, target->value->type, ResolveStatusZeroBitsKnown)))
             return ira->codegen->invalid_instruction;
+        if (target->value->type->data.enumeration.non_exhaustive)
+            zig_panic("TODO @tagName on non-exhaustive enum");
         TypeEnumField *field = find_enum_field_by_tag(target->value->type, &target->value->data.x_bigint);
         ZigValue *array_val = create_const_str_lit(ira->codegen, field->name)->data.x_ptr.data.ref.pointee;
         IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
@@ -26471,7 +26473,11 @@ static IrInstruction *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
                 bigint_incr(&field_index);
             }
         }
-        if (switch_type->data.enumeration.non_exhaustive && instruction->have_underscore_prong) {
+        if (instruction->have_underscore_prong) {
+            if (!switch_type->data.enumeration.non_exhaustive){
+                ir_add_error(ira, &instruction->base,
+                    buf_sprintf("switch on non-exhaustive enum has `_` prong"));
+            }
             for (uint32_t i = 0; i < switch_type->data.enumeration.src_field_count; i += 1) {
                 TypeEnumField *enum_field = &switch_type->data.enumeration.fields[i];
                 if (buf_eql_str(enum_field->name, "_"))

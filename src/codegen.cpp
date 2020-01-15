@@ -5065,6 +5065,8 @@ static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, IrExecutable *executable
 {
     ZigType *enum_type = instruction->target->value->type;
     assert(enum_type->id == ZigTypeIdEnum);
+    if (enum_type->data.enumeration.non_exhaustive)
+        zig_panic("TODO @tagName on non-exhaustive enum");
 
     LLVMValueRef enum_name_function = get_enum_tag_name_function(g, enum_type);
 

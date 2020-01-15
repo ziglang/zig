@@ -3293,7 +3293,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
     } else if (enum_type_node != nullptr) {
         for (uint32_t i = 0; i < tag_type->data.enumeration.src_field_count; i += 1) {
             TypeEnumField *enum_field = &tag_type->data.enumeration.fields[i];
-            if (!covered_enum_fields[i]) {
+            if (!covered_enum_fields[i] && !buf_eql_str(enum_field->name, "_")) {
                 AstNode *enum_decl_node = tag_type->data.enumeration.decl_node;
                 AstNode *field_node = enum_decl_node->data.container_decl.fields.at(i);
                 ErrorMsg *msg = add_node_error(g, decl_node,
