@@ -617,6 +617,8 @@ fn printCpusForArch(arch_name: []const u8, show_dependencies: bool) !void {
     }
 }
 
+const null_terminated_empty_string = (&[_]u8 { 0 })[0..0 :0];
+
 fn toNullTerminatedStringAlloc(allocator: *std.mem.Allocator, str: []const u8) ![:0]const u8 {
     var buffer = try std.Buffer.init(allocator, str);
     
@@ -653,7 +655,7 @@ const Stage2TargetDetails = struct {
                 .cpu = cpu,
             },
             .llvm_cpu_str = try toNullTerminatedStringAlloc(allocator, cpu.name),
-            .llvm_features_str = try toNullTerminatedStringAlloc(allocator, ""),
+            .llvm_features_str = null_terminated_empty_string,
             .builtin_str = builtin_str_buffer.toOwnedSlice(),
         };
     }
@@ -697,7 +699,7 @@ const Stage2TargetDetails = struct {
             .target_details = std.target.TargetDetails{
                 .features = features,
             },
-            .llvm_cpu_str = try toNullTerminatedStringAlloc(allocator, ""),
+            .llvm_cpu_str = null_terminated_empty_string,
             .llvm_features_str = llvm_features_buffer.toOwnedSlice()[0..llvm_features_buffer_len :0],
             .builtin_str = builtin_str_buffer.toOwnedSlice(),
         };
@@ -801,7 +803,7 @@ export fn stage2_target_details_get_cache_str(target_details: ?*const Stage2Targ
         });
     }
 
-    return @as([*:0]const u8, "");
+    return @as([*:0]const u8, null_terminated_empty_string);
 }
 
 // ABI warning
@@ -810,7 +812,7 @@ export fn stage2_target_details_get_llvm_cpu(target_details: ?*const Stage2Targe
         return @as([*:0]const u8, td.llvm_cpu_str);
     }
 
-    return @as([*:0]const u8, "");
+    return @as([*:0]const u8, null_terminated_empty_string);
 }
 
 // ABI warning
@@ -819,7 +821,7 @@ export fn stage2_target_details_get_llvm_features(target_details: ?*const Stage2
         return @as([*:0]const u8, td.llvm_features_str);
     }
 
-    return @as([*:0]const u8, "");
+    return @as([*:0]const u8, null_terminated_empty_string);
 }
 
 // ABI warning
@@ -828,7 +830,7 @@ export fn stage2_target_details_get_builtin_str(target_details: ?*const Stage2Ta
         return @as([*:0]const u8, td.builtin_str);
     }
 
-    return @as([*:0]const u8, "");
+    return @as([*:0]const u8, null_terminated_empty_string);
 }
 
 const riscv_default_features: []*const std.target.Feature = &[_]*const std.target.Feature {
