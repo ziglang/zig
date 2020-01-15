@@ -173,7 +173,7 @@ Error glibc_build_dummies_and_maps(CodeGen *g, const ZigGLibCAbi *glibc_abi, con
 {
     Error err;
 
-    Buf *cache_dir = get_stage1_cache_path();
+    Buf *cache_dir = get_global_cache_dir();
     CacheHash *cache_hash = allocate<CacheHash>(1);
     Buf *manifest_dir = buf_sprintf("%s" OS_SEP CACHE_HASH_SUBDIR, buf_ptr(cache_dir));
     cache_init(cache_hash, manifest_dir);

@@ -150,7 +150,7 @@ bool os_is_sep(uint8_t c);
 
 Error ATTRIBUTE_MUST_USE os_self_exe_path(Buf *out_path);
 
-Error ATTRIBUTE_MUST_USE os_get_cache_dir(Buf *out_path, const char *appname);
+Error ATTRIBUTE_MUST_USE os_get_app_data_dir(Buf *out_path, const char *appname);
 
 Error ATTRIBUTE_MUST_USE os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf *output_buf);
 Error ATTRIBUTE_MUST_USE os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);

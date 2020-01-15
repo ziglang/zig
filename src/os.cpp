@@ -1748,7 +1748,7 @@ static void utf16le_ptr_to_utf8(Buf *out, WCHAR *utf16le) {
 #endif
 
 // Ported from std.os.getAppDataDir
-Error os_get_cache_dir(Buf *out_path, const char *appname) {
+Error os_get_app_data_dir(Buf *out_path, const char *appname) {
 #if defined(ZIG_OS_WINDOWS)
     WCHAR *dir_path_ptr;
     switch (SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &dir_path_ptr)) {

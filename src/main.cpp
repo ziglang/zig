@@ -1184,7 +1184,7 @@ int main(int argc, char **argv) {
             Buf *cache_dir_buf;
             if (cache_dir == nullptr) {
                 if (cmd == CmdRun) {
-                    cache_dir_buf = get_stage1_cache_path();
+                    cache_dir_buf = get_global_cache_dir();
                 } else {
                     cache_dir_buf = buf_create_from_str(default_zig_cache_name);
                 }

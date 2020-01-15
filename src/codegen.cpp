@@ -8616,7 +8616,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     Error err;
 
     Buf *manifest_dir = buf_alloc();
-    os_path_join(get_stage1_cache_path(), buf_create_from_str("builtin"), manifest_dir);
+    os_path_join(get_global_cache_dir(), buf_create_from_str("builtin"), manifest_dir);
 
     CacheHash cache_hash;
     cache_init(&cache_hash, manifest_dir);
@@ -8940,10 +8940,50 @@ static void detect_libc(CodeGen *g) {
     if (g->zig_target->is_native) {
         g->libc = allocate<ZigLibCInstallation>(1);
 
-        // Look for zig-cache/native_libc.txt
-        Buf *native_libc_txt = buf_alloc();
-        os_path_join(g->cache_dir, buf_create_from_str("native_libc.txt"), native_libc_txt);
-        if ((err = zig_libc_parse(g->libc, native_libc_txt, g->zig_target, false))) {
+        // search for native_libc.txt in following dirs:
+        //   - LOCAL_CACHE_DIR
+        //   - GLOBAL_CACHE_DIR
+        // if not found create at:
+        //   - GLOBAL_CACHE_DIR
+        // be mindful local/global caches may be the same dir
+
+        Buf basename = BUF_INIT;
+        buf_init_from_str(&basename, "native_libc.txt");
+
+        Buf local_libc_txt = BUF_INIT;
+        os_path_join(g->cache_dir, &basename, &local_libc_txt);
+
+        Buf global_libc_txt = BUF_INIT;
+        os_path_join(get_global_cache_dir(), &basename, &global_libc_txt);
+
+        Buf *pathnames[3] = { nullptr };
+        size_t pathnames_idx = 0;
+
+        pathnames[pathnames_idx] = &local_libc_txt;
+        pathnames_idx += 1;
+
+        if (!buf_eql_buf(pathnames[0], &global_libc_txt)) {
+            pathnames[pathnames_idx] = &global_libc_txt;
+            pathnames_idx += 1;
+        }
+
+        Buf* libc_txt = nullptr;
+        for (auto name : pathnames) {
+            if (name == nullptr)
+                break;
+
+            bool result;
+            if (os_file_exists(name, &result) != ErrorNone || !result)
+                continue;
+
+            libc_txt = name;
+            break;
+        }
+
+        if (libc_txt == nullptr)
+            libc_txt = &global_libc_txt;
+
+        if ((err = zig_libc_parse(g->libc, libc_txt, g->zig_target, false))) {
             if ((err = zig_libc_find_native(g->libc, true))) {
                 fprintf(stderr,
                     "Unable to link against libc: Unable to find libc installation: %s\n"
@@ -8955,7 +8995,7 @@ static void detect_libc(CodeGen *g) {
                     buf_ptr(g->cache_dir), err_str(err));
                 exit(1);
             }
-            Buf *native_libc_tmp = buf_sprintf("%s.tmp", buf_ptr(native_libc_txt));
+            Buf *native_libc_tmp = buf_sprintf("%s.tmp", buf_ptr(libc_txt));
             FILE *file = fopen(buf_ptr(native_libc_tmp), "wb");
             if (file == nullptr) {
                 fprintf(stderr, "Unable to open %s: %s\n", buf_ptr(native_libc_tmp), strerror(errno));
@@ -8966,8 +9006,8 @@ static void detect_libc(CodeGen *g) {
                 fprintf(stderr, "Unable to save %s: %s\n", buf_ptr(native_libc_tmp), strerror(errno));
                 exit(1);
             }
-            if ((err = os_rename(native_libc_tmp, native_libc_txt))) {
-                fprintf(stderr, "Unable to create %s: %s\n", buf_ptr(native_libc_txt), err_str(err));
+            if ((err = os_rename(native_libc_tmp, libc_txt))) {
+                fprintf(stderr, "Unable to create %s: %s\n", buf_ptr(libc_txt), err_str(err));
                 exit(1);
             }
         }
@@ -8995,6 +9035,10 @@ static void detect_libc(CodeGen *g) {
             g->libc_include_dir_len += 1;
         }
         assert(g->libc_include_dir_len == dir_count);
+
+        buf_deinit(&global_libc_txt);
+        buf_deinit(&local_libc_txt);
+        buf_deinit(&basename);
     } else if ((g->out_type == OutTypeExe || (g->out_type == OutTypeLib && g->is_dynamic)) &&
         !target_os_is_darwin(g->zig_target->os))
     {
@@ -10611,7 +10655,7 @@ CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType o
             name, strlen(name), 0);
 
     CodeGen *child_gen = codegen_create(nullptr, root_src_path, parent_gen->zig_target, out_type,
-        parent_gen->build_mode, parent_gen->zig_lib_dir, libc, get_stage1_cache_path(), false, child_progress_node);
+        parent_gen->build_mode, parent_gen->zig_lib_dir, libc, get_global_cache_dir(), false, child_progress_node);
     child_gen->root_out_name = buf_create_from_str(name);
     child_gen->disable_gen_h = true;
     child_gen->want_stack_check = WantStackCheckDisabled;
