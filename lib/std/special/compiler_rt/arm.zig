@@ -2,204 +2,36 @@
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
 
-const use_thumb_1 = usesThumb1(builtin.arch);
-
 const __divmodsi4 = @import("int.zig").__divmodsi4;
 const __udivmodsi4 = @import("int.zig").__udivmodsi4;
 const __divmoddi4 = @import("int.zig").__divmoddi4;
 const __udivmoddi4 = @import("int.zig").__udivmoddi4;
 
-fn usesThumb1(arch: builtin.Arch) bool {
-    return switch (arch) {
-        .arm => |sub_arch| switch (sub_arch) {
-            .v6m => true,
-            else => false,
-        },
-        .armeb => |sub_arch| switch (sub_arch) {
-            .v6m => true,
-            else => false,
-        },
-        .thumb => |sub_arch| switch (sub_arch) {
-            .v5,
-            .v5te,
-            .v4t,
-            .v6,
-            .v6m,
-            .v6k,
-            => true,
-            else => false,
-        },
-        .thumbeb => |sub_arch| switch (sub_arch) {
-            .v5,
-            .v5te,
-            .v4t,
-            .v6,
-            .v6m,
-            .v6k,
-            => true,
-            else => false,
-        },
-        else => false,
-    };
-}
+extern fn memset(dest: ?[*]u8, c: u8, n: usize) ?[*]u8;
+extern fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) ?[*]u8;
+extern fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) ?[*]u8;
 
-test "usesThumb1" {
-    testing.expect(usesThumb1(builtin.Arch{ .arm = .v6m }));
-    testing.expect(!usesThumb1(builtin.Arch{ .arm = .v5 }));
-    //etc.
-
-    testing.expect(usesThumb1(builtin.Arch{ .armeb = .v6m }));
-    testing.expect(!usesThumb1(builtin.Arch{ .armeb = .v5 }));
-    //etc.
-
-    testing.expect(usesThumb1(builtin.Arch{ .thumb = .v5 }));
-    testing.expect(usesThumb1(builtin.Arch{ .thumb = .v5te }));
-    testing.expect(usesThumb1(builtin.Arch{ .thumb = .v4t }));
-    testing.expect(usesThumb1(builtin.Arch{ .thumb = .v6 }));
-    testing.expect(usesThumb1(builtin.Arch{ .thumb = .v6k }));
-    testing.expect(usesThumb1(builtin.Arch{ .thumb = .v6m }));
-    testing.expect(!usesThumb1(builtin.Arch{ .thumb = .v6t2 }));
-    //etc.
-
-    testing.expect(usesThumb1(builtin.Arch{ .thumbeb = .v5 }));
-    testing.expect(usesThumb1(builtin.Arch{ .thumbeb = .v5te }));
-    testing.expect(usesThumb1(builtin.Arch{ .thumbeb = .v4t }));
-    testing.expect(usesThumb1(builtin.Arch{ .thumbeb = .v6 }));
-    testing.expect(usesThumb1(builtin.Arch{ .thumbeb = .v6k }));
-    testing.expect(usesThumb1(builtin.Arch{ .thumbeb = .v6m }));
-    testing.expect(!usesThumb1(builtin.Arch{ .thumbeb = .v6t2 }));
-    //etc.
-
-    testing.expect(!usesThumb1(builtin.Arch{ .aarch64 = .v8 }));
-    testing.expect(!usesThumb1(builtin.Arch{ .aarch64_be = .v8 }));
-    testing.expect(!usesThumb1(builtin.Arch.x86_64));
-    testing.expect(!usesThumb1(builtin.Arch.riscv32));
-    //etc.
-}
-
-const use_thumb_1_pre_armv6 = usesThumb1PreArmv6(builtin.arch);
-
-fn usesThumb1PreArmv6(arch: builtin.Arch) bool {
-    return switch (arch) {
-        .thumb => |sub_arch| switch (sub_arch) {
-            .v5, .v5te, .v4t => true,
-            else => false,
-        },
-        .thumbeb => |sub_arch| switch (sub_arch) {
-            .v5, .v5te, .v4t => true,
-            else => false,
-        },
-        else => false,
-    };
-}
-
-pub fn __aeabi_memcpy() callconv(.Naked) noreturn {
+pub fn __aeabi_memcpy(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
-    if (use_thumb_1) {
-        asm volatile (
-            \\ push    {r7, lr}
-            \\ bl      memcpy
-            \\ pop     {r7, pc}
-        );
-    } else {
-        asm volatile (
-            \\ b       memcpy
-        );
-    }
-    unreachable;
+    _ = memcpy(dest, src, n);
 }
 
-pub fn __aeabi_memmove() callconv(.Naked) noreturn {
+pub fn __aeabi_memmove(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
-    if (use_thumb_1) {
-        asm volatile (
-            \\ push    {r7, lr}
-            \\ bl      memmove
-            \\ pop     {r7, pc}
-        );
-    } else {
-        asm volatile (
-            \\ b       memmove
-        );
-    }
-    unreachable;
+    _ = memmove(dest, src, n);
 }
 
-pub fn __aeabi_memset() callconv(.Naked) noreturn {
+pub fn __aeabi_memset(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
-    if (use_thumb_1_pre_armv6) {
-        asm volatile (
-            \\ eors    r1, r2
-            \\ eors    r2, r1
-            \\ eors    r1, r2
-            \\ push    {r7, lr}
-            \\ b       memset
-            \\ pop     {r7, pc}
-        );
-    } else if (use_thumb_1) {
-        asm volatile (
-            \\ mov     r3, r1
-            \\ mov     r1, r2
-            \\ mov     r2, r3
-            \\ push    {r7, lr}
-            \\ b       memset
-            \\ pop     {r7, pc}
-        );
-    } else {
-        asm volatile (
-            \\ mov     r3, r1
-            \\ mov     r1, r2
-            \\ mov     r2, r3
-            \\ b       memset
-        );
-    }
-    unreachable;
+    // This is dentical to the standard `memset` definition but with the last
+    // two arguments swapped
+    _ = memset(dest, c, n);
 }
 
-pub fn __aeabi_memclr() callconv(.Naked) noreturn {
+pub fn __aeabi_memclr(dest: [*]u8, n: usize) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
-    if (use_thumb_1_pre_armv6) {
-        asm volatile (
-            \\ adds    r2, r1, #0
-            \\ movs    r1, #0
-            \\ push    {r7, lr}
-            \\ bl      memset
-            \\ pop     {r7, pc}
-        );
-    } else if (use_thumb_1) {
-        asm volatile (
-            \\ mov     r2, r1
-            \\ movs    r1, #0
-            \\ push    {r7, lr}
-            \\ bl      memset
-            \\ pop     {r7, pc}
-        );
-    } else {
-        asm volatile (
-            \\ mov     r2, r1
-            \\ movs    r1, #0
-            \\ b       memset
-        );
-    }
-    unreachable;
+    _ = memset(dest, 0, n);
 }
-
-pub fn __aeabi_memcmp() callconv(.Naked) noreturn {
-    @setRuntimeSafety(false);
-    if (use_thumb_1) {
-        asm volatile (
-            \\ push    {r7, lr}
-            \\ bl      memcmp
-            \\ pop     {r7, pc}
-        );
-    } else {
-        asm volatile (
-            \\ b       memcmp
-        );
-    }
-    unreachable;
-}
-
 pub fn __aeabi_unwind_cpp_pr0() callconv(.C) void {
     unreachable;
 }
