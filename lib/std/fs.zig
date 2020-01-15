@@ -687,9 +687,8 @@ pub const Dir = struct {
         return cwd().openDirListC(dir_path_c);
     }
 
-    pub fn close(self: *Dir) void {
+    pub fn close(self: Dir) void {
         os.close(self.fd);
-        self.* = undefined;
     }
 
     /// Opens a file for reading or writing, without attempting to create a new file.
