@@ -882,6 +882,14 @@ pub const Dir = struct {
         }
     }
 
+    pub fn makeDir(self: Dir, sub_path: []const u8) !void {
+        try os.mkdirat(self.fd, sub_path, default_new_dir_mode);
+    }
+
+    pub fn makeDirC(self: Dir, sub_path: [*:0]const u8) !void {
+        try os.mkdiratC(self.fd, sub_path, default_new_dir_mode);
+    }
+
     /// Deprecated; call `openDirList` directly.
     pub fn openDir(self: Dir, sub_path: []const u8) OpenError!Dir {
         return self.openDirList(sub_path);
