@@ -890,6 +890,10 @@ pub const Dir = struct {
         try os.mkdiratC(self.fd, sub_path, default_new_dir_mode);
     }
 
+    pub fn changeTo(self: Dir) !void {
+        try os.fchdir(self.fd);
+    }
+
     /// Deprecated; call `openDirList` directly.
     pub fn openDir(self: Dir, sub_path: []const u8) OpenError!Dir {
         return self.openDirList(sub_path);
