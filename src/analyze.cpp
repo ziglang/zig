@@ -2652,6 +2652,14 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
         AstNode *tag_value = field_node->data.struct_field.value;
 
         if (buf_eql_str(type_enum_field->name, "_")) {
+            if (decl_node->data.container_decl.init_arg_expr == nullptr) {
+                add_node_error(g, field_node, buf_sprintf("non-exhaustive enum must specify size"));
+                enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+            }
+            if (log2_u64(field_count - 1) == enum_type->size_in_bits) {
+                add_node_error(g, field_node, buf_sprintf("non-exhaustive enum specifies every value"));
+                enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+            }
             if (field_i != field_count - 1) {
                 add_node_error(g, field_node, buf_sprintf("'_' field of non-exhaustive enum must be last"));
                 enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;

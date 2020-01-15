@@ -289,8 +289,7 @@ pub fn translate(
     tree.errors = ast.Tree.ErrorList.init(arena);
 
     tree.root_node = try arena.create(ast.Node.Root);
-    tree.root_node.* = ast.Node.Root{
-        .base = ast.Node{ .id = ast.Node.Id.Root },
+    tree.root_node.* = .{
         .decls = ast.Node.Root.DeclList.init(arena),
         // initialized with the eof token at the end
         .eof_token = undefined,
@@ -876,25 +875,20 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
         // types, while that's not ISO-C compliant many compilers allow this and
         // default to the usual integer type used for all the enums.
 
-        // TODO only emit this tag type if the enum tag type is not the default.
-        // I don't know what the default is, need to figure out how clang is deciding.
-        // it appears to at least be different across gcc/msvc
-        if (int_type.ptr != null and
-            !isCBuiltinType(int_type, .UInt) and
-            !isCBuiltinType(int_type, .Int))
-        {
-            _ = try appendToken(c, .LParen, "(");
-            container_node.init_arg_expr = .{
-                .Type = transQualType(rp, int_type, enum_loc) catch |err| switch (err) {
+        _ = try appendToken(c, .LParen, "(");
+        container_node.init_arg_expr = .{
+            .Type = if (int_type.ptr != null)
+                transQualType(rp, int_type, enum_loc) catch |err| switch (err) {
                     error.UnsupportedType => {
                         try failDecl(c, enum_loc, name, "unable to translate enum tag type", .{});
                         return null;
                     },
                     else => |e| return e,
-                },
-            };
-            _ = try appendToken(c, .RParen, ")");
-        }
+                }
+            else
+                try transCreateNodeIdentifier(c, "c_int"),
+        };
+        _ = try appendToken(c, .RParen, ")");
 
         container_node.lbrace_token = try appendToken(c, .LBrace, "{");
 
@@ -2198,6 +2192,19 @@ fn transDoWhileLoop(
         .id = .Loop,
     };
 
+    // if (!cond) break;
+    const if_node = try transCreateNodeIf(rp.c);
+    var cond_scope = Scope{
+        .parent = scope,
+        .id = .Condition,
+    };
+    const prefix_op = try transCreateNodePrefixOp(rp.c, .BoolNot, .Bang, "!");
+    prefix_op.rhs = try transBoolExpr(rp, &cond_scope, @ptrCast(*const ZigClangExpr, ZigClangDoStmt_getCond(stmt)), .used, .r_value, true);
+    _ = try appendToken(rp.c, .RParen, ")");
+    if_node.condition = &prefix_op.base;
+    if_node.body = &(try transCreateNodeBreak(rp.c, null)).base;
+    _ = try appendToken(rp.c, .Semicolon, ";");
+
     const body_node = if (ZigClangStmt_getStmtClass(ZigClangDoStmt_getBody(stmt)) == .CompoundStmtClass) blk: {
         // there's already a block in C, so we'll append our condition to it.
         // c: do {
@@ -2209,10 +2216,7 @@ fn transDoWhileLoop(
         // zig:   b;
         // zig:   if (!cond) break;
         // zig: }
-        const body = (try transStmt(rp, &loop_scope, ZigClangDoStmt_getBody(stmt), .unused, .r_value)).cast(ast.Node.Block).?;
-        // if this is used as an expression in Zig it needs to be immediately followed by a semicolon
-        _ = try appendToken(rp.c, .Semicolon, ";");
-        break :blk body;
+        break :blk (try transStmt(rp, &loop_scope, ZigClangDoStmt_getBody(stmt), .unused, .r_value)).cast(ast.Node.Block).?;
     } else blk: {
         // the C statement is without a block, so we need to create a block to contain it.
         // c: do
@@ -2227,19 +2231,6 @@ fn transDoWhileLoop(
         try block.statements.push(try transStmt(rp, &loop_scope, ZigClangDoStmt_getBody(stmt), .unused, .r_value));
         break :blk block;
     };
-
-    // if (!cond) break;
-    const if_node = try transCreateNodeIf(rp.c);
-    var cond_scope = Scope{
-        .parent = scope,
-        .id = .Condition,
-    };
-    const prefix_op = try transCreateNodePrefixOp(rp.c, .BoolNot, .Bang, "!");
-    prefix_op.rhs = try transBoolExpr(rp, &cond_scope, @ptrCast(*const ZigClangExpr, ZigClangDoStmt_getCond(stmt)), .used, .r_value, true);
-    _ = try appendToken(rp.c, .RParen, ")");
-    if_node.condition = &prefix_op.base;
-    if_node.body = &(try transCreateNodeBreak(rp.c, null)).base;
-    _ = try appendToken(rp.c, .Semicolon, ";");
 
     try body_node.statements.push(&if_node.base);
     if (new)
@@ -4775,8 +4766,7 @@ fn appendIdentifier(c: *Context, name: []const u8) !ast.TokenIndex {
 fn transCreateNodeIdentifier(c: *Context, name: []const u8) !*ast.Node {
     const token_index = try appendIdentifier(c, name);
     const identifier = try c.a().create(ast.Node.Identifier);
-    identifier.* = ast.Node.Identifier{
-        .base = ast.Node{ .id = ast.Node.Id.Identifier },
+    identifier.* = .{
         .token = token_index,
     };
     return &identifier.base;
@@ -4915,8 +4905,7 @@ fn transMacroFnDefine(c: *Context, it: *ctok.TokenList.Iterator, name: []const u
 
         const token_index = try appendToken(c, .Keyword_var, "var");
         const identifier = try c.a().create(ast.Node.Identifier);
-        identifier.* = ast.Node.Identifier{
-            .base = ast.Node{ .id = ast.Node.Id.Identifier },
+        identifier.* = .{
             .token = token_index,
         };
 

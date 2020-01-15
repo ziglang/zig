@@ -3,7 +3,30 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.addTest("non-exhaustive enums",
-        \\const E = enum {
+        \\const A = enum {
+        \\    a,
+        \\    b,
+        \\    _ = 1,
+        \\};
+        \\const B = enum(u1) {
+        \\    a,
+        \\    b,
+        \\    _,
+        \\    c,
+        \\};
+        \\pub export fn entry() void {
+        \\    _ = A;
+        \\    _ = B;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:4:5: error: non-exhaustive enum must specify size",
+        "error: value assigned to '_' field of non-exhaustive enum",
+        "error: non-exhaustive enum specifies every value",
+        "error: '_' field of non-exhaustive enum must be last",
+    });
+
+    cases.addTest("switching with non-exhaustive enums",
+        \\const E = enum(u8) {
         \\    a,
         \\    b,
         \\    _,
