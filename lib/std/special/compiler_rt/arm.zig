@@ -78,9 +78,10 @@ pub fn __aeabi_uldivmod() callconv(.Naked) void {
         \\ push {r4, lr}
         \\ sub sp, #16
         \\ add r4, sp, #8
+        \\ str r4, [sp]
         \\ bl  __udivmoddi4
-        \\ ldr r3, [sp, #8]
-        \\ ldr r4, [sp, #12]
+        \\ ldr r2, [sp, #8]
+        \\ ldr r3, [sp, #12]
         \\ add sp, #16
         \\ pop {r4, pc}
         :
@@ -113,9 +114,10 @@ pub fn __aeabi_ldivmod() callconv(.Naked) void {
         \\ push {r4, lr}
         \\ sub sp, #16
         \\ add r4, sp, #8
+        \\ str r4, [sp]
         \\ bl  __divmoddi4
-        \\ ldr r3, [sp, #8]
-        \\ ldr r4, [sp, #12]
+        \\ ldr r2, [sp, #8]
+        \\ ldr r3, [sp, #12]
         \\ add sp, #16
         \\ pop {r4, pc}
         :
