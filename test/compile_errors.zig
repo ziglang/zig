@@ -10,9 +10,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\};
         \\const B = enum(u1) {
         \\    a,
-        \\    b,
         \\    _,
-        \\    c,
+        \\    b,
         \\};
         \\pub export fn entry() void {
         \\    _ = A;
