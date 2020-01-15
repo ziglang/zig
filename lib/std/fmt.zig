@@ -585,9 +585,7 @@ pub fn formatAsciiChar(
     comptime Errors: type,
     output: fn (@TypeOf(context), []const u8) Errors!void,
 ) Errors!void {
-    if (std.ascii.isPrint(c))
-        return output(context, @as(*const [1]u8, &c)[0..]);
-    return format(context, Errors, output, "\\x{x:0<2}", .{c});
+    return output(context, @as(*const [1]u8, &c)[0..]);
 }
 
 pub fn formatBuf(

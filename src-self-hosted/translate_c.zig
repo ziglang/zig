@@ -1708,7 +1708,14 @@ fn escapeChar(c: u8, char_buf: *[4]u8) []const u8 {
         '\n' => "\\n"[0..],
         '\r' => "\\r"[0..],
         '\t' => "\\t"[0..],
-        else => std.fmt.bufPrint(char_buf[0..], "{c}", .{c}) catch unreachable,
+        else => {
+            // Handle the remaining escapes Zig doesn't support by turning them
+            // into their respective hex representation
+            if (std.ascii.isCntrl(c))
+                return std.fmt.bufPrint(char_buf[0..], "\\x{x:0<2}", .{c}) catch unreachable
+            else
+                return std.fmt.bufPrint(char_buf[0..], "{c}", .{c}) catch unreachable;
+        },
     };
 }
 
