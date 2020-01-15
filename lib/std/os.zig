@@ -1542,6 +1542,41 @@ pub const MakeDirError = error{
     BadPathName,
 } || UnexpectedError;
 
+pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!void {
+    if (builtin.os == .windows) {
+        const sub_dir_path_w = try windows.sliceToPrefixedFileW(sub_dir_path);
+        @compileError("TODO implement mkdirat for Windows");
+    } else {
+        const sub_dir_path_c = try toPosixPath(sub_dir_path);
+        return mkdiratC(dir_fd, &sub_dir_path_c, mode);
+    }
+}
+
+pub fn mkdiratC(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
+    if (builtin.os == .windows) {
+        const sub_dir_path_w = try windows.cStrToPrefixedFileW(sub_dir_path);
+        @compileError("TODO implement mkdiratC for Windows");
+    }
+    switch (errno(system.mkdirat(dir_fd, sub_dir_path, mode))) {
+        0 => return,
+        EACCES => return error.AccessDenied,
+        EBADF => unreachable,
+        EPERM => return error.AccessDenied,
+        EDQUOT => return error.DiskQuota,
+        EEXIST => return error.PathAlreadyExists,
+        EFAULT => unreachable,
+        ELOOP => return error.SymLinkLoop,
+        EMLINK => return error.LinkQuotaExceeded,
+        ENAMETOOLONG => return error.NameTooLong,
+        ENOENT => return error.FileNotFound,
+        ENOMEM => return error.SystemResources,
+        ENOSPC => return error.NoSpaceLeft,
+        ENOTDIR => return error.NotDir,
+        EROFS => return error.ReadOnlyFileSystem,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
 /// Create a directory.
 /// `mode` is ignored on Windows.
 pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
