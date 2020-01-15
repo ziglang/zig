@@ -1355,7 +1355,6 @@ pub const UnlinkatError = UnlinkError || error{
 /// Delete a file name and possibly the file it refers to, based on an open directory handle.
 /// Asserts that the path parameter has no null bytes.
 pub fn unlinkat(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!void {
-    if (std.debug.runtime_safety) for (file_path) |byte| assert(byte != 0);
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(file_path);
         return unlinkatW(dirfd, &file_path_w, flags);
@@ -3241,6 +3240,7 @@ pub fn sched_getaffinity(pid: pid_t) SchedGetAffinityError!cpu_set_t {
 /// Used to convert a slice to a null terminated slice on the stack.
 /// TODO https://github.com/ziglang/zig/issues/287
 pub fn toPosixPath(file_path: []const u8) ![PATH_MAX - 1:0]u8 {
+    if (std.debug.runtime_safety) assert(std.mem.indexOfScalar(u8, file_path, 0) == null);
     var path_with_null: [PATH_MAX - 1:0]u8 = undefined;
     // >= rather than > to make room for the null byte
     if (file_path.len >= PATH_MAX) return error.NameTooLong;
