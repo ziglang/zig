@@ -32,8 +32,6 @@ comptime {
         @export(strlen, .{ .name = "strlen", .linkage = .Strong });
     } else if (is_msvc) {
         @export(_fltused, .{ .name = "_fltused", .linkage = .Strong });
-    } else if (builtin.arch == builtin.Arch.arm and builtin.os == .linux) {
-        @export(std.os.linux.getThreadPointer, .{ .name = "__aeabi_read_tp", .linkage = .Strong });
     }
 }
 
