@@ -2572,6 +2572,7 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     enum_type->data.enumeration.src_field_count = field_count;
     enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
     enum_type->data.enumeration.fields_by_name.init(field_count);
+    enum_type->data.enumeration.non_exhaustive = false;
 
     Scope *scope = &enum_type->data.enumeration.decls_scope->base;
 
@@ -2648,6 +2649,21 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
                     buf_sprintf("consider 'union(enum)' here"));
         }
 
+        AstNode *tag_value = field_node->data.struct_field.value;
+
+        if (buf_eql_str(type_enum_field->name, "_")) {
+            if (field_i != field_count - 1) {
+                add_node_error(g, field_node, buf_sprintf("'_' field of non-exhaustive enum must be last"));
+                enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+            }
+            if (tag_value != nullptr) {
+                add_node_error(g, field_node, buf_sprintf("value assigned to '_' field of non-exhaustive enum"));
+                enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+            }
+            enum_type->data.enumeration.non_exhaustive = true;
+            continue;
+        }
+
         auto field_entry = enum_type->data.enumeration.fields_by_name.put_unique(type_enum_field->name, type_enum_field);
         if (field_entry != nullptr) {
             ErrorMsg *msg = add_node_error(g, field_node,
@@ -2656,8 +2672,6 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
             enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
             continue;
         }
-
-        AstNode *tag_value = field_node->data.struct_field.value;
 
         if (tag_value != nullptr) {
             // A user-specified value is available

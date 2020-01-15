@@ -3451,7 +3451,7 @@ static IrInstruction *ir_build_err_to_int(IrBuilder *irb, Scope *scope, AstNode 
 
 static IrInstruction *ir_build_check_switch_prongs(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *target_value, IrInstructionCheckSwitchProngsRange *ranges, size_t range_count,
-        bool have_else_prong)
+        bool have_else_prong, bool have_underscore_prong)
 {
     IrInstructionCheckSwitchProngs *instruction = ir_build_instruction<IrInstructionCheckSwitchProngs>(
             irb, scope, source_node);
@@ -3459,6 +3459,7 @@ static IrInstruction *ir_build_check_switch_prongs(IrBuilder *irb, Scope *scope,
     instruction->ranges = ranges;
     instruction->range_count = range_count;
     instruction->have_else_prong = have_else_prong;
+    instruction->have_underscore_prong = have_underscore_prong;
 
     ir_ref_instruction(target_value, irb->current_basic_block);
     for (size_t i = 0; i < range_count; i += 1) {
@@ -8090,34 +8091,11 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
     Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, scope, is_comptime);
     Scope *comptime_scope = create_comptime_scope(irb->codegen, node, scope);
     AstNode *else_prong = nullptr;
+    AstNode *underscore_prong = nullptr;
     for (size_t prong_i = 0; prong_i < prong_count; prong_i += 1) {
         AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
         size_t prong_item_count = prong_node->data.switch_prong.items.length;
-        if (prong_item_count == 0) {
-            ResultLocPeer *this_peer_result_loc = create_peer_result(peer_parent);
-            if (else_prong) {
-                ErrorMsg *msg = add_node_error(irb->codegen, prong_node,
-                        buf_sprintf("multiple else prongs in switch expression"));
-                add_error_note(irb->codegen, msg, else_prong,
-                        buf_sprintf("previous else prong is here"));
-                return irb->codegen->invalid_instruction;
-            }
-            else_prong = prong_node;
-
-            IrBasicBlock *prev_block = irb->current_basic_block;
-            if (peer_parent->peers.length > 0) {
-                peer_parent->peers.last()->next_bb = else_block;
-            }
-            peer_parent->peers.append(this_peer_result_loc);
-            ir_set_cursor_at_end_and_append_block(irb, else_block);
-            if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
-                is_comptime, var_is_comptime, target_value_ptr, nullptr, 0, &incoming_blocks, &incoming_values,
-                &switch_else_var, LValNone, &this_peer_result_loc->base))
-            {
-                return irb->codegen->invalid_instruction;
-            }
-            ir_set_cursor_at_end(irb, prev_block);
-        } else if (prong_node->data.switch_prong.any_items_are_range) {
+        if (prong_node->data.switch_prong.any_items_are_range) {
             ResultLocPeer *this_peer_result_loc = create_peer_result(peer_parent);
 
             IrInstruction *ok_bit = nullptr;
@@ -8195,6 +8173,59 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
             }
 
             ir_set_cursor_at_end_and_append_block(irb, range_block_no);
+        } else {
+            if (prong_item_count == 0) {
+                if (else_prong) {
+                    ErrorMsg *msg = add_node_error(irb->codegen, prong_node,
+                            buf_sprintf("multiple else prongs in switch expression"));
+                    add_error_note(irb->codegen, msg, else_prong,
+                            buf_sprintf("previous else prong is here"));
+                    return irb->codegen->invalid_instruction;
+                }
+                else_prong = prong_node;
+                if (underscore_prong) {
+                    ErrorMsg *msg = add_node_error(irb->codegen, prong_node,
+                            buf_sprintf("else and '_' prong in switch expression"));
+                    add_error_note(irb->codegen, msg, underscore_prong,
+                            buf_sprintf("'_' prong is here"));
+                    return irb->codegen->invalid_instruction;
+                }
+            } else if (prong_item_count == 1 && 
+                    prong_node->data.switch_prong.items.at(0)->type == NodeTypeSymbol &&
+                    buf_eql_str(prong_node->data.switch_prong.items.at(0)->data.symbol_expr.symbol, "_")) {
+                if (underscore_prong) {
+                    ErrorMsg *msg = add_node_error(irb->codegen, prong_node,
+                            buf_sprintf("multiple '_' prongs in switch expression"));
+                    add_error_note(irb->codegen, msg, underscore_prong,
+                            buf_sprintf("previous '_' prong is here"));
+                    return irb->codegen->invalid_instruction;
+                }
+                underscore_prong = prong_node;
+                if (else_prong) {
+                    ErrorMsg *msg = add_node_error(irb->codegen, prong_node,
+                            buf_sprintf("else and '_' prong in switch expression"));
+                    add_error_note(irb->codegen, msg, else_prong,
+                            buf_sprintf("else prong is here"));
+                    return irb->codegen->invalid_instruction;
+                }
+            } else {
+                continue;
+            }
+            ResultLocPeer *this_peer_result_loc = create_peer_result(peer_parent);
+
+            IrBasicBlock *prev_block = irb->current_basic_block;
+            if (peer_parent->peers.length > 0) {
+                peer_parent->peers.last()->next_bb = else_block;
+            }
+            peer_parent->peers.append(this_peer_result_loc);
+            ir_set_cursor_at_end_and_append_block(irb, else_block);
+            if (!ir_gen_switch_prong_expr(irb, subexpr_scope, node, prong_node, end_block,
+                is_comptime, var_is_comptime, target_value_ptr, nullptr, 0, &incoming_blocks, &incoming_values,
+                &switch_else_var, LValNone, &this_peer_result_loc->base))
+            {
+                return irb->codegen->invalid_instruction;
+            }
+            ir_set_cursor_at_end(irb, prev_block);
         }
     }
 
@@ -8205,6 +8236,8 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
         if (prong_item_count == 0)
             continue;
         if (prong_node->data.switch_prong.any_items_are_range)
+            continue;
+        if (underscore_prong == prong_node)
             continue;
 
         ResultLocPeer *this_peer_result_loc = create_peer_result(peer_parent);
@@ -8249,7 +8282,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
     }
 
     IrInstruction *switch_prongs_void = ir_build_check_switch_prongs(irb, scope, node, target_value,
-            check_ranges.items, check_ranges.length, else_prong != nullptr);
+            check_ranges.items, check_ranges.length, else_prong != nullptr, underscore_prong != nullptr);
 
     IrInstruction *br_instruction;
     if (cases.length == 0) {
@@ -8269,7 +8302,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
         peer_parent->peers.at(i)->base.source_instruction = peer_parent->base.source_instruction;
     }
 
-    if (!else_prong) {
+    if (!else_prong && !underscore_prong) {
         if (peer_parent->peers.length != 0) {
             peer_parent->peers.last()->next_bb = else_block;
         }
@@ -12790,7 +12823,7 @@ static IrInstruction *ir_analyze_int_to_enum(IrAnalyze *ira, IrInstruction *sour
             return ira->codegen->invalid_instruction;
 
         TypeEnumField *field = find_enum_field_by_tag(wanted_type, &val->data.x_bigint);
-        if (field == nullptr && wanted_type->data.enumeration.layout != ContainerLayoutExtern) {
+        if (field == nullptr && !wanted_type->data.enumeration.non_exhaustive) {
             Buf *val_buf = buf_alloc();
             bigint_append_buf(val_buf, &val->data.x_bigint, 10);
             ErrorMsg *msg = ir_add_error(ira, source_instr,
@@ -26433,10 +26466,23 @@ static IrInstruction *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
                 bigint_incr(&field_index);
             }
         }
-        if (!instruction->have_else_prong) {
-            if (switch_type->data.enumeration.layout == ContainerLayoutExtern) {
+        if (switch_type->data.enumeration.non_exhaustive && instruction->have_underscore_prong) {
+            for (uint32_t i = 0; i < switch_type->data.enumeration.src_field_count; i += 1) {
+                TypeEnumField *enum_field = &switch_type->data.enumeration.fields[i];
+                if (buf_eql_str(enum_field->name, "_"))
+                    continue;
+
+                auto entry = field_prev_uses.maybe_get(enum_field->value);
+                if (!entry) {
+                    ir_add_error(ira, &instruction->base,
+                        buf_sprintf("enumeration value '%s.%s' not handled in switch", buf_ptr(&switch_type->name),
+                            buf_ptr(enum_field->name)));
+                }
+            }
+        } else if (!instruction->have_else_prong) {
+            if (switch_type->data.enumeration.non_exhaustive) {
                 ir_add_error(ira, &instruction->base,
-                    buf_sprintf("switch on an extern enum must have an else prong"));
+                    buf_sprintf("switch on non-exhaustive enum must include `else` or `_` prong"));
             }
             for (uint32_t i = 0; i < switch_type->data.enumeration.src_field_count; i += 1) {
                 TypeEnumField *enum_field = &switch_type->data.enumeration.fields[i];
