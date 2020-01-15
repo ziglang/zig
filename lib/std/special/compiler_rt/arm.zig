@@ -32,6 +32,7 @@ pub fn __aeabi_memclr(dest: [*]u8, n: usize) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     _ = memset(dest, 0, n);
 }
+
 pub fn __aeabi_unwind_cpp_pr0() callconv(.C) void {
     unreachable;
 }
@@ -39,6 +40,15 @@ pub fn __aeabi_unwind_cpp_pr1() callconv(.C) void {
     unreachable;
 }
 pub fn __aeabi_unwind_cpp_pr2() callconv(.C) void {
+    unreachable;
+}
+
+// This function can only clobber r0 according to the ABI
+pub fn __aeabi_read_tp() callconv(.Naked) void {
+    asm volatile (
+        \\ mrc p15, 0, r0, c13, c0, 3
+        \\ bx lr
+    );
     unreachable;
 }
 

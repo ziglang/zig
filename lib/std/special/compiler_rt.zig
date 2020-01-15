@@ -177,6 +177,8 @@ comptime {
         @export(@import("compiler_rt/arm.zig").__aeabi_memclr, .{ .name = "__aeabi_memclr4", .linkage = linkage });
         @export(@import("compiler_rt/arm.zig").__aeabi_memclr, .{ .name = "__aeabi_memclr8", .linkage = linkage });
 
+        @export(@import("compiler_rt/arm.zig").__aeabi_read_tp, .{ .name = "__aeabi_read_tp", .linkage = linkage });
+
         @export(@import("compiler_rt/extendXfYf2.zig").__aeabi_f2d, .{ .name = "__aeabi_f2d", .linkage = linkage });
         @export(@import("compiler_rt/floatsiXf.zig").__aeabi_i2d, .{ .name = "__aeabi_i2d", .linkage = linkage });
         @export(@import("compiler_rt/floatdidf.zig").__aeabi_l2d, .{ .name = "__aeabi_l2d", .linkage = linkage });
