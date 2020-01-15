@@ -23107,7 +23107,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Enum", nullptr);
 
-                ZigValue **fields = alloc_const_vals_ptrs(4);
+                ZigValue **fields = alloc_const_vals_ptrs(5);
                 result->data.x_struct.fields = fields;
 
                 // layout: ContainerLayout
@@ -23153,6 +23153,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                 {
                     return err;
                 }
+                // is_exhaustive: bool
+                ensure_field_index(result->type, "is_exhaustive", 4);
+                fields[4]->special = ConstValSpecialStatic;
+                fields[4]->type = ira->codegen->builtin_types.entry_bool;
+                fields[4]->data.x_bool = !type_entry->data.enumeration.non_exhaustive;
 
                 break;
             }

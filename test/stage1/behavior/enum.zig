@@ -46,6 +46,7 @@ test "non-exhaustive enum" {
             expect(@enumToInt(e) == 12);
             e = @intToEnum(E, y);
             expect(@enumToInt(e) == 52);
+            expect(@typeInfo(E).Enum.is_exhaustive == false);
         }
     };
     S.doTheTest(52);
