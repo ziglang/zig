@@ -42,46 +42,75 @@ pub fn __aeabi_unwind_cpp_pr2() callconv(.C) void {
     unreachable;
 }
 
-pub fn __aeabi_uidivmod(n: u32, d: u32) callconv(.C) extern struct {
-    q: u32,
-    r: u32,
-} {
-    @setRuntimeSafety(is_test);
+// The following functions are wrapped in an asm block to ensure the required
+// calling convention is always respected
 
-    var result: @TypeOf(__aeabi_uidivmod).ReturnType = undefined;
-    result.q = __udivmodsi4(n, d, &result.r);
-    return result;
+pub fn __aeabi_uidivmod() callconv(.Naked) void {
+    // Divide r0 by r1; the quotient goes in r0, the remainder in r1
+    asm volatile (
+        \\ push {lr}
+        \\ sub sp, #4
+        \\ mov r2, sp
+        \\ bl  __udivmodsi4
+        \\ ldr r1, [sp]
+        \\ add sp, #4
+        \\ pop {pc}
+        :
+        :
+        : "memory"
+    );
+    unreachable;
 }
 
-pub fn __aeabi_uldivmod(n: u64, d: u64) callconv(.C) extern struct {
-    q: u64,
-    r: u64,
-} {
-    @setRuntimeSafety(is_test);
-
-    var result: @TypeOf(__aeabi_uldivmod).ReturnType = undefined;
-    result.q = __udivmoddi4(n, d, &result.r);
-    return result;
+pub fn __aeabi_uldivmod() callconv(.Naked) void {
+    // Divide r1:r0 by r3:r2; the quotient goes in r1:r0, the remainder in r3:r2
+    asm volatile (
+        \\ push {r4, lr}
+        \\ sub sp, #16
+        \\ add r4, sp, #8
+        \\ bl  __udivmoddi4
+        \\ ldr r3, [sp, #8]
+        \\ ldr r4, [sp, #12]
+        \\ add sp, #16
+        \\ pop {r4, pc}
+        :
+        :
+        : "memory"
+    );
+    unreachable;
 }
 
-pub fn __aeabi_idivmod(n: i32, d: i32) callconv(.C) extern struct {
-    q: i32,
-    r: i32,
-} {
-    @setRuntimeSafety(is_test);
-
-    var result: @TypeOf(__aeabi_idivmod).ReturnType = undefined;
-    result.q = __divmodsi4(n, d, &result.r);
-    return result;
+pub fn __aeabi_idivmod() callconv(.Naked) void {
+    // Divide r0 by r1; the quotient goes in r0, the remainder in r1
+    asm volatile (
+        \\ push {lr}
+        \\ sub sp, #4
+        \\ mov r2, sp
+        \\ bl  __divmodsi4
+        \\ ldr r1, [sp]
+        \\ add sp, #4
+        \\ pop {pc}
+        :
+        :
+        : "memory"
+    );
+    unreachable;
 }
 
-pub fn __aeabi_ldivmod(n: i64, d: i64) callconv(.C) extern struct {
-    q: i64,
-    r: i64,
-} {
-    @setRuntimeSafety(is_test);
-
-    var result: @TypeOf(__aeabi_ldivmod).ReturnType = undefined;
-    result.q = __divmoddi4(n, d, &result.r);
-    return result;
+pub fn __aeabi_ldivmod() callconv(.Naked) void {
+    // Divide r1:r0 by r3:r2; the quotient goes in r1:r0, the remainder in r3:r2
+    asm volatile (
+        \\ push {r4, lr}
+        \\ sub sp, #16
+        \\ add r4, sp, #8
+        \\ bl  __divmoddi4
+        \\ ldr r3, [sp, #8]
+        \\ ldr r4, [sp, #12]
+        \\ add sp, #16
+        \\ pop {r4, pc}
+        :
+        :
+        : "memory"
+    );
+    unreachable;
 }
