@@ -1104,7 +1104,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const a = @enumToInt(enum_unnamed_1.a);
         \\pub const b = @enumToInt(enum_unnamed_1.b);
         \\pub const c = @enumToInt(enum_unnamed_1.c);
-        \\const enum_unnamed_1 = extern enum(c_uint) {
+        \\const enum_unnamed_1 = extern enum(c_int) {
         \\    a,
         \\    b,
         \\    c,
@@ -1114,7 +1114,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const e = @enumToInt(enum_unnamed_2.e);
         \\pub const f = @enumToInt(enum_unnamed_2.f);
         \\pub const g = @enumToInt(enum_unnamed_2.g);
-        \\const enum_unnamed_2 = extern enum(c_uint) {
+        \\const enum_unnamed_2 = extern enum(c_int) {
         \\    e = 0,
         \\    f = 4,
         \\    g = 5,
@@ -1124,7 +1124,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const i = @enumToInt(enum_unnamed_3.i);
         \\pub const j = @enumToInt(enum_unnamed_3.j);
         \\pub const k = @enumToInt(enum_unnamed_3.k);
-        \\const enum_unnamed_3 = extern enum(c_uint) {
+        \\const enum_unnamed_3 = extern enum(c_int) {
         \\    i,
         \\    j,
         \\    k,
@@ -1137,7 +1137,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const n = @enumToInt(enum_i.n);
         \\pub const o = @enumToInt(enum_i.o);
         \\pub const p = @enumToInt(enum_i.p);
-        \\pub const enum_i = extern enum(c_uint) {
+        \\pub const enum_i = extern enum(c_int) {
         \\    n,
         \\    o,
         \\    p,
@@ -1569,7 +1569,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub const One = @enumToInt(enum_unnamed_1.One);
         \\pub const Two = @enumToInt(enum_unnamed_1.Two);
-        \\const enum_unnamed_1 = extern enum(c_uint) {
+        \\const enum_unnamed_1 = extern enum(c_int) {
         \\    One,
         \\    Two,
         \\    _,
@@ -1672,7 +1672,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return ((((((((((e + f) + g) + h) + i) + j) + k) + l) + m) + o) + p);
         \\}
     , &[_][]const u8{
-        \\pub const enum_Foo = extern enum(c_uint) {
+        \\pub const enum_Foo = extern enum(c_int) {
         \\    A,
         \\    B,
         \\    C,
@@ -1718,7 +1718,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    y: c_int,
         \\};
     ,
-        \\pub const enum_Bar = extern enum(c_uint) {
+        \\pub const enum_Bar = extern enum(c_int) {
         \\    A,
         \\    B,
         \\    _,
@@ -1982,7 +1982,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return 4;
         \\}
     , &[_][]const u8{
-        \\pub const enum_SomeEnum = extern enum(c_uint) {
+        \\pub const enum_SomeEnum = extern enum(c_int) {
         \\    A,
         \\    B,
         \\    C,
@@ -2424,7 +2424,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const FooA = @enumToInt(enum_Foo.A);
         \\pub const FooB = @enumToInt(enum_Foo.B);
         \\pub const Foo1 = @enumToInt(enum_Foo.@"1");
-        \\pub const enum_Foo = extern enum(c_uint) {
+        \\pub const enum_Foo = extern enum(c_int) {
         \\    A = 2,
         \\    B = 5,
         \\    @"1" = 6,

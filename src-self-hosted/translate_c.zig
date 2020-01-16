@@ -875,9 +875,12 @@ fn transEnumDecl(c: *Context, enum_decl: *const ZigClangEnumDecl) Error!?*ast.No
         // types, while that's not ISO-C compliant many compilers allow this and
         // default to the usual integer type used for all the enums.
 
+        // default to c_int since msvc and gcc default to different types
         _ = try appendToken(c, .LParen, "(");
         container_node.init_arg_expr = .{
-            .Type = if (int_type.ptr != null)
+            .Type = if (int_type.ptr != null and
+                !isCBuiltinType(int_type, .UInt) and
+                !isCBuiltinType(int_type, .Int))
                 transQualType(rp, int_type, enum_loc) catch |err| switch (err) {
                     error.UnsupportedType => {
                         try failDecl(c, enum_loc, name, "unable to translate enum tag type", .{});
