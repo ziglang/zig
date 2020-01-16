@@ -41,6 +41,7 @@ test "non-exhaustive enum" {
                 .b => {},
                 else => {},
             }
+            expect(@typeInfo(E).Enum.fields.len == 2);
             expect(@enumToInt(e) == 1);
             e = @intToEnum(E, 12);
             expect(@enumToInt(e) == 12);

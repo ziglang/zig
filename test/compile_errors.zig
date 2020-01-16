@@ -13,9 +13,15 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    _,
         \\    b,
         \\};
+        \\const C = enum(u1) {
+        \\    a,
+        \\    b,
+        \\    _,
+        \\};
         \\pub export fn entry() void {
         \\    _ = A;
         \\    _ = B;
+        \\    _ = C;
         \\}
     , &[_][]const u8{
         "tmp.zig:4:5: error: non-exhaustive enum must specify size",
