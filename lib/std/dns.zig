@@ -1,6 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+
 const mem = std.mem;
+const fmt = std.fmt;
 
 pub const rdata = @import("dns/rdata.zig");
 pub const RData = rdata.DNSRData;
@@ -184,6 +186,24 @@ pub const DNSName = struct {
 
         // null-octet for the end of labels for this name
         try serializer.serialize(@as(u8, 0));
+    }
+
+    /// Format the given DNS name.
+    pub fn format(
+        self: @This(),
+        comptime f: []const u8,
+        options: fmt.FormatOptions,
+        context: var,
+        comptime Errors: type,
+        output: fn (@TypeOf(context), []const u8) Errors!void,
+    ) Errors!void {
+        if (f.len != 0) {
+            @compileError("Unknown format character: '" ++ f ++ "'");
+        }
+
+        for (self.labels) |label| {
+            try fmt.format(context, Errors, output, "{}.", .{label});
+        }
     }
 };
 
