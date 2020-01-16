@@ -643,20 +643,20 @@ const Stage2TargetDetails = struct {
         var builtin_str_buffer = try std.Buffer.init(
             allocator,
             "@import(\"std\").target.TargetDetails{.cpu=&@import(\"std\").target.");
-        defer builtin_str_buffer.deinit();
 
         try builtin_str_buffer.append(@tagName(arch));
         try builtin_str_buffer.append(".cpu_");
         try builtin_str_buffer.append(cpu.name);
         try builtin_str_buffer.append("};");
+
         return Self{
             .allocator = allocator,
             .target_details = .{
                 .cpu = cpu,
             },
-            .llvm_cpu_str = try toNullTerminatedStringAlloc(allocator, cpu.name),
+            .llvm_cpu_str = try toNullTerminatedStringAlloc(allocator, cpu.llvm_name),
             .llvm_features_str = null_terminated_empty_string,
-            .builtin_str = builtin_str_buffer.toOwnedSlice(),
+            .builtin_str = builtin_str_buffer.toSliceConst(),
         };
     }
 
@@ -664,10 +664,8 @@ const Stage2TargetDetails = struct {
         var builtin_str_buffer = try std.Buffer.init(
             allocator, 
             "@import(\"std\").target.TargetDetails{.features=&[_]*const @import(\"std\").target.Feature{\n");
-        defer builtin_str_buffer.deinit();
 
         var llvm_features_buffer = try std.Buffer.initSize(allocator, 0);
-        defer llvm_features_buffer.deinit();
 
         // First, disable all features.
         // This way, we only get the ones the user requests.
@@ -691,17 +689,14 @@ const Stage2TargetDetails = struct {
 
         try builtin_str_buffer.append("}};");
 
-        // This is needed here because llvm_features_buffer.len() is no longer valid after toOwnedSlice().
-        const llvm_features_buffer_len = llvm_features_buffer.len();
-
         return Self{
             .allocator = allocator,
             .target_details = std.target.TargetDetails{
                 .features = features,
             },
             .llvm_cpu_str = null_terminated_empty_string,
-            .llvm_features_str = llvm_features_buffer.toOwnedSlice()[0..llvm_features_buffer_len :0],
-            .builtin_str = builtin_str_buffer.toOwnedSlice(),
+            .llvm_features_str = llvm_features_buffer.toSliceConst(),
+            .builtin_str = builtin_str_buffer.toSliceConst(),
         };
     }
 };
