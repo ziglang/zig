@@ -131,6 +131,7 @@ struct AssemblerInvocation {
   unsigned RelaxAll : 1;
   unsigned NoExecStack : 1;
   unsigned FatalWarnings : 1;
+  unsigned NoWarn : 1;
   unsigned IncrementalLinkerCompatible : 1;
   unsigned EmbedBitcode : 1;
 
@@ -156,6 +157,7 @@ public:
     RelaxAll = 0;
     NoExecStack = 0;
     FatalWarnings = 0;
+    NoWarn = 0;
     IncrementalLinkerCompatible = 0;
     DwarfVersion = 0;
     EmbedBitcode = 0;
@@ -179,7 +181,7 @@ bool AssemblerInvocation::CreateFromArgs(AssemblerInvocation &Opts,
   const unsigned IncludedFlagsBitmask = options::CC1AsOption;
   unsigned MissingArgIndex, MissingArgCount;
   InputArgList Args = OptTbl.ParseArgs(Argv, MissingArgIndex, MissingArgCount,
-                                        IncludedFlagsBitmask);
+                                       IncludedFlagsBitmask);
 
   // Check for missing argument error.
   if (MissingArgCount) {
@@ -285,6 +287,7 @@ bool AssemblerInvocation::CreateFromArgs(AssemblerInvocation &Opts,
   Opts.RelaxAll = Args.hasArg(OPT_mrelax_all);
   Opts.NoExecStack = Args.hasArg(OPT_mno_exec_stack);
   Opts.FatalWarnings = Args.hasArg(OPT_massembler_fatal_warnings);
+  Opts.NoWarn = Args.hasArg(OPT_massembler_no_warn);
   Opts.RelocationModel = Args.getLastArgValue(OPT_mrelocation_model, "pic");
   Opts.TargetABI = Args.getLastArgValue(OPT_target_abi);
   Opts.IncrementalLinkerCompatible =
@@ -313,7 +316,7 @@ getOutputStream(StringRef Path, DiagnosticsEngine &Diags, bool Binary) {
 
   std::error_code EC;
   auto Out = std::make_unique<raw_fd_ostream>(
-      Path, EC, (Binary ? sys::fs::F_None : sys::fs::F_Text));
+      Path, EC, (Binary ? sys::fs::OF_None : sys::fs::OF_Text));
   if (EC) {
     Diags.Report(diag::err_fe_unable_to_open_output) << Path << EC.message();
     return nullptr;
@@ -350,7 +353,9 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
   std::unique_ptr<MCRegisterInfo> MRI(TheTarget->createMCRegInfo(Opts.Triple));
   assert(MRI && "Unable to create target register info!");
 
-  std::unique_ptr<MCAsmInfo> MAI(TheTarget->createMCAsmInfo(*MRI, Opts.Triple));
+  MCTargetOptions MCOptions;
+  std::unique_ptr<MCAsmInfo> MAI(
+      TheTarget->createMCAsmInfo(*MRI, Opts.Triple, MCOptions));
   assert(MAI && "Unable to create target asm info!");
 
   // Ensure MCAsmInfo initialization occurs before any use, otherwise sections
@@ -374,7 +379,7 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
   // MCObjectFileInfo needs a MCContext reference in order to initialize itself.
   std::unique_ptr<MCObjectFileInfo> MOFI(new MCObjectFileInfo());
 
-  MCContext Ctx(MAI.get(), MRI.get(), MOFI.get(), &SrcMgr);
+  MCContext Ctx(MAI.get(), MRI.get(), MOFI.get(), &SrcMgr, &MCOptions);
 
   bool PIC = false;
   if (Opts.RelocationModel == "static") {
@@ -431,7 +436,8 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
   raw_pwrite_stream *Out = FDOS.get();
   std::unique_ptr<buffer_ostream> BOS;
 
-  MCTargetOptions MCOptions;
+  MCOptions.MCNoWarn = Opts.NoWarn;
+  MCOptions.MCFatalWarnings = Opts.FatalWarnings;
   MCOptions.ABIName = Opts.TargetABI;
 
   // FIXME: There is a bit of code duplication with addPassesToEmitFile.
@@ -569,11 +575,11 @@ int cc1as_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
     return 1;
 
   if (Asm.ShowHelp) {
-    const OptTable &Opts = getDriverOptTable();
-    Opts.PrintHelp(llvm::outs(), "clang -cc1as [options] file...",
-                    "Clang Integrated Assembler",
-                    /*Include=*/driver::options::CC1AsOption, /*Exclude=*/0,
-                    /*ShowAllAliases=*/false);
+    getDriverOptTable().PrintHelp(
+        llvm::outs(), "clang -cc1as [options] file...",
+        "Clang Integrated Assembler",
+        /*Include=*/driver::options::CC1AsOption, /*Exclude=*/0,
+        /*ShowAllAliases=*/false);
     return 0;
   }
 
@@ -604,6 +610,8 @@ int cc1as_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   // If any timers were active but haven't been destroyed yet, print their
   // results now.
   TimerGroup::printAll(errs());
+  TimerGroup::clearAll();
 
   return !!Failed;
 }
+
