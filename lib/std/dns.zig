@@ -9,7 +9,7 @@ pub const QuestionList = std.ArrayList(Question);
 pub const ResourceList = std.ArrayList(Resource);
 const InError = std.io.SliceInStream.Error;
 pub const DNSDeserializer = std.io.Deserializer(.Big, .Bit, InError);
-pub const DNSError = error{
+pub const Error = error{
     UnknownDNSType,
     RDATANotSupported,
     DeserialFail,
@@ -246,14 +246,14 @@ const LabelComponent = union(enum) {
     Label: []u8,
 };
 
-/// Deserialize a type, but turn any error caused by it into DNSError.DeserialFail.
+/// Deserialize a type, but turn any error caused by it into Error.DeserialFail.
 ///
 /// This is required because of the following facts:
 ///  - nonasync stack-allocated recursive functions must have explicit error sets.
 ///  - std.io.Deserializer's error set is not stable.
-fn inDeserial(deserializer: var, comptime T: type) DNSError!T {
+fn inDeserial(deserializer: var, comptime T: type) Error!T {
     return deserializer.deserialize(T) catch |_| {
-        return DNSError.DeserialFail;
+        return Error.DeserialFail;
     };
 }
 
@@ -339,7 +339,7 @@ pub const Packet = struct {
         self: *Self,
         ptr_offset_1: u8,
         deserializer: var,
-    ) (DNSError || Allocator.Error)![][]const u8 {
+    ) (Error || Allocator.Error)![][]const u8 {
         // we need to read another u8 and merge both ptr_prefix_1 and the
         // u8 we read into an u16
 
@@ -381,7 +381,7 @@ pub const Packet = struct {
 
             return name.labels;
         } else {
-            return DNSError.ParseFail;
+            return Error.ParseFail;
         }
     }
 
@@ -390,7 +390,7 @@ pub const Packet = struct {
     fn deserializeLabel(
         self: *Self,
         deserializer: var,
-    ) (DNSError || Allocator.Error)!?LabelComponent {
+    ) (Error || Allocator.Error)!?LabelComponent {
         // check if label is a pointer, this byte will contain 11 as the starting
         // point of it
         var ptr_prefix = try inDeserial(deserializer, u8);
@@ -422,7 +422,7 @@ pub const Packet = struct {
     pub fn deserializeName(
         self: *Self,
         deserial: *DNSDeserializer,
-    ) (DNSError || Allocator.Error)!DNSName {
+    ) (Error || Allocator.Error)!DNSName {
 
         // Removing this causes the compiler to send a
         // 'error: recursive function cannot be async'

@@ -3,7 +3,6 @@ const std = @import("std");
 const io = std.io;
 
 const dns = std.dns;
-const DNSError = dns.DNSError;
 const InError = io.SliceInStream.Error;
 const OutError = io.SliceOutStream.Error;
 const DNSType = dns.DNSType;
