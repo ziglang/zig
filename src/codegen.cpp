@@ -30,11 +30,6 @@ enum ResumeId {
     ResumeIdCall,
 };
 
-// TODO https://github.com/ziglang/zig/issues/2883
-// Until then we have this same default as Clang.
-// This avoids https://github.com/ziglang/zig/issues/3275
-static const char *riscv_default_features = "+a,+c,+d,+f,+m,+relax";
-
 static void init_darwin_native(CodeGen *g) {
     char *osx_target = getenv("MACOSX_DEPLOYMENT_TARGET");
     char *ios_target = getenv("IPHONEOS_DEPLOYMENT_TARGET");
@@ -9123,21 +9118,18 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         args.append("-target");
         args.append(buf_ptr(&g->llvm_triple_str));
 
-        if (target_is_musl(g->zig_target) && target_is_riscv(g->zig_target)) {
-            // Musl depends on atomic instructions, which are disabled by default in Clang/LLVM's
-            // cross compilation CPU info for RISCV.
-            // TODO: https://github.com/ziglang/zig/issues/2883
+        if (g->target_details) {
+            args.append("-Xclang");
+            args.append("-target-cpu");
+            args.append("-Xclang");
+            args.append(stage2_target_details_get_llvm_cpu(g->target_details));
             args.append("-Xclang");
             args.append("-target-feature");
             args.append("-Xclang");
-            args.append(riscv_default_features);
-        } else if (g->zig_target->os == OsFreestanding && g->zig_target->arch == ZigLLVM_x86) {
-            args.append("-Xclang");
-            args.append("-target-feature");
-            args.append("-Xclang");
-            args.append("-sse");
+            args.append(stage2_target_details_get_llvm_features(g->target_details));
         }
     }
+
     if (g->zig_target->os == OsFreestanding) {
         args.append("-ffreestanding");
     }
