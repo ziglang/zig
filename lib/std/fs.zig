@@ -297,40 +297,6 @@ pub fn makeDirW(dir_path: [*:0]const u16) !void {
     return os.mkdirW(dir_path, default_new_dir_mode);
 }
 
-/// Calls makeDir recursively to make an entire path. Returns success if the path
-/// already exists and is a directory.
-/// This function is not atomic, and if it returns an error, the file system may
-/// have been modified regardless.
-pub fn makePath(full_path: []const u8) !void {
-    var end_index: usize = full_path.len;
-    while (true) {
-        cwd().makeDir(full_path[0..end_index]) catch |err| switch (err) {
-            error.PathAlreadyExists => {
-                // TODO stat the file and return an error if it's not a directory
-                // this is important because otherwise a dangling symlink
-                // could cause an infinite loop
-                if (end_index == full_path.len) return;
-            },
-            error.FileNotFound => {
-                if (end_index == 0) return err;
-                // march end_index backward until next path component
-                while (true) {
-                    end_index -= 1;
-                    if (path.isSep(full_path[end_index])) break;
-                }
-                continue;
-            },
-            else => return err,
-        };
-        if (end_index == full_path.len) return;
-        // march end_index forward until next path component
-        while (true) {
-            end_index += 1;
-            if (end_index == full_path.len or path.isSep(full_path[end_index])) break;
-        }
-    }
-}
-
 /// Returns `error.DirNotEmpty` if the directory is not empty.
 /// To delete a directory recursively, see `deleteTree`.
 pub fn deleteDir(dir_path: []const u8) !void {
@@ -883,6 +849,40 @@ pub const Dir = struct {
 
     pub fn makeDirC(self: Dir, sub_path: [*:0]const u8) !void {
         try os.mkdiratC(self.fd, sub_path, default_new_dir_mode);
+    }
+
+    /// Calls makeDir recursively to make an entire path. Returns success if the path
+    /// already exists and is a directory.
+    /// This function is not atomic, and if it returns an error, the file system may
+    /// have been modified regardless.
+    pub fn makePath(self: Dir, sub_path: []const u8) !void {
+        var end_index: usize = sub_path.len;
+        while (true) {
+            self.makeDir(sub_path[0..end_index]) catch |err| switch (err) {
+                error.PathAlreadyExists => {
+                    // TODO stat the file and return an error if it's not a directory
+                    // this is important because otherwise a dangling symlink
+                    // could cause an infinite loop
+                    if (end_index == sub_path.len) return;
+                },
+                error.FileNotFound => {
+                    if (end_index == 0) return err;
+                    // march end_index backward until next path component
+                    while (true) {
+                        end_index -= 1;
+                        if (path.isSep(sub_path[end_index])) break;
+                    }
+                    continue;
+                },
+                else => return err,
+            };
+            if (end_index == sub_path.len) return;
+            // march end_index forward until next path component
+            while (true) {
+                end_index += 1;
+                if (end_index == sub_path.len or path.isSep(sub_path[end_index])) break;
+            }
+        }
     }
 
     pub fn changeTo(self: Dir) !void {
