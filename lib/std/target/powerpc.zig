@@ -296,8 +296,8 @@ pub const feature_power9Altivec = Feature{
     .llvm_name = "power9-altivec",
     .description = "Enable POWER9 Altivec instructions",
     .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
         &feature_isaV30Instructions,
+        &feature_hardFloat,
     },
 };
 
@@ -306,8 +306,8 @@ pub const feature_power9Vector = Feature{
     .llvm_name = "power9-vector",
     .description = "Enable POWER9 vector instructions",
     .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
         &feature_isaV30Instructions,
+        &feature_hardFloat,
     },
 };
 

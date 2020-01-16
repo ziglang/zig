@@ -17,14 +17,6 @@ pub const feature_e = Feature{
     },
 };
 
-pub const feature_rvcHints = Feature{
-    .name = "rvcHints",
-    .llvm_name = "rvc-hints",
-    .description = "Enable RVC Hint Instructions.",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
 pub const feature_relax = Feature{
     .name = "relax",
     .llvm_name = "relax",
@@ -77,7 +69,6 @@ pub const feature_m = Feature{
 pub const features = &[_]*const Feature {
     &feature_bit64,
     &feature_e,
-    &feature_rvcHints,
     &feature_relax,
     &feature_a,
     &feature_c,
@@ -90,7 +81,6 @@ pub const cpu_genericRv32 = Cpu{
     .name = "genericRv32",
     .llvm_name = "generic-rv32",
     .dependencies = &[_]*const Feature {
-        &feature_rvcHints,
     },
 };
 
@@ -99,7 +89,6 @@ pub const cpu_genericRv64 = Cpu{
     .llvm_name = "generic-rv64",
     .dependencies = &[_]*const Feature {
         &feature_bit64,
-        &feature_rvcHints,
     },
 };
 
