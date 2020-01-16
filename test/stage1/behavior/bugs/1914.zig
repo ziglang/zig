@@ -7,7 +7,7 @@ const B = struct {
     a_pointer: *const A,
 };
 
-const b_list: []B = [_]B{};
+const b_list: []B = &[_]B{};
 const a = A{ .b_list_pointer = &b_list };
 
 test "segfault bug" {
@@ -24,7 +24,7 @@ pub const B2 = struct {
     pointer_array: []*A2,
 };
 
-var b_value = B2{ .pointer_array = [_]*A2{} };
+var b_value = B2{ .pointer_array = &[_]*A2{} };
 
 test "basic stuff" {
     std.debug.assert(&b_value == &b_value);

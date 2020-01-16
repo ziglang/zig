@@ -197,7 +197,7 @@ pub const CityHash64 = struct {
     }
 
     fn hashLen16(u: u64, v: u64) u64 {
-        return @inlineCall(hash128To64, u, v);
+        return @call(.{ .modifier = .always_inline }, hash128To64, .{ u, v });
     }
 
     fn hashLen16Mul(low: u64, high: u64, mul: u64) u64 {
@@ -210,11 +210,11 @@ pub const CityHash64 = struct {
     }
 
     fn hash128To64(low: u64, high: u64) u64 {
-        return @inlineCall(hashLen16Mul, low, high, 0x9ddfea08eb382d69);
+        return @call(.{ .modifier = .always_inline }, hashLen16Mul, .{ low, high, 0x9ddfea08eb382d69 });
     }
 
     fn hashLen0To16(str: []const u8) u64 {
-        const len: u64 = u64(str.len);
+        const len: u64 = @as(u64, str.len);
         if (len >= 8) {
             const mul: u64 = k2 +% len *% 2;
             const a: u64 = fetch64(str.ptr) +% k2;
@@ -240,7 +240,7 @@ pub const CityHash64 = struct {
     }
 
     fn hashLen17To32(str: []const u8) u64 {
-        const len: u64 = u64(str.len);
+        const len: u64 = @as(u64, str.len);
         const mul: u64 = k2 +% len *% 2;
         const a: u64 = fetch64(str.ptr) *% k1;
         const b: u64 = fetch64(str.ptr + 8);
@@ -251,7 +251,7 @@ pub const CityHash64 = struct {
     }
 
     fn hashLen33To64(str: []const u8) u64 {
-        const len: u64 = u64(str.len);
+        const len: u64 = @as(u64, str.len);
         const mul: u64 = k2 +% len *% 2;
         const a: u64 = fetch64(str.ptr) *% k2;
         const b: u64 = fetch64(str.ptr + 8);
@@ -291,7 +291,14 @@ pub const CityHash64 = struct {
     }
 
     fn weakHashLen32WithSeeds(ptr: [*]const u8, a: u64, b: u64) WeakPair {
-        return @inlineCall(weakHashLen32WithSeedsHelper, fetch64(ptr), fetch64(ptr + 8), fetch64(ptr + 16), fetch64(ptr + 24), a, b);
+        return @call(.{ .modifier = .always_inline }, weakHashLen32WithSeedsHelper, .{
+            fetch64(ptr),
+            fetch64(ptr + 8),
+            fetch64(ptr + 16),
+            fetch64(ptr + 24),
+            a,
+            b,
+        });
     }
 
     pub fn hash(str: []const u8) u64 {
@@ -305,7 +312,7 @@ pub const CityHash64 = struct {
             return hashLen33To64(str);
         }
 
-        var len: u64 = u64(str.len);
+        var len: u64 = @as(u64, str.len);
 
         var x: u64 = fetch64(str.ptr + str.len - 40);
         var y: u64 = fetch64(str.ptr + str.len - 16) +% fetch64(str.ptr + str.len - 56);
@@ -339,7 +346,7 @@ pub const CityHash64 = struct {
     }
 
     pub fn hashWithSeed(str: []const u8, seed: u64) u64 {
-        return @inlineCall(Self.hashWithSeeds, str, k2, seed);
+        return @call(.{ .modifier = .always_inline }, Self.hashWithSeeds, .{ str, k2, seed });
     }
 
     pub fn hashWithSeeds(str: []const u8, seed0: u64, seed1: u64) u64 {
@@ -353,9 +360,9 @@ fn SMHasherTest(comptime hash_fn: var, comptime hashbits: u32) u32 {
     var hashes: [hashbytes * 256]u8 = undefined;
     var final: [hashbytes]u8 = undefined;
 
-    @memset(@ptrCast([*]u8, &key[0]), 0, @sizeOf(@typeOf(key)));
-    @memset(@ptrCast([*]u8, &hashes[0]), 0, @sizeOf(@typeOf(hashes)));
-    @memset(@ptrCast([*]u8, &final[0]), 0, @sizeOf(@typeOf(final)));
+    @memset(@ptrCast([*]u8, &key[0]), 0, @sizeOf(@TypeOf(key)));
+    @memset(@ptrCast([*]u8, &hashes[0]), 0, @sizeOf(@TypeOf(hashes)));
+    @memset(@ptrCast([*]u8, &final[0]), 0, @sizeOf(@TypeOf(final)));
 
     var i: u32 = 0;
     while (i < 256) : (i += 1) {
@@ -363,11 +370,11 @@ fn SMHasherTest(comptime hash_fn: var, comptime hashbits: u32) u32 {
 
         var h = hash_fn(key[0..i], 256 - i);
         if (builtin.endian == builtin.Endian.Big)
-            h = @byteSwap(@typeOf(h), h);
+            h = @byteSwap(@TypeOf(h), h);
         @memcpy(@ptrCast([*]u8, &hashes[i * hashbytes]), @ptrCast([*]u8, &h), hashbytes);
     }
 
-    return @truncate(u32, hash_fn(hashes, 0));
+    return @truncate(u32, hash_fn(&hashes, 0));
 }
 
 fn CityHash32hashIgnoreSeed(str: []const u8, seed: u32) u32 {

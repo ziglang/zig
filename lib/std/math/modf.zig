@@ -24,8 +24,8 @@ pub const modf64_result = modf_result(f64);
 /// Special Cases:
 ///  - modf(+-inf) = +-inf, nan
 ///  - modf(nan)   = nan, nan
-pub fn modf(x: var) modf_result(@typeOf(x)) {
-    const T = @typeOf(x);
+pub fn modf(x: var) modf_result(@TypeOf(x)) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => modf32(x),
         f64 => modf64(x),
@@ -65,7 +65,7 @@ fn modf32(x: f32) modf32_result {
         return result;
     }
 
-    const mask = u32(0x007FFFFF) >> @intCast(u5, e);
+    const mask = @as(u32, 0x007FFFFF) >> @intCast(u5, e);
     if (u & mask == 0) {
         result.ipart = x;
         result.fpart = @bitCast(f32, us);
@@ -109,7 +109,7 @@ fn modf64(x: f64) modf64_result {
         return result;
     }
 
-    const mask = u64(maxInt(u64) >> 12) >> @intCast(u6, e);
+    const mask = @as(u64, maxInt(u64) >> 12) >> @intCast(u6, e);
     if (u & mask == 0) {
         result.ipart = x;
         result.fpart = @bitCast(f64, us);
@@ -123,12 +123,12 @@ fn modf64(x: f64) modf64_result {
 }
 
 test "math.modf" {
-    const a = modf(f32(1.0));
+    const a = modf(@as(f32, 1.0));
     const b = modf32(1.0);
     // NOTE: No struct comparison on generic return type function? non-named, makes sense, but still.
     expect(a.ipart == b.ipart and a.fpart == b.fpart);
 
-    const c = modf(f64(1.0));
+    const c = modf(@as(f64, 1.0));
     const d = modf64(1.0);
     expect(a.ipart == b.ipart and a.fpart == b.fpart);
 }

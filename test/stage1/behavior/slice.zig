@@ -28,7 +28,7 @@ fn sliceFromLenToLen(a_slice: []u8, start: usize, end: usize) []u8 {
 
 test "implicitly cast array of size 0 to slice" {
     var msg = [_]u8{};
-    assertLenIsZero(msg);
+    assertLenIsZero(&msg);
 }
 
 fn assertLenIsZero(msg: []const u8) void {
@@ -36,7 +36,7 @@ fn assertLenIsZero(msg: []const u8) void {
 }
 
 test "C pointer" {
-    var buf: [*c]const u8 = c"kjdhfkjdhfdkjhfkfjhdfkjdhfkdjhfdkjhf";
+    var buf: [*c]const u8 = "kjdhfkjdhfdkjhfkfjhdfkjdhfkdjhfdkjhf";
     var len: u32 = 10;
     var slice = buf[0..len];
     expectEqualSlices(u8, "kjdhfkjdhf", slice);
@@ -51,8 +51,8 @@ fn sliceSum(comptime q: []const u8) i32 {
 }
 
 test "comptime slices are disambiguated" {
-    expect(sliceSum([_]u8{ 1, 2 }) == 3);
-    expect(sliceSum([_]u8{ 3, 4 }) == 7);
+    expect(sliceSum(&[_]u8{ 1, 2 }) == 3);
+    expect(sliceSum(&[_]u8{ 3, 4 }) == 7);
 }
 
 test "slice type with custom alignment" {
@@ -64,4 +64,36 @@ test "slice type with custom alignment" {
     slice = &array;
     slice[1].anything = 42;
     expect(array[1].anything == 42);
+}
+
+test "access len index of sentinel-terminated slice" {
+    const S = struct {
+        fn doTheTest() void {
+            var slice: [:0]const u8 = "hello";
+
+            expect(slice.len == 5);
+            expect(slice[5] == 0);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "obtaining a null terminated slice" {
+    // here we have a normal array
+    var buf: [50]u8 = undefined;
+
+    buf[0] = 'a';
+    buf[1] = 'b';
+    buf[2] = 'c';
+    buf[3] = 0;
+
+    // now we obtain a null terminated slice:
+    const ptr = buf[0..3 :0];
+
+    var runtime_len: usize = 3;
+    const ptr2 = buf[0..runtime_len :0];
+    // ptr2 is a null-terminated slice
+    comptime expect(@TypeOf(ptr2) == [:0]u8);
+    comptime expect(@TypeOf(ptr2[0..2]) == []u8);
 }

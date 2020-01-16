@@ -1,8 +1,6 @@
 const uefi = @import("std").os.uefi;
 const Guid = uefi.Guid;
 
-/// UEFI Specification, Version 2.8, 4.6
-/// Because GUIDs must be align(8), structs of this type also must be align(8)
 pub const ConfigurationTable = extern struct {
     vendor_guid: Guid,
     vendor_table: *c_void,

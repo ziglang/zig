@@ -14,8 +14,8 @@ const expect = std.testing.expect;
 /// Special cases:
 ///  - acosh(x)   = snan if x < 1
 ///  - acosh(nan) = nan
-pub fn acosh(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn acosh(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => acosh32(x),
         f64 => acosh64(x),
@@ -61,8 +61,8 @@ fn acosh64(x: f64) f64 {
 }
 
 test "math.acosh" {
-    expect(acosh(f32(1.5)) == acosh32(1.5));
-    expect(acosh(f64(1.5)) == acosh64(1.5));
+    expect(acosh(@as(f32, 1.5)) == acosh32(1.5));
+    expect(acosh(@as(f64, 1.5)) == acosh64(1.5));
 }
 
 test "math.acosh32" {

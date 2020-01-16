@@ -17,7 +17,7 @@ const maxInt = std.math.maxInt;
 const File = std.fs.File;
 const windows = std.os.windows;
 
-const leb = @import("debug/leb128.zig");
+pub const leb = @import("debug/leb128.zig");
 
 pub const FailingAllocator = @import("debug/failing_allocator.zig").FailingAllocator;
 pub const failing_allocator = &FailingAllocator.init(global_allocator, 0).allocator;
@@ -45,23 +45,28 @@ var stderr_file_out_stream: File.OutStream = undefined;
 
 var stderr_stream: ?*io.OutStream(File.WriteError) = null;
 var stderr_mutex = std.Mutex.init();
-pub fn warn(comptime fmt: []const u8, args: ...) void {
+
+pub fn warn(comptime fmt: []const u8, args: var) void {
     const held = stderr_mutex.acquire();
     defer held.release();
-    const stderr = getStderrStream() catch return;
+    const stderr = getStderrStream();
     stderr.print(fmt, args) catch return;
 }
 
-pub fn getStderrStream() !*io.OutStream(File.WriteError) {
+pub fn getStderrStream() *io.OutStream(File.WriteError) {
     if (stderr_stream) |st| {
         return st;
     } else {
-        stderr_file = try io.getStdErr();
+        stderr_file = io.getStdErr();
         stderr_file_out_stream = stderr_file.outStream();
         const st = &stderr_file_out_stream.stream;
         stderr_stream = st;
         return st;
     }
+}
+
+pub fn getStderrMutex() *std.Mutex {
+    return &stderr_mutex;
 }
 
 /// TODO multithreaded awareness
@@ -85,17 +90,17 @@ fn wantTtyColor() bool {
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
-    const stderr = getStderrStream() catch return;
+    const stderr = getStderrStream();
     if (builtin.strip_debug_info) {
-        stderr.print("Unable to dump stack trace: debug info stripped\n") catch return;
+        stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
         return;
     }
     const debug_info = getSelfDebugInfo() catch |err| {
-        stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", @errorName(err)) catch return;
+        stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
         return;
     };
     writeCurrentStackTrace(stderr, debug_info, wantTtyColor(), start_addr) catch |err| {
-        stderr.print("Unable to dump stack trace: {}\n", @errorName(err)) catch return;
+        stderr.print("Unable to dump stack trace: {}\n", .{@errorName(err)}) catch return;
         return;
     };
 }
@@ -104,13 +109,13 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 /// unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
-    const stderr = getStderrStream() catch return;
+    const stderr = getStderrStream();
     if (builtin.strip_debug_info) {
-        stderr.print("Unable to dump stack trace: debug info stripped\n") catch return;
+        stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
         return;
     }
     const debug_info = getSelfDebugInfo() catch |err| {
-        stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", @errorName(err)) catch return;
+        stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
         return;
     };
     const tty_color = wantTtyColor();
@@ -133,7 +138,7 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
 /// chopping off the irrelevant frames and shifting so that the returned addresses pointer
 /// equals the passed in addresses pointer.
 pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace) void {
-    if (windows.is_the_target) {
+    if (builtin.os == .windows) {
         const addrs = stack_trace.instruction_addresses;
         const u32_addrs_len = @intCast(u32, addrs.len);
         const first_addr = first_address orelse {
@@ -177,17 +182,17 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace
 /// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
-    const stderr = getStderrStream() catch return;
+    const stderr = getStderrStream();
     if (builtin.strip_debug_info) {
-        stderr.print("Unable to dump stack trace: debug info stripped\n") catch return;
+        stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
         return;
     }
     const debug_info = getSelfDebugInfo() catch |err| {
-        stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", @errorName(err)) catch return;
+        stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
         return;
     };
     writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, wantTtyColor()) catch |err| {
-        stderr.print("Unable to dump stack trace: {}\n", @errorName(err)) catch return;
+        stderr.print("Unable to dump stack trace: {}\n", .{@errorName(err)}) catch return;
         return;
     };
 }
@@ -206,16 +211,17 @@ pub fn assert(ok: bool) void {
     if (!ok) unreachable; // assertion failure
 }
 
-pub fn panic(comptime format: []const u8, args: ...) noreturn {
+pub fn panic(comptime format: []const u8, args: var) noreturn {
     @setCold(true);
-    const first_trace_addr = @returnAddress();
+    // TODO: remove conditional once wasi / LLVM defines __builtin_return_address
+    const first_trace_addr = if (builtin.os == .wasi) null else @returnAddress();
     panicExtra(null, first_trace_addr, format, args);
 }
 
 /// TODO multithreaded awareness
-var panicking: u8 = 0; // TODO make this a bool
+var panicking: u8 = 0;
 
-pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, comptime format: []const u8, args: ...) noreturn {
+pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, comptime format: []const u8, args: var) noreturn {
     @setCold(true);
 
     if (enable_segfault_handler) {
@@ -224,21 +230,25 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
         resetSegfaultHandler();
     }
 
-    if (@atomicRmw(u8, &panicking, builtin.AtomicRmwOp.Xchg, 1, builtin.AtomicOrder.SeqCst) == 1) {
-        // Panicked during a panic.
-
-        // TODO detect if a different thread caused the panic, because in that case
-        // we would want to return here instead of calling abort, so that the thread
-        // which first called panic can finish printing a stack trace.
-        os.abort();
+    switch (@atomicRmw(u8, &panicking, .Add, 1, .SeqCst)) {
+        0 => {
+            const stderr = getStderrStream();
+            stderr.print(format ++ "\n", args) catch os.abort();
+            if (trace) |t| {
+                dumpStackTrace(t.*);
+            }
+            dumpCurrentStackTrace(first_trace_addr);
+        },
+        1 => {
+            // TODO detect if a different thread caused the panic, because in that case
+            // we would want to return here instead of calling abort, so that the thread
+            // which first called panic can finish printing a stack trace.
+            warn("Panicked during a panic. Aborting.\n", .{});
+        },
+        else => {
+            // Panicked while printing "Panicked during a panic."
+        },
     }
-    const stderr = getStderrStream() catch os.abort();
-    stderr.print(format ++ "\n", args) catch os.abort();
-    if (trace) |t| {
-        dumpStackTrace(t.*);
-    }
-    dumpCurrentStackTrace(first_trace_addr);
-
     os.abort();
 }
 
@@ -280,14 +290,23 @@ pub const StackIterator = struct {
         };
     }
 
+    // On some architectures such as x86 the frame pointer is the address where
+    // the previous fp is stored, while on some other architectures such as
+    // RISC-V it points to the "top" of the frame, just above where the previous
+    // fp and the return address are stored.
+    const fp_adjust_factor = if (builtin.arch == .riscv32 or builtin.arch == .riscv64)
+        2 * @sizeOf(usize)
+    else
+        0;
+
     fn next(self: *StackIterator) ?usize {
-        if (self.fp == 0) return null;
-        self.fp = @intToPtr(*const usize, self.fp).*;
-        if (self.fp == 0) return null;
+        if (self.fp <= fp_adjust_factor) return null;
+        self.fp = @intToPtr(*const usize, self.fp - fp_adjust_factor).*;
+        if (self.fp <= fp_adjust_factor) return null;
 
         if (self.first_addr) |addr| {
-            while (self.fp != 0) : (self.fp = @intToPtr(*const usize, self.fp).*) {
-                const return_address = @intToPtr(*const usize, self.fp + @sizeOf(usize)).*;
+            while (self.fp > fp_adjust_factor) : (self.fp = @intToPtr(*const usize, self.fp - fp_adjust_factor).*) {
+                const return_address = @intToPtr(*const usize, self.fp - fp_adjust_factor + @sizeOf(usize)).*;
                 if (addr == return_address) {
                     self.first_addr = null;
                     return return_address;
@@ -295,13 +314,13 @@ pub const StackIterator = struct {
             }
         }
 
-        const return_address = @intToPtr(*const usize, self.fp + @sizeOf(usize)).*;
+        const return_address = @intToPtr(*const usize, self.fp - fp_adjust_factor + @sizeOf(usize)).*;
         return return_address;
     }
 };
 
 pub fn writeCurrentStackTrace(out_stream: var, debug_info: *DebugInfo, tty_color: bool, start_addr: ?usize) !void {
-    if (windows.is_the_target) {
+    if (builtin.os == .windows) {
         return writeCurrentStackTraceWindows(out_stream, debug_info, tty_color, start_addr);
     }
     var it = StackIterator.init(start_addr);
@@ -333,10 +352,10 @@ pub fn writeCurrentStackTraceWindows(
 /// TODO once https://github.com/ziglang/zig/issues/3157 is fully implemented,
 /// make this `noasync fn` and remove the individual noasync calls.
 pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
-    if (windows.is_the_target) {
+    if (builtin.os == .windows) {
         return noasync printSourceAtAddressWindows(debug_info, out_stream, address, tty_color);
     }
-    if (os.darwin.is_the_target) {
+    if (comptime std.Target.current.isDarwin()) {
         return noasync printSourceAtAddressMacOs(debug_info, out_stream, address, tty_color);
     }
     return noasync printSourceAtAddressPosix(debug_info, out_stream, address, tty_color);
@@ -361,13 +380,13 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
     } else {
         // we have no information to add to the address
         if (tty_color) {
-            try out_stream.print("???:?:?: ");
+            try out_stream.print("???:?:?: ", .{});
             setTtyColor(TtyColor.Dim);
-            try out_stream.print("0x{x} in ??? (???)", relocated_address);
+            try out_stream.print("0x{x} in ??? (???)", .{relocated_address});
             setTtyColor(TtyColor.Reset);
-            try out_stream.print("\n\n\n");
+            try out_stream.print("\n\n\n", .{});
         } else {
-            try out_stream.print("???:?:?: 0x{x} in ??? (???)\n\n\n", relocated_address);
+            try out_stream.print("???:?:?: 0x{x} in ??? (???)\n\n\n", .{relocated_address});
         }
         return;
     };
@@ -387,7 +406,7 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
                 const vaddr_start = coff_section.header.virtual_address + proc_sym.CodeOffset;
                 const vaddr_end = vaddr_start + proc_sym.CodeSize;
                 if (relative_address >= vaddr_start and relative_address < vaddr_end) {
-                    break mem.toSliceConst(u8, @ptrCast([*]u8, proc_sym) + @sizeOf(pdb.ProcSym));
+                    break mem.toSliceConst(u8, @ptrCast([*:0]u8, proc_sym) + @sizeOf(pdb.ProcSym));
                 }
             },
             else => {},
@@ -494,18 +513,18 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
     if (tty_color) {
         setTtyColor(TtyColor.White);
         if (opt_line_info) |li| {
-            try out_stream.print("{}:{}:{}", li.file_name, li.line, li.column);
+            try out_stream.print("{}:{}:{}", .{ li.file_name, li.line, li.column });
         } else {
-            try out_stream.print("???:?:?");
+            try out_stream.print("???:?:?", .{});
         }
         setTtyColor(TtyColor.Reset);
-        try out_stream.print(": ");
+        try out_stream.print(": ", .{});
         setTtyColor(TtyColor.Dim);
-        try out_stream.print("0x{x} in {} ({})", relocated_address, symbol_name, obj_basename);
+        try out_stream.print("0x{x} in {} ({})", .{ relocated_address, symbol_name, obj_basename });
         setTtyColor(TtyColor.Reset);
 
         if (opt_line_info) |line_info| {
-            try out_stream.print("\n");
+            try out_stream.print("\n", .{});
             if (printLineFromFileAnyOs(out_stream, line_info)) {
                 if (line_info.column == 0) {
                     try out_stream.write("\n");
@@ -531,13 +550,24 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
                 else => return err,
             }
         } else {
-            try out_stream.print("\n\n\n");
+            try out_stream.print("\n\n\n", .{});
         }
     } else {
         if (opt_line_info) |li| {
-            try out_stream.print("{}:{}:{}: 0x{x} in {} ({})\n\n\n", li.file_name, li.line, li.column, relocated_address, symbol_name, obj_basename);
+            try out_stream.print("{}:{}:{}: 0x{x} in {} ({})\n\n\n", .{
+                li.file_name,
+                li.line,
+                li.column,
+                relocated_address,
+                symbol_name,
+                obj_basename,
+            });
         } else {
-            try out_stream.print("???:?:?: 0x{x} in {} ({})\n\n\n", relocated_address, symbol_name, obj_basename);
+            try out_stream.print("???:?:?: 0x{x} in {} ({})\n\n\n", .{
+                relocated_address,
+                symbol_name,
+                obj_basename,
+            });
         }
     }
 }
@@ -682,16 +712,16 @@ fn printSourceAtAddressMacOs(di: *DebugInfo, out_stream: var, address: usize, tt
 
     const symbol = machoSearchSymbols(di.symbols, adjusted_addr) orelse {
         if (tty_color) {
-            try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in ??? (???)" ++ RESET ++ "\n\n\n", address);
+            try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in ??? (???)" ++ RESET ++ "\n\n\n", .{address});
         } else {
-            try out_stream.print("???:?:?: 0x{x} in ??? (???)\n\n\n", address);
+            try out_stream.print("???:?:?: 0x{x} in ??? (???)\n\n\n", .{address});
         }
         return;
     };
 
-    const symbol_name = mem.toSliceConst(u8, di.strings.ptr + symbol.nlist.n_strx);
+    const symbol_name = mem.toSliceConst(u8, @ptrCast([*:0]const u8, di.strings.ptr + symbol.nlist.n_strx));
     const compile_unit_name = if (symbol.ofile) |ofile| blk: {
-        const ofile_path = mem.toSliceConst(u8, di.strings.ptr + ofile.n_strx);
+        const ofile_path = mem.toSliceConst(u8, @ptrCast([*:0]const u8, di.strings.ptr + ofile.n_strx));
         break :blk fs.path.basename(ofile_path);
     } else "???";
     if (getLineNumberInfoMacOs(di, symbol.*, adjusted_addr)) |line_info| {
@@ -708,51 +738,11 @@ fn printSourceAtAddressMacOs(di: *DebugInfo, out_stream: var, address: usize, tt
     } else |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => {
             if (tty_color) {
-                try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in {} ({})" ++ RESET ++ "\n\n\n", address, symbol_name, compile_unit_name);
+                try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in {} ({})" ++ RESET ++ "\n\n\n", .{
+                    address, symbol_name, compile_unit_name,
+                });
             } else {
-                try out_stream.print("???:?:?: 0x{x} in {} ({})\n\n\n", address, symbol_name, compile_unit_name);
-            }
-        },
-        else => return err,
-    }
-}
-
-/// This function works in freestanding mode.
-/// fn printLineFromFile(out_stream: var, line_info: LineInfo) !void
-pub fn printSourceAtAddressDwarf(
-    debug_info: *DwarfInfo,
-    out_stream: var,
-    address: usize,
-    tty_color: bool,
-    comptime printLineFromFile: var,
-) !void {
-    const compile_unit = findCompileUnit(debug_info, address) catch {
-        if (tty_color) {
-            try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in ??? (???)" ++ RESET ++ "\n\n\n", address);
-        } else {
-            try out_stream.print("???:?:?: 0x{x} in ??? (???)\n\n\n", address);
-        }
-        return;
-    };
-    const compile_unit_name = try compile_unit.die.getAttrString(debug_info, DW.AT_name);
-    if (getLineNumberInfoDwarf(debug_info, compile_unit.*, address)) |line_info| {
-        defer line_info.deinit();
-        const symbol_name = getSymbolNameDwarf(debug_info, address) orelse "???";
-        try printLineInfo(
-            out_stream,
-            line_info,
-            address,
-            symbol_name,
-            compile_unit_name,
-            tty_color,
-            printLineFromFile,
-        );
-    } else |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => {
-            if (tty_color) {
-                try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in ??? ({})" ++ RESET ++ "\n\n\n", address, compile_unit_name);
-            } else {
-                try out_stream.print("???:?:?: 0x{x} in ??? ({})\n\n\n", address, compile_unit_name);
+                try out_stream.print("???:?:?: 0x{x} in {} ({})\n\n\n", .{ address, symbol_name, compile_unit_name });
             }
         },
         else => return err,
@@ -760,7 +750,7 @@ pub fn printSourceAtAddressDwarf(
 }
 
 pub fn printSourceAtAddressPosix(debug_info: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
-    return printSourceAtAddressDwarf(debug_info, out_stream, address, tty_color, printLineFromFileAnyOs);
+    return debug_info.printSourceAtAddress(out_stream, address, tty_color, printLineFromFileAnyOs);
 }
 
 fn printLineInfo(
@@ -773,15 +763,14 @@ fn printLineInfo(
     comptime printLineFromFile: var,
 ) !void {
     if (tty_color) {
-        try out_stream.print(
-            WHITE ++ "{}:{}:{}" ++ RESET ++ ": " ++ DIM ++ "0x{x} in {} ({})" ++ RESET ++ "\n",
+        try out_stream.print(WHITE ++ "{}:{}:{}" ++ RESET ++ ": " ++ DIM ++ "0x{x} in {} ({})" ++ RESET ++ "\n", .{
             line_info.file_name,
             line_info.line,
             line_info.column,
             address,
             symbol_name,
             compile_unit_name,
-        );
+        });
         if (printLineFromFile(out_stream, line_info)) {
             if (line_info.column == 0) {
                 try out_stream.write("\n");
@@ -799,15 +788,14 @@ fn printLineInfo(
             else => return err,
         }
     } else {
-        try out_stream.print(
-            "{}:{}:{}: 0x{x} in {} ({})\n",
+        try out_stream.print("{}:{}:{}: 0x{x} in {} ({})\n", .{
             line_info.file_name,
             line_info.line,
             line_info.column,
             address,
             symbol_name,
             compile_unit_name,
-        );
+        });
     }
 }
 
@@ -823,10 +811,13 @@ pub const OpenSelfDebugInfoError = error{
 pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
     if (builtin.strip_debug_info)
         return error.MissingDebugInfo;
-    if (windows.is_the_target) {
+    if (@hasDecl(root, "os") and @hasDecl(root.os, "debug") and @hasDecl(root.os.debug, "openSelfDebugInfo")) {
+        return noasync root.os.debug.openSelfDebugInfo(allocator);
+    }
+    if (builtin.os == .windows) {
         return noasync openSelfDebugInfoWindows(allocator);
     }
-    if (os.darwin.is_the_target) {
+    if (comptime std.Target.current.isDarwin()) {
         return noasync openSelfDebugInfoMacOs(allocator);
     }
     return noasync openSelfDebugInfoPosix(allocator);
@@ -852,7 +843,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     const len = try di.coff.getPdbPath(path_buf[0..]);
     const raw_path = path_buf[0..len];
 
-    const path = try fs.path.resolve(allocator, [_][]const u8{raw_path});
+    const path = try fs.path.resolve(allocator, &[_][]const u8{raw_path});
 
     try di.pdb.openFile(di.coff, path);
 
@@ -861,10 +852,10 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
     const signature = try pdb_stream.stream.readIntLittle(u32);
     const age = try pdb_stream.stream.readIntLittle(u32);
     var guid: [16]u8 = undefined;
-    try pdb_stream.stream.readNoEof(guid[0..]);
+    try pdb_stream.stream.readNoEof(&guid);
     if (version != 20000404) // VC70, only value observed by LLVM team
         return error.UnknownPDBVersion;
-    if (!mem.eql(u8, di.coff.guid, guid) or di.coff.age != age)
+    if (!mem.eql(u8, &di.coff.guid, &guid) or di.coff.age != age)
         return error.PDBMismatch;
     // We validated the executable and pdb match.
 
@@ -901,7 +892,7 @@ fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
         for (present) |_| {
             const name_offset = try pdb_stream.stream.readIntLittle(u32);
             const name_index = try pdb_stream.stream.readIntLittle(u32);
-            const name = mem.toSlice(u8, name_bytes.ptr + name_offset);
+            const name = mem.toSlice(u8, @ptrCast([*:0]u8, name_bytes.ptr + name_offset));
             if (mem.eql(u8, name, "/names")) {
                 break :str_tab_index name_index;
             }
@@ -994,7 +985,7 @@ fn readSparseBitVector(stream: var, allocator: *mem.Allocator) ![]usize {
         const word = try stream.readIntLittle(u32);
         var bit_i: u5 = 0;
         while (true) : (bit_i += 1) {
-            if (word & (u32(1) << bit_i) != 0) {
+            if (word & (@as(u32, 1) << bit_i) != 0) {
                 try list.append(word_i * 32 + bit_i);
             }
             if (bit_i == maxInt(u5)) break;
@@ -1019,8 +1010,8 @@ pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: *mem.Allocator) !void {
     di.abbrev_table_list = ArrayList(AbbrevTableHeader).init(allocator);
     di.compile_unit_list = ArrayList(CompileUnit).init(allocator);
     di.func_list = ArrayList(Func).init(allocator);
-    try scanAllFunctions(di);
-    try scanAllCompileUnits(di);
+    try di.scanAllFunctions();
+    try di.scanAllCompileUnits();
 }
 
 pub fn openElfDebugInfo(
@@ -1093,7 +1084,7 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
             std.macho.LC_SYMTAB => break @ptrCast(*std.macho.symtab_command, ptr),
             else => {},
         }
-        ptr += lc.cmdsize; // TODO https://github.com/ziglang/zig/issues/1403
+        ptr = @alignCast(@alignOf(std.macho.load_command), ptr + lc.cmdsize);
     } else {
         return error.MissingDebugInfo;
     };
@@ -1158,7 +1149,7 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
 }
 
 fn printLineFromFileAnyOs(out_stream: var, line_info: LineInfo) !void {
-    var f = try File.openRead(line_info.file_name);
+    var f = try fs.cwd().openFile(line_info.file_name, .{});
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 
@@ -1238,6 +1229,494 @@ pub const DwarfInfo = struct {
     pub fn readString(self: *DwarfInfo) ![]u8 {
         return readStringRaw(self.allocator(), self.dwarf_in_stream);
     }
+
+    /// This function works in freestanding mode.
+    /// fn printLineFromFile(out_stream: var, line_info: LineInfo) !void
+    pub fn printSourceAtAddress(
+        self: *DwarfInfo,
+        out_stream: var,
+        address: usize,
+        tty_color: bool,
+        comptime printLineFromFile: var,
+    ) !void {
+        const compile_unit = self.findCompileUnit(address) catch {
+            if (tty_color) {
+                try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in ??? (???)" ++ RESET ++ "\n\n\n", .{address});
+            } else {
+                try out_stream.print("???:?:?: 0x{x} in ??? (???)\n\n\n", .{address});
+            }
+            return;
+        };
+        const compile_unit_name = try compile_unit.die.getAttrString(self, DW.AT_name);
+        if (self.getLineNumberInfo(compile_unit.*, address)) |line_info| {
+            defer line_info.deinit();
+            const symbol_name = self.getSymbolName(address) orelse "???";
+            try printLineInfo(
+                out_stream,
+                line_info,
+                address,
+                symbol_name,
+                compile_unit_name,
+                tty_color,
+                printLineFromFile,
+            );
+        } else |err| switch (err) {
+            error.MissingDebugInfo, error.InvalidDebugInfo => {
+                if (tty_color) {
+                    try out_stream.print("???:?:?: " ++ DIM ++ "0x{x} in ??? ({})" ++ RESET ++ "\n\n\n", .{
+                        address, compile_unit_name,
+                    });
+                } else {
+                    try out_stream.print("???:?:?: 0x{x} in ??? ({})\n\n\n", .{ address, compile_unit_name });
+                }
+            },
+            else => return err,
+        }
+    }
+
+    fn getSymbolName(di: *DwarfInfo, address: u64) ?[]const u8 {
+        for (di.func_list.toSliceConst()) |*func| {
+            if (func.pc_range) |range| {
+                if (address >= range.start and address < range.end) {
+                    return func.name;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    fn scanAllFunctions(di: *DwarfInfo) !void {
+        const debug_info_end = di.debug_info.offset + di.debug_info.size;
+        var this_unit_offset = di.debug_info.offset;
+
+        while (this_unit_offset < debug_info_end) {
+            try di.dwarf_seekable_stream.seekTo(this_unit_offset);
+
+            var is_64: bool = undefined;
+            const unit_length = try readInitialLength(@TypeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
+            if (unit_length == 0) return;
+            const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
+
+            const version = try di.dwarf_in_stream.readInt(u16, di.endian);
+            if (version < 2 or version > 5) return error.InvalidDebugInfo;
+
+            const debug_abbrev_offset = if (is_64) try di.dwarf_in_stream.readInt(u64, di.endian) else try di.dwarf_in_stream.readInt(u32, di.endian);
+
+            const address_size = try di.dwarf_in_stream.readByte();
+            if (address_size != @sizeOf(usize)) return error.InvalidDebugInfo;
+
+            const compile_unit_pos = try di.dwarf_seekable_stream.getPos();
+            const abbrev_table = try di.getAbbrevTable(debug_abbrev_offset);
+
+            try di.dwarf_seekable_stream.seekTo(compile_unit_pos);
+
+            const next_unit_pos = this_unit_offset + next_offset;
+
+            while ((try di.dwarf_seekable_stream.getPos()) < next_unit_pos) {
+                const die_obj = (try di.parseDie(abbrev_table, is_64)) orelse continue;
+                const after_die_offset = try di.dwarf_seekable_stream.getPos();
+
+                switch (die_obj.tag_id) {
+                    DW.TAG_subprogram, DW.TAG_inlined_subroutine, DW.TAG_subroutine, DW.TAG_entry_point => {
+                        const fn_name = x: {
+                            var depth: i32 = 3;
+                            var this_die_obj = die_obj;
+                            // Prenvent endless loops
+                            while (depth > 0) : (depth -= 1) {
+                                if (this_die_obj.getAttr(DW.AT_name)) |_| {
+                                    const name = try this_die_obj.getAttrString(di, DW.AT_name);
+                                    break :x name;
+                                } else if (this_die_obj.getAttr(DW.AT_abstract_origin)) |ref| {
+                                    // Follow the DIE it points to and repeat
+                                    const ref_offset = try this_die_obj.getAttrRef(DW.AT_abstract_origin);
+                                    if (ref_offset > next_offset) return error.InvalidDebugInfo;
+                                    try di.dwarf_seekable_stream.seekTo(this_unit_offset + ref_offset);
+                                    this_die_obj = (try di.parseDie(abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
+                                } else if (this_die_obj.getAttr(DW.AT_specification)) |ref| {
+                                    // Follow the DIE it points to and repeat
+                                    const ref_offset = try this_die_obj.getAttrRef(DW.AT_specification);
+                                    if (ref_offset > next_offset) return error.InvalidDebugInfo;
+                                    try di.dwarf_seekable_stream.seekTo(this_unit_offset + ref_offset);
+                                    this_die_obj = (try di.parseDie(abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
+                                } else {
+                                    break :x null;
+                                }
+                            }
+
+                            break :x null;
+                        };
+
+                        const pc_range = x: {
+                            if (die_obj.getAttrAddr(DW.AT_low_pc)) |low_pc| {
+                                if (die_obj.getAttr(DW.AT_high_pc)) |high_pc_value| {
+                                    const pc_end = switch (high_pc_value.*) {
+                                        FormValue.Address => |value| value,
+                                        FormValue.Const => |value| b: {
+                                            const offset = try value.asUnsignedLe();
+                                            break :b (low_pc + offset);
+                                        },
+                                        else => return error.InvalidDebugInfo,
+                                    };
+                                    break :x PcRange{
+                                        .start = low_pc,
+                                        .end = pc_end,
+                                    };
+                                } else {
+                                    break :x null;
+                                }
+                            } else |err| {
+                                if (err != error.MissingDebugInfo) return err;
+                                break :x null;
+                            }
+                        };
+
+                        try di.func_list.append(Func{
+                            .name = fn_name,
+                            .pc_range = pc_range,
+                        });
+                    },
+                    else => {
+                        continue;
+                    },
+                }
+
+                try di.dwarf_seekable_stream.seekTo(after_die_offset);
+            }
+
+            this_unit_offset += next_offset;
+        }
+    }
+
+    fn scanAllCompileUnits(di: *DwarfInfo) !void {
+        const debug_info_end = di.debug_info.offset + di.debug_info.size;
+        var this_unit_offset = di.debug_info.offset;
+
+        while (this_unit_offset < debug_info_end) {
+            try di.dwarf_seekable_stream.seekTo(this_unit_offset);
+
+            var is_64: bool = undefined;
+            const unit_length = try readInitialLength(@TypeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
+            if (unit_length == 0) return;
+            const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
+
+            const version = try di.dwarf_in_stream.readInt(u16, di.endian);
+            if (version < 2 or version > 5) return error.InvalidDebugInfo;
+
+            const debug_abbrev_offset = if (is_64) try di.dwarf_in_stream.readInt(u64, di.endian) else try di.dwarf_in_stream.readInt(u32, di.endian);
+
+            const address_size = try di.dwarf_in_stream.readByte();
+            if (address_size != @sizeOf(usize)) return error.InvalidDebugInfo;
+
+            const compile_unit_pos = try di.dwarf_seekable_stream.getPos();
+            const abbrev_table = try di.getAbbrevTable(debug_abbrev_offset);
+
+            try di.dwarf_seekable_stream.seekTo(compile_unit_pos);
+
+            const compile_unit_die = try di.allocator().create(Die);
+            compile_unit_die.* = (try di.parseDie(abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
+
+            if (compile_unit_die.tag_id != DW.TAG_compile_unit) return error.InvalidDebugInfo;
+
+            const pc_range = x: {
+                if (compile_unit_die.getAttrAddr(DW.AT_low_pc)) |low_pc| {
+                    if (compile_unit_die.getAttr(DW.AT_high_pc)) |high_pc_value| {
+                        const pc_end = switch (high_pc_value.*) {
+                            FormValue.Address => |value| value,
+                            FormValue.Const => |value| b: {
+                                const offset = try value.asUnsignedLe();
+                                break :b (low_pc + offset);
+                            },
+                            else => return error.InvalidDebugInfo,
+                        };
+                        break :x PcRange{
+                            .start = low_pc,
+                            .end = pc_end,
+                        };
+                    } else {
+                        break :x null;
+                    }
+                } else |err| {
+                    if (err != error.MissingDebugInfo) return err;
+                    break :x null;
+                }
+            };
+
+            try di.compile_unit_list.append(CompileUnit{
+                .version = version,
+                .is_64 = is_64,
+                .pc_range = pc_range,
+                .die = compile_unit_die,
+            });
+
+            this_unit_offset += next_offset;
+        }
+    }
+
+    fn findCompileUnit(di: *DwarfInfo, target_address: u64) !*const CompileUnit {
+        for (di.compile_unit_list.toSlice()) |*compile_unit| {
+            if (compile_unit.pc_range) |range| {
+                if (target_address >= range.start and target_address < range.end) return compile_unit;
+            }
+            if (compile_unit.die.getAttrSecOffset(DW.AT_ranges)) |ranges_offset| {
+                var base_address: usize = 0;
+                if (di.debug_ranges) |debug_ranges| {
+                    try di.dwarf_seekable_stream.seekTo(debug_ranges.offset + ranges_offset);
+                    while (true) {
+                        const begin_addr = try di.dwarf_in_stream.readIntLittle(usize);
+                        const end_addr = try di.dwarf_in_stream.readIntLittle(usize);
+                        if (begin_addr == 0 and end_addr == 0) {
+                            break;
+                        }
+                        if (begin_addr == maxInt(usize)) {
+                            base_address = begin_addr;
+                            continue;
+                        }
+                        if (target_address >= begin_addr and target_address < end_addr) {
+                            return compile_unit;
+                        }
+                    }
+                }
+            } else |err| {
+                if (err != error.MissingDebugInfo) return err;
+                continue;
+            }
+        }
+        return error.MissingDebugInfo;
+    }
+
+    /// Gets an already existing AbbrevTable given the abbrev_offset, or if not found,
+    /// seeks in the stream and parses it.
+    fn getAbbrevTable(di: *DwarfInfo, abbrev_offset: u64) !*const AbbrevTable {
+        for (di.abbrev_table_list.toSlice()) |*header| {
+            if (header.offset == abbrev_offset) {
+                return &header.table;
+            }
+        }
+        try di.dwarf_seekable_stream.seekTo(di.debug_abbrev.offset + abbrev_offset);
+        try di.abbrev_table_list.append(AbbrevTableHeader{
+            .offset = abbrev_offset,
+            .table = try di.parseAbbrevTable(),
+        });
+        return &di.abbrev_table_list.items[di.abbrev_table_list.len - 1].table;
+    }
+
+    fn parseAbbrevTable(di: *DwarfInfo) !AbbrevTable {
+        var result = AbbrevTable.init(di.allocator());
+        while (true) {
+            const abbrev_code = try leb.readULEB128(u64, di.dwarf_in_stream);
+            if (abbrev_code == 0) return result;
+            try result.append(AbbrevTableEntry{
+                .abbrev_code = abbrev_code,
+                .tag_id = try leb.readULEB128(u64, di.dwarf_in_stream),
+                .has_children = (try di.dwarf_in_stream.readByte()) == DW.CHILDREN_yes,
+                .attrs = ArrayList(AbbrevAttr).init(di.allocator()),
+            });
+            const attrs = &result.items[result.len - 1].attrs;
+
+            while (true) {
+                const attr_id = try leb.readULEB128(u64, di.dwarf_in_stream);
+                const form_id = try leb.readULEB128(u64, di.dwarf_in_stream);
+                if (attr_id == 0 and form_id == 0) break;
+                try attrs.append(AbbrevAttr{
+                    .attr_id = attr_id,
+                    .form_id = form_id,
+                });
+            }
+        }
+    }
+
+    fn parseDie(di: *DwarfInfo, abbrev_table: *const AbbrevTable, is_64: bool) !?Die {
+        const abbrev_code = try leb.readULEB128(u64, di.dwarf_in_stream);
+        if (abbrev_code == 0) return null;
+        const table_entry = getAbbrevTableEntry(abbrev_table, abbrev_code) orelse return error.InvalidDebugInfo;
+
+        var result = Die{
+            .tag_id = table_entry.tag_id,
+            .has_children = table_entry.has_children,
+            .attrs = ArrayList(Die.Attr).init(di.allocator()),
+        };
+        try result.attrs.resize(table_entry.attrs.len);
+        for (table_entry.attrs.toSliceConst()) |attr, i| {
+            result.attrs.items[i] = Die.Attr{
+                .id = attr.attr_id,
+                .value = try parseFormValue(di.allocator(), di.dwarf_in_stream, attr.form_id, is_64),
+            };
+        }
+        return result;
+    }
+
+    fn getLineNumberInfo(di: *DwarfInfo, compile_unit: CompileUnit, target_address: usize) !LineInfo {
+        const compile_unit_cwd = try compile_unit.die.getAttrString(di, DW.AT_comp_dir);
+        const line_info_offset = try compile_unit.die.getAttrSecOffset(DW.AT_stmt_list);
+
+        assert(line_info_offset < di.debug_line.size);
+
+        try di.dwarf_seekable_stream.seekTo(di.debug_line.offset + line_info_offset);
+
+        var is_64: bool = undefined;
+        const unit_length = try readInitialLength(@TypeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
+        if (unit_length == 0) {
+            return error.MissingDebugInfo;
+        }
+        const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
+
+        const version = try di.dwarf_in_stream.readInt(u16, di.endian);
+        // TODO support 3 and 5
+        if (version != 2 and version != 4) return error.InvalidDebugInfo;
+
+        const prologue_length = if (is_64) try di.dwarf_in_stream.readInt(u64, di.endian) else try di.dwarf_in_stream.readInt(u32, di.endian);
+        const prog_start_offset = (try di.dwarf_seekable_stream.getPos()) + prologue_length;
+
+        const minimum_instruction_length = try di.dwarf_in_stream.readByte();
+        if (minimum_instruction_length == 0) return error.InvalidDebugInfo;
+
+        if (version >= 4) {
+            // maximum_operations_per_instruction
+            _ = try di.dwarf_in_stream.readByte();
+        }
+
+        const default_is_stmt = (try di.dwarf_in_stream.readByte()) != 0;
+        const line_base = try di.dwarf_in_stream.readByteSigned();
+
+        const line_range = try di.dwarf_in_stream.readByte();
+        if (line_range == 0) return error.InvalidDebugInfo;
+
+        const opcode_base = try di.dwarf_in_stream.readByte();
+
+        const standard_opcode_lengths = try di.allocator().alloc(u8, opcode_base - 1);
+
+        {
+            var i: usize = 0;
+            while (i < opcode_base - 1) : (i += 1) {
+                standard_opcode_lengths[i] = try di.dwarf_in_stream.readByte();
+            }
+        }
+
+        var include_directories = ArrayList([]u8).init(di.allocator());
+        try include_directories.append(compile_unit_cwd);
+        while (true) {
+            const dir = try di.readString();
+            if (dir.len == 0) break;
+            try include_directories.append(dir);
+        }
+
+        var file_entries = ArrayList(FileEntry).init(di.allocator());
+        var prog = LineNumberProgram.init(default_is_stmt, include_directories.toSliceConst(), &file_entries, target_address);
+
+        while (true) {
+            const file_name = try di.readString();
+            if (file_name.len == 0) break;
+            const dir_index = try leb.readULEB128(usize, di.dwarf_in_stream);
+            const mtime = try leb.readULEB128(usize, di.dwarf_in_stream);
+            const len_bytes = try leb.readULEB128(usize, di.dwarf_in_stream);
+            try file_entries.append(FileEntry{
+                .file_name = file_name,
+                .dir_index = dir_index,
+                .mtime = mtime,
+                .len_bytes = len_bytes,
+            });
+        }
+
+        try di.dwarf_seekable_stream.seekTo(prog_start_offset);
+
+        while (true) {
+            const opcode = try di.dwarf_in_stream.readByte();
+
+            if (opcode == DW.LNS_extended_op) {
+                const op_size = try leb.readULEB128(u64, di.dwarf_in_stream);
+                if (op_size < 1) return error.InvalidDebugInfo;
+                var sub_op = try di.dwarf_in_stream.readByte();
+                switch (sub_op) {
+                    DW.LNE_end_sequence => {
+                        prog.end_sequence = true;
+                        if (try prog.checkLineMatch()) |info| return info;
+                        return error.MissingDebugInfo;
+                    },
+                    DW.LNE_set_address => {
+                        const addr = try di.dwarf_in_stream.readInt(usize, di.endian);
+                        prog.address = addr;
+                    },
+                    DW.LNE_define_file => {
+                        const file_name = try di.readString();
+                        const dir_index = try leb.readULEB128(usize, di.dwarf_in_stream);
+                        const mtime = try leb.readULEB128(usize, di.dwarf_in_stream);
+                        const len_bytes = try leb.readULEB128(usize, di.dwarf_in_stream);
+                        try file_entries.append(FileEntry{
+                            .file_name = file_name,
+                            .dir_index = dir_index,
+                            .mtime = mtime,
+                            .len_bytes = len_bytes,
+                        });
+                    },
+                    else => {
+                        const fwd_amt = math.cast(isize, op_size - 1) catch return error.InvalidDebugInfo;
+                        try di.dwarf_seekable_stream.seekBy(fwd_amt);
+                    },
+                }
+            } else if (opcode >= opcode_base) {
+                // special opcodes
+                const adjusted_opcode = opcode - opcode_base;
+                const inc_addr = minimum_instruction_length * (adjusted_opcode / line_range);
+                const inc_line = @as(i32, line_base) + @as(i32, adjusted_opcode % line_range);
+                prog.line += inc_line;
+                prog.address += inc_addr;
+                if (try prog.checkLineMatch()) |info| return info;
+                prog.basic_block = false;
+            } else {
+                switch (opcode) {
+                    DW.LNS_copy => {
+                        if (try prog.checkLineMatch()) |info| return info;
+                        prog.basic_block = false;
+                    },
+                    DW.LNS_advance_pc => {
+                        const arg = try leb.readULEB128(usize, di.dwarf_in_stream);
+                        prog.address += arg * minimum_instruction_length;
+                    },
+                    DW.LNS_advance_line => {
+                        const arg = try leb.readILEB128(i64, di.dwarf_in_stream);
+                        prog.line += arg;
+                    },
+                    DW.LNS_set_file => {
+                        const arg = try leb.readULEB128(usize, di.dwarf_in_stream);
+                        prog.file = arg;
+                    },
+                    DW.LNS_set_column => {
+                        const arg = try leb.readULEB128(u64, di.dwarf_in_stream);
+                        prog.column = arg;
+                    },
+                    DW.LNS_negate_stmt => {
+                        prog.is_stmt = !prog.is_stmt;
+                    },
+                    DW.LNS_set_basic_block => {
+                        prog.basic_block = true;
+                    },
+                    DW.LNS_const_add_pc => {
+                        const inc_addr = minimum_instruction_length * ((255 - opcode_base) / line_range);
+                        prog.address += inc_addr;
+                    },
+                    DW.LNS_fixed_advance_pc => {
+                        const arg = try di.dwarf_in_stream.readInt(u16, di.endian);
+                        prog.address += arg;
+                    },
+                    DW.LNS_set_prologue_end => {},
+                    else => {
+                        if (opcode - 1 >= standard_opcode_lengths.len) return error.InvalidDebugInfo;
+                        const len_bytes = standard_opcode_lengths[opcode - 1];
+                        try di.dwarf_seekable_stream.seekBy(len_bytes);
+                    },
+                }
+            }
+        }
+
+        return error.MissingDebugInfo;
+    }
+
+    fn getString(di: *DwarfInfo, offset: u64) ![]u8 {
+        const pos = di.debug_str.offset + offset;
+        try di.dwarf_seekable_stream.seekTo(pos);
+        return di.readString();
+    }
 };
 
 pub const DebugInfo = switch (builtin.os) {
@@ -1263,8 +1742,7 @@ pub const DebugInfo = switch (builtin.os) {
         sect_contribs: []pdb.SectionContribEntry,
         modules: []Module,
     },
-    .linux, .freebsd, .netbsd => DwarfInfo,
-    else => @compileError("Unsupported OS"),
+    else => DwarfInfo,
 };
 
 const PcRange = struct {
@@ -1376,7 +1854,7 @@ const Die = struct {
         const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.String => |value| value,
-            FormValue.StrPtr => |offset| getString(di, offset),
+            FormValue.StrPtr => |offset| di.getString(offset),
             else => error.InvalidDebugInfo,
         };
     }
@@ -1457,7 +1935,7 @@ const LineNumberProgram = struct {
                 return error.InvalidDebugInfo;
             } else
                 self.include_dirs[file_entry.dir_index];
-            const file_name = try fs.path.join(self.file_entries.allocator, [_][]const u8{ dir_name, file_entry.file_name });
+            const file_name = try fs.path.join(self.file_entries.allocator, &[_][]const u8{ dir_name, file_entry.file_name });
             errdefer self.file_entries.allocator.free(file_name);
             return LineInfo{
                 .line = if (self.prev_line >= 0) @intCast(u64, self.prev_line) else 0,
@@ -1487,12 +1965,6 @@ fn readStringRaw(allocator: *mem.Allocator, in_stream: var) ![]u8 {
         try buf.append(byte);
     }
     return buf.toSlice();
-}
-
-fn getString(di: *DwarfInfo, offset: u64) ![]u8 {
-    const pos = di.debug_str.offset + offset;
-    try di.dwarf_seekable_stream.seekTo(pos);
-    return di.readString();
 }
 
 // TODO the noasyncs here are workarounds
@@ -1542,13 +2014,14 @@ fn parseFormValueConstant(allocator: *mem.Allocator, in_stream: var, signed: boo
 
 // TODO the noasyncs here are workarounds
 fn parseFormValueDwarfOffsetSize(in_stream: var, is_64: bool) !u64 {
-    return if (is_64) try noasync in_stream.readIntLittle(u64) else u64(try noasync in_stream.readIntLittle(u32));
+    return if (is_64) try noasync in_stream.readIntLittle(u64) else @as(u64, try noasync in_stream.readIntLittle(u32));
 }
 
 // TODO the noasyncs here are workarounds
 fn parseFormValueTargetAddrSize(in_stream: var) !u64 {
     if (@sizeOf(usize) == 4) {
-        return u64(try noasync in_stream.readIntLittle(u32));
+        // TODO this cast should not be needed
+        return @as(u64, try noasync in_stream.readIntLittle(u32));
     } else if (@sizeOf(usize) == 8) {
         return noasync in_stream.readIntLittle(u64);
     } else {
@@ -1611,54 +2084,13 @@ fn parseFormValue(allocator: *mem.Allocator, in_stream: var, form_id: u64, is_64
         DW.FORM_strp => FormValue{ .StrPtr = try parseFormValueDwarfOffsetSize(in_stream, is_64) },
         DW.FORM_indirect => {
             const child_form_id = try noasync leb.readULEB128(u64, in_stream);
-            const F = @typeOf(async parseFormValue(allocator, in_stream, child_form_id, is_64));
+            const F = @TypeOf(async parseFormValue(allocator, in_stream, child_form_id, is_64));
             var frame = try allocator.create(F);
             defer allocator.destroy(frame);
             return await @asyncCall(frame, {}, parseFormValue, allocator, in_stream, child_form_id, is_64);
         },
         else => error.InvalidDebugInfo,
     };
-}
-
-fn parseAbbrevTable(di: *DwarfInfo) !AbbrevTable {
-    var result = AbbrevTable.init(di.allocator());
-    while (true) {
-        const abbrev_code = try leb.readULEB128(u64, di.dwarf_in_stream);
-        if (abbrev_code == 0) return result;
-        try result.append(AbbrevTableEntry{
-            .abbrev_code = abbrev_code,
-            .tag_id = try leb.readULEB128(u64, di.dwarf_in_stream),
-            .has_children = (try di.dwarf_in_stream.readByte()) == DW.CHILDREN_yes,
-            .attrs = ArrayList(AbbrevAttr).init(di.allocator()),
-        });
-        const attrs = &result.items[result.len - 1].attrs;
-
-        while (true) {
-            const attr_id = try leb.readULEB128(u64, di.dwarf_in_stream);
-            const form_id = try leb.readULEB128(u64, di.dwarf_in_stream);
-            if (attr_id == 0 and form_id == 0) break;
-            try attrs.append(AbbrevAttr{
-                .attr_id = attr_id,
-                .form_id = form_id,
-            });
-        }
-    }
-}
-
-/// Gets an already existing AbbrevTable given the abbrev_offset, or if not found,
-/// seeks in the stream and parses it.
-fn getAbbrevTable(di: *DwarfInfo, abbrev_offset: u64) !*const AbbrevTable {
-    for (di.abbrev_table_list.toSlice()) |*header| {
-        if (header.offset == abbrev_offset) {
-            return &header.table;
-        }
-    }
-    try di.dwarf_seekable_stream.seekTo(di.debug_abbrev.offset + abbrev_offset);
-    try di.abbrev_table_list.append(AbbrevTableHeader{
-        .offset = abbrev_offset,
-        .table = try parseAbbrevTable(di),
-    });
-    return &di.abbrev_table_list.items[di.abbrev_table_list.len - 1].table;
 }
 
 fn getAbbrevTableEntry(abbrev_table: *const AbbrevTable, abbrev_code: u64) ?*const AbbrevTableEntry {
@@ -1668,35 +2100,20 @@ fn getAbbrevTableEntry(abbrev_table: *const AbbrevTable, abbrev_code: u64) ?*con
     return null;
 }
 
-fn parseDie(di: *DwarfInfo, abbrev_table: *const AbbrevTable, is_64: bool) !?Die {
-    const abbrev_code = try leb.readULEB128(u64, di.dwarf_in_stream);
-    if (abbrev_code == 0) return null;
-    const table_entry = getAbbrevTableEntry(abbrev_table, abbrev_code) orelse return error.InvalidDebugInfo;
-
-    var result = Die{
-        .tag_id = table_entry.tag_id,
-        .has_children = table_entry.has_children,
-        .attrs = ArrayList(Die.Attr).init(di.allocator()),
-    };
-    try result.attrs.resize(table_entry.attrs.len);
-    for (table_entry.attrs.toSliceConst()) |attr, i| {
-        result.attrs.items[i] = Die.Attr{
-            .id = attr.attr_id,
-            .value = try parseFormValue(di.allocator(), di.dwarf_in_stream, attr.form_id, is_64),
-        };
-    }
-    return result;
-}
-
 fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: usize) !LineInfo {
     const ofile = symbol.ofile orelse return error.MissingDebugInfo;
     const gop = try di.ofiles.getOrPut(ofile);
     const mach_o_file = if (gop.found_existing) &gop.kv.value else blk: {
         errdefer _ = di.ofiles.remove(ofile);
-        const ofile_path = mem.toSliceConst(u8, di.strings.ptr + ofile.n_strx);
+        const ofile_path = mem.toSliceConst(u8, @ptrCast([*:0]const u8, di.strings.ptr + ofile.n_strx));
 
         gop.kv.value = MachOFile{
-            .bytes = try std.io.readFileAllocAligned(di.ofiles.allocator, ofile_path, @alignOf(macho.mach_header_64)),
+            .bytes = try std.fs.cwd().readFileAllocAligned(
+                di.ofiles.allocator,
+                ofile_path,
+                maxInt(usize),
+                @alignOf(macho.mach_header_64),
+            ),
             .sect_debug_info = null,
             .sect_debug_line = null,
         };
@@ -1712,7 +2129,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
                 std.macho.LC_SEGMENT_64 => break @ptrCast(*const std.macho.segment_command_64, @alignCast(@alignOf(std.macho.segment_command_64), ptr)),
                 else => {},
             }
-            ptr += lc.cmdsize; // TODO https://github.com/ziglang/zig/issues/1403
+            ptr = @alignCast(@alignOf(std.macho.load_command), ptr + lc.cmdsize);
         } else {
             return error.MissingDebugInfo;
         };
@@ -1721,7 +2138,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
             if (sect.flags & macho.SECTION_TYPE == macho.S_REGULAR and
                 (sect.flags & macho.SECTION_ATTRIBUTES) & macho.S_ATTR_DEBUG == macho.S_ATTR_DEBUG)
             {
-                const sect_name = mem.toSliceConst(u8, &sect.sectname);
+                const sect_name = mem.toSliceConst(u8, @ptrCast([*:0]const u8, &sect.sectname));
                 if (mem.eql(u8, sect_name, "__debug_line")) {
                     gop.kv.value.sect_debug_line = sect;
                 } else if (mem.eql(u8, sect_name, "__debug_info")) {
@@ -1832,7 +2249,7 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
             // special opcodes
             const adjusted_opcode = opcode - opcode_base;
             const inc_addr = minimum_instruction_length * (adjusted_opcode / line_range);
-            const inc_line = i32(line_base) + i32(adjusted_opcode % line_range);
+            const inc_line = @as(i32, line_base) + @as(i32, adjusted_opcode % line_range);
             prog.line += inc_line;
             prog.address += inc_addr;
             if (try prog.checkLineMatch()) |info| return info;
@@ -1886,387 +2303,10 @@ fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, target_address: u
     return error.MissingDebugInfo;
 }
 
-fn getLineNumberInfoDwarf(di: *DwarfInfo, compile_unit: CompileUnit, target_address: usize) !LineInfo {
-    const compile_unit_cwd = try compile_unit.die.getAttrString(di, DW.AT_comp_dir);
-    const line_info_offset = try compile_unit.die.getAttrSecOffset(DW.AT_stmt_list);
-
-    assert(line_info_offset < di.debug_line.size);
-
-    try di.dwarf_seekable_stream.seekTo(di.debug_line.offset + line_info_offset);
-
-    var is_64: bool = undefined;
-    const unit_length = try readInitialLength(@typeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
-    if (unit_length == 0) {
-        return error.MissingDebugInfo;
-    }
-    const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
-
-    const version = try di.dwarf_in_stream.readInt(u16, di.endian);
-    // TODO support 3 and 5
-    if (version != 2 and version != 4) return error.InvalidDebugInfo;
-
-    const prologue_length = if (is_64) try di.dwarf_in_stream.readInt(u64, di.endian) else try di.dwarf_in_stream.readInt(u32, di.endian);
-    const prog_start_offset = (try di.dwarf_seekable_stream.getPos()) + prologue_length;
-
-    const minimum_instruction_length = try di.dwarf_in_stream.readByte();
-    if (minimum_instruction_length == 0) return error.InvalidDebugInfo;
-
-    if (version >= 4) {
-        // maximum_operations_per_instruction
-        _ = try di.dwarf_in_stream.readByte();
-    }
-
-    const default_is_stmt = (try di.dwarf_in_stream.readByte()) != 0;
-    const line_base = try di.dwarf_in_stream.readByteSigned();
-
-    const line_range = try di.dwarf_in_stream.readByte();
-    if (line_range == 0) return error.InvalidDebugInfo;
-
-    const opcode_base = try di.dwarf_in_stream.readByte();
-
-    const standard_opcode_lengths = try di.allocator().alloc(u8, opcode_base - 1);
-
-    {
-        var i: usize = 0;
-        while (i < opcode_base - 1) : (i += 1) {
-            standard_opcode_lengths[i] = try di.dwarf_in_stream.readByte();
-        }
-    }
-
-    var include_directories = ArrayList([]u8).init(di.allocator());
-    try include_directories.append(compile_unit_cwd);
-    while (true) {
-        const dir = try di.readString();
-        if (dir.len == 0) break;
-        try include_directories.append(dir);
-    }
-
-    var file_entries = ArrayList(FileEntry).init(di.allocator());
-    var prog = LineNumberProgram.init(default_is_stmt, include_directories.toSliceConst(), &file_entries, target_address);
-
-    while (true) {
-        const file_name = try di.readString();
-        if (file_name.len == 0) break;
-        const dir_index = try leb.readULEB128(usize, di.dwarf_in_stream);
-        const mtime = try leb.readULEB128(usize, di.dwarf_in_stream);
-        const len_bytes = try leb.readULEB128(usize, di.dwarf_in_stream);
-        try file_entries.append(FileEntry{
-            .file_name = file_name,
-            .dir_index = dir_index,
-            .mtime = mtime,
-            .len_bytes = len_bytes,
-        });
-    }
-
-    try di.dwarf_seekable_stream.seekTo(prog_start_offset);
-
-    while (true) {
-        const opcode = try di.dwarf_in_stream.readByte();
-
-        if (opcode == DW.LNS_extended_op) {
-            const op_size = try leb.readULEB128(u64, di.dwarf_in_stream);
-            if (op_size < 1) return error.InvalidDebugInfo;
-            var sub_op = try di.dwarf_in_stream.readByte();
-            switch (sub_op) {
-                DW.LNE_end_sequence => {
-                    prog.end_sequence = true;
-                    if (try prog.checkLineMatch()) |info| return info;
-                    return error.MissingDebugInfo;
-                },
-                DW.LNE_set_address => {
-                    const addr = try di.dwarf_in_stream.readInt(usize, di.endian);
-                    prog.address = addr;
-                },
-                DW.LNE_define_file => {
-                    const file_name = try di.readString();
-                    const dir_index = try leb.readULEB128(usize, di.dwarf_in_stream);
-                    const mtime = try leb.readULEB128(usize, di.dwarf_in_stream);
-                    const len_bytes = try leb.readULEB128(usize, di.dwarf_in_stream);
-                    try file_entries.append(FileEntry{
-                        .file_name = file_name,
-                        .dir_index = dir_index,
-                        .mtime = mtime,
-                        .len_bytes = len_bytes,
-                    });
-                },
-                else => {
-                    const fwd_amt = math.cast(isize, op_size - 1) catch return error.InvalidDebugInfo;
-                    try di.dwarf_seekable_stream.seekBy(fwd_amt);
-                },
-            }
-        } else if (opcode >= opcode_base) {
-            // special opcodes
-            const adjusted_opcode = opcode - opcode_base;
-            const inc_addr = minimum_instruction_length * (adjusted_opcode / line_range);
-            const inc_line = i32(line_base) + i32(adjusted_opcode % line_range);
-            prog.line += inc_line;
-            prog.address += inc_addr;
-            if (try prog.checkLineMatch()) |info| return info;
-            prog.basic_block = false;
-        } else {
-            switch (opcode) {
-                DW.LNS_copy => {
-                    if (try prog.checkLineMatch()) |info| return info;
-                    prog.basic_block = false;
-                },
-                DW.LNS_advance_pc => {
-                    const arg = try leb.readULEB128(usize, di.dwarf_in_stream);
-                    prog.address += arg * minimum_instruction_length;
-                },
-                DW.LNS_advance_line => {
-                    const arg = try leb.readILEB128(i64, di.dwarf_in_stream);
-                    prog.line += arg;
-                },
-                DW.LNS_set_file => {
-                    const arg = try leb.readULEB128(usize, di.dwarf_in_stream);
-                    prog.file = arg;
-                },
-                DW.LNS_set_column => {
-                    const arg = try leb.readULEB128(u64, di.dwarf_in_stream);
-                    prog.column = arg;
-                },
-                DW.LNS_negate_stmt => {
-                    prog.is_stmt = !prog.is_stmt;
-                },
-                DW.LNS_set_basic_block => {
-                    prog.basic_block = true;
-                },
-                DW.LNS_const_add_pc => {
-                    const inc_addr = minimum_instruction_length * ((255 - opcode_base) / line_range);
-                    prog.address += inc_addr;
-                },
-                DW.LNS_fixed_advance_pc => {
-                    const arg = try di.dwarf_in_stream.readInt(u16, di.endian);
-                    prog.address += arg;
-                },
-                DW.LNS_set_prologue_end => {},
-                else => {
-                    if (opcode - 1 >= standard_opcode_lengths.len) return error.InvalidDebugInfo;
-                    const len_bytes = standard_opcode_lengths[opcode - 1];
-                    try di.dwarf_seekable_stream.seekBy(len_bytes);
-                },
-            }
-        }
-    }
-
-    return error.MissingDebugInfo;
-}
-
 const Func = struct {
     pc_range: ?PcRange,
     name: ?[]u8,
 };
-
-fn getSymbolNameDwarf(di: *DwarfInfo, address: u64) ?[]const u8 {
-    for (di.func_list.toSliceConst()) |*func| {
-        if (func.pc_range) |range| {
-            if (address >= range.start and address < range.end) {
-                return func.name;
-            }
-        }
-    }
-
-    return null;
-}
-
-fn scanAllFunctions(di: *DwarfInfo) !void {
-    const debug_info_end = di.debug_info.offset + di.debug_info.size;
-    var this_unit_offset = di.debug_info.offset;
-
-    while (this_unit_offset < debug_info_end) {
-        try di.dwarf_seekable_stream.seekTo(this_unit_offset);
-
-        var is_64: bool = undefined;
-        const unit_length = try readInitialLength(@typeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
-        if (unit_length == 0) return;
-        const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
-
-        const version = try di.dwarf_in_stream.readInt(u16, di.endian);
-        if (version < 2 or version > 5) return error.InvalidDebugInfo;
-
-        const debug_abbrev_offset = if (is_64) try di.dwarf_in_stream.readInt(u64, di.endian) else try di.dwarf_in_stream.readInt(u32, di.endian);
-
-        const address_size = try di.dwarf_in_stream.readByte();
-        if (address_size != @sizeOf(usize)) return error.InvalidDebugInfo;
-
-        const compile_unit_pos = try di.dwarf_seekable_stream.getPos();
-        const abbrev_table = try getAbbrevTable(di, debug_abbrev_offset);
-
-        try di.dwarf_seekable_stream.seekTo(compile_unit_pos);
-
-        const next_unit_pos = this_unit_offset + next_offset;
-
-        while ((try di.dwarf_seekable_stream.getPos()) < next_unit_pos) {
-            const die_obj = (try parseDie(di, abbrev_table, is_64)) orelse continue;
-            const after_die_offset = try di.dwarf_seekable_stream.getPos();
-
-            switch (die_obj.tag_id) {
-                DW.TAG_subprogram, DW.TAG_inlined_subroutine, DW.TAG_subroutine, DW.TAG_entry_point => {
-                    const fn_name = x: {
-                        var depth: i32 = 3;
-                        var this_die_obj = die_obj;
-                        // Prenvent endless loops
-                        while (depth > 0) : (depth -= 1) {
-                            if (this_die_obj.getAttr(DW.AT_name)) |_| {
-                                const name = try this_die_obj.getAttrString(di, DW.AT_name);
-                                break :x name;
-                            } else if (this_die_obj.getAttr(DW.AT_abstract_origin)) |ref| {
-                                // Follow the DIE it points to and repeat
-                                const ref_offset = try this_die_obj.getAttrRef(DW.AT_abstract_origin);
-                                if (ref_offset > next_offset) return error.InvalidDebugInfo;
-                                try di.dwarf_seekable_stream.seekTo(this_unit_offset + ref_offset);
-                                this_die_obj = (try parseDie(di, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
-                            } else if (this_die_obj.getAttr(DW.AT_specification)) |ref| {
-                                // Follow the DIE it points to and repeat
-                                const ref_offset = try this_die_obj.getAttrRef(DW.AT_specification);
-                                if (ref_offset > next_offset) return error.InvalidDebugInfo;
-                                try di.dwarf_seekable_stream.seekTo(this_unit_offset + ref_offset);
-                                this_die_obj = (try parseDie(di, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
-                            } else {
-                                break :x null;
-                            }
-                        }
-
-                        break :x null;
-                    };
-
-                    const pc_range = x: {
-                        if (die_obj.getAttrAddr(DW.AT_low_pc)) |low_pc| {
-                            if (die_obj.getAttr(DW.AT_high_pc)) |high_pc_value| {
-                                const pc_end = switch (high_pc_value.*) {
-                                    FormValue.Address => |value| value,
-                                    FormValue.Const => |value| b: {
-                                        const offset = try value.asUnsignedLe();
-                                        break :b (low_pc + offset);
-                                    },
-                                    else => return error.InvalidDebugInfo,
-                                };
-                                break :x PcRange{
-                                    .start = low_pc,
-                                    .end = pc_end,
-                                };
-                            } else {
-                                break :x null;
-                            }
-                        } else |err| {
-                            if (err != error.MissingDebugInfo) return err;
-                            break :x null;
-                        }
-                    };
-
-                    try di.func_list.append(Func{
-                        .name = fn_name,
-                        .pc_range = pc_range,
-                    });
-                },
-                else => {
-                    continue;
-                },
-            }
-
-            try di.dwarf_seekable_stream.seekTo(after_die_offset);
-        }
-
-        this_unit_offset += next_offset;
-    }
-}
-
-fn scanAllCompileUnits(di: *DwarfInfo) !void {
-    const debug_info_end = di.debug_info.offset + di.debug_info.size;
-    var this_unit_offset = di.debug_info.offset;
-
-    while (this_unit_offset < debug_info_end) {
-        try di.dwarf_seekable_stream.seekTo(this_unit_offset);
-
-        var is_64: bool = undefined;
-        const unit_length = try readInitialLength(@typeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
-        if (unit_length == 0) return;
-        const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
-
-        const version = try di.dwarf_in_stream.readInt(u16, di.endian);
-        if (version < 2 or version > 5) return error.InvalidDebugInfo;
-
-        const debug_abbrev_offset = if (is_64) try di.dwarf_in_stream.readInt(u64, di.endian) else try di.dwarf_in_stream.readInt(u32, di.endian);
-
-        const address_size = try di.dwarf_in_stream.readByte();
-        if (address_size != @sizeOf(usize)) return error.InvalidDebugInfo;
-
-        const compile_unit_pos = try di.dwarf_seekable_stream.getPos();
-        const abbrev_table = try getAbbrevTable(di, debug_abbrev_offset);
-
-        try di.dwarf_seekable_stream.seekTo(compile_unit_pos);
-
-        const compile_unit_die = try di.allocator().create(Die);
-        compile_unit_die.* = (try parseDie(di, abbrev_table, is_64)) orelse return error.InvalidDebugInfo;
-
-        if (compile_unit_die.tag_id != DW.TAG_compile_unit) return error.InvalidDebugInfo;
-
-        const pc_range = x: {
-            if (compile_unit_die.getAttrAddr(DW.AT_low_pc)) |low_pc| {
-                if (compile_unit_die.getAttr(DW.AT_high_pc)) |high_pc_value| {
-                    const pc_end = switch (high_pc_value.*) {
-                        FormValue.Address => |value| value,
-                        FormValue.Const => |value| b: {
-                            const offset = try value.asUnsignedLe();
-                            break :b (low_pc + offset);
-                        },
-                        else => return error.InvalidDebugInfo,
-                    };
-                    break :x PcRange{
-                        .start = low_pc,
-                        .end = pc_end,
-                    };
-                } else {
-                    break :x null;
-                }
-            } else |err| {
-                if (err != error.MissingDebugInfo) return err;
-                break :x null;
-            }
-        };
-
-        try di.compile_unit_list.append(CompileUnit{
-            .version = version,
-            .is_64 = is_64,
-            .pc_range = pc_range,
-            .die = compile_unit_die,
-        });
-
-        this_unit_offset += next_offset;
-    }
-}
-
-fn findCompileUnit(di: *DwarfInfo, target_address: u64) !*const CompileUnit {
-    for (di.compile_unit_list.toSlice()) |*compile_unit| {
-        if (compile_unit.pc_range) |range| {
-            if (target_address >= range.start and target_address < range.end) return compile_unit;
-        }
-        if (compile_unit.die.getAttrSecOffset(DW.AT_ranges)) |ranges_offset| {
-            var base_address: usize = 0;
-            if (di.debug_ranges) |debug_ranges| {
-                try di.dwarf_seekable_stream.seekTo(debug_ranges.offset + ranges_offset);
-                while (true) {
-                    const begin_addr = try di.dwarf_in_stream.readIntLittle(usize);
-                    const end_addr = try di.dwarf_in_stream.readIntLittle(usize);
-                    if (begin_addr == 0 and end_addr == 0) {
-                        break;
-                    }
-                    if (begin_addr == maxInt(usize)) {
-                        base_address = begin_addr;
-                        continue;
-                    }
-                    if (target_address >= begin_addr and target_address < end_addr) {
-                        return compile_unit;
-                    }
-                }
-            }
-        } else |err| {
-            if (err != error.MissingDebugInfo) return err;
-            continue;
-        }
-    }
-    return error.MissingDebugInfo;
-}
 
 fn readIntMem(ptr: *[*]const u8, comptime T: type, endian: builtin.Endian) T {
     // TODO https://github.com/ziglang/zig/issues/863
@@ -2298,12 +2338,13 @@ fn readInitialLengthMem(ptr: *[*]const u8, is_64: *bool) !u64 {
     } else {
         if (first_32_bits >= 0xfffffff0) return error.InvalidDebugInfo;
         ptr.* += 4;
-        return u64(first_32_bits);
+        // TODO this cast should not be needed
+        return @as(u64, first_32_bits);
     }
 }
 
-fn readStringMem(ptr: *[*]const u8) []const u8 {
-    const result = mem.toSliceConst(u8, ptr.*);
+fn readStringMem(ptr: *[*]const u8) [:0]const u8 {
+    const result = mem.toSliceConst(u8, @ptrCast([*:0]const u8, ptr.*));
     ptr.* += result.len + 1;
     return result;
 }
@@ -2315,7 +2356,8 @@ fn readInitialLength(comptime E: type, in_stream: *io.InStream(E), is_64: *bool)
         return in_stream.readIntLittle(u64);
     } else {
         if (first_32_bits >= 0xfffffff0) return error.InvalidDebugInfo;
-        return u64(first_32_bits);
+        // TODO this cast should not be needed
+        return @as(u64, first_32_bits);
     }
 }
 
@@ -2330,7 +2372,7 @@ var debug_info_arena_allocator: std.heap.ArenaAllocator = undefined;
 fn getDebugInfoAllocator() *mem.Allocator {
     if (debug_info_allocator) |a| return a;
 
-    debug_info_arena_allocator = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
+    debug_info_arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     debug_info_allocator = &debug_info_arena_allocator.allocator;
     return &debug_info_arena_allocator.allocator;
 }
@@ -2355,7 +2397,7 @@ pub fn attachSegfaultHandler() void {
     if (!have_segfault_handling_support) {
         @compileError("segfault handler not supported for this target");
     }
-    if (windows.is_the_target) {
+    if (builtin.os == .windows) {
         windows_segfault_handle = windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
         return;
     }
@@ -2366,10 +2408,11 @@ pub fn attachSegfaultHandler() void {
     };
 
     os.sigaction(os.SIGSEGV, &act, null);
+    os.sigaction(os.SIGILL, &act, null);
 }
 
 fn resetSegfaultHandler() void {
-    if (windows.is_the_target) {
+    if (builtin.os == .windows) {
         if (windows_segfault_handle) |handle| {
             assert(windows.kernel32.RemoveVectoredExceptionHandler(handle) != 0);
             windows_segfault_handle = null;
@@ -2382,18 +2425,28 @@ fn resetSegfaultHandler() void {
         .flags = 0,
     };
     os.sigaction(os.SIGSEGV, &act, null);
+    os.sigaction(os.SIGILL, &act, null);
 }
 
-extern fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: *const c_void) noreturn {
+fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: *const c_void) callconv(.C) noreturn {
     // Reset to the default handler so that if a segfault happens in this handler it will crash
     // the process. Also when this handler returns, the original instruction will be repeated
     // and the resulting segfault will crash the process rather than continually dump stack traces.
     resetSegfaultHandler();
 
     const addr = @ptrToInt(info.fields.sigfault.addr);
-    std.debug.warn("Segmentation fault at address 0x{x}\n", addr);
-
+    switch (sig) {
+        os.SIGSEGV => std.debug.warn("Segmentation fault at address 0x{x}\n", .{addr}),
+        os.SIGILL => std.debug.warn("Illegal instruction at address 0x{x}\n", .{addr}),
+        else => unreachable,
+    }
     switch (builtin.arch) {
+        .i386 => {
+            const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+            const ip = @intCast(usize, ctx.mcontext.gregs[os.REG_EIP]);
+            const bp = @intCast(usize, ctx.mcontext.gregs[os.REG_EBP]);
+            dumpStackTraceFromBase(bp, ip);
+        },
         .x86_64 => {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
             const ip = @intCast(usize, ctx.mcontext.gregs[os.REG_RIP]);
@@ -2422,13 +2475,13 @@ extern fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: *con
     os.abort();
 }
 
-stdcallcc fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) c_long {
+fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(.Stdcall) c_long {
     const exception_address = @ptrToInt(info.ExceptionRecord.ExceptionAddress);
     switch (info.ExceptionRecord.ExceptionCode) {
-        windows.EXCEPTION_DATATYPE_MISALIGNMENT => panicExtra(null, exception_address, "Unaligned Memory Access"),
-        windows.EXCEPTION_ACCESS_VIOLATION => panicExtra(null, exception_address, "Segmentation fault at address 0x{x}", info.ExceptionRecord.ExceptionInformation[1]),
-        windows.EXCEPTION_ILLEGAL_INSTRUCTION => panicExtra(null, exception_address, "Illegal Instruction"),
-        windows.EXCEPTION_STACK_OVERFLOW => panicExtra(null, exception_address, "Stack Overflow"),
+        windows.EXCEPTION_DATATYPE_MISALIGNMENT => panicExtra(null, exception_address, "Unaligned Memory Access", .{}),
+        windows.EXCEPTION_ACCESS_VIOLATION => panicExtra(null, exception_address, "Segmentation fault at address 0x{x}", .{info.ExceptionRecord.ExceptionInformation[1]}),
+        windows.EXCEPTION_ILLEGAL_INSTRUCTION => panicExtra(null, exception_address, "Illegal Instruction", .{}),
+        windows.EXCEPTION_STACK_OVERFLOW => panicExtra(null, exception_address, "Stack Overflow", .{}),
         else => return windows.EXCEPTION_CONTINUE_SEARCH,
     }
 }
@@ -2437,5 +2490,10 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
     const sp = asm (""
         : [argc] "={rsp}" (-> usize)
     );
-    std.debug.warn("{} sp = 0x{x}\n", prefix, sp);
+    std.debug.warn("{} sp = 0x{x}\n", .{ prefix, sp });
+}
+
+// Reference everything so it gets tested.
+test "" {
+    _ = leb;
 }

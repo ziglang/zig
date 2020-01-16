@@ -7,7 +7,7 @@
 #include "lock.h"
 #include "ksigaction.h"
 
-volatile int dummy_lock[1] = { 0 };
+static volatile int dummy_lock[1] = { 0 };
 
 extern hidden volatile int __abort_lock[1];
 

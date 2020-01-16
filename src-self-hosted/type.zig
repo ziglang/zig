@@ -1,5 +1,5 @@
 const std = @import("std");
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const Scope = @import("scope.zig").Scope;
 const Compilation = @import("compilation.zig").Compilation;
 const Value = @import("value.zig").Value;
@@ -20,31 +20,31 @@ pub const Type = struct {
 
     pub fn destroy(base: *Type, comp: *Compilation) void {
         switch (base.id) {
-            Id.Struct => @fieldParentPtr(Struct, "base", base).destroy(comp),
-            Id.Fn => @fieldParentPtr(Fn, "base", base).destroy(comp),
-            Id.Type => @fieldParentPtr(MetaType, "base", base).destroy(comp),
-            Id.Void => @fieldParentPtr(Void, "base", base).destroy(comp),
-            Id.Bool => @fieldParentPtr(Bool, "base", base).destroy(comp),
-            Id.NoReturn => @fieldParentPtr(NoReturn, "base", base).destroy(comp),
-            Id.Int => @fieldParentPtr(Int, "base", base).destroy(comp),
-            Id.Float => @fieldParentPtr(Float, "base", base).destroy(comp),
-            Id.Pointer => @fieldParentPtr(Pointer, "base", base).destroy(comp),
-            Id.Array => @fieldParentPtr(Array, "base", base).destroy(comp),
-            Id.ComptimeFloat => @fieldParentPtr(ComptimeFloat, "base", base).destroy(comp),
-            Id.ComptimeInt => @fieldParentPtr(ComptimeInt, "base", base).destroy(comp),
-            Id.EnumLiteral => @fieldParentPtr(EnumLiteral, "base", base).destroy(comp),
-            Id.Undefined => @fieldParentPtr(Undefined, "base", base).destroy(comp),
-            Id.Null => @fieldParentPtr(Null, "base", base).destroy(comp),
-            Id.Optional => @fieldParentPtr(Optional, "base", base).destroy(comp),
-            Id.ErrorUnion => @fieldParentPtr(ErrorUnion, "base", base).destroy(comp),
-            Id.ErrorSet => @fieldParentPtr(ErrorSet, "base", base).destroy(comp),
-            Id.Enum => @fieldParentPtr(Enum, "base", base).destroy(comp),
-            Id.Union => @fieldParentPtr(Union, "base", base).destroy(comp),
-            Id.BoundFn => @fieldParentPtr(BoundFn, "base", base).destroy(comp),
-            Id.ArgTuple => @fieldParentPtr(ArgTuple, "base", base).destroy(comp),
-            Id.Opaque => @fieldParentPtr(Opaque, "base", base).destroy(comp),
-            Id.Promise => @fieldParentPtr(Promise, "base", base).destroy(comp),
-            Id.Vector => @fieldParentPtr(Vector, "base", base).destroy(comp),
+            .Struct => @fieldParentPtr(Struct, "base", base).destroy(comp),
+            .Fn => @fieldParentPtr(Fn, "base", base).destroy(comp),
+            .Type => @fieldParentPtr(MetaType, "base", base).destroy(comp),
+            .Void => @fieldParentPtr(Void, "base", base).destroy(comp),
+            .Bool => @fieldParentPtr(Bool, "base", base).destroy(comp),
+            .NoReturn => @fieldParentPtr(NoReturn, "base", base).destroy(comp),
+            .Int => @fieldParentPtr(Int, "base", base).destroy(comp),
+            .Float => @fieldParentPtr(Float, "base", base).destroy(comp),
+            .Pointer => @fieldParentPtr(Pointer, "base", base).destroy(comp),
+            .Array => @fieldParentPtr(Array, "base", base).destroy(comp),
+            .ComptimeFloat => @fieldParentPtr(ComptimeFloat, "base", base).destroy(comp),
+            .ComptimeInt => @fieldParentPtr(ComptimeInt, "base", base).destroy(comp),
+            .EnumLiteral => @fieldParentPtr(EnumLiteral, "base", base).destroy(comp),
+            .Undefined => @fieldParentPtr(Undefined, "base", base).destroy(comp),
+            .Null => @fieldParentPtr(Null, "base", base).destroy(comp),
+            .Optional => @fieldParentPtr(Optional, "base", base).destroy(comp),
+            .ErrorUnion => @fieldParentPtr(ErrorUnion, "base", base).destroy(comp),
+            .ErrorSet => @fieldParentPtr(ErrorSet, "base", base).destroy(comp),
+            .Enum => @fieldParentPtr(Enum, "base", base).destroy(comp),
+            .Union => @fieldParentPtr(Union, "base", base).destroy(comp),
+            .BoundFn => @fieldParentPtr(BoundFn, "base", base).destroy(comp),
+            .Opaque => @fieldParentPtr(Opaque, "base", base).destroy(comp),
+            .Frame => @fieldParentPtr(Frame, "base", base).destroy(comp),
+            .AnyFrame => @fieldParentPtr(AnyFrame, "base", base).destroy(comp),
+            .Vector => @fieldParentPtr(Vector, "base", base).destroy(comp),
         }
     }
 
@@ -52,107 +52,107 @@ pub const Type = struct {
         base: *Type,
         allocator: *Allocator,
         llvm_context: *llvm.Context,
-    ) (error{OutOfMemory}!*llvm.Type) {
+    ) error{OutOfMemory}!*llvm.Type {
         switch (base.id) {
-            Id.Struct => return @fieldParentPtr(Struct, "base", base).getLlvmType(allocator, llvm_context),
-            Id.Fn => return @fieldParentPtr(Fn, "base", base).getLlvmType(allocator, llvm_context),
-            Id.Type => unreachable,
-            Id.Void => unreachable,
-            Id.Bool => return @fieldParentPtr(Bool, "base", base).getLlvmType(allocator, llvm_context),
-            Id.NoReturn => unreachable,
-            Id.Int => return @fieldParentPtr(Int, "base", base).getLlvmType(allocator, llvm_context),
-            Id.Float => return @fieldParentPtr(Float, "base", base).getLlvmType(allocator, llvm_context),
-            Id.Pointer => return @fieldParentPtr(Pointer, "base", base).getLlvmType(allocator, llvm_context),
-            Id.Array => return @fieldParentPtr(Array, "base", base).getLlvmType(allocator, llvm_context),
-            Id.ComptimeFloat => unreachable,
-            Id.ComptimeInt => unreachable,
-            Id.EnumLiteral => unreachable,
-            Id.Undefined => unreachable,
-            Id.Null => unreachable,
-            Id.Optional => return @fieldParentPtr(Optional, "base", base).getLlvmType(allocator, llvm_context),
-            Id.ErrorUnion => return @fieldParentPtr(ErrorUnion, "base", base).getLlvmType(allocator, llvm_context),
-            Id.ErrorSet => return @fieldParentPtr(ErrorSet, "base", base).getLlvmType(allocator, llvm_context),
-            Id.Enum => return @fieldParentPtr(Enum, "base", base).getLlvmType(allocator, llvm_context),
-            Id.Union => return @fieldParentPtr(Union, "base", base).getLlvmType(allocator, llvm_context),
-            Id.BoundFn => return @fieldParentPtr(BoundFn, "base", base).getLlvmType(allocator, llvm_context),
-            Id.ArgTuple => unreachable,
-            Id.Opaque => return @fieldParentPtr(Opaque, "base", base).getLlvmType(allocator, llvm_context),
-            Id.Promise => return @fieldParentPtr(Promise, "base", base).getLlvmType(allocator, llvm_context),
-            Id.Vector => return @fieldParentPtr(Vector, "base", base).getLlvmType(allocator, llvm_context),
+            .Struct => return @fieldParentPtr(Struct, "base", base).getLlvmType(allocator, llvm_context),
+            .Fn => return @fieldParentPtr(Fn, "base", base).getLlvmType(allocator, llvm_context),
+            .Type => unreachable,
+            .Void => unreachable,
+            .Bool => return @fieldParentPtr(Bool, "base", base).getLlvmType(allocator, llvm_context),
+            .NoReturn => unreachable,
+            .Int => return @fieldParentPtr(Int, "base", base).getLlvmType(allocator, llvm_context),
+            .Float => return @fieldParentPtr(Float, "base", base).getLlvmType(allocator, llvm_context),
+            .Pointer => return @fieldParentPtr(Pointer, "base", base).getLlvmType(allocator, llvm_context),
+            .Array => return @fieldParentPtr(Array, "base", base).getLlvmType(allocator, llvm_context),
+            .ComptimeFloat => unreachable,
+            .ComptimeInt => unreachable,
+            .EnumLiteral => unreachable,
+            .Undefined => unreachable,
+            .Null => unreachable,
+            .Optional => return @fieldParentPtr(Optional, "base", base).getLlvmType(allocator, llvm_context),
+            .ErrorUnion => return @fieldParentPtr(ErrorUnion, "base", base).getLlvmType(allocator, llvm_context),
+            .ErrorSet => return @fieldParentPtr(ErrorSet, "base", base).getLlvmType(allocator, llvm_context),
+            .Enum => return @fieldParentPtr(Enum, "base", base).getLlvmType(allocator, llvm_context),
+            .Union => return @fieldParentPtr(Union, "base", base).getLlvmType(allocator, llvm_context),
+            .BoundFn => return @fieldParentPtr(BoundFn, "base", base).getLlvmType(allocator, llvm_context),
+            .Opaque => return @fieldParentPtr(Opaque, "base", base).getLlvmType(allocator, llvm_context),
+            .Frame => return @fieldParentPtr(Frame, "base", base).getLlvmType(allocator, llvm_context),
+            .AnyFrame => return @fieldParentPtr(AnyFrame, "base", base).getLlvmType(allocator, llvm_context),
+            .Vector => return @fieldParentPtr(Vector, "base", base).getLlvmType(allocator, llvm_context),
         }
     }
 
     pub fn handleIsPtr(base: *Type) bool {
         switch (base.id) {
-            Id.Type,
-            Id.ComptimeFloat,
-            Id.ComptimeInt,
-            Id.EnumLiteral,
-            Id.Undefined,
-            Id.Null,
-            Id.BoundFn,
-            Id.ArgTuple,
-            Id.Opaque,
+            .Type,
+            .ComptimeFloat,
+            .ComptimeInt,
+            .EnumLiteral,
+            .Undefined,
+            .Null,
+            .BoundFn,
+            .Opaque,
             => unreachable,
 
-            Id.NoReturn,
-            Id.Void,
-            Id.Bool,
-            Id.Int,
-            Id.Float,
-            Id.Pointer,
-            Id.ErrorSet,
-            Id.Enum,
-            Id.Fn,
-            Id.Promise,
-            Id.Vector,
+            .NoReturn,
+            .Void,
+            .Bool,
+            .Int,
+            .Float,
+            .Pointer,
+            .ErrorSet,
+            .Enum,
+            .Fn,
+            .Frame,
+            .AnyFrame,
+            .Vector,
             => return false,
 
-            Id.Struct => @panic("TODO"),
-            Id.Array => @panic("TODO"),
-            Id.Optional => @panic("TODO"),
-            Id.ErrorUnion => @panic("TODO"),
-            Id.Union => @panic("TODO"),
+            .Struct => @panic("TODO"),
+            .Array => @panic("TODO"),
+            .Optional => @panic("TODO"),
+            .ErrorUnion => @panic("TODO"),
+            .Union => @panic("TODO"),
         }
     }
 
     pub fn hasBits(base: *Type) bool {
         switch (base.id) {
-            Id.Type,
-            Id.ComptimeFloat,
-            Id.ComptimeInt,
-            Id.EnumLiteral,
-            Id.Undefined,
-            Id.Null,
-            Id.BoundFn,
-            Id.ArgTuple,
-            Id.Opaque,
+            .Type,
+            .ComptimeFloat,
+            .ComptimeInt,
+            .EnumLiteral,
+            .Undefined,
+            .Null,
+            .BoundFn,
+            .Opaque,
             => unreachable,
 
-            Id.Void,
-            Id.NoReturn,
+            .Void,
+            .NoReturn,
             => return false,
 
-            Id.Bool,
-            Id.Int,
-            Id.Float,
-            Id.Fn,
-            Id.Promise,
-            Id.Vector,
+            .Bool,
+            .Int,
+            .Float,
+            .Fn,
+            .Frame,
+            .AnyFrame,
+            .Vector,
             => return true,
 
-            Id.Pointer => {
+            .Pointer => {
                 const ptr_type = @fieldParentPtr(Pointer, "base", base);
                 return ptr_type.key.child_type.hasBits();
             },
 
-            Id.ErrorSet => @panic("TODO"),
-            Id.Enum => @panic("TODO"),
-            Id.Struct => @panic("TODO"),
-            Id.Array => @panic("TODO"),
-            Id.Optional => @panic("TODO"),
-            Id.ErrorUnion => @panic("TODO"),
-            Id.Union => @panic("TODO"),
+            .ErrorSet => @panic("TODO"),
+            .Enum => @panic("TODO"),
+            .Struct => @panic("TODO"),
+            .Array => @panic("TODO"),
+            .Optional => @panic("TODO"),
+            .ErrorUnion => @panic("TODO"),
+            .Union => @panic("TODO"),
         }
     }
 
@@ -162,26 +162,26 @@ pub const Type = struct {
     }
 
     pub fn dump(base: *const Type) void {
-        std.debug.warn("{}", @tagName(base.id));
+        std.debug.warn("{}", .{@tagName(base.id)});
     }
 
     fn init(base: *Type, comp: *Compilation, id: Id, name: []const u8) void {
         base.* = Type{
             .base = Value{
-                .id = Value.Id.Type,
+                .id = .Type,
                 .typ = &MetaType.get(comp).base,
                 .ref_count = std.atomic.Int(usize).init(1),
             },
             .id = id,
             .name = name,
-            .abi_alignment = AbiAlignment.init(comp.loop),
+            .abi_alignment = AbiAlignment.init(),
         };
     }
 
     /// If you happen to have an llvm context handy, use getAbiAlignmentInContext instead.
     /// Otherwise, this one will grab one from the pool and then release it.
-    pub async fn getAbiAlignment(base: *Type, comp: *Compilation) !u32 {
-        if (await (async base.abi_alignment.start() catch unreachable)) |ptr| return ptr.*;
+    pub fn getAbiAlignment(base: *Type, comp: *Compilation) !u32 {
+        if (base.abi_alignment.start()) |ptr| return ptr.*;
 
         {
             const held = try comp.zig_compiler.getAnyLlvmContext();
@@ -189,23 +189,23 @@ pub const Type = struct {
 
             const llvm_context = held.node.data;
 
-            base.abi_alignment.data = await (async base.resolveAbiAlignment(comp, llvm_context) catch unreachable);
+            base.abi_alignment.data = base.resolveAbiAlignment(comp, llvm_context);
         }
         base.abi_alignment.resolve();
         return base.abi_alignment.data;
     }
 
     /// If you have an llvm conext handy, you can use it here.
-    pub async fn getAbiAlignmentInContext(base: *Type, comp: *Compilation, llvm_context: *llvm.Context) !u32 {
-        if (await (async base.abi_alignment.start() catch unreachable)) |ptr| return ptr.*;
+    pub fn getAbiAlignmentInContext(base: *Type, comp: *Compilation, llvm_context: *llvm.Context) !u32 {
+        if (base.abi_alignment.start()) |ptr| return ptr.*;
 
-        base.abi_alignment.data = await (async base.resolveAbiAlignment(comp, llvm_context) catch unreachable);
+        base.abi_alignment.data = base.resolveAbiAlignment(comp, llvm_context);
         base.abi_alignment.resolve();
         return base.abi_alignment.data;
     }
 
     /// Lower level function that does the work. See getAbiAlignment.
-    async fn resolveAbiAlignment(base: *Type, comp: *Compilation, llvm_context: *llvm.Context) !u32 {
+    fn resolveAbiAlignment(base: *Type, comp: *Compilation, llvm_context: *llvm.Context) !u32 {
         const llvm_type = try base.getLlvmType(comp.gpa(), llvm_context);
         return @intCast(u32, llvm.ABIAlignmentOfType(comp.target_data_ref, llvm_type));
     }
@@ -261,30 +261,18 @@ pub const Type = struct {
 
             pub const Generic = struct {
                 param_count: usize,
-                cc: CC,
-
-                pub const CC = union(CallingConvention) {
-                    Auto,
-                    C,
-                    Cold,
-                    Naked,
-                    Stdcall,
-                    Async: *Type, // allocator type
-                };
+                cc: CallingConvention,
             };
 
             pub fn hash(self: *const Key) u32 {
                 var result: u32 = 0;
                 result +%= hashAny(self.alignment, 0);
                 switch (self.data) {
-                    Kind.Generic => |generic| {
+                    .Generic => |generic| {
                         result +%= hashAny(generic.param_count, 1);
-                        switch (generic.cc) {
-                            CallingConvention.Async => |allocator_type| result +%= hashAny(allocator_type, 2),
-                            else => result +%= hashAny(CallingConvention(generic.cc), 3),
-                        }
+                        result +%= hashAny(generic.cc, 3);
                     },
-                    Kind.Normal => |normal| {
+                    .Normal => |normal| {
                         result +%= hashAny(normal.return_type, 4);
                         result +%= hashAny(normal.is_var_args, 5);
                         result +%= hashAny(normal.cc, 6);
@@ -302,21 +290,14 @@ pub const Type = struct {
                 if (self.alignment) |self_align| {
                     if (self_align != other.alignment.?) return false;
                 }
-                if (@TagType(Data)(self.data) != @TagType(Data)(other.data)) return false;
+                if (@as(@TagType(Data), self.data) != @as(@TagType(Data), other.data)) return false;
                 switch (self.data) {
-                    Kind.Generic => |*self_generic| {
+                    .Generic => |*self_generic| {
                         const other_generic = &other.data.Generic;
                         if (self_generic.param_count != other_generic.param_count) return false;
-                        if (CallingConvention(self_generic.cc) != CallingConvention(other_generic.cc)) return false;
-                        switch (self_generic.cc) {
-                            CallingConvention.Async => |self_allocator_type| {
-                                const other_allocator_type = other_generic.cc.Async;
-                                if (self_allocator_type != other_allocator_type) return false;
-                            },
-                            else => {},
-                        }
+                        if (self_generic.cc != other_generic.cc) return false;
                     },
-                    Kind.Normal => |*self_normal| {
+                    .Normal => |*self_normal| {
                         const other_normal = &other.data.Normal;
                         if (self_normal.cc != other_normal.cc) return false;
                         if (self_normal.is_var_args != other_normal.is_var_args) return false;
@@ -333,13 +314,8 @@ pub const Type = struct {
 
             pub fn deref(key: Key, comp: *Compilation) void {
                 switch (key.data) {
-                    Kind.Generic => |generic| {
-                        switch (generic.cc) {
-                            CallingConvention.Async => |allocator_type| allocator_type.base.deref(comp),
-                            else => {},
-                        }
-                    },
-                    Kind.Normal => |normal| {
+                    .Generic => {},
+                    .Normal => |normal| {
                         normal.return_type.base.deref(comp);
                         for (normal.params) |param| {
                             param.typ.base.deref(comp);
@@ -350,13 +326,8 @@ pub const Type = struct {
 
             pub fn ref(key: Key) void {
                 switch (key.data) {
-                    Kind.Generic => |generic| {
-                        switch (generic.cc) {
-                            CallingConvention.Async => |allocator_type| allocator_type.base.ref(),
-                            else => {},
-                        }
-                    },
-                    Kind.Normal => |normal| {
+                    .Generic => {},
+                    .Normal => |normal| {
                         normal.return_type.base.ref();
                         for (normal.params) |param| {
                             param.typ.base.ref();
@@ -366,14 +337,7 @@ pub const Type = struct {
             }
         };
 
-        pub const CallingConvention = enum {
-            Auto,
-            C,
-            Cold,
-            Naked,
-            Stdcall,
-            Async,
-        };
+        const CallingConvention = builtin.CallingConvention;
 
         pub const Param = struct {
             is_noalias: bool,
@@ -382,26 +346,27 @@ pub const Type = struct {
 
         fn ccFnTypeStr(cc: CallingConvention) []const u8 {
             return switch (cc) {
-                CallingConvention.Auto => "",
-                CallingConvention.C => "extern ",
-                CallingConvention.Cold => "coldcc ",
-                CallingConvention.Naked => "nakedcc ",
-                CallingConvention.Stdcall => "stdcallcc ",
-                CallingConvention.Async => unreachable,
+                .Unspecified => "",
+                .C => "extern ",
+                .Cold => "coldcc ",
+                .Naked => "nakedcc ",
+                .Stdcall => "stdcallcc ",
+                .Async => "async ",
+                else => unreachable,
             };
         }
 
         pub fn paramCount(self: *Fn) usize {
             return switch (self.key.data) {
-                Kind.Generic => |generic| generic.param_count,
-                Kind.Normal => |normal| normal.params.len,
+                .Generic => |generic| generic.param_count,
+                .Normal => |normal| normal.params.len,
             };
         }
 
         /// takes ownership of key.Normal.params on success
-        pub async fn get(comp: *Compilation, key: Key) !*Fn {
+        pub fn get(comp: *Compilation, key: Key) !*Fn {
             {
-                const held = await (async comp.fn_type_table.acquire() catch unreachable);
+                const held = comp.fn_type_table.acquire();
                 defer held.release();
 
                 if (held.value.get(&key)) |entry| {
@@ -428,18 +393,10 @@ pub const Type = struct {
             const name_stream = &std.io.BufferOutStream.init(&name_buf).stream;
 
             switch (key.data) {
-                Kind.Generic => |generic| {
+                .Generic => |generic| {
                     self.non_key = NonKey{ .Generic = {} };
-                    switch (generic.cc) {
-                        CallingConvention.Async => |async_allocator_type| {
-                            try name_stream.print("async<{}> ", async_allocator_type.name);
-                        },
-                        else => {
-                            const cc_str = ccFnTypeStr(generic.cc);
-                            try name_stream.write(cc_str);
-                        },
-                    }
-                    try name_stream.write("fn(");
+                    const cc_str = ccFnTypeStr(generic.cc);
+                    try name_stream.print("{}fn(", .{cc_str});
                     var param_i: usize = 0;
                     while (param_i < generic.param_count) : (param_i += 1) {
                         const arg = if (param_i == 0) "var" else ", var";
@@ -447,16 +404,16 @@ pub const Type = struct {
                     }
                     try name_stream.write(")");
                     if (key.alignment) |alignment| {
-                        try name_stream.print(" align<{}>", alignment);
+                        try name_stream.print(" align({})", .{alignment});
                     }
                     try name_stream.write(" var");
                 },
-                Kind.Normal => |normal| {
+                .Normal => |normal| {
                     self.non_key = NonKey{
                         .Normal = NonKey.Normal{ .variable_list = std.ArrayList(*Scope.Var).init(comp.gpa()) },
                     };
                     const cc_str = ccFnTypeStr(normal.cc);
-                    try name_stream.print("{}fn(", cc_str);
+                    try name_stream.print("{}fn(", .{cc_str});
                     for (normal.params) |param, i| {
                         if (i != 0) try name_stream.write(", ");
                         if (param.is_noalias) try name_stream.write("noalias ");
@@ -468,16 +425,16 @@ pub const Type = struct {
                     }
                     try name_stream.write(")");
                     if (key.alignment) |alignment| {
-                        try name_stream.print(" align<{}>", alignment);
+                        try name_stream.print(" align({})", .{alignment});
                     }
-                    try name_stream.print(" {}", normal.return_type.name);
+                    try name_stream.print(" {}", .{normal.return_type.name});
                 },
             }
 
-            self.base.init(comp, Id.Fn, name_buf.toOwnedSlice());
+            self.base.init(comp, .Fn, name_buf.toOwnedSlice());
 
             {
-                const held = await (async comp.fn_type_table.acquire() catch unreachable);
+                const held = comp.fn_type_table.acquire();
                 defer held.release();
 
                 _ = try held.value.put(&self.key, self);
@@ -488,8 +445,8 @@ pub const Type = struct {
         pub fn destroy(self: *Fn, comp: *Compilation) void {
             self.key.deref(comp);
             switch (self.key.data) {
-                Kind.Generic => {},
-                Kind.Normal => {
+                .Generic => {},
+                .Normal => {
                     self.non_key.Normal.variable_list.deinit();
                 },
             }
@@ -499,7 +456,7 @@ pub const Type = struct {
         pub fn getLlvmType(self: *Fn, allocator: *Allocator, llvm_context: *llvm.Context) !*llvm.Type {
             const normal = &self.key.data.Normal;
             const llvm_return_type = switch (normal.return_type.id) {
-                Type.Id.Void => llvm.VoidTypeInContext(llvm_context) orelse return error.OutOfMemory,
+                .Void => llvm.VoidTypeInContext(llvm_context) orelse return error.OutOfMemory,
                 else => try normal.return_type.getLlvmType(allocator, llvm_context),
             };
             const llvm_param_types = try allocator.alloc(*llvm.Type, normal.params.len);
@@ -604,9 +561,9 @@ pub const Type = struct {
             return comp.u8_type;
         }
 
-        pub async fn get(comp: *Compilation, key: Key) !*Int {
+        pub fn get(comp: *Compilation, key: Key) !*Int {
             {
-                const held = await (async comp.int_type_table.acquire() catch unreachable);
+                const held = comp.int_type_table.acquire();
                 defer held.release();
 
                 if (held.value.get(&key)) |entry| {
@@ -624,13 +581,13 @@ pub const Type = struct {
             errdefer comp.gpa().destroy(self);
 
             const u_or_i = "ui"[@boolToInt(key.is_signed)];
-            const name = try std.fmt.allocPrint(comp.gpa(), "{c}{}", u_or_i, key.bit_count);
+            const name = try std.fmt.allocPrint(comp.gpa(), "{c}{}", .{ u_or_i, key.bit_count });
             errdefer comp.gpa().free(name);
 
-            self.base.init(comp, Id.Int, name);
+            self.base.init(comp, .Int, name);
 
             {
-                const held = await (async comp.int_type_table.acquire() catch unreachable);
+                const held = comp.int_type_table.acquire();
                 defer held.release();
 
                 _ = try held.value.put(&self.key, self);
@@ -646,9 +603,9 @@ pub const Type = struct {
             comp.registerGarbage(Int, &self.garbage_node);
         }
 
-        pub async fn gcDestroy(self: *Int, comp: *Compilation) void {
+        pub fn gcDestroy(self: *Int, comp: *Compilation) void {
             {
-                const held = await (async comp.int_type_table.acquire() catch unreachable);
+                const held = comp.int_type_table.acquire();
                 defer held.release();
 
                 _ = held.value.remove(&self.key).?;
@@ -689,8 +646,8 @@ pub const Type = struct {
             pub fn hash(self: *const Key) u32 {
                 var result: u32 = 0;
                 result +%= switch (self.alignment) {
-                    Align.Abi => 0xf201c090,
-                    Align.Override => |x| hashAny(x, 0),
+                    .Abi => 0xf201c090,
+                    .Override => |x| hashAny(x, 0),
                 };
                 result +%= hashAny(self.child_type, 1);
                 result +%= hashAny(self.mut, 2);
@@ -704,13 +661,13 @@ pub const Type = struct {
                     self.mut != other.mut or
                     self.vol != other.vol or
                     self.size != other.size or
-                    @TagType(Align)(self.alignment) != @TagType(Align)(other.alignment))
+                    @as(@TagType(Align), self.alignment) != @as(@TagType(Align), other.alignment))
                 {
                     return false;
                 }
                 switch (self.alignment) {
-                    Align.Abi => return true,
-                    Align.Override => |x| return x == other.alignment.Override,
+                    .Abi => return true,
+                    .Override => |x| return x == other.alignment.Override,
                 }
             }
         };
@@ -740,9 +697,9 @@ pub const Type = struct {
             comp.registerGarbage(Pointer, &self.garbage_node);
         }
 
-        pub async fn gcDestroy(self: *Pointer, comp: *Compilation) void {
+        pub fn gcDestroy(self: *Pointer, comp: *Compilation) void {
             {
-                const held = await (async comp.ptr_type_table.acquire() catch unreachable);
+                const held = comp.ptr_type_table.acquire();
                 defer held.release();
 
                 _ = held.value.remove(&self.key).?;
@@ -751,29 +708,31 @@ pub const Type = struct {
             comp.gpa().destroy(self);
         }
 
-        pub async fn getAlignAsInt(self: *Pointer, comp: *Compilation) u32 {
+        pub fn getAlignAsInt(self: *Pointer, comp: *Compilation) u32 {
             switch (self.key.alignment) {
-                Align.Abi => return await (async self.key.child_type.getAbiAlignment(comp) catch unreachable),
-                Align.Override => |alignment| return alignment,
+                .Abi => return self.key.child_type.getAbiAlignment(comp),
+                .Override => |alignment| return alignment,
             }
         }
 
-        pub async fn get(
+        pub fn get(
             comp: *Compilation,
             key: Key,
         ) !*Pointer {
             var normal_key = key;
             switch (key.alignment) {
-                Align.Abi => {},
-                Align.Override => |alignment| {
-                    const abi_align = try await (async key.child_type.getAbiAlignment(comp) catch unreachable);
-                    if (abi_align == alignment) {
-                        normal_key.alignment = Align.Abi;
+                .Abi => {},
+                .Override => |alignment| {
+                    // TODO https://github.com/ziglang/zig/issues/3190
+                    var align_spill = alignment;
+                    const abi_align = try key.child_type.getAbiAlignment(comp);
+                    if (abi_align == align_spill) {
+                        normal_key.alignment = .Abi;
                     }
                 },
             }
             {
-                const held = await (async comp.ptr_type_table.acquire() catch unreachable);
+                const held = comp.ptr_type_table.acquire();
                 defer held.release();
 
                 if (held.value.get(&normal_key)) |entry| {
@@ -791,44 +750,40 @@ pub const Type = struct {
             errdefer comp.gpa().destroy(self);
 
             const size_str = switch (self.key.size) {
-                Size.One => "*",
-                Size.Many => "[*]",
-                Size.Slice => "[]",
-                Size.C => "[*c]",
+                .One => "*",
+                .Many => "[*]",
+                .Slice => "[]",
+                .C => "[*c]",
             };
             const mut_str = switch (self.key.mut) {
-                Mut.Const => "const ",
-                Mut.Mut => "",
+                .Const => "const ",
+                .Mut => "",
             };
             const vol_str = switch (self.key.vol) {
-                Vol.Volatile => "volatile ",
-                Vol.Non => "",
+                .Volatile => "volatile ",
+                .Non => "",
             };
             const name = switch (self.key.alignment) {
-                Align.Abi => try std.fmt.allocPrint(
-                    comp.gpa(),
-                    "{}{}{}{}",
+                .Abi => try std.fmt.allocPrint(comp.gpa(), "{}{}{}{}", .{
                     size_str,
                     mut_str,
                     vol_str,
                     self.key.child_type.name,
-                ),
-                Align.Override => |alignment| try std.fmt.allocPrint(
-                    comp.gpa(),
-                    "{}align<{}> {}{}{}",
+                }),
+                .Override => |alignment| try std.fmt.allocPrint(comp.gpa(), "{}align<{}> {}{}{}", .{
                     size_str,
                     alignment,
                     mut_str,
                     vol_str,
                     self.key.child_type.name,
-                ),
+                }),
             };
             errdefer comp.gpa().free(name);
 
-            self.base.init(comp, Id.Pointer, name);
+            self.base.init(comp, .Pointer, name);
 
             {
-                const held = await (async comp.ptr_type_table.acquire() catch unreachable);
+                const held = comp.ptr_type_table.acquire();
                 defer held.release();
 
                 _ = try held.value.put(&self.key, self);
@@ -868,12 +823,12 @@ pub const Type = struct {
             comp.gpa().destroy(self);
         }
 
-        pub async fn get(comp: *Compilation, key: Key) !*Array {
+        pub fn get(comp: *Compilation, key: Key) !*Array {
             key.elem_type.base.ref();
             errdefer key.elem_type.base.deref(comp);
 
             {
-                const held = await (async comp.array_type_table.acquire() catch unreachable);
+                const held = comp.array_type_table.acquire();
                 defer held.release();
 
                 if (held.value.get(&key)) |entry| {
@@ -890,13 +845,13 @@ pub const Type = struct {
             };
             errdefer comp.gpa().destroy(self);
 
-            const name = try std.fmt.allocPrint(comp.gpa(), "[{}]{}", key.len, key.elem_type.name);
+            const name = try std.fmt.allocPrint(comp.gpa(), "[{}]{}", .{ key.len, key.elem_type.name });
             errdefer comp.gpa().free(name);
 
-            self.base.init(comp, Id.Array, name);
+            self.base.init(comp, .Array, name);
 
             {
-                const held = await (async comp.array_type_table.acquire() catch unreachable);
+                const held = comp.array_type_table.acquire();
                 defer held.release();
 
                 _ = try held.value.put(&self.key, self);
@@ -1046,14 +1001,6 @@ pub const Type = struct {
         }
     };
 
-    pub const ArgTuple = struct {
-        base: Type,
-
-        pub fn destroy(self: *ArgTuple, comp: *Compilation) void {
-            comp.gpa().destroy(self);
-        }
-    };
-
     pub const Opaque = struct {
         base: Type,
 
@@ -1066,51 +1013,63 @@ pub const Type = struct {
         }
     };
 
-    pub const Promise = struct {
+    pub const Frame = struct {
         base: Type,
 
-        pub fn destroy(self: *Promise, comp: *Compilation) void {
+        pub fn destroy(self: *Frame, comp: *Compilation) void {
             comp.gpa().destroy(self);
         }
 
-        pub fn getLlvmType(self: *Promise, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
+        pub fn getLlvmType(self: *Frame, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
+            @panic("TODO");
+        }
+    };
+
+    pub const AnyFrame = struct {
+        base: Type,
+
+        pub fn destroy(self: *AnyFrame, comp: *Compilation) void {
+            comp.gpa().destroy(self);
+        }
+
+        pub fn getLlvmType(self: *AnyFrame, allocator: *Allocator, llvm_context: *llvm.Context) *llvm.Type {
             @panic("TODO");
         }
     };
 };
 
 fn hashAny(x: var, comptime seed: u64) u32 {
-    switch (@typeInfo(@typeOf(x))) {
-        builtin.TypeId.Int => |info| {
+    switch (@typeInfo(@TypeOf(x))) {
+        .Int => |info| {
             comptime var rng = comptime std.rand.DefaultPrng.init(seed);
             const unsigned_x = @bitCast(@IntType(false, info.bits), x);
             if (info.bits <= 32) {
-                return u32(unsigned_x) *% comptime rng.random.scalar(u32);
+                return @as(u32, unsigned_x) *% comptime rng.random.scalar(u32);
             } else {
-                return @truncate(u32, unsigned_x *% comptime rng.random.scalar(@typeOf(unsigned_x)));
+                return @truncate(u32, unsigned_x *% comptime rng.random.scalar(@TypeOf(unsigned_x)));
             }
         },
-        builtin.TypeId.Pointer => |info| {
+        .Pointer => |info| {
             switch (info.size) {
-                builtin.TypeInfo.Pointer.Size.One => return hashAny(@ptrToInt(x), seed),
-                builtin.TypeInfo.Pointer.Size.Many => @compileError("implement hash function"),
-                builtin.TypeInfo.Pointer.Size.Slice => @compileError("implement hash function"),
-                builtin.TypeInfo.Pointer.Size.C => unreachable,
+                .One => return hashAny(@ptrToInt(x), seed),
+                .Many => @compileError("implement hash function"),
+                .Slice => @compileError("implement hash function"),
+                .C => unreachable,
             }
         },
-        builtin.TypeId.Enum => return hashAny(@enumToInt(x), seed),
-        builtin.TypeId.Bool => {
+        .Enum => return hashAny(@enumToInt(x), seed),
+        .Bool => {
             comptime var rng = comptime std.rand.DefaultPrng.init(seed);
             const vals = comptime [2]u32{ rng.random.scalar(u32), rng.random.scalar(u32) };
             return vals[@boolToInt(x)];
         },
-        builtin.TypeId.Optional => {
+        .Optional => {
             if (x) |non_opt| {
                 return hashAny(non_opt, seed);
             } else {
-                return hashAny(u32(1), seed);
+                return hashAny(@as(u32, 1), seed);
             }
         },
-        else => @compileError("implement hash function for " ++ @typeName(@typeOf(x))),
+        else => @compileError("implement hash function for " ++ @typeName(@TypeOf(x))),
     }
 }

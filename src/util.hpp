@@ -8,6 +8,8 @@
 #ifndef ZIG_UTIL_HPP
 #define ZIG_UTIL_HPP
 
+#include "memory_profiling.hpp"
+
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
@@ -24,6 +26,8 @@
 #define ATTRIBUTE_NORETURN __declspec(noreturn)
 #define ATTRIBUTE_MUST_USE
 
+#define BREAKPOINT __debugbreak()
+
 #else
 
 #define ATTRIBUTE_COLD         __attribute__((cold))
@@ -32,11 +36,20 @@
 #define ATTRIBUTE_NORETURN __attribute__((noreturn))
 #define ATTRIBUTE_MUST_USE __attribute__((warn_unused_result))
 
+#if defined(__MINGW32__) || defined(__MINGW64__)
+#define BREAKPOINT __debugbreak()
+#elif defined(__clang__)
+#define BREAKPOINT __builtin_debugtrap()
+#elif defined(__GNUC__)
+#define BREAKPOINT __builtin_trap()
+#else
+#include <signal.h>
+#define BREAKPOINT raise(SIGTRAP)
+#endif
+
 #endif
 
 #include "softfloat.hpp"
-
-#define BREAKPOINT __asm("int $0x03")
 
 ATTRIBUTE_COLD
 ATTRIBUTE_NORETURN
@@ -96,7 +109,10 @@ static inline int ctzll(unsigned long long mask) {
 
 
 template<typename T>
-ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate_nonzero(size_t count) {
+ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate_nonzero(size_t count, const char *name = nullptr) {
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    memprof_alloc(name, count, sizeof(T));
+#endif
 #ifndef NDEBUG
     // make behavior when size == 0 portable
     if (count == 0)
@@ -109,7 +125,10 @@ ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate_nonzero(size_t count) {
 }
 
 template<typename T>
-ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate(size_t count) {
+ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate(size_t count, const char *name = nullptr) {
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    memprof_alloc(name, count, sizeof(T));
+#endif
 #ifndef NDEBUG
     // make behavior when size == 0 portable
     if (count == 0)
@@ -122,7 +141,7 @@ ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate(size_t count) {
 }
 
 template<typename T>
-static inline T *reallocate(T *old, size_t old_count, size_t new_count) {
+static inline T *reallocate(T *old, size_t old_count, size_t new_count, const char *name = nullptr) {
     T *ptr = reallocate_nonzero(old, old_count, new_count);
     if (new_count > old_count) {
         memset(&ptr[old_count], 0, (new_count - old_count) * sizeof(T));
@@ -131,7 +150,11 @@ static inline T *reallocate(T *old, size_t old_count, size_t new_count) {
 }
 
 template<typename T>
-static inline T *reallocate_nonzero(T *old, size_t old_count, size_t new_count) {
+static inline T *reallocate_nonzero(T *old, size_t old_count, size_t new_count, const char *name = nullptr) {
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    memprof_dealloc(name, old_count, sizeof(T));
+    memprof_alloc(name, new_count, sizeof(T));
+#endif
 #ifndef NDEBUG
     // make behavior when size == 0 portable
     if (new_count == 0 && old == nullptr)
@@ -141,6 +164,19 @@ static inline T *reallocate_nonzero(T *old, size_t old_count, size_t new_count) 
     if (!ptr)
         zig_panic("allocation failed");
     return ptr;
+}
+
+template<typename T>
+static inline void deallocate(T *old, size_t count, const char *name = nullptr) {
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    memprof_dealloc(name, count, sizeof(T));
+#endif
+    free(old);
+}
+
+template<typename T>
+static inline void destroy(T *old, const char *name = nullptr) {
+    return deallocate(old, 1, name);
 }
 
 template <typename T, size_t n>
@@ -224,6 +260,8 @@ static inline double zig_f16_to_double(float16_t x) {
     memcpy(&z, &y, sizeof(y));
     return z;
 }
+
+void zig_pretty_print_bytes(FILE *f, double n);
 
 template<typename T>
 struct Optional {

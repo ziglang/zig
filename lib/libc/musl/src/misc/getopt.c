@@ -1,3 +1,4 @@
+#define _BSD_SOURCE
 #include <unistd.h>
 #include <wchar.h>
 #include <string.h>

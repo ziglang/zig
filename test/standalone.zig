@@ -1,6 +1,5 @@
+const std = @import("std");
 const tests = @import("tests.zig");
-const builtin = @import("builtin");
-const is_windows = builtin.os == builtin.Os.windows;
 
 pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.add("test/standalone/hello_world/hello.zig");
@@ -19,13 +18,10 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/use_alias/build.zig");
     cases.addBuildFile("test/standalone/brace_expansion/build.zig");
     cases.addBuildFile("test/standalone/empty_env/build.zig");
-    if (builtin.os == builtin.Os.linux) {
-        // TODO hook up the DynLib API for windows using LoadLibraryA
-        // TODO figure out how to make this work on darwin - probably libSystem has dlopen/dlsym in it
+    if (std.Target.current.getOs() != .wasi) {
         cases.addBuildFile("test/standalone/load_dynamic_library/build.zig");
     }
-
-    if (builtin.arch == builtin.Arch.x86_64) { // TODO add C ABI support for other architectures
+    if (std.Target.current.getArch() == .x86_64) { // TODO add C ABI support for other architectures
         cases.addBuildFile("test/stage1/c_abi/build.zig");
     }
 }

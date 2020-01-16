@@ -25,116 +25,87 @@ pub const File = struct {
 
     pub const OpenError = windows.CreateFileError || os.OpenError;
 
-    /// Call close to clean up.
+    /// TODO https://github.com/ziglang/zig/issues/3802
+    pub const OpenFlags = struct {
+        read: bool = true,
+        write: bool = false,
+    };
+
+    /// TODO https://github.com/ziglang/zig/issues/3802
+    pub const CreateFlags = struct {
+        /// Whether the file will be created with read access.
+        read: bool = false,
+
+        /// If the file already exists, and is a regular file, and the access
+        /// mode allows writing, it will be truncated to length 0.
+        truncate: bool = true,
+
+        /// Ensures that this open call creates the file, otherwise causes
+        /// `error.FileAlreadyExists` to be returned.
+        exclusive: bool = false,
+
+        /// For POSIX systems this is the file system mode the file will
+        /// be created with.
+        mode: Mode = default_mode,
+    };
+
+    /// Deprecated; call `std.fs.Dir.openFile` directly.
     pub fn openRead(path: []const u8) OpenError!File {
-        if (windows.is_the_target) {
-            const path_w = try windows.sliceToPrefixedFileW(path);
-            return openReadW(&path_w);
-        }
-        const path_c = try os.toPosixPath(path);
-        return openReadC(&path_c);
+        return std.fs.cwd().openFile(path, .{});
     }
 
-    /// `openRead` except with a null terminated path
-    pub fn openReadC(path: [*]const u8) OpenError!File {
-        if (windows.is_the_target) {
-            const path_w = try windows.cStrToPrefixedFileW(path);
-            return openReadW(&path_w);
-        }
-        const flags = os.O_LARGEFILE | os.O_RDONLY;
-        const fd = try os.openC(path, flags, 0);
-        return openHandle(fd);
+    /// Deprecated; call `std.fs.Dir.openFileC` directly.
+    pub fn openReadC(path_c: [*:0]const u8) OpenError!File {
+        return std.fs.cwd().openFileC(path_c, .{});
     }
 
-    /// `openRead` except with a null terminated UTF16LE encoded path
-    pub fn openReadW(path_w: [*]const u16) OpenError!File {
-        const handle = try windows.CreateFileW(
-            path_w,
-            windows.GENERIC_READ,
-            windows.FILE_SHARE_READ,
-            null,
-            windows.OPEN_EXISTING,
-            windows.FILE_ATTRIBUTE_NORMAL,
-            null,
-        );
-        return openHandle(handle);
+    /// Deprecated; call `std.fs.Dir.openFileW` directly.
+    pub fn openReadW(path_w: [*:0]const u16) OpenError!File {
+        return std.fs.cwd().openFileW(path_w, .{});
     }
 
-    /// Calls `openWriteMode` with `default_mode` for the mode.
+    /// Deprecated; call `std.fs.Dir.createFile` directly.
     pub fn openWrite(path: []const u8) OpenError!File {
-        return openWriteMode(path, default_mode);
+        return std.fs.cwd().createFile(path, .{});
     }
 
-    /// If the path does not exist it will be created.
-    /// If a file already exists in the destination it will be truncated.
-    /// Call close to clean up.
+    /// Deprecated; call `std.fs.Dir.createFile` directly.
     pub fn openWriteMode(path: []const u8, file_mode: Mode) OpenError!File {
-        if (windows.is_the_target) {
-            const path_w = try windows.sliceToPrefixedFileW(path);
-            return openWriteModeW(&path_w, file_mode);
-        }
-        const path_c = try os.toPosixPath(path);
-        return openWriteModeC(&path_c, file_mode);
+        return std.fs.cwd().createFile(path, .{ .mode = file_mode });
     }
 
-    /// Same as `openWriteMode` except `path` is null-terminated.
-    pub fn openWriteModeC(path: [*]const u8, file_mode: Mode) OpenError!File {
-        if (windows.is_the_target) {
-            const path_w = try windows.cStrToPrefixedFileW(path);
-            return openWriteModeW(&path_w, file_mode);
-        }
-        const flags = os.O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_TRUNC;
-        const fd = try os.openC(path, flags, file_mode);
-        return openHandle(fd);
+    /// Deprecated; call `std.fs.Dir.createFileC` directly.
+    pub fn openWriteModeC(path_c: [*:0]const u8, file_mode: Mode) OpenError!File {
+        return std.fs.cwd().createFileC(path_c, .{ .mode = file_mode });
     }
 
-    /// Same as `openWriteMode` except `path` is null-terminated and UTF16LE encoded
-    pub fn openWriteModeW(path_w: [*]const u16, file_mode: Mode) OpenError!File {
-        const handle = try windows.CreateFileW(
-            path_w,
-            windows.GENERIC_WRITE,
-            windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
-            null,
-            windows.CREATE_ALWAYS,
-            windows.FILE_ATTRIBUTE_NORMAL,
-            null,
-        );
-        return openHandle(handle);
+    /// Deprecated; call `std.fs.Dir.createFileW` directly.
+    pub fn openWriteModeW(path_w: [*:0]const u16, file_mode: Mode) OpenError!File {
+        return std.fs.cwd().createFileW(path_w, .{ .mode = file_mode });
     }
 
-    /// If the path does not exist it will be created.
-    /// If a file already exists in the destination this returns OpenError.PathAlreadyExists
-    /// Call close to clean up.
+    /// Deprecated; call `std.fs.Dir.createFile` directly.
     pub fn openWriteNoClobber(path: []const u8, file_mode: Mode) OpenError!File {
-        if (windows.is_the_target) {
-            const path_w = try windows.sliceToPrefixedFileW(path);
-            return openWriteNoClobberW(&path_w, file_mode);
-        }
-        const path_c = try os.toPosixPath(path);
-        return openWriteNoClobberC(&path_c, file_mode);
+        return std.fs.cwd().createFile(path, .{
+            .mode = file_mode,
+            .exclusive = true,
+        });
     }
 
-    pub fn openWriteNoClobberC(path: [*]const u8, file_mode: Mode) OpenError!File {
-        if (windows.is_the_target) {
-            const path_w = try windows.cStrToPrefixedFileW(path);
-            return openWriteNoClobberW(&path_w, file_mode);
-        }
-        const flags = os.O_LARGEFILE | os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_EXCL;
-        const fd = try os.openC(path, flags, file_mode);
-        return openHandle(fd);
+    /// Deprecated; call `std.fs.Dir.createFileC` directly.
+    pub fn openWriteNoClobberC(path_c: [*:0]const u8, file_mode: Mode) OpenError!File {
+        return std.fs.cwd().createFileC(path_c, .{
+            .mode = file_mode,
+            .exclusive = true,
+        });
     }
 
-    pub fn openWriteNoClobberW(path_w: [*]const u16, file_mode: Mode) OpenError!File {
-        const handle = try windows.CreateFileW(
-            path_w,
-            windows.GENERIC_WRITE,
-            windows.FILE_SHARE_WRITE | windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE,
-            null,
-            windows.CREATE_NEW,
-            windows.FILE_ATTRIBUTE_NORMAL,
-            null,
-        );
-        return openHandle(handle);
+    /// Deprecated; call `std.fs.Dir.createFileW` directly.
+    pub fn openWriteNoClobberW(path_w: [*:0]const u16, file_mode: Mode) OpenError!File {
+        return std.fs.cwd().createFileW(path_w, .{
+            .mode = file_mode,
+            .exclusive = true,
+        });
     }
 
     pub fn openHandle(handle: os.fd_t) File {
@@ -146,17 +117,20 @@ pub const File = struct {
     /// In general it is recommended to avoid this function. For example,
     /// instead of testing if a file exists and then opening it, just
     /// open it and handle the error for file not found.
+    /// TODO: deprecate this and move it to `std.fs.Dir`.
     pub fn access(path: []const u8) !void {
         return os.access(path, os.F_OK);
     }
 
     /// Same as `access` except the parameter is null-terminated.
-    pub fn accessC(path: [*]const u8) !void {
+    /// TODO: deprecate this and move it to `std.fs.Dir`.
+    pub fn accessC(path: [*:0]const u8) !void {
         return os.accessC(path, os.F_OK);
     }
 
     /// Same as `access` except the parameter is null-terminated UTF16LE-encoded.
-    pub fn accessW(path: [*]const u16) !void {
+    /// TODO: deprecate this and move it to `std.fs.Dir`.
+    pub fn accessW(path: [*:0]const u16) !void {
         return os.accessW(path, os.F_OK);
     }
 
@@ -174,10 +148,20 @@ pub const File = struct {
 
     /// Test whether ANSI escape codes will be treated as such.
     pub fn supportsAnsiEscapeCodes(self: File) bool {
-        if (windows.is_the_target) {
+        if (builtin.os == .windows) {
             return os.isCygwinPty(self.handle);
         }
-        return self.isTty();
+        if (self.isTty()) {
+            if (self.handle == os.STDOUT_FILENO or self.handle == os.STDERR_FILENO) {
+                // Use getenvC to workaround https://github.com/ziglang/zig/issues/3511
+                if (os.getenvC("TERM")) |term| {
+                    if (std.mem.eql(u8, term, "dumb"))
+                        return false;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 
     pub const SeekError = os.SeekError;
@@ -204,7 +188,7 @@ pub const File = struct {
     }
 
     pub fn getEndPos(self: File) GetPosError!u64 {
-        if (windows.is_the_target) {
+        if (builtin.os == .windows) {
             return windows.GetFileSizeEx(self.handle);
         }
         return (try self.stat()).size;
@@ -213,7 +197,7 @@ pub const File = struct {
     pub const ModeError = os.FStatError;
 
     pub fn mode(self: File) ModeError!Mode {
-        if (windows.is_the_target) {
+        if (builtin.os == .windows) {
             return {};
         }
         return (try self.stat()).mode;
@@ -236,13 +220,15 @@ pub const File = struct {
     pub const StatError = os.FStatError;
 
     pub fn stat(self: File) StatError!Stat {
-        if (windows.is_the_target) {
+        if (builtin.os == .windows) {
             var io_status_block: windows.IO_STATUS_BLOCK = undefined;
             var info: windows.FILE_ALL_INFORMATION = undefined;
             const rc = windows.ntdll.NtQueryInformationFile(self.handle, &io_status_block, &info, @sizeOf(windows.FILE_ALL_INFORMATION), .FileAllInformation);
             switch (rc) {
                 windows.STATUS.SUCCESS => {},
                 windows.STATUS.BUFFER_OVERFLOW => {},
+                windows.STATUS.INVALID_PARAMETER => unreachable,
+                windows.STATUS.ACCESS_DENIED => return error.AccessDenied,
                 else => return windows.unexpectedStatus(rc),
             }
             return Stat{
@@ -261,30 +247,38 @@ pub const File = struct {
         return Stat{
             .size = @bitCast(u64, st.size),
             .mode = st.mode,
-            .atime = i64(atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
-            .mtime = i64(mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
-            .ctime = i64(ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
+            .atime = @as(i64, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
+            .mtime = @as(i64, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
+            .ctime = @as(i64, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
         };
     }
 
     pub const UpdateTimesError = os.FutimensError || windows.SetFileTimeError;
 
-    /// `atime`: access timestamp in nanoseconds
-    /// `mtime`: last modification timestamp in nanoseconds
-    pub fn updateTimes(self: File, atime: i64, mtime: i64) UpdateTimesError!void {
-        if (windows.is_the_target) {
+    /// The underlying file system may have a different granularity than nanoseconds,
+    /// and therefore this function cannot guarantee any precision will be stored.
+    /// Further, the maximum value is limited by the system ABI. When a value is provided
+    /// that exceeds this range, the value is clamped to the maximum.
+    pub fn updateTimes(
+        self: File,
+        /// access timestamp in nanoseconds
+        atime: i64,
+        /// last modification timestamp in nanoseconds
+        mtime: i64,
+    ) UpdateTimesError!void {
+        if (builtin.os == .windows) {
             const atime_ft = windows.nanoSecondsToFileTime(atime);
             const mtime_ft = windows.nanoSecondsToFileTime(mtime);
             return windows.SetFileTime(self.handle, null, &atime_ft, &mtime_ft);
         }
         const times = [2]os.timespec{
             os.timespec{
-                .tv_sec = @divFloor(atime, std.time.ns_per_s),
-                .tv_nsec = @mod(atime, std.time.ns_per_s),
+                .tv_sec = math.cast(isize, @divFloor(atime, std.time.ns_per_s)) catch maxInt(isize),
+                .tv_nsec = math.cast(isize, @mod(atime, std.time.ns_per_s)) catch maxInt(isize),
             },
             os.timespec{
-                .tv_sec = @divFloor(mtime, std.time.ns_per_s),
-                .tv_nsec = @mod(mtime, std.time.ns_per_s),
+                .tv_sec = math.cast(isize, @divFloor(mtime, std.time.ns_per_s)) catch maxInt(isize),
+                .tv_nsec = math.cast(isize, @mod(mtime, std.time.ns_per_s)) catch maxInt(isize),
             },
         };
         try os.futimens(self.handle, &times);

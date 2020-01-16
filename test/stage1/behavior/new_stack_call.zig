@@ -12,11 +12,14 @@ test "calling a function with a new stack" {
         // TODO: https://github.com/ziglang/zig/issues/3338
         return error.SkipZigTest;
     }
+    if (comptime !std.Target.current.supportsNewStackCall()) {
+        return error.SkipZigTest;
+    }
 
     const arg = 1234;
 
-    const a = @newStackCall(new_stack_bytes[0..512], targetFunction, arg);
-    const b = @newStackCall(new_stack_bytes[512..], targetFunction, arg);
+    const a = @call(.{ .stack = new_stack_bytes[0..512] }, targetFunction, .{arg});
+    const b = @call(.{ .stack = new_stack_bytes[512..] }, targetFunction, .{arg});
     _ = targetFunction(arg);
 
     expect(arg == 1234);

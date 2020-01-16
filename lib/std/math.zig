@@ -4,14 +4,41 @@ const TypeId = builtin.TypeId;
 const assert = std.debug.assert;
 const testing = std.testing;
 
+/// Euler's number (e)
 pub const e = 2.71828182845904523536028747135266249775724709369995;
+
+/// Archimedes' constant (π)
 pub const pi = 3.14159265358979323846264338327950288419716939937510;
 
+/// Circle constant (τ)
+pub const tau = 2 * pi;
+
+/// log2(e)
+pub const log2e = 1.442695040888963407359924681001892137;
+
+/// log10(e)
+pub const log10e = 0.434294481903251827651128918916605082;
+
+/// ln(2)
+pub const ln2 = 0.693147180559945309417232121458176568;
+
+/// ln(10)
+pub const ln10 = 2.302585092994045684017991454684364208;
+
+/// 2/sqrt(π)
+pub const two_sqrtpi = 1.128379167095512573896158903121545172;
+
+/// sqrt(2)
+pub const sqrt2 = 1.414213562373095048801688724209698079;
+
+/// 1/sqrt(2)
+pub const sqrt1_2 = 0.707106781186547524400844362104849039;
+
 // From a small c++ [program using boost float128](https://github.com/winksaville/cpp_boost_float128)
-pub const f128_true_min = @bitCast(f128, u128(0x00000000000000000000000000000001));
-pub const f128_min = @bitCast(f128, u128(0x00010000000000000000000000000000));
-pub const f128_max = @bitCast(f128, u128(0x7FFEFFFFFFFFFFFFFFFFFFFFFFFFFFFF));
-pub const f128_epsilon = @bitCast(f128, u128(0x3F8F0000000000000000000000000000));
+pub const f128_true_min = @bitCast(f128, @as(u128, 0x00000000000000000000000000000001));
+pub const f128_min = @bitCast(f128, @as(u128, 0x00010000000000000000000000000000));
+pub const f128_max = @bitCast(f128, @as(u128, 0x7FFEFFFFFFFFFFFFFFFFFFFFFFFFFFFF));
+pub const f128_epsilon = @bitCast(f128, @as(u128, 0x3F8F0000000000000000000000000000));
 pub const f128_toint = 1.0 / f128_epsilon;
 
 // float.h details
@@ -33,28 +60,28 @@ pub const f16_max = 65504;
 pub const f16_epsilon = 0.0009765625; // 2**-10
 pub const f16_toint = 1.0 / f16_epsilon;
 
-pub const nan_u16 = u16(0x7C01);
+pub const nan_u16 = @as(u16, 0x7C01);
 pub const nan_f16 = @bitCast(f16, nan_u16);
 
-pub const inf_u16 = u16(0x7C00);
+pub const inf_u16 = @as(u16, 0x7C00);
 pub const inf_f16 = @bitCast(f16, inf_u16);
 
-pub const nan_u32 = u32(0x7F800001);
+pub const nan_u32 = @as(u32, 0x7F800001);
 pub const nan_f32 = @bitCast(f32, nan_u32);
 
-pub const inf_u32 = u32(0x7F800000);
+pub const inf_u32 = @as(u32, 0x7F800000);
 pub const inf_f32 = @bitCast(f32, inf_u32);
 
-pub const nan_u64 = u64(0x7FF << 52) | 1;
+pub const nan_u64 = @as(u64, 0x7FF << 52) | 1;
 pub const nan_f64 = @bitCast(f64, nan_u64);
 
-pub const inf_u64 = u64(0x7FF << 52);
+pub const inf_u64 = @as(u64, 0x7FF << 52);
 pub const inf_f64 = @bitCast(f64, inf_u64);
 
-pub const nan_u128 = u128(0x7fff0000000000000000000000000001);
+pub const nan_u128 = @as(u128, 0x7fff0000000000000000000000000001);
 pub const nan_f128 = @bitCast(f128, nan_u128);
 
-pub const inf_u128 = u128(0x7fff0000000000000000000000000000);
+pub const inf_u128 = @as(u128, 0x7fff0000000000000000000000000000);
 pub const inf_f128 = @bitCast(f128, inf_u128);
 
 pub const nan = @import("math/nan.zig").nan;
@@ -68,7 +95,7 @@ pub fn approxEq(comptime T: type, x: T, y: T, epsilon: T) bool {
 
 // TODO: Hide the following in an internal module.
 pub fn forceEval(value: var) void {
-    const T = @typeOf(value);
+    const T = @TypeOf(value);
     switch (T) {
         f16 => {
             var x: f16 = undefined;
@@ -166,54 +193,8 @@ pub const Complex = complex.Complex;
 
 pub const big = @import("math/big.zig");
 
-test "math" {
-    _ = @import("math/nan.zig");
-    _ = @import("math/isnan.zig");
-    _ = @import("math/fabs.zig");
-    _ = @import("math/ceil.zig");
-    _ = @import("math/floor.zig");
-    _ = @import("math/trunc.zig");
-    _ = @import("math/round.zig");
-    _ = @import("math/frexp.zig");
-    _ = @import("math/modf.zig");
-    _ = @import("math/copysign.zig");
-    _ = @import("math/isfinite.zig");
-    _ = @import("math/isinf.zig");
-    _ = @import("math/isnormal.zig");
-    _ = @import("math/signbit.zig");
-    _ = @import("math/scalbn.zig");
-    _ = @import("math/pow.zig");
-    _ = @import("math/powi.zig");
-    _ = @import("math/sqrt.zig");
-    _ = @import("math/cbrt.zig");
-    _ = @import("math/acos.zig");
-    _ = @import("math/asin.zig");
-    _ = @import("math/atan.zig");
-    _ = @import("math/atan2.zig");
-    _ = @import("math/hypot.zig");
-    _ = @import("math/exp.zig");
-    _ = @import("math/exp2.zig");
-    _ = @import("math/expm1.zig");
-    _ = @import("math/ilogb.zig");
-    _ = @import("math/ln.zig");
-    _ = @import("math/log.zig");
-    _ = @import("math/log2.zig");
-    _ = @import("math/log10.zig");
-    _ = @import("math/log1p.zig");
-    _ = @import("math/fma.zig");
-    _ = @import("math/asinh.zig");
-    _ = @import("math/acosh.zig");
-    _ = @import("math/atanh.zig");
-    _ = @import("math/sinh.zig");
-    _ = @import("math/cosh.zig");
-    _ = @import("math/tanh.zig");
-    _ = @import("math/sin.zig");
-    _ = @import("math/cos.zig");
-    _ = @import("math/tan.zig");
-
-    _ = @import("math/complex.zig");
-
-    _ = @import("math/big.zig");
+test "" {
+    std.meta.refAllDecls(@This());
 }
 
 pub fn floatMantissaBits(comptime T: type) comptime_int {
@@ -258,13 +239,13 @@ pub fn Min(comptime A: type, comptime B: type) type {
         },
         else => {},
     }
-    return @typeOf(A(0) + B(0));
+    return @TypeOf(@as(A, 0) + @as(B, 0));
 }
 
 /// Returns the smaller number. When one of the parameter's type's full range fits in the other,
 /// the return type is the smaller type.
-pub fn min(x: var, y: var) Min(@typeOf(x), @typeOf(y)) {
-    const Result = Min(@typeOf(x), @typeOf(y));
+pub fn min(x: var, y: var) Min(@TypeOf(x), @TypeOf(y)) {
+    const Result = Min(@TypeOf(x), @TypeOf(y));
     if (x < y) {
         // TODO Zig should allow this as an implicit cast because x is immutable and in this
         // scope it is known to fit in the return type.
@@ -283,43 +264,62 @@ pub fn min(x: var, y: var) Min(@typeOf(x), @typeOf(y)) {
 }
 
 test "math.min" {
-    testing.expect(min(i32(-1), i32(2)) == -1);
+    testing.expect(min(@as(i32, -1), @as(i32, 2)) == -1);
     {
         var a: u16 = 999;
         var b: u32 = 10;
         var result = min(a, b);
-        testing.expect(@typeOf(result) == u16);
+        testing.expect(@TypeOf(result) == u16);
         testing.expect(result == 10);
     }
     {
         var a: f64 = 10.34;
         var b: f32 = 999.12;
         var result = min(a, b);
-        testing.expect(@typeOf(result) == f64);
+        testing.expect(@TypeOf(result) == f64);
         testing.expect(result == 10.34);
     }
     {
         var a: i8 = -127;
         var b: i16 = -200;
         var result = min(a, b);
-        testing.expect(@typeOf(result) == i16);
+        testing.expect(@TypeOf(result) == i16);
         testing.expect(result == -200);
     }
     {
         const a = 10.34;
         var b: f32 = 999.12;
         var result = min(a, b);
-        testing.expect(@typeOf(result) == f32);
+        testing.expect(@TypeOf(result) == f32);
         testing.expect(result == 10.34);
     }
 }
 
-pub fn max(x: var, y: var) @typeOf(x + y) {
+pub fn max(x: var, y: var) @TypeOf(x + y) {
     return if (x > y) x else y;
 }
 
 test "math.max" {
-    testing.expect(max(i32(-1), i32(2)) == 2);
+    testing.expect(max(@as(i32, -1), @as(i32, 2)) == 2);
+}
+
+pub fn clamp(clamped_val: var, bound_1: var, bound_2: var) Min(@TypeOf(bound_1), @TypeOf(bound_2)) {
+    const upper_bound = max(bound_1, bound_2);
+    const lower_bound = min(bound_1, bound_2);
+    return min(upper_bound, max(clamped_val, lower_bound));
+}
+test "math.clamp" {
+    // Within range
+    testing.expect(std.math.clamp(@as(i32, -1), @as(i32, -4), @as(i32, 7)) == -1);
+    // Below
+    testing.expect(std.math.clamp(@as(i32, -5), @as(i32, -4), @as(i32, 7)) == -4);
+    // Above
+    testing.expect(std.math.clamp(@as(i32, 8), @as(i32, -4), @as(i32, 7)) == 7);
+
+    // Reverse
+    testing.expect(std.math.clamp(@as(i32, -1), @as(i32, 7), @as(i32, -4)) == -1);
+    testing.expect(std.math.clamp(@as(i32, -5), @as(i32, 7), @as(i32, -4)) == -4);
+    testing.expect(std.math.clamp(@as(i32, 8), @as(i32, 7), @as(i32, -4)) == 7);
 }
 
 pub fn mul(comptime T: type, a: T, b: T) (error{Overflow}!T) {
@@ -337,8 +337,8 @@ pub fn sub(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     return if (@subWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
-pub fn negate(x: var) !@typeOf(x) {
-    return sub(@typeOf(x), 0, x);
+pub fn negate(x: var) !@TypeOf(x) {
+    return sub(@TypeOf(x), 0, x);
 }
 
 pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) !T {
@@ -352,7 +352,7 @@ pub fn shl(comptime T: type, a: T, shift_amt: var) T {
     const abs_shift_amt = absCast(shift_amt);
     const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else @intCast(Log2Int(T), abs_shift_amt);
 
-    if (@typeOf(shift_amt) == comptime_int or @typeOf(shift_amt).is_signed) {
+    if (@TypeOf(shift_amt) == comptime_int or @TypeOf(shift_amt).is_signed) {
         if (shift_amt < 0) {
             return a >> casted_shift_amt;
         }
@@ -362,10 +362,10 @@ pub fn shl(comptime T: type, a: T, shift_amt: var) T {
 }
 
 test "math.shl" {
-    testing.expect(shl(u8, 0b11111111, usize(3)) == 0b11111000);
-    testing.expect(shl(u8, 0b11111111, usize(8)) == 0);
-    testing.expect(shl(u8, 0b11111111, usize(9)) == 0);
-    testing.expect(shl(u8, 0b11111111, isize(-2)) == 0b00111111);
+    testing.expect(shl(u8, 0b11111111, @as(usize, 3)) == 0b11111000);
+    testing.expect(shl(u8, 0b11111111, @as(usize, 8)) == 0);
+    testing.expect(shl(u8, 0b11111111, @as(usize, 9)) == 0);
+    testing.expect(shl(u8, 0b11111111, @as(isize, -2)) == 0b00111111);
     testing.expect(shl(u8, 0b11111111, 3) == 0b11111000);
     testing.expect(shl(u8, 0b11111111, 8) == 0);
     testing.expect(shl(u8, 0b11111111, 9) == 0);
@@ -378,7 +378,7 @@ pub fn shr(comptime T: type, a: T, shift_amt: var) T {
     const abs_shift_amt = absCast(shift_amt);
     const casted_shift_amt = if (abs_shift_amt >= T.bit_count) return 0 else @intCast(Log2Int(T), abs_shift_amt);
 
-    if (@typeOf(shift_amt) == comptime_int or @typeOf(shift_amt).is_signed) {
+    if (@TypeOf(shift_amt) == comptime_int or @TypeOf(shift_amt).is_signed) {
         if (shift_amt >= 0) {
             return a >> casted_shift_amt;
         } else {
@@ -390,10 +390,10 @@ pub fn shr(comptime T: type, a: T, shift_amt: var) T {
 }
 
 test "math.shr" {
-    testing.expect(shr(u8, 0b11111111, usize(3)) == 0b00011111);
-    testing.expect(shr(u8, 0b11111111, usize(8)) == 0);
-    testing.expect(shr(u8, 0b11111111, usize(9)) == 0);
-    testing.expect(shr(u8, 0b11111111, isize(-2)) == 0b11111100);
+    testing.expect(shr(u8, 0b11111111, @as(usize, 3)) == 0b00011111);
+    testing.expect(shr(u8, 0b11111111, @as(usize, 8)) == 0);
+    testing.expect(shr(u8, 0b11111111, @as(usize, 9)) == 0);
+    testing.expect(shr(u8, 0b11111111, @as(isize, -2)) == 0b11111100);
     testing.expect(shr(u8, 0b11111111, 3) == 0b00011111);
     testing.expect(shr(u8, 0b11111111, 8) == 0);
     testing.expect(shr(u8, 0b11111111, 9) == 0);
@@ -412,11 +412,11 @@ pub fn rotr(comptime T: type, x: T, r: var) T {
 }
 
 test "math.rotr" {
-    testing.expect(rotr(u8, 0b00000001, usize(0)) == 0b00000001);
-    testing.expect(rotr(u8, 0b00000001, usize(9)) == 0b10000000);
-    testing.expect(rotr(u8, 0b00000001, usize(8)) == 0b00000001);
-    testing.expect(rotr(u8, 0b00000001, usize(4)) == 0b00010000);
-    testing.expect(rotr(u8, 0b00000001, isize(-1)) == 0b00000010);
+    testing.expect(rotr(u8, 0b00000001, @as(usize, 0)) == 0b00000001);
+    testing.expect(rotr(u8, 0b00000001, @as(usize, 9)) == 0b10000000);
+    testing.expect(rotr(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
+    testing.expect(rotr(u8, 0b00000001, @as(usize, 4)) == 0b00010000);
+    testing.expect(rotr(u8, 0b00000001, @as(isize, -1)) == 0b00000010);
 }
 
 /// Rotates left. Only unsigned values can be rotated.
@@ -431,11 +431,11 @@ pub fn rotl(comptime T: type, x: T, r: var) T {
 }
 
 test "math.rotl" {
-    testing.expect(rotl(u8, 0b00000001, usize(0)) == 0b00000001);
-    testing.expect(rotl(u8, 0b00000001, usize(9)) == 0b00000010);
-    testing.expect(rotl(u8, 0b00000001, usize(8)) == 0b00000001);
-    testing.expect(rotl(u8, 0b00000001, usize(4)) == 0b00010000);
-    testing.expect(rotl(u8, 0b00000001, isize(-1)) == 0b10000000);
+    testing.expect(rotl(u8, 0b00000001, @as(usize, 0)) == 0b00000001);
+    testing.expect(rotl(u8, 0b00000001, @as(usize, 9)) == 0b00000010);
+    testing.expect(rotl(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
+    testing.expect(rotl(u8, 0b00000001, @as(usize, 4)) == 0b00010000);
+    testing.expect(rotl(u8, 0b00000001, @as(isize, -1)) == 0b10000000);
 }
 
 pub fn Log2Int(comptime T: type) type {
@@ -524,12 +524,12 @@ fn testOverflow() void {
     testing.expect((shlExact(i32, 0b11, 4) catch unreachable) == 0b110000);
 }
 
-pub fn absInt(x: var) !@typeOf(x) {
-    const T = @typeOf(x);
+pub fn absInt(x: var) !@TypeOf(x) {
+    const T = @TypeOf(x);
     comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
     comptime assert(T.is_signed); // must pass a signed integer to absInt
 
-    if (x == minInt(@typeOf(x))) {
+    if (x == minInt(@TypeOf(x))) {
         return error.Overflow;
     } else {
         @setRuntimeSafety(false);
@@ -542,8 +542,8 @@ test "math.absInt" {
     comptime testAbsInt();
 }
 fn testAbsInt() void {
-    testing.expect((absInt(i32(-10)) catch unreachable) == 10);
-    testing.expect((absInt(i32(10)) catch unreachable) == 10);
+    testing.expect((absInt(@as(i32, -10)) catch unreachable) == 10);
+    testing.expect((absInt(@as(i32, 10)) catch unreachable) == 10);
 }
 
 pub const absFloat = fabs;
@@ -553,8 +553,8 @@ test "math.absFloat" {
     comptime testAbsFloat();
 }
 fn testAbsFloat() void {
-    testing.expect(absFloat(f32(-10.05)) == 10.05);
-    testing.expect(absFloat(f32(10.05)) == 10.05);
+    testing.expect(absFloat(@as(f32, -10.05)) == 10.05);
+    testing.expect(absFloat(@as(f32, 10.05)) == 10.05);
 }
 
 pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
@@ -673,40 +673,40 @@ fn testRem() void {
 /// Returns the absolute value of the integer parameter.
 /// Result is an unsigned integer.
 pub fn absCast(x: var) t: {
-    if (@typeOf(x) == comptime_int) {
+    if (@TypeOf(x) == comptime_int) {
         break :t comptime_int;
     } else {
-        break :t @IntType(false, @typeOf(x).bit_count);
+        break :t @IntType(false, @TypeOf(x).bit_count);
     }
 } {
-    if (@typeOf(x) == comptime_int) {
+    if (@TypeOf(x) == comptime_int) {
         return if (x < 0) -x else x;
     }
-    const uint = @IntType(false, @typeOf(x).bit_count);
+    const uint = @IntType(false, @TypeOf(x).bit_count);
     if (x >= 0) return @intCast(uint, x);
 
     return @intCast(uint, -(x + 1)) + 1;
 }
 
 test "math.absCast" {
-    testing.expect(absCast(i32(-999)) == 999);
-    testing.expect(@typeOf(absCast(i32(-999))) == u32);
+    testing.expect(absCast(@as(i32, -999)) == 999);
+    testing.expect(@TypeOf(absCast(@as(i32, -999))) == u32);
 
-    testing.expect(absCast(i32(999)) == 999);
-    testing.expect(@typeOf(absCast(i32(999))) == u32);
+    testing.expect(absCast(@as(i32, 999)) == 999);
+    testing.expect(@TypeOf(absCast(@as(i32, 999))) == u32);
 
-    testing.expect(absCast(i32(minInt(i32))) == -minInt(i32));
-    testing.expect(@typeOf(absCast(i32(minInt(i32)))) == u32);
+    testing.expect(absCast(@as(i32, minInt(i32))) == -minInt(i32));
+    testing.expect(@TypeOf(absCast(@as(i32, minInt(i32)))) == u32);
 
     testing.expect(absCast(-999) == 999);
 }
 
 /// Returns the negation of the integer parameter.
 /// Result is a signed integer.
-pub fn negateCast(x: var) !@IntType(true, @typeOf(x).bit_count) {
-    if (@typeOf(x).is_signed) return negate(x);
+pub fn negateCast(x: var) !@IntType(true, @TypeOf(x).bit_count) {
+    if (@TypeOf(x).is_signed) return negate(x);
 
-    const int = @IntType(true, @typeOf(x).bit_count);
+    const int = @IntType(true, @TypeOf(x).bit_count);
     if (x > -minInt(int)) return error.Overflow;
 
     if (x == -minInt(int)) return minInt(int);
@@ -715,23 +715,23 @@ pub fn negateCast(x: var) !@IntType(true, @typeOf(x).bit_count) {
 }
 
 test "math.negateCast" {
-    testing.expect((negateCast(u32(999)) catch unreachable) == -999);
-    testing.expect(@typeOf(negateCast(u32(999)) catch unreachable) == i32);
+    testing.expect((negateCast(@as(u32, 999)) catch unreachable) == -999);
+    testing.expect(@TypeOf(negateCast(@as(u32, 999)) catch unreachable) == i32);
 
-    testing.expect((negateCast(u32(-minInt(i32))) catch unreachable) == minInt(i32));
-    testing.expect(@typeOf(negateCast(u32(-minInt(i32))) catch unreachable) == i32);
+    testing.expect((negateCast(@as(u32, -minInt(i32))) catch unreachable) == minInt(i32));
+    testing.expect(@TypeOf(negateCast(@as(u32, -minInt(i32))) catch unreachable) == i32);
 
-    testing.expectError(error.Overflow, negateCast(u32(maxInt(i32) + 10)));
+    testing.expectError(error.Overflow, negateCast(@as(u32, maxInt(i32) + 10)));
 }
 
 /// Cast an integer to a different integer type. If the value doesn't fit,
 /// return an error.
 pub fn cast(comptime T: type, x: var) (error{Overflow}!T) {
     comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer
-    comptime assert(@typeId(@typeOf(x)) == builtin.TypeId.Int); // must pass an integer
-    if (maxInt(@typeOf(x)) > maxInt(T) and x > maxInt(T)) {
+    comptime assert(@typeId(@TypeOf(x)) == builtin.TypeId.Int); // must pass an integer
+    if (maxInt(@TypeOf(x)) > maxInt(T) and x > maxInt(T)) {
         return error.Overflow;
-    } else if (minInt(@typeOf(x)) < minInt(T) and x < minInt(T)) {
+    } else if (minInt(@TypeOf(x)) < minInt(T) and x < minInt(T)) {
         return error.Overflow;
     } else {
         return @intCast(T, x);
@@ -739,19 +739,19 @@ pub fn cast(comptime T: type, x: var) (error{Overflow}!T) {
 }
 
 test "math.cast" {
-    testing.expectError(error.Overflow, cast(u8, u32(300)));
-    testing.expectError(error.Overflow, cast(i8, i32(-200)));
-    testing.expectError(error.Overflow, cast(u8, i8(-1)));
-    testing.expectError(error.Overflow, cast(u64, i8(-1)));
+    testing.expectError(error.Overflow, cast(u8, @as(u32, 300)));
+    testing.expectError(error.Overflow, cast(i8, @as(i32, -200)));
+    testing.expectError(error.Overflow, cast(u8, @as(i8, -1)));
+    testing.expectError(error.Overflow, cast(u64, @as(i8, -1)));
 
-    testing.expect((try cast(u8, u32(255))) == u8(255));
-    testing.expect(@typeOf(try cast(u8, u32(255))) == u8);
+    testing.expect((try cast(u8, @as(u32, 255))) == @as(u8, 255));
+    testing.expect(@TypeOf(try cast(u8, @as(u32, 255))) == u8);
 }
 
 pub const AlignCastError = error{UnalignedMemory};
 
 /// Align cast a pointer but return an error if it's the wrong alignment
-pub fn alignCast(comptime alignment: u29, ptr: var) AlignCastError!@typeOf(@alignCast(alignment, ptr)) {
+pub fn alignCast(comptime alignment: u29, ptr: var) AlignCastError!@TypeOf(@alignCast(alignment, ptr)) {
     const addr = @ptrToInt(ptr);
     if (addr % alignment != 0) {
         return error.UnalignedMemory;
@@ -796,9 +796,9 @@ pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) @IntType(T.is_signed, T
     comptime assert(@typeId(T) == builtin.TypeId.Int);
     comptime assert(!T.is_signed);
     assert(value != 0);
-    comptime const promotedType = @IntType(T.is_signed, T.bit_count + 1);
-    comptime const shiftType = std.math.Log2Int(promotedType);
-    return promotedType(1) << @intCast(shiftType, T.bit_count - @clz(T, value - 1));
+    comptime const PromotedType = @IntType(T.is_signed, T.bit_count + 1);
+    comptime const shiftType = std.math.Log2Int(PromotedType);
+    return @as(PromotedType, 1) << @intCast(shiftType, T.bit_count - @clz(T, value - 1));
 }
 
 /// Returns the next power of two (if the value is not already a power of two).
@@ -807,8 +807,8 @@ pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) @IntType(T.is_signed, T
 pub fn ceilPowerOfTwo(comptime T: type, value: T) (error{Overflow}!T) {
     comptime assert(@typeId(T) == builtin.TypeId.Int);
     comptime assert(!T.is_signed);
-    comptime const promotedType = @IntType(T.is_signed, T.bit_count + 1);
-    comptime const overflowBit = promotedType(1) << T.bit_count;
+    comptime const PromotedType = @IntType(T.is_signed, T.bit_count + 1);
+    comptime const overflowBit = @as(PromotedType, 1) << T.bit_count;
     var x = ceilPowerOfTwoPromote(T, value);
     if (overflowBit & x != 0) {
         return error.Overflow;
@@ -822,15 +822,15 @@ test "math.ceilPowerOfTwoPromote" {
 }
 
 fn testCeilPowerOfTwoPromote() void {
-    testing.expectEqual(u33(1), ceilPowerOfTwoPromote(u32, 1));
-    testing.expectEqual(u33(2), ceilPowerOfTwoPromote(u32, 2));
-    testing.expectEqual(u33(64), ceilPowerOfTwoPromote(u32, 63));
-    testing.expectEqual(u33(64), ceilPowerOfTwoPromote(u32, 64));
-    testing.expectEqual(u33(128), ceilPowerOfTwoPromote(u32, 65));
-    testing.expectEqual(u6(8), ceilPowerOfTwoPromote(u5, 7));
-    testing.expectEqual(u6(8), ceilPowerOfTwoPromote(u5, 8));
-    testing.expectEqual(u6(16), ceilPowerOfTwoPromote(u5, 9));
-    testing.expectEqual(u5(16), ceilPowerOfTwoPromote(u4, 9));
+    testing.expectEqual(@as(u33, 1), ceilPowerOfTwoPromote(u32, 1));
+    testing.expectEqual(@as(u33, 2), ceilPowerOfTwoPromote(u32, 2));
+    testing.expectEqual(@as(u33, 64), ceilPowerOfTwoPromote(u32, 63));
+    testing.expectEqual(@as(u33, 64), ceilPowerOfTwoPromote(u32, 64));
+    testing.expectEqual(@as(u33, 128), ceilPowerOfTwoPromote(u32, 65));
+    testing.expectEqual(@as(u6, 8), ceilPowerOfTwoPromote(u5, 7));
+    testing.expectEqual(@as(u6, 8), ceilPowerOfTwoPromote(u5, 8));
+    testing.expectEqual(@as(u6, 16), ceilPowerOfTwoPromote(u5, 9));
+    testing.expectEqual(@as(u5, 16), ceilPowerOfTwoPromote(u4, 9));
 }
 
 test "math.ceilPowerOfTwo" {
@@ -839,14 +839,14 @@ test "math.ceilPowerOfTwo" {
 }
 
 fn testCeilPowerOfTwo() !void {
-    testing.expectEqual(u32(1), try ceilPowerOfTwo(u32, 1));
-    testing.expectEqual(u32(2), try ceilPowerOfTwo(u32, 2));
-    testing.expectEqual(u32(64), try ceilPowerOfTwo(u32, 63));
-    testing.expectEqual(u32(64), try ceilPowerOfTwo(u32, 64));
-    testing.expectEqual(u32(128), try ceilPowerOfTwo(u32, 65));
-    testing.expectEqual(u5(8), try ceilPowerOfTwo(u5, 7));
-    testing.expectEqual(u5(8), try ceilPowerOfTwo(u5, 8));
-    testing.expectEqual(u5(16), try ceilPowerOfTwo(u5, 9));
+    testing.expectEqual(@as(u32, 1), try ceilPowerOfTwo(u32, 1));
+    testing.expectEqual(@as(u32, 2), try ceilPowerOfTwo(u32, 2));
+    testing.expectEqual(@as(u32, 64), try ceilPowerOfTwo(u32, 63));
+    testing.expectEqual(@as(u32, 64), try ceilPowerOfTwo(u32, 64));
+    testing.expectEqual(@as(u32, 128), try ceilPowerOfTwo(u32, 65));
+    testing.expectEqual(@as(u5, 8), try ceilPowerOfTwo(u5, 7));
+    testing.expectEqual(@as(u5, 8), try ceilPowerOfTwo(u5, 8));
+    testing.expectEqual(@as(u5, 16), try ceilPowerOfTwo(u5, 9));
     testing.expectError(error.Overflow, ceilPowerOfTwo(u4, 9));
 }
 
@@ -858,7 +858,7 @@ pub fn log2_int(comptime T: type, x: T) Log2Int(T) {
 pub fn log2_int_ceil(comptime T: type, x: T) Log2Int(T) {
     assert(x != 0);
     const log2_val = log2_int(T, x);
-    if (T(1) << log2_val == x)
+    if (@as(T, 1) << log2_val == x)
         return log2_val;
     return log2_val + 1;
 }
@@ -877,11 +877,11 @@ test "std.math.log2_int_ceil" {
 }
 
 pub fn lossyCast(comptime T: type, value: var) T {
-    switch (@typeInfo(@typeOf(value))) {
+    switch (@typeInfo(@TypeOf(value))) {
         builtin.TypeId.Int => return @intToFloat(T, value),
         builtin.TypeId.Float => return @floatCast(T, value),
-        builtin.TypeId.ComptimeInt => return T(value),
-        builtin.TypeId.ComptimeFloat => return T(value),
+        builtin.TypeId.ComptimeInt => return @as(T, value),
+        builtin.TypeId.ComptimeFloat => return @as(T, value),
         else => @compileError("bad type"),
     }
 }
@@ -945,20 +945,97 @@ test "minInt and maxInt" {
 }
 
 test "max value type" {
-    // If the type of maxInt(i32) was i32 then this implicit cast to
-    // u32 would not work. But since the value is a number literal,
-    // it works fine.
     const x: u32 = maxInt(i32);
     testing.expect(x == 2147483647);
 }
 
 pub fn mulWide(comptime T: type, a: T, b: T) @IntType(T.is_signed, T.bit_count * 2) {
     const ResultInt = @IntType(T.is_signed, T.bit_count * 2);
-    return ResultInt(a) * ResultInt(b);
+    return @as(ResultInt, a) * @as(ResultInt, b);
 }
 
 test "math.mulWide" {
     testing.expect(mulWide(u8, 5, 5) == 25);
     testing.expect(mulWide(i8, 5, -5) == -25);
     testing.expect(mulWide(u8, 100, 100) == 10000);
+}
+
+/// See also `CompareOperator`.
+pub const Order = enum {
+    /// Less than (`<`)
+    lt,
+
+    /// Equal (`==`)
+    eq,
+
+    /// Greater than (`>`)
+    gt,
+};
+
+/// Given two numbers, this function returns the order they are with respect to each other.
+pub fn order(a: var, b: var) Order {
+    if (a == b) {
+        return .eq;
+    } else if (a < b) {
+        return .lt;
+    } else if (a > b) {
+        return .gt;
+    } else {
+        unreachable;
+    }
+}
+
+/// See also `Order`.
+pub const CompareOperator = enum {
+    /// Less than (`<`)
+    lt,
+
+    /// Less than or equal (`<=`)
+    lte,
+
+    /// Equal (`==`)
+    eq,
+
+    /// Greater than or equal (`>=`)
+    gte,
+
+    /// Greater than (`>`)
+    gt,
+
+    /// Not equal (`!=`)
+    neq,
+};
+
+/// This function does the same thing as comparison operators, however the
+/// operator is a runtime-known enum value. Works on any operands that
+/// support comparison operators.
+pub fn compare(a: var, op: CompareOperator, b: var) bool {
+    return switch (op) {
+        .lt => a < b,
+        .lte => a <= b,
+        .eq => a == b,
+        .neq => a != b,
+        .gt => a > b,
+        .gte => a >= b,
+    };
+}
+
+test "compare between signed and unsigned" {
+    testing.expect(compare(@as(i8, -1), .lt, @as(u8, 255)));
+    testing.expect(compare(@as(i8, 2), .gt, @as(u8, 1)));
+    testing.expect(!compare(@as(i8, -1), .gte, @as(u8, 255)));
+    testing.expect(compare(@as(u8, 255), .gt, @as(i8, -1)));
+    testing.expect(!compare(@as(u8, 255), .lte, @as(i8, -1)));
+    testing.expect(compare(@as(i8, -1), .lt, @as(u9, 255)));
+    testing.expect(!compare(@as(i8, -1), .gte, @as(u9, 255)));
+    testing.expect(compare(@as(u9, 255), .gt, @as(i8, -1)));
+    testing.expect(!compare(@as(u9, 255), .lte, @as(i8, -1)));
+    testing.expect(compare(@as(i9, -1), .lt, @as(u8, 255)));
+    testing.expect(!compare(@as(i9, -1), .gte, @as(u8, 255)));
+    testing.expect(compare(@as(u8, 255), .gt, @as(i9, -1)));
+    testing.expect(!compare(@as(u8, 255), .lte, @as(i9, -1)));
+    testing.expect(compare(@as(u8, 1), .lt, @as(u8, 2)));
+    testing.expect(@bitCast(u8, @as(i8, -1)) == @as(u8, 255));
+    testing.expect(!compare(@as(u8, 255), .eq, @as(i8, -1)));
+    testing.expect(compare(@as(u8, 1), .eq, @as(u8, 1)));
 }

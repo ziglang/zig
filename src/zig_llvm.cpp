@@ -34,6 +34,9 @@
 #include <llvm/MC/SubtargetFeature.h>
 #include <llvm/Object/Archive.h>
 #include <llvm/Object/ArchiveWriter.h>
+#include <llvm/Object/COFF.h>
+#include <llvm/Object/COFFImportFile.h>
+#include <llvm/Object/COFFModuleDefinition.h>
 #include <llvm/PassRegistry.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/TargetParser.h>
@@ -153,6 +156,10 @@ unsigned ZigLLVMDataLayoutGetStackAlignment(LLVMTargetDataRef TD) {
     return unwrap(TD)->getStackAlignment().value();
 }
 
+unsigned ZigLLVMDataLayoutGetProgramAddressSpace(LLVMTargetDataRef TD) {
+    return unwrap(TD)->getProgramAddressSpace();
+}
+
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         const char *filename, ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug,
         bool is_small, bool time_report)
@@ -266,18 +273,24 @@ ZIG_EXTERN_C LLVMTypeRef ZigLLVMTokenTypeInContext(LLVMContextRef context_ref) {
 }
 
 LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
-        unsigned NumArgs, unsigned CC, ZigLLVM_FnInline fn_inline, const char *Name)
+        unsigned NumArgs, ZigLLVM_CallingConv CC, ZigLLVM_CallAttr attr, const char *Name)
 {
     CallInst *call_inst = CallInst::Create(unwrap(Fn), makeArrayRef(unwrap(Args), NumArgs), Name);
-    call_inst->setCallingConv(CC);
-    switch (fn_inline) {
-        case ZigLLVM_FnInlineAuto:
+    call_inst->setCallingConv(static_cast<CallingConv::ID>(CC));
+    switch (attr) {
+        case ZigLLVM_CallAttrAuto:
             break;
-        case ZigLLVM_FnInlineAlways:
-            call_inst->addAttribute(AttributeList::FunctionIndex, Attribute::AlwaysInline);
+        case ZigLLVM_CallAttrNeverTail:
+            call_inst->setTailCallKind(CallInst::TCK_NoTail);
             break;
-        case ZigLLVM_FnInlineNever:
+        case ZigLLVM_CallAttrNeverInline:
             call_inst->addAttribute(AttributeList::FunctionIndex, Attribute::NoInline);
+            break;
+        case ZigLLVM_CallAttrAlwaysTail:
+            call_inst->setTailCallKind(CallInst::TCK_MustTail);
+            break;
+        case ZigLLVM_CallAttrAlwaysInline:
+            call_inst->addAttribute(AttributeList::FunctionIndex, Attribute::AlwaysInline);
             break;
     }
     return wrap(unwrap(B)->Insert(call_inst));
@@ -919,6 +932,9 @@ void ZigLLVMFunctionSetPrefixData(LLVMValueRef function, LLVMValueRef data) {
     unwrap<Function>(function)->setPrefixData(unwrap<Constant>(data));
 }
 
+void ZigLLVMFunctionSetCallingConv(LLVMValueRef function, ZigLLVM_CallingConv cc) {
+    unwrap<Function>(function)->setCallingConv(static_cast<CallingConv::ID>(cc));
+}
 
 class MyOStream: public raw_ostream {
     public:
@@ -937,6 +953,85 @@ class MyOStream: public raw_ostream {
         void *context;
         size_t pos;
 };
+
+bool ZigLLVMWriteImportLibrary(const char *def_path, const ZigLLVM_ArchType arch,
+                               const char *output_lib_path, const bool kill_at)
+{
+    COFF::MachineTypes machine = COFF::IMAGE_FILE_MACHINE_UNKNOWN;
+
+    switch (arch) {
+        case ZigLLVM_x86:
+            machine = COFF::IMAGE_FILE_MACHINE_I386;
+            break;
+        case ZigLLVM_x86_64:
+            machine = COFF::IMAGE_FILE_MACHINE_AMD64;
+            break;
+        case ZigLLVM_arm:
+        case ZigLLVM_armeb:
+        case ZigLLVM_thumb:
+        case ZigLLVM_thumbeb:
+            machine = COFF::IMAGE_FILE_MACHINE_ARMNT;
+            break;
+        case ZigLLVM_aarch64:
+        case ZigLLVM_aarch64_be:
+            machine = COFF::IMAGE_FILE_MACHINE_ARM64;
+            break;
+        default:
+            break;
+    }
+
+    if (machine == COFF::IMAGE_FILE_MACHINE_UNKNOWN) {
+        return true;
+    }
+
+    auto bufOrErr = MemoryBuffer::getFile(def_path);
+    if (!bufOrErr) {
+        return false;
+    }
+
+    MemoryBuffer& buf = *bufOrErr.get();
+    Expected<object::COFFModuleDefinition> def =
+        object::parseCOFFModuleDefinition(buf, machine, /* MingwDef */ true);
+
+    if (!def) {
+        return true;
+    }
+
+    // The exports-juggling code below is ripped from LLVM's DllToolDriver.cpp
+
+    // If ExtName is set (if the "ExtName = Name" syntax was used), overwrite
+    // Name with ExtName and clear ExtName. When only creating an import
+    // library and not linking, the internal name is irrelevant. This avoids
+    // cases where writeImportLibrary tries to transplant decoration from
+    // symbol decoration onto ExtName.
+    for (object::COFFShortExport& E : def->Exports) {
+        if (!E.ExtName.empty()) {
+            E.Name = E.ExtName;
+            E.ExtName.clear();
+        }
+    }
+
+    if (machine == COFF::IMAGE_FILE_MACHINE_I386 && kill_at) {
+        for (object::COFFShortExport& E : def->Exports) {
+            if (!E.AliasTarget.empty() || (!E.Name.empty() && E.Name[0] == '?'))
+                continue;
+            E.SymbolName = E.Name;
+            // Trim off the trailing decoration. Symbols will always have a
+            // starting prefix here (either _ for cdecl/stdcall, @ for fastcall
+            // or ? for C++ functions). Vectorcall functions won't have any
+            // fixed prefix, but the function base name will still be at least
+            // one char.
+            E.Name = E.Name.substr(0, E.Name.find('@', 1));
+            // By making sure E.SymbolName != E.Name for decorated symbols,
+            // writeImportLibrary writes these symbols with the type
+            // IMPORT_NAME_UNDECORATE.
+        }
+    }
+
+    return static_cast<bool>(
+        object::writeImportLibrary(def->OutputFile, output_lib_path,
+                                   def->Exports, machine, /* MinGW */ true));
+}
 
 bool ZigLLVMWriteArchive(const char *archive_name, const char **file_names, size_t file_name_count,
         ZigLLVM_OSType os_type)
@@ -1002,6 +1097,56 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
     }
     assert(false); // unreachable
     abort();
+}
+
+static AtomicRMWInst::BinOp toLLVMRMWBinOp(enum ZigLLVM_AtomicRMWBinOp BinOp) {
+    switch (BinOp) {
+        default:
+        case ZigLLVMAtomicRMWBinOpXchg: return AtomicRMWInst::Xchg;
+        case ZigLLVMAtomicRMWBinOpAdd: return AtomicRMWInst::Add;
+        case ZigLLVMAtomicRMWBinOpSub: return AtomicRMWInst::Sub;
+        case ZigLLVMAtomicRMWBinOpAnd: return AtomicRMWInst::And;
+        case ZigLLVMAtomicRMWBinOpNand: return AtomicRMWInst::Nand;
+        case ZigLLVMAtomicRMWBinOpOr: return AtomicRMWInst::Or;
+        case ZigLLVMAtomicRMWBinOpXor: return AtomicRMWInst::Xor;
+        case ZigLLVMAtomicRMWBinOpMax: return AtomicRMWInst::Max;
+        case ZigLLVMAtomicRMWBinOpMin: return AtomicRMWInst::Min;
+        case ZigLLVMAtomicRMWBinOpUMax: return AtomicRMWInst::UMax;
+        case ZigLLVMAtomicRMWBinOpUMin: return AtomicRMWInst::UMin;
+        case ZigLLVMAtomicRMWBinOpFAdd: return AtomicRMWInst::FAdd;
+        case ZigLLVMAtomicRMWBinOpFSub: return AtomicRMWInst::FSub;
+    }
+}
+
+static AtomicOrdering toLLVMOrdering(LLVMAtomicOrdering Ordering) {
+    switch (Ordering) {
+        default:
+        case LLVMAtomicOrderingNotAtomic: return AtomicOrdering::NotAtomic;
+        case LLVMAtomicOrderingUnordered: return AtomicOrdering::Unordered;
+        case LLVMAtomicOrderingMonotonic: return AtomicOrdering::Monotonic;
+        case LLVMAtomicOrderingAcquire: return AtomicOrdering::Acquire;
+        case LLVMAtomicOrderingRelease: return AtomicOrdering::Release;
+        case LLVMAtomicOrderingAcquireRelease: return AtomicOrdering::AcquireRelease;
+        case LLVMAtomicOrderingSequentiallyConsistent: return AtomicOrdering::SequentiallyConsistent;
+    }
+}
+
+inline LLVMAttributeRef wrap(Attribute Attr) {
+    return reinterpret_cast<LLVMAttributeRef>(Attr.getRawPointer());
+}
+
+inline Attribute unwrap(LLVMAttributeRef Attr) {
+    return Attribute::fromRawPointer(Attr);
+}
+
+LLVMValueRef ZigLLVMBuildAtomicRMW(LLVMBuilderRef B, enum ZigLLVM_AtomicRMWBinOp op,
+    LLVMValueRef PTR, LLVMValueRef Val,
+    LLVMAtomicOrdering ordering, LLVMBool singleThread) 
+{
+    AtomicRMWInst::BinOp intop = toLLVMRMWBinOp(op);
+    return wrap(unwrap(B)->CreateAtomicRMW(intop, unwrap(PTR),
+        unwrap(Val), toLLVMOrdering(ordering), 
+        singleThread ? SyncScope::SingleThread : SyncScope::System));
 }
 
 static_assert((Triple::ArchType)ZigLLVM_UnknownArch == Triple::UnknownArch, "");
@@ -1173,3 +1318,49 @@ static_assert((Triple::ObjectFormatType)ZigLLVM_ELF == Triple::ELF, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_MachO == Triple::MachO, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_Wasm == Triple::Wasm, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_XCOFF == Triple::XCOFF, "");
+
+static_assert((CallingConv::ID)ZigLLVM_C == llvm::CallingConv::C, "");
+static_assert((CallingConv::ID)ZigLLVM_Fast == llvm::CallingConv::Fast, "");
+static_assert((CallingConv::ID)ZigLLVM_Cold == llvm::CallingConv::Cold, "");
+static_assert((CallingConv::ID)ZigLLVM_GHC == llvm::CallingConv::GHC, "");
+static_assert((CallingConv::ID)ZigLLVM_HiPE == llvm::CallingConv::HiPE, "");
+static_assert((CallingConv::ID)ZigLLVM_WebKit_JS == llvm::CallingConv::WebKit_JS, "");
+static_assert((CallingConv::ID)ZigLLVM_AnyReg == llvm::CallingConv::AnyReg, "");
+static_assert((CallingConv::ID)ZigLLVM_PreserveMost == llvm::CallingConv::PreserveMost, "");
+static_assert((CallingConv::ID)ZigLLVM_PreserveAll == llvm::CallingConv::PreserveAll, "");
+static_assert((CallingConv::ID)ZigLLVM_Swift == llvm::CallingConv::Swift, "");
+static_assert((CallingConv::ID)ZigLLVM_CXX_FAST_TLS == llvm::CallingConv::CXX_FAST_TLS, "");
+static_assert((CallingConv::ID)ZigLLVM_FirstTargetCC == llvm::CallingConv::FirstTargetCC, "");
+static_assert((CallingConv::ID)ZigLLVM_X86_StdCall == llvm::CallingConv::X86_StdCall, "");
+static_assert((CallingConv::ID)ZigLLVM_X86_FastCall == llvm::CallingConv::X86_FastCall, "");
+static_assert((CallingConv::ID)ZigLLVM_ARM_APCS == llvm::CallingConv::ARM_APCS, "");
+static_assert((CallingConv::ID)ZigLLVM_ARM_AAPCS == llvm::CallingConv::ARM_AAPCS, "");
+static_assert((CallingConv::ID)ZigLLVM_ARM_AAPCS_VFP == llvm::CallingConv::ARM_AAPCS_VFP, "");
+static_assert((CallingConv::ID)ZigLLVM_MSP430_INTR == llvm::CallingConv::MSP430_INTR, "");
+static_assert((CallingConv::ID)ZigLLVM_X86_ThisCall == llvm::CallingConv::X86_ThisCall, "");
+static_assert((CallingConv::ID)ZigLLVM_PTX_Kernel == llvm::CallingConv::PTX_Kernel, "");
+static_assert((CallingConv::ID)ZigLLVM_PTX_Device == llvm::CallingConv::PTX_Device, "");
+static_assert((CallingConv::ID)ZigLLVM_SPIR_FUNC == llvm::CallingConv::SPIR_FUNC, "");
+static_assert((CallingConv::ID)ZigLLVM_SPIR_KERNEL == llvm::CallingConv::SPIR_KERNEL, "");
+static_assert((CallingConv::ID)ZigLLVM_Intel_OCL_BI == llvm::CallingConv::Intel_OCL_BI, "");
+static_assert((CallingConv::ID)ZigLLVM_X86_64_SysV == llvm::CallingConv::X86_64_SysV, "");
+static_assert((CallingConv::ID)ZigLLVM_Win64 == llvm::CallingConv::Win64, "");
+static_assert((CallingConv::ID)ZigLLVM_X86_VectorCall == llvm::CallingConv::X86_VectorCall, "");
+static_assert((CallingConv::ID)ZigLLVM_HHVM == llvm::CallingConv::HHVM, "");
+static_assert((CallingConv::ID)ZigLLVM_HHVM_C == llvm::CallingConv::HHVM_C, "");
+static_assert((CallingConv::ID)ZigLLVM_X86_INTR == llvm::CallingConv::X86_INTR, "");
+static_assert((CallingConv::ID)ZigLLVM_AVR_INTR == llvm::CallingConv::AVR_INTR, "");
+static_assert((CallingConv::ID)ZigLLVM_AVR_SIGNAL == llvm::CallingConv::AVR_SIGNAL, "");
+static_assert((CallingConv::ID)ZigLLVM_AVR_BUILTIN == llvm::CallingConv::AVR_BUILTIN, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_VS == llvm::CallingConv::AMDGPU_VS, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_GS == llvm::CallingConv::AMDGPU_GS, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_PS == llvm::CallingConv::AMDGPU_PS, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_CS == llvm::CallingConv::AMDGPU_CS, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_KERNEL == llvm::CallingConv::AMDGPU_KERNEL, "");
+static_assert((CallingConv::ID)ZigLLVM_X86_RegCall == llvm::CallingConv::X86_RegCall, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_HS == llvm::CallingConv::AMDGPU_HS, "");
+static_assert((CallingConv::ID)ZigLLVM_MSP430_BUILTIN == llvm::CallingConv::MSP430_BUILTIN, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_LS == llvm::CallingConv::AMDGPU_LS, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_ES == llvm::CallingConv::AMDGPU_ES, "");
+static_assert((CallingConv::ID)ZigLLVM_AArch64_VectorCall == llvm::CallingConv::AArch64_VectorCall, "");
+static_assert((CallingConv::ID)ZigLLVM_MaxID == llvm::CallingConv::MaxID, "");

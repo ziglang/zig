@@ -1,6 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const expectError = std.testing.expectError;
+const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 const builtin = @import("builtin");
 
@@ -51,7 +52,7 @@ test "error binary operator" {
     expect(b == 10);
 }
 fn errBinaryOperatorG(x: bool) anyerror!isize {
-    return if (x) error.ItBroke else isize(10);
+    return if (x) error.ItBroke else @as(isize, 10);
 }
 
 test "unwrap simple value from error" {
@@ -83,9 +84,9 @@ test "error union type " {
 fn testErrorUnionType() void {
     const x: anyerror!i32 = 1234;
     if (x) |value| expect(value == 1234) else |_| unreachable;
-    expect(@typeId(@typeOf(x)) == builtin.TypeId.ErrorUnion);
-    expect(@typeId(@typeOf(x).ErrorSet) == builtin.TypeId.ErrorSet);
-    expect(@typeOf(x).ErrorSet == anyerror);
+    expect(@typeId(@TypeOf(x)) == builtin.TypeId.ErrorUnion);
+    expect(@typeId(@TypeOf(x).ErrorSet) == builtin.TypeId.ErrorSet);
+    expect(@TypeOf(x).ErrorSet == anyerror);
 }
 
 test "error set type" {
@@ -158,6 +159,10 @@ fn testErrToIntWithOnePossibleValue(
     if (@errorToInt(x) != value) {
         @compileError("bad");
     }
+}
+
+test "empty error union" {
+    const x = error{} || error{};
 }
 
 test "error union peer type resolution" {
@@ -295,7 +300,7 @@ test "nested error union function call in optional unwrap" {
 test "widen cast integer payload of error union function call" {
     const S = struct {
         fn errorable() !u64 {
-            var x = u64(try number());
+            var x = @as(u64, try number());
             return x;
         }
 
@@ -395,4 +400,45 @@ test "function pointer with return type that is error union with payload which i
         }
     };
     S.doTheTest();
+}
+
+test "return result loc as peer result loc in inferred error set function" {
+    const S = struct {
+        fn doTheTest() void {
+            if (foo(2)) |x| {
+                expect(x.Two);
+            } else |e| switch (e) {
+                error.Whatever => @panic("fail"),
+            }
+            expectError(error.Whatever, foo(99));
+        }
+        const FormValue = union(enum) {
+            One: void,
+            Two: bool,
+        };
+
+        fn foo(id: u64) !FormValue {
+            return switch (id) {
+                2 => FormValue{ .Two = true },
+                1 => FormValue{ .One = {} },
+                else => return error.Whatever,
+            };
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "error payload type is correctly resolved" {
+    const MyIntWrapper = struct {
+        const Self = @This();
+
+        x: i32,
+
+        pub fn create() anyerror!Self {
+            return Self{ .x = 42 };
+        }
+    };
+
+    expectEqual(MyIntWrapper{ .x = 42 }, try MyIntWrapper.create());
 }

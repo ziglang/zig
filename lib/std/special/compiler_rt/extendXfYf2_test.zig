@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const __extenddftf2 = @import("extendXfYf2.zig").__extenddftf2;
 const __extendhfsf2 = @import("extendXfYf2.zig").__extendhfsf2;
 const __extendsftf2 = @import("extendXfYf2.zig").__extendsftf2;
@@ -87,7 +88,10 @@ test "extenddftf2" {
 test "extendhfsf2" {
     test__extendhfsf2(0x7e00, 0x7fc00000); // qNaN
     test__extendhfsf2(0x7f00, 0x7fe00000); // sNaN
-    test__extendhfsf2(0x7c01, 0x7f802000); // sNaN
+    // On x86 the NaN becomes quiet because the return is pushed on the x87
+    // stack due to ABI requirements
+    if (builtin.arch != .i386 and builtin.os == .windows)
+        test__extendhfsf2(0x7c01, 0x7f802000); // sNaN
 
     test__extendhfsf2(0, 0); // 0
     test__extendhfsf2(0x8000, 0x80000000); // -0
@@ -130,11 +134,11 @@ test "extendsftf2" {
 }
 
 fn makeQNaN64() f64 {
-    return @bitCast(f64, u64(0x7ff8000000000000));
+    return @bitCast(f64, @as(u64, 0x7ff8000000000000));
 }
 
 fn makeInf64() f64 {
-    return @bitCast(f64, u64(0x7ff0000000000000));
+    return @bitCast(f64, @as(u64, 0x7ff0000000000000));
 }
 
 fn makeNaN64(rand: u64) f64 {
@@ -142,7 +146,7 @@ fn makeNaN64(rand: u64) f64 {
 }
 
 fn makeQNaN32() f32 {
-    return @bitCast(f32, u32(0x7fc00000));
+    return @bitCast(f32, @as(u32, 0x7fc00000));
 }
 
 fn makeNaN32(rand: u32) f32 {
@@ -150,5 +154,5 @@ fn makeNaN32(rand: u32) f32 {
 }
 
 fn makeInf32() f32 {
-    return @bitCast(f32, u32(0x7f800000));
+    return @bitCast(f32, @as(u32, 0x7f800000));
 }

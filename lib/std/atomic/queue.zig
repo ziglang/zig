@@ -106,7 +106,7 @@ pub fn Queue(comptime T: type) type {
         pub fn dump(self: *Self) void {
             var stderr_file = std.io.getStdErr() catch return;
             const stderr = &stderr_file.outStream().stream;
-            const Error = @typeInfo(@typeOf(stderr)).Pointer.child.Error;
+            const Error = @typeInfo(@TypeOf(stderr)).Pointer.child.Error;
 
             self.dumpToStream(Error, stderr) catch return;
         }
@@ -116,19 +116,19 @@ pub fn Queue(comptime T: type) type {
                 fn dumpRecursive(s: *std.io.OutStream(Error), optional_node: ?*Node, indent: usize) Error!void {
                     try s.writeByteNTimes(' ', indent);
                     if (optional_node) |node| {
-                        try s.print("0x{x}={}\n", @ptrToInt(node), node.data);
+                        try s.print("0x{x}={}\n", .{ @ptrToInt(node), node.data });
                         try dumpRecursive(s, node.next, indent + 1);
                     } else {
-                        try s.print("(null)\n");
+                        try s.print("(null)\n", .{});
                     }
                 }
             };
             const held = self.mutex.acquire();
             defer held.release();
 
-            try stream.print("head: ");
+            try stream.print("head: ", .{});
             try S.dumpRecursive(stream, self.head, 0);
-            try stream.print("tail: ");
+            try stream.print("tail: ", .{});
             try S.dumpRecursive(stream, self.tail, 0);
         }
     };
@@ -152,8 +152,8 @@ const puts_per_thread = 500;
 const put_thread_count = 3;
 
 test "std.atomic.Queue" {
-    var plenty_of_memory = try std.heap.direct_allocator.alloc(u8, 300 * 1024);
-    defer std.heap.direct_allocator.free(plenty_of_memory);
+    var plenty_of_memory = try std.heap.page_allocator.alloc(u8, 300 * 1024);
+    defer std.heap.page_allocator.free(plenty_of_memory);
 
     var fixed_buffer_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(plenty_of_memory);
     var a = &fixed_buffer_allocator.allocator;
@@ -199,7 +199,7 @@ test "std.atomic.Queue" {
 
         for (putters) |t|
             t.wait();
-        _ = @atomicRmw(u8, &context.puts_done, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
+        @atomicStore(u8, &context.puts_done, 1, AtomicOrder.SeqCst);
         for (getters) |t|
             t.wait();
 
@@ -207,16 +207,15 @@ test "std.atomic.Queue" {
     }
 
     if (context.put_sum != context.get_sum) {
-        std.debug.panic("failure\nput_sum:{} != get_sum:{}", context.put_sum, context.get_sum);
+        std.debug.panic("failure\nput_sum:{} != get_sum:{}", .{ context.put_sum, context.get_sum });
     }
 
     if (context.get_count != puts_per_thread * put_thread_count) {
-        std.debug.panic(
-            "failure\nget_count:{} != puts_per_thread:{} * put_thread_count:{}",
+        std.debug.panic("failure\nget_count:{} != puts_per_thread:{} * put_thread_count:{}", .{
             context.get_count,
-            u32(puts_per_thread),
-            u32(put_thread_count),
-        );
+            @as(u32, puts_per_thread),
+            @as(u32, put_thread_count),
+        });
     }
 }
 
@@ -351,7 +350,7 @@ test "std.atomic.Queue dump" {
         \\tail: 0x{x}=1
         \\ (null)
         \\
-    , @ptrToInt(queue.head), @ptrToInt(queue.tail));
+    , .{ @ptrToInt(queue.head), @ptrToInt(queue.tail) });
     expect(mem.eql(u8, buffer[0..sos.pos], expected));
 
     // Test a stream with two elements
@@ -372,6 +371,6 @@ test "std.atomic.Queue dump" {
         \\tail: 0x{x}=2
         \\ (null)
         \\
-    , @ptrToInt(queue.head), @ptrToInt(queue.head.?.next), @ptrToInt(queue.tail));
+    , .{ @ptrToInt(queue.head), @ptrToInt(queue.head.?.next), @ptrToInt(queue.tail) });
     expect(mem.eql(u8, buffer[0..sos.pos], expected));
 }

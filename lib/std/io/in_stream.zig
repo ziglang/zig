@@ -5,13 +5,13 @@ const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
 const Buffer = std.Buffer;
+const testing = std.testing;
 
 pub const default_stack_size = 1 * 1024 * 1024;
 pub const stack_size: usize = if (@hasDecl(root, "stack_size_std_io_InStream"))
     root.stack_size_std_io_InStream
 else
     default_stack_size;
-pub const stack_align = 16;
 
 pub fn InStream(comptime ReadError: type) type {
     return struct {
@@ -34,7 +34,7 @@ pub fn InStream(comptime ReadError: type) type {
             if (std.io.is_async) {
                 // Let's not be writing 0xaa in safe modes for upwards of 4 MiB for every stream read.
                 @setRuntimeSafety(false);
-                var stack_frame: [stack_size]u8 align(stack_align) = undefined;
+                var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
                 return await @asyncCall(&stack_frame, {}, self.readFn, self, buffer);
             } else {
                 return self.readFn(self, buffer);
@@ -130,10 +130,52 @@ pub fn InStream(comptime ReadError: type) type {
             return buf.toOwnedSlice();
         }
 
+        /// Reads from the stream until specified byte is found. If the buffer is not
+        /// large enough to hold the entire contents, `error.StreamTooLong` is returned.
+        /// If end-of-stream is found, returns the rest of the stream. If this
+        /// function is called again after that, returns null.
+        /// Returns a slice of the stream data, with ptr equal to `buf.ptr`. The
+        /// delimiter byte is not included in the returned slice.
+        pub fn readUntilDelimiterOrEof(self: *Self, buf: []u8, delimiter: u8) !?[]u8 {
+            var index: usize = 0;
+            while (true) {
+                const byte = self.readByte() catch |err| switch (err) {
+                    error.EndOfStream => {
+                        if (index == 0) {
+                            return null;
+                        } else {
+                            return buf[0..index];
+                        }
+                    },
+                    else => |e| return e,
+                };
+
+                if (byte == delimiter) return buf[0..index];
+                if (index >= buf.len) return error.StreamTooLong;
+
+                buf[index] = byte;
+                index += 1;
+            }
+        }
+
+        /// Reads from the stream until specified byte is found, discarding all data,
+        /// including the delimiter.
+        /// If end-of-stream is found, this function succeeds.
+        pub fn skipUntilDelimiterOrEof(self: *Self, delimiter: u8) !void {
+            while (true) {
+                const byte = self.readByte() catch |err| switch (err) {
+                    error.EndOfStream => return,
+                    else => |e| return e,
+                };
+                if (byte == delimiter) return;
+            }
+        }
+
         /// Reads 1 byte from the stream or returns `error.EndOfStream`.
         pub fn readByte(self: *Self) !u8 {
             var result: [1]u8 = undefined;
-            try self.readNoEof(result[0..]);
+            const amt_read = try self.read(result[0..]);
+            if (amt_read < 1) return error.EndOfStream;
             return result[0];
         }
 
@@ -196,5 +238,39 @@ pub fn InStream(comptime ReadError: type) type {
             try self.readNoEof(@sliceToBytes(res[0..]));
             return res[0];
         }
+
+        /// Reads an integer with the same size as the given enum's tag type. If the integer matches
+        /// an enum tag, casts the integer to the enum tag and returns it. Otherwise, returns an error.
+        /// TODO optimization taking advantage of most fields being in order
+        pub fn readEnum(self: *Self, comptime Enum: type, endian: builtin.Endian) !Enum {
+            const E = error{
+                /// An integer was read, but it did not match any of the tags in the supplied enum.
+                InvalidValue,
+            };
+            const type_info = @typeInfo(Enum).Enum;
+            const tag = try self.readInt(type_info.tag_type, endian);
+
+            inline for (std.meta.fields(Enum)) |field| {
+                if (tag == field.value) {
+                    return @field(Enum, field.name);
+                }
+            }
+
+            return E.InvalidValue;
+        }
     };
+}
+
+test "InStream" {
+    var buf = "a\x02".*;
+    var slice_stream = std.io.SliceInStream.init(&buf);
+    const in_stream = &slice_stream.stream;
+    testing.expect((try in_stream.readByte()) == 'a');
+    testing.expect((try in_stream.readEnum(enum(u8) {
+        a = 0,
+        b = 99,
+        c = 2,
+        d = 3,
+    }, undefined)) == .c);
+    testing.expectError(error.EndOfStream, in_stream.readByte());
 }

@@ -169,11 +169,11 @@ Error glibc_load_metadata(ZigGLibCAbi **out_result, Buf *zig_lib_dir, bool verbo
 }
 
 Error glibc_build_dummies_and_maps(CodeGen *g, const ZigGLibCAbi *glibc_abi, const ZigTarget *target,
-        Buf **out_dir, bool verbose)
+        Buf **out_dir, bool verbose, Stage2ProgressNode *progress_node)
 {
     Error err;
 
-    Buf *cache_dir = get_stage1_cache_path();
+    Buf *cache_dir = get_global_cache_dir();
     CacheHash *cache_hash = allocate<CacheHash>(1);
     Buf *manifest_dir = buf_sprintf("%s" OS_SEP CACHE_HASH_SUBDIR, buf_ptr(cache_dir));
     cache_init(cache_hash, manifest_dir);
@@ -332,8 +332,7 @@ Error glibc_build_dummies_and_maps(CodeGen *g, const ZigGLibCAbi *glibc_abi, con
             return err;
         }
 
-        CodeGen *child_gen = create_child_codegen(g, zig_file_path, OutTypeLib, nullptr);
-        codegen_set_out_name(child_gen, buf_create_from_str(lib->name));
+        CodeGen *child_gen = create_child_codegen(g, zig_file_path, OutTypeLib, nullptr, lib->name, progress_node);
         codegen_set_lib_version(child_gen, lib->sover, 0, 0);
         child_gen->is_dynamic = true;
         child_gen->is_dummy_so = true;

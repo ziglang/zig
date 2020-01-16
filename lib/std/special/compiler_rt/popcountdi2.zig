@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 const compiler_rt = @import("../compiler_rt.zig");
 
 // ported from llvm compiler-rt 8.0.0rc3 95e1c294cb0415a377a7b1d6c7c7d4f89e1c04e4
-pub extern fn __popcountdi2(a: i64) i32 {
+pub fn __popcountdi2(a: i64) callconv(.C) i32 {
     var x2 = @bitCast(u64, a);
     x2 = x2 - ((x2 >> 1) & 0x5555555555555555);
     // Every 2 bits holds the sum of every pair of bits (32)

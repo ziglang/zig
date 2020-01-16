@@ -179,8 +179,8 @@ static const Os os_list[] = {
     OsHurd,
     OsWASI,
     OsEmscripten,
-    OsZen,
     OsUefi,
+    OsOther,
 };
 
 // Coordinate with zig_llvm.h
@@ -269,7 +269,7 @@ Os target_os_enum(size_t index) {
 ZigLLVM_OSType get_llvm_os_type(Os os_type) {
     switch (os_type) {
         case OsFreestanding:
-        case OsZen:
+        case OsOther:
             return ZigLLVM_UnknownOS;
         case OsAnanas:
             return ZigLLVM_Ananas;
@@ -425,10 +425,10 @@ const char *target_os_name(Os os_type) {
     switch (os_type) {
         case OsFreestanding:
             return "freestanding";
-        case OsZen:
-            return "zen";
         case OsUefi:
             return "uefi";
+        case OsOther:
+            return "other";
         case OsAnanas:
         case OsCloudABI:
         case OsDragonFly:
@@ -1009,6 +1009,7 @@ uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch) {
 uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
     switch (target->os) {
         case OsFreestanding:
+        case OsOther:
             switch (target->arch) {
                 case ZigLLVM_msp430:
                     switch (id) {
@@ -1047,9 +1048,9 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
             }
         case OsLinux:
         case OsMacOSX:
-        case OsZen:
         case OsFreeBSD:
         case OsNetBSD:
+        case OsDragonFly:
         case OsOpenBSD:
         case OsWASI:
         case OsEmscripten:
@@ -1104,7 +1105,6 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
             }
         case OsAnanas:
         case OsCloudABI:
-        case OsDragonFly:
         case OsKFreeBSD:
         case OsLv2:
         case OsSolaris:
@@ -1139,7 +1139,8 @@ bool target_allows_addr_zero(const ZigTarget *target) {
 const char *target_o_file_ext(const ZigTarget *target) {
     if (target->abi == ZigLLVM_MSVC ||
         (target->os == OsWindows && !target_abi_is_gnu(target->abi)) ||
-        target->os == OsUefi) {
+        target->os == OsUefi)
+    {
         return ".obj";
     } else {
         return ".o";
@@ -1267,6 +1268,8 @@ const char *target_dynamic_linker(const ZigTarget *target) {
             return "/libexec/ld-elf.so.1";
         case OsNetBSD:
             return "/libexec/ld.elf_so";
+        case OsDragonFly:
+            return "/libexec/ld-elf.so.2";
         case OsLinux: {
             const ZigLLVM_EnvironmentType abi = target->abi;
             switch (target->arch) {
@@ -1379,11 +1382,11 @@ const char *target_dynamic_linker(const ZigTarget *target) {
         case OsUefi:
         case OsWindows:
         case OsEmscripten:
+        case OsOther:
             return nullptr;
 
         case OsAnanas:
         case OsCloudABI:
-        case OsDragonFly:
         case OsFuchsia:
         case OsKFreeBSD:
         case OsLv2:
@@ -1403,7 +1406,6 @@ const char *target_dynamic_linker(const ZigTarget *target) {
         case OsMesa3D:
         case OsContiki:
         case OsAMDPAL:
-        case OsZen:
         case OsHermitCore:
         case OsHurd:
         case OsWASI:
@@ -1457,6 +1459,10 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_mipsel:
             return "sp";
 
+        case ZigLLVM_wasm32:
+        case ZigLLVM_wasm64:
+            return nullptr; // known to be not available
+
         case ZigLLVM_amdgcn:
         case ZigLLVM_amdil:
         case ZigLLVM_amdil64:
@@ -1490,8 +1496,6 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_systemz:
         case ZigLLVM_tce:
         case ZigLLVM_tcele:
-        case ZigLLVM_wasm32:
-        case ZigLLVM_wasm64:
         case ZigLLVM_xcore:
         case ZigLLVM_ppc:
         case ZigLLVM_ppc64:
@@ -1579,17 +1583,31 @@ bool target_os_requires_libc(Os os) {
     // On Darwin, we always link libSystem which contains libc.
     // Similarly on FreeBSD and NetBSD we always link system libc
     // since this is the stable syscall interface.
-    return (target_os_is_darwin(os) || os == OsFreeBSD || os == OsNetBSD);
+    return (target_os_is_darwin(os) || os == OsFreeBSD || os == OsNetBSD || os == OsDragonFly);
 }
 
 bool target_supports_fpic(const ZigTarget *target) {
-  // This is not whether the target supports Position Independent Code, but whether the -fPIC
-  // C compiler argument is valid.
-  return target->os != OsWindows;
+    // This is not whether the target supports Position Independent Code, but whether the -fPIC
+    // C compiler argument is valid.
+    return target->os != OsWindows;
+}
+
+bool target_supports_clang_march_native(const ZigTarget *target) {
+    // Whether clang supports -march=native on this target.
+    // Arguably it should always work, but in reality it gives:
+    // error: the clang compiler does not support '-march=native'
+    // If we move CPU detection logic into Zig itelf, we will not need this,
+    // instead we will always pass target features and CPU configuration explicitly.
+    return target->arch != ZigLLVM_aarch64 &&
+        target->arch != ZigLLVM_aarch64_be;
 }
 
 bool target_supports_stack_probing(const ZigTarget *target) {
     return target->os != OsWindows && target->os != OsUefi && (target->arch == ZigLLVM_x86 || target->arch == ZigLLVM_x86_64);
+}
+
+bool target_supports_sanitize_c(const ZigTarget *target) {
+    return true;
 }
 
 bool target_requires_pic(const ZigTarget *target, bool linking_libc) {
@@ -1626,7 +1644,6 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsFreestanding:
         case OsAnanas:
         case OsCloudABI:
-        case OsDragonFly:
         case OsLv2:
         case OsSolaris:
         case OsHaiku:
@@ -1643,8 +1660,8 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsMesa3D:
         case OsContiki:
         case OsAMDPAL:
-        case OsZen:
         case OsHermitCore:
+        case OsOther:
             return ZigLLVM_EABI;
         case OsOpenBSD:
         case OsMacOSX:
@@ -1655,6 +1672,7 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsFuchsia:
         case OsKFreeBSD:
         case OsNetBSD:
+        case OsDragonFly:
         case OsHurd:
             return ZigLLVM_GNU;
         case OsUefi:

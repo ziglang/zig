@@ -1,4 +1,3 @@
-const builtin = @import("builtin");
 const c = @import("c.zig");
 const assert = @import("std").debug.assert;
 
@@ -84,7 +83,7 @@ pub const X86FP80TypeInContext = c.LLVMX86FP80TypeInContext;
 pub const X86MMXTypeInContext = c.LLVMX86MMXTypeInContext;
 
 pub const AddGlobal = LLVMAddGlobal;
-extern fn LLVMAddGlobal(M: *Module, Ty: *Type, Name: [*]const u8) ?*Value;
+extern fn LLVMAddGlobal(M: *Module, Ty: *Type, Name: [*:0]const u8) ?*Value;
 
 pub const ConstStringInContext = LLVMConstStringInContext;
 extern fn LLVMConstStringInContext(C: *Context, Str: [*]const u8, Length: c_uint, DontNullTerminate: Bool) ?*Value;
@@ -93,7 +92,7 @@ pub const ConstInt = LLVMConstInt;
 extern fn LLVMConstInt(IntTy: *Type, N: c_ulonglong, SignExtend: Bool) ?*Value;
 
 pub const BuildLoad = LLVMBuildLoad;
-extern fn LLVMBuildLoad(arg0: *Builder, PointerVal: *Value, Name: [*]const u8) ?*Value;
+extern fn LLVMBuildLoad(arg0: *Builder, PointerVal: *Value, Name: [*:0]const u8) ?*Value;
 
 pub const ConstNull = LLVMConstNull;
 extern fn LLVMConstNull(Ty: *Type) ?*Value;
@@ -111,24 +110,24 @@ pub const CreateEnumAttribute = LLVMCreateEnumAttribute;
 extern fn LLVMCreateEnumAttribute(C: *Context, KindID: c_uint, Val: u64) ?*Attribute;
 
 pub const AddFunction = LLVMAddFunction;
-extern fn LLVMAddFunction(M: *Module, Name: [*]const u8, FunctionTy: *Type) ?*Value;
+extern fn LLVMAddFunction(M: *Module, Name: [*:0]const u8, FunctionTy: *Type) ?*Value;
 
 pub const CreateCompileUnit = ZigLLVMCreateCompileUnit;
 extern fn ZigLLVMCreateCompileUnit(
     dibuilder: *DIBuilder,
     lang: c_uint,
     difile: *DIFile,
-    producer: [*]const u8,
+    producer: [*:0]const u8,
     is_optimized: bool,
-    flags: [*]const u8,
+    flags: [*:0]const u8,
     runtime_version: c_uint,
-    split_name: [*]const u8,
+    split_name: [*:0]const u8,
     dwo_id: u64,
     emit_debug_info: bool,
 ) ?*DICompileUnit;
 
 pub const CreateFile = ZigLLVMCreateFile;
-extern fn ZigLLVMCreateFile(dibuilder: *DIBuilder, filename: [*]const u8, directory: [*]const u8) ?*DIFile;
+extern fn ZigLLVMCreateFile(dibuilder: *DIBuilder, filename: [*:0]const u8, directory: [*:0]const u8) ?*DIFile;
 
 pub const ArrayType = LLVMArrayType;
 extern fn LLVMArrayType(ElementType: *Type, ElementCount: c_uint) ?*Type;
@@ -146,7 +145,7 @@ pub const IntTypeInContext = LLVMIntTypeInContext;
 extern fn LLVMIntTypeInContext(C: *Context, NumBits: c_uint) ?*Type;
 
 pub const ModuleCreateWithNameInContext = LLVMModuleCreateWithNameInContext;
-extern fn LLVMModuleCreateWithNameInContext(ModuleID: [*]const u8, C: *Context) ?*Module;
+extern fn LLVMModuleCreateWithNameInContext(ModuleID: [*:0]const u8, C: *Context) ?*Module;
 
 pub const VoidTypeInContext = LLVMVoidTypeInContext;
 extern fn LLVMVoidTypeInContext(C: *Context) ?*Type;
@@ -158,7 +157,7 @@ pub const ContextDispose = LLVMContextDispose;
 extern fn LLVMContextDispose(C: *Context) void;
 
 pub const CopyStringRepOfTargetData = LLVMCopyStringRepOfTargetData;
-extern fn LLVMCopyStringRepOfTargetData(TD: *TargetData) ?[*]u8;
+extern fn LLVMCopyStringRepOfTargetData(TD: *TargetData) ?[*:0]u8;
 
 pub const CreateTargetDataLayout = LLVMCreateTargetDataLayout;
 extern fn LLVMCreateTargetDataLayout(T: *TargetMachine) ?*TargetData;
@@ -166,9 +165,9 @@ extern fn LLVMCreateTargetDataLayout(T: *TargetMachine) ?*TargetData;
 pub const CreateTargetMachine = ZigLLVMCreateTargetMachine;
 extern fn ZigLLVMCreateTargetMachine(
     T: *Target,
-    Triple: [*]const u8,
-    CPU: [*]const u8,
-    Features: [*]const u8,
+    Triple: [*:0]const u8,
+    CPU: [*:0]const u8,
+    Features: [*:0]const u8,
     Level: CodeGenOptLevel,
     Reloc: RelocMode,
     CodeModel: CodeModel,
@@ -176,10 +175,10 @@ extern fn ZigLLVMCreateTargetMachine(
 ) ?*TargetMachine;
 
 pub const GetHostCPUName = LLVMGetHostCPUName;
-extern fn LLVMGetHostCPUName() ?[*]u8;
+extern fn LLVMGetHostCPUName() ?[*:0]u8;
 
 pub const GetNativeFeatures = ZigLLVMGetNativeFeatures;
-extern fn ZigLLVMGetNativeFeatures() ?[*]u8;
+extern fn ZigLLVMGetNativeFeatures() ?[*:0]u8;
 
 pub const GetElementType = LLVMGetElementType;
 extern fn LLVMGetElementType(Ty: *Type) *Type;
@@ -191,16 +190,16 @@ pub const BuildStore = LLVMBuildStore;
 extern fn LLVMBuildStore(arg0: *Builder, Val: *Value, Ptr: *Value) ?*Value;
 
 pub const BuildAlloca = LLVMBuildAlloca;
-extern fn LLVMBuildAlloca(arg0: *Builder, Ty: *Type, Name: ?[*]const u8) ?*Value;
+extern fn LLVMBuildAlloca(arg0: *Builder, Ty: *Type, Name: ?[*:0]const u8) ?*Value;
 
 pub const ConstInBoundsGEP = LLVMConstInBoundsGEP;
 pub extern fn LLVMConstInBoundsGEP(ConstantVal: *Value, ConstantIndices: [*]*Value, NumIndices: c_uint) ?*Value;
 
 pub const GetTargetFromTriple = LLVMGetTargetFromTriple;
-extern fn LLVMGetTargetFromTriple(Triple: [*]const u8, T: **Target, ErrorMessage: ?*[*]u8) Bool;
+extern fn LLVMGetTargetFromTriple(Triple: [*:0]const u8, T: **Target, ErrorMessage: ?*[*:0]u8) Bool;
 
 pub const VerifyModule = LLVMVerifyModule;
-extern fn LLVMVerifyModule(M: *Module, Action: VerifierFailureAction, OutMessage: *?[*]u8) Bool;
+extern fn LLVMVerifyModule(M: *Module, Action: VerifierFailureAction, OutMessage: *?[*:0]u8) Bool;
 
 pub const GetInsertBlock = LLVMGetInsertBlock;
 extern fn LLVMGetInsertBlock(Builder: *Builder) *BasicBlock;
@@ -217,7 +216,7 @@ pub const GetParam = LLVMGetParam;
 extern fn LLVMGetParam(Fn: *Value, Index: c_uint) *Value;
 
 pub const AppendBasicBlockInContext = LLVMAppendBasicBlockInContext;
-extern fn LLVMAppendBasicBlockInContext(C: *Context, Fn: *Value, Name: [*]const u8) ?*BasicBlock;
+extern fn LLVMAppendBasicBlockInContext(C: *Context, Fn: *Value, Name: [*:0]const u8) ?*BasicBlock;
 
 pub const PositionBuilderAtEnd = LLVMPositionBuilderAtEnd;
 extern fn LLVMPositionBuilderAtEnd(Builder: *Builder, Block: *BasicBlock) void;
@@ -227,24 +226,24 @@ pub const PrintMessageAction = VerifierFailureAction.LLVMPrintMessageAction;
 pub const ReturnStatusAction = VerifierFailureAction.LLVMReturnStatusAction;
 pub const VerifierFailureAction = c.LLVMVerifierFailureAction;
 
-pub const CodeGenLevelNone = c.LLVMCodeGenOptLevel.LLVMCodeGenLevelNone;
-pub const CodeGenLevelLess = c.LLVMCodeGenOptLevel.LLVMCodeGenLevelLess;
-pub const CodeGenLevelDefault = c.LLVMCodeGenOptLevel.LLVMCodeGenLevelDefault;
-pub const CodeGenLevelAggressive = c.LLVMCodeGenOptLevel.LLVMCodeGenLevelAggressive;
+pub const CodeGenLevelNone = CodeGenOptLevel.LLVMCodeGenLevelNone;
+pub const CodeGenLevelLess = CodeGenOptLevel.LLVMCodeGenLevelLess;
+pub const CodeGenLevelDefault = CodeGenOptLevel.LLVMCodeGenLevelDefault;
+pub const CodeGenLevelAggressive = CodeGenOptLevel.LLVMCodeGenLevelAggressive;
 pub const CodeGenOptLevel = c.LLVMCodeGenOptLevel;
 
-pub const RelocDefault = c.LLVMRelocMode.LLVMRelocDefault;
-pub const RelocStatic = c.LLVMRelocMode.LLVMRelocStatic;
-pub const RelocPIC = c.LLVMRelocMode.LLVMRelocPIC;
-pub const RelocDynamicNoPic = c.LLVMRelocMode.LLVMRelocDynamicNoPic;
+pub const RelocDefault = RelocMode.LLVMRelocDefault;
+pub const RelocStatic = RelocMode.LLVMRelocStatic;
+pub const RelocPIC = RelocMode.LLVMRelocPIC;
+pub const RelocDynamicNoPic = RelocMode.LLVMRelocDynamicNoPic;
 pub const RelocMode = c.LLVMRelocMode;
 
-pub const CodeModelDefault = c.LLVMCodeModel.LLVMCodeModelDefault;
-pub const CodeModelJITDefault = c.LLVMCodeModel.LLVMCodeModelJITDefault;
-pub const CodeModelSmall = c.LLVMCodeModel.LLVMCodeModelSmall;
-pub const CodeModelKernel = c.LLVMCodeModel.LLVMCodeModelKernel;
-pub const CodeModelMedium = c.LLVMCodeModel.LLVMCodeModelMedium;
-pub const CodeModelLarge = c.LLVMCodeModel.LLVMCodeModelLarge;
+pub const CodeModelDefault = CodeModel.LLVMCodeModelDefault;
+pub const CodeModelJITDefault = CodeModel.LLVMCodeModelJITDefault;
+pub const CodeModelSmall = CodeModel.LLVMCodeModelSmall;
+pub const CodeModelKernel = CodeModel.LLVMCodeModelKernel;
+pub const CodeModelMedium = CodeModel.LLVMCodeModelMedium;
+pub const CodeModelLarge = CodeModel.LLVMCodeModelLarge;
 pub const CodeModel = c.LLVMCodeModel;
 
 pub const EmitAssembly = EmitOutputType.ZigLLVM_EmitAssembly;
@@ -252,23 +251,25 @@ pub const EmitBinary = EmitOutputType.ZigLLVM_EmitBinary;
 pub const EmitLLVMIr = EmitOutputType.ZigLLVM_EmitLLVMIr;
 pub const EmitOutputType = c.ZigLLVM_EmitOutputType;
 
-pub const CCallConv = c.LLVMCCallConv;
-pub const FastCallConv = c.LLVMFastCallConv;
-pub const ColdCallConv = c.LLVMColdCallConv;
-pub const WebKitJSCallConv = c.LLVMWebKitJSCallConv;
-pub const AnyRegCallConv = c.LLVMAnyRegCallConv;
-pub const X86StdcallCallConv = c.LLVMX86StdcallCallConv;
-pub const X86FastcallCallConv = c.LLVMX86FastcallCallConv;
+pub const CCallConv = CallConv.LLVMCCallConv;
+pub const FastCallConv = CallConv.LLVMFastCallConv;
+pub const ColdCallConv = CallConv.LLVMColdCallConv;
+pub const WebKitJSCallConv = CallConv.LLVMWebKitJSCallConv;
+pub const AnyRegCallConv = CallConv.LLVMAnyRegCallConv;
+pub const X86StdcallCallConv = CallConv.LLVMX86StdcallCallConv;
+pub const X86FastcallCallConv = CallConv.LLVMX86FastcallCallConv;
 pub const CallConv = c.LLVMCallConv;
 
-pub const FnInline = extern enum {
+pub const CallAttr = extern enum {
     Auto,
-    Always,
-    Never,
+    NeverTail,
+    NeverInline,
+    AlwaysTail,
+    AlwaysInline,
 };
 
 fn removeNullability(comptime T: type) type {
-    comptime assert(@typeInfo(T).Pointer.size == @import("builtin").TypeInfo.Pointer.Size.C);
+    comptime assert(@typeInfo(T).Pointer.size == .C);
     return *T.Child;
 }
 
@@ -279,14 +280,14 @@ pub const TargetMachineEmitToFile = ZigLLVMTargetMachineEmitToFile;
 extern fn ZigLLVMTargetMachineEmitToFile(
     targ_machine_ref: *TargetMachine,
     module_ref: *Module,
-    filename: [*]const u8,
+    filename: [*:0]const u8,
     output_type: EmitOutputType,
-    error_message: *[*]u8,
+    error_message: *[*:0]u8,
     is_debug: bool,
     is_small: bool,
 ) bool;
 
 pub const BuildCall = ZigLLVMBuildCall;
-extern fn ZigLLVMBuildCall(B: *Builder, Fn: *Value, Args: [*]*Value, NumArgs: c_uint, CC: c_uint, fn_inline: FnInline, Name: [*]const u8) ?*Value;
+extern fn ZigLLVMBuildCall(B: *Builder, Fn: *Value, Args: [*]*Value, NumArgs: c_uint, CC: CallConv, fn_inline: CallAttr, Name: [*:0]const u8) ?*Value;
 
 pub const PrivateLinkage = c.LLVMLinkage.LLVMPrivateLinkage;

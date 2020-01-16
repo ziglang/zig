@@ -17,9 +17,15 @@ const File = std.fs.File;
 const testing = std.testing;
 
 pub const Mode = enum {
+    /// I/O operates normally, waiting for the operating system syscalls to complete.
     blocking,
+
+    /// I/O functions are generated async and rely on a global event loop. Event-based I/O.
     evented,
 };
+
+/// The application's chosen I/O mode. This defaults to `Mode.blocking` but can be overridden
+/// by `root.event_loop`.
 pub const mode: Mode = if (@hasDecl(root, "io_mode"))
     root.io_mode
 else if (@hasDecl(root, "event_loop"))
@@ -28,122 +34,68 @@ else
     Mode.blocking;
 pub const is_async = mode != .blocking;
 
-pub const GetStdIoError = os.windows.GetStdHandleError;
-
-pub fn getStdOut() GetStdIoError!File {
-    if (os.windows.is_the_target) {
-        const handle = try os.windows.GetStdHandle(os.windows.STD_OUTPUT_HANDLE);
-        return File.openHandle(handle);
+fn getStdOutHandle() os.fd_t {
+    if (builtin.os == .windows) {
+        return os.windows.peb().ProcessParameters.hStdOutput;
     }
-    return File.openHandle(os.STDOUT_FILENO);
+
+    if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdOutHandle")) {
+        return root.os.io.getStdOutHandle();
+    }
+
+    return os.STDOUT_FILENO;
 }
 
-pub fn getStdErr() GetStdIoError!File {
-    if (os.windows.is_the_target) {
-        const handle = try os.windows.GetStdHandle(os.windows.STD_ERROR_HANDLE);
-        return File.openHandle(handle);
-    }
-    return File.openHandle(os.STDERR_FILENO);
+pub fn getStdOut() File {
+    return File.openHandle(getStdOutHandle());
 }
 
-pub fn getStdIn() GetStdIoError!File {
-    if (os.windows.is_the_target) {
-        const handle = try os.windows.GetStdHandle(os.windows.STD_INPUT_HANDLE);
-        return File.openHandle(handle);
+fn getStdErrHandle() os.fd_t {
+    if (builtin.os == .windows) {
+        return os.windows.peb().ProcessParameters.hStdError;
     }
-    return File.openHandle(os.STDIN_FILENO);
+
+    if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdErrHandle")) {
+        return root.os.io.getStdErrHandle();
+    }
+
+    return os.STDERR_FILENO;
+}
+
+pub fn getStdErr() File {
+    return File.openHandle(getStdErrHandle());
+}
+
+fn getStdInHandle() os.fd_t {
+    if (builtin.os == .windows) {
+        return os.windows.peb().ProcessParameters.hStdInput;
+    }
+
+    if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdInHandle")) {
+        return root.os.io.getStdInHandle();
+    }
+
+    return os.STDIN_FILENO;
+}
+
+pub fn getStdIn() File {
+    return File.openHandle(getStdInHandle());
 }
 
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
 pub const SliceSeekableInStream = @import("io/seekable_stream.zig").SliceSeekableInStream;
 pub const COutStream = @import("io/c_out_stream.zig").COutStream;
 pub const InStream = @import("io/in_stream.zig").InStream;
+pub const OutStream = @import("io/out_stream.zig").OutStream;
 
-pub fn OutStream(comptime WriteError: type) type {
-    return struct {
-        const Self = @This();
-        pub const Error = WriteError;
-
-        writeFn: fn (self: *Self, bytes: []const u8) Error!void,
-
-        pub fn print(self: *Self, comptime format: []const u8, args: ...) Error!void {
-            return std.fmt.format(self, Error, self.writeFn, format, args);
-        }
-
-        pub fn write(self: *Self, bytes: []const u8) Error!void {
-            return self.writeFn(self, bytes);
-        }
-
-        pub fn writeByte(self: *Self, byte: u8) Error!void {
-            const slice = (*const [1]u8)(&byte)[0..];
-            return self.writeFn(self, slice);
-        }
-
-        pub fn writeByteNTimes(self: *Self, byte: u8, n: usize) Error!void {
-            const slice = (*const [1]u8)(&byte)[0..];
-            var i: usize = 0;
-            while (i < n) : (i += 1) {
-                try self.writeFn(self, slice);
-            }
-        }
-
-        /// Write a native-endian integer.
-        pub fn writeIntNative(self: *Self, comptime T: type, value: T) Error!void {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
-            mem.writeIntNative(T, &bytes, value);
-            return self.writeFn(self, bytes);
-        }
-
-        /// Write a foreign-endian integer.
-        pub fn writeIntForeign(self: *Self, comptime T: type, value: T) Error!void {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
-            mem.writeIntForeign(T, &bytes, value);
-            return self.writeFn(self, bytes);
-        }
-
-        pub fn writeIntLittle(self: *Self, comptime T: type, value: T) Error!void {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
-            mem.writeIntLittle(T, &bytes, value);
-            return self.writeFn(self, bytes);
-        }
-
-        pub fn writeIntBig(self: *Self, comptime T: type, value: T) Error!void {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
-            mem.writeIntBig(T, &bytes, value);
-            return self.writeFn(self, bytes);
-        }
-
-        pub fn writeInt(self: *Self, comptime T: type, value: T, endian: builtin.Endian) Error!void {
-            var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
-            mem.writeInt(T, &bytes, value, endian);
-            return self.writeFn(self, bytes);
-        }
-    };
-}
-
+/// Deprecated; use `std.fs.Dir.writeFile`.
 pub fn writeFile(path: []const u8, data: []const u8) !void {
-    var file = try File.openWrite(path);
-    defer file.close();
-    try file.write(data);
+    return fs.cwd().writeFile(path, data);
 }
 
-/// On success, caller owns returned buffer.
+/// Deprecated; use `std.fs.Dir.readFileAlloc`.
 pub fn readFileAlloc(allocator: *mem.Allocator, path: []const u8) ![]u8 {
-    return readFileAllocAligned(allocator, path, @alignOf(u8));
-}
-
-/// On success, caller owns returned buffer.
-pub fn readFileAllocAligned(allocator: *mem.Allocator, path: []const u8, comptime A: u29) ![]align(A) u8 {
-    var file = try File.openRead(path);
-    defer file.close();
-
-    const size = try math.cast(usize, try file.getEndPos());
-    const buf = try allocator.alignedAlloc(u8, A, size);
-    errdefer allocator.free(buf);
-
-    var adapter = file.inStream();
-    try adapter.stream.readNoEof(buf[0..size]);
-    return buf;
+    return fs.cwd().readFileAlloc(allocator, path, math.maxInt(usize));
 }
 
 pub fn BufferedInStream(comptime Error: type) type {
@@ -155,7 +107,7 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
         const Self = @This();
         const Stream = InStream(Error);
 
-        pub stream: Stream,
+        stream: Stream,
 
         unbuffered_in_stream: *Stream,
 
@@ -182,6 +134,13 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
         fn readFn(in_stream: *Stream, dest: []u8) !usize {
             const self = @fieldParentPtr(Self, "stream", in_stream);
 
+            // Hot path for one byte reads
+            if (dest.len == 1 and self.end_index > self.start_index) {
+                dest[0] = self.buffer[self.start_index];
+                self.start_index += 1;
+                return 1;
+            }
+
             var dest_index: usize = 0;
             while (true) {
                 const dest_space = dest.len - dest_index;
@@ -201,6 +160,13 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
                     if (dest_space < buffer_size) {
                         self.start_index = 0;
                         self.end_index = try self.unbuffered_in_stream.read(self.buffer[0..]);
+
+                        // Shortcut
+                        if (self.end_index >= dest_space) {
+                            mem.copy(u8, dest[dest_index..], self.buffer[0..dest_space]);
+                            self.start_index = dest_space;
+                            return dest.len;
+                        }
                     } else {
                         // asking for so much data that buffering is actually less efficient.
                         // forward the request directly to the unbuffered stream
@@ -267,7 +233,7 @@ pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) typ
         pub const Error = InStreamError;
         pub const Stream = InStream(Error);
 
-        pub stream: Stream,
+        stream: Stream,
         base: *Stream,
 
         // Right now the look-ahead space is statically allocated, but a version with dynamic allocation
@@ -330,7 +296,7 @@ pub const SliceInStream = struct {
     pub const Error = error{};
     pub const Stream = InStream(Error);
 
-    pub stream: Stream,
+    stream: Stream,
 
     pos: usize,
     slice: []const u8,
@@ -405,21 +371,21 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
             const Buf = @IntType(false, buf_bit_count);
             const BufShift = math.Log2Int(Buf);
 
-            out_bits.* = usize(0);
+            out_bits.* = @as(usize, 0);
             if (U == u0 or bits == 0) return 0;
-            var out_buffer = Buf(0);
+            var out_buffer = @as(Buf, 0);
 
             if (self.bit_count > 0) {
                 const n = if (self.bit_count >= bits) @intCast(u3, bits) else self.bit_count;
                 const shift = u7_bit_count - n;
                 switch (endian) {
                     builtin.Endian.Big => {
-                        out_buffer = Buf(self.bit_buffer >> shift);
+                        out_buffer = @as(Buf, self.bit_buffer >> shift);
                         self.bit_buffer <<= n;
                     },
                     builtin.Endian.Little => {
                         const value = (self.bit_buffer << shift) >> shift;
-                        out_buffer = Buf(value);
+                        out_buffer = @as(Buf, value);
                         self.bit_buffer >>= n;
                     },
                 }
@@ -445,28 +411,28 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
                         if (n >= u8_bit_count) {
                             out_buffer <<= @intCast(u3, u8_bit_count - 1);
                             out_buffer <<= 1;
-                            out_buffer |= Buf(next_byte);
+                            out_buffer |= @as(Buf, next_byte);
                             out_bits.* += u8_bit_count;
                             continue;
                         }
 
                         const shift = @intCast(u3, u8_bit_count - n);
                         out_buffer <<= @intCast(BufShift, n);
-                        out_buffer |= Buf(next_byte >> shift);
+                        out_buffer |= @as(Buf, next_byte >> shift);
                         out_bits.* += n;
                         self.bit_buffer = @truncate(u7, next_byte << @intCast(u3, n - 1));
                         self.bit_count = shift;
                     },
                     builtin.Endian.Little => {
                         if (n >= u8_bit_count) {
-                            out_buffer |= Buf(next_byte) << @intCast(BufShift, out_bits.*);
+                            out_buffer |= @as(Buf, next_byte) << @intCast(BufShift, out_bits.*);
                             out_bits.* += u8_bit_count;
                             continue;
                         }
 
                         const shift = @intCast(u3, u8_bit_count - n);
                         const value = (next_byte << shift) >> shift;
-                        out_buffer |= Buf(value) << @intCast(BufShift, out_bits.*);
+                        out_buffer |= @as(Buf, value) << @intCast(BufShift, out_bits.*);
                         out_bits.* += n;
                         self.bit_buffer = @truncate(u7, next_byte >> @intCast(u3, n));
                         self.bit_count = shift;
@@ -486,7 +452,7 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
             var self = @fieldParentPtr(Self, "stream", self_stream);
 
             var out_bits: usize = undefined;
-            var out_bits_total = usize(0);
+            var out_bits_total = @as(usize, 0);
             //@NOTE: I'm not sure this is a good idea, maybe alignToByte should be forced
             if (self.bit_count > 0) {
                 for (buffer) |*b, i| {
@@ -502,15 +468,15 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
     };
 }
 
-/// This is a simple OutStream that writes to a slice, and returns an error
+/// This is a simple OutStream that writes to a fixed buffer, and returns an error
 /// when it runs out of space.
 pub const SliceOutStream = struct {
     pub const Error = error{OutOfSpace};
     pub const Stream = OutStream(Error);
 
-    pub stream: Stream,
+    stream: Stream,
 
-    pub pos: usize,
+    pos: usize,
     slice: []u8,
 
     pub fn init(slice: []u8) SliceOutStream {
@@ -553,7 +519,7 @@ test "io.SliceOutStream" {
     var slice_stream = SliceOutStream.init(buf[0..]);
     const stream = &slice_stream.stream;
 
-    try stream.print("{}{}!", "Hello", "World");
+    try stream.print("{}{}!", .{ "Hello", "World" });
     testing.expectEqualSlices(u8, "HelloWorld!", slice_stream.getWritten());
 }
 
@@ -565,7 +531,7 @@ pub const NullOutStream = struct {
     pub const Error = error{};
     pub const Stream = OutStream(Error);
 
-    pub stream: Stream,
+    stream: Stream,
 
     pub fn init() NullOutStream {
         return NullOutStream{
@@ -589,8 +555,8 @@ pub fn CountingOutStream(comptime OutStreamError: type) type {
         pub const Stream = OutStream(Error);
         pub const Error = OutStreamError;
 
-        pub stream: Stream,
-        pub bytes_written: u64,
+        stream: Stream,
+        bytes_written: u64,
         child_stream: *Stream,
 
         pub fn init(child_stream: *Stream) Self {
@@ -629,7 +595,7 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
         pub const Stream = OutStream(Error);
         pub const Error = OutStreamError;
 
-        pub stream: Stream,
+        stream: Stream,
 
         unbuffered_out_stream: *Stream,
 
@@ -650,10 +616,19 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
             self.index = 0;
         }
 
-        fn writeFn(out_stream: *Stream, bytes: []const u8) !void {
+        fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
             const self = @fieldParentPtr(Self, "stream", out_stream);
 
-            if (bytes.len >= self.buffer.len) {
+            if (bytes.len == 1) {
+                // This is not required logic but a shorter path
+                // for single byte writes
+                self.buffer[self.index] = bytes[0];
+                self.index += 1;
+                if (self.index == buffer_size) {
+                    try self.flush();
+                }
+                return;
+            } else if (bytes.len >= self.buffer.len) {
                 try self.flush();
                 return self.unbuffered_out_stream.write(bytes);
             }
@@ -724,7 +699,7 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
         pub fn writeBits(self: *Self, value: var, bits: usize) Error!void {
             if (bits == 0) return;
 
-            const U = @typeOf(value);
+            const U = @TypeOf(value);
             comptime assert(trait.isUnsignedInt(U));
 
             //by extending the buffer to a minimum of u8 we can cover a number of edge cases
@@ -866,8 +841,7 @@ pub const BufferedAtomicFile = struct {
 };
 
 pub fn readLine(buf: *std.Buffer) ![]u8 {
-    var stdin = try getStdIn();
-    var stdin_stream = stdin.inStream();
+    var stdin_stream = getStdIn().inStream();
     return readLineFrom(&stdin_stream.stream, buf);
 }
 
@@ -908,8 +882,7 @@ test "io.readLineFrom" {
 }
 
 pub fn readLineSlice(slice: []u8) ![]u8 {
-    var stdin = try getStdIn();
-    var stdin_stream = stdin.inStream();
+    var stdin_stream = getStdIn().inStream();
     return readLineSliceFrom(&stdin_stream.stream, slice);
 }
 
@@ -1001,46 +974,19 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                 return @truncate(T, @bitCast(PossiblySignedByte, buffer[0]));
             }
 
-            var result = U(0);
+            var result = @as(U, 0);
             for (buffer) |byte, i| {
                 switch (endian) {
                     builtin.Endian.Big => {
                         result = (result << u8_bit_count) | byte;
                     },
                     builtin.Endian.Little => {
-                        result |= U(byte) << @intCast(Log2U, u8_bit_count * i);
+                        result |= @as(U, byte) << @intCast(Log2U, u8_bit_count * i);
                     },
                 }
             }
 
             return @bitCast(T, result);
-        }
-
-        //@TODO: Replace this with @unionInit or whatever when it is added
-        // see: #1315
-        fn setTag(ptr: var, tag: var) void {
-            const T = @typeOf(ptr);
-            comptime assert(trait.isPtrTo(builtin.TypeId.Union)(T));
-            const U = meta.Child(T);
-
-            const info = @typeInfo(U).Union;
-            if (info.tag_type) |TagType| {
-                comptime assert(TagType == @typeOf(tag));
-
-                var ptr_tag = ptr: {
-                    if (@alignOf(TagType) >= @alignOf(U)) break :ptr @ptrCast(*TagType, ptr);
-                    const offset = comptime max: {
-                        var max_field_size: comptime_int = 0;
-                        for (info.fields) |field_info| {
-                            const field_size = @sizeOf(field_info.field_type);
-                            max_field_size = math.max(max_field_size, field_size);
-                        }
-                        break :max math.max(max_field_size, @alignOf(U));
-                    };
-                    break :ptr @intToPtr(*TagType, @ptrToInt(ptr) + offset);
-                };
-                ptr_tag.* = tag;
-            }
         }
 
         /// Deserializes and returns data of the specified type from the stream
@@ -1052,7 +998,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
 
         /// Deserializes data into the type pointed to by `ptr`
         pub fn deserializeInto(self: *Self, ptr: var) !void {
-            const T = @typeOf(ptr);
+            const T = @TypeOf(ptr);
             comptime assert(trait.is(builtin.TypeId.Pointer)(T));
 
             if (comptime trait.isSlice(T) or comptime trait.isPtrTo(builtin.TypeId.Array)(T)) {
@@ -1106,17 +1052,11 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                         const TagInt = @TagType(TagType);
                         const tag = try self.deserializeInt(TagInt);
 
-                        {
-                            @setRuntimeSafety(false);
-                            //See: #1315
-                            setTag(ptr, @intToEnum(TagType, tag));
-                        }
-
                         inline for (info.fields) |field_info| {
                             if (field_info.enum_field.?.value == tag) {
                                 const name = field_info.name;
                                 const FieldType = field_info.field_type;
-                                @field(ptr, name) = FieldType(undefined);
+                                ptr.* = @unionInit(C, name, undefined);
                                 try self.deserializeInto(&@field(ptr, name));
                                 return;
                             }
@@ -1135,7 +1075,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
                         return;
                     }
 
-                    ptr.* = OC(undefined); //make it non-null so the following .? is guaranteed safe
+                    ptr.* = @as(OC, undefined); //make it non-null so the following .? is guaranteed safe
                     const val_ptr = &ptr.*.?;
                     try self.deserializeInto(val_ptr);
                 },
@@ -1187,7 +1127,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
         }
 
         fn serializeInt(self: *Self, value: var) Error!void {
-            const T = @typeOf(value);
+            const T = @TypeOf(value);
             comptime assert(trait.is(builtin.TypeId.Int)(T) or trait.is(builtin.TypeId.Float)(T));
 
             const t_bit_count = comptime meta.bitCount(T);
@@ -1214,12 +1154,12 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
                 byte.* = if (t_bit_count < u8_bit_count) v else @truncate(u8, v);
             }
 
-            try self.out_stream.write(buffer);
+            try self.out_stream.write(&buffer);
         }
 
         /// Serializes the passed value into the stream
         pub fn serialize(self: *Self, value: var) Error!void {
-            const T = comptime @typeOf(value);
+            const T = comptime @TypeOf(value);
 
             if (comptime trait.isIndexable(T)) {
                 for (value) |v|
@@ -1239,7 +1179,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
 
             switch (@typeId(T)) {
                 builtin.TypeId.Void => return,
-                builtin.TypeId.Bool => try self.serializeInt(u1(@boolToInt(value))),
+                builtin.TypeId.Bool => try self.serializeInt(@as(u1, @boolToInt(value))),
                 builtin.TypeId.Float, builtin.TypeId.Int => try self.serializeInt(value),
                 builtin.TypeId.Struct => {
                     const info = @typeInfo(T);
@@ -1282,10 +1222,10 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
                 },
                 builtin.TypeId.Optional => {
                     if (value == null) {
-                        try self.serializeInt(u1(@boolToInt(false)));
+                        try self.serializeInt(@as(u1, @boolToInt(false)));
                         return;
                     }
-                    try self.serializeInt(u1(@boolToInt(true)));
+                    try self.serializeInt(@as(u1, @boolToInt(true)));
 
                     const OC = comptime meta.Child(T);
                     const val_ptr = &value.?;

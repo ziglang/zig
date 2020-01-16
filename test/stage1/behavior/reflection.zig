@@ -13,20 +13,18 @@ test "reflection: array, pointer, optional, error union type child" {
 
 test "reflection: function return type, var args, and param types" {
     comptime {
-        expect(@typeOf(dummy).ReturnType == i32);
-        expect(!@typeOf(dummy).is_var_args);
-        expect(@typeOf(dummy_varargs).is_var_args);
-        expect(@typeOf(dummy).arg_count == 3);
-        expect(@ArgType(@typeOf(dummy), 0) == bool);
-        expect(@ArgType(@typeOf(dummy), 1) == i32);
-        expect(@ArgType(@typeOf(dummy), 2) == f32);
+        expect(@TypeOf(dummy).ReturnType == i32);
+        expect(!@TypeOf(dummy).is_var_args);
+        expect(@TypeOf(dummy).arg_count == 3);
+        expect(@ArgType(@TypeOf(dummy), 0) == bool);
+        expect(@ArgType(@TypeOf(dummy), 1) == i32);
+        expect(@ArgType(@TypeOf(dummy), 2) == f32);
     }
 }
 
 fn dummy(a: bool, b: i32, c: f32) i32 {
     return 1234;
 }
-fn dummy_varargs(args: ...) void {}
 
 test "reflection: struct member types and names" {
     comptime {

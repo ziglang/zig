@@ -34,9 +34,9 @@ pub const State = struct {
 
     pub fn permute(self: *Self) void {
         const state = &self.data;
-        var round = u32(24);
+        var round = @as(u32, 24);
         while (round > 0) : (round -= 1) {
-            var column = usize(0);
+            var column = @as(usize, 0);
             while (column < 4) : (column += 1) {
                 const x = math.rotl(u32, state[column], 24);
                 const y = math.rotl(u32, state[4 + column], 9);
@@ -61,7 +61,7 @@ pub const State = struct {
     }
 
     pub fn squeeze(self: *Self, out: []u8) void {
-        var i = usize(0);
+        var i = @as(usize, 0);
         while (i + RATE <= out.len) : (i += RATE) {
             self.permute();
             mem.copy(u8, out[i..], self.toSliceConst()[0..RATE]);
@@ -79,11 +79,11 @@ test "permute" {
     var state = State{
         .data = blk: {
             var input: [12]u32 = undefined;
-            var i = u32(0);
+            var i = @as(u32, 0);
             while (i < 12) : (i += 1) {
                 input[i] = i * i * i + i *% 0x9e3779b9;
             }
-            testing.expectEqualSlices(u32, input, [_]u32{
+            testing.expectEqualSlices(u32, &input, &[_]u32{
                 0x00000000, 0x9e3779ba, 0x3c6ef37a, 0xdaa66d46,
                 0x78dde724, 0x1715611a, 0xb54cdb2e, 0x53845566,
                 0xf1bbcfc8, 0x8ff34a5a, 0x2e2ac522, 0xcc624026,
@@ -92,7 +92,7 @@ test "permute" {
         },
     };
     state.permute();
-    testing.expectEqualSlices(u32, state.data, [_]u32{
+    testing.expectEqualSlices(u32, &state.data, &[_]u32{
         0xba11c85a, 0x91bad119, 0x380ce880, 0xd24c2c68,
         0x3eceffea, 0x277a921c, 0x4f73a0bd, 0xda5a9cd8,
         0x84b673f0, 0x34e52ff7, 0x9e2bef49, 0xf41bb8d6,
@@ -163,6 +163,6 @@ test "hash" {
     var msg: [58 / 2]u8 = undefined;
     try std.fmt.hexToBytes(&msg, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C");
     var md: [32]u8 = undefined;
-    hash(&md, msg);
-    htest.assertEqual("1C9A03DC6A5DDC5444CFC6F4B154CFF5CF081633B2CEA4D7D0AE7CCFED5AAA44", md);
+    hash(&md, &msg);
+    htest.assertEqual("1C9A03DC6A5DDC5444CFC6F4B154CFF5CF081633B2CEA4D7D0AE7CCFED5AAA44", &md);
 }

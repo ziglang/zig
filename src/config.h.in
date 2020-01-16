@@ -13,9 +13,6 @@
 #define ZIG_VERSION_PATCH @ZIG_VERSION_PATCH@
 #define ZIG_VERSION_STRING "@ZIG_VERSION@"
 
-// Only used for running tests before installing.
-#define ZIG_TEST_DIR "@CMAKE_SOURCE_DIR@/test"
-
 // Used for communicating build information to self hosted build.
 #define ZIG_CMAKE_BINARY_DIR "@CMAKE_BINARY_DIR@"
 #define ZIG_CXX_COMPILER "@CMAKE_CXX_COMPILER@"
@@ -23,5 +20,7 @@
 #define ZIG_LLD_LIBRARIES "@LLD_LIBRARIES@"
 #define ZIG_LLVM_CONFIG_EXE "@LLVM_CONFIG_EXE@"
 #define ZIG_DIA_GUIDS_LIB "@ZIG_DIA_GUIDS_LIB_ESCAPED@"
+
+#cmakedefine ZIG_ENABLE_MEM_PROFILE
 
 #endif

@@ -32,8 +32,13 @@ comptime {
     _ = @import("behavior/bugs/2346.zig");
     _ = @import("behavior/bugs/2578.zig");
     _ = @import("behavior/bugs/2692.zig");
+    _ = @import("behavior/bugs/2889.zig");
+    _ = @import("behavior/bugs/3007.zig");
     _ = @import("behavior/bugs/3046.zig");
     _ = @import("behavior/bugs/3112.zig");
+    _ = @import("behavior/bugs/3367.zig");
+    _ = @import("behavior/bugs/3384.zig");
+    _ = @import("behavior/bugs/3742.zig");
     _ = @import("behavior/bugs/394.zig");
     _ = @import("behavior/bugs/421.zig");
     _ = @import("behavior/bugs/529.zig");
@@ -48,6 +53,7 @@ comptime {
     _ = @import("behavior/bugs/920.zig");
     _ = @import("behavior/byteswap.zig");
     _ = @import("behavior/byval_arg_var.zig");
+    _ = @import("behavior/call.zig");
     _ = @import("behavior/cast.zig");
     _ = @import("behavior/const_slice_child.zig");
     _ = @import("behavior/defer.zig");
@@ -97,6 +103,7 @@ comptime {
     _ = @import("behavior/this.zig");
     _ = @import("behavior/truncate.zig");
     _ = @import("behavior/try.zig");
+    _ = @import("behavior/tuple.zig");
     _ = @import("behavior/type.zig");
     _ = @import("behavior/type_info.zig");
     _ = @import("behavior/typename.zig");

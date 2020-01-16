@@ -17,8 +17,8 @@ const expect = std.testing.expect;
 ///  - log1p(-1)    = -inf
 ///  - log1p(x)     = nan if x < -1
 ///  - log1p(nan)   = nan
-pub fn log1p(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn log1p(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => log1p_32(x),
         f64 => log1p_64(x),
@@ -166,7 +166,7 @@ fn log1p_64(x: f64) f64 {
 
         // u into [sqrt(2)/2, sqrt(2)]
         iu = (iu & 0x000FFFFF) + 0x3FE6A09E;
-        const iq = (u64(iu) << 32) | (hu & 0xFFFFFFFF);
+        const iq = (@as(u64, iu) << 32) | (hu & 0xFFFFFFFF);
         f = @bitCast(f64, iq) - 1;
     }
 
@@ -183,8 +183,8 @@ fn log1p_64(x: f64) f64 {
 }
 
 test "math.log1p" {
-    expect(log1p(f32(0.0)) == log1p_32(0.0));
-    expect(log1p(f64(0.0)) == log1p_64(0.0));
+    expect(log1p(@as(f32, 0.0)) == log1p_32(0.0));
+    expect(log1p(@as(f64, 0.0)) == log1p_64(0.0));
 }
 
 test "math.log1p_32" {

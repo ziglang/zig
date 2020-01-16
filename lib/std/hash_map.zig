@@ -36,11 +36,17 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         size: usize,
         max_distance_from_start_index: usize,
         allocator: *Allocator,
-        // this is used to detect bugs where a hashtable is edited while an iterator is running.
+
+        /// This is used to detect bugs where a hashtable is edited while an iterator is running.
         modification_count: debug_u32,
 
         const Self = @This();
 
+        /// A *KV is a mutable pointer into this HashMap's internal storage.
+        /// Modifying the key is undefined behavior.
+        /// Modifying the value is harmless.
+        /// *KV pointers become invalid whenever this HashMap is modified,
+        /// and then any access to the *KV is undefined behavior.
         pub const KV = struct {
             key: K,
             value: V,
@@ -93,7 +99,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
 
         pub fn init(allocator: *Allocator) Self {
             return Self{
-                .entries = [_]Entry{},
+                .entries = &[_]Entry{},
                 .allocator = allocator,
                 .size = 0,
                 .max_distance_from_start_index = 0,
@@ -401,7 +407,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         }
 
         fn keyToIndex(hm: Self, key: K) usize {
-            return hm.constrainIndex(usize(hash(key)));
+            return hm.constrainIndex(@as(usize, hash(key)));
         }
 
         fn constrainIndex(hm: Self, i: usize) usize {
@@ -413,7 +419,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
 }
 
 test "basic hash map usage" {
-    var map = AutoHashMap(i32, i32).init(std.heap.direct_allocator);
+    var map = AutoHashMap(i32, i32).init(std.heap.page_allocator);
     defer map.deinit();
 
     testing.expect((try map.put(1, 11)) == null);
@@ -457,7 +463,7 @@ test "basic hash map usage" {
 }
 
 test "iterator hash map" {
-    var reset_map = AutoHashMap(i32, i32).init(std.heap.direct_allocator);
+    var reset_map = AutoHashMap(i32, i32).init(std.heap.page_allocator);
     defer reset_map.deinit();
 
     try reset_map.putNoClobber(1, 11);
@@ -503,7 +509,7 @@ test "iterator hash map" {
 }
 
 test "ensure capacity" {
-    var map = AutoHashMap(i32, i32).init(std.heap.direct_allocator);
+    var map = AutoHashMap(i32, i32).init(std.heap.page_allocator);
     defer map.deinit();
 
     try map.ensureCapacity(20);
@@ -549,4 +555,14 @@ pub fn getAutoEqlFn(comptime K: type) (fn (K, K) bool) {
             return meta.eql(a, b);
         }
     }.eql;
+}
+
+pub fn getAutoHashStratFn(comptime K: type, comptime strategy: std.hash.Strategy) (fn (K) u32) {
+    return struct {
+        fn hash(key: K) u32 {
+            var hasher = Wyhash.init(0);
+            std.hash.autoHashStrat(&hasher, key, strategy);
+            return @truncate(u32, hasher.final());
+        }
+    }.hash;
 }

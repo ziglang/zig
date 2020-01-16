@@ -6,26 +6,29 @@ pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
 pub const Buffer = @import("buffer.zig").Buffer;
 pub const BufferOutStream = @import("io.zig").BufferOutStream;
+pub const ChildProcess = @import("child_process.zig").ChildProcess;
 pub const DynLib = @import("dynamic_library.zig").DynLib;
 pub const HashMap = @import("hash_map.zig").HashMap;
 pub const Mutex = @import("mutex.zig").Mutex;
-pub const PackedIntArrayEndian = @import("packed_int_array.zig").PackedIntArrayEndian;
 pub const PackedIntArray = @import("packed_int_array.zig").PackedIntArray;
-pub const PackedIntSliceEndian = @import("packed_int_array.zig").PackedIntSliceEndian;
+pub const PackedIntArrayEndian = @import("packed_int_array.zig").PackedIntArrayEndian;
 pub const PackedIntSlice = @import("packed_int_array.zig").PackedIntSlice;
+pub const PackedIntSliceEndian = @import("packed_int_array.zig").PackedIntSliceEndian;
 pub const PriorityQueue = @import("priority_queue.zig").PriorityQueue;
-pub const SinglyLinkedList = @import("linked_list.zig").SinglyLinkedList;
-pub const StaticallyInitializedMutex = @import("statically_initialized_mutex.zig").StaticallyInitializedMutex;
+pub const Progress = @import("progress.zig").Progress;
+pub const ResetEvent = @import("reset_event.zig").ResetEvent;
 pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
+pub const SinglyLinkedList = @import("linked_list.zig").SinglyLinkedList;
 pub const SpinLock = @import("spinlock.zig").SpinLock;
 pub const StringHashMap = @import("hash_map.zig").StringHashMap;
-pub const ChildProcess = @import("child_process.zig").ChildProcess;
 pub const TailQueue = @import("linked_list.zig").TailQueue;
+pub const Target = @import("target.zig").Target;
 pub const Thread = @import("thread.zig").Thread;
 
 pub const atomic = @import("atomic.zig");
 pub const base64 = @import("base64.zig");
 pub const build = @import("build.zig");
+pub const builtin = @import("builtin.zig");
 pub const c = @import("c.zig");
 pub const coff = @import("coff.zig");
 pub const crypto = @import("crypto.zig");
@@ -34,6 +37,7 @@ pub const debug = @import("debug.zig");
 pub const dwarf = @import("dwarf.zig");
 pub const elf = @import("elf.zig");
 pub const event = @import("event.zig");
+pub const fifo = @import("fifo.zig");
 pub const fmt = @import("fmt.zig");
 pub const fs = @import("fs.zig");
 pub const hash = @import("hash.zig");
@@ -61,62 +65,14 @@ pub const time = @import("time.zig");
 pub const unicode = @import("unicode.zig");
 pub const valgrind = @import("valgrind.zig");
 pub const zig = @import("zig.zig");
+pub const start = @import("start.zig");
 
-test "std" {
-    // run tests from these
-    _ = @import("array_list.zig");
-    _ = @import("atomic.zig");
-    _ = @import("bloom_filter.zig");
-    _ = @import("buf_map.zig");
-    _ = @import("buf_set.zig");
-    _ = @import("buffer.zig");
-    _ = @import("hash_map.zig");
-    _ = @import("linked_list.zig");
-    _ = @import("mutex.zig");
-    _ = @import("statically_initialized_mutex.zig");
-    _ = @import("segmented_list.zig");
-    _ = @import("spinlock.zig");
-    _ = @import("child_process.zig");
+// This forces the start.zig file to be imported, and the comptime logic inside that
+// file decides whether to export any appropriate start symbols.
+comptime {
+    _ = start;
+}
 
-    _ = @import("ascii.zig");
-    _ = @import("base64.zig");
-    _ = @import("build.zig");
-    _ = @import("c.zig");
-    _ = @import("coff.zig");
-    _ = @import("crypto.zig");
-    _ = @import("cstr.zig");
-    _ = @import("debug.zig");
-    _ = @import("dwarf.zig");
-    _ = @import("dynamic_library.zig");
-    _ = @import("elf.zig");
-    _ = @import("event.zig");
-    _ = @import("fmt.zig");
-    _ = @import("fs.zig");
-    _ = @import("hash.zig");
-    _ = @import("heap.zig");
-    _ = @import("http.zig");
-    _ = @import("io.zig");
-    _ = @import("json.zig");
-    _ = @import("lazy_init.zig");
-    _ = @import("macho.zig");
-    _ = @import("math.zig");
-    _ = @import("mem.zig");
-    _ = @import("meta.zig");
-    _ = @import("net.zig");
-    _ = @import("os.zig");
-    _ = @import("pdb.zig");
-    _ = @import("process.zig");
-    _ = @import("packed_int_array.zig");
-    _ = @import("priority_queue.zig");
-    _ = @import("rand.zig");
-    _ = @import("rb.zig");
-    _ = @import("sort.zig");
-    _ = @import("testing.zig");
-    _ = @import("thread.zig");
-    _ = @import("time.zig");
-    _ = @import("unicode.zig");
-    _ = @import("valgrind.zig");
-    _ = @import("zig.zig");
-
-    _ = @import("debug/leb128.zig");
+test "" {
+    meta.refAllDecls(@This());
 }

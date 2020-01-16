@@ -2,6 +2,7 @@ const uefi = @import("std").os.uefi;
 const Guid = uefi.Guid;
 const hii = uefi.protocols.hii;
 
+/// Database manager for HII-related data structures.
 pub const HIIDatabaseProtocol = extern struct {
     _new_package_list: usize, // TODO
     _remove_package_list: extern fn (*const HIIDatabaseProtocol, hii.HIIHandle) usize,
@@ -15,18 +16,22 @@ pub const HIIDatabaseProtocol = extern struct {
     _set_keyboard_layout: usize, // TODO
     _get_package_list_handle: usize, // TODO
 
+    /// Removes a package list from the HII database.
     pub fn removePackageList(self: *const HIIDatabaseProtocol, handle: hii.HIIHandle) usize {
         return self._remove_package_list(self, handle);
     }
 
+    /// Update a package list in the HII database.
     pub fn updatePackageList(self: *const HIIDatabaseProtocol, handle: hii.HIIHandle, buffer: *const hii.HIIPackageList) usize {
         return self._update_package_list(self, handle, buffer);
     }
 
+    /// Determines the handles that are currently active in the database.
     pub fn listPackageLists(self: *const HIIDatabaseProtocol, package_type: u8, package_guid: ?*const Guid, buffer_length: *usize, handles: [*]hii.HIIHandle) usize {
         return self._list_package_lists(self, package_type, package_guid, buffer_length, handles);
     }
 
+    /// Exports the contents of one or all package lists in the HII database into a buffer.
     pub fn exportPackageLists(self: *const HIIDatabaseProtocol, handle: ?hii.HIIHandle, buffer_size: *usize, buffer: *hii.HIIPackageList) usize {
         return self._export_package_lists(self, handle, buffer_size, buffer);
     }

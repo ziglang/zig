@@ -14,8 +14,8 @@ const expect = std.testing.expect;
 ///  - tan(+-0)   = +-0
 ///  - tan(+-inf) = nan
 ///  - tan(nan)   = nan
-pub fn tan(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn tan(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => tan_(f32, x),
         f64 => tan_(f64, x),
@@ -75,8 +75,8 @@ fn tan_(comptime T: type, x_: T) T {
 }
 
 test "math.tan" {
-    expect(tan(f32(0.0)) == tan_(f32, 0.0));
-    expect(tan(f64(0.0)) == tan_(f64, 0.0));
+    expect(tan(@as(f32, 0.0)) == tan_(f32, 0.0));
+    expect(tan(@as(f64, 0.0)) == tan_(f64, 0.0));
 }
 
 test "math.tan32" {
@@ -91,10 +91,6 @@ test "math.tan32" {
 }
 
 test "math.tan64" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     const epsilon = 0.000001;
 
     expect(math.approxEq(f64, tan_(f64, 0.0), 0.0, epsilon));

@@ -19,7 +19,6 @@ pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
 /// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
 pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
 
-pub const SHORT = c_short;
 pub const BOOL = c_int;
 pub const BOOLEAN = BYTE;
 pub const BYTE = u8;
@@ -34,17 +33,17 @@ pub const FARPROC = *@OpaqueType();
 pub const INT = c_int;
 pub const LPBYTE = *BYTE;
 pub const LPCH = *CHAR;
-pub const LPCSTR = [*]const CHAR;
-pub const LPCTSTR = [*]const TCHAR;
+pub const LPCSTR = [*:0]const CHAR;
+pub const LPCTSTR = [*:0]const TCHAR;
 pub const LPCVOID = *const c_void;
 pub const LPDWORD = *DWORD;
-pub const LPSTR = [*]CHAR;
+pub const LPSTR = [*:0]CHAR;
 pub const LPTSTR = if (UNICODE) LPWSTR else LPSTR;
 pub const LPVOID = *c_void;
-pub const LPWSTR = [*]WCHAR;
-pub const LPCWSTR = [*]const WCHAR;
+pub const LPWSTR = [*:0]WCHAR;
+pub const LPCWSTR = [*:0]const WCHAR;
 pub const PVOID = *c_void;
-pub const PWSTR = [*]WCHAR;
+pub const PWSTR = [*:0]WCHAR;
 pub const SIZE_T = usize;
 pub const TCHAR = if (UNICODE) WCHAR else u8;
 pub const UINT = c_uint;
@@ -54,6 +53,8 @@ pub const UNICODE = false;
 pub const WCHAR = u16;
 pub const WORD = u16;
 pub const LARGE_INTEGER = i64;
+pub const USHORT = u16;
+pub const SHORT = i16;
 pub const ULONG = u32;
 pub const LONG = i32;
 pub const ULONGLONG = u64;
@@ -67,9 +68,116 @@ pub const va_list = *@OpaqueType();
 pub const TRUE = 1;
 pub const FALSE = 0;
 
+pub const DEVICE_TYPE = ULONG;
+pub const FILE_DEVICE_BEEP: DEVICE_TYPE = 0x0001;
+pub const FILE_DEVICE_CD_ROM: DEVICE_TYPE = 0x0002;
+pub const FILE_DEVICE_CD_ROM_FILE_SYSTEM: DEVICE_TYPE = 0x0003;
+pub const FILE_DEVICE_CONTROLLER: DEVICE_TYPE = 0x0004;
+pub const FILE_DEVICE_DATALINK: DEVICE_TYPE = 0x0005;
+pub const FILE_DEVICE_DFS: DEVICE_TYPE = 0x0006;
+pub const FILE_DEVICE_DISK: DEVICE_TYPE = 0x0007;
+pub const FILE_DEVICE_DISK_FILE_SYSTEM: DEVICE_TYPE = 0x0008;
+pub const FILE_DEVICE_FILE_SYSTEM: DEVICE_TYPE = 0x0009;
+pub const FILE_DEVICE_INPORT_PORT: DEVICE_TYPE = 0x000a;
+pub const FILE_DEVICE_KEYBOARD: DEVICE_TYPE = 0x000b;
+pub const FILE_DEVICE_MAILSLOT: DEVICE_TYPE = 0x000c;
+pub const FILE_DEVICE_MIDI_IN: DEVICE_TYPE = 0x000d;
+pub const FILE_DEVICE_MIDI_OUT: DEVICE_TYPE = 0x000e;
+pub const FILE_DEVICE_MOUSE: DEVICE_TYPE = 0x000f;
+pub const FILE_DEVICE_MULTI_UNC_PROVIDER: DEVICE_TYPE = 0x0010;
+pub const FILE_DEVICE_NAMED_PIPE: DEVICE_TYPE = 0x0011;
+pub const FILE_DEVICE_NETWORK: DEVICE_TYPE = 0x0012;
+pub const FILE_DEVICE_NETWORK_BROWSER: DEVICE_TYPE = 0x0013;
+pub const FILE_DEVICE_NETWORK_FILE_SYSTEM: DEVICE_TYPE = 0x0014;
+pub const FILE_DEVICE_NULL: DEVICE_TYPE = 0x0015;
+pub const FILE_DEVICE_PARALLEL_PORT: DEVICE_TYPE = 0x0016;
+pub const FILE_DEVICE_PHYSICAL_NETCARD: DEVICE_TYPE = 0x0017;
+pub const FILE_DEVICE_PRINTER: DEVICE_TYPE = 0x0018;
+pub const FILE_DEVICE_SCANNER: DEVICE_TYPE = 0x0019;
+pub const FILE_DEVICE_SERIAL_MOUSE_PORT: DEVICE_TYPE = 0x001a;
+pub const FILE_DEVICE_SERIAL_PORT: DEVICE_TYPE = 0x001b;
+pub const FILE_DEVICE_SCREEN: DEVICE_TYPE = 0x001c;
+pub const FILE_DEVICE_SOUND: DEVICE_TYPE = 0x001d;
+pub const FILE_DEVICE_STREAMS: DEVICE_TYPE = 0x001e;
+pub const FILE_DEVICE_TAPE: DEVICE_TYPE = 0x001f;
+pub const FILE_DEVICE_TAPE_FILE_SYSTEM: DEVICE_TYPE = 0x0020;
+pub const FILE_DEVICE_TRANSPORT: DEVICE_TYPE = 0x0021;
+pub const FILE_DEVICE_UNKNOWN: DEVICE_TYPE = 0x0022;
+pub const FILE_DEVICE_VIDEO: DEVICE_TYPE = 0x0023;
+pub const FILE_DEVICE_VIRTUAL_DISK: DEVICE_TYPE = 0x0024;
+pub const FILE_DEVICE_WAVE_IN: DEVICE_TYPE = 0x0025;
+pub const FILE_DEVICE_WAVE_OUT: DEVICE_TYPE = 0x0026;
+pub const FILE_DEVICE_8042_PORT: DEVICE_TYPE = 0x0027;
+pub const FILE_DEVICE_NETWORK_REDIRECTOR: DEVICE_TYPE = 0x0028;
+pub const FILE_DEVICE_BATTERY: DEVICE_TYPE = 0x0029;
+pub const FILE_DEVICE_BUS_EXTENDER: DEVICE_TYPE = 0x002a;
+pub const FILE_DEVICE_MODEM: DEVICE_TYPE = 0x002b;
+pub const FILE_DEVICE_VDM: DEVICE_TYPE = 0x002c;
+pub const FILE_DEVICE_MASS_STORAGE: DEVICE_TYPE = 0x002d;
+pub const FILE_DEVICE_SMB: DEVICE_TYPE = 0x002e;
+pub const FILE_DEVICE_KS: DEVICE_TYPE = 0x002f;
+pub const FILE_DEVICE_CHANGER: DEVICE_TYPE = 0x0030;
+pub const FILE_DEVICE_SMARTCARD: DEVICE_TYPE = 0x0031;
+pub const FILE_DEVICE_ACPI: DEVICE_TYPE = 0x0032;
+pub const FILE_DEVICE_DVD: DEVICE_TYPE = 0x0033;
+pub const FILE_DEVICE_FULLSCREEN_VIDEO: DEVICE_TYPE = 0x0034;
+pub const FILE_DEVICE_DFS_FILE_SYSTEM: DEVICE_TYPE = 0x0035;
+pub const FILE_DEVICE_DFS_VOLUME: DEVICE_TYPE = 0x0036;
+pub const FILE_DEVICE_SERENUM: DEVICE_TYPE = 0x0037;
+pub const FILE_DEVICE_TERMSRV: DEVICE_TYPE = 0x0038;
+pub const FILE_DEVICE_KSEC: DEVICE_TYPE = 0x0039;
+pub const FILE_DEVICE_FIPS: DEVICE_TYPE = 0x003a;
+pub const FILE_DEVICE_INFINIBAND: DEVICE_TYPE = 0x003b;
+// TODO: missing values?
+pub const FILE_DEVICE_VMBUS: DEVICE_TYPE = 0x003e;
+pub const FILE_DEVICE_CRYPT_PROVIDER: DEVICE_TYPE = 0x003f;
+pub const FILE_DEVICE_WPD: DEVICE_TYPE = 0x0040;
+pub const FILE_DEVICE_BLUETOOTH: DEVICE_TYPE = 0x0041;
+pub const FILE_DEVICE_MT_COMPOSITE: DEVICE_TYPE = 0x0042;
+pub const FILE_DEVICE_MT_TRANSPORT: DEVICE_TYPE = 0x0043;
+pub const FILE_DEVICE_BIOMETRIC: DEVICE_TYPE = 0x0044;
+pub const FILE_DEVICE_PMI: DEVICE_TYPE = 0x0045;
+pub const FILE_DEVICE_EHSTOR: DEVICE_TYPE = 0x0046;
+pub const FILE_DEVICE_DEVAPI: DEVICE_TYPE = 0x0047;
+pub const FILE_DEVICE_GPIO: DEVICE_TYPE = 0x0048;
+pub const FILE_DEVICE_USBEX: DEVICE_TYPE = 0x0049;
+pub const FILE_DEVICE_CONSOLE: DEVICE_TYPE = 0x0050;
+pub const FILE_DEVICE_NFP: DEVICE_TYPE = 0x0051;
+pub const FILE_DEVICE_SYSENV: DEVICE_TYPE = 0x0052;
+pub const FILE_DEVICE_VIRTUAL_BLOCK: DEVICE_TYPE = 0x0053;
+pub const FILE_DEVICE_POINT_OF_SERVICE: DEVICE_TYPE = 0x0054;
+pub const FILE_DEVICE_STORAGE_REPLICATION: DEVICE_TYPE = 0x0055;
+pub const FILE_DEVICE_TRUST_ENV: DEVICE_TYPE = 0x0056;
+pub const FILE_DEVICE_UCM: DEVICE_TYPE = 0x0057;
+pub const FILE_DEVICE_UCMTCPCI: DEVICE_TYPE = 0x0058;
+pub const FILE_DEVICE_PERSISTENT_MEMORY: DEVICE_TYPE = 0x0059;
+pub const FILE_DEVICE_NVDIMM: DEVICE_TYPE = 0x005a;
+pub const FILE_DEVICE_HOLOGRAPHIC: DEVICE_TYPE = 0x005b;
+pub const FILE_DEVICE_SDFXHCI: DEVICE_TYPE = 0x005c;
+
+/// https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/buffer-descriptions-for-i-o-control-codes
+pub const TransferType = enum(u2) {
+    METHOD_BUFFERED = 0,
+    METHOD_IN_DIRECT = 1,
+    METHOD_OUT_DIRECT = 2,
+    METHOD_NEITHER = 3,
+};
+
+pub const FILE_ANY_ACCESS = 0;
+pub const FILE_READ_ACCESS = 1;
+pub const FILE_WRITE_ACCESS = 2;
+
+/// https://docs.microsoft.com/en-us/windows-hardware/drivers/kernel/defining-i-o-control-codes
+pub fn CTL_CODE(deviceType: u16, function: u12, method: TransferType, access: u2) DWORD {
+    return (@as(DWORD, deviceType) << 16) |
+        (@as(DWORD, access) << 14) |
+        (@as(DWORD, function) << 2) |
+        @enumToInt(method);
+}
+
 pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, maxInt(usize));
 
-pub const INVALID_FILE_ATTRIBUTES = DWORD(maxInt(DWORD));
+pub const INVALID_FILE_ATTRIBUTES = @as(DWORD, maxInt(DWORD));
 
 pub const FILE_ALL_INFORMATION = extern struct {
     BasicInformation: FILE_BASIC_INFORMATION,
@@ -129,7 +237,11 @@ pub const FILE_NAME_INFORMATION = extern struct {
 };
 
 pub const IO_STATUS_BLOCK = extern struct {
-    Status: usize,
+    // "DUMMYUNIONNAME" expands to "u"
+    u: extern union {
+        Status: NTSTATUS,
+        Pointer: ?*c_void,
+    },
     Information: ULONG_PTR,
 };
 
@@ -300,6 +412,62 @@ pub const FILE_SHARE_DELETE = 0x00000004;
 pub const FILE_SHARE_READ = 0x00000001;
 pub const FILE_SHARE_WRITE = 0x00000002;
 
+pub const DELETE = 0x00010000;
+pub const READ_CONTROL = 0x00020000;
+pub const WRITE_DAC = 0x00040000;
+pub const WRITE_OWNER = 0x00080000;
+pub const SYNCHRONIZE = 0x00100000;
+pub const STANDARD_RIGHTS_READ = READ_CONTROL;
+pub const STANDARD_RIGHTS_WRITE = READ_CONTROL;
+pub const STANDARD_RIGHTS_EXECUTE = READ_CONTROL;
+pub const STANDARD_RIGHTS_REQUIRED = DELETE | READ_CONTROL | WRITE_DAC | WRITE_OWNER;
+
+// disposition for NtCreateFile
+pub const FILE_SUPERSEDE = 0;
+pub const FILE_OPEN = 1;
+pub const FILE_CREATE = 2;
+pub const FILE_OPEN_IF = 3;
+pub const FILE_OVERWRITE = 4;
+pub const FILE_OVERWRITE_IF = 5;
+pub const FILE_MAXIMUM_DISPOSITION = 5;
+
+// flags for NtCreateFile and NtOpenFile
+pub const FILE_READ_DATA = 0x00000001;
+pub const FILE_LIST_DIRECTORY = 0x00000001;
+pub const FILE_WRITE_DATA = 0x00000002;
+pub const FILE_ADD_FILE = 0x00000002;
+pub const FILE_APPEND_DATA = 0x00000004;
+pub const FILE_ADD_SUBDIRECTORY = 0x00000004;
+pub const FILE_CREATE_PIPE_INSTANCE = 0x00000004;
+pub const FILE_READ_EA = 0x00000008;
+pub const FILE_WRITE_EA = 0x00000010;
+pub const FILE_EXECUTE = 0x00000020;
+pub const FILE_TRAVERSE = 0x00000020;
+pub const FILE_DELETE_CHILD = 0x00000040;
+pub const FILE_READ_ATTRIBUTES = 0x00000080;
+pub const FILE_WRITE_ATTRIBUTES = 0x00000100;
+
+pub const FILE_DIRECTORY_FILE = 0x00000001;
+pub const FILE_WRITE_THROUGH = 0x00000002;
+pub const FILE_SEQUENTIAL_ONLY = 0x00000004;
+pub const FILE_NO_INTERMEDIATE_BUFFERING = 0x00000008;
+pub const FILE_SYNCHRONOUS_IO_ALERT = 0x00000010;
+pub const FILE_SYNCHRONOUS_IO_NONALERT = 0x00000020;
+pub const FILE_NON_DIRECTORY_FILE = 0x00000040;
+pub const FILE_CREATE_TREE_CONNECTION = 0x00000080;
+pub const FILE_COMPLETE_IF_OPLOCKED = 0x00000100;
+pub const FILE_NO_EA_KNOWLEDGE = 0x00000200;
+pub const FILE_OPEN_FOR_RECOVERY = 0x00000400;
+pub const FILE_RANDOM_ACCESS = 0x00000800;
+pub const FILE_DELETE_ON_CLOSE = 0x00001000;
+pub const FILE_OPEN_BY_FILE_ID = 0x00002000;
+pub const FILE_OPEN_FOR_BACKUP_INTENT = 0x00004000;
+pub const FILE_NO_COMPRESSION = 0x00008000;
+pub const FILE_RESERVE_OPFILTER = 0x00100000;
+pub const FILE_TRANSACTED_MODE = 0x00200000;
+pub const FILE_OPEN_OFFLINE_FILE = 0x00400000;
+pub const FILE_OPEN_FOR_FREE_SPACE_QUERY = 0x00800000;
+
 pub const CREATE_ALWAYS = 2;
 pub const CREATE_NEW = 1;
 pub const OPEN_ALWAYS = 4;
@@ -325,6 +493,13 @@ pub const FILE_ATTRIBUTE_SPARSE_FILE = 0x200;
 pub const FILE_ATTRIBUTE_SYSTEM = 0x4;
 pub const FILE_ATTRIBUTE_TEMPORARY = 0x100;
 pub const FILE_ATTRIBUTE_VIRTUAL = 0x10000;
+
+// flags for CreateEvent
+pub const CREATE_EVENT_INITIAL_SET = 0x00000002;
+pub const CREATE_EVENT_MANUAL_RESET = 0x00000001;
+
+pub const EVENT_ALL_ACCESS = 0x1F0003;
+pub const EVENT_MODIFY_STATE = 0x0002;
 
 pub const PROCESS_INFORMATION = extern struct {
     hProcess: HANDLE,
@@ -371,7 +546,10 @@ pub const STARTF_USESTDHANDLES = 0x00000100;
 
 pub const INFINITE = 4294967295;
 
+pub const MAXIMUM_WAIT_OBJECTS = 64;
+
 pub const WAIT_ABANDONED = 0x00000080;
+pub const WAIT_ABANDONED_0 = WAIT_ABANDONED + 0;
 pub const WAIT_OBJECT_0 = 0x00000000;
 pub const WAIT_TIMEOUT = 0x00000102;
 pub const WAIT_FAILED = 0xFFFFFFFF;
@@ -533,16 +711,16 @@ pub const KF_FLAG_SIMPLE_IDLIST = 256;
 pub const KF_FLAG_ALIAS_ONLY = -2147483648;
 
 pub const S_OK = 0;
-pub const E_NOTIMPL = @bitCast(c_long, c_ulong(0x80004001));
-pub const E_NOINTERFACE = @bitCast(c_long, c_ulong(0x80004002));
-pub const E_POINTER = @bitCast(c_long, c_ulong(0x80004003));
-pub const E_ABORT = @bitCast(c_long, c_ulong(0x80004004));
-pub const E_FAIL = @bitCast(c_long, c_ulong(0x80004005));
-pub const E_UNEXPECTED = @bitCast(c_long, c_ulong(0x8000FFFF));
-pub const E_ACCESSDENIED = @bitCast(c_long, c_ulong(0x80070005));
-pub const E_HANDLE = @bitCast(c_long, c_ulong(0x80070006));
-pub const E_OUTOFMEMORY = @bitCast(c_long, c_ulong(0x8007000E));
-pub const E_INVALIDARG = @bitCast(c_long, c_ulong(0x80070057));
+pub const E_NOTIMPL = @bitCast(c_long, @as(c_ulong, 0x80004001));
+pub const E_NOINTERFACE = @bitCast(c_long, @as(c_ulong, 0x80004002));
+pub const E_POINTER = @bitCast(c_long, @as(c_ulong, 0x80004003));
+pub const E_ABORT = @bitCast(c_long, @as(c_ulong, 0x80004004));
+pub const E_FAIL = @bitCast(c_long, @as(c_ulong, 0x80004005));
+pub const E_UNEXPECTED = @bitCast(c_long, @as(c_ulong, 0x8000FFFF));
+pub const E_ACCESSDENIED = @bitCast(c_long, @as(c_ulong, 0x80070005));
+pub const E_HANDLE = @bitCast(c_long, @as(c_ulong, 0x80070006));
+pub const E_OUTOFMEMORY = @bitCast(c_long, @as(c_ulong, 0x8007000E));
+pub const E_INVALIDARG = @bitCast(c_long, @as(c_ulong, 0x80070057));
 
 pub const FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
 pub const FILE_FLAG_DELETE_ON_CLOSE = 0x04000000;
@@ -609,8 +787,6 @@ pub const FILE_ACTION_RENAMED_OLD_NAME = 0x00000004;
 pub const FILE_ACTION_RENAMED_NEW_NAME = 0x00000005;
 
 pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?extern fn (DWORD, DWORD, *OVERLAPPED) void;
-
-pub const FILE_LIST_DIRECTORY = 1;
 
 pub const FILE_NOTIFY_CHANGE_CREATION = 64;
 pub const FILE_NOTIFY_CHANGE_SIZE = 8;
@@ -716,19 +892,123 @@ pub const EXCEPTION_POINTERS = extern struct {
     ContextRecord: *c_void,
 };
 
-pub const VECTORED_EXCEPTION_HANDLER = stdcallcc fn (ExceptionInfo: *EXCEPTION_POINTERS) c_long;
+pub const VECTORED_EXCEPTION_HANDLER = fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(.Stdcall) c_long;
 
 pub const OBJECT_ATTRIBUTES = extern struct {
     Length: ULONG,
-    RootDirectory: HANDLE,
+    RootDirectory: ?HANDLE,
     ObjectName: *UNICODE_STRING,
     Attributes: ULONG,
     SecurityDescriptor: ?*c_void,
     SecurityQualityOfService: ?*c_void,
 };
 
+pub const OBJ_INHERIT = 0x00000002;
+pub const OBJ_PERMANENT = 0x00000010;
+pub const OBJ_EXCLUSIVE = 0x00000020;
+pub const OBJ_CASE_INSENSITIVE = 0x00000040;
+pub const OBJ_OPENIF = 0x00000080;
+pub const OBJ_OPENLINK = 0x00000100;
+pub const OBJ_KERNEL_HANDLE = 0x00000200;
+pub const OBJ_VALID_ATTRIBUTES = 0x000003F2;
+
 pub const UNICODE_STRING = extern struct {
-    Length: USHORT,
-    MaximumLength: USHORT,
+    Length: c_ushort,
+    MaximumLength: c_ushort,
     Buffer: [*]WCHAR,
 };
+
+pub const PEB = extern struct {
+    Reserved1: [2]BYTE,
+    BeingDebugged: BYTE,
+    Reserved2: [1]BYTE,
+    Reserved3: [2]PVOID,
+    Ldr: *PEB_LDR_DATA,
+    ProcessParameters: *RTL_USER_PROCESS_PARAMETERS,
+    Reserved4: [3]PVOID,
+    AtlThunkSListPtr: PVOID,
+    Reserved5: PVOID,
+    Reserved6: ULONG,
+    Reserved7: PVOID,
+    Reserved8: ULONG,
+    AtlThunkSListPtr32: ULONG,
+    Reserved9: [45]PVOID,
+    Reserved10: [96]BYTE,
+    PostProcessInitRoutine: PPS_POST_PROCESS_INIT_ROUTINE,
+    Reserved11: [128]BYTE,
+    Reserved12: [1]PVOID,
+    SessionId: ULONG,
+};
+
+pub const PEB_LDR_DATA = extern struct {
+    Reserved1: [8]BYTE,
+    Reserved2: [3]PVOID,
+    InMemoryOrderModuleList: LIST_ENTRY,
+};
+
+pub const RTL_USER_PROCESS_PARAMETERS = extern struct {
+    AllocationSize: ULONG,
+    Size: ULONG,
+    Flags: ULONG,
+    DebugFlags: ULONG,
+    ConsoleHandle: HANDLE,
+    ConsoleFlags: ULONG,
+    hStdInput: HANDLE,
+    hStdOutput: HANDLE,
+    hStdError: HANDLE,
+    CurrentDirectory: CURDIR,
+    DllPath: UNICODE_STRING,
+    ImagePathName: UNICODE_STRING,
+    CommandLine: UNICODE_STRING,
+    Environment: [*]WCHAR,
+    dwX: ULONG,
+    dwY: ULONG,
+    dwXSize: ULONG,
+    dwYSize: ULONG,
+    dwXCountChars: ULONG,
+    dwYCountChars: ULONG,
+    dwFillAttribute: ULONG,
+    dwFlags: ULONG,
+    dwShowWindow: ULONG,
+    WindowTitle: UNICODE_STRING,
+    Desktop: UNICODE_STRING,
+    ShellInfo: UNICODE_STRING,
+    RuntimeInfo: UNICODE_STRING,
+    DLCurrentDirectory: [0x20]RTL_DRIVE_LETTER_CURDIR,
+};
+
+pub const RTL_DRIVE_LETTER_CURDIR = extern struct {
+    Flags: c_ushort,
+    Length: c_ushort,
+    TimeStamp: ULONG,
+    DosPath: UNICODE_STRING,
+};
+
+pub const PPS_POST_PROCESS_INIT_ROUTINE = ?extern fn () void;
+
+pub const FILE_BOTH_DIR_INFORMATION = extern struct {
+    NextEntryOffset: ULONG,
+    FileIndex: ULONG,
+    CreationTime: LARGE_INTEGER,
+    LastAccessTime: LARGE_INTEGER,
+    LastWriteTime: LARGE_INTEGER,
+    ChangeTime: LARGE_INTEGER,
+    EndOfFile: LARGE_INTEGER,
+    AllocationSize: LARGE_INTEGER,
+    FileAttributes: ULONG,
+    FileNameLength: ULONG,
+    EaSize: ULONG,
+    ShortNameLength: CHAR,
+    ShortName: [12]WCHAR,
+    FileName: [1]WCHAR,
+};
+pub const FILE_BOTH_DIRECTORY_INFORMATION = FILE_BOTH_DIR_INFORMATION;
+
+pub const IO_APC_ROUTINE = extern fn (PVOID, *IO_STATUS_BLOCK, ULONG) void;
+
+pub const CURDIR = extern struct {
+    DosPath: UNICODE_STRING,
+    Handle: HANDLE,
+};
+
+pub const DUPLICATE_SAME_ACCESS = 2;

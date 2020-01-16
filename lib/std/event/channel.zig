@@ -4,13 +4,11 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const Loop = std.event.Loop;
 
-/// many producer, many consumer, thread-safe, runtime configurable buffer size
-/// when buffer is empty, consumers suspend and are resumed by producers
-/// when buffer is full, producers suspend and are resumed by consumers
+/// Many producer, many consumer, thread-safe, runtime configurable buffer size.
+/// When buffer is empty, consumers suspend and are resumed by producers.
+/// When buffer is full, producers suspend and are resumed by consumers.
 pub fn Channel(comptime T: type) type {
     return struct {
-        loop: *Loop,
-
         getters: std.atomic.Queue(GetNode),
         or_null_queue: std.atomic.Queue(*std.atomic.Queue(GetNode).Node),
         putters: std.atomic.Queue(PutNode),
@@ -48,16 +46,21 @@ pub fn Channel(comptime T: type) type {
             tick_node: *Loop.NextTickNode,
         };
 
-        /// call destroy when done
-        pub fn create(loop: *Loop, capacity: usize) !*SelfChannel {
-            const buffer_nodes = try loop.allocator.alloc(T, capacity);
-            errdefer loop.allocator.free(buffer_nodes);
+        const global_event_loop = Loop.instance orelse
+            @compileError("std.event.Channel currently only works with event-based I/O");
 
-            const self = try loop.allocator.create(SelfChannel);
+        /// Call `deinit` to free resources when done.
+        /// `buffer` must live until `deinit` is called.
+        /// For a zero length buffer, use `[0]T{}`.
+        /// TODO https://github.com/ziglang/zig/issues/2765
+        pub fn init(self: *SelfChannel, buffer: []T) void {
+            // The ring buffer implementation only works with power of 2 buffer sizes
+            // because of relying on subtracting across zero. For example (0 -% 1) % 10 == 5
+            assert(buffer.len == 0 or @popCount(usize, buffer.len) == 1);
+
             self.* = SelfChannel{
-                .loop = loop,
                 .buffer_len = 0,
-                .buffer_nodes = buffer_nodes,
+                .buffer_nodes = buffer,
                 .buffer_index = 0,
                 .dispatch_lock = 0,
                 .need_dispatch = 0,
@@ -67,21 +70,19 @@ pub fn Channel(comptime T: type) type {
                 .get_count = 0,
                 .put_count = 0,
             };
-            errdefer loop.allocator.destroy(self);
-
-            return self;
         }
 
-        /// must be called when all calls to put and get have suspended and no more calls occur
-        pub fn destroy(self: *SelfChannel) void {
+        /// Must be called when all calls to put and get have suspended and no more calls occur.
+        /// This can be omitted if caller can guarantee that the suspended putters and getters
+        /// do not need to be run to completion. Note that this may leave awaiters hanging.
+        pub fn deinit(self: *SelfChannel) void {
             while (self.getters.get()) |get_node| {
                 resume get_node.data.tick_node.data;
             }
             while (self.putters.get()) |put_node| {
                 resume put_node.data.tick_node.data;
             }
-            self.loop.allocator.free(self.buffer_nodes);
-            self.loop.allocator.destroy(self);
+            self.* = undefined;
         }
 
         /// puts a data item in the channel. The function returns when the value has been added to the
@@ -94,17 +95,6 @@ pub fn Channel(comptime T: type) type {
                 .data = data,
             });
 
-            // TODO test canceling a put()
-            errdefer {
-                _ = @atomicRmw(usize, &self.put_count, .Sub, 1, .SeqCst);
-                const need_dispatch = !self.putters.remove(&queue_node);
-                self.loop.cancelOnNextTick(&my_tick_node);
-                if (need_dispatch) {
-                    // oops we made the put_count incorrect for a period of time. fix by dispatching.
-                    _ = @atomicRmw(usize, &self.put_count, .Add, 1, .SeqCst);
-                    self.dispatch();
-                }
-            }
             suspend {
                 self.putters.put(&queue_node);
                 _ = @atomicRmw(usize, &self.put_count, .Add, 1, .SeqCst);
@@ -126,18 +116,6 @@ pub fn Channel(comptime T: type) type {
                 },
             });
 
-            // TODO test canceling a get()
-            errdefer {
-                _ = @atomicRmw(usize, &self.get_count, .Sub, 1, .SeqCst);
-                const need_dispatch = !self.getters.remove(&queue_node);
-                self.loop.cancelOnNextTick(&my_tick_node);
-                if (need_dispatch) {
-                    // oops we made the get_count incorrect for a period of time. fix by dispatching.
-                    _ = @atomicRmw(usize, &self.get_count, .Add, 1, .SeqCst);
-                    self.dispatch();
-                }
-            }
-
             suspend {
                 self.getters.put(&queue_node);
                 _ = @atomicRmw(usize, &self.get_count, .Add, 1, .SeqCst);
@@ -156,11 +134,9 @@ pub fn Channel(comptime T: type) type {
         //    }
         //}
 
-        /// Await this function to get an item from the channel. If the buffer is empty and there are no
-        /// puts waiting, this returns null.
-        /// Await is necessary for locking purposes. The function will be resumed after checking the channel
-        /// for data and will not wait for data to be available.
-        pub async fn getOrNull(self: *SelfChannel) ?T {
+        /// Get an item from the channel. If the buffer is empty and there are no
+        /// puts waiting, this returns `null`.
+        pub fn getOrNull(self: *SelfChannel) ?T {
             // TODO integrate this function with named return values
             // so we can get rid of this extra result copy
             var result: ?T = null;
@@ -177,19 +153,6 @@ pub fn Channel(comptime T: type) type {
             });
             or_null_node.data = &queue_node;
 
-            // TODO test canceling getOrNull
-            errdefer {
-                _ = self.or_null_queue.remove(&or_null_node);
-                _ = @atomicRmw(usize, &self.get_count, .Sub, 1, .SeqCst);
-                const need_dispatch = !self.getters.remove(&queue_node);
-                self.loop.cancelOnNextTick(&my_tick_node);
-                if (need_dispatch) {
-                    // oops we made the get_count incorrect for a period of time. fix by dispatching.
-                    _ = @atomicRmw(usize, &self.get_count, .Add, 1, .SeqCst);
-                    self.dispatch();
-                }
-            }
-
             suspend {
                 self.getters.put(&queue_node);
                 _ = @atomicRmw(usize, &self.get_count, .Add, 1, .SeqCst);
@@ -202,7 +165,7 @@ pub fn Channel(comptime T: type) type {
 
         fn dispatch(self: *SelfChannel) void {
             // set the "need dispatch" flag
-            _ = @atomicRmw(u8, &self.need_dispatch, .Xchg, 1, .SeqCst);
+            @atomicStore(u8, &self.need_dispatch, 1, .SeqCst);
 
             lock: while (true) {
                 // set the lock flag
@@ -210,7 +173,7 @@ pub fn Channel(comptime T: type) type {
                 if (prev_lock != 0) return;
 
                 // clear the need_dispatch flag since we're about to do it
-                _ = @atomicRmw(u8, &self.need_dispatch, .Xchg, 0, .SeqCst);
+                @atomicStore(u8, &self.need_dispatch, 0, .SeqCst);
 
                 while (true) {
                     one_dispatch: {
@@ -225,14 +188,14 @@ pub fn Channel(comptime T: type) type {
                             const get_node = &self.getters.get().?.data;
                             switch (get_node.data) {
                                 GetNode.Data.Normal => |info| {
-                                    info.ptr.* = self.buffer_nodes[self.buffer_index -% self.buffer_len];
+                                    info.ptr.* = self.buffer_nodes[(self.buffer_index -% self.buffer_len) % self.buffer_nodes.len];
                                 },
                                 GetNode.Data.OrNull => |info| {
                                     _ = self.or_null_queue.remove(info.or_null);
-                                    info.ptr.* = self.buffer_nodes[self.buffer_index -% self.buffer_len];
+                                    info.ptr.* = self.buffer_nodes[(self.buffer_index -% self.buffer_len) % self.buffer_nodes.len];
                                 },
                             }
-                            self.loop.onNextTick(get_node.tick_node);
+                            global_event_loop.onNextTick(get_node.tick_node);
                             self.buffer_len -= 1;
 
                             get_count = @atomicRmw(usize, &self.get_count, .Sub, 1, .SeqCst);
@@ -252,8 +215,8 @@ pub fn Channel(comptime T: type) type {
                                     info.ptr.* = put_node.data;
                                 },
                             }
-                            self.loop.onNextTick(get_node.tick_node);
-                            self.loop.onNextTick(put_node.tick_node);
+                            global_event_loop.onNextTick(get_node.tick_node);
+                            global_event_loop.onNextTick(put_node.tick_node);
 
                             get_count = @atomicRmw(usize, &self.get_count, .Sub, 1, .SeqCst);
                             put_count = @atomicRmw(usize, &self.put_count, .Sub, 1, .SeqCst);
@@ -263,8 +226,8 @@ pub fn Channel(comptime T: type) type {
                         while (self.buffer_len != self.buffer_nodes.len and put_count != 0) {
                             const put_node = &self.putters.get().?.data;
 
-                            self.buffer_nodes[self.buffer_index] = put_node.data;
-                            self.loop.onNextTick(put_node.tick_node);
+                            self.buffer_nodes[self.buffer_index % self.buffer_nodes.len] = put_node.data;
+                            global_event_loop.onNextTick(put_node.tick_node);
                             self.buffer_index +%= 1;
                             self.buffer_len += 1;
 
@@ -280,7 +243,7 @@ pub fn Channel(comptime T: type) type {
                     var remove_count: usize = 0;
                     while (self.or_null_queue.get()) |or_null_node| {
                         remove_count += @boolToInt(self.getters.remove(or_null_node.data));
-                        self.loop.onNextTick(or_null_node.data.data.tick_node);
+                        global_event_loop.onNextTick(or_null_node.data.data.tick_node);
                     }
                     if (remove_count != 0) {
                         _ = @atomicRmw(usize, &self.get_count, .Sub, remove_count, .SeqCst);
@@ -306,24 +269,48 @@ pub fn Channel(comptime T: type) type {
 test "std.event.Channel" {
     // https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
+
     // https://github.com/ziglang/zig/issues/3251
-    if (std.os.freebsd.is_the_target) return error.SkipZigTest;
+    if (builtin.os == .freebsd) return error.SkipZigTest;
 
-    var loop: Loop = undefined;
-    // TODO make a multi threaded test
-    try loop.initSingleThreaded(std.heap.direct_allocator);
-    defer loop.deinit();
+    // TODO provide a way to run tests in evented I/O mode
+    if (!std.io.is_async) return error.SkipZigTest;
 
-    const channel = try Channel(i32).create(&loop, 0);
-    defer channel.destroy();
+    var channel: Channel(i32) = undefined;
+    channel.init([0]i32{});
+    defer channel.deinit();
 
-    const handle = async testChannelGetter(&loop, channel);
-    const putter = async testChannelPutter(channel);
+    var handle = async testChannelGetter(&channel);
+    var putter = async testChannelPutter(&channel);
 
-    loop.run();
+    await handle;
+    await putter;
 }
 
-async fn testChannelGetter(loop: *Loop, channel: *Channel(i32)) void {
+test "std.event.Channel wraparound" {
+
+    // TODO provide a way to run tests in evented I/O mode
+    if (!std.io.is_async) return error.SkipZigTest;
+
+    const channel_size = 2;
+
+    var buf: [channel_size]i32 = undefined;
+    var channel: Channel(i32) = undefined;
+    channel.init(&buf);
+    defer channel.deinit();
+
+    // add items to channel and pull them out until
+    // the buffer wraps around, make sure it doesn't crash.
+    var result: i32 = undefined;
+    channel.put(5);
+    testing.expectEqual(@as(i32, 5), channel.get());
+    channel.put(6);
+    testing.expectEqual(@as(i32, 6), channel.get());
+    channel.put(7);
+    testing.expectEqual(@as(i32, 7), channel.get());
+}
+
+async fn testChannelGetter(channel: *Channel(i32)) void {
     const value1 = channel.get();
     testing.expect(value1 == 1234);
 

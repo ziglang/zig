@@ -14,8 +14,8 @@ const expect = std.testing.expect;
 ///  - sin(+-0)   = +-0
 ///  - sin(+-inf) = nan
 ///  - sin(nan)   = nan
-pub fn sin(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn sin(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => sin_(T, x),
         f64 => sin_(T, x),
@@ -84,20 +84,12 @@ fn sin_(comptime T: type, x_: T) T {
 }
 
 test "math.sin" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
-    expect(sin(f32(0.0)) == sin_(f32, 0.0));
-    expect(sin(f64(0.0)) == sin_(f64, 0.0));
-    expect(comptime (math.sin(f64(2))) == math.sin(f64(2)));
+    expect(sin(@as(f32, 0.0)) == sin_(f32, 0.0));
+    expect(sin(@as(f64, 0.0)) == sin_(f64, 0.0));
+    expect(comptime (math.sin(@as(f64, 2))) == math.sin(@as(f64, 2)));
 }
 
 test "math.sin32" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     const epsilon = 0.000001;
 
     expect(math.approxEq(f32, sin_(f32, 0.0), 0.0, epsilon));
@@ -110,10 +102,6 @@ test "math.sin32" {
 }
 
 test "math.sin64" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     const epsilon = 0.000001;
 
     expect(math.approxEq(f64, sin_(f64, 0.0), 0.0, epsilon));
@@ -126,10 +114,6 @@ test "math.sin64" {
 }
 
 test "math.sin32.special" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     expect(sin_(f32, 0.0) == 0.0);
     expect(sin_(f32, -0.0) == -0.0);
     expect(math.isNan(sin_(f32, math.inf(f32))));
@@ -138,10 +122,6 @@ test "math.sin32.special" {
 }
 
 test "math.sin64.special" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     expect(sin_(f64, 0.0) == 0.0);
     expect(sin_(f64, -0.0) == -0.0);
     expect(math.isNan(sin_(f64, math.inf(f64))));

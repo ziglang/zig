@@ -1,32 +1,85 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
-const AtomicOrder = builtin.AtomicOrder;
-const AtomicRmwOp = builtin.AtomicRmwOp;
-const assert = std.debug.assert;
 
 pub const SpinLock = struct {
-    lock: u8, // TODO use a bool or enum
+    state: State,
+
+    const State = enum(u8) {
+        Unlocked,
+        Locked,
+    };
 
     pub const Held = struct {
         spinlock: *SpinLock,
 
         pub fn release(self: Held) void {
-            assert(@atomicRmw(u8, &self.spinlock.lock, builtin.AtomicRmwOp.Xchg, 0, AtomicOrder.SeqCst) == 1);
+            @atomicStore(State, &self.spinlock.state, .Unlocked, .Release);
         }
     };
 
     pub fn init() SpinLock {
-        return SpinLock{ .lock = 0 };
+        return SpinLock{ .state = .Unlocked };
+    }
+
+    pub fn deinit(self: *SpinLock) void {
+        self.* = undefined;
+    }
+
+    pub fn tryAcquire(self: *SpinLock) ?Held {
+        return switch (@atomicRmw(State, &self.state, .Xchg, .Locked, .Acquire)) {
+            .Unlocked => Held{ .spinlock = self },
+            .Locked => null,
+        };
     }
 
     pub fn acquire(self: *SpinLock) Held {
-        while (@atomicRmw(u8, &self.lock, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst) != 0) {}
-        return Held{ .spinlock = self };
+        while (true) {
+            return self.tryAcquire() orelse {
+                yield();
+                continue;
+            };
+        }
+    }
+
+    pub fn yield() void {
+        // On native windows, SwitchToThread is too expensive,
+        // and yielding for 380-410 iterations was found to be
+        // a nice sweet spot. Posix systems on the other hand,
+        // especially linux, perform better by yielding the thread.
+        switch (builtin.os) {
+            .windows => loopHint(400),
+            else => std.os.sched_yield() catch loopHint(1),
+        }
+    }
+
+    /// Hint to the cpu that execution is spinning
+    /// for the given amount of iterations.
+    pub fn loopHint(iterations: usize) void {
+        var i = iterations;
+        while (i != 0) : (i -= 1) {
+            switch (builtin.arch) {
+                // these instructions use a memory clobber as they
+                // flush the pipeline of any speculated reads/writes.
+                .i386, .x86_64 => asm volatile ("pause"
+                    :
+                    :
+                    : "memory"
+                ),
+                .arm, .aarch64 => asm volatile ("yield"
+                    :
+                    :
+                    : "memory"
+                ),
+                else => std.os.sched_yield() catch {},
+            }
+        }
     }
 };
 
 test "spinlock" {
     var lock = SpinLock.init();
+    defer lock.deinit();
+
     const held = lock.acquire();
     defer held.release();
 }

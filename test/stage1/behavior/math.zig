@@ -4,6 +4,7 @@ const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
+const mem = std.mem;
 
 test "division" {
     if (@import("builtin").arch == .riscv64) {
@@ -186,9 +187,9 @@ fn testThreeExprInARow(f: bool, t: bool) void {
     assertFalse(90 >> 1 >> 2 != 90 >> 3);
     assertFalse(100 - 1 + 1000 != 1099);
     assertFalse(5 * 4 / 2 % 3 != 1);
-    assertFalse(i32(i32(5)) != 5);
+    assertFalse(@as(i32, @as(i32, 5)) != 5);
     assertFalse(!!false);
-    assertFalse(i32(7) != --(i32(7)));
+    assertFalse(@as(i32, 7) != --(@as(i32, 7)));
 }
 fn assertFalse(b: bool) void {
     expect(!b);
@@ -256,10 +257,10 @@ const DivResult = struct {
 
 test "binary not" {
     expect(comptime x: {
-        break :x ~u16(0b1010101010101010) == 0b0101010101010101;
+        break :x ~@as(u16, 0b1010101010101010) == 0b0101010101010101;
     });
     expect(comptime x: {
-        break :x ~u64(2147483647) == 18446744071562067968;
+        break :x ~@as(u64, 2147483647) == 18446744071562067968;
     });
     testBinaryNot(0b1010101010101010);
 }
@@ -281,8 +282,8 @@ test "small int addition" {
     x += 1;
     expect(x == 3);
 
-    var result: @typeOf(x) = 3;
-    expect(@addWithOverflow(@typeOf(x), x, 1, &result));
+    var result: @TypeOf(x) = 3;
+    expect(@addWithOverflow(@TypeOf(x), x, 1, &result));
 
     expect(result == 0);
 }
@@ -472,7 +473,7 @@ test "comptime_int multiplication" {
 
 test "comptime_int shifting" {
     comptime {
-        expect((u128(1) << 127) == 0x80000000000000000000000000000000);
+        expect((@as(u128, 1) << 127) == 0x80000000000000000000000000000000);
     }
 }
 
@@ -480,13 +481,13 @@ test "comptime_int multi-limb shift and mask" {
     comptime {
         var a = 0xefffffffa0000001eeeeeeefaaaaaaab;
 
-        expect(u32(a & 0xffffffff) == 0xaaaaaaab);
+        expect(@as(u32, a & 0xffffffff) == 0xaaaaaaab);
         a >>= 32;
-        expect(u32(a & 0xffffffff) == 0xeeeeeeef);
+        expect(@as(u32, a & 0xffffffff) == 0xeeeeeeef);
         a >>= 32;
-        expect(u32(a & 0xffffffff) == 0xa0000001);
+        expect(@as(u32, a & 0xffffffff) == 0xa0000001);
         a >>= 32;
-        expect(u32(a & 0xffffffff) == 0xefffffff);
+        expect(@as(u32, a & 0xffffffff) == 0xefffffff);
         a >>= 32;
 
         expect(a == 0);
@@ -552,7 +553,7 @@ fn should_not_be_zero(x: f128) void {
 
 test "comptime float rem int" {
     comptime {
-        var x = f32(1) % 2;
+        var x = @as(f32, 1) % 2;
         expect(x == 1.0);
     }
 }
@@ -568,8 +569,8 @@ test "remainder division" {
 }
 
 fn remdiv(comptime T: type) void {
-    expect(T(1) == T(1) % T(2));
-    expect(T(1) == T(7) % T(3));
+    expect(@as(T, 1) == @as(T, 1) % @as(T, 2));
+    expect(@as(T, 1) == @as(T, 7) % @as(T, 3));
 }
 
 test "@sqrt" {
@@ -586,12 +587,12 @@ test "@sqrt" {
 
     const x = 14.0;
     const y = x * x;
-    const z = @sqrt(@typeOf(y), y);
+    const z = @sqrt(y);
     comptime expect(z == x);
 }
 
 fn testSqrt(comptime T: type, x: T) void {
-    expect(@sqrt(T, x * x) == x);
+    expect(@sqrt(x * x) == x);
 }
 
 test "comptime_int param and return" {
@@ -652,4 +653,28 @@ test "128-bit multiplication" {
     var b: i128 = 2;
     var c = a * b;
     expect(c == 6);
+}
+
+test "vector comparison" {
+    const S = struct {
+        fn doTheTest() void {
+            var a: @Vector(6, i32) = [_]i32{1, 3, -1, 5, 7, 9};
+            var b: @Vector(6, i32) = [_]i32{-1, 3, 0, 6, 10, -10};
+            expect(mem.eql(bool, &@as([6]bool, a < b), &[_]bool{false, false, true, true, true, false}));
+            expect(mem.eql(bool, &@as([6]bool, a <= b), &[_]bool{false, true, true, true, true, false}));
+            expect(mem.eql(bool, &@as([6]bool, a == b), &[_]bool{false, true, false, false, false, false}));
+            expect(mem.eql(bool, &@as([6]bool, a != b), &[_]bool{true, false, true, true, true, true}));
+            expect(mem.eql(bool, &@as([6]bool, a > b), &[_]bool{true, false, false, false, false, true}));
+            expect(mem.eql(bool, &@as([6]bool, a >= b), &[_]bool{true, true, false, false, false, true}));
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "compare undefined literal with comptime_int" {
+    var x = undefined == 1;
+    // x is now undefined with type bool
+    x = true;
+    expect(x);
 }

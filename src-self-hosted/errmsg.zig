@@ -62,17 +62,17 @@ pub const Msg = struct {
 
     pub fn destroy(self: *Msg) void {
         switch (self.data) {
-            Data.Cli => |cli| {
+            .Cli => |cli| {
                 cli.allocator.free(self.text);
                 cli.allocator.free(self.realpath);
                 cli.allocator.destroy(self);
             },
-            Data.PathAndTree => |path_and_tree| {
+            .PathAndTree => |path_and_tree| {
                 path_and_tree.allocator.free(self.text);
                 path_and_tree.allocator.free(self.realpath);
                 path_and_tree.allocator.destroy(self);
             },
-            Data.ScopeAndComp => |scope_and_comp| {
+            .ScopeAndComp => |scope_and_comp| {
                 scope_and_comp.tree_scope.base.deref(scope_and_comp.compilation);
                 scope_and_comp.compilation.gpa().free(self.text);
                 scope_and_comp.compilation.gpa().free(self.realpath);
@@ -83,11 +83,11 @@ pub const Msg = struct {
 
     fn getAllocator(self: *const Msg) *mem.Allocator {
         switch (self.data) {
-            Data.Cli => |cli| return cli.allocator,
-            Data.PathAndTree => |path_and_tree| {
+            .Cli => |cli| return cli.allocator,
+            .PathAndTree => |path_and_tree| {
                 return path_and_tree.allocator;
             },
-            Data.ScopeAndComp => |scope_and_comp| {
+            .ScopeAndComp => |scope_and_comp| {
                 return scope_and_comp.compilation.gpa();
             },
         }
@@ -95,11 +95,11 @@ pub const Msg = struct {
 
     pub fn getTree(self: *const Msg) *ast.Tree {
         switch (self.data) {
-            Data.Cli => unreachable,
-            Data.PathAndTree => |path_and_tree| {
+            .Cli => unreachable,
+            .PathAndTree => |path_and_tree| {
                 return path_and_tree.tree;
             },
-            Data.ScopeAndComp => |scope_and_comp| {
+            .ScopeAndComp => |scope_and_comp| {
                 return scope_and_comp.tree_scope.tree;
             },
         }
@@ -107,9 +107,9 @@ pub const Msg = struct {
 
     pub fn getSpan(self: *const Msg) Span {
         return switch (self.data) {
-            Data.Cli => unreachable,
-            Data.PathAndTree => |path_and_tree| path_and_tree.span,
-            Data.ScopeAndComp => |scope_and_comp| scope_and_comp.span,
+            .Cli => unreachable,
+            .PathAndTree => |path_and_tree| path_and_tree.span,
+            .ScopeAndComp => |scope_and_comp| scope_and_comp.span,
         };
     }
 
@@ -230,8 +230,8 @@ pub const Msg = struct {
 
     pub fn printToStream(msg: *const Msg, stream: var, color_on: bool) !void {
         switch (msg.data) {
-            Data.Cli => {
-                try stream.print("{}:-:-: error: {}\n", msg.realpath, msg.text);
+            .Cli => {
+                try stream.print("{}:-:-: error: {}\n", .{ msg.realpath, msg.text });
                 return;
             },
             else => {},
@@ -254,24 +254,22 @@ pub const Msg = struct {
         const start_loc = tree.tokenLocationPtr(0, first_token);
         const end_loc = tree.tokenLocationPtr(first_token.end, last_token);
         if (!color_on) {
-            try stream.print(
-                "{}:{}:{}: error: {}\n",
+            try stream.print("{}:{}:{}: error: {}\n", .{
                 path,
                 start_loc.line + 1,
                 start_loc.column + 1,
                 msg.text,
-            );
+            });
             return;
         }
 
-        try stream.print(
-            "{}:{}:{}: error: {}\n{}\n",
+        try stream.print("{}:{}:{}: error: {}\n{}\n", .{
             path,
             start_loc.line + 1,
             start_loc.column + 1,
             msg.text,
             tree.source[start_loc.line_start..start_loc.line_end],
-        );
+        });
         try stream.writeByteNTimes(' ', start_loc.column);
         try stream.writeByteNTimes('~', last_token.end - first_token.start);
         try stream.write("\n");
@@ -279,9 +277,9 @@ pub const Msg = struct {
 
     pub fn printToFile(msg: *const Msg, file: fs.File, color: Color) !void {
         const color_on = switch (color) {
-            Color.Auto => file.isTty(),
-            Color.On => true,
-            Color.Off => false,
+            .Auto => file.isTty(),
+            .On => true,
+            .Off => false,
         };
         var stream = &file.outStream().stream;
         return msg.printToStream(stream, color_on);

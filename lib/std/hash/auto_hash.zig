@@ -22,7 +22,7 @@ pub const HashStrategy = enum {
 
 /// Helper function to hash a pointer and mutate the strategy if needed.
 pub fn hashPointer(hasher: var, key: var, comptime strat: HashStrategy) void {
-    const info = @typeInfo(@typeOf(key));
+    const info = @typeInfo(@TypeOf(key));
 
     switch (info.Pointer.size) {
         builtin.TypeInfo.Pointer.Size.One => switch (strat) {
@@ -74,12 +74,11 @@ pub fn hashArray(hasher: var, key: var, comptime strat: HashStrategy) void {
 /// Provides generic hashing for any eligible type.
 /// Strategy is provided to determine if pointers should be followed or not.
 pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
-    const Key = @typeOf(key);
+    const Key = @TypeOf(key);
     switch (@typeInfo(Key)) {
         .NoReturn,
         .Opaque,
         .Undefined,
-        .ArgTuple,
         .Void,
         .Null,
         .BoundFn,
@@ -92,7 +91,7 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
 
         // Help the optimizer see that hashing an int is easy by inlining!
         // TODO Check if the situation is better after #561 is resolved.
-        .Int => @inlineCall(hasher.update, std.mem.asBytes(&key)),
+        .Int => @call(.{ .modifier = .always_inline }, hasher.update, .{std.mem.asBytes(&key)}),
 
         .Float => |info| hash(hasher, @bitCast(@IntType(false, info.bits), key), strat),
 
@@ -101,7 +100,7 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
         .ErrorSet => hash(hasher, @errorToInt(key), strat),
         .AnyFrame, .Fn => hash(hasher, @ptrToInt(key), strat),
 
-        .Pointer => @inlineCall(hashPointer, hasher, key, strat),
+        .Pointer => @call(.{ .modifier = .always_inline }, hashPointer, .{ hasher, key, strat }),
 
         .Optional => if (key) |k| hash(hasher, k, strat),
 
@@ -165,7 +164,7 @@ pub fn hash(hasher: var, key: var, comptime strat: HashStrategy) void {
 /// Only hashes `key` itself, pointers are not followed.
 /// Slices are rejected to avoid ambiguity on the user's intention.
 pub fn autoHash(hasher: var, key: var) void {
-    const Key = @typeOf(key);
+    const Key = @TypeOf(key);
     if (comptime meta.trait.isSlice(Key)) {
         comptime assert(@hasDecl(std, "StringHashMap")); // detect when the following message needs updated
         const extra_help = if (Key == []const u8)
@@ -235,8 +234,8 @@ test "hash pointer" {
 test "hash slice shallow" {
     // Allocate one array dynamically so that we're assured it is not merged
     // with the other by the optimization passes.
-    const array1 = try std.heap.direct_allocator.create([6]u32);
-    defer std.heap.direct_allocator.destroy(array1);
+    const array1 = try std.heap.page_allocator.create([6]u32);
+    defer std.heap.page_allocator.destroy(array1);
     array1.* = [_]u32{ 1, 2, 3, 4, 5, 6 };
     const array2 = [_]u32{ 1, 2, 3, 4, 5, 6 };
     const a = array1[0..];
@@ -251,8 +250,8 @@ test "hash slice shallow" {
 test "hash slice deep" {
     // Allocate one array dynamically so that we're assured it is not merged
     // with the other by the optimization passes.
-    const array1 = try std.heap.direct_allocator.create([6]u32);
-    defer std.heap.direct_allocator.destroy(array1);
+    const array1 = try std.heap.page_allocator.create([6]u32);
+    defer std.heap.page_allocator.destroy(array1);
     array1.* = [_]u32{ 1, 2, 3, 4, 5, 6 };
     const array2 = [_]u32{ 1, 2, 3, 4, 5, 6 };
     const a = array1[0..];
@@ -279,7 +278,7 @@ test "hash struct deep" {
         }
     };
 
-    const allocator = std.heap.direct_allocator;
+    const allocator = std.heap.page_allocator;
     const foo = try Foo.init(allocator, 123, 1.0, true);
     const bar = try Foo.init(allocator, 123, 1.0, true);
     const baz = try Foo.init(allocator, 123, 1.0, false);
@@ -306,7 +305,7 @@ test "hash struct deep" {
 test "testHash optional" {
     const a: ?u32 = 123;
     const b: ?u32 = null;
-    testing.expectEqual(testHash(a), testHash(u32(123)));
+    testing.expectEqual(testHash(a), testHash(@as(u32, 123)));
     testing.expect(testHash(a) != testHash(b));
     testing.expectEqual(testHash(b), 0);
 }
@@ -315,9 +314,9 @@ test "testHash array" {
     const a = [_]u32{ 1, 2, 3 };
     const h = testHash(a);
     var hasher = Wyhash.init(0);
-    autoHash(&hasher, u32(1));
-    autoHash(&hasher, u32(2));
-    autoHash(&hasher, u32(3));
+    autoHash(&hasher, @as(u32, 1));
+    autoHash(&hasher, @as(u32, 2));
+    autoHash(&hasher, @as(u32, 3));
     testing.expectEqual(h, hasher.final());
 }
 
@@ -330,9 +329,9 @@ test "testHash struct" {
     const f = Foo{};
     const h = testHash(f);
     var hasher = Wyhash.init(0);
-    autoHash(&hasher, u32(1));
-    autoHash(&hasher, u32(2));
-    autoHash(&hasher, u32(3));
+    autoHash(&hasher, @as(u32, 1));
+    autoHash(&hasher, @as(u32, 2));
+    autoHash(&hasher, @as(u32, 3));
     testing.expectEqual(h, hasher.final());
 }
 

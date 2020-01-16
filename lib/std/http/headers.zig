@@ -28,9 +28,9 @@ fn never_index_default(name: []const u8) bool {
 
 const HeaderEntry = struct {
     allocator: *Allocator,
-    pub name: []const u8,
-    pub value: []u8,
-    pub never_index: bool,
+    name: []const u8,
+    value: []u8,
+    never_index: bool,
 
     const Self = @This();
 
@@ -70,12 +70,12 @@ const HeaderEntry = struct {
             }
 
             // Sort lexicographically on header name
-            return mem.compare(u8, a.name, b.name) == mem.Compare.LessThan;
+            return mem.order(u8, a.name, b.name) == .lt;
         }
 
         // Sort lexicographically on header value
         if (!mem.eql(u8, a.value, b.value)) {
-            return mem.compare(u8, a.value, b.value) == mem.Compare.LessThan;
+            return mem.order(u8, a.value, b.value) == .lt;
         }
 
         // Doesn't matter here; need to pick something for sort consistency
@@ -133,8 +133,7 @@ pub const Headers = struct {
             self.index.deinit();
         }
         {
-            var it = self.data.iterator();
-            while (it.next()) |entry| {
+            for (self.data.toSliceConst()) |entry| {
                 entry.deinit();
             }
             self.data.deinit();
@@ -144,27 +143,20 @@ pub const Headers = struct {
     pub fn clone(self: Self, allocator: *Allocator) !Self {
         var other = Headers.init(allocator);
         errdefer other.deinit();
-        try other.data.ensureCapacity(self.data.count());
+        try other.data.ensureCapacity(self.data.len);
         try other.index.initCapacity(self.index.entries.len);
-        var it = self.data.iterator();
-        while (it.next()) |entry| {
+        for (self.data.toSliceConst()) |entry| {
             try other.append(entry.name, entry.value, entry.never_index);
         }
         return other;
     }
 
-    pub fn count(self: Self) usize {
-        return self.data.count();
-    }
-
-    pub const Iterator = HeaderList.Iterator;
-
-    pub fn iterator(self: Self) Iterator {
-        return self.data.iterator();
+    pub fn toSlice(self: Self) []const HeaderEntry {
+        return self.data.toSliceConst();
     }
 
     pub fn append(self: *Self, name: []const u8, value: []const u8, never_index: ?bool) !void {
-        const n = self.data.count() + 1;
+        const n = self.data.len + 1;
         try self.data.ensureCapacity(n);
         var entry: HeaderEntry = undefined;
         if (self.index.get(name)) |kv| {
@@ -190,7 +182,7 @@ pub const Headers = struct {
     pub fn upsert(self: *Self, name: []const u8, value: []const u8, never_index: ?bool) !void {
         if (self.index.get(name)) |kv| {
             const dex = kv.value;
-            if (dex.count() != 1)
+            if (dex.len != 1)
                 return error.CannotUpsertMultiValuedField;
             var e = &self.data.at(dex.at(0));
             try e.modify(value, never_index);
@@ -209,7 +201,7 @@ pub const Headers = struct {
         if (self.index.remove(name)) |kv| {
             var dex = &kv.value;
             // iterate backwards
-            var i = dex.count();
+            var i = dex.len;
             while (i > 0) {
                 i -= 1;
                 const data_index = dex.at(i);
@@ -232,18 +224,18 @@ pub const Headers = struct {
         const removed = self.data.orderedRemove(i);
         const kv = self.index.get(removed.name).?;
         var dex = &kv.value;
-        if (dex.count() == 1) {
+        if (dex.len == 1) {
             // was last item; delete the index
             _ = self.index.remove(kv.key);
             dex.deinit();
             removed.deinit();
             self.allocator.free(kv.key);
         } else {
-            dex.shrink(dex.count() - 1);
+            dex.shrink(dex.len - 1);
             removed.deinit();
         }
         // if it was the last item; no need to rebuild index
-        if (i != self.data.count()) {
+        if (i != self.data.len) {
             self.rebuild_index();
         }
     }
@@ -254,18 +246,18 @@ pub const Headers = struct {
         const removed = self.data.swapRemove(i);
         const kv = self.index.get(removed.name).?;
         var dex = &kv.value;
-        if (dex.count() == 1) {
+        if (dex.len == 1) {
             // was last item; delete the index
             _ = self.index.remove(kv.key);
             dex.deinit();
             removed.deinit();
             self.allocator.free(kv.key);
         } else {
-            dex.shrink(dex.count() - 1);
+            dex.shrink(dex.len - 1);
             removed.deinit();
         }
         // if it was the last item; no need to rebuild index
-        if (i != self.data.count()) {
+        if (i != self.data.len) {
             self.rebuild_index();
         }
     }
@@ -289,10 +281,9 @@ pub const Headers = struct {
     pub fn get(self: Self, allocator: *Allocator, name: []const u8) !?[]const HeaderEntry {
         const dex = self.getIndices(name) orelse return null;
 
-        const buf = try allocator.alloc(HeaderEntry, dex.count());
-        var it = dex.iterator();
+        const buf = try allocator.alloc(HeaderEntry, dex.len);
         var n: usize = 0;
-        while (it.next()) |idx| {
+        for (dex.toSliceConst()) |idx| {
             buf[n] = self.data.at(idx);
             n += 1;
         }
@@ -314,9 +305,8 @@ pub const Headers = struct {
 
         // adapted from mem.join
         const total_len = blk: {
-            var sum: usize = dex.count() - 1; // space for separator(s)
-            var it = dex.iterator();
-            while (it.next()) |idx|
+            var sum: usize = dex.len - 1; // space for separator(s)
+            for (dex.toSliceConst()) |idx|
                 sum += self.data.at(idx).value.len;
             break :blk sum;
         };
@@ -348,10 +338,9 @@ pub const Headers = struct {
             }
         }
         { // fill up indexes again; we know capacity is fine from before
-            var it = self.data.iterator();
-            while (it.next()) |entry| {
+            for (self.data.toSliceConst()) |entry, i| {
                 var dex = &self.index.get(entry.name).?.value;
-                dex.appendAssumeCapacity(it.count);
+                dex.appendAssumeCapacity(i);
             }
         }
     }
@@ -367,10 +356,9 @@ pub const Headers = struct {
         options: std.fmt.FormatOptions,
         context: var,
         comptime Errors: type,
-        output: fn (@typeOf(context), []const u8) Errors!void,
+        output: fn (@TypeOf(context), []const u8) Errors!void,
     ) Errors!void {
-        var it = self.iterator();
-        while (it.next()) |entry| {
+        for (self.toSlice()) |entry| {
             try output(context, entry.name);
             try output(context, ": ");
             try output(context, entry.value);
@@ -386,8 +374,7 @@ test "Headers.iterator" {
     try h.append("cookie", "somevalue", null);
 
     var count: i32 = 0;
-    var it = h.iterator();
-    while (it.next()) |e| {
+    for (h.toSlice()) |e| {
         if (count == 0) {
             testing.expectEqualSlices(u8, "foo", e.name);
             testing.expectEqualSlices(u8, "bar", e.value);
@@ -399,7 +386,7 @@ test "Headers.iterator" {
         }
         count += 1;
     }
-    testing.expectEqual(i32(2), count);
+    testing.expectEqual(@as(i32, 2), count);
 }
 
 test "Headers.contains" {
@@ -420,10 +407,10 @@ test "Headers.delete" {
     try h.append("cookie", "somevalue", null);
 
     testing.expectEqual(false, h.delete("not-present"));
-    testing.expectEqual(usize(3), h.count());
+    testing.expectEqual(@as(usize, 3), h.toSlice().len);
 
     testing.expectEqual(true, h.delete("foo"));
-    testing.expectEqual(usize(2), h.count());
+    testing.expectEqual(@as(usize, 2), h.toSlice().len);
     {
         const e = h.at(0);
         testing.expectEqualSlices(u8, "baz", e.name);
@@ -448,7 +435,7 @@ test "Headers.orderedRemove" {
     try h.append("cookie", "somevalue", null);
 
     h.orderedRemove(0);
-    testing.expectEqual(usize(2), h.count());
+    testing.expectEqual(@as(usize, 2), h.toSlice().len);
     {
         const e = h.at(0);
         testing.expectEqualSlices(u8, "baz", e.name);
@@ -471,7 +458,7 @@ test "Headers.swapRemove" {
     try h.append("cookie", "somevalue", null);
 
     h.swapRemove(0);
-    testing.expectEqual(usize(2), h.count());
+    testing.expectEqual(@as(usize, 2), h.toSlice().len);
     {
         const e = h.at(0);
         testing.expectEqualSlices(u8, "cookie", e.name);
@@ -514,8 +501,8 @@ test "Headers.getIndices" {
     try h.append("set-cookie", "y=2", null);
 
     testing.expect(null == h.getIndices("not-present"));
-    testing.expectEqualSlices(usize, [_]usize{0}, h.getIndices("foo").?.toSliceConst());
-    testing.expectEqualSlices(usize, [_]usize{ 1, 2 }, h.getIndices("set-cookie").?.toSliceConst());
+    testing.expectEqualSlices(usize, &[_]usize{0}, h.getIndices("foo").?.toSliceConst());
+    testing.expectEqualSlices(usize, &[_]usize{ 1, 2 }, h.getIndices("set-cookie").?.toSliceConst());
 }
 
 test "Headers.get" {
@@ -610,5 +597,5 @@ test "Headers.format" {
         \\foo: bar
         \\cookie: somevalue
         \\
-    , try std.fmt.bufPrint(buf[0..], "{}", h));
+    , try std.fmt.bufPrint(buf[0..], "{}", .{h}));
 }

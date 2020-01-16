@@ -9,9 +9,9 @@ const expect = std.testing.expect;
 pub fn Stack(comptime T: type) type {
     return struct {
         root: ?*Node,
-        lock: @typeOf(lock_init),
+        lock: @TypeOf(lock_init),
 
-        const lock_init = if (builtin.single_threaded) {} else u8(0);
+        const lock_init = if (builtin.single_threaded) {} else @as(u8, 0);
 
         pub const Self = @This();
 
@@ -86,8 +86,8 @@ const puts_per_thread = 500;
 const put_thread_count = 3;
 
 test "std.atomic.stack" {
-    var plenty_of_memory = try std.heap.direct_allocator.alloc(u8, 300 * 1024);
-    defer std.heap.direct_allocator.free(plenty_of_memory);
+    var plenty_of_memory = try std.heap.page_allocator.alloc(u8, 300 * 1024);
+    defer std.heap.page_allocator.free(plenty_of_memory);
 
     var fixed_buffer_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(plenty_of_memory);
     var a = &fixed_buffer_allocator.allocator;
@@ -128,22 +128,21 @@ test "std.atomic.stack" {
 
         for (putters) |t|
             t.wait();
-        _ = @atomicRmw(u8, &context.puts_done, builtin.AtomicRmwOp.Xchg, 1, AtomicOrder.SeqCst);
+        @atomicStore(u8, &context.puts_done, 1, AtomicOrder.SeqCst);
         for (getters) |t|
             t.wait();
     }
 
     if (context.put_sum != context.get_sum) {
-        std.debug.panic("failure\nput_sum:{} != get_sum:{}", context.put_sum, context.get_sum);
+        std.debug.panic("failure\nput_sum:{} != get_sum:{}", .{ context.put_sum, context.get_sum });
     }
 
     if (context.get_count != puts_per_thread * put_thread_count) {
-        std.debug.panic(
-            "failure\nget_count:{} != puts_per_thread:{} * put_thread_count:{}",
+        std.debug.panic("failure\nget_count:{} != puts_per_thread:{} * put_thread_count:{}", .{
             context.get_count,
-            u32(puts_per_thread),
-            u32(put_thread_count),
-        );
+            @as(u32, puts_per_thread),
+            @as(u32, put_thread_count),
+        });
     }
 }
 

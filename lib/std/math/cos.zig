@@ -13,8 +13,8 @@ const expect = std.testing.expect;
 /// Special Cases:
 ///  - cos(+-inf) = nan
 ///  - cos(nan)   = nan
-pub fn cos(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn cos(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => cos_(f32, x),
         f64 => cos_(f64, x),
@@ -83,8 +83,8 @@ fn cos_(comptime T: type, x_: T) T {
 }
 
 test "math.cos" {
-    expect(cos(f32(0.0)) == cos_(f32, 0.0));
-    expect(cos(f64(0.0)) == cos_(f64, 0.0));
+    expect(cos(@as(f32, 0.0)) == cos_(f32, 0.0));
+    expect(cos(@as(f64, 0.0)) == cos_(f64, 0.0));
 }
 
 test "math.cos32" {
@@ -100,10 +100,6 @@ test "math.cos32" {
 }
 
 test "math.cos64" {
-    if (builtin.os == .linux and builtin.arch == .arm and builtin.abi == .musleabihf) {
-        // TODO https://github.com/ziglang/zig/issues/3289
-        return error.SkipZigTest;
-    }
     const epsilon = 0.000001;
 
     expect(math.approxEq(f64, cos_(f64, 0.0), 1.0, epsilon));

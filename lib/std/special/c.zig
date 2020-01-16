@@ -7,6 +7,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
+const isNan = std.math.isNan;
 
 const is_wasm = switch (builtin.arch) {
     .wasm32, .wasm64 => true,
@@ -22,36 +23,34 @@ const is_freestanding = switch (builtin.os) {
 };
 comptime {
     if (is_freestanding and is_wasm and builtin.link_libc) {
-        @export("_start", wasm_start, .Strong);
+        @export(wasm_start, .{ .name = "_start", .linkage = .Strong });
     }
     if (builtin.link_libc) {
-        @export("strcmp", strcmp, .Strong);
-        @export("strncmp", strncmp, .Strong);
-        @export("strerror", strerror, .Strong);
-        @export("strlen", strlen, .Strong);
+        @export(strcmp, .{ .name = "strcmp", .linkage = .Strong });
+        @export(strncmp, .{ .name = "strncmp", .linkage = .Strong });
+        @export(strerror, .{ .name = "strerror", .linkage = .Strong });
+        @export(strlen, .{ .name = "strlen", .linkage = .Strong });
     } else if (is_msvc) {
-        @export("_fltused", _fltused, .Strong);
-    } else if (builtin.arch == builtin.Arch.arm and builtin.os == .linux) {
-        @export("__aeabi_read_tp", std.os.linux.getThreadPointer, .Strong);
+        @export(_fltused, .{ .name = "_fltused", .linkage = .Strong });
     }
 }
 
 extern var _fltused: c_int = 1;
 
-extern fn main(argc: c_int, argv: [*][*]u8) c_int;
-extern fn wasm_start() void {
+extern fn main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
+fn wasm_start() callconv(.C) void {
     _ = main(0, undefined);
 }
 
-extern fn strcmp(s1: [*]const u8, s2: [*]const u8) c_int {
+fn strcmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.C) c_int {
     return std.cstr.cmp(s1, s2);
 }
 
-extern fn strlen(s: [*]const u8) usize {
+fn strlen(s: [*:0]const u8) callconv(.C) usize {
     return std.mem.len(u8, s);
 }
 
-extern fn strncmp(_l: [*]const u8, _r: [*]const u8, _n: usize) c_int {
+fn strncmp(_l: [*:0]const u8, _r: [*:0]const u8, _n: usize) callconv(.C) c_int {
     if (_n == 0) return 0;
     var l = _l;
     var r = _r;
@@ -61,18 +60,18 @@ extern fn strncmp(_l: [*]const u8, _r: [*]const u8, _n: usize) c_int {
         r += 1;
         n -= 1;
     }
-    return c_int(l[0]) - c_int(r[0]);
+    return @as(c_int, l[0]) - @as(c_int, r[0]);
 }
 
-extern fn strerror(errnum: c_int) [*]const u8 {
-    return c"TODO strerror implementation";
+fn strerror(errnum: c_int) callconv(.C) [*:0]const u8 {
+    return "TODO strerror implementation";
 }
 
 test "strncmp" {
-    std.testing.expect(strncmp(c"a", c"b", 1) == -1);
-    std.testing.expect(strncmp(c"a", c"c", 1) == -2);
-    std.testing.expect(strncmp(c"b", c"a", 1) == 1);
-    std.testing.expect(strncmp(c"\xff", c"\x02", 1) == 253);
+    std.testing.expect(strncmp("a", "b", 1) == -1);
+    std.testing.expect(strncmp("a", "c", 1) == -2);
+    std.testing.expect(strncmp("b", "a", 1) == 1);
+    std.testing.expect(strncmp("\xff", "\x02", 1) == 253);
 }
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
@@ -80,10 +79,12 @@ test "strncmp" {
 pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
     if (builtin.is_test) {
         @setCold(true);
-        std.debug.panic("{}", msg);
-    } else {
-        unreachable;
+        std.debug.panic("{}", .{msg});
     }
+    if (builtin.os != .freestanding and builtin.os != .other) {
+        std.os.abort();
+    }
+    while (true) {}
 }
 
 export fn memset(dest: ?[*]u8, c: u8, n: usize) ?[*]u8 {
@@ -179,21 +180,64 @@ comptime {
         builtin.mode != builtin.Mode.ReleaseSmall and
         builtin.os != builtin.Os.windows)
     {
-        @export("__stack_chk_fail", __stack_chk_fail, builtin.GlobalLinkage.Strong);
+        @export(__stack_chk_fail, .{ .name = "__stack_chk_fail" });
     }
     if (builtin.os == builtin.Os.linux) {
-        @export("clone", clone, builtin.GlobalLinkage.Strong);
+        @export(clone, .{ .name = "clone" });
     }
 }
-extern fn __stack_chk_fail() noreturn {
+fn __stack_chk_fail() callconv(.C) noreturn {
     @panic("stack smashing detected");
 }
 
 // TODO we should be able to put this directly in std/linux/x86_64.zig but
 // it causes a segfault in release mode. this is a workaround of calling it
 // across .o file boundaries. fix comptime @ptrCast of nakedcc functions.
-nakedcc fn clone() void {
+fn clone() callconv(.Naked) void {
     switch (builtin.arch) {
+        .i386 => {
+            // __clone(func, stack, flags, arg, ptid, tls, ctid)
+            //         +8,   +12,   +16,   +20, +24,  +28, +32
+            // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+            //         eax,       ebx,   ecx,   edx,  esi, edi
+            asm volatile (
+                \\  push %%ebp
+                \\  mov %%esp,%%ebp
+                \\  push %%ebx
+                \\  push %%esi
+                \\  push %%edi
+                \\  // Setup the arguments
+                \\  mov 16(%%ebp),%%ebx
+                \\  mov 12(%%ebp),%%ecx
+                \\  and $-16,%%ecx
+                \\  sub $20,%%ecx
+                \\  mov 20(%%ebp),%%eax
+                \\  mov %%eax,4(%%ecx)
+                \\  mov 8(%%ebp),%%eax
+                \\  mov %%eax,0(%%ecx)
+                \\  mov 24(%%ebp),%%edx
+                \\  mov 28(%%ebp),%%esi
+                \\  mov 32(%%ebp),%%edi
+                \\  mov $120,%%eax
+                \\  int $128
+                \\  test %%eax,%%eax
+                \\  jnz 1f
+                \\  pop %%eax
+                \\  xor %%ebp,%%ebp
+                \\  call *%%eax
+                \\  mov %%eax,%%ebx
+                \\  xor %%eax,%%eax
+                \\  inc %%eax
+                \\  int $128
+                \\  hlt
+                \\1:
+                \\  pop %%edi
+                \\  pop %%esi
+                \\  pop %%ebx
+                \\  pop %%ebp
+                \\  ret
+            );
+        },
         .x86_64 => {
             asm volatile (
                 \\      xor %%eax,%%eax
@@ -480,7 +524,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
     const sx = if (T == f32) @intCast(u32, ux & 0x80000000) else @intCast(i32, ux >> bits_minus_1);
     var i: uint = undefined;
 
-    if (uy << 1 == 0 or isNan(uint, uy) or ex == mask)
+    if (uy << 1 == 0 or isNan(@bitCast(T, uy)) or ex == mask)
         return (x * y) / (x * y);
 
     if (ux << 1 <= uy << 1) {
@@ -537,7 +581,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
     // scale result up
     if (ex > 0) {
         ux -%= 1 << digits;
-        ux |= uint(@bitCast(u32, ex)) << digits;
+        ux |= @as(uint, @bitCast(u32, ex)) << digits;
     } else {
         ux >>= @intCast(log2uint, @bitCast(u32, -ex + 1));
     }
@@ -547,18 +591,6 @@ fn generic_fmod(comptime T: type, x: T, y: T) T {
         ux |= @intCast(uint, sx) << bits_minus_1;
     }
     return @bitCast(T, ux);
-}
-
-fn isNan(comptime T: type, bits: T) bool {
-    if (T == u16) {
-        return (bits & 0x7fff) > 0x7c00;
-    } else if (T == u32) {
-        return (bits & 0x7fffffff) > 0x7f800000;
-    } else if (T == u64) {
-        return (bits & (maxInt(u64) >> 1)) > (u64(0x7ff) << 52);
-    } else {
-        unreachable;
-    }
 }
 
 // NOTE: The original code is full of implicit signed -> unsigned assumptions and u32 wraparound
@@ -694,9 +726,31 @@ export fn sqrt(x: f64) f64 {
     return @bitCast(f64, uz);
 }
 
+test "sqrt" {
+    const epsilon = 0.000001;
+
+    std.testing.expect(sqrt(0.0) == 0.0);
+    std.testing.expect(std.math.approxEq(f64, sqrt(2.0), 1.414214, epsilon));
+    std.testing.expect(std.math.approxEq(f64, sqrt(3.6), 1.897367, epsilon));
+    std.testing.expect(sqrt(4.0) == 2.0);
+    std.testing.expect(std.math.approxEq(f64, sqrt(7.539840), 2.745877, epsilon));
+    std.testing.expect(std.math.approxEq(f64, sqrt(19.230934), 4.385309, epsilon));
+    std.testing.expect(sqrt(64.0) == 8.0);
+    std.testing.expect(std.math.approxEq(f64, sqrt(64.1), 8.006248, epsilon));
+    std.testing.expect(std.math.approxEq(f64, sqrt(8942.230469), 94.563367, epsilon));
+}
+
+test "sqrt special" {
+    std.testing.expect(std.math.isPositiveInf(sqrt(std.math.inf(f64))));
+    std.testing.expect(sqrt(0.0) == 0.0);
+    std.testing.expect(sqrt(-0.0) == -0.0);
+    std.testing.expect(std.math.isNan(sqrt(-1.0)));
+    std.testing.expect(std.math.isNan(sqrt(std.math.nan(f64))));
+}
+
 export fn sqrtf(x: f32) f32 {
     const tiny: f32 = 1.0e-30;
-    const sign: i32 = @bitCast(i32, u32(0x80000000));
+    const sign: i32 = @bitCast(i32, @as(u32, 0x80000000));
     var ix: i32 = @bitCast(i32, x);
 
     if ((ix & 0x7F800000) == 0x7F800000) {
@@ -768,4 +822,26 @@ export fn sqrtf(x: f32) f32 {
     ix = (q >> 1) + 0x3f000000;
     ix += m << 23;
     return @bitCast(f32, ix);
+}
+
+test "sqrtf" {
+    const epsilon = 0.000001;
+
+    std.testing.expect(sqrtf(0.0) == 0.0);
+    std.testing.expect(std.math.approxEq(f32, sqrtf(2.0), 1.414214, epsilon));
+    std.testing.expect(std.math.approxEq(f32, sqrtf(3.6), 1.897367, epsilon));
+    std.testing.expect(sqrtf(4.0) == 2.0);
+    std.testing.expect(std.math.approxEq(f32, sqrtf(7.539840), 2.745877, epsilon));
+    std.testing.expect(std.math.approxEq(f32, sqrtf(19.230934), 4.385309, epsilon));
+    std.testing.expect(sqrtf(64.0) == 8.0);
+    std.testing.expect(std.math.approxEq(f32, sqrtf(64.1), 8.006248, epsilon));
+    std.testing.expect(std.math.approxEq(f32, sqrtf(8942.230469), 94.563370, epsilon));
+}
+
+test "sqrtf special" {
+    std.testing.expect(std.math.isPositiveInf(sqrtf(std.math.inf(f32))));
+    std.testing.expect(sqrtf(0.0) == 0.0);
+    std.testing.expect(sqrtf(-0.0) == -0.0);
+    std.testing.expect(std.math.isNan(sqrtf(-1.0)));
+    std.testing.expect(std.math.isNan(sqrtf(std.math.nan(f32))));
 }

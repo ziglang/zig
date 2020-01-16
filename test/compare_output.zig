@@ -5,22 +5,26 @@ const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.addC("hello world with libc",
-        \\const c = @cImport(@cInclude("stdio.h"));
-        \\export fn main(argc: c_int, argv: [*][*]u8) c_int {
-        \\    _ = c.puts(c"Hello, world!");
+        \\const c = @cImport({
+        \\    // See https://github.com/ziglang/zig/issues/515
+        \\    @cDefine("_NO_CRT_STDIO_INLINE", "1");
+        \\    @cInclude("stdio.h");
+        \\});
+        \\pub export fn main(argc: c_int, argv: [*][*]u8) c_int {
+        \\    _ = c.puts("Hello, world!");
         \\    return 0;
         \\}
     , "Hello, world!" ++ std.cstr.line_sep);
 
     cases.addCase(x: {
         var tc = cases.create("multiple files with private function",
-            \\use @import("std").io;
-            \\use @import("foo.zig");
+            \\usingnamespace @import("std").io;
+            \\usingnamespace @import("foo.zig");
             \\
             \\pub fn main() void {
             \\    privateFunction();
-            \\    const stdout = &(getStdOut() catch unreachable).outStream().stream;
-            \\    stdout.print("OK 2\n") catch unreachable;
+            \\    const stdout = &getStdOut().outStream().stream;
+            \\    stdout.print("OK 2\n", .{}) catch unreachable;
             \\}
             \\
             \\fn privateFunction() void {
@@ -29,13 +33,13 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         , "OK 1\nOK 2\n");
 
         tc.addSourceFile("foo.zig",
-            \\use @import("std").io;
+            \\usingnamespace @import("std").io;
             \\
             \\// purposefully conflicting function with main.zig
             \\// but it's private so it should be OK
             \\fn privateFunction() void {
-            \\    const stdout = &(getStdOut() catch unreachable).outStream().stream;
-            \\    stdout.print("OK 1\n") catch unreachable;
+            \\    const stdout = &getStdOut().outStream().stream;
+            \\    stdout.print("OK 1\n", .{}) catch unreachable;
             \\}
             \\
             \\pub fn printText() void {
@@ -48,8 +52,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
 
     cases.addCase(x: {
         var tc = cases.create("import segregation",
-            \\use @import("foo.zig");
-            \\use @import("bar.zig");
+            \\usingnamespace @import("foo.zig");
+            \\usingnamespace @import("bar.zig");
             \\
             \\pub fn main() void {
             \\    foo_function();
@@ -58,21 +62,21 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         , "OK\nOK\n");
 
         tc.addSourceFile("foo.zig",
-            \\use @import("std").io;
+            \\usingnamespace @import("std").io;
             \\pub fn foo_function() void {
-            \\    const stdout = &(getStdOut() catch unreachable).outStream().stream;
-            \\    stdout.print("OK\n") catch unreachable;
+            \\    const stdout = &getStdOut().outStream().stream;
+            \\    stdout.print("OK\n", .{}) catch unreachable;
             \\}
         );
 
         tc.addSourceFile("bar.zig",
-            \\use @import("other.zig");
-            \\use @import("std").io;
+            \\usingnamespace @import("other.zig");
+            \\usingnamespace @import("std").io;
             \\
             \\pub fn bar_function() void {
             \\    if (foo_function()) {
-            \\        const stdout = &(getStdOut() catch unreachable).outStream().stream;
-            \\        stdout.print("OK\n") catch unreachable;
+            \\        const stdout = &getStdOut().outStream().stream;
+            \\        stdout.print("OK\n", .{}) catch unreachable;
             \\    }
             \\}
         );
@@ -88,8 +92,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     });
 
     cases.addCase(x: {
-        var tc = cases.create("two files use import each other",
-            \\use @import("a.zig");
+        var tc = cases.create("two files usingnamespace import each other",
+            \\usingnamespace @import("a.zig");
             \\
             \\pub fn main() void {
             \\    ok();
@@ -97,19 +101,19 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         , "OK\n");
 
         tc.addSourceFile("a.zig",
-            \\use @import("b.zig");
+            \\usingnamespace @import("b.zig");
             \\const io = @import("std").io;
             \\
             \\pub const a_text = "OK\n";
             \\
             \\pub fn ok() void {
-            \\    const stdout = &(io.getStdOut() catch unreachable).outStream().stream;
-            \\    stdout.print(b_text) catch unreachable;
+            \\    const stdout = &io.getStdOut().outStream().stream;
+            \\    stdout.print(b_text, .{}) catch unreachable;
             \\}
         );
 
         tc.addSourceFile("b.zig",
-            \\use @import("a.zig");
+            \\usingnamespace @import("a.zig");
             \\
             \\pub const b_text = a_text;
         );
@@ -121,8 +125,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const io = @import("std").io;
         \\
         \\pub fn main() void {
-        \\    const stdout = &(io.getStdOut() catch unreachable).outStream().stream;
-        \\    stdout.print("Hello, world!\n{d:4} {x:3} {c}\n", u32(12), u16(0x12), u8('a')) catch unreachable;
+        \\    const stdout = &io.getStdOut().outStream().stream;
+        \\    stdout.print("Hello, world!\n{d:4} {x:3} {c}\n", .{@as(u32, 12), @as(u16, 0x12), @as(u8, 'a')}) catch unreachable;
         \\}
     , "Hello, world!\n  12  12 a\n");
 
@@ -139,81 +143,81 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @cInclude("stdio.h");
         \\});
         \\
-        \\export fn main(argc: c_int, argv: [*][*]u8) c_int {
+        \\pub export fn main(argc: c_int, argv: [*][*]u8) c_int {
         \\    if (is_windows) {
         \\        // we want actual \n, not \r\n
         \\        _ = c._setmode(1, c._O_BINARY);
         \\    }
-        \\    _ = c.printf(c"0: %llu\n",
-        \\             u64(0));
-        \\    _ = c.printf(c"320402575052271: %llu\n",
-        \\         u64(320402575052271));
-        \\    _ = c.printf(c"0x01236789abcdef: %llu\n",
-        \\         u64(0x01236789abcdef));
-        \\    _ = c.printf(c"0xffffffffffffffff: %llu\n",
-        \\         u64(0xffffffffffffffff));
-        \\    _ = c.printf(c"0x000000ffffffffffffffff: %llu\n",
-        \\         u64(0x000000ffffffffffffffff));
-        \\    _ = c.printf(c"0o1777777777777777777777: %llu\n",
-        \\         u64(0o1777777777777777777777));
-        \\    _ = c.printf(c"0o0000001777777777777777777777: %llu\n",
-        \\         u64(0o0000001777777777777777777777));
-        \\    _ = c.printf(c"0b1111111111111111111111111111111111111111111111111111111111111111: %llu\n",
-        \\         u64(0b1111111111111111111111111111111111111111111111111111111111111111));
-        \\    _ = c.printf(c"0b0000001111111111111111111111111111111111111111111111111111111111111111: %llu\n",
-        \\         u64(0b0000001111111111111111111111111111111111111111111111111111111111111111));
+        \\    _ = c.printf("0: %llu\n",
+        \\             @as(u64, 0));
+        \\    _ = c.printf("320402575052271: %llu\n",
+        \\         @as(u64, 320402575052271));
+        \\    _ = c.printf("0x01236789abcdef: %llu\n",
+        \\         @as(u64, 0x01236789abcdef));
+        \\    _ = c.printf("0xffffffffffffffff: %llu\n",
+        \\         @as(u64, 0xffffffffffffffff));
+        \\    _ = c.printf("0x000000ffffffffffffffff: %llu\n",
+        \\         @as(u64, 0x000000ffffffffffffffff));
+        \\    _ = c.printf("0o1777777777777777777777: %llu\n",
+        \\         @as(u64, 0o1777777777777777777777));
+        \\    _ = c.printf("0o0000001777777777777777777777: %llu\n",
+        \\         @as(u64, 0o0000001777777777777777777777));
+        \\    _ = c.printf("0b1111111111111111111111111111111111111111111111111111111111111111: %llu\n",
+        \\         @as(u64, 0b1111111111111111111111111111111111111111111111111111111111111111));
+        \\    _ = c.printf("0b0000001111111111111111111111111111111111111111111111111111111111111111: %llu\n",
+        \\         @as(u64, 0b0000001111111111111111111111111111111111111111111111111111111111111111));
         \\
-        \\    _ = c.printf(c"\n");
+        \\    _ = c.printf("\n");
         \\
-        \\    _ = c.printf(c"0.0: %.013a\n",
-        \\         f64(0.0));
-        \\    _ = c.printf(c"0e0: %.013a\n",
-        \\         f64(0e0));
-        \\    _ = c.printf(c"0.0e0: %.013a\n",
-        \\         f64(0.0e0));
-        \\    _ = c.printf(c"000000000000000000000000000000000000000000000000000000000.0e0: %.013a\n",
-        \\         f64(000000000000000000000000000000000000000000000000000000000.0e0));
-        \\    _ = c.printf(c"0.000000000000000000000000000000000000000000000000000000000e0: %.013a\n",
-        \\         f64(0.000000000000000000000000000000000000000000000000000000000e0));
-        \\    _ = c.printf(c"0.0e000000000000000000000000000000000000000000000000000000000: %.013a\n",
-        \\         f64(0.0e000000000000000000000000000000000000000000000000000000000));
-        \\    _ = c.printf(c"1.0: %.013a\n",
-        \\         f64(1.0));
-        \\    _ = c.printf(c"10.0: %.013a\n",
-        \\         f64(10.0));
-        \\    _ = c.printf(c"10.5: %.013a\n",
-        \\         f64(10.5));
-        \\    _ = c.printf(c"10.5e5: %.013a\n",
-        \\         f64(10.5e5));
-        \\    _ = c.printf(c"10.5e+5: %.013a\n",
-        \\         f64(10.5e+5));
-        \\    _ = c.printf(c"50.0e-2: %.013a\n",
-        \\         f64(50.0e-2));
-        \\    _ = c.printf(c"50e-2: %.013a\n",
-        \\         f64(50e-2));
+        \\    _ = c.printf("0.0: %.013a\n",
+        \\         @as(f64, 0.0));
+        \\    _ = c.printf("0e0: %.013a\n",
+        \\         @as(f64, 0e0));
+        \\    _ = c.printf("0.0e0: %.013a\n",
+        \\         @as(f64, 0.0e0));
+        \\    _ = c.printf("000000000000000000000000000000000000000000000000000000000.0e0: %.013a\n",
+        \\         @as(f64, 000000000000000000000000000000000000000000000000000000000.0e0));
+        \\    _ = c.printf("0.000000000000000000000000000000000000000000000000000000000e0: %.013a\n",
+        \\         @as(f64, 0.000000000000000000000000000000000000000000000000000000000e0));
+        \\    _ = c.printf("0.0e000000000000000000000000000000000000000000000000000000000: %.013a\n",
+        \\         @as(f64, 0.0e000000000000000000000000000000000000000000000000000000000));
+        \\    _ = c.printf("1.0: %.013a\n",
+        \\         @as(f64, 1.0));
+        \\    _ = c.printf("10.0: %.013a\n",
+        \\         @as(f64, 10.0));
+        \\    _ = c.printf("10.5: %.013a\n",
+        \\         @as(f64, 10.5));
+        \\    _ = c.printf("10.5e5: %.013a\n",
+        \\         @as(f64, 10.5e5));
+        \\    _ = c.printf("10.5e+5: %.013a\n",
+        \\         @as(f64, 10.5e+5));
+        \\    _ = c.printf("50.0e-2: %.013a\n",
+        \\         @as(f64, 50.0e-2));
+        \\    _ = c.printf("50e-2: %.013a\n",
+        \\         @as(f64, 50e-2));
         \\
-        \\    _ = c.printf(c"\n");
+        \\    _ = c.printf("\n");
         \\
-        \\    _ = c.printf(c"0x1.0: %.013a\n",
-        \\         f64(0x1.0));
-        \\    _ = c.printf(c"0x10.0: %.013a\n",
-        \\         f64(0x10.0));
-        \\    _ = c.printf(c"0x100.0: %.013a\n",
-        \\         f64(0x100.0));
-        \\    _ = c.printf(c"0x103.0: %.013a\n",
-        \\         f64(0x103.0));
-        \\    _ = c.printf(c"0x103.7: %.013a\n",
-        \\         f64(0x103.7));
-        \\    _ = c.printf(c"0x103.70: %.013a\n",
-        \\         f64(0x103.70));
-        \\    _ = c.printf(c"0x103.70p4: %.013a\n",
-        \\         f64(0x103.70p4));
-        \\    _ = c.printf(c"0x103.70p5: %.013a\n",
-        \\         f64(0x103.70p5));
-        \\    _ = c.printf(c"0x103.70p+5: %.013a\n",
-        \\         f64(0x103.70p+5));
-        \\    _ = c.printf(c"0x103.70p-5: %.013a\n",
-        \\         f64(0x103.70p-5));
+        \\    _ = c.printf("0x1.0: %.013a\n",
+        \\         @as(f64, 0x1.0));
+        \\    _ = c.printf("0x10.0: %.013a\n",
+        \\         @as(f64, 0x10.0));
+        \\    _ = c.printf("0x100.0: %.013a\n",
+        \\         @as(f64, 0x100.0));
+        \\    _ = c.printf("0x103.0: %.013a\n",
+        \\         @as(f64, 0x103.0));
+        \\    _ = c.printf("0x103.7: %.013a\n",
+        \\         @as(f64, 0x103.7));
+        \\    _ = c.printf("0x103.70: %.013a\n",
+        \\         @as(f64, 0x103.70));
+        \\    _ = c.printf("0x103.70p4: %.013a\n",
+        \\         @as(f64, 0x103.70p4));
+        \\    _ = c.printf("0x103.70p5: %.013a\n",
+        \\         @as(f64, 0x103.70p5));
+        \\    _ = c.printf("0x103.70p+5: %.013a\n",
+        \\         @as(f64, 0x103.70p+5));
+        \\    _ = c.printf("0x103.70p-5: %.013a\n",
+        \\         @as(f64, 0x103.70p-5));
         \\
         \\    return 0;
         \\}
@@ -258,14 +262,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
     cases.add("order-independent declarations",
         \\const io = @import("std").io;
         \\const z = io.stdin_fileno;
-        \\const x : @typeOf(y) = 1234;
+        \\const x : @TypeOf(y) = 1234;
         \\const y : u16 = 5678;
         \\pub fn main() void {
         \\    var x_local : i32 = print_ok(x);
         \\}
-        \\fn print_ok(val: @typeOf(x)) @typeOf(foo) {
-        \\    const stdout = &(io.getStdOut() catch unreachable).outStream().stream;
-        \\    stdout.print("OK\n") catch unreachable;
+        \\fn print_ok(val: @TypeOf(x)) @TypeOf(foo) {
+        \\    const stdout = &io.getStdOut().outStream().stream;
+        \\    stdout.print("OK\n", .{}) catch unreachable;
         \\    return 0;
         \\}
         \\const foo : i32 = 0;
@@ -286,7 +290,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    }
         \\}
         \\
-        \\export fn main() c_int {
+        \\pub export fn main() c_int {
         \\    var array = [_]u32{ 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
         \\
         \\    c.qsort(@ptrCast(?*c_void, array[0..].ptr), @intCast(c_ulong, array.len), @sizeOf(i32), compare_fn);
@@ -314,7 +318,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @cInclude("stdio.h");
         \\});
         \\
-        \\export fn main(argc: c_int, argv: [*][*]u8) c_int {
+        \\pub export fn main(argc: c_int, argv: [*][*]u8) c_int {
         \\    if (is_windows) {
         \\        // we want actual \n, not \r\n
         \\        _ = c._setmode(1, c._O_BINARY);
@@ -323,7 +327,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    const x: f64 = small;
         \\    const y = @floatToInt(i32, x);
         \\    const z = @intToFloat(f64, y);
-        \\    _ = c.printf(c"%.2f\n%d\n%.2f\n%.2f\n", x, y, z, f64(-0.4));
+        \\    _ = c.printf("%.2f\n%d\n%.2f\n%.2f\n", x, y, z, @as(f64, -0.4));
         \\    return 0;
         \\}
     , "3.25\n3\n3.00\n-0.40\n");
@@ -346,26 +350,26 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\pub fn main() void {
         \\    const bar = Bar {.field2 = 13,};
         \\    const foo = Foo {.field1 = bar,};
-        \\    const stdout = &(io.getStdOut() catch unreachable).outStream().stream;
+        \\    const stdout = &io.getStdOut().outStream().stream;
         \\    if (!foo.method()) {
-        \\        stdout.print("BAD\n") catch unreachable;
+        \\        stdout.print("BAD\n", .{}) catch unreachable;
         \\    }
         \\    if (!bar.method()) {
-        \\        stdout.print("BAD\n") catch unreachable;
+        \\        stdout.print("BAD\n", .{}) catch unreachable;
         \\    }
-        \\    stdout.print("OK\n") catch unreachable;
+        \\    stdout.print("OK\n", .{}) catch unreachable;
         \\}
     , "OK\n");
 
     cases.add("defer with only fallthrough",
         \\const io = @import("std").io;
         \\pub fn main() void {
-        \\    const stdout = &(io.getStdOut() catch unreachable).outStream().stream;
-        \\    stdout.print("before\n") catch unreachable;
-        \\    defer stdout.print("defer1\n") catch unreachable;
-        \\    defer stdout.print("defer2\n") catch unreachable;
-        \\    defer stdout.print("defer3\n") catch unreachable;
-        \\    stdout.print("after\n") catch unreachable;
+        \\    const stdout = &io.getStdOut().outStream().stream;
+        \\    stdout.print("before\n", .{}) catch unreachable;
+        \\    defer stdout.print("defer1\n", .{}) catch unreachable;
+        \\    defer stdout.print("defer2\n", .{}) catch unreachable;
+        \\    defer stdout.print("defer3\n", .{}) catch unreachable;
+        \\    stdout.print("after\n", .{}) catch unreachable;
         \\}
     , "before\nafter\ndefer3\ndefer2\ndefer1\n");
 
@@ -373,14 +377,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\const io = @import("std").io;
         \\const os = @import("std").os;
         \\pub fn main() void {
-        \\    const stdout = &(io.getStdOut() catch unreachable).outStream().stream;
-        \\    stdout.print("before\n") catch unreachable;
-        \\    defer stdout.print("defer1\n") catch unreachable;
-        \\    defer stdout.print("defer2\n") catch unreachable;
+        \\    const stdout = &io.getStdOut().outStream().stream;
+        \\    stdout.print("before\n", .{}) catch unreachable;
+        \\    defer stdout.print("defer1\n", .{}) catch unreachable;
+        \\    defer stdout.print("defer2\n", .{}) catch unreachable;
         \\    var args_it = @import("std").process.args();
         \\    if (args_it.skip() and !args_it.skip()) return;
-        \\    defer stdout.print("defer3\n") catch unreachable;
-        \\    stdout.print("after\n") catch unreachable;
+        \\    defer stdout.print("defer3\n", .{}) catch unreachable;
+        \\    stdout.print("after\n", .{}) catch unreachable;
         \\}
     , "before\ndefer2\ndefer1\n");
 
@@ -390,13 +394,13 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    do_test() catch return;
         \\}
         \\fn do_test() !void {
-        \\    const stdout = &(io.getStdOut() catch unreachable).outStream().stream;
-        \\    stdout.print("before\n") catch unreachable;
-        \\    defer stdout.print("defer1\n") catch unreachable;
-        \\    errdefer stdout.print("deferErr\n") catch unreachable;
+        \\    const stdout = &io.getStdOut().outStream().stream;
+        \\    stdout.print("before\n", .{}) catch unreachable;
+        \\    defer stdout.print("defer1\n", .{}) catch unreachable;
+        \\    errdefer stdout.print("deferErr\n", .{}) catch unreachable;
         \\    try its_gonna_fail();
-        \\    defer stdout.print("defer3\n") catch unreachable;
-        \\    stdout.print("after\n") catch unreachable;
+        \\    defer stdout.print("defer3\n", .{}) catch unreachable;
+        \\    stdout.print("after\n", .{}) catch unreachable;
         \\}
         \\fn its_gonna_fail() !void {
         \\    return error.IToldYouItWouldFail;
@@ -409,13 +413,13 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    do_test() catch return;
         \\}
         \\fn do_test() !void {
-        \\    const stdout = &(io.getStdOut() catch unreachable).outStream().stream;
-        \\    stdout.print("before\n") catch unreachable;
-        \\    defer stdout.print("defer1\n") catch unreachable;
-        \\    errdefer stdout.print("deferErr\n") catch unreachable;
+        \\    const stdout = &io.getStdOut().outStream().stream;
+        \\    stdout.print("before\n", .{}) catch unreachable;
+        \\    defer stdout.print("defer1\n", .{}) catch unreachable;
+        \\    errdefer stdout.print("deferErr\n", .{}) catch unreachable;
         \\    try its_gonna_pass();
-        \\    defer stdout.print("defer3\n") catch unreachable;
-        \\    stdout.print("after\n") catch unreachable;
+        \\    defer stdout.print("defer3\n", .{}) catch unreachable;
+        \\    stdout.print("after\n", .{}) catch unreachable;
         \\}
         \\fn its_gonna_pass() anyerror!void { }
     , "before\nafter\ndefer3\ndefer1\n");
@@ -426,8 +430,8 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\const io = @import("std").io;
             \\
             \\pub fn main() void {
-            \\    const stdout = &(io.getStdOut() catch unreachable).outStream().stream;
-            \\    stdout.print(foo_txt) catch unreachable;
+            \\    const stdout = &io.getStdOut().outStream().stream;
+            \\    stdout.print(foo_txt, .{}) catch unreachable;
             \\}
         , "1234\nabcd\n");
 
@@ -445,14 +449,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\
             \\pub fn main() !void {
             \\    var args_it = std.process.args();
-            \\    var stdout_file = try io.getStdOut();
+            \\    var stdout_file = io.getStdOut();
             \\    var stdout_adapter = stdout_file.outStream();
             \\    const stdout = &stdout_adapter.stream;
             \\    var index: usize = 0;
             \\    _ = args_it.skip();
             \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
             \\        const arg = try arg_or_err;
-            \\        try stdout.print("{}: {}\n", index, arg);
+            \\        try stdout.print("{}: {}\n", .{index, arg});
             \\    }
             \\}
         ,
@@ -465,7 +469,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\
         );
 
-        tc.setCommandLineArgs([_][]const u8{
+        tc.setCommandLineArgs(&[_][]const u8{
             "first arg",
             "'a' 'b' \\",
             "bare",
@@ -486,14 +490,14 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\
             \\pub fn main() !void {
             \\    var args_it = std.process.args();
-            \\    var stdout_file = try io.getStdOut();
+            \\    var stdout_file = io.getStdOut();
             \\    var stdout_adapter = stdout_file.outStream();
             \\    const stdout = &stdout_adapter.stream;
             \\    var index: usize = 0;
             \\    _ = args_it.skip();
             \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
             \\        const arg = try arg_or_err;
-            \\        try stdout.print("{}: {}\n", index, arg);
+            \\        try stdout.print("{}: {}\n", .{index, arg});
             \\    }
             \\}
         ,
@@ -506,7 +510,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\
         );
 
-        tc.setCommandLineArgs([_][]const u8{
+        tc.setCommandLineArgs(&[_][]const u8{
             "first arg",
             "'a' 'b' \\",
             "bare",

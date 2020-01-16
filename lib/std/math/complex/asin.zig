@@ -5,8 +5,8 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 // Returns the arc-sine of z.
-pub fn asin(z: var) Complex(@typeOf(z.re)) {
-    const T = @typeOf(z.re);
+pub fn asin(z: var) Complex(@TypeOf(z.re)) {
+    const T = @TypeOf(z.re);
     const x = z.re;
     const y = z.im;
 

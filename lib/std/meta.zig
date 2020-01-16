@@ -11,7 +11,7 @@ const TypeId = builtin.TypeId;
 const TypeInfo = builtin.TypeInfo;
 
 pub fn tagName(v: var) []const u8 {
-    const T = @typeOf(v);
+    const T = @TypeOf(v);
     switch (@typeInfo(T)) {
         TypeId.ErrorSet => return @errorName(v),
         else => return @tagName(v),
@@ -339,9 +339,9 @@ test "std.meta.TagType" {
 }
 
 ///Returns the active tag of a tagged union
-pub fn activeTag(u: var) @TagType(@typeOf(u)) {
-    const T = @typeOf(u);
-    return @TagType(T)(u);
+pub fn activeTag(u: var) @TagType(@TypeOf(u)) {
+    const T = @TypeOf(u);
+    return @as(@TagType(T), u);
 }
 
 test "std.meta.activeTag" {
@@ -364,10 +364,8 @@ test "std.meta.activeTag" {
 
 ///Given a tagged union type, and an enum, return the type of the union
 /// field corresponding to the enum tag.
-pub fn TagPayloadType(comptime U: type, tag: var) type {
-    const Tag = @typeOf(tag);
+pub fn TagPayloadType(comptime U: type, tag: @TagType(U)) type {
     testing.expect(trait.is(builtin.TypeId.Union)(U));
-    testing.expect(trait.is(builtin.TypeId.Enum)(Tag));
 
     const info = @typeInfo(U).Union;
 
@@ -386,13 +384,13 @@ test "std.meta.TagPayloadType" {
     };
     const MovedEvent = TagPayloadType(Event, Event.Moved);
     var e: Event = undefined;
-    testing.expect(MovedEvent == @typeOf(e.Moved));
+    testing.expect(MovedEvent == @TypeOf(e.Moved));
 }
 
 ///Compares two of any type for equality. Containers are compared on a field-by-field basis,
 /// where possible. Pointers are not followed.
-pub fn eql(a: var, b: @typeOf(a)) bool {
-    const T = @typeOf(a);
+pub fn eql(a: var, b: @TypeOf(a)) bool {
+    const T = @TypeOf(a);
 
     switch (@typeId(T)) {
         builtin.TypeId.Struct => {
@@ -469,19 +467,19 @@ test "std.meta.eql" {
     const s_1 = S{
         .a = 134,
         .b = 123.3,
-        .c = "12345",
+        .c = "12345".*,
     };
 
     const s_2 = S{
         .a = 1,
         .b = 123.3,
-        .c = "54321",
+        .c = "54321".*,
     };
 
     const s_3 = S{
         .a = 134,
         .b = 123.3,
-        .c = "12345",
+        .c = "12345".*,
     };
 
     const u_1 = U{ .f = 24 };
@@ -494,9 +492,9 @@ test "std.meta.eql" {
     testing.expect(eql(u_1, u_3));
     testing.expect(!eql(u_1, u_2));
 
-    var a1 = "abcdef";
-    var a2 = "abcdef";
-    var a3 = "ghijkl";
+    var a1 = "abcdef".*;
+    var a2 = "abcdef".*;
+    var a3 = "ghijkl".*;
 
     testing.expect(eql(a1, a2));
     testing.expect(!eql(a1, a3));
@@ -505,7 +503,7 @@ test "std.meta.eql" {
     const EU = struct {
         fn tst(err: bool) !u8 {
             if (err) return error.Error;
-            return u8(5);
+            return @as(u8, 5);
         }
     };
 
@@ -541,4 +539,20 @@ pub fn intToEnum(comptime Tag: type, tag_int: var) IntToEnumError!Tag {
         }
     }
     return error.InvalidEnumTag;
+}
+
+/// Given a type and a name, return the field index according to source order.
+/// Returns `null` if the field is not found.
+pub fn fieldIndex(comptime T: type, comptime name: []const u8) ?comptime_int {
+    inline for (fields(T)) |field, i| {
+        if (mem.eql(u8, field.name, name))
+            return i;
+    }
+    return null;
+}
+
+/// Given a type, reference all the declarations inside, so that the semantic analyzer sees them.
+pub fn refAllDecls(comptime T: type) void {
+    if (!builtin.is_test) return;
+    _ = declarations(T);
 }

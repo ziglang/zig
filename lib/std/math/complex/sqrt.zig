@@ -12,8 +12,8 @@ const Complex = cmath.Complex;
 
 /// Returns the square root of z. The real and imaginary parts of the result have the same sign
 /// as the imaginary part of z.
-pub fn sqrt(z: var) @typeOf(z) {
-    const T = @typeOf(z.re);
+pub fn sqrt(z: var) @TypeOf(z) {
+    const T = @TypeOf(z.re);
 
     return switch (T) {
         f32 => sqrt32(z),
@@ -52,8 +52,8 @@ fn sqrt32(z: Complex(f32)) Complex(f32) {
     // y = nan special case is handled fine below
 
     // double-precision avoids overflow with correct rounding.
-    const dx = f64(x);
-    const dy = f64(y);
+    const dx = @as(f64, x);
+    const dy = @as(f64, y);
 
     if (dx >= 0) {
         const t = math.sqrt((dx + math.hypot(f64, dx, dy)) * 0.5);

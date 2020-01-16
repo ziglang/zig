@@ -6,39 +6,59 @@ const std = @import("std");
 const builtin = @import("builtin");
 const compiler_rt = @import("../compiler_rt.zig");
 
-pub extern fn __addsf3(a: f32, b: f32) f32 {
+pub fn __addsf3(a: f32, b: f32) callconv(.C) f32 {
     return addXf3(f32, a, b);
 }
 
-pub extern fn __adddf3(a: f64, b: f64) f64 {
+pub fn __adddf3(a: f64, b: f64) callconv(.C) f64 {
     return addXf3(f64, a, b);
 }
 
-pub extern fn __addtf3(a: f128, b: f128) f128 {
+pub fn __addtf3(a: f128, b: f128) callconv(.C) f128 {
     return addXf3(f128, a, b);
 }
 
-pub extern fn __subsf3(a: f32, b: f32) f32 {
-    const neg_b = @bitCast(f32, @bitCast(u32, b) ^ (u32(1) << 31));
+pub fn __subsf3(a: f32, b: f32) callconv(.C) f32 {
+    const neg_b = @bitCast(f32, @bitCast(u32, b) ^ (@as(u32, 1) << 31));
     return addXf3(f32, a, neg_b);
 }
 
-pub extern fn __subdf3(a: f64, b: f64) f64 {
-    const neg_b = @bitCast(f64, @bitCast(u64, b) ^ (u64(1) << 63));
+pub fn __subdf3(a: f64, b: f64) callconv(.C) f64 {
+    const neg_b = @bitCast(f64, @bitCast(u64, b) ^ (@as(u64, 1) << 63));
     return addXf3(f64, a, neg_b);
 }
 
-pub extern fn __subtf3(a: f128, b: f128) f128 {
-    const neg_b = @bitCast(f128, @bitCast(u128, b) ^ (u128(1) << 127));
+pub fn __subtf3(a: f128, b: f128) callconv(.C) f128 {
+    const neg_b = @bitCast(f128, @bitCast(u128, b) ^ (@as(u128, 1) << 127));
     return addXf3(f128, a, neg_b);
+}
+
+pub fn __aeabi_fadd(a: f32, b: f32) callconv(.AAPCS) f32 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __addsf3, .{ a, b });
+}
+
+pub fn __aeabi_dadd(a: f64, b: f64) callconv(.AAPCS) f64 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __adddf3, .{ a, b });
+}
+
+pub fn __aeabi_fsub(a: f32, b: f32) callconv(.AAPCS) f32 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __subsf3, .{ a, b });
+}
+
+pub fn __aeabi_dsub(a: f64, b: f64) callconv(.AAPCS) f64 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __subdf3, .{ a, b });
 }
 
 // TODO: restore inline keyword, see: https://github.com/ziglang/zig/issues/2154
 fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)) i32 {
     const Z = @IntType(false, T.bit_count);
-    const S = @IntType(false, T.bit_count - @clz(Z, Z(T.bit_count) - 1));
+    const S = @IntType(false, T.bit_count - @clz(Z, @as(Z, T.bit_count) - 1));
     const significandBits = std.math.floatMantissaBits(T);
-    const implicitBit = Z(1) << significandBits;
+    const implicitBit = @as(Z, 1) << significandBits;
 
     const shift = @clz(@IntType(false, T.bit_count), significand.*) - @clz(Z, implicitBit);
     significand.* <<= @intCast(S, shift);
@@ -48,17 +68,17 @@ fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)) i32 {
 // TODO: restore inline keyword, see: https://github.com/ziglang/zig/issues/2154
 fn addXf3(comptime T: type, a: T, b: T) T {
     const Z = @IntType(false, T.bit_count);
-    const S = @IntType(false, T.bit_count - @clz(Z, Z(T.bit_count) - 1));
+    const S = @IntType(false, T.bit_count - @clz(Z, @as(Z, T.bit_count) - 1));
 
     const typeWidth = T.bit_count;
     const significandBits = std.math.floatMantissaBits(T);
     const exponentBits = std.math.floatExponentBits(T);
 
-    const signBit = (Z(1) << (significandBits + exponentBits));
+    const signBit = (@as(Z, 1) << (significandBits + exponentBits));
     const maxExponent = ((1 << exponentBits) - 1);
     const exponentBias = (maxExponent >> 1);
 
-    const implicitBit = (Z(1) << significandBits);
+    const implicitBit = (@as(Z, 1) << significandBits);
     const quietBit = implicitBit >> 1;
     const significandMask = implicitBit - 1;
 
@@ -78,8 +98,8 @@ fn addXf3(comptime T: type, a: T, b: T) T {
     const infRep = @bitCast(Z, std.math.inf(T));
 
     // Detect if a or b is zero, infinity, or NaN.
-    if (aAbs -% Z(1) >= infRep - Z(1) or
-        bAbs -% Z(1) >= infRep - Z(1))
+    if (aAbs -% @as(Z, 1) >= infRep - @as(Z, 1) or
+        bAbs -% @as(Z, 1) >= infRep - @as(Z, 1))
     {
         // NaN + anything = qNaN
         if (aAbs > infRep) return @bitCast(T, @bitCast(Z, a) | quietBit);
@@ -148,7 +168,7 @@ fn addXf3(comptime T: type, a: T, b: T) T {
     const @"align" = @intCast(Z, aExponent - bExponent);
     if (@"align" != 0) {
         if (@"align" < typeWidth) {
-            const sticky = if (bSignificand << @intCast(S, typeWidth - @"align") != 0) Z(1) else 0;
+            const sticky = if (bSignificand << @intCast(S, typeWidth - @"align") != 0) @as(Z, 1) else 0;
             bSignificand = (bSignificand >> @truncate(S, @"align")) | sticky;
         } else {
             bSignificand = 1; // sticky; b is known to be non-zero.
@@ -157,7 +177,7 @@ fn addXf3(comptime T: type, a: T, b: T) T {
     if (subtraction) {
         aSignificand -= bSignificand;
         // If a == -b, return +zero.
-        if (aSignificand == 0) return @bitCast(T, Z(0));
+        if (aSignificand == 0) return @bitCast(T, @as(Z, 0));
 
         // If partial cancellation occured, we need to left-shift the result
         // and adjust the exponent:
@@ -185,7 +205,7 @@ fn addXf3(comptime T: type, a: T, b: T) T {
         // Result is denormal before rounding; the exponent is zero and we
         // need to shift the significand.
         const shift = @intCast(Z, 1 - aExponent);
-        const sticky = if (aSignificand << @intCast(S, typeWidth - shift) != 0) Z(1) else 0;
+        const sticky = if (aSignificand << @intCast(S, typeWidth - shift) != 0) @as(Z, 1) else 0;
         aSignificand = aSignificand >> @intCast(S, shift | sticky);
         aExponent = 0;
     }

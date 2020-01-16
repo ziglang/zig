@@ -180,9 +180,9 @@ pub const Int = struct {
 
     pub fn dump(self: Int) void {
         for (self.limbs) |limb| {
-            debug.warn("{x} ", limb);
+            debug.warn("{x} ", .{limb});
         }
-        debug.warn("\n");
+        debug.warn("\n", .{});
     }
 
     /// Negate the sign of an Int.
@@ -261,14 +261,14 @@ pub const Int = struct {
     /// the minus sign. This is used for determining the number of characters needed to print the
     /// value. It is inexact and may exceed the given value by ~1-2 bytes.
     pub fn sizeInBase(self: Int, base: usize) usize {
-        const bit_count = usize(@boolToInt(!self.isPositive())) + self.bitCountAbs();
+        const bit_count = @as(usize, @boolToInt(!self.isPositive())) + self.bitCountAbs();
         return (bit_count / math.log2(base)) + 1;
     }
 
     /// Sets an Int to value. Value must be an primitive integer type.
     pub fn set(self: *Int, value: var) Allocator.Error!void {
         self.assertWritable();
-        const T = @typeOf(value);
+        const T = @TypeOf(value);
 
         switch (@typeInfo(T)) {
             TypeId.Int => |info| {
@@ -281,7 +281,7 @@ pub const Int = struct {
                 var w_value: UT = if (value < 0) @intCast(UT, -value) else @intCast(UT, value);
 
                 if (info.bits <= Limb.bit_count) {
-                    self.limbs[0] = Limb(w_value);
+                    self.limbs[0] = @as(Limb, w_value);
                     self.metadata += 1;
                 } else {
                     var i: usize = 0;
@@ -453,7 +453,7 @@ pub const Int = struct {
             for (self.limbs[0..self.len()]) |limb| {
                 var shift: usize = 0;
                 while (shift < Limb.bit_count) : (shift += base_shift) {
-                    const r = @intCast(u8, (limb >> @intCast(Log2Limb, shift)) & Limb(base - 1));
+                    const r = @intCast(u8, (limb >> @intCast(Log2Limb, shift)) & @as(Limb, base - 1));
                     const ch = try digitToChar(r, base);
                     try digits.append(ch);
                 }
@@ -477,9 +477,12 @@ pub const Int = struct {
             }
 
             var q = try self.clone();
+            defer q.deinit();
             q.abs();
             var r = try Int.init(allocator);
+            defer r.deinit();
             var b = try Int.initSet(allocator, limb_base);
+            defer b.deinit();
 
             while (q.len() >= 2) {
                 try Int.divTrunc(&q, &r, q, b);
@@ -522,7 +525,7 @@ pub const Int = struct {
         options: std.fmt.FormatOptions,
         context: var,
         comptime FmtError: type,
-        output: fn (@typeOf(context), []const u8) FmtError!void,
+        output: fn (@TypeOf(context), []const u8) FmtError!void,
     ) FmtError!void {
         self.assertWritable();
         // TODO look at fmt and support other bases
@@ -560,7 +563,7 @@ pub const Int = struct {
     /// Returns -1, 0, 1 if a < b, a == b or a > b respectively.
     pub fn cmp(a: Int, b: Int) i8 {
         if (a.isPositive() != b.isPositive()) {
-            return if (a.isPositive()) i8(1) else -1;
+            return if (a.isPositive()) @as(i8, 1) else -1;
         } else {
             const r = cmpAbs(a, b);
             return if (a.isPositive()) r else -r;
@@ -766,13 +769,11 @@ pub const Int = struct {
             r.deinit();
         };
 
-        try r.ensureCapacity(a.len() + b.len());
+        try r.ensureCapacity(a.len() + b.len() + 1);
 
-        if (a.len() >= b.len()) {
-            llmul(r.limbs, a.limbs[0..a.len()], b.limbs[0..b.len()]);
-        } else {
-            llmul(r.limbs, b.limbs[0..b.len()], a.limbs[0..a.len()]);
-        }
+        mem.set(Limb, r.limbs[0 .. a.len() + b.len() + 1], 0);
+
+        try llmulacc(rma.allocator.?, r.limbs, a.limbs[0..a.len()], b.limbs[0..b.len()]);
 
         r.normalize(a.len() + b.len());
         r.setSign(a.isPositive() == b.isPositive());
@@ -780,13 +781,14 @@ pub const Int = struct {
 
     // a + b * c + *carry, sets carry to the overflow bits
     pub fn addMulLimbWithCarry(a: Limb, b: Limb, c: Limb, carry: *Limb) Limb {
+        @setRuntimeSafety(false);
         var r1: Limb = undefined;
 
         // r1 = a + *carry
         const c1: Limb = @boolToInt(@addWithOverflow(Limb, a, carry.*, &r1));
 
         // r2 = b * c
-        const bc = DoubleLimb(math.mulWide(Limb, b, c));
+        const bc = @as(DoubleLimb, math.mulWide(Limb, b, c));
         const r2 = @truncate(Limb, bc);
         const c2 = @truncate(Limb, bc >> Limb.bit_count);
 
@@ -800,25 +802,178 @@ pub const Int = struct {
         return r1;
     }
 
+    fn llmulDigit(acc: []Limb, y: []const Limb, xi: Limb) void {
+        @setRuntimeSafety(false);
+        if (xi == 0) {
+            return;
+        }
+
+        var carry: usize = 0;
+        var a_lo = acc[0..y.len];
+        var a_hi = acc[y.len..];
+
+        var j: usize = 0;
+        while (j < a_lo.len) : (j += 1) {
+            a_lo[j] = @call(.{ .modifier = .always_inline }, addMulLimbWithCarry, .{ a_lo[j], y[j], xi, &carry });
+        }
+
+        j = 0;
+        while ((carry != 0) and (j < a_hi.len)) : (j += 1) {
+            carry = @boolToInt(@addWithOverflow(Limb, a_hi[j], carry, &a_hi[j]));
+        }
+    }
+
     // Knuth 4.3.1, Algorithm M.
     //
     // r MUST NOT alias any of a or b.
-    fn llmul(r: []Limb, a: []const Limb, b: []const Limb) void {
+    fn llmulacc(allocator: *Allocator, r: []Limb, a: []const Limb, b: []const Limb) error{OutOfMemory}!void {
         @setRuntimeSafety(false);
-        debug.assert(a.len >= b.len);
-        debug.assert(r.len >= a.len + b.len);
 
-        mem.set(Limb, r[0 .. a.len + b.len], 0);
+        const a_norm = a[0..llnormalize(a)];
+        const b_norm = b[0..llnormalize(b)];
+        var x = a_norm;
+        var y = b_norm;
+        if (a_norm.len > b_norm.len) {
+            x = b_norm;
+            y = a_norm;
+        }
+
+        debug.assert(r.len >= x.len + y.len + 1);
+
+        // 48 is a pretty abitrary size chosen based on performance of a factorial program.
+        if (x.len <= 48) {
+            // Basecase multiplication
+            var i: usize = 0;
+            while (i < x.len) : (i += 1) {
+                llmulDigit(r[i..], y, x[i]);
+            }
+        } else {
+            // Karatsuba multiplication
+            const split = @divFloor(x.len, 2);
+            var x0 = x[0..split];
+            var x1 = x[split..x.len];
+            var y0 = y[0..split];
+            var y1 = y[split..y.len];
+
+            var tmp = try allocator.alloc(Limb, x1.len + y1.len + 1);
+            defer allocator.free(tmp);
+            mem.set(Limb, tmp, 0);
+
+            try llmulacc(allocator, tmp, x1, y1);
+
+            var length = llnormalize(tmp);
+            _ = llaccum(r[split..], tmp[0..length]);
+            _ = llaccum(r[split * 2 ..], tmp[0..length]);
+
+            mem.set(Limb, tmp[0..length], 0);
+
+            try llmulacc(allocator, tmp, x0, y0);
+
+            length = llnormalize(tmp);
+            _ = llaccum(r[0..], tmp[0..length]);
+            _ = llaccum(r[split..], tmp[0..length]);
+
+            const x_cmp = llcmp(x1, x0);
+            const y_cmp = llcmp(y1, y0);
+            if (x_cmp * y_cmp == 0) {
+                return;
+            }
+            const x0_len = llnormalize(x0);
+            const x1_len = llnormalize(x1);
+            var j0 = try allocator.alloc(Limb, math.max(x0_len, x1_len));
+            defer allocator.free(j0);
+            if (x_cmp == 1) {
+                llsub(j0, x1[0..x1_len], x0[0..x0_len]);
+            } else {
+                llsub(j0, x0[0..x0_len], x1[0..x1_len]);
+            }
+
+            const y0_len = llnormalize(y0);
+            const y1_len = llnormalize(y1);
+            var j1 = try allocator.alloc(Limb, math.max(y0_len, y1_len));
+            defer allocator.free(j1);
+            if (y_cmp == 1) {
+                llsub(j1, y1[0..y1_len], y0[0..y0_len]);
+            } else {
+                llsub(j1, y0[0..y0_len], y1[0..y1_len]);
+            }
+            const j0_len = llnormalize(j0);
+            const j1_len = llnormalize(j1);
+            if (x_cmp == y_cmp) {
+                mem.set(Limb, tmp[0..length], 0);
+                try llmulacc(allocator, tmp, j0, j1);
+
+                length = Int.llnormalize(tmp);
+                llsub(r[split..], r[split..], tmp[0..length]);
+            } else {
+                try llmulacc(allocator, r[split..], j0, j1);
+            }
+        }
+    }
+
+    // r = r + a
+    fn llaccum(r: []Limb, a: []const Limb) Limb {
+        @setRuntimeSafety(false);
+        debug.assert(r.len != 0 and a.len != 0);
+        debug.assert(r.len >= a.len);
 
         var i: usize = 0;
+        var carry: Limb = 0;
+
         while (i < a.len) : (i += 1) {
-            var carry: Limb = 0;
-            var j: usize = 0;
-            while (j < b.len) : (j += 1) {
-                r[i + j] = @inlineCall(addMulLimbWithCarry, r[i + j], a[i], b[j], &carry);
-            }
-            r[i + j] = carry;
+            var c: Limb = 0;
+            c += @boolToInt(@addWithOverflow(Limb, r[i], a[i], &r[i]));
+            c += @boolToInt(@addWithOverflow(Limb, r[i], carry, &r[i]));
+            carry = c;
         }
+
+        while ((carry != 0) and i < r.len) : (i += 1) {
+            carry = @boolToInt(@addWithOverflow(Limb, r[i], carry, &r[i]));
+        }
+
+        return carry;
+    }
+
+    /// Returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively for limbs.
+    pub fn llcmp(a: []const Limb, b: []const Limb) i8 {
+        @setRuntimeSafety(false);
+        const a_len = llnormalize(a);
+        const b_len = llnormalize(b);
+        if (a_len < b_len) {
+            return -1;
+        }
+        if (a_len > b_len) {
+            return 1;
+        }
+
+        var i: usize = a_len - 1;
+        while (i != 0) : (i -= 1) {
+            if (a[i] != b[i]) {
+                break;
+            }
+        }
+
+        if (a[i] < b[i]) {
+            return -1;
+        } else if (a[i] > b[i]) {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+
+    // returns the min length the limb could be.
+    fn llnormalize(a: []const Limb) usize {
+        @setRuntimeSafety(false);
+        var j = a.len;
+        while (j > 0) : (j -= 1) {
+            if (a[j - 1] != 0) {
+                break;
+            }
+        }
+
+        // Handle zero
+        return if (j != 0) j else 1;
     }
 
     /// q = a / b (rem r)
@@ -932,7 +1087,7 @@ pub const Int = struct {
         rem.* = 0;
         for (a) |_, ri| {
             const i = a.len - ri - 1;
-            const pdiv = ((DoubleLimb(rem.*) << Limb.bit_count) | a[i]);
+            const pdiv = ((@as(DoubleLimb, rem.*) << Limb.bit_count) | a[i]);
 
             if (pdiv == 0) {
                 quo[i] = 0;
@@ -991,9 +1146,9 @@ pub const Int = struct {
             if (x.limbs[i] == y.limbs[t]) {
                 q.limbs[i - t - 1] = maxInt(Limb);
             } else {
-                const num = (DoubleLimb(x.limbs[i]) << Limb.bit_count) | DoubleLimb(x.limbs[i - 1]);
-                const z = @intCast(Limb, num / DoubleLimb(y.limbs[t]));
-                q.limbs[i - t - 1] = if (z > maxInt(Limb)) maxInt(Limb) else Limb(z);
+                const num = (@as(DoubleLimb, x.limbs[i]) << Limb.bit_count) | @as(DoubleLimb, x.limbs[i - 1]);
+                const z = @intCast(Limb, num / @as(DoubleLimb, y.limbs[t]));
+                q.limbs[i - t - 1] = if (z > maxInt(Limb)) maxInt(Limb) else @as(Limb, z);
             }
 
             // 3.2
@@ -1062,7 +1217,11 @@ pub const Int = struct {
             const dst_i = src_i + limb_shift;
 
             const src_digit = a[src_i];
-            r[dst_i] = carry | @inlineCall(math.shr, Limb, src_digit, Limb.bit_count - @intCast(Limb, interior_limb_shift));
+            r[dst_i] = carry | @call(.{ .modifier = .always_inline }, math.shr, .{
+                Limb,
+                src_digit,
+                Limb.bit_count - @intCast(Limb, interior_limb_shift),
+            });
             carry = (src_digit << interior_limb_shift);
         }
 
@@ -1102,7 +1261,11 @@ pub const Int = struct {
 
             const src_digit = a[src_i];
             r[dst_i] = carry | (src_digit >> interior_limb_shift);
-            carry = @inlineCall(math.shl, Limb, src_digit, Limb.bit_count - @intCast(Limb, interior_limb_shift));
+            carry = @call(.{ .modifier = .always_inline }, math.shl, .{
+                Limb,
+                src_digit,
+                Limb.bit_count - @intCast(Limb, interior_limb_shift),
+            });
         }
     }
 
@@ -1210,7 +1373,7 @@ test "big.int comptime_int set" {
 
     comptime var i: usize = 0;
     inline while (i < s_limb_count) : (i += 1) {
-        const result = Limb(s & maxInt(Limb));
+        const result = @as(Limb, s & maxInt(Limb));
         s >>= Limb.bit_count / 2;
         s >>= Limb.bit_count / 2;
         testing.expect(a.limbs[i] == result);
@@ -1225,7 +1388,7 @@ test "big.int comptime_int set negative" {
 }
 
 test "big.int int set unaligned small" {
-    var a = try Int.initSet(al, u7(45));
+    var a = try Int.initSet(al, @as(u7, 45));
 
     testing.expect(a.limbs[0] == 45);
     testing.expect(a.isPositive() == true);

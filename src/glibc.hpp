@@ -41,7 +41,7 @@ struct ZigGLibCAbi {
 
 Error glibc_load_metadata(ZigGLibCAbi **out_result, Buf *zig_lib_dir, bool verbose);
 Error glibc_build_dummies_and_maps(CodeGen *codegen, const ZigGLibCAbi *glibc_abi, const ZigTarget *target,
-        Buf **out_dir, bool verbose);
+        Buf **out_dir, bool verbose, Stage2ProgressNode *progress_node);
 
 // returns ErrorUnknownABI when glibc is not the native libc
 Error glibc_detect_native_version(ZigGLibCVersion *glibc_ver);

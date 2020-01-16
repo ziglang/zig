@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const Scope = @import("scope.zig").Scope;
 const Compilation = @import("compilation.zig").Compilation;
 const ObjectFile = @import("codegen.zig").ObjectFile;
@@ -24,15 +23,15 @@ pub const Value = struct {
         if (base.ref_count.decr() == 1) {
             base.typ.base.deref(comp);
             switch (base.id) {
-                Id.Type => @fieldParentPtr(Type, "base", base).destroy(comp),
-                Id.Fn => @fieldParentPtr(Fn, "base", base).destroy(comp),
-                Id.FnProto => @fieldParentPtr(FnProto, "base", base).destroy(comp),
-                Id.Void => @fieldParentPtr(Void, "base", base).destroy(comp),
-                Id.Bool => @fieldParentPtr(Bool, "base", base).destroy(comp),
-                Id.NoReturn => @fieldParentPtr(NoReturn, "base", base).destroy(comp),
-                Id.Ptr => @fieldParentPtr(Ptr, "base", base).destroy(comp),
-                Id.Int => @fieldParentPtr(Int, "base", base).destroy(comp),
-                Id.Array => @fieldParentPtr(Array, "base", base).destroy(comp),
+                .Type => @fieldParentPtr(Type, "base", base).destroy(comp),
+                .Fn => @fieldParentPtr(Fn, "base", base).destroy(comp),
+                .FnProto => @fieldParentPtr(FnProto, "base", base).destroy(comp),
+                .Void => @fieldParentPtr(Void, "base", base).destroy(comp),
+                .Bool => @fieldParentPtr(Bool, "base", base).destroy(comp),
+                .NoReturn => @fieldParentPtr(NoReturn, "base", base).destroy(comp),
+                .Ptr => @fieldParentPtr(Ptr, "base", base).destroy(comp),
+                .Int => @fieldParentPtr(Int, "base", base).destroy(comp),
+                .Array => @fieldParentPtr(Array, "base", base).destroy(comp),
             }
         }
     }
@@ -54,20 +53,20 @@ pub const Value = struct {
     }
 
     pub fn dump(base: *const Value) void {
-        std.debug.warn("{}", @tagName(base.id));
+        std.debug.warn("{}", .{@tagName(base.id)});
     }
 
     pub fn getLlvmConst(base: *Value, ofile: *ObjectFile) (error{OutOfMemory}!?*llvm.Value) {
         switch (base.id) {
-            Id.Type => unreachable,
-            Id.Fn => return @fieldParentPtr(Fn, "base", base).getLlvmConst(ofile),
-            Id.FnProto => return @fieldParentPtr(FnProto, "base", base).getLlvmConst(ofile),
-            Id.Void => return null,
-            Id.Bool => return @fieldParentPtr(Bool, "base", base).getLlvmConst(ofile),
-            Id.NoReturn => unreachable,
-            Id.Ptr => return @fieldParentPtr(Ptr, "base", base).getLlvmConst(ofile),
-            Id.Int => return @fieldParentPtr(Int, "base", base).getLlvmConst(ofile),
-            Id.Array => return @fieldParentPtr(Array, "base", base).getLlvmConst(ofile),
+            .Type => unreachable,
+            .Fn => return @fieldParentPtr(Fn, "base", base).getLlvmConst(ofile),
+            .FnProto => return @fieldParentPtr(FnProto, "base", base).getLlvmConst(ofile),
+            .Void => return null,
+            .Bool => return @fieldParentPtr(Bool, "base", base).getLlvmConst(ofile),
+            .NoReturn => unreachable,
+            .Ptr => return @fieldParentPtr(Ptr, "base", base).getLlvmConst(ofile),
+            .Int => return @fieldParentPtr(Int, "base", base).getLlvmConst(ofile),
+            .Array => return @fieldParentPtr(Array, "base", base).getLlvmConst(ofile),
         }
     }
 
@@ -83,15 +82,15 @@ pub const Value = struct {
 
     pub fn copy(base: *Value, comp: *Compilation) (error{OutOfMemory}!*Value) {
         switch (base.id) {
-            Id.Type => unreachable,
-            Id.Fn => unreachable,
-            Id.FnProto => unreachable,
-            Id.Void => unreachable,
-            Id.Bool => unreachable,
-            Id.NoReturn => unreachable,
-            Id.Ptr => unreachable,
-            Id.Array => unreachable,
-            Id.Int => return &(try @fieldParentPtr(Int, "base", base).copy(comp)).base,
+            .Type => unreachable,
+            .Fn => unreachable,
+            .FnProto => unreachable,
+            .Void => unreachable,
+            .Bool => unreachable,
+            .NoReturn => unreachable,
+            .Ptr => unreachable,
+            .Array => unreachable,
+            .Int => return &(try @fieldParentPtr(Int, "base", base).copy(comp)).base,
         }
     }
 
@@ -138,7 +137,7 @@ pub const Value = struct {
             const self = try comp.gpa().create(FnProto);
             self.* = FnProto{
                 .base = Value{
-                    .id = Value.Id.FnProto,
+                    .id = .FnProto,
                     .typ = &fn_type.base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
@@ -157,7 +156,7 @@ pub const Value = struct {
             const llvm_fn_type = try self.base.typ.getLlvmType(ofile.arena, ofile.context);
             const llvm_fn = llvm.AddFunction(
                 ofile.module,
-                self.symbol_name.ptr(),
+                self.symbol_name.toSliceConst(),
                 llvm_fn_type,
             ) orelse return error.OutOfMemory;
 
@@ -202,7 +201,7 @@ pub const Value = struct {
             const self = try comp.gpa().create(Fn);
             self.* = Fn{
                 .base = Value{
-                    .id = Value.Id.Fn,
+                    .id = .Fn,
                     .typ = &fn_type.base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
@@ -242,7 +241,7 @@ pub const Value = struct {
             const llvm_fn_type = try self.base.typ.getLlvmType(ofile.arena, ofile.context);
             const llvm_fn = llvm.AddFunction(
                 ofile.module,
-                self.symbol_name.ptr(),
+                self.symbol_name.toSliceConst(),
                 llvm_fn_type,
             ) orelse return error.OutOfMemory;
 
@@ -335,7 +334,7 @@ pub const Value = struct {
             field_index: usize,
         };
 
-        pub async fn createArrayElemPtr(
+        pub fn createArrayElemPtr(
             comp: *Compilation,
             array_val: *Array,
             mut: Type.Pointer.Mut,
@@ -346,20 +345,20 @@ pub const Value = struct {
             errdefer array_val.base.deref(comp);
 
             const elem_type = array_val.base.typ.cast(Type.Array).?.key.elem_type;
-            const ptr_type = try await (async Type.Pointer.get(comp, Type.Pointer.Key{
+            const ptr_type = try Type.Pointer.get(comp, Type.Pointer.Key{
                 .child_type = elem_type,
                 .mut = mut,
                 .vol = Type.Pointer.Vol.Non,
                 .size = size,
-                .alignment = Type.Pointer.Align.Abi,
-            }) catch unreachable);
+                .alignment = .Abi,
+            });
             var ptr_type_consumed = false;
             errdefer if (!ptr_type_consumed) ptr_type.base.base.deref(comp);
 
             const self = try comp.gpa().create(Value.Ptr);
             self.* = Value.Ptr{
                 .base = Value{
-                    .id = Value.Id.Ptr,
+                    .id = .Ptr,
                     .typ = &ptr_type.base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
@@ -385,25 +384,25 @@ pub const Value = struct {
             const llvm_type = self.base.typ.getLlvmType(ofile.arena, ofile.context);
             // TODO carefully port the logic from codegen.cpp:gen_const_val_ptr
             switch (self.special) {
-                Special.Scalar => |scalar| @panic("TODO"),
-                Special.BaseArray => |base_array| {
+                .Scalar => |scalar| @panic("TODO"),
+                .BaseArray => |base_array| {
                     // TODO put this in one .o file only, and after that, generate extern references to it
                     const array_llvm_value = (try base_array.val.getLlvmConst(ofile)).?;
                     const ptr_bit_count = ofile.comp.target_ptr_bits;
                     const usize_llvm_type = llvm.IntTypeInContext(ofile.context, ptr_bit_count) orelse return error.OutOfMemory;
-                    const indices = [_]*llvm.Value{
+                    var indices = [_]*llvm.Value{
                         llvm.ConstNull(usize_llvm_type) orelse return error.OutOfMemory,
                         llvm.ConstInt(usize_llvm_type, base_array.elem_index, 0) orelse return error.OutOfMemory,
                     };
                     return llvm.ConstInBoundsGEP(
                         array_llvm_value,
-                        &indices,
+                        @ptrCast([*]*llvm.Value, &indices),
                         @intCast(c_uint, indices.len),
                     ) orelse return error.OutOfMemory;
                 },
-                Special.BaseStruct => |base_struct| @panic("TODO"),
-                Special.HardCodedAddr => |addr| @panic("TODO"),
-                Special.Discard => unreachable,
+                .BaseStruct => |base_struct| @panic("TODO"),
+                .HardCodedAddr => |addr| @panic("TODO"),
+                .Discard => unreachable,
             }
         }
     };
@@ -424,20 +423,20 @@ pub const Value = struct {
         };
 
         /// Takes ownership of buffer
-        pub async fn createOwnedBuffer(comp: *Compilation, buffer: []u8) !*Array {
+        pub fn createOwnedBuffer(comp: *Compilation, buffer: []u8) !*Array {
             const u8_type = Type.Int.get_u8(comp);
             defer u8_type.base.base.deref(comp);
 
-            const array_type = try await (async Type.Array.get(comp, Type.Array.Key{
+            const array_type = try Type.Array.get(comp, Type.Array.Key{
                 .elem_type = &u8_type.base,
                 .len = buffer.len,
-            }) catch unreachable);
+            });
             errdefer array_type.base.base.deref(comp);
 
             const self = try comp.gpa().create(Value.Array);
             self.* = Value.Array{
                 .base = Value{
-                    .id = Value.Id.Array,
+                    .id = .Array,
                     .typ = &array_type.base,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
@@ -450,22 +449,22 @@ pub const Value = struct {
 
         pub fn destroy(self: *Array, comp: *Compilation) void {
             switch (self.special) {
-                Special.Undefined => {},
-                Special.OwnedBuffer => |buf| {
+                .Undefined => {},
+                .OwnedBuffer => |buf| {
                     comp.gpa().free(buf);
                 },
-                Special.Explicit => {},
+                .Explicit => {},
             }
             comp.gpa().destroy(self);
         }
 
         pub fn getLlvmConst(self: *Array, ofile: *ObjectFile) !?*llvm.Value {
             switch (self.special) {
-                Special.Undefined => {
+                .Undefined => {
                     const llvm_type = try self.base.typ.getLlvmType(ofile.arena, ofile.context);
                     return llvm.GetUndef(llvm_type);
                 },
-                Special.OwnedBuffer => |buf| {
+                .OwnedBuffer => |buf| {
                     const dont_null_terminate = 1;
                     const llvm_str_init = llvm.ConstStringInContext(
                         ofile.context,
@@ -474,7 +473,7 @@ pub const Value = struct {
                         dont_null_terminate,
                     ) orelse return error.OutOfMemory;
                     const str_init_type = llvm.TypeOf(llvm_str_init);
-                    const global = llvm.AddGlobal(ofile.module, str_init_type, c"") orelse return error.OutOfMemory;
+                    const global = llvm.AddGlobal(ofile.module, str_init_type, "") orelse return error.OutOfMemory;
                     llvm.SetInitializer(global, llvm_str_init);
                     llvm.SetLinkage(global, llvm.PrivateLinkage);
                     llvm.SetGlobalConstant(global, 1);
@@ -482,7 +481,7 @@ pub const Value = struct {
                     llvm.SetAlignment(global, llvm.ABIAlignmentOfType(ofile.comp.target_data_ref, str_init_type));
                     return global;
                 },
-                Special.Explicit => @panic("TODO"),
+                .Explicit => @panic("TODO"),
             }
 
             //{
@@ -517,7 +516,7 @@ pub const Value = struct {
             const self = try comp.gpa().create(Value.Int);
             self.* = Value.Int{
                 .base = Value{
-                    .id = Value.Id.Int,
+                    .id = .Int,
                     .typ = typ,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },
@@ -536,7 +535,7 @@ pub const Value = struct {
 
         pub fn getLlvmConst(self: *Int, ofile: *ObjectFile) !?*llvm.Value {
             switch (self.base.typ.id) {
-                Type.Id.Int => {
+                .Int => {
                     const type_ref = try self.base.typ.getLlvmType(ofile.arena, ofile.context);
                     if (self.big_int.len() == 0) {
                         return llvm.ConstNull(type_ref);
@@ -554,7 +553,7 @@ pub const Value = struct {
                     };
                     return if (self.big_int.isPositive()) unsigned_val else llvm.ConstNeg(unsigned_val);
                 },
-                Type.Id.ComptimeInt => unreachable,
+                .ComptimeInt => unreachable,
                 else => unreachable,
             }
         }
@@ -566,7 +565,7 @@ pub const Value = struct {
             const new = try comp.gpa().create(Value.Int);
             new.* = Value.Int{
                 .base = Value{
-                    .id = Value.Id.Int,
+                    .id = .Int,
                     .typ = old.base.typ,
                     .ref_count = std.atomic.Int(usize).init(1),
                 },

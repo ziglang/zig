@@ -11,20 +11,19 @@ const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const Buffer = std.Buffer;
 
-const arg = @import("arg.zig");
 const c = @import("c.zig");
 const introspect = @import("introspect.zig");
-const Args = arg.Args;
-const Flag = arg.Flag;
 const ZigCompiler = @import("compilation.zig").ZigCompiler;
 const Compilation = @import("compilation.zig").Compilation;
-const Target = @import("target.zig").Target;
+const Target = std.Target;
 const errmsg = @import("errmsg.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
 var stderr_file: fs.File = undefined;
 var stderr: *io.OutStream(fs.File.WriteError) = undefined;
 var stdout: *io.OutStream(fs.File.WriteError) = undefined;
+
+pub const io_mode = .evented;
 
 pub const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
 
@@ -47,26 +46,19 @@ const usage =
 
 const Command = struct {
     name: []const u8,
-    exec: fn (*Allocator, []const []const u8) anyerror!void,
+    exec: async fn (*Allocator, []const []const u8) anyerror!void,
 };
 
 pub fn main() !void {
-    // This allocator needs to be thread-safe because we use it for the event.Loop
-    // which multiplexes async functions onto kernel threads.
-    // libc allocator is guaranteed to have this property.
     const allocator = std.heap.c_allocator;
 
-    var stdout_file = try std.io.getStdOut();
-    var stdout_out_stream = stdout_file.outStream();
-    stdout = &stdout_out_stream.stream;
+    stdout = &std.io.getStdOut().outStream().stream;
 
-    stderr_file = try std.io.getStdErr();
-    var stderr_out_stream = stderr_file.outStream();
-    stderr = &stderr_out_stream.stream;
+    stderr_file = std.io.getStdErr();
+    stderr = &stderr_file.outStream().stream;
 
     const args = try process.argsAlloc(allocator);
-    // TODO I'm getting  unreachable code here, which shouldn't happen
-    //defer process.argsFree(allocator, args);
+    defer process.argsFree(allocator, args);
 
     if (args.len <= 1) {
         try stderr.write("expected command argument\n\n");
@@ -74,60 +66,33 @@ pub fn main() !void {
         process.exit(1);
     }
 
-    const commands = [_]Command{
-        Command{
-            .name = "build-exe",
-            .exec = cmdBuildExe,
-        },
-        Command{
-            .name = "build-lib",
-            .exec = cmdBuildLib,
-        },
-        Command{
-            .name = "build-obj",
-            .exec = cmdBuildObj,
-        },
-        Command{
-            .name = "fmt",
-            .exec = cmdFmt,
-        },
-        Command{
-            .name = "libc",
-            .exec = cmdLibC,
-        },
-        Command{
-            .name = "targets",
-            .exec = cmdTargets,
-        },
-        Command{
-            .name = "version",
-            .exec = cmdVersion,
-        },
-        Command{
-            .name = "zen",
-            .exec = cmdZen,
-        },
-
-        // undocumented commands
-        Command{
-            .name = "help",
-            .exec = cmdHelp,
-        },
-        Command{
-            .name = "internal",
-            .exec = cmdInternal,
-        },
-    };
-
-    for (commands) |command| {
-        if (mem.eql(u8, command.name, args[1])) {
-            return command.exec(allocator, args[2..]);
-        }
+    const cmd = args[1];
+    const cmd_args = args[2..];
+    if (mem.eql(u8, cmd, "build-exe")) {
+        return buildOutputType(allocator, cmd_args, .Exe);
+    } else if (mem.eql(u8, cmd, "build-lib")) {
+        return buildOutputType(allocator, cmd_args, .Lib);
+    } else if (mem.eql(u8, cmd, "build-obj")) {
+        return buildOutputType(allocator, cmd_args, .Obj);
+    } else if (mem.eql(u8, cmd, "fmt")) {
+        return cmdFmt(allocator, cmd_args);
+    } else if (mem.eql(u8, cmd, "libc")) {
+        return cmdLibC(allocator, cmd_args);
+    } else if (mem.eql(u8, cmd, "targets")) {
+        return cmdTargets(allocator, cmd_args);
+    } else if (mem.eql(u8, cmd, "version")) {
+        return cmdVersion(allocator, cmd_args);
+    } else if (mem.eql(u8, cmd, "zen")) {
+        return cmdZen(allocator, cmd_args);
+    } else if (mem.eql(u8, cmd, "help")) {
+        return cmdHelp(allocator, cmd_args);
+    } else if (mem.eql(u8, cmd, "internal")) {
+        return cmdInternal(allocator, cmd_args);
+    } else {
+        try stderr.print("unknown command: {}\n\n", .{args[1]});
+        try stderr.write(usage);
+        process.exit(1);
     }
-
-    try stderr.print("unknown command: {}\n\n", args[1]);
-    try stderr.write(usage);
-    process.exit(1);
 }
 
 const usage_build_generic =
@@ -157,6 +122,7 @@ const usage_build_generic =
     \\  --static                     Output will be statically linked
     \\  --strip                      Exclude debug symbols
     \\  -target [name]               <arch><sub>-<os>-<abi> see the targets command
+    \\  --eh-frame-hdr               enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  --verbose-tokenize           Turn on compiler debug output for tokenization
     \\  --verbose-ast-tree           Turn on compiler debug output for parsing into an AST (tree view)
     \\  --verbose-ast-fmt            Turn on compiler debug output for parsing into an AST (render source)
@@ -178,8 +144,6 @@ const usage_build_generic =
     \\  --object [obj]               Add object file to build
     \\  -rdynamic                    Add all symbols to the dynamic symbol table
     \\  -rpath [path]                Add directory to the runtime library search path
-    \\  -mconsole                    (windows) --subsystem console to the linker
-    \\  -mwindows                    (windows) --subsystem windows to the linker
     \\  -framework [name]            (darwin) link against framework
     \\  -mios-version-min [ver]      (darwin) set iOS deployment target
     \\  -mmacosx-version-min [ver]   (darwin) set Mac OS X deployment target
@@ -190,164 +154,258 @@ const usage_build_generic =
     \\
 ;
 
-const args_build_generic = [_]Flag{
-    Flag.Bool("--help"),
-    Flag.Option("--color", [_][]const u8{
-        "auto",
-        "off",
-        "on",
-    }),
-    Flag.Option("--mode", [_][]const u8{
-        "debug",
-        "release-fast",
-        "release-safe",
-        "release-small",
-    }),
-
-    Flag.ArgMergeN("--assembly", 1),
-    Flag.Option("--emit", [_][]const u8{
-        "asm",
-        "bin",
-        "llvm-ir",
-    }),
-    Flag.Bool("--enable-timing-info"),
-    Flag.Arg1("--libc"),
-    Flag.Arg1("--name"),
-    Flag.Arg1("--output"),
-    Flag.Arg1("--output-h"),
-    // NOTE: Parsed manually after initial check
-    Flag.ArgN("--pkg-begin", 2),
-    Flag.Bool("--pkg-end"),
-    Flag.Bool("--static"),
-    Flag.Bool("--strip"),
-    Flag.Arg1("-target"),
-    Flag.Bool("--verbose-tokenize"),
-    Flag.Bool("--verbose-ast-tree"),
-    Flag.Bool("--verbose-ast-fmt"),
-    Flag.Bool("--verbose-link"),
-    Flag.Bool("--verbose-ir"),
-    Flag.Bool("--verbose-llvm-ir"),
-    Flag.Bool("--verbose-cimport"),
-    Flag.Arg1("-dirafter"),
-    Flag.ArgMergeN("-isystem", 1),
-    Flag.Arg1("-mllvm"),
-
-    Flag.Arg1("--ar-path"),
-    Flag.Bool("--each-lib-rpath"),
-    Flag.ArgMergeN("--library", 1),
-    Flag.ArgMergeN("--forbid-library", 1),
-    Flag.ArgMergeN("--library-path", 1),
-    Flag.Arg1("--linker-script"),
-    Flag.ArgMergeN("--object", 1),
-    // NOTE: Removed -L since it would need to be special-cased and we have an alias in library-path
-    Flag.Bool("-rdynamic"),
-    Flag.Arg1("-rpath"),
-    Flag.Bool("-mconsole"),
-    Flag.Bool("-mwindows"),
-    Flag.ArgMergeN("-framework", 1),
-    Flag.Arg1("-mios-version-min"),
-    Flag.Arg1("-mmacosx-version-min"),
-    Flag.Arg1("--ver-major"),
-    Flag.Arg1("--ver-minor"),
-    Flag.Arg1("--ver-patch"),
-};
-
 fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Compilation.Kind) !void {
-    var flags = try Args.parse(allocator, args_build_generic, args);
-    defer flags.deinit();
+    var color: errmsg.Color = .Auto;
+    var build_mode: std.builtin.Mode = .Debug;
+    var emit_bin = true;
+    var emit_asm = false;
+    var emit_llvm_ir = false;
+    var emit_h = false;
+    var provided_name: ?[]const u8 = null;
+    var is_dynamic = false;
+    var root_src_file: ?[]const u8 = null;
+    var libc_arg: ?[]const u8 = null;
+    var version: std.builtin.Version = .{ .major = 0, .minor = 0, .patch = 0 };
+    var linker_script: ?[]const u8 = null;
+    var strip = false;
+    var verbose_tokenize = false;
+    var verbose_ast_tree = false;
+    var verbose_ast_fmt = false;
+    var verbose_link = false;
+    var verbose_ir = false;
+    var verbose_llvm_ir = false;
+    var verbose_cimport = false;
+    var linker_rdynamic = false;
+    var link_eh_frame_hdr = false;
+    var macosx_version_min: ?[]const u8 = null;
+    var ios_version_min: ?[]const u8 = null;
 
-    if (flags.present("help")) {
-        try stdout.write(usage_build_generic);
-        process.exit(0);
-    }
+    var assembly_files = ArrayList([]const u8).init(allocator);
+    defer assembly_files.deinit();
 
-    const build_mode = blk: {
-        if (flags.single("mode")) |mode_flag| {
-            if (mem.eql(u8, mode_flag, "debug")) {
-                break :blk builtin.Mode.Debug;
-            } else if (mem.eql(u8, mode_flag, "release-fast")) {
-                break :blk builtin.Mode.ReleaseFast;
-            } else if (mem.eql(u8, mode_flag, "release-safe")) {
-                break :blk builtin.Mode.ReleaseSafe;
-            } else if (mem.eql(u8, mode_flag, "release-small")) {
-                break :blk builtin.Mode.ReleaseSmall;
-            } else unreachable;
-        } else {
-            break :blk builtin.Mode.Debug;
-        }
-    };
+    var link_objects = ArrayList([]const u8).init(allocator);
+    defer link_objects.deinit();
 
-    const color = blk: {
-        if (flags.single("color")) |color_flag| {
-            if (mem.eql(u8, color_flag, "auto")) {
-                break :blk errmsg.Color.Auto;
-            } else if (mem.eql(u8, color_flag, "on")) {
-                break :blk errmsg.Color.On;
-            } else if (mem.eql(u8, color_flag, "off")) {
-                break :blk errmsg.Color.Off;
-            } else unreachable;
-        } else {
-            break :blk errmsg.Color.Auto;
-        }
-    };
+    var clang_argv_buf = ArrayList([]const u8).init(allocator);
+    defer clang_argv_buf.deinit();
 
-    const emit_type = blk: {
-        if (flags.single("emit")) |emit_flag| {
-            if (mem.eql(u8, emit_flag, "asm")) {
-                break :blk Compilation.Emit.Assembly;
-            } else if (mem.eql(u8, emit_flag, "bin")) {
-                break :blk Compilation.Emit.Binary;
-            } else if (mem.eql(u8, emit_flag, "llvm-ir")) {
-                break :blk Compilation.Emit.LlvmIr;
-            } else unreachable;
-        } else {
-            break :blk Compilation.Emit.Binary;
-        }
-    };
+    var mllvm_flags = ArrayList([]const u8).init(allocator);
+    defer mllvm_flags.deinit();
 
     var cur_pkg = try CliPkg.init(allocator, "", "", null);
     defer cur_pkg.deinit();
 
-    var i: usize = 0;
-    while (i < args.len) : (i += 1) {
-        const arg_name = args[i];
-        if (mem.eql(u8, "--pkg-begin", arg_name)) {
-            // following two arguments guaranteed to exist due to arg parsing
-            i += 1;
-            const new_pkg_name = args[i];
-            i += 1;
-            const new_pkg_path = args[i];
+    var system_libs = ArrayList([]const u8).init(allocator);
+    defer system_libs.deinit();
 
-            var new_cur_pkg = try CliPkg.init(allocator, new_pkg_name, new_pkg_path, cur_pkg);
-            try cur_pkg.children.append(new_cur_pkg);
-            cur_pkg = new_cur_pkg;
-        } else if (mem.eql(u8, "--pkg-end", arg_name)) {
-            if (cur_pkg.parent) |parent| {
-                cur_pkg = parent;
+    var c_src_files = ArrayList([]const u8).init(allocator);
+    defer c_src_files.deinit();
+
+    {
+        var i: usize = 0;
+        while (i < args.len) : (i += 1) {
+            const arg = args[i];
+            if (mem.startsWith(u8, arg, "-")) {
+                if (mem.eql(u8, arg, "--help")) {
+                    try stdout.write(usage_build_generic);
+                    process.exit(0);
+                } else if (mem.eql(u8, arg, "--color")) {
+                    if (i + 1 >= args.len) {
+                        try stderr.write("expected [auto|on|off] after --color\n");
+                        process.exit(1);
+                    }
+                    i += 1;
+                    const next_arg = args[i];
+                    if (mem.eql(u8, next_arg, "auto")) {
+                        color = .Auto;
+                    } else if (mem.eql(u8, next_arg, "on")) {
+                        color = .On;
+                    } else if (mem.eql(u8, next_arg, "off")) {
+                        color = .Off;
+                    } else {
+                        try stderr.print("expected [auto|on|off] after --color, found '{}'\n", .{next_arg});
+                        process.exit(1);
+                    }
+                } else if (mem.eql(u8, arg, "--mode")) {
+                    if (i + 1 >= args.len) {
+                        try stderr.write("expected [Debug|ReleaseSafe|ReleaseFast|ReleaseSmall] after --mode\n");
+                        process.exit(1);
+                    }
+                    i += 1;
+                    const next_arg = args[i];
+                    if (mem.eql(u8, next_arg, "Debug")) {
+                        build_mode = .Debug;
+                    } else if (mem.eql(u8, next_arg, "ReleaseSafe")) {
+                        build_mode = .ReleaseSafe;
+                    } else if (mem.eql(u8, next_arg, "ReleaseFast")) {
+                        build_mode = .ReleaseFast;
+                    } else if (mem.eql(u8, next_arg, "ReleaseSmall")) {
+                        build_mode = .ReleaseSmall;
+                    } else {
+                        try stderr.print("expected [Debug|ReleaseSafe|ReleaseFast|ReleaseSmall] after --mode, found '{}'\n", .{next_arg});
+                        process.exit(1);
+                    }
+                } else if (mem.eql(u8, arg, "--name")) {
+                    if (i + 1 >= args.len) {
+                        try stderr.write("expected parameter after --name\n");
+                        process.exit(1);
+                    }
+                    i += 1;
+                    provided_name = args[i];
+                } else if (mem.eql(u8, arg, "--ver-major")) {
+                    if (i + 1 >= args.len) {
+                        try stderr.write("expected parameter after --ver-major\n");
+                        process.exit(1);
+                    }
+                    i += 1;
+                    version.major = try std.fmt.parseInt(u32, args[i], 10);
+                } else if (mem.eql(u8, arg, "--ver-minor")) {
+                    if (i + 1 >= args.len) {
+                        try stderr.write("expected parameter after --ver-minor\n");
+                        process.exit(1);
+                    }
+                    i += 1;
+                    version.minor = try std.fmt.parseInt(u32, args[i], 10);
+                } else if (mem.eql(u8, arg, "--ver-patch")) {
+                    if (i + 1 >= args.len) {
+                        try stderr.write("expected parameter after --ver-patch\n");
+                        process.exit(1);
+                    }
+                    i += 1;
+                    version.patch = try std.fmt.parseInt(u32, args[i], 10);
+                } else if (mem.eql(u8, arg, "--linker-script")) {
+                    if (i + 1 >= args.len) {
+                        try stderr.write("expected parameter after --linker-script\n");
+                        process.exit(1);
+                    }
+                    i += 1;
+                    linker_script = args[i];
+                } else if (mem.eql(u8, arg, "--libc")) {
+                    if (i + 1 >= args.len) {
+                        try stderr.write("expected parameter after --libc\n");
+                        process.exit(1);
+                    }
+                    i += 1;
+                    libc_arg = args[i];
+                } else if (mem.eql(u8, arg, "-mllvm")) {
+                    if (i + 1 >= args.len) {
+                        try stderr.write("expected parameter after -mllvm\n");
+                        process.exit(1);
+                    }
+                    i += 1;
+                    try clang_argv_buf.append("-mllvm");
+                    try clang_argv_buf.append(args[i]);
+
+                    try mllvm_flags.append(args[i]);
+                } else if (mem.eql(u8, arg, "-mmacosx-version-min")) {
+                    if (i + 1 >= args.len) {
+                        try stderr.write("expected parameter after -mmacosx-version-min\n");
+                        process.exit(1);
+                    }
+                    i += 1;
+                    macosx_version_min = args[i];
+                } else if (mem.eql(u8, arg, "-mios-version-min")) {
+                    if (i + 1 >= args.len) {
+                        try stderr.write("expected parameter after -mios-version-min\n");
+                        process.exit(1);
+                    }
+                    i += 1;
+                    ios_version_min = args[i];
+                } else if (mem.eql(u8, arg, "-femit-bin")) {
+                    emit_bin = true;
+                } else if (mem.eql(u8, arg, "-fno-emit-bin")) {
+                    emit_bin = false;
+                } else if (mem.eql(u8, arg, "-femit-asm")) {
+                    emit_asm = true;
+                } else if (mem.eql(u8, arg, "-fno-emit-asm")) {
+                    emit_asm = false;
+                } else if (mem.eql(u8, arg, "-femit-llvm-ir")) {
+                    emit_llvm_ir = true;
+                } else if (mem.eql(u8, arg, "-fno-emit-llvm-ir")) {
+                    emit_llvm_ir = false;
+                } else if (mem.eql(u8, arg, "-dynamic")) {
+                    is_dynamic = true;
+                } else if (mem.eql(u8, arg, "--strip")) {
+                    strip = true;
+                } else if (mem.eql(u8, arg, "--verbose-tokenize")) {
+                    verbose_tokenize = true;
+                } else if (mem.eql(u8, arg, "--verbose-ast-tree")) {
+                    verbose_ast_tree = true;
+                } else if (mem.eql(u8, arg, "--verbose-ast-fmt")) {
+                    verbose_ast_fmt = true;
+                } else if (mem.eql(u8, arg, "--verbose-link")) {
+                    verbose_link = true;
+                } else if (mem.eql(u8, arg, "--verbose-ir")) {
+                    verbose_ir = true;
+                } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
+                    verbose_llvm_ir = true;
+                } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
+                    link_eh_frame_hdr = true;
+                } else if (mem.eql(u8, arg, "--verbose-cimport")) {
+                    verbose_cimport = true;
+                } else if (mem.eql(u8, arg, "-rdynamic")) {
+                    linker_rdynamic = true;
+                } else if (mem.eql(u8, arg, "--pkg-begin")) {
+                    if (i + 2 >= args.len) {
+                        try stderr.write("expected [name] [path] after --pkg-begin\n");
+                        process.exit(1);
+                    }
+                    i += 1;
+                    const new_pkg_name = args[i];
+                    i += 1;
+                    const new_pkg_path = args[i];
+
+                    var new_cur_pkg = try CliPkg.init(allocator, new_pkg_name, new_pkg_path, cur_pkg);
+                    try cur_pkg.children.append(new_cur_pkg);
+                    cur_pkg = new_cur_pkg;
+                } else if (mem.eql(u8, arg, "--pkg-end")) {
+                    if (cur_pkg.parent) |parent| {
+                        cur_pkg = parent;
+                    } else {
+                        try stderr.write("encountered --pkg-end with no matching --pkg-begin\n");
+                        process.exit(1);
+                    }
+                } else if (mem.startsWith(u8, arg, "-l")) {
+                    try system_libs.append(arg[2..]);
+                } else {
+                    try stderr.print("unrecognized parameter: '{}'", .{arg});
+                    process.exit(1);
+                }
+            } else if (mem.endsWith(u8, arg, ".s")) {
+                try assembly_files.append(arg);
+            } else if (mem.endsWith(u8, arg, ".o") or
+                mem.endsWith(u8, arg, ".obj") or
+                mem.endsWith(u8, arg, ".a") or
+                mem.endsWith(u8, arg, ".lib"))
+            {
+                try link_objects.append(arg);
+            } else if (mem.endsWith(u8, arg, ".c") or
+                mem.endsWith(u8, arg, ".cpp"))
+            {
+                try c_src_files.append(arg);
+            } else if (mem.endsWith(u8, arg, ".zig")) {
+                if (root_src_file) |other| {
+                    try stderr.print("found another zig file '{}' after root source file '{}'", .{
+                        arg,
+                        other,
+                    });
+                    process.exit(1);
+                } else {
+                    root_src_file = arg;
+                }
             } else {
-                try stderr.print("encountered --pkg-end with no matching --pkg-begin\n");
-                process.exit(1);
+                try stderr.print("unrecognized file extension of parameter '{}'", .{arg});
             }
         }
     }
 
     if (cur_pkg.parent != null) {
-        try stderr.print("unmatched --pkg-begin\n");
+        try stderr.print("unmatched --pkg-begin\n", .{});
         process.exit(1);
     }
 
-    const provided_name = flags.single("name");
-    const root_source_file = switch (flags.positionals.len) {
-        0 => null,
-        1 => flags.positionals.at(0),
-        else => {
-            try stderr.print("unexpected extra parameter: {}\n", flags.positionals.at(1));
-            process.exit(1);
-        },
-    };
-
     const root_name = if (provided_name) |n| n else blk: {
-        if (root_source_file) |file| {
+        if (root_src_file) |file| {
             const basename = fs.path.basename(file);
             var it = mem.separate(basename, ".");
             break :blk it.next() orelse basename;
@@ -357,11 +415,7 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
         }
     };
 
-    const is_static = flags.present("static");
-
-    const assembly_files = flags.many("assembly");
-    const link_objects = flags.many("object");
-    if (root_source_file == null and link_objects.len == 0 and assembly_files.len == 0) {
+    if (root_src_file == null and link_objects.len == 0 and assembly_files.len == 0) {
         try stderr.write("Expected source file argument or at least one --object or --assembly argument\n");
         process.exit(1);
     }
@@ -371,121 +425,95 @@ fn buildOutputType(allocator: *Allocator, args: []const []const u8, out_type: Co
         process.exit(1);
     }
 
-    var clang_argv_buf = ArrayList([]const u8).init(allocator);
-    defer clang_argv_buf.deinit();
-
-    const mllvm_flags = flags.many("mllvm");
-    for (mllvm_flags) |mllvm| {
-        try clang_argv_buf.append("-mllvm");
-        try clang_argv_buf.append(mllvm);
-    }
-    try ZigCompiler.setLlvmArgv(allocator, mllvm_flags);
+    try ZigCompiler.setLlvmArgv(allocator, mllvm_flags.toSliceConst());
 
     const zig_lib_dir = introspect.resolveZigLibDir(allocator) catch process.exit(1);
     defer allocator.free(zig_lib_dir);
 
     var override_libc: LibCInstallation = undefined;
 
-    var loop: event.Loop = undefined;
-    try loop.initMultiThreaded(allocator);
-    defer loop.deinit();
-
-    var zig_compiler = try ZigCompiler.init(&loop);
+    var zig_compiler = try ZigCompiler.init(allocator);
     defer zig_compiler.deinit();
 
     var comp = try Compilation.create(
         &zig_compiler,
         root_name,
-        root_source_file,
+        root_src_file,
         Target.Native,
         out_type,
         build_mode,
-        is_static,
+        !is_dynamic,
         zig_lib_dir,
     );
     defer comp.destroy();
 
-    if (flags.single("libc")) |libc_path| {
-        parseLibcPaths(loop.allocator, &override_libc, libc_path);
+    if (libc_arg) |libc_path| {
+        parseLibcPaths(allocator, &override_libc, libc_path);
         comp.override_libc = &override_libc;
     }
 
-    for (flags.many("library")) |lib| {
+    for (system_libs.toSliceConst()) |lib| {
         _ = try comp.addLinkLib(lib, true);
     }
 
-    comp.version_major = try std.fmt.parseUnsigned(u32, flags.single("ver-major") orelse "0", 10);
-    comp.version_minor = try std.fmt.parseUnsigned(u32, flags.single("ver-minor") orelse "0", 10);
-    comp.version_patch = try std.fmt.parseUnsigned(u32, flags.single("ver-patch") orelse "0", 10);
-
+    comp.version = version;
     comp.is_test = false;
-
-    comp.linker_script = flags.single("linker-script");
-    comp.each_lib_rpath = flags.present("each-lib-rpath");
-
+    comp.linker_script = linker_script;
     comp.clang_argv = clang_argv_buf.toSliceConst();
+    comp.strip = strip;
 
-    comp.strip = flags.present("strip");
+    comp.verbose_tokenize = verbose_tokenize;
+    comp.verbose_ast_tree = verbose_ast_tree;
+    comp.verbose_ast_fmt = verbose_ast_fmt;
+    comp.verbose_link = verbose_link;
+    comp.verbose_ir = verbose_ir;
+    comp.verbose_llvm_ir = verbose_llvm_ir;
+    comp.verbose_cimport = verbose_cimport;
 
-    comp.verbose_tokenize = flags.present("verbose-tokenize");
-    comp.verbose_ast_tree = flags.present("verbose-ast-tree");
-    comp.verbose_ast_fmt = flags.present("verbose-ast-fmt");
-    comp.verbose_link = flags.present("verbose-link");
-    comp.verbose_ir = flags.present("verbose-ir");
-    comp.verbose_llvm_ir = flags.present("verbose-llvm-ir");
-    comp.verbose_cimport = flags.present("verbose-cimport");
+    comp.link_eh_frame_hdr = link_eh_frame_hdr;
 
     comp.err_color = color;
-    comp.lib_dirs = flags.many("library-path");
-    comp.darwin_frameworks = flags.many("framework");
-    comp.rpath_list = flags.many("rpath");
 
-    if (flags.single("output-h")) |output_h| {
-        comp.out_h_path = output_h;
-    }
+    comp.linker_rdynamic = linker_rdynamic;
 
-    comp.windows_subsystem_windows = flags.present("mwindows");
-    comp.windows_subsystem_console = flags.present("mconsole");
-    comp.linker_rdynamic = flags.present("rdynamic");
-
-    if (flags.single("mmacosx-version-min") != null and flags.single("mios-version-min") != null) {
+    if (macosx_version_min != null and ios_version_min != null) {
         try stderr.write("-mmacosx-version-min and -mios-version-min options not allowed together\n");
         process.exit(1);
     }
 
-    if (flags.single("mmacosx-version-min")) |ver| {
+    if (macosx_version_min) |ver| {
         comp.darwin_version_min = Compilation.DarwinVersionMin{ .MacOS = ver };
     }
-    if (flags.single("mios-version-min")) |ver| {
+    if (ios_version_min) |ver| {
         comp.darwin_version_min = Compilation.DarwinVersionMin{ .Ios = ver };
     }
 
-    comp.emit_file_type = emit_type;
-    comp.assembly_files = assembly_files;
-    comp.link_out_file = flags.single("output");
-    comp.link_objects = link_objects;
+    comp.emit_bin = emit_bin;
+    comp.emit_asm = emit_asm;
+    comp.emit_llvm_ir = emit_llvm_ir;
+    comp.emit_h = emit_h;
+    comp.assembly_files = assembly_files.toSliceConst();
+    comp.link_objects = link_objects.toSliceConst();
 
     comp.start();
-    // TODO const process_build_events_handle = try async<loop.allocator> processBuildEvents(comp, color);
-    loop.run();
+    processBuildEvents(comp, color);
 }
 
-async fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
+fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
     var count: usize = 0;
-    while (true) {
-        // TODO directly awaiting async should guarantee memory allocation elision
-        const build_event = await (async comp.events.get() catch unreachable);
+    while (!comp.cancelled) {
+        const build_event = comp.events.get();
         count += 1;
 
         switch (build_event) {
-            Compilation.Event.Ok => {
-                stderr.print("Build {} succeeded\n", count) catch process.exit(1);
+            .Ok => {
+                stderr.print("Build {} succeeded\n", .{count}) catch process.exit(1);
             },
-            Compilation.Event.Error => |err| {
-                stderr.print("Build {} failed: {}\n", count, @errorName(err)) catch process.exit(1);
+            .Error => |err| {
+                stderr.print("Build {} failed: {}\n", .{ count, @errorName(err) }) catch process.exit(1);
             },
-            Compilation.Event.Fail => |msgs| {
-                stderr.print("Build {} compile errors:\n", count) catch process.exit(1);
+            .Fail => |msgs| {
+                stderr.print("Build {} compile errors:\n", .{count}) catch process.exit(1);
                 for (msgs) |msg| {
                     defer msg.destroy();
                     msg.printToFile(stderr_file, color) catch process.exit(1);
@@ -493,18 +521,6 @@ async fn processBuildEvents(comp: *Compilation, color: errmsg.Color) void {
             },
         }
     }
-}
-
-fn cmdBuildExe(allocator: *Allocator, args: []const []const u8) !void {
-    return buildOutputType(allocator, args, Compilation.Kind.Exe);
-}
-
-fn cmdBuildLib(allocator: *Allocator, args: []const []const u8) !void {
-    return buildOutputType(allocator, args, Compilation.Kind.Lib);
-}
-
-fn cmdBuildObj(allocator: *Allocator, args: []const []const u8) !void {
-    return buildOutputType(allocator, args, Compilation.Kind.Obj);
 }
 
 pub const usage_fmt =
@@ -524,34 +540,22 @@ pub const usage_fmt =
     \\
 ;
 
-pub const args_fmt_spec = [_]Flag{
-    Flag.Bool("--help"),
-    Flag.Bool("--check"),
-    Flag.Option("--color", [_][]const u8{
-        "auto",
-        "off",
-        "on",
-    }),
-    Flag.Bool("--stdin"),
-};
-
 const Fmt = struct {
     seen: event.Locked(SeenMap),
     any_error: bool,
     color: errmsg.Color,
-    loop: *event.Loop,
+    allocator: *Allocator,
 
     const SeenMap = std.StringHashMap(void);
 };
 
 fn parseLibcPaths(allocator: *Allocator, libc: *LibCInstallation, libc_paths_file: []const u8) void {
     libc.parse(allocator, libc_paths_file, stderr) catch |err| {
-        stderr.print(
-            "Unable to parse libc path file '{}': {}.\n" ++
-                "Try running `zig libc` to see an example for the native target.\n",
+        stderr.print("Unable to parse libc path file '{}': {}.\n" ++
+            "Try running `zig libc` to see an example for the native target.\n", .{
             libc_paths_file,
             @errorName(err),
-        ) catch process.exit(1);
+        }) catch {};
         process.exit(1);
     };
 }
@@ -565,68 +569,80 @@ fn cmdLibC(allocator: *Allocator, args: []const []const u8) !void {
             return;
         },
         else => {
-            try stderr.print("unexpected extra parameter: {}\n", args[1]);
+            try stderr.print("unexpected extra parameter: {}\n", .{args[1]});
             process.exit(1);
         },
     }
 
-    var loop: event.Loop = undefined;
-    try loop.initMultiThreaded(allocator);
-    defer loop.deinit();
-
-    var zig_compiler = try ZigCompiler.init(&loop);
+    var zig_compiler = try ZigCompiler.init(allocator);
     defer zig_compiler.deinit();
 
-    // TODO const handle = try async<loop.allocator> findLibCAsync(&zig_compiler);
-
-    loop.run();
-}
-
-async fn findLibCAsync(zig_compiler: *ZigCompiler) void {
-    const libc = (await (async zig_compiler.getNativeLibC() catch unreachable)) catch |err| {
-        stderr.print("unable to find libc: {}\n", @errorName(err)) catch process.exit(1);
+    const libc = zig_compiler.getNativeLibC() catch |err| {
+        stderr.print("unable to find libc: {}\n", .{@errorName(err)}) catch {};
         process.exit(1);
     };
     libc.render(stdout) catch process.exit(1);
 }
 
 fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
-    var flags = try Args.parse(allocator, args_fmt_spec, args);
-    defer flags.deinit();
+    var color: errmsg.Color = .Auto;
+    var stdin_flag: bool = false;
+    var check_flag: bool = false;
+    var input_files = ArrayList([]const u8).init(allocator);
 
-    if (flags.present("help")) {
-        try stdout.write(usage_fmt);
-        process.exit(0);
+    {
+        var i: usize = 0;
+        while (i < args.len) : (i += 1) {
+            const arg = args[i];
+            if (mem.startsWith(u8, arg, "-")) {
+                if (mem.eql(u8, arg, "--help")) {
+                    try stdout.write(usage_fmt);
+                    process.exit(0);
+                } else if (mem.eql(u8, arg, "--color")) {
+                    if (i + 1 >= args.len) {
+                        try stderr.write("expected [auto|on|off] after --color\n");
+                        process.exit(1);
+                    }
+                    i += 1;
+                    const next_arg = args[i];
+                    if (mem.eql(u8, next_arg, "auto")) {
+                        color = .Auto;
+                    } else if (mem.eql(u8, next_arg, "on")) {
+                        color = .On;
+                    } else if (mem.eql(u8, next_arg, "off")) {
+                        color = .Off;
+                    } else {
+                        try stderr.print("expected [auto|on|off] after --color, found '{}'\n", .{next_arg});
+                        process.exit(1);
+                    }
+                } else if (mem.eql(u8, arg, "--stdin")) {
+                    stdin_flag = true;
+                } else if (mem.eql(u8, arg, "--check")) {
+                    check_flag = true;
+                } else {
+                    try stderr.print("unrecognized parameter: '{}'", .{arg});
+                    process.exit(1);
+                }
+            } else {
+                try input_files.append(arg);
+            }
+        }
     }
 
-    const color = blk: {
-        if (flags.single("color")) |color_flag| {
-            if (mem.eql(u8, color_flag, "auto")) {
-                break :blk errmsg.Color.Auto;
-            } else if (mem.eql(u8, color_flag, "on")) {
-                break :blk errmsg.Color.On;
-            } else if (mem.eql(u8, color_flag, "off")) {
-                break :blk errmsg.Color.Off;
-            } else unreachable;
-        } else {
-            break :blk errmsg.Color.Auto;
-        }
-    };
-
-    if (flags.present("stdin")) {
-        if (flags.positionals.len != 0) {
+    if (stdin_flag) {
+        if (input_files.len != 0) {
             try stderr.write("cannot use --stdin with positional arguments\n");
             process.exit(1);
         }
 
-        var stdin_file = try io.getStdIn();
+        var stdin_file = io.getStdIn();
         var stdin = stdin_file.inStream();
 
         const source_code = try stdin.stream.readAllAlloc(allocator, max_src_size);
         defer allocator.free(source_code);
 
         const tree = std.zig.parse(allocator, source_code) catch |err| {
-            try stderr.print("error parsing stdin: {}\n", err);
+            try stderr.print("error parsing stdin: {}\n", .{err});
             process.exit(1);
         };
         defer tree.deinit();
@@ -641,9 +657,9 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         if (tree.errors.len != 0) {
             process.exit(1);
         }
-        if (flags.present("check")) {
+        if (check_flag) {
             const anything_changed = try std.zig.render(allocator, io.null_out_stream, tree);
-            const code = if (anything_changed) u8(1) else u8(0);
+            const code: u8 = if (anything_changed) 1 else 0;
             process.exit(code);
         }
 
@@ -651,33 +667,26 @@ fn cmdFmt(allocator: *Allocator, args: []const []const u8) !void {
         return;
     }
 
-    if (flags.positionals.len == 0) {
+    if (input_files.len == 0) {
         try stderr.write("expected at least one source file argument\n");
         process.exit(1);
     }
 
-    var loop: event.Loop = undefined;
-    try loop.initMultiThreaded(allocator);
-    defer loop.deinit();
+    var fmt = Fmt{
+        .allocator = allocator,
+        .seen = event.Locked(Fmt.SeenMap).init(Fmt.SeenMap.init(allocator)),
+        .any_error = false,
+        .color = color,
+    };
 
-    var result: FmtError!void = undefined;
-    // TODO const main_handle = try async<allocator> asyncFmtMainChecked(
-    // TODO     &result,
-    // TODO     &loop,
-    // TODO     &flags,
-    // TODO     color,
-    // TODO );
-    loop.run();
-    return result;
-}
-
-async fn asyncFmtMainChecked(
-    result: *(FmtError!void),
-    loop: *event.Loop,
-    flags: *const Args,
-    color: errmsg.Color,
-) void {
-    result.* = await (async asyncFmtMain(loop, flags, color) catch unreachable);
+    var group = event.Group(FmtError!void).init(allocator);
+    for (input_files.toSliceConst()) |file_path| {
+        try group.call(fmtPath, .{ &fmt, file_path, check_flag });
+    }
+    try group.wait();
+    if (fmt.any_error) {
+        process.exit(1);
+    }
 }
 
 const FmtError = error{
@@ -702,74 +711,48 @@ const FmtError = error{
     CurrentWorkingDirectoryUnlinked,
 } || fs.File.OpenError;
 
-async fn asyncFmtMain(
-    loop: *event.Loop,
-    flags: *const Args,
-    color: errmsg.Color,
-) FmtError!void {
-    suspend {
-        resume @handle();
-    }
-    var fmt = Fmt{
-        .seen = event.Locked(Fmt.SeenMap).init(loop, Fmt.SeenMap.init(loop.allocator)),
-        .any_error = false,
-        .color = color,
-        .loop = loop,
-    };
-
-    const check_mode = flags.present("check");
-
-    var group = event.Group(FmtError!void).init(loop);
-    for (flags.positionals.toSliceConst()) |file_path| {
-        try group.call(fmtPath, &fmt, file_path, check_mode);
-    }
-    try await (async group.wait() catch unreachable);
-    if (fmt.any_error) {
-        process.exit(1);
-    }
-}
-
 async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtError!void {
-    const file_path = try std.mem.dupe(fmt.loop.allocator, u8, file_path_ref);
-    defer fmt.loop.allocator.free(file_path);
+    const file_path = try std.mem.dupe(fmt.allocator, u8, file_path_ref);
+    defer fmt.allocator.free(file_path);
 
     {
-        const held = await (async fmt.seen.acquire() catch unreachable);
+        const held = fmt.seen.acquire();
         defer held.release();
 
         if (try held.value.put(file_path, {})) |_| return;
     }
 
-    const source_code = (await try async event.fs.readFile(
-        fmt.loop,
+    const source_code = event.fs.readFile(
+        fmt.allocator,
         file_path,
         max_src_size,
-    )) catch |err| switch (err) {
+    ) catch |err| switch (err) {
         error.IsDir, error.AccessDenied => {
-            // TODO make event based (and dir.next())
-            var dir = try fs.Dir.open(fmt.loop.allocator, file_path);
+            var dir = try fs.cwd().openDirList(file_path);
             defer dir.close();
 
-            var group = event.Group(FmtError!void).init(fmt.loop);
-            while (try dir.next()) |entry| {
-                if (entry.kind == fs.Dir.Entry.Kind.Directory or mem.endsWith(u8, entry.name, ".zig")) {
-                    const full_path = try fs.path.join(fmt.loop.allocator, [_][]const u8{ file_path, entry.name });
-                    try group.call(fmtPath, fmt, full_path, check_mode);
+            var group = event.Group(FmtError!void).init(fmt.allocator);
+            var it = dir.iterate();
+            while (try it.next()) |entry| {
+                if (entry.kind == .Directory or mem.endsWith(u8, entry.name, ".zig")) {
+                    const full_path = try fs.path.join(fmt.allocator, &[_][]const u8{ file_path, entry.name });
+                    @panic("TODO https://github.com/ziglang/zig/issues/3777");
+                    // try group.call(fmtPath, .{fmt, full_path, check_mode});
                 }
             }
-            return await (async group.wait() catch unreachable);
+            return group.wait();
         },
         else => {
             // TODO lock stderr printing
-            try stderr.print("unable to open '{}': {}\n", file_path, err);
+            try stderr.print("unable to open '{}': {}\n", .{ file_path, err });
             fmt.any_error = true;
             return;
         },
     };
-    defer fmt.loop.allocator.free(source_code);
+    defer fmt.allocator.free(source_code);
 
-    const tree = std.zig.parse(fmt.loop.allocator, source_code) catch |err| {
-        try stderr.print("error parsing file '{}': {}\n", file_path, err);
+    const tree = std.zig.parse(fmt.allocator, source_code) catch |err| {
+        try stderr.print("error parsing file '{}': {}\n", .{ file_path, err });
         fmt.any_error = true;
         return;
     };
@@ -777,8 +760,8 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
 
     var error_it = tree.errors.iterator(0);
     while (error_it.next()) |parse_error| {
-        const msg = try errmsg.Msg.createFromParseError(fmt.loop.allocator, parse_error, tree, file_path);
-        defer fmt.loop.allocator.destroy(msg);
+        const msg = try errmsg.Msg.createFromParseError(fmt.allocator, parse_error, tree, file_path);
+        defer fmt.allocator.destroy(msg);
 
         try msg.printToFile(stderr_file, fmt.color);
     }
@@ -788,19 +771,19 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
     }
 
     if (check_mode) {
-        const anything_changed = try std.zig.render(fmt.loop.allocator, io.null_out_stream, tree);
+        const anything_changed = try std.zig.render(fmt.allocator, io.null_out_stream, tree);
         if (anything_changed) {
-            try stderr.print("{}\n", file_path);
+            try stderr.print("{}\n", .{file_path});
             fmt.any_error = true;
         }
     } else {
         // TODO make this evented
-        const baf = try io.BufferedAtomicFile.create(fmt.loop.allocator, file_path);
+        const baf = try io.BufferedAtomicFile.create(fmt.allocator, file_path);
         defer baf.destroy();
 
-        const anything_changed = try std.zig.render(fmt.loop.allocator, baf.stream(), tree);
+        const anything_changed = try std.zig.render(fmt.allocator, baf.stream(), tree);
         if (anything_changed) {
-            try stderr.print("{}\n", file_path);
+            try stderr.print("{}\n", .{file_path});
             try baf.finish();
         }
     }
@@ -817,7 +800,7 @@ fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
             // NOTE: Cannot use empty string, see #918.
             comptime const native_str = if (comptime mem.eql(u8, arch_tag, @tagName(builtin.arch))) " (native)\n" else "\n";
 
-            try stdout.print("  {}{}", arch_tag, native_str);
+            try stdout.print("  {}{}", .{ arch_tag, native_str });
         }
     }
     try stdout.write("\n");
@@ -825,12 +808,12 @@ fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.write("Operating Systems:\n");
     {
         comptime var i: usize = 0;
-        inline while (i < @memberCount(builtin.Os)) : (i += 1) {
-            comptime const os_tag = @memberName(builtin.Os, i);
+        inline while (i < @memberCount(Target.Os)) : (i += 1) {
+            comptime const os_tag = @memberName(Target.Os, i);
             // NOTE: Cannot use empty string, see #918.
             comptime const native_str = if (comptime mem.eql(u8, os_tag, @tagName(builtin.os))) " (native)\n" else "\n";
 
-            try stdout.print("  {}{}", os_tag, native_str);
+            try stdout.print("  {}{}", .{ os_tag, native_str });
         }
     }
     try stdout.write("\n");
@@ -838,21 +821,19 @@ fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.write("C ABIs:\n");
     {
         comptime var i: usize = 0;
-        inline while (i < @memberCount(builtin.Abi)) : (i += 1) {
-            comptime const abi_tag = @memberName(builtin.Abi, i);
+        inline while (i < @memberCount(Target.Abi)) : (i += 1) {
+            comptime const abi_tag = @memberName(Target.Abi, i);
             // NOTE: Cannot use empty string, see #918.
             comptime const native_str = if (comptime mem.eql(u8, abi_tag, @tagName(builtin.abi))) " (native)\n" else "\n";
 
-            try stdout.print("  {}{}", abi_tag, native_str);
+            try stdout.print("  {}{}", .{ abi_tag, native_str });
         }
     }
 }
 
 fn cmdVersion(allocator: *Allocator, args: []const []const u8) !void {
-    try stdout.print("{}\n", std.mem.toSliceConst(u8, c.ZIG_VERSION_STRING));
+    try stdout.print("{}\n", .{std.mem.toSliceConst(u8, c.ZIG_VERSION_STRING)});
 }
-
-const args_test_spec = [_]Flag{Flag.Bool("--help")};
 
 fn cmdHelp(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.write(usage);
@@ -899,14 +880,16 @@ fn cmdInternal(allocator: *Allocator, args: []const []const u8) !void {
         .exec = cmdInternalBuildInfo,
     }};
 
-    for (sub_commands) |sub_command| {
+    inline for (sub_commands) |sub_command| {
         if (mem.eql(u8, sub_command.name, args[0])) {
-            try sub_command.exec(allocator, args[1..]);
-            return;
+            var frame = try allocator.create(@Frame(sub_command.exec));
+            defer allocator.destroy(frame);
+            frame.* = async sub_command.exec(allocator, args[1..]);
+            return await frame;
         }
     }
 
-    try stderr.print("unknown sub command: {}\n\n", args[0]);
+    try stderr.print("unknown sub command: {}\n\n", .{args[0]});
     try stderr.write(usage_internal);
 }
 
@@ -914,23 +897,19 @@ fn cmdInternalBuildInfo(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.print(
         \\ZIG_CMAKE_BINARY_DIR {}
         \\ZIG_CXX_COMPILER     {}
-        \\ZIG_LLVM_CONFIG_EXE  {}
         \\ZIG_LLD_INCLUDE_PATH {}
         \\ZIG_LLD_LIBRARIES    {}
-        \\ZIG_STD_FILES        {}
-        \\ZIG_C_HEADER_FILES   {}
+        \\ZIG_LLVM_CONFIG_EXE  {}
         \\ZIG_DIA_GUIDS_LIB    {}
         \\
-    ,
+    , .{
         std.mem.toSliceConst(u8, c.ZIG_CMAKE_BINARY_DIR),
         std.mem.toSliceConst(u8, c.ZIG_CXX_COMPILER),
-        std.mem.toSliceConst(u8, c.ZIG_LLVM_CONFIG_EXE),
         std.mem.toSliceConst(u8, c.ZIG_LLD_INCLUDE_PATH),
         std.mem.toSliceConst(u8, c.ZIG_LLD_LIBRARIES),
-        std.mem.toSliceConst(u8, c.ZIG_STD_FILES),
-        std.mem.toSliceConst(u8, c.ZIG_C_HEADER_FILES),
+        std.mem.toSliceConst(u8, c.ZIG_LLVM_CONFIG_EXE),
         std.mem.toSliceConst(u8, c.ZIG_DIA_GUIDS_LIB),
-    );
+    });
 }
 
 const CliPkg = struct {

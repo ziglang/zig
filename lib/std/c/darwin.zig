@@ -36,8 +36,8 @@ const mach_hdr = if (@sizeOf(usize) == 8) mach_header_64 else mach_header;
 /// export a weak symbol here, to be overridden by the real one.
 pub extern "c" var _mh_execute_header: mach_hdr = undefined;
 comptime {
-    if (std.os.darwin.is_the_target) {
-        @export("_mh_execute_header", _mh_execute_header, .Weak);
+    if (std.Target.current.isDarwin()) {
+        @export(_mh_execute_header, .{ .name = "_mh_execute_header", .linkage = .Weak });
     }
 }
 
@@ -46,13 +46,85 @@ pub const mach_header = macho.mach_header;
 
 pub const _errno = __error;
 
+pub extern "c" fn @"close$NOCANCEL"(fd: fd_t) c_int;
 pub extern "c" fn mach_host_self() mach_port_t;
 pub extern "c" fn clock_get_time(clock_serv: clock_serv_t, cur_time: *mach_timespec_t) kern_return_t;
 pub extern "c" fn host_get_clock_service(host: host_t, clock_id: clock_id_t, clock_serv: ?[*]clock_serv_t) kern_return_t;
 pub extern "c" fn mach_port_deallocate(task: ipc_space_t, name: mach_port_name_t) kern_return_t;
 
 pub fn sigaddset(set: *sigset_t, signo: u5) void {
-    set.* |= u32(1) << (signo - 1);
+    set.* |= @as(u32, 1) << (signo - 1);
 }
 
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
+
+/// get address to use bind()
+pub const AI_PASSIVE = 0x00000001;
+
+/// fill ai_canonname
+pub const AI_CANONNAME = 0x00000002;
+
+/// prevent host name resolution
+pub const AI_NUMERICHOST = 0x00000004;
+
+/// prevent service name resolution
+pub const AI_NUMERICSERV = 0x00001000;
+
+///  address family for hostname not supported
+pub const EAI_ADDRFAMILY = 1;
+
+/// temporary failure in name resolution
+pub const EAI_AGAIN = 2;
+
+/// invalid value for ai_flags
+pub const EAI_BADFLAGS = 3;
+
+/// non-recoverable failure in name resolution
+pub const EAI_FAIL = 4;
+
+/// ai_family not supported
+pub const EAI_FAMILY = 5;
+
+/// memory allocation failure
+pub const EAI_MEMORY = 6;
+
+/// no address associated with hostname
+pub const EAI_NODATA = 7;
+
+/// hostname nor servname provided, or not known
+pub const EAI_NONAME = 8;
+
+/// servname not supported for ai_socktype
+pub const EAI_SERVICE = 9;
+
+/// ai_socktype not supported
+pub const EAI_SOCKTYPE = 10;
+
+/// system error returned in errno
+pub const EAI_SYSTEM = 11;
+
+/// invalid value for hints
+pub const EAI_BADHINTS = 12;
+
+/// resolved protocol is unknown
+pub const EAI_PROTOCOL = 13;
+
+/// argument buffer overflow
+pub const EAI_OVERFLOW = 14;
+pub const EAI_MAX = 15;
+
+pub const pthread_mutex_t = extern struct {
+    __sig: c_long = 0x32AAABA7,
+    __opaque: [__PTHREAD_MUTEX_SIZE__]u8 = [_]u8{0} ** __PTHREAD_MUTEX_SIZE__,
+};
+pub const pthread_cond_t = extern struct {
+    __sig: c_long = 0x3CB0B1BB,
+    __opaque: [__PTHREAD_COND_SIZE__]u8 = [_]u8{0} ** __PTHREAD_COND_SIZE__,
+};
+const __PTHREAD_MUTEX_SIZE__ = if (@sizeOf(usize) == 8) 56 else 40;
+const __PTHREAD_COND_SIZE__ = if (@sizeOf(usize) == 8) 40 else 24;
+
+pub const pthread_attr_t = extern struct {
+    __sig: c_long,
+    __opaque: [56]u8,
+};

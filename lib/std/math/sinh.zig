@@ -17,8 +17,8 @@ const maxInt = std.math.maxInt;
 ///  - sinh(+-0)   = +-0
 ///  - sinh(+-inf) = +-inf
 ///  - sinh(nan)   = nan
-pub fn sinh(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn sinh(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => sinh32(x),
         f64 => sinh64(x),
@@ -93,8 +93,8 @@ fn sinh64(x: f64) f64 {
 }
 
 test "math.sinh" {
-    expect(sinh(f32(1.5)) == sinh32(1.5));
-    expect(sinh(f64(1.5)) == sinh64(1.5));
+    expect(sinh(@as(f32, 1.5)) == sinh32(1.5));
+    expect(sinh(@as(f64, 1.5)) == sinh64(1.5));
 }
 
 test "math.sinh32" {

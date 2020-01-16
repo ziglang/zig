@@ -1,6 +1,140 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.CompareOutputContext) void {
+    cases.addRuntimeSafety("slice sentinel mismatch - optional pointers",
+        \\const std = @import("std");
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    if (std.mem.eql(u8, message, "sentinel mismatch")) {
+        \\        std.process.exit(126); // good
+        \\    }
+        \\    std.process.exit(0); // test failed
+        \\}
+        \\pub fn main() void {
+        \\    var buf: [4]?*i32 = undefined;
+        \\    const slice = buf[0..3 :null];
+        \\}
+    );
+
+    cases.addRuntimeSafety("slice sentinel mismatch - floats",
+        \\const std = @import("std");
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    if (std.mem.eql(u8, message, "sentinel mismatch")) {
+        \\        std.process.exit(126); // good
+        \\    }
+        \\    std.process.exit(0); // test failed
+        \\}
+        \\pub fn main() void {
+        \\    var buf: [4]f32 = undefined;
+        \\    const slice = buf[0..3 :1.2];
+        \\}
+    );
+
+    cases.addRuntimeSafety("pointer slice sentinel mismatch",
+        \\const std = @import("std");
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    if (std.mem.eql(u8, message, "sentinel mismatch")) {
+        \\        std.process.exit(126); // good
+        \\    }
+        \\    std.process.exit(0); // test failed
+        \\}
+        \\pub fn main() void {
+        \\    var buf: [4]u8 = undefined;
+        \\    const ptr = buf[0..].ptr;
+        \\    const slice = ptr[0..3 :0];
+        \\}
+    );
+
+    cases.addRuntimeSafety("slice slice sentinel mismatch",
+        \\const std = @import("std");
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    if (std.mem.eql(u8, message, "sentinel mismatch")) {
+        \\        std.process.exit(126); // good
+        \\    }
+        \\    std.process.exit(0); // test failed
+        \\}
+        \\pub fn main() void {
+        \\    var buf: [4]u8 = undefined;
+        \\    const slice = buf[0..];
+        \\    const slice2 = slice[0..3 :0];
+        \\}
+    );
+
+    cases.addRuntimeSafety("array slice sentinel mismatch",
+        \\const std = @import("std");
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    if (std.mem.eql(u8, message, "sentinel mismatch")) {
+        \\        std.process.exit(126); // good
+        \\    }
+        \\    std.process.exit(0); // test failed
+        \\}
+        \\pub fn main() void {
+        \\    var buf: [4]u8 = undefined;
+        \\    const slice = buf[0..3 :0];
+        \\}
+    );
+
+    cases.addRuntimeSafety("intToPtr with misaligned address",
+        \\const std = @import("std");
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    if (std.mem.eql(u8, message, "incorrect alignment")) {
+        \\        std.os.exit(126); // good
+        \\    }
+        \\    std.os.exit(0); // test failed
+        \\}
+        \\pub fn main() void {
+        \\    var x: usize = 5;
+        \\    var y = @intToPtr([*]align(4) u8, x);
+        \\}
+    );
+
+    cases.addRuntimeSafety("resuming a non-suspended function which never been suspended",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\fn foo() void {
+        \\    var f = async bar(@frame());
+        \\    @import("std").os.exit(0);
+        \\}
+        \\
+        \\fn bar(frame: anyframe) void {
+        \\    suspend {
+        \\        resume frame;
+        \\    }
+        \\    @import("std").os.exit(0);
+        \\}
+        \\
+        \\pub fn main() void {
+        \\    _ = async foo();
+        \\}
+    );
+
+    cases.addRuntimeSafety("resuming a non-suspended function which has been suspended and resumed",
+        \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\fn foo() void {
+        \\    suspend {
+        \\        global_frame = @frame();
+        \\    }
+        \\    var f = async bar(@frame());
+        \\    @import("std").os.exit(0);
+        \\}
+        \\
+        \\fn bar(frame: anyframe) void {
+        \\    suspend {
+        \\        resume frame;
+        \\    }
+        \\    @import("std").os.exit(0);
+        \\}
+        \\
+        \\var global_frame: anyframe = undefined;
+        \\pub fn main() void {
+        \\    _ = async foo();
+        \\    resume global_frame;
+        \\    @import("std").os.exit(0);
+        \\}
+    );
+
     cases.addRuntimeSafety("noasync function call, callee suspends",
         \\pub fn panic(message: []const u8, stack_trace: ?*@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
@@ -213,7 +347,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\}
         \\pub fn main() void {
         \\    const a = [_]i32{1, 2, 3, 4};
-        \\    baz(bar(a));
+        \\    baz(bar(&a));
         \\}
         \\fn bar(a: []const i32) i32 {
         \\    return a[4];
@@ -423,7 +557,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    @import("std").os.exit(126);
         \\}
         \\pub fn main() !void {
-        \\    const x = widenSlice([_]u8{1, 2, 3, 4, 5});
+        \\    const x = widenSlice(&[_]u8{1, 2, 3, 4, 5});
         \\    if (x.len == 0) return error.Whatever;
         \\}
         \\fn widenSlice(slice: []align(1) const u8) []align(1) const i32 {

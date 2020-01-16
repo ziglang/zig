@@ -1,10 +1,8 @@
 // Based on https://github.com/CraneStation/wasi-sysroot/blob/wasi/libc-bottom-half/headers/public/wasi/core.h
 // and https://github.com/WebAssembly/WASI/blob/master/design/WASI-core.md
-const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 
-pub const is_the_target = builtin.os == .wasi;
 pub usingnamespace @import("bits.zig");
 
 comptime {
@@ -14,20 +12,20 @@ comptime {
     assert(@alignOf(u16) == 2);
     assert(@alignOf(i32) == 4);
     assert(@alignOf(u32) == 4);
-    assert(@alignOf(i64) == 8);
-    assert(@alignOf(u64) == 8);
+    // assert(@alignOf(i64) == 8);
+    // assert(@alignOf(u64) == 8);
 }
 
 pub const iovec_t = iovec;
 pub const ciovec_t = iovec_const;
 
-pub extern "wasi_unstable" fn args_get(argv: [*][*]u8, argv_buf: [*]u8) errno_t;
+pub extern "wasi_unstable" fn args_get(argv: [*][*:0]u8, argv_buf: [*]u8) errno_t;
 pub extern "wasi_unstable" fn args_sizes_get(argc: *usize, argv_buf_size: *usize) errno_t;
 
 pub extern "wasi_unstable" fn clock_res_get(clock_id: clockid_t, resolution: *timestamp_t) errno_t;
 pub extern "wasi_unstable" fn clock_time_get(clock_id: clockid_t, precision: timestamp_t, timestamp: *timestamp_t) errno_t;
 
-pub extern "wasi_unstable" fn environ_get(environ: [*]?[*]u8, environ_buf: [*]u8) errno_t;
+pub extern "wasi_unstable" fn environ_get(environ: [*]?[*:0]u8, environ_buf: [*]u8) errno_t;
 pub extern "wasi_unstable" fn environ_sizes_get(environ_count: *usize, environ_buf_size: *usize) errno_t;
 
 pub extern "wasi_unstable" fn fd_advise(fd: fd_t, offset: filesize_t, len: filesize_t, advice: advice_t) errno_t;
@@ -69,7 +67,6 @@ pub extern "wasi_unstable" fn path_unlink_file(fd: fd_t, path: [*]const u8, path
 pub extern "wasi_unstable" fn poll_oneoff(in: *const subscription_t, out: *event_t, nsubscriptions: usize, nevents: *usize) errno_t;
 
 pub extern "wasi_unstable" fn proc_exit(rval: exitcode_t) noreturn;
-pub extern "wasi_unstable" fn proc_raise(sig: signal_t) errno_t;
 
 pub extern "wasi_unstable" fn random_get(buf: [*]u8, buf_len: usize) errno_t;
 
@@ -78,3 +75,8 @@ pub extern "wasi_unstable" fn sched_yield() errno_t;
 pub extern "wasi_unstable" fn sock_recv(sock: fd_t, ri_data: *const iovec_t, ri_data_len: usize, ri_flags: riflags_t, ro_datalen: *usize, ro_flags: *roflags_t) errno_t;
 pub extern "wasi_unstable" fn sock_send(sock: fd_t, si_data: *const ciovec_t, si_data_len: usize, si_flags: siflags_t, so_datalen: *usize) errno_t;
 pub extern "wasi_unstable" fn sock_shutdown(sock: fd_t, how: sdflags_t) errno_t;
+
+/// Get the errno from a syscall return value, or 0 for no error.
+pub fn getErrno(r: errno_t) usize {
+    return r;
+}

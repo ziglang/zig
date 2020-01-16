@@ -10,9 +10,6 @@ atan2f:
 	cmp $0x01000000,%eax
 	jae 1f
 		# subnormal x, return x with underflow
-	fnstsw %ax
-	and $16,%ax
-	jnz 1f
 	fld %st(0)
 	fmul %st(1)
 	fstps 4(%esp)

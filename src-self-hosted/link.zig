@@ -1,17 +1,17 @@
 const std = @import("std");
 const mem = std.mem;
 const c = @import("c.zig");
-const builtin = @import("builtin");
-const ObjectFormat = builtin.ObjectFormat;
 const Compilation = @import("compilation.zig").Compilation;
-const Target = @import("target.zig").Target;
+const Target = std.Target;
+const ObjectFormat = Target.ObjectFormat;
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const assert = std.debug.assert;
+const util = @import("util.zig");
 
 const Context = struct {
     comp: *Compilation,
     arena: std.heap.ArenaAllocator,
-    args: std.ArrayList([*]const u8),
+    args: std.ArrayList([*:0]const u8),
     link_in_crt: bool,
 
     link_err: error{OutOfMemory}!void,
@@ -21,51 +21,49 @@ const Context = struct {
     out_file_path: std.Buffer,
 };
 
-pub async fn link(comp: *Compilation) !void {
+pub fn link(comp: *Compilation) !void {
     var ctx = Context{
         .comp = comp,
         .arena = std.heap.ArenaAllocator.init(comp.gpa()),
         .args = undefined,
-        .link_in_crt = comp.haveLibC() and comp.kind == Compilation.Kind.Exe,
+        .link_in_crt = comp.haveLibC() and comp.kind == .Exe,
         .link_err = {},
         .link_msg = undefined,
         .libc = undefined,
         .out_file_path = undefined,
     };
     defer ctx.arena.deinit();
-    ctx.args = std.ArrayList([*]const u8).init(&ctx.arena.allocator);
+    ctx.args = std.ArrayList([*:0]const u8).init(&ctx.arena.allocator);
     ctx.link_msg = std.Buffer.initNull(&ctx.arena.allocator);
 
-    if (comp.link_out_file) |out_file| {
-        ctx.out_file_path = try std.Buffer.init(&ctx.arena.allocator, out_file);
-    } else {
-        ctx.out_file_path = try std.Buffer.init(&ctx.arena.allocator, comp.name.toSliceConst());
-        switch (comp.kind) {
-            Compilation.Kind.Exe => {
-                try ctx.out_file_path.append(comp.target.exeFileExt());
-            },
-            Compilation.Kind.Lib => {
-                try ctx.out_file_path.append(comp.target.libFileExt(comp.is_static));
-            },
-            Compilation.Kind.Obj => {
-                try ctx.out_file_path.append(comp.target.objFileExt());
-            },
-        }
+    ctx.out_file_path = try std.Buffer.init(&ctx.arena.allocator, comp.name.toSliceConst());
+    switch (comp.kind) {
+        .Exe => {
+            try ctx.out_file_path.append(comp.target.exeFileExt());
+        },
+        .Lib => {
+            try ctx.out_file_path.append(if (comp.is_static) comp.target.staticLibSuffix() else comp.target.dynamicLibSuffix());
+        },
+        .Obj => {
+            try ctx.out_file_path.append(comp.target.oFileExt());
+        },
     }
 
     // even though we're calling LLD as a library it thinks the first
     // argument is its own exe name
-    try ctx.args.append(c"lld");
+    try ctx.args.append("lld");
 
     if (comp.haveLibC()) {
-        ctx.libc = ctx.comp.override_libc orelse blk: {
+        // TODO https://github.com/ziglang/zig/issues/3190
+        var libc = ctx.comp.override_libc orelse blk: {
             switch (comp.target) {
                 Target.Native => {
-                    break :blk (await (async comp.zig_compiler.getNativeLibC() catch unreachable)) catch return error.LibCRequiredButNotProvidedOrFound;
+                    break :blk comp.zig_compiler.getNativeLibC() catch return error.LibCRequiredButNotProvidedOrFound;
                 },
                 else => return error.LibCRequiredButNotProvidedOrFound,
             }
         };
+        ctx.libc = libc;
     }
 
     try constructLinkerArgs(&ctx);
@@ -73,17 +71,17 @@ pub async fn link(comp: *Compilation) !void {
     if (comp.verbose_link) {
         for (ctx.args.toSliceConst()) |arg, i| {
             const space = if (i == 0) "" else " ";
-            std.debug.warn("{}{s}", space, arg);
+            std.debug.warn("{}{s}", .{ space, arg });
         }
-        std.debug.warn("\n");
+        std.debug.warn("\n", .{});
     }
 
-    const extern_ofmt = toExternObjectFormatType(comp.target.getObjectFormat());
+    const extern_ofmt = toExternObjectFormatType(util.getObjectFormat(comp.target));
     const args_slice = ctx.args.toSlice();
 
     {
         // LLD is not thread-safe, so we grab a global lock.
-        const held = await (async comp.zig_compiler.lld_lock.acquire() catch unreachable);
+        const held = comp.zig_compiler.lld_lock.acquire();
         defer held.release();
 
         // Not evented I/O. LLD does its own multithreading internally.
@@ -92,7 +90,7 @@ pub async fn link(comp: *Compilation) !void {
                 // TODO capture these messages and pass them through the system, reporting them through the
                 // event system instead of printing them directly here.
                 // perhaps try to parse and understand them.
-                std.debug.warn("{}\n", ctx.link_msg.toSliceConst());
+                std.debug.warn("{}\n", .{ctx.link_msg.toSliceConst()});
             }
             return error.LinkFailed;
         }
@@ -121,21 +119,21 @@ fn linkDiagCallbackErrorable(ctx: *Context, msg: []const u8) !void {
 
 fn toExternObjectFormatType(ofmt: ObjectFormat) c.ZigLLVM_ObjectFormatType {
     return switch (ofmt) {
-        ObjectFormat.unknown => c.ZigLLVM_UnknownObjectFormat,
-        ObjectFormat.coff => c.ZigLLVM_COFF,
-        ObjectFormat.elf => c.ZigLLVM_ELF,
-        ObjectFormat.macho => c.ZigLLVM_MachO,
-        ObjectFormat.wasm => c.ZigLLVM_Wasm,
+        .unknown => .ZigLLVM_UnknownObjectFormat,
+        .coff => .ZigLLVM_COFF,
+        .elf => .ZigLLVM_ELF,
+        .macho => .ZigLLVM_MachO,
+        .wasm => .ZigLLVM_Wasm,
     };
 }
 
 fn constructLinkerArgs(ctx: *Context) !void {
-    switch (ctx.comp.target.getObjectFormat()) {
-        ObjectFormat.unknown => unreachable,
-        ObjectFormat.coff => return constructLinkerArgsCoff(ctx),
-        ObjectFormat.elf => return constructLinkerArgsElf(ctx),
-        ObjectFormat.macho => return constructLinkerArgsMachO(ctx),
-        ObjectFormat.wasm => return constructLinkerArgsWasm(ctx),
+    switch (util.getObjectFormat(ctx.comp.target)) {
+        .unknown => unreachable,
+        .coff => return constructLinkerArgsCoff(ctx),
+        .elf => return constructLinkerArgsElf(ctx),
+        .macho => return constructLinkerArgsMachO(ctx),
+        .wasm => return constructLinkerArgsWasm(ctx),
     }
 }
 
@@ -145,7 +143,10 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     //    lj->args.append("-T");
     //    lj->args.append(g->linker_script);
     //}
-    try ctx.args.append(c"--gc-sections");
+    try ctx.args.append("--gc-sections");
+    if (ctx.comp.link_eh_frame_hdr) {
+        try ctx.args.append("--eh-frame-hdr");
+    }
 
     //lj->args.append("-m");
     //lj->args.append(getLDMOption(&g->zig_target));
@@ -154,10 +155,10 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     //bool shared = !g->is_static && is_lib;
     //Buf *soname = nullptr;
     if (ctx.comp.is_static) {
-        if (ctx.comp.target.isArmOrThumb()) {
-            try ctx.args.append(c"-Bstatic");
+        if (util.isArmOrThumb(ctx.comp.target)) {
+            try ctx.args.append("-Bstatic");
         } else {
-            try ctx.args.append(c"-static");
+            try ctx.args.append("-static");
         }
     }
     //} else if (shared) {
@@ -170,8 +171,8 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     //    soname = buf_sprintf("lib%s.so.%" ZIG_PRI_usize "", buf_ptr(g->root_out_name), g->version_major);
     //}
 
-    try ctx.args.append(c"-o");
-    try ctx.args.append(ctx.out_file_path.ptr());
+    try ctx.args.append("-o");
+    try ctx.args.append(ctx.out_file_path.toSliceConst());
 
     if (ctx.link_in_crt) {
         const crt1o = if (ctx.comp.is_static) "crt1.o" else "Scrt1.o";
@@ -181,52 +182,22 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
         try addPathJoin(ctx, ctx.libc.static_lib_dir.?, crtbegino);
     }
 
-    //for (size_t i = 0; i < g->rpath_list.length; i += 1) {
-    //    Buf *rpath = g->rpath_list.at(i);
-    //    add_rpath(lj, rpath);
-    //}
-    //if (g->each_lib_rpath) {
-    //    for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
-    //        const char *lib_dir = g->lib_dirs.at(i);
-    //        for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
-    //            LinkLib *link_lib = g->link_libs_list.at(i);
-    //            if (buf_eql_str(link_lib->name, "c")) {
-    //                continue;
-    //            }
-    //            bool does_exist;
-    //            Buf *test_path = buf_sprintf("%s/lib%s.so", lib_dir, buf_ptr(link_lib->name));
-    //            if (os_file_exists(test_path, &does_exist) != ErrorNone) {
-    //                zig_panic("link: unable to check if file exists: %s", buf_ptr(test_path));
-    //            }
-    //            if (does_exist) {
-    //                add_rpath(lj, buf_create_from_str(lib_dir));
-    //                break;
-    //            }
-    //        }
-    //    }
-    //}
-
-    //for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
-    //    const char *lib_dir = g->lib_dirs.at(i);
-    //    lj->args.append("-L");
-    //    lj->args.append(lib_dir);
-    //}
-
     if (ctx.comp.haveLibC()) {
-        try ctx.args.append(c"-L");
-        try ctx.args.append((try std.cstr.addNullByte(&ctx.arena.allocator, ctx.libc.lib_dir.?)).ptr);
+        try ctx.args.append("-L");
+        // TODO addNullByte should probably return [:0]u8
+        try ctx.args.append(@ptrCast([*:0]const u8, (try std.cstr.addNullByte(&ctx.arena.allocator, ctx.libc.lib_dir.?)).ptr));
 
-        try ctx.args.append(c"-L");
-        try ctx.args.append((try std.cstr.addNullByte(&ctx.arena.allocator, ctx.libc.static_lib_dir.?)).ptr);
+        try ctx.args.append("-L");
+        try ctx.args.append(@ptrCast([*:0]const u8, (try std.cstr.addNullByte(&ctx.arena.allocator, ctx.libc.static_lib_dir.?)).ptr));
 
         if (!ctx.comp.is_static) {
             const dl = blk: {
                 if (ctx.libc.dynamic_linker_path) |dl| break :blk dl;
-                if (ctx.comp.target.getDynamicLinkerPath()) |dl| break :blk dl;
+                if (util.getDynamicLinkerPath(ctx.comp.target)) |dl| break :blk dl;
                 return error.LibCMissingDynamicLinker;
             };
-            try ctx.args.append(c"-dynamic-linker");
-            try ctx.args.append((try std.cstr.addNullByte(&ctx.arena.allocator, dl)).ptr);
+            try ctx.args.append("-dynamic-linker");
+            try ctx.args.append(@ptrCast([*:0]const u8, (try std.cstr.addNullByte(&ctx.arena.allocator, dl)).ptr));
         }
     }
 
@@ -238,7 +209,7 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     // .o files
     for (ctx.comp.link_objects) |link_object| {
         const link_obj_with_null = try std.cstr.addNullByte(&ctx.arena.allocator, link_object);
-        try ctx.args.append(link_obj_with_null.ptr);
+        try ctx.args.append(@ptrCast([*:0]const u8, link_obj_with_null.ptr));
     }
     try addFnObjects(ctx);
 
@@ -272,23 +243,23 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     // libc dep
     if (ctx.comp.haveLibC()) {
         if (ctx.comp.is_static) {
-            try ctx.args.append(c"--start-group");
-            try ctx.args.append(c"-lgcc");
-            try ctx.args.append(c"-lgcc_eh");
-            try ctx.args.append(c"-lc");
-            try ctx.args.append(c"-lm");
-            try ctx.args.append(c"--end-group");
+            try ctx.args.append("--start-group");
+            try ctx.args.append("-lgcc");
+            try ctx.args.append("-lgcc_eh");
+            try ctx.args.append("-lc");
+            try ctx.args.append("-lm");
+            try ctx.args.append("--end-group");
         } else {
-            try ctx.args.append(c"-lgcc");
-            try ctx.args.append(c"--as-needed");
-            try ctx.args.append(c"-lgcc_s");
-            try ctx.args.append(c"--no-as-needed");
-            try ctx.args.append(c"-lc");
-            try ctx.args.append(c"-lm");
-            try ctx.args.append(c"-lgcc");
-            try ctx.args.append(c"--as-needed");
-            try ctx.args.append(c"-lgcc_s");
-            try ctx.args.append(c"--no-as-needed");
+            try ctx.args.append("-lgcc");
+            try ctx.args.append("--as-needed");
+            try ctx.args.append("-lgcc_s");
+            try ctx.args.append("--no-as-needed");
+            try ctx.args.append("-lc");
+            try ctx.args.append("-lm");
+            try ctx.args.append("-lgcc");
+            try ctx.args.append("--as-needed");
+            try ctx.args.append("-lgcc_s");
+            try ctx.args.append("--no-as-needed");
         }
     }
 
@@ -299,288 +270,170 @@ fn constructLinkerArgsElf(ctx: *Context) !void {
     }
 
     if (ctx.comp.target != Target.Native) {
-        try ctx.args.append(c"--allow-shlib-undefined");
-    }
-
-    if (ctx.comp.target.getOs() == .zen) {
-        try ctx.args.append(c"-e");
-        try ctx.args.append(c"_start");
-
-        try ctx.args.append(c"--image-base=0x10000000");
+        try ctx.args.append("--allow-shlib-undefined");
     }
 }
 
 fn addPathJoin(ctx: *Context, dirname: []const u8, basename: []const u8) !void {
-    const full_path = try std.fs.path.join(&ctx.arena.allocator, [_][]const u8{ dirname, basename });
+    const full_path = try std.fs.path.join(&ctx.arena.allocator, &[_][]const u8{ dirname, basename });
     const full_path_with_null = try std.cstr.addNullByte(&ctx.arena.allocator, full_path);
-    try ctx.args.append(full_path_with_null.ptr);
+    try ctx.args.append(@ptrCast([*:0]const u8, full_path_with_null.ptr));
 }
 
 fn constructLinkerArgsCoff(ctx: *Context) !void {
-    try ctx.args.append(c"-NOLOGO");
+    try ctx.args.append("-NOLOGO");
 
     if (!ctx.comp.strip) {
-        try ctx.args.append(c"-DEBUG");
+        try ctx.args.append("-DEBUG");
     }
 
     switch (ctx.comp.target.getArch()) {
-        builtin.Arch.i386 => try ctx.args.append(c"-MACHINE:X86"),
-        builtin.Arch.x86_64 => try ctx.args.append(c"-MACHINE:X64"),
-        builtin.Arch.aarch64 => try ctx.args.append(c"-MACHINE:ARM"),
+        .i386 => try ctx.args.append("-MACHINE:X86"),
+        .x86_64 => try ctx.args.append("-MACHINE:X64"),
+        .aarch64 => try ctx.args.append("-MACHINE:ARM"),
         else => return error.UnsupportedLinkArchitecture,
     }
 
-    if (ctx.comp.windows_subsystem_windows) {
-        try ctx.args.append(c"/SUBSYSTEM:windows");
-    } else if (ctx.comp.windows_subsystem_console) {
-        try ctx.args.append(c"/SUBSYSTEM:console");
-    }
+    const is_library = ctx.comp.kind == .Lib;
 
-    const is_library = ctx.comp.kind == Compilation.Kind.Lib;
-
-    const out_arg = try std.fmt.allocPrint(&ctx.arena.allocator, "-OUT:{}\x00", ctx.out_file_path.toSliceConst());
-    try ctx.args.append(out_arg.ptr);
+    const out_arg = try std.fmt.allocPrint(&ctx.arena.allocator, "-OUT:{}\x00", .{ctx.out_file_path.toSliceConst()});
+    try ctx.args.append(@ptrCast([*:0]const u8, out_arg.ptr));
 
     if (ctx.comp.haveLibC()) {
-        try ctx.args.append((try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", ctx.libc.msvc_lib_dir.?)).ptr);
-        try ctx.args.append((try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", ctx.libc.kernel32_lib_dir.?)).ptr);
-        try ctx.args.append((try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", ctx.libc.lib_dir.?)).ptr);
+        try ctx.args.append(@ptrCast([*:0]const u8, (try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", .{ctx.libc.msvc_lib_dir.?})).ptr));
+        try ctx.args.append(@ptrCast([*:0]const u8, (try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", .{ctx.libc.kernel32_lib_dir.?})).ptr));
+        try ctx.args.append(@ptrCast([*:0]const u8, (try std.fmt.allocPrint(&ctx.arena.allocator, "-LIBPATH:{}\x00", .{ctx.libc.lib_dir.?})).ptr));
     }
 
     if (ctx.link_in_crt) {
         const lib_str = if (ctx.comp.is_static) "lib" else "";
-        const d_str = if (ctx.comp.build_mode == builtin.Mode.Debug) "d" else "";
+        const d_str = if (ctx.comp.build_mode == .Debug) "d" else "";
 
         if (ctx.comp.is_static) {
-            const cmt_lib_name = try std.fmt.allocPrint(&ctx.arena.allocator, "libcmt{}.lib\x00", d_str);
-            try ctx.args.append(cmt_lib_name.ptr);
+            const cmt_lib_name = try std.fmt.allocPrint(&ctx.arena.allocator, "libcmt{}.lib\x00", .{d_str});
+            try ctx.args.append(@ptrCast([*:0]const u8, cmt_lib_name.ptr));
         } else {
-            const msvcrt_lib_name = try std.fmt.allocPrint(&ctx.arena.allocator, "msvcrt{}.lib\x00", d_str);
-            try ctx.args.append(msvcrt_lib_name.ptr);
+            const msvcrt_lib_name = try std.fmt.allocPrint(&ctx.arena.allocator, "msvcrt{}.lib\x00", .{d_str});
+            try ctx.args.append(@ptrCast([*:0]const u8, msvcrt_lib_name.ptr));
         }
 
-        const vcruntime_lib_name = try std.fmt.allocPrint(&ctx.arena.allocator, "{}vcruntime{}.lib\x00", lib_str, d_str);
-        try ctx.args.append(vcruntime_lib_name.ptr);
+        const vcruntime_lib_name = try std.fmt.allocPrint(&ctx.arena.allocator, "{}vcruntime{}.lib\x00", .{
+            lib_str,
+            d_str,
+        });
+        try ctx.args.append(@ptrCast([*:0]const u8, vcruntime_lib_name.ptr));
 
-        const crt_lib_name = try std.fmt.allocPrint(&ctx.arena.allocator, "{}ucrt{}.lib\x00", lib_str, d_str);
-        try ctx.args.append(crt_lib_name.ptr);
+        const crt_lib_name = try std.fmt.allocPrint(&ctx.arena.allocator, "{}ucrt{}.lib\x00", .{ lib_str, d_str });
+        try ctx.args.append(@ptrCast([*:0]const u8, crt_lib_name.ptr));
 
         // Visual C++ 2015 Conformance Changes
         // https://msdn.microsoft.com/en-us/library/bb531344.aspx
-        try ctx.args.append(c"legacy_stdio_definitions.lib");
+        try ctx.args.append("legacy_stdio_definitions.lib");
 
         // msvcrt depends on kernel32
-        try ctx.args.append(c"kernel32.lib");
+        try ctx.args.append("kernel32.lib");
     } else {
-        try ctx.args.append(c"-NODEFAULTLIB");
+        try ctx.args.append("-NODEFAULTLIB");
         if (!is_library) {
-            try ctx.args.append(c"-ENTRY:WinMainCRTStartup");
-            // TODO
-            //if (g->have_winmain) {
-            //    lj->args.append("-ENTRY:WinMain");
-            //} else {
-            //    lj->args.append("-ENTRY:WinMainCRTStartup");
-            //}
+            try ctx.args.append("-ENTRY:WinMainCRTStartup");
         }
     }
 
     if (is_library and !ctx.comp.is_static) {
-        try ctx.args.append(c"-DLL");
+        try ctx.args.append("-DLL");
     }
-
-    //for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
-    //    const char *lib_dir = g->lib_dirs.at(i);
-    //    lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", lib_dir)));
-    //}
 
     for (ctx.comp.link_objects) |link_object| {
         const link_obj_with_null = try std.cstr.addNullByte(&ctx.arena.allocator, link_object);
-        try ctx.args.append(link_obj_with_null.ptr);
+        try ctx.args.append(@ptrCast([*:0]const u8, link_obj_with_null.ptr));
     }
     try addFnObjects(ctx);
 
     switch (ctx.comp.kind) {
-        Compilation.Kind.Exe, Compilation.Kind.Lib => {
+        .Exe, .Lib => {
             if (!ctx.comp.haveLibC()) {
                 @panic("TODO");
-                //Buf *builtin_o_path = build_o(g, "builtin");
-                //lj->args.append(buf_ptr(builtin_o_path));
             }
-
-            // msvc compiler_rt is missing some stuff, so we still build it and rely on weak linkage
-            // TODO
-            //Buf *compiler_rt_o_path = build_compiler_rt(g);
-            //lj->args.append(buf_ptr(compiler_rt_o_path));
         },
-        Compilation.Kind.Obj => {},
+        .Obj => {},
     }
-
-    //Buf *def_contents = buf_alloc();
-    //ZigList<const char *> gen_lib_args = {0};
-    //for (size_t lib_i = 0; lib_i < g->link_libs_list.length; lib_i += 1) {
-    //    LinkLib *link_lib = g->link_libs_list.at(lib_i);
-    //    if (buf_eql_str(link_lib->name, "c")) {
-    //        continue;
-    //    }
-    //    if (link_lib->provided_explicitly) {
-    //        if (lj->codegen->zig_target.env_type == ZigLLVM_GNU) {
-    //            Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
-    //            lj->args.append(buf_ptr(arg));
-    //        }
-    //        else {
-    //            lj->args.append(buf_ptr(link_lib->name));
-    //        }
-    //    } else {
-    //        buf_resize(def_contents, 0);
-    //        buf_appendf(def_contents, "LIBRARY %s\nEXPORTS\n", buf_ptr(link_lib->name));
-    //        for (size_t exp_i = 0; exp_i < link_lib->symbols.length; exp_i += 1) {
-    //            Buf *symbol_name = link_lib->symbols.at(exp_i);
-    //            buf_appendf(def_contents, "%s\n", buf_ptr(symbol_name));
-    //        }
-    //        buf_appendf(def_contents, "\n");
-
-    //        Buf *def_path = buf_alloc();
-    //        os_path_join(g->cache_dir, buf_sprintf("%s.def", buf_ptr(link_lib->name)), def_path);
-    //        os_write_file(def_path, def_contents);
-
-    //        Buf *generated_lib_path = buf_alloc();
-    //        os_path_join(g->cache_dir, buf_sprintf("%s.lib", buf_ptr(link_lib->name)), generated_lib_path);
-
-    //        gen_lib_args.resize(0);
-    //        gen_lib_args.append("link");
-
-    //        coff_append_machine_arg(g, &gen_lib_args);
-    //        gen_lib_args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_path))));
-    //        gen_lib_args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(generated_lib_path))));
-    //        Buf diag = BUF_INIT;
-    //        if (!zig_lld_link(g->zig_target.oformat, gen_lib_args.items, gen_lib_args.length, &diag)) {
-    //            fprintf(stderr, "%s\n", buf_ptr(&diag));
-    //            exit(1);
-    //        }
-    //        lj->args.append(buf_ptr(generated_lib_path));
-    //    }
-    //}
 }
 
 fn constructLinkerArgsMachO(ctx: *Context) !void {
-    try ctx.args.append(c"-demangle");
+    try ctx.args.append("-demangle");
 
     if (ctx.comp.linker_rdynamic) {
-        try ctx.args.append(c"-export_dynamic");
+        try ctx.args.append("-export_dynamic");
     }
 
-    const is_lib = ctx.comp.kind == Compilation.Kind.Lib;
+    const is_lib = ctx.comp.kind == .Lib;
     const shared = !ctx.comp.is_static and is_lib;
     if (ctx.comp.is_static) {
-        try ctx.args.append(c"-static");
+        try ctx.args.append("-static");
     } else {
-        try ctx.args.append(c"-dynamic");
+        try ctx.args.append("-dynamic");
     }
 
-    //if (is_lib) {
-    //    if (!g->is_static) {
-    //        lj->args.append("-dylib");
-
-    //        Buf *compat_vers = buf_sprintf("%" ZIG_PRI_usize ".0.0", g->version_major);
-    //        lj->args.append("-compatibility_version");
-    //        lj->args.append(buf_ptr(compat_vers));
-
-    //        Buf *cur_vers = buf_sprintf("%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize,
-    //            g->version_major, g->version_minor, g->version_patch);
-    //        lj->args.append("-current_version");
-    //        lj->args.append(buf_ptr(cur_vers));
-
-    //        // TODO getting an error when running an executable when doing this rpath thing
-    //        //Buf *dylib_install_name = buf_sprintf("@rpath/lib%s.%" ZIG_PRI_usize ".dylib",
-    //        //    buf_ptr(g->root_out_name), g->version_major);
-    //        //lj->args.append("-install_name");
-    //        //lj->args.append(buf_ptr(dylib_install_name));
-
-    //        if (buf_len(&lj->out_file) == 0) {
-    //            buf_appendf(&lj->out_file, "lib%s.%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".dylib",
-    //                buf_ptr(g->root_out_name), g->version_major, g->version_minor, g->version_patch);
-    //        }
-    //    }
-    //}
-
-    try ctx.args.append(c"-arch");
-    const darwin_arch_str = try std.cstr.addNullByte(
-        &ctx.arena.allocator,
-        ctx.comp.target.getDarwinArchString(),
-    );
-    try ctx.args.append(darwin_arch_str.ptr);
+    try ctx.args.append("-arch");
+    try ctx.args.append(util.getDarwinArchString(ctx.comp.target));
 
     const platform = try DarwinPlatform.get(ctx.comp);
     switch (platform.kind) {
-        DarwinPlatform.Kind.MacOS => try ctx.args.append(c"-macosx_version_min"),
-        DarwinPlatform.Kind.IPhoneOS => try ctx.args.append(c"-iphoneos_version_min"),
-        DarwinPlatform.Kind.IPhoneOSSimulator => try ctx.args.append(c"-ios_simulator_version_min"),
+        .MacOS => try ctx.args.append("-macosx_version_min"),
+        .IPhoneOS => try ctx.args.append("-iphoneos_version_min"),
+        .IPhoneOSSimulator => try ctx.args.append("-ios_simulator_version_min"),
     }
-    const ver_str = try std.fmt.allocPrint(&ctx.arena.allocator, "{}.{}.{}\x00", platform.major, platform.minor, platform.micro);
-    try ctx.args.append(ver_str.ptr);
+    const ver_str = try std.fmt.allocPrint(&ctx.arena.allocator, "{}.{}.{}\x00", .{
+        platform.major,
+        platform.minor,
+        platform.micro,
+    });
+    try ctx.args.append(@ptrCast([*:0]const u8, ver_str.ptr));
 
-    if (ctx.comp.kind == Compilation.Kind.Exe) {
+    if (ctx.comp.kind == .Exe) {
         if (ctx.comp.is_static) {
-            try ctx.args.append(c"-no_pie");
+            try ctx.args.append("-no_pie");
         } else {
-            try ctx.args.append(c"-pie");
+            try ctx.args.append("-pie");
         }
     }
 
-    try ctx.args.append(c"-o");
-    try ctx.args.append(ctx.out_file_path.ptr());
-
-    //for (size_t i = 0; i < g->rpath_list.length; i += 1) {
-    //    Buf *rpath = g->rpath_list.at(i);
-    //    add_rpath(lj, rpath);
-    //}
-    //add_rpath(lj, &lj->out_file);
+    try ctx.args.append("-o");
+    try ctx.args.append(ctx.out_file_path.toSliceConst());
 
     if (shared) {
-        try ctx.args.append(c"-headerpad_max_install_names");
+        try ctx.args.append("-headerpad_max_install_names");
     } else if (ctx.comp.is_static) {
-        try ctx.args.append(c"-lcrt0.o");
+        try ctx.args.append("-lcrt0.o");
     } else {
         switch (platform.kind) {
-            DarwinPlatform.Kind.MacOS => {
+            .MacOS => {
                 if (platform.versionLessThan(10, 5)) {
-                    try ctx.args.append(c"-lcrt1.o");
+                    try ctx.args.append("-lcrt1.o");
                 } else if (platform.versionLessThan(10, 6)) {
-                    try ctx.args.append(c"-lcrt1.10.5.o");
+                    try ctx.args.append("-lcrt1.10.5.o");
                 } else if (platform.versionLessThan(10, 8)) {
-                    try ctx.args.append(c"-lcrt1.10.6.o");
+                    try ctx.args.append("-lcrt1.10.6.o");
                 }
             },
-            DarwinPlatform.Kind.IPhoneOS => {
-                if (ctx.comp.target.getArch() == builtin.Arch.aarch64) {
+            .IPhoneOS => {
+                if (ctx.comp.target.getArch() == .aarch64) {
                     // iOS does not need any crt1 files for arm64
                 } else if (platform.versionLessThan(3, 1)) {
-                    try ctx.args.append(c"-lcrt1.o");
+                    try ctx.args.append("-lcrt1.o");
                 } else if (platform.versionLessThan(6, 0)) {
-                    try ctx.args.append(c"-lcrt1.3.1.o");
+                    try ctx.args.append("-lcrt1.3.1.o");
                 }
             },
-            DarwinPlatform.Kind.IPhoneOSSimulator => {}, // no crt1.o needed
+            .IPhoneOSSimulator => {}, // no crt1.o needed
         }
     }
-
-    //for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
-    //    const char *lib_dir = g->lib_dirs.at(i);
-    //    lj->args.append("-L");
-    //    lj->args.append(lib_dir);
-    //}
 
     for (ctx.comp.link_objects) |link_object| {
         const link_obj_with_null = try std.cstr.addNullByte(&ctx.arena.allocator, link_object);
-        try ctx.args.append(link_obj_with_null.ptr);
+        try ctx.args.append(@ptrCast([*:0]const u8, link_obj_with_null.ptr));
     }
     try addFnObjects(ctx);
-
-    //// compiler_rt on darwin is missing some stuff, so we still build it and rely on LinkOnce
-    //if (g->out_type == OutTypeExe || g->out_type == OutTypeLib) {
-    //    Buf *compiler_rt_o_path = build_compiler_rt(g);
-    //    lj->args.append(buf_ptr(compiler_rt_o_path));
-    //}
 
     if (ctx.comp.target == Target.Native) {
         for (ctx.comp.link_libs_list.toSliceConst()) |lib| {
@@ -589,36 +442,31 @@ fn constructLinkerArgsMachO(ctx: *Context) !void {
                 // to make syscalls because the syscall numbers are not documented
                 // and change between versions.
                 // so we always link against libSystem
-                try ctx.args.append(c"-lSystem");
+                try ctx.args.append("-lSystem");
             } else {
                 if (mem.indexOfScalar(u8, lib.name, '/') == null) {
-                    const arg = try std.fmt.allocPrint(&ctx.arena.allocator, "-l{}\x00", lib.name);
-                    try ctx.args.append(arg.ptr);
+                    const arg = try std.fmt.allocPrint(&ctx.arena.allocator, "-l{}\x00", .{lib.name});
+                    try ctx.args.append(@ptrCast([*:0]const u8, arg.ptr));
                 } else {
                     const arg = try std.cstr.addNullByte(&ctx.arena.allocator, lib.name);
-                    try ctx.args.append(arg.ptr);
+                    try ctx.args.append(@ptrCast([*:0]const u8, arg.ptr));
                 }
             }
         }
     } else {
-        try ctx.args.append(c"-undefined");
-        try ctx.args.append(c"dynamic_lookup");
+        try ctx.args.append("-undefined");
+        try ctx.args.append("dynamic_lookup");
     }
 
-    if (platform.kind == DarwinPlatform.Kind.MacOS) {
+    if (platform.kind == .MacOS) {
         if (platform.versionLessThan(10, 5)) {
-            try ctx.args.append(c"-lgcc_s.10.4");
+            try ctx.args.append("-lgcc_s.10.4");
         } else if (platform.versionLessThan(10, 6)) {
-            try ctx.args.append(c"-lgcc_s.10.5");
+            try ctx.args.append("-lgcc_s.10.5");
         }
     } else {
         @panic("TODO");
     }
-
-    //for (size_t i = 0; i < g->darwin_frameworks.length; i += 1) {
-    //    lj->args.append("-framework");
-    //    lj->args.append(buf_ptr(g->darwin_frameworks.at(i)));
-    //}
 }
 
 fn constructLinkerArgsWasm(ctx: *Context) void {
@@ -626,20 +474,19 @@ fn constructLinkerArgsWasm(ctx: *Context) void {
 }
 
 fn addFnObjects(ctx: *Context) !void {
-    // at this point it's guaranteed nobody else has this lock, so we circumvent it
-    // and avoid having to be an async function
-    const fn_link_set = &ctx.comp.fn_link_set.private_data;
+    const held = ctx.comp.fn_link_set.acquire();
+    defer held.release();
 
-    var it = fn_link_set.first;
+    var it = held.value.first;
     while (it) |node| {
         const fn_val = node.data orelse {
             // handle the tombstone. See Value.Fn.destroy.
             it = node.next;
-            fn_link_set.remove(node);
+            held.value.remove(node);
             ctx.comp.gpa().destroy(node);
             continue;
         };
-        try ctx.args.append(fn_val.containing_object.ptr());
+        try ctx.args.append(fn_val.containing_object.toSliceConst());
         it = node.next;
     }
 }
@@ -659,17 +506,17 @@ const DarwinPlatform = struct {
     fn get(comp: *Compilation) !DarwinPlatform {
         var result: DarwinPlatform = undefined;
         const ver_str = switch (comp.darwin_version_min) {
-            Compilation.DarwinVersionMin.MacOS => |ver| blk: {
-                result.kind = Kind.MacOS;
+            .MacOS => |ver| blk: {
+                result.kind = .MacOS;
                 break :blk ver;
             },
-            Compilation.DarwinVersionMin.Ios => |ver| blk: {
-                result.kind = Kind.IPhoneOS;
+            .Ios => |ver| blk: {
+                result.kind = .IPhoneOS;
                 break :blk ver;
             },
-            Compilation.DarwinVersionMin.None => blk: {
+            .None => blk: {
                 assert(comp.target.getOs() == .macosx);
-                result.kind = Kind.MacOS;
+                result.kind = .MacOS;
                 break :blk "10.14";
             },
         };
@@ -686,11 +533,11 @@ const DarwinPlatform = struct {
             return error.InvalidDarwinVersionString;
         }
 
-        if (result.kind == Kind.IPhoneOS) {
+        if (result.kind == .IPhoneOS) {
             switch (comp.target.getArch()) {
-                builtin.Arch.i386,
-                builtin.Arch.x86_64,
-                => result.kind = Kind.IPhoneOSSimulator,
+                .i386,
+                .x86_64,
+                => result.kind = .IPhoneOSSimulator,
                 else => {},
             }
         }

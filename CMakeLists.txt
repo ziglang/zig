@@ -10,9 +10,13 @@ if(NOT CMAKE_INSTALL_PREFIX)
       "Directory to install zig to" FORCE)
 endif()
 
+set(CMAKE_USER_MAKE_RULES_OVERRIDE
+   ${CMAKE_CURRENT_SOURCE_DIR}/cmake/c_flag_overrides.cmake)
+set(CMAKE_USER_MAKE_RULES_OVERRIDE_CXX
+   ${CMAKE_CURRENT_SOURCE_DIR}/cmake/cxx_flag_overrides.cmake)
+
 project(zig C CXX)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
-
 
 set(ZIG_VERSION_MAJOR 0)
 set(ZIG_VERSION_MINOR 5)
@@ -42,6 +46,7 @@ message("Configuring zig version ${ZIG_VERSION}")
 set(ZIG_STATIC off CACHE BOOL "Attempt to build a static zig executable (not compatible with glibc)")
 set(ZIG_STATIC_LLVM off CACHE BOOL "Prefer linking against static LLVM libraries")
 set(ZIG_SKIP_INSTALL_LIB_FILES off CACHE BOOL "Disable copying lib/ files to install prefix")
+set(ZIG_ENABLE_MEM_PROFILE off CACHE BOOL "Activate memory usage instrumentation")
 
 if(ZIG_STATIC)
     set(ZIG_STATIC_LLVM "on")
@@ -433,16 +438,20 @@ set(ZIG_MAIN_SRC "${CMAKE_SOURCE_DIR}/src/main.cpp")
 # This is our shim which will be replaced by libuserland written in Zig.
 set(ZIG0_SHIM_SRC "${CMAKE_SOURCE_DIR}/src/userland.cpp")
 
+if(ZIG_ENABLE_MEM_PROFILE)
+    set(ZIG_SOURCES_MEM_PROFILE "${CMAKE_SOURCE_DIR}/src/memory_profiling.cpp")
+endif()
+
 set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/analyze.cpp"
     "${CMAKE_SOURCE_DIR}/src/ast_render.cpp"
     "${CMAKE_SOURCE_DIR}/src/bigfloat.cpp"
     "${CMAKE_SOURCE_DIR}/src/bigint.cpp"
     "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
-    "${CMAKE_SOURCE_DIR}/src/c_tokenizer.cpp"
     "${CMAKE_SOURCE_DIR}/src/cache_hash.cpp"
     "${CMAKE_SOURCE_DIR}/src/codegen.cpp"
     "${CMAKE_SOURCE_DIR}/src/compiler.cpp"
+    "${CMAKE_SOURCE_DIR}/src/dump_analysis.cpp"
     "${CMAKE_SOURCE_DIR}/src/errmsg.cpp"
     "${CMAKE_SOURCE_DIR}/src/error.cpp"
     "${CMAKE_SOURCE_DIR}/src/glibc.cpp"
@@ -453,11 +462,10 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/os.cpp"
     "${CMAKE_SOURCE_DIR}/src/parser.cpp"
     "${CMAKE_SOURCE_DIR}/src/range_set.cpp"
-    "${CMAKE_SOURCE_DIR}/src/stack_report.cpp"
     "${CMAKE_SOURCE_DIR}/src/target.cpp"
     "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
-    "${CMAKE_SOURCE_DIR}/src/translate_c.cpp"
     "${CMAKE_SOURCE_DIR}/src/util.cpp"
+    "${ZIG_SOURCES_MEM_PROFILE}"
 )
 set(OPTIMIZED_C_SOURCES
     "${CMAKE_SOURCE_DIR}/src/blake2b.c"
@@ -624,5 +632,10 @@ set_target_properties(zig PROPERTIES
     LINK_FLAGS ${EXE_LDFLAGS}
 )
 target_link_libraries(zig compiler "${LIBUSERLAND}")
+if(MSVC)
+  target_link_libraries(zig ntdll.lib)
+elseif(MINGW) 
+  target_link_libraries(zig ntdll)
+endif()
 add_dependencies(zig zig_build_libuserland)
 install(TARGETS zig DESTINATION bin)

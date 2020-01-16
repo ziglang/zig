@@ -195,6 +195,11 @@ void bigint_init_bigint(BigInt *dest, const BigInt *src) {
     memcpy(dest->data.digits, src->data.digits, sizeof(uint64_t) * dest->digit_count);
 }
 
+void bigint_deinit(BigInt *bi) {
+    if (bi->digit_count > 1)
+        deallocate<uint64_t>(bi->data.digits, bi->digit_count);
+}
+
 void bigint_init_bigfloat(BigInt *dest, const BigFloat *op) {
     float128_t zero;
     ui32_to_f128M(0, &zero);
@@ -1754,3 +1759,27 @@ void bigint_incr(BigInt *x) {
     bigint_add(x, &copy, &one);
 }
 
+void bigint_decr(BigInt *x) {
+    if (x->digit_count == 0) {
+        bigint_init_signed(x, -1);
+        return;
+    }
+
+    if (x->digit_count == 1) {
+        if (x->is_negative && x->data.digit != UINT64_MAX) {
+            x->data.digit += 1;
+            return;
+        } else if (!x->is_negative && x->data.digit != 0) {
+            x->data.digit -= 1;
+            return;
+        }
+    }
+
+    BigInt copy;
+    bigint_init_bigint(&copy, x);
+
+    BigInt neg_one;
+    bigint_init_signed(&neg_one, -1);
+
+    bigint_add(x, &copy, &neg_one);
+}

@@ -11,90 +11,77 @@ const warn = std.debug.warn;
 const File = std.fs.File;
 
 pub fn main() !void {
-    var arg_it = process.args();
-
     // Here we use an ArenaAllocator backed by a DirectAllocator because a build is a short-lived,
     // one shot program. We don't need to waste time freeing memory and finding places to squish
     // bytes into. So we free everything all at once at the very end.
-
-    var arena = std.heap.ArenaAllocator.init(std.heap.direct_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
     const allocator = &arena.allocator;
+    var args = try process.argsAlloc(allocator);
+    defer process.argsFree(allocator, args);
 
     // skip my own exe name
-    _ = arg_it.skip();
+    var arg_idx: usize = 1;
 
-    const zig_exe = try unwrapArg(arg_it.next(allocator) orelse {
-        warn("Expected first argument to be path to zig compiler\n");
+    const zig_exe = nextArg(args, &arg_idx) orelse {
+        warn("Expected first argument to be path to zig compiler\n", .{});
         return error.InvalidArgs;
-    });
-    const build_root = try unwrapArg(arg_it.next(allocator) orelse {
-        warn("Expected second argument to be build root directory path\n");
+    };
+    const build_root = nextArg(args, &arg_idx) orelse {
+        warn("Expected second argument to be build root directory path\n", .{});
         return error.InvalidArgs;
-    });
-    const cache_root = try unwrapArg(arg_it.next(allocator) orelse {
-        warn("Expected third argument to be cache root directory path\n");
+    };
+    const cache_root = nextArg(args, &arg_idx) orelse {
+        warn("Expected third argument to be cache root directory path\n", .{});
         return error.InvalidArgs;
-    });
+    };
 
     const builder = try Builder.create(allocator, zig_exe, build_root, cache_root);
     defer builder.destroy();
 
     var targets = ArrayList([]const u8).init(allocator);
 
-    var stderr_file = io.getStdErr();
-    var stderr_file_stream: File.OutStream = undefined;
-    var stderr_stream = if (stderr_file) |f| x: {
-        stderr_file_stream = f.outStream();
-        break :x &stderr_file_stream.stream;
-    } else |err| err;
+    const stderr_stream = &io.getStdErr().outStream().stream;
+    const stdout_stream = &io.getStdOut().outStream().stream;
 
-    var stdout_file = io.getStdOut();
-    var stdout_file_stream: File.OutStream = undefined;
-    var stdout_stream = if (stdout_file) |f| x: {
-        stdout_file_stream = f.outStream();
-        break :x &stdout_file_stream.stream;
-    } else |err| err;
-
-    while (arg_it.next(allocator)) |err_or_arg| {
-        const arg = try unwrapArg(err_or_arg);
+    while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-D")) {
             const option_contents = arg[2..];
             if (option_contents.len == 0) {
-                warn("Expected option name after '-D'\n\n");
-                return usageAndErr(builder, false, try stderr_stream);
+                warn("Expected option name after '-D'\n\n", .{});
+                return usageAndErr(builder, false, stderr_stream);
             }
             if (mem.indexOfScalar(u8, option_contents, '=')) |name_end| {
                 const option_name = option_contents[0..name_end];
                 const option_value = option_contents[name_end + 1 ..];
                 if (try builder.addUserInputOption(option_name, option_value))
-                    return usageAndErr(builder, false, try stderr_stream);
+                    return usageAndErr(builder, false, stderr_stream);
             } else {
                 if (try builder.addUserInputFlag(option_contents))
-                    return usageAndErr(builder, false, try stderr_stream);
+                    return usageAndErr(builder, false, stderr_stream);
             }
         } else if (mem.startsWith(u8, arg, "-")) {
             if (mem.eql(u8, arg, "--verbose")) {
                 builder.verbose = true;
             } else if (mem.eql(u8, arg, "--help")) {
-                return usage(builder, false, try stdout_stream);
+                return usage(builder, false, stdout_stream);
             } else if (mem.eql(u8, arg, "--prefix")) {
-                builder.install_prefix = try unwrapArg(arg_it.next(allocator) orelse {
-                    warn("Expected argument after --prefix\n\n");
-                    return usageAndErr(builder, false, try stderr_stream);
-                });
+                builder.install_prefix = nextArg(args, &arg_idx) orelse {
+                    warn("Expected argument after --prefix\n\n", .{});
+                    return usageAndErr(builder, false, stderr_stream);
+                };
             } else if (mem.eql(u8, arg, "--search-prefix")) {
-                const search_prefix = try unwrapArg(arg_it.next(allocator) orelse {
-                    warn("Expected argument after --search-prefix\n\n");
-                    return usageAndErr(builder, false, try stderr_stream);
-                });
+                const search_prefix = nextArg(args, &arg_idx) orelse {
+                    warn("Expected argument after --search-prefix\n\n", .{});
+                    return usageAndErr(builder, false, stderr_stream);
+                };
                 builder.addSearchPrefix(search_prefix);
             } else if (mem.eql(u8, arg, "--override-lib-dir")) {
-                builder.override_lib_dir = try unwrapArg(arg_it.next(allocator) orelse {
-                    warn("Expected argument after --override-lib-dir\n\n");
-                    return usageAndErr(builder, false, try stderr_stream);
-                });
+                builder.override_lib_dir = nextArg(args, &arg_idx) orelse {
+                    warn("Expected argument after --override-lib-dir\n\n", .{});
+                    return usageAndErr(builder, false, stderr_stream);
+                };
             } else if (mem.eql(u8, arg, "--verbose-tokenize")) {
                 builder.verbose_tokenize = true;
             } else if (mem.eql(u8, arg, "--verbose-ast")) {
@@ -109,9 +96,12 @@ pub fn main() !void {
                 builder.verbose_cimport = true;
             } else if (mem.eql(u8, arg, "--verbose-cc")) {
                 builder.verbose_cc = true;
+            } else if (mem.eql(u8, arg, "--")) {
+                builder.args = argsRest(args, arg_idx);
+                break;
             } else {
-                warn("Unrecognized argument: {}\n\n", arg);
-                return usageAndErr(builder, false, try stderr_stream);
+                warn("Unrecognized argument: {}\n\n", .{arg});
+                return usageAndErr(builder, false, stderr_stream);
             }
         } else {
             try targets.append(arg);
@@ -122,12 +112,12 @@ pub fn main() !void {
     try runBuild(builder);
 
     if (builder.validateUserInputDidItFail())
-        return usageAndErr(builder, true, try stderr_stream);
+        return usageAndErr(builder, true, stderr_stream);
 
     builder.make(targets.toSliceConst()) catch |err| {
         switch (err) {
             error.InvalidStepName => {
-                return usageAndErr(builder, true, try stderr_stream);
+                return usageAndErr(builder, true, stderr_stream);
             },
             error.UncleanExit => process.exit(1),
             else => return err,
@@ -136,7 +126,7 @@ pub fn main() !void {
 }
 
 fn runBuild(builder: *Builder) anyerror!void {
-    switch (@typeId(@typeOf(root.build).ReturnType)) {
+    switch (@typeId(@TypeOf(root.build).ReturnType)) {
         .Void => root.build(builder),
         .ErrorUnion => try root.build(builder),
         else => @compileError("expected return type of build to be 'void' or '!void'"),
@@ -156,15 +146,15 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
         \\
         \\Steps:
         \\
-    , builder.zig_exe);
+    , .{builder.zig_exe});
 
     const allocator = builder.allocator;
     for (builder.top_level_steps.toSliceConst()) |top_level_step| {
         const name = if (&top_level_step.step == builder.default_step)
-            try fmt.allocPrint(allocator, "{} (default)", top_level_step.step.name)
+            try fmt.allocPrint(allocator, "{} (default)", .{top_level_step.step.name})
         else
             top_level_step.step.name;
-        try out_stream.print("  {s:22} {}\n", name, top_level_step.description);
+        try out_stream.print("  {s:22} {}\n", .{ name, top_level_step.description });
     }
 
     try out_stream.write(
@@ -180,12 +170,15 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: var) !void {
     );
 
     if (builder.available_options_list.len == 0) {
-        try out_stream.print("  (none)\n");
+        try out_stream.print("  (none)\n", .{});
     } else {
         for (builder.available_options_list.toSliceConst()) |option| {
-            const name = try fmt.allocPrint(allocator, "  -D{}=[{}]", option.name, Builder.typeIdName(option.type_id));
+            const name = try fmt.allocPrint(allocator, "  -D{}=[{}]", .{
+                option.name,
+                Builder.typeIdName(option.type_id),
+            });
             defer allocator.free(name);
-            try out_stream.print("{s:24} {}\n", name, option.description);
+            try out_stream.print("{s:24} {}\n", .{ name, option.description });
         }
     }
 
@@ -211,11 +204,13 @@ fn usageAndErr(builder: *Builder, already_ran_build: bool, out_stream: var) void
     process.exit(1);
 }
 
-const UnwrapArgError = error{OutOfMemory};
+fn nextArg(args: [][]const u8, idx: *usize) ?[]const u8 {
+    if (idx.* >= args.len) return null;
+    defer idx.* += 1;
+    return args[idx.*];
+}
 
-fn unwrapArg(arg: UnwrapArgError![]u8) UnwrapArgError![]u8 {
-    return arg catch |err| {
-        warn("Unable to parse command line: {}\n", err);
-        return err;
-    };
+fn argsRest(args: [][]const u8, idx: usize) ?[][]const u8 {
+    if (idx >= args.len) return null;
+    return args[idx..];
 }

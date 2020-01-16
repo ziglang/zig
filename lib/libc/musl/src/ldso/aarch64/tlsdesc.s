@@ -9,15 +9,11 @@ __tlsdesc_static:
 	ldr x0,[x0,#8]
 	ret
 
-.hidden __tls_get_new
-
 // size_t __tlsdesc_dynamic(size_t *a)
 // {
 // 	struct {size_t modidx,off;} *p = (void*)a[1];
 // 	size_t *dtv = *(size_t**)(tp - 8);
-// 	if (p->modidx <= dtv[0])
-// 		return dtv[p->modidx] + p->off - tp;
-// 	return __tls_get_new(p) - tp;
+// 	return dtv[p->modidx] + p->off - tp;
 // }
 .global __tlsdesc_dynamic
 .hidden __tlsdesc_dynamic

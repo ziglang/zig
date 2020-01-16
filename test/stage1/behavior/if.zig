@@ -32,7 +32,7 @@ fn elseIfExpressionF(c: u8) u8 {
     } else if (c == 1) {
         return 1;
     } else {
-        return u8(2);
+        return @as(u8, 2);
     }
 }
 
@@ -58,7 +58,7 @@ test "labeled break inside comptime if inside runtime if" {
     var c = true;
     if (c) {
         answer = if (true) blk: {
-            break :blk i32(42);
+            break :blk @as(i32, 42);
         };
     }
     expect(answer == 42);
@@ -81,6 +81,10 @@ test "if prongs cast to expected type instead of peer type resolution" {
             var x: i32 = 0;
             x = if (f) 1 else 2;
             expect(x == 2);
+
+            var b = true;
+            const y: i32 = if (b) 1 else 2;
+            expect(y == 1);
         }
     };
     S.doTheTest(false);

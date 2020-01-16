@@ -17,7 +17,7 @@ const minInt = std.math.minInt;
 ///  - ilogb(0)     = maxInt(i32)
 ///  - ilogb(nan)   = maxInt(i32)
 pub fn ilogb(x: var) i32 {
-    const T = @typeOf(x);
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => ilogb32(x),
         f64 => ilogb64(x),
@@ -26,7 +26,7 @@ pub fn ilogb(x: var) i32 {
 }
 
 // NOTE: Should these be exposed publicly?
-const fp_ilogbnan = -1 - i32(maxInt(u32) >> 1);
+const fp_ilogbnan = -1 - @as(i32, maxInt(u32) >> 1);
 const fp_ilogb0 = fp_ilogbnan;
 
 fn ilogb32(x: f32) i32 {
@@ -101,8 +101,8 @@ fn ilogb64(x: f64) i32 {
 }
 
 test "math.ilogb" {
-    expect(ilogb(f32(0.2)) == ilogb32(0.2));
-    expect(ilogb(f64(0.2)) == ilogb64(0.2));
+    expect(ilogb(@as(f32, 0.2)) == ilogb32(0.2));
+    expect(ilogb(@as(f64, 0.2)) == ilogb64(0.2));
 }
 
 test "math.ilogb32" {

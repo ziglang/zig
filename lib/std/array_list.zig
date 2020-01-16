@@ -5,6 +5,10 @@ const testing = std.testing;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
+/// List of items.
+///
+/// This is a wrapper around an array of T values. Initialize with
+/// `init`.
 pub fn ArrayList(comptime T: type) type {
     return AlignedArrayList(T, null);
 }
@@ -31,26 +35,45 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn init(allocator: *Allocator) Self {
             return Self{
-                .items = [_]T{},
+                .items = &[_]T{},
                 .len = 0,
                 .allocator = allocator,
             };
         }
 
+        /// Initialize with capacity to hold at least num elements.
+        /// Deinitialize with `deinit` or use `toOwnedSlice`.
+        pub fn initCapacity(allocator: *Allocator, num: usize) !Self {
+            var self = Self.init(allocator);
+            try self.ensureCapacity(num);
+            return self;
+        }
+
+        /// Release all allocated memory.
         pub fn deinit(self: Self) void {
             self.allocator.free(self.items);
         }
 
+        /// Return contents as a slice. Only valid while the list
+        /// doesn't change size.
         pub fn toSlice(self: Self) Slice {
             return self.items[0..self.len];
         }
 
+        /// Return list as const slice. Only valid while the list
+        /// doesn't change size.
         pub fn toSliceConst(self: Self) SliceConst {
             return self.items[0..self.len];
         }
 
+        /// Safely access index i of the list.
         pub fn at(self: Self, i: usize) T {
             return self.toSliceConst()[i];
+        }
+
+        /// Safely access ptr to index i of the list.
+        pub fn ptrAt(self: Self, i: usize) *T {
+            return &self.toSlice()[i];
         }
 
         /// Sets the value at index `i`, or returns `error.OutOfBounds` if
@@ -66,10 +89,8 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             self.items[i] = item;
         }
 
-        pub fn count(self: Self) usize {
-            return self.len;
-        }
-
+        /// Return the maximum number of items the list can hold
+        /// without allocating more memory.
         pub fn capacity(self: Self) usize {
             return self.items.len;
         }
@@ -93,6 +114,8 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             return result;
         }
 
+        /// Insert `item` at index `n`. Moves `list[n .. list.len]`
+        /// to make room.
         pub fn insert(self: *Self, n: usize, item: T) !void {
             try self.ensureCapacity(self.len + 1);
             self.len += 1;
@@ -101,6 +124,8 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             self.items[n] = item;
         }
 
+        /// Insert slice `items` at index `n`. Moves
+        /// `list[n .. list.len]` to make room.
         pub fn insertSlice(self: *Self, n: usize, items: SliceConst) !void {
             try self.ensureCapacity(self.len + items.len);
             self.len += items.len;
@@ -109,16 +134,22 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             mem.copy(T, self.items[n .. n + items.len], items);
         }
 
+        /// Extend the list by 1 element. Allocates more memory as
+        /// necessary.
         pub fn append(self: *Self, item: T) !void {
             const new_item_ptr = try self.addOne();
             new_item_ptr.* = item;
         }
 
+        /// Extend the list by 1 element, but asserting `self.capacity`
+        /// is sufficient to hold an additional item.
         pub fn appendAssumeCapacity(self: *Self, item: T) void {
             const new_item_ptr = self.addOneAssumeCapacity();
             new_item_ptr.* = item;
         }
 
+        /// Remove the element at index `i` from the list and return
+        /// its value. Asserts the array has at least one item.
         pub fn orderedRemove(self: *Self, i: usize) T {
             const newlen = self.len - 1;
             if (newlen == i) return self.pop();
@@ -149,17 +180,22 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             return self.swapRemove(i);
         }
 
+        /// Append the slice of items to the list. Allocates more
+        /// memory as necessary.
         pub fn appendSlice(self: *Self, items: SliceConst) !void {
             try self.ensureCapacity(self.len + items.len);
             mem.copy(T, self.items[self.len..], items);
             self.len += items.len;
         }
 
+        /// Adjust the list's length to `new_len`. Doesn't initialize
+        /// added items if any.
         pub fn resize(self: *Self, new_len: usize) !void {
             try self.ensureCapacity(new_len);
             self.len = new_len;
         }
 
+        /// Reduce allocated capacity to `new_len`.
         pub fn shrink(self: *Self, new_len: usize) void {
             assert(new_len <= self.len);
             self.len = new_len;
@@ -178,6 +214,7 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             self.items = try self.allocator.realloc(self.items, better_capacity);
         }
 
+        /// Increase length by 1, returning pointer to the new item.
         pub fn addOne(self: *Self) !*T {
             const new_length = self.len + 1;
             try self.ensureCapacity(new_length);
@@ -185,44 +222,23 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
         }
 
         pub fn addOneAssumeCapacity(self: *Self) *T {
-            assert(self.count() < self.capacity());
+            assert(self.len < self.capacity());
             const result = &self.items[self.len];
             self.len += 1;
             return result;
         }
 
+        /// Remove and return the last element from the list. Asserts
+        /// the list has at least one item.
         pub fn pop(self: *Self) T {
             self.len -= 1;
             return self.items[self.len];
         }
 
+        /// Like `pop` but returns `null` if empty.
         pub fn popOrNull(self: *Self) ?T {
             if (self.len == 0) return null;
             return self.pop();
-        }
-
-        pub const Iterator = struct {
-            list: *const Self,
-            // how many items have we returned
-            count: usize,
-
-            pub fn next(it: *Iterator) ?T {
-                if (it.count >= it.list.len) return null;
-                const val = it.list.at(it.count);
-                it.count += 1;
-                return val;
-            }
-
-            pub fn reset(it: *Iterator) void {
-                it.count = 0;
-            }
-        };
-
-        pub fn iterator(self: *const Self) Iterator {
-            return Iterator{
-                .list = self,
-                .count = 0,
-            };
         }
     };
 }
@@ -234,8 +250,17 @@ test "std.ArrayList.init" {
     var list = ArrayList(i32).init(allocator);
     defer list.deinit();
 
-    testing.expect(list.count() == 0);
+    testing.expect(list.len == 0);
     testing.expect(list.capacity() == 0);
+}
+
+test "std.ArrayList.initCapacity" {
+    var bytes: [1024]u8 = undefined;
+    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
+    var list = try ArrayList(i8).initCapacity(allocator, 200);
+    defer list.deinit();
+    testing.expect(list.len == 0);
+    testing.expect(list.capacity() >= 200);
 }
 
 test "std.ArrayList.basic" {
@@ -273,18 +298,14 @@ test "std.ArrayList.basic" {
     testing.expect(list.pop() == 10);
     testing.expect(list.len == 9);
 
-    list.appendSlice([_]i32{
-        1,
-        2,
-        3,
-    }) catch unreachable;
+    list.appendSlice(&[_]i32{ 1, 2, 3 }) catch unreachable;
     testing.expect(list.len == 12);
     testing.expect(list.pop() == 3);
     testing.expect(list.pop() == 2);
     testing.expect(list.pop() == 1);
     testing.expect(list.len == 9);
 
-    list.appendSlice([_]i32{}) catch unreachable;
+    list.appendSlice(&[_]i32{}) catch unreachable;
     testing.expect(list.len == 9);
 
     // can only set on indices < self.len
@@ -311,18 +332,18 @@ test "std.ArrayList.orderedRemove" {
     try list.append(7);
 
     //remove from middle
-    testing.expectEqual(i32(4), list.orderedRemove(3));
-    testing.expectEqual(i32(5), list.at(3));
-    testing.expectEqual(usize(6), list.len);
+    testing.expectEqual(@as(i32, 4), list.orderedRemove(3));
+    testing.expectEqual(@as(i32, 5), list.at(3));
+    testing.expectEqual(@as(usize, 6), list.len);
 
     //remove from end
-    testing.expectEqual(i32(7), list.orderedRemove(5));
-    testing.expectEqual(usize(5), list.len);
+    testing.expectEqual(@as(i32, 7), list.orderedRemove(5));
+    testing.expectEqual(@as(usize, 5), list.len);
 
     //remove from front
-    testing.expectEqual(i32(1), list.orderedRemove(0));
-    testing.expectEqual(i32(2), list.at(0));
-    testing.expectEqual(usize(4), list.len);
+    testing.expectEqual(@as(i32, 1), list.orderedRemove(0));
+    testing.expectEqual(@as(i32, 2), list.at(0));
+    testing.expectEqual(@as(usize, 4), list.len);
 }
 
 test "std.ArrayList.swapRemove" {
@@ -380,35 +401,6 @@ test "std.ArrayList.swapRemoveOrError" {
     testing.expectError(error.OutOfBounds, list.swapRemoveOrError(2));
 }
 
-test "std.ArrayList.iterator" {
-    var list = ArrayList(i32).init(debug.global_allocator);
-    defer list.deinit();
-
-    try list.append(1);
-    try list.append(2);
-    try list.append(3);
-
-    var count: i32 = 0;
-    var it = list.iterator();
-    while (it.next()) |next| {
-        testing.expect(next == count + 1);
-        count += 1;
-    }
-
-    testing.expect(count == 3);
-    testing.expect(it.next() == null);
-    it.reset();
-    count = 0;
-    while (it.next()) |next| {
-        testing.expect(next == count + 1);
-        count += 1;
-        if (count == 2) break;
-    }
-
-    it.reset();
-    testing.expect(it.next().? == 1);
-}
-
 test "std.ArrayList.insert" {
     var list = ArrayList(i32).init(debug.global_allocator);
     defer list.deinit();
@@ -431,10 +423,7 @@ test "std.ArrayList.insertSlice" {
     try list.append(2);
     try list.append(3);
     try list.append(4);
-    try list.insertSlice(1, [_]i32{
-        9,
-        8,
-    });
+    try list.insertSlice(1, &[_]i32{ 9, 8 });
     testing.expect(list.items[0] == 1);
     testing.expect(list.items[1] == 9);
     testing.expect(list.items[2] == 8);

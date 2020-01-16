@@ -13,7 +13,7 @@
 template<typename T>
 struct ZigList {
     void deinit() {
-        free(items);
+        deallocate(items, capacity);
     }
     void append(const T& item) {
         ensure_capacity(length + 1);

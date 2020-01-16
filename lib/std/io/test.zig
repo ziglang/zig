@@ -14,26 +14,28 @@ test "write a file, read it, then delete it" {
     var raw_bytes: [200 * 1024]u8 = undefined;
     var allocator = &std.heap.FixedBufferAllocator.init(raw_bytes[0..]).allocator;
 
+    const cwd = fs.cwd();
+
     var data: [1024]u8 = undefined;
     var prng = DefaultPrng.init(1234);
     prng.random.bytes(data[0..]);
     const tmp_file_name = "temp_test_file.txt";
     {
-        var file = try File.openWrite(tmp_file_name);
+        var file = try cwd.createFile(tmp_file_name, .{});
         defer file.close();
 
         var file_out_stream = file.outStream();
         var buf_stream = io.BufferedOutStream(File.WriteError).init(&file_out_stream.stream);
         const st = &buf_stream.stream;
-        try st.print("begin");
+        try st.print("begin", .{});
         try st.write(data[0..]);
-        try st.print("end");
+        try st.print("end", .{});
         try buf_stream.flush();
     }
 
     {
-        // make sure openWriteNoClobber doesn't harm the file
-        if (File.openWriteNoClobber(tmp_file_name, File.default_mode)) |file| {
+        // Make sure the exclusive flag is honored.
+        if (cwd.createFile(tmp_file_name, .{ .exclusive = true })) |file| {
             unreachable;
         } else |err| {
             std.debug.assert(err == File.OpenError.PathAlreadyExists);
@@ -41,7 +43,7 @@ test "write a file, read it, then delete it" {
     }
 
     {
-        var file = try File.openRead(tmp_file_name);
+        var file = try cwd.openFile(tmp_file_name, .{});
         defer file.close();
 
         const file_size = try file.getEndPos();
@@ -55,10 +57,10 @@ test "write a file, read it, then delete it" {
         defer allocator.free(contents);
 
         expect(mem.eql(u8, contents[0.."begin".len], "begin"));
-        expect(mem.eql(u8, contents["begin".len .. contents.len - "end".len], data));
+        expect(mem.eql(u8, contents["begin".len .. contents.len - "end".len], &data));
         expect(mem.eql(u8, contents[contents.len - "end".len ..], "end"));
     }
-    try fs.deleteFile(tmp_file_name);
+    try cwd.deleteFile(tmp_file_name);
 }
 
 test "BufferOutStream" {
@@ -70,14 +72,14 @@ test "BufferOutStream" {
 
     const x: i32 = 42;
     const y: i32 = 1234;
-    try buf_stream.print("x: {}\ny: {}\n", x, y);
+    try buf_stream.print("x: {}\ny: {}\n", .{ x, y });
 
     expect(mem.eql(u8, buffer.toSlice(), "x: 42\ny: 1234\n"));
 }
 
 test "SliceInStream" {
     const bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7 };
-    var ss = io.SliceInStream.init(bytes);
+    var ss = io.SliceInStream.init(&bytes);
 
     var dest: [4]u8 = undefined;
 
@@ -95,7 +97,7 @@ test "SliceInStream" {
 
 test "PeekStream" {
     const bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
-    var ss = io.SliceInStream.init(bytes);
+    var ss = io.SliceInStream.init(&bytes);
     var ps = io.PeekStream(2, io.SliceInStream.Error).init(&ss.stream);
 
     var dest: [4]u8 = undefined;
@@ -226,55 +228,55 @@ test "BitOutStream" {
     const OutError = io.SliceOutStream.Error;
     var bit_stream_be = io.BitOutStream(builtin.Endian.Big, OutError).init(&mem_out_be.stream);
 
-    try bit_stream_be.writeBits(u2(1), 1);
-    try bit_stream_be.writeBits(u5(2), 2);
-    try bit_stream_be.writeBits(u128(3), 3);
-    try bit_stream_be.writeBits(u8(4), 4);
-    try bit_stream_be.writeBits(u9(5), 5);
-    try bit_stream_be.writeBits(u1(1), 1);
+    try bit_stream_be.writeBits(@as(u2, 1), 1);
+    try bit_stream_be.writeBits(@as(u5, 2), 2);
+    try bit_stream_be.writeBits(@as(u128, 3), 3);
+    try bit_stream_be.writeBits(@as(u8, 4), 4);
+    try bit_stream_be.writeBits(@as(u9, 5), 5);
+    try bit_stream_be.writeBits(@as(u1, 1), 1);
 
     expect(mem_be[0] == 0b11001101 and mem_be[1] == 0b00001011);
 
     mem_out_be.pos = 0;
 
-    try bit_stream_be.writeBits(u15(0b110011010000101), 15);
+    try bit_stream_be.writeBits(@as(u15, 0b110011010000101), 15);
     try bit_stream_be.flushBits();
     expect(mem_be[0] == 0b11001101 and mem_be[1] == 0b00001010);
 
     mem_out_be.pos = 0;
-    try bit_stream_be.writeBits(u32(0b110011010000101), 16);
+    try bit_stream_be.writeBits(@as(u32, 0b110011010000101), 16);
     expect(mem_be[0] == 0b01100110 and mem_be[1] == 0b10000101);
 
-    try bit_stream_be.writeBits(u0(0), 0);
+    try bit_stream_be.writeBits(@as(u0, 0), 0);
 
     var mem_out_le = io.SliceOutStream.init(mem_le[0..]);
     var bit_stream_le = io.BitOutStream(builtin.Endian.Little, OutError).init(&mem_out_le.stream);
 
-    try bit_stream_le.writeBits(u2(1), 1);
-    try bit_stream_le.writeBits(u5(2), 2);
-    try bit_stream_le.writeBits(u128(3), 3);
-    try bit_stream_le.writeBits(u8(4), 4);
-    try bit_stream_le.writeBits(u9(5), 5);
-    try bit_stream_le.writeBits(u1(1), 1);
+    try bit_stream_le.writeBits(@as(u2, 1), 1);
+    try bit_stream_le.writeBits(@as(u5, 2), 2);
+    try bit_stream_le.writeBits(@as(u128, 3), 3);
+    try bit_stream_le.writeBits(@as(u8, 4), 4);
+    try bit_stream_le.writeBits(@as(u9, 5), 5);
+    try bit_stream_le.writeBits(@as(u1, 1), 1);
 
     expect(mem_le[0] == 0b00011101 and mem_le[1] == 0b10010101);
 
     mem_out_le.pos = 0;
-    try bit_stream_le.writeBits(u15(0b110011010000101), 15);
+    try bit_stream_le.writeBits(@as(u15, 0b110011010000101), 15);
     try bit_stream_le.flushBits();
     expect(mem_le[0] == 0b10000101 and mem_le[1] == 0b01100110);
 
     mem_out_le.pos = 0;
-    try bit_stream_le.writeBits(u32(0b1100110100001011), 16);
+    try bit_stream_le.writeBits(@as(u32, 0b1100110100001011), 16);
     expect(mem_le[0] == 0b00001011 and mem_le[1] == 0b11001101);
 
-    try bit_stream_le.writeBits(u0(0), 0);
+    try bit_stream_le.writeBits(@as(u0, 0), 0);
 }
 
 test "BitStreams with File Stream" {
     const tmp_file_name = "temp_test_file.txt";
     {
-        var file = try File.openWrite(tmp_file_name);
+        var file = try fs.cwd().createFile(tmp_file_name, .{});
         defer file.close();
 
         var file_out = file.outStream();
@@ -282,16 +284,16 @@ test "BitStreams with File Stream" {
         const OutError = File.WriteError;
         var bit_stream = io.BitOutStream(builtin.endian, OutError).init(file_out_stream);
 
-        try bit_stream.writeBits(u2(1), 1);
-        try bit_stream.writeBits(u5(2), 2);
-        try bit_stream.writeBits(u128(3), 3);
-        try bit_stream.writeBits(u8(4), 4);
-        try bit_stream.writeBits(u9(5), 5);
-        try bit_stream.writeBits(u1(1), 1);
+        try bit_stream.writeBits(@as(u2, 1), 1);
+        try bit_stream.writeBits(@as(u5, 2), 2);
+        try bit_stream.writeBits(@as(u128, 3), 3);
+        try bit_stream.writeBits(@as(u8, 4), 4);
+        try bit_stream.writeBits(@as(u9, 5), 5);
+        try bit_stream.writeBits(@as(u1, 1), 1);
         try bit_stream.flushBits();
     }
     {
-        var file = try File.openRead(tmp_file_name);
+        var file = try fs.cwd().openFile(tmp_file_name, .{});
         defer file.close();
 
         var file_in = file.inStream();
@@ -316,7 +318,7 @@ test "BitStreams with File Stream" {
 
         expectError(error.EndOfStream, bit_stream.readBitsNoEof(u1, 1));
     }
-    try fs.deleteFile(tmp_file_name);
+    try fs.cwd().deleteFile(tmp_file_name);
 }
 
 fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packing: io.Packing) !void {
@@ -345,8 +347,8 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packi
     inline while (i <= max_test_bitsize) : (i += 1) {
         const U = @IntType(false, i);
         const S = @IntType(true, i);
-        try serializer.serializeInt(U(i));
-        if (i != 0) try serializer.serializeInt(S(-1)) else try serializer.serialize(S(0));
+        try serializer.serializeInt(@as(U, i));
+        if (i != 0) try serializer.serializeInt(@as(S, -1)) else try serializer.serialize(@as(S, 0));
     }
     try serializer.flush();
 
@@ -356,8 +358,8 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packi
         const S = @IntType(true, i);
         const x = try deserializer.deserializeInt(U);
         const y = try deserializer.deserializeInt(S);
-        expect(x == U(i));
-        if (i != 0) expect(y == S(-1)) else expect(y == 0);
+        expect(x == @as(U, i));
+        if (i != 0) expect(y == @as(S, -1)) else expect(y == 0);
     }
 
     const u8_bit_count = comptime meta.bitCount(u8);
@@ -577,11 +579,11 @@ fn testBadData(comptime endian: builtin.Endian, comptime packing: io.Packing) !v
     var in_stream = &in.stream;
     var deserializer = io.Deserializer(endian, packing, InError).init(in_stream);
 
-    try serializer.serialize(u14(3));
+    try serializer.serialize(@as(u14, 3));
     expectError(error.InvalidEnumTag, deserializer.deserialize(A));
     out.pos = 0;
-    try serializer.serialize(u14(3));
-    try serializer.serialize(u14(88));
+    try serializer.serialize(@as(u14, 3));
+    try serializer.serialize(@as(u14, 88));
     expectError(error.InvalidEnumTag, deserializer.deserialize(C));
 }
 
@@ -595,26 +597,26 @@ test "Deserializer bad data" {
 test "c out stream" {
     if (!builtin.link_libc) return error.SkipZigTest;
 
-    const filename = c"tmp_io_test_file.txt";
-    const out_file = std.c.fopen(filename, c"w") orelse return error.UnableToOpenTestFile;
+    const filename = "tmp_io_test_file.txt";
+    const out_file = std.c.fopen(filename, "w") orelse return error.UnableToOpenTestFile;
     defer {
         _ = std.c.fclose(out_file);
-        fs.deleteFileC(filename) catch {};
+        fs.cwd().deleteFileC(filename) catch {};
     }
 
     const out_stream = &io.COutStream.init(out_file).stream;
-    try out_stream.print("hi: {}\n", i32(123));
+    try out_stream.print("hi: {}\n", .{@as(i32, 123)});
 }
 
 test "File seek ops" {
     const tmp_file_name = "temp_test_file.txt";
-    var file = try File.openWrite(tmp_file_name);
+    var file = try fs.cwd().createFile(tmp_file_name, .{});
     defer {
         file.close();
-        fs.deleteFile(tmp_file_name) catch {};
+        fs.cwd().deleteFile(tmp_file_name) catch {};
     }
 
-    try file.write([_]u8{0x55} ** 8192);
+    try file.write(&([_]u8{0x55} ** 8192));
 
     // Seek to the end
     try file.seekFromEnd(0);
@@ -628,4 +630,22 @@ test "File seek ops" {
     // Absolute position
     try file.seekTo(1234);
     std.testing.expect((try file.getPos()) == 1234);
+}
+
+test "updateTimes" {
+    const tmp_file_name = "just_a_temporary_file.txt";
+    var file = try fs.cwd().createFile(tmp_file_name, .{ .read = true });
+    defer {
+        file.close();
+        std.fs.cwd().deleteFile(tmp_file_name) catch {};
+    }
+    var stat_old = try file.stat();
+    // Set atime and mtime to 5s before
+    try file.updateTimes(
+        stat_old.atime - 5 * std.time.ns_per_s,
+        stat_old.mtime - 5 * std.time.ns_per_s,
+    );
+    var stat_new = try file.stat();
+    std.testing.expect(stat_new.atime < stat_old.atime);
+    std.testing.expect(stat_new.mtime < stat_old.mtime);
 }

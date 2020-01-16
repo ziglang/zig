@@ -133,7 +133,7 @@ fn keccak_f(comptime F: usize, d: []u8) void {
         }
         x = 0;
         inline while (x < 5) : (x += 1) {
-            t[0] = c[M5[x + 4]] ^ math.rotl(u64, c[M5[x + 1]], usize(1));
+            t[0] = c[M5[x + 4]] ^ math.rotl(u64, c[M5[x + 1]], @as(usize, 1));
             y = 0;
             inline while (y < 5) : (y += 1) {
                 s[x + y * 5] ^= t[0];
@@ -229,7 +229,7 @@ test "sha3-256 aligned final" {
     var out: [Sha3_256.digest_length]u8 = undefined;
 
     var h = Sha3_256.init();
-    h.update(block);
+    h.update(&block);
     h.final(out[0..]);
 }
 
@@ -300,6 +300,6 @@ test "sha3-512 aligned final" {
     var out: [Sha3_512.digest_length]u8 = undefined;
 
     var h = Sha3_512.init();
-    h.update(block);
+    h.update(&block);
     h.final(out[0..]);
 }

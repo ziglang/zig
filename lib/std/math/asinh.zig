@@ -15,8 +15,8 @@ const maxInt = std.math.maxInt;
 ///  - asinh(+-0)   = +-0
 ///  - asinh(+-inf) = +-inf
 ///  - asinh(nan)   = nan
-pub fn asinh(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn asinh(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => asinh32(x),
         f64 => asinh64(x),
@@ -89,8 +89,8 @@ fn asinh64(x: f64) f64 {
 }
 
 test "math.asinh" {
-    expect(asinh(f32(0.0)) == asinh32(0.0));
-    expect(asinh(f64(0.0)) == asinh64(0.0));
+    expect(asinh(@as(f32, 0.0)) == asinh32(0.0));
+    expect(asinh(@as(f64, 0.0)) == asinh64(0.0));
 }
 
 test "math.asinh32" {

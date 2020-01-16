@@ -6,24 +6,24 @@ fn floatsiXf(comptime T: type, a: i32) T {
     @setRuntimeSafety(builtin.is_test);
 
     const Z = @IntType(false, T.bit_count);
-    const S = @IntType(false, T.bit_count - @clz(Z, Z(T.bit_count) - 1));
+    const S = @IntType(false, T.bit_count - @clz(Z, @as(Z, T.bit_count) - 1));
 
     if (a == 0) {
-        return T(0.0);
+        return @as(T, 0.0);
     }
 
     const significandBits = std.math.floatMantissaBits(T);
     const exponentBits = std.math.floatExponentBits(T);
     const exponentBias = ((1 << exponentBits - 1) - 1);
 
-    const implicitBit = Z(1) << significandBits;
-    const signBit = Z(1 << Z.bit_count - 1);
+    const implicitBit = @as(Z, 1) << significandBits;
+    const signBit = @as(Z, 1 << Z.bit_count - 1);
 
     const sign = a >> 31;
     // Take absolute value of a via abs(x) = (x^(x >> 31)) - (x >> 31).
     const abs_a = (a ^ sign) -% sign;
     // The exponent is the width of abs(a)
-    const exp = Z(31 - @clz(i32, abs_a));
+    const exp = @as(Z, 31 - @clz(i32, abs_a));
 
     const sign_bit = if (sign < 0) signBit else 0;
 
@@ -53,19 +53,29 @@ fn floatsiXf(comptime T: type, a: i32) T {
     return @bitCast(T, result);
 }
 
-pub extern fn __floatsisf(arg: i32) f32 {
+pub fn __floatsisf(arg: i32) callconv(.C) f32 {
     @setRuntimeSafety(builtin.is_test);
-    return @inlineCall(floatsiXf, f32, arg);
+    return @call(.{ .modifier = .always_inline }, floatsiXf, .{ f32, arg });
 }
 
-pub extern fn __floatsidf(arg: i32) f64 {
+pub fn __floatsidf(arg: i32) callconv(.C) f64 {
     @setRuntimeSafety(builtin.is_test);
-    return @inlineCall(floatsiXf, f64, arg);
+    return @call(.{ .modifier = .always_inline }, floatsiXf, .{ f64, arg });
 }
 
-pub extern fn __floatsitf(arg: i32) f128 {
+pub fn __floatsitf(arg: i32) callconv(.C) f128 {
     @setRuntimeSafety(builtin.is_test);
-    return @inlineCall(floatsiXf, f128, arg);
+    return @call(.{ .modifier = .always_inline }, floatsiXf, .{ f128, arg });
+}
+
+pub fn __aeabi_i2d(arg: i32) callconv(.AAPCS) f64 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __floatsidf, .{arg});
+}
+
+pub fn __aeabi_i2f(arg: i32) callconv(.AAPCS) f32 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __floatsisf, .{arg});
 }
 
 fn test_one_floatsitf(a: i32, expected: u128) void {

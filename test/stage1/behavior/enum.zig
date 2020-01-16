@@ -1,6 +1,33 @@
 const expect = @import("std").testing.expect;
 const mem = @import("std").mem;
 
+test "extern enum" {
+    const S = struct {
+        const i = extern enum {
+            n = 0,
+            o = 2,
+            p = 4,
+            q = 4,
+        };
+        fn doTheTest(y: c_int) void {
+            var x = i.o;
+            expect(@enumToInt(x) == 2);
+            x = @intToEnum(i, 12);
+            expect(@enumToInt(x) == 12);
+            x = @intToEnum(i, y);
+            expect(@enumToInt(x) == 52);
+            switch (x) {
+                .n,
+                .o,
+                .p => unreachable,
+                else => {},
+            }
+        }
+    };
+    S.doTheTest(52);
+    comptime S.doTheTest(52);
+}
+
 test "enum type" {
     const foo1 = Foo{ .One = 13 };
     const foo2 = Foo{
@@ -788,7 +815,7 @@ fn testEnumWithSpecifiedTagValues(x: MultipleChoice) void {
     expect(1234 == switch (x) {
         MultipleChoice.A => 1,
         MultipleChoice.B => 2,
-        MultipleChoice.C => u32(1234),
+        MultipleChoice.C => @as(u32, 1234),
         MultipleChoice.D => 4,
     });
 }
@@ -816,7 +843,7 @@ fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
         MultipleChoice2.A => 1,
         MultipleChoice2.B => 2,
         MultipleChoice2.C => 3,
-        MultipleChoice2.D => u32(1234),
+        MultipleChoice2.D => @as(u32, 1234),
         MultipleChoice2.Unspecified1 => 5,
         MultipleChoice2.Unspecified2 => 6,
         MultipleChoice2.Unspecified3 => 7,

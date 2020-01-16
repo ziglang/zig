@@ -13,21 +13,21 @@ const srep_t = i64;
 const typeWidth = rep_t.bit_count;
 const significandBits = std.math.floatMantissaBits(fp_t);
 const exponentBits = std.math.floatExponentBits(fp_t);
-const signBit = (rep_t(1) << (significandBits + exponentBits));
+const signBit = (@as(rep_t, 1) << (significandBits + exponentBits));
 const absMask = signBit - 1;
-const implicitBit = rep_t(1) << significandBits;
+const implicitBit = @as(rep_t, 1) << significandBits;
 const significandMask = implicitBit - 1;
 const exponentMask = absMask ^ significandMask;
 const infRep = @bitCast(rep_t, std.math.inf(fp_t));
 
 // TODO https://github.com/ziglang/zig/issues/641
 // and then make the return types of some of these functions the enum instead of c_int
-const LE_LESS = c_int(-1);
-const LE_EQUAL = c_int(0);
-const LE_GREATER = c_int(1);
-const LE_UNORDERED = c_int(1);
+const LE_LESS = @as(c_int, -1);
+const LE_EQUAL = @as(c_int, 0);
+const LE_GREATER = @as(c_int, 1);
+const LE_UNORDERED = @as(c_int, 1);
 
-pub extern fn __ledf2(a: fp_t, b: fp_t) c_int {
+pub fn __ledf2(a: fp_t, b: fp_t) callconv(.C) c_int {
     @setRuntimeSafety(is_test);
     const aInt: srep_t = @bitCast(srep_t, a);
     const bInt: srep_t = @bitCast(srep_t, b);
@@ -65,12 +65,12 @@ pub extern fn __ledf2(a: fp_t, b: fp_t) c_int {
 
 // TODO https://github.com/ziglang/zig/issues/641
 // and then make the return types of some of these functions the enum instead of c_int
-const GE_LESS = c_int(-1);
-const GE_EQUAL = c_int(0);
-const GE_GREATER = c_int(1);
-const GE_UNORDERED = c_int(-1); // Note: different from LE_UNORDERED
+const GE_LESS = @as(c_int, -1);
+const GE_EQUAL = @as(c_int, 0);
+const GE_GREATER = @as(c_int, 1);
+const GE_UNORDERED = @as(c_int, -1); // Note: different from LE_UNORDERED
 
-pub extern fn __gedf2(a: fp_t, b: fp_t) c_int {
+pub fn __gedf2(a: fp_t, b: fp_t) callconv(.C) c_int {
     @setRuntimeSafety(is_test);
     const aInt: srep_t = @bitCast(srep_t, a);
     const bInt: srep_t = @bitCast(srep_t, b);
@@ -94,27 +94,32 @@ pub extern fn __gedf2(a: fp_t, b: fp_t) c_int {
     }
 }
 
-pub extern fn __unorddf2(a: fp_t, b: fp_t) c_int {
+pub fn __unorddf2(a: fp_t, b: fp_t) callconv(.C) c_int {
     @setRuntimeSafety(is_test);
     const aAbs: rep_t = @bitCast(rep_t, a) & absMask;
     const bAbs: rep_t = @bitCast(rep_t, b) & absMask;
     return @boolToInt(aAbs > infRep or bAbs > infRep);
 }
 
-pub extern fn __eqdf2(a: fp_t, b: fp_t) c_int {
+pub fn __eqdf2(a: fp_t, b: fp_t) callconv(.C) c_int {
     return __ledf2(a, b);
 }
 
-pub extern fn __ltdf2(a: fp_t, b: fp_t) c_int {
+pub fn __ltdf2(a: fp_t, b: fp_t) callconv(.C) c_int {
     return __ledf2(a, b);
 }
 
-pub extern fn __nedf2(a: fp_t, b: fp_t) c_int {
+pub fn __nedf2(a: fp_t, b: fp_t) callconv(.C) c_int {
     return __ledf2(a, b);
 }
 
-pub extern fn __gtdf2(a: fp_t, b: fp_t) c_int {
+pub fn __gtdf2(a: fp_t, b: fp_t) callconv(.C) c_int {
     return __gedf2(a, b);
+}
+
+pub fn __aeabi_dcmpun(a: fp_t, b: fp_t) callconv(.AAPCS) c_int {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __unorddf2, .{ a, b });
 }
 
 test "import comparedf2" {

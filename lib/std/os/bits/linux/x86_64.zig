@@ -420,7 +420,6 @@ pub const MAP_LOCKED = 0x2000;
 /// don't check for reservations
 pub const MAP_NORESERVE = 0x4000;
 
-pub const VDSO_USEFUL = true;
 pub const VDSO_CGT_SYM = "__vdso_clock_gettime";
 pub const VDSO_CGT_VER = "LINUX_2.6";
 pub const VDSO_GETCPU_SYM = "__vdso_getcpu";

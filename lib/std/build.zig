@@ -17,6 +17,10 @@ const fmt_lib = std.fmt;
 const File = std.fs.File;
 
 pub const FmtStep = @import("build/fmt.zig").FmtStep;
+pub const TranslateCStep = @import("build/translate_c.zig").TranslateCStep;
+pub const WriteFileStep = @import("build/write_file.zig").WriteFileStep;
+pub const RunStep = @import("build/run.zig").RunStep;
+pub const CheckFileStep = @import("build/check_file.zig").CheckFileStep;
 
 pub const Builder = struct {
     install_tls: TopLevelStep,
@@ -45,6 +49,7 @@ pub const Builder = struct {
     dest_dir: ?[]const u8,
     lib_dir: []const u8,
     exe_dir: []const u8,
+    h_dir: []const u8,
     install_path: []const u8,
     search_prefixes: ArrayList([]const u8),
     installed_files: ArrayList(InstalledFile),
@@ -53,8 +58,9 @@ pub const Builder = struct {
     release_mode: ?builtin.Mode,
     is_release: bool,
     override_lib_dir: ?[]const u8,
-
+    vcpkg_root: VcpkgRoot,
     pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
+    args: ?[][]const u8 = null,
 
     const PkgConfigError = error{
         PkgConfigCrashed,
@@ -145,6 +151,7 @@ pub const Builder = struct {
             .install_prefix = null,
             .lib_dir = undefined,
             .exe_dir = undefined,
+            .h_dir = undefined,
             .dest_dir = env_map.get("DESTDIR"),
             .installed_files = ArrayList(InstalledFile).init(allocator),
             .install_tls = TopLevelStep{
@@ -159,6 +166,8 @@ pub const Builder = struct {
             .is_release = false,
             .override_lib_dir = null,
             .install_path = undefined,
+            .vcpkg_root = VcpkgRoot{ .Unattempted = {} },
+            .args = null,
         };
         try self.top_level_steps.append(&self.install_tls);
         try self.top_level_steps.append(&self.uninstall_tls);
@@ -185,7 +194,7 @@ pub const Builder = struct {
     pub fn resolveInstallPrefix(self: *Builder) void {
         if (self.dest_dir) |dest_dir| {
             const install_prefix = self.install_prefix orelse "/usr";
-            self.install_path = fs.path.join(self.allocator, [_][]const u8{ dest_dir, install_prefix }) catch unreachable;
+            self.install_path = fs.path.join(self.allocator, &[_][]const u8{ dest_dir, install_prefix }) catch unreachable;
         } else {
             const install_prefix = self.install_prefix orelse blk: {
                 const p = self.cache_root;
@@ -194,28 +203,73 @@ pub const Builder = struct {
             };
             self.install_path = install_prefix;
         }
-        self.lib_dir = fs.path.join(self.allocator, [_][]const u8{ self.install_path, "lib" }) catch unreachable;
-        self.exe_dir = fs.path.join(self.allocator, [_][]const u8{ self.install_path, "bin" }) catch unreachable;
+        self.lib_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "lib" }) catch unreachable;
+        self.exe_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "bin" }) catch unreachable;
+        self.h_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "include" }) catch unreachable;
     }
 
     pub fn addExecutable(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
+        return LibExeObjStep.createExecutable(
+            self,
+            name,
+            if (root_src) |p| FileSource{ .path = p } else null,
+            false,
+        );
+    }
+
+    pub fn addExecutableFromWriteFileStep(
+        self: *Builder,
+        name: []const u8,
+        wfs: *WriteFileStep,
+        basename: []const u8,
+    ) *LibExeObjStep {
+        return LibExeObjStep.createExecutable(self, name, @as(FileSource, .{
+            .write_file = .{
+                .step = wfs,
+                .basename = basename,
+            },
+        }), false);
+    }
+
+    pub fn addExecutableSource(
+        self: *Builder,
+        name: []const u8,
+        root_src: ?FileSource,
+    ) *LibExeObjStep {
         return LibExeObjStep.createExecutable(self, name, root_src, false);
     }
 
     pub fn addObject(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
-        return LibExeObjStep.createObject(self, name, root_src);
+        const root_src_param = if (root_src) |p| @as(FileSource, .{ .path = p }) else null;
+        return LibExeObjStep.createObject(self, name, root_src_param);
+    }
+
+    pub fn addObjectFromWriteFileStep(
+        self: *Builder,
+        name: []const u8,
+        wfs: *WriteFileStep,
+        basename: []const u8,
+    ) *LibExeObjStep {
+        return LibExeObjStep.createObject(self, name, @as(FileSource, .{
+            .write_file = .{
+                .step = wfs,
+                .basename = basename,
+            },
+        }));
     }
 
     pub fn addSharedLibrary(self: *Builder, name: []const u8, root_src: ?[]const u8, ver: Version) *LibExeObjStep {
-        return LibExeObjStep.createSharedLibrary(self, name, root_src, ver);
+        const root_src_param = if (root_src) |p| @as(FileSource, .{ .path = p }) else null;
+        return LibExeObjStep.createSharedLibrary(self, name, root_src_param, ver);
     }
 
     pub fn addStaticLibrary(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
-        return LibExeObjStep.createStaticLibrary(self, name, root_src);
+        const root_src_param = if (root_src) |p| @as(FileSource, .{ .path = p }) else null;
+        return LibExeObjStep.createStaticLibrary(self, name, root_src_param);
     }
 
     pub fn addTest(self: *Builder, root_src: []const u8) *LibExeObjStep {
-        return LibExeObjStep.createTest(self, "test", root_src);
+        return LibExeObjStep.createTest(self, "test", .{ .path = root_src });
     }
 
     pub fn addAssemble(self: *Builder, name: []const u8, src: []const u8) *LibExeObjStep {
@@ -231,7 +285,7 @@ pub const Builder = struct {
     /// To run an executable built with zig build, see `LibExeObjStep.run`.
     pub fn addSystemCommand(self: *Builder, argv: []const []const u8) *RunStep {
         assert(argv.len >= 1);
-        const run_step = RunStep.create(self, self.fmt("run {}", argv[0]));
+        const run_step = RunStep.create(self, self.fmt("run {}", .{argv[0]}));
         run_step.addArgs(argv);
         return run_step;
     }
@@ -252,12 +306,18 @@ pub const Builder = struct {
     }
 
     pub fn addWriteFile(self: *Builder, file_path: []const u8, data: []const u8) *WriteFileStep {
-        const write_file_step = self.allocator.create(WriteFileStep) catch unreachable;
-        write_file_step.* = WriteFileStep.init(self, file_path, data);
+        const write_file_step = self.addWriteFiles();
+        write_file_step.add(file_path, data);
         return write_file_step;
     }
 
-    pub fn addLog(self: *Builder, comptime format: []const u8, args: ...) *LogStep {
+    pub fn addWriteFiles(self: *Builder) *WriteFileStep {
+        const write_file_step = self.allocator.create(WriteFileStep) catch unreachable;
+        write_file_step.* = WriteFileStep.init(self);
+        return write_file_step;
+    }
+
+    pub fn addLog(self: *Builder, comptime format: []const u8, args: var) *LogStep {
         const data = self.fmt(format, args);
         const log_step = self.allocator.create(LogStep) catch unreachable;
         log_step.* = LogStep.init(self, data);
@@ -272,6 +332,10 @@ pub const Builder = struct {
 
     pub fn addFmt(self: *Builder, paths: []const []const u8) *FmtStep {
         return FmtStep.create(self, paths);
+    }
+
+    pub fn addTranslateC(self: *Builder, source: FileSource) *TranslateCStep {
+        return TranslateCStep.create(self, source);
     }
 
     pub fn version(self: *const Builder, major: u32, minor: u32, patch: u32) Version {
@@ -329,9 +393,9 @@ pub const Builder = struct {
         for (self.installed_files.toSliceConst()) |installed_file| {
             const full_path = self.getInstallPath(installed_file.dir, installed_file.path);
             if (self.verbose) {
-                warn("rm {}\n", full_path);
+                warn("rm {}\n", .{full_path});
             }
-            fs.deleteTree(self.allocator, full_path) catch {};
+            fs.deleteTree(full_path) catch {};
         }
 
         // TODO remove empty directories
@@ -339,7 +403,7 @@ pub const Builder = struct {
 
     fn makeOneStep(self: *Builder, s: *Step) anyerror!void {
         if (s.loop_flag) {
-            warn("Dependency loop detected:\n  {}\n", s.name);
+            warn("Dependency loop detected:\n  {}\n", .{s.name});
             return error.DependencyLoopDetected;
         }
         s.loop_flag = true;
@@ -347,7 +411,7 @@ pub const Builder = struct {
         for (s.dependencies.toSlice()) |dep| {
             self.makeOneStep(dep) catch |err| {
                 if (err == error.DependencyLoopDetected) {
-                    warn("  {}\n", s.name);
+                    warn("  {}\n", .{s.name});
                 }
                 return err;
             };
@@ -364,7 +428,7 @@ pub const Builder = struct {
                 return &top_level_step.step;
             }
         }
-        warn("Cannot run step '{}' because it does not exist\n", name);
+        warn("Cannot run step '{}' because it does not exist\n", .{name});
         return error.InvalidStepName;
     }
 
@@ -377,12 +441,12 @@ pub const Builder = struct {
                 const word = it.next() orelse break;
                 if (mem.eql(u8, word, "-isystem")) {
                     const include_path = it.next() orelse {
-                        warn("Expected argument after -isystem in NIX_CFLAGS_COMPILE\n");
+                        warn("Expected argument after -isystem in NIX_CFLAGS_COMPILE\n", .{});
                         break;
                     };
                     self.addNativeSystemIncludeDir(include_path);
                 } else {
-                    warn("Unrecognized C flag from NIX_CFLAGS_COMPILE: {}\n", word);
+                    warn("Unrecognized C flag from NIX_CFLAGS_COMPILE: {}\n", .{word});
                     break;
                 }
             }
@@ -396,7 +460,7 @@ pub const Builder = struct {
                 const word = it.next() orelse break;
                 if (mem.eql(u8, word, "-rpath")) {
                     const rpath = it.next() orelse {
-                        warn("Expected argument after -rpath in NIX_LDFLAGS\n");
+                        warn("Expected argument after -rpath in NIX_LDFLAGS\n", .{});
                         break;
                     };
                     self.addNativeSystemRPath(rpath);
@@ -404,7 +468,7 @@ pub const Builder = struct {
                     const lib_path = word[2..];
                     self.addNativeSystemLibPath(lib_path);
                 } else {
-                    warn("Unrecognized C flag from NIX_LDFLAGS: {}\n", word);
+                    warn("Unrecognized C flag from NIX_LDFLAGS: {}\n", .{word});
                     break;
                 }
             }
@@ -430,8 +494,8 @@ pub const Builder = struct {
                 self.addNativeSystemIncludeDir("/usr/local/include");
                 self.addNativeSystemLibPath("/usr/local/lib");
 
-                self.addNativeSystemIncludeDir(self.fmt("/usr/include/{}", triple));
-                self.addNativeSystemLibPath(self.fmt("/usr/lib/{}", triple));
+                self.addNativeSystemIncludeDir(self.fmt("/usr/include/{}", .{triple}));
+                self.addNativeSystemLibPath(self.fmt("/usr/lib/{}", .{triple}));
 
                 self.addNativeSystemIncludeDir("/usr/include");
                 self.addNativeSystemLibPath("/usr/lib");
@@ -439,7 +503,7 @@ pub const Builder = struct {
                 // example: on a 64-bit debian-based linux distro, with zlib installed from apt:
                 // zlib.h is in /usr/include (added above)
                 // libz.so.1 is in /lib/x86_64-linux-gnu (added here)
-                self.addNativeSystemLibPath(self.fmt("/lib/{}", triple));
+                self.addNativeSystemLibPath(self.fmt("/lib/{}", .{triple}));
             },
         }
     }
@@ -452,7 +516,7 @@ pub const Builder = struct {
             .description = description,
         };
         if ((self.available_options_map.put(name, available_option) catch unreachable) != null) {
-            panic("Option '{}' declared twice", name);
+            panic("Option '{}' declared twice", .{name});
         }
         self.available_options_list.append(available_option) catch unreachable;
 
@@ -467,33 +531,41 @@ pub const Builder = struct {
                     } else if (mem.eql(u8, s, "false")) {
                         return false;
                     } else {
-                        warn("Expected -D{} to be a boolean, but received '{}'\n", name, s);
+                        warn("Expected -D{} to be a boolean, but received '{}'\n", .{ name, s });
                         self.markInvalidUserInput();
                         return null;
                     }
                 },
                 UserValue.List => {
-                    warn("Expected -D{} to be a boolean, but received a list.\n", name);
+                    warn("Expected -D{} to be a boolean, but received a list.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
             },
-            TypeId.Int => panic("TODO integer options to build script"),
-            TypeId.Float => panic("TODO float options to build script"),
+            TypeId.Int => panic("TODO integer options to build script", .{}),
+            TypeId.Float => panic("TODO float options to build script", .{}),
             TypeId.String => switch (entry.value.value) {
                 UserValue.Flag => {
-                    warn("Expected -D{} to be a string, but received a boolean.\n", name);
+                    warn("Expected -D{} to be a string, but received a boolean.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
                 UserValue.List => {
-                    warn("Expected -D{} to be a string, but received a list.\n", name);
+                    warn("Expected -D{} to be a string, but received a list.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
                 UserValue.Scalar => |s| return s,
             },
-            TypeId.List => panic("TODO list options to build script"),
+            TypeId.List => switch (entry.value.value) {
+                UserValue.Flag => {
+                    warn("Expected -D{} to be a list, but received a boolean.\n", .{name});
+                    self.markInvalidUserInput();
+                    return null;
+                },
+                UserValue.Scalar => |s| return &[_][]const u8{s},
+                UserValue.List => |lst| return lst.toSliceConst(),
+            },
         }
     }
 
@@ -512,7 +584,7 @@ pub const Builder = struct {
         if (self.release_mode != null) {
             @panic("setPreferredReleaseMode must be called before standardReleaseOptions and may not be called twice");
         }
-        const description = self.fmt("create a release build ({})", @tagName(mode));
+        const description = self.fmt("create a release build ({})", .{@tagName(mode)});
         self.is_release = self.option(bool, "release", description) orelse false;
         self.release_mode = if (self.is_release) mode else builtin.Mode.Debug;
     }
@@ -535,7 +607,7 @@ pub const Builder = struct {
         else if (!release_fast and !release_safe and !release_small)
             builtin.Mode.Debug
         else x: {
-            warn("Multiple release modes (of -Drelease-safe, -Drelease-fast and -Drelease-small)");
+            warn("Multiple release modes (of -Drelease-safe, -Drelease-fast and -Drelease-small)", .{});
             self.markInvalidUserInput();
             break :x builtin.Mode.Debug;
         };
@@ -598,7 +670,7 @@ pub const Builder = struct {
                 }) catch unreachable;
             },
             UserValue.Flag => {
-                warn("Option '-D{}={}' conflicts with flag '-D{}'.\n", name, value, name);
+                warn("Option '-D{}={}' conflicts with flag '-D{}'.\n", .{ name, value, name });
                 return true;
             },
         }
@@ -619,11 +691,11 @@ pub const Builder = struct {
         // option already exists
         switch (gop.kv.value.value) {
             UserValue.Scalar => |s| {
-                warn("Flag '-D{}' conflicts with option '-D{}={}'.\n", name, name, s);
+                warn("Flag '-D{}' conflicts with option '-D{}={}'.\n", .{ name, name, s });
                 return true;
             },
             UserValue.List => {
-                warn("Flag '-D{}' conflicts with multiple options of the same name.\n", name);
+                warn("Flag '-D{}' conflicts with multiple options of the same name.\n", .{name});
                 return true;
             },
             UserValue.Flag => {},
@@ -664,7 +736,7 @@ pub const Builder = struct {
         while (true) {
             const entry = it.next() orelse break;
             if (!entry.value.used) {
-                warn("Invalid option: -D{}\n\n", entry.key);
+                warn("Invalid option: -D{}\n\n", .{entry.key});
                 self.markInvalidUserInput();
             }
         }
@@ -677,11 +749,11 @@ pub const Builder = struct {
     }
 
     fn printCmd(cwd: ?[]const u8, argv: []const []const u8) void {
-        if (cwd) |yes_cwd| warn("cd {} && ", yes_cwd);
+        if (cwd) |yes_cwd| warn("cd {} && ", .{yes_cwd});
         for (argv) |arg| {
-            warn("{} ", arg);
+            warn("{} ", .{arg});
         }
-        warn("\n");
+        warn("\n", .{});
     }
 
     fn spawnChildEnvMap(self: *Builder, cwd: ?[]const u8, env_map: *const BufMap, argv: []const []const u8) !void {
@@ -696,20 +768,20 @@ pub const Builder = struct {
         child.env_map = env_map;
 
         const term = child.spawnAndWait() catch |err| {
-            warn("Unable to spawn {}: {}\n", argv[0], @errorName(err));
+            warn("Unable to spawn {}: {}\n", .{ argv[0], @errorName(err) });
             return err;
         };
 
         switch (term) {
             .Exited => |code| {
                 if (code != 0) {
-                    warn("The following command exited with error code {}:\n", code);
+                    warn("The following command exited with error code {}:\n", .{code});
                     printCmd(cwd, argv);
                     return error.UncleanExit;
                 }
             },
             else => {
-                warn("The following command terminated unexpectedly:\n");
+                warn("The following command terminated unexpectedly:\n", .{});
                 printCmd(cwd, argv);
 
                 return error.UncleanExit;
@@ -719,7 +791,7 @@ pub const Builder = struct {
 
     pub fn makePath(self: *Builder, path: []const u8) !void {
         fs.makePath(self.allocator, self.pathFromRoot(path)) catch |err| {
-            warn("Unable to create path {}: {}\n", path, @errorName(err));
+            warn("Unable to create path {}: {}\n", .{ path, @errorName(err) });
             return err;
         };
     }
@@ -792,20 +864,20 @@ pub const Builder = struct {
 
     fn updateFile(self: *Builder, source_path: []const u8, dest_path: []const u8) !void {
         if (self.verbose) {
-            warn("cp {} {} ", source_path, dest_path);
+            warn("cp {} {} ", .{ source_path, dest_path });
         }
         const prev_status = try fs.updateFile(source_path, dest_path);
         if (self.verbose) switch (prev_status) {
-            .stale => warn("# installed\n"),
-            .fresh => warn("# up-to-date\n"),
+            .stale => warn("# installed\n", .{}),
+            .fresh => warn("# up-to-date\n", .{}),
         };
     }
 
     fn pathFromRoot(self: *Builder, rel_path: []const u8) []u8 {
-        return fs.path.resolve(self.allocator, [_][]const u8{ self.build_root, rel_path }) catch unreachable;
+        return fs.path.resolve(self.allocator, &[_][]const u8{ self.build_root, rel_path }) catch unreachable;
     }
 
-    pub fn fmt(self: *Builder, comptime format: []const u8, args: ...) []u8 {
+    pub fn fmt(self: *Builder, comptime format: []const u8, args: var) []u8 {
         return fmt_lib.allocPrint(self.allocator, format, args) catch unreachable;
     }
 
@@ -817,7 +889,11 @@ pub const Builder = struct {
                 if (fs.path.isAbsolute(name)) {
                     return name;
                 }
-                const full_path = try fs.path.join(self.allocator, [_][]const u8{ search_prefix, "bin", self.fmt("{}{}", name, exe_extension) });
+                const full_path = try fs.path.join(self.allocator, &[_][]const u8{
+                    search_prefix,
+                    "bin",
+                    self.fmt("{}{}", .{ name, exe_extension }),
+                });
                 return fs.realpathAlloc(self.allocator, full_path) catch continue;
             }
         }
@@ -826,9 +902,12 @@ pub const Builder = struct {
                 if (fs.path.isAbsolute(name)) {
                     return name;
                 }
-                var it = mem.tokenize(PATH, [_]u8{fs.path.delimiter});
+                var it = mem.tokenize(PATH, &[_]u8{fs.path.delimiter});
                 while (it.next()) |path| {
-                    const full_path = try fs.path.join(self.allocator, [_][]const u8{ path, self.fmt("{}{}", name, exe_extension) });
+                    const full_path = try fs.path.join(self.allocator, &[_][]const u8{
+                        path,
+                        self.fmt("{}{}", .{ name, exe_extension }),
+                    });
                     return fs.realpathAlloc(self.allocator, full_path) catch continue;
                 }
             }
@@ -838,7 +917,10 @@ pub const Builder = struct {
                 return name;
             }
             for (paths) |path| {
-                const full_path = try fs.path.join(self.allocator, [_][]const u8{ path, self.fmt("{}{}", name, exe_extension) });
+                const full_path = try fs.path.join(self.allocator, &[_][]const u8{
+                    path,
+                    self.fmt("{}{}", .{ name, exe_extension }),
+                });
                 return fs.realpathAlloc(self.allocator, full_path) catch continue;
             }
         }
@@ -853,7 +935,7 @@ pub const Builder = struct {
     ) ![]u8 {
         assert(argv.len != 0);
 
-        const max_output_size = 100 * 1024;
+        const max_output_size = 400 * 1024;
         const child = try std.ChildProcess.init(argv, self.allocator);
         defer child.deinit();
 
@@ -885,7 +967,7 @@ pub const Builder = struct {
         }
     }
 
-    pub fn exec(self: *Builder, argv: []const []const u8) ![]u8 {
+    pub fn execFromStep(self: *Builder, argv: []const []const u8, src_step: ?*Step) ![]u8 {
         assert(argv.len != 0);
 
         if (self.verbose) {
@@ -895,22 +977,29 @@ pub const Builder = struct {
         var code: u8 = undefined;
         return self.execAllowFail(argv, &code, .Inherit) catch |err| switch (err) {
             error.FileNotFound => {
-                warn("Unable to spawn the following command: file not found\n");
+                if (src_step) |s| warn("{}...", .{s.name});
+                warn("Unable to spawn the following command: file not found\n", .{});
                 printCmd(null, argv);
                 std.os.exit(@truncate(u8, code));
             },
             error.ExitCodeFailure => {
-                warn("The following command exited with error code {}:\n", code);
+                if (src_step) |s| warn("{}...", .{s.name});
+                warn("The following command exited with error code {}:\n", .{code});
                 printCmd(null, argv);
                 std.os.exit(@truncate(u8, code));
             },
             error.ProcessTerminated => {
-                warn("The following command terminated unexpectedly:\n");
+                if (src_step) |s| warn("{}...", .{s.name});
+                warn("The following command terminated unexpectedly:\n", .{});
                 printCmd(null, argv);
                 std.os.exit(@truncate(u8, code));
             },
             else => |e| return e,
         };
+    }
+
+    pub fn exec(self: *Builder, argv: []const []const u8) ![]u8 {
+        return self.execFromStep(argv, null);
     }
 
     pub fn addSearchPrefix(self: *Builder, search_prefix: []const u8) void {
@@ -922,15 +1011,16 @@ pub const Builder = struct {
             .Prefix => self.install_path,
             .Bin => self.exe_dir,
             .Lib => self.lib_dir,
+            .Header => self.h_dir,
         };
         return fs.path.resolve(
             self.allocator,
-            [_][]const u8{ base_dir, dest_rel_path },
+            &[_][]const u8{ base_dir, dest_rel_path },
         ) catch unreachable;
     }
 
     fn execPkgConfigList(self: *Builder, out_code: *u8) ![]const PkgConfigPkg {
-        const stdout = try self.execAllowFail([_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
+        const stdout = try self.execAllowFail(&[_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
         var list = ArrayList(PkgConfigPkg).init(self.allocator);
         var line_it = mem.tokenize(stdout, "\r\n");
         while (line_it.next()) |line| {
@@ -957,6 +1047,7 @@ pub const Builder = struct {
                 error.ProcessTerminated => error.PkgConfigCrashed,
                 error.ExitCodeFailure => error.PkgConfigFailed,
                 error.FileNotFound => error.PkgConfigNotInstalled,
+                error.InvalidName => error.PkgConfigNotInstalled,
                 error.PkgConfigInvalidOutput => error.PkgConfigInvalidOutput,
                 else => return err,
             };
@@ -967,432 +1058,18 @@ pub const Builder = struct {
 };
 
 test "builder.findProgram compiles" {
-    const builder = try Builder.create(std.heap.direct_allocator, "zig", "zig-cache", "zig-cache");
-    _ = builder.findProgram([_][]const u8{}, [_][]const u8{}) catch null;
+    const builder = try Builder.create(std.heap.page_allocator, "zig", "zig-cache", "zig-cache");
+    _ = builder.findProgram(&[_][]const u8{}, &[_][]const u8{}) catch null;
 }
 
-pub const Version = struct {
-    major: u32,
-    minor: u32,
-    patch: u32,
-};
+/// Deprecated. Use `builtin.Version`.
+pub const Version = builtin.Version;
 
-pub const CrossTarget = struct {
-    arch: builtin.Arch,
-    os: builtin.Os,
-    abi: builtin.Abi,
-};
+/// Deprecated. Use `std.Target.Cross`.
+pub const CrossTarget = std.Target.Cross;
 
-pub const Target = union(enum) {
-    Native: void,
-    Cross: CrossTarget,
-
-    pub fn zigTriple(self: Target, allocator: *Allocator) ![]u8 {
-        return std.fmt.allocPrint(
-            allocator,
-            "{}{}-{}-{}",
-            @tagName(self.getArch()),
-            Target.archSubArchName(self.getArch()),
-            @tagName(self.getOs()),
-            @tagName(self.getAbi()),
-        );
-    }
-
-    pub fn allocDescription(self: Target, allocator: *Allocator) ![]u8 {
-        // TODO is there anything else worthy of the description that is not
-        // already captured in the triple?
-        return self.zigTriple(allocator);
-    }
-
-    pub fn zigTripleNoSubArch(self: Target, allocator: *Allocator) ![]u8 {
-        return std.fmt.allocPrint(
-            allocator,
-            "{}-{}-{}",
-            @tagName(self.getArch()),
-            @tagName(self.getOs()),
-            @tagName(self.getAbi()),
-        );
-    }
-
-    pub fn linuxTriple(self: Target, allocator: *Allocator) ![]u8 {
-        return std.fmt.allocPrint(
-            allocator,
-            "{}-{}-{}",
-            @tagName(self.getArch()),
-            @tagName(self.getOs()),
-            @tagName(self.getAbi()),
-        );
-    }
-
-    pub fn parse(text: []const u8) !Target {
-        var it = mem.separate(text, "-");
-        const arch_name = it.next() orelse return error.MissingArchitecture;
-        const os_name = it.next() orelse return error.MissingOperatingSystem;
-        const abi_name = it.next();
-
-        var cross = CrossTarget{
-            .arch = try parseArchSub(arch_name),
-            .os = try parseOs(os_name),
-            .abi = undefined,
-        };
-        cross.abi = if (abi_name) |n| try parseAbi(n) else defaultAbi(cross.arch, cross.os);
-        return Target{ .Cross = cross };
-    }
-
-    pub fn defaultAbi(arch: builtin.Arch, target_os: builtin.Os) builtin.Abi {
-        switch (arch) {
-            .wasm32, .wasm64 => return .musl,
-            else => {},
-        }
-        switch (target_os) {
-            .freestanding,
-            .ananas,
-            .cloudabi,
-            .dragonfly,
-            .lv2,
-            .solaris,
-            .haiku,
-            .minix,
-            .rtems,
-            .nacl,
-            .cnk,
-            .aix,
-            .cuda,
-            .nvcl,
-            .amdhsa,
-            .ps4,
-            .elfiamcu,
-            .mesa3d,
-            .contiki,
-            .amdpal,
-            .zen,
-            .hermit,
-            => return .eabi,
-            .openbsd,
-            .macosx,
-            .freebsd,
-            .ios,
-            .tvos,
-            .watchos,
-            .fuchsia,
-            .kfreebsd,
-            .netbsd,
-            .hurd,
-            => return .gnu,
-            .windows,
-            .uefi,
-            => return .msvc,
-            .linux,
-            .wasi,
-            .emscripten,
-            => return .musl,
-        }
-    }
-
-    pub const ParseArchSubError = error{
-        UnknownArchitecture,
-        UnknownSubArchitecture,
-    };
-
-    pub fn parseArchSub(text: []const u8) ParseArchSubError!builtin.Arch {
-        const info = @typeInfo(builtin.Arch);
-        inline for (info.Union.fields) |field| {
-            if (mem.eql(u8, text, field.name)) {
-                if (field.field_type == void) {
-                    return (builtin.Arch)(@field(builtin.Arch, field.name));
-                } else {
-                    const sub_info = @typeInfo(field.field_type);
-                    inline for (sub_info.Enum.fields) |sub_field| {
-                        const combined = field.name ++ sub_field.name;
-                        if (mem.eql(u8, text, combined)) {
-                            return @unionInit(builtin.Arch, field.name, @field(field.field_type, sub_field.name));
-                        }
-                    }
-                    return error.UnknownSubArchitecture;
-                }
-            }
-        }
-        return error.UnknownArchitecture;
-    }
-
-    pub fn parseOs(text: []const u8) !builtin.Os {
-        const info = @typeInfo(builtin.Os);
-        inline for (info.Enum.fields) |field| {
-            if (mem.eql(u8, text, field.name)) {
-                return @field(builtin.Os, field.name);
-            }
-        }
-        return error.UnknownOperatingSystem;
-    }
-
-    pub fn parseAbi(text: []const u8) !builtin.Abi {
-        const info = @typeInfo(builtin.Abi);
-        inline for (info.Enum.fields) |field| {
-            if (mem.eql(u8, text, field.name)) {
-                return @field(builtin.Abi, field.name);
-            }
-        }
-        return error.UnknownApplicationBinaryInterface;
-    }
-
-    fn archSubArchName(arch: builtin.Arch) []const u8 {
-        return switch (arch) {
-            .arm => |sub| @tagName(sub),
-            .armeb => |sub| @tagName(sub),
-            .thumb => |sub| @tagName(sub),
-            .thumbeb => |sub| @tagName(sub),
-            .aarch64 => |sub| @tagName(sub),
-            .aarch64_be => |sub| @tagName(sub),
-            .kalimba => |sub| @tagName(sub),
-            else => "",
-        };
-    }
-
-    pub fn subArchName(self: Target) []const u8 {
-        switch (self) {
-            .Native => return archSubArchName(builtin.arch),
-            .Cross => |cross| return archSubArchName(cross.arch),
-        }
-    }
-
-    pub fn oFileExt(self: Target) []const u8 {
-        return switch (self.getAbi()) {
-            builtin.Abi.msvc => ".obj",
-            else => ".o",
-        };
-    }
-
-    pub fn exeFileExt(self: Target) []const u8 {
-        return switch (self.getOs()) {
-            .windows => ".exe",
-            else => "",
-        };
-    }
-
-    pub fn staticLibSuffix(self: Target) []const u8 {
-        if (self.isWasm()) {
-            return ".wasm";
-        }
-        switch (self.getAbi()) {
-            .msvc => return ".lib",
-            else => return ".a",
-        }
-    }
-
-    pub fn dynamicLibSuffix(self: Target) []const u8 {
-        if (self.isDarwin()) {
-            return ".dylib";
-        }
-        switch (self.getOs()) {
-            .windows => return ".dll",
-            else => return ".so",
-        }
-    }
-
-    pub fn libPrefix(self: Target) []const u8 {
-        if (self.isWasm()) {
-            return "";
-        }
-        switch (self.getAbi()) {
-            .msvc => return "",
-            else => return "lib",
-        }
-    }
-
-    pub fn getOs(self: Target) builtin.Os {
-        return switch (self) {
-            .Native => builtin.os,
-            .Cross => |t| t.os,
-        };
-    }
-
-    pub fn getArch(self: Target) builtin.Arch {
-        switch (self) {
-            .Native => return builtin.arch,
-            .Cross => |t| return t.arch,
-        }
-    }
-
-    pub fn getAbi(self: Target) builtin.Abi {
-        switch (self) {
-            .Native => return builtin.abi,
-            .Cross => |t| return t.abi,
-        }
-    }
-
-    pub fn isMinGW(self: Target) bool {
-        return self.isWindows() and self.isGnu();
-    }
-
-    pub fn isGnu(self: Target) bool {
-        return switch (self.getAbi()) {
-            .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => true,
-            else => false,
-        };
-    }
-
-    pub fn isDarwin(self: Target) bool {
-        return switch (self.getOs()) {
-            .ios, .macosx, .watchos, .tvos => true,
-            else => false,
-        };
-    }
-
-    pub fn isWindows(self: Target) bool {
-        return switch (self.getOs()) {
-            .windows => true,
-            else => false,
-        };
-    }
-
-    pub fn isLinux(self: Target) bool {
-        return switch (self.getOs()) {
-            .linux => true,
-            else => false,
-        };
-    }
-
-    pub fn isUefi(self: Target) bool {
-        return switch (self.getOs()) {
-            .uefi => true,
-            else => false,
-        };
-    }
-
-    pub fn isWasm(self: Target) bool {
-        return switch (self.getArch()) {
-            .wasm32, .wasm64 => true,
-            else => false,
-        };
-    }
-
-    pub fn isFreeBSD(self: Target) bool {
-        return switch (self.getOs()) {
-            .freebsd => true,
-            else => false,
-        };
-    }
-
-    pub fn isNetBSD(self: Target) bool {
-        return switch (self.getOs()) {
-            .netbsd => true,
-            else => false,
-        };
-    }
-
-    pub fn wantSharedLibSymLinks(self: Target) bool {
-        return !self.isWindows();
-    }
-
-    pub fn osRequiresLibC(self: Target) bool {
-        return self.isDarwin() or self.isFreeBSD() or self.isNetBSD();
-    }
-
-    pub fn getArchPtrBitWidth(self: Target) u32 {
-        switch (self.getArch()) {
-            .avr,
-            .msp430,
-            => return 16,
-
-            .arc,
-            .arm,
-            .armeb,
-            .hexagon,
-            .le32,
-            .mips,
-            .mipsel,
-            .powerpc,
-            .r600,
-            .riscv32,
-            .sparc,
-            .sparcel,
-            .tce,
-            .tcele,
-            .thumb,
-            .thumbeb,
-            .i386,
-            .xcore,
-            .nvptx,
-            .amdil,
-            .hsail,
-            .spir,
-            .kalimba,
-            .shave,
-            .lanai,
-            .wasm32,
-            .renderscript32,
-            .aarch64_32,
-            => return 32,
-
-            .aarch64,
-            .aarch64_be,
-            .mips64,
-            .mips64el,
-            .powerpc64,
-            .powerpc64le,
-            .riscv64,
-            .x86_64,
-            .nvptx64,
-            .le64,
-            .amdil64,
-            .hsail64,
-            .spir64,
-            .wasm64,
-            .renderscript64,
-            .amdgcn,
-            .bpfel,
-            .bpfeb,
-            .sparcv9,
-            .s390x,
-            => return 64,
-        }
-    }
-
-    pub const Executor = union(enum) {
-        native,
-        qemu: []const u8,
-        wine: []const u8,
-        unavailable,
-    };
-
-    pub fn getExternalExecutor(self: Target) Executor {
-        if (@TagType(Target)(self) == .Native) return .native;
-
-        // If the target OS matches the host OS, we can use QEMU to emulate a foreign architecture.
-        if (self.getOs() == builtin.os) {
-            return switch (self.getArch()) {
-                .aarch64 => Executor{ .qemu = "qemu-aarch64" },
-                .aarch64_be => Executor{ .qemu = "qemu-aarch64_be" },
-                .arm => Executor{ .qemu = "qemu-arm" },
-                .armeb => Executor{ .qemu = "qemu-armeb" },
-                .i386 => Executor{ .qemu = "qemu-i386" },
-                .mips => Executor{ .qemu = "qemu-mips" },
-                .mipsel => Executor{ .qemu = "qemu-mipsel" },
-                .mips64 => Executor{ .qemu = "qemu-mips64" },
-                .mips64el => Executor{ .qemu = "qemu-mips64el" },
-                .powerpc => Executor{ .qemu = "qemu-ppc" },
-                .powerpc64 => Executor{ .qemu = "qemu-ppc64" },
-                .powerpc64le => Executor{ .qemu = "qemu-ppc64le" },
-                .riscv32 => Executor{ .qemu = "qemu-riscv32" },
-                .riscv64 => Executor{ .qemu = "qemu-riscv64" },
-                .s390x => Executor{ .qemu = "qemu-s390x" },
-                .sparc => Executor{ .qemu = "qemu-sparc" },
-                .x86_64 => Executor{ .qemu = "qemu-x86_64" },
-                else => return .unavailable,
-            };
-        }
-
-        if (self.isWindows()) {
-            switch (self.getArchPtrBitWidth()) {
-                32 => return Executor{ .wine = "wine" },
-                64 => return Executor{ .wine = "wine64" },
-                else => return .unavailable,
-            }
-        }
-
-        return .unavailable;
-    }
-};
+/// Deprecated. Use `std.Target`.
+pub const Target = std.Target;
 
 const Pkg = struct {
     name: []const u8,
@@ -1400,7 +1077,7 @@ const Pkg = struct {
 };
 
 const CSourceFile = struct {
-    source_path: []const u8,
+    source: FileSource,
     args: []const []const u8,
 };
 
@@ -1412,6 +1089,33 @@ fn isLibCLibrary(name: []const u8) bool {
     }
     return false;
 }
+
+pub const FileSource = union(enum) {
+    /// Relative to build root
+    path: []const u8,
+    write_file: struct {
+        step: *WriteFileStep,
+        basename: []const u8,
+    },
+    translate_c: *TranslateCStep,
+
+    pub fn addStepDependencies(self: FileSource, step: *Step) void {
+        switch (self) {
+            .path => {},
+            .write_file => |wf| step.dependOn(&wf.step.step),
+            .translate_c => |tc| step.dependOn(&tc.step),
+        }
+    }
+
+    /// Should only be called during make()
+    pub fn getPath(self: FileSource, builder: *Builder) []const u8 {
+        return switch (self) {
+            .path => |p| builder.pathFromRoot(p),
+            .write_file => |wf| wf.step.getOutputPath(wf.basename),
+            .translate_c => |tc| tc.getOutputPath(),
+        };
+    }
+};
 
 pub const LibExeObjStep = struct {
     step: Step,
@@ -1436,6 +1140,7 @@ pub const LibExeObjStep = struct {
     disable_gen_h: bool,
     bundle_compiler_rt: bool,
     disable_stack_probing: bool,
+    disable_sanitize_c: bool,
     c_std: Builder.CStd,
     override_lib_dir: ?[]const u8,
     main_pkg_path: ?[]const u8,
@@ -1444,7 +1149,7 @@ pub const LibExeObjStep = struct {
     filter: ?[]const u8,
     single_threaded: bool,
 
-    root_src: ?[]const u8,
+    root_src: ?FileSource,
     out_h_filename: []const u8,
     out_lib_filename: []const u8,
     out_pdb_filename: []const u8,
@@ -1460,6 +1165,7 @@ pub const LibExeObjStep = struct {
     output_dir: ?[]const u8,
     need_system_paths: bool,
     is_linking_libc: bool = false,
+    vcpkg_bin_path: ?[]const u8 = null,
 
     installed_path: ?[]const u8,
     install_step: ?*InstallArtifactStep,
@@ -1469,11 +1175,16 @@ pub const LibExeObjStep = struct {
 
     valgrind_support: ?bool = null,
 
+    link_eh_frame_hdr: bool = false,
+
     /// Uses system Wine installation to run cross compiled Windows build artifacts.
     enable_wine: bool = false,
 
     /// Uses system QEMU installation to run cross compiled foreign architecture build artifacts.
     enable_qemu: bool = false,
+
+    /// Uses system Wasmtime installation to run cross compiled wasm/wasi build artifacts.
+    enable_wasmtime: bool = false,
 
     /// After following the steps in https://github.com/ziglang/zig/wiki/Updating-libc#glibc,
     /// this will be the directory $glibc-build-dir/install/glibcs
@@ -1483,16 +1194,22 @@ pub const LibExeObjStep = struct {
 
     dynamic_linker: ?[]const u8 = null,
 
+    /// Position Independent Code
+    force_pic: ?bool = null,
+
+    subsystem: ?builtin.SubSystem = null,
+
     const LinkObject = union(enum) {
         StaticPath: []const u8,
         OtherStep: *LibExeObjStep,
         SystemLib: []const u8,
-        AssemblyFile: []const u8,
+        AssemblyFile: FileSource,
         CSourceFile: *CSourceFile,
     };
 
     const IncludeDir = union(enum) {
         RawPath: []const u8,
+        RawPathSystem: []const u8,
         OtherStep: *LibExeObjStep,
     };
 
@@ -1503,39 +1220,46 @@ pub const LibExeObjStep = struct {
         Test,
     };
 
-    pub fn createSharedLibrary(builder: *Builder, name: []const u8, root_src: ?[]const u8, ver: Version) *LibExeObjStep {
+    pub fn createSharedLibrary(builder: *Builder, name: []const u8, root_src: ?FileSource, ver: Version) *LibExeObjStep {
         const self = builder.allocator.create(LibExeObjStep) catch unreachable;
         self.* = initExtraArgs(builder, name, root_src, Kind.Lib, true, ver);
         return self;
     }
 
-    pub fn createStaticLibrary(builder: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
+    pub fn createStaticLibrary(builder: *Builder, name: []const u8, root_src: ?FileSource) *LibExeObjStep {
         const self = builder.allocator.create(LibExeObjStep) catch unreachable;
         self.* = initExtraArgs(builder, name, root_src, Kind.Lib, false, builder.version(0, 0, 0));
         return self;
     }
 
-    pub fn createObject(builder: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
+    pub fn createObject(builder: *Builder, name: []const u8, root_src: ?FileSource) *LibExeObjStep {
         const self = builder.allocator.create(LibExeObjStep) catch unreachable;
         self.* = initExtraArgs(builder, name, root_src, Kind.Obj, false, builder.version(0, 0, 0));
         return self;
     }
 
-    pub fn createExecutable(builder: *Builder, name: []const u8, root_src: ?[]const u8, is_dynamic: bool) *LibExeObjStep {
+    pub fn createExecutable(builder: *Builder, name: []const u8, root_src: ?FileSource, is_dynamic: bool) *LibExeObjStep {
         const self = builder.allocator.create(LibExeObjStep) catch unreachable;
         self.* = initExtraArgs(builder, name, root_src, Kind.Exe, is_dynamic, builder.version(0, 0, 0));
         return self;
     }
 
-    pub fn createTest(builder: *Builder, name: []const u8, root_src: []const u8) *LibExeObjStep {
+    pub fn createTest(builder: *Builder, name: []const u8, root_src: FileSource) *LibExeObjStep {
         const self = builder.allocator.create(LibExeObjStep) catch unreachable;
         self.* = initExtraArgs(builder, name, root_src, Kind.Test, false, builder.version(0, 0, 0));
         return self;
     }
 
-    fn initExtraArgs(builder: *Builder, name: []const u8, root_src: ?[]const u8, kind: Kind, is_dynamic: bool, ver: Version) LibExeObjStep {
+    fn initExtraArgs(
+        builder: *Builder,
+        name: []const u8,
+        root_src: ?FileSource,
+        kind: Kind,
+        is_dynamic: bool,
+        ver: Version,
+    ) LibExeObjStep {
         if (mem.indexOf(u8, name, "/") != null or mem.indexOf(u8, name, "\\") != null) {
-            panic("invalid name: '{}'. It looks like a file path, but it is supposed to be the library or application name.", name);
+            panic("invalid name: '{}'. It looks like a file path, but it is supposed to be the library or application name.", .{name});
         }
         var self = LibExeObjStep{
             .strip = false,
@@ -1552,9 +1276,9 @@ pub const LibExeObjStep = struct {
             .step = Step.init(name, builder.allocator, make),
             .version = ver,
             .out_filename = undefined,
-            .out_h_filename = builder.fmt("{}.h", name),
+            .out_h_filename = builder.fmt("{}.h", .{name}),
             .out_lib_filename = undefined,
-            .out_pdb_filename = builder.fmt("{}.pdb", name),
+            .out_pdb_filename = builder.fmt("{}.pdb", .{name}),
             .major_only_filename = undefined,
             .name_only_filename = undefined,
             .packages = ArrayList(Pkg).init(builder.allocator),
@@ -1575,6 +1299,7 @@ pub const LibExeObjStep = struct {
             .disable_gen_h = false,
             .bundle_compiler_rt = false,
             .disable_stack_probing = false,
+            .disable_sanitize_c = false,
             .output_dir = null,
             .need_system_paths = false,
             .single_threaded = false,
@@ -1582,42 +1307,55 @@ pub const LibExeObjStep = struct {
             .install_step = null,
         };
         self.computeOutFileNames();
+        if (root_src) |rs| rs.addStepDependencies(&self.step);
         return self;
     }
 
     fn computeOutFileNames(self: *LibExeObjStep) void {
         switch (self.kind) {
             .Obj => {
-                self.out_filename = self.builder.fmt("{}{}", self.name, self.target.oFileExt());
+                self.out_filename = self.builder.fmt("{}{}", .{ self.name, self.target.oFileExt() });
             },
             .Exe => {
-                self.out_filename = self.builder.fmt("{}{}", self.name, self.target.exeFileExt());
+                self.out_filename = self.builder.fmt("{}{}", .{ self.name, self.target.exeFileExt() });
             },
             .Test => {
-                self.out_filename = self.builder.fmt("test{}", self.target.exeFileExt());
+                self.out_filename = self.builder.fmt("test{}", .{self.target.exeFileExt()});
             },
             .Lib => {
                 if (!self.is_dynamic) {
-                    self.out_filename = self.builder.fmt(
-                        "{}{}{}",
+                    self.out_filename = self.builder.fmt("{}{}{}", .{
                         self.target.libPrefix(),
                         self.name,
                         self.target.staticLibSuffix(),
-                    );
+                    });
                     self.out_lib_filename = self.out_filename;
                 } else {
                     if (self.target.isDarwin()) {
-                        self.out_filename = self.builder.fmt("lib{}.{d}.{d}.{d}.dylib", self.name, self.version.major, self.version.minor, self.version.patch);
-                        self.major_only_filename = self.builder.fmt("lib{}.{d}.dylib", self.name, self.version.major);
-                        self.name_only_filename = self.builder.fmt("lib{}.dylib", self.name);
+                        self.out_filename = self.builder.fmt("lib{}.{d}.{d}.{d}.dylib", .{
+                            self.name,
+                            self.version.major,
+                            self.version.minor,
+                            self.version.patch,
+                        });
+                        self.major_only_filename = self.builder.fmt("lib{}.{d}.dylib", .{
+                            self.name,
+                            self.version.major,
+                        });
+                        self.name_only_filename = self.builder.fmt("lib{}.dylib", .{self.name});
                         self.out_lib_filename = self.out_filename;
                     } else if (self.target.isWindows()) {
-                        self.out_filename = self.builder.fmt("{}.dll", self.name);
-                        self.out_lib_filename = self.builder.fmt("{}.lib", self.name);
+                        self.out_filename = self.builder.fmt("{}.dll", .{self.name});
+                        self.out_lib_filename = self.builder.fmt("{}.lib", .{self.name});
                     } else {
-                        self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}", self.name, self.version.major, self.version.minor, self.version.patch);
-                        self.major_only_filename = self.builder.fmt("lib{}.so.{d}", self.name, self.version.major);
-                        self.name_only_filename = self.builder.fmt("lib{}.so", self.name);
+                        self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}", .{
+                            self.name,
+                            self.version.major,
+                            self.version.minor,
+                            self.version.patch,
+                        });
+                        self.major_only_filename = self.builder.fmt("lib{}.so.{d}", .{ self.name, self.version.major });
+                        self.name_only_filename = self.builder.fmt("lib{}.so", .{self.name});
                         self.out_lib_filename = self.out_filename;
                     }
                 }
@@ -1670,8 +1408,13 @@ pub const LibExeObjStep = struct {
         // It doesn't have to be native. We catch that if you actually try to run it.
         // Consider that this is declarative; the run step may not be run unless a user
         // option is supplied.
-        const run_step = RunStep.create(exe.builder, exe.builder.fmt("run {}", exe.step.name));
+        const run_step = RunStep.create(exe.builder, exe.builder.fmt("run {}", .{exe.step.name}));
         run_step.addArtifactArg(exe);
+
+        if (exe.vcpkg_bin_path) |path| {
+            run_step.addPathDir(path);
+        }
+
         return run_step;
     }
 
@@ -1781,7 +1524,7 @@ pub const LibExeObjStep = struct {
         };
 
         var code: u8 = undefined;
-        const stdout = if (self.builder.execAllowFail([_][]const u8{
+        const stdout = if (self.builder.execAllowFail(&[_][]const u8{
             "pkg-config",
             pkg_name,
             "--cflags",
@@ -1817,7 +1560,7 @@ pub const LibExeObjStep = struct {
             } else if (mem.eql(u8, tok, "-pthread")) {
                 self.linkLibC();
             } else if (self.builder.verbose) {
-                warn("Ignoring pkg-config flag '{}'\n", tok);
+                warn("Ignoring pkg-config flag '{}'\n", .{tok});
             }
         }
     }
@@ -1855,15 +1598,22 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn addCSourceFile(self: *LibExeObjStep, file: []const u8, args: []const []const u8) void {
+        self.addCSourceFileSource(.{
+            .args = args,
+            .source = .{ .path = file },
+        });
+    }
+
+    pub fn addCSourceFileSource(self: *LibExeObjStep, source: CSourceFile) void {
         const c_source_file = self.builder.allocator.create(CSourceFile) catch unreachable;
-        const args_copy = self.builder.allocator.alloc([]u8, args.len) catch unreachable;
-        for (args) |arg, i| {
+
+        const args_copy = self.builder.allocator.alloc([]u8, source.args.len) catch unreachable;
+        for (source.args) |arg, i| {
             args_copy[i] = self.builder.dupe(arg);
         }
-        c_source_file.* = CSourceFile{
-            .source_path = self.builder.dupe(file),
-            .args = args_copy,
-        };
+
+        c_source_file.* = source;
+        c_source_file.args = args_copy;
         self.link_objects.append(LinkObject{ .CSourceFile = c_source_file }) catch unreachable;
     }
 
@@ -1901,7 +1651,7 @@ pub const LibExeObjStep = struct {
     pub fn getOutputPath(self: *LibExeObjStep) []const u8 {
         return fs.path.join(
             self.builder.allocator,
-            [_][]const u8{ self.output_dir.?, self.out_filename },
+            &[_][]const u8{ self.output_dir.?, self.out_filename },
         ) catch unreachable;
     }
 
@@ -1911,7 +1661,7 @@ pub const LibExeObjStep = struct {
         assert(self.kind == Kind.Lib);
         return fs.path.join(
             self.builder.allocator,
-            [_][]const u8{ self.output_dir.?, self.out_lib_filename },
+            &[_][]const u8{ self.output_dir.?, self.out_lib_filename },
         ) catch unreachable;
     }
 
@@ -1922,7 +1672,7 @@ pub const LibExeObjStep = struct {
         assert(!self.disable_gen_h);
         return fs.path.join(
             self.builder.allocator,
-            [_][]const u8{ self.output_dir.?, self.out_h_filename },
+            &[_][]const u8{ self.output_dir.?, self.out_h_filename },
         ) catch unreachable;
     }
 
@@ -1932,12 +1682,26 @@ pub const LibExeObjStep = struct {
         assert(self.target.isWindows() or self.target.isUefi());
         return fs.path.join(
             self.builder.allocator,
-            [_][]const u8{ self.output_dir.?, self.out_pdb_filename },
+            &[_][]const u8{ self.output_dir.?, self.out_pdb_filename },
         ) catch unreachable;
     }
 
     pub fn addAssemblyFile(self: *LibExeObjStep, path: []const u8) void {
         self.link_objects.append(LinkObject{ .AssemblyFile = self.builder.dupe(path) }) catch unreachable;
+    }
+
+    pub fn addAssemblyFileFromWriteFileStep(self: *LibExeObjStep, wfs: *WriteFileStep, basename: []const u8) void {
+        self.addAssemblyFileSource(.{
+            .write_file = .{
+                .step = wfs,
+                .basename = self.builder.dupe(basename),
+            },
+        });
+    }
+
+    pub fn addAssemblyFileSource(self: *LibExeObjStep, source: FileSource) void {
+        self.link_objects.append(LinkObject{ .AssemblyFile = source }) catch unreachable;
+        source.addStepDependencies(&self.step);
     }
 
     pub fn addObjectFile(self: *LibExeObjStep, path: []const u8) void {
@@ -1951,7 +1715,11 @@ pub const LibExeObjStep = struct {
 
     pub fn addBuildOption(self: *LibExeObjStep, comptime T: type, name: []const u8, value: T) void {
         const out = &std.io.BufferOutStream.init(&self.build_options_contents).stream;
-        out.print("pub const {} = {};\n", name, value) catch unreachable;
+        out.print("pub const {} = {};\n", .{ name, value }) catch unreachable;
+    }
+
+    pub fn addSystemIncludeDir(self: *LibExeObjStep, path: []const u8) void {
+        self.include_dirs.append(IncludeDir{ .RawPathSystem = self.builder.dupe(path) }) catch unreachable;
     }
 
     pub fn addIncludeDir(self: *LibExeObjStep, path: []const u8) void {
@@ -1971,6 +1739,43 @@ pub const LibExeObjStep = struct {
             .name = name,
             .path = pkg_index_path,
         }) catch unreachable;
+    }
+
+    /// If Vcpkg was found on the system, it will be added to include and lib
+    /// paths for the specified target.
+    pub fn addVcpkgPaths(self: *LibExeObjStep, linkage: VcpkgLinkage) !void {
+        // Ideally in the Unattempted case we would call the function recursively
+        // after findVcpkgRoot and have only one switch statement, but the compiler
+        // cannot resolve the error set.
+        switch (self.builder.vcpkg_root) {
+            .Unattempted => {
+                self.builder.vcpkg_root = if (try findVcpkgRoot(self.builder.allocator)) |root|
+                    VcpkgRoot{ .Found = root }
+                else
+                    .NotFound;
+            },
+            .NotFound => return error.VcpkgNotFound,
+            .Found => {},
+        }
+
+        switch (self.builder.vcpkg_root) {
+            .Unattempted => unreachable,
+            .NotFound => return error.VcpkgNotFound,
+            .Found => |root| {
+                const allocator = self.builder.allocator;
+                const triplet = try Target.vcpkgTriplet(allocator, self.target, linkage);
+                defer self.builder.allocator.free(triplet);
+
+                const include_path = try fs.path.join(allocator, &[_][]const u8{ root, "installed", triplet, "include" });
+                errdefer allocator.free(include_path);
+                try self.include_dirs.append(IncludeDir{ .RawPath = include_path });
+
+                const lib_path = try fs.path.join(allocator, &[_][]const u8{ root, "installed", triplet, "lib" });
+                try self.lib_paths.append(lib_path);
+
+                self.vcpkg_bin_path = try fs.path.join(allocator, &[_][]const u8{ root, "installed", triplet, "bin" });
+            },
+        }
     }
 
     pub fn setExecCmd(self: *LibExeObjStep, args: []const ?[]const u8) void {
@@ -2009,7 +1814,7 @@ pub const LibExeObjStep = struct {
         const builder = self.builder;
 
         if (self.root_src == null and self.link_objects.len == 0) {
-            warn("{}: linker needs 1 or more objects to link\n", self.step.name);
+            warn("{}: linker needs 1 or more objects to link\n", .{self.step.name});
             return error.NeedAnObject;
         }
 
@@ -2026,25 +1831,23 @@ pub const LibExeObjStep = struct {
         };
         zig_args.append(cmd) catch unreachable;
 
-        if (self.root_src) |root_src| {
-            zig_args.append(builder.pathFromRoot(root_src)) catch unreachable;
-        }
+        if (self.root_src) |root_src| try zig_args.append(root_src.getPath(builder));
 
         for (self.link_objects.toSlice()) |link_object| {
             switch (link_object) {
-                LinkObject.StaticPath => |static_path| {
+                .StaticPath => |static_path| {
                     try zig_args.append("--object");
                     try zig_args.append(builder.pathFromRoot(static_path));
                 },
 
-                LinkObject.OtherStep => |other| switch (other.kind) {
-                    LibExeObjStep.Kind.Exe => unreachable,
-                    LibExeObjStep.Kind.Test => unreachable,
-                    LibExeObjStep.Kind.Obj => {
+                .OtherStep => |other| switch (other.kind) {
+                    .Exe => unreachable,
+                    .Test => unreachable,
+                    .Obj => {
                         try zig_args.append("--object");
                         try zig_args.append(other.getOutputPath());
                     },
-                    LibExeObjStep.Kind.Lib => {
+                    .Lib => {
                         if (!other.is_dynamic or self.target.isWindows()) {
                             try zig_args.append("--object");
                             try zig_args.append(other.getOutputLibPath());
@@ -2060,20 +1863,20 @@ pub const LibExeObjStep = struct {
                         }
                     },
                 },
-                LinkObject.SystemLib => |name| {
+                .SystemLib => |name| {
                     try zig_args.append("--library");
                     try zig_args.append(name);
                 },
-                LinkObject.AssemblyFile => |asm_file| {
+                .AssemblyFile => |asm_file| {
                     try zig_args.append("--c-source");
-                    try zig_args.append(builder.pathFromRoot(asm_file));
+                    try zig_args.append(asm_file.getPath(builder));
                 },
-                LinkObject.CSourceFile => |c_source_file| {
+                .CSourceFile => |c_source_file| {
                     try zig_args.append("--c-source");
                     for (c_source_file.args) |arg| {
                         try zig_args.append(arg);
                     }
-                    try zig_args.append(self.builder.pathFromRoot(c_source_file.source_path));
+                    try zig_args.append(c_source_file.source.getPath(builder));
                 },
             }
         }
@@ -2081,7 +1884,7 @@ pub const LibExeObjStep = struct {
         if (self.build_options_contents.len() > 0) {
             const build_options_file = try fs.path.join(
                 builder.allocator,
-                [_][]const u8{ builder.cache_root, builder.fmt("{}_build_options.zig", self.name) },
+                &[_][]const u8{ builder.cache_root, builder.fmt("{}_build_options.zig", .{self.name}) },
             );
             try std.io.writeFile(build_options_file, self.build_options_contents.toSliceConst());
             try zig_args.append("--pkg-begin");
@@ -2109,7 +1912,10 @@ pub const LibExeObjStep = struct {
         if (builder.verbose_cc or self.verbose_cc) zig_args.append("--verbose-cc") catch unreachable;
 
         if (self.strip) {
-            zig_args.append("--strip") catch unreachable;
+            try zig_args.append("--strip");
+        }
+        if (self.link_eh_frame_hdr) {
+            try zig_args.append("--eh-frame-hdr");
         }
 
         if (self.single_threaded) {
@@ -2136,13 +1942,13 @@ pub const LibExeObjStep = struct {
 
         if (self.kind == Kind.Lib and self.is_dynamic) {
             zig_args.append("--ver-major") catch unreachable;
-            zig_args.append(builder.fmt("{}", self.version.major)) catch unreachable;
+            zig_args.append(builder.fmt("{}", .{self.version.major})) catch unreachable;
 
             zig_args.append("--ver-minor") catch unreachable;
-            zig_args.append(builder.fmt("{}", self.version.minor)) catch unreachable;
+            zig_args.append(builder.fmt("{}", .{self.version.minor})) catch unreachable;
 
             zig_args.append("--ver-patch") catch unreachable;
-            zig_args.append(builder.fmt("{}", self.version.patch)) catch unreachable;
+            zig_args.append(builder.fmt("{}", .{self.version.patch})) catch unreachable;
         }
         if (self.is_dynamic) {
             try zig_args.append("-dynamic");
@@ -2156,10 +1962,13 @@ pub const LibExeObjStep = struct {
         if (self.disable_stack_probing) {
             try zig_args.append("-fno-stack-check");
         }
+        if (self.disable_sanitize_c) {
+            try zig_args.append("-fno-sanitize-c");
+        }
 
         switch (self.target) {
-            Target.Native => {},
-            Target.Cross => {
+            .Native => {},
+            .Cross => {
                 try zig_args.append("-target");
                 try zig_args.append(self.target.zigTriple(builder.allocator) catch unreachable);
             },
@@ -2167,7 +1976,7 @@ pub const LibExeObjStep = struct {
 
         if (self.target_glibc) |ver| {
             try zig_args.append("-target-glibc");
-            try zig_args.append(builder.fmt("{}.{}.{}", ver.major, ver.minor, ver.patch));
+            try zig_args.append(builder.fmt("{}.{}.{}", .{ ver.major, ver.minor, ver.patch }));
         }
 
         if (self.linker_script) |linker_script| {
@@ -2205,7 +2014,7 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("--test-cmd");
                 try zig_args.append(bin_name);
                 if (glibc_dir_arg) |dir| {
-                    const full_dir = try fs.path.join(builder.allocator, [_][]const u8{
+                    const full_dir = try fs.path.join(builder.allocator, &[_][]const u8{
                         dir,
                         try self.target.linuxTriple(builder.allocator),
                     });
@@ -2222,6 +2031,11 @@ pub const LibExeObjStep = struct {
                 try zig_args.append(bin_name);
                 try zig_args.append("--test-cmd-bin");
             },
+            .wasmtime => |bin_name| if (self.enable_wasmtime) {
+                try zig_args.append("--test-cmd");
+                try zig_args.append(bin_name);
+                try zig_args.append("--test-cmd-bin");
+            },
         }
         for (self.packages.toSliceConst()) |pkg| {
             zig_args.append("--pkg-begin") catch unreachable;
@@ -2232,11 +2046,15 @@ pub const LibExeObjStep = struct {
 
         for (self.include_dirs.toSliceConst()) |include_dir| {
             switch (include_dir) {
-                IncludeDir.RawPath => |include_path| {
+                .RawPath => |include_path| {
+                    try zig_args.append("-I");
+                    try zig_args.append(self.builder.pathFromRoot(include_path));
+                },
+                .RawPathSystem => |include_path| {
                     try zig_args.append("-isystem");
                     try zig_args.append(self.builder.pathFromRoot(include_path));
                 },
-                IncludeDir.OtherStep => |other| {
+                .OtherStep => |other| {
                     const h_path = other.getOutputHPath();
                     try zig_args.append("-isystem");
                     try zig_args.append(fs.path.dirname(h_path).?);
@@ -2309,17 +2127,39 @@ pub const LibExeObjStep = struct {
             try zig_args.append(builder.pathFromRoot(dir));
         }
 
+        if (self.force_pic) |pic| {
+            if (pic) {
+                try zig_args.append("-fPIC");
+            } else {
+                try zig_args.append("-fno-PIC");
+            }
+        }
+
+        if (self.subsystem) |subsystem| {
+            try zig_args.append("--subsystem");
+            try zig_args.append(switch (subsystem) {
+                .Console => "console",
+                .Windows => "windows",
+                .Posix => "posix",
+                .Native => "native",
+                .EfiApplication => "efi_application",
+                .EfiBootServiceDriver => "efi_boot_service_driver",
+                .EfiRom => "efi_rom",
+                .EfiRuntimeDriver => "efi_runtime_driver",
+            });
+        }
+
         if (self.kind == Kind.Test) {
             try builder.spawnChild(zig_args.toSliceConst());
         } else {
             try zig_args.append("--cache");
             try zig_args.append("on");
 
-            const output_path_nl = try builder.exec(zig_args.toSliceConst());
+            const output_path_nl = try builder.execFromStep(zig_args.toSliceConst(), &self.step);
             const output_path = mem.trimRight(u8, output_path_nl, "\r\n");
 
             if (self.output_dir) |output_dir| {
-                const full_dest = try fs.path.join(builder.allocator, [_][]const u8{
+                const full_dest = try fs.path.join(builder.allocator, &[_][]const u8{
                     output_dir,
                     fs.path.basename(output_path),
                 });
@@ -2335,126 +2175,13 @@ pub const LibExeObjStep = struct {
     }
 };
 
-pub const RunStep = struct {
-    step: Step,
-    builder: *Builder,
-
-    /// See also addArg and addArgs to modifying this directly
-    argv: ArrayList(Arg),
-
-    /// Set this to modify the current working directory
-    cwd: ?[]const u8,
-
-    /// Override this field to modify the environment, or use setEnvironmentVariable
-    env_map: ?*BufMap,
-
-    pub const Arg = union(enum) {
-        Artifact: *LibExeObjStep,
-        Bytes: []u8,
-    };
-
-    pub fn create(builder: *Builder, name: []const u8) *RunStep {
-        const self = builder.allocator.create(RunStep) catch unreachable;
-        self.* = RunStep{
-            .builder = builder,
-            .step = Step.init(name, builder.allocator, make),
-            .argv = ArrayList(Arg).init(builder.allocator),
-            .cwd = null,
-            .env_map = null,
-        };
-        return self;
-    }
-
-    pub fn addArtifactArg(self: *RunStep, artifact: *LibExeObjStep) void {
-        self.argv.append(Arg{ .Artifact = artifact }) catch unreachable;
-        self.step.dependOn(&artifact.step);
-    }
-
-    pub fn addArg(self: *RunStep, arg: []const u8) void {
-        self.argv.append(Arg{ .Bytes = self.builder.dupe(arg) }) catch unreachable;
-    }
-
-    pub fn addArgs(self: *RunStep, args: []const []const u8) void {
-        for (args) |arg| {
-            self.addArg(arg);
-        }
-    }
-
-    pub fn clearEnvironment(self: *RunStep) void {
-        const new_env_map = self.builder.allocator.create(BufMap) catch unreachable;
-        new_env_map.* = BufMap.init(self.builder.allocator);
-        self.env_map = new_env_map;
-    }
-
-    pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
-        const PATH = if (std.os.windows.is_the_target) "Path" else "PATH";
-        const env_map = self.getEnvMap();
-        const prev_path = env_map.get(PATH) orelse {
-            env_map.set(PATH, search_path) catch unreachable;
-            return;
-        };
-        const new_path = self.builder.fmt("{}" ++ [1]u8{fs.path.delimiter} ++ "{}", prev_path, search_path);
-        env_map.set(PATH, new_path) catch unreachable;
-    }
-
-    pub fn getEnvMap(self: *RunStep) *BufMap {
-        return self.env_map orelse {
-            const env_map = self.builder.allocator.create(BufMap) catch unreachable;
-            env_map.* = process.getEnvMap(self.builder.allocator) catch unreachable;
-            self.env_map = env_map;
-            return env_map;
-        };
-    }
-
-    pub fn setEnvironmentVariable(self: *RunStep, key: []const u8, value: []const u8) void {
-        const env_map = self.getEnvMap();
-        env_map.set(key, value) catch unreachable;
-    }
-
-    fn make(step: *Step) !void {
-        const self = @fieldParentPtr(RunStep, "step", step);
-
-        const cwd = if (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else self.builder.build_root;
-
-        var argv = ArrayList([]const u8).init(self.builder.allocator);
-        for (self.argv.toSlice()) |arg| {
-            switch (arg) {
-                Arg.Bytes => |bytes| try argv.append(bytes),
-                Arg.Artifact => |artifact| {
-                    if (artifact.target.isWindows()) {
-                        // On Windows we don't have rpaths so we have to add .dll search paths to PATH
-                        self.addPathForDynLibs(artifact);
-                    }
-                    const executable_path = artifact.installed_path orelse artifact.getOutputPath();
-                    try argv.append(executable_path);
-                },
-            }
-        }
-
-        return self.builder.spawnChildEnvMap(cwd, self.env_map orelse self.builder.env_map, argv.toSliceConst());
-    }
-
-    fn addPathForDynLibs(self: *RunStep, artifact: *LibExeObjStep) void {
-        for (artifact.link_objects.toSliceConst()) |link_object| {
-            switch (link_object) {
-                LibExeObjStep.LinkObject.OtherStep => |other| {
-                    if (other.target.isWindows() and other.isDynamicLibrary()) {
-                        self.addPathDir(fs.path.dirname(other.getOutputPath()).?);
-                        self.addPathForDynLibs(other);
-                    }
-                },
-                else => {},
-            }
-        }
-    }
-};
-
 const InstallArtifactStep = struct {
     step: Step,
     builder: *Builder,
     artifact: *LibExeObjStep,
     dest_dir: InstallDir,
     pdb_dir: ?InstallDir,
+    h_dir: ?InstallDir,
 
     const Self = @This();
 
@@ -2464,13 +2191,13 @@ const InstallArtifactStep = struct {
         const self = builder.allocator.create(Self) catch unreachable;
         self.* = Self{
             .builder = builder,
-            .step = Step.init(builder.fmt("install {}", artifact.step.name), builder.allocator, make),
+            .step = Step.init(builder.fmt("install {}", .{artifact.step.name}), builder.allocator, make),
             .artifact = artifact,
             .dest_dir = switch (artifact.kind) {
                 .Obj => unreachable,
                 .Test => unreachable,
-                .Exe => InstallDir.Bin,
-                .Lib => InstallDir.Lib,
+                .Exe => .Bin,
+                .Lib => .Lib,
             },
             .pdb_dir = if (artifact.producesPdbFile()) blk: {
                 if (artifact.kind == .Exe) {
@@ -2479,6 +2206,7 @@ const InstallArtifactStep = struct {
                     break :blk InstallDir.Lib;
                 }
             } else null,
+            .h_dir = if (artifact.kind == .Lib and !artifact.disable_gen_h) .Header else null,
         };
         self.step.dependOn(&artifact.step);
         artifact.install_step = self;
@@ -2487,9 +2215,15 @@ const InstallArtifactStep = struct {
         if (self.artifact.isDynamicLibrary()) {
             builder.pushInstalledFile(.Lib, artifact.major_only_filename);
             builder.pushInstalledFile(.Lib, artifact.name_only_filename);
+            if (self.artifact.target.isWindows()) {
+                builder.pushInstalledFile(.Lib, artifact.out_lib_filename);
+            }
         }
         if (self.pdb_dir) |pdb_dir| {
             builder.pushInstalledFile(pdb_dir, artifact.out_pdb_filename);
+        }
+        if (self.h_dir) |h_dir| {
+            builder.pushInstalledFile(h_dir, artifact.out_h_filename);
         }
         return self;
     }
@@ -2500,12 +2234,16 @@ const InstallArtifactStep = struct {
 
         const full_dest_path = builder.getInstallPath(self.dest_dir, self.artifact.out_filename);
         try builder.updateFile(self.artifact.getOutputPath(), full_dest_path);
-        if (self.artifact.isDynamicLibrary()) {
+        if (self.artifact.isDynamicLibrary() and self.artifact.target.wantSharedLibSymLinks()) {
             try doAtomicSymLinks(builder.allocator, full_dest_path, self.artifact.major_only_filename, self.artifact.name_only_filename);
         }
         if (self.pdb_dir) |pdb_dir| {
             const full_pdb_path = builder.getInstallPath(pdb_dir, self.artifact.out_pdb_filename);
             try builder.updateFile(self.artifact.getOutputPdbPath(), full_pdb_path);
+        }
+        if (self.h_dir) |h_dir| {
+            const full_pdb_path = builder.getInstallPath(h_dir, self.artifact.out_h_filename);
+            try builder.updateFile(self.artifact.getOutputHPath(), full_pdb_path);
         }
         self.artifact.installed_path = full_dest_path;
     }
@@ -2527,7 +2265,7 @@ pub const InstallFileStep = struct {
         builder.pushInstalledFile(dir, dest_rel_path);
         return InstallFileStep{
             .builder = builder,
-            .step = Step.init(builder.fmt("install {}", src_path), builder.allocator, make),
+            .step = Step.init(builder.fmt("install {}", .{src_path}), builder.allocator, make),
             .src_path = src_path,
             .dir = dir,
             .dest_rel_path = dest_rel_path,
@@ -2561,7 +2299,7 @@ pub const InstallDirStep = struct {
         builder.pushInstalledFile(options.install_dir, options.install_subdir);
         return InstallDirStep{
             .builder = builder,
-            .step = Step.init(builder.fmt("install {}/", options.source_dir), builder.allocator, make),
+            .step = Step.init(builder.fmt("install {}/", .{options.source_dir}), builder.allocator, make),
             .options = options,
         };
     }
@@ -2579,43 +2317,13 @@ pub const InstallDirStep = struct {
             };
 
             const rel_path = entry.path[full_src_dir.len + 1 ..];
-            const dest_path = try fs.path.join(self.builder.allocator, [_][]const u8{ dest_prefix, rel_path });
+            const dest_path = try fs.path.join(self.builder.allocator, &[_][]const u8{ dest_prefix, rel_path });
             switch (entry.kind) {
                 .Directory => try fs.makePath(self.builder.allocator, dest_path),
                 .File => try self.builder.updateFile(entry.path, dest_path),
                 else => continue,
             }
         }
-    }
-};
-
-pub const WriteFileStep = struct {
-    step: Step,
-    builder: *Builder,
-    file_path: []const u8,
-    data: []const u8,
-
-    pub fn init(builder: *Builder, file_path: []const u8, data: []const u8) WriteFileStep {
-        return WriteFileStep{
-            .builder = builder,
-            .step = Step.init(builder.fmt("writefile {}", file_path), builder.allocator, make),
-            .file_path = file_path,
-            .data = data,
-        };
-    }
-
-    fn make(step: *Step) !void {
-        const self = @fieldParentPtr(WriteFileStep, "step", step);
-        const full_path = self.builder.pathFromRoot(self.file_path);
-        const full_path_dir = fs.path.dirname(full_path) orelse ".";
-        fs.makePath(self.builder.allocator, full_path_dir) catch |err| {
-            warn("unable to make path {}: {}\n", full_path_dir, @errorName(err));
-            return err;
-        };
-        io.writeFile(full_path, self.data) catch |err| {
-            warn("unable to write {}: {}\n", full_path, @errorName(err));
-            return err;
-        };
     }
 };
 
@@ -2627,14 +2335,14 @@ pub const LogStep = struct {
     pub fn init(builder: *Builder, data: []const u8) LogStep {
         return LogStep{
             .builder = builder,
-            .step = Step.init(builder.fmt("log {}", data), builder.allocator, make),
+            .step = Step.init(builder.fmt("log {}", .{data}), builder.allocator, make),
             .data = data,
         };
     }
 
     fn make(step: *Step) anyerror!void {
         const self = @fieldParentPtr(LogStep, "step", step);
-        warn("{}", self.data);
+        warn("{}", .{self.data});
     }
 };
 
@@ -2646,7 +2354,7 @@ pub const RemoveDirStep = struct {
     pub fn init(builder: *Builder, dir_path: []const u8) RemoveDirStep {
         return RemoveDirStep{
             .builder = builder,
-            .step = Step.init(builder.fmt("RemoveDir {}", dir_path), builder.allocator, make),
+            .step = Step.init(builder.fmt("RemoveDir {}", .{dir_path}), builder.allocator, make),
             .dir_path = dir_path,
         };
     }
@@ -2655,8 +2363,8 @@ pub const RemoveDirStep = struct {
         const self = @fieldParentPtr(RemoveDirStep, "step", step);
 
         const full_path = self.builder.pathFromRoot(self.dir_path);
-        fs.deleteTree(self.builder.allocator, full_path) catch |err| {
-            warn("Unable to remove {}: {}\n", full_path, @errorName(err));
+        fs.deleteTree(full_path) catch |err| {
+            warn("Unable to remove {}: {}\n", .{ full_path, @errorName(err) });
             return err;
         };
     }
@@ -2702,27 +2410,64 @@ fn doAtomicSymLinks(allocator: *Allocator, output_path: []const u8, filename_maj
     // sym link for libfoo.so.1 to libfoo.so.1.2.3
     const major_only_path = fs.path.join(
         allocator,
-        [_][]const u8{ out_dir, filename_major_only },
+        &[_][]const u8{ out_dir, filename_major_only },
     ) catch unreachable;
     fs.atomicSymLink(allocator, out_basename, major_only_path) catch |err| {
-        warn("Unable to symlink {} -> {}\n", major_only_path, out_basename);
+        warn("Unable to symlink {} -> {}\n", .{ major_only_path, out_basename });
         return err;
     };
     // sym link for libfoo.so to libfoo.so.1
     const name_only_path = fs.path.join(
         allocator,
-        [_][]const u8{ out_dir, filename_name_only },
+        &[_][]const u8{ out_dir, filename_name_only },
     ) catch unreachable;
     fs.atomicSymLink(allocator, filename_major_only, name_only_path) catch |err| {
-        warn("Unable to symlink {} -> {}\n", name_only_path, filename_major_only);
+        warn("Unable to symlink {} -> {}\n", .{ name_only_path, filename_major_only });
         return err;
     };
 }
+
+/// Returned slice must be freed by the caller.
+fn findVcpkgRoot(allocator: *Allocator) !?[]const u8 {
+    const appdata_path = try fs.getAppDataDir(allocator, "vcpkg");
+    defer allocator.free(appdata_path);
+
+    const path_file = try fs.path.join(allocator, &[_][]const u8{ appdata_path, "vcpkg.path.txt" });
+    defer allocator.free(path_file);
+
+    const file = fs.cwd().openFile(path_file, .{}) catch return null;
+    defer file.close();
+
+    const size = @intCast(usize, try file.getEndPos());
+    const vcpkg_path = try allocator.alloc(u8, size);
+    const size_read = try file.read(vcpkg_path);
+    std.debug.assert(size == size_read);
+
+    return vcpkg_path;
+}
+
+const VcpkgRoot = union(VcpkgRootStatus) {
+    Unattempted: void,
+    NotFound: void,
+    Found: []const u8,
+};
+
+const VcpkgRootStatus = enum {
+    Unattempted,
+    NotFound,
+    Found,
+};
+
+pub const VcpkgLinkage = enum {
+    Static,
+    Dynamic,
+};
 
 pub const InstallDir = enum {
     Prefix,
     Lib,
     Bin,
+    Header,
 };
 
 pub const InstalledFile = struct {

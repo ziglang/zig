@@ -19,8 +19,8 @@ test "makePath, put some files in it, deleteTree" {
     try fs.makePath(a, "os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
-    try fs.deleteTree(a, "os_test_tmp");
-    if (fs.Dir.open(a, "os_test_tmp")) |dir| {
+    try fs.deleteTree("os_test_tmp");
+    if (fs.cwd().openDirTraverse("os_test_tmp")) |dir| {
         @panic("expected error");
     } else |err| {
         expect(err == error.FileNotFound);
@@ -37,7 +37,7 @@ test "access file" {
 
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", "");
     try os.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", os.F_OK);
-    try fs.deleteTree(a, "os_test_tmp");
+    try fs.deleteTree("os_test_tmp");
 }
 
 fn testThreadIdFn(thread_id: *Thread.Id) void {
@@ -53,7 +53,7 @@ test "std.Thread.getCurrentId" {
     thread.wait();
     if (Thread.use_pthreads) {
         expect(thread_current_id == thread_id);
-    } else if (os.windows.is_the_target) {
+    } else if (builtin.os == .windows) {
         expect(Thread.getCurrentId() != thread_current_id);
     } else {
         // If the thread completes very quickly, then thread_id can be 0. See the
@@ -111,7 +111,7 @@ test "AtomicFile" {
     const content = try io.readFileAlloc(allocator, test_out_file);
     expect(mem.eql(u8, content, test_content));
 
-    try fs.deleteFile(test_out_file);
+    try fs.cwd().deleteFile(test_out_file);
 }
 
 test "thread local storage" {
@@ -137,7 +137,7 @@ test "getrandom" {
     try os.getrandom(&buf_b);
     // If this test fails the chance is significantly higher that there is a bug than
     // that two sets of 50 bytes were equal.
-    expect(!mem.eql(u8, buf_a, buf_b));
+    expect(!mem.eql(u8, &buf_a, &buf_b));
 }
 
 test "getcwd" {
@@ -166,13 +166,13 @@ test "sigaltstack" {
 // analyzed
 const dl_phdr_info = if (@hasDecl(os, "dl_phdr_info")) os.dl_phdr_info else c_void;
 
-export fn iter_fn(info: *dl_phdr_info, size: usize, data: ?*usize) i32 {
+fn iter_fn(info: *dl_phdr_info, size: usize, data: ?*usize) callconv(.C) i32 {
     if (builtin.os == .windows or builtin.os == .wasi or builtin.os == .macosx)
         return 0;
 
     var counter = data.?;
     // Count how many libraries are loaded
-    counter.* += usize(1);
+    counter.* += @as(usize, 1);
 
     // The image should contain at least a PT_LOAD segment
     if (info.dlpi_phnum < 1) return -1;
@@ -212,10 +212,46 @@ test "dl_iterate_phdr" {
 }
 
 test "gethostname" {
-    if (os.windows.is_the_target)
+    if (builtin.os == .windows)
         return error.SkipZigTest;
 
     var buf: [os.HOST_NAME_MAX]u8 = undefined;
     const hostname = try os.gethostname(&buf);
     expect(hostname.len != 0);
+}
+
+test "pipe" {
+    if (builtin.os == .windows)
+        return error.SkipZigTest;
+
+    var fds = try os.pipe();
+    try os.write(fds[1], "hello");
+    var buf: [16]u8 = undefined;
+    expect((try os.read(fds[0], buf[0..])) == 5);
+    testing.expectEqualSlices(u8, buf[0..5], "hello");
+    os.close(fds[1]);
+    os.close(fds[0]);
+}
+
+test "argsAlloc" {
+    var args = try std.process.argsAlloc(std.heap.page_allocator);
+    std.process.argsFree(std.heap.page_allocator, args);
+}
+
+test "memfd_create" {
+    // memfd_create is linux specific.
+    if (builtin.os != .linux) return error.SkipZigTest;
+    const fd = std.os.memfd_create("test", 0) catch |err| switch (err) {
+        // Related: https://github.com/ziglang/zig/issues/4019
+        error.SystemOutdated => return error.SkipZigTest,
+        else => |e| return e,
+    };
+    defer std.os.close(fd);
+    try std.os.write(fd, "test");
+    try std.os.lseek_SET(fd, 0);
+
+    var buf: [10]u8 = undefined;
+    const bytes_read = try std.os.read(fd, &buf);
+    expect(bytes_read == 4);
+    expect(mem.eql(u8, buf[0..4], "test"));
 }

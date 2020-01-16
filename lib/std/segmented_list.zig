@@ -112,7 +112,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
                 .allocator = allocator,
                 .len = 0,
                 .prealloc_segment = undefined,
-                .dynamic_segments = [_][*]T{},
+                .dynamic_segments = &[_][*]T{},
             };
         }
 
@@ -122,7 +122,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             self.* = undefined;
         }
 
-        pub fn at(self: var, i: usize) AtType(@typeOf(self)) {
+        pub fn at(self: var, i: usize) AtType(@TypeOf(self)) {
             assert(i < self.len);
             return self.uncheckedAt(i);
         }
@@ -162,7 +162,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
         /// Grows or shrinks capacity to match usage.
         pub fn setCapacity(self: *Self, new_capacity: usize) !void {
             if (prealloc_item_count != 0) {
-                if (new_capacity <= usize(1) << (prealloc_exp + @intCast(ShelfIndex, self.dynamic_segments.len))) {
+                if (new_capacity <= @as(usize, 1) << (prealloc_exp + @intCast(ShelfIndex, self.dynamic_segments.len))) {
                     return self.shrinkCapacity(new_capacity);
                 }
             }
@@ -192,7 +192,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
                 const len = @intCast(ShelfIndex, self.dynamic_segments.len);
                 self.freeShelves(len, 0);
                 self.allocator.free(self.dynamic_segments);
-                self.dynamic_segments = [_][*]T{};
+                self.dynamic_segments = &[_][*]T{};
                 return;
             }
 
@@ -213,7 +213,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
             self.len = new_len;
         }
 
-        pub fn uncheckedAt(self: var, index: usize) AtType(@typeOf(self)) {
+        pub fn uncheckedAt(self: var, index: usize) AtType(@TypeOf(self)) {
             if (index < prealloc_item_count) {
                 return &self.prealloc_segment[index];
             }
@@ -231,9 +231,9 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
         fn shelfSize(shelf_index: ShelfIndex) usize {
             if (prealloc_item_count == 0) {
-                return usize(1) << shelf_index;
+                return @as(usize, 1) << shelf_index;
             }
-            return usize(1) << (shelf_index + (prealloc_exp + 1));
+            return @as(usize, 1) << (shelf_index + (prealloc_exp + 1));
         }
 
         fn shelfIndex(list_index: usize) ShelfIndex {
@@ -245,9 +245,9 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
         fn boxIndex(list_index: usize, shelf_index: ShelfIndex) usize {
             if (prealloc_item_count == 0) {
-                return (list_index + 1) - (usize(1) << shelf_index);
+                return (list_index + 1) - (@as(usize, 1) << shelf_index);
             }
-            return list_index + prealloc_item_count - (usize(1) << ((prealloc_exp + 1) + shelf_index));
+            return list_index + prealloc_item_count - (@as(usize, 1) << ((prealloc_exp + 1) + shelf_index));
         }
 
         fn freeShelves(self: *Self, from_count: ShelfIndex, to_count: ShelfIndex) void {
@@ -339,7 +339,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 }
 
 test "std.SegmentedList" {
-    var a = std.heap.direct_allocator;
+    var a = std.heap.page_allocator;
 
     try testSegmentedList(0, a);
     try testSegmentedList(1, a);
@@ -385,18 +385,14 @@ fn testSegmentedList(comptime prealloc: usize, allocator: *Allocator) !void {
     testing.expect(list.pop().? == 100);
     testing.expect(list.len == 99);
 
-    try list.pushMany([_]i32{
-        1,
-        2,
-        3,
-    });
+    try list.pushMany(&[_]i32{ 1, 2, 3 });
     testing.expect(list.len == 102);
     testing.expect(list.pop().? == 3);
     testing.expect(list.pop().? == 2);
     testing.expect(list.pop().? == 1);
     testing.expect(list.len == 99);
 
-    try list.pushMany([_]i32{});
+    try list.pushMany(&[_]i32{});
     testing.expect(list.len == 99);
 
     var i: i32 = 99;

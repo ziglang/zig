@@ -19,7 +19,7 @@ pub fn parseStringLiteral(
     bytes: []const u8,
     bad_index: *usize, // populated if error.InvalidCharacter is returned
 ) ParseStringLiteralError![]u8 {
-    const first_index = if (bytes[0] == 'c') usize(2) else usize(1);
+    const first_index = if (bytes[0] == 'c') @as(usize, 2) else @as(usize, 1);
     assert(bytes[bytes.len - 1] == '"');
 
     var list = std.ArrayList(u8).init(allocator);

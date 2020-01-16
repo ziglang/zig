@@ -63,7 +63,7 @@ pub const X25519 = struct {
         var pos: isize = 254;
         while (pos >= 0) : (pos -= 1) {
             // constant time conditional swap before ladder step
-            const b = scalarBit(e, @intCast(usize, pos));
+            const b = scalarBit(&e, @intCast(usize, pos));
             swap ^= b; // xor trick avoids swapping at the end of the loop
             Fe.cswap(x2, x3, swap);
             Fe.cswap(z2, z3, swap);
@@ -117,7 +117,7 @@ pub const X25519 = struct {
 
     pub fn createPublicKey(public_key: []u8, private_key: []const u8) bool {
         var base_point = [_]u8{9} ++ [_]u8{0} ** 31;
-        return create(public_key, private_key, base_point);
+        return create(public_key, private_key, &base_point);
     }
 };
 
@@ -199,9 +199,9 @@ const Fe = struct {
     inline fn carryRound(c: []i64, t: []i64, comptime i: comptime_int, comptime shift: comptime_int, comptime mult: comptime_int) void {
         const j = (i + 1) % 10;
 
-        c[i] = (t[i] + (i64(1) << shift)) >> (shift + 1);
+        c[i] = (t[i] + (@as(i64, 1) << shift)) >> (shift + 1);
         t[j] += c[i] * mult;
-        t[i] -= c[i] * (i64(1) << (shift + 1));
+        t[i] -= c[i] * (@as(i64, 1) << (shift + 1));
     }
 
     fn carry1(h: *Fe, t: []i64) void {
@@ -256,15 +256,15 @@ const Fe = struct {
         var t: [10]i64 = undefined;
 
         t[0] = readIntSliceLittle(u32, s[0..4]);
-        t[1] = u32(readIntSliceLittle(u24, s[4..7])) << 6;
-        t[2] = u32(readIntSliceLittle(u24, s[7..10])) << 5;
-        t[3] = u32(readIntSliceLittle(u24, s[10..13])) << 3;
-        t[4] = u32(readIntSliceLittle(u24, s[13..16])) << 2;
+        t[1] = @as(u32, readIntSliceLittle(u24, s[4..7])) << 6;
+        t[2] = @as(u32, readIntSliceLittle(u24, s[7..10])) << 5;
+        t[3] = @as(u32, readIntSliceLittle(u24, s[10..13])) << 3;
+        t[4] = @as(u32, readIntSliceLittle(u24, s[13..16])) << 2;
         t[5] = readIntSliceLittle(u32, s[16..20]);
-        t[6] = u32(readIntSliceLittle(u24, s[20..23])) << 7;
-        t[7] = u32(readIntSliceLittle(u24, s[23..26])) << 5;
-        t[8] = u32(readIntSliceLittle(u24, s[26..29])) << 4;
-        t[9] = (u32(readIntSliceLittle(u24, s[29..32])) & 0x7fffff) << 2;
+        t[6] = @as(u32, readIntSliceLittle(u24, s[20..23])) << 7;
+        t[7] = @as(u32, readIntSliceLittle(u24, s[23..26])) << 5;
+        t[8] = @as(u32, readIntSliceLittle(u24, s[26..29])) << 4;
+        t[9] = (@as(u32, readIntSliceLittle(u24, s[29..32])) & 0x7fffff) << 2;
 
         carry1(h, t[0..]);
     }
@@ -273,7 +273,7 @@ const Fe = struct {
         var t: [10]i64 = undefined;
 
         for (t[0..]) |_, i| {
-            t[i] = i64(f.b[i]) * g;
+            t[i] = @as(i64, f.b[i]) * g;
         }
 
         carry1(h, t[0..]);
@@ -305,16 +305,16 @@ const Fe = struct {
         // t's become h
         var t: [10]i64 = undefined;
 
-        t[0] = f[0] * i64(g[0]) + F[1] * i64(G[9]) + f[2] * i64(G[8]) + F[3] * i64(G[7]) + f[4] * i64(G[6]) + F[5] * i64(G[5]) + f[6] * i64(G[4]) + F[7] * i64(G[3]) + f[8] * i64(G[2]) + F[9] * i64(G[1]);
-        t[1] = f[0] * i64(g[1]) + f[1] * i64(g[0]) + f[2] * i64(G[9]) + f[3] * i64(G[8]) + f[4] * i64(G[7]) + f[5] * i64(G[6]) + f[6] * i64(G[5]) + f[7] * i64(G[4]) + f[8] * i64(G[3]) + f[9] * i64(G[2]);
-        t[2] = f[0] * i64(g[2]) + F[1] * i64(g[1]) + f[2] * i64(g[0]) + F[3] * i64(G[9]) + f[4] * i64(G[8]) + F[5] * i64(G[7]) + f[6] * i64(G[6]) + F[7] * i64(G[5]) + f[8] * i64(G[4]) + F[9] * i64(G[3]);
-        t[3] = f[0] * i64(g[3]) + f[1] * i64(g[2]) + f[2] * i64(g[1]) + f[3] * i64(g[0]) + f[4] * i64(G[9]) + f[5] * i64(G[8]) + f[6] * i64(G[7]) + f[7] * i64(G[6]) + f[8] * i64(G[5]) + f[9] * i64(G[4]);
-        t[4] = f[0] * i64(g[4]) + F[1] * i64(g[3]) + f[2] * i64(g[2]) + F[3] * i64(g[1]) + f[4] * i64(g[0]) + F[5] * i64(G[9]) + f[6] * i64(G[8]) + F[7] * i64(G[7]) + f[8] * i64(G[6]) + F[9] * i64(G[5]);
-        t[5] = f[0] * i64(g[5]) + f[1] * i64(g[4]) + f[2] * i64(g[3]) + f[3] * i64(g[2]) + f[4] * i64(g[1]) + f[5] * i64(g[0]) + f[6] * i64(G[9]) + f[7] * i64(G[8]) + f[8] * i64(G[7]) + f[9] * i64(G[6]);
-        t[6] = f[0] * i64(g[6]) + F[1] * i64(g[5]) + f[2] * i64(g[4]) + F[3] * i64(g[3]) + f[4] * i64(g[2]) + F[5] * i64(g[1]) + f[6] * i64(g[0]) + F[7] * i64(G[9]) + f[8] * i64(G[8]) + F[9] * i64(G[7]);
-        t[7] = f[0] * i64(g[7]) + f[1] * i64(g[6]) + f[2] * i64(g[5]) + f[3] * i64(g[4]) + f[4] * i64(g[3]) + f[5] * i64(g[2]) + f[6] * i64(g[1]) + f[7] * i64(g[0]) + f[8] * i64(G[9]) + f[9] * i64(G[8]);
-        t[8] = f[0] * i64(g[8]) + F[1] * i64(g[7]) + f[2] * i64(g[6]) + F[3] * i64(g[5]) + f[4] * i64(g[4]) + F[5] * i64(g[3]) + f[6] * i64(g[2]) + F[7] * i64(g[1]) + f[8] * i64(g[0]) + F[9] * i64(G[9]);
-        t[9] = f[0] * i64(g[9]) + f[1] * i64(g[8]) + f[2] * i64(g[7]) + f[3] * i64(g[6]) + f[4] * i64(g[5]) + f[5] * i64(g[4]) + f[6] * i64(g[3]) + f[7] * i64(g[2]) + f[8] * i64(g[1]) + f[9] * i64(g[0]);
+        t[0] = f[0] * @as(i64, g[0]) + F[1] * @as(i64, G[9]) + f[2] * @as(i64, G[8]) + F[3] * @as(i64, G[7]) + f[4] * @as(i64, G[6]) + F[5] * @as(i64, G[5]) + f[6] * @as(i64, G[4]) + F[7] * @as(i64, G[3]) + f[8] * @as(i64, G[2]) + F[9] * @as(i64, G[1]);
+        t[1] = f[0] * @as(i64, g[1]) + f[1] * @as(i64, g[0]) + f[2] * @as(i64, G[9]) + f[3] * @as(i64, G[8]) + f[4] * @as(i64, G[7]) + f[5] * @as(i64, G[6]) + f[6] * @as(i64, G[5]) + f[7] * @as(i64, G[4]) + f[8] * @as(i64, G[3]) + f[9] * @as(i64, G[2]);
+        t[2] = f[0] * @as(i64, g[2]) + F[1] * @as(i64, g[1]) + f[2] * @as(i64, g[0]) + F[3] * @as(i64, G[9]) + f[4] * @as(i64, G[8]) + F[5] * @as(i64, G[7]) + f[6] * @as(i64, G[6]) + F[7] * @as(i64, G[5]) + f[8] * @as(i64, G[4]) + F[9] * @as(i64, G[3]);
+        t[3] = f[0] * @as(i64, g[3]) + f[1] * @as(i64, g[2]) + f[2] * @as(i64, g[1]) + f[3] * @as(i64, g[0]) + f[4] * @as(i64, G[9]) + f[5] * @as(i64, G[8]) + f[6] * @as(i64, G[7]) + f[7] * @as(i64, G[6]) + f[8] * @as(i64, G[5]) + f[9] * @as(i64, G[4]);
+        t[4] = f[0] * @as(i64, g[4]) + F[1] * @as(i64, g[3]) + f[2] * @as(i64, g[2]) + F[3] * @as(i64, g[1]) + f[4] * @as(i64, g[0]) + F[5] * @as(i64, G[9]) + f[6] * @as(i64, G[8]) + F[7] * @as(i64, G[7]) + f[8] * @as(i64, G[6]) + F[9] * @as(i64, G[5]);
+        t[5] = f[0] * @as(i64, g[5]) + f[1] * @as(i64, g[4]) + f[2] * @as(i64, g[3]) + f[3] * @as(i64, g[2]) + f[4] * @as(i64, g[1]) + f[5] * @as(i64, g[0]) + f[6] * @as(i64, G[9]) + f[7] * @as(i64, G[8]) + f[8] * @as(i64, G[7]) + f[9] * @as(i64, G[6]);
+        t[6] = f[0] * @as(i64, g[6]) + F[1] * @as(i64, g[5]) + f[2] * @as(i64, g[4]) + F[3] * @as(i64, g[3]) + f[4] * @as(i64, g[2]) + F[5] * @as(i64, g[1]) + f[6] * @as(i64, g[0]) + F[7] * @as(i64, G[9]) + f[8] * @as(i64, G[8]) + F[9] * @as(i64, G[7]);
+        t[7] = f[0] * @as(i64, g[7]) + f[1] * @as(i64, g[6]) + f[2] * @as(i64, g[5]) + f[3] * @as(i64, g[4]) + f[4] * @as(i64, g[3]) + f[5] * @as(i64, g[2]) + f[6] * @as(i64, g[1]) + f[7] * @as(i64, g[0]) + f[8] * @as(i64, G[9]) + f[9] * @as(i64, G[8]);
+        t[8] = f[0] * @as(i64, g[8]) + F[1] * @as(i64, g[7]) + f[2] * @as(i64, g[6]) + F[3] * @as(i64, g[5]) + f[4] * @as(i64, g[4]) + F[5] * @as(i64, g[3]) + f[6] * @as(i64, g[2]) + F[7] * @as(i64, g[1]) + f[8] * @as(i64, g[0]) + F[9] * @as(i64, G[9]);
+        t[9] = f[0] * @as(i64, g[9]) + f[1] * @as(i64, g[8]) + f[2] * @as(i64, g[7]) + f[3] * @as(i64, g[6]) + f[4] * @as(i64, g[5]) + f[5] * @as(i64, g[4]) + f[6] * @as(i64, g[3]) + f[7] * @as(i64, g[2]) + f[8] * @as(i64, g[1]) + f[9] * @as(i64, g[0]);
 
         carry2(h, t[0..]);
     }
@@ -348,16 +348,16 @@ const Fe = struct {
 
         var t: [10]i64 = undefined;
 
-        t[0] = f0 * i64(f0) + f1_2 * i64(f9_38) + f2_2 * i64(f8_19) + f3_2 * i64(f7_38) + f4_2 * i64(f6_19) + f5 * i64(f5_38);
-        t[1] = f0_2 * i64(f1) + f2 * i64(f9_38) + f3_2 * i64(f8_19) + f4 * i64(f7_38) + f5_2 * i64(f6_19);
-        t[2] = f0_2 * i64(f2) + f1_2 * i64(f1) + f3_2 * i64(f9_38) + f4_2 * i64(f8_19) + f5_2 * i64(f7_38) + f6 * i64(f6_19);
-        t[3] = f0_2 * i64(f3) + f1_2 * i64(f2) + f4 * i64(f9_38) + f5_2 * i64(f8_19) + f6 * i64(f7_38);
-        t[4] = f0_2 * i64(f4) + f1_2 * i64(f3_2) + f2 * i64(f2) + f5_2 * i64(f9_38) + f6_2 * i64(f8_19) + f7 * i64(f7_38);
-        t[5] = f0_2 * i64(f5) + f1_2 * i64(f4) + f2_2 * i64(f3) + f6 * i64(f9_38) + f7_2 * i64(f8_19);
-        t[6] = f0_2 * i64(f6) + f1_2 * i64(f5_2) + f2_2 * i64(f4) + f3_2 * i64(f3) + f7_2 * i64(f9_38) + f8 * i64(f8_19);
-        t[7] = f0_2 * i64(f7) + f1_2 * i64(f6) + f2_2 * i64(f5) + f3_2 * i64(f4) + f8 * i64(f9_38);
-        t[8] = f0_2 * i64(f8) + f1_2 * i64(f7_2) + f2_2 * i64(f6) + f3_2 * i64(f5_2) + f4 * i64(f4) + f9 * i64(f9_38);
-        t[9] = f0_2 * i64(f9) + f1_2 * i64(f8) + f2_2 * i64(f7) + f3_2 * i64(f6) + f4 * i64(f5_2);
+        t[0] = f0 * @as(i64, f0) + f1_2 * @as(i64, f9_38) + f2_2 * @as(i64, f8_19) + f3_2 * @as(i64, f7_38) + f4_2 * @as(i64, f6_19) + f5 * @as(i64, f5_38);
+        t[1] = f0_2 * @as(i64, f1) + f2 * @as(i64, f9_38) + f3_2 * @as(i64, f8_19) + f4 * @as(i64, f7_38) + f5_2 * @as(i64, f6_19);
+        t[2] = f0_2 * @as(i64, f2) + f1_2 * @as(i64, f1) + f3_2 * @as(i64, f9_38) + f4_2 * @as(i64, f8_19) + f5_2 * @as(i64, f7_38) + f6 * @as(i64, f6_19);
+        t[3] = f0_2 * @as(i64, f3) + f1_2 * @as(i64, f2) + f4 * @as(i64, f9_38) + f5_2 * @as(i64, f8_19) + f6 * @as(i64, f7_38);
+        t[4] = f0_2 * @as(i64, f4) + f1_2 * @as(i64, f3_2) + f2 * @as(i64, f2) + f5_2 * @as(i64, f9_38) + f6_2 * @as(i64, f8_19) + f7 * @as(i64, f7_38);
+        t[5] = f0_2 * @as(i64, f5) + f1_2 * @as(i64, f4) + f2_2 * @as(i64, f3) + f6 * @as(i64, f9_38) + f7_2 * @as(i64, f8_19);
+        t[6] = f0_2 * @as(i64, f6) + f1_2 * @as(i64, f5_2) + f2_2 * @as(i64, f4) + f3_2 * @as(i64, f3) + f7_2 * @as(i64, f9_38) + f8 * @as(i64, f8_19);
+        t[7] = f0_2 * @as(i64, f7) + f1_2 * @as(i64, f6) + f2_2 * @as(i64, f5) + f3_2 * @as(i64, f4) + f8 * @as(i64, f9_38);
+        t[8] = f0_2 * @as(i64, f8) + f1_2 * @as(i64, f7_2) + f2_2 * @as(i64, f6) + f3_2 * @as(i64, f5_2) + f4 * @as(i64, f4) + f9 * @as(i64, f9_38);
+        t[9] = f0_2 * @as(i64, f9) + f1_2 * @as(i64, f8) + f2_2 * @as(i64, f7) + f3_2 * @as(i64, f6) + f4 * @as(i64, f5_2);
 
         carry2(h, t[0..]);
     }
@@ -500,7 +500,7 @@ const Fe = struct {
         if (i + 1 < 10) {
             t[i + 1] += c[i];
         }
-        t[i] -= c[i] * (i32(1) << shift);
+        t[i] -= c[i] * (@as(i32, 1) << shift);
     }
 
     fn toBytes(s: []u8, h: *const Fe) void {
@@ -511,7 +511,7 @@ const Fe = struct {
             t[i] = h.b[i];
         }
 
-        var q = (19 * t[9] + ((i32(1) << 24))) >> 25;
+        var q = (19 * t[9] + ((@as(i32, 1) << 24))) >> 25;
         {
             var i: usize = 0;
             while (i < 5) : (i += 1) {
@@ -581,8 +581,8 @@ test "x25519 public key calculation from secret key" {
     var pk_calculated: [32]u8 = undefined;
     try fmt.hexToBytes(sk[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
     try fmt.hexToBytes(pk_expected[0..], "f1814f0e8ff1043d8a44d25babff3cedcae6c22c3edaa48f857ae70de2baae50");
-    std.testing.expect(X25519.createPublicKey(pk_calculated[0..], sk));
-    std.testing.expect(std.mem.eql(u8, pk_calculated, pk_expected));
+    std.testing.expect(X25519.createPublicKey(pk_calculated[0..], &sk));
+    std.testing.expect(std.mem.eql(u8, &pk_calculated, &pk_expected));
 }
 
 test "x25519 rfc7748 vector1" {
@@ -594,7 +594,7 @@ test "x25519 rfc7748 vector1" {
     var output: [32]u8 = undefined;
 
     std.testing.expect(X25519.create(output[0..], secret_key, public_key));
-    std.testing.expect(std.mem.eql(u8, output, expected_output));
+    std.testing.expect(std.mem.eql(u8, &output, expected_output));
 }
 
 test "x25519 rfc7748 vector2" {
@@ -606,11 +606,11 @@ test "x25519 rfc7748 vector2" {
     var output: [32]u8 = undefined;
 
     std.testing.expect(X25519.create(output[0..], secret_key, public_key));
-    std.testing.expect(std.mem.eql(u8, output, expected_output));
+    std.testing.expect(std.mem.eql(u8, &output, expected_output));
 }
 
 test "x25519 rfc7748 one iteration" {
-    const initial_value = "\x09\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+    const initial_value = "\x09\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00".*;
     const expected_output = "\x42\x2c\x8e\x7a\x62\x27\xd7\xbc\xa1\x35\x0b\x3e\x2b\xb7\x27\x9f\x78\x97\xb8\x7b\xb6\x85\x4b\x78\x3c\x60\xe8\x03\x11\xae\x30\x79";
 
     var k: [32]u8 = initial_value;
@@ -619,7 +619,7 @@ test "x25519 rfc7748 one iteration" {
     var i: usize = 0;
     while (i < 1) : (i += 1) {
         var output: [32]u8 = undefined;
-        std.testing.expect(X25519.create(output[0..], k, u));
+        std.testing.expect(X25519.create(output[0..], &k, &u));
 
         std.mem.copy(u8, u[0..], k[0..]);
         std.mem.copy(u8, k[0..], output[0..]);
@@ -637,13 +637,13 @@ test "x25519 rfc7748 1,000 iterations" {
     const initial_value = "\x09\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
     const expected_output = "\x68\x4c\xf5\x9b\xa8\x33\x09\x55\x28\x00\xef\x56\x6f\x2f\x4d\x3c\x1c\x38\x87\xc4\x93\x60\xe3\x87\x5f\x2e\xb9\x4d\x99\x53\x2c\x51";
 
-    var k: [32]u8 = initial_value;
-    var u: [32]u8 = initial_value;
+    var k: [32]u8 = initial_value.*;
+    var u: [32]u8 = initial_value.*;
 
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
         var output: [32]u8 = undefined;
-        std.testing.expect(X25519.create(output[0..], k, u));
+        std.testing.expect(X25519.create(output[0..], &k, &u));
 
         std.mem.copy(u8, u[0..], k[0..]);
         std.mem.copy(u8, k[0..], output[0..]);
@@ -660,13 +660,13 @@ test "x25519 rfc7748 1,000,000 iterations" {
     const initial_value = "\x09\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
     const expected_output = "\x7c\x39\x11\xe0\xab\x25\x86\xfd\x86\x44\x97\x29\x7e\x57\x5e\x6f\x3b\xc6\x01\xc0\x88\x3c\x30\xdf\x5f\x4d\xd2\xd2\x4f\x66\x54\x24";
 
-    var k: [32]u8 = initial_value;
-    var u: [32]u8 = initial_value;
+    var k: [32]u8 = initial_value.*;
+    var u: [32]u8 = initial_value.*;
 
     var i: usize = 0;
     while (i < 1000000) : (i += 1) {
         var output: [32]u8 = undefined;
-        std.testing.expect(X25519.create(output[0..], k, u));
+        std.testing.expect(X25519.create(output[0..], &k, &u));
 
         std.mem.copy(u8, u[0..], k[0..]);
         std.mem.copy(u8, k[0..], output[0..]);

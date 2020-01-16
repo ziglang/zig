@@ -77,12 +77,7 @@ enum Error {
     ErrorNoSpaceLeft,
     ErrorNotLazy,
     ErrorIsAsync,
-};
-
-// ABI warning
-enum Stage2TranslateMode {
-    Stage2TranslateModeImport,
-    Stage2TranslateModeTranslate,
+    ErrorImportOutsidePkgPath,
 };
 
 // ABI warning
@@ -103,8 +98,7 @@ struct Stage2Ast;
 // ABI warning
 ZIG_EXTERN_C enum Error stage2_translate_c(struct Stage2Ast **out_ast,
         struct Stage2ErrorMsg **out_errors_ptr, size_t *out_errors_len,
-        const char **args_begin, const char **args_end, enum Stage2TranslateMode mode,
-        const char *resources_path);
+        const char **args_begin, const char **args_end, const char *resources_path);
 
 // ABI warning
 ZIG_EXTERN_C void stage2_free_clang_errors(struct Stage2ErrorMsg *ptr, size_t len);
@@ -155,5 +149,29 @@ ZIG_EXTERN_C void stage2_DepTokenizer_deinit(stage2_DepTokenizer *self);
 
 // ABI warning
 ZIG_EXTERN_C stage2_DepNextResult stage2_DepTokenizer_next(stage2_DepTokenizer *self);
+
+// ABI warning
+struct Stage2Progress;
+// ABI warning
+struct Stage2ProgressNode;
+// ABI warning
+ZIG_EXTERN_C Stage2Progress *stage2_progress_create(void);
+// ABI warning
+ZIG_EXTERN_C void stage2_progress_disable_tty(Stage2Progress *progress);
+// ABI warning
+ZIG_EXTERN_C void stage2_progress_destroy(Stage2Progress *progress);
+// ABI warning
+ZIG_EXTERN_C Stage2ProgressNode *stage2_progress_start_root(Stage2Progress *progress,
+        const char *name_ptr, size_t name_len, size_t estimated_total_items);
+// ABI warning
+ZIG_EXTERN_C Stage2ProgressNode *stage2_progress_start(Stage2ProgressNode *node,
+        const char *name_ptr, size_t name_len, size_t estimated_total_items);
+// ABI warning
+ZIG_EXTERN_C void stage2_progress_end(Stage2ProgressNode *node);
+// ABI warning
+ZIG_EXTERN_C void stage2_progress_complete_one(Stage2ProgressNode *node);
+// ABI warning
+ZIG_EXTERN_C void stage2_progress_update_node(Stage2ProgressNode *node,
+        size_t completed_count, size_t estimated_total_items);
 
 #endif

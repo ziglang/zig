@@ -9,6 +9,7 @@ pub usingnamespace switch (builtin.arch) {
 };
 
 pub usingnamespace switch (builtin.arch) {
+    .i386 => @import("linux/i386.zig"),
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64 => @import("linux/arm64.zig"),
     .arm => @import("linux/arm-eabi.zig"),
@@ -25,6 +26,7 @@ pub const uid_t = i32;
 pub const gid_t = u32;
 pub const clock_t = isize;
 
+pub const NAME_MAX = 255;
 pub const PATH_MAX = 4096;
 pub const IOV_MAX = 1024;
 
@@ -226,43 +228,6 @@ pub const RWF_APPEND = kernel_rwf(0x00000010);
 pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
 pub const SEEK_END = 2;
-
-pub const PROTO_ip = 0o000;
-pub const PROTO_icmp = 0o001;
-pub const PROTO_igmp = 0o002;
-pub const PROTO_ggp = 0o003;
-pub const PROTO_ipencap = 0o004;
-pub const PROTO_st = 0o005;
-pub const PROTO_tcp = 0o006;
-pub const PROTO_egp = 0o010;
-pub const PROTO_pup = 0o014;
-pub const PROTO_udp = 0o021;
-pub const PROTO_hmp = 0o024;
-pub const PROTO_xns_idp = 0o026;
-pub const PROTO_rdp = 0o033;
-pub const PROTO_iso_tp4 = 0o035;
-pub const PROTO_xtp = 0o044;
-pub const PROTO_ddp = 0o045;
-pub const PROTO_idpr_cmtp = 0o046;
-pub const PROTO_ipv6 = 0o051;
-pub const PROTO_ipv6_route = 0o053;
-pub const PROTO_ipv6_frag = 0o054;
-pub const PROTO_idrp = 0o055;
-pub const PROTO_rsvp = 0o056;
-pub const PROTO_gre = 0o057;
-pub const PROTO_esp = 0o062;
-pub const PROTO_ah = 0o063;
-pub const PROTO_skip = 0o071;
-pub const PROTO_ipv6_icmp = 0o072;
-pub const PROTO_ipv6_nonxt = 0o073;
-pub const PROTO_ipv6_opts = 0o074;
-pub const PROTO_rspf = 0o111;
-pub const PROTO_vmtp = 0o121;
-pub const PROTO_ospf = 0o131;
-pub const PROTO_ipip = 0o136;
-pub const PROTO_encap = 0o142;
-pub const PROTO_pim = 0o147;
-pub const PROTO_raw = 0o377;
 
 pub const SHUT_RD = 0;
 pub const SHUT_WR = 1;
@@ -596,10 +561,10 @@ pub const EPOLLMSG = 0x400;
 pub const EPOLLERR = 0x008;
 pub const EPOLLHUP = 0x010;
 pub const EPOLLRDHUP = 0x2000;
-pub const EPOLLEXCLUSIVE = (u32(1) << 28);
-pub const EPOLLWAKEUP = (u32(1) << 29);
-pub const EPOLLONESHOT = (u32(1) << 30);
-pub const EPOLLET = (u32(1) << 31);
+pub const EPOLLEXCLUSIVE = (@as(u32, 1) << 28);
+pub const EPOLLWAKEUP = (@as(u32, 1) << 29);
+pub const EPOLLONESHOT = (@as(u32, 1) << 30);
+pub const EPOLLET = (@as(u32, 1) << 31);
 
 pub const CLOCK_REALTIME = 0;
 pub const CLOCK_MONOTONIC = 1;
@@ -800,19 +765,14 @@ pub const winsize = extern struct {
     ws_ypixel: u16,
 };
 
+/// NSIG is the total number of signals defined.
+/// As signal numbers are sequential, NSIG is one greater than the largest defined signal number.
 pub const NSIG = if (is_mips) 128 else 65;
-pub const sigset_t = [128 / @sizeOf(usize)]usize;
 
-pub usingnamespace if (NSIG == 65)
-    struct {
-        pub const all_mask = [2]u32{ 0xffffffff, 0xffffffff };
-        pub const app_mask = [2]u32{ 0xfffffffc, 0x7fffffff };
-    }
-else
-    struct {
-        pub const all_mask = [4]u32{ 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff };
-        pub const app_mask = [4]u32{ 0xfffffffc, 0x7fffffff, 0xffffffff, 0xffffffff };
-    };
+pub const sigset_t = [1024 / 32]u32;
+
+pub const all_mask: sigset_t = [_]u32{0xffffffff} ** sigset_t.len;
+pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
 
 pub const k_sigaction = if (is_mips)
     extern struct {
@@ -840,36 +800,37 @@ pub const Sigaction = extern struct {
 pub const SIG_ERR = @intToPtr(extern fn (i32, *siginfo_t, *c_void) void, maxInt(usize));
 pub const SIG_DFL = @intToPtr(?extern fn (i32, *siginfo_t, *c_void) void, 0);
 pub const SIG_IGN = @intToPtr(extern fn (i32, *siginfo_t, *c_void) void, 1);
-pub const empty_sigset = [_]usize{0} ** sigset_t.len;
+pub const empty_sigset = [_]u32{0} ** sigset_t.len;
 
 pub const in_port_t = u16;
 pub const sa_family_t = u16;
 pub const socklen_t = u32;
 
-/// This intentionally only has ip4 and ip6
-pub const sockaddr = extern union {
-    in: sockaddr_in,
-    in6: sockaddr_in6,
-    un: sockaddr_un,
+pub const sockaddr = extern struct {
+    family: sa_family_t,
+    data: [14]u8,
 };
 
+/// IPv4 socket address
 pub const sockaddr_in = extern struct {
-    family: sa_family_t,
+    family: sa_family_t = AF_INET,
     port: in_port_t,
     addr: u32,
-    zero: [8]u8,
+    zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
 };
 
+/// IPv6 socket address
 pub const sockaddr_in6 = extern struct {
-    family: sa_family_t,
+    family: sa_family_t = AF_INET6,
     port: in_port_t,
     flowinfo: u32,
     addr: [16]u8,
     scope_id: u32,
 };
 
+/// UNIX domain socket address
 pub const sockaddr_un = extern struct {
-    family: sa_family_t,
+    family: sa_family_t = AF_UNIX,
     path: [108]u8,
 };
 
@@ -986,7 +947,7 @@ pub fn cap_valid(u8: x) bool {
 }
 
 pub fn CAP_TO_MASK(cap: u8) u32 {
-    return u32(1) << u5(cap & 31);
+    return @as(u32, 1) << @intCast(u5, cap & 31);
 }
 
 pub fn CAP_TO_INDEX(cap: u8) u8 {
@@ -1023,18 +984,17 @@ pub const dirent64 = extern struct {
     d_reclen: u16,
     d_type: u8,
     d_name: u8, // field address is the address of first byte of name https://github.com/ziglang/zig/issues/173
+
+    pub fn reclen(self: dirent64) u16 {
+        return self.d_reclen;
+    }
 };
 
 pub const dl_phdr_info = extern struct {
     dlpi_addr: usize,
-    dlpi_name: ?[*]const u8,
+    dlpi_name: ?[*:0]const u8,
     dlpi_phdr: [*]std.elf.Phdr,
     dlpi_phnum: u16,
-};
-
-pub const pthread_attr_t = extern struct {
-    __size: [56]u8,
-    __align: c_long,
 };
 
 pub const CPU_SETSIZE = 128;
@@ -1151,10 +1111,15 @@ pub const io_uring_params = extern struct {
     flags: u32,
     sq_thread_cpu: u32,
     sq_thread_idle: u32,
-    resv: [5]u32,
+    features: u32,
+    resv: [4]u32,
     sq_off: io_sqring_offsets,
     cq_off: io_cqring_offsets,
 };
+
+// io_uring_params.features flags
+
+pub const IORING_FEAT_SINGLE_MMAP = 1 << 0;
 
 // io_uring_params.flags
 
@@ -1222,6 +1187,7 @@ pub const io_uring_sqe = extern struct {
         poll_events: u16,
         sync_range_flags: u32,
         msg_flags: u32,
+        timeout_flags: u32,
     };
     union1: union1,
     user_data: u64,
@@ -1254,6 +1220,7 @@ pub const IORING_OP_POLL_REMOVE = 7;
 pub const IORING_OP_SYNC_FILE_RANGE = 8;
 pub const IORING_OP_SENDMSG = 9;
 pub const IORING_OP_RECVMSG = 10;
+pub const IORING_OP_TIMEOUT = 11;
 
 // io_uring_sqe.fsync_flags
 pub const IORING_FSYNC_DATASYNC = (1 << 0);
@@ -1293,3 +1260,220 @@ pub const utsname = extern struct {
     domainname: [65]u8,
 };
 pub const HOST_NAME_MAX = 64;
+
+pub const STATX_TYPE = 0x0001;
+pub const STATX_MODE = 0x0002;
+pub const STATX_NLINK = 0x0004;
+pub const STATX_UID = 0x0008;
+pub const STATX_GID = 0x0010;
+pub const STATX_ATIME = 0x0020;
+pub const STATX_MTIME = 0x0040;
+pub const STATX_CTIME = 0x0080;
+pub const STATX_INO = 0x0100;
+pub const STATX_SIZE = 0x0200;
+pub const STATX_BLOCKS = 0x0400;
+pub const STATX_BASIC_STATS = 0x07ff;
+
+pub const STATX_BTIME = 0x0800;
+
+pub const STATX_ATTR_COMPRESSED = 0x0004;
+pub const STATX_ATTR_IMMUTABLE = 0x0010;
+pub const STATX_ATTR_APPEND = 0x0020;
+pub const STATX_ATTR_NODUMP = 0x0040;
+pub const STATX_ATTR_ENCRYPTED = 0x0800;
+pub const STATX_ATTR_AUTOMOUNT = 0x1000;
+
+pub const statx_timestamp = extern struct {
+    tv_sec: i64,
+    tv_nsec: u32,
+    __pad1: u32,
+};
+
+/// Renamed to `Statx` to not conflict with the `statx` function.
+pub const Statx = extern struct {
+    /// Mask of bits indicating filled fields
+    mask: u32,
+
+    /// Block size for filesystem I/O
+    blksize: u32,
+
+    /// Extra file attribute indicators
+    attributes: u64,
+
+    /// Number of hard links
+    nlink: u32,
+
+    /// User ID of owner
+    uid: u32,
+
+    /// Group ID of owner
+    gid: u32,
+
+    /// File type and mode
+    mode: u16,
+    __pad1: u16,
+
+    /// Inode number
+    ino: u64,
+
+    /// Total size in bytes
+    size: u64,
+
+    /// Number of 512B blocks allocated
+    blocks: u64,
+
+    /// Mask to show what's supported in `attributes`.
+    attributes_mask: u64,
+
+    /// Last access file timestamp
+    atime: statx_timestamp,
+
+    /// Creation file timestamp
+    btime: statx_timestamp,
+
+    /// Last status change file timestamp
+    ctime: statx_timestamp,
+
+    /// Last modification file timestamp
+    mtime: statx_timestamp,
+
+    /// Major ID, if this file represents a device.
+    rdev_major: u32,
+
+    /// Minor ID, if this file represents a device.
+    rdev_minor: u32,
+
+    /// Major ID of the device containing the filesystem where this file resides.
+    dev_major: u32,
+
+    /// Minor ID of the device containing the filesystem where this file resides.
+    dev_minor: u32,
+
+    __pad2: [14]u64,
+};
+
+pub const addrinfo = extern struct {
+    flags: i32,
+    family: i32,
+    socktype: i32,
+    protocol: i32,
+    addrlen: socklen_t,
+    addr: ?*sockaddr,
+    canonname: ?[*:0]u8,
+    next: ?*addrinfo,
+};
+
+pub const IPPORT_RESERVED = 1024;
+
+pub const IPPROTO_IP = 0;
+pub const IPPROTO_HOPOPTS = 0;
+pub const IPPROTO_ICMP = 1;
+pub const IPPROTO_IGMP = 2;
+pub const IPPROTO_IPIP = 4;
+pub const IPPROTO_TCP = 6;
+pub const IPPROTO_EGP = 8;
+pub const IPPROTO_PUP = 12;
+pub const IPPROTO_UDP = 17;
+pub const IPPROTO_IDP = 22;
+pub const IPPROTO_TP = 29;
+pub const IPPROTO_DCCP = 33;
+pub const IPPROTO_IPV6 = 41;
+pub const IPPROTO_ROUTING = 43;
+pub const IPPROTO_FRAGMENT = 44;
+pub const IPPROTO_RSVP = 46;
+pub const IPPROTO_GRE = 47;
+pub const IPPROTO_ESP = 50;
+pub const IPPROTO_AH = 51;
+pub const IPPROTO_ICMPV6 = 58;
+pub const IPPROTO_NONE = 59;
+pub const IPPROTO_DSTOPTS = 60;
+pub const IPPROTO_MTP = 92;
+pub const IPPROTO_BEETPH = 94;
+pub const IPPROTO_ENCAP = 98;
+pub const IPPROTO_PIM = 103;
+pub const IPPROTO_COMP = 108;
+pub const IPPROTO_SCTP = 132;
+pub const IPPROTO_MH = 135;
+pub const IPPROTO_UDPLITE = 136;
+pub const IPPROTO_MPLS = 137;
+pub const IPPROTO_RAW = 255;
+pub const IPPROTO_MAX = 256;
+
+pub const RR_A = 1;
+pub const RR_CNAME = 5;
+pub const RR_AAAA = 28;
+
+pub const nfds_t = usize;
+pub const pollfd = extern struct {
+    fd: fd_t,
+    events: i16,
+    revents: i16,
+};
+
+pub const POLLIN = 0x001;
+pub const POLLPRI = 0x002;
+pub const POLLOUT = 0x004;
+pub const POLLERR = 0x008;
+pub const POLLHUP = 0x010;
+pub const POLLNVAL = 0x020;
+pub const POLLRDNORM = 0x040;
+pub const POLLRDBAND = 0x080;
+
+pub const MFD_CLOEXEC = 0x0001;
+pub const MFD_ALLOW_SEALING = 0x0002;
+pub const MFD_HUGETLB = 0x0004;
+pub const MFD_ALL_FLAGS = MFD_CLOEXEC | MFD_ALLOW_SEALING | MFD_HUGETLB;
+
+pub const HUGETLB_FLAG_ENCODE_SHIFT = 26;
+pub const HUGETLB_FLAG_ENCODE_MASK = 0x3f;
+pub const HUGETLB_FLAG_ENCODE_64KB = 16 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_512KB = 19 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_1MB = 20 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_2MB = 21 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_8MB = 23 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_16MB = 24 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_32MB = 25 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_256MB = 28 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_512MB = 29 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_1GB = 30 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_2GB = 31 << HUGETLB_FLAG_ENCODE_SHIFT;
+pub const HUGETLB_FLAG_ENCODE_16GB = 34 << HUGETLB_FLAG_ENCODE_SHIFT;
+
+pub const MFD_HUGE_SHIFT = HUGETLB_FLAG_ENCODE_SHIFT;
+pub const MFD_HUGE_MASK = HUGETLB_FLAG_ENCODE_MASK;
+pub const MFD_HUGE_64KB = HUGETLB_FLAG_ENCODE_64KB;
+pub const MFD_HUGE_512KB = HUGETLB_FLAG_ENCODE_512KB;
+pub const MFD_HUGE_1MB = HUGETLB_FLAG_ENCODE_1MB;
+pub const MFD_HUGE_2MB = HUGETLB_FLAG_ENCODE_2MB;
+pub const MFD_HUGE_8MB = HUGETLB_FLAG_ENCODE_8MB;
+pub const MFD_HUGE_16MB = HUGETLB_FLAG_ENCODE_16MB;
+pub const MFD_HUGE_32MB = HUGETLB_FLAG_ENCODE_32MB;
+pub const MFD_HUGE_256MB = HUGETLB_FLAG_ENCODE_256MB;
+pub const MFD_HUGE_512MB = HUGETLB_FLAG_ENCODE_512MB;
+pub const MFD_HUGE_1GB = HUGETLB_FLAG_ENCODE_1GB;
+pub const MFD_HUGE_2GB = HUGETLB_FLAG_ENCODE_2GB;
+pub const MFD_HUGE_16GB = HUGETLB_FLAG_ENCODE_16GB;
+
+pub const RUSAGE_SELF = 0;
+pub const RUSAGE_CHILDREN = -1;
+pub const RUSAGE_THREAD = 1;
+
+pub const rusage = extern struct {
+    utime: timeval,
+    stime: timeval,
+    maxrss: isize,
+    ix_rss: isize,
+    idrss: isize,
+    isrss: isize,
+    minflt: isize,
+    majflt: isize,
+    nswap: isize,
+    inblock: isize,
+    oublock: isize,
+    msgsnd: isize,
+    msgrcv: isize,
+    nsignals: isize,
+    nvcsw: isize,
+    nivcsw: isize,
+    __reserved: [16]isize = [1]isize{0} ** 16,
+};

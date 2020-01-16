@@ -2,20 +2,30 @@ const std = @import("std");
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
 
-pub extern fn __extendsfdf2(a: f32) f64 {
-    return @inlineCall(extendXfYf2, f64, f32, @bitCast(u32, a));
+pub fn __extendsfdf2(a: f32) callconv(.C) f64 {
+    return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f64, f32, @bitCast(u32, a) });
 }
 
-pub extern fn __extenddftf2(a: f64) f128 {
-    return @inlineCall(extendXfYf2, f128, f64, @bitCast(u64, a));
+pub fn __extenddftf2(a: f64) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f128, f64, @bitCast(u64, a) });
 }
 
-pub extern fn __extendsftf2(a: f32) f128 {
-    return @inlineCall(extendXfYf2, f128, f32, @bitCast(u32, a));
+pub fn __extendsftf2(a: f32) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f128, f32, @bitCast(u32, a) });
 }
 
-pub extern fn __extendhfsf2(a: u16) f32 {
-    return @inlineCall(extendXfYf2, f32, f16, a);
+pub fn __extendhfsf2(a: u16) callconv(.C) f32 {
+    return @call(.{ .modifier = .always_inline }, extendXfYf2, .{ f32, f16, a });
+}
+
+pub fn __aeabi_h2f(arg: u16) callconv(.AAPCS) f32 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __extendhfsf2, .{arg});
+}
+
+pub fn __aeabi_f2d(arg: f32) callconv(.AAPCS) f64 {
+    @setRuntimeSafety(false);
+    return @call(.{ .modifier = .always_inline }, __extendsfdf2, .{arg});
 }
 
 const CHAR_BIT = 8;
@@ -49,7 +59,7 @@ fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: @IntType(false, @t
     const dstInfExp = (1 << dstExpBits) - 1;
     const dstExpBias = dstInfExp >> 1;
 
-    const dstMinNormal: dst_rep_t = dst_rep_t(1) << dstSigBits;
+    const dstMinNormal: dst_rep_t = @as(dst_rep_t, 1) << dstSigBits;
 
     // Break a into a sign and representation of the absolute value
     const aRep: src_rep_t = @bitCast(src_rep_t, a);
@@ -61,7 +71,7 @@ fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: @IntType(false, @t
         // a is a normal number.
         // Extend to the destination type by shifting the significand and
         // exponent into the proper position and rebiasing the exponent.
-        absResult = dst_rep_t(aAbs) << (dstSigBits - srcSigBits);
+        absResult = @as(dst_rep_t, aAbs) << (dstSigBits - srcSigBits);
         absResult += (dstExpBias - srcExpBias) << dstSigBits;
     } else if (aAbs >= srcInfinity) {
         // a is NaN or infinity.
@@ -69,15 +79,15 @@ fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: @IntType(false, @t
         // bit (if needed) and right-aligning the rest of the trailing NaN
         // payload field.
         absResult = dstInfExp << dstSigBits;
-        absResult |= dst_rep_t(aAbs & srcQNaN) << (dstSigBits - srcSigBits);
-        absResult |= dst_rep_t(aAbs & srcNaNCode) << (dstSigBits - srcSigBits);
+        absResult |= @as(dst_rep_t, aAbs & srcQNaN) << (dstSigBits - srcSigBits);
+        absResult |= @as(dst_rep_t, aAbs & srcNaNCode) << (dstSigBits - srcSigBits);
     } else if (aAbs != 0) {
         // a is denormal.
         // renormalize the significand and clear the leading bit, then insert
         // the correct adjusted exponent in the destination type.
         const scale: u32 = @clz(src_rep_t, aAbs) -
-            @clz(src_rep_t, src_rep_t(srcMinNormal));
-        absResult = dst_rep_t(aAbs) << @intCast(DstShift, dstSigBits - srcSigBits + scale);
+            @clz(src_rep_t, @as(src_rep_t, srcMinNormal));
+        absResult = @as(dst_rep_t, aAbs) << @intCast(DstShift, dstSigBits - srcSigBits + scale);
         absResult ^= dstMinNormal;
         const resultExponent: u32 = dstExpBias - srcExpBias - scale + 1;
         absResult |= @intCast(dst_rep_t, resultExponent) << dstSigBits;
@@ -87,7 +97,7 @@ fn extendXfYf2(comptime dst_t: type, comptime src_t: type, a: @IntType(false, @t
     }
 
     // Apply the signbit to (dst_t)abs(a).
-    const result: dst_rep_t align(@alignOf(dst_t)) = absResult | dst_rep_t(sign) << (dstBits - srcBits);
+    const result: dst_rep_t align(@alignOf(dst_t)) = absResult | @as(dst_rep_t, sign) << (dstBits - srcBits);
     return @bitCast(dst_t, result);
 }
 

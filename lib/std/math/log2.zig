@@ -18,11 +18,11 @@ const maxInt = std.math.maxInt;
 ///  - log2(0)     = -inf
 ///  - log2(x)     = nan if x < 0
 ///  - log2(nan)   = nan
-pub fn log2(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn log2(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     switch (@typeId(T)) {
         TypeId.ComptimeFloat => {
-            return @typeOf(1.0)(log2_64(x));
+            return @as(comptime_float, log2_64(x));
         },
         TypeId.Float => {
             return switch (T) {
@@ -143,7 +143,7 @@ pub fn log2_64(x_: f64) f64 {
     hx += 0x3FF00000 - 0x3FE6A09E;
     k += @intCast(i32, hx >> 20) - 0x3FF;
     hx = (hx & 0x000FFFFF) + 0x3FE6A09E;
-    ix = (u64(hx) << 32) | (ix & 0xFFFFFFFF);
+    ix = (@as(u64, hx) << 32) | (ix & 0xFFFFFFFF);
     x = @bitCast(f64, ix);
 
     const f = x - 1.0;
@@ -158,7 +158,7 @@ pub fn log2_64(x_: f64) f64 {
     // hi + lo = f - hfsq + s * (hfsq + R) ~ log(1 + f)
     var hi = f - hfsq;
     var hii = @bitCast(u64, hi);
-    hii &= u64(maxInt(u64)) << 32;
+    hii &= @as(u64, maxInt(u64)) << 32;
     hi = @bitCast(f64, hii);
     const lo = f - hi - hfsq + s * (hfsq + R);
 
@@ -175,8 +175,8 @@ pub fn log2_64(x_: f64) f64 {
 }
 
 test "math.log2" {
-    expect(log2(f32(0.2)) == log2_32(0.2));
-    expect(log2(f64(0.2)) == log2_64(0.2));
+    expect(log2(@as(f32, 0.2)) == log2_32(0.2));
+    expect(log2(@as(f64, 0.2)) == log2_64(0.2));
 }
 
 test "math.log2_32" {

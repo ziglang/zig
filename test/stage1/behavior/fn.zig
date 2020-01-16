@@ -29,7 +29,7 @@ test "mutable local variables" {
     var zero: i32 = 0;
     expect(zero == 0);
 
-    var i = i32(0);
+    var i = @as(i32, 0);
     while (i != 3) {
         i += 1;
     }
@@ -43,7 +43,7 @@ test "separate block scopes" {
     }
 
     const c = x: {
-        const no_conflict = i32(10);
+        const no_conflict = @as(i32, 10);
         break :x no_conflict;
     };
     expect(c == 10);
@@ -73,7 +73,7 @@ fn fnWithUnreachable() noreturn {
 }
 
 test "function pointers" {
-    const fns = [_]@typeOf(fn1){
+    const fns = [_]@TypeOf(fn1){
         fn1,
         fn2,
         fn3,
@@ -94,14 +94,6 @@ fn fn3() u32 {
 }
 fn fn4() u32 {
     return 8;
-}
-
-test "inline function call" {
-    expect(@inlineCall(add, 3, 9) == 12);
-}
-
-fn add(a: i32, b: i32) i32 {
-    return a + b;
 }
 
 test "number literal as an argument" {
@@ -138,7 +130,7 @@ test "pass by non-copying value through var arg" {
 }
 
 fn addPointCoordsVar(pt: var) i32 {
-    comptime expect(@typeOf(pt) == Point);
+    comptime expect(@TypeOf(pt) == Point);
     return pt.x + pt.y;
 }
 
@@ -178,7 +170,7 @@ test "pass by non-copying value as method, at comptime" {
 }
 
 fn outer(y: u32) fn (u32) u32 {
-    const Y = @typeOf(y);
+    const Y = @TypeOf(y);
     const st = struct {
         fn get(z: u32) u32 {
             return z + @sizeOf(Y);
@@ -194,9 +186,9 @@ test "return inner function which references comptime variable of outer function
 
 test "extern struct with stdcallcc fn pointer" {
     const S = extern struct {
-        ptr: stdcallcc fn () i32,
+        ptr: fn () callconv(.Stdcall) i32,
 
-        stdcallcc fn foo() i32 {
+        fn foo() callconv(.Stdcall) i32 {
             return 1234;
         }
     };
@@ -246,4 +238,37 @@ test "discard the result of a function that returns a struct" {
     };
     S.entry();
     comptime S.entry();
+}
+
+test "function call with anon list literal" {
+    const S = struct {
+        fn doTheTest() void {
+            consumeVec(.{ 9, 8, 7 });
+        }
+
+        fn consumeVec(vec: [3]f32) void {
+            expect(vec[0] == 9);
+            expect(vec[1] == 8);
+            expect(vec[2] == 7);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "ability to give comptime types and non comptime types to same parameter" {
+    const S = struct {
+        fn doTheTest() void {
+            var x: i32 = 1;
+            expect(foo(x) == 10);
+            expect(foo(i32) == 20);
+        }
+
+        fn foo(arg: var) i32 {
+            if (@typeInfo(@TypeOf(arg)) == .Type and arg == i32) return 20;
+            return 9 + arg;
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }

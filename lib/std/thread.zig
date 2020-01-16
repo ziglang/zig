@@ -9,7 +9,7 @@ const assert = std.debug.assert;
 pub const Thread = struct {
     data: Data,
 
-    pub const use_pthreads = !windows.is_the_target and builtin.link_libc;
+    pub const use_pthreads = builtin.os != .windows and builtin.link_libc;
 
     /// Represents a kernel thread handle.
     /// May be an integer or a pointer depending on the platform.
@@ -19,7 +19,7 @@ pub const Thread = struct {
     else switch (builtin.os) {
         .linux => i32,
         .windows => windows.HANDLE,
-        else => @compileError("Unsupported OS"),
+        else => void,
     };
 
     /// Represents a unique ID per thread.
@@ -45,7 +45,7 @@ pub const Thread = struct {
             alloc_start: *c_void,
             heap_handle: windows.HANDLE,
         },
-        else => @compileError("Unsupported OS"),
+        else => struct {},
     };
 
     /// Returns the ID of the calling thread.
@@ -99,7 +99,7 @@ pub const Thread = struct {
                 os.munmap(self.data.memory);
             },
             .windows => {
-                windows.WaitForSingleObject(self.data.handle, windows.INFINITE) catch unreachable;
+                windows.WaitForSingleObjectEx(self.data.handle, windows.INFINITE, false) catch unreachable;
                 windows.CloseHandle(self.data.handle);
                 windows.HeapFree(self.data.heap_handle, 0, self.data.alloc_start);
             },
@@ -138,7 +138,7 @@ pub const Thread = struct {
     };
 
     /// caller must call wait on the returned thread
-    /// fn startFn(@typeOf(context)) T
+    /// fn startFn(@TypeOf(context)) T
     /// where T is u8, noreturn, void, or !void
     /// caller must call wait on the returned thread
     pub fn spawn(context: var, comptime startFn: var) SpawnError!*Thread {
@@ -147,8 +147,8 @@ pub const Thread = struct {
         // https://github.com/ziglang/zig/issues/157
         const default_stack_size = 16 * 1024 * 1024;
 
-        const Context = @typeOf(context);
-        comptime assert(@ArgType(@typeOf(startFn), 0) == Context);
+        const Context = @TypeOf(context);
+        comptime assert(@ArgType(@TypeOf(startFn), 0) == Context);
 
         if (builtin.os == builtin.Os.windows) {
             const WinThread = struct {
@@ -156,9 +156,9 @@ pub const Thread = struct {
                     thread: Thread,
                     inner: Context,
                 };
-                extern fn threadMain(raw_arg: windows.LPVOID) windows.DWORD {
+                fn threadMain(raw_arg: windows.LPVOID) callconv(.C) windows.DWORD {
                     const arg = if (@sizeOf(Context) == 0) {} else @ptrCast(*Context, @alignCast(@alignOf(Context), raw_arg)).*;
-                    switch (@typeId(@typeOf(startFn).ReturnType)) {
+                    switch (@typeId(@TypeOf(startFn).ReturnType)) {
                         .Int => {
                             return startFn(arg);
                         },
@@ -198,10 +198,10 @@ pub const Thread = struct {
         }
 
         const MainFuncs = struct {
-            extern fn linuxThreadMain(ctx_addr: usize) u8 {
+            fn linuxThreadMain(ctx_addr: usize) callconv(.C) u8 {
                 const arg = if (@sizeOf(Context) == 0) {} else @intToPtr(*const Context, ctx_addr).*;
 
-                switch (@typeId(@typeOf(startFn).ReturnType)) {
+                switch (@typeId(@TypeOf(startFn).ReturnType)) {
                     .Int => {
                         return startFn(arg);
                     },
@@ -212,7 +212,7 @@ pub const Thread = struct {
                     else => @compileError("expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'"),
                 }
             }
-            extern fn posixThreadMain(ctx: ?*c_void) ?*c_void {
+            fn posixThreadMain(ctx: ?*c_void) callconv(.C) ?*c_void {
                 if (@sizeOf(Context) == 0) {
                     _ = startFn({});
                     return null;
@@ -309,16 +309,43 @@ pub const Thread = struct {
                 os.EINVAL => unreachable,
                 else => return os.unexpectedErrno(@intCast(usize, err)),
             }
-        } else if (os.linux.is_the_target) {
+        } else if (builtin.os == .linux) {
             var flags: u32 = os.CLONE_VM | os.CLONE_FS | os.CLONE_FILES | os.CLONE_SIGHAND |
                 os.CLONE_THREAD | os.CLONE_SYSVSEM | os.CLONE_PARENT_SETTID | os.CLONE_CHILD_CLEARTID |
                 os.CLONE_DETACHED;
             var newtls: usize = undefined;
+            // This structure is only needed when targeting i386
+            var user_desc: if (builtin.arch == .i386) os.linux.user_desc else void = undefined;
+
             if (os.linux.tls.tls_image) |tls_img| {
-                newtls = os.linux.tls.copyTLS(mmap_addr + tls_start_offset);
+                if (builtin.arch == .i386) {
+                    user_desc = os.linux.user_desc{
+                        .entry_number = tls_img.gdt_entry_number,
+                        .base_addr = os.linux.tls.copyTLS(mmap_addr + tls_start_offset),
+                        .limit = 0xfffff,
+                        .seg_32bit = 1,
+                        .contents = 0, // Data
+                        .read_exec_only = 0,
+                        .limit_in_pages = 1,
+                        .seg_not_present = 0,
+                        .useable = 1,
+                    };
+                    newtls = @ptrToInt(&user_desc);
+                } else {
+                    newtls = os.linux.tls.copyTLS(mmap_addr + tls_start_offset);
+                }
                 flags |= os.CLONE_SETTLS;
             }
-            const rc = os.linux.clone(MainFuncs.linuxThreadMain, mmap_addr + stack_end_offset, flags, arg, &thread_ptr.data.handle, newtls, &thread_ptr.data.handle);
+
+            const rc = os.linux.clone(
+                MainFuncs.linuxThreadMain,
+                mmap_addr + stack_end_offset,
+                flags,
+                arg,
+                &thread_ptr.data.handle,
+                newtls,
+                &thread_ptr.data.handle,
+            );
             switch (os.errno(rc)) {
                 0 => return thread_ptr,
                 os.EAGAIN => return error.ThreadQuotaExceeded,
@@ -342,18 +369,18 @@ pub const Thread = struct {
     };
 
     pub fn cpuCount() CpuCountError!usize {
-        if (os.linux.is_the_target) {
+        if (builtin.os == .linux) {
             const cpu_set = try os.sched_getaffinity(0);
-            return usize(os.CPU_COUNT(cpu_set)); // TODO should not need this usize cast
+            return @as(usize, os.CPU_COUNT(cpu_set)); // TODO should not need this usize cast
         }
-        if (os.windows.is_the_target) {
+        if (builtin.os == .windows) {
             var system_info: windows.SYSTEM_INFO = undefined;
             windows.kernel32.GetSystemInfo(&system_info);
             return @intCast(usize, system_info.dwNumberOfProcessors);
         }
         var count: c_int = undefined;
         var count_len: usize = @sizeOf(c_int);
-        const name = if (os.darwin.is_the_target) c"hw.logicalcpu" else c"hw.ncpu";
+        const name = if (comptime std.Target.current.isDarwin()) "hw.logicalcpu" else "hw.ncpu";
         os.sysctlbynameC(name, &count, &count_len, null, 0) catch |err| switch (err) {
             error.NameTooLong => unreachable,
             else => |e| return e,

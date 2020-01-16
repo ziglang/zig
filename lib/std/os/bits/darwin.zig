@@ -8,24 +8,32 @@ pub const pid_t = c_int;
 pub const in_port_t = u16;
 pub const sa_family_t = u8;
 pub const socklen_t = u32;
-pub const sockaddr = extern union {
-    in: sockaddr_in,
-    in6: sockaddr_in6,
+pub const sockaddr = extern struct {
+    len: u8,
+    family: sa_family_t,
+    data: [14]u8,
 };
 pub const sockaddr_in = extern struct {
-    len: u8,
-    family: sa_family_t,
+    len: u8 = @sizeOf(sockaddr_in),
+    family: sa_family_t = AF_INET,
     port: in_port_t,
     addr: u32,
-    zero: [8]u8,
+    zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
 };
 pub const sockaddr_in6 = extern struct {
-    len: u8,
-    family: sa_family_t,
+    len: u8 = @sizeOf(sockaddr_in6),
+    family: sa_family_t = AF_INET6,
     port: in_port_t,
     flowinfo: u32,
     addr: [16]u8,
     scope_id: u32,
+};
+
+/// UNIX domain socket
+pub const sockaddr_un = extern struct {
+    len: u8 = @sizeOf(sockaddr_un),
+    family: sa_family_t = AF_UNIX,
+    path: [104]u8,
 };
 
 pub const timeval = extern struct {
@@ -119,11 +127,10 @@ pub const dirent = extern struct {
     d_namlen: u16,
     d_type: u8,
     d_name: u8, // field address is address of first byte of name
-};
 
-pub const pthread_attr_t = extern struct {
-    __sig: c_long,
-    __opaque: [56]u8,
+    pub fn reclen(self: dirent) u16 {
+        return self.d_reclen;
+    }
 };
 
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
@@ -260,7 +267,6 @@ pub const SA_USERTRAMP = 0x0100;
 /// signal handler with SA_SIGINFO args with 64bit   regs information
 pub const SA_64REGSET = 0x0200;
 
-pub const O_LARGEFILE = 0x0000;
 pub const O_PATH = 0x0000;
 
 pub const F_OK = 0;
@@ -1177,4 +1183,43 @@ pub fn S_ISSOCK(m: u32) bool {
 pub fn S_IWHT(m: u32) bool {
     return m & S_IFMT == S_IFWHT;
 }
+
 pub const HOST_NAME_MAX = 72;
+
+pub const AT_FDCWD = -2;
+
+/// Use effective ids in access check
+pub const AT_EACCESS = 0x0010;
+
+/// Act on the symlink itself not the target
+pub const AT_SYMLINK_NOFOLLOW = 0x0020;
+
+/// Act on target of symlink
+pub const AT_SYMLINK_FOLLOW = 0x0040;
+
+/// Path refers to directory
+pub const AT_REMOVEDIR = 0x0080;
+
+pub const addrinfo = extern struct {
+    flags: i32,
+    family: i32,
+    socktype: i32,
+    protocol: i32,
+    addrlen: socklen_t,
+    canonname: ?[*:0]u8,
+    addr: ?*sockaddr,
+    next: ?*addrinfo,
+};
+
+pub const RTLD_LAZY = 0x1;
+pub const RTLD_NOW = 0x2;
+pub const RTLD_LOCAL = 0x4;
+pub const RTLD_GLOBAL = 0x8;
+pub const RTLD_NOLOAD = 0x10;
+pub const RTLD_NODELETE = 0x80;
+pub const RTLD_FIRST = 0x100;
+
+pub const RTLD_NEXT = @intToPtr(*c_void, ~maxInt(usize));
+pub const RTLD_DEFAULT = @intToPtr(*c_void, ~maxInt(usize) - 1);
+pub const RTLD_SELF = @intToPtr(*c_void, ~maxInt(usize) - 2);
+pub const RTLD_MAIN_ONLY = @intToPtr(*c_void, ~maxInt(usize) - 4);

@@ -6,6 +6,7 @@ const mem = std.mem;
 const os = std.os;
 const warn = std.debug.warn;
 const coff = std.coff;
+const fs = std.fs;
 const File = std.fs.File;
 
 const ArrayList = std.ArrayList;
@@ -469,7 +470,7 @@ pub const Pdb = struct {
     msf: Msf,
 
     pub fn openFile(self: *Pdb, coff_ptr: *coff.Coff, file_name: []u8) !void {
-        self.in_file = try File.openRead(file_name);
+        self.in_file = try fs.cwd().openFile(file_name, .{});
         self.allocator = coff_ptr.allocator;
         self.coff = coff_ptr;
 
@@ -500,7 +501,7 @@ const Msf = struct {
         const superblock = try in.readStruct(SuperBlock);
 
         // Sanity checks
-        if (!mem.eql(u8, superblock.FileMagic, SuperBlock.file_magic))
+        if (!mem.eql(u8, &superblock.FileMagic, SuperBlock.file_magic))
             return error.InvalidDebugInfo;
         if (superblock.FreeBlockMapBlock != 1 and superblock.FreeBlockMapBlock != 2)
             return error.InvalidDebugInfo;
@@ -532,7 +533,7 @@ const Msf = struct {
         const stream_sizes = try allocator.alloc(u32, stream_count);
         defer allocator.free(stream_sizes);
 
-        // Microsoft's implementation uses u32(-1) for inexistant streams.
+        // Microsoft's implementation uses @as(u32, -1) for inexistant streams.
         // These streams are not used, but still participate in the file
         // and must be taken into account when resolving stream indices.
         const Nil = 0xFFFFFFFF;
@@ -546,7 +547,7 @@ const Msf = struct {
             const size = stream_sizes[i];
             if (size == 0) {
                 stream.* = MsfStream{
-                    .blocks = [_]u32{},
+                    .blocks = &[_]u32{},
                 };
             } else {
                 var blocks = try allocator.alloc(u32, size);
@@ -634,7 +635,7 @@ const MsfStream = struct {
     /// Implementation of InStream trait for Pdb.MsfStream
     stream: Stream = undefined,
 
-    pub const Error = @typeOf(read).ReturnType.ErrorSet;
+    pub const Error = @TypeOf(read).ReturnType.ErrorSet;
     pub const Stream = io.InStream(Error);
 
     fn init(block_size: u32, file: File, blocks: []u32) MsfStream {

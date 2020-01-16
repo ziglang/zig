@@ -37,7 +37,7 @@ fn testReinterpretBytesAsExternStruct() void {
 
 test "reinterpret struct field at comptime" {
     const numLittle = comptime Bytes.init(0x12345678);
-    expect(std.mem.eql(u8, [_]u8{ 0x78, 0x56, 0x34, 0x12 }, numLittle.bytes));
+    expect(std.mem.eql(u8, &[_]u8{ 0x78, 0x56, 0x34, 0x12 }, &numLittle.bytes));
 }
 
 const Bytes = struct {
@@ -55,12 +55,12 @@ test "comptime ptrcast keeps larger alignment" {
     comptime {
         const a: u32 = 1234;
         const p = @ptrCast([*]const u8, &a);
-        std.debug.assert(@typeOf(p) == [*]align(@alignOf(u32)) const u8);
+        std.debug.assert(@TypeOf(p) == [*]align(@alignOf(u32)) const u8);
     }
 }
 
 test "implicit optional pointer to optional c_void pointer" {
-    var buf: [4]u8 = "aoeu";
+    var buf: [4]u8 = "aoeu".*;
     var x: ?[*]u8 = &buf;
     var y: ?*c_void = x;
     var z = @ptrCast(*[4]u8, y);

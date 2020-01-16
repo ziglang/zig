@@ -11,41 +11,16 @@ const assert = std.debug.assert;
 const math = std.math;
 const maxInt = std.math.maxInt;
 
-pub const is_the_target = builtin.os == .windows;
 pub const advapi32 = @import("windows/advapi32.zig");
 pub const kernel32 = @import("windows/kernel32.zig");
 pub const ntdll = @import("windows/ntdll.zig");
 pub const ole32 = @import("windows/ole32.zig");
 pub const shell32 = @import("windows/shell32.zig");
+pub const ws2_32 = @import("windows/ws2_32.zig");
 
 pub usingnamespace @import("windows/bits.zig");
 
-/// `builtin` is missing `subsystem` when the subsystem is automatically detected,
-/// so Zig standard library has the subsystem detection logic here. This should generally be
-/// used rather than `builtin.subsystem`.
-/// On non-windows targets, this is `null`.
-pub const subsystem: ?builtin.SubSystem = blk: {
-    if (@hasDecl(builtin, "subsystem")) break :blk builtin.subsystem;
-    switch (builtin.os) {
-        .windows => {
-            if (builtin.is_test) {
-                break :blk builtin.SubSystem.Console;
-            }
-            const root = @import("root");
-            if (@hasDecl(root, "WinMain") or
-                @hasDecl(root, "wWinMain") or
-                @hasDecl(root, "WinMainCRTStartup") or
-                @hasDecl(root, "wWinMainCRTStartup"))
-            {
-                break :blk builtin.SubSystem.Windows;
-            } else {
-                break :blk builtin.SubSystem.Console;
-            }
-        },
-        .uefi => break :blk builtin.SubSystem.EfiApplication,
-        else => break :blk null,
-    }
-};
+pub const self_process_handle = @intToPtr(HANDLE, maxInt(usize));
 
 pub const CreateFileError = error{
     SharingViolation,
@@ -85,7 +60,7 @@ pub fn CreateFile(
 }
 
 pub fn CreateFileW(
-    file_path_w: [*]const u16,
+    file_path_w: [*:0]const u16,
     desired_access: DWORD,
     share_mode: DWORD,
     lpSecurityAttributes: ?LPSECURITY_ATTRIBUTES,
@@ -120,6 +95,59 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
             else => |err| return unexpectedError(err),
         }
     }
+}
+
+pub fn CreateEventEx(attributes: ?*SECURITY_ATTRIBUTES, name: []const u8, flags: DWORD, desired_access: DWORD) !HANDLE {
+    const nameW = try sliceToPrefixedFileW(name);
+    return CreateEventExW(attributes, &nameW, flags, desired_access);
+}
+
+pub fn CreateEventExW(attributes: ?*SECURITY_ATTRIBUTES, nameW: [*:0]const u16, flags: DWORD, desired_access: DWORD) !HANDLE {
+    const handle = kernel32.CreateEventExW(attributes, nameW, flags, desired_access);
+    if (handle) |h| {
+        return h;
+    } else {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+}
+
+pub fn DeviceIoControl(
+    h: HANDLE,
+    ioControlCode: DWORD,
+    in: ?[]const u8,
+    out: ?[]u8,
+    overlapped: ?*OVERLAPPED,
+) !DWORD {
+    var bytes: DWORD = undefined;
+    if (kernel32.DeviceIoControl(
+        h,
+        ioControlCode,
+        if (in) |i| i.ptr else null,
+        if (in) |i| @intCast(u32, i.len) else 0,
+        if (out) |o| o.ptr else null,
+        if (out) |o| @intCast(u32, o.len) else 0,
+        &bytes,
+        overlapped,
+    ) == 0) {
+        switch (kernel32.GetLastError()) {
+            ERROR.IO_PENDING => if (overlapped == null) unreachable,
+            else => |err| return unexpectedError(err),
+        }
+    }
+    return bytes;
+}
+
+pub fn GetOverlappedResult(h: HANDLE, overlapped: *OVERLAPPED, wait: bool) !DWORD {
+    var bytes: DWORD = undefined;
+    if (kernel32.GetOverlappedResult(h, overlapped, &bytes, @boolToInt(wait)) == 0) {
+        switch (kernel32.GetLastError()) {
+            ERROR.IO_INCOMPLETE => if (!wait) return error.WouldBlock else unreachable,
+            else => |err| return unexpectedError(err),
+        }
+    }
+    return bytes;
 }
 
 pub const SetHandleInformationError = error{Unexpected};
@@ -161,9 +189,41 @@ pub const WaitForSingleObjectError = error{
 };
 
 pub fn WaitForSingleObject(handle: HANDLE, milliseconds: DWORD) WaitForSingleObjectError!void {
-    switch (kernel32.WaitForSingleObject(handle, milliseconds)) {
+    return WaitForSingleObjectEx(handle, milliseconds, false);
+}
+
+pub fn WaitForSingleObjectEx(handle: HANDLE, milliseconds: DWORD, alertable: bool) WaitForSingleObjectError!void {
+    switch (kernel32.WaitForSingleObjectEx(handle, milliseconds, @boolToInt(alertable))) {
         WAIT_ABANDONED => return error.WaitAbandoned,
         WAIT_OBJECT_0 => return,
+        WAIT_TIMEOUT => return error.WaitTimeOut,
+        WAIT_FAILED => switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        },
+        else => return error.Unexpected,
+    }
+}
+
+pub fn WaitForMultipleObjectsEx(handles: []const HANDLE, waitAll: bool, milliseconds: DWORD, alertable: bool) !u32 {
+    assert(handles.len < MAXIMUM_WAIT_OBJECTS);
+    const nCount: DWORD = @intCast(DWORD, handles.len);
+    switch (kernel32.WaitForMultipleObjectsEx(
+        nCount,
+        handles.ptr,
+        @boolToInt(waitAll),
+        milliseconds,
+        @boolToInt(alertable),
+    )) {
+        WAIT_OBJECT_0...WAIT_OBJECT_0 + MAXIMUM_WAIT_OBJECTS => |n| {
+            const handle_index = n - WAIT_OBJECT_0;
+            assert(handle_index < nCount);
+            return handle_index;
+        },
+        WAIT_ABANDONED_0...WAIT_ABANDONED_0 + MAXIMUM_WAIT_OBJECTS => |n| {
+            const handle_index = n - WAIT_ABANDONED_0;
+            assert(handle_index < nCount);
+            return error.WaitAbandoned;
+        },
         WAIT_TIMEOUT => return error.WaitTimeOut,
         WAIT_FAILED => switch (kernel32.GetLastError()) {
             else => |err| return unexpectedError(err),
@@ -181,7 +241,7 @@ pub const FindFirstFileError = error{
 };
 
 pub fn FindFirstFile(dir_path: []const u8, find_file_data: *WIN32_FIND_DATAW) FindFirstFileError!HANDLE {
-    const dir_path_w = try sliceToPrefixedSuffixedFileW(dir_path, [_]u16{ '\\', '*', 0 });
+    const dir_path_w = try sliceToPrefixedSuffixedFileW(dir_path, [_]u16{ '\\', '*' });
     const handle = kernel32.FindFirstFileW(&dir_path_w, find_file_data);
 
     if (handle == INVALID_HANDLE_VALUE) {
@@ -267,7 +327,7 @@ pub fn GetQueuedCompletionStatus(
             ERROR.HANDLE_EOF => return GetQueuedCompletionStatusResult.EOF,
             else => |err| {
                 if (std.debug.runtime_safety) {
-                    std.debug.panic("unexpected error: {}\n", err);
+                    std.debug.panic("unexpected error: {}\n", .{err});
                 }
             },
         }
@@ -288,7 +348,7 @@ pub const ReadFileError = error{Unexpected};
 pub fn ReadFile(in_hFile: HANDLE, buffer: []u8) ReadFileError!usize {
     var index: usize = 0;
     while (index < buffer.len) {
-        const want_read_count = @intCast(DWORD, math.min(DWORD(maxInt(DWORD)), buffer.len - index));
+        const want_read_count = @intCast(DWORD, math.min(@as(DWORD, maxInt(DWORD)), buffer.len - index));
         var amt_read: DWORD = undefined;
         if (kernel32.ReadFile(in_hFile, buffer.ptr + index, want_read_count, &amt_read, null) == 0) {
             switch (kernel32.GetLastError()) {
@@ -369,8 +429,8 @@ pub fn CreateSymbolicLink(
 }
 
 pub fn CreateSymbolicLinkW(
-    sym_link_path: [*]const u16,
-    target_path: [*]const u16,
+    sym_link_path: [*:0]const u16,
+    target_path: [*:0]const u16,
     flags: DWORD,
 ) CreateSymbolicLinkError!void {
     if (kernel32.CreateSymbolicLinkW(sym_link_path, target_path, flags) == 0) {
@@ -393,7 +453,7 @@ pub fn DeleteFile(filename: []const u8) DeleteFileError!void {
     return DeleteFileW(&filename_w);
 }
 
-pub fn DeleteFileW(filename: [*]const u16) DeleteFileError!void {
+pub fn DeleteFileW(filename: [*:0]const u16) DeleteFileError!void {
     if (kernel32.DeleteFileW(filename) == 0) {
         switch (kernel32.GetLastError()) {
             ERROR.FILE_NOT_FOUND => return error.FileNotFound,
@@ -415,7 +475,7 @@ pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) Move
     return MoveFileExW(&old_path_w, &new_path_w, flags);
 }
 
-pub fn MoveFileExW(old_path: [*]const u16, new_path: [*]const u16, flags: DWORD) MoveFileError!void {
+pub fn MoveFileExW(old_path: [*:0]const u16, new_path: [*:0]const u16, flags: DWORD) MoveFileError!void {
     if (kernel32.MoveFileExW(old_path, new_path, flags) == 0) {
         switch (kernel32.GetLastError()) {
             else => |err| return unexpectedError(err),
@@ -434,7 +494,7 @@ pub fn CreateDirectory(pathname: []const u8, attrs: ?*SECURITY_ATTRIBUTES) Creat
     return CreateDirectoryW(&pathname_w, attrs);
 }
 
-pub fn CreateDirectoryW(pathname: [*]const u16, attrs: ?*SECURITY_ATTRIBUTES) CreateDirectoryError!void {
+pub fn CreateDirectoryW(pathname: [*:0]const u16, attrs: ?*SECURITY_ATTRIBUTES) CreateDirectoryError!void {
     if (kernel32.CreateDirectoryW(pathname, attrs) == 0) {
         switch (kernel32.GetLastError()) {
             ERROR.ALREADY_EXISTS => return error.PathAlreadyExists,
@@ -455,7 +515,7 @@ pub fn RemoveDirectory(dir_path: []const u8) RemoveDirectoryError!void {
     return RemoveDirectoryW(&dir_path_w);
 }
 
-pub fn RemoveDirectoryW(dir_path_w: [*]const u16) RemoveDirectoryError!void {
+pub fn RemoveDirectoryW(dir_path_w: [*:0]const u16) RemoveDirectoryError!void {
     if (kernel32.RemoveDirectoryW(dir_path_w) == 0) {
         switch (kernel32.GetLastError()) {
             ERROR.PATH_NOT_FOUND => return error.FileNotFound,
@@ -546,7 +606,7 @@ pub fn GetFinalPathNameByHandleW(
     buf_ptr: [*]u16,
     buf_len: DWORD,
     flags: DWORD,
-) GetFinalPathNameByHandleError!DWORD {
+) GetFinalPathNameByHandleError![:0]u16 {
     const rc = kernel32.GetFinalPathNameByHandleW(hFile, buf_ptr, buf_len, flags);
     if (rc == 0) {
         switch (kernel32.GetLastError()) {
@@ -558,7 +618,7 @@ pub fn GetFinalPathNameByHandleW(
             else => |err| return unexpectedError(err),
         }
     }
-    return rc;
+    return buf_ptr[0..rc :0];
 }
 
 pub const GetFileSizeError = error{Unexpected};
@@ -584,7 +644,7 @@ pub fn GetFileAttributes(filename: []const u8) GetFileAttributesError!DWORD {
     return GetFileAttributesW(&filename_w);
 }
 
-pub fn GetFileAttributesW(lpFileName: [*]const u16) GetFileAttributesError!DWORD {
+pub fn GetFileAttributesW(lpFileName: [*:0]const u16) GetFileAttributesError!DWORD {
     const rc = kernel32.GetFileAttributesW(lpFileName);
     if (rc == INVALID_FILE_ATTRIBUTES) {
         switch (kernel32.GetLastError()) {
@@ -597,16 +657,94 @@ pub fn GetFileAttributesW(lpFileName: [*]const u16) GetFileAttributesError!DWORD
     return rc;
 }
 
+pub fn WSAStartup(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
+    var wsadata: ws2_32.WSADATA = undefined;
+    return switch (ws2_32.WSAStartup((@as(WORD, minorVersion) << 8) | majorVersion, &wsadata)) {
+        0 => wsadata,
+        else => |err| unexpectedWSAError(err),
+    };
+}
+
+pub fn WSACleanup() !void {
+    return switch (ws2_32.WSACleanup()) {
+        0 => {},
+        ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
+            else => |err| return unexpectedWSAError(err),
+        },
+        else => unreachable,
+    };
+}
+
+pub fn WSASocketW(
+    af: i32,
+    socket_type: i32,
+    protocol: i32,
+    protocolInfo: ?*ws2_32.WSAPROTOCOL_INFOW,
+    g: ws2_32.GROUP,
+    dwFlags: DWORD,
+) !ws2_32.SOCKET {
+    const rc = ws2_32.WSASocketW(af, socket_type, protocol, protocolInfo, g, dwFlags);
+    if (rc == ws2_32.INVALID_SOCKET) {
+        switch (ws2_32.WSAGetLastError()) {
+            ws2_32.WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+            ws2_32.WSAEMFILE => return error.ProcessFdQuotaExceeded,
+            ws2_32.WSAENOBUFS => return error.SystemResources,
+            ws2_32.WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,
+            else => |err| return unexpectedWSAError(err),
+        }
+    }
+    return rc;
+}
+
+pub fn closesocket(s: ws2_32.SOCKET) !void {
+    switch (ws2_32.closesocket(s)) {
+        0 => {},
+        ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
+            else => |err| return unexpectedWSAError(err),
+        },
+        else => unreachable,
+    }
+}
+
+pub fn WSAIoctl(
+    s: ws2_32.SOCKET,
+    dwIoControlCode: DWORD,
+    inBuffer: ?[]const u8,
+    outBuffer: []u8,
+    overlapped: ?*ws2_32.WSAOVERLAPPED,
+    completionRoutine: ?ws2_32.WSAOVERLAPPED_COMPLETION_ROUTINE,
+) !DWORD {
+    var bytes: DWORD = undefined;
+    switch (ws2_32.WSAIoctl(
+        s,
+        dwIoControlCode,
+        if (inBuffer) |i| i.ptr else null,
+        if (inBuffer) |i| @intCast(DWORD, i.len) else 0,
+        outBuffer.ptr,
+        @intCast(DWORD, outBuffer.len),
+        &bytes,
+        overlapped,
+        completionRoutine,
+    )) {
+        0 => {},
+        ws2_32.SOCKET_ERROR => switch (ws2_32.WSAGetLastError()) {
+            else => |err| return unexpectedWSAError(err),
+        },
+        else => unreachable,
+    }
+    return bytes;
+}
+
 const GetModuleFileNameError = error{Unexpected};
 
-pub fn GetModuleFileNameW(hModule: ?HMODULE, buf_ptr: [*]u16, buf_len: DWORD) GetModuleFileNameError![]u16 {
+pub fn GetModuleFileNameW(hModule: ?HMODULE, buf_ptr: [*]u16, buf_len: DWORD) GetModuleFileNameError![:0]u16 {
     const rc = kernel32.GetModuleFileNameW(hModule, buf_ptr, buf_len);
     if (rc == 0) {
         switch (kernel32.GetLastError()) {
             else => |err| return unexpectedError(err),
         }
     }
-    return buf_ptr[0..rc];
+    return buf_ptr[0..rc :0];
 }
 
 pub const TerminateProcessError = error{Unexpected};
@@ -645,11 +783,11 @@ pub fn SetConsoleTextAttribute(hConsoleOutput: HANDLE, wAttributes: WORD) SetCon
 
 pub const GetEnvironmentStringsError = error{OutOfMemory};
 
-pub fn GetEnvironmentStringsW() GetEnvironmentStringsError![*]u16 {
+pub fn GetEnvironmentStringsW() GetEnvironmentStringsError![*:0]u16 {
     return kernel32.GetEnvironmentStringsW() orelse return error.OutOfMemory;
 }
 
-pub fn FreeEnvironmentStringsW(penv: [*]u16) void {
+pub fn FreeEnvironmentStringsW(penv: [*:0]u16) void {
     assert(kernel32.FreeEnvironmentStringsW(penv) != 0);
 }
 
@@ -658,7 +796,7 @@ pub const GetEnvironmentVariableError = error{
     Unexpected,
 };
 
-pub fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: LPWSTR, nSize: DWORD) GetEnvironmentVariableError!DWORD {
+pub fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: [*]u16, nSize: DWORD) GetEnvironmentVariableError!DWORD {
     const rc = kernel32.GetEnvironmentVariableW(lpName, lpBuffer, nSize);
     if (rc == 0) {
         switch (kernel32.GetLastError()) {
@@ -716,7 +854,7 @@ pub const LoadLibraryError = error{
     Unexpected,
 };
 
-pub fn LoadLibraryW(lpLibFileName: [*]const u16) LoadLibraryError!HMODULE {
+pub fn LoadLibraryW(lpLibFileName: [*:0]const u16) LoadLibraryError!HMODULE {
     return kernel32.LoadLibraryW(lpLibFileName) orelse {
         switch (kernel32.GetLastError()) {
             ERROR.FILE_NOT_FOUND => return error.FileNotFound,
@@ -792,6 +930,25 @@ pub fn SetFileTime(
     }
 }
 
+pub fn peb() *PEB {
+    switch (builtin.arch) {
+        .i386 => {
+            return asm (
+                \\ mov %%fs:0x18, %[ptr]
+                \\ mov %%ds:0x30(%[ptr]), %[ptr]
+                : [ptr] "=r" (-> *PEB)
+            );
+        },
+        .x86_64 => {
+            return asm (
+                \\ mov %%gs:0x60, %[ptr]
+                : [ptr] "=r" (-> *PEB)
+            );
+        },
+        else => @compileError("unsupported architecture"),
+    }
+}
+
 /// A file time is a 64-bit value that represents the number of 100-nanosecond
 /// intervals that have elapsed since 12:00 A.M. January 1, 1601 Coordinated
 /// Universal Time (UTC).
@@ -808,7 +965,7 @@ pub fn toSysTime(ns: i64) i64 {
 }
 
 pub fn fileTimeToNanoSeconds(ft: FILETIME) i64 {
-    const hns = @bitCast(i64, (u64(ft.dwHighDateTime) << 32) | ft.dwLowDateTime);
+    const hns = @bitCast(i64, (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime);
     return fromSysTime(hns);
 }
 
@@ -821,17 +978,34 @@ pub fn nanoSecondsToFileTime(ns: i64) FILETIME {
     };
 }
 
-pub fn cStrToPrefixedFileW(s: [*]const u8) ![PATH_MAX_WIDE + 1]u16 {
+pub fn cStrToPrefixedFileW(s: [*:0]const u8) ![PATH_MAX_WIDE:0]u16 {
     return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
 }
 
-pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE + 1]u16 {
-    return sliceToPrefixedSuffixedFileW(s, [_]u16{0});
+pub fn sliceToPrefixedFileW(s: []const u8) ![PATH_MAX_WIDE:0]u16 {
+    return sliceToPrefixedSuffixedFileW(s, &[_]u16{});
 }
 
-pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16) ![PATH_MAX_WIDE + suffix.len]u16 {
+/// Assumes an absolute path.
+pub fn wToPrefixedFileW(s: []const u16) ![PATH_MAX_WIDE:0]u16 {
     // TODO https://github.com/ziglang/zig/issues/2765
-    var result: [PATH_MAX_WIDE + suffix.len]u16 = undefined;
+    var result: [PATH_MAX_WIDE:0]u16 = undefined;
+
+    const start_index = if (mem.startsWith(u16, s, &[_]u16{ '\\', '?' })) 0 else blk: {
+        const prefix = [_]u16{ '\\', '?', '?', '\\' };
+        mem.copy(u16, result[0..], &prefix);
+        break :blk prefix.len;
+    };
+    const end_index = start_index + s.len;
+    if (end_index + 1 > result.len) return error.NameTooLong;
+    mem.copy(u16, result[start_index..], s);
+    result[end_index] = 0;
+    return result;
+}
+
+pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16) ![PATH_MAX_WIDE + suffix.len:0]u16 {
+    // TODO https://github.com/ziglang/zig/issues/2765
+    var result: [PATH_MAX_WIDE + suffix.len:0]u16 = undefined;
     // > File I/O functions in the Windows API convert "/" to "\" as part of
     // > converting the name to an NT-style name, except when using the "\\?\"
     // > prefix as detailed in the following sections.
@@ -844,15 +1018,15 @@ pub fn sliceToPrefixedSuffixedFileW(s: []const u8, comptime suffix: []const u16)
             else => {},
         }
     }
-    const start_index = if (mem.startsWith(u8, s, "\\\\") or !std.fs.path.isAbsolute(s)) 0 else blk: {
-        const prefix = [_]u16{ '\\', '\\', '?', '\\' };
-        mem.copy(u16, result[0..], prefix);
+    const start_index = if (mem.startsWith(u8, s, "\\?") or !std.fs.path.isAbsolute(s)) 0 else blk: {
+        const prefix = [_]u16{ '\\', '?', '?', '\\' };
+        mem.copy(u16, result[0..], &prefix);
         break :blk prefix.len;
     };
     const end_index = start_index + try std.unicode.utf8ToUtf16Le(result[start_index..], s);
-    assert(end_index <= result.len);
     if (end_index + suffix.len > result.len) return error.NameTooLong;
     mem.copy(u16, result[end_index..], suffix);
+    result[end_index + suffix.len] = 0;
     return result;
 }
 
@@ -869,17 +1043,21 @@ pub fn unexpectedError(err: DWORD) std.os.UnexpectedError {
         var buf_u8: [614]u8 = undefined;
         var len = kernel32.FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, null, err, MAKELANGID(LANG.NEUTRAL, SUBLANG.DEFAULT), buf_u16[0..].ptr, buf_u16.len / @sizeOf(TCHAR), null);
         _ = std.unicode.utf16leToUtf8(&buf_u8, buf_u16[0..len]) catch unreachable;
-        std.debug.warn("error.Unexpected: GetLastError({}): {}\n", err, buf_u8[0..len]);
+        std.debug.warn("error.Unexpected: GetLastError({}): {}\n", .{ err, buf_u8[0..len] });
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
+}
+
+pub fn unexpectedWSAError(err: c_int) std.os.UnexpectedError {
+    return unexpectedError(@intCast(DWORD, err));
 }
 
 /// Call this when you made a windows NtDll call
 /// and you get an unexpected status.
 pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
-        std.debug.warn("error.Unexpected NTSTATUS={}\n", status);
+        std.debug.warn("error.Unexpected NTSTATUS=0x{x}\n", .{status});
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;

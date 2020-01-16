@@ -6,12 +6,11 @@ var argv: [*]const [*]const u8 = undefined;
 
 test "const slice child" {
     const strs = [_][*]const u8{
-        c"one",
-        c"two",
-        c"three",
+        "one",
+        "two",
+        "three",
     };
-    // TODO this should implicitly cast
-    argv = @ptrCast([*]const [*]const u8, &strs);
+    argv = &strs;
     bar(strs.len);
 }
 

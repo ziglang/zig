@@ -146,3 +146,24 @@ test "comptime bitcast used in expression has the correct type" {
     };
     expect(@bitCast(u8, Foo{ .value = 0xF }) == 0xf);
 }
+
+test "bitcast result to _" {
+    _ = @bitCast(u8, @as(i8, 1));
+}
+
+test "nested bitcast" {
+    const S = struct {
+        fn moo(x: isize) void {
+            @import("std").testing.expectEqual(@intCast(isize, 42), x);
+        }
+
+        fn foo(x: isize) void {
+            @This().moo(
+                @bitCast(isize, if (x != 0) @bitCast(usize, x) else @bitCast(usize, x)),
+            );
+        }
+    };
+
+    S.foo(42);
+    comptime S.foo(42);
+}

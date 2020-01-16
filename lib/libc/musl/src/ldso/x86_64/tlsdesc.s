@@ -6,8 +6,6 @@ __tlsdesc_static:
 	mov 8(%rax),%rax
 	ret
 
-.hidden __tls_get_new
-
 .global __tlsdesc_dynamic
 .hidden __tlsdesc_dynamic
 .type __tlsdesc_dynamic,@function

@@ -400,4 +400,10 @@
 #define __NR_io_uring_setup          4425
 #define __NR_io_uring_enter          4426
 #define __NR_io_uring_register       4427
+#define __NR_open_tree		4428
+#define __NR_move_mount		4429
+#define __NR_fsopen		4430
+#define __NR_fsconfig		4431
+#define __NR_fsmount		4432
+#define __NR_fspick		4433
 

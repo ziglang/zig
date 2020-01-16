@@ -15,8 +15,8 @@ const expect = std.testing.expect;
 ///  - ceil(+-0)   = +-0
 ///  - ceil(+-inf) = +-inf
 ///  - ceil(nan)   = nan
-pub fn ceil(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn ceil(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => ceil32(x),
         f64 => ceil64(x),
@@ -37,7 +37,7 @@ fn ceil32(x: f32) f32 {
     if (e >= 23) {
         return x;
     } else if (e >= 0) {
-        m = u32(0x007FFFFF) >> @intCast(u5, e);
+        m = @as(u32, 0x007FFFFF) >> @intCast(u5, e);
         if (u & m == 0) {
             return x;
         }
@@ -87,8 +87,8 @@ fn ceil64(x: f64) f64 {
 }
 
 test "math.ceil" {
-    expect(ceil(f32(0.0)) == ceil32(0.0));
-    expect(ceil(f64(0.0)) == ceil64(0.0));
+    expect(ceil(@as(f32, 0.0)) == ceil32(0.0));
+    expect(ceil(@as(f64, 0.0)) == ceil64(0.0));
 }
 
 test "math.ceil32" {

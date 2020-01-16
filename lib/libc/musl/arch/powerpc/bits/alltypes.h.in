@@ -6,7 +6,11 @@ TYPEDEF __builtin_va_list va_list;
 TYPEDEF __builtin_va_list __isoc_va_list;
 
 #ifndef __cplusplus
+#ifdef __WCHAR_TYPE__
+TYPEDEF __WCHAR_TYPE__ wchar_t;
+#else
 TYPEDEF long wchar_t;
+#endif
 #endif
 
 TYPEDEF float float_t;

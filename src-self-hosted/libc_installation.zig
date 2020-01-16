@@ -1,9 +1,11 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const event = std.event;
-const Target = @import("target.zig").Target;
+const util = @import("util.zig");
+const Target = std.Target;
 const c = @import("c.zig");
 const fs = std.fs;
+const Allocator = std.mem.Allocator;
 
 /// See the render function implementation for documentation of the fields.
 pub const LibCInstallation = struct {
@@ -29,7 +31,7 @@ pub const LibCInstallation = struct {
 
     pub fn parse(
         self: *LibCInstallation,
-        allocator: *std.mem.Allocator,
+        allocator: *Allocator,
         libc_file: []const u8,
         stderr: *std.io.OutStream(fs.File.WriteError),
     ) !void {
@@ -63,15 +65,15 @@ pub const LibCInstallation = struct {
             if (line.len == 0 or line[0] == '#') continue;
             var line_it = std.mem.separate(line, "=");
             const name = line_it.next() orelse {
-                try stderr.print("missing equal sign after field name\n");
+                try stderr.print("missing equal sign after field name\n", .{});
                 return error.ParseError;
             };
             const value = line_it.rest();
             inline for (keys) |key, i| {
                 if (std.mem.eql(u8, name, key)) {
                     found_keys[i].found = true;
-                    switch (@typeInfo(@typeOf(@field(self, key)))) {
-                        builtin.TypeId.Optional => {
+                    switch (@typeInfo(@TypeOf(@field(self, key)))) {
+                        .Optional => {
                             if (value.len == 0) {
                                 @field(self, key) = null;
                             } else {
@@ -81,7 +83,7 @@ pub const LibCInstallation = struct {
                         },
                         else => {
                             if (value.len == 0) {
-                                try stderr.print("field cannot be empty: {}\n", key);
+                                try stderr.print("field cannot be empty: {}\n", .{key});
                                 return error.ParseError;
                             }
                             const dupe = try std.mem.dupe(allocator, u8, value);
@@ -95,7 +97,7 @@ pub const LibCInstallation = struct {
         }
         for (found_keys) |found_key, i| {
             if (!found_key.found) {
-                try stderr.print("missing field: {}\n", keys[i]);
+                try stderr.print("missing field: {}\n", .{keys[i]});
                 return error.ParseError;
             }
         }
@@ -103,6 +105,11 @@ pub const LibCInstallation = struct {
 
     pub fn render(self: *const LibCInstallation, out: *std.io.OutStream(fs.File.WriteError)) !void {
         @setEvalBranchQuota(4000);
+        const lib_dir = self.lib_dir orelse "";
+        const static_lib_dir = self.static_lib_dir orelse "";
+        const msvc_lib_dir = self.msvc_lib_dir orelse "";
+        const kernel32_lib_dir = self.kernel32_lib_dir orelse "";
+        const dynamic_linker_path = self.dynamic_linker_path orelse util.getDynamicLinkerPath(Target{ .Native = {} });
         try out.print(
             \\# The directory that contains `stdlib.h`.
             \\# On Linux, can be found with: `cc -E -Wp,-v -xc /dev/null`
@@ -130,21 +137,14 @@ pub const LibCInstallation = struct {
             \\# Only needed when targeting Linux.
             \\dynamic_linker_path={}
             \\
-        ,
-            self.include_dir,
-            self.lib_dir orelse "",
-            self.static_lib_dir orelse "",
-            self.msvc_lib_dir orelse "",
-            self.kernel32_lib_dir orelse "",
-            self.dynamic_linker_path orelse Target(Target.Native).getDynamicLinkerPath(),
-        );
+        , .{ self.include_dir, lib_dir, static_lib_dir, msvc_lib_dir, kernel32_lib_dir, dynamic_linker_path });
     }
 
     /// Finds the default, native libc.
-    pub async fn findNative(self: *LibCInstallation, loop: *event.Loop) !void {
+    pub fn findNative(self: *LibCInstallation, allocator: *Allocator) !void {
         self.initEmpty();
-        var group = event.Group(FindError!void).init(loop);
-        errdefer group.deinit();
+        var group = event.Group(FindError!void).init(allocator);
+        errdefer group.wait() catch {};
         var windows_sdk: ?*c.ZigWindowsSDK = null;
         errdefer if (windows_sdk) |sdk| c.zig_free_windows_sdk(@ptrCast(?[*]c.ZigWindowsSDK, sdk));
 
@@ -156,11 +156,11 @@ pub const LibCInstallation = struct {
                         windows_sdk = sdk;
 
                         if (sdk.msvc_lib_dir_ptr != 0) {
-                            self.msvc_lib_dir = try std.mem.dupe(loop.allocator, u8, sdk.msvc_lib_dir_ptr[0..sdk.msvc_lib_dir_len]);
+                            self.msvc_lib_dir = try std.mem.dupe(allocator, u8, sdk.msvc_lib_dir_ptr[0..sdk.msvc_lib_dir_len]);
                         }
-                        try group.call(findNativeKernel32LibDir, self, loop, sdk);
-                        try group.call(findNativeIncludeDirWindows, self, loop, sdk);
-                        try group.call(findNativeLibDirWindows, self, loop, sdk);
+                        try group.call(findNativeKernel32LibDir, .{ allocator, self, sdk });
+                        try group.call(findNativeIncludeDirWindows, .{ self, allocator, sdk });
+                        try group.call(findNativeLibDirWindows, .{ self, allocator, sdk });
                     },
                     c.ZigFindWindowsSdkError.OutOfMemory => return error.OutOfMemory,
                     c.ZigFindWindowsSdkError.NotFound => return error.NotFound,
@@ -168,20 +168,20 @@ pub const LibCInstallation = struct {
                 }
             },
             .linux => {
-                try group.call(findNativeIncludeDirLinux, self, loop);
-                try group.call(findNativeLibDirLinux, self, loop);
-                try group.call(findNativeStaticLibDir, self, loop);
-                try group.call(findNativeDynamicLinker, self, loop);
+                try group.call(findNativeIncludeDirLinux, .{ self, allocator });
+                try group.call(findNativeLibDirLinux, .{ self, allocator });
+                try group.call(findNativeStaticLibDir, .{ self, allocator });
+                try group.call(findNativeDynamicLinker, .{ self, allocator });
             },
             .macosx, .freebsd, .netbsd => {
-                self.include_dir = try std.mem.dupe(loop.allocator, u8, "/usr/include");
+                self.include_dir = try std.mem.dupe(allocator, u8, "/usr/include");
             },
             else => @compileError("unimplemented: find libc for this OS"),
         }
-        return await (async group.wait() catch unreachable);
+        return group.wait();
     }
 
-    async fn findNativeIncludeDirLinux(self: *LibCInstallation, loop: *event.Loop) !void {
+    async fn findNativeIncludeDirLinux(self: *LibCInstallation, allocator: *Allocator) FindError!void {
         const cc_exe = std.os.getenv("CC") orelse "cc";
         const argv = [_][]const u8{
             cc_exe,
@@ -191,7 +191,7 @@ pub const LibCInstallation = struct {
             "/dev/null",
         };
         // TODO make this use event loop
-        const errorable_result = std.ChildProcess.exec(loop.allocator, argv, null, null, 1024 * 1024);
+        const errorable_result = std.ChildProcess.exec(allocator, &argv, null, null, 1024 * 1024);
         const exec_result = if (std.debug.runtime_safety) blk: {
             break :blk errorable_result catch unreachable;
         } else blk: {
@@ -201,12 +201,12 @@ pub const LibCInstallation = struct {
             };
         };
         defer {
-            loop.allocator.free(exec_result.stdout);
-            loop.allocator.free(exec_result.stderr);
+            allocator.free(exec_result.stdout);
+            allocator.free(exec_result.stderr);
         }
 
         switch (exec_result.term) {
-            std.ChildProcess.Term.Exited => |code| {
+            .Exited => |code| {
                 if (code != 0) return error.CCompilerExitCode;
             },
             else => {
@@ -215,7 +215,7 @@ pub const LibCInstallation = struct {
         }
 
         var it = std.mem.tokenize(exec_result.stderr, "\n\r");
-        var search_paths = std.ArrayList([]const u8).init(loop.allocator);
+        var search_paths = std.ArrayList([]const u8).init(allocator);
         defer search_paths.deinit();
         while (it.next()) |line| {
             if (line.len != 0 and line[0] == ' ') {
@@ -231,11 +231,11 @@ pub const LibCInstallation = struct {
         while (path_i < search_paths.len) : (path_i += 1) {
             const search_path_untrimmed = search_paths.at(search_paths.len - path_i - 1);
             const search_path = std.mem.trimLeft(u8, search_path_untrimmed, " ");
-            const stdlib_path = try fs.path.join(loop.allocator, [_][]const u8{ search_path, "stdlib.h" });
-            defer loop.allocator.free(stdlib_path);
+            const stdlib_path = try fs.path.join(allocator, &[_][]const u8{ search_path, "stdlib.h" });
+            defer allocator.free(stdlib_path);
 
             if (try fileExists(stdlib_path)) {
-                self.include_dir = try std.mem.dupe(loop.allocator, u8, search_path);
+                self.include_dir = try std.mem.dupe(allocator, u8, search_path);
                 return;
             }
         }
@@ -243,23 +243,23 @@ pub const LibCInstallation = struct {
         return error.LibCStdLibHeaderNotFound;
     }
 
-    async fn findNativeIncludeDirWindows(self: *LibCInstallation, loop: *event.Loop, sdk: *c.ZigWindowsSDK) !void {
+    async fn findNativeIncludeDirWindows(self: *LibCInstallation, allocator: *Allocator, sdk: *c.ZigWindowsSDK) !void {
         var search_buf: [2]Search = undefined;
         const searches = fillSearch(&search_buf, sdk);
 
-        var result_buf = try std.Buffer.initSize(loop.allocator, 0);
+        var result_buf = try std.Buffer.initSize(allocator, 0);
         defer result_buf.deinit();
 
         for (searches) |search| {
             result_buf.shrink(0);
             const stream = &std.io.BufferOutStream.init(&result_buf).stream;
-            try stream.print("{}\\Include\\{}\\ucrt", search.path, search.version);
+            try stream.print("{}\\Include\\{}\\ucrt", .{ search.path, search.version });
 
             const stdlib_path = try fs.path.join(
-                loop.allocator,
+                allocator,
                 [_][]const u8{ result_buf.toSliceConst(), "stdlib.h" },
             );
-            defer loop.allocator.free(stdlib_path);
+            defer allocator.free(stdlib_path);
 
             if (try fileExists(stdlib_path)) {
                 self.include_dir = result_buf.toOwnedSlice();
@@ -270,28 +270,28 @@ pub const LibCInstallation = struct {
         return error.LibCStdLibHeaderNotFound;
     }
 
-    async fn findNativeLibDirWindows(self: *LibCInstallation, loop: *event.Loop, sdk: *c.ZigWindowsSDK) FindError!void {
+    async fn findNativeLibDirWindows(self: *LibCInstallation, allocator: *Allocator, sdk: *c.ZigWindowsSDK) FindError!void {
         var search_buf: [2]Search = undefined;
         const searches = fillSearch(&search_buf, sdk);
 
-        var result_buf = try std.Buffer.initSize(loop.allocator, 0);
+        var result_buf = try std.Buffer.initSize(allocator, 0);
         defer result_buf.deinit();
 
         for (searches) |search| {
             result_buf.shrink(0);
             const stream = &std.io.BufferOutStream.init(&result_buf).stream;
-            try stream.print("{}\\Lib\\{}\\ucrt\\", search.path, search.version);
+            try stream.print("{}\\Lib\\{}\\ucrt\\", .{ search.path, search.version });
             switch (builtin.arch) {
-                builtin.Arch.i386 => try stream.write("x86"),
-                builtin.Arch.x86_64 => try stream.write("x64"),
-                builtin.Arch.aarch64 => try stream.write("arm"),
+                .i386 => try stream.write("x86"),
+                .x86_64 => try stream.write("x64"),
+                .aarch64 => try stream.write("arm"),
                 else => return error.UnsupportedArchitecture,
             }
             const ucrt_lib_path = try fs.path.join(
-                loop.allocator,
+                allocator,
                 [_][]const u8{ result_buf.toSliceConst(), "ucrt.lib" },
             );
-            defer loop.allocator.free(ucrt_lib_path);
+            defer allocator.free(ucrt_lib_path);
             if (try fileExists(ucrt_lib_path)) {
                 self.lib_dir = result_buf.toOwnedSlice();
                 return;
@@ -300,15 +300,15 @@ pub const LibCInstallation = struct {
         return error.LibCRuntimeNotFound;
     }
 
-    async fn findNativeLibDirLinux(self: *LibCInstallation, loop: *event.Loop) FindError!void {
-        self.lib_dir = try await (async ccPrintFileName(loop, "crt1.o", true) catch unreachable);
+    async fn findNativeLibDirLinux(self: *LibCInstallation, allocator: *Allocator) FindError!void {
+        self.lib_dir = try ccPrintFileName(allocator, "crt1.o", true);
     }
 
-    async fn findNativeStaticLibDir(self: *LibCInstallation, loop: *event.Loop) FindError!void {
-        self.static_lib_dir = try await (async ccPrintFileName(loop, "crtbegin.o", true) catch unreachable);
+    async fn findNativeStaticLibDir(self: *LibCInstallation, allocator: *Allocator) FindError!void {
+        self.static_lib_dir = try ccPrintFileName(allocator, "crtbegin.o", true);
     }
 
-    async fn findNativeDynamicLinker(self: *LibCInstallation, loop: *event.Loop) FindError!void {
+    async fn findNativeDynamicLinker(self: *LibCInstallation, allocator: *Allocator) FindError!void {
         var dyn_tests = [_]DynTest{
             DynTest{
                 .name = "ld-linux-x86-64.so.2",
@@ -319,12 +319,12 @@ pub const LibCInstallation = struct {
                 .result = null,
             },
         };
-        var group = event.Group(FindError!void).init(loop);
-        errdefer group.deinit();
+        var group = event.Group(FindError!void).init(allocator);
+        errdefer group.wait() catch {};
         for (dyn_tests) |*dyn_test| {
-            try group.call(testNativeDynamicLinker, self, loop, dyn_test);
+            try group.call(testNativeDynamicLinker, .{ self, allocator, dyn_test });
         }
-        try await (async group.wait() catch unreachable);
+        try group.wait();
         for (dyn_tests) |*dyn_test| {
             if (dyn_test.result) |result| {
                 self.dynamic_linker_path = result;
@@ -338,8 +338,8 @@ pub const LibCInstallation = struct {
         result: ?[]const u8,
     };
 
-    async fn testNativeDynamicLinker(self: *LibCInstallation, loop: *event.Loop, dyn_test: *DynTest) FindError!void {
-        if (await (async ccPrintFileName(loop, dyn_test.name, false) catch unreachable)) |result| {
+    async fn testNativeDynamicLinker(self: *LibCInstallation, allocator: *Allocator, dyn_test: *DynTest) FindError!void {
+        if (ccPrintFileName(allocator, dyn_test.name, false)) |result| {
             dyn_test.result = result;
             return;
         } else |err| switch (err) {
@@ -348,28 +348,28 @@ pub const LibCInstallation = struct {
         }
     }
 
-    async fn findNativeKernel32LibDir(self: *LibCInstallation, loop: *event.Loop, sdk: *c.ZigWindowsSDK) FindError!void {
+    async fn findNativeKernel32LibDir(self: *LibCInstallation, allocator: *Allocator, sdk: *c.ZigWindowsSDK) FindError!void {
         var search_buf: [2]Search = undefined;
         const searches = fillSearch(&search_buf, sdk);
 
-        var result_buf = try std.Buffer.initSize(loop.allocator, 0);
+        var result_buf = try std.Buffer.initSize(allocator, 0);
         defer result_buf.deinit();
 
         for (searches) |search| {
             result_buf.shrink(0);
             const stream = &std.io.BufferOutStream.init(&result_buf).stream;
-            try stream.print("{}\\Lib\\{}\\um\\", search.path, search.version);
+            try stream.print("{}\\Lib\\{}\\um\\", .{ search.path, search.version });
             switch (builtin.arch) {
-                builtin.Arch.i386 => try stream.write("x86\\"),
-                builtin.Arch.x86_64 => try stream.write("x64\\"),
-                builtin.Arch.aarch64 => try stream.write("arm\\"),
+                .i386 => try stream.write("x86\\"),
+                .x86_64 => try stream.write("x64\\"),
+                .aarch64 => try stream.write("arm\\"),
                 else => return error.UnsupportedArchitecture,
             }
             const kernel32_path = try fs.path.join(
-                loop.allocator,
+                allocator,
                 [_][]const u8{ result_buf.toSliceConst(), "kernel32.lib" },
             );
-            defer loop.allocator.free(kernel32_path);
+            defer allocator.free(kernel32_path);
             if (try fileExists(kernel32_path)) {
                 self.kernel32_lib_dir = result_buf.toOwnedSlice();
                 return;
@@ -380,7 +380,7 @@ pub const LibCInstallation = struct {
 
     fn initEmpty(self: *LibCInstallation) void {
         self.* = LibCInstallation{
-            .include_dir = ([*]const u8)(undefined)[0..0],
+            .include_dir = @as([*]const u8, undefined)[0..0],
             .lib_dir = null,
             .static_lib_dir = null,
             .msvc_lib_dir = null,
@@ -391,15 +391,15 @@ pub const LibCInstallation = struct {
 };
 
 /// caller owns returned memory
-async fn ccPrintFileName(loop: *event.Loop, o_file: []const u8, want_dirname: bool) ![]u8 {
+fn ccPrintFileName(allocator: *Allocator, o_file: []const u8, want_dirname: bool) ![]u8 {
     const cc_exe = std.os.getenv("CC") orelse "cc";
-    const arg1 = try std.fmt.allocPrint(loop.allocator, "-print-file-name={}", o_file);
-    defer loop.allocator.free(arg1);
+    const arg1 = try std.fmt.allocPrint(allocator, "-print-file-name={}", .{o_file});
+    defer allocator.free(arg1);
     const argv = [_][]const u8{ cc_exe, arg1 };
 
     // TODO This simulates evented I/O for the child process exec
-    await (async loop.yield() catch unreachable);
-    const errorable_result = std.ChildProcess.exec(loop.allocator, argv, null, null, 1024 * 1024);
+    event.Loop.startCpuBoundOperation();
+    const errorable_result = std.ChildProcess.exec(allocator, &argv, null, null, 1024 * 1024);
     const exec_result = if (std.debug.runtime_safety) blk: {
         break :blk errorable_result catch unreachable;
     } else blk: {
@@ -409,8 +409,8 @@ async fn ccPrintFileName(loop: *event.Loop, o_file: []const u8, want_dirname: bo
         };
     };
     defer {
-        loop.allocator.free(exec_result.stdout);
-        loop.allocator.free(exec_result.stderr);
+        allocator.free(exec_result.stdout);
+        allocator.free(exec_result.stderr);
     }
     switch (exec_result.term) {
         .Exited => |code| {
@@ -425,9 +425,9 @@ async fn ccPrintFileName(loop: *event.Loop, o_file: []const u8, want_dirname: bo
     const dirname = fs.path.dirname(line) orelse return error.LibCRuntimeNotFound;
 
     if (want_dirname) {
-        return std.mem.dupe(loop.allocator, u8, dirname);
+        return std.mem.dupe(allocator, u8, dirname);
     } else {
-        return std.mem.dupe(loop.allocator, u8, line);
+        return std.mem.dupe(allocator, u8, line);
     }
 }
 

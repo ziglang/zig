@@ -1,7 +1,7 @@
 const std = @import("std");
 const io = std.io;
 const process = std.process;
-const File = std.fs.File;
+const fs = std.fs;
 const mem = std.mem;
 const warn = std.debug.warn;
 const allocator = std.debug.global_allocator;
@@ -10,44 +10,44 @@ pub fn main() !void {
     var args_it = process.args();
     const exe = try unwrapArg(args_it.next(allocator).?);
     var catted_anything = false;
-    var stdout_file = try io.getStdOut();
+    const stdout_file = io.getStdOut();
+
+    const cwd = fs.cwd();
 
     while (args_it.next(allocator)) |arg_or_err| {
         const arg = try unwrapArg(arg_or_err);
         if (mem.eql(u8, arg, "-")) {
             catted_anything = true;
-            var stdin_file = try io.getStdIn();
-            try cat_file(&stdout_file, &stdin_file);
+            try cat_file(stdout_file, io.getStdIn());
         } else if (arg[0] == '-') {
             return usage(exe);
         } else {
-            var file = File.openRead(arg) catch |err| {
-                warn("Unable to open file: {}\n", @errorName(err));
+            const file = cwd.openFile(arg, .{}) catch |err| {
+                warn("Unable to open file: {}\n", .{@errorName(err)});
                 return err;
             };
             defer file.close();
 
             catted_anything = true;
-            try cat_file(&stdout_file, &file);
+            try cat_file(stdout_file, file);
         }
     }
     if (!catted_anything) {
-        var stdin_file = try io.getStdIn();
-        try cat_file(&stdout_file, &stdin_file);
+        try cat_file(stdout_file, io.getStdIn());
     }
 }
 
 fn usage(exe: []const u8) !void {
-    warn("Usage: {} [FILE]...\n", exe);
+    warn("Usage: {} [FILE]...\n", .{exe});
     return error.Invalid;
 }
 
-fn cat_file(stdout: *File, file: *File) !void {
+fn cat_file(stdout: fs.File, file: fs.File) !void {
     var buf: [1024 * 4]u8 = undefined;
 
     while (true) {
         const bytes_read = file.read(buf[0..]) catch |err| {
-            warn("Unable to read from stream: {}\n", @errorName(err));
+            warn("Unable to read from stream: {}\n", .{@errorName(err)});
             return err;
         };
 
@@ -56,7 +56,7 @@ fn cat_file(stdout: *File, file: *File) !void {
         }
 
         stdout.write(buf[0..bytes_read]) catch |err| {
-            warn("Unable to write to stdout: {}\n", @errorName(err));
+            warn("Unable to write to stdout: {}\n", .{@errorName(err)});
             return err;
         };
     }
@@ -64,7 +64,7 @@ fn cat_file(stdout: *File, file: *File) !void {
 
 fn unwrapArg(arg: anyerror![]u8) ![]u8 {
     return arg catch |err| {
-        warn("Unable to parse command line: {}\n", err);
+        warn("Unable to parse command line: {}\n", .{err});
         return err;
     };
 }

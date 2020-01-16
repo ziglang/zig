@@ -454,7 +454,6 @@ pub const SO_PEERSEC = 30;
 pub const SO_SNDBUFFORCE = 31;
 pub const SO_RCVBUFFORCE = 33;
 
-pub const VDSO_USEFUL = true;
 pub const VDSO_CGT_SYM = "__kernel_clock_gettime";
 pub const VDSO_CGT_VER = "LINUX_2.6.39";
 
@@ -484,6 +483,7 @@ pub const Stat = extern struct {
     blksize: blksize_t,
     __pad3: [1]u32,
     blocks: blkcnt_t,
+    __pad4: [14]usize,
 
     pub fn atime(self: Stat) timespec {
         return self.atim;

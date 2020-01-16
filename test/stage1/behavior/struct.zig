@@ -184,7 +184,7 @@ fn testReturnEmptyStructFromFn() EmptyStruct2 {
 }
 
 test "pass slice of empty struct to fn" {
-    expect(testPassSliceOfEmptyStructToFn([_]EmptyStruct2{EmptyStruct2{}}) == 1);
+    expect(testPassSliceOfEmptyStructToFn(&[_]EmptyStruct2{EmptyStruct2{}}) == 1);
 }
 fn testPassSliceOfEmptyStructToFn(slice: []const EmptyStruct2) usize {
     return slice.len;
@@ -388,8 +388,8 @@ test "runtime struct initialization of bitfield" {
     expect(s2.y == @intCast(u4, x2));
 }
 
-var x1 = u4(1);
-var x2 = u8(2);
+var x1 = @as(u4, 1);
+var x2 = @as(u8, 2);
 
 const Nibbles = packed struct {
     x: u4,
@@ -432,7 +432,7 @@ const Expr = union(enum) {
 };
 
 fn alloc(comptime T: type) []T {
-    return [_]T{};
+    return &[_]T{};
 }
 
 test "call method with mutable reference to struct with no fields" {
@@ -493,9 +493,10 @@ test "non-byte-aligned array inside packed struct" {
         fn doTheTest() void {
             var foo = Foo{
                 .a = true,
-                .b = "abcdefghijklmnopqurstu",
+                .b = "abcdefghijklmnopqurstu".*,
             };
-            bar(foo.b);
+            const value = foo.b;
+            bar(&value);
         }
     };
     S.doTheTest();
@@ -545,9 +546,9 @@ test "packed struct with fp fields" {
     s.data[1] = 2.0;
     s.data[2] = 3.0;
     s.frob();
-    expectEqual(f32(6.0), s.data[0]);
-    expectEqual(f32(11.0), s.data[1]);
-    expectEqual(f32(20.0), s.data[2]);
+    expectEqual(@as(f32, 6.0), s.data[0]);
+    expectEqual(@as(f32, 11.0), s.data[1]);
+    expectEqual(@as(f32, 20.0), s.data[2]);
 }
 
 test "use within struct scope" {
@@ -558,7 +559,7 @@ test "use within struct scope" {
             }
         };
     };
-    expectEqual(i32(42), S.inner());
+    expectEqual(@as(i32, 42), S.inner());
 }
 
 test "default struct initialization fields" {
@@ -579,18 +580,18 @@ test "default struct initialization fields" {
     expectEqual(1239, x.a + x.b);
 }
 
-test "extern fn returns struct by value" {
+test "fn with C calling convention returns struct by value" {
     const S = struct {
         fn entry() void {
             var x = makeBar(10);
-            expectEqual(i32(10), x.handle);
+            expectEqual(@as(i32, 10), x.handle);
         }
 
         const ExternBar = extern struct {
             handle: i32,
         };
 
-        extern fn makeBar(t: i32) ExternBar {
+        fn makeBar(t: i32) callconv(.C) ExternBar {
             return ExternBar{
                 .handle = t,
             };
@@ -614,7 +615,7 @@ test "for loop over pointers to struct, getting field from struct pointer" {
 
         const ArrayList = struct {
             fn toSlice(self: *ArrayList) []*Foo {
-                return ([*]*Foo)(undefined)[0..0];
+                return @as([*]*Foo, undefined)[0..0];
             }
         };
 
@@ -688,4 +689,136 @@ test "non-packed struct with u128 entry in union" {
     var v2 = U{ .Num = 123 };
     s.f2 = v2;
     std.testing.expect(s.f2.Num == 123);
+}
+
+test "packed struct field passed to generic function" {
+    const S = struct {
+        const P = packed struct {
+            b: u5,
+            g: u5,
+            r: u5,
+            a: u1,
+        };
+
+        fn genericReadPackedField(ptr: var) u5 {
+            return ptr.*;
+        }
+    };
+
+    var p: S.P = undefined;
+    p.b = 29;
+    var loaded = S.genericReadPackedField(&p.b);
+    expect(loaded == 29);
+}
+
+test "anonymous struct literal syntax" {
+    const S = struct {
+        const Point = struct {
+            x: i32,
+            y: i32,
+        };
+
+        fn doTheTest() void {
+            var p: Point = .{
+                .x = 1,
+                .y = 2,
+            };
+            expect(p.x == 1);
+            expect(p.y == 2);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "fully anonymous struct" {
+    const S = struct {
+        fn doTheTest() void {
+            dump(.{
+                .int = @as(u32, 1234),
+                .float = @as(f64, 12.34),
+                .b = true,
+                .s = "hi",
+            });
+        }
+        fn dump(args: var) void {
+            expect(args.int == 1234);
+            expect(args.float == 12.34);
+            expect(args.b);
+            expect(args.s[0] == 'h');
+            expect(args.s[1] == 'i');
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "fully anonymous list literal" {
+    const S = struct {
+        fn doTheTest() void {
+            dump(.{ @as(u32, 1234), @as(f64, 12.34), true, "hi" });
+        }
+        fn dump(args: var) void {
+            expect(args.@"0" == 1234);
+            expect(args.@"1" == 12.34);
+            expect(args.@"2");
+            expect(args.@"3"[0] == 'h');
+            expect(args.@"3"[1] == 'i');
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "anonymous struct literal assigned to variable" {
+    var vec = .{ @as(i32, 22), @as(i32, 55), @as(i32, 99) };
+    expect(vec.@"0" == 22);
+    expect(vec.@"1" == 55);
+    expect(vec.@"2" == 99);
+}
+
+test "struct with var field" {
+    const Point = struct {
+        x: var,
+        y: var,
+    };
+    const pt = Point{
+        .x = 1,
+        .y = 2,
+    };
+    expect(pt.x == 1);
+    expect(pt.y == 2);
+}
+
+test "comptime struct field" {
+    const T = struct {
+        a: i32,
+        comptime b: i32 = 1234,
+    };
+
+    var foo: T = undefined;
+    comptime expect(foo.b == 1234);
+}
+
+test "anon struct literal field value initialized with fn call" {
+    const S = struct {
+        fn doTheTest() void {
+            var x = .{foo()};
+            expectEqualSlices(u8, x[0], "hi");
+        }
+        fn foo() []const u8 {
+            return "hi";
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "self-referencing struct via array member" {
+    const T = struct {
+        children: [1]*@This(),
+    };
+    var x: T = undefined;
+    x = T{ .children = .{&x} };
+    expect(x.children[0] == &x);
 }

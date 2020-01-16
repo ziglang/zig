@@ -14,8 +14,8 @@ const expect = std.testing.expect;
 ///  - cbrt(+-0)   = +-0
 ///  - cbrt(+-inf) = +-inf
 ///  - cbrt(nan)   = nan
-pub fn cbrt(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn cbrt(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => cbrt32(x),
         f64 => cbrt64(x),
@@ -54,11 +54,11 @@ fn cbrt32(x: f32) f32 {
     // first step newton to 16 bits
     var t: f64 = @bitCast(f32, u);
     var r: f64 = t * t * t;
-    t = t * (f64(x) + x + r) / (x + r + r);
+    t = t * (@as(f64, x) + x + r) / (x + r + r);
 
     // second step newton to 47 bits
     r = t * t * t;
-    t = t * (f64(x) + x + r) / (x + r + r);
+    t = t * (@as(f64, x) + x + r) / (x + r + r);
 
     return @floatCast(f32, t);
 }
@@ -97,7 +97,7 @@ fn cbrt64(x: f64) f64 {
     }
 
     u &= 1 << 63;
-    u |= u64(hx) << 32;
+    u |= @as(u64, hx) << 32;
     var t = @bitCast(f64, u);
 
     // cbrt to 23 bits
@@ -120,8 +120,8 @@ fn cbrt64(x: f64) f64 {
 }
 
 test "math.cbrt" {
-    expect(cbrt(f32(0.0)) == cbrt32(0.0));
-    expect(cbrt(f64(0.0)) == cbrt64(0.0));
+    expect(cbrt(@as(f32, 0.0)) == cbrt32(0.0));
+    expect(cbrt(@as(f64, 0.0)) == cbrt64(0.0));
 }
 
 test "math.cbrt32" {

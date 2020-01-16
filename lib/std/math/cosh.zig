@@ -17,8 +17,8 @@ const maxInt = std.math.maxInt;
 ///  - cosh(+-0)   = 1
 ///  - cosh(+-inf) = +inf
 ///  - cosh(nan)   = nan
-pub fn cosh(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn cosh(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => cosh32(x),
         f64 => cosh64(x),
@@ -88,8 +88,8 @@ fn cosh64(x: f64) f64 {
 }
 
 test "math.cosh" {
-    expect(cosh(f32(1.5)) == cosh32(1.5));
-    expect(cosh(f64(1.5)) == cosh64(1.5));
+    expect(cosh(@as(f32, 1.5)) == cosh32(1.5));
+    expect(cosh(@as(f64, 1.5)) == cosh64(1.5));
 }
 
 test "math.cosh32" {

@@ -83,7 +83,7 @@ pub const BufMap = struct {
 };
 
 test "BufMap" {
-    var bufmap = BufMap.init(std.heap.direct_allocator);
+    var bufmap = BufMap.init(std.heap.page_allocator);
     defer bufmap.deinit();
 
     try bufmap.set("x", "1");

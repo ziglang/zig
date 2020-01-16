@@ -38,6 +38,12 @@ static inline char *buf_ptr(Buf *buf) {
     return buf->list.items;
 }
 
+static inline const char *buf_ptr(const Buf *buf) {
+    assert(buf);
+    assert(buf->list.length);
+    return buf->list.items;
+}
+
 static inline void buf_resize(Buf *buf, size_t new_len) {
     buf->list.resize(new_len + 1);
     buf->list.at(buf_len(buf)) = 0;

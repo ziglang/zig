@@ -17,8 +17,8 @@ const maxInt = std.math.maxInt;
 ///  - sinh(+-0)   = +-0
 ///  - sinh(+-inf) = +-1
 ///  - sinh(nan)   = nan
-pub fn tanh(x: var) @typeOf(x) {
-    const T = @typeOf(x);
+pub fn tanh(x: var) @TypeOf(x) {
+    const T = @TypeOf(x);
     return switch (T) {
         f32 => tanh32(x),
         f64 => tanh64(x),
@@ -119,8 +119,8 @@ fn tanh64(x: f64) f64 {
 }
 
 test "math.tanh" {
-    expect(tanh(f32(1.5)) == tanh32(1.5));
-    expect(tanh(f64(1.5)) == tanh64(1.5));
+    expect(tanh(@as(f32, 1.5)) == tanh32(1.5));
+    expect(tanh(@as(f64, 1.5)) == tanh64(1.5));
 }
 
 test "math.tanh32" {
