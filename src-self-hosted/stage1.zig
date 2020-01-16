@@ -833,7 +833,17 @@ export fn stage2_target_details_get_builtin_str(target_details: ?*const Stage2Ta
     return @as([*:0]const u8, null_terminated_empty_string);
 }
 
-const riscv_default_features: []*const std.target.Feature = &[_]*const std.target.Feature {
+const riscv32_default_features: []*const std.target.Feature = &[_]*const std.target.Feature {
+    &std.target.riscv.feature_a,
+    &std.target.riscv.feature_c,
+    &std.target.riscv.feature_d,
+    &std.target.riscv.feature_f,
+    &std.target.riscv.feature_m,
+    &std.target.riscv.feature_relax,
+};
+
+const riscv64_default_features: []*const std.target.Feature = &[_]*const std.target.Feature {
+    &std.target.riscv.feature_bit64,
     &std.target.riscv.feature_a,
     &std.target.riscv.feature_c,
     &std.target.riscv.feature_d,
@@ -880,9 +890,14 @@ fn createDefaultTargetDetails(arch: @TagType(std.Target.Arch), os: std.Target.Os
     const allocator = std.heap.c_allocator;
 
     return switch (arch) {
-        .riscv32, .riscv64 => blk: {
+        .riscv32 => blk: {
             const ptr = try allocator.create(Stage2TargetDetails);
-            ptr.* = try Stage2TargetDetails.initFeatures(allocator, arch, riscv_default_features);
+            ptr.* = try Stage2TargetDetails.initFeatures(allocator, arch, riscv32_default_features);
+            break :blk ptr;
+        },
+        .riscv64 => blk: {
+            const ptr = try allocator.create(Stage2TargetDetails);
+            ptr.* = try Stage2TargetDetails.initFeatures(allocator, arch, riscv64_default_features);
             break :blk ptr;
         },
         .i386 => blk: {
