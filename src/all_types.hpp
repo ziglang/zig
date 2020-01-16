@@ -358,6 +358,8 @@ struct LazyValueSizeOf {
 
     IrAnalyze *ira;
     IrInstruction *target_type;
+
+    bool bit_size;
 };
 
 struct LazyValueSliceType {
@@ -1754,6 +1756,7 @@ enum BuiltinFnId {
     BuiltinFnIdFrameSize,
     BuiltinFnIdAs,
     BuiltinFnIdCall,
+    BuiltinFnIdBitSizeof,
 };
 
 struct BuiltinFnEntry {
@@ -3146,6 +3149,7 @@ struct IrInstructionAsmGen {
 struct IrInstructionSizeOf {
     IrInstruction base;
 
+    bool bit_size;
     IrInstruction *type_value;
 };
 

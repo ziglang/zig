@@ -124,3 +124,14 @@ fn fn1(alpha: bool) void {
 test "lazy @sizeOf result is checked for definedness" {
     const f = fn1;
 }
+
+test "@bitSizeOf" {
+    expect(@bitSizeOf(u2) == 2);
+    expect(@bitSizeOf(u8) == @sizeOf(u8) * 8);
+    expect(@bitSizeOf(struct {
+        a: u2
+    }) == 8);
+    expect(@bitSizeOf(packed struct {
+        a: u2
+    }) == 2);
+}

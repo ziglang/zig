@@ -2392,9 +2392,10 @@ static IrInstruction *ir_build_asm_gen(IrAnalyze *ira, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_size_of(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *type_value) {
+static IrInstruction *ir_build_size_of(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *type_value, bool bit_size) {
     IrInstructionSizeOf *instruction = ir_build_instruction<IrInstructionSizeOf>(irb, scope, source_node);
     instruction->type_value = type_value;
+    instruction->bit_size = bit_size;
 
     ir_ref_instruction(type_value, irb->current_basic_block);
 
@@ -5249,13 +5250,14 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 return ir_lval_wrap(irb, scope, set_float_mode, lval, result_loc);
             }
         case BuiltinFnIdSizeof:
+        case BuiltinFnIdBitSizeof:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
                 IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
                 if (arg0_value == irb->codegen->invalid_instruction)
                     return arg0_value;
 
-                IrInstruction *size_of = ir_build_size_of(irb, scope, node, arg0_value);
+                IrInstruction *size_of = ir_build_size_of(irb, scope, node, arg0_value, builtin_fn->id == BuiltinFnIdBitSizeof);
                 return ir_lval_wrap(irb, scope, size_of, lval, result_loc);
             }
         case BuiltinFnIdImport:
@@ -21065,6 +21067,7 @@ static IrInstruction *ir_analyze_instruction_size_of(IrAnalyze *ira, IrInstructi
     lazy_size_of->ira = ira; ira_ref(ira);
     result->value->data.x_lazy = &lazy_size_of->base;
     lazy_size_of->base.id = LazyValueIdSizeOf;
+    lazy_size_of->bit_size = instruction->bit_size;
 
     lazy_size_of->target_type = instruction->type_value->child;
     if (ir_resolve_type_lazy(ira, lazy_size_of->target_type) == nullptr)
@@ -29415,7 +29418,10 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
 
             val->special = ConstValSpecialStatic;
             assert(val->type->id == ZigTypeIdComptimeInt || val->type->id == ZigTypeIdInt);
-            bigint_init_unsigned(&val->data.x_bigint, abi_size);
+            if (lazy_size_of->bit_size)
+                bigint_init_unsigned(&val->data.x_bigint, size_in_bits);
+            else
+                bigint_init_unsigned(&val->data.x_bigint, abi_size);
 
             // We can't free the lazy value here, because multiple other ZigValues might be pointing to it.
             return ErrorNone;
