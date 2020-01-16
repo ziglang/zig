@@ -1,2 +1,0 @@
-RUN: not ld.lld --plugin foo 2>&1 | FileCheck %s
-CHECK: no input files

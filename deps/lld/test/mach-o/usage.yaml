@@ -1,8 +1,0 @@
-# RUN: not ld64.lld | FileCheck %s
-#
-# Test that running darwin linker with no option prints out usage message.
-#
-
-
-# CHECK:	          USAGE:
-# CHECK:	          -arch

@@ -1,5 +1,0 @@
-# RUN: lld-link /out:%t.exe /dll /noentry %S/Inputs/id.res.o
-# RUN: llvm-readobj -file-headers %t.exe | FileCheck %s
-
-CHECK: ResourceTableRVA: 0x1000
-CHECK: ResourceTableSize: 0x80

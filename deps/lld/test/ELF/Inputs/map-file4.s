@@ -1,3 +1,0 @@
-.global baz
-baz:
-        retq

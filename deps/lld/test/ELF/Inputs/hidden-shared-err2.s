@@ -1,1 +1,0 @@
-.quad foo
