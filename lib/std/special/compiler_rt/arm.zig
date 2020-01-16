@@ -1,6 +1,5 @@
 // ARM specific builtins
 const builtin = @import("builtin");
-const is_test = builtin.is_test;
 
 const __divmodsi4 = @import("int.zig").__divmodsi4;
 const __udivmodsi4 = @import("int.zig").__udivmodsi4;
@@ -33,18 +32,14 @@ pub fn __aeabi_memclr(dest: [*]u8, n: usize) callconv(.AAPCS) void {
     _ = memset(dest, 0, n);
 }
 
-pub fn __aeabi_unwind_cpp_pr0() callconv(.C) void {
-    unreachable;
-}
-pub fn __aeabi_unwind_cpp_pr1() callconv(.C) void {
-    unreachable;
-}
-pub fn __aeabi_unwind_cpp_pr2() callconv(.C) void {
-    unreachable;
-}
+// Dummy functions to avoid errors during the linking phase
+pub fn __aeabi_unwind_cpp_pr0() callconv(.C) void {}
+pub fn __aeabi_unwind_cpp_pr1() callconv(.C) void {}
+pub fn __aeabi_unwind_cpp_pr2() callconv(.C) void {}
 
 // This function can only clobber r0 according to the ABI
 pub fn __aeabi_read_tp() callconv(.Naked) void {
+    @setRuntimeSafety(false);
     asm volatile (
         \\ mrc p15, 0, r0, c13, c0, 3
         \\ bx lr
@@ -56,6 +51,7 @@ pub fn __aeabi_read_tp() callconv(.Naked) void {
 // calling convention is always respected
 
 pub fn __aeabi_uidivmod() callconv(.Naked) void {
+    @setRuntimeSafety(false);
     // Divide r0 by r1; the quotient goes in r0, the remainder in r1
     asm volatile (
         \\ push {lr}
@@ -73,6 +69,7 @@ pub fn __aeabi_uidivmod() callconv(.Naked) void {
 }
 
 pub fn __aeabi_uldivmod() callconv(.Naked) void {
+    @setRuntimeSafety(false);
     // Divide r1:r0 by r3:r2; the quotient goes in r1:r0, the remainder in r3:r2
     asm volatile (
         \\ push {r4, lr}
@@ -92,6 +89,7 @@ pub fn __aeabi_uldivmod() callconv(.Naked) void {
 }
 
 pub fn __aeabi_idivmod() callconv(.Naked) void {
+    @setRuntimeSafety(false);
     // Divide r0 by r1; the quotient goes in r0, the remainder in r1
     asm volatile (
         \\ push {lr}
@@ -109,6 +107,7 @@ pub fn __aeabi_idivmod() callconv(.Naked) void {
 }
 
 pub fn __aeabi_ldivmod() callconv(.Naked) void {
+    @setRuntimeSafety(false);
     // Divide r1:r0 by r3:r2; the quotient goes in r1:r0, the remainder in r3:r2
     asm volatile (
         \\ push {r4, lr}
