@@ -1,6 +1,7 @@
 // DNS RDATA understanding (parsing etc)
 const std = @import("std");
 const io = std.io;
+const fmt = std.fmt;
 
 const dns = std.dns;
 const InError = io.SliceInStream.Error;
@@ -68,6 +69,42 @@ pub const DNSRData = union(dns.DNSType) {
 
             else => @panic("TODO"),
         };
+    }
+
+    /// Format the RData into a prettier version of it.
+    /// For example, A rdata would be formatted to its ipv4 address.
+    pub fn format(
+        self: @This(),
+        comptime f: []const u8,
+        options: fmt.FormatOptions,
+        context: var,
+        comptime Errors: type,
+        output: fn (@TypeOf(context), []const u8) Errors!void,
+    ) Errors!void {
+        if (f.len != 0) {
+            @compileError("Unknown format character: '" ++ f ++ "'");
+        }
+
+        switch (self) {
+            .A, .AAAA => |addr| return fmt.format(context, Errors, output, "{}", .{addr}),
+
+            .NS, .MD, .MF, .MB, .MG, .MR, .CNAME, .PTR => |name| return fmt.format(context, Errors, output, "{}", .{name}),
+
+            .SOA => |soa| return fmt.format(context, Errors, output, "{} {} {} {} {} {} {}", .{
+                soa.mname,
+                soa.rname,
+                soa.serial,
+                soa.refresh,
+                soa.retry,
+                soa.expire,
+                soa.minimum,
+            }),
+
+            .MX => |mx| return fmt.format(context, Errors, output, "{} {}", .{ mx.preference, mx.exchange }),
+
+            else => return fmt.format(context, Errors, output, "TODO support {}", .{@tagName(self)}),
+        }
+        return fmt.format(context, Errors, output, "{}");
     }
 };
 
