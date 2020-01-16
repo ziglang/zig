@@ -8,6 +8,7 @@
 
 find_path(LLD_INCLUDE_DIRS NAMES lld/Common/Driver.h
     PATHS
+        /usr/lib/llvm-9/include
         /usr/lib/llvm-9.0/include
         /usr/local/llvm90/include
         /mingw64/include)
@@ -24,6 +25,7 @@ else()
         string(TOUPPER ${_libname_} _prettylibname_)
         find_library(LLD_${_prettylibname_}_LIB NAMES ${_libname_}
             PATHS
+                /usr/lib/llvm-9/lib
                 /usr/lib/llvm-9.0/lib
                 /usr/local/llvm90/lib
                 /mingw64/lib

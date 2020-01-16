@@ -64,6 +64,9 @@ option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead
 
 find_package(llvm)
 find_package(clang)
+# This requires the header files too, which Ubuntu 19.04 does not have, but
+# Ubuntu 19.10 and Debian 10 and Fedora 29 have (install liblld-9-dev or lld-devel)
+find_package(lld)
 
 if(APPLE AND ZIG_STATIC)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
@@ -83,8 +86,7 @@ foreach(CONFIG_TYPE ${CMAKE_CONFIGURATION_TYPES})
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${CONFIG_TYPE} ${ZIG_CPP_LIB_DIR})
 endforeach(CONFIG_TYPE CMAKE_CONFIGURATION_TYPES)
 
-if(ZIG_FORCE_EXTERNAL_LLD)
-    find_package(lld)
+if(ZIG_FORCE_EXTERNAL_LLD OR LLD_INCLUDE_DIRS)
     include_directories(${LLVM_INCLUDE_DIRS})
     include_directories(${LLD_INCLUDE_DIRS})
     include_directories(${CLANG_INCLUDE_DIRS})
