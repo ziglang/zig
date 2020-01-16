@@ -205,6 +205,7 @@ pub const TypeInfo = union(enum) {
         name: []const u8,
         offset: ?comptime_int,
         field_type: type,
+        default_value: var,
     };
 
     /// This data structure is used by the Zig language code generation and
