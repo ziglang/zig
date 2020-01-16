@@ -1,2 +1,0 @@
-main:
-  callq f1

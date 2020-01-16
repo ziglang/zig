@@ -1,4 +1,0 @@
-# RUN: env LINK=-help lld-link | FileCheck %s
-# RUN: env _LINK_=-help lld-link | FileCheck %s
-
-CHECK: OVERVIEW: LLVM Linker

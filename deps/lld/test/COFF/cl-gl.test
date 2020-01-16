@@ -1,4 +1,0 @@
-# RUN: not lld-link /out:%t.exe /entry:main %S/Inputs/cl-gl.obj >& %t.log
-# RUN: FileCheck %s < %t.log
-
-# CHECK: is not a native COFF file. Recompile without /GL

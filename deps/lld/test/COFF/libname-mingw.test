@@ -1,8 +1,0 @@
-# RUN: mkdir -p %t/a
-# RUN: cp %p/Inputs/std64.lib %t/a/libstd64.a
-
-# RUN: lld-link /lldmingw /out:%t.exe /entry:main /verbose \
-# RUN:   /defaultlib:std64.lib /subsystem:console %p/Inputs/hello64.obj \
-# RUN:   /libpath:%t/a 2>&1 | FileCheck %s
-
-CHECK: a{{[/\\]}}libstd64.a
