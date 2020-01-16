@@ -23335,7 +23335,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                     struct_field_val->special = ConstValSpecialStatic;
                     struct_field_val->type = type_info_struct_field_type;
 
-                    ZigValue **inner_fields = alloc_const_vals_ptrs(3);
+                    ZigValue **inner_fields = alloc_const_vals_ptrs(4);
                     inner_fields[1]->special = ConstValSpecialStatic;
                     inner_fields[1]->type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_num_lit_int);
 
@@ -23357,6 +23357,12 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInstruction *source_instr
                     inner_fields[2]->special = ConstValSpecialStatic;
                     inner_fields[2]->type = ira->codegen->builtin_types.entry_type;
                     inner_fields[2]->data.x_type = struct_field->type_entry;
+
+                    // default_value: var
+                    inner_fields[3]->special = ConstValSpecialStatic;
+                    inner_fields[3]->type = get_optional_type(ira->codegen, struct_field->type_entry);
+                    memoize_field_init_val(ira->codegen, type_entry, struct_field);
+                    set_optional_payload(inner_fields[3], struct_field->init_val);
 
                     ZigValue *name = create_const_str_lit(ira->codegen, struct_field->name)->data.x_ptr.data.ref.pointee;
                     init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(struct_field->name), true);
