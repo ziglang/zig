@@ -2560,7 +2560,8 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 
     assert(!enum_type->data.enumeration.fields);
     uint32_t field_count = (uint32_t)decl_node->data.container_decl.fields.length;
-    if (field_count == 0) {
+    if (field_count == 0 || (field_count == 1 &&
+        buf_eql_str(decl_node->data.container_decl.fields.at(0)->data.struct_field.name, "_"))) {
         add_node_error(g, decl_node, buf_sprintf("enums must have 1 or more fields"));
 
         enum_type->data.enumeration.src_field_count = field_count;

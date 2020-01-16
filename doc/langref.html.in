@@ -2903,11 +2903,8 @@ test "switch using enum literals" {
       {#link|@intToEnum#} on a non-exhaustive enum cannot fail.
       </p>
       <p>
-      A switch on a non-exhaustive enum can include a '_' prong with the following properties:
-      <ul>
-        <li>makes it a compile error if all the known tag names are not handled by the switch</li>
-        <li>allows omitting {#syntax#}else{#endsyntax#}</li>
-      </ul>
+      A switch on a non-exhaustive enum can include a '_' prong as an alternative to an {#syntax#}else{#endsyntax#} prong
+      with the difference being that it makes it a compile error if all the known tag names are not handled by the switch.
       </p>
       {#code_begin|test#}
 const std = @import("std");

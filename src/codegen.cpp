@@ -5065,8 +5065,11 @@ static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, IrExecutable *executable
 {
     ZigType *enum_type = instruction->target->value->type;
     assert(enum_type->id == ZigTypeIdEnum);
-    if (enum_type->data.enumeration.non_exhaustive)
-        zig_panic("TODO @tagName on non-exhaustive enum");
+    if (enum_type->data.enumeration.non_exhaustive) {
+        add_node_error(g, instruction->base.source_node,
+            buf_sprintf("TODO @tagName on non-exhaustive enum https://github.com/ziglang/zig/issues/3991"));
+        codegen_report_errors_and_exit(g);
+    }
 
     LLVMValueRef enum_name_function = get_enum_tag_name_function(g, enum_type);
 

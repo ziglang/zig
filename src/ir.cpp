@@ -8183,13 +8183,6 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
                     return irb->codegen->invalid_instruction;
                 }
                 else_prong = prong_node;
-                if (underscore_prong) {
-                    ErrorMsg *msg = add_node_error(irb->codegen, prong_node,
-                            buf_sprintf("else and '_' prong in switch expression"));
-                    add_error_note(irb->codegen, msg, underscore_prong,
-                            buf_sprintf("'_' prong is here"));
-                    return irb->codegen->invalid_instruction;
-                }
             } else if (prong_item_count == 1 && 
                     prong_node->data.switch_prong.items.at(0)->type == NodeTypeSymbol &&
                     buf_eql_str(prong_node->data.switch_prong.items.at(0)->data.symbol_expr.symbol, "_")) {
@@ -8201,15 +8194,19 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
                     return irb->codegen->invalid_instruction;
                 }
                 underscore_prong = prong_node;
-                if (else_prong) {
-                    ErrorMsg *msg = add_node_error(irb->codegen, prong_node,
-                            buf_sprintf("else and '_' prong in switch expression"));
-                    add_error_note(irb->codegen, msg, else_prong,
-                            buf_sprintf("else prong is here"));
-                    return irb->codegen->invalid_instruction;
-                }
             } else {
                 continue;
+            }
+           if (underscore_prong && else_prong) {
+                ErrorMsg *msg = add_node_error(irb->codegen, prong_node,
+                        buf_sprintf("else and '_' prong in switch expression"));
+                if (underscore_prong == prong_node)
+                    add_error_note(irb->codegen, msg, else_prong,
+                            buf_sprintf("else prong is here"));
+                else
+                    add_error_note(irb->codegen, msg, underscore_prong,
+                            buf_sprintf("'_' prong is here"));
+                return irb->codegen->invalid_instruction;
             }
             ResultLocPeer *this_peer_result_loc = create_peer_result(peer_parent);
 
@@ -22357,8 +22354,11 @@ static IrInstruction *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrIns
     if (instr_is_comptime(target)) {
         if ((err = type_resolve(ira->codegen, target->value->type, ResolveStatusZeroBitsKnown)))
             return ira->codegen->invalid_instruction;
-        if (target->value->type->data.enumeration.non_exhaustive)
-            zig_panic("TODO @tagName on non-exhaustive enum");
+        if (target->value->type->data.enumeration.non_exhaustive) {
+            add_node_error(ira->codegen, instruction->base.source_node,
+                buf_sprintf("TODO @tagName on non-exhaustive enum https://github.com/ziglang/zig/issues/3991"));
+            return ira->codegen->invalid_instruction;
+        }
         TypeEnumField *field = find_enum_field_by_tag(target->value->type, &target->value->data.x_bigint);
         ZigValue *array_val = create_const_str_lit(ira->codegen, field->name)->data.x_ptr.data.ref.pointee;
         IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
