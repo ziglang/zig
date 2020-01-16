@@ -5,14 +5,9 @@ set -e
 
 BUILDDIR="$(pwd)"
 
-sudo sh -c 'echo "deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-9 main" >> /etc/apt/sources.list'
-wget -O - http://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
-sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-sudo apt-get update -q
-
 sudo apt-get remove -y llvm-*
 sudo rm -rf /usr/local/*
-sudo apt-get install -y libxml2-dev libclang-9-dev llvm-9 llvm-9-dev cmake s3cmd gcc-7 g++-7 qemu
+sudo apt-get install -y libxml2-dev libclang-9-dev liblld-9-dev llvm-9 llvm-9-dev cmake s3cmd gcc-7 g++-7 qemu-user-static
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
