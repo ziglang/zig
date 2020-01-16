@@ -2096,7 +2096,9 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
     }
 
     if (diags->hasErrorOccurred()) {
-        clang::ASTUnit *unit = ast_unit ? ast_unit : err_unit.get();
+        // Take ownership of the err_unit ASTUnit object so that it won't be
+        // free'd when we return, invalidating the error message pointers
+        clang::ASTUnit *unit = ast_unit ? ast_unit : err_unit.release();
         ZigList<Stage2ErrorMsg> errors = {};
 
         for (clang::ASTUnit::stored_diag_iterator it = unit->stored_diag_begin(),
