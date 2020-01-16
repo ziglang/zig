@@ -16,7 +16,7 @@ const AtomicRmwOp = builtin.AtomicRmwOp;
 const AtomicOrder = builtin.AtomicOrder;
 
 test "makePath, put some files in it, deleteTree" {
-    try fs.makePath(a, "os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
+    try fs.cwd().makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
     try io.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
     try fs.deleteTree("os_test_tmp");
@@ -28,7 +28,7 @@ test "makePath, put some files in it, deleteTree" {
 }
 
 test "access file" {
-    try fs.makePath(a, "os_test_tmp");
+    try fs.cwd().makePath("os_test_tmp");
     if (fs.cwd().access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{})) |ok| {
         @panic("expected error");
     } else |err| {

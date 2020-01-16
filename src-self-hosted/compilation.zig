@@ -1179,7 +1179,7 @@ pub const Compilation = struct {
         defer self.gpa().free(zig_dir_path);
 
         const tmp_dir = try fs.path.join(self.arena(), &[_][]const u8{ zig_dir_path, comp_dir_name[0..] });
-        try fs.makePath(self.gpa(), tmp_dir);
+        try fs.cwd().makePath(tmp_dir);
         return tmp_dir;
     }
 
