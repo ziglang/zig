@@ -649,12 +649,14 @@ const Stage2TargetDetails = struct {
         try builtin_str_buffer.append(cpu.name);
         try builtin_str_buffer.append("};");
 
+        const cpu_string = cpu.llvm_name orelse "";
+
         return Self{
             .allocator = allocator,
             .target_details = .{
                 .cpu = cpu,
             },
-            .llvm_cpu_str = try toNullTerminatedStringAlloc(allocator, cpu.llvm_name),
+            .llvm_cpu_str = try toNullTerminatedStringAlloc(allocator, cpu_string),
             .llvm_features_str = null_terminated_empty_string,
             .builtin_str = builtin_str_buffer.toSliceConst(),
         };
@@ -670,21 +672,25 @@ const Stage2TargetDetails = struct {
         // First, disable all features.
         // This way, we only get the ones the user requests.
         for (std.target.getFeaturesForArch(arch)) |feature| {
-            try llvm_features_buffer.append("-");
-            try llvm_features_buffer.append(feature.llvm_name);
-            try llvm_features_buffer.append(",");
+            if (feature.llvm_name) |llvm_name| {
+                try llvm_features_buffer.append("-");
+                try llvm_features_buffer.append(llvm_name);
+                try llvm_features_buffer.append(",");
+            }
         }
 
         for (features) |feature| {
-            try llvm_features_buffer.append("+");
-            try llvm_features_buffer.append(feature.llvm_name);
-            try llvm_features_buffer.append(",");
-            
-            try builtin_str_buffer.append("&@import(\"std\").target.");
-            try builtin_str_buffer.append(@tagName(arch));
-            try builtin_str_buffer.append(".feature_");
-            try builtin_str_buffer.append(feature.name);
-            try builtin_str_buffer.append(",");
+            if (feature.llvm_name) |llvm_name| {
+                try llvm_features_buffer.append("+");
+                try llvm_features_buffer.append(llvm_name);
+                try llvm_features_buffer.append(",");
+                
+                try builtin_str_buffer.append("&@import(\"std\").target.");
+                try builtin_str_buffer.append(@tagName(arch));
+                try builtin_str_buffer.append(".feature_");
+                try builtin_str_buffer.append(feature.name);
+                try builtin_str_buffer.append(",");
+            }
         }
 
         try builtin_str_buffer.append("}};");
