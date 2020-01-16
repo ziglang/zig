@@ -1039,7 +1039,10 @@ static void ir_print_asm_gen(IrPrint *irp, IrInstructionAsmGen *instruction) {
 }
 
 static void ir_print_size_of(IrPrint *irp, IrInstructionSizeOf *instruction) {
-    fprintf(irp->f, "@sizeOf(");
+    if (instruction->bit_size)
+        fprintf(irp->f, "@bitSizeOf(");
+    else
+        fprintf(irp->f, "@sizeOf(");
     ir_print_other_instruction(irp, instruction->type_value);
     fprintf(irp->f, ")");
 }

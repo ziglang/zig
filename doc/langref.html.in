@@ -6815,6 +6815,19 @@ async fn func(y: *i32) void {
       </p>
       {#header_close#}
 
+      {#header_open|@bitSizeOf#}
+      <pre>{#syntax#}@bitSizeOf(comptime T: type) comptime_int{#endsyntax#}</pre>
+      <p>
+      This function returns the number of bits it takes to store {#syntax#}T{#endsyntax#} in memory.
+      The result is a target-specific compile time constant.
+      </p>
+      <p>
+      This function measures the size at runtime. For types that are disallowed at runtime, such as
+      {#syntax#}comptime_int{#endsyntax#} and {#syntax#}type{#endsyntax#}, the result is {#syntax#}0{#endsyntax#}.
+      </p>
+      {#see_also|@sizeOf|@typeInfo#}
+      {#header_close#}
+
       {#header_open|@breakpoint#}
       <pre>{#syntax#}@breakpoint(){#endsyntax#}</pre>
       <p>
@@ -8044,7 +8057,7 @@ test "@setRuntimeSafety" {
       This function measures the size at runtime. For types that are disallowed at runtime, such as
       {#syntax#}comptime_int{#endsyntax#} and {#syntax#}type{#endsyntax#}, the result is {#syntax#}0{#endsyntax#}.
       </p>
-      {#see_also|@typeInfo#}
+      {#see_also|@bitSizeOf|@typeInfo#}
       {#header_close#}
 
       {#header_open|@sliceToBytes#}
