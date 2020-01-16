@@ -930,6 +930,10 @@ static void ir_print_set_float_mode(IrPrint *irp, IrInstructionSetFloatMode *ins
 static void ir_print_array_type(IrPrint *irp, IrInstructionArrayType *instruction) {
     fprintf(irp->f, "[");
     ir_print_other_instruction(irp, instruction->size);
+    if (instruction->sentinel != nullptr) {
+        fprintf(irp->f, ":");
+        ir_print_other_instruction(irp, instruction->sentinel);
+    }
     fprintf(irp->f, "]");
     ir_print_other_instruction(irp, instruction->child_type);
 }
@@ -1035,7 +1039,10 @@ static void ir_print_asm_gen(IrPrint *irp, IrInstructionAsmGen *instruction) {
 }
 
 static void ir_print_size_of(IrPrint *irp, IrInstructionSizeOf *instruction) {
-    fprintf(irp->f, "@sizeOf(");
+    if (instruction->bit_size)
+        fprintf(irp->f, "@bitSizeOf(");
+    else
+        fprintf(irp->f, "@sizeOf(");
     ir_print_other_instruction(irp, instruction->type_value);
     fprintf(irp->f, ")");
 }
@@ -1893,21 +1900,11 @@ static void ir_print_enum_tag_type(IrPrint *irp, IrInstructionTagType *instructi
 }
 
 static void ir_print_export(IrPrint *irp, IrInstructionExport *instruction) {
-    if (instruction->linkage == nullptr) {
-        fprintf(irp->f, "@export(");
-        ir_print_other_instruction(irp, instruction->name);
-        fprintf(irp->f, ",");
-        ir_print_other_instruction(irp, instruction->target);
-        fprintf(irp->f, ")");
-    } else {
-        fprintf(irp->f, "@exportWithLinkage(");
-        ir_print_other_instruction(irp, instruction->name);
-        fprintf(irp->f, ",");
-        ir_print_other_instruction(irp, instruction->target);
-        fprintf(irp->f, ",");
-        ir_print_other_instruction(irp, instruction->linkage);
-        fprintf(irp->f, ")");
-    }
+    fprintf(irp->f, "@export(");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->options);
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_error_return_trace(IrPrint *irp, IrInstructionErrorReturnTrace *instruction) {

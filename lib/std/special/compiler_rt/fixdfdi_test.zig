@@ -6,12 +6,12 @@ const warn = std.debug.warn;
 
 fn test__fixdfdi(a: f64, expected: i64) void {
     const x = __fixdfdi(a);
-    //warn("a={}:{x} x={}:{x} expected={}:{x}:@as(u64, {x})\n", a, @bitCast(u64, a), x, x, expected, expected, @bitCast(u64, expected));
+    //warn("a={}:{x} x={}:{x} expected={}:{x}:@as(u64, {x})\n", .{a, @bitCast(u64, a), x, x, expected, expected, @bitCast(u64, expected)});
     testing.expect(x == expected);
 }
 
 test "fixdfdi" {
-    //warn("\n");
+    //warn("\n", .{});
     test__fixdfdi(-math.f64_max, math.minInt(i64));
 
     test__fixdfdi(-0x1.FFFFFFFFFFFFFp+1023, math.minInt(i64));

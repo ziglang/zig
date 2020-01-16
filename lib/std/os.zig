@@ -2632,9 +2632,7 @@ pub fn realpathW(pathname: [*:0]const u16, out_buffer: *[MAX_PATH_BYTES]u8) Real
     defer windows.CloseHandle(h_file);
 
     var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
-    const wide_len = try windows.GetFinalPathNameByHandleW(h_file, &wide_buf, wide_buf.len, windows.VOLUME_NAME_DOS);
-    assert(wide_len <= wide_buf.len);
-    const wide_slice = wide_buf[0..wide_len];
+    const wide_slice = try windows.GetFinalPathNameByHandleW(h_file, &wide_buf, wide_buf.len, windows.VOLUME_NAME_DOS);
 
     // Windows returns \\?\ prepended to the path.
     // We strip it to make this function consistent across platforms.

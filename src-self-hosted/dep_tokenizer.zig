@@ -894,7 +894,7 @@ fn printSection(out: var, label: []const u8, bytes: []const u8) !void {
 
 fn printLabel(out: var, label: []const u8, bytes: []const u8) !void {
     var buf: [80]u8 = undefined;
-    var text = try std.fmt.bufPrint(buf[0..], "{} {} bytes ", label, bytes.len);
+    var text = try std.fmt.bufPrint(buf[0..], "{} {} bytes ", .{label, bytes.len});
     try out.write(text);
     var i: usize = text.len;
     const end = 79;

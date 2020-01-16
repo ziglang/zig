@@ -15,7 +15,7 @@ pub const GetAppDataDirError = error{
 pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataDirError![]u8 {
     switch (builtin.os) {
         .windows => {
-            var dir_path_ptr: [*]u16 = undefined;
+            var dir_path_ptr: [*:0]u16 = undefined;
             switch (os.windows.shell32.SHGetKnownFolderPath(
                 &os.windows.FOLDERID_LocalAppData,
                 os.windows.KF_FLAG_CREATE,
@@ -24,7 +24,7 @@ pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataD
             )) {
                 os.windows.S_OK => {
                     defer os.windows.ole32.CoTaskMemFree(@ptrCast(*c_void, dir_path_ptr));
-                    const global_dir = unicode.utf16leToUtf8Alloc(allocator, utf16lePtrSlice(dir_path_ptr)) catch |err| switch (err) {
+                    const global_dir = unicode.utf16leToUtf8Alloc(allocator, mem.toSliceConst(u16, dir_path_ptr)) catch |err| switch (err) {
                         error.UnexpectedSecondSurrogateHalf => return error.AppDataDirUnavailable,
                         error.ExpectedSecondSurrogateHalf => return error.AppDataDirUnavailable,
                         error.DanglingSurrogateHalf => return error.AppDataDirUnavailable,
@@ -53,12 +53,6 @@ pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataD
         },
         else => @compileError("Unsupported OS"),
     }
-}
-
-fn utf16lePtrSlice(ptr: [*]const u16) []const u16 {
-    var index: usize = 0;
-    while (ptr[index] != 0) : (index += 1) {}
-    return ptr[0..index];
 }
 
 test "getAppDataDir" {

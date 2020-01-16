@@ -1649,10 +1649,15 @@ bool ZigClangRecordDecl_isAnonymousStructOrUnion(const ZigClangRecordDecl *recor
     return reinterpret_cast<const clang::RecordDecl*>(record_decl)->isAnonymousStructOrUnion();
 }
 
-const char *ZigClangDecl_getName_bytes_begin(const ZigClangDecl *zig_decl) {
-    const clang::Decl *decl = reinterpret_cast<const clang::Decl *>(zig_decl);
-    const clang::NamedDecl *named_decl = static_cast<const clang::NamedDecl *>(decl);
-    return (const char *)named_decl->getName().bytes_begin();
+const ZigClangNamedDecl* ZigClangDecl_castToNamedDecl(const ZigClangDecl *self) {
+    auto casted = reinterpret_cast<const clang::Decl *>(self);
+    auto cast = clang::dyn_cast<const clang::NamedDecl>(casted);
+    return reinterpret_cast<const ZigClangNamedDecl *>(cast);
+}
+
+const char *ZigClangNamedDecl_getName_bytes_begin(const ZigClangNamedDecl *self) {
+    auto casted = reinterpret_cast<const clang::NamedDecl *>(self);
+    return (const char *)casted->getName().bytes_begin();
 }
 
 ZigClangDeclKind ZigClangDecl_getKind(const struct ZigClangDecl *self) {
@@ -1734,6 +1739,31 @@ bool ZigClangFunctionDecl_doesDeclarationForceExternallyVisibleDefinition(const 
     return casted->doesDeclarationForceExternallyVisibleDefinition();
 }
 
+bool ZigClangFunctionDecl_isThisDeclarationADefinition(const struct ZigClangFunctionDecl *self) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    return casted->isThisDeclarationADefinition();
+}
+
+bool ZigClangFunctionDecl_doesThisDeclarationHaveABody(const struct ZigClangFunctionDecl *self) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    return casted->doesThisDeclarationHaveABody();
+}
+
+bool ZigClangFunctionDecl_isDefined(const struct ZigClangFunctionDecl *self) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    return casted->isDefined();
+}
+
+const ZigClangFunctionDecl* ZigClangFunctionDecl_getDefinition(const struct ZigClangFunctionDecl *self) {
+    auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
+    return reinterpret_cast<const ZigClangFunctionDecl *>(casted->getDefinition());
+}
+
+bool ZigClangTagDecl_isThisDeclarationADefinition(const struct ZigClangTagDecl *self) {
+    auto casted = reinterpret_cast<const clang::TagDecl *>(self);
+    return casted->isThisDeclarationADefinition();
+}
+
 bool ZigClangFunctionDecl_isInlineSpecified(const struct ZigClangFunctionDecl *self) {
     auto casted = reinterpret_cast<const clang::FunctionDecl *>(self);
     return casted->isInlineSpecified();
@@ -1747,6 +1777,11 @@ const char* ZigClangFunctionDecl_getSectionAttribute(const struct ZigClangFuncti
         return (const char *)str_ref.bytes_begin();
     }
     return nullptr;
+}
+
+const ZigClangExpr *ZigClangOpaqueValueExpr_getSourceExpr(const ZigClangOpaqueValueExpr *self) {
+    auto casted = reinterpret_cast<const clang::OpaqueValueExpr *>(self);
+    return reinterpret_cast<const ZigClangExpr *>(casted->getSourceExpr());
 }
 
 const ZigClangTypedefNameDecl *ZigClangTypedefType_getDecl(const ZigClangTypedefType *self) {
@@ -2061,7 +2096,9 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
     }
 
     if (diags->hasErrorOccurred()) {
-        clang::ASTUnit *unit = ast_unit ? ast_unit : err_unit.get();
+        // Take ownership of the err_unit ASTUnit object so that it won't be
+        // free'd when we return, invalidating the error message pointers
+        clang::ASTUnit *unit = ast_unit ? ast_unit : err_unit.release();
         ZigList<Stage2ErrorMsg> errors = {};
 
         for (clang::ASTUnit::stored_diag_iterator it = unit->stored_diag_begin(),
@@ -2081,28 +2118,40 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
             llvm::StringRef msg_str_ref = it->getMessage();
 
             Stage2ErrorMsg *msg = errors.add_one();
+            memset(msg, 0, sizeof(*msg));
+
             msg->msg_ptr = (const char *)msg_str_ref.bytes_begin();
             msg->msg_len = msg_str_ref.size();
 
             clang::FullSourceLoc fsl = it->getLocation();
+            // Expand the location if possible
+            fsl = fsl.getFileLoc();
+
+            // The only known way to obtain a Loc without a manager associated
+            // to it is if you have a lot of errors clang emits "too many errors
+            // emitted, stopping now"
             if (fsl.hasManager()) {
-                clang::FileID file_id = fsl.getFileID();
-                clang::StringRef filename = fsl.getManager().getFilename(fsl);
-                if (filename.empty()) {
-                    msg->filename_ptr = nullptr;
-                } else {
+                const clang::SourceManager &SM = fsl.getManager();
+
+                clang::PresumedLoc presumed_loc = SM.getPresumedLoc(fsl);
+                assert(!presumed_loc.isInvalid());
+
+                msg->line = presumed_loc.getLine() - 1;
+                msg->column = presumed_loc.getColumn() - 1;
+
+                clang::StringRef filename = presumed_loc.getFilename();
+                if (!filename.empty()) {
                     msg->filename_ptr = (const char *)filename.bytes_begin();
                     msg->filename_len = filename.size();
                 }
-                msg->source = (const char *)fsl.getManager().getBufferData(file_id).bytes_begin();
-                msg->line = fsl.getSpellingLineNumber() - 1;
-                msg->column = fsl.getSpellingColumnNumber() - 1;
-                msg->offset = fsl.getManager().getFileOffset(fsl);
-            } else {
-                // The only known way this gets triggered right now is if you have a lot of errors
-                // clang emits "too many errors emitted, stopping now"
-                msg->filename_ptr = nullptr;
-                msg->source = nullptr;
+
+                bool invalid;
+                clang::StringRef buffer = fsl.getBufferData(&invalid);
+
+                if (!invalid) {
+                    msg->source = (const char *)buffer.bytes_begin();
+                    msg->offset = SM.getFileOffset(fsl);
+                }
             }
         }
 
@@ -2429,18 +2478,18 @@ unsigned ZigClangCharacterLiteral_getValue(const struct ZigClangCharacterLiteral
     return casted->getValue();
 }
 
-const struct ZigClangExpr *ZigClangConditionalOperator_getCond(const struct ZigClangConditionalOperator *self) {
-    auto casted = reinterpret_cast<const clang::ConditionalOperator *>(self);
+const struct ZigClangExpr *ZigClangAbstractConditionalOperator_getCond(const struct ZigClangAbstractConditionalOperator *self) {
+    auto casted = reinterpret_cast<const clang::AbstractConditionalOperator *>(self);
     return reinterpret_cast<const struct ZigClangExpr *>(casted->getCond());
 }
 
-const struct ZigClangExpr *ZigClangConditionalOperator_getTrueExpr(const struct ZigClangConditionalOperator *self) {
-    auto casted = reinterpret_cast<const clang::ConditionalOperator *>(self);
+const struct ZigClangExpr *ZigClangAbstractConditionalOperator_getTrueExpr(const struct ZigClangAbstractConditionalOperator *self) {
+    auto casted = reinterpret_cast<const clang::AbstractConditionalOperator *>(self);
     return reinterpret_cast<const struct ZigClangExpr *>(casted->getTrueExpr());
 }
 
-const struct ZigClangExpr *ZigClangConditionalOperator_getFalseExpr(const struct ZigClangConditionalOperator *self) {
-    auto casted = reinterpret_cast<const clang::ConditionalOperator *>(self);
+const struct ZigClangExpr *ZigClangAbstractConditionalOperator_getFalseExpr(const struct ZigClangAbstractConditionalOperator *self) {
+    auto casted = reinterpret_cast<const clang::AbstractConditionalOperator *>(self);
     return reinterpret_cast<const struct ZigClangExpr *>(casted->getFalseExpr());
 }
 

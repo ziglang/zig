@@ -452,3 +452,30 @@ test "switch on global mutable var isn't constant-folded" {
         poll();
     }
 }
+
+test "switch on pointer type" {
+    const S = struct {
+        const X = struct {
+            field: u32,
+        };
+
+        const P1 = @intToPtr(*X, 0x400);
+        const P2 = @intToPtr(*X, 0x800);
+        const P3 = @intToPtr(*X, 0xC00);
+
+        fn doTheTest(arg: *X) i32 {
+            switch (arg) {
+                P1 => return 1,
+                P2 => return 2,
+                else => return 3,
+            }
+        }
+    };
+
+    expect(1 == S.doTheTest(S.P1));
+    expect(2 == S.doTheTest(S.P2));
+    expect(3 == S.doTheTest(S.P3));
+    comptime expect(1 == S.doTheTest(S.P1));
+    comptime expect(2 == S.doTheTest(S.P2));
+    comptime expect(3 == S.doTheTest(S.P3));
+}

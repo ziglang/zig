@@ -1647,6 +1647,10 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append("--gc-sections");
     }
 
+    if (g->link_eh_frame_hdr) {
+        lj->args.append("--eh-frame-hdr");
+    }
+
     lj->args.append("-m");
     lj->args.append(getLDMOption(g->zig_target));
 
@@ -1958,7 +1962,7 @@ static const char *get_def_lib(CodeGen *parent, const char *name, Buf *def_in_fi
         exit(1);
     }
 
-    Buf *cache_dir = get_stage1_cache_path();
+    Buf *cache_dir = get_global_cache_dir();
     Buf *o_dir = buf_sprintf("%s" OS_SEP CACHE_OUT_SUBDIR, buf_ptr(cache_dir));
     Buf *manifest_dir = buf_sprintf("%s" OS_SEP CACHE_HASH_SUBDIR, buf_ptr(cache_dir));
 

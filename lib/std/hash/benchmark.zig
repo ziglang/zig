@@ -171,15 +171,6 @@ fn mode(comptime x: comptime_int) comptime_int {
     return if (builtin.mode == builtin.Mode.Debug) x / 64 else x;
 }
 
-// TODO(#1358): Replace with builtin formatted padding when available.
-fn printPad(stdout: var, s: []const u8) !void {
-    var i: usize = 0;
-    while (i < 12 - s.len) : (i += 1) {
-        try stdout.print(" ");
-    }
-    try stdout.print("{}", s);
-}
-
 pub fn main() !void {
     var stdout_file = std.io.getStdOut();
     var stdout_out_stream = stdout_file.outStream();
@@ -198,7 +189,7 @@ pub fn main() !void {
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--mode")) {
-            try stdout.print("{}\n", builtin.mode);
+            try stdout.print("{}\n", .{builtin.mode});
             return;
         } else if (std.mem.eql(u8, args[i], "--seed")) {
             i += 1;
@@ -235,7 +226,7 @@ pub fn main() !void {
 
             key_size = try std.fmt.parseUnsigned(usize, args[i], 10);
             if (key_size > block_size) {
-                try stdout.print("key_size cannot exceed block size of {}\n", block_size);
+                try stdout.print("key_size cannot exceed block size of {}\n", .{block_size});
                 std.os.exit(1);
             }
         } else if (std.mem.eql(u8, args[i], "--iterative-only")) {
@@ -252,20 +243,20 @@ pub fn main() !void {
     inline for (hashes) |H| {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
             if (!test_iterative_only or H.has_iterative_api) {
-                try stdout.print("{}\n", H.name);
+                try stdout.print("{}\n", .{H.name});
 
                 // Always reseed prior to every call so we are hashing the same buffer contents.
                 // This allows easier comparison between different implementations.
                 if (H.has_iterative_api) {
                     prng.seed(seed);
                     const result = try benchmarkHash(H, count);
-                    try stdout.print("   iterative: {:4} MiB/s [{x:0<16}]\n", result.throughput / (1 * MiB), result.hash);
+                    try stdout.print("   iterative: {:4} MiB/s [{x:0<16}]\n", .{result.throughput / (1 * MiB), result.hash});
                 }
 
                 if (!test_iterative_only) {
                     prng.seed(seed);
                     const result_small = try benchmarkHashSmallKeys(H, key_size, count);
-                    try stdout.print("  small keys: {:4} MiB/s [{x:0<16}]\n", result_small.throughput / (1 * MiB), result_small.hash);
+                    try stdout.print("  small keys: {:4} MiB/s [{x:0<16}]\n", .{result_small.throughput / (1 * MiB), result_small.hash});
                 }
             }
         }

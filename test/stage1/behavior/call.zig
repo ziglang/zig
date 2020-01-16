@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 test "basic invocations" {
     const foo = struct {
@@ -19,6 +20,13 @@ test "basic invocations" {
         // comptime call without comptime keyword
         const result = @call(.{ .modifier = .compile_time }, foo, .{}) == 1234;
         comptime expect(result);
+    }
+    {
+        // call of non comptime-known function
+        var alias_foo = foo;
+        expect(@call(.{ .modifier = .no_async }, alias_foo, .{}) == 1234);
+        expect(@call(.{ .modifier = .never_tail }, alias_foo, .{}) == 1234);
+        expect(@call(.{ .modifier = .never_inline }, alias_foo, .{}) == 1234);
     }
 }
 
@@ -45,4 +53,22 @@ test "tuple parameters" {
         expect(@call(.{ .modifier = .always_inline }, add, separate_args2) == 46);
         expect(@call(.{ .modifier = .always_inline }, add, separate_args3) == 46);
     }
+}
+
+test "comptime call with bound function as parameter" {
+    const S = struct {
+        fn ReturnType(func: var) type {
+            return switch (@typeInfo(@TypeOf(func))) {
+                .BoundFn => |info| info,
+                else => unreachable,
+            }.return_type orelse void;
+        }
+
+        fn call_me_maybe() ?i32 {
+            return 123;
+        }
+    };
+
+    var inst: S = undefined;
+    expectEqual(?i32, S.ReturnType(inst.call_me_maybe));
 }

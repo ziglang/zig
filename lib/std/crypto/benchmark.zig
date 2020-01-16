@@ -125,9 +125,9 @@ fn mode(comptime x: comptime_int) comptime_int {
 fn printPad(stdout: var, s: []const u8) !void {
     var i: usize = 0;
     while (i < 12 - s.len) : (i += 1) {
-        try stdout.print(" ");
+        try stdout.print(" ", .{});
     }
-    try stdout.print("{}", s);
+    try stdout.print("{}", .{s});
 }
 
 pub fn main() !void {
@@ -142,7 +142,7 @@ pub fn main() !void {
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--mode")) {
-            try stdout.print("{}\n", builtin.mode);
+            try stdout.print("{}\n", .{builtin.mode});
             return;
         } else if (std.mem.eql(u8, args[i], "--seed")) {
             i += 1;
@@ -174,7 +174,7 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
             const throughput = try benchmarkHash(H.ty, mode(32 * MiB));
             try printPad(stdout, H.name);
-            try stdout.print(": {} MiB/s\n", throughput / (1 * MiB));
+            try stdout.print(": {} MiB/s\n", .{throughput / (1 * MiB)});
         }
     }
 
@@ -182,7 +182,7 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, M.name, filter.?) != null) {
             const throughput = try benchmarkMac(M.ty, mode(128 * MiB));
             try printPad(stdout, M.name);
-            try stdout.print(": {} MiB/s\n", throughput / (1 * MiB));
+            try stdout.print(": {} MiB/s\n", .{throughput / (1 * MiB)});
         }
     }
 
@@ -190,7 +190,7 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkKeyExchange(E.ty, mode(1000));
             try printPad(stdout, E.name);
-            try stdout.print(": {} exchanges/s\n", throughput);
+            try stdout.print(": {} exchanges/s\n", .{throughput});
         }
     }
 }

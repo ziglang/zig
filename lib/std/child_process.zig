@@ -582,9 +582,7 @@ pub const ChildProcess = struct {
         };
         var piProcInfo: windows.PROCESS_INFORMATION = undefined;
 
-        const cwd_slice = if (self.cwd) |cwd| try cstr.addNullByte(self.allocator, cwd) else null;
-        defer if (cwd_slice) |cwd| self.allocator.free(cwd);
-        const cwd_w = if (cwd_slice) |cwd| try unicode.utf8ToUtf16LeWithNull(self.allocator, cwd) else null;
+        const cwd_w = if (self.cwd) |cwd| try unicode.utf8ToUtf16LeWithNull(self.allocator, cwd) else null;
         defer if (cwd_w) |cwd| self.allocator.free(cwd);
         const cwd_w_ptr = if (cwd_w) |cwd| cwd.ptr else null;
 
@@ -594,7 +592,7 @@ pub const ChildProcess = struct {
 
         // the cwd set in ChildProcess is in effect when choosing the executable path
         // to match posix semantics
-        const app_name = x: {
+        const app_path = x: {
             if (self.cwd) |cwd| {
                 const resolved = try fs.path.resolve(self.allocator, &[_][]const u8{ cwd, self.argv[0] });
                 defer self.allocator.free(resolved);
@@ -603,15 +601,15 @@ pub const ChildProcess = struct {
                 break :x try cstr.addNullByte(self.allocator, self.argv[0]);
             }
         };
-        defer self.allocator.free(app_name);
+        defer self.allocator.free(app_path);
 
-        const app_name_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, app_name);
-        defer self.allocator.free(app_name_w);
+        const app_path_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, app_path);
+        defer self.allocator.free(app_path_w);
 
         const cmd_line_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, cmd_line);
         defer self.allocator.free(cmd_line_w);
 
-        windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
+        windowsCreateProcess(app_path_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
             if (no_path_err != error.FileNotFound) return no_path_err;
 
             var free_path = true;
@@ -634,14 +632,16 @@ pub const ChildProcess = struct {
             };
             defer if (free_path_ext) self.allocator.free(PATHEXT);
 
+            const app_name = self.argv[0];
+
             var it = mem.tokenize(PATH, ";");
             retry: while (it.next()) |search_path| {
+                const path_no_ext = try fs.path.join(self.allocator, &[_][]const u8{ search_path, app_name });
+                defer self.allocator.free(path_no_ext);
+
                 var ext_it = mem.tokenize(PATHEXT, ";");
                 while (ext_it.next()) |app_ext| {
-                    const app_basename = try mem.concat(self.allocator, u8, &[_][]const u8{ app_name[0 .. app_name.len - 1], app_ext });
-                    defer self.allocator.free(app_basename);
-
-                    const joined_path = try fs.path.join(self.allocator, &[_][]const u8{ search_path, app_basename });
+                    const joined_path = try mem.concat(self.allocator, u8, &[_][]const u8{ path_no_ext, app_ext });
                     defer self.allocator.free(joined_path);
 
                     const joined_path_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, joined_path);
@@ -701,7 +701,7 @@ pub const ChildProcess = struct {
     }
 };
 
-fn windowsCreateProcess(app_name: [*]u16, cmd_line: [*]u16, envp_ptr: ?[*]u16, cwd_ptr: ?[*]u16, lpStartupInfo: *windows.STARTUPINFOW, lpProcessInformation: *windows.PROCESS_INFORMATION) !void {
+fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u16, cwd_ptr: ?[*:0]u16, lpStartupInfo: *windows.STARTUPINFOW, lpProcessInformation: *windows.PROCESS_INFORMATION) !void {
     // TODO the docs for environment pointer say:
     // > A pointer to the environment block for the new process. If this parameter
     // > is NULL, the new process uses the environment of the calling process.

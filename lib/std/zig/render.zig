@@ -2020,7 +2020,7 @@ fn renderVarDecl(
 
     if (var_decl.init_node) |init_node| {
         const s = if (init_node.id == .MultilineStringLiteral) Space.None else Space.Space;
-        try renderToken(tree, stream, var_decl.eq_token, indent, start_col, s); // =
+        try renderToken(tree, stream, var_decl.eq_token.?, indent, start_col, s); // =
         try renderExpression(allocator, stream, tree, indent, start_col, init_node, Space.None);
     }
 

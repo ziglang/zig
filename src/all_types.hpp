@@ -358,6 +358,8 @@ struct LazyValueSizeOf {
 
     IrAnalyze *ira;
     IrInstruction *target_type;
+
+    bool bit_size;
 };
 
 struct LazyValueSliceType {
@@ -526,7 +528,6 @@ struct TldVar {
 
     ZigVar *var;
     Buf *extern_lib_name;
-    Buf *section_name;
     bool analyzing_type; // flag to detect dependency loops
 };
 
@@ -1755,6 +1756,7 @@ enum BuiltinFnId {
     BuiltinFnIdFrameSize,
     BuiltinFnIdAs,
     BuiltinFnIdCall,
+    BuiltinFnIdBitSizeof,
 };
 
 struct BuiltinFnEntry {
@@ -2131,6 +2133,7 @@ struct CodeGen {
     bool have_winmain_crt_startup;
     bool have_dllmain_crt_startup;
     bool have_err_ret_tracing;
+    bool link_eh_frame_hdr;
     bool c_want_stdint;
     bool c_want_stdbool;
     bool verbose_tokenize;
@@ -2229,6 +2232,8 @@ struct ZigVar {
     LLVMValueRef param_value_ref;
     size_t mem_slot_index;
     IrExecutable *owner_exec;
+
+    Buf *section_name;
 
     // In an inline loop, multiple variables may be created,
     // In this case, a reference to a variable should follow
@@ -3144,6 +3149,7 @@ struct IrInstructionAsmGen {
 struct IrInstructionSizeOf {
     IrInstruction base;
 
+    bool bit_size;
     IrInstruction *type_value;
 };
 
@@ -3784,9 +3790,8 @@ struct IrInstructionArgType {
 struct IrInstructionExport {
     IrInstruction base;
 
-    IrInstruction *name;
-    IrInstruction *linkage;
     IrInstruction *target;
+    IrInstruction *options;
 };
 
 struct IrInstructionErrorReturnTrace {

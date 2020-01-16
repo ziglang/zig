@@ -60,7 +60,7 @@ pub fn CreateFile(
 }
 
 pub fn CreateFileW(
-    file_path_w: [*]const u16,
+    file_path_w: [*:0]const u16,
     desired_access: DWORD,
     share_mode: DWORD,
     lpSecurityAttributes: ?LPSECURITY_ATTRIBUTES,
@@ -187,6 +187,10 @@ pub const WaitForSingleObjectError = error{
     WaitTimeOut,
     Unexpected,
 };
+
+pub fn WaitForSingleObject(handle: HANDLE, milliseconds: DWORD) WaitForSingleObjectError!void {
+    return WaitForSingleObjectEx(handle, milliseconds, false);
+}
 
 pub fn WaitForSingleObjectEx(handle: HANDLE, milliseconds: DWORD, alertable: bool) WaitForSingleObjectError!void {
     switch (kernel32.WaitForSingleObjectEx(handle, milliseconds, @boolToInt(alertable))) {
@@ -425,8 +429,8 @@ pub fn CreateSymbolicLink(
 }
 
 pub fn CreateSymbolicLinkW(
-    sym_link_path: [*]const u16,
-    target_path: [*]const u16,
+    sym_link_path: [*:0]const u16,
+    target_path: [*:0]const u16,
     flags: DWORD,
 ) CreateSymbolicLinkError!void {
     if (kernel32.CreateSymbolicLinkW(sym_link_path, target_path, flags) == 0) {
@@ -449,7 +453,7 @@ pub fn DeleteFile(filename: []const u8) DeleteFileError!void {
     return DeleteFileW(&filename_w);
 }
 
-pub fn DeleteFileW(filename: [*]const u16) DeleteFileError!void {
+pub fn DeleteFileW(filename: [*:0]const u16) DeleteFileError!void {
     if (kernel32.DeleteFileW(filename) == 0) {
         switch (kernel32.GetLastError()) {
             ERROR.FILE_NOT_FOUND => return error.FileNotFound,
@@ -471,7 +475,7 @@ pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) Move
     return MoveFileExW(&old_path_w, &new_path_w, flags);
 }
 
-pub fn MoveFileExW(old_path: [*]const u16, new_path: [*]const u16, flags: DWORD) MoveFileError!void {
+pub fn MoveFileExW(old_path: [*:0]const u16, new_path: [*:0]const u16, flags: DWORD) MoveFileError!void {
     if (kernel32.MoveFileExW(old_path, new_path, flags) == 0) {
         switch (kernel32.GetLastError()) {
             else => |err| return unexpectedError(err),
@@ -490,7 +494,7 @@ pub fn CreateDirectory(pathname: []const u8, attrs: ?*SECURITY_ATTRIBUTES) Creat
     return CreateDirectoryW(&pathname_w, attrs);
 }
 
-pub fn CreateDirectoryW(pathname: [*]const u16, attrs: ?*SECURITY_ATTRIBUTES) CreateDirectoryError!void {
+pub fn CreateDirectoryW(pathname: [*:0]const u16, attrs: ?*SECURITY_ATTRIBUTES) CreateDirectoryError!void {
     if (kernel32.CreateDirectoryW(pathname, attrs) == 0) {
         switch (kernel32.GetLastError()) {
             ERROR.ALREADY_EXISTS => return error.PathAlreadyExists,
@@ -511,7 +515,7 @@ pub fn RemoveDirectory(dir_path: []const u8) RemoveDirectoryError!void {
     return RemoveDirectoryW(&dir_path_w);
 }
 
-pub fn RemoveDirectoryW(dir_path_w: [*]const u16) RemoveDirectoryError!void {
+pub fn RemoveDirectoryW(dir_path_w: [*:0]const u16) RemoveDirectoryError!void {
     if (kernel32.RemoveDirectoryW(dir_path_w) == 0) {
         switch (kernel32.GetLastError()) {
             ERROR.PATH_NOT_FOUND => return error.FileNotFound,
@@ -602,7 +606,7 @@ pub fn GetFinalPathNameByHandleW(
     buf_ptr: [*]u16,
     buf_len: DWORD,
     flags: DWORD,
-) GetFinalPathNameByHandleError!DWORD {
+) GetFinalPathNameByHandleError![:0]u16 {
     const rc = kernel32.GetFinalPathNameByHandleW(hFile, buf_ptr, buf_len, flags);
     if (rc == 0) {
         switch (kernel32.GetLastError()) {
@@ -614,7 +618,7 @@ pub fn GetFinalPathNameByHandleW(
             else => |err| return unexpectedError(err),
         }
     }
-    return rc;
+    return buf_ptr[0..rc :0];
 }
 
 pub const GetFileSizeError = error{Unexpected};
@@ -640,7 +644,7 @@ pub fn GetFileAttributes(filename: []const u8) GetFileAttributesError!DWORD {
     return GetFileAttributesW(&filename_w);
 }
 
-pub fn GetFileAttributesW(lpFileName: [*]const u16) GetFileAttributesError!DWORD {
+pub fn GetFileAttributesW(lpFileName: [*:0]const u16) GetFileAttributesError!DWORD {
     const rc = kernel32.GetFileAttributesW(lpFileName);
     if (rc == INVALID_FILE_ATTRIBUTES) {
         switch (kernel32.GetLastError()) {
@@ -733,14 +737,14 @@ pub fn WSAIoctl(
 
 const GetModuleFileNameError = error{Unexpected};
 
-pub fn GetModuleFileNameW(hModule: ?HMODULE, buf_ptr: [*]u16, buf_len: DWORD) GetModuleFileNameError![]u16 {
+pub fn GetModuleFileNameW(hModule: ?HMODULE, buf_ptr: [*]u16, buf_len: DWORD) GetModuleFileNameError![:0]u16 {
     const rc = kernel32.GetModuleFileNameW(hModule, buf_ptr, buf_len);
     if (rc == 0) {
         switch (kernel32.GetLastError()) {
             else => |err| return unexpectedError(err),
         }
     }
-    return buf_ptr[0..rc];
+    return buf_ptr[0..rc :0];
 }
 
 pub const TerminateProcessError = error{Unexpected};
@@ -779,11 +783,11 @@ pub fn SetConsoleTextAttribute(hConsoleOutput: HANDLE, wAttributes: WORD) SetCon
 
 pub const GetEnvironmentStringsError = error{OutOfMemory};
 
-pub fn GetEnvironmentStringsW() GetEnvironmentStringsError![*]u16 {
+pub fn GetEnvironmentStringsW() GetEnvironmentStringsError![*:0]u16 {
     return kernel32.GetEnvironmentStringsW() orelse return error.OutOfMemory;
 }
 
-pub fn FreeEnvironmentStringsW(penv: [*]u16) void {
+pub fn FreeEnvironmentStringsW(penv: [*:0]u16) void {
     assert(kernel32.FreeEnvironmentStringsW(penv) != 0);
 }
 
@@ -792,7 +796,7 @@ pub const GetEnvironmentVariableError = error{
     Unexpected,
 };
 
-pub fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: LPWSTR, nSize: DWORD) GetEnvironmentVariableError!DWORD {
+pub fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: [*]u16, nSize: DWORD) GetEnvironmentVariableError!DWORD {
     const rc = kernel32.GetEnvironmentVariableW(lpName, lpBuffer, nSize);
     if (rc == 0) {
         switch (kernel32.GetLastError()) {
@@ -850,7 +854,7 @@ pub const LoadLibraryError = error{
     Unexpected,
 };
 
-pub fn LoadLibraryW(lpLibFileName: [*]const u16) LoadLibraryError!HMODULE {
+pub fn LoadLibraryW(lpLibFileName: [*:0]const u16) LoadLibraryError!HMODULE {
     return kernel32.LoadLibraryW(lpLibFileName) orelse {
         switch (kernel32.GetLastError()) {
             ERROR.FILE_NOT_FOUND => return error.FileNotFound,

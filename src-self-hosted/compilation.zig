@@ -170,6 +170,8 @@ pub const Compilation = struct {
     verbose_llvm_ir: bool = false,
     verbose_link: bool = false,
 
+    link_eh_frame_hdr: bool = false,
+
     darwin_version_min: DarwinVersionMin = .None,
 
     test_filters: []const []const u8 = &[_][]const u8{},

@@ -3622,9 +3622,11 @@ void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source
 }
 
 void update_compile_var(CodeGen *g, Buf *name, ZigValue *value) {
-    Tld *tld = get_container_scope(g->compile_var_import)->decl_table.get(name);
+    ScopeDecls *builtin_scope = get_container_scope(g->compile_var_import);
+    Tld *tld = find_container_decl(g, builtin_scope, name);
+    assert(tld != nullptr);
     resolve_top_level_decl(g, tld, tld->source_node, false);
-    assert(tld->id == TldIdVar);
+    assert(tld->id == TldIdVar && tld->resolution == TldResolutionOk);
     TldVar *tld_var = (TldVar *)tld;
     copy_const_val(tld_var->var->const_value, value);
     tld_var->var->var_type = value->type;
@@ -3955,8 +3957,8 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     }
 
     if (var_decl->section_expr != nullptr) {
-        if (!analyze_const_string(g, tld_var->base.parent_scope, var_decl->section_expr, &tld_var->section_name)) {
-            tld_var->section_name = nullptr;
+        if (!analyze_const_string(g, tld_var->base.parent_scope, var_decl->section_expr, &tld_var->var->section_name)) {
+            tld_var->var->section_name = nullptr;
         }
     }
 
@@ -4787,11 +4789,16 @@ static void analyze_fn_body(CodeGen *g, ZigFn *fn_table_entry) {
     ZigType *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
 
-    ir_gen_fn(g, fn_table_entry);
+    if (!ir_gen_fn(g, fn_table_entry)) {
+        fn_table_entry->anal_state = FnAnalStateInvalid;
+        return;
+    }
+
     if (fn_table_entry->ir_executable->first_err_trace_msg != nullptr) {
         fn_table_entry->anal_state = FnAnalStateInvalid;
         return;
     }
+
     if (g->verbose_ir) {
         fprintf(stderr, "\n");
         ast_render(stderr, fn_table_entry->body_node, 4);
@@ -5282,7 +5289,10 @@ static uint32_t hash_const_val(ZigValue *const_val) {
         case ZigTypeIdAnyFrame:
             // TODO better hashing algorithm
             return 3747294894;
-        case ZigTypeIdBoundFn:
+        case ZigTypeIdBoundFn: {
+            assert(const_val->data.x_bound_fn.fn != nullptr);
+            return 3677364617 ^ hash_ptr(const_val->data.x_bound_fn.fn);
+        }
         case ZigTypeIdInvalid:
         case ZigTypeIdUnreachable:
             zig_unreachable();
@@ -6386,6 +6396,8 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         }
         instruction->field_index = fields.length;
 
+        src_assert(child_type->id != ZigTypeIdPointer || child_type->data.pointer.inferred_struct_field == nullptr,
+                instruction->base.source_node);
         fields.append({name, child_type, instruction->align});
     }
 
@@ -7583,9 +7595,11 @@ bool err_ptr_eql(const ErrorTableEntry *a, const ErrorTableEntry *b) {
 }
 
 ZigValue *get_builtin_value(CodeGen *codegen, const char *name) {
-    Tld *tld = get_container_scope(codegen->compile_var_import)->decl_table.get(buf_create_from_str(name));
+    ScopeDecls *builtin_scope = get_container_scope(codegen->compile_var_import);
+    Tld *tld = find_container_decl(codegen, builtin_scope, buf_create_from_str(name));
+    assert(tld != nullptr);
     resolve_top_level_decl(codegen, tld, nullptr, false);
-    assert(tld->id == TldIdVar);
+    assert(tld->id == TldIdVar && tld->resolution == TldResolutionOk);
     TldVar *tld_var = (TldVar *)tld;
     ZigValue *var_value = tld_var->var->const_value;
     assert(var_value != nullptr);

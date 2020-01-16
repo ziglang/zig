@@ -3,6 +3,68 @@ const tests = @import("tests.zig");
 const nl = std.cstr.line_sep;
 
 pub fn addCases(cases: *tests.RunTranslatedCContext) void {
+    cases.add("forward declarations",
+        \\#include <stdlib.h>
+        \\int foo(int);
+        \\int foo(int x) { return x + 1; }
+        \\int main(int argc, char **argv) {
+        \\    if (foo(2) != 3) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("typedef and function pointer",
+        \\#include <stdlib.h>
+        \\typedef struct _Foo Foo;
+        \\typedef int Ret;
+        \\typedef int Param;
+        \\struct _Foo { Ret (*func)(Param p); };
+        \\static Ret add1(Param p) {
+        \\    return p + 1;
+        \\}
+        \\int main(int argc, char **argv) {
+        \\    Foo strct = { .func = add1 };
+        \\    if (strct.func(16) != 17) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    cases.add("ternary operator",
+        \\#include <stdlib.h>
+        \\static int cnt = 0;
+        \\int foo() { cnt++; return 42; }
+        \\int main(int argc, char **argv) {
+        \\  short q = 3;
+        \\  signed char z0 = q?:1;
+        \\  if (z0 != 3) abort();
+        \\  int z1 = 3?:1;
+        \\  if (z1 != 3) abort();
+        \\  int z2 = foo()?:-1;
+        \\  if (z2 != 42) abort();
+        \\  if (cnt != 1) abort();
+        \\  return 0;
+        \\}
+    , "");
+
+    cases.add("switch case",
+        \\#include <stdlib.h>
+        \\int lottery(unsigned int x) {
+        \\    switch (x) {
+        \\        case 3: return 0;
+        \\        case -1: return 3;
+        \\        case 8 ... 10: return x;
+        \\        default: return -1;
+        \\    }
+        \\}
+        \\int main(int argc, char **argv) {
+        \\    if (lottery(2) != -1) abort();
+        \\    if (lottery(3) != 0) abort();
+        \\    if (lottery(-1) != 3) abort();
+        \\    if (lottery(9) != 9) abort();
+        \\    return 0;
+        \\}
+    , "");
+
     cases.add("boolean values and expressions",
         \\#include <stdlib.h>
         \\static const _Bool false_val = 0;
@@ -12,6 +74,7 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\    if (!r) abort();
         \\    _Bool self = foo;
         \\    if (self == false_val) abort();
+        \\    if (((r) ? 'a' : 'b') != 'a') abort();
         \\}
         \\int main(int argc, char **argv) {
         \\    foo(2, 5);
@@ -93,6 +156,26 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\int main() {
         \\  /* sizeof nor offsetof currently supported */
         \\  if (((intptr_t)&s0.z - (intptr_t)&s0.x) != 2) abort();
+        \\  return 0;
+        \\}
+    , "");
+
+    cases.add("cast signed array index to unsigned",
+        \\#include <stdlib.h>
+        \\int main(int argc, char **argv) {
+        \\  int a[10], i = 0;
+        \\  a[i] = 0;
+        \\  if (a[i] != 0) abort();
+        \\  return 0;
+        \\}
+    , "");
+
+    cases.add("cast long long array index to unsigned",
+        \\#include <stdlib.h>
+        \\int main(int argc, char **argv) {
+        \\  long long a[10], i = 0;
+        \\  a[i] = 0;
+        \\  if (a[i] != 0) abort();
         \\  return 0;
         \\}
     , "");

@@ -60,6 +60,7 @@ pub const Builder = struct {
     override_lib_dir: ?[]const u8,
     vcpkg_root: VcpkgRoot,
     pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
+    args: ?[][]const u8 = null,
 
     const PkgConfigError = error{
         PkgConfigCrashed,
@@ -166,6 +167,7 @@ pub const Builder = struct {
             .override_lib_dir = null,
             .install_path = undefined,
             .vcpkg_root = VcpkgRoot{ .Unattempted = {} },
+            .args = null,
         };
         try self.top_level_steps.append(&self.install_tls);
         try self.top_level_steps.append(&self.uninstall_tls);
@@ -555,7 +557,15 @@ pub const Builder = struct {
                 },
                 UserValue.Scalar => |s| return s,
             },
-            TypeId.List => panic("TODO list options to build script", .{}),
+            TypeId.List => switch (entry.value.value) {
+                UserValue.Flag => {
+                    warn("Expected -D{} to be a list, but received a boolean.\n", .{name});
+                    self.markInvalidUserInput();
+                    return null;
+                },
+                UserValue.Scalar => |s| return &[_][]const u8{s},
+                UserValue.List => |lst| return lst.toSliceConst(),
+            },
         }
     }
 
@@ -1164,6 +1174,8 @@ pub const LibExeObjStep = struct {
     target_glibc: ?Version = null,
 
     valgrind_support: ?bool = null,
+
+    link_eh_frame_hdr: bool = false,
 
     /// Uses system Wine installation to run cross compiled Windows build artifacts.
     enable_wine: bool = false,
@@ -1900,7 +1912,10 @@ pub const LibExeObjStep = struct {
         if (builder.verbose_cc or self.verbose_cc) zig_args.append("--verbose-cc") catch unreachable;
 
         if (self.strip) {
-            zig_args.append("--strip") catch unreachable;
+            try zig_args.append("--strip");
+        }
+        if (self.link_eh_frame_hdr) {
+            try zig_args.append("--eh-frame-hdr");
         }
 
         if (self.single_threaded) {

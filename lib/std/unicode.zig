@@ -544,8 +544,7 @@ test "utf16leToUtf8" {
     }
 }
 
-/// TODO type for null terminated pointer
-pub fn utf8ToUtf16LeWithNull(allocator: *mem.Allocator, utf8: []const u8) ![]u16 {
+pub fn utf8ToUtf16LeWithNull(allocator: *mem.Allocator, utf8: []const u8) ![:0]u16 {
     var result = std.ArrayList(u16).init(allocator);
     // optimistically guess that it will not require surrogate pairs
     try result.ensureCapacity(utf8.len + 1);
@@ -567,7 +566,7 @@ pub fn utf8ToUtf16LeWithNull(allocator: *mem.Allocator, utf8: []const u8) ![]u16
     }
 
     try result.append(0);
-    return result.toOwnedSlice();
+    return result.toOwnedSlice()[0..:0];
 }
 
 /// Returns index of next character. If exact fit, returned index equals output slice length.

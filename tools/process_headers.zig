@@ -270,7 +270,7 @@ pub fn main() !void {
         if (std.mem.eql(u8, args[arg_i], "--help"))
             usageAndExit(args[0]);
         if (arg_i + 1 >= args.len) {
-            std.debug.warn("expected argument after '{}'\n", args[arg_i]);
+            std.debug.warn("expected argument after '{}'\n", .{args[arg_i]});
             usageAndExit(args[0]);
         }
 
@@ -283,7 +283,7 @@ pub fn main() !void {
             assert(opt_abi == null);
             opt_abi = args[arg_i + 1];
         } else {
-            std.debug.warn("unrecognized argument: {}\n", args[arg_i]);
+            std.debug.warn("unrecognized argument: {}\n", .{args[arg_i]});
             usageAndExit(args[0]);
         }
 
@@ -297,10 +297,10 @@ pub fn main() !void {
     else if (std.mem.eql(u8, abi_name, "glibc"))
         LibCVendor.glibc
     else {
-        std.debug.warn("unrecognized C ABI: {}\n", abi_name);
+        std.debug.warn("unrecognized C ABI: {}\n", .{abi_name});
         usageAndExit(args[0]);
     };
-    const generic_name = try std.fmt.allocPrint(allocator, "generic-{}", abi_name);
+    const generic_name = try std.fmt.allocPrint(allocator, "generic-{}", .{abi_name});
 
     // TODO compiler crashed when I wrote this the canonical way
     var libc_targets: []const LibCTarget = undefined;
@@ -365,12 +365,11 @@ pub fn main() !void {
                             if (gop.found_existing) {
                                 max_bytes_saved += raw_bytes.len;
                                 gop.kv.value.hit_count += 1;
-                                std.debug.warn(
-                                    "duplicate: {} {} ({Bi:2})\n",
+                                std.debug.warn("duplicate: {} {} ({Bi:2})\n", .{
                                     libc_target.name,
                                     rel_path,
                                     raw_bytes.len,
-                                );
+                                });
                             } else {
                                 gop.kv.value = Contents{
                                     .bytes = trimmed,
@@ -388,16 +387,16 @@ pub fn main() !void {
                             };
                             assert((try target_to_hash.put(dest_target, hash)) == null);
                         },
-                        else => std.debug.warn("warning: weird file: {}\n", full_path),
+                        else => std.debug.warn("warning: weird file: {}\n", .{full_path}),
                     }
                 }
             }
             break;
         } else {
-            std.debug.warn("warning: libc target not found: {}\n", libc_target.name);
+            std.debug.warn("warning: libc target not found: {}\n", .{libc_target.name});
         }
     }
-    std.debug.warn("summary: {Bi:2} could be reduced to {Bi:2}\n", total_bytes, total_bytes - max_bytes_saved);
+    std.debug.warn("summary: {Bi:2} could be reduced to {Bi:2}\n", .{total_bytes, total_bytes - max_bytes_saved});
     try std.fs.makePath(allocator, out_dir);
 
     var missed_opportunity_bytes: usize = 0;
@@ -426,7 +425,7 @@ pub fn main() !void {
                 if (contender.hit_count > 1) {
                     const this_missed_bytes = contender.hit_count * contender.bytes.len;
                     missed_opportunity_bytes += this_missed_bytes;
-                    std.debug.warn("Missed opportunity ({Bi:2}): {}\n", this_missed_bytes, path_kv.key);
+                    std.debug.warn("Missed opportunity ({Bi:2}): {}\n", .{this_missed_bytes, path_kv.key});
                 } else break;
             }
         }
@@ -440,13 +439,11 @@ pub fn main() !void {
                 .specific => |a| @tagName(a),
                 else => @tagName(dest_target.arch),
             };
-            const out_subpath = try std.fmt.allocPrint(
-                allocator,
-                "{}-{}-{}",
+            const out_subpath = try std.fmt.allocPrint(allocator, "{}-{}-{}", .{
                 arch_name,
                 @tagName(dest_target.os),
                 @tagName(dest_target.abi),
-            );
+            });
             const full_path = try std.fs.path.join(allocator, [_][]const u8{ out_dir, out_subpath, path_kv.key });
             try std.fs.makePath(allocator, std.fs.path.dirname(full_path).?);
             try std.io.writeFile(full_path, contents.bytes);
@@ -455,10 +452,10 @@ pub fn main() !void {
 }
 
 fn usageAndExit(arg0: []const u8) noreturn {
-    std.debug.warn("Usage: {} [--search-path <dir>] --out <dir> --abi <name>\n", arg0);
-    std.debug.warn("--search-path can be used any number of times.\n");
-    std.debug.warn("    subdirectories of search paths look like, e.g. x86_64-linux-gnu\n");
-    std.debug.warn("--out is a dir that will be created, and populated with the results\n");
-    std.debug.warn("--abi is either musl or glibc\n");
+    std.debug.warn("Usage: {} [--search-path <dir>] --out <dir> --abi <name>\n", .{arg0});
+    std.debug.warn("--search-path can be used any number of times.\n", .{});
+    std.debug.warn("    subdirectories of search paths look like, e.g. x86_64-linux-gnu\n", .{});
+    std.debug.warn("--out is a dir that will be created, and populated with the results\n", .{});
+    std.debug.warn("--abi is either musl or glibc\n", .{});
     std.process.exit(1);
 }

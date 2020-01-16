@@ -205,6 +205,7 @@ pub const TypeInfo = union(enum) {
         name: []const u8,
         offset: ?comptime_int,
         field_type: type,
+        default_value: var,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -417,6 +418,14 @@ pub const CallOptions = struct {
         /// compile-time, a compile error is emitted instead.
         compile_time,
     };
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const ExportOptions = struct {
+    name: []const u8,
+    linkage: GlobalLinkage = .Strong,
+    section: ?[]const u8 = null,
 };
 
 /// This function type is used by the Zig language code generation and
