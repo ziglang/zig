@@ -30,19 +30,30 @@ test "non-exhaustive enum" {
         };
         fn doTheTest(y: u8) void {
             var e: E = .b;
-            switch (e) {
-                .a => {},
-                .b => {},
-                _ => {},
-            }
+            expect(switch (e) {
+                .a => false,
+                .b => true,
+                _ => false,
+            });
+            e = @intToEnum(E, 12);
+            expect(switch (e) {
+                .a => false,
+                .b => false,
+                _ => true,
+            });
 
-            switch (e) {
-                .a => {},
-                .b => {},
-                else => {},
-            }
+            expect(switch (e) {
+                .a => false,
+                .b => false,
+                else => true,
+            });
+            e = .b;
+            expect(switch (e) {
+                .a => false,
+                else => true,
+            });
+
             expect(@typeInfo(E).Enum.fields.len == 2);
-            expect(@enumToInt(e) == 1);
             e = @intToEnum(E, 12);
             expect(@enumToInt(e) == 12);
             e = @intToEnum(E, y);
