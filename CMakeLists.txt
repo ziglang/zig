@@ -45,6 +45,7 @@ message("Configuring zig version ${ZIG_VERSION}")
 
 set(ZIG_STATIC off CACHE BOOL "Attempt to build a static zig executable (not compatible with glibc)")
 set(ZIG_STATIC_LLVM off CACHE BOOL "Prefer linking against static LLVM libraries")
+set(ZIG_SKIP_INSTALL_LIB_FILES off CACHE BOOL "Disable copying lib/ files to install prefix")
 set(ZIG_ENABLE_MEM_PROFILE off CACHE BOOL "Activate memory usage instrumentation")
 
 if(ZIG_STATIC)
@@ -607,26 +608,19 @@ if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
 else()
     set(LIBUSERLAND_RELEASE_MODE "true")
 endif()
-
-set(BUILD_LIBUSERLAND_COMMAND zig0 build
-    --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
-    "-Doutput-dir=${CMAKE_BINARY_DIR}"
-    "-Drelease=${LIBUSERLAND_RELEASE_MODE}"
-    "-Dlib-files-only"
-    --prefix "${CMAKE_INSTALL_PREFIX}"
-    libuserland
-)
-
-# When using Visual Studio build system generator we default to libuserland install.
-if(MSVC)
-    set(ZIG_SKIP_INSTALL_LIB_FILES off CACHE BOOL "Disable copying lib/ files to install prefix")
-    if(NOT ZIG_SKIP_INSTALL_LIB_FILES)
-        set(BUILD_LIBUSERLAND_COMMAND ${BUILD_LIBUSERLAND_COMMAND} install)
-    endif()
+if(ZIG_SKIP_INSTALL_LIB_FILES)
+    set(ZIG_BUILD_INSTALL_STEP "")
+else()
+    set(ZIG_BUILD_INSTALL_STEP "install")
 endif()
-
 add_custom_target(zig_build_libuserland ALL
-    COMMAND ${BUILD_LIBUSERLAND_COMMAND}
+    COMMAND zig0 build
+        --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
+        libuserland ${ZIG_BUILD_INSTALL_STEP}
+        "-Doutput-dir=${CMAKE_BINARY_DIR}"
+        "-Drelease=${LIBUSERLAND_RELEASE_MODE}"
+        "-Dlib-files-only"
+        --prefix "${CMAKE_INSTALL_PREFIX}"
     DEPENDS zig0
     BYPRODUCTS "${LIBUSERLAND}"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
@@ -644,9 +638,4 @@ elseif(MINGW)
   target_link_libraries(zig ntdll)
 endif()
 add_dependencies(zig zig_build_libuserland)
-
 install(TARGETS zig DESTINATION bin)
-
-# CODE has no effect with Visual Studio build system generator.
-install(CODE "message(\"-- Installing: ${CMAKE_INSTALL_PREFIX}/lib\")")
-install(CODE "execute_process(COMMAND ${BUILD_LIBUSERLAND_COMMAND} install)")
