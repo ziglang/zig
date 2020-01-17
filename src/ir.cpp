@@ -3450,27 +3450,23 @@ static IrInstruction *ir_build_err_to_int(IrBuilder *irb, Scope *scope, AstNode 
 }
 
 static IrInstruction *ir_build_check_switch_prongs(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *target_value)
+        IrInstruction *target_value, IrInstructionCheckSwitchProngsRange *ranges, size_t range_count,
+        bool have_else_prong)
 {
     IrInstructionCheckSwitchProngs *instruction = ir_build_instruction<IrInstructionCheckSwitchProngs>(
             irb, scope, source_node);
     instruction->target_value = target_value;
-
-    return &instruction->base;
-}
-
-static void ir_finish_check_switch_prongs(IrBuilder *irb, IrInstructionCheckSwitchProngs * instruction,
-        IrInstructionCheckSwitchProngsRange *ranges, size_t range_count, bool have_else_prong)
-{
     instruction->ranges = ranges;
     instruction->range_count = range_count;
     instruction->have_else_prong = have_else_prong;
 
-    ir_ref_instruction(instruction->target_value, irb->current_basic_block);
+    ir_ref_instruction(target_value, irb->current_basic_block);
     for (size_t i = 0; i < range_count; i += 1) {
         ir_ref_instruction(ranges[i].start, irb->current_basic_block);
         ir_ref_instruction(ranges[i].end, irb->current_basic_block);
     }
+
+    return &instruction->base;
 }
 
 static IrInstruction *ir_build_check_statement_is_void(IrBuilder *irb, Scope *scope, AstNode *source_node,
@@ -8080,7 +8076,6 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
     ZigList<IrInstructionCheckSwitchProngsRange> check_ranges = {0};
 
     IrInstructionSwitchElseVar *switch_else_var = nullptr;
-    IrInstruction *switch_prongs_void = ir_build_check_switch_prongs(irb, scope, node, target_value);
 
     ResultLocPeerParent *peer_parent = allocate<ResultLocPeerParent>(1);
     peer_parent->base.id = ResultLocIdPeerParent;
@@ -8253,7 +8248,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
 
     }
 
-    ir_finish_check_switch_prongs(irb, (IrInstructionCheckSwitchProngs *)switch_prongs_void,
+    IrInstruction *switch_prongs_void = ir_build_check_switch_prongs(irb, scope, node, target_value,
             check_ranges.items, check_ranges.length, else_prong != nullptr);
 
     IrInstruction *br_instruction;
