@@ -228,14 +228,14 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     PMBuilder->populateModulePassManager(MPM);
 
     // Set output pass.
-    TargetMachine::CodeGenFileType ft;
+    CodeGenFileType ft;
     if (output_type != ZigLLVM_EmitLLVMIr) {
         switch (output_type) {
             case ZigLLVM_EmitAssembly:
-                ft = TargetMachine::CGFT_AssemblyFile;
+                ft = CGFT_AssemblyFile;
                 break;
             case ZigLLVM_EmitBinary:
-                ft = TargetMachine::CGFT_ObjectFile;
+                ft = CGFT_ObjectFile;
                 break;
             default:
                 abort();
