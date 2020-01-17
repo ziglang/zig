@@ -609,12 +609,12 @@ else()
 endif()
 
 set(BUILD_LIBUSERLAND_COMMAND zig0 build
-        --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
-        "-Doutput-dir=${CMAKE_BINARY_DIR}"
-        "-Drelease=${LIBUSERLAND_RELEASE_MODE}"
-        "-Dlib-files-only"
-        --prefix "${CMAKE_INSTALL_PREFIX}"
-        libuserland
+    --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
+    "-Doutput-dir=${CMAKE_BINARY_DIR}"
+    "-Drelease=${LIBUSERLAND_RELEASE_MODE}"
+    "-Dlib-files-only"
+    --prefix "${CMAKE_INSTALL_PREFIX}"
+    libuserland
 )
 
 # When using Visual Studio build system generator we default to libuserland install.
@@ -647,6 +647,6 @@ add_dependencies(zig zig_build_libuserland)
 
 install(TARGETS zig DESTINATION bin)
 
-# CODE has no effect with Visual Studio build system generator
-install(CODE "message(\"-- Installing: /opt/zig/lib\")")
+# CODE has no effect with Visual Studio build system generator.
+install(CODE "message(\"-- Installing: ${CMAKE_INSTALL_PREFIX}/lib\")")
 install(CODE "execute_process(COMMAND ${BUILD_LIBUSERLAND_COMMAND} install)")
