@@ -16,42 +16,42 @@ comptime {
         else => {},
     }
 
-    @export(@import("compiler_rt/comparesf2.zig").__lesf2, .{ .name = "__lesf2", .linkage = linkage });
-    @export(@import("compiler_rt/comparedf2.zig").__ledf2, .{ .name = "__ledf2", .linkage = linkage });
-    @export(@import("compiler_rt/comparetf2.zig").__letf2, .{ .name = "__letf2", .linkage = linkage });
+    @export(@import("compiler_rt/compareXf2.zig").__lesf2, .{ .name = "__lesf2", .linkage = linkage });
+    @export(@import("compiler_rt/compareXf2.zig").__ledf2, .{ .name = "__ledf2", .linkage = linkage });
+    @export(@import("compiler_rt/compareXf2.zig").__letf2, .{ .name = "__letf2", .linkage = linkage });
 
-    @export(@import("compiler_rt/comparesf2.zig").__gesf2, .{ .name = "__gesf2", .linkage = linkage });
-    @export(@import("compiler_rt/comparedf2.zig").__gedf2, .{ .name = "__gedf2", .linkage = linkage });
-    @export(@import("compiler_rt/comparetf2.zig").__getf2, .{ .name = "__getf2", .linkage = linkage });
+    @export(@import("compiler_rt/compareXf2.zig").__gesf2, .{ .name = "__gesf2", .linkage = linkage });
+    @export(@import("compiler_rt/compareXf2.zig").__gedf2, .{ .name = "__gedf2", .linkage = linkage });
+    @export(@import("compiler_rt/compareXf2.zig").__getf2, .{ .name = "__getf2", .linkage = linkage });
 
     if (!is_test) {
-        @export(@import("compiler_rt/comparesf2.zig").__lesf2, .{ .name = "__cmpsf2", .linkage = linkage });
-        @export(@import("compiler_rt/comparedf2.zig").__ledf2, .{ .name = "__cmpdf2", .linkage = linkage });
-        @export(@import("compiler_rt/comparetf2.zig").__letf2, .{ .name = "__cmptf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__lesf2, .{ .name = "__cmpsf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__ledf2, .{ .name = "__cmpdf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__letf2, .{ .name = "__cmptf2", .linkage = linkage });
 
-        @export(@import("compiler_rt/comparesf2.zig").__eqsf2, .{ .name = "__eqsf2", .linkage = linkage });
-        @export(@import("compiler_rt/comparedf2.zig").__eqdf2, .{ .name = "__eqdf2", .linkage = linkage });
-        @export(@import("compiler_rt/comparetf2.zig").__letf2, .{ .name = "__eqtf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__eqsf2, .{ .name = "__eqsf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__eqdf2, .{ .name = "__eqdf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__letf2, .{ .name = "__eqtf2", .linkage = linkage });
 
-        @export(@import("compiler_rt/comparesf2.zig").__ltsf2, .{ .name = "__ltsf2", .linkage = linkage });
-        @export(@import("compiler_rt/comparedf2.zig").__ltdf2, .{ .name = "__ltdf2", .linkage = linkage });
-        @export(@import("compiler_rt/comparetf2.zig").__letf2, .{ .name = "__lttf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__ltsf2, .{ .name = "__ltsf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__ltdf2, .{ .name = "__ltdf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__letf2, .{ .name = "__lttf2", .linkage = linkage });
 
-        @export(@import("compiler_rt/comparesf2.zig").__nesf2, .{ .name = "__nesf2", .linkage = linkage });
-        @export(@import("compiler_rt/comparedf2.zig").__nedf2, .{ .name = "__nedf2", .linkage = linkage });
-        @export(@import("compiler_rt/comparetf2.zig").__letf2, .{ .name = "__netf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__nesf2, .{ .name = "__nesf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__nedf2, .{ .name = "__nedf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__letf2, .{ .name = "__netf2", .linkage = linkage });
 
-        @export(@import("compiler_rt/comparesf2.zig").__gtsf2, .{ .name = "__gtsf2", .linkage = linkage });
-        @export(@import("compiler_rt/comparedf2.zig").__gtdf2, .{ .name = "__gtdf2", .linkage = linkage });
-        @export(@import("compiler_rt/comparetf2.zig").__getf2, .{ .name = "__gttf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__gtsf2, .{ .name = "__gtsf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__gtdf2, .{ .name = "__gtdf2", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__getf2, .{ .name = "__gttf2", .linkage = linkage });
 
         @export(@import("compiler_rt/extendXfYf2.zig").__extendhfsf2, .{ .name = "__gnu_h2f_ieee", .linkage = linkage });
         @export(@import("compiler_rt/truncXfYf2.zig").__truncsfhf2, .{ .name = "__gnu_f2h_ieee", .linkage = linkage });
     }
 
-    @export(@import("compiler_rt/comparesf2.zig").__unordsf2, .{ .name = "__unordsf2", .linkage = linkage });
-    @export(@import("compiler_rt/comparedf2.zig").__unorddf2, .{ .name = "__unorddf2", .linkage = linkage });
-    @export(@import("compiler_rt/comparetf2.zig").__unordtf2, .{ .name = "__unordtf2", .linkage = linkage });
+    @export(@import("compiler_rt/compareXf2.zig").__unordsf2, .{ .name = "__unordsf2", .linkage = linkage });
+    @export(@import("compiler_rt/compareXf2.zig").__unorddf2, .{ .name = "__unorddf2", .linkage = linkage });
+    @export(@import("compiler_rt/compareXf2.zig").__unordtf2, .{ .name = "__unordtf2", .linkage = linkage });
 
     @export(@import("compiler_rt/addXf3.zig").__addsf3, .{ .name = "__addsf3", .linkage = linkage });
     @export(@import("compiler_rt/addXf3.zig").__adddf3, .{ .name = "__adddf3", .linkage = linkage });
@@ -231,14 +231,14 @@ comptime {
         @export(@import("compiler_rt/arm/aeabi_fcmp.zig").__aeabi_fcmple, .{ .name = "__aeabi_fcmple", .linkage = linkage });
         @export(@import("compiler_rt/arm/aeabi_fcmp.zig").__aeabi_fcmpge, .{ .name = "__aeabi_fcmpge", .linkage = linkage });
         @export(@import("compiler_rt/arm/aeabi_fcmp.zig").__aeabi_fcmpgt, .{ .name = "__aeabi_fcmpgt", .linkage = linkage });
-        @export(@import("compiler_rt/comparesf2.zig").__aeabi_fcmpun, .{ .name = "__aeabi_fcmpun", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__aeabi_fcmpun, .{ .name = "__aeabi_fcmpun", .linkage = linkage });
 
         @export(@import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmpeq, .{ .name = "__aeabi_dcmpeq", .linkage = linkage });
         @export(@import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmplt, .{ .name = "__aeabi_dcmplt", .linkage = linkage });
         @export(@import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmple, .{ .name = "__aeabi_dcmple", .linkage = linkage });
         @export(@import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmpge, .{ .name = "__aeabi_dcmpge", .linkage = linkage });
         @export(@import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmpgt, .{ .name = "__aeabi_dcmpgt", .linkage = linkage });
-        @export(@import("compiler_rt/comparedf2.zig").__aeabi_dcmpun, .{ .name = "__aeabi_dcmpun", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__aeabi_dcmpun, .{ .name = "__aeabi_dcmpun", .linkage = linkage });
     }
     if (builtin.os == .windows) {
         // Default stack-probe functions emitted by LLVM
