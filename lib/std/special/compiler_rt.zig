@@ -226,18 +226,18 @@ comptime {
         @export(@import("compiler_rt/divsf3.zig").__aeabi_fdiv, .{ .name = "__aeabi_fdiv", .linkage = linkage });
         @export(@import("compiler_rt/divdf3.zig").__aeabi_ddiv, .{ .name = "__aeabi_ddiv", .linkage = linkage });
 
-        @export(@import("compiler_rt/arm/aeabi_fcmp.zig").__aeabi_fcmpeq, .{ .name = "__aeabi_fcmpeq", .linkage = linkage });
-        @export(@import("compiler_rt/arm/aeabi_fcmp.zig").__aeabi_fcmplt, .{ .name = "__aeabi_fcmplt", .linkage = linkage });
-        @export(@import("compiler_rt/arm/aeabi_fcmp.zig").__aeabi_fcmple, .{ .name = "__aeabi_fcmple", .linkage = linkage });
-        @export(@import("compiler_rt/arm/aeabi_fcmp.zig").__aeabi_fcmpge, .{ .name = "__aeabi_fcmpge", .linkage = linkage });
-        @export(@import("compiler_rt/arm/aeabi_fcmp.zig").__aeabi_fcmpgt, .{ .name = "__aeabi_fcmpgt", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__aeabi_fcmpeq, .{ .name = "__aeabi_fcmpeq", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__aeabi_fcmplt, .{ .name = "__aeabi_fcmplt", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__aeabi_fcmple, .{ .name = "__aeabi_fcmple", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__aeabi_fcmpge, .{ .name = "__aeabi_fcmpge", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__aeabi_fcmpgt, .{ .name = "__aeabi_fcmpgt", .linkage = linkage });
         @export(@import("compiler_rt/compareXf2.zig").__aeabi_fcmpun, .{ .name = "__aeabi_fcmpun", .linkage = linkage });
 
-        @export(@import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmpeq, .{ .name = "__aeabi_dcmpeq", .linkage = linkage });
-        @export(@import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmplt, .{ .name = "__aeabi_dcmplt", .linkage = linkage });
-        @export(@import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmple, .{ .name = "__aeabi_dcmple", .linkage = linkage });
-        @export(@import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmpge, .{ .name = "__aeabi_dcmpge", .linkage = linkage });
-        @export(@import("compiler_rt/arm/aeabi_dcmp.zig").__aeabi_dcmpgt, .{ .name = "__aeabi_dcmpgt", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__aeabi_dcmpeq, .{ .name = "__aeabi_dcmpeq", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__aeabi_dcmplt, .{ .name = "__aeabi_dcmplt", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__aeabi_dcmple, .{ .name = "__aeabi_dcmple", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__aeabi_dcmpge, .{ .name = "__aeabi_dcmpge", .linkage = linkage });
+        @export(@import("compiler_rt/compareXf2.zig").__aeabi_dcmpgt, .{ .name = "__aeabi_dcmpgt", .linkage = linkage });
         @export(@import("compiler_rt/compareXf2.zig").__aeabi_dcmpun, .{ .name = "__aeabi_dcmpun", .linkage = linkage });
     }
 

@@ -183,9 +183,61 @@ pub fn __unordtf2(a: f128, b: f128) callconv(.C) i32 {
     return @call(.{ .modifier = .always_inline }, unordcmp, .{ f128, a, b });
 }
 
+// ARM EABI intrinsics
+
+pub fn __aeabi_fcmpeq(a: f32, b: f32) callconv(.AAPCS) i32 {
+    @setRuntimeSafety(false);
+    return @boolToInt(@call(.{ .modifier = .always_inline }, __eqsf2, .{ a, b }) == 0);
+}
+
+pub fn __aeabi_fcmplt(a: f32, b: f32) callconv(.AAPCS) i32 {
+    @setRuntimeSafety(false);
+    return @boolToInt(@call(.{ .modifier = .always_inline }, __ltsf2, .{ a, b }) < 0);
+}
+
+pub fn __aeabi_fcmple(a: f32, b: f32) callconv(.AAPCS) i32 {
+    @setRuntimeSafety(false);
+    return @boolToInt(@call(.{ .modifier = .always_inline }, __lesf2, .{ a, b }) <= 0);
+}
+
+pub fn __aeabi_fcmpge(a: f32, b: f32) callconv(.AAPCS) i32 {
+    @setRuntimeSafety(false);
+    return @boolToInt(@call(.{ .modifier = .always_inline }, __gesf2, .{ a, b }) >= 0);
+}
+
+pub fn __aeabi_fcmpgt(a: f32, b: f32) callconv(.AAPCS) i32 {
+    @setRuntimeSafety(false);
+    return @boolToInt(@call(.{ .modifier = .always_inline }, __gtsf2, .{ a, b }) > 0);
+}
+
 pub fn __aeabi_fcmpun(a: f32, b: f32) callconv(.AAPCS) i32 {
     @setRuntimeSafety(false);
     return @call(.{ .modifier = .always_inline }, __unordsf2, .{ a, b });
+}
+
+pub fn __aeabi_dcmpeq(a: f64, b: f64) callconv(.AAPCS) i32 {
+    @setRuntimeSafety(false);
+    return @boolToInt(@call(.{ .modifier = .always_inline }, __eqdf2, .{ a, b }) == 0);
+}
+
+pub fn __aeabi_dcmplt(a: f64, b: f64) callconv(.AAPCS) i32 {
+    @setRuntimeSafety(false);
+    return @boolToInt(@call(.{ .modifier = .always_inline }, __ltdf2, .{ a, b }) < 0);
+}
+
+pub fn __aeabi_dcmple(a: f64, b: f64) callconv(.AAPCS) i32 {
+    @setRuntimeSafety(false);
+    return @boolToInt(@call(.{ .modifier = .always_inline }, __ledf2, .{ a, b }) <= 0);
+}
+
+pub fn __aeabi_dcmpge(a: f64, b: f64) callconv(.AAPCS) i32 {
+    @setRuntimeSafety(false);
+    return @boolToInt(@call(.{ .modifier = .always_inline }, __gedf2, .{ a, b }) >= 0);
+}
+
+pub fn __aeabi_dcmpgt(a: f64, b: f64) callconv(.AAPCS) i32 {
+    @setRuntimeSafety(false);
+    return @boolToInt(@call(.{ .modifier = .always_inline }, __gtdf2, .{ a, b }) > 0);
 }
 
 pub fn __aeabi_dcmpun(a: f64, b: f64) callconv(.AAPCS) i32 {
