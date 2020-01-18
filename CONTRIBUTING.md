@@ -51,23 +51,28 @@ knowledge of Zig internals.**
 
 ### Editing Source Code
 
-First, build the Stage 1 compiler as described in [the Building section](#building).
+First, build the Stage 1 compiler as described in [Building from Source](README.md#Building-from-Source).
 
-One modification you may want to make is adding `-DZIG_SKIP_INSTALL_LIB_FILES=ON`
-to the cmake line. If you use the build directory as a working directory to run
-tests with, zig will find the lib files in the source directory, and they will not
-be "installed" every time you run `make`. This will allow you to make modifications
-directly to the standard library, for example, and have them effective immediately.
-Note that if you already ran `make` or `make install` with the default cmake
-settings, there will already be a `lib/` directory in your build directory. When
-executed from the build directory, zig will find this instead of the source lib/
-directory. Remove the unwanted directory so that the desired one can be found.
+Zig locates lib files relative to executable path by searching up the
+filesystem tree for a sub-path of `lib/zig/std/std.zig` or `lib/std/std.zig`.
+Typically the former is an install and the latter a git working tree which
+contains the build directory.
+
+During development it is not necessary to perform installs when modifying
+stage1 or userland sources and in fact it is faster and simpler to run,
+test and debug from a git working tree.
+
+- `make` is typically sufficient to build zig during development iterations.
+- `make install` performs a build __and__ install.
+- `msbuild -p:Configuration=Release INSTALL.vcxproj` on Windows performs a
+build and install. To avoid install, pass cmake option `-DZIG_SKIP_INSTALL_LIB_FILES=ON`.
 
 To test changes, do the following from the build directory:
 
-1. Run `make install` (on POSIX) or
+1. Run `make` (on POSIX) or
    `msbuild -p:Configuration=Release INSTALL.vcxproj` (on Windows).
-2. `bin/zig build test` (on POSIX) or `bin\zig.exe build test` (on Windows).
+2. `$BUILD_DIR/zig build test` (on POSIX) or
+   `$BUILD_DIR/Release\zig.exe build test` (on Windows).
 
 That runs the whole test suite, which does a lot of extra testing that you
 likely won't always need, and can take upwards of 1 hour. This is what the
@@ -85,8 +90,8 @@ Another example is choosing a different set of things to test. For example,
 not the other ones. Combining this suggestion with the previous one, you could
 do this:
 
-`bin/zig build test-std -Dskip-release` (on POSIX) or
-`bin\zig.exe build test-std -Dskip-release` (on Windows).
+`$BUILD_DIR/bin/zig build test-std -Dskip-release` (on POSIX) or
+`$BUILD_DIR/Release\zig.exe build test-std -Dskip-release` (on Windows).
 
 This will run only the standard library tests, in debug mode only, for all
 targets (it will cross-compile the tests for non-native targets but not run
