@@ -1094,3 +1094,8 @@ test "enum with one member default to u0 tag type" {
     };
     comptime expect(@TagType(E0) == u0);
 }
+
+test "tagName on enum literals" {
+    expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
+    comptime expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
+}

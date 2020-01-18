@@ -21389,9 +21389,9 @@ static IrInstruction *ir_analyze_union_tag(IrAnalyze *ira, IrInstruction *source
     if (type_is_invalid(value->value->type))
         return ira->codegen->invalid_instruction;
 
-    if (value->value->type->id == ZigTypeIdEnum) {
+    if (value->value->type->id == ZigTypeIdEnum ||
+        value->value->type->id == ZigTypeIdEnumLiteral)
         return value;
-    }
 
     if (value->value->type->id != ZigTypeIdUnion) {
         ir_add_error(ira, value,
@@ -22351,6 +22351,14 @@ static IrInstruction *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrIns
     IrInstruction *target = instruction->target->child;
     if (type_is_invalid(target->value->type))
         return ira->codegen->invalid_instruction;
+
+    if (target->value->type->id == ZigTypeIdEnumLiteral) {
+        IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
+        Buf *field_name = target->value->data.x_enum_literal;
+        ZigValue *array_val = create_const_str_lit(ira->codegen, field_name)->data.x_ptr.data.ref.pointee;
+        init_const_slice(ira->codegen, result->value, array_val, 0, buf_len(field_name), true);
+        return result;
+    }
 
     assert(target->value->type->id == ZigTypeIdEnum);
 
