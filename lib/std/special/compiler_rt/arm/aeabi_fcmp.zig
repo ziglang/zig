@@ -2,94 +2,29 @@
 //
 // https://github.com/llvm/llvm-project/commit/d674d96bc56c0f377879d01c9d8dfdaaa7859cdb/compiler-rt/lib/builtins/arm/aeabi_fcmp.S
 
-const ConditionalOperator = enum {
-    Eq,
-    Lt,
-    Le,
-    Ge,
-    Gt,
-};
+const comparesf2 = @import("../comparesf2.zig");
 
-pub fn __aeabi_fcmpeq() callconv(.Naked) noreturn {
+pub fn __aeabi_fcmpeq(a: f32, b: f32) callconv(.AAPCS) i32 {
     @setRuntimeSafety(false);
-    @call(.{ .modifier = .always_inline }, aeabi_fcmp, .{.Eq});
-    unreachable;
+    return @boolToInt(@call(.{ .modifier = .always_inline }, comparesf2.__eqsf2, .{ a, b }) == 0);
 }
 
-pub fn __aeabi_fcmplt() callconv(.Naked) noreturn {
+pub fn __aeabi_fcmplt(a: f32, b: f32) callconv(.AAPCS) i32 {
     @setRuntimeSafety(false);
-    @call(.{ .modifier = .always_inline }, aeabi_fcmp, .{.Lt});
-    unreachable;
+    return @boolToInt(@call(.{ .modifier = .always_inline }, comparesf2.__ltsf2, .{ a, b }) < 0);
 }
 
-pub fn __aeabi_fcmple() callconv(.Naked) noreturn {
+pub fn __aeabi_fcmple(a: f32, b: f32) callconv(.AAPCS) i32 {
     @setRuntimeSafety(false);
-    @call(.{ .modifier = .always_inline }, aeabi_fcmp, .{.Le});
-    unreachable;
+    return @boolToInt(@call(.{ .modifier = .always_inline }, comparesf2.__lesf2, .{ a, b }) <= 0);
 }
 
-pub fn __aeabi_fcmpge() callconv(.Naked) noreturn {
+pub fn __aeabi_fcmpge(a: f32, b: f32) callconv(.AAPCS) i32 {
     @setRuntimeSafety(false);
-    @call(.{ .modifier = .always_inline }, aeabi_fcmp, .{.Ge});
-    unreachable;
+    return @boolToInt(@call(.{ .modifier = .always_inline }, comparesf2.__gesf2, .{ a, b }) >= 0);
 }
 
-pub fn __aeabi_fcmpgt() callconv(.Naked) noreturn {
+pub fn __aeabi_fcmpgt(a: f32, b: f32) callconv(.AAPCS) i32 {
     @setRuntimeSafety(false);
-    @call(.{ .modifier = .always_inline }, aeabi_fcmp, .{.Gt});
-    unreachable;
-}
-
-fn aeabi_fcmp(comptime cond: ConditionalOperator) void {
-    @setRuntimeSafety(false);
-    asm volatile (
-        \\ push      { r4, lr }
-    );
-
-    switch (cond) {
-        .Eq => asm volatile (
-            \\ bl        __eqsf2
-            \\ cmp       r0, #0
-            \\ beq 1f
-            \\ movs      r0, #0
-            \\ pop       { r4, pc }
-            \\ 1:
-        ),
-        .Lt => asm volatile (
-            \\ bl        __ltsf2
-            \\ cmp       r0, #0
-            \\ blt 1f
-            \\ movs      r0, #0
-            \\ pop       { r4, pc }
-            \\ 1:
-        ),
-        .Le => asm volatile (
-            \\ bl        __lesf2
-            \\ cmp       r0, #0
-            \\ ble 1f
-            \\ movs      r0, #0
-            \\ pop       { r4, pc }
-            \\ 1:
-        ),
-        .Ge => asm volatile (
-            \\ bl        __ltsf2
-            \\ cmp       r0, #0
-            \\ bge 1f
-            \\ movs      r0, #0
-            \\ pop       { r4, pc }
-            \\ 1:
-        ),
-        .Gt => asm volatile (
-            \\ bl        __gtsf2
-            \\ cmp       r0, #0
-            \\ bgt 1f
-            \\ movs      r0, #0
-            \\ pop       { r4, pc }
-            \\ 1:
-        ),
-    }
-    asm volatile (
-        \\ movs      r0, #1
-        \\ pop       { r4, pc }
-    );
+    return @boolToInt(@call(.{ .modifier = .always_inline }, comparesf2.__gtsf2, .{ a, b }) > 0);
 }
