@@ -21631,7 +21631,7 @@ static IrInstruction *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case ZigTypeIdEnum: {
             if ((err = type_resolve(ira->codegen, target_type, ResolveStatusZeroBitsKnown)))
                 return ira->codegen->invalid_instruction;
-            if (target_type->data.enumeration.src_field_count < 2) {
+            if (target_type->data.enumeration.src_field_count == 1) {
                 TypeEnumField *only_field = &target_type->data.enumeration.fields[0];
                 IrInstruction *result = ir_const(ira, &switch_target_instruction->base, target_type);
                 bigint_init_bigint(&result->value->data.x_enum_tag, &only_field->value);

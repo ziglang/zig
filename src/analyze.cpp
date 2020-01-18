@@ -8312,7 +8312,7 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatu
 
     uint32_t field_count = enum_type->data.enumeration.src_field_count;
 
-    assert(enum_type->data.enumeration.fields);
+    assert(field_count == 0 || enum_type->data.enumeration.fields != nullptr);
     ZigLLVMDIEnumerator **di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
 
     for (uint32_t i = 0; i < field_count; i += 1) {
