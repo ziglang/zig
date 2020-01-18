@@ -148,7 +148,7 @@ comptime {
 
     @export(@import("compiler_rt/clzsi2.zig").__clzsi2, .{ .name = "__clzsi2", .linkage = linkage });
 
-    if (is_arm_arch and !is_arm_64 and !is_test) {
+    if (builtin.arch.isARM() and !is_test) {
         @export(@import("compiler_rt/arm.zig").__aeabi_unwind_cpp_pr0, .{ .name = "__aeabi_unwind_cpp_pr0", .linkage = linkage });
         @export(@import("compiler_rt/arm.zig").__aeabi_unwind_cpp_pr1, .{ .name = "__aeabi_unwind_cpp_pr1", .linkage = linkage });
         @export(@import("compiler_rt/arm.zig").__aeabi_unwind_cpp_pr2, .{ .name = "__aeabi_unwind_cpp_pr2", .linkage = linkage });
@@ -324,23 +324,3 @@ extern var __stack_chk_guard: usize = blk: {
     buf[@sizeOf(usize) - 2] = '\n';
     break :blk @bitCast(usize, buf);
 };
-
-const is_arm_64 = switch (builtin.arch) {
-    builtin.Arch.aarch64,
-    builtin.Arch.aarch64_be,
-    => true,
-    else => false,
-};
-
-const is_arm_arch = switch (builtin.arch) {
-    builtin.Arch.arm,
-    builtin.Arch.armeb,
-    builtin.Arch.aarch64,
-    builtin.Arch.aarch64_be,
-    builtin.Arch.thumb,
-    builtin.Arch.thumbeb,
-    => true,
-    else => false,
-};
-
-const is_arm_32 = is_arm_arch and !is_arm_64;
