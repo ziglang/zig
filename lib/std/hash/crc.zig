@@ -9,17 +9,18 @@ const std = @import("../std.zig");
 const debug = std.debug;
 const testing = std.testing;
 
-pub const Polynomial = struct {
-    pub const IEEE = 0xedb88320;
-    pub const Castagnoli = 0x82f63b78;
-    pub const Koopman = 0xeb31d82e;
+pub const Polynomial = enum(u32) {
+    IEEE = 0xedb88320,
+    Castagnoli = 0x82f63b78,
+    Koopman = 0xeb31d82e,
+    _,
 };
 
 // IEEE is by far the most common CRC and so is aliased by default.
-pub const Crc32 = Crc32WithPoly(Polynomial.IEEE);
+pub const Crc32 = Crc32WithPoly(.IEEE);
 
 // slicing-by-8 crc32 implementation.
-pub fn Crc32WithPoly(comptime poly: u32) type {
+pub fn Crc32WithPoly(comptime poly: Polynomial) type {
     return struct {
         const Self = @This();
         const lookup_tables = comptime block: {
@@ -31,7 +32,7 @@ pub fn Crc32WithPoly(comptime poly: u32) type {
                 var j: usize = 0;
                 while (j < 8) : (j += 1) {
                     if (crc & 1 == 1) {
-                        crc = (crc >> 1) ^ poly;
+                        crc = (crc >> 1) ^ @enumToInt(poly);
                     } else {
                         crc = (crc >> 1);
                     }
@@ -100,7 +101,7 @@ pub fn Crc32WithPoly(comptime poly: u32) type {
 }
 
 test "crc32 ieee" {
-    const Crc32Ieee = Crc32WithPoly(Polynomial.IEEE);
+    const Crc32Ieee = Crc32WithPoly(.IEEE);
 
     testing.expect(Crc32Ieee.hash("") == 0x00000000);
     testing.expect(Crc32Ieee.hash("a") == 0xe8b7be43);
@@ -108,7 +109,7 @@ test "crc32 ieee" {
 }
 
 test "crc32 castagnoli" {
-    const Crc32Castagnoli = Crc32WithPoly(Polynomial.Castagnoli);
+    const Crc32Castagnoli = Crc32WithPoly(.Castagnoli);
 
     testing.expect(Crc32Castagnoli.hash("") == 0x00000000);
     testing.expect(Crc32Castagnoli.hash("a") == 0xc1d04330);
@@ -116,7 +117,7 @@ test "crc32 castagnoli" {
 }
 
 // half-byte lookup table implementation.
-pub fn Crc32SmallWithPoly(comptime poly: u32) type {
+pub fn Crc32SmallWithPoly(comptime poly: Polynomial) type {
     return struct {
         const Self = @This();
         const lookup_table = comptime block: {
@@ -127,7 +128,7 @@ pub fn Crc32SmallWithPoly(comptime poly: u32) type {
                 var j: usize = 0;
                 while (j < 8) : (j += 1) {
                     if (crc & 1 == 1) {
-                        crc = (crc >> 1) ^ poly;
+                        crc = (crc >> 1) ^ @enumToInt(poly);
                     } else {
                         crc = (crc >> 1);
                     }
@@ -164,7 +165,7 @@ pub fn Crc32SmallWithPoly(comptime poly: u32) type {
 }
 
 test "small crc32 ieee" {
-    const Crc32Ieee = Crc32SmallWithPoly(Polynomial.IEEE);
+    const Crc32Ieee = Crc32SmallWithPoly(.IEEE);
 
     testing.expect(Crc32Ieee.hash("") == 0x00000000);
     testing.expect(Crc32Ieee.hash("a") == 0xe8b7be43);
@@ -172,7 +173,7 @@ test "small crc32 ieee" {
 }
 
 test "small crc32 castagnoli" {
-    const Crc32Castagnoli = Crc32SmallWithPoly(Polynomial.Castagnoli);
+    const Crc32Castagnoli = Crc32SmallWithPoly(.Castagnoli);
 
     testing.expect(Crc32Castagnoli.hash("") == 0x00000000);
     testing.expect(Crc32Castagnoli.hash("a") == 0xc1d04330);

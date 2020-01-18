@@ -1385,6 +1385,7 @@ struct ZigTypeEnum {
     ContainerLayout layout;
     ResolveStatus resolve_status;
 
+    bool non_exhaustive;
     bool resolve_loop_flag;
 };
 
@@ -3669,6 +3670,7 @@ struct IrInstructionCheckSwitchProngs {
     IrInstructionCheckSwitchProngsRange *ranges;
     size_t range_count;
     bool have_else_prong;
+    bool have_underscore_prong;
 };
 
 struct IrInstructionCheckStatementIsVoid {
