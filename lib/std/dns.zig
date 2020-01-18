@@ -133,7 +133,7 @@ pub const DNSName = struct {
 
     /// Returns the total size in bytes of the DNSName as if it was sent
     /// over a socket.
-    pub fn size(self: *const @This()) usize {
+    pub fn size(self: @This()) usize {
         // by default, add the null octet at the end of it
         var total_size: usize = 1;
 
@@ -148,7 +148,7 @@ pub const DNSName = struct {
 
     /// Convert a DNSName to a human-friendly domain name.
     /// Does not add a period to the end of it.
-    pub fn toStr(self: *const @This(), allocator: *Allocator) ![]u8 {
+    pub fn toStr(self: @This(), allocator: *Allocator) ![]u8 {
         return try std.mem.join(allocator, ".", self.labels);
     }
 
