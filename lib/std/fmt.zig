@@ -362,9 +362,13 @@ pub fn formatType(
             try output(context, "error.");
             return output(context, @errorName(value));
         },
-        .Enum => {
+        .Enum => |enumInfo| {
             if (comptime std.meta.trait.hasFn("format")(T)) {
                 return value.format(fmt, options, context, Errors, output);
+            }
+
+            if (!enumInfo.is_exhaustive) {
+                return output(context, "TODO:non-exhaustive-enum");
             }
 
             try output(context, @typeName(T));

@@ -1,4 +1,4 @@
-pub const Errno = extern enum(u12) {
+pub const Errno = enum(u12) {
     /// Operation not permitted
     EPERM = 1,
 
@@ -120,8 +120,7 @@ pub const Errno = extern enum(u12) {
     ELOOP = 40,
 
     /// Operation would block
-    EWOULDBLOCK = EAGAIN,
-
+    // EWOULDBLOCK = 11, // Duplicate of EAGAIN
     /// No message of desired type
     ENOMSG = 42,
 
@@ -280,7 +279,7 @@ pub const Errno = extern enum(u12) {
 
     /// Operation not supported on transport endpoint
     EOPNOTSUPP = 95,
-    ENOTSUP = EOPNOTSUPP,
+    // ENOTSUP = 95, // Duplicate of EOPNOTSUPP
 
     /// Protocol family not supported
     EPFNOSUPPORT = 96,
