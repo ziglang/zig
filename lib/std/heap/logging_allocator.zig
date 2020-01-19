@@ -40,7 +40,7 @@ pub const LoggingAllocator = struct {
         return result;
     }
 
-    fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
+    fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, comptime new_align: u29) []u8 {
         const self = @fieldParentPtr(Self, "allocator", allocator);
         const result = self.parent_allocator.alignedShrink(old_mem, new_align, new_size);
         if (new_size == 0) {
