@@ -11,6 +11,7 @@ const Red = Color.Red;
 const Black = Color.Black;
 
 const ReplaceError = error{NotEqual};
+const SortError = error{NotUnique}; // The new comparison function results in duplicates.
 
 /// Insert this into your struct that you want to add to a red-black tree.
 /// Do not use a pointer. Turn the *rb.Node results of the functions in rb
@@ -135,7 +136,7 @@ pub const Tree = struct {
     compareFn: fn (*Node, *Node, *Tree) Order,
 
     /// Re-sorts a tree with a new compare function
-    pub fn sort(tree: *Tree, newCompareFn: fn (*Node, *Node, *Tree) Order) !void {
+    pub fn sort(tree: *Tree, newCompareFn: fn (*Node, *Node, *Tree) Order) SortError!void {
         var newTree = Tree.init(newCompareFn);
         var node: *Node = undefined;
         while (true) {
