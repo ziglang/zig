@@ -110,6 +110,12 @@ pub const DNSRData = union(dns.DNSType) {
             }),
 
             .MX => |mx| return fmt.format(context, Errors, output, "{} {}", .{ mx.preference, mx.exchange }),
+            .SRV => |srv| return fmt.format(context, Errors, output, "{} {} {} {}", .{
+                srv.priority,
+                srv.weight,
+                srv.port,
+                srv.target,
+            }),
 
             else => return fmt.format(context, Errors, output, "TODO support {}", .{@tagName(self)}),
         }
@@ -187,6 +193,21 @@ pub fn deserializeRData(
                 },
             };
         },
+        .SRV => blk: {
+            const priority = try deserializer.deserialize(u16);
+            const weight = try deserializer.deserialize(u16);
+            const port = try deserializer.deserialize(u16);
+            var target = try pkt.deserializeName(&deserializer);
+
+            break :blk DNSRData{
+                .SRV = .{
+                    .priority = priority,
+                    .weight = weight,
+                    .port = port,
+                    .target = target,
+                },
+            };
+        },
 
         else => blk: {
             return error.InvalidRData;
@@ -221,6 +242,13 @@ pub fn serializeRData(
         .MX => |mxdata| blk: {
             try serializer.serialize(mxdata.preference);
             try serializer.serialize(mxdata.exchange);
+        },
+
+        .SRV => |srv| blk: {
+            try serializer.serialize(srv.priority);
+            try serializer.serialize(srv.weight);
+            try serializer.serialize(srv.port);
+            try serializer.serialize(srv.target);
         },
 
         else => return error.NotImplemented,
