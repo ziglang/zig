@@ -29,6 +29,7 @@ pub const ResponseCode = enum(u4) {
 };
 
 /// Represents a DNS type.
+/// Keep in mind this enum does not declare all possible DNS types.
 pub const DNSType = enum(u16) {
     A = 1,
     NS = 2,
@@ -48,15 +49,18 @@ pub const DNSType = enum(u16) {
     TXT = 16,
 
     AAAA = 28,
-    // TODO LOC = 29,
+    // TODO LOC = 29, (check if it's worth it. https://tools.ietf.org/html/rfc1876)
     SRV = 33,
 
-    // TODO AXFR = 252,
+    // those types are only valid in request packets. they may be wanted
+    // later on for completeness, but for now, it's more hassle than it's worth.
+    // AXFR = 252,
+    // MAILB = 253,
+    // MAILA = 254,
+    // ANY = 255,
 
-    // those types are only valid in request packets.
-    // TODO MAILB = 253,
-    // TODO MAILA = 254,
-    // TODO ANY = 255,
+    // should this enum be non-exhaustive?
+    // trying to get it non-exhaustive gives "TODO @tagName on non-exhaustive enum https://github.com/ziglang/zig/issues/3991"
     //_,
 
     /// Convert a given string to an integer representing a DNSType.
