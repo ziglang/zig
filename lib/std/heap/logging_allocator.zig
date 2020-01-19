@@ -42,7 +42,7 @@ pub const LoggingAllocator = struct {
 
     fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
         const self = @fieldParentPtr(Self, "allocator", allocator);
-        const result = self.parent_allocator.shrinkFn(self.parent_allocator, old_mem, old_align, new_size, new_align);
+        const result = self.parent_allocator.alignedShrink(old_mem, new_size, new_align);
         if (new_size == 0) {
             self.out_stream.print("free of {} bytes success!\n", .{old_mem.len}) catch {};
         } else {
