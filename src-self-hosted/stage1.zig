@@ -632,24 +632,77 @@ const Stage2CpuFeatures = struct {
 
     const Self = @This();
 
-    fn initBaseline(allocator: *mem.Allocator) !Self {
-        const builtin_str = try std.fmt.allocPrint0(allocator, "CpuFeatures.baseline;\n");
+    fn createBaseline(allocator: *mem.Allocator) !*Self {
+        const self = try allocator.create(Self);
+        errdefer allocator.destroy(self);
+
+        const builtin_str = try std.fmt.allocPrint0(allocator, ".baseline;\n");
         errdefer allocator.free(builtin_str);
 
         const cache_hash = try std.fmt.allocPrint0(allocator, "\n\n");
         errdefer allocator.free(cache_hash);
 
-        return Self{
+        self.* = Self{
             .allocator = allocator,
-            .cpu_features = .{ .cpu = cpu },
+            .cpu_features = .baseline,
             .llvm_cpu_name = null,
             .llvm_features_str = null,
             .builtin_str = builtin_str,
             .cache_hash = cache_hash,
         };
+        return self;
     }
 
-    fn initCpu(allocator: *mem.Allocator, arch: Target.Arch, cpu: *const Target.Cpu) !Self {
+    fn createFromLLVM(
+        allocator: *mem.Allocator,
+        arch: [*:0]const u8,
+        llvm_cpu_name_z: [*:0]const u8,
+        llvm_cpu_features: [*:0]const u8,
+    ) !*Self {
+        const arch = try Target.parseArchSub(mem.toSliceConst(u8, arch_name));
+        const llvm_cpu_name = mem.toSliceConst(u8, llvm_cpu_name_z);
+
+        for (arch.allCpus()) |cpu| {
+            const this_llvm_name = cpu.llvm_name orelse continue;
+            if (mem.eql(u8, this_llvm_name, llvm_cpu_name)) {
+                return createFromCpu(allocator, arch, cpu);
+            }
+        }
+
+        var set = arch.baselineFeatures();
+        var it = mem.tokenize(mem.toSliceConst(u8, llvm_cpu_features), ",");
+        while (it.next()) |decorated_llvm_feat| {
+            var op: enum {
+                add,
+                sub,
+            } = undefined;
+            var llvm_feat: []const u8 = undefined;
+            if (mem.startsWith(u8, decorated_llvm_feat, "+")) {
+                op = .add;
+                llvm_feat = decorated_llvm_feat[1..];
+            } else if (mem.startsWith(u8, decorated_llvm_feat, "-")) {
+                op = .sub;
+                llvm_feat = decorated_llvm_feat[1..];
+            } else {
+                return error.InvalidLlvmCpuFeaturesFormat;
+            }
+            for (arch.allFeaturesList()) |feature, index| {
+                if (mem.eql(u8, feature_name, feature.name)) {
+                    switch (op) {
+                        .add => set |= 1 << index,
+                        .sub => set &= ~@as(Target.Cpu.Feature.Set, 1 << index),
+                    }
+                    break;
+                }
+            }
+        }
+        return createFromCpuFeatures(allocator, arch, set);
+    }
+
+    fn createFromCpu(allocator: *mem.Allocator, arch: Target.Arch, cpu: *const Target.Cpu) !*Self {
+        const self = try allocator.create(Self);
+        errdefer allocator.destroy(self);
+
         const builtin_str = try std.fmt.allocPrint0(
             allocator,
             "CpuFeatures{{ .cpu = &Arch.{}.cpu.{} }};\n",
@@ -661,7 +714,7 @@ const Stage2CpuFeatures = struct {
         const cache_hash = try std.fmt.allocPrint0(allocator, "{}\n{x}", cpu.name, cpu.features);
         errdefer allocator.free(cache_hash);
 
-        return Self{
+        self.* = Self{
             .allocator = allocator,
             .cpu_features = .{ .cpu = cpu },
             .llvm_cpu_name = cpu.llvm_name,
@@ -669,13 +722,17 @@ const Stage2CpuFeatures = struct {
             .builtin_str = builtin_str,
             .cache_hash = cache_hash,
         };
+        return self;
     }
 
-    fn initFeatures(
+    fn createFromCpuFeatures(
         allocator: *mem.Allocator,
         arch: Target.Arch,
         features: Target.Cpu.Feature.Set,
-    ) !Self {
+    ) !*Self {
+        const self = try allocator.create(Self);
+        errdefer allocator.destroy(self);
+
         const cache_hash = try std.fmt.allocPrint0(allocator, "\n{x}", features);
         errdefer allocator.free(cache_hash);
 
@@ -719,7 +776,7 @@ const Stage2CpuFeatures = struct {
 
         try builtin_str_buffer.append("})};\n");
 
-        return Self{
+        self.* = Self{
             .allocator = allocator,
             .cpu_features = .{ .features = features },
             .llvm_cpu_name = null,
@@ -727,68 +784,77 @@ const Stage2CpuFeatures = struct {
             .builtin_str = builtin_str_buffer.toOwnedSlice(),
             .cache_hash = cache_hash,
         };
+        return self;
     }
 
-    fn deinit(self: *Self) void {
+    fn destroy(self: *Self) void {
         self.allocator.free(self.cache_hash);
         self.allocator.free(self.builtin_str);
         if (self.llvm_features_str) |llvm_features_str| self.allocator.free(llvm_features_str);
-        self.* = undefined;
+        self.allocator.destroy(self);
     }
 };
 
 // ABI warning
-export fn stage2_cpu_features_parse_cpu(arch_name: [*:0]const u8, cpu_name: [*:0]const u8) *Stage2CpuFeatures {
-    return parseCpu(arch_name, cpu_name) catch |err| switch (err) {
-        error.OutOfMemory => @panic("out of memory"),
+export fn stage2_cpu_features_parse_cpu(
+    result: **Stage2CpuFeatures,
+    arch_name: [*:0]const u8,
+    cpu_name: [*:0]const u8,
+) Error {
+    result.* = parseCpu(arch_name, cpu_name) catch |err| switch (err) {
+        error.OutOfMemory => return .OutOfMemory,
     };
+    return .None;
 }
 
 fn parseCpu(arch_name: [*:0]const u8, cpu_name: [*:0]const u8) !*Stage2CpuFeatures {
     const arch = try Target.parseArchSub(mem.toSliceConst(u8, arch_name));
     const cpu = try arch.parseCpu(mem.toSliceConst(u8, cpu_name));
-
-    const ptr = try allocator.create(Stage2CpuFeatures);
-    errdefer std.heap.c_allocator.destroy(ptr);
-
-    ptr.* = try Stage2CpuFeatures.initCpu(std.heap.c_allocator, arch, cpu);
-    errdefer ptr.deinit();
-
-    return ptr;
+    return Stage2CpuFeatures.createFromCpu(std.heap.c_allocator, arch, cpu);
 }
 
 // ABI warning
 export fn stage2_cpu_features_parse_features(
+    result: **Stage2CpuFeatures,
     arch_name: [*:0]const u8,
     features_text: [*:0]const u8,
-) *Stage2CpuFeatures {
-    return parseFeatures(arch_name, features_text) catch |err| switch (err) {
-        error.OutOfMemory => @panic("out of memory"),
+) Error {
+    result.* = parseFeatures(arch_name, features_text) catch |err| switch (err) {
+        error.OutOfMemory => return .OutOfMemory,
     };
+    return .None;
 }
 
 fn parseFeatures(arch_name: [*:0]const u8, features_text: [*:0]const u8) !*Stage2CpuFeatures {
     const arch = try Target.parseArchSub(mem.toSliceConst(u8, arch_name));
     const set = try arch.parseCpuFeatureSet(mem.toSliceConst(u8, features_text));
-
-    const ptr = try std.heap.c_allocator.create(Stage2CpuFeatures);
-    errdefer std.heap.c_allocator.destroy(ptr);
-
-    ptr.* = try Stage2CpuFeatures.initFeatures(std.heap.c_allocator, arch, set);
-    errdefer ptr.deinit();
-
-    return ptr;
+    return Stage2CpuFeatures.createFromCpuFeatures(std.heap.c_allocator, arch, set);
 }
 
 // ABI warning
-export fn stage2_cpu_features_baseline() *Stage2CpuFeatures {
-    const ptr = try std.heap.c_allocator.create(Stage2CpuFeatures);
-    errdefer std.heap.c_allocator.destroy(ptr);
+export fn stage2_cpu_features_baseline(result: **Stage2CpuFeatures) Error {
+    result.* = Stage2CpuFeatures.createBaseline(std.heap.c_allocator) catch |err| switch (err) {
+        error.OutOfMemory => return .OutOfMemory,
+    };
+    return .None;
+}
 
-    ptr.* = try Stage2CpuFeatures.initBaseline(std.heap.c_allocator);
-    errdefer ptr.deinit();
-
-    return ptr;
+// ABI warning
+export fn stage2_cpu_features_llvm(
+    result: **Stage2CpuFeatures,
+    arch_name: [*:0]const u8,
+    llvm_cpu_name: [*:0]const u8,
+    llvm_cpu_features: [*:0]const u8,
+) Error {
+    result.* = Stage2CpuFeatures.createFromLLVM(
+        std.heap.c_allocator,
+        arch_name,
+        llvm_cpu_name,
+        llvm_cpu_features,
+    ) catch |err| switch (err) {
+        error.OutOfMemory => return .OutOfMemory,
+    };
+    return .None;
 }
 
 // ABI warning

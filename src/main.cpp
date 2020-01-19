@@ -100,8 +100,8 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --override-lib-dir [arg]     override path to Zig lib directory\n"
         "  -ffunction-sections          places each function in a separate section\n"
         "  -D[macro]=[value]            define C [macro] to [value] (1 if [value] omitted)\n"
-        "  --cpu [cpu]                  compile for [cpu] on the current target\n"
-        "  --features [feature_str]     compile with features in [feature_str] on the current target\n"
+        "  -target-cpu [cpu]            target one specific CPU by name\n"
+        "  -target-feature [features]   specify the set of CPU features to target\n"
         "\n"
         "Link Options:\n"
         "  --bundle-compiler-rt         for static libraries, include compiler-rt symbols\n"
@@ -1078,22 +1078,30 @@ int main(int argc, char **argv) {
         fprintf(stderr, "-target-cpu and -target-feature options not allowed together\n");
         return main_exit(root_progress_node, EXIT_FAILURE);
     } else if (cpu) {
-        target.cpu_features = stage2_cpu_features_parse_cpu(target_arch_name(target.arch), cpu);
-        if (!target.cpu_features) {
-            fprintf(stderr, "invalid -target-cpu value\n");
+        if ((err = stage2_cpu_features_parse_cpu(&target.cpu_features, target_arch_name(target.arch), cpu))) {
+            fprintf(stderr, "-target-cpu error: %s\n", err_str(err));
             return main_exit(root_progress_node, EXIT_FAILURE);
         }
     } else if (features) {
-        target.cpu_features = stage2_cpu_features_parse_features(target_arch_name(target.arch), features);
-        if (!target.cpu_features) {
-            fprintf(stderr, "invalid -target-feature value\n");
+        if ((err = stage2_cpu_features_parse_features(&target.cpu_features, target_arch_name(target.arch),
+                        features)))
+        {
+            fprintf(stderr, "-target-feature error: %s\n", err_str(err));
+            return main_exit(root_progress_node, EXIT_FAILURE);
+        }
+    } else if (target.is_native) {
+        const char *cpu_name = ZigLLVMGetHostCPUName();
+        const char *cpu_features = ZigLLVMGetNativeFeatures();
+        if ((err = stage2_cpu_features_llvm(&target.cpu_features, target_arch_name(target.arch),
+                        cpu_name, cpu_features)))
+        {
+            fprintf(stderr, "unable to determine native CPU features: %s\n", err_str(err));
             return main_exit(root_progress_node, EXIT_FAILURE);
         }
     } else {
-        // If no details are specified and we are not native, load
-        // cross-compilation default features.
-        if (!target.is_native) {
-            target.cpu_features = stage2_cpu_features_baseline();
+        if ((err = stage2_cpu_features_baseline(&target.cpu_features))) {
+            fprintf(stderr, "unable to determine baseline CPU features: %s\n", err_str(err));
+            return main_exit(root_progress_node, EXIT_FAILURE);
         }
     }
 

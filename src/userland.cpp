@@ -98,35 +98,55 @@ void stage2_list_cpus_for_arch(const char *arch_name_ptr, size_t arch_name_len, 
     const char *msg = "stage0 called stage2_list_cpus_for_arch";
     stage2_panic(msg, strlen(msg));
 }
-Stage2CpuFeatures *stage2_cpu_features_parse_cpu(const char *arch, const char *str) {
+
+struct Stage2CpuFeatures {
+    const char *llvm_cpu_name;
+    const char *llvm_cpu_features;
+    const char *builtin_str;
+    const char *cache_hash;
+};
+
+Error stage2_cpu_features_parse_cpu(Stage2CpuFeatures **out, const char *arch, const char *str) {
     const char *msg = "stage0 called stage2_cpu_features_parse_cpu";
     stage2_panic(msg, strlen(msg));
 }
-Stage2CpuFeatures *stage2_cpu_features_parse_features(const char *arch, const char *str) {
+Error stage2_cpu_features_parse_features(Stage2CpuFeatures **out, const char *arch, const char *str) {
     const char *msg = "stage0 called stage2_cpu_features_parse_features";
     stage2_panic(msg, strlen(msg));
 }
-Stage2CpuFeatures *stage2_cpu_features_baseline(void) {
-    const char *msg = "stage0 called stage2_cpu_features_baseline";
-    stage2_panic(msg, strlen(msg));
+Error stage2_cpu_features_baseline(Stage2CpuFeatures **out) {
+    Stage2CpuFeatures *result = allocate<Stage2CpuFeatures>(1, "Stage2CpuFeatures");
+    result->builtin_str = ".baseline;\n";
+    result->cache_hash = "\n\n";
+    *out = result;
+    return ErrorNone;
+}
+Error stage2_cpu_features_llvm(Stage2CpuFeatures **out, const char *arch,
+        const char *llvm_cpu_name, const char *llvm_features)
+{
+    Stage2CpuFeatures *result = allocate<Stage2CpuFeatures>(1, "Stage2CpuFeatures");
+    result->llvm_cpu_name = llvm_cpu_name;
+    result->llvm_cpu_features = llvm_features;
+    result->builtin_str = ".baseline;\n";
+    result->cache_hash = "native\n\n";
+    *out = result;
+    return ErrorNone;
 }
 void stage2_cpu_features_get_cache_hash(const Stage2CpuFeatures *cpu_features,
         const char **ptr, size_t *len)
 {
-    const char *msg = "stage0 called stage2_cpu_features_get_cache_hash";
-    stage2_panic(msg, strlen(msg));
+    *ptr = cpu_features->cache_hash;
+    *len = strlen(cpu_features->cache_hash);
 }
 const char *stage2_cpu_features_get_llvm_cpu(const Stage2CpuFeatures *cpu_features) {
-    const char *msg = "stage0 called stage2_cpu_features_get_llvm_cpu";
-    stage2_panic(msg, strlen(msg));
+    return cpu_features->llvm_cpu_name;
 }
 const char *stage2_cpu_features_get_llvm_features(const Stage2CpuFeatures *cpu_features) {
-    const char *msg = "stage0 called stage2_cpu_features_get_llvm_features";
-    stage2_panic(msg, strlen(msg));
+    return cpu_features->llvm_cpu_features;
 }
 void stage2_cpu_features_get_builtin_str(const Stage2CpuFeatures *cpu_features, 
         const char **ptr, size_t *len)
 {
-    const char *msg = "stage0 called stage2_cpu_features_get_builtin_str";
-    stage2_panic(msg, strlen(msg));
+    *ptr = cpu_features->builtin_str;
+    *len = strlen(cpu_features->builtin_str);
 }

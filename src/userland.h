@@ -184,26 +184,32 @@ ZIG_EXTERN_C void stage2_list_cpus_for_arch(const char *arch_name_ptr, size_t ar
 struct Stage2CpuFeatures;
 
 // ABI warning
-ZIG_EXTERN_C Stage2CpuFeatures *stage2_cpu_features_parse_cpu(const char *arch, const char *cpu_name);
+ZIG_EXTERN_C Error stage2_cpu_features_parse_cpu(struct Stage2CpuFeatures **result,
+        const char *arch, const char *cpu_name);
 
 // ABI warning
-ZIG_EXTERN_C Stage2CpuFeatures *stage2_cpu_features_parse_features(const char *arch, const char *features);
+ZIG_EXTERN_C Error stage2_cpu_features_parse_features(struct Stage2CpuFeatures **result,
+        const char *arch, const char *features);
 
 // ABI warning
-ZIG_EXTERN_C Stage2CpuFeatures *stage2_cpu_features_baseline(void);
+ZIG_EXTERN_C Error stage2_cpu_features_baseline(struct Stage2CpuFeatures **result);
 
 // ABI warning
-ZIG_EXTERN_C const char *stage2_cpu_features_get_llvm_cpu(const Stage2CpuFeatures *cpu_features);
+ZIG_EXTERN_C Error stage2_cpu_features_llvm(struct Stage2CpuFeatures **result,
+        const char *arch, const char *llvm_cpu_name, const char *llvm_features);
 
 // ABI warning
-ZIG_EXTERN_C const char *stage2_cpu_features_get_llvm_features(const Stage2CpuFeatures *cpu_features);
+ZIG_EXTERN_C const char *stage2_cpu_features_get_llvm_cpu(const struct Stage2CpuFeatures *cpu_features);
 
 // ABI warning
-ZIG_EXTERN_C void stage2_cpu_features_get_builtin_str(const Stage2CpuFeatures *cpu_features,
+ZIG_EXTERN_C const char *stage2_cpu_features_get_llvm_features(const struct Stage2CpuFeatures *cpu_features);
+
+// ABI warning
+ZIG_EXTERN_C void stage2_cpu_features_get_builtin_str(const struct Stage2CpuFeatures *cpu_features,
         const char **ptr, size_t *len);
 
 // ABI warning
-ZIG_EXTERN_C void stage2_cpu_features_get_cache_hash(const Stage2CpuFeatures *cpu_features,
+ZIG_EXTERN_C void stage2_cpu_features_get_cache_hash(const struct Stage2CpuFeatures *cpu_features,
         const char **ptr, size_t *len);
 
 #endif
