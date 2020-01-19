@@ -2605,7 +2605,7 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
                                     buf_ptr(&wanted_tag_int_type->name)));
                     add_error_note(g, msg, decl_node->data.container_decl.init_arg_expr,
                         buf_sprintf("any integral type of size 8, 16, 32, 64 or 128 bit is valid"));
-                    return ErrorNone;
+                    return ErrorSemanticAnalyzeFail;
                 }
             }
             tag_int_type = wanted_tag_int_type;
