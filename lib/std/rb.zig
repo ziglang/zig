@@ -134,6 +134,20 @@ pub const Tree = struct {
     root: ?*Node,
     compareFn: fn (*Node, *Node, *Tree) Order,
 
+    /// Re-sorts a tree with a new compare function
+    pub fn sort(tree: *Tree, newCompareFn: fn (*Node, *Node, *Tree) Order) !void {
+        var newTree = Tree.init(newCompareFn);
+        var node: *Node = undefined;
+        while (true) {
+            node = tree.first() orelse break;
+            tree.remove(node);
+            if (newTree.insert(node) != null) {
+                return error.NotUnique; // EEXISTS
+            }
+        }
+        tree.* = newTree;
+    }
+
     /// If you have a need for a version that caches this, please file a bug.
     pub fn first(tree: *Tree) ?*Node {
         var node: *Node = tree.root orelse return null;
@@ -244,6 +258,7 @@ pub const Tree = struct {
         return doLookup(key, tree, &parent, &is_left);
     }
 
+    /// If node is not part of tree, behavior is undefined.
     pub fn remove(tree: *Tree, nodeconst: *Node) void {
         var node = nodeconst;
         // as this has the same value as node, it is unsafe to access node after newnode
@@ -514,6 +529,10 @@ fn testCompare(l: *Node, r: *Node, contextIgnored: *Tree) Order {
     unreachable;
 }
 
+fn testCompareReverse(l: *Node, r: *Node, contextIgnored: *Tree) Order {
+    return testCompare(r, l, contextIgnored);
+}
+
 test "rb" {
     if (@import("builtin").arch == .aarch64) {
         // TODO https://github.com/ziglang/zig/issues/3288
@@ -599,5 +618,9 @@ test "multiple inserts, followed by calling first and last" {
     assert(testGetNumber(tree.last().?).value == 3);
     var lookupNode: testNumber = undefined;
     lookupNode.value = 3;
+    assert(tree.lookup(&lookupNode.node) == &third.node);
+    tree.sort(testCompareReverse) catch unreachable;
+    assert(testGetNumber(tree.first().?).value == 3);
+    assert(testGetNumber(tree.last().?).value == 0);
     assert(tree.lookup(&lookupNode.node) == &third.node);
 }
