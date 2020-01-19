@@ -48,17 +48,16 @@ pub const DNSType = enum(u16) {
     TXT = 16,
 
     AAAA = 28,
-    //LOC,
-    //SRV,
+    // TODO LOC = 29,
+    SRV = 33,
 
-    // QTYPE only, but merging under DNSType
-    // for nicer API
+    // TODO AXFR = 252,
 
-    // TODO: add them back, maybe?
-    //AXFR = 252,
-    //MAILB,
-    //MAILA,
-    //WILDCARD,
+    // those types are only valid in request packets.
+    // TODO MAILB = 253,
+    // TODO MAILA = 254,
+    // TODO ANY = 255,
+    //_,
 
     /// Convert a given string to an integer representing a DNSType.
     pub fn fromStr(str: []const u8) !DNSType {

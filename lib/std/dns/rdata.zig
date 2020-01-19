@@ -23,6 +23,13 @@ pub const MXData = struct {
     exchange: dns.DNSName,
 };
 
+pub const SRVData = struct {
+    priority: u16,
+    weight: u16,
+    port: u16,
+    target: dns.DNSName,
+};
+
 /// DNS RDATA representation to a "native-r" type for nicer usage.
 pub const DNSRData = union(dns.DNSType) {
     A: std.net.Address,
@@ -60,6 +67,8 @@ pub const DNSRData = union(dns.DNSType) {
     },
     MX: MXData,
     TXT: [][]const u8,
+
+    SRV: SRVData,
 
     pub fn size(self: @This()) usize {
         return switch (self) {
