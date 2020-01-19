@@ -24,20 +24,20 @@ pub const COutStream = struct {
         const self = @fieldParentPtr(COutStream, "stream", out_stream);
         const amt_written = std.c.fwrite(bytes.ptr, 1, bytes.len, self.c_file);
         if (amt_written == bytes.len) return;
-        switch (std.c._errno().*) {
-            0 => unreachable,
-            os.EINVAL => unreachable,
-            os.EFAULT => unreachable,
-            os.EAGAIN => unreachable, // this is a blocking API
-            os.EBADF => unreachable, // always a race condition
-            os.EDESTADDRREQ => unreachable, // connect was never called
-            os.EDQUOT => return error.DiskQuota,
-            os.EFBIG => return error.FileTooBig,
-            os.EIO => return error.InputOutput,
-            os.ENOSPC => return error.NoSpaceLeft,
-            os.EPERM => return error.AccessDenied,
-            os.EPIPE => return error.BrokenPipe,
-            else => |err| return os.unexpectedErrno(@intCast(usize, err)),
+        switch (std.c.getErrno(-1)) {
+            @intToEnum(os.Errno, 0) => unreachable,
+            .EINVAL => unreachable,
+            .EFAULT => unreachable,
+            .EAGAIN => unreachable, // this is a blocking API
+            .EBADF => unreachable, // always a race condition
+            .EDESTADDRREQ => unreachable, // connect was never called
+            .EDQUOT => return error.DiskQuota,
+            .EFBIG => return error.FileTooBig,
+            .EIO => return error.InputOutput,
+            .ENOSPC => return error.NoSpaceLeft,
+            .EPERM => return error.AccessDenied,
+            .EPIPE => return error.BrokenPipe,
+            else => |err| return os.unexpectedErrno(err),
         }
     }
 };

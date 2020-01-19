@@ -12,11 +12,13 @@ test "getpid" {
 
 test "timer" {
     const epoll_fd = linux.epoll_create();
-    var err: usize = linux.getErrno(epoll_fd);
-    expect(err == 0);
+    {
+        const err: linux.Errno = linux.getErrno(epoll_fd);
+        expect(err == @intToEnum(linux.Errno, 0));
+    }
 
     const timer_fd = linux.timerfd_create(linux.CLOCK_MONOTONIC, 0);
-    expect(linux.getErrno(timer_fd) == 0);
+    expect(linux.getErrno(timer_fd) == @intToEnum(linux.Errno, 0));
 
     const time_interval = linux.timespec{
         .tv_sec = 0,
@@ -28,22 +30,28 @@ test "timer" {
         .it_value = time_interval,
     };
 
-    err = linux.timerfd_settime(@intCast(i32, timer_fd), 0, &new_time, null);
-    expect(err == 0);
+    {
+        const err = linux.timerfd_settime(@intCast(i32, timer_fd), 0, &new_time, null);
+        expect(err == 0);
+    }
 
     var event = linux.epoll_event{
         .events = linux.EPOLLIN | linux.EPOLLOUT | linux.EPOLLET,
         .data = linux.epoll_data{ .ptr = 0 },
     };
 
-    err = linux.epoll_ctl(@intCast(i32, epoll_fd), linux.EPOLL_CTL_ADD, @intCast(i32, timer_fd), &event);
-    expect(err == 0);
+    {
+        const err = linux.epoll_ctl(@intCast(i32, epoll_fd), linux.EPOLL_CTL_ADD, @intCast(i32, timer_fd), &event);
+        expect(err == 0);
+    }
 
     const events_one: linux.epoll_event = undefined;
     var events = [_]linux.epoll_event{events_one} ** 8;
 
-    // TODO implicit cast from *[N]T to [*]T
-    err = linux.epoll_wait(@intCast(i32, epoll_fd), @ptrCast([*]linux.epoll_event, &events), 8, -1);
+    {
+        // TODO implicit cast from *[N]T to [*]T
+        const err = linux.epoll_wait(@intCast(i32, epoll_fd), @ptrCast([*]linux.epoll_event, &events), 8, -1);
+    }
 }
 
 test "statx" {
@@ -56,15 +64,15 @@ test "statx" {
 
     var statx_buf: linux.Statx = undefined;
     switch (linux.getErrno(linux.statx(file.handle, "", linux.AT_EMPTY_PATH, linux.STATX_BASIC_STATS, &statx_buf))) {
-        0 => {},
+        @intToEnum(linux.Errno, 0) => {},
         // The statx syscall was only introduced in linux 4.11
-        linux.ENOSYS => return error.SkipZigTest,
+        .ENOSYS => return error.SkipZigTest,
         else => unreachable,
     }
 
     var stat_buf: linux.Stat = undefined;
     switch (linux.getErrno(linux.fstatat(file.handle, "", &stat_buf, linux.AT_EMPTY_PATH))) {
-        0 => {},
+        @intToEnum(linux.Errno, 0) => {},
         else => unreachable,
     }
 

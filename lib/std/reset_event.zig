@@ -245,7 +245,7 @@ const AtomicEvent = struct {
             const waiting = std.math.maxInt(i32); // wake_count
             const ptr = @ptrCast(*const i32, waiters);
             const rc = linux.futex_wake(ptr, linux.FUTEX_WAKE | linux.FUTEX_PRIVATE_FLAG, waiting);
-            assert(linux.getErrno(rc) == 0);
+            assert(linux.getErrno(rc) == @intToEnum(linux.Errno, 0));
         }
 
         fn wait(waiters: *u32, timeout: ?u64) !void {
@@ -265,10 +265,10 @@ const AtomicEvent = struct {
                 const ptr = @ptrCast(*const i32, waiters);
                 const rc = linux.futex_wait(ptr, linux.FUTEX_WAIT | linux.FUTEX_PRIVATE_FLAG, expected, ts_ptr);
                 switch (linux.getErrno(rc)) {
-                    0 => continue,
-                    os.ETIMEDOUT => return error.TimedOut,
-                    os.EINTR => continue,
-                    os.EAGAIN => return,
+                    @intToEnum(linux.Errno, 0) => continue,
+                    .ETIMEDOUT => return error.TimedOut,
+                    .EINTR => continue,
+                    .EAGAIN => return,
                     else => unreachable,
                 }
             }

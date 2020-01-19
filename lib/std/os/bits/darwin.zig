@@ -784,331 +784,335 @@ pub fn WIFSIGNALED(x: u32) bool {
     return wstatus(x) != wstopped and wstatus(x) != 0;
 }
 
-/// Operation not permitted
-pub const EPERM = 1;
+pub const Errno = extern enum(c_int) {
+    /// Operation not permitted
+    EPERM = 1,
 
-/// No such file or directory
-pub const ENOENT = 2;
+    /// No such file or directory
+    ENOENT = 2,
 
-/// No such process
-pub const ESRCH = 3;
+    /// No such process
+    ESRCH = 3,
 
-/// Interrupted system call
-pub const EINTR = 4;
+    /// Interrupted system call
+    EINTR = 4,
 
-/// Input/output error
-pub const EIO = 5;
+    /// Input/output error
+    EIO = 5,
 
-/// Device not configured
-pub const ENXIO = 6;
+    /// Device not configured
+    ENXIO = 6,
 
-/// Argument list too long
-pub const E2BIG = 7;
+    /// Argument list too long
+    E2BIG = 7,
 
-/// Exec format error
-pub const ENOEXEC = 8;
+    /// Exec format error
+    ENOEXEC = 8,
 
-/// Bad file descriptor
-pub const EBADF = 9;
+    /// Bad file descriptor
+    EBADF = 9,
 
-/// No child processes
-pub const ECHILD = 10;
+    /// No child processes
+    ECHILD = 10,
 
-/// Resource deadlock avoided
-pub const EDEADLK = 11;
+    /// Resource deadlock avoided
+    EDEADLK = 11,
 
-/// Cannot allocate memory
-pub const ENOMEM = 12;
+    /// Cannot allocate memory
+    ENOMEM = 12,
 
-/// Permission denied
-pub const EACCES = 13;
+    /// Permission denied
+    EACCES = 13,
 
-/// Bad address
-pub const EFAULT = 14;
+    /// Bad address
+    EFAULT = 14,
 
-/// Block device required
-pub const ENOTBLK = 15;
+    /// Block device required
+    ENOTBLK = 15,
 
-/// Device / Resource busy
-pub const EBUSY = 16;
+    /// Device / Resource busy
+    EBUSY = 16,
 
-/// File exists
-pub const EEXIST = 17;
+    /// File exists
+    EEXIST = 17,
 
-/// Cross-device link
-pub const EXDEV = 18;
+    /// Cross-device link
+    EXDEV = 18,
 
-/// Operation not supported by device
-pub const ENODEV = 19;
+    /// Operation not supported by device
+    ENODEV = 19,
 
-/// Not a directory
-pub const ENOTDIR = 20;
+    /// Not a directory
+    ENOTDIR = 20,
 
-/// Is a directory
-pub const EISDIR = 21;
+    /// Is a directory
+    EISDIR = 21,
 
-/// Invalid argument
-pub const EINVAL = 22;
+    /// Invalid argument
+    EINVAL = 22,
 
-/// Too many open files in system
-pub const ENFILE = 23;
+    /// Too many open files in system
+    ENFILE = 23,
 
-/// Too many open files
-pub const EMFILE = 24;
+    /// Too many open files
+    EMFILE = 24,
 
-/// Inappropriate ioctl for device
-pub const ENOTTY = 25;
+    /// Inappropriate ioctl for device
+    ENOTTY = 25,
 
-/// Text file busy
-pub const ETXTBSY = 26;
+    /// Text file busy
+    ETXTBSY = 26,
 
-/// File too large
-pub const EFBIG = 27;
+    /// File too large
+    EFBIG = 27,
 
-/// No space left on device
-pub const ENOSPC = 28;
+    /// No space left on device
+    ENOSPC = 28,
 
-/// Illegal seek
-pub const ESPIPE = 29;
+    /// Illegal seek
+    ESPIPE = 29,
 
-/// Read-only file system
-pub const EROFS = 30;
+    /// Read-only file system
+    EROFS = 30,
 
-/// Too many links
-pub const EMLINK = 31;
-/// Broken pipe
+    /// Too many links
+    EMLINK = 31,
+    /// Broken pipe
 
-// math software
-pub const EPIPE = 32;
+    // math software
+    EPIPE = 32,
 
-/// Numerical argument out of domain
-pub const EDOM = 33;
-/// Result too large
+    /// Numerical argument out of domain
+    EDOM = 33,
+    /// Result too large
 
-// non-blocking and interrupt i/o
-pub const ERANGE = 34;
+    // non-blocking and interrupt i/o
+    ERANGE = 34,
 
-/// Resource temporarily unavailable
-pub const EAGAIN = 35;
+    /// Resource temporarily unavailable
+    EAGAIN = 35,
 
-/// Operation would block
-pub const EWOULDBLOCK = EAGAIN;
+    /// Operation would block
+    EWOULDBLOCK = 35, // Duplicate of EAGAIN
 
-/// Operation now in progress
-pub const EINPROGRESS = 36;
-/// Operation already in progress
+    /// Operation now in progress
+    EINPROGRESS = 36,
+    /// Operation already in progress
 
-// ipc/network software -- argument errors
-pub const EALREADY = 37;
+    // ipc/network software -- argument errors
+    EALREADY = 37,
 
-/// Socket operation on non-socket
-pub const ENOTSOCK = 38;
+    /// Socket operation on non-socket
+    ENOTSOCK = 38,
 
-/// Destination address required
-pub const EDESTADDRREQ = 39;
+    /// Destination address required
+    EDESTADDRREQ = 39,
 
-/// Message too long
-pub const EMSGSIZE = 40;
+    /// Message too long
+    EMSGSIZE = 40,
 
-/// Protocol wrong type for socket
-pub const EPROTOTYPE = 41;
+    /// Protocol wrong type for socket
+    EPROTOTYPE = 41,
 
-/// Protocol not available
-pub const ENOPROTOOPT = 42;
+    /// Protocol not available
+    ENOPROTOOPT = 42,
 
-/// Protocol not supported
-pub const EPROTONOSUPPORT = 43;
+    /// Protocol not supported
+    EPROTONOSUPPORT = 43,
 
-/// Socket type not supported
-pub const ESOCKTNOSUPPORT = 44;
+    /// Socket type not supported
+    ESOCKTNOSUPPORT = 44,
 
-/// Operation not supported
-pub const ENOTSUP = 45;
+    /// Operation not supported
+    ENOTSUP = 45,
 
-/// Protocol family not supported
-pub const EPFNOSUPPORT = 46;
+    /// Protocol family not supported
+    EPFNOSUPPORT = 46,
 
-/// Address family not supported by protocol family
-pub const EAFNOSUPPORT = 47;
+    /// Address family not supported by protocol family
+    EAFNOSUPPORT = 47,
 
-/// Address already in use
-pub const EADDRINUSE = 48;
-/// Can't assign requested address
+    /// Address already in use
+    EADDRINUSE = 48,
+    /// Can't assign requested address
 
-// ipc/network software -- operational errors
-pub const EADDRNOTAVAIL = 49;
+    // ipc/network software -- operational errors
+    EADDRNOTAVAIL = 49,
 
-/// Network is down
-pub const ENETDOWN = 50;
+    /// Network is down
+    ENETDOWN = 50,
 
-/// Network is unreachable
-pub const ENETUNREACH = 51;
+    /// Network is unreachable
+    ENETUNREACH = 51,
 
-/// Network dropped connection on reset
-pub const ENETRESET = 52;
+    /// Network dropped connection on reset
+    ENETRESET = 52,
 
-/// Software caused connection abort
-pub const ECONNABORTED = 53;
+    /// Software caused connection abort
+    ECONNABORTED = 53,
 
-/// Connection reset by peer
-pub const ECONNRESET = 54;
+    /// Connection reset by peer
+    ECONNRESET = 54,
 
-/// No buffer space available
-pub const ENOBUFS = 55;
+    /// No buffer space available
+    ENOBUFS = 55,
 
-/// Socket is already connected
-pub const EISCONN = 56;
+    /// Socket is already connected
+    EISCONN = 56,
 
-/// Socket is not connected
-pub const ENOTCONN = 57;
+    /// Socket is not connected
+    ENOTCONN = 57,
 
-/// Can't send after socket shutdown
-pub const ESHUTDOWN = 58;
+    /// Can't send after socket shutdown
+    ESHUTDOWN = 58,
 
-/// Too many references: can't splice
-pub const ETOOMANYREFS = 59;
+    /// Too many references: can't splice
+    ETOOMANYREFS = 59,
 
-/// Operation timed out
-pub const ETIMEDOUT = 60;
+    /// Operation timed out
+    ETIMEDOUT = 60,
 
-/// Connection refused
-pub const ECONNREFUSED = 61;
+    /// Connection refused
+    ECONNREFUSED = 61,
 
-/// Too many levels of symbolic links
-pub const ELOOP = 62;
+    /// Too many levels of symbolic links
+    ELOOP = 62,
 
-/// File name too long
-pub const ENAMETOOLONG = 63;
+    /// File name too long
+    ENAMETOOLONG = 63,
 
-/// Host is down
-pub const EHOSTDOWN = 64;
+    /// Host is down
+    EHOSTDOWN = 64,
 
-/// No route to host
-pub const EHOSTUNREACH = 65;
-/// Directory not empty
+    /// No route to host
+    EHOSTUNREACH = 65,
+    /// Directory not empty
 
-// quotas & mush
-pub const ENOTEMPTY = 66;
+    // quotas & mush
+    ENOTEMPTY = 66,
 
-/// Too many processes
-pub const EPROCLIM = 67;
+    /// Too many processes
+    EPROCLIM = 67,
 
-/// Too many users
-pub const EUSERS = 68;
-/// Disc quota exceeded
+    /// Too many users
+    EUSERS = 68,
+    /// Disc quota exceeded
 
-// Network File System
-pub const EDQUOT = 69;
+    // Network File System
+    EDQUOT = 69,
 
-/// Stale NFS file handle
-pub const ESTALE = 70;
+    /// Stale NFS file handle
+    ESTALE = 70,
 
-/// Too many levels of remote in path
-pub const EREMOTE = 71;
+    /// Too many levels of remote in path
+    EREMOTE = 71,
 
-/// RPC struct is bad
-pub const EBADRPC = 72;
+    /// RPC struct is bad
+    EBADRPC = 72,
 
-/// RPC version wrong
-pub const ERPCMISMATCH = 73;
+    /// RPC version wrong
+    ERPCMISMATCH = 73,
 
-/// RPC prog. not avail
-pub const EPROGUNAVAIL = 74;
+    /// RPC prog. not avail
+    EPROGUNAVAIL = 74,
 
-/// Program version wrong
-pub const EPROGMISMATCH = 75;
+    /// Program version wrong
+    EPROGMISMATCH = 75,
 
-/// Bad procedure for program
-pub const EPROCUNAVAIL = 76;
+    /// Bad procedure for program
+    EPROCUNAVAIL = 76,
 
-/// No locks available
-pub const ENOLCK = 77;
+    /// No locks available
+    ENOLCK = 77,
 
-/// Function not implemented
-pub const ENOSYS = 78;
+    /// Function not implemented
+    ENOSYS = 78,
 
-/// Inappropriate file type or format
-pub const EFTYPE = 79;
+    /// Inappropriate file type or format
+    EFTYPE = 79,
 
-/// Authentication error
-pub const EAUTH = 80;
-/// Need authenticator
+    /// Authentication error
+    EAUTH = 80,
+    /// Need authenticator
 
-// Intelligent device errors
-pub const ENEEDAUTH = 81;
+    // Intelligent device errors
+    ENEEDAUTH = 81,
 
-/// Device power is off
-pub const EPWROFF = 82;
+    /// Device power is off
+    EPWROFF = 82,
 
-/// Device error, e.g. paper out
-pub const EDEVERR = 83;
-/// Value too large to be stored in data type
+    /// Device error, e.g. paper out
+    EDEVERR = 83,
+    /// Value too large to be stored in data type
 
-// Program loading errors
-pub const EOVERFLOW = 84;
+    // Program loading errors
+    EOVERFLOW = 84,
 
-/// Bad executable
-pub const EBADEXEC = 85;
+    /// Bad executable
+    EBADEXEC = 85,
 
-/// Bad CPU type in executable
-pub const EBADARCH = 86;
+    /// Bad CPU type in executable
+    EBADARCH = 86,
 
-/// Shared library version mismatch
-pub const ESHLIBVERS = 87;
+    /// Shared library version mismatch
+    ESHLIBVERS = 87,
 
-/// Malformed Macho file
-pub const EBADMACHO = 88;
+    /// Malformed Macho file
+    EBADMACHO = 88,
 
-/// Operation canceled
-pub const ECANCELED = 89;
+    /// Operation canceled
+    ECANCELED = 89,
 
-/// Identifier removed
-pub const EIDRM = 90;
+    /// Identifier removed
+    EIDRM = 90,
 
-/// No message of desired type
-pub const ENOMSG = 91;
+    /// No message of desired type
+    ENOMSG = 91,
 
-/// Illegal byte sequence
-pub const EILSEQ = 92;
+    /// Illegal byte sequence
+    EILSEQ = 92,
 
-/// Attribute not found
-pub const ENOATTR = 93;
+    /// Attribute not found
+    ENOATTR = 93,
 
-/// Bad message
-pub const EBADMSG = 94;
+    /// Bad message
+    EBADMSG = 94,
 
-/// Reserved
-pub const EMULTIHOP = 95;
+    /// Reserved
+    EMULTIHOP = 95,
 
-/// No message available on STREAM
-pub const ENODATA = 96;
+    /// No message available on STREAM
+    ENODATA = 96,
 
-/// Reserved
-pub const ENOLINK = 97;
+    /// Reserved
+    ENOLINK = 97,
 
-/// No STREAM resources
-pub const ENOSR = 98;
+    /// No STREAM resources
+    ENOSR = 98,
 
-/// Not a STREAM
-pub const ENOSTR = 99;
+    /// Not a STREAM
+    ENOSTR = 99,
 
-/// Protocol error
-pub const EPROTO = 100;
+    /// Protocol error
+    EPROTO = 100,
 
-/// STREAM ioctl timeout
-pub const ETIME = 101;
+    /// STREAM ioctl timeout
+    ETIME = 101,
 
-/// No such policy registered
-pub const ENOPOLICY = 103;
+    /// No such policy registered
+    ENOPOLICY = 103,
 
-/// State not recoverable
-pub const ENOTRECOVERABLE = 104;
+    /// State not recoverable
+    ENOTRECOVERABLE = 104,
 
-/// Previous owner died
-pub const EOWNERDEAD = 105;
+    /// Previous owner died
+    EOWNERDEAD = 105,
 
-/// Interface output queue is full
-pub const EQFULL = 106;
+    /// Interface output queue is full
+    EQFULL = 106,
+
+    _,
+};
 
 /// Must be equal largest errno
 pub const ELAST = 106;

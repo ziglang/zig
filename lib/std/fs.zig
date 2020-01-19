@@ -524,11 +524,11 @@ pub const Dir = struct {
                     if (self.index >= self.end_index) {
                         const rc = os.linux.getdents64(self.dir.fd, &self.buf, self.buf.len);
                         switch (os.linux.getErrno(rc)) {
-                            0 => {},
-                            os.EBADF => unreachable,
-                            os.EFAULT => unreachable,
-                            os.ENOTDIR => unreachable,
-                            os.EINVAL => unreachable,
+                            @intToEnum(os.linux.Errno, 0) => {},
+                            .EBADF => unreachable,
+                            .EFAULT => unreachable,
+                            .ENOTDIR => unreachable,
+                            .EINVAL => unreachable,
                             else => |err| return os.unexpectedErrno(err),
                         }
                         if (rc == 0) return null;

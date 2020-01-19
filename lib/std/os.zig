@@ -100,13 +100,13 @@ pub fn close(fd: fd_t) void {
     if (comptime std.Target.current.isDarwin()) {
         // This avoids the EINTR problem.
         switch (darwin.getErrno(darwin.@"close$NOCANCEL"(fd))) {
-            EBADF => unreachable, // Always a race condition.
+            .EBADF => unreachable, // Always a race condition.
             else => return,
         }
     }
     switch (errno(system.close(fd))) {
-        EBADF => unreachable, // Always a race condition.
-        EINTR => return, // This is still a success. See https://github.com/ziglang/zig/issues/2425
+        .EBADF => unreachable, // Always a race condition.
+        .EINTR => return, // This is still a success. See https://github.com/ziglang/zig/issues/2425
         else => return,
     }
 }
@@ -128,7 +128,7 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
             std.c.versionCheck(builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok;
 
         while (buf.len != 0) {
-            var err: u16 = undefined;
+            var err: Errno = undefined;
 
             const num_read = if (use_c) blk: {
                 const rc = std.c.getrandom(buf.ptr, buf.len, 0);
@@ -141,11 +141,11 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
             };
 
             switch (err) {
-                0 => buf = buf[num_read..],
-                EINVAL => unreachable,
-                EFAULT => unreachable,
-                EINTR => continue,
-                ENOSYS => return getRandomBytesDevURandom(buf),
+                @intToEnum(Errno, 0) => buf = buf[num_read..],
+                .EINVAL => unreachable,
+                .EFAULT => unreachable,
+                .EINTR => continue,
+                .ENOSYS => return getRandomBytesDevURandom(buf),
                 else => return unexpectedErrno(err),
             }
         }
@@ -211,7 +211,7 @@ pub const RaiseError = UnexpectedError;
 pub fn raise(sig: u8) RaiseError!void {
     if (builtin.link_libc) {
         switch (errno(system.raise(sig))) {
-            0 => return,
+            @intToEnum(Errno, 0) => return,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -228,7 +228,7 @@ pub fn raise(sig: u8) RaiseError!void {
         _ = linux.sigprocmask(SIG_SETMASK, &set, null);
 
         switch (errno(rc)) {
-            0 => return,
+            @intToEnum(Errno, 0) => return,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -240,10 +240,10 @@ pub const KillError = error{PermissionDenied} || UnexpectedError;
 
 pub fn kill(pid: pid_t, sig: u8) KillError!void {
     switch (errno(system.kill(pid, sig))) {
-        0 => return,
-        EINVAL => unreachable, // invalid signal
-        EPERM => return error.PermissionDenied,
-        ESRCH => unreachable, // always a race condition
+        @intToEnum(Errno, 0) => return,
+        .EINVAL => unreachable, // invalid signal
+        .EPERM => return error.PermissionDenied,
+        .ESRCH => unreachable, // always a race condition
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -312,22 +312,22 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     while (true) {
         const rc = system.read(fd, buf.ptr, buf.len);
         switch (errno(rc)) {
-            0 => return @intCast(usize, rc),
-            EINTR => continue,
-            EINVAL => unreachable,
-            EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
+            @intToEnum(Errno, 0) => return @intCast(usize, rc),
+            .EINTR => continue,
+            .EINVAL => unreachable,
+            .EFAULT => unreachable,
+            .EAGAIN => if (std.event.Loop.instance) |loop| {
                 loop.waitUntilFdReadable(fd);
                 continue;
             } else {
                 return error.WouldBlock;
             },
-            EBADF => unreachable, // Always a race condition.
-            EIO => return error.InputOutput,
-            EISDIR => return error.IsDir,
-            ENOBUFS => return error.SystemResources,
-            ENOMEM => return error.SystemResources,
-            ECONNRESET => return error.ConnectionResetByPeer,
+            .EBADF => unreachable, // Always a race condition.
+            .EIO => return error.InputOutput,
+            .EISDIR => return error.IsDir,
+            .ENOBUFS => return error.SystemResources,
+            .ENOMEM => return error.SystemResources,
+            .ECONNRESET => return error.ConnectionResetByPeer,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -342,21 +342,21 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
         // TODO handle the case when iov_len is too large and get rid of this @intCast
         const rc = system.readv(fd, iov.ptr, @intCast(u32, iov.len));
         switch (errno(rc)) {
-            0 => return @bitCast(usize, rc),
-            EINTR => continue,
-            EINVAL => unreachable,
-            EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
+            @intToEnum(Errno, 0) => return @bitCast(usize, rc),
+            .EINTR => continue,
+            .EINVAL => unreachable,
+            .EFAULT => unreachable,
+            .EAGAIN => if (std.event.Loop.instance) |loop| {
                 loop.waitUntilFdReadable(fd);
                 continue;
             } else {
                 return error.WouldBlock;
             },
-            EBADF => unreachable, // always a race condition
-            EIO => return error.InputOutput,
-            EISDIR => return error.IsDir,
-            ENOBUFS => return error.SystemResources,
-            ENOMEM => return error.SystemResources,
+            .EBADF => unreachable, // always a race condition
+            .EIO => return error.InputOutput,
+            .EISDIR => return error.IsDir,
+            .ENOBUFS => return error.SystemResources,
+            .ENOMEM => return error.SystemResources,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -376,7 +376,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) ReadError!usize {
             const rc = darwin.pread(fd, v.iov_base + inner_off, v.iov_len - inner_off, offset + off);
             const err = darwin.getErrno(rc);
             switch (err) {
-                0 => {
+                @intToEnum(Errno, 0) => {
                     const amt_read = @bitCast(usize, rc);
                     off += amt_read;
                     inner_off += amt_read;
@@ -390,21 +390,21 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) ReadError!usize {
                     if (rc == 0) return off; // EOF
                     continue;
                 },
-                EINTR => continue,
-                EINVAL => unreachable,
-                EFAULT => unreachable,
-                ESPIPE => unreachable, // fd is not seekable
-                EAGAIN => if (std.event.Loop.instance) |loop| {
+                .EINTR => continue,
+                .EINVAL => unreachable,
+                .EFAULT => unreachable,
+                .ESPIPE => unreachable, // fd is not seekable
+                .EAGAIN => if (std.event.Loop.instance) |loop| {
                     loop.waitUntilFdReadable(fd);
                     continue;
                 } else {
                     return error.WouldBlock;
                 },
-                EBADF => unreachable, // always a race condition
-                EIO => return error.InputOutput,
-                EISDIR => return error.IsDir,
-                ENOBUFS => return error.SystemResources,
-                ENOMEM => return error.SystemResources,
+                .EBADF => unreachable, // always a race condition
+                .EIO => return error.InputOutput,
+                .EISDIR => return error.IsDir,
+                .ENOBUFS => return error.SystemResources,
+                .ENOMEM => return error.SystemResources,
                 else => return unexpectedErrno(err),
             }
         }
@@ -413,21 +413,21 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) ReadError!usize {
         // TODO handle the case when iov_len is too large and get rid of this @intCast
         const rc = system.preadv(fd, iov.ptr, @intCast(u32, iov.len), offset);
         switch (errno(rc)) {
-            0 => return @bitCast(usize, rc),
-            EINTR => continue,
-            EINVAL => unreachable,
-            EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
+            @intToEnum(Errno, 0) => return @bitCast(usize, rc),
+            .EINTR => continue,
+            .EINVAL => unreachable,
+            .EFAULT => unreachable,
+            .EAGAIN => if (std.event.Loop.instance) |loop| {
                 loop.waitUntilFdReadable(fd);
                 continue;
             } else {
                 return error.WouldBlock;
             },
-            EBADF => unreachable, // always a race condition
-            EIO => return error.InputOutput,
-            EISDIR => return error.IsDir,
-            ENOBUFS => return error.SystemResources,
-            ENOMEM => return error.SystemResources,
+            .EBADF => unreachable, // always a race condition
+            .EIO => return error.InputOutput,
+            .EISDIR => return error.IsDir,
+            .ENOBUFS => return error.SystemResources,
+            .ENOMEM => return error.SystemResources,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -481,29 +481,29 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
         const amt_to_write = math.min(bytes.len - index, @as(usize, max_bytes_len));
         const rc = system.write(fd, bytes.ptr + index, amt_to_write);
         switch (errno(rc)) {
-            0 => {
+            @intToEnum(Errno, 0) => {
                 index += @intCast(usize, rc);
                 continue;
             },
-            EINTR => continue,
-            EINVAL => unreachable,
-            EFAULT => unreachable,
+            .EINTR => continue,
+            .EINVAL => unreachable,
+            .EFAULT => unreachable,
             // TODO https://github.com/ziglang/zig/issues/3557
-            EAGAIN => return error.WouldBlock,
-            //EAGAIN => if (std.event.Loop.instance) |loop| {
+            .EAGAIN => return error.WouldBlock,
+            //.EAGAIN => if (std.event.Loop.instance) |loop| {
             //    loop.waitUntilFdWritable(fd);
             //    continue;
             //} else {
             //    return error.WouldBlock;
             //},
-            EBADF => unreachable, // Always a race condition.
-            EDESTADDRREQ => unreachable, // `connect` was never called.
-            EDQUOT => return error.DiskQuota,
-            EFBIG => return error.FileTooBig,
-            EIO => return error.InputOutput,
-            ENOSPC => return error.NoSpaceLeft,
-            EPERM => return error.AccessDenied,
-            EPIPE => return error.BrokenPipe,
+            .EBADF => unreachable, // Always a race condition.
+            .EDESTADDRREQ => unreachable, // `connect` was never called.
+            .EDQUOT => return error.DiskQuota,
+            .EFBIG => return error.FileTooBig,
+            .EIO => return error.InputOutput,
+            .ENOSPC => return error.NoSpaceLeft,
+            .EPERM => return error.AccessDenied,
+            .EPIPE => return error.BrokenPipe,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -517,24 +517,24 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!void {
         // TODO handle the case when iov_len is too large and get rid of this @intCast
         const rc = system.writev(fd, iov.ptr, @intCast(u32, iov.len));
         switch (errno(rc)) {
-            0 => return,
-            EINTR => continue,
-            EINVAL => unreachable,
-            EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
+            @intToEnum(Errno, 0) => return,
+            .EINTR => continue,
+            .EINVAL => unreachable,
+            .EFAULT => unreachable,
+            .EAGAIN => if (std.event.Loop.instance) |loop| {
                 loop.waitUntilFdWritable(fd);
                 continue;
             } else {
                 return error.WouldBlock;
             },
-            EBADF => unreachable, // Always a race condition.
-            EDESTADDRREQ => unreachable, // `connect` was never called.
-            EDQUOT => return error.DiskQuota,
-            EFBIG => return error.FileTooBig,
-            EIO => return error.InputOutput,
-            ENOSPC => return error.NoSpaceLeft,
-            EPERM => return error.AccessDenied,
-            EPIPE => return error.BrokenPipe,
+            .EBADF => unreachable, // Always a race condition.
+            .EDESTADDRREQ => unreachable, // `connect` was never called.
+            .EDQUOT => return error.DiskQuota,
+            .EFBIG => return error.FileTooBig,
+            .EIO => return error.InputOutput,
+            .ENOSPC => return error.NoSpaceLeft,
+            .EPERM => return error.AccessDenied,
+            .EPIPE => return error.BrokenPipe,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -553,7 +553,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) WriteError!void 
             const rc = darwin.pwrite(fd, v.iov_base + inner_off, v.iov_len - inner_off, offset + off);
             const err = darwin.getErrno(rc);
             switch (err) {
-                0 => {
+                @intToEnum(Errno, 0) => {
                     const amt_written = @bitCast(usize, rc);
                     off += amt_written;
                     inner_off += amt_written;
@@ -566,24 +566,24 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) WriteError!void 
                     }
                     continue;
                 },
-                EINTR => continue,
-                ESPIPE => unreachable, // `fd` is not seekable.
-                EINVAL => unreachable,
-                EFAULT => unreachable,
-                EAGAIN => if (std.event.Loop.instance) |loop| {
+                .EINTR => continue,
+                .ESPIPE => unreachable, // `fd` is not seekable.
+                .EINVAL => unreachable,
+                .EFAULT => unreachable,
+                .EAGAIN => if (std.event.Loop.instance) |loop| {
                     loop.waitUntilFdWritable(fd);
                     continue;
                 } else {
                     return error.WouldBlock;
                 },
-                EBADF => unreachable, // Always a race condition.
-                EDESTADDRREQ => unreachable, // `connect` was never called.
-                EDQUOT => return error.DiskQuota,
-                EFBIG => return error.FileTooBig,
-                EIO => return error.InputOutput,
-                ENOSPC => return error.NoSpaceLeft,
-                EPERM => return error.AccessDenied,
-                EPIPE => return error.BrokenPipe,
+                .EBADF => unreachable, // Always a race condition.
+                .EDESTADDRREQ => unreachable, // `connect` was never called.
+                .EDQUOT => return error.DiskQuota,
+                .EFBIG => return error.FileTooBig,
+                .EIO => return error.InputOutput,
+                .ENOSPC => return error.NoSpaceLeft,
+                .EPERM => return error.AccessDenied,
+                .EPIPE => return error.BrokenPipe,
                 else => return unexpectedErrno(err),
             }
         }
@@ -593,24 +593,24 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) WriteError!void 
         // TODO handle the case when iov_len is too large and get rid of this @intCast
         const rc = system.pwritev(fd, iov.ptr, @intCast(u32, iov.len), offset);
         switch (errno(rc)) {
-            0 => return,
-            EINTR => continue,
-            EINVAL => unreachable,
-            EFAULT => unreachable,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
+            @intToEnum(Errno, 0) => return,
+            .EINTR => continue,
+            .EINVAL => unreachable,
+            .EFAULT => unreachable,
+            .EAGAIN => if (std.event.Loop.instance) |loop| {
                 loop.waitUntilFdWritable(fd);
                 continue;
             } else {
                 return error.WouldBlock;
             },
-            EBADF => unreachable, // Always a race condition.
-            EDESTADDRREQ => unreachable, // `connect` was never called.
-            EDQUOT => return error.DiskQuota,
-            EFBIG => return error.FileTooBig,
-            EIO => return error.InputOutput,
-            ENOSPC => return error.NoSpaceLeft,
-            EPERM => return error.AccessDenied,
-            EPIPE => return error.BrokenPipe,
+            .EBADF => unreachable, // Always a race condition.
+            .EDESTADDRREQ => unreachable, // `connect` was never called.
+            .EDQUOT => return error.DiskQuota,
+            .EFBIG => return error.FileTooBig,
+            .EIO => return error.InputOutput,
+            .ENOSPC => return error.NoSpaceLeft,
+            .EPERM => return error.AccessDenied,
+            .EPIPE => return error.BrokenPipe,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -665,27 +665,27 @@ pub fn openC(file_path: [*:0]const u8, flags: u32, perm: usize) OpenError!fd_t {
     while (true) {
         const rc = system.open(file_path, flags, perm);
         switch (errno(rc)) {
-            0 => return @intCast(fd_t, rc),
-            EINTR => continue,
+            @intToEnum(Errno, 0) => return @intCast(fd_t, rc),
+            .EINTR => continue,
 
-            EFAULT => unreachable,
-            EINVAL => unreachable,
-            EACCES => return error.AccessDenied,
-            EFBIG => return error.FileTooBig,
-            EOVERFLOW => return error.FileTooBig,
-            EISDIR => return error.IsDir,
-            ELOOP => return error.SymLinkLoop,
-            EMFILE => return error.ProcessFdQuotaExceeded,
-            ENAMETOOLONG => return error.NameTooLong,
-            ENFILE => return error.SystemFdQuotaExceeded,
-            ENODEV => return error.NoDevice,
-            ENOENT => return error.FileNotFound,
-            ENOMEM => return error.SystemResources,
-            ENOSPC => return error.NoSpaceLeft,
-            ENOTDIR => return error.NotDir,
-            EPERM => return error.AccessDenied,
-            EEXIST => return error.PathAlreadyExists,
-            EBUSY => return error.DeviceBusy,
+            .EFAULT => unreachable,
+            .EINVAL => unreachable,
+            .EACCES => return error.AccessDenied,
+            .EFBIG => return error.FileTooBig,
+            .EOVERFLOW => return error.FileTooBig,
+            .EISDIR => return error.IsDir,
+            .ELOOP => return error.SymLinkLoop,
+            .EMFILE => return error.ProcessFdQuotaExceeded,
+            .ENAMETOOLONG => return error.NameTooLong,
+            .ENFILE => return error.SystemFdQuotaExceeded,
+            .ENODEV => return error.NoDevice,
+            .ENOENT => return error.FileNotFound,
+            .ENOMEM => return error.SystemResources,
+            .ENOSPC => return error.NoSpaceLeft,
+            .ENOTDIR => return error.NotDir,
+            .EPERM => return error.AccessDenied,
+            .EEXIST => return error.PathAlreadyExists,
+            .EBUSY => return error.DeviceBusy,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -706,27 +706,27 @@ pub fn openatC(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: usize) 
     while (true) {
         const rc = system.openat(dir_fd, file_path, flags, mode);
         switch (errno(rc)) {
-            0 => return @intCast(fd_t, rc),
-            EINTR => continue,
+            @intToEnum(Errno, 0) => return @intCast(fd_t, rc),
+            .EINTR => continue,
 
-            EFAULT => unreachable,
-            EINVAL => unreachable,
-            EACCES => return error.AccessDenied,
-            EFBIG => return error.FileTooBig,
-            EOVERFLOW => return error.FileTooBig,
-            EISDIR => return error.IsDir,
-            ELOOP => return error.SymLinkLoop,
-            EMFILE => return error.ProcessFdQuotaExceeded,
-            ENAMETOOLONG => return error.NameTooLong,
-            ENFILE => return error.SystemFdQuotaExceeded,
-            ENODEV => return error.NoDevice,
-            ENOENT => return error.FileNotFound,
-            ENOMEM => return error.SystemResources,
-            ENOSPC => return error.NoSpaceLeft,
-            ENOTDIR => return error.NotDir,
-            EPERM => return error.AccessDenied,
-            EEXIST => return error.PathAlreadyExists,
-            EBUSY => return error.DeviceBusy,
+            .EFAULT => unreachable,
+            .EINVAL => unreachable,
+            .EACCES => return error.AccessDenied,
+            .EFBIG => return error.FileTooBig,
+            .EOVERFLOW => return error.FileTooBig,
+            .EISDIR => return error.IsDir,
+            .ELOOP => return error.SymLinkLoop,
+            .EMFILE => return error.ProcessFdQuotaExceeded,
+            .ENAMETOOLONG => return error.NameTooLong,
+            .ENFILE => return error.SystemFdQuotaExceeded,
+            .ENODEV => return error.NoDevice,
+            .ENOENT => return error.FileNotFound,
+            .ENOMEM => return error.SystemResources,
+            .ENOSPC => return error.NoSpaceLeft,
+            .ENOTDIR => return error.NotDir,
+            .EPERM => return error.AccessDenied,
+            .EEXIST => return error.PathAlreadyExists,
+            .EBUSY => return error.DeviceBusy,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -735,11 +735,11 @@ pub fn openatC(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: usize) 
 pub fn dup2(old_fd: fd_t, new_fd: fd_t) !void {
     while (true) {
         switch (errno(system.dup2(old_fd, new_fd))) {
-            0 => return,
-            EBUSY, EINTR => continue,
-            EMFILE => return error.ProcessFdQuotaExceeded,
-            EINVAL => unreachable, // invalid parameters passed to dup2
-            EBADF => unreachable, // always a race condition
+            @intToEnum(Errno, 0) => return,
+            .EBUSY, .EINTR => continue,
+            .EMFILE => return error.ProcessFdQuotaExceeded,
+            .EINVAL => unreachable, // invalid parameters passed to dup2
+            .EBADF => unreachable, // always a race condition
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -764,23 +764,23 @@ pub const ExecveError = error{
 /// This function ignores PATH environment variable. See `execvpeC` for that.
 pub fn execveC(path: [*:0]const u8, child_argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) ExecveError {
     switch (errno(system.execve(path, child_argv, envp))) {
-        0 => unreachable,
-        EFAULT => unreachable,
-        E2BIG => return error.SystemResources,
-        EMFILE => return error.ProcessFdQuotaExceeded,
-        ENAMETOOLONG => return error.NameTooLong,
-        ENFILE => return error.SystemFdQuotaExceeded,
-        ENOMEM => return error.SystemResources,
-        EACCES => return error.AccessDenied,
-        EPERM => return error.AccessDenied,
-        EINVAL => return error.InvalidExe,
-        ENOEXEC => return error.InvalidExe,
-        EIO => return error.FileSystem,
-        ELOOP => return error.FileSystem,
-        EISDIR => return error.IsDir,
-        ENOENT => return error.FileNotFound,
-        ENOTDIR => return error.NotDir,
-        ETXTBSY => return error.FileBusy,
+        @intToEnum(Errno, 0) => unreachable,
+        .EFAULT => unreachable,
+        .E2BIG => return error.SystemResources,
+        .EMFILE => return error.ProcessFdQuotaExceeded,
+        .ENAMETOOLONG => return error.NameTooLong,
+        .ENFILE => return error.SystemFdQuotaExceeded,
+        .ENOMEM => return error.SystemResources,
+        .EACCES => return error.AccessDenied,
+        .EPERM => return error.AccessDenied,
+        .EINVAL => return error.InvalidExe,
+        .ENOEXEC => return error.InvalidExe,
+        .EIO => return error.FileSystem,
+        .ELOOP => return error.FileSystem,
+        .EISDIR => return error.IsDir,
+        .ENOENT => return error.FileNotFound,
+        .ENOTDIR => return error.NotDir,
+        .ETXTBSY => return error.FileBusy,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -920,18 +920,18 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
         return windows.GetCurrentDirectory(out_buffer);
     }
 
-    const err = if (builtin.link_libc) blk: {
-        break :blk if (std.c.getcwd(out_buffer.ptr, out_buffer.len)) |_| 0 else std.c._errno().*;
+    const err: Errno = if (builtin.link_libc) blk: {
+        break :blk if (std.c.getcwd(out_buffer.ptr, out_buffer.len)) |_| @intToEnum(Errno, 0) else std.c.getErrno(-1);
     } else blk: {
         break :blk errno(system.getcwd(out_buffer.ptr, out_buffer.len));
     };
     switch (err) {
-        0 => return mem.toSlice(u8, @ptrCast([*:0]u8, out_buffer.ptr)),
-        EFAULT => unreachable,
-        EINVAL => unreachable,
-        ENOENT => return error.CurrentWorkingDirectoryUnlinked,
-        ERANGE => return error.NameTooLong,
-        else => return unexpectedErrno(@intCast(usize, err)),
+        @intToEnum(Errno, 0) => return mem.toSlice(u8, @ptrCast([*:0]u8, out_buffer.ptr)),
+        .EFAULT => unreachable,
+        .EINVAL => unreachable,
+        .ENOENT => return error.CurrentWorkingDirectoryUnlinked,
+        .ERANGE => return error.NameTooLong,
+        else => return unexpectedErrno(err),
     }
 }
 
@@ -977,21 +977,21 @@ pub fn symlinkC(target_path: [*:0]const u8, sym_link_path: [*:0]const u8) SymLin
         return windows.CreateSymbolicLinkW(&sym_link_path_w, &target_path_w, 0);
     }
     switch (errno(system.symlink(target_path, sym_link_path))) {
-        0 => return,
-        EFAULT => unreachable,
-        EINVAL => unreachable,
-        EACCES => return error.AccessDenied,
-        EPERM => return error.AccessDenied,
-        EDQUOT => return error.DiskQuota,
-        EEXIST => return error.PathAlreadyExists,
-        EIO => return error.FileSystem,
-        ELOOP => return error.SymLinkLoop,
-        ENAMETOOLONG => return error.NameTooLong,
-        ENOENT => return error.FileNotFound,
-        ENOTDIR => return error.NotDir,
-        ENOMEM => return error.SystemResources,
-        ENOSPC => return error.NoSpaceLeft,
-        EROFS => return error.ReadOnlyFileSystem,
+        @intToEnum(Errno, 0) => return,
+        .EFAULT => unreachable,
+        .EINVAL => unreachable,
+        .EACCES => return error.AccessDenied,
+        .EPERM => return error.AccessDenied,
+        .EDQUOT => return error.DiskQuota,
+        .EEXIST => return error.PathAlreadyExists,
+        .EIO => return error.FileSystem,
+        .ELOOP => return error.SymLinkLoop,
+        .ENAMETOOLONG => return error.NameTooLong,
+        .ENOENT => return error.FileNotFound,
+        .ENOTDIR => return error.NotDir,
+        .ENOMEM => return error.SystemResources,
+        .ENOSPC => return error.NoSpaceLeft,
+        .EROFS => return error.ReadOnlyFileSystem,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1004,21 +1004,21 @@ pub fn symlinkat(target_path: []const u8, newdirfd: fd_t, sym_link_path: []const
 
 pub fn symlinkatC(target_path: [*:0]const u8, newdirfd: fd_t, sym_link_path: [*:0]const u8) SymLinkError!void {
     switch (errno(system.symlinkat(target_path, newdirfd, sym_link_path))) {
-        0 => return,
-        EFAULT => unreachable,
-        EINVAL => unreachable,
-        EACCES => return error.AccessDenied,
-        EPERM => return error.AccessDenied,
-        EDQUOT => return error.DiskQuota,
-        EEXIST => return error.PathAlreadyExists,
-        EIO => return error.FileSystem,
-        ELOOP => return error.SymLinkLoop,
-        ENAMETOOLONG => return error.NameTooLong,
-        ENOENT => return error.FileNotFound,
-        ENOTDIR => return error.NotDir,
-        ENOMEM => return error.SystemResources,
-        ENOSPC => return error.NoSpaceLeft,
-        EROFS => return error.ReadOnlyFileSystem,
+        @intToEnum(Errno, 0) => return,
+        .EFAULT => unreachable,
+        .EINVAL => unreachable,
+        .EACCES => return error.AccessDenied,
+        .EPERM => return error.AccessDenied,
+        .EDQUOT => return error.DiskQuota,
+        .EEXIST => return error.PathAlreadyExists,
+        .EIO => return error.FileSystem,
+        .ELOOP => return error.SymLinkLoop,
+        .ENAMETOOLONG => return error.NameTooLong,
+        .ENOENT => return error.FileNotFound,
+        .ENOTDIR => return error.NotDir,
+        .ENOMEM => return error.SystemResources,
+        .ENOSPC => return error.NoSpaceLeft,
+        .EROFS => return error.ReadOnlyFileSystem,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1062,20 +1062,20 @@ pub fn unlinkC(file_path: [*:0]const u8) UnlinkError!void {
         return windows.DeleteFileW(&file_path_w);
     }
     switch (errno(system.unlink(file_path))) {
-        0 => return,
-        EACCES => return error.AccessDenied,
-        EPERM => return error.AccessDenied,
-        EBUSY => return error.FileBusy,
-        EFAULT => unreachable,
-        EINVAL => unreachable,
-        EIO => return error.FileSystem,
-        EISDIR => return error.IsDir,
-        ELOOP => return error.SymLinkLoop,
-        ENAMETOOLONG => return error.NameTooLong,
-        ENOENT => return error.FileNotFound,
-        ENOTDIR => return error.NotDir,
-        ENOMEM => return error.SystemResources,
-        EROFS => return error.ReadOnlyFileSystem,
+        @intToEnum(Errno, 0) => return,
+        .EACCES => return error.AccessDenied,
+        .EPERM => return error.AccessDenied,
+        .EBUSY => return error.FileBusy,
+        .EFAULT => unreachable,
+        .EINVAL => unreachable,
+        .EIO => return error.FileSystem,
+        .EISDIR => return error.IsDir,
+        .ELOOP => return error.SymLinkLoop,
+        .ENAMETOOLONG => return error.NameTooLong,
+        .ENOENT => return error.FileNotFound,
+        .ENOTDIR => return error.NotDir,
+        .ENOMEM => return error.SystemResources,
+        .EROFS => return error.ReadOnlyFileSystem,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1104,23 +1104,23 @@ pub fn unlinkatC(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatEr
         return unlinkatW(dirfd, &file_path_w, flags);
     }
     switch (errno(system.unlinkat(dirfd, file_path_c, flags))) {
-        0 => return,
-        EACCES => return error.AccessDenied,
-        EPERM => return error.AccessDenied,
-        EBUSY => return error.FileBusy,
-        EFAULT => unreachable,
-        EIO => return error.FileSystem,
-        EISDIR => return error.IsDir,
-        ELOOP => return error.SymLinkLoop,
-        ENAMETOOLONG => return error.NameTooLong,
-        ENOENT => return error.FileNotFound,
-        ENOTDIR => return error.NotDir,
-        ENOMEM => return error.SystemResources,
-        EROFS => return error.ReadOnlyFileSystem,
-        ENOTEMPTY => return error.DirNotEmpty,
+        @intToEnum(Errno, 0) => return,
+        .EACCES => return error.AccessDenied,
+        .EPERM => return error.AccessDenied,
+        .EBUSY => return error.FileBusy,
+        .EFAULT => unreachable,
+        .EIO => return error.FileSystem,
+        .EISDIR => return error.IsDir,
+        .ELOOP => return error.SymLinkLoop,
+        .ENAMETOOLONG => return error.NameTooLong,
+        .ENOENT => return error.FileNotFound,
+        .ENOTDIR => return error.NotDir,
+        .ENOMEM => return error.SystemResources,
+        .EROFS => return error.ReadOnlyFileSystem,
+        .ENOTEMPTY => return error.DirNotEmpty,
 
-        EINVAL => unreachable, // invalid flags, or pathname has . as last component
-        EBADF => unreachable, // always a race condition
+        .EINVAL => unreachable, // invalid flags, or pathname has . as last component
+        .EBADF => unreachable, // always a race condition
 
         else => |err| return unexpectedErrno(err),
     }
@@ -1229,25 +1229,25 @@ pub fn renameC(old_path: [*:0]const u8, new_path: [*:0]const u8) RenameError!voi
         return renameW(&old_path_w, &new_path_w);
     }
     switch (errno(system.rename(old_path, new_path))) {
-        0 => return,
-        EACCES => return error.AccessDenied,
-        EPERM => return error.AccessDenied,
-        EBUSY => return error.FileBusy,
-        EDQUOT => return error.DiskQuota,
-        EFAULT => unreachable,
-        EINVAL => unreachable,
-        EISDIR => return error.IsDir,
-        ELOOP => return error.SymLinkLoop,
-        EMLINK => return error.LinkQuotaExceeded,
-        ENAMETOOLONG => return error.NameTooLong,
-        ENOENT => return error.FileNotFound,
-        ENOTDIR => return error.NotDir,
-        ENOMEM => return error.SystemResources,
-        ENOSPC => return error.NoSpaceLeft,
-        EEXIST => return error.PathAlreadyExists,
-        ENOTEMPTY => return error.PathAlreadyExists,
-        EROFS => return error.ReadOnlyFileSystem,
-        EXDEV => return error.RenameAcrossMountPoints,
+        @intToEnum(Errno, 0) => return,
+        .EACCES => return error.AccessDenied,
+        .EPERM => return error.AccessDenied,
+        .EBUSY => return error.FileBusy,
+        .EDQUOT => return error.DiskQuota,
+        .EFAULT => unreachable,
+        .EINVAL => unreachable,
+        .EISDIR => return error.IsDir,
+        .ELOOP => return error.SymLinkLoop,
+        .EMLINK => return error.LinkQuotaExceeded,
+        .ENAMETOOLONG => return error.NameTooLong,
+        .ENOENT => return error.FileNotFound,
+        .ENOTDIR => return error.NotDir,
+        .ENOMEM => return error.SystemResources,
+        .ENOSPC => return error.NoSpaceLeft,
+        .EEXIST => return error.PathAlreadyExists,
+        .ENOTEMPTY => return error.PathAlreadyExists,
+        .EROFS => return error.ReadOnlyFileSystem,
+        .EXDEV => return error.RenameAcrossMountPoints,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1294,20 +1294,20 @@ pub fn mkdirC(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
         return windows.CreateDirectoryW(&dir_path_w, null);
     }
     switch (errno(system.mkdir(dir_path, mode))) {
-        0 => return,
-        EACCES => return error.AccessDenied,
-        EPERM => return error.AccessDenied,
-        EDQUOT => return error.DiskQuota,
-        EEXIST => return error.PathAlreadyExists,
-        EFAULT => unreachable,
-        ELOOP => return error.SymLinkLoop,
-        EMLINK => return error.LinkQuotaExceeded,
-        ENAMETOOLONG => return error.NameTooLong,
-        ENOENT => return error.FileNotFound,
-        ENOMEM => return error.SystemResources,
-        ENOSPC => return error.NoSpaceLeft,
-        ENOTDIR => return error.NotDir,
-        EROFS => return error.ReadOnlyFileSystem,
+        @intToEnum(Errno, 0) => return,
+        .EACCES => return error.AccessDenied,
+        .EPERM => return error.AccessDenied,
+        .EDQUOT => return error.DiskQuota,
+        .EEXIST => return error.PathAlreadyExists,
+        .EFAULT => unreachable,
+        .ELOOP => return error.SymLinkLoop,
+        .EMLINK => return error.LinkQuotaExceeded,
+        .ENAMETOOLONG => return error.NameTooLong,
+        .ENOENT => return error.FileNotFound,
+        .ENOMEM => return error.SystemResources,
+        .ENOSPC => return error.NoSpaceLeft,
+        .ENOTDIR => return error.NotDir,
+        .EROFS => return error.ReadOnlyFileSystem,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1344,20 +1344,20 @@ pub fn rmdirC(dir_path: [*:0]const u8) DeleteDirError!void {
         return windows.RemoveDirectoryW(&dir_path_w);
     }
     switch (errno(system.rmdir(dir_path))) {
-        0 => return,
-        EACCES => return error.AccessDenied,
-        EPERM => return error.AccessDenied,
-        EBUSY => return error.FileBusy,
-        EFAULT => unreachable,
-        EINVAL => unreachable,
-        ELOOP => return error.SymLinkLoop,
-        ENAMETOOLONG => return error.NameTooLong,
-        ENOENT => return error.FileNotFound,
-        ENOMEM => return error.SystemResources,
-        ENOTDIR => return error.NotDir,
-        EEXIST => return error.DirNotEmpty,
-        ENOTEMPTY => return error.DirNotEmpty,
-        EROFS => return error.ReadOnlyFileSystem,
+        @intToEnum(Errno, 0) => return,
+        .EACCES => return error.AccessDenied,
+        .EPERM => return error.AccessDenied,
+        .EBUSY => return error.FileBusy,
+        .EFAULT => unreachable,
+        .EINVAL => unreachable,
+        .ELOOP => return error.SymLinkLoop,
+        .ENAMETOOLONG => return error.NameTooLong,
+        .ENOENT => return error.FileNotFound,
+        .ENOMEM => return error.SystemResources,
+        .ENOTDIR => return error.NotDir,
+        .EEXIST => return error.DirNotEmpty,
+        .ENOTEMPTY => return error.DirNotEmpty,
+        .EROFS => return error.ReadOnlyFileSystem,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1391,15 +1391,15 @@ pub fn chdirC(dir_path: [*:0]const u8) ChangeCurDirError!void {
         @compileError("TODO implement chdir for Windows");
     }
     switch (errno(system.chdir(dir_path))) {
-        0 => return,
-        EACCES => return error.AccessDenied,
-        EFAULT => unreachable,
-        EIO => return error.FileSystem,
-        ELOOP => return error.SymLinkLoop,
-        ENAMETOOLONG => return error.NameTooLong,
-        ENOENT => return error.FileNotFound,
-        ENOMEM => return error.SystemResources,
-        ENOTDIR => return error.NotDir,
+        @intToEnum(Errno, 0) => return,
+        .EACCES => return error.AccessDenied,
+        .EFAULT => unreachable,
+        .EIO => return error.FileSystem,
+        .ELOOP => return error.SymLinkLoop,
+        .ENAMETOOLONG => return error.NameTooLong,
+        .ENOENT => return error.FileNotFound,
+        .ENOMEM => return error.SystemResources,
+        .ENOTDIR => return error.NotDir,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1434,16 +1434,16 @@ pub fn readlinkC(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 
     }
     const rc = system.readlink(file_path, out_buffer.ptr, out_buffer.len);
     switch (errno(rc)) {
-        0 => return out_buffer[0..@bitCast(usize, rc)],
-        EACCES => return error.AccessDenied,
-        EFAULT => unreachable,
-        EINVAL => unreachable,
-        EIO => return error.FileSystem,
-        ELOOP => return error.SymLinkLoop,
-        ENAMETOOLONG => return error.NameTooLong,
-        ENOENT => return error.FileNotFound,
-        ENOMEM => return error.SystemResources,
-        ENOTDIR => return error.NotDir,
+        @intToEnum(Errno, 0) => return out_buffer[0..@bitCast(usize, rc)],
+        .EACCES => return error.AccessDenied,
+        .EFAULT => unreachable,
+        .EINVAL => unreachable,
+        .EIO => return error.FileSystem,
+        .ELOOP => return error.SymLinkLoop,
+        .ENAMETOOLONG => return error.NameTooLong,
+        .ENOENT => return error.FileNotFound,
+        .ENOMEM => return error.SystemResources,
+        .ENOTDIR => return error.NotDir,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1455,16 +1455,16 @@ pub fn readlinkatC(dirfd: fd_t, file_path: [*:0]const u8, out_buffer: []u8) Read
     }
     const rc = system.readlinkat(dirfd, file_path, out_buffer.ptr, out_buffer.len);
     switch (errno(rc)) {
-        0 => return out_buffer[0..@bitCast(usize, rc)],
-        EACCES => return error.AccessDenied,
-        EFAULT => unreachable,
-        EINVAL => unreachable,
-        EIO => return error.FileSystem,
-        ELOOP => return error.SymLinkLoop,
-        ENAMETOOLONG => return error.NameTooLong,
-        ENOENT => return error.FileNotFound,
-        ENOMEM => return error.SystemResources,
-        ENOTDIR => return error.NotDir,
+        @intToEnum(Errno, 0) => return out_buffer[0..@bitCast(usize, rc)],
+        .EACCES => return error.AccessDenied,
+        .EFAULT => unreachable,
+        .EINVAL => unreachable,
+        .EIO => return error.FileSystem,
+        .ELOOP => return error.SymLinkLoop,
+        .ENAMETOOLONG => return error.NameTooLong,
+        .ENOENT => return error.FileNotFound,
+        .ENOMEM => return error.SystemResources,
+        .ENOTDIR => return error.NotDir,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1477,40 +1477,40 @@ pub const SetIdError = error{
 
 pub fn setuid(uid: u32) SetIdError!void {
     switch (errno(system.setuid(uid))) {
-        0 => return,
-        EAGAIN => return error.ResourceLimitReached,
-        EINVAL => return error.InvalidUserId,
-        EPERM => return error.PermissionDenied,
+        @intToEnum(Errno, 0) => return,
+        .EAGAIN => return error.ResourceLimitReached,
+        .EINVAL => return error.InvalidUserId,
+        .EPERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
 
 pub fn setreuid(ruid: u32, euid: u32) SetIdError!void {
     switch (errno(system.setreuid(ruid, euid))) {
-        0 => return,
-        EAGAIN => return error.ResourceLimitReached,
-        EINVAL => return error.InvalidUserId,
-        EPERM => return error.PermissionDenied,
+        @intToEnum(Errno, 0) => return,
+        .EAGAIN => return error.ResourceLimitReached,
+        .EINVAL => return error.InvalidUserId,
+        .EPERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
 
 pub fn setgid(gid: u32) SetIdError!void {
     switch (errno(system.setgid(gid))) {
-        0 => return,
-        EAGAIN => return error.ResourceLimitReached,
-        EINVAL => return error.InvalidUserId,
-        EPERM => return error.PermissionDenied,
+        @intToEnum(Errno, 0) => return,
+        .EAGAIN => return error.ResourceLimitReached,
+        .EINVAL => return error.InvalidUserId,
+        .EPERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
 
 pub fn setregid(rgid: u32, egid: u32) SetIdError!void {
     switch (errno(system.setregid(rgid, egid))) {
-        0 => return,
-        EAGAIN => return error.ResourceLimitReached,
-        EINVAL => return error.InvalidUserId,
-        EPERM => return error.PermissionDenied,
+        @intToEnum(Errno, 0) => return,
+        .EAGAIN => return error.ResourceLimitReached,
+        .EINVAL => return error.InvalidUserId,
+        .EPERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1602,15 +1602,15 @@ pub const SocketError = error{
 pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!fd_t {
     const rc = system.socket(domain, socket_type, protocol);
     switch (errno(rc)) {
-        0 => return @intCast(fd_t, rc),
-        EACCES => return error.PermissionDenied,
-        EAFNOSUPPORT => return error.AddressFamilyNotSupported,
-        EINVAL => return error.ProtocolFamilyNotAvailable,
-        EMFILE => return error.ProcessFdQuotaExceeded,
-        ENFILE => return error.SystemFdQuotaExceeded,
-        ENOBUFS => return error.SystemResources,
-        ENOMEM => return error.SystemResources,
-        EPROTONOSUPPORT => return error.ProtocolNotSupported,
+        @intToEnum(Errno, 0) => return @intCast(fd_t, rc),
+        .EACCES => return error.PermissionDenied,
+        .EAFNOSUPPORT => return error.AddressFamilyNotSupported,
+        .EINVAL => return error.ProtocolFamilyNotAvailable,
+        .EMFILE => return error.ProcessFdQuotaExceeded,
+        .ENFILE => return error.SystemFdQuotaExceeded,
+        .ENOBUFS => return error.SystemResources,
+        .ENOMEM => return error.SystemResources,
+        .EPROTONOSUPPORT => return error.ProtocolNotSupported,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1654,20 +1654,20 @@ pub const BindError = error{
 pub fn bind(sockfd: fd_t, addr: *const sockaddr, len: socklen_t) BindError!void {
     const rc = system.bind(sockfd, addr, len);
     switch (errno(rc)) {
-        0 => return,
-        EACCES => return error.AccessDenied,
-        EADDRINUSE => return error.AddressInUse,
-        EBADF => unreachable, // always a race condition if this error is returned
-        EINVAL => unreachable, // invalid parameters
-        ENOTSOCK => unreachable, // invalid `sockfd`
-        EADDRNOTAVAIL => return error.AddressNotAvailable,
-        EFAULT => unreachable, // invalid `addr` pointer
-        ELOOP => return error.SymLinkLoop,
-        ENAMETOOLONG => return error.NameTooLong,
-        ENOENT => return error.FileNotFound,
-        ENOMEM => return error.SystemResources,
-        ENOTDIR => return error.NotDir,
-        EROFS => return error.ReadOnlyFileSystem,
+        @intToEnum(Errno, 0) => return,
+        .EACCES => return error.AccessDenied,
+        .EADDRINUSE => return error.AddressInUse,
+        .EBADF => unreachable, // always a race condition if this error is returned
+        .EINVAL => unreachable, // invalid parameters
+        .ENOTSOCK => unreachable, // invalid `sockfd`
+        .EADDRNOTAVAIL => return error.AddressNotAvailable,
+        .EFAULT => unreachable, // invalid `addr` pointer
+        .ELOOP => return error.SymLinkLoop,
+        .ENAMETOOLONG => return error.NameTooLong,
+        .ENOENT => return error.FileNotFound,
+        .ENOMEM => return error.SystemResources,
+        .ENOTDIR => return error.NotDir,
+        .EROFS => return error.ReadOnlyFileSystem,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1690,11 +1690,11 @@ const ListenError = error{
 pub fn listen(sockfd: i32, backlog: u32) ListenError!void {
     const rc = system.listen(sockfd, backlog);
     switch (errno(rc)) {
-        0 => return,
-        EADDRINUSE => return error.AddressInUse,
-        EBADF => unreachable,
-        ENOTSOCK => return error.FileDescriptorNotASocket,
-        EOPNOTSUPP => return error.OperationNotSupported,
+        @intToEnum(Errno, 0) => return,
+        .EADDRINUSE => return error.AddressInUse,
+        .EBADF => unreachable,
+        .ENOTSOCK => return error.FileDescriptorNotASocket,
+        .EOPNOTSUPP => return error.OperationNotSupported,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -1753,27 +1753,27 @@ pub fn accept4(
     while (true) {
         const rc = system.accept4(sockfd, addr, addr_size, flags);
         switch (errno(rc)) {
-            0 => return @intCast(fd_t, rc),
-            EINTR => continue,
+            @intToEnum(Errno, 0) => return @intCast(fd_t, rc),
+            .EINTR => continue,
 
-            EAGAIN => if (std.event.Loop.instance) |loop| {
+            .EAGAIN => if (std.event.Loop.instance) |loop| {
                 loop.waitUntilFdReadable(sockfd);
                 continue;
             } else {
                 return error.WouldBlock;
             },
-            EBADF => unreachable, // always a race condition
-            ECONNABORTED => return error.ConnectionAborted,
-            EFAULT => unreachable,
-            EINVAL => unreachable,
-            ENOTSOCK => unreachable,
-            EMFILE => return error.ProcessFdQuotaExceeded,
-            ENFILE => return error.SystemFdQuotaExceeded,
-            ENOBUFS => return error.SystemResources,
-            ENOMEM => return error.SystemResources,
-            EOPNOTSUPP => unreachable,
-            EPROTO => return error.ProtocolFailure,
-            EPERM => return error.BlockedByFirewall,
+            .EBADF => unreachable, // always a race condition
+            .ECONNABORTED => return error.ConnectionAborted,
+            .EFAULT => unreachable,
+            .EINVAL => unreachable,
+            .ENOTSOCK => unreachable,
+            .EMFILE => return error.ProcessFdQuotaExceeded,
+            .ENFILE => return error.SystemFdQuotaExceeded,
+            .ENOBUFS => return error.SystemResources,
+            .ENOMEM => return error.SystemResources,
+            .EOPNOTSUPP => unreachable,
+            .EPROTO => return error.ProtocolFailure,
+            .EPERM => return error.BlockedByFirewall,
 
             else => |err| return unexpectedErrno(err),
         }
@@ -1797,13 +1797,13 @@ pub const EpollCreateError = error{
 pub fn epoll_create1(flags: u32) EpollCreateError!i32 {
     const rc = system.epoll_create1(flags);
     switch (errno(rc)) {
-        0 => return @intCast(i32, rc),
+        @intToEnum(Errno, 0) => return @intCast(i32, rc),
         else => |err| return unexpectedErrno(err),
 
-        EINVAL => unreachable,
-        EMFILE => return error.ProcessFdQuotaExceeded,
-        ENFILE => return error.SystemFdQuotaExceeded,
-        ENOMEM => return error.SystemResources,
+        .EINVAL => unreachable,
+        .EMFILE => return error.ProcessFdQuotaExceeded,
+        .ENFILE => return error.SystemFdQuotaExceeded,
+        .ENOMEM => return error.SystemResources,
     }
 }
 
@@ -1836,17 +1836,17 @@ pub const EpollCtlError = error{
 pub fn epoll_ctl(epfd: i32, op: u32, fd: i32, event: ?*epoll_event) EpollCtlError!void {
     const rc = system.epoll_ctl(epfd, op, fd, event);
     switch (errno(rc)) {
-        0 => return,
+        @intToEnum(Errno, 0) => return,
         else => |err| return unexpectedErrno(err),
 
-        EBADF => unreachable, // always a race condition if this happens
-        EEXIST => return error.FileDescriptorAlreadyPresentInSet,
-        EINVAL => unreachable,
-        ELOOP => return error.OperationCausesCircularLoop,
-        ENOENT => return error.FileDescriptorNotRegistered,
-        ENOMEM => return error.SystemResources,
-        ENOSPC => return error.UserResourceLimitReached,
-        EPERM => return error.FileDescriptorIncompatibleWithEpoll,
+        .EBADF => unreachable, // always a race condition if this happens
+        .EEXIST => return error.FileDescriptorAlreadyPresentInSet,
+        .EINVAL => unreachable,
+        .ELOOP => return error.OperationCausesCircularLoop,
+        .ENOENT => return error.FileDescriptorNotRegistered,
+        .ENOMEM => return error.SystemResources,
+        .ENOSPC => return error.UserResourceLimitReached,
+        .EPERM => return error.FileDescriptorIncompatibleWithEpoll,
     }
 }
 
@@ -1858,11 +1858,11 @@ pub fn epoll_wait(epfd: i32, events: []epoll_event, timeout: i32) usize {
         // TODO get rid of the @intCast
         const rc = system.epoll_wait(epfd, events.ptr, @intCast(u32, events.len), timeout);
         switch (errno(rc)) {
-            0 => return @intCast(usize, rc),
-            EINTR => continue,
-            EBADF => unreachable,
-            EFAULT => unreachable,
-            EINVAL => unreachable,
+            @intToEnum(Errno, 0) => return @intCast(usize, rc),
+            .EINTR => continue,
+            .EBADF => unreachable,
+            .EFAULT => unreachable,
+            .EINVAL => unreachable,
             else => unreachable,
         }
     }
@@ -1877,14 +1877,14 @@ pub const EventFdError = error{
 pub fn eventfd(initval: u32, flags: u32) EventFdError!i32 {
     const rc = system.eventfd(initval, flags);
     switch (errno(rc)) {
-        0 => return @intCast(i32, rc),
+        @intToEnum(Errno, 0) => return @intCast(i32, rc),
         else => |err| return unexpectedErrno(err),
 
-        EINVAL => unreachable, // invalid parameters
-        EMFILE => return error.ProcessFdQuotaExceeded,
-        ENFILE => return error.SystemFdQuotaExceeded,
-        ENODEV => return error.SystemResources,
-        ENOMEM => return error.SystemResources,
+        .EINVAL => unreachable, // invalid parameters
+        .EMFILE => return error.ProcessFdQuotaExceeded,
+        .ENFILE => return error.SystemFdQuotaExceeded,
+        .ENODEV => return error.SystemResources,
+        .ENOMEM => return error.SystemResources,
     }
 }
 
@@ -1895,14 +1895,14 @@ pub const GetSockNameError = error{
 
 pub fn getsockname(sockfd: fd_t, addr: *sockaddr, addrlen: *socklen_t) GetSockNameError!void {
     switch (errno(system.getsockname(sockfd, addr, addrlen))) {
-        0 => return,
+        @intToEnum(Errno, 0) => return,
         else => |err| return unexpectedErrno(err),
 
-        EBADF => unreachable, // always a race condition
-        EFAULT => unreachable,
-        EINVAL => unreachable, // invalid parameters
-        ENOTSOCK => unreachable,
-        ENOBUFS => return error.SystemResources,
+        .EBADF => unreachable, // always a race condition
+        .EFAULT => unreachable,
+        .EINVAL => unreachable, // invalid parameters
+        .ENOTSOCK => unreachable,
+        .ENOBUFS => return error.SystemResources,
     }
 }
 
@@ -1951,28 +1951,28 @@ pub const ConnectError = error{
 pub fn connect(sockfd: fd_t, sock_addr: *const sockaddr, len: socklen_t) ConnectError!void {
     while (true) {
         switch (errno(system.connect(sockfd, sock_addr, len))) {
-            0 => return,
-            EACCES => return error.PermissionDenied,
-            EPERM => return error.PermissionDenied,
-            EADDRINUSE => return error.AddressInUse,
-            EADDRNOTAVAIL => return error.AddressNotAvailable,
-            EAFNOSUPPORT => return error.AddressFamilyNotSupported,
-            EAGAIN, EINPROGRESS => {
+            @intToEnum(Errno, 0) => return,
+            .EACCES => return error.PermissionDenied,
+            .EPERM => return error.PermissionDenied,
+            .EADDRINUSE => return error.AddressInUse,
+            .EADDRNOTAVAIL => return error.AddressNotAvailable,
+            .EAFNOSUPPORT => return error.AddressFamilyNotSupported,
+            .EAGAIN, .EINPROGRESS => {
                 const loop = std.event.Loop.instance orelse return error.WouldBlock;
                 loop.waitUntilFdWritableOrReadable(sockfd);
                 return getsockoptError(sockfd);
             },
-            EALREADY => unreachable, // The socket is nonblocking and a previous connection attempt has not yet been completed.
-            EBADF => unreachable, // sockfd is not a valid open file descriptor.
-            ECONNREFUSED => return error.ConnectionRefused,
-            EFAULT => unreachable, // The socket structure address is outside the user's address space.
-            EINTR => continue,
-            EISCONN => unreachable, // The socket is already connected.
-            ENETUNREACH => return error.NetworkUnreachable,
-            ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
-            EPROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
-            ETIMEDOUT => return error.ConnectionTimedOut,
-            ENOENT => return error.FileNotFound, // Returned when socket is AF_UNIX and the given path does not exist.
+            .EALREADY => unreachable, // The socket is nonblocking and a previous connection attempt has not yet been completed.
+            .EBADF => unreachable, // sockfd is not a valid open file descriptor.
+            .ECONNREFUSED => return error.ConnectionRefused,
+            .EFAULT => unreachable, // The socket structure address is outside the user's address space.
+            .EINTR => continue,
+            .EISCONN => unreachable, // The socket is already connected.
+            .ENETUNREACH => return error.NetworkUnreachable,
+            .ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+            .EPROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
+            .ETIMEDOUT => return error.ConnectionTimedOut,
+            .ENOENT => return error.FileNotFound, // Returned when socket is AF_UNIX and the given path does not exist.
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1984,30 +1984,30 @@ pub fn getsockoptError(sockfd: i32) ConnectError!void {
     const rc = system.getsockopt(sockfd, SOL_SOCKET, SO_ERROR, @ptrCast([*]u8, &err_code), &size);
     assert(size == 4);
     switch (errno(rc)) {
-        0 => switch (err_code) {
-            0 => return,
-            EACCES => return error.PermissionDenied,
-            EPERM => return error.PermissionDenied,
-            EADDRINUSE => return error.AddressInUse,
-            EADDRNOTAVAIL => return error.AddressNotAvailable,
-            EAFNOSUPPORT => return error.AddressFamilyNotSupported,
-            EAGAIN => return error.SystemResources,
-            EALREADY => unreachable, // The socket is nonblocking and a previous connection attempt has not yet been completed.
-            EBADF => unreachable, // sockfd is not a valid open file descriptor.
-            ECONNREFUSED => return error.ConnectionRefused,
-            EFAULT => unreachable, // The socket structure address is outside the user's address space.
-            EISCONN => unreachable, // The socket is already connected.
-            ENETUNREACH => return error.NetworkUnreachable,
-            ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
-            EPROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
-            ETIMEDOUT => return error.ConnectionTimedOut,
+        @intToEnum(Errno, 0) => switch (err_code) {
+            @intToEnum(Errno, 0) => return,
+            .EACCES => return error.PermissionDenied,
+            .EPERM => return error.PermissionDenied,
+            .EADDRINUSE => return error.AddressInUse,
+            .EADDRNOTAVAIL => return error.AddressNotAvailable,
+            .EAFNOSUPPORT => return error.AddressFamilyNotSupported,
+            .EAGAIN => return error.SystemResources,
+            .EALREADY => unreachable, // The socket is nonblocking and a previous connection attempt has not yet been completed.
+            .EBADF => unreachable, // sockfd is not a valid open file descriptor.
+            .ECONNREFUSED => return error.ConnectionRefused,
+            .EFAULT => unreachable, // The socket structure address is outside the user's address space.
+            .EISCONN => unreachable, // The socket is already connected.
+            .ENETUNREACH => return error.NetworkUnreachable,
+            .ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+            .EPROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
+            .ETIMEDOUT => return error.ConnectionTimedOut,
             else => |err| return unexpectedErrno(err),
         },
-        EBADF => unreachable, // The argument sockfd is not a valid file descriptor.
-        EFAULT => unreachable, // The address pointed to by optval or optlen is not in a valid part of the process address space.
-        EINVAL => unreachable,
-        ENOPROTOOPT => unreachable, // The option is unknown at the level indicated.
-        ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+        .EBADF => unreachable, // The argument sockfd is not a valid file descriptor.
+        .EFAULT => unreachable, // The address pointed to by optval or optlen is not in a valid part of the process address space.
+        .EINVAL => unreachable,
+        .ENOPROTOOPT => unreachable, // The option is unknown at the level indicated.
+        .ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2018,10 +2018,10 @@ pub fn waitpid(pid: i32, flags: u32) u32 {
     var status: Status = undefined;
     while (true) {
         switch (errno(system.waitpid(pid, &status, flags))) {
-            0 => return @bitCast(u32, status),
-            EINTR => continue,
-            ECHILD => unreachable, // The process specified does not exist. It would be a race condition to handle this error.
-            EINVAL => unreachable, // The options argument was invalid
+            @intToEnum(Errno, 0) => return @bitCast(u32, status),
+            .EINTR => continue,
+            .ECHILD => unreachable, // The process specified does not exist. It would be a race condition to handle this error.
+            .EINVAL => unreachable, // The options argument was invalid
             else => unreachable,
         }
     }
@@ -2036,21 +2036,21 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
     var stat: Stat = undefined;
     if (comptime std.Target.current.isDarwin()) {
         switch (darwin.getErrno(darwin.@"fstat$INODE64"(fd, &stat))) {
-            0 => return stat,
-            EINVAL => unreachable,
-            EBADF => unreachable, // Always a race condition.
-            ENOMEM => return error.SystemResources,
-            EACCES => return error.AccessDenied,
+            @intToEnum(Errno, 0) => return stat,
+            .EINVAL => unreachable,
+            .EBADF => unreachable, // Always a race condition.
+            .ENOMEM => return error.SystemResources,
+            .EACCES => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
 
     switch (errno(system.fstat(fd, &stat))) {
-        0 => return stat,
-        EINVAL => unreachable,
-        EBADF => unreachable, // Always a race condition.
-        ENOMEM => return error.SystemResources,
-        EACCES => return error.AccessDenied,
+        @intToEnum(Errno, 0) => return stat,
+        .EINVAL => unreachable,
+        .EBADF => unreachable, // Always a race condition.
+        .ENOMEM => return error.SystemResources,
+        .EACCES => return error.AccessDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2066,9 +2066,9 @@ pub const KQueueError = error{
 pub fn kqueue() KQueueError!i32 {
     const rc = system.kqueue();
     switch (errno(rc)) {
-        0 => return @intCast(i32, rc),
-        EMFILE => return error.ProcessFdQuotaExceeded,
-        ENFILE => return error.SystemFdQuotaExceeded,
+        @intToEnum(Errno, 0) => return @intCast(i32, rc),
+        .EMFILE => return error.ProcessFdQuotaExceeded,
+        .ENFILE => return error.SystemFdQuotaExceeded,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2107,15 +2107,15 @@ pub fn kevent(
             timeout,
         );
         switch (errno(rc)) {
-            0 => return @intCast(usize, rc),
-            EACCES => return error.AccessDenied,
-            EFAULT => unreachable,
-            EBADF => unreachable, // Always a race condition.
-            EINTR => continue,
-            EINVAL => unreachable,
-            ENOENT => return error.EventNotFound,
-            ENOMEM => return error.SystemResources,
-            ESRCH => return error.ProcessNotFound,
+            @intToEnum(Errno, 0) => return @intCast(usize, rc),
+            .EACCES => return error.AccessDenied,
+            .EFAULT => unreachable,
+            .EBADF => unreachable, // Always a race condition.
+            .EINTR => continue,
+            .EINVAL => unreachable,
+            .ENOENT => return error.EventNotFound,
+            .ENOMEM => return error.SystemResources,
+            .ESRCH => return error.ProcessNotFound,
             else => unreachable,
         }
     }
@@ -2131,11 +2131,11 @@ pub const INotifyInitError = error{
 pub fn inotify_init1(flags: u32) INotifyInitError!i32 {
     const rc = system.inotify_init1(flags);
     switch (errno(rc)) {
-        0 => return @intCast(i32, rc),
-        EINVAL => unreachable,
-        EMFILE => return error.ProcessFdQuotaExceeded,
-        ENFILE => return error.SystemFdQuotaExceeded,
-        ENOMEM => return error.SystemResources,
+        @intToEnum(Errno, 0) => return @intCast(i32, rc),
+        .EINVAL => unreachable,
+        .EMFILE => return error.ProcessFdQuotaExceeded,
+        .ENFILE => return error.SystemFdQuotaExceeded,
+        .ENOMEM => return error.SystemResources,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2158,15 +2158,15 @@ pub fn inotify_add_watch(inotify_fd: i32, pathname: []const u8, mask: u32) INoti
 pub fn inotify_add_watchC(inotify_fd: i32, pathname: [*:0]const u8, mask: u32) INotifyAddWatchError!i32 {
     const rc = system.inotify_add_watch(inotify_fd, pathname, mask);
     switch (errno(rc)) {
-        0 => return @intCast(i32, rc),
-        EACCES => return error.AccessDenied,
-        EBADF => unreachable,
-        EFAULT => unreachable,
-        EINVAL => unreachable,
-        ENAMETOOLONG => return error.NameTooLong,
-        ENOENT => return error.FileNotFound,
-        ENOMEM => return error.SystemResources,
-        ENOSPC => return error.UserResourceLimitReached,
+        @intToEnum(Errno, 0) => return @intCast(i32, rc),
+        .EACCES => return error.AccessDenied,
+        .EBADF => unreachable,
+        .EFAULT => unreachable,
+        .EINVAL => unreachable,
+        .ENAMETOOLONG => return error.NameTooLong,
+        .ENOENT => return error.FileNotFound,
+        .ENOMEM => return error.SystemResources,
+        .ENOSPC => return error.UserResourceLimitReached,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2174,9 +2174,9 @@ pub fn inotify_add_watchC(inotify_fd: i32, pathname: [*:0]const u8, mask: u32) I
 /// remove an existing watch from an inotify instance
 pub fn inotify_rm_watch(inotify_fd: i32, wd: i32) void {
     switch (errno(system.inotify_rm_watch(inotify_fd, wd))) {
-        0 => return,
-        EBADF => unreachable,
-        EINVAL => unreachable,
+        @intToEnum(Errno, 0) => return,
+        .EBADF => unreachable,
+        .EINVAL => unreachable,
         else => unreachable,
     }
 }
@@ -2199,10 +2199,10 @@ pub const MProtectError = error{
 pub fn mprotect(memory: []align(mem.page_size) u8, protection: u32) MProtectError!void {
     assert(mem.isAligned(memory.len, mem.page_size));
     switch (errno(system.mprotect(memory.ptr, memory.len, protection))) {
-        0 => return,
-        EINVAL => unreachable,
-        EACCES => return error.AccessDenied,
-        ENOMEM => return error.OutOfMemory,
+        @intToEnum(Errno, 0) => return,
+        .EINVAL => unreachable,
+        .EACCES => return error.AccessDenied,
+        .ENOMEM => return error.OutOfMemory,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2212,9 +2212,9 @@ pub const ForkError = error{SystemResources} || UnexpectedError;
 pub fn fork() ForkError!pid_t {
     const rc = system.fork();
     switch (errno(rc)) {
-        0 => return @intCast(pid_t, rc),
-        EAGAIN => return error.SystemResources,
-        ENOMEM => return error.SystemResources,
+        @intToEnum(Errno, 0) => return @intCast(pid_t, rc),
+        .EAGAIN => return error.SystemResources,
+        .ENOMEM => return error.SystemResources,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2251,23 +2251,23 @@ pub fn mmap(
     const err = if (builtin.link_libc) blk: {
         const rc = std.c.mmap(ptr, length, prot, flags, fd, offset);
         if (rc != std.c.MAP_FAILED) return @ptrCast([*]align(mem.page_size) u8, @alignCast(mem.page_size, rc))[0..length];
-        break :blk @intCast(usize, system._errno().*);
+        break :blk std.c.getErrno(-1);
     } else blk: {
         const rc = system.mmap(ptr, length, prot, flags, fd, offset);
         const err = errno(rc);
-        if (err == 0) return @intToPtr([*]align(mem.page_size) u8, rc)[0..length];
+        if (err == @intToEnum(Errno, 0)) return @intToPtr([*]align(mem.page_size) u8, rc)[0..length];
         break :blk err;
     };
     switch (err) {
-        ETXTBSY => return error.AccessDenied,
-        EACCES => return error.AccessDenied,
-        EPERM => return error.PermissionDenied,
-        EAGAIN => return error.LockedMemoryLimitExceeded,
-        EBADF => unreachable, // Always a race condition.
-        EOVERFLOW => unreachable, // The number of pages used for length + offset would overflow.
-        ENODEV => return error.MemoryMappingNotSupported,
-        EINVAL => unreachable, // Invalid parameters to mmap()
-        ENOMEM => return error.OutOfMemory,
+        .ETXTBSY => return error.AccessDenied,
+        .EACCES => return error.AccessDenied,
+        .EPERM => return error.PermissionDenied,
+        .EAGAIN => return error.LockedMemoryLimitExceeded,
+        .EBADF => unreachable, // Always a race condition.
+        .EOVERFLOW => unreachable, // The number of pages used for length + offset would overflow.
+        .ENODEV => return error.MemoryMappingNotSupported,
+        .EINVAL => unreachable, // Invalid parameters to mmap()
+        .ENOMEM => return error.OutOfMemory,
         else => return unexpectedErrno(err),
     }
 }
@@ -2280,9 +2280,9 @@ pub fn mmap(
 /// * The Windows function, VirtualFree, has this restriction.
 pub fn munmap(memory: []align(mem.page_size) u8) void {
     switch (errno(system.munmap(memory.ptr, memory.len))) {
-        0 => return,
-        EINVAL => unreachable, // Invalid parameters.
-        ENOMEM => unreachable, // Attempted to unmap a region in the middle of an existing mapping.
+        @intToEnum(Errno, 0) => return,
+        .EINVAL => unreachable, // Invalid parameters.
+        .ENOMEM => unreachable, // Attempted to unmap a region in the middle of an existing mapping.
         else => unreachable,
     }
 }
@@ -2319,19 +2319,19 @@ pub fn accessC(path: [*:0]const u8, mode: u32) AccessError!void {
         return;
     }
     switch (errno(system.access(path, mode))) {
-        0 => return,
-        EACCES => return error.PermissionDenied,
-        EROFS => return error.PermissionDenied,
-        ELOOP => return error.PermissionDenied,
-        ETXTBSY => return error.PermissionDenied,
-        ENOTDIR => return error.FileNotFound,
-        ENOENT => return error.FileNotFound,
+        @intToEnum(Errno, 0) => return,
+        .EACCES => return error.PermissionDenied,
+        .EROFS => return error.PermissionDenied,
+        .ELOOP => return error.PermissionDenied,
+        .ETXTBSY => return error.PermissionDenied,
+        .ENOTDIR => return error.FileNotFound,
+        .ENOENT => return error.FileNotFound,
 
-        ENAMETOOLONG => return error.NameTooLong,
-        EINVAL => unreachable,
-        EFAULT => unreachable,
-        EIO => return error.InputOutput,
-        ENOMEM => return error.SystemResources,
+        .ENAMETOOLONG => return error.NameTooLong,
+        .EINVAL => unreachable,
+        .EFAULT => unreachable,
+        .EIO => return error.InputOutput,
+        .ENOMEM => return error.SystemResources,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2361,11 +2361,11 @@ pub const PipeError = error{
 pub fn pipe() PipeError![2]fd_t {
     var fds: [2]fd_t = undefined;
     switch (errno(system.pipe(&fds))) {
-        0 => return fds,
-        EINVAL => unreachable, // Invalid parameters to pipe()
-        EFAULT => unreachable, // Invalid fds pointer
-        ENFILE => return error.SystemFdQuotaExceeded,
-        EMFILE => return error.ProcessFdQuotaExceeded,
+        @intToEnum(Errno, 0) => return fds,
+        .EINVAL => unreachable, // Invalid parameters to pipe()
+        .EFAULT => unreachable, // Invalid fds pointer
+        .ENFILE => return error.SystemFdQuotaExceeded,
+        .EMFILE => return error.ProcessFdQuotaExceeded,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2373,11 +2373,11 @@ pub fn pipe() PipeError![2]fd_t {
 pub fn pipe2(flags: u32) PipeError![2]fd_t {
     var fds: [2]fd_t = undefined;
     switch (errno(system.pipe2(&fds, flags))) {
-        0 => return fds,
-        EINVAL => unreachable, // Invalid flags
-        EFAULT => unreachable, // Invalid fds pointer
-        ENFILE => return error.SystemFdQuotaExceeded,
-        EMFILE => return error.ProcessFdQuotaExceeded,
+        @intToEnum(Errno, 0) => return fds,
+        .EINVAL => unreachable, // Invalid flags
+        .EFAULT => unreachable, // Invalid fds pointer
+        .ENFILE => return error.SystemFdQuotaExceeded,
+        .EMFILE => return error.ProcessFdQuotaExceeded,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2397,10 +2397,10 @@ pub fn sysctl(
 ) SysCtlError!void {
     const name_len = math.cast(c_uint, name.len) catch return error.NameTooLong;
     switch (errno(system.sysctl(name.ptr, name_len, oldp, oldlenp, newp, newlen))) {
-        0 => return,
-        EFAULT => unreachable,
-        EPERM => return error.PermissionDenied,
-        ENOMEM => return error.SystemResources,
+        @intToEnum(Errno, 0) => return,
+        .EFAULT => unreachable,
+        .EPERM => return error.PermissionDenied,
+        .ENOMEM => return error.SystemResources,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2413,18 +2413,18 @@ pub fn sysctlbynameC(
     newlen: usize,
 ) SysCtlError!void {
     switch (errno(system.sysctlbyname(name, oldp, oldlenp, newp, newlen))) {
-        0 => return,
-        EFAULT => unreachable,
-        EPERM => return error.PermissionDenied,
-        ENOMEM => return error.SystemResources,
+        @intToEnum(Errno, 0) => return,
+        .EFAULT => unreachable,
+        .EPERM => return error.PermissionDenied,
+        .ENOMEM => return error.SystemResources,
         else => |err| return unexpectedErrno(err),
     }
 }
 
 pub fn gettimeofday(tv: ?*timeval, tz: ?*timezone) void {
     switch (errno(system.gettimeofday(tv, tz))) {
-        0 => return,
-        EINVAL => unreachable,
+        @intToEnum(Errno, 0) => return,
+        .EINVAL => unreachable,
         else => unreachable,
     }
 }
@@ -2436,12 +2436,12 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
     if (builtin.os == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
         var result: u64 = undefined;
         switch (errno(system.llseek(fd, offset, &result, SEEK_SET))) {
-            0 => return,
-            EBADF => unreachable, // always a race condition
-            EINVAL => return error.Unseekable,
-            EOVERFLOW => return error.Unseekable,
-            ESPIPE => return error.Unseekable,
-            ENXIO => return error.Unseekable,
+            @intToEnum(Errno, 0) => return,
+            .EBADF => unreachable, // always a race condition
+            .EINVAL => return error.Unseekable,
+            .EOVERFLOW => return error.Unseekable,
+            .ESPIPE => return error.Unseekable,
+            .ENXIO => return error.Unseekable,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -2450,12 +2450,12 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
     }
     const ipos = @bitCast(i64, offset); // the OS treats this as unsigned
     switch (errno(system.lseek(fd, ipos, SEEK_SET))) {
-        0 => return,
-        EBADF => unreachable, // always a race condition
-        EINVAL => return error.Unseekable,
-        EOVERFLOW => return error.Unseekable,
-        ESPIPE => return error.Unseekable,
-        ENXIO => return error.Unseekable,
+        @intToEnum(Errno, 0) => return,
+        .EBADF => unreachable, // always a race condition
+        .EINVAL => return error.Unseekable,
+        .EOVERFLOW => return error.Unseekable,
+        .ESPIPE => return error.Unseekable,
+        .ENXIO => return error.Unseekable,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2465,12 +2465,12 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
     if (builtin.os == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
         var result: u64 = undefined;
         switch (errno(system.llseek(fd, @bitCast(u64, offset), &result, SEEK_CUR))) {
-            0 => return,
-            EBADF => unreachable, // always a race condition
-            EINVAL => return error.Unseekable,
-            EOVERFLOW => return error.Unseekable,
-            ESPIPE => return error.Unseekable,
-            ENXIO => return error.Unseekable,
+            @intToEnum(Errno, 0) => return,
+            .EBADF => unreachable, // always a race condition
+            .EINVAL => return error.Unseekable,
+            .EOVERFLOW => return error.Unseekable,
+            .ESPIPE => return error.Unseekable,
+            .ENXIO => return error.Unseekable,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -2478,12 +2478,12 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
         return windows.SetFilePointerEx_CURRENT(fd, offset);
     }
     switch (errno(system.lseek(fd, offset, SEEK_CUR))) {
-        0 => return,
-        EBADF => unreachable, // always a race condition
-        EINVAL => return error.Unseekable,
-        EOVERFLOW => return error.Unseekable,
-        ESPIPE => return error.Unseekable,
-        ENXIO => return error.Unseekable,
+        @intToEnum(Errno, 0) => return,
+        .EBADF => unreachable, // always a race condition
+        .EINVAL => return error.Unseekable,
+        .EOVERFLOW => return error.Unseekable,
+        .ESPIPE => return error.Unseekable,
+        .ENXIO => return error.Unseekable,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2493,12 +2493,12 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
     if (builtin.os == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
         var result: u64 = undefined;
         switch (errno(system.llseek(fd, @bitCast(u64, offset), &result, SEEK_END))) {
-            0 => return,
-            EBADF => unreachable, // always a race condition
-            EINVAL => return error.Unseekable,
-            EOVERFLOW => return error.Unseekable,
-            ESPIPE => return error.Unseekable,
-            ENXIO => return error.Unseekable,
+            @intToEnum(Errno, 0) => return,
+            .EBADF => unreachable, // always a race condition
+            .EINVAL => return error.Unseekable,
+            .EOVERFLOW => return error.Unseekable,
+            .ESPIPE => return error.Unseekable,
+            .ENXIO => return error.Unseekable,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -2506,12 +2506,12 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
         return windows.SetFilePointerEx_END(fd, offset);
     }
     switch (errno(system.lseek(fd, offset, SEEK_END))) {
-        0 => return,
-        EBADF => unreachable, // always a race condition
-        EINVAL => return error.Unseekable,
-        EOVERFLOW => return error.Unseekable,
-        ESPIPE => return error.Unseekable,
-        ENXIO => return error.Unseekable,
+        @intToEnum(Errno, 0) => return,
+        .EBADF => unreachable, // always a race condition
+        .EINVAL => return error.Unseekable,
+        .EOVERFLOW => return error.Unseekable,
+        .ESPIPE => return error.Unseekable,
+        .ENXIO => return error.Unseekable,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2521,12 +2521,12 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
     if (builtin.os == .linux and !builtin.link_libc and @sizeOf(usize) == 4) {
         var result: u64 = undefined;
         switch (errno(system.llseek(fd, 0, &result, SEEK_CUR))) {
-            0 => return result,
-            EBADF => unreachable, // always a race condition
-            EINVAL => return error.Unseekable,
-            EOVERFLOW => return error.Unseekable,
-            ESPIPE => return error.Unseekable,
-            ENXIO => return error.Unseekable,
+            @intToEnum(Errno, 0) => return result,
+            .EBADF => unreachable, // always a race condition
+            .EINVAL => return error.Unseekable,
+            .EOVERFLOW => return error.Unseekable,
+            .ESPIPE => return error.Unseekable,
+            .ENXIO => return error.Unseekable,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -2535,12 +2535,12 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
     }
     const rc = system.lseek(fd, 0, SEEK_CUR);
     switch (errno(rc)) {
-        0 => return @bitCast(u64, rc),
-        EBADF => unreachable, // always a race condition
-        EINVAL => return error.Unseekable,
-        EOVERFLOW => return error.Unseekable,
-        ESPIPE => return error.Unseekable,
-        ENXIO => return error.Unseekable,
+        @intToEnum(Errno, 0) => return @bitCast(u64, rc),
+        .EBADF => unreachable, // always a race condition
+        .EINVAL => return error.Unseekable,
+        .EOVERFLOW => return error.Unseekable,
+        .ESPIPE => return error.Unseekable,
+        .ENXIO => return error.Unseekable,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2603,16 +2603,16 @@ pub fn realpathC(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
         return readlinkC(@ptrCast([*:0]const u8, proc_path.ptr), out_buffer);
     }
     const result_path = std.c.realpath(pathname, out_buffer) orelse switch (std.c._errno().*) {
-        EINVAL => unreachable,
-        EBADF => unreachable,
-        EFAULT => unreachable,
-        EACCES => return error.AccessDenied,
-        ENOENT => return error.FileNotFound,
-        ENOTSUP => return error.NotSupported,
-        ENOTDIR => return error.NotDir,
-        ENAMETOOLONG => return error.NameTooLong,
-        ELOOP => return error.SymLinkLoop,
-        EIO => return error.InputOutput,
+        .EINVAL => unreachable,
+        .EBADF => unreachable,
+        .EFAULT => unreachable,
+        .EACCES => return error.AccessDenied,
+        .ENOENT => return error.FileNotFound,
+        .ENOTSUP => return error.NotSupported,
+        .ENOTDIR => return error.NotDir,
+        .ENAMETOOLONG => return error.NameTooLong,
+        .ELOOP => return error.SymLinkLoop,
+        .EIO => return error.InputOutput,
         else => |err| return unexpectedErrno(@intCast(usize, err)),
     };
     return mem.toSlice(u8, result_path);
@@ -2653,13 +2653,13 @@ pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
     var rem: timespec = undefined;
     while (true) {
         switch (errno(system.nanosleep(&req, &rem))) {
-            EFAULT => unreachable,
-            EINVAL => {
+            .EFAULT => unreachable,
+            .EINVAL => {
                 // Sometimes Darwin returns EINVAL for no reason.
                 // We treat it as a spurious wakeup.
                 return;
             },
-            EINTR => {
+            .EINTR => {
                 req = rem;
                 continue;
             },
@@ -2742,21 +2742,21 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
     if (comptime std.Target.current.getOs() == .wasi) {
         var ts: timestamp_t = undefined;
         switch (system.clock_time_get(@bitCast(u32, clk_id), 1, &ts)) {
-            0 => {
+            @intToEnum(Errno, 0) => {
                 tp.* = .{
                     .tv_sec = @intCast(i64, ts / std.time.ns_per_s),
                     .tv_nsec = @intCast(isize, ts % std.time.ns_per_s),
                 };
             },
-            EINVAL => return error.UnsupportedClock,
+            .EINVAL => return error.UnsupportedClock,
             else => |err| return unexpectedErrno(err),
         }
         return;
     }
     switch (errno(system.clock_gettime(clk_id, tp))) {
-        0 => return,
-        EFAULT => unreachable,
-        EINVAL => return error.UnsupportedClock,
+        @intToEnum(Errno, 0) => return,
+        .EFAULT => unreachable,
+        .EINVAL => return error.UnsupportedClock,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2765,20 +2765,20 @@ pub fn clock_getres(clk_id: i32, res: *timespec) ClockGetTimeError!void {
     if (comptime std.Target.current.getOs() == .wasi) {
         var ts: timestamp_t = undefined;
         switch (system.clock_res_get(@bitCast(u32, clk_id), &ts)) {
-            0 => res.* = .{
+            @intToEnum(Errno, 0) => res.* = .{
                 .tv_sec = @intCast(i64, ts / std.time.ns_per_s),
                 .tv_nsec = @intCast(isize, ts % std.time.ns_per_s),
             },
-            EINVAL => return error.UnsupportedClock,
+            .EINVAL => return error.UnsupportedClock,
             else => |err| return unexpectedErrno(err),
         }
         return;
     }
 
     switch (errno(system.clock_getres(clk_id, res))) {
-        0 => return,
-        EFAULT => unreachable,
-        EINVAL => return error.UnsupportedClock,
+        @intToEnum(Errno, 0) => return,
+        .EFAULT => unreachable,
+        .EINVAL => return error.UnsupportedClock,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2788,11 +2788,11 @@ pub const SchedGetAffinityError = error{PermissionDenied} || UnexpectedError;
 pub fn sched_getaffinity(pid: pid_t) SchedGetAffinityError!cpu_set_t {
     var set: cpu_set_t = undefined;
     switch (errno(system.sched_getaffinity(pid, @sizeOf(cpu_set_t), &set))) {
-        0 => return set,
-        EFAULT => unreachable,
-        EINVAL => unreachable,
-        ESRCH => unreachable,
-        EPERM => return error.PermissionDenied,
+        @intToEnum(Errno, 0) => return set,
+        .EFAULT => unreachable,
+        .EINVAL => unreachable,
+        .ESRCH => unreachable,
+        .EPERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2823,7 +2823,7 @@ pub const UnexpectedError = error{
 
 /// Call this when you made a syscall or something that sets errno
 /// and you get an unexpected error.
-pub fn unexpectedErrno(err: usize) UnexpectedError {
+pub fn unexpectedErrno(err: Errno) UnexpectedError {
     if (unexpected_error_tracing) {
         std.debug.warn("unexpected errno: {}\n", .{err});
         std.debug.dumpCurrentStackTrace(null);
@@ -2844,11 +2844,11 @@ pub fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) SigaltstackError!void {
         @compileError("std.os.sigaltstack not available for this target");
 
     switch (errno(system.sigaltstack(ss, old_ss))) {
-        0 => return,
-        EFAULT => unreachable,
-        EINVAL => unreachable,
-        ENOMEM => return error.SizeTooSmall,
-        EPERM => return error.PermissionDenied,
+        @intToEnum(Errno, 0) => return,
+        .EFAULT => unreachable,
+        .EINVAL => unreachable,
+        .ENOMEM => return error.SizeTooSmall,
+        .EPERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2856,9 +2856,9 @@ pub fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) SigaltstackError!void {
 /// Examine and change a signal action.
 pub fn sigaction(sig: u6, act: *const Sigaction, oact: ?*Sigaction) void {
     switch (errno(system.sigaction(sig, act, oact))) {
-        0 => return,
-        EFAULT => unreachable,
-        EINVAL => unreachable,
+        @intToEnum(Errno, 0) => return,
+        .EFAULT => unreachable,
+        .EINVAL => unreachable,
         else => unreachable,
     }
 }
@@ -2889,13 +2889,13 @@ pub const FutimensError = error{
 
 pub fn futimens(fd: fd_t, times: *const [2]timespec) FutimensError!void {
     switch (errno(system.futimens(fd, times))) {
-        0 => return,
-        EACCES => return error.AccessDenied,
-        EPERM => return error.PermissionDenied,
-        EBADF => unreachable, // always a race condition
-        EFAULT => unreachable,
-        EINVAL => unreachable,
-        EROFS => return error.ReadOnlyFileSystem,
+        @intToEnum(Errno, 0) => return,
+        .EACCES => return error.AccessDenied,
+        .EPERM => return error.PermissionDenied,
+        .EBADF => unreachable, // always a race condition
+        .EFAULT => unreachable,
+        .EINVAL => unreachable,
+        .EROFS => return error.ReadOnlyFileSystem,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2905,23 +2905,23 @@ pub const GetHostNameError = error{PermissionDenied} || UnexpectedError;
 pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
     if (builtin.link_libc) {
         switch (errno(system.gethostname(name_buffer, name_buffer.len))) {
-            0 => return mem.toSlice(u8, @ptrCast([*:0]u8, name_buffer)),
-            EFAULT => unreachable,
-            ENAMETOOLONG => unreachable, // HOST_NAME_MAX prevents this
-            EPERM => return error.PermissionDenied,
+            @intToEnum(Errno, 0) => return mem.toSlice(u8, @ptrCast([*:0]u8, name_buffer)),
+            .EFAULT => unreachable,
+            .ENAMETOOLONG => unreachable, // HOST_NAME_MAX prevents this
+            .EPERM => return error.PermissionDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
     if (builtin.os == .linux) {
         var uts: utsname = undefined;
         switch (errno(system.uname(&uts))) {
-            0 => {
+            @intToEnum(Errno, 0) => {
                 const hostname = mem.toSlice(u8, @ptrCast([*:0]u8, &uts.nodename));
                 mem.copy(u8, name_buffer, hostname);
                 return name_buffer[0..hostname.len];
             },
-            EFAULT => unreachable,
-            EPERM => return error.PermissionDenied,
+            .EFAULT => unreachable,
+            .EPERM => return error.PermissionDenied,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -3054,30 +3054,30 @@ pub fn sendto(
     while (true) {
         const rc = system.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen);
         switch (errno(rc)) {
-            0 => return @intCast(usize, rc),
+            @intToEnum(Errno, 0) => return @intCast(usize, rc),
 
-            EACCES => return error.AccessDenied,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
+            .EACCES => return error.AccessDenied,
+            .EAGAIN => if (std.event.Loop.instance) |loop| {
                 loop.waitUntilFdWritable(sockfd);
                 continue;
             } else {
                 return error.WouldBlock;
             },
-            EALREADY => return error.FastOpenAlreadyInProgress,
-            EBADF => unreachable, // always a race condition
-            ECONNRESET => return error.ConnectionResetByPeer,
-            EDESTADDRREQ => unreachable, // The socket is not connection-mode, and no peer address is set.
-            EFAULT => unreachable, // An invalid user space address was specified for an argument.
-            EINTR => continue,
-            EINVAL => unreachable, // Invalid argument passed.
-            EISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
-            EMSGSIZE => return error.MessageTooBig,
-            ENOBUFS => return error.SystemResources,
-            ENOMEM => return error.SystemResources,
-            ENOTCONN => unreachable, // The socket is not connected, and no target has been given.
-            ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
-            EOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
-            EPIPE => return error.BrokenPipe,
+            .EALREADY => return error.FastOpenAlreadyInProgress,
+            .EBADF => unreachable, // always a race condition
+            .ECONNRESET => return error.ConnectionResetByPeer,
+            .EDESTADDRREQ => unreachable, // The socket is not connection-mode, and no peer address is set.
+            .EFAULT => unreachable, // An invalid user space address was specified for an argument.
+            .EINTR => continue,
+            .EINVAL => unreachable, // Invalid argument passed.
+            .EISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
+            .EMSGSIZE => return error.MessageTooBig,
+            .ENOBUFS => return error.SystemResources,
+            .ENOMEM => return error.SystemResources,
+            .ENOTCONN => unreachable, // The socket is not connected, and no target has been given.
+            .ENOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+            .EOPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
+            .EPIPE => return error.BrokenPipe,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -3120,11 +3120,11 @@ pub fn poll(fds: []pollfd, timeout: i32) PollError!usize {
     while (true) {
         const rc = system.poll(fds.ptr, fds.len, timeout);
         switch (errno(rc)) {
-            0 => return @intCast(usize, rc),
-            EFAULT => unreachable,
-            EINTR => continue,
-            EINVAL => unreachable,
-            ENOMEM => return error.SystemResources,
+            @intToEnum(Errno, 0) => return @intCast(usize, rc),
+            .EFAULT => unreachable,
+            .EINTR => continue,
+            .EINVAL => unreachable,
+            .ENOMEM => return error.SystemResources,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -3153,21 +3153,21 @@ pub fn recvfrom(
     while (true) {
         const rc = system.recvfrom(sockfd, buf.ptr, buf.len, flags, src_addr, addrlen);
         switch (errno(rc)) {
-            0 => return @intCast(usize, rc),
-            EBADF => unreachable, // always a race condition
-            EFAULT => unreachable,
-            EINVAL => unreachable,
-            ENOTCONN => unreachable,
-            ENOTSOCK => unreachable,
-            EINTR => continue,
-            EAGAIN => if (std.event.Loop.instance) |loop| {
+            @intToEnum(Errno, 0) => return @intCast(usize, rc),
+            .EBADF => unreachable, // always a race condition
+            .EFAULT => unreachable,
+            .EINVAL => unreachable,
+            .ENOTCONN => unreachable,
+            .ENOTSOCK => unreachable,
+            .EINTR => continue,
+            .EAGAIN => if (std.event.Loop.instance) |loop| {
                 loop.waitUntilFdReadable(sockfd);
                 continue;
             } else {
                 return error.WouldBlock;
             },
-            ENOMEM => return error.SystemResources,
-            ECONNREFUSED => return error.ConnectionRefused,
+            .ENOMEM => return error.SystemResources,
+            .ECONNREFUSED => return error.ConnectionRefused,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -3236,8 +3236,8 @@ pub fn sched_yield() SchedYieldError!void {
         return;
     }
     switch (errno(system.sched_yield())) {
-        0 => return,
-        ENOSYS => return error.SystemCannotYield,
+        @intToEnum(Errno, 0) => return,
+        .ENOSYS => return error.SystemCannotYield,
         else => return error.SystemCannotYield,
     }
 }
@@ -3259,16 +3259,16 @@ pub const SetSockOptError = error{
 /// Set a socket's options.
 pub fn setsockopt(fd: fd_t, level: u32, optname: u32, opt: []const u8) SetSockOptError!void {
     switch (errno(system.setsockopt(fd, level, optname, opt.ptr, @intCast(socklen_t, opt.len)))) {
-        0 => {},
-        EBADF => unreachable, // always a race condition
-        ENOTSOCK => unreachable, // always a race condition
-        EINVAL => unreachable,
-        EFAULT => unreachable,
-        EDOM => return error.TimeoutTooBig,
-        EISCONN => return error.AlreadyConnected,
-        ENOPROTOOPT => return error.InvalidProtocolOption,
-        ENOMEM => return error.SystemResources,
-        ENOBUFS => return error.SystemResources,
+        @intToEnum(Errno, 0) => {},
+        .EBADF => unreachable, // always a race condition
+        .ENOTSOCK => unreachable, // always a race condition
+        .EINVAL => unreachable,
+        .EFAULT => unreachable,
+        .EDOM => return error.TimeoutTooBig,
+        .EISCONN => return error.AlreadyConnected,
+        .ENOPROTOOPT => return error.InvalidProtocolOption,
+        .ENOMEM => return error.SystemResources,
+        .ENOBUFS => return error.SystemResources,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -3290,13 +3290,13 @@ pub fn memfd_createC(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
     const getErrno = if (use_c) std.c.getErrno else linux.getErrno;
     const rc = sys.memfd_create(name, flags);
     switch (getErrno(rc)) {
-        0 => return @intCast(fd_t, rc),
-        EFAULT => unreachable, // name has invalid memory
-        EINVAL => unreachable, // name/flags are faulty
-        ENFILE => return error.SystemFdQuotaExceeded,
-        EMFILE => return error.ProcessFdQuotaExceeded,
-        ENOMEM => return error.OutOfMemory,
-        ENOSYS => return error.SystemOutdated,
+        @intToEnum(Errno, 0) => return @intCast(fd_t, rc),
+        .EFAULT => unreachable, // name has invalid memory
+        .EINVAL => unreachable, // name/flags are faulty
+        .ENFILE => return error.SystemFdQuotaExceeded,
+        .EMFILE => return error.ProcessFdQuotaExceeded,
+        .ENOMEM => return error.OutOfMemory,
+        .ENOSYS => return error.SystemOutdated,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -3321,9 +3321,9 @@ pub fn getrusage(who: i32) rusage {
     var result: rusage = undefined;
     const rc = system.getrusage(who, &result);
     switch (errno(rc)) {
-        0 => return result,
-        EINVAL => unreachable,
-        EFAULT => unreachable,
+        @intToEnum(Errno, 0) => return result,
+        .EINVAL => unreachable,
+        .EFAULT => unreachable,
         else => unreachable,
     }
 }

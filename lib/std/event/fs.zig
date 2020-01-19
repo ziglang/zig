@@ -1256,9 +1256,8 @@ pub fn Watch(comptime V: type) type {
 
             while (!self.os_data.cancelled) {
                 const rc = os.linux.read(self.os_data.inotify_fd, &event_buf, event_buf.len);
-                const errno = os.linux.getErrno(rc);
-                switch (errno) {
-                    0 => {
+                switch (os.linux.getErrno(rc)) {
+                    @intToEnum(os.linux.Errno, 0) => {
                         // can't use @bytesToSlice because of the special variable length name field
                         var ptr = event_buf[0..].ptr;
                         const end_ptr = ptr + event_buf.len;
@@ -1291,10 +1290,10 @@ pub fn Watch(comptime V: type) type {
                             ptr = @alignCast(@alignOf(os.linux.inotify_event), ptr + @sizeOf(os.linux.inotify_event) + ev.len);
                         }
                     },
-                    os.linux.EINTR => continue,
-                    os.linux.EINVAL => unreachable,
-                    os.linux.EFAULT => unreachable,
-                    os.linux.EAGAIN => {
+                    .EINTR => continue,
+                    .EINVAL => unreachable,
+                    .EFAULT => unreachable,
+                    .EAGAIN => {
                         global_event_loop.linuxWaitFd(self.os_data.inotify_fd, os.linux.EPOLLET | os.linux.EPOLLIN | os.EPOLLONESHOT);
                     },
                     else => unreachable,

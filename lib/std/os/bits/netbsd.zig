@@ -606,138 +606,332 @@ pub const sigset_t = extern struct {
     __bits: [_SIG_WORDS]u32,
 };
 
-pub const EPERM = 1; // Operation not permitted
-pub const ENOENT = 2; // No such file or directory
-pub const ESRCH = 3; // No such process
-pub const EINTR = 4; // Interrupted system call
-pub const EIO = 5; // Input/output error
-pub const ENXIO = 6; // Device not configured
-pub const E2BIG = 7; // Argument list too long
-pub const ENOEXEC = 8; // Exec format error
-pub const EBADF = 9; // Bad file descriptor
-pub const ECHILD = 10; // No child processes
-pub const EDEADLK = 11; // Resource deadlock avoided
-// 11 was EAGAIN
-pub const ENOMEM = 12; // Cannot allocate memory
-pub const EACCES = 13; // Permission denied
-pub const EFAULT = 14; // Bad address
-pub const ENOTBLK = 15; // Block device required
-pub const EBUSY = 16; // Device busy
-pub const EEXIST = 17; // File exists
-pub const EXDEV = 18; // Cross-device link
-pub const ENODEV = 19; // Operation not supported by device
-pub const ENOTDIR = 20; // Not a directory
-pub const EISDIR = 21; // Is a directory
-pub const EINVAL = 22; // Invalid argument
-pub const ENFILE = 23; // Too many open files in system
-pub const EMFILE = 24; // Too many open files
-pub const ENOTTY = 25; // Inappropriate ioctl for device
-pub const ETXTBSY = 26; // Text file busy
-pub const EFBIG = 27; // File too large
-pub const ENOSPC = 28; // No space left on device
-pub const ESPIPE = 29; // Illegal seek
-pub const EROFS = 30; // Read-only file system
-pub const EMLINK = 31; // Too many links
-pub const EPIPE = 32; // Broken pipe
+pub const Errno = extern enum(c_int) {
+    /// Operation not permitted
+    EPERM = 1,
 
-// math software
-pub const EDOM = 33; // Numerical argument out of domain
-pub const ERANGE = 34; // Result too large or too small
+    /// No such file or directory
+    ENOENT = 2,
 
-// non-blocking and interrupt i/o
-pub const EAGAIN = 35; // Resource temporarily unavailable
-pub const EWOULDBLOCK = EAGAIN; // Operation would block
-pub const EINPROGRESS = 36; // Operation now in progress
-pub const EALREADY = 37; // Operation already in progress
+    /// No such process
+    ESRCH = 3,
 
-// ipc/network software -- argument errors
-pub const ENOTSOCK = 38; // Socket operation on non-socket
-pub const EDESTADDRREQ = 39; // Destination address required
-pub const EMSGSIZE = 40; // Message too long
-pub const EPROTOTYPE = 41; // Protocol wrong type for socket
-pub const ENOPROTOOPT = 42; // Protocol option not available
-pub const EPROTONOSUPPORT = 43; // Protocol not supported
-pub const ESOCKTNOSUPPORT = 44; // Socket type not supported
-pub const EOPNOTSUPP = 45; // Operation not supported
-pub const EPFNOSUPPORT = 46; // Protocol family not supported
-pub const EAFNOSUPPORT = 47; // Address family not supported by protocol family
-pub const EADDRINUSE = 48; // Address already in use
-pub const EADDRNOTAVAIL = 49; // Can't assign requested address
+    /// Interrupted system call
+    EINTR = 4,
 
-// ipc/network software -- operational errors
-pub const ENETDOWN = 50; // Network is down
-pub const ENETUNREACH = 51; // Network is unreachable
-pub const ENETRESET = 52; // Network dropped connection on reset
-pub const ECONNABORTED = 53; // Software caused connection abort
-pub const ECONNRESET = 54; // Connection reset by peer
-pub const ENOBUFS = 55; // No buffer space available
-pub const EISCONN = 56; // Socket is already connected
-pub const ENOTCONN = 57; // Socket is not connected
-pub const ESHUTDOWN = 58; // Can't send after socket shutdown
-pub const ETOOMANYREFS = 59; // Too many references: can't splice
-pub const ETIMEDOUT = 60; // Operation timed out
-pub const ECONNREFUSED = 61; // Connection refused
+    /// Input/output error
+    EIO = 5,
 
-pub const ELOOP = 62; // Too many levels of symbolic links
-pub const ENAMETOOLONG = 63; // File name too long
+    /// Device not configured
+    ENXIO = 6,
 
-// should be rearranged
-pub const EHOSTDOWN = 64; // Host is down
-pub const EHOSTUNREACH = 65; // No route to host
-pub const ENOTEMPTY = 66; // Directory not empty
+    /// Argument list too long
+    E2BIG = 7,
 
-// quotas & mush
-pub const EPROCLIM = 67; // Too many processes
-pub const EUSERS = 68; // Too many users
-pub const EDQUOT = 69; // Disc quota exceeded
+    /// Exec format error
+    ENOEXEC = 8,
 
-// Network File System
-pub const ESTALE = 70; // Stale NFS file handle
-pub const EREMOTE = 71; // Too many levels of remote in path
-pub const EBADRPC = 72; // RPC struct is bad
-pub const ERPCMISMATCH = 73; // RPC version wrong
-pub const EPROGUNAVAIL = 74; // RPC prog. not avail
-pub const EPROGMISMATCH = 75; // Program version wrong
-pub const EPROCUNAVAIL = 76; // Bad procedure for program
+    /// Bad file descriptor
+    EBADF = 9,
 
-pub const ENOLCK = 77; // No locks available
-pub const ENOSYS = 78; // Function not implemented
+    /// No child processes
+    ECHILD = 10,
 
-pub const EFTYPE = 79; // Inappropriate file type or format
-pub const EAUTH = 80; // Authentication error
-pub const ENEEDAUTH = 81; // Need authenticator
+    /// Resource deadlock avoided
+    EDEADLK = 11,
+    // 11 was EAGAIN
 
-// SystemV IPC
-pub const EIDRM = 82; // Identifier removed
-pub const ENOMSG = 83; // No message of desired type
-pub const EOVERFLOW = 84; // Value too large to be stored in data type
+    /// Cannot allocate memory
+    ENOMEM = 12,
 
-// Wide/multibyte-character handling, ISO/IEC 9899/AMD1:1995
-pub const EILSEQ = 85; // Illegal byte sequence
+    /// Permission denied
+    EACCES = 13,
 
-// From IEEE Std 1003.1-2001
-// Base, Realtime, Threads or Thread Priority Scheduling option errors
-pub const ENOTSUP = 86; // Not supported
+    /// Bad address
+    EFAULT = 14,
 
-// Realtime option errors
-pub const ECANCELED = 87; // Operation canceled
+    /// Block device required
+    ENOTBLK = 15,
 
-// Realtime, XSI STREAMS option errors
-pub const EBADMSG = 88; // Bad or Corrupt message
+    /// Device busy
+    EBUSY = 16,
 
-// XSI STREAMS option errors
-pub const ENODATA = 89; // No message available
-pub const ENOSR = 90; // No STREAM resources
-pub const ENOSTR = 91; // Not a STREAM
-pub const ETIME = 92; // STREAM ioctl timeout
+    /// File exists
+    EEXIST = 17,
 
-// File system extended attribute errors
-pub const ENOATTR = 93; // Attribute not found
+    /// Cross-device link
+    EXDEV = 18,
 
-// Realtime, XSI STREAMS option errors
-pub const EMULTIHOP = 94; // Multihop attempted
-pub const ENOLINK = 95; // Link has been severed
-pub const EPROTO = 96; // Protocol error
+    /// Operation not supported by device
+    ENODEV = 19,
+
+    /// Not a directory
+    ENOTDIR = 20,
+
+    /// Is a directory
+    EISDIR = 21,
+
+    /// Invalid argument
+    EINVAL = 22,
+
+    /// Too many open files in system
+    ENFILE = 23,
+
+    /// Too many open files
+    EMFILE = 24,
+
+    /// Inappropriate ioctl for device
+    ENOTTY = 25,
+
+    /// Text file busy
+    ETXTBSY = 26,
+
+    /// File too large
+    EFBIG = 27,
+
+    /// No space left on device
+    ENOSPC = 28,
+
+    /// Illegal seek
+    ESPIPE = 29,
+
+    /// Read-only file system
+    EROFS = 30,
+
+    /// Too many links
+    EMLINK = 31,
+
+    /// Broken pipe
+    EPIPE = 32,
+
+    // math software
+
+    /// Numerical argument out of domain
+    EDOM = 33,
+
+    /// Result too large or too small
+    ERANGE = 34,
+
+    // non-blocking and interrupt i/o
+
+    /// Resource temporarily unavailable
+    EAGAIN = 35,
+
+    /// Operation would block
+    EWOULDBLOCK = 35, // Duplicate of EAGAIN
+
+    /// Operation now in progress
+    EINPROGRESS = 36,
+
+    /// Operation already in progress
+    EALREADY = 37,
+
+    // ipc/network software -- argument errors
+
+    /// Socket operation on non-socket
+    ENOTSOCK = 38,
+
+    /// Destination address required
+    EDESTADDRREQ = 39,
+
+    /// Message too long
+    EMSGSIZE = 40,
+
+    /// Protocol wrong type for socket
+    EPROTOTYPE = 41,
+
+    /// Protocol option not available
+    ENOPROTOOPT = 42,
+
+    /// Protocol not supported
+    EPROTONOSUPPORT = 43,
+
+    /// Socket type not supported
+    ESOCKTNOSUPPORT = 44,
+
+    /// Operation not supported
+    EOPNOTSUPP = 45,
+
+    /// Protocol family not supported
+    EPFNOSUPPORT = 46,
+
+    /// Address family not supported by protocol family
+    EAFNOSUPPORT = 47,
+
+    /// Address already in use
+    EADDRINUSE = 48,
+
+    /// Can't assign requested address
+    EADDRNOTAVAIL = 49,
+
+    // ipc/network software -- operational errors
+
+    /// Network is down
+    ENETDOWN = 50,
+
+    /// Network is unreachable
+    ENETUNREACH = 51,
+
+    /// Network dropped connection on reset
+    ENETRESET = 52,
+
+    /// Software caused connection abort
+    ECONNABORTED = 53,
+
+    /// Connection reset by peer
+    ECONNRESET = 54,
+
+    /// No buffer space available
+    ENOBUFS = 55,
+
+    /// Socket is already connected
+    EISCONN = 56,
+
+    /// Socket is not connected
+    ENOTCONN = 57,
+
+    /// Can't send after socket shutdown
+    ESHUTDOWN = 58,
+
+    /// Too many references: can't splice
+    ETOOMANYREFS = 59,
+
+    /// Operation timed out
+    ETIMEDOUT = 60,
+
+    /// Connection refused
+    ECONNREFUSED = 61,
+
+    /// Too many levels of symbolic links
+    ELOOP = 62,
+
+    /// File name too long
+    ENAMETOOLONG = 63,
+
+    // should be rearranged
+
+    /// Host is down
+    EHOSTDOWN = 64,
+
+    /// No route to host
+    EHOSTUNREACH = 65,
+
+    /// Directory not empty
+    ENOTEMPTY = 66,
+
+    // quotas & mush
+
+    /// Too many processes
+    EPROCLIM = 67,
+
+    /// Too many users
+    EUSERS = 68,
+
+    /// Disc quota exceeded
+    EDQUOT = 69,
+
+    // Network File System
+
+    /// Stale NFS file handle
+    ESTALE = 70,
+
+    /// Too many levels of remote in path
+    EREMOTE = 71,
+
+    /// RPC struct is bad
+    EBADRPC = 72,
+
+    /// RPC version wrong
+    ERPCMISMATCH = 73,
+
+    /// RPC prog. not avail
+    EPROGUNAVAIL = 74,
+
+    /// Program version wrong
+    EPROGMISMATCH = 75,
+
+    /// Bad procedure for program
+    EPROCUNAVAIL = 76,
+
+    /// No locks available
+    ENOLCK = 77,
+
+    /// Function not implemented
+    ENOSYS = 78,
+
+    /// Inappropriate file type or format
+    EFTYPE = 79,
+
+    /// Authentication error
+    EAUTH = 80,
+
+    /// Need authenticator
+    ENEEDAUTH = 81,
+
+    // SystemV IPC
+
+    /// Identifier removed
+    EIDRM = 82,
+
+    /// No message of desired type
+    ENOMSG = 83,
+
+    /// Value too large to be stored in data type
+    EOVERFLOW = 84,
+
+    // Wide/multibyte-character handling, ISO/IEC 9899/AMD1:1995
+
+    /// Illegal byte sequence
+    EILSEQ = 85,
+
+    // From IEEE Std 1003.1-2001
+    // Base, Realtime, Threads or Thread Priority Scheduling option errors
+
+    /// Not supported
+    ENOTSUP = 86,
+
+    // Realtime option errors
+
+    /// Operation canceled
+    ECANCELED = 87,
+
+    // Realtime, XSI STREAMS option errors
+
+    /// Bad or Corrupt message
+    EBADMSG = 88,
+
+    // XSI STREAMS option errors
+
+    /// No message available
+    ENODATA = 89,
+
+    /// No STREAM resources
+    ENOSR = 90,
+
+    /// Not a STREAM
+    ENOSTR = 91,
+
+    /// STREAM ioctl timeout
+    ETIME = 92,
+
+    // File system extended attribute errors
+
+    /// Attribute not found
+    ENOATTR = 93,
+
+    // Realtime, XSI STREAMS option errors
+
+    /// Multihop attempted
+    EMULTIHOP = 94,
+
+    /// Link has been severed
+    ENOLINK = 95,
+
+    /// Protocol error
+    EPROTO = 96,
+
+    _,
+};
 
 pub const ELAST = 96; // Must equal largest errno
 

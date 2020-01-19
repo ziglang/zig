@@ -817,8 +817,8 @@ pub const Loop = struct {
                 @atomicStore(i32, &self.os_data.fs_queue_item, 1, AtomicOrder.SeqCst);
                 const rc = os.linux.futex_wake(&self.os_data.fs_queue_item, os.linux.FUTEX_WAKE, 1);
                 switch (os.linux.getErrno(rc)) {
-                    0 => {},
-                    os.EINVAL => unreachable,
+                    @intToEnum(os.linux.Errno, 0) => {},
+                    .EINVAL => unreachable,
                     else => unreachable,
                 }
             },
@@ -880,7 +880,7 @@ pub const Loop = struct {
                 .linux => {
                     const rc = os.linux.futex_wait(&self.os_data.fs_queue_item, os.linux.FUTEX_WAIT, 0, null);
                     switch (os.linux.getErrno(rc)) {
-                        0, os.EINTR, os.EAGAIN => continue,
+                        @intToEnum(os.linux.Errno, 0), .EINTR, .EAGAIN => continue,
                         else => unreachable,
                     }
                 },

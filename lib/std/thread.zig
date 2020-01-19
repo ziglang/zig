@@ -75,11 +75,11 @@ pub const Thread = struct {
     pub fn wait(self: *const Thread) void {
         if (use_pthreads) {
             const err = c.pthread_join(self.data.handle, null);
-            switch (err) {
-                0 => {},
-                os.EINVAL => unreachable,
-                os.ESRCH => unreachable,
-                os.EDEADLK => unreachable,
+            switch (@intToEnum(os.Errno, err)) {
+                @intToEnum(os.Errno, 0) => {},
+                .EINVAL => unreachable,
+                .ESRCH => unreachable,
+                .EDEADLK => unreachable,
                 else => unreachable,
             }
             os.munmap(self.data.memory);
@@ -90,9 +90,9 @@ pub const Thread = struct {
                     if (pid_value == 0) break;
                     const rc = os.linux.futex_wait(&self.data.handle, os.linux.FUTEX_WAIT, pid_value, null);
                     switch (os.linux.getErrno(rc)) {
-                        0 => continue,
-                        os.EINTR => continue,
-                        os.EAGAIN => continue,
+                        @intToEnum(os.linux.Errno, 0) => continue,
+                        .EINTR => continue,
+                        .EAGAIN => continue,
                         else => unreachable,
                     }
                 }
@@ -304,9 +304,9 @@ pub const Thread = struct {
             const err = c.pthread_create(&thread_ptr.data.handle, &attr, MainFuncs.posixThreadMain, @intToPtr(*c_void, arg));
             switch (err) {
                 0 => return thread_ptr,
-                os.EAGAIN => return error.SystemResources,
-                os.EPERM => unreachable,
-                os.EINVAL => unreachable,
+                .EAGAIN => return error.SystemResources,
+                .EPERM => unreachable,
+                .EINVAL => unreachable,
                 else => return os.unexpectedErrno(@intCast(usize, err)),
             }
         } else if (builtin.os == .linux) {
@@ -347,13 +347,13 @@ pub const Thread = struct {
                 &thread_ptr.data.handle,
             );
             switch (os.errno(rc)) {
-                0 => return thread_ptr,
-                os.EAGAIN => return error.ThreadQuotaExceeded,
-                os.EINVAL => unreachable,
-                os.ENOMEM => return error.SystemResources,
-                os.ENOSPC => unreachable,
-                os.EPERM => unreachable,
-                os.EUSERS => unreachable,
+                @intToEnum(os.Errno, 0) => return thread_ptr,
+                .EAGAIN => return error.ThreadQuotaExceeded,
+                .EINVAL => unreachable,
+                .ENOMEM => return error.SystemResources,
+                .ENOSPC => unreachable,
+                .EPERM => unreachable,
+                .EUSERS => unreachable,
                 else => |err| return os.unexpectedErrno(err),
             }
         } else {

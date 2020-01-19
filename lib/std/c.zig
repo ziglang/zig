@@ -21,12 +21,12 @@ pub usingnamespace switch (builtin.os) {
     else => struct {},
 };
 
-pub fn getErrno(rc: var) u16 {
-    if (rc == -1) {
-        return @intCast(u16, _errno().*);
-    } else {
-        return 0;
-    }
+pub fn getErrno(rc: var) Errno {
+    const errno = if (rc == -1)
+        _errno().*
+    else
+        0;
+    return @intToEnum(Errno, @intCast(u12, errno));
 }
 
 /// The return type is `type` to force comptime function call execution.

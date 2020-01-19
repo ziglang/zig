@@ -40,9 +40,9 @@ pub fn getauxval(index: usize) usize {
 }
 
 /// Get the errno from a syscall return value, or 0 for no error.
-pub fn getErrno(r: usize) u12 {
+pub fn getErrno(r: usize) Errno {
     const signed_r = @bitCast(isize, r);
-    return if (signed_r > -4096 and signed_r < 0) @intCast(u12, -signed_r) else 0;
+    return @intToEnum(Errno, if (signed_r > -4096 and signed_r < 0) @intCast(u12, -signed_r) else 0);
 }
 
 pub fn dup2(old: i32, new: i32) usize {
@@ -184,7 +184,7 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, of
     if (@hasDecl(@This(), "SYS_mmap2")) {
         // Make sure the offset is also specified in multiples of page size
         if ((offset & (MMAP2_UNIT - 1)) != 0)
-            return @bitCast(usize, @as(isize, -EINVAL));
+            return @bitCast(usize, @as(isize, -@enumToInt(Errno.EINVAL)));
 
         return syscall6(
             SYS_mmap2,
@@ -504,7 +504,7 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
             const f = @ptrCast(vdso_clock_gettime_ty, fn_ptr);
             const rc = f(clk_id, tp);
             switch (rc) {
-                0, @bitCast(usize, @as(isize, -EINVAL)) => return rc,
+                0, @bitCast(usize, -@as(isize, @enumToInt(Errno.EINVAL))) => return rc,
                 else => {},
             }
         }
@@ -522,7 +522,7 @@ fn init_vdso_clock_gettime(clk: i32, ts: *timespec) callconv(.C) usize {
         const f = @ptrCast(vdso_clock_gettime_ty, fn_ptr);
         return f(clk, ts);
     }
-    return @bitCast(usize, @as(isize, -ENOSYS));
+    return @bitCast(usize, -@as(isize, @enumToInt(Errno.ENOSYS)));
 }
 
 pub fn clock_getres(clk_id: i32, tp: *timespec) usize {
@@ -693,8 +693,7 @@ pub fn sigaction(sig: u6, noalias act: *const Sigaction, noalias oact: ?*Sigacti
     const ksa_mask_size = @sizeOf(@TypeOf(ksa_old.mask));
     @memcpy(@ptrCast([*]u8, &ksa.mask), @ptrCast([*]const u8, &act.mask), ksa_mask_size);
     const result = syscall4(SYS_rt_sigaction, sig, @ptrToInt(&ksa), @ptrToInt(&ksa_old), ksa_mask_size);
-    const err = getErrno(result);
-    if (err != 0) {
+    if (getErrno(result) != @intToEnum(Errno, 0)) {
         return result;
     }
     if (oact) |old| {
@@ -773,12 +772,12 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
                     if (next_unsent < i) {
                         const batch_size = i - next_unsent;
                         const r = syscall4(SYS_sendmmsg, @bitCast(usize, @as(isize, fd)), @ptrToInt(&msgvec[next_unsent]), batch_size, flags);
-                        if (getErrno(r) != 0) return next_unsent;
+                        if (getErrno(r) != @intToEnum(Errno, 0)) return next_unsent;
                         if (r < batch_size) return next_unsent + r;
                     }
                     // send current message as own packet
                     const r = sendmsg(fd, &msg.msg_hdr, flags);
-                    if (getErrno(r) != 0) return r;
+                    if (getErrno(r) != @intToEnum(Errno, 0)) return r;
                     // Linux limits the total bytes sent by sendmsg to INT_MAX, so this cast is safe.
                     msg.msg_len = @intCast(u32, r);
                     next_unsent = i + 1;
@@ -789,7 +788,7 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
         if (next_unsent < kvlen or next_unsent == 0) { // want to make sure at least one syscall occurs (e.g. to trigger MSG_EOR)
             const batch_size = kvlen - next_unsent;
             const r = syscall4(SYS_sendmmsg, @bitCast(usize, @as(isize, fd)), @ptrToInt(&msgvec[next_unsent]), batch_size, flags);
-            if (getErrno(r) != 0) return r;
+            if (getErrno(r) != @intToEnum(Errno, 0)) return r;
             return next_unsent + r;
         }
         return kvlen;
@@ -910,7 +909,7 @@ pub fn statx(dirfd: i32, path: [*]const u8, flags: u32, mask: u32, statx_buf: *S
             @ptrToInt(statx_buf),
         );
     }
-    return @bitCast(usize, @as(isize, -ENOSYS));
+    return @bitCast(usize, @as(isize, -@enumToInt(Errno.ENOSYS)));
 }
 
 pub fn listxattr(path: [*:0]const u8, list: [*]u8, size: usize) usize {
