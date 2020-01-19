@@ -101,6 +101,22 @@ pub const Target = union(enum) {
         renderscript32,
         renderscript64,
 
+        pub const aarch64 = @import("target/aarch64.zig");
+        pub const amdgpu = @import("target/amdgpu.zig");
+        pub const arm = @import("target/arm.zig");
+        pub const avr = @import("target/avr.zig");
+        pub const bpf = @import("target/bpf.zig");
+        pub const hexagon = @import("target/hexagon.zig");
+        pub const mips = @import("target/mips.zig");
+        pub const msp430 = @import("target/msp430.zig");
+        pub const nvptx = @import("target/nvptx.zig");
+        pub const powerpc = @import("target/powerpc.zig");
+        pub const riscv = @import("target/riscv.zig");
+        pub const sparc = @import("target/sparc.zig");
+        pub const systemz = @import("target/systemz.zig");
+        pub const wasm = @import("target/wasm.zig");
+        pub const x86 = @import("target/x86.zig");
+
         pub const Arm32 = enum {
             v8_5a,
             v8_4a,
@@ -181,6 +197,71 @@ pub const Target = union(enum) {
             return switch (arch) {
                 .mips, .mipsel, .mips64, .mips64el => true,
                 else => false,
+            };
+        }
+
+        pub fn parseCpu(arch: Arch, cpu_name: []const u8) !*const Cpu {
+            for (arch.allCpus()) |cpu| {
+                if (mem.eql(u8, cpu_name, cpu.name)) {
+                    return cpu;
+                }
+            }
+            return error.UnknownCpu;
+        }
+
+        /// This parsing function supports 2 syntaxes.
+        /// * Comma-separated list of features, with + or - in front of each feature. This
+        ///   form represents a deviation from baseline.
+        /// * Comma-separated list of features, with no + or - in front of each feature. This
+        ///   form represents an exclusive list of enabled features; no other features besides
+        ///   the ones listed, and their dependencies, will be enabled.
+        /// Extra commas are ignored.
+        pub fn parseCpuFeatureSet(arch: Arch, features_text: []const u8) !Cpu.Feature.Set {
+            // Here we compute both and choose the correct result at the end, based
+            // on whether or not we saw + and - signs.
+            var set: @Vector(2, Cpu.Feature.Set) = [2]Cpu.Feature.Set{ 0, arch.baselineFeatures() };
+            var mode: enum {
+                unknown,
+                baseline,
+                whitelist,
+            } = .unknown;
+
+            var it = mem.tokenize(features_text, ",");
+            while (it.next()) |item_text| {
+                const feature_name = blk: {
+                    if (mem.startsWith(u8, item_text, "+")) {
+                        switch (mode) {
+                            .unknown, .baseline => mode = .baseline,
+                            .whitelist => return error.InvalidCpuFeatures,
+                        }
+                        break :blk item_text[1..];
+                    } else if (mem.startsWith(u8, item_text, "-")) {
+                        switch (mode) {
+                            .unknown, .baseline => mode = .baseline,
+                            .whitelist => return error.InvalidCpuFeatures,
+                        }
+                        break :blk item_text[1..];
+                    } else {
+                        switch (mode) {
+                            .unknown, .whitelist => mode = .whitelist,
+                            .baseline => return error.InvalidCpuFeatures,
+                        }
+                        break :blk item_text;
+                    }
+                };
+                for (arch.allFeaturesList()) |feature, index| {
+                    if (mem.eql(u8, feature_name, feature.name)) {
+                        set |= @splat(2, 1 << index);
+                        break;
+                    }
+                } else {
+                    return error.UnknownCpuFeature;
+                }
+            }
+
+            return switch (mode) {
+                .unknown, .whitelist => set[0],
+                .baseline => set[1],
             };
         }
 
@@ -296,6 +377,98 @@ pub const Target = union(enum) {
                 => .Big,
             };
         }
+
+        /// Returns a name that matches the lib/std/target/* directory name.
+        pub fn genericName(arch: Arch) []const u8 {
+            return switch (arch) {
+                .arm, .armeb, .thumb, .thumbeb => "arm",
+                .aarch64, .aarch64_be, .aarch64_32 => "aarch64",
+                .avr => "avr",
+                .bpfel, .bpfeb => "bpf",
+                .hexagon => "hexagon",
+                .mips, .mipsel, .mips64, .mips64el => "mips",
+                .msp430 => "msp430",
+                .powerpc, .powerpc64, .powerpc64le => "powerpc",
+                .amdgcn => "amdgpu",
+                .riscv32, .riscv64 => "riscv",
+                .sparc, .sparcv9, .sparcel => "sparc",
+                .s390x => "systemz",
+                .i386, .x86_64 => "x86",
+                .nvptx, .nvptx64 => "nvptx",
+                .wasm32, .wasm64 => "wasm",
+                else => @tagName(arch),
+            };
+        }
+
+        /// All CPU features Zig is aware of, sorted lexicographically by name.
+        pub fn allFeaturesList(arch: Arch) []const *const Cpu.Feature {
+            return switch (arch) {
+                .arm, .armeb, .thumb, .thumbeb => arm.all_features,
+                .aarch64, .aarch64_be, .aarch64_32 => aarch64.all_features,
+                .avr => avr.all_features,
+                .bpfel, .bpfeb => bpf.all_features,
+                .hexagon => hexagon.all_features,
+                .mips, .mipsel, .mips64, .mips64el => mips.all_features,
+                .msp430 => msp430.all_features,
+                .powerpc, .powerpc64, .powerpc64le => powerpc.all_features,
+                .amdgcn => amdgpu.all_features,
+                .riscv32, .riscv64 => riscv.all_features,
+                .sparc, .sparcv9, .sparcel => sparc.all_features,
+                .s390x => systemz.all_features,
+                .i386, .x86_64 => x86.all_features,
+                .nvptx, .nvptx64 => nvptx.all_features,
+                .wasm32, .wasm64 => wasm.all_features,
+
+                else => &[0]*const Cpu.Feature{},
+            };
+        }
+
+        /// The "default" set of CPU features for cross-compiling. A conservative set
+        /// of features that is expected to be supported on most available hardware.
+        pub fn baselineFeatures(arch: Arch) Cpu.Feature.Set {
+            return switch (arch) {
+                .arm, .armeb, .thumb, .thumbeb => arm.baseline_features,
+                .aarch64, .aarch64_be, .aarch64_32 => aarch64.cpu.generic.features,
+                .avr => avr.baseline_features,
+                .bpfel, .bpfeb => bpf.baseline_features,
+                .hexagon => hexagon.baseline_features,
+                .mips, .mipsel, .mips64, .mips64el => mips.baseline_features,
+                .msp430 => msp430.baseline_features,
+                .powerpc, .powerpc64, .powerpc64le => powerpc.baseline_features,
+                .amdgcn => amdgpu.baseline_features,
+                .riscv32, .riscv64 => riscv.baseline_features,
+                .sparc, .sparcv9, .sparcel => sparc.baseline_features,
+                .s390x => systemz.baseline_features,
+                .i386, .x86_64 => x86.baseline_features,
+                .nvptx, .nvptx64 => nvptx.baseline_features,
+                .wasm32, .wasm64 => wasm.baseline_features,
+
+                else => &[0]*const Cpu.Feature{},
+            };
+        }
+
+        /// All CPUs Zig is aware of, sorted lexicographically by name.
+        pub fn allCpus(arch: Arch) []const *const Cpu {
+            return switch (arch) {
+                .arm, .armeb, .thumb, .thumbeb => arm.all_cpus,
+                .aarch64, .aarch64_be, .aarch64_32 => aarch64.all_cpus,
+                .avr => avr.all_cpus,
+                .bpfel, .bpfeb => bpf.all_cpus,
+                .hexagon => hexagon.all_cpus,
+                .mips, .mipsel, .mips64, .mips64el => mips.all_cpus,
+                .msp430 => msp430.all_cpus,
+                .powerpc, .powerpc64, .powerpc64le => powerpc.all_cpus,
+                .amdgcn => amdgpu.all_cpus,
+                .riscv32, .riscv64 => riscv.all_cpus,
+                .sparc, .sparcv9, .sparcel => sparc.all_cpus,
+                .s390x => systemz.all_cpus,
+                .i386, .x86_64 => x86.all_cpus,
+                .nvptx, .nvptx64 => nvptx.all_cpus,
+                .wasm32, .wasm64 => wasm.all_cpus,
+
+                else => &[0]*const Cpu{},
+            };
+        }
     };
 
     pub const Abi = enum {
@@ -323,6 +496,28 @@ pub const Target = union(enum) {
         macabi,
     };
 
+    pub const Cpu = struct {
+        name: []const u8,
+        llvm_name: ?[:0]const u8,
+        features: Feature.Set,
+
+        pub const Feature = struct {
+            /// The bit index into `Set`.
+            index: u8,
+            name: []const u8,
+            llvm_name: ?[:0]const u8,
+            description: []const u8,
+            dependencies: Set,
+
+            /// A bit set of all the features.
+            pub const Set = u128;
+
+            pub fn isEnabled(set: Set, arch_feature_index: u7) bool {
+                return (set & (@as(Set, 1) << arch_feature_index)) != 0;
+            }
+        };
+    };
+
     pub const ObjectFormat = enum {
         unknown,
         coff,
@@ -346,6 +541,19 @@ pub const Target = union(enum) {
         arch: Arch,
         os: Os,
         abi: Abi,
+        cpu_features: CpuFeatures = .baseline,
+
+        pub const CpuFeatures = union(enum) {
+            /// The "default" set of CPU features for cross-compiling. A conservative set
+            /// of features that is expected to be supported on most available hardware.
+            baseline,
+
+            /// Target one specific CPU.
+            cpu: *const Cpu,
+
+            /// Explicitly provide the entire CPU feature set.
+            features: Cpu.Feature.Set,
+        };
     };
 
     pub const current = Target{
@@ -353,10 +561,19 @@ pub const Target = union(enum) {
             .arch = builtin.arch,
             .os = builtin.os,
             .abi = builtin.abi,
+            .cpu_features = builtin.cpu_features,
         },
     };
 
     pub const stack_align = 16;
+
+    pub fn cpuFeatures(self: Target) []const *const Cpu.Feature {
+        return switch (self.cpu_features) {
+            .baseline => self.arch.baselineFeatures(),
+            .cpu => |cpu| cpu.features,
+            .features => |features| features,
+        };
+    }
 
     pub fn zigTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
         return std.fmt.allocPrint(allocator, "{}{}-{}-{}", .{
@@ -496,7 +713,7 @@ pub const Target = union(enum) {
     pub fn parseArchSub(text: []const u8) ParseArchSubError!Arch {
         const info = @typeInfo(Arch);
         inline for (info.Union.fields) |field| {
-            if (text.len >= field.name.len and mem.eql(u8, text[0..field.name.len], field.name)) {
+            if (mem.eql(u8, text, field.name)) {
                 if (field.field_type == void) {
                     return @as(Arch, @field(Arch, field.name));
                 } else {
@@ -511,31 +728,6 @@ pub const Target = union(enum) {
                 }
             }
         }
-        return error.UnknownArchitecture;
-    }
-
-    pub fn parseArchTag(text: []const u8) ParseArchSubError!@TagType(Arch) {
-        const info = @typeInfo(Arch);
-        inline for (info.Union.fields) |field| {
-            if (text.len >= field.name.len and mem.eql(u8, text[0..field.name.len], field.name)) {
-                if (text.len == field.name.len) return @as(@TagType(Arch), @field(Arch, field.name));
-
-                if (field.field_type == void) {
-                    return error.UnknownArchitecture;
-                }
-
-                const sub_info = @typeInfo(field.field_type);
-                inline for (sub_info.Enum.fields) |sub_field| {
-                    const combined = field.name ++ sub_field.name;
-                    if (mem.eql(u8, text, combined)) {
-                        return @as(@TagType(Arch), @field(Arch, field.name));
-                    }
-                }
-
-                return error.UnknownSubArchitecture;
-            }
-        }
-
         return error.UnknownArchitecture;
     }
 
@@ -841,83 +1033,3 @@ pub const Target = union(enum) {
         return .unavailable;
     }
 };
-
-pub const aarch64 = @import("target/aarch64.zig");
-pub const amdgpu = @import("target/amdgpu.zig");
-pub const arm = @import("target/arm.zig");
-pub const avr = @import("target/avr.zig");
-pub const bpf = @import("target/bpf.zig");
-pub const hexagon = @import("target/hexagon.zig");
-pub const mips = @import("target/mips.zig");
-pub const msp430 = @import("target/msp430.zig");
-pub const nvptx = @import("target/nvptx.zig");
-pub const powerpc = @import("target/powerpc.zig");
-pub const riscv = @import("target/riscv.zig");
-pub const sparc = @import("target/sparc.zig");
-pub const systemz = @import("target/systemz.zig");
-pub const wasm = @import("target/wasm.zig");
-pub const x86 = @import("target/x86.zig");
-
-pub const Feature = struct {
-    name: []const u8,
-    llvm_name: ?[]const u8,
-    description: []const u8,
-
-    dependencies: []*const Feature,
-};
-
-pub const Cpu = struct {
-    name: []const u8,
-    llvm_name: ?[]const u8,
-
-    dependencies: []*const Feature,
-};
-
-pub const TargetDetails = union(enum) {
-    cpu: *const Cpu,
-    features: []*const Feature,
-};
-
-pub fn getFeaturesForArch(arch: @TagType(Target.Arch)) []*const Feature {
-    return switch (arch) {
-        .arm, .armeb, .thumb, .thumbeb => arm.features,
-        .aarch64, .aarch64_be, .aarch64_32 => aarch64.features,
-        .avr => avr.features,
-        .bpfel, .bpfeb => bpf.features,
-        .hexagon => hexagon.features,
-        .mips, .mipsel, .mips64, .mips64el => mips.features,
-        .msp430 => msp430.features,
-        .powerpc, .powerpc64, .powerpc64le => powerpc.features,
-        .amdgcn => amdgpu.features,
-        .riscv32, .riscv64 => riscv.features,
-        .sparc, .sparcv9, .sparcel => sparc.features,
-        .s390x => systemz.features,
-        .i386, .x86_64 => x86.features,
-        .nvptx, .nvptx64 => nvptx.features,
-        .wasm32, .wasm64 => wasm.features,
-
-        else => &[_]*const Feature{},
-    };
-}
-
-pub fn getCpusForArch(arch: @TagType(Target.Arch)) []*const Cpu {
-    return switch (arch) {
-        .arm, .armeb, .thumb, .thumbeb => arm.cpus,
-        .aarch64, .aarch64_be, .aarch64_32 => aarch64.cpus,
-        .avr => avr.cpus,
-        .bpfel, .bpfeb => bpf.cpus,
-        .hexagon => hexagon.cpus,
-        .mips, .mipsel, .mips64, .mips64el => mips.cpus,
-        .msp430 => msp430.cpus,
-        .powerpc, .powerpc64, .powerpc64le => powerpc.cpus,
-        .amdgcn => amdgpu.cpus,
-        .riscv32, .riscv64 => riscv.cpus,
-        .sparc, .sparcv9, .sparcel => sparc.cpus,
-        .s390x => systemz.cpus,
-        .i386, .x86_64 => x86.cpus,
-        .nvptx, .nvptx64 => nvptx.cpus,
-        .wasm32, .wasm64 => wasm.cpus,
-
-        else => &[_]*const Cpu{},
-    };
-}

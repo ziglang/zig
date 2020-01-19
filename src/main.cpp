@@ -955,9 +955,9 @@ int main(int argc, char **argv) {
                     targets_list_features_arch = argv[i];
                 } else if (strcmp(arg, "--list-cpus") == 0) {
                     targets_list_cpus_arch = argv[i];
-                } else if (strcmp(arg, "--cpu") == 0) {
+                } else if (strcmp(arg, "-target-cpu") == 0) {
                     cpu = argv[i];
-                } else if (strcmp(arg, "--features") == 0) {
+                } else if (strcmp(arg, "-target-feature") == 0) {
                     features = argv[i];
                 }else {
                     fprintf(stderr, "Invalid argument: %s\n", arg);
@@ -1074,27 +1074,26 @@ int main(int argc, char **argv) {
         }
     }
 
-    Stage2TargetDetails *target_details = nullptr;
     if (cpu && features) {
-        fprintf(stderr, "--cpu and --features options not allowed together\n");
+        fprintf(stderr, "-target-cpu and -target-feature options not allowed together\n");
         return main_exit(root_progress_node, EXIT_FAILURE);
     } else if (cpu) {
-        target_details = stage2_target_details_parse_cpu(target_arch_name(target.arch), cpu);
-        if (!target_details) {
-            fprintf(stderr, "invalid --cpu value\n");
+        target.cpu_features = stage2_cpu_features_parse_cpu(target_arch_name(target.arch), cpu);
+        if (!target.cpu_features) {
+            fprintf(stderr, "invalid -target-cpu value\n");
             return main_exit(root_progress_node, EXIT_FAILURE);
         }
     } else if (features) {
-        target_details = stage2_target_details_parse_features(target_arch_name(target.arch), features);
-        if (!target_details) {
-            fprintf(stderr, "invalid --features value\n");
+        target.cpu_features = stage2_cpu_features_parse_features(target_arch_name(target.arch), features);
+        if (!target.cpu_features) {
+            fprintf(stderr, "invalid -target-feature value\n");
             return main_exit(root_progress_node, EXIT_FAILURE);
         }
     } else {
         // If no details are specified and we are not native, load
         // cross-compilation default features.
         if (!target.is_native) {
-            target_details = stage2_target_details_get_default(target_arch_name(target.arch), target_os_name(target.os));
+            target.cpu_features = stage2_cpu_features_baseline();
         }
     }
 
@@ -1148,7 +1147,6 @@ int main(int argc, char **argv) {
         g->want_stack_check = want_stack_check;
         g->want_sanitize_c = want_sanitize_c;
         g->want_single_threaded = want_single_threaded;
-        g->target_details = target_details;
         Buf *builtin_source = codegen_generate_builtin_source(g);
         if (fwrite(buf_ptr(builtin_source), 1, buf_len(builtin_source), stdout) != buf_len(builtin_source)) {
             fprintf(stderr, "unable to write to stdout: %s\n", strerror(ferror(stdout)));
@@ -1302,8 +1300,6 @@ int main(int argc, char **argv) {
             for (size_t i = 0; i < rpath_list.length; i += 1) {
                 codegen_add_rpath(g, rpath_list.at(i));
             }
-
-            g->target_details = target_details;
 
             codegen_set_rdynamic(g, rdynamic);
             if (mmacosx_version_min && mios_version_min) {

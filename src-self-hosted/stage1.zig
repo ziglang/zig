@@ -81,6 +81,9 @@ const Error = extern enum {
     OperationAborted,
     BrokenPipe,
     NoSpaceLeft,
+    NotLazy,
+    IsAsync,
+    ImportOutsidePkgPath,
 };
 
 const FILE = std.c.FILE;
@@ -150,7 +153,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
     const argc_usize = @intCast(usize, argc);
     var arg_i: usize = 0;
     while (arg_i < argc_usize) : (arg_i += 1) {
-        try args_list.append(std.mem.toSliceConst(u8, argv[arg_i]));
+        try args_list.append(mem.toSliceConst(u8, argv[arg_i]));
     }
 
     stdout = &std.io.getStdOut().outStream().stream;
@@ -532,7 +535,7 @@ export fn stage2_progress_update_node(node: *std.Progress.Node, done_count: usiz
 // ABI warning
 export fn stage2_list_features_for_arch(arch_name_ptr: [*]const u8, arch_name_len: usize, show_dependencies: bool) void {
     printFeaturesForArch(arch_name_ptr[0..arch_name_len], show_dependencies) catch |err| {
-        std.debug.warn("Failed to list features: {}\n", .{ @errorName(err) });
+        std.debug.warn("Failed to list features: {}\n", .{@errorName(err)});
     };
 }
 
@@ -540,11 +543,11 @@ fn printFeaturesForArch(arch_name: []const u8, show_dependencies: bool) !void {
     const stdout_stream = &std.io.getStdOut().outStream().stream;
 
     const arch = Target.parseArchTag(arch_name) catch {
-        std.debug.warn("Failed to parse arch '{}'\nInvoke 'zig targets' for a list of valid architectures\n", .{ arch_name });
+        std.debug.warn("Failed to parse arch '{}'\nInvoke 'zig targets' for a list of valid architectures\n", .{arch_name});
         return;
     };
 
-    try stdout_stream.print("Available features for {}:\n", .{ @tagName(arch) });
+    try stdout_stream.print("Available features for {}:\n", .{@tagName(arch)});
 
     const features = std.target.getFeaturesForArch(arch);
 
@@ -556,18 +559,18 @@ fn printFeaturesForArch(arch_name: []const u8, show_dependencies: bool) !void {
     }
 
     for (features) |feature| {
-        try stdout_stream.print("  {}", .{ feature.name });
-        
+        try stdout_stream.print("  {}", .{feature.name});
+
         var i: usize = 0;
         while (i < longest_len - feature.name.len) : (i += 1) {
-            try stdout_stream.write(" ");    
+            try stdout_stream.write(" ");
         }
 
-        try stdout_stream.print(" - {}\n", .{ feature.description });
+        try stdout_stream.print(" - {}\n", .{feature.description});
 
         if (show_dependencies and feature.dependencies.len > 0) {
             for (feature.dependencies) |dependency| {
-                try stdout_stream.print("    {}\n", .{ dependency.name });
+                try stdout_stream.print("    {}\n", .{dependency.name});
             }
         }
     }
@@ -576,7 +579,7 @@ fn printFeaturesForArch(arch_name: []const u8, show_dependencies: bool) !void {
 // ABI warning
 export fn stage2_list_cpus_for_arch(arch_name_ptr: [*]const u8, arch_name_len: usize, show_dependencies: bool) void {
     printCpusForArch(arch_name_ptr[0..arch_name_len], show_dependencies) catch |err| {
-        std.debug.warn("Failed to list features: {}\n", .{ @errorName(err) });
+        std.debug.warn("Failed to list features: {}\n", .{@errorName(err)});
     };
 }
 
@@ -584,13 +587,13 @@ fn printCpusForArch(arch_name: []const u8, show_dependencies: bool) !void {
     const stdout_stream = &std.io.getStdOut().outStream().stream;
 
     const arch = Target.parseArchTag(arch_name) catch {
-        std.debug.warn("Failed to parse arch '{}'\nInvoke 'zig targets' for a list of valid architectures\n", .{ arch_name });
+        std.debug.warn("Failed to parse arch '{}'\nInvoke 'zig targets' for a list of valid architectures\n", .{arch_name});
         return;
     };
 
     const cpus = std.target.getCpusForArch(arch);
 
-    try stdout_stream.print("Available cpus for {}:\n", .{ @tagName(arch) });
+    try stdout_stream.print("Available cpus for {}:\n", .{@tagName(arch)});
 
     var longest_len: usize = 0;
     for (cpus) |cpu| {
@@ -600,78 +603,97 @@ fn printCpusForArch(arch_name: []const u8, show_dependencies: bool) !void {
     }
 
     for (cpus) |cpu| {
-        try stdout_stream.print("  {}", .{ cpu.name });
-        
+        try stdout_stream.print("  {}", .{cpu.name});
+
         var i: usize = 0;
         while (i < longest_len - cpu.name.len) : (i += 1) {
-            try stdout_stream.write(" ");    
+            try stdout_stream.write(" ");
         }
 
         try stdout_stream.write("\n");
 
         if (show_dependencies and cpu.dependencies.len > 0) {
             for (cpu.dependencies) |dependency| {
-                try stdout_stream.print("    {}\n", .{ dependency.name });
+                try stdout_stream.print("    {}\n", .{dependency.name});
             }
         }
     }
 }
 
-const null_terminated_empty_string = (&[_]u8 { 0 })[0..0 :0];
+const Stage2CpuFeatures = struct {
+    allocator: *mem.Allocator,
+    cpu_features: Target.CpuFeatures,
 
-fn toNullTerminatedStringAlloc(allocator: *std.mem.Allocator, str: []const u8) ![:0]const u8 {
-    var buffer = try std.Buffer.init(allocator, str);
-    
-    const len = buffer.len();
-
-    // Don't deinit since we steal all the buffer's memory here.
-    return buffer.list.toOwnedSlice()[0..len :0];
-}
-
-const Stage2TargetDetails = struct {
-    allocator: *std.mem.Allocator,
-    target_details: std.target.TargetDetails,
-    
-    llvm_cpu_str: [:0]const u8,
-    llvm_features_str: [:0]const u8,
+    llvm_cpu_name: ?[:0]const u8,
+    llvm_features_str: ?[:0]const u8,
 
     builtin_str: [:0]const u8,
+    cache_hash: [:0]const u8,
 
     const Self = @This();
 
-    fn initCpu(allocator: *std.mem.Allocator, arch: @TagType(std.Target.Arch), cpu: *const std.target.Cpu) !Self {
-        var builtin_str_buffer = try std.Buffer.init(
-            allocator,
-            "@import(\"std\").target.TargetDetails{.cpu=&@import(\"std\").target.");
+    fn initBaseline(allocator: *mem.Allocator) !Self {
+        const builtin_str = try std.fmt.allocPrint0(allocator, "CpuFeatures.baseline;\n");
+        errdefer allocator.free(builtin_str);
 
-        try builtin_str_buffer.append(@tagName(arch));
-        try builtin_str_buffer.append(".cpu_");
-        try builtin_str_buffer.append(cpu.name);
-        try builtin_str_buffer.append("};");
-
-        const cpu_string = cpu.llvm_name orelse "";
+        const cache_hash = try std.fmt.allocPrint0(allocator, "\n\n");
+        errdefer allocator.free(cache_hash);
 
         return Self{
             .allocator = allocator,
-            .target_details = .{
-                .cpu = cpu,
-            },
-            .llvm_cpu_str = try toNullTerminatedStringAlloc(allocator, cpu_string),
-            .llvm_features_str = null_terminated_empty_string,
-            .builtin_str = builtin_str_buffer.toSliceConst(),
+            .cpu_features = .{ .cpu = cpu },
+            .llvm_cpu_name = null,
+            .llvm_features_str = null,
+            .builtin_str = builtin_str,
+            .cache_hash = cache_hash,
         };
     }
 
-    fn initFeatures(allocator: *std.mem.Allocator, arch: @TagType(std.Target.Arch), features: []*const std.target.Feature) !Self {
-        var builtin_str_buffer = try std.Buffer.init(
-            allocator, 
-            "@import(\"std\").target.TargetDetails{.features=&[_]*const @import(\"std\").target.Feature{\n");
+    fn initCpu(allocator: *mem.Allocator, arch: Target.Arch, cpu: *const Target.Cpu) !Self {
+        const builtin_str = try std.fmt.allocPrint0(
+            allocator,
+            "CpuFeatures{{ .cpu = &Arch.{}.cpu.{} }};\n",
+            arch.genericName(),
+            cpu.name,
+        );
+        errdefer allocator.free(builtin_str);
+
+        const cache_hash = try std.fmt.allocPrint0(allocator, "{}\n{x}", cpu.name, cpu.features);
+        errdefer allocator.free(cache_hash);
+
+        return Self{
+            .allocator = allocator,
+            .cpu_features = .{ .cpu = cpu },
+            .llvm_cpu_name = cpu.llvm_name,
+            .llvm_features_str = null,
+            .builtin_str = builtin_str,
+            .cache_hash = cache_hash,
+        };
+    }
+
+    fn initFeatures(
+        allocator: *mem.Allocator,
+        arch: Target.Arch,
+        features: Target.Cpu.Feature.Set,
+    ) !Self {
+        const cache_hash = try std.fmt.allocPrint0(allocator, "\n{x}", features);
+        errdefer allocator.free(cache_hash);
+
+        const generic_arch_name = arch.genericName();
+        var builtin_str_buffer = try std.Buffer.allocPrint(
+            allocator,
+            "CpuFeatures{{ .features = Arch.{}.featureSet(&[_]Arch.{}.Feature{{\n",
+            generic_arch_name,
+            generic_arch_name,
+        );
+        defer builtin_str_buffer.deinit();
 
         var llvm_features_buffer = try std.Buffer.initSize(allocator, 0);
+        defer llvm_features_buffer.deinit();
 
         // First, disable all features.
         // This way, we only get the ones the user requests.
-        for (std.target.getFeaturesForArch(arch)) |feature| {
+        for (arch.allFeatures()) |feature| {
             if (feature.llvm_name) |llvm_name| {
                 try llvm_features_buffer.append("-");
                 try llvm_features_buffer.append(llvm_name);
@@ -684,232 +706,117 @@ const Stage2TargetDetails = struct {
                 try llvm_features_buffer.append("+");
                 try llvm_features_buffer.append(llvm_name);
                 try llvm_features_buffer.append(",");
-                
-                try builtin_str_buffer.append("&@import(\"std\").target.");
-                try builtin_str_buffer.append(@tagName(arch));
-                try builtin_str_buffer.append(".feature_");
-                try builtin_str_buffer.append(feature.name);
-                try builtin_str_buffer.append(",");
             }
+
+            try builtin_str_buffer.append("    .");
+            try builtin_str_buffer.append(feature.name);
+            try builtin_str_buffer.append(",\n");
         }
 
-        try builtin_str_buffer.append("}};");
+        if (mem.endsWith(u8, llvm_features_buffer.toSliceConst(), ",")) {
+            llvm_features_buffer.shrink(llvm_features_buffer.len() - 1);
+        }
+
+        try builtin_str_buffer.append("})};\n");
 
         return Self{
             .allocator = allocator,
-            .target_details = std.target.TargetDetails{
-                .features = features,
-            },
-            .llvm_cpu_str = null_terminated_empty_string,
-            .llvm_features_str = llvm_features_buffer.toSliceConst(),
-            .builtin_str = builtin_str_buffer.toSliceConst(),
+            .cpu_features = .{ .features = features },
+            .llvm_cpu_name = null,
+            .llvm_features_str = llvm_features_buffer.toOwnedSlice(),
+            .builtin_str = builtin_str_buffer.toOwnedSlice(),
+            .cache_hash = cache_hash,
         };
+    }
+
+    fn deinit(self: *Self) void {
+        self.allocator.free(self.cache_hash);
+        self.allocator.free(self.builtin_str);
+        if (self.llvm_features_str) |llvm_features_str| self.allocator.free(llvm_features_str);
+        self.* = undefined;
     }
 };
 
 // ABI warning
-export fn stage2_target_details_parse_cpu(arch_str: ?[*:0]const u8, cpu_str: ?[*:0]const u8) ?*Stage2TargetDetails {
-    if (cpu_str == null) return null;
-    if (arch_str == null) return null;
-
-    const arch = Target.parseArchTag(std.mem.toSliceConst(u8, arch_str.?)) catch {
-        return null;
-    };
-    return parseCpu(arch, std.mem.toSliceConst(u8, cpu_str.?)) catch |err| {
-        switch (err) {
-            error.OutOfMemory => @panic("out of memory"),
-            else => return null,
-        }
+export fn stage2_cpu_features_parse_cpu(arch_name: [*:0]const u8, cpu_name: [*:0]const u8) *Stage2CpuFeatures {
+    return parseCpu(arch_name, cpu_name) catch |err| switch (err) {
+        error.OutOfMemory => @panic("out of memory"),
     };
 }
 
-// ABI warning
-export fn stage2_target_details_parse_features(arch_str: ?[*:0]const u8, features_str: ?[*:0]const u8) ?*Stage2TargetDetails {
-    if (features_str == null) return null;
-    if (arch_str == null) return null;
-    
-    const arch = Target.parseArchTag(std.mem.toSliceConst(u8, arch_str.?)) catch return null;
-    return parseFeatures(arch, std.mem.toSliceConst(u8, features_str.?)) catch |err| {
-        switch (err) {
-            error.OutOfMemory => @panic("out of memory"),
-            else => return null,
-        }
-    };
-}
+fn parseCpu(arch_name: [*:0]const u8, cpu_name: [*:0]const u8) !*Stage2CpuFeatures {
+    const arch = try Target.parseArchSub(mem.toSliceConst(u8, arch_name));
+    const cpu = try arch.parseCpu(mem.toSliceConst(u8, cpu_name));
 
-fn parseCpu(arch: @TagType(std.Target.Arch), str: []const u8) !*Stage2TargetDetails {
-    const allocator = std.heap.c_allocator;
+    const ptr = try allocator.create(Stage2CpuFeatures);
+    errdefer std.heap.c_allocator.destroy(ptr);
 
-    const cpus = std.target.getCpusForArch(arch);
-
-    for (cpus) |cpu| {
-        if (std.mem.eql(u8, str, cpu.name)) {
-            const ptr = try allocator.create(Stage2TargetDetails);
-            ptr.* = try Stage2TargetDetails.initCpu(std.heap.c_allocator, arch, cpu);
-
-            return ptr;
-        }
-    }
-
-    return error.InvalidCpu;
-}
-
-fn parseFeatures(arch: @TagType(std.Target.Arch), str: []const u8) !*Stage2TargetDetails {
-    const allocator = std.heap.c_allocator;
-
-    const known_features = std.target.getFeaturesForArch(arch);
-
-    var features = std.ArrayList(*const std.target.Feature).init(allocator);
-    defer features.deinit();
-
-    var start: usize = 0;
-    while (start < str.len) {
-        const next_comma_pos = std.mem.indexOfScalar(u8, str[start..], ',') orelse str.len - start;
-        const feature_str = std.mem.trim(u8, str[start..start+next_comma_pos], " ");
-
-        start += next_comma_pos + 1;
-
-        if (feature_str.len == 0) continue;
-
-        var feature: ?*const std.target.Feature = null;
-        for (known_features) |known_feature| {
-            if (std.mem.eql(u8, feature_str, known_feature.name)) {
-                feature = known_feature;
-                break;
-            }
-        }
-
-        if (feature) |f| {
-            features.append(f) catch @panic("out of memory");
-
-        } else {
-            return error.InvalidFeature;
-        }
-    }
-
-    const features_slice = features.toOwnedSlice();
-
-    const ptr = try allocator.create(Stage2TargetDetails);
-    ptr.* = try Stage2TargetDetails.initFeatures(allocator, arch, features_slice);
+    ptr.* = try Stage2CpuFeatures.initCpu(std.heap.c_allocator, arch, cpu);
+    errdefer ptr.deinit();
 
     return ptr;
 }
 
 // ABI warning
-export fn stage2_target_details_get_cache_str(target_details: ?*const Stage2TargetDetails) [*:0]const u8 {
-    if (target_details) |td| {
-        return @as([*:0]const u8, switch (td.target_details) {
-            .cpu => td.llvm_cpu_str,
-            .features => td.llvm_features_str,
-        });
-    }
-
-    return @as([*:0]const u8, null_terminated_empty_string);
-}
-
-// ABI warning
-export fn stage2_target_details_get_llvm_cpu(target_details: ?*const Stage2TargetDetails) [*:0]const u8 {
-    if (target_details) |td| {
-        return @as([*:0]const u8, td.llvm_cpu_str);
-    }
-
-    return @as([*:0]const u8, null_terminated_empty_string);
-}
-
-// ABI warning
-export fn stage2_target_details_get_llvm_features(target_details: ?*const Stage2TargetDetails) [*:0]const u8 {
-    if (target_details) |td| {
-        return @as([*:0]const u8, td.llvm_features_str);
-    }
-
-    return @as([*:0]const u8, null_terminated_empty_string);
-}
-
-// ABI warning
-export fn stage2_target_details_get_builtin_str(target_details: ?*const Stage2TargetDetails) [*:0]const u8 {
-    if (target_details) |td| {
-        return @as([*:0]const u8, td.builtin_str);
-    }
-
-    return @as([*:0]const u8, null_terminated_empty_string);
-}
-
-const riscv32_default_features: []*const std.target.Feature = &[_]*const std.target.Feature {
-    &std.target.riscv.feature_a,
-    &std.target.riscv.feature_c,
-    &std.target.riscv.feature_d,
-    &std.target.riscv.feature_f,
-    &std.target.riscv.feature_m,
-    &std.target.riscv.feature_relax,
-};
-
-const riscv64_default_features: []*const std.target.Feature = &[_]*const std.target.Feature {
-    &std.target.riscv.feature_bit64,
-    &std.target.riscv.feature_a,
-    &std.target.riscv.feature_c,
-    &std.target.riscv.feature_d,
-    &std.target.riscv.feature_f,
-    &std.target.riscv.feature_m,
-    &std.target.riscv.feature_relax,
-};
-
-const i386_default_features: []*const std.target.Feature = &[_]*const std.target.Feature {
-    &std.target.x86.feature_cmov,
-    &std.target.x86.feature_cx8,
-    &std.target.x86.feature_fxsr,
-    &std.target.x86.feature_mmx,
-    &std.target.x86.feature_nopl,
-    &std.target.x86.feature_sse,
-    &std.target.x86.feature_sse2,
-    &std.target.x86.feature_slowUnalignedMem16,
-    &std.target.x86.feature_x87,
-};
-
-// Same as above but without sse.
-const i386_default_features_freestanding: []*const std.target.Feature = &[_]*const std.target.Feature {
-    &std.target.x86.feature_cmov,
-    &std.target.x86.feature_cx8,
-    &std.target.x86.feature_fxsr,
-    &std.target.x86.feature_mmx,
-    &std.target.x86.feature_nopl,
-    &std.target.x86.feature_slowUnalignedMem16,
-    &std.target.x86.feature_x87,
-};
-
-// ABI warning
-export fn stage2_target_details_get_default(arch_str: ?[*:0]const u8, os_str: ?[*:0]const u8) ?*Stage2TargetDetails {
-    if (arch_str == null) return null;
-    if (os_str == null) return null;
-    
-    const arch = Target.parseArchTag(std.mem.toSliceConst(u8, arch_str.?)) catch return null;
-    const os = Target.parseOs(std.mem.toSliceConst(u8, os_str.?)) catch return null;
-
-    return createDefaultTargetDetails(arch, os) catch return null;
-}
-
-fn createDefaultTargetDetails(arch: @TagType(std.Target.Arch), os: std.Target.Os) !?*Stage2TargetDetails {
-    const allocator = std.heap.c_allocator;
-
-    return switch (arch) {
-        .riscv32 => blk: {
-            const ptr = try allocator.create(Stage2TargetDetails);
-            ptr.* = try Stage2TargetDetails.initFeatures(allocator, arch, riscv32_default_features);
-            break :blk ptr;
-        },
-        .riscv64 => blk: {
-            const ptr = try allocator.create(Stage2TargetDetails);
-            ptr.* = try Stage2TargetDetails.initFeatures(allocator, arch, riscv64_default_features);
-            break :blk ptr;
-        },
-        .i386 => blk: {
-            const ptr = try allocator.create(Stage2TargetDetails);
-            const features = switch (os) {
-                .freestanding => i386_default_features_freestanding,
-                else => i386_default_features,
-            };
-            ptr.* = try Stage2TargetDetails.initFeatures(allocator, arch, features);
-            break :blk ptr;
-        },
-        else => null,
+export fn stage2_cpu_features_parse_features(
+    arch_name: [*:0]const u8,
+    features_text: [*:0]const u8,
+) *Stage2CpuFeatures {
+    return parseFeatures(arch_name, features_text) catch |err| switch (err) {
+        error.OutOfMemory => @panic("out of memory"),
     };
+}
+
+fn parseFeatures(arch_name: [*:0]const u8, features_text: [*:0]const u8) !*Stage2CpuFeatures {
+    const arch = try Target.parseArchSub(mem.toSliceConst(u8, arch_name));
+    const set = try arch.parseCpuFeatureSet(mem.toSliceConst(u8, features_text));
+
+    const ptr = try std.heap.c_allocator.create(Stage2CpuFeatures);
+    errdefer std.heap.c_allocator.destroy(ptr);
+
+    ptr.* = try Stage2CpuFeatures.initFeatures(std.heap.c_allocator, arch, set);
+    errdefer ptr.deinit();
+
+    return ptr;
+}
+
+// ABI warning
+export fn stage2_cpu_features_baseline() *Stage2CpuFeatures {
+    const ptr = try std.heap.c_allocator.create(Stage2CpuFeatures);
+    errdefer std.heap.c_allocator.destroy(ptr);
+
+    ptr.* = try Stage2CpuFeatures.initBaseline(std.heap.c_allocator);
+    errdefer ptr.deinit();
+
+    return ptr;
+}
+
+// ABI warning
+export fn stage2_cpu_features_get_cache_hash(
+    cpu_features: *const Stage2CpuFeatures,
+    ptr: *[*:0]const u8,
+    len: *usize,
+) void {
+    ptr.* = cpu_features.cache_hash.ptr;
+    len.* = cpu_features.cache_hash.len;
+}
+
+// ABI warning
+export fn stage2_cpu_features_get_builtin_str(
+    cpu_features: *const Stage2CpuFeatures,
+    ptr: *[*:0]const u8,
+    len: *usize,
+) void {
+    ptr.* = cpu_features.builtin_str.ptr;
+    len.* = cpu_features.builtin_str.len;
+}
+
+// ABI warning
+export fn stage2_cpu_features_get_llvm_cpu(cpu_features: *const Stage2CpuFeatures) ?[*:0]const u8 {
+    return cpu_features.llvm_cpu_name;
+}
+
+// ABI warning
+export fn stage2_cpu_features_get_llvm_features(cpu_features: *const Stage2CpuFeatures) ?[*:0]const u8 {
+    return cpu_features.llvm_features_str;
 }

@@ -1138,6 +1138,11 @@ fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
     size.* += bytes.len;
 }
 
+pub fn allocPrint0(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![:0]u8 {
+    const result = try allocPrint(allocator, fmt ++ "\x00", args);
+    return result[0 .. result.len - 1 :0];
+}
+
 test "bufPrintInt" {
     var buffer: [100]u8 = undefined;
     const buf = buffer[0..];

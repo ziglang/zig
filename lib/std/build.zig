@@ -1199,8 +1199,6 @@ pub const LibExeObjStep = struct {
 
     subsystem: ?builtin.SubSystem = null,
 
-    target_details: ?std.target.TargetDetails = null,
-
     const LinkObject = union(enum) {
         StaticPath: []const u8,
         OtherStep: *LibExeObjStep,
@@ -1384,10 +1382,6 @@ pub const LibExeObjStep = struct {
     pub fn setTheTarget(self: *LibExeObjStep, target: Target) void {
         self.target = target;
         self.computeOutFileNames();
-    }
-
-    pub fn setTargetDetails(self: *LibExeObjStep, target_details: std.target.TargetDetails) void {
-        self.target_details = target_details;
     }
 
     pub fn setTargetGLibC(self: *LibExeObjStep, major: u32, minor: u32, patch: u32) void {
@@ -1974,32 +1968,31 @@ pub const LibExeObjStep = struct {
 
         switch (self.target) {
             .Native => {},
-            .Cross => {
+            .Cross => |cross| {
                 try zig_args.append("-target");
                 try zig_args.append(self.target.zigTriple(builder.allocator) catch unreachable);
+
+                switch (cross.cpu_features) {
+                    .baseline => {},
+                    .cpu => |cpu| {
+                        try zig_args.append("-target-cpu");
+                        try zig_args.append(cpu.name);
+                    },
+                    .features => |features| {
+                        try zig_args.append("-target-cpu-features");
+
+                        var feature_str_buffer = try std.Buffer.initSize(builder.allocator, 0);
+                        for (self.target.getArch().allFeaturesList()) |feature, i| {
+                            if (Target.Cpu.Feature.isEnabled(features, @intCast(u7, i))) {
+                                try feature_str_buffer.append(feature.name);
+                                try feature_str_buffer.append(",");
+                            }
+                        }
+
+                        try zig_args.append(feature_str_buffer.toSlice());
+                    },
+                }
             },
-        }
-
-        if (self.target_details) |td| {
-            switch (td) {
-                .cpu => |cpu| {
-                    try zig_args.append("--cpu");
-                    try zig_args.append(cpu.name);
-                },
-                .features => |features| {
-                    try zig_args.append("--features");
-                    
-                    var feature_str_buffer = try std.Buffer.initSize(builder.allocator, 0);
-                    defer feature_str_buffer.deinit();
-
-                    for (features) |feature| {
-                        try feature_str_buffer.append(feature.name);
-                        try feature_str_buffer.append(",");
-                    }
-
-                    try zig_args.append(feature_str_buffer.toOwnedSlice());
-                },
-            }
         }
 
         if (self.target_glibc) |ver| {

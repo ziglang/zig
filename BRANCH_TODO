@@ -1,0 +1,55 @@
+Finish these thigns before merging teh branch
+
+ * need to populate builtin.zig cpu_features, undefined is incorrect. I guess for zig0 it will be always baseline
+ * need to populate std.Target.current.cpu_features even for native target
+
+ * finish refactoring target/arch/*
+ * `zig builtin` integration 
+ * move target details to better location
+ * +foo,-bar vs foo,bar
+ * baseline features
+
+
+const riscv32_default_features: []*const std.target.Feature = &[_]*const std.target.Feature{
+    &std.target.riscv.feature_a,
+    &std.target.riscv.feature_c,
+    &std.target.riscv.feature_d,
+    &std.target.riscv.feature_f,
+    &std.target.riscv.feature_m,
+    &std.target.riscv.feature_relax,
+};
+
+const riscv64_default_features: []*const std.target.Feature = &[_]*const std.target.Feature{
+    &std.target.riscv.feature_bit64,
+    &std.target.riscv.feature_a,
+    &std.target.riscv.feature_c,
+    &std.target.riscv.feature_d,
+    &std.target.riscv.feature_f,
+    &std.target.riscv.feature_m,
+    &std.target.riscv.feature_relax,
+};
+
+const i386_default_features: []*const std.target.Feature = &[_]*const std.target.Feature{
+    &std.target.x86.feature_cmov,
+    &std.target.x86.feature_cx8,
+    &std.target.x86.feature_fxsr,
+    &std.target.x86.feature_mmx,
+    &std.target.x86.feature_nopl,
+    &std.target.x86.feature_sse,
+    &std.target.x86.feature_sse2,
+    &std.target.x86.feature_slowUnalignedMem16,
+    &std.target.x86.feature_x87,
+};
+
+// Same as above but without sse.
+const i386_default_features_freestanding: []*const std.target.Feature = &[_]*const std.target.Feature{
+    &std.target.x86.feature_cmov,
+    &std.target.x86.feature_cx8,
+    &std.target.x86.feature_fxsr,
+    &std.target.x86.feature_mmx,
+    &std.target.x86.feature_nopl,
+    &std.target.x86.feature_slowUnalignedMem16,
+    &std.target.x86.feature_x87,
+};
+
+

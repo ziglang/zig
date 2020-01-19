@@ -15,6 +15,12 @@ pub const ObjectFormat = std.Target.ObjectFormat;
 /// Deprecated: use `std.Target.SubSystem`.
 pub const SubSystem = std.Target.SubSystem;
 
+/// Deprecated: use `std.Target.Cross.CpuFeatures`.
+pub const CpuFeatures = std.Target.Cross.CpuFeatures;
+
+/// Deprecated: use `std.Target.Cpu`.
+pub const Cpu = std.Target.Cpu;
+
 /// `explicit_subsystem` is missing when the subsystem is automatically detected,
 /// so Zig standard library has the subsystem detection logic here. This should generally be
 /// used rather than `explicit_subsystem`.
