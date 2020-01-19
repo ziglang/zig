@@ -525,7 +525,7 @@ pub const ArenaAllocator = struct {
         return ArenaAllocator{
             .allocator = Allocator{
                 .reallocFn = realloc,
-                .shrinkFn = shrink,
+                .shrinkFn = null,
             },
             .child_allocator = child_allocator,
             .buffer_list = std.SinglyLinkedList([]u8).init(),
@@ -563,9 +563,11 @@ pub const ArenaAllocator = struct {
         return buf_node;
     }
 
-    fn alloc(allocator: *Allocator, n: usize, alignment: u29) ![]u8 {
+    fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, n: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(ArenaAllocator, "allocator", allocator);
-
+        
+        assert(old_mem.len == 0); // because shrinkFn == null
+        
         var cur_node = if (self.buffer_list.first) |first_node| first_node else try self.createNode(0, n + alignment);
         while (true) {
             const cur_buf = cur_node.data[@sizeOf(BufNode)..];
@@ -581,21 +583,6 @@ pub const ArenaAllocator = struct {
             self.end_index = new_end_index;
             return result;
         }
-    }
-
-    fn realloc(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
-        if (new_size <= old_mem.len and new_align <= new_size) {
-            // We can't do anything with the memory, so tell the client to keep it.
-            return error.OutOfMemory;
-        } else {
-            const result = try alloc(allocator, new_size, new_align);
-            @memcpy(result.ptr, old_mem.ptr, std.math.min(old_mem.len, result.len));
-            return result;
-        }
-    }
-
-    fn shrink(allocator: *Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
-        return old_mem[0..new_size];
     }
 };
 

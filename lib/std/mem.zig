@@ -43,6 +43,7 @@ pub const Allocator = struct {
         /// `reallocFn` or `shrinkFn`.
         /// If `old_mem.len == 0` then this is a new allocation and `new_byte_count`
         /// is guaranteed to be >= 1.
+        /// If `shrinkFn` is `null` then it is guaranteed that `old_mem.len == 0`.
         old_mem: []u8,
         /// If `old_mem.len == 0` then this is `undefined`, otherwise:
         /// Guaranteed to be the same as what was returned from most recent call to
@@ -60,7 +61,12 @@ pub const Allocator = struct {
     ) Error![]u8,
 
     /// This function deallocates memory. It must succeed.
-    shrinkFn: fn (
+    /// If this function is null, it means the allocator implementation cannot
+    /// reclaim memory. The shrink functions of the
+    /// Allocator interface will still work; they will trivially return the
+    /// old memory with adjusted length. In this case, `reallocFn` with a smaller
+    /// `new_byte_count` will always return `error.OutOfMemory`.
+    shrinkFn: ?fn (
         self: *Allocator,
         /// Guaranteed to be the same as what was returned from most recent call to
         /// `reallocFn` or `shrinkFn`.
@@ -88,8 +94,9 @@ pub const Allocator = struct {
     pub fn destroy(self: *Allocator, ptr: var) void {
         const T = @TypeOf(ptr).Child;
         if (@sizeOf(T) == 0) return;
+        const shrinkFn = self.shrinkFn orelse return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
-        const shrink_result = self.shrinkFn(self, non_const_ptr[0..@sizeOf(T)], @alignOf(T), 0, 1);
+        const shrink_result = shrinkFn(self, non_const_ptr[0..@sizeOf(T)], @alignOf(T), 0, 1);
         assert(shrink_result.len == 0);
     }
 
@@ -172,6 +179,20 @@ pub const Allocator = struct {
             self.free(old_mem);
             return @as([*]align(new_alignment) T, undefined)[0..0];
         }
+        if (!self.canReclaimMemory()) {
+            if (new_n <= old_mem.len and new_alignment <= Slice.alignment) {
+                // Cannot reclaim memory; tell the client to keep it.
+                return error.OutOfMemory;
+            }
+            const result = try self.alignedAlloc(T, new_alignment, new_n);
+            const end_len = std.math.min(old_mem.len, new_n);
+            mem.copy(T, result, old_mem[0..end_len]);
+            // This loop gets optimized out in ReleaseFast mode
+            for (result[end_len..]) |*elem| {
+                elem.* = undefined;
+            }
+            return result;
+        }
 
         const old_byte_slice = @sliceToBytes(old_mem);
         const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return Error.OutOfMemory;
@@ -207,6 +228,7 @@ pub const Allocator = struct {
     ) []align(new_alignment) @typeInfo(@TypeOf(old_mem)).Pointer.child {
         const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
         const T = Slice.child;
+        const shrinkFn = self.shrinkFn orelse return old_mem[0..new_n];
 
         if (new_n == 0) {
             self.free(old_mem);
@@ -221,7 +243,7 @@ pub const Allocator = struct {
         const byte_count = @sizeOf(T) * new_n;
 
         const old_byte_slice = @sliceToBytes(old_mem);
-        const byte_slice = self.shrinkFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
+        const byte_slice = shrinkFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
         assert(byte_slice.len == byte_count);
         return @bytesToSlice(T, @alignCast(new_alignment, byte_slice));
     }
@@ -229,13 +251,27 @@ pub const Allocator = struct {
     /// Free an array allocated with `alloc`. To free a single item,
     /// see `destroy`.
     pub fn free(self: *Allocator, memory: var) void {
+        const shrinkFn = self.shrinkFn orelse return;
         const Slice = @typeInfo(@TypeOf(memory)).Pointer;
         const bytes = @sliceToBytes(memory);
         const bytes_len = bytes.len + @boolToInt(Slice.sentinel != null);
         if (bytes_len == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
-        const shrink_result = self.shrinkFn(self, non_const_ptr[0..bytes_len], Slice.alignment, 0, 1);
+        const shrink_result = shrinkFn(self, non_const_ptr[0..bytes.len], Slice.alignment, 0, 1);
         assert(shrink_result.len == 0);
+    }
+
+    /// If this returns `false`, it means that the allocator implementation
+    /// will only ever increase memory usage. In this case, `free` and `shrink`
+    /// are no-ops and will not make the freed bytes available for use.
+    /// It also means using `realloc` to resize downwards will always result
+    /// in `error.OutOfMemory`.
+    /// When creating an arena allocator on top of a backing allocator, it is
+    /// best practice to check if the backing allocator can reclaim memory.
+    /// If it cannot, then the backing allocator should be used directly, to
+    /// avoid pointless overhead.
+    pub fn canReclaimMemory(self: *Allocator) bool {
+        return self.shrinkFn != null;
     }
 };
 
