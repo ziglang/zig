@@ -576,7 +576,7 @@ pub const Node = struct {
                 asterisk: ?TokenIndex,
                 static: ?TokenIndex,
                 qual: TypeQual,
-                // expr: *Expr,
+                expr: *Expr,
             },
         },
         rbracket: TokenIndex,

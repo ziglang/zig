@@ -401,7 +401,6 @@ pub const Tokenizer = struct {
             U,
             L,
             StringLiteral,
-            AfterStringLiteral,
             CharLiteralStart,
             CharLiteral,
             EscapeSequence,
@@ -617,7 +616,7 @@ pub const Tokenizer = struct {
                 },
                 .BackSlash => switch (c) {
                     '\n' => {
-                        state = if (string) .AfterStringLiteral else .Start;
+                        state = .Start;
                     },
                     '\r' => {
                         state = .BackSlashCr;
@@ -632,7 +631,7 @@ pub const Tokenizer = struct {
                 },
                 .BackSlashCr => switch (c) {
                     '\n' => {
-                        state = if (string) .AfterStringLiteral else .Start;
+                        state =  .Start;
                     },
                     else => {
                         result.id = .Invalid;
@@ -696,29 +695,14 @@ pub const Tokenizer = struct {
                         state = .EscapeSequence;
                     },
                     '"' => {
-                        state = .AfterStringLiteral;
+                        self.index += 1;
+                        break;
                     },
                     '\n', '\r' => {
                         result.id = .Invalid;
                         break;
                     },
                     else => {},
-                },
-                .AfterStringLiteral => switch (c) {
-                    '"' => {
-                        state = .StringLiteral;
-                    },
-                    '\\' => {
-                        state = .BackSlash;
-                    },
-                    '\n', '\r' => {
-                        if (self.pp_directive)
-                            break;
-                    },
-                    '\t', '\x0B', '\x0C', ' ' => {},
-                    else => {
-                        break;
-                    },
                 },
                 .CharLiteralStart => switch (c) {
                     '\\' => {
@@ -1255,7 +1239,7 @@ pub const Tokenizer = struct {
             }
         } else if (self.index == self.source.buffer.len) {
             switch (state) {
-                .AfterStringLiteral, .Start => {},
+                .Start => {},
                 .u, .u8, .U, .L, .Identifier => {
                     result.id = Token.getKeyword(self.source.buffer[result.start..self.index], self.prev_tok_id == .Hash and !self.pp_directive) orelse .Identifier;
                 },
@@ -1322,7 +1306,7 @@ pub const Tokenizer = struct {
 
 test "operators" {
     expectTokens(
-        \\ ! != | || |= = ==
+        \\ ! != | || |= = ==
         \\ ( ) { } [ ] . .. ...
         \\ ^ ^= + ++ += - -- -=
         \\ * *= % %= -> : ; / /=
@@ -1505,24 +1489,27 @@ test "line continuation" {
         .Identifier,
         .Nl,
         .{ .StringLiteral = .None },
+        .Nl,
         .Hash,
         .Keyword_define,
         .{ .StringLiteral = .None },
         .Nl,
         .{ .StringLiteral = .None },
+        .Nl,
         .Hash,
         .Keyword_define,
+        .{ .StringLiteral = .None },
         .{ .StringLiteral = .None },
     });
 }
 
 test "string prefix" {
     expectTokens(
-        \\"foo" "bar"
-        \\u"foo" "bar"
-        \\u8"foo" "bar"
-        \\U"foo" "bar"
-        \\L"foo" "bar"
+        \\"foo"
+        \\u"foo"
+        \\u8"foo"
+        \\U"foo"
+        \\L"foo"
         \\'foo'
         \\u'foo'
         \\U'foo'
@@ -1530,10 +1517,15 @@ test "string prefix" {
         \\
     , &[_]Token.Id{
         .{ .StringLiteral = .None },
+        .Nl,
         .{ .StringLiteral = .Utf16 },
+        .Nl,
         .{ .StringLiteral = .Utf8 },
+        .Nl,
         .{ .StringLiteral = .Utf32 },
+        .Nl,
         .{ .StringLiteral = .Wide },
+        .Nl,
         .{ .CharLiteral = .None },
         .Nl,
         .{ .CharLiteral = .Utf16 },

@@ -75,9 +75,12 @@ pub fn parse(allocator: *Allocator, source: []const u8, options: Options) !*Tree
         }
     }
 
+    var parse_arena = std.heap.ArenaAllocator.init(allocator);
+    defer parse_arena.deinit();
+
     var parser = Parser{
-        .symbols = Parser.SymbolList.init(allocator),
-        .arena = arena,
+        .scopes = Parser.SymbolList.init(allocator),
+        .arena = &parse_arena.allocator,
         .it = &it,
         .tree = tree,
         .options = options,
@@ -93,11 +96,17 @@ const Parser = struct {
     it: *TokenIterator,
     tree: *Tree,
 
-    /// only used for scopes
-    symbols: SymbolList,
+    arena: *Allocator,
+    scopes: ScopeList,
     options: Options,
 
-    const SymbolList = std.ArrayList(Symbol);
+    const ScopeList = std.SegmentedLists(Scope);
+    const SymbolList = std.SegmentedLists(Symbol);
+
+    const Scope = struct {
+        kind: ScopeKind,
+        syms: SymbolList,
+    };
 
     const Symbol = struct {
         name: []const u8,
@@ -111,21 +120,27 @@ const Parser = struct {
         Switch,
     };
 
-    fn pushScope(parser: *Parser, kind: ScopeKind) usize {
-        return parser.symbols.len;
+    fn pushScope(parser: *Parser, kind: ScopeKind) !void {
+        const new = try parser.scopes.addOne();
+        new.* = .{
+            .kind = kind,
+            .syms = SymbolList.init(parser.arena),
+        };
     }
 
     fn popScope(parser: *Parser, len: usize) void {
-        parser.symbols.resize(len) catch unreachable;
+        _ = parser.scopes.pop();
     }
 
-    fn getSymbol(parser: *Parser, tok: TokenIndex) ?*Type {
+    fn getSymbol(parser: *Parser, tok: TokenIndex) ?*Symbol {
         const name = parser.tree.tokenSlice(tok);
-        const syms = parser.symbols.toSliceConst();
-        var i = syms.len;
-        while (i > 0) : (i -= 1) {
-            if (mem.eql(u8, name, syms[i].name)) {
-                return syms[i].ty;
+        var scope_it = parser.scopes.iterator(parser.scopes.len);
+        while (scope_it.prev()) |scope| {
+            var sym_it = scope.syms.iterator(scope.syms.len);
+            while (sym_it.prev()) |sym| {
+                if (mem.eql(u8, sym.name, name)) {
+                    return sym;
+                }
             }
         }
         return null;
@@ -137,8 +152,8 @@ const Parser = struct {
 
     /// Root <- ExternalDeclaration* eof
     fn root(parser: *Parser) Allocator.Error!*Node.Root {
-        const scope = parser.pushScope(.Root);
-        defer parser.popScope(scope);
+        try parser.pushScope(.Root);
+        defer parser.popScope();
         const node = try parser.arena.create(Node.Root);
         node.* = .{
             .decls = Node.Root.DeclList.init(parser.arena),
@@ -782,8 +797,8 @@ const Parser = struct {
                 .ty = ty,
             });
         if (parser.eatToken(.LBrace)) |lbrace| {
-            const scope = parser.pushScope(.Block);
-            defer parser.popScope(scope);
+            try parser.pushScope(.Block);
+            defer parser.popScope();
             var fields = Node.RecordType.FieldList.init(parser.arena);
             while (true) {
                 if (parser.eatToken(.RBrace)) |rbrace| {
@@ -996,15 +1011,14 @@ const Parser = struct {
     fn assignmentExpr(parser: *Parser) !*Node {}
 
     /// ConstExpr <- ConditionalExpr
-    fn constExpr(parser: *Parser) Error!*Node {
+    fn constExpr(parser: *Parser) Error!?*Expr {
         const start = parser.it.index;
         const expression = try parser.conditionalExpr();
-        // TODO
-        // if (expression == nullor expression.?.value == null)
-        //     return parser.err(.{
-        //         .ConsExpr = start,
-        //     });
-        return expression.?;
+        if (expression != null and expression.?.value == .None)
+            return parser.err(.{
+                .ConsExpr = start,
+            });
+        return expression;
     }
 
     /// ConditionalExpr <- LogicalOrExpr (QUESTIONMARK Expr COLON ConditionalExpr)?
@@ -1085,8 +1099,8 @@ const Parser = struct {
     /// CompoundStmt <- LBRACE (Declaration / Stmt)* RBRACE
     fn compoundStmt(parser: *Parser) Error!?*Node {
         const lbrace = parser.eatToken(.LBrace) orelse return null;
-        const scope = parser.pushScope(.Block);
-        defer parser.popScope(scope);
+        try parser.pushScope(.Block);
+        defer parser.popScope();
         const body_node = try parser.arena.create(Node.CompoundStmt);
         body_node.* = .{
             .lbrace = lbrace,
@@ -1142,8 +1156,8 @@ const Parser = struct {
             return &node.base;
         }
         if (parser.eatToken(.Keyword_while)) |tok| {
-            const scope = parser.pushScope(.Loop);
-            defer parser.popScope(scope);
+            try parser.pushScope(.Loop);
+            defer parser.popScope();
             _ = try parser.expectToken(.LParen);
             const cond = (try parser.expr()) orelse return parser.err(.{
                 .ExpectedExpr = .{ .token = parser.it.index },
@@ -1160,8 +1174,8 @@ const Parser = struct {
             return &node.base;
         }
         if (parser.eatToken(.Keyword_do)) |tok| {
-            const scope = parser.pushScope(.Loop);
-            defer parser.popScope(scope);
+            try parser.pushScope(.Loop);
+            defer parser.popScope();
             const body = try parser.stmt();
             _ = try parser.expectToken(.LParen);
             const cond = (try parser.expr()) orelse return parser.err(.{
@@ -1179,8 +1193,8 @@ const Parser = struct {
             return &node.base;
         }
         if (parser.eatToken(.Keyword_for)) |tok| {
-            const scope = parser.pushScope(.Loop);
-            defer parser.popScope(scope);
+            try parser.pushScope(.Loop);
+            defer parser.popScope();
             _ = try parser.expectToken(.LParen);
             const init = if (try parser.declaration()) |decl| blk:{
                 // TODO disallow storage class other than auto and register
@@ -1203,8 +1217,8 @@ const Parser = struct {
             return &node.base;
         }
         if (parser.eatToken(.Keyword_switch)) |tok| {
-            const scope = parser.pushScope(.Switch);
-            defer parser.popScope(scope);
+            try parser.pushScope(.Switch);
+            defer parser.popScope();
             _ = try parser.expectToken(.LParen);
             const switch_expr = try parser.exprStmt();
             const rparen = try parser.expectToken(.RParen);
