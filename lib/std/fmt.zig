@@ -1282,8 +1282,16 @@ test "pointer" {
 }
 
 test "cstr" {
-    try testFmt("cstr: Test C\n", "cstr: {s}\n", .{"Test C"});
-    try testFmt("cstr: Test C    \n", "cstr: {s:10}\n", .{"Test C"});
+    try testFmt(
+        "cstr: Test C\n",
+        "cstr: {s}\n",
+        .{@ptrCast([*c]const u8, "Test C")},
+    );
+    try testFmt(
+        "cstr: Test C    \n",
+        "cstr: {s:10}\n",
+        .{@ptrCast([*c]const u8, "Test C")},
+    );
 }
 
 test "filesize" {
