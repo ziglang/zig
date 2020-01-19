@@ -21614,7 +21614,7 @@ static IrInstruction *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case ZigTypeIdEnum: {
             if ((err = type_resolve(ira->codegen, target_type, ResolveStatusZeroBitsKnown)))
                 return ira->codegen->invalid_instruction;
-            if (target_type->data.enumeration.src_field_count < 2) {
+            if (target_type->data.enumeration.src_field_count == 1) {
                 TypeEnumField *only_field = &target_type->data.enumeration.fields[0];
                 IrInstruction *result = ir_const(ira, &switch_target_instruction->base, target_type);
                 bigint_init_bigint(&result->value->data.x_enum_tag, &only_field->value);
@@ -22350,6 +22350,15 @@ static IrInstruction *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrIns
     }
 
     assert(target->value->type->id == ZigTypeIdEnum);
+
+    if (target->value->type->data.enumeration.src_field_count == 1 &&
+        !target->value->type->data.enumeration.non_exhaustive) {
+        TypeEnumField *only_field = &target->value->type->data.enumeration.fields[0];
+        ZigValue *array_val = create_const_str_lit(ira->codegen, only_field->name)->data.x_ptr.data.ref.pointee;
+        IrInstruction *result = ir_const(ira, &instruction->base, nullptr);
+        init_const_slice(ira->codegen, result->value, array_val, 0, buf_len(only_field->name), true);
+        return result;
+    }
 
     if (instr_is_comptime(target)) {
         if ((err = type_resolve(ira->codegen, target->value->type, ResolveStatusZeroBitsKnown)))
