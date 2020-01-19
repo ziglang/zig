@@ -8086,15 +8086,20 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
 
     ir_build_reset_result(irb, scope, node, &peer_parent->base);
 
-    // First do the else and the ranges
     Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, scope, is_comptime);
     Scope *comptime_scope = create_comptime_scope(irb->codegen, node, scope);
     AstNode *else_prong = nullptr;
+
+    // First, loop over every case/range and generate the node instructions, followed by
+    // the CheckSwitchProngs instruction.
+    HashMap<const AstNode *, IrInstructionCheckSwitchProngsRange *, node_ptr_hash, node_ptr_eql> all_ranges = {};
+    all_ranges.init(prong_count);
+
+    // First, do prongs with an else and with ranges.
     for (size_t prong_i = 0; prong_i < prong_count; prong_i += 1) {
         AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
         size_t prong_item_count = prong_node->data.switch_prong.items.length;
         if (prong_item_count == 0) {
-            ResultLocPeer *this_peer_result_loc = create_peer_result(peer_parent);
             if (else_prong) {
                 ErrorMsg *msg = add_node_error(irb->codegen, prong_node,
                         buf_sprintf("multiple else prongs in switch expression"));
@@ -8103,7 +8108,50 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
                 return irb->codegen->invalid_instruction;
             }
             else_prong = prong_node;
+        } else {
+            for (size_t item_i = 0; item_i < prong_item_count; item_i += 1) {
+                AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
+                if (item_node->type == NodeTypeSwitchRange) {
+                    AstNode *start_node = item_node->data.switch_range.start;
+                    AstNode *end_node = item_node->data.switch_range.end;
 
+                    IrInstruction *start_value = ir_gen_node(irb, start_node, comptime_scope);
+                    if (start_value == irb->codegen->invalid_instruction)
+                        return irb->codegen->invalid_instruction;
+
+                    IrInstruction *end_value = ir_gen_node(irb, end_node, comptime_scope);
+                    if (end_value == irb->codegen->invalid_instruction)
+                        return irb->codegen->invalid_instruction;
+
+                    IrInstructionCheckSwitchProngsRange *check_range = check_ranges.add_one();
+                    check_range->start = start_value;
+                    check_range->end = end_value;
+                    assert(all_ranges.put_unique(item_node, check_range) == nullptr);
+                } else {
+                    IrInstruction *item_value = ir_gen_node(irb, item_node, comptime_scope);
+                    if (item_value == irb->codegen->invalid_instruction)
+                        return irb->codegen->invalid_instruction;
+
+                    IrInstructionCheckSwitchProngsRange *check_range = check_ranges.add_one();
+                    check_range->start = item_value;
+                    check_range->end = item_value;
+                    assert(all_ranges.put_unique(item_node, check_range) == nullptr);
+                }
+            }
+        }
+    }
+
+    // We must validate ranges before generating bin_op_cmp instructions, which can cause
+    // potentially invalid range expressions to become elided and accepted.
+    IrInstruction *switch_prongs_void = ir_build_check_switch_prongs(irb, scope, node, target_value,
+            check_ranges.items, check_ranges.length, else_prong != nullptr);
+
+    // First do the else and the ranges
+    for (size_t prong_i = 0; prong_i < prong_count; prong_i += 1) {
+        AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
+        size_t prong_item_count = prong_node->data.switch_prong.items.length;
+        if (prong_item_count == 0) {
+            ResultLocPeer *this_peer_result_loc = create_peer_result(peer_parent);
             IrBasicBlock *prev_block = irb->current_basic_block;
             if (peer_parent->peers.length > 0) {
                 peer_parent->peers.last()->next_bb = else_block;
@@ -8125,26 +8173,12 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
             for (size_t item_i = 0; item_i < prong_item_count; item_i += 1) {
                 AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
                 last_item_node = item_node;
+                const IrInstructionCheckSwitchProngsRange *range = all_ranges.get(item_node);
                 if (item_node->type == NodeTypeSwitchRange) {
-                    AstNode *start_node = item_node->data.switch_range.start;
-                    AstNode *end_node = item_node->data.switch_range.end;
-
-                    IrInstruction *start_value = ir_gen_node(irb, start_node, comptime_scope);
-                    if (start_value == irb->codegen->invalid_instruction)
-                        return irb->codegen->invalid_instruction;
-
-                    IrInstruction *end_value = ir_gen_node(irb, end_node, comptime_scope);
-                    if (end_value == irb->codegen->invalid_instruction)
-                        return irb->codegen->invalid_instruction;
-
-                    IrInstructionCheckSwitchProngsRange *check_range = check_ranges.add_one();
-                    check_range->start = start_value;
-                    check_range->end = end_value;
-
                     IrInstruction *lower_range_ok = ir_build_bin_op(irb, scope, item_node, IrBinOpCmpGreaterOrEq,
-                            target_value, start_value, false);
+                            target_value, range->start, false);
                     IrInstruction *upper_range_ok = ir_build_bin_op(irb, scope, item_node, IrBinOpCmpLessOrEq,
-                            target_value, end_value, false);
+                            target_value, range->end, false);
                     IrInstruction *both_ok = ir_build_bin_op(irb, scope, item_node, IrBinOpBoolAnd,
                             lower_range_ok, upper_range_ok, false);
                     if (ok_bit) {
@@ -8153,16 +8187,8 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
                         ok_bit = both_ok;
                     }
                 } else {
-                    IrInstruction *item_value = ir_gen_node(irb, item_node, comptime_scope);
-                    if (item_value == irb->codegen->invalid_instruction)
-                        return irb->codegen->invalid_instruction;
-
-                    IrInstructionCheckSwitchProngsRange *check_range = check_ranges.add_one();
-                    check_range->start = item_value;
-                    check_range->end = item_value;
-
                     IrInstruction *cmp_ok = ir_build_bin_op(irb, scope, item_node, IrBinOpCmpEq,
-                            item_value, target_value, false);
+                            range->start, target_value, false);
                     if (ok_bit) {
                         ok_bit = ir_build_bin_op(irb, scope, item_node, IrBinOpBoolOr, cmp_ok, ok_bit, false);
                     } else {
@@ -8216,13 +8242,11 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
             AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
             assert(item_node->type != NodeTypeSwitchRange);
 
-            IrInstruction *item_value = ir_gen_node(irb, item_node, comptime_scope);
-            if (item_value == irb->codegen->invalid_instruction)
-                return irb->codegen->invalid_instruction;
-
-            IrInstructionCheckSwitchProngsRange *check_range = check_ranges.add_one();
-            check_range->start = item_value;
-            check_range->end = item_value;
+            // IrInstructionCheckSwitchProngsRange *range = all_ranges.get(item_node);
+            // IrInstruction *item_value = range->start;
+            // if (item_value == irb->codegen->invalid_instruction)
+            //     return irb->codegen->invalid_instruction;
+            IrInstruction *item_value = all_ranges.get(item_node)->start;
 
             IrInstructionSwitchBrCase *this_case = cases.add_one();
             this_case->value = item_value;
@@ -8248,8 +8272,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
 
     }
 
-    IrInstruction *switch_prongs_void = ir_build_check_switch_prongs(irb, scope, node, target_value,
-            check_ranges.items, check_ranges.length, else_prong != nullptr);
+    all_ranges.deinit();
 
     IrInstruction *br_instruction;
     if (cases.length == 0) {
