@@ -1,10 +1,5 @@
-// Ported from:
-//
-// https://github.com/llvm-mirror/compiler-rt/blob/f0745e8476f069296a7c71accedd061dce4cdf79/lib/builtins/clzsi2.c
-// https://github.com/llvm-mirror/compiler-rt/blob/f0745e8476f069296a7c71accedd061dce4cdf79/lib/builtins/arm/clzsi2.S
 const builtin = @import("builtin");
 
-// Precondition: a != 0
 fn __clzsi2_generic(a: i32) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
 
@@ -24,15 +19,42 @@ fn __clzsi2_generic(a: i32) callconv(.C) i32 {
     return n - @bitCast(i32, x);
 }
 
-fn __clzsi2_arm_clz(a: i32) callconv(.Naked) noreturn {
+fn __clzsi2_thumb1() callconv(.Naked) void {
+    @setRuntimeSafety(builtin.is_test);
+
+    // Similar to the generic version with the last two rounds replaced by a LUT
     asm volatile (
-        \\ clz r0,r0
+        \\ movs r1, #32
+        \\ lsrs r2, r0, #16
+        \\ beq 1f
+        \\ subs r1, #16
+        \\ movs r0, r2
+        \\ 1:
+        \\ lsrs r2, r0, #8
+        \\ beq 1f
+        \\ subs r1, #8
+        \\ movs r0, r2
+        \\ 1:
+        \\ lsrs r2, r0, #4
+        \\ beq 1f
+        \\ subs r1, #4
+        \\ movs r0, r2
+        \\ 1:
+        \\ ldr r3, =LUT
+        \\ ldrb r0, [r3, r0]
+        \\ subs r0, r1, r0
         \\ bx lr
+        \\ .p2align 2
+        \\ LUT:
+        \\ .byte 4,3,2,2,1,1,1,1,0,0,0,0,0,0,0,0
     );
+
     unreachable;
 }
 
-fn __clzsi2_arm32(a: i32) callconv(.Naked) noreturn {
+fn __clzsi2_arm32() callconv(.Naked) void {
+    @setRuntimeSafety(builtin.is_test);
+
     asm volatile (
         \\ // Assumption: n != 0
         \\ // r0: n
@@ -75,39 +97,15 @@ fn __clzsi2_arm32(a: i32) callconv(.Naked) noreturn {
         \\ sub r0, r1, r0, lsr #1
         \\ bx lr
     );
+
     unreachable;
 }
 
-const can_use_arm_clz = switch (builtin.arch) {
-    .arm, .armeb => |sub_arch| switch (sub_arch) {
-        .v4t => false,
-        .v6m => false,
-        else => true,
-    },
-    .thumb, .thumbeb => |sub_arch| switch (sub_arch) {
-        .v6,
-        .v6k,
-        .v5,
-        .v5te,
-        .v4t,
-        => false,
-        else => true,
-    },
-    else => false,
-};
-
-const is_arm32_no_thumb = switch (builtin.arch) {
-    builtin.Arch.arm,
-    builtin.Arch.armeb,
-    => true,
-    else => false,
-};
-
 pub const __clzsi2 = blk: {
-    if (comptime can_use_arm_clz) {
-        break :blk __clzsi2_arm_clz;
-    } else if (comptime is_arm32_no_thumb) {
+    if (builtin.arch.isARM()) {
         break :blk __clzsi2_arm32;
+    } else if (builtin.arch.isThumb()) {
+        break :blk __clzsi2_thumb1;
     } else {
         break :blk __clzsi2_generic;
     }
