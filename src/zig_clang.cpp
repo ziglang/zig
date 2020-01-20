@@ -1877,6 +1877,11 @@ bool ZigClangType_isRecordType(const ZigClangType *self) {
     return casted->isRecordType();
 }
 
+bool ZigClangType_isConstantArrayType(const ZigClangType *self) {
+    auto casted = reinterpret_cast<const clang::Type *>(self);
+    return casted->isConstantArrayType();
+}
+
 const char *ZigClangType_getTypeClassName(const ZigClangType *self) {
     auto casted = reinterpret_cast<const clang::Type *>(self);
     return casted->getTypeClassName();

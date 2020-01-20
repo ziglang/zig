@@ -1982,7 +1982,8 @@ fn transInitListExprArray(
     const arr_type = ZigClangType_getAsArrayTypeUnsafe(ty);
     const child_qt = ZigClangArrayType_getElementType(arr_type);
     const init_count = ZigClangInitListExpr_getNumInits(expr);
-    const const_arr_ty = @ptrCast(*const ZigClangConstantArrayType, ty);
+    assert(ZigClangType_isConstantArrayType(@ptrCast(*const ZigClangType, arr_type)));
+    const const_arr_ty = @ptrCast(*const ZigClangConstantArrayType, arr_type);
     const size_ap_int = ZigClangConstantArrayType_getSize(const_arr_ty);
     const all_count = ZigClangAPInt_getLimitedValue(size_ap_int, math.maxInt(usize));
     const leftover_count = all_count - init_count;

@@ -2,6 +2,31 @@ const tests = @import("tests.zig");
 const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("array initializer w/ typedef",
+        \\typedef unsigned char uuid_t[16];
+        \\static const uuid_t UUID_NULL __attribute__ ((unused)) = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    , &[_][]const u8{
+        \\pub const uuid_t = [16]u8;
+        \\pub const UUID_NULL: uuid_t = .{
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\};
+    });
+
     cases.add("empty declaration",
         \\;
     , &[_][]const u8{""});

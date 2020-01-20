@@ -945,6 +945,7 @@ ZIG_EXTERN_C bool ZigClangType_isBooleanType(const struct ZigClangType *self);
 ZIG_EXTERN_C bool ZigClangType_isVoidType(const struct ZigClangType *self);
 ZIG_EXTERN_C bool ZigClangType_isArrayType(const struct ZigClangType *self);
 ZIG_EXTERN_C bool ZigClangType_isRecordType(const struct ZigClangType *self);
+ZIG_EXTERN_C bool ZigClangType_isConstantArrayType(const ZigClangType *self);
 ZIG_EXTERN_C const char *ZigClangType_getTypeClassName(const struct ZigClangType *self);
 ZIG_EXTERN_C const struct ZigClangArrayType *ZigClangType_getAsArrayTypeUnsafe(const struct ZigClangType *self);
 ZIG_EXTERN_C const ZigClangRecordType *ZigClangType_getAsRecordType(const ZigClangType *self);
