@@ -22349,7 +22349,11 @@ static IrInstruction *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrIns
             return ira->codegen->invalid_instruction;
     }
 
-    assert(target->value->type->id == ZigTypeIdEnum);
+    if (target->value->type->id != ZigTypeIdEnum) {
+        ir_add_error(ira, target,
+            buf_sprintf("expected enum tag, found '%s'", buf_ptr(&target->value->type->name)));
+        return ira->codegen->invalid_instruction;
+    }
 
     if (target->value->type->data.enumeration.src_field_count == 1 &&
         !target->value->type->data.enumeration.non_exhaustive) {

@@ -18,8 +18,8 @@ pub const ObjectFormat = std.Target.ObjectFormat;
 /// Deprecated: use `std.Target.SubSystem`.
 pub const SubSystem = std.Target.SubSystem;
 
-/// Deprecated: use `std.Target.Cross.CpuFeatures`.
-pub const CpuFeatures = std.Target.Cross.CpuFeatures;
+/// Deprecated: use `std.Target.CpuFeatures`.
+pub const CpuFeatures = std.Target.CpuFeatures;
 
 /// Deprecated: use `std.Target.Cpu`.
 pub const Cpu = std.Target.Cpu;

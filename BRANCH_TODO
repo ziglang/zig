@@ -1,12 +1,8 @@
 Finish these thigns before merging teh branch
 
- * it gets the wrong answers with `-target-feature -sse,-avx`
-
+ * zig targets
+   - use non-reflection based cpu detection?
  * finish refactoring target/arch/*
- * `zig builtin` integration 
- * move target details to better location
- * +foo,-bar vs foo,bar
- * baseline features
 
 
 const riscv32_default_features: []*const std.target.Feature = &[_]*const std.target.Feature{
@@ -38,5 +34,3 @@ const i386_default_features_freestanding: []*const std.target.Feature = &[_]*con
     &std.target.x86.feature_slowUnalignedMem16,
     &std.target.x86.feature_x87,
 };
-
-

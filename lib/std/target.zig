@@ -569,18 +569,18 @@ pub const Target = union(enum) {
         os: Os,
         abi: Abi,
         cpu_features: CpuFeatures = .baseline,
+    };
 
-        pub const CpuFeatures = union(enum) {
-            /// The "default" set of CPU features for cross-compiling. A conservative set
-            /// of features that is expected to be supported on most available hardware.
-            baseline,
+    pub const CpuFeatures = union(enum) {
+        /// The "default" set of CPU features for cross-compiling. A conservative set
+        /// of features that is expected to be supported on most available hardware.
+        baseline,
 
-            /// Target one specific CPU.
-            cpu: *const Cpu,
+        /// Target one specific CPU.
+        cpu: *const Cpu,
 
-            /// Explicitly provide the entire CPU feature set.
-            features: Cpu.Feature.Set,
-        };
+        /// Explicitly provide the entire CPU feature set.
+        features: Cpu.Feature.Set,
     };
 
     pub const current = Target{
@@ -594,8 +594,15 @@ pub const Target = union(enum) {
 
     pub const stack_align = 16;
 
-    pub fn cpuFeatures(self: Target) []const *const Cpu.Feature {
-        return switch (self.cpu_features) {
+    pub fn getCpuFeatures(self: Target) CpuFeatures {
+        return switch (self) {
+            .Native => builtin.cpu_features,
+            .Cross => |cross| cross.cpu_features,
+        };
+    }
+
+    pub fn cpuFeaturesList(self: Target) []const *const Cpu.Feature {
+        return switch (self.getCpuFeatures()) {
             .baseline => self.arch.baselineFeatures(),
             .cpu => |cpu| cpu.features,
             .features => |features| features,

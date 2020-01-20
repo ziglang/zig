@@ -539,7 +539,11 @@ export fn stage2_progress_update_node(node: *std.Progress.Node, done_count: usiz
 
 // ABI warning
 export fn stage2_cmd_targets() c_int {
-    self_hosted_main.cmdTargets(std.heap.c_allocator, &[0][]u8{}) catch |err| {
+    @import("print_targets.zig").cmdTargets(
+        std.heap.c_allocator,
+        &[0][]u8{},
+        &std.io.getStdOut().outStream().stream,
+    ) catch |err| {
         std.debug.warn("unable to list targets: {}\n", .{@errorName(err)});
         return -1;
     };
@@ -548,7 +552,7 @@ export fn stage2_cmd_targets() c_int {
 
 const Stage2CpuFeatures = struct {
     allocator: *mem.Allocator,
-    cpu_features: Target.Cross.CpuFeatures,
+    cpu_features: Target.CpuFeatures,
 
     llvm_cpu_name: ?[*:0]const u8,
     llvm_features_str: ?[*:0]const u8,
