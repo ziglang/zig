@@ -401,25 +401,25 @@ pub const Target = union(enum) {
         }
 
         /// All CPU features Zig is aware of, sorted lexicographically by name.
-        pub fn allFeaturesList(arch: Arch) []const *const Cpu.Feature {
+        pub fn allFeaturesList(arch: Arch) []const Cpu.Feature {
             return switch (arch) {
-                .arm, .armeb, .thumb, .thumbeb => arm.all_features,
-                .aarch64, .aarch64_be, .aarch64_32 => aarch64.all_features,
-                .avr => avr.all_features,
-                .bpfel, .bpfeb => bpf.all_features,
-                .hexagon => hexagon.all_features,
-                .mips, .mipsel, .mips64, .mips64el => mips.all_features,
-                .msp430 => msp430.all_features,
-                .powerpc, .powerpc64, .powerpc64le => powerpc.all_features,
-                .amdgcn => amdgpu.all_features,
-                .riscv32, .riscv64 => riscv.all_features,
-                .sparc, .sparcv9, .sparcel => sparc.all_features,
-                .s390x => systemz.all_features,
-                .i386, .x86_64 => x86.all_features,
-                .nvptx, .nvptx64 => nvptx.all_features,
-                .wasm32, .wasm64 => wasm.all_features,
+                // TODO .arm, .armeb, .thumb, .thumbeb => arm.all_features,
+                .aarch64, .aarch64_be, .aarch64_32 => &aarch64.all_features,
+                // TODO .avr => avr.all_features,
+                // TODO .bpfel, .bpfeb => bpf.all_features,
+                // TODO .hexagon => hexagon.all_features,
+                // TODO .mips, .mipsel, .mips64, .mips64el => mips.all_features,
+                // TODO .msp430 => msp430.all_features,
+                // TODO .powerpc, .powerpc64, .powerpc64le => powerpc.all_features,
+                // TODO .amdgcn => amdgpu.all_features,
+                // TODO .riscv32, .riscv64 => riscv.all_features,
+                // TODO .sparc, .sparcv9, .sparcel => sparc.all_features,
+                // TODO .s390x => systemz.all_features,
+                .i386, .x86_64 => &x86.all_features,
+                // TODO .nvptx, .nvptx64 => nvptx.all_features,
+                // TODO .wasm32, .wasm64 => wasm.all_features,
 
-                else => &[0]*const Cpu.Feature{},
+                else => &[0]Cpu.Feature{},
             };
         }
 
@@ -427,23 +427,24 @@ pub const Target = union(enum) {
         /// of features that is expected to be supported on most available hardware.
         pub fn baselineFeatures(arch: Arch) Cpu.Feature.Set {
             return switch (arch) {
-                .arm, .armeb, .thumb, .thumbeb => arm.baseline_features,
+                // TODO .arm, .armeb, .thumb, .thumbeb => arm.baseline_features,
                 .aarch64, .aarch64_be, .aarch64_32 => aarch64.cpu.generic.features,
-                .avr => avr.baseline_features,
-                .bpfel, .bpfeb => bpf.baseline_features,
-                .hexagon => hexagon.baseline_features,
-                .mips, .mipsel, .mips64, .mips64el => mips.baseline_features,
-                .msp430 => msp430.baseline_features,
-                .powerpc, .powerpc64, .powerpc64le => powerpc.baseline_features,
-                .amdgcn => amdgpu.baseline_features,
-                .riscv32, .riscv64 => riscv.baseline_features,
-                .sparc, .sparcv9, .sparcel => sparc.baseline_features,
-                .s390x => systemz.baseline_features,
-                .i386, .x86_64 => x86.baseline_features,
-                .nvptx, .nvptx64 => nvptx.baseline_features,
-                .wasm32, .wasm64 => wasm.baseline_features,
+                // TODO .avr => avr.baseline_features,
+                // TODO .bpfel, .bpfeb => bpf.baseline_features,
+                // TODO .hexagon => hexagon.baseline_features,
+                // TODO .mips, .mipsel, .mips64, .mips64el => mips.baseline_features,
+                // TODO .msp430 => msp430.baseline_features,
+                // TODO .powerpc, .powerpc64, .powerpc64le => powerpc.baseline_features,
+                // TODO .amdgcn => amdgpu.baseline_features,
+                // TODO .riscv32, .riscv64 => riscv.baseline_features,
+                // TODO .sparc, .sparcv9, .sparcel => sparc.baseline_features,
+                // TODO .s390x => systemz.baseline_features,
+                .i386 => x86.cpu.pentium4.features,
+                .x86_64 => x86.cpu.x8664.features,
+                // TODO .nvptx, .nvptx64 => nvptx.baseline_features,
+                // TODO .wasm32, .wasm64 => wasm.baseline_features,
 
-                else => &[0]*const Cpu.Feature{},
+                else => 0,
             };
         }
 
@@ -514,6 +515,22 @@ pub const Target = union(enum) {
 
             pub fn isEnabled(set: Set, arch_feature_index: u7) bool {
                 return (set & (@as(Set, 1) << arch_feature_index)) != 0;
+            }
+
+            pub fn feature_set_fns(comptime F: type) type {
+                return struct {
+                    pub fn featureSet(features: []const F) Set {
+                        var x: Set = 0;
+                        for (features) |feature| {
+                            x |= @as(Set, 1) << @enumToInt(feature);
+                        }
+                        return x;
+                    }
+
+                    pub fn featureSetHas(set: Set, feature: F) bool {
+                        return (set & (@as(Set, 1) << @enumToInt(feature))) != 0;
+                    }
+                };
             }
         };
     };

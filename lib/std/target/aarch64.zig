@@ -123,21 +123,11 @@ pub const Feature = enum {
     zcz_gp,
 };
 
-pub fn featureSet(features: []const Feature) Cpu.Feature.Set {
-    var x: Cpu.Feature.Set = 0;
-    for (features) |feature| {
-        x |= 1 << @enumToInt(feature);
-    }
-    return x;
-}
-
-pub fn featureSetHas(set: Feature.Set, feature: Feature) bool {
-    return (set & (1 << @enumToInt(feature))) != 0;
-}
+pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
-    std.debug.assert(len <= @typeInfo(Feature.Set).Int.bits);
+    std.debug.assert(len <= @typeInfo(Cpu.Feature.Set).Int.bits);
     var result: [len]Cpu.Feature = undefined;
     result[@enumToInt(Feature.aes)] = .{
         .index = @enumToInt(Feature.aes),

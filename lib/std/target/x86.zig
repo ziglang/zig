@@ -1,3338 +1,3388 @@
-const Feature = @import("std").target.Feature;
-const Cpu = @import("std").target.Cpu;
-
-pub const feature_dnow3 = Feature{
-    .name = "dnow3",
-    .llvm_name = "3dnow",
-    .description = "Enable 3DNow! instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-    },
-};
-
-pub const feature_dnowa3 = Feature{
-    .name = "dnowa3",
-    .llvm_name = "3dnowa",
-    .description = "Enable 3DNow! Athlon instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-    },
-};
-
-pub const feature_bit64 = Feature{
-    .name = "bit64",
-    .llvm_name = "64bit",
-    .description = "Support 64-bit instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_adx = Feature{
-    .name = "adx",
-    .llvm_name = "adx",
-    .description = "Support ADX instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_aes = Feature{
-    .name = "aes",
-    .llvm_name = "aes",
-    .description = "Enable AES instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_avx = Feature{
-    .name = "avx",
-    .llvm_name = "avx",
-    .description = "Enable AVX instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_avx2 = Feature{
-    .name = "avx2",
-    .llvm_name = "avx2",
-    .description = "Enable AVX2 instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_avx512f = Feature{
-    .name = "avx512f",
-    .llvm_name = "avx512f",
-    .description = "Enable AVX-512 instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_avx512bf16 = Feature{
-    .name = "avx512bf16",
-    .llvm_name = "avx512bf16",
-    .description = "Support bfloat16 floating point",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_avx512bitalg = Feature{
-    .name = "avx512bitalg",
-    .llvm_name = "avx512bitalg",
-    .description = "Enable AVX-512 Bit Algorithms",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_bmi = Feature{
-    .name = "bmi",
-    .llvm_name = "bmi",
-    .description = "Support BMI instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_bmi2 = Feature{
-    .name = "bmi2",
-    .llvm_name = "bmi2",
-    .description = "Support BMI2 instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_avx512bw = Feature{
-    .name = "avx512bw",
-    .llvm_name = "avx512bw",
-    .description = "Enable AVX-512 Byte and Word Instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_branchfusion = Feature{
-    .name = "branchfusion",
-    .llvm_name = "branchfusion",
-    .description = "CMP/TEST can be fused with conditional branches",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_avx512cd = Feature{
-    .name = "avx512cd",
-    .llvm_name = "avx512cd",
-    .description = "Enable AVX-512 Conflict Detection Instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_cldemote = Feature{
-    .name = "cldemote",
-    .llvm_name = "cldemote",
-    .description = "Enable Cache Demote",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_clflushopt = Feature{
-    .name = "clflushopt",
-    .llvm_name = "clflushopt",
-    .description = "Flush A Cache Line Optimized",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_clwb = Feature{
-    .name = "clwb",
-    .llvm_name = "clwb",
-    .description = "Cache Line Write Back",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_clzero = Feature{
-    .name = "clzero",
-    .llvm_name = "clzero",
-    .description = "Enable Cache Line Zero",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_cmov = Feature{
-    .name = "cmov",
-    .llvm_name = "cmov",
-    .description = "Enable conditional move instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_cx8 = Feature{
-    .name = "cx8",
-    .llvm_name = "cx8",
-    .description = "Support CMPXCHG8B instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_cx16 = Feature{
-    .name = "cx16",
-    .llvm_name = "cx16",
-    .description = "64-bit with cmpxchg16b",
-    .dependencies = &[_]*const Feature {
-        &feature_cx8,
-    },
-};
-
-pub const feature_avx512dq = Feature{
-    .name = "avx512dq",
-    .llvm_name = "avx512dq",
-    .description = "Enable AVX-512 Doubleword and Quadword Instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_enqcmd = Feature{
-    .name = "enqcmd",
-    .llvm_name = "enqcmd",
-    .description = "Has ENQCMD instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_avx512er = Feature{
-    .name = "avx512er",
-    .llvm_name = "avx512er",
-    .description = "Enable AVX-512 Exponential and Reciprocal Instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_ermsb = Feature{
-    .name = "ermsb",
-    .llvm_name = "ermsb",
-    .description = "REP MOVS/STOS are fast",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_f16c = Feature{
-    .name = "f16c",
-    .llvm_name = "f16c",
-    .description = "Support 16-bit floating point conversion instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_fma = Feature{
-    .name = "fma",
-    .llvm_name = "fma",
-    .description = "Enable three-operand fused multiple-add",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_fma4 = Feature{
-    .name = "fma4",
-    .llvm_name = "fma4",
-    .description = "Enable four-operand fused multiple-add",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_fsgsbase = Feature{
-    .name = "fsgsbase",
-    .llvm_name = "fsgsbase",
-    .description = "Support FS/GS Base instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fxsr = Feature{
-    .name = "fxsr",
-    .llvm_name = "fxsr",
-    .description = "Support fxsave/fxrestore instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fast11bytenop = Feature{
-    .name = "fast11bytenop",
-    .llvm_name = "fast-11bytenop",
-    .description = "Target can quickly decode up to 11 byte NOPs",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fast15bytenop = Feature{
-    .name = "fast15bytenop",
-    .llvm_name = "fast-15bytenop",
-    .description = "Target can quickly decode up to 15 byte NOPs",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fastBextr = Feature{
-    .name = "fastBextr",
-    .llvm_name = "fast-bextr",
-    .description = "Indicates that the BEXTR instruction is implemented as a single uop with good throughput",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fastHops = Feature{
-    .name = "fastHops",
-    .llvm_name = "fast-hops",
-    .description = "Prefer horizontal vector math instructions (haddp, phsub, etc.) over normal vector instructions with shuffles",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_fastLzcnt = Feature{
-    .name = "fastLzcnt",
-    .llvm_name = "fast-lzcnt",
-    .description = "LZCNT instructions are as fast as most simple integer ops",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fastPartialYmmOrZmmWrite = Feature{
-    .name = "fastPartialYmmOrZmmWrite",
-    .llvm_name = "fast-partial-ymm-or-zmm-write",
-    .description = "Partial writes to YMM/ZMM registers are fast",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fastShldRotate = Feature{
-    .name = "fastShldRotate",
-    .llvm_name = "fast-shld-rotate",
-    .description = "SHLD can be used as a faster rotate",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fastScalarFsqrt = Feature{
-    .name = "fastScalarFsqrt",
-    .llvm_name = "fast-scalar-fsqrt",
-    .description = "Scalar SQRT is fast (disable Newton-Raphson)",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fastScalarShiftMasks = Feature{
-    .name = "fastScalarShiftMasks",
-    .llvm_name = "fast-scalar-shift-masks",
-    .description = "Prefer a left/right scalar logical shift pair over a shift+and pair",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fastVariableShuffle = Feature{
-    .name = "fastVariableShuffle",
-    .llvm_name = "fast-variable-shuffle",
-    .description = "Shuffles with variable masks are fast",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fastVectorFsqrt = Feature{
-    .name = "fastVectorFsqrt",
-    .llvm_name = "fast-vector-fsqrt",
-    .description = "Vector SQRT is fast (disable Newton-Raphson)",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fastVectorShiftMasks = Feature{
-    .name = "fastVectorShiftMasks",
-    .llvm_name = "fast-vector-shift-masks",
-    .description = "Prefer a left/right vector logical shift pair over a shift+and pair",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_gfni = Feature{
-    .name = "gfni",
-    .llvm_name = "gfni",
-    .description = "Enable Galois Field Arithmetic Instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_fastGather = Feature{
-    .name = "fastGather",
-    .llvm_name = "fast-gather",
-    .description = "Indicates if gather is reasonably fast",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_avx512ifma = Feature{
-    .name = "avx512ifma",
-    .llvm_name = "avx512ifma",
-    .description = "Enable AVX-512 Integer Fused Multiple-Add",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_invpcid = Feature{
-    .name = "invpcid",
-    .llvm_name = "invpcid",
-    .description = "Invalidate Process-Context Identifier",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sahf = Feature{
-    .name = "sahf",
-    .llvm_name = "sahf",
-    .description = "Support LAHF and SAHF instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_leaSp = Feature{
-    .name = "leaSp",
-    .llvm_name = "lea-sp",
-    .description = "Use LEA for adjusting the stack pointer",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_leaUsesAg = Feature{
-    .name = "leaUsesAg",
-    .llvm_name = "lea-uses-ag",
-    .description = "LEA instruction needs inputs at AG stage",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_lwp = Feature{
-    .name = "lwp",
-    .llvm_name = "lwp",
-    .description = "Enable LWP instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_lzcnt = Feature{
-    .name = "lzcnt",
-    .llvm_name = "lzcnt",
-    .description = "Support LZCNT instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_falseDepsLzcntTzcnt = Feature{
-    .name = "falseDepsLzcntTzcnt",
-    .llvm_name = "false-deps-lzcnt-tzcnt",
-    .description = "LZCNT/TZCNT have a false dependency on dest register",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_mmx = Feature{
-    .name = "mmx",
-    .llvm_name = "mmx",
-    .description = "Enable MMX instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_movbe = Feature{
-    .name = "movbe",
-    .llvm_name = "movbe",
-    .description = "Support MOVBE instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_movdir64b = Feature{
-    .name = "movdir64b",
-    .llvm_name = "movdir64b",
-    .description = "Support movdir64b instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_movdiri = Feature{
-    .name = "movdiri",
-    .llvm_name = "movdiri",
-    .description = "Support movdiri instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_mpx = Feature{
-    .name = "mpx",
-    .llvm_name = "mpx",
-    .description = "Support MPX instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_mwaitx = Feature{
-    .name = "mwaitx",
-    .llvm_name = "mwaitx",
-    .description = "Enable MONITORX/MWAITX timer functionality",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_macrofusion = Feature{
-    .name = "macrofusion",
-    .llvm_name = "macrofusion",
-    .description = "Various instructions can be fused with conditional branches",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_mergeToThreewayBranch = Feature{
-    .name = "mergeToThreewayBranch",
-    .llvm_name = "merge-to-threeway-branch",
-    .description = "Merge branches to a three-way conditional branch",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_nopl = Feature{
-    .name = "nopl",
-    .llvm_name = "nopl",
-    .description = "Enable NOPL instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_pclmul = Feature{
-    .name = "pclmul",
-    .llvm_name = "pclmul",
-    .description = "Enable packed carry-less multiplication instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_pconfig = Feature{
-    .name = "pconfig",
-    .llvm_name = "pconfig",
-    .description = "platform configuration instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_avx512pf = Feature{
-    .name = "avx512pf",
-    .llvm_name = "avx512pf",
-    .description = "Enable AVX-512 PreFetch Instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_pku = Feature{
-    .name = "pku",
-    .llvm_name = "pku",
-    .description = "Enable protection keys",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_popcnt = Feature{
-    .name = "popcnt",
-    .llvm_name = "popcnt",
-    .description = "Support POPCNT instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_falseDepsPopcnt = Feature{
-    .name = "falseDepsPopcnt",
-    .llvm_name = "false-deps-popcnt",
-    .description = "POPCNT has a false dependency on dest register",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_prefetchwt1 = Feature{
-    .name = "prefetchwt1",
-    .llvm_name = "prefetchwt1",
-    .description = "Prefetch with Intent to Write and T1 Hint",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_prfchw = Feature{
-    .name = "prfchw",
-    .llvm_name = "prfchw",
-    .description = "Support PRFCHW instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_ptwrite = Feature{
-    .name = "ptwrite",
-    .llvm_name = "ptwrite",
-    .description = "Support ptwrite instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_padShortFunctions = Feature{
-    .name = "padShortFunctions",
-    .llvm_name = "pad-short-functions",
-    .description = "Pad short functions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_prefer256Bit = Feature{
-    .name = "prefer256Bit",
-    .llvm_name = "prefer-256-bit",
-    .description = "Prefer 256-bit AVX instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_rdpid = Feature{
-    .name = "rdpid",
-    .llvm_name = "rdpid",
-    .description = "Support RDPID instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_rdrnd = Feature{
-    .name = "rdrnd",
-    .llvm_name = "rdrnd",
-    .description = "Support RDRAND instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_rdseed = Feature{
-    .name = "rdseed",
-    .llvm_name = "rdseed",
-    .description = "Support RDSEED instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_rtm = Feature{
-    .name = "rtm",
-    .llvm_name = "rtm",
-    .description = "Support RTM instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_retpoline = Feature{
-    .name = "retpoline",
-    .llvm_name = "retpoline",
-    .description = "Remove speculation of indirect branches from the generated code, either by avoiding them entirely or lowering them with a speculation blocking construct",
-    .dependencies = &[_]*const Feature {
-        &feature_retpolineIndirectCalls,
-        &feature_retpolineIndirectBranches,
-    },
-};
-
-pub const feature_retpolineExternalThunk = Feature{
-    .name = "retpolineExternalThunk",
-    .llvm_name = "retpoline-external-thunk",
-    .description = "When lowering an indirect call or branch using a `retpoline`, rely on the specified user provided thunk rather than emitting one ourselves. Only has effect when combined with some other retpoline feature",
-    .dependencies = &[_]*const Feature {
-        &feature_retpolineIndirectCalls,
-    },
-};
-
-pub const feature_retpolineIndirectBranches = Feature{
-    .name = "retpolineIndirectBranches",
-    .llvm_name = "retpoline-indirect-branches",
-    .description = "Remove speculation of indirect branches from the generated code",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_retpolineIndirectCalls = Feature{
-    .name = "retpolineIndirectCalls",
-    .llvm_name = "retpoline-indirect-calls",
-    .description = "Remove speculation of indirect calls from the generated code",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sgx = Feature{
-    .name = "sgx",
-    .llvm_name = "sgx",
-    .description = "Enable Software Guard Extensions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sha = Feature{
-    .name = "sha",
-    .llvm_name = "sha",
-    .description = "Enable SHA instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_shstk = Feature{
-    .name = "shstk",
-    .llvm_name = "shstk",
-    .description = "Support CET Shadow-Stack instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sse = Feature{
-    .name = "sse",
-    .llvm_name = "sse",
-    .description = "Enable SSE instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sse2 = Feature{
-    .name = "sse2",
-    .llvm_name = "sse2",
-    .description = "Enable SSE2 instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_sse3 = Feature{
-    .name = "sse3",
-    .llvm_name = "sse3",
-    .description = "Enable SSE3 instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_sse4a = Feature{
-    .name = "sse4a",
-    .llvm_name = "sse4a",
-    .description = "Support SSE 4a instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_sse41 = Feature{
-    .name = "sse41",
-    .llvm_name = "sse4.1",
-    .description = "Enable SSE 4.1 instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_sse42 = Feature{
-    .name = "sse42",
-    .llvm_name = "sse4.2",
-    .description = "Enable SSE 4.2 instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_sseUnalignedMem = Feature{
-    .name = "sseUnalignedMem",
-    .llvm_name = "sse-unaligned-mem",
-    .description = "Allow unaligned memory operands with SSE instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_ssse3 = Feature{
-    .name = "ssse3",
-    .llvm_name = "ssse3",
-    .description = "Enable SSSE3 instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_slow3opsLea = Feature{
-    .name = "slow3opsLea",
-    .llvm_name = "slow-3ops-lea",
-    .description = "LEA instruction with 3 ops or certain registers is slow",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_idivlToDivb = Feature{
-    .name = "idivlToDivb",
-    .llvm_name = "idivl-to-divb",
-    .description = "Use 8-bit divide for positive values less than 256",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_idivqToDivl = Feature{
-    .name = "idivqToDivl",
-    .llvm_name = "idivq-to-divl",
-    .description = "Use 32-bit divide for positive values less than 2^32",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_slowIncdec = Feature{
-    .name = "slowIncdec",
-    .llvm_name = "slow-incdec",
-    .description = "INC and DEC instructions are slower than ADD and SUB",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_slowLea = Feature{
-    .name = "slowLea",
-    .llvm_name = "slow-lea",
-    .description = "LEA instruction with certain arguments is slow",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_slowPmaddwd = Feature{
-    .name = "slowPmaddwd",
-    .llvm_name = "slow-pmaddwd",
-    .description = "PMADDWD is slower than PMULLD",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_slowPmulld = Feature{
-    .name = "slowPmulld",
-    .llvm_name = "slow-pmulld",
-    .description = "PMULLD instruction is slow",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_slowShld = Feature{
-    .name = "slowShld",
-    .llvm_name = "slow-shld",
-    .description = "SHLD instruction is slow",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_slowTwoMemOps = Feature{
-    .name = "slowTwoMemOps",
-    .llvm_name = "slow-two-mem-ops",
-    .description = "Two memory operand instructions are slow",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_slowUnalignedMem16 = Feature{
-    .name = "slowUnalignedMem16",
-    .llvm_name = "slow-unaligned-mem-16",
-    .description = "Slow unaligned 16-byte memory access",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_slowUnalignedMem32 = Feature{
-    .name = "slowUnalignedMem32",
-    .llvm_name = "slow-unaligned-mem-32",
-    .description = "Slow unaligned 32-byte memory access",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_softFloat = Feature{
-    .name = "softFloat",
-    .llvm_name = "soft-float",
-    .description = "Use software floating point features",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_tbm = Feature{
-    .name = "tbm",
-    .llvm_name = "tbm",
-    .description = "Enable TBM instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_vaes = Feature{
-    .name = "vaes",
-    .llvm_name = "vaes",
-    .description = "Promote selected AES instructions to AVX512/AVX registers",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_avx512vbmi = Feature{
-    .name = "avx512vbmi",
-    .llvm_name = "avx512vbmi",
-    .description = "Enable AVX-512 Vector Byte Manipulation Instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_avx512vbmi2 = Feature{
-    .name = "avx512vbmi2",
-    .llvm_name = "avx512vbmi2",
-    .description = "Enable AVX-512 further Vector Byte Manipulation Instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_avx512vl = Feature{
-    .name = "avx512vl",
-    .llvm_name = "avx512vl",
-    .description = "Enable AVX-512 Vector Length eXtensions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_avx512vnni = Feature{
-    .name = "avx512vnni",
-    .llvm_name = "avx512vnni",
-    .description = "Enable AVX-512 Vector Neural Network Instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_avx512vp2intersect = Feature{
-    .name = "avx512vp2intersect",
-    .llvm_name = "avx512vp2intersect",
-    .description = "Enable AVX-512 vp2intersect",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_vpclmulqdq = Feature{
-    .name = "vpclmulqdq",
-    .llvm_name = "vpclmulqdq",
-    .description = "Enable vpclmulqdq instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_avx512vpopcntdq = Feature{
-    .name = "avx512vpopcntdq",
-    .llvm_name = "avx512vpopcntdq",
-    .description = "Enable AVX-512 Population Count Instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_waitpkg = Feature{
-    .name = "waitpkg",
-    .llvm_name = "waitpkg",
-    .description = "Wait and pause enhancements",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_wbnoinvd = Feature{
-    .name = "wbnoinvd",
-    .llvm_name = "wbnoinvd",
-    .description = "Write Back No Invalidate",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_x87 = Feature{
-    .name = "x87",
-    .llvm_name = "x87",
-    .description = "Enable X87 float instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_xop = Feature{
-    .name = "xop",
-    .llvm_name = "xop",
-    .description = "Enable XOP instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_sse,
-    },
-};
-
-pub const feature_xsave = Feature{
-    .name = "xsave",
-    .llvm_name = "xsave",
-    .description = "Support xsave instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_xsavec = Feature{
-    .name = "xsavec",
-    .llvm_name = "xsavec",
-    .description = "Support xsavec instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_xsaveopt = Feature{
-    .name = "xsaveopt",
-    .llvm_name = "xsaveopt",
-    .description = "Support xsaveopt instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_xsaves = Feature{
-    .name = "xsaves",
-    .llvm_name = "xsaves",
-    .description = "Support xsaves instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_bitMode16 = Feature{
-    .name = "bitMode16",
-    .llvm_name = "16bit-mode",
-    .description = "16-bit mode (i8086)",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_bitMode32 = Feature{
-    .name = "bitMode32",
-    .llvm_name = "32bit-mode",
-    .description = "32-bit mode (80386)",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_bitMode64 = Feature{
-    .name = "bitMode64",
-    .llvm_name = "64bit-mode",
-    .description = "64-bit mode (x86_64)",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const features = &[_]*const Feature {
-    &feature_dnow3,
-    &feature_dnowa3,
-    &feature_bit64,
-    &feature_adx,
-    &feature_aes,
-    &feature_avx,
-    &feature_avx2,
-    &feature_avx512f,
-    &feature_avx512bf16,
-    &feature_avx512bitalg,
-    &feature_bmi,
-    &feature_bmi2,
-    &feature_avx512bw,
-    &feature_branchfusion,
-    &feature_avx512cd,
-    &feature_cldemote,
-    &feature_clflushopt,
-    &feature_clwb,
-    &feature_clzero,
-    &feature_cmov,
-    &feature_cx8,
-    &feature_cx16,
-    &feature_avx512dq,
-    &feature_enqcmd,
-    &feature_avx512er,
-    &feature_ermsb,
-    &feature_f16c,
-    &feature_fma,
-    &feature_fma4,
-    &feature_fsgsbase,
-    &feature_fxsr,
-    &feature_fast11bytenop,
-    &feature_fast15bytenop,
-    &feature_fastBextr,
-    &feature_fastHops,
-    &feature_fastLzcnt,
-    &feature_fastPartialYmmOrZmmWrite,
-    &feature_fastShldRotate,
-    &feature_fastScalarFsqrt,
-    &feature_fastScalarShiftMasks,
-    &feature_fastVariableShuffle,
-    &feature_fastVectorFsqrt,
-    &feature_fastVectorShiftMasks,
-    &feature_gfni,
-    &feature_fastGather,
-    &feature_avx512ifma,
-    &feature_invpcid,
-    &feature_sahf,
-    &feature_leaSp,
-    &feature_leaUsesAg,
-    &feature_lwp,
-    &feature_lzcnt,
-    &feature_falseDepsLzcntTzcnt,
-    &feature_mmx,
-    &feature_movbe,
-    &feature_movdir64b,
-    &feature_movdiri,
-    &feature_mpx,
-    &feature_mwaitx,
-    &feature_macrofusion,
-    &feature_mergeToThreewayBranch,
-    &feature_nopl,
-    &feature_pclmul,
-    &feature_pconfig,
-    &feature_avx512pf,
-    &feature_pku,
-    &feature_popcnt,
-    &feature_falseDepsPopcnt,
-    &feature_prefetchwt1,
-    &feature_prfchw,
-    &feature_ptwrite,
-    &feature_padShortFunctions,
-    &feature_prefer256Bit,
-    &feature_rdpid,
-    &feature_rdrnd,
-    &feature_rdseed,
-    &feature_rtm,
-    &feature_retpoline,
-    &feature_retpolineExternalThunk,
-    &feature_retpolineIndirectBranches,
-    &feature_retpolineIndirectCalls,
-    &feature_sgx,
-    &feature_sha,
-    &feature_shstk,
-    &feature_sse,
-    &feature_sse2,
-    &feature_sse3,
-    &feature_sse4a,
-    &feature_sse41,
-    &feature_sse42,
-    &feature_sseUnalignedMem,
-    &feature_ssse3,
-    &feature_slow3opsLea,
-    &feature_idivlToDivb,
-    &feature_idivqToDivl,
-    &feature_slowIncdec,
-    &feature_slowLea,
-    &feature_slowPmaddwd,
-    &feature_slowPmulld,
-    &feature_slowShld,
-    &feature_slowTwoMemOps,
-    &feature_slowUnalignedMem16,
-    &feature_slowUnalignedMem32,
-    &feature_softFloat,
-    &feature_tbm,
-    &feature_vaes,
-    &feature_avx512vbmi,
-    &feature_avx512vbmi2,
-    &feature_avx512vl,
-    &feature_avx512vnni,
-    &feature_avx512vp2intersect,
-    &feature_vpclmulqdq,
-    &feature_avx512vpopcntdq,
-    &feature_waitpkg,
-    &feature_wbnoinvd,
-    &feature_x87,
-    &feature_xop,
-    &feature_xsave,
-    &feature_xsavec,
-    &feature_xsaveopt,
-    &feature_xsaves,
-    &feature_bitMode16,
-    &feature_bitMode32,
-    &feature_bitMode64,
-};
-
-pub const cpu_amdfam10 = Cpu{
-    .name = "amdfam10",
-    .llvm_name = "amdfam10",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnowa3,
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_fastScalarShiftMasks,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_nopl,
-        &feature_popcnt,
-        &feature_sse,
-        &feature_sse4a,
-        &feature_slowShld,
-        &feature_x87,
-    },
-};
-
-pub const cpu_athlon = Cpu{
-    .name = "athlon",
-    .llvm_name = "athlon",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnowa3,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_nopl,
-        &feature_slowShld,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_athlon4 = Cpu{
-    .name = "athlon4",
-    .llvm_name = "athlon-4",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnowa3,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_fxsr,
-        &feature_nopl,
-        &feature_sse,
-        &feature_slowShld,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_athlonFx = Cpu{
-    .name = "athlonFx",
-    .llvm_name = "athlon-fx",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnowa3,
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_fxsr,
-        &feature_fastScalarShiftMasks,
-        &feature_nopl,
-        &feature_sse,
-        &feature_sse2,
-        &feature_slowShld,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_athlonMp = Cpu{
-    .name = "athlonMp",
-    .llvm_name = "athlon-mp",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnowa3,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_fxsr,
-        &feature_nopl,
-        &feature_sse,
-        &feature_slowShld,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_athlonTbird = Cpu{
-    .name = "athlonTbird",
-    .llvm_name = "athlon-tbird",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnowa3,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_nopl,
-        &feature_slowShld,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_athlonXp = Cpu{
-    .name = "athlonXp",
-    .llvm_name = "athlon-xp",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnowa3,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_fxsr,
-        &feature_nopl,
-        &feature_sse,
-        &feature_slowShld,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_athlon64 = Cpu{
-    .name = "athlon64",
-    .llvm_name = "athlon64",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnowa3,
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_fxsr,
-        &feature_fastScalarShiftMasks,
-        &feature_nopl,
-        &feature_sse,
-        &feature_sse2,
-        &feature_slowShld,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_athlon64Sse3 = Cpu{
-    .name = "athlon64Sse3",
-    .llvm_name = "athlon64-sse3",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnowa3,
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_fastScalarShiftMasks,
-        &feature_nopl,
-        &feature_sse,
-        &feature_sse3,
-        &feature_slowShld,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_atom = Cpu{
-    .name = "atom",
-    .llvm_name = "atom",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_sahf,
-        &feature_leaSp,
-        &feature_leaUsesAg,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_nopl,
-        &feature_padShortFunctions,
-        &feature_sse,
-        &feature_ssse3,
-        &feature_idivlToDivb,
-        &feature_idivqToDivl,
-        &feature_slowTwoMemOps,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_barcelona = Cpu{
-    .name = "barcelona",
-    .llvm_name = "barcelona",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnowa3,
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_fastScalarShiftMasks,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_nopl,
-        &feature_popcnt,
-        &feature_sse,
-        &feature_sse4a,
-        &feature_slowShld,
-        &feature_x87,
-    },
-};
-
-pub const cpu_bdver1 = Cpu{
-    .name = "bdver1",
-    .llvm_name = "bdver1",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_sse,
-        &feature_aes,
-        &feature_branchfusion,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_fast11bytenop,
-        &feature_fastScalarShiftMasks,
-        &feature_sahf,
-        &feature_lwp,
-        &feature_lzcnt,
-        &feature_mmx,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_prfchw,
-        &feature_slowShld,
-        &feature_x87,
-        &feature_xop,
-        &feature_xsave,
-    },
-};
-
-pub const cpu_bdver2 = Cpu{
-    .name = "bdver2",
-    .llvm_name = "bdver2",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_sse,
-        &feature_aes,
-        &feature_bmi,
-        &feature_branchfusion,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_f16c,
-        &feature_fma,
-        &feature_fxsr,
-        &feature_fast11bytenop,
-        &feature_fastBextr,
-        &feature_fastScalarShiftMasks,
-        &feature_sahf,
-        &feature_lwp,
-        &feature_lzcnt,
-        &feature_mmx,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_prfchw,
-        &feature_slowShld,
-        &feature_tbm,
-        &feature_x87,
-        &feature_xop,
-        &feature_xsave,
-    },
-};
-
-pub const cpu_bdver3 = Cpu{
-    .name = "bdver3",
-    .llvm_name = "bdver3",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_sse,
-        &feature_aes,
-        &feature_bmi,
-        &feature_branchfusion,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_f16c,
-        &feature_fma,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fast11bytenop,
-        &feature_fastBextr,
-        &feature_fastScalarShiftMasks,
-        &feature_sahf,
-        &feature_lwp,
-        &feature_lzcnt,
-        &feature_mmx,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_prfchw,
-        &feature_slowShld,
-        &feature_tbm,
-        &feature_x87,
-        &feature_xop,
-        &feature_xsave,
-        &feature_xsaveopt,
-    },
-};
-
-pub const cpu_bdver4 = Cpu{
-    .name = "bdver4",
-    .llvm_name = "bdver4",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_sse,
-        &feature_aes,
-        &feature_avx2,
-        &feature_bmi,
-        &feature_bmi2,
-        &feature_branchfusion,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_f16c,
-        &feature_fma,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fast11bytenop,
-        &feature_fastBextr,
-        &feature_fastScalarShiftMasks,
-        &feature_sahf,
-        &feature_lwp,
-        &feature_lzcnt,
-        &feature_mmx,
-        &feature_mwaitx,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_prfchw,
-        &feature_slowShld,
-        &feature_tbm,
-        &feature_x87,
-        &feature_xop,
-        &feature_xsave,
-        &feature_xsaveopt,
-    },
-};
-
-pub const cpu_bonnell = Cpu{
-    .name = "bonnell",
-    .llvm_name = "bonnell",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_sahf,
-        &feature_leaSp,
-        &feature_leaUsesAg,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_nopl,
-        &feature_padShortFunctions,
-        &feature_sse,
-        &feature_ssse3,
-        &feature_idivlToDivb,
-        &feature_idivqToDivl,
-        &feature_slowTwoMemOps,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_broadwell = Cpu{
-    .name = "broadwell",
-    .llvm_name = "broadwell",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_adx,
-        &feature_sse,
-        &feature_avx,
-        &feature_avx2,
-        &feature_bmi,
-        &feature_bmi2,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_ermsb,
-        &feature_f16c,
-        &feature_fma,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fastShldRotate,
-        &feature_fastScalarFsqrt,
-        &feature_fastVariableShuffle,
-        &feature_invpcid,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_falseDepsLzcntTzcnt,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_macrofusion,
-        &feature_mergeToThreewayBranch,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_falseDepsPopcnt,
-        &feature_prfchw,
-        &feature_rdrnd,
-        &feature_rdseed,
-        &feature_sse42,
-        &feature_slow3opsLea,
-        &feature_idivqToDivl,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsaveopt,
-    },
-};
-
-pub const cpu_btver1 = Cpu{
-    .name = "btver1",
-    .llvm_name = "btver1",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_fast15bytenop,
-        &feature_fastScalarShiftMasks,
-        &feature_fastVectorShiftMasks,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_mmx,
-        &feature_nopl,
-        &feature_popcnt,
-        &feature_prfchw,
-        &feature_sse,
-        &feature_sse4a,
-        &feature_ssse3,
-        &feature_slowShld,
-        &feature_x87,
-    },
-};
-
-pub const cpu_btver2 = Cpu{
-    .name = "btver2",
-    .llvm_name = "btver2",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_sse,
-        &feature_aes,
-        &feature_avx,
-        &feature_bmi,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_f16c,
-        &feature_fxsr,
-        &feature_fast15bytenop,
-        &feature_fastBextr,
-        &feature_fastHops,
-        &feature_fastLzcnt,
-        &feature_fastPartialYmmOrZmmWrite,
-        &feature_fastScalarShiftMasks,
-        &feature_fastVectorShiftMasks,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_prfchw,
-        &feature_sse4a,
-        &feature_ssse3,
-        &feature_slowShld,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsaveopt,
-    },
-};
-
-pub const cpu_c3 = Cpu{
-    .name = "c3",
-    .llvm_name = "c3",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnow3,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_c32 = Cpu{
-    .name = "c32",
-    .llvm_name = "c3-2",
-    .dependencies = &[_]*const Feature {
-        &feature_cmov,
-        &feature_cx8,
-        &feature_fxsr,
-        &feature_mmx,
-        &feature_sse,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_cannonlake = Cpu{
-    .name = "cannonlake",
-    .llvm_name = "cannonlake",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_adx,
-        &feature_sse,
-        &feature_aes,
-        &feature_avx,
-        &feature_avx2,
-        &feature_avx512f,
-        &feature_bmi,
-        &feature_bmi2,
-        &feature_avx512bw,
-        &feature_avx512cd,
-        &feature_clflushopt,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_avx512dq,
-        &feature_ermsb,
-        &feature_f16c,
-        &feature_fma,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fastShldRotate,
-        &feature_fastScalarFsqrt,
-        &feature_fastVariableShuffle,
-        &feature_fastVectorFsqrt,
-        &feature_fastGather,
-        &feature_avx512ifma,
-        &feature_invpcid,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_mpx,
-        &feature_macrofusion,
-        &feature_mergeToThreewayBranch,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_pku,
-        &feature_popcnt,
-        &feature_prfchw,
-        &feature_rdrnd,
-        &feature_rdseed,
-        &feature_sgx,
-        &feature_sha,
-        &feature_sse42,
-        &feature_slow3opsLea,
-        &feature_idivqToDivl,
-        &feature_avx512vbmi,
-        &feature_avx512vl,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsavec,
-        &feature_xsaveopt,
-        &feature_xsaves,
-    },
-};
-
-pub const cpu_cascadelake = Cpu{
-    .name = "cascadelake",
-    .llvm_name = "cascadelake",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_adx,
-        &feature_sse,
-        &feature_aes,
-        &feature_avx,
-        &feature_avx2,
-        &feature_avx512f,
-        &feature_bmi,
-        &feature_bmi2,
-        &feature_avx512bw,
-        &feature_avx512cd,
-        &feature_clflushopt,
-        &feature_clwb,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_avx512dq,
-        &feature_ermsb,
-        &feature_f16c,
-        &feature_fma,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fastShldRotate,
-        &feature_fastScalarFsqrt,
-        &feature_fastVariableShuffle,
-        &feature_fastVectorFsqrt,
-        &feature_fastGather,
-        &feature_invpcid,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_mpx,
-        &feature_macrofusion,
-        &feature_mergeToThreewayBranch,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_pku,
-        &feature_popcnt,
-        &feature_falseDepsPopcnt,
-        &feature_prfchw,
-        &feature_rdrnd,
-        &feature_rdseed,
-        &feature_sse42,
-        &feature_slow3opsLea,
-        &feature_idivqToDivl,
-        &feature_avx512vl,
-        &feature_avx512vnni,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsavec,
-        &feature_xsaveopt,
-        &feature_xsaves,
-    },
-};
-
-pub const cpu_cooperlake = Cpu{
-    .name = "cooperlake",
-    .llvm_name = "cooperlake",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_adx,
-        &feature_sse,
-        &feature_aes,
-        &feature_avx,
-        &feature_avx2,
-        &feature_avx512f,
-        &feature_avx512bf16,
-        &feature_bmi,
-        &feature_bmi2,
-        &feature_avx512bw,
-        &feature_avx512cd,
-        &feature_clflushopt,
-        &feature_clwb,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_avx512dq,
-        &feature_ermsb,
-        &feature_f16c,
-        &feature_fma,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fastShldRotate,
-        &feature_fastScalarFsqrt,
-        &feature_fastVariableShuffle,
-        &feature_fastVectorFsqrt,
-        &feature_fastGather,
-        &feature_invpcid,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_mpx,
-        &feature_macrofusion,
-        &feature_mergeToThreewayBranch,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_pku,
-        &feature_popcnt,
-        &feature_falseDepsPopcnt,
-        &feature_prfchw,
-        &feature_rdrnd,
-        &feature_rdseed,
-        &feature_sse42,
-        &feature_slow3opsLea,
-        &feature_idivqToDivl,
-        &feature_avx512vl,
-        &feature_avx512vnni,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsavec,
-        &feature_xsaveopt,
-        &feature_xsaves,
-    },
-};
-
-pub const cpu_coreAvxI = Cpu{
-    .name = "coreAvxI",
-    .llvm_name = "core-avx-i",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_sse,
-        &feature_avx,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_f16c,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fastShldRotate,
-        &feature_fastScalarFsqrt,
-        &feature_sahf,
-        &feature_mmx,
-        &feature_macrofusion,
-        &feature_mergeToThreewayBranch,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_falseDepsPopcnt,
-        &feature_rdrnd,
-        &feature_sse42,
-        &feature_slow3opsLea,
-        &feature_idivqToDivl,
-        &feature_slowUnalignedMem32,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsaveopt,
-    },
-};
-
-pub const cpu_coreAvx2 = Cpu{
-    .name = "coreAvx2",
-    .llvm_name = "core-avx2",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_sse,
-        &feature_avx,
-        &feature_avx2,
-        &feature_bmi,
-        &feature_bmi2,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_ermsb,
-        &feature_f16c,
-        &feature_fma,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fastShldRotate,
-        &feature_fastScalarFsqrt,
-        &feature_fastVariableShuffle,
-        &feature_invpcid,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_falseDepsLzcntTzcnt,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_macrofusion,
-        &feature_mergeToThreewayBranch,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_falseDepsPopcnt,
-        &feature_rdrnd,
-        &feature_sse42,
-        &feature_slow3opsLea,
-        &feature_idivqToDivl,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsaveopt,
-    },
-};
-
-pub const cpu_core2 = Cpu{
-    .name = "core2",
-    .llvm_name = "core2",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_sahf,
-        &feature_mmx,
-        &feature_macrofusion,
-        &feature_nopl,
-        &feature_sse,
-        &feature_ssse3,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_corei7 = Cpu{
-    .name = "corei7",
-    .llvm_name = "corei7",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_sahf,
-        &feature_mmx,
-        &feature_macrofusion,
-        &feature_nopl,
-        &feature_popcnt,
-        &feature_sse,
-        &feature_sse42,
-        &feature_x87,
-    },
-};
-
-pub const cpu_corei7Avx = Cpu{
-    .name = "corei7Avx",
-    .llvm_name = "corei7-avx",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_sse,
-        &feature_avx,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_fastShldRotate,
-        &feature_fastScalarFsqrt,
-        &feature_sahf,
-        &feature_mmx,
-        &feature_macrofusion,
-        &feature_mergeToThreewayBranch,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_falseDepsPopcnt,
-        &feature_sse42,
-        &feature_slow3opsLea,
-        &feature_idivqToDivl,
-        &feature_slowUnalignedMem32,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsaveopt,
-    },
-};
-
-pub const cpu_generic = Cpu{
-    .name = "generic",
-    .llvm_name = "generic",
-    .dependencies = &[_]*const Feature {
-        &feature_cx8,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_geode = Cpu{
-    .name = "geode",
-    .llvm_name = "geode",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnowa3,
-        &feature_cx8,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_goldmont = Cpu{
-    .name = "goldmont",
-    .llvm_name = "goldmont",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_sse,
-        &feature_aes,
-        &feature_clflushopt,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_sahf,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_mpx,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_falseDepsPopcnt,
-        &feature_prfchw,
-        &feature_rdrnd,
-        &feature_rdseed,
-        &feature_sha,
-        &feature_sse42,
-        &feature_ssse3,
-        &feature_slowIncdec,
-        &feature_slowLea,
-        &feature_slowTwoMemOps,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsavec,
-        &feature_xsaveopt,
-        &feature_xsaves,
-    },
-};
-
-pub const cpu_goldmontPlus = Cpu{
-    .name = "goldmontPlus",
-    .llvm_name = "goldmont-plus",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_sse,
-        &feature_aes,
-        &feature_clflushopt,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_sahf,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_mpx,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_prfchw,
-        &feature_ptwrite,
-        &feature_rdpid,
-        &feature_rdrnd,
-        &feature_rdseed,
-        &feature_sgx,
-        &feature_sha,
-        &feature_sse42,
-        &feature_ssse3,
-        &feature_slowIncdec,
-        &feature_slowLea,
-        &feature_slowTwoMemOps,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsavec,
-        &feature_xsaveopt,
-        &feature_xsaves,
-    },
-};
-
-pub const cpu_haswell = Cpu{
-    .name = "haswell",
-    .llvm_name = "haswell",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_sse,
-        &feature_avx,
-        &feature_avx2,
-        &feature_bmi,
-        &feature_bmi2,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_ermsb,
-        &feature_f16c,
-        &feature_fma,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fastShldRotate,
-        &feature_fastScalarFsqrt,
-        &feature_fastVariableShuffle,
-        &feature_invpcid,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_falseDepsLzcntTzcnt,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_macrofusion,
-        &feature_mergeToThreewayBranch,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_falseDepsPopcnt,
-        &feature_rdrnd,
-        &feature_sse42,
-        &feature_slow3opsLea,
-        &feature_idivqToDivl,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsaveopt,
-    },
-};
-
-pub const cpu_i386 = Cpu{
-    .name = "i386",
-    .llvm_name = "i386",
-    .dependencies = &[_]*const Feature {
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_i486 = Cpu{
-    .name = "i486",
-    .llvm_name = "i486",
-    .dependencies = &[_]*const Feature {
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_i586 = Cpu{
-    .name = "i586",
-    .llvm_name = "i586",
-    .dependencies = &[_]*const Feature {
-        &feature_cx8,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_i686 = Cpu{
-    .name = "i686",
-    .llvm_name = "i686",
-    .dependencies = &[_]*const Feature {
-        &feature_cmov,
-        &feature_cx8,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_icelakeClient = Cpu{
-    .name = "icelakeClient",
-    .llvm_name = "icelake-client",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_adx,
-        &feature_sse,
-        &feature_aes,
-        &feature_avx,
-        &feature_avx2,
-        &feature_avx512f,
-        &feature_avx512bitalg,
-        &feature_bmi,
-        &feature_bmi2,
-        &feature_avx512bw,
-        &feature_avx512cd,
-        &feature_clflushopt,
-        &feature_clwb,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_avx512dq,
-        &feature_ermsb,
-        &feature_f16c,
-        &feature_fma,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fastShldRotate,
-        &feature_fastScalarFsqrt,
-        &feature_fastVariableShuffle,
-        &feature_fastVectorFsqrt,
-        &feature_gfni,
-        &feature_fastGather,
-        &feature_avx512ifma,
-        &feature_invpcid,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_mpx,
-        &feature_macrofusion,
-        &feature_mergeToThreewayBranch,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_pku,
-        &feature_popcnt,
-        &feature_prfchw,
-        &feature_rdpid,
-        &feature_rdrnd,
-        &feature_rdseed,
-        &feature_sgx,
-        &feature_sha,
-        &feature_sse42,
-        &feature_slow3opsLea,
-        &feature_idivqToDivl,
-        &feature_vaes,
-        &feature_avx512vbmi,
-        &feature_avx512vbmi2,
-        &feature_avx512vl,
-        &feature_avx512vnni,
-        &feature_vpclmulqdq,
-        &feature_avx512vpopcntdq,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsavec,
-        &feature_xsaveopt,
-        &feature_xsaves,
-    },
-};
-
-pub const cpu_icelakeServer = Cpu{
-    .name = "icelakeServer",
-    .llvm_name = "icelake-server",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_adx,
-        &feature_sse,
-        &feature_aes,
-        &feature_avx,
-        &feature_avx2,
-        &feature_avx512f,
-        &feature_avx512bitalg,
-        &feature_bmi,
-        &feature_bmi2,
-        &feature_avx512bw,
-        &feature_avx512cd,
-        &feature_clflushopt,
-        &feature_clwb,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_avx512dq,
-        &feature_ermsb,
-        &feature_f16c,
-        &feature_fma,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fastShldRotate,
-        &feature_fastScalarFsqrt,
-        &feature_fastVariableShuffle,
-        &feature_fastVectorFsqrt,
-        &feature_gfni,
-        &feature_fastGather,
-        &feature_avx512ifma,
-        &feature_invpcid,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_mpx,
-        &feature_macrofusion,
-        &feature_mergeToThreewayBranch,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_pconfig,
-        &feature_pku,
-        &feature_popcnt,
-        &feature_prfchw,
-        &feature_rdpid,
-        &feature_rdrnd,
-        &feature_rdseed,
-        &feature_sgx,
-        &feature_sha,
-        &feature_sse42,
-        &feature_slow3opsLea,
-        &feature_idivqToDivl,
-        &feature_vaes,
-        &feature_avx512vbmi,
-        &feature_avx512vbmi2,
-        &feature_avx512vl,
-        &feature_avx512vnni,
-        &feature_vpclmulqdq,
-        &feature_avx512vpopcntdq,
-        &feature_wbnoinvd,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsavec,
-        &feature_xsaveopt,
-        &feature_xsaves,
-    },
-};
-
-pub const cpu_ivybridge = Cpu{
-    .name = "ivybridge",
-    .llvm_name = "ivybridge",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_sse,
-        &feature_avx,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_f16c,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fastShldRotate,
-        &feature_fastScalarFsqrt,
-        &feature_sahf,
-        &feature_mmx,
-        &feature_macrofusion,
-        &feature_mergeToThreewayBranch,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_falseDepsPopcnt,
-        &feature_rdrnd,
-        &feature_sse42,
-        &feature_slow3opsLea,
-        &feature_idivqToDivl,
-        &feature_slowUnalignedMem32,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsaveopt,
-    },
-};
-
-pub const cpu_k6 = Cpu{
-    .name = "k6",
-    .llvm_name = "k6",
-    .dependencies = &[_]*const Feature {
-        &feature_cx8,
-        &feature_mmx,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_k62 = Cpu{
-    .name = "k62",
-    .llvm_name = "k6-2",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnow3,
-        &feature_cx8,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_k63 = Cpu{
-    .name = "k63",
-    .llvm_name = "k6-3",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnow3,
-        &feature_cx8,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_k8 = Cpu{
-    .name = "k8",
-    .llvm_name = "k8",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnowa3,
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_fxsr,
-        &feature_fastScalarShiftMasks,
-        &feature_nopl,
-        &feature_sse,
-        &feature_sse2,
-        &feature_slowShld,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_k8Sse3 = Cpu{
-    .name = "k8Sse3",
-    .llvm_name = "k8-sse3",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnowa3,
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_fastScalarShiftMasks,
-        &feature_nopl,
-        &feature_sse,
-        &feature_sse3,
-        &feature_slowShld,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_knl = Cpu{
-    .name = "knl",
-    .llvm_name = "knl",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_adx,
-        &feature_sse,
-        &feature_aes,
-        &feature_avx512f,
-        &feature_bmi,
-        &feature_bmi2,
-        &feature_avx512cd,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_avx512er,
-        &feature_f16c,
-        &feature_fma,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fastPartialYmmOrZmmWrite,
-        &feature_fastGather,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_avx512pf,
-        &feature_popcnt,
-        &feature_prefetchwt1,
-        &feature_prfchw,
-        &feature_rdrnd,
-        &feature_rdseed,
-        &feature_slow3opsLea,
-        &feature_idivqToDivl,
-        &feature_slowIncdec,
-        &feature_slowPmaddwd,
-        &feature_slowTwoMemOps,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsaveopt,
-    },
-};
-
-pub const cpu_knm = Cpu{
-    .name = "knm",
-    .llvm_name = "knm",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_adx,
-        &feature_sse,
-        &feature_aes,
-        &feature_avx512f,
-        &feature_bmi,
-        &feature_bmi2,
-        &feature_avx512cd,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_avx512er,
-        &feature_f16c,
-        &feature_fma,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fastPartialYmmOrZmmWrite,
-        &feature_fastGather,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_avx512pf,
-        &feature_popcnt,
-        &feature_prefetchwt1,
-        &feature_prfchw,
-        &feature_rdrnd,
-        &feature_rdseed,
-        &feature_slow3opsLea,
-        &feature_idivqToDivl,
-        &feature_slowIncdec,
-        &feature_slowPmaddwd,
-        &feature_slowTwoMemOps,
-        &feature_avx512vpopcntdq,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsaveopt,
-    },
-};
-
-pub const cpu_lakemont = Cpu{
-    .name = "lakemont",
-    .llvm_name = "lakemont",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const cpu_nehalem = Cpu{
-    .name = "nehalem",
-    .llvm_name = "nehalem",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_sahf,
-        &feature_mmx,
-        &feature_macrofusion,
-        &feature_nopl,
-        &feature_popcnt,
-        &feature_sse,
-        &feature_sse42,
-        &feature_x87,
-    },
-};
-
-pub const cpu_nocona = Cpu{
-    .name = "nocona",
-    .llvm_name = "nocona",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_mmx,
-        &feature_nopl,
-        &feature_sse,
-        &feature_sse3,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_opteron = Cpu{
-    .name = "opteron",
-    .llvm_name = "opteron",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnowa3,
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_fxsr,
-        &feature_fastScalarShiftMasks,
-        &feature_nopl,
-        &feature_sse,
-        &feature_sse2,
-        &feature_slowShld,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_opteronSse3 = Cpu{
-    .name = "opteronSse3",
-    .llvm_name = "opteron-sse3",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnowa3,
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_fastScalarShiftMasks,
-        &feature_nopl,
-        &feature_sse,
-        &feature_sse3,
-        &feature_slowShld,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_penryn = Cpu{
-    .name = "penryn",
-    .llvm_name = "penryn",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_sahf,
-        &feature_mmx,
-        &feature_macrofusion,
-        &feature_nopl,
-        &feature_sse,
-        &feature_sse41,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_pentium = Cpu{
-    .name = "pentium",
-    .llvm_name = "pentium",
-    .dependencies = &[_]*const Feature {
-        &feature_cx8,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_pentiumM = Cpu{
-    .name = "pentiumM",
-    .llvm_name = "pentium-m",
-    .dependencies = &[_]*const Feature {
-        &feature_cmov,
-        &feature_cx8,
-        &feature_fxsr,
-        &feature_mmx,
-        &feature_nopl,
-        &feature_sse,
-        &feature_sse2,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_pentiumMmx = Cpu{
-    .name = "pentiumMmx",
-    .llvm_name = "pentium-mmx",
-    .dependencies = &[_]*const Feature {
-        &feature_cx8,
-        &feature_mmx,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_pentium2 = Cpu{
-    .name = "pentium2",
-    .llvm_name = "pentium2",
-    .dependencies = &[_]*const Feature {
-        &feature_cmov,
-        &feature_cx8,
-        &feature_fxsr,
-        &feature_mmx,
-        &feature_nopl,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_pentium3 = Cpu{
-    .name = "pentium3",
-    .llvm_name = "pentium3",
-    .dependencies = &[_]*const Feature {
-        &feature_cmov,
-        &feature_cx8,
-        &feature_fxsr,
-        &feature_mmx,
-        &feature_nopl,
-        &feature_sse,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_pentium3m = Cpu{
-    .name = "pentium3m",
-    .llvm_name = "pentium3m",
-    .dependencies = &[_]*const Feature {
-        &feature_cmov,
-        &feature_cx8,
-        &feature_fxsr,
-        &feature_mmx,
-        &feature_nopl,
-        &feature_sse,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_pentium4 = Cpu{
-    .name = "pentium4",
-    .llvm_name = "pentium4",
-    .dependencies = &[_]*const Feature {
-        &feature_cmov,
-        &feature_cx8,
-        &feature_fxsr,
-        &feature_mmx,
-        &feature_nopl,
-        &feature_sse,
-        &feature_sse2,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_pentium4m = Cpu{
-    .name = "pentium4m",
-    .llvm_name = "pentium4m",
-    .dependencies = &[_]*const Feature {
-        &feature_cmov,
-        &feature_cx8,
-        &feature_fxsr,
-        &feature_mmx,
-        &feature_nopl,
-        &feature_sse,
-        &feature_sse2,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_pentiumpro = Cpu{
-    .name = "pentiumpro",
-    .llvm_name = "pentiumpro",
-    .dependencies = &[_]*const Feature {
-        &feature_cmov,
-        &feature_cx8,
-        &feature_nopl,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_prescott = Cpu{
-    .name = "prescott",
-    .llvm_name = "prescott",
-    .dependencies = &[_]*const Feature {
-        &feature_cmov,
-        &feature_cx8,
-        &feature_fxsr,
-        &feature_mmx,
-        &feature_nopl,
-        &feature_sse,
-        &feature_sse3,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_sandybridge = Cpu{
-    .name = "sandybridge",
-    .llvm_name = "sandybridge",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_sse,
-        &feature_avx,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_fastShldRotate,
-        &feature_fastScalarFsqrt,
-        &feature_sahf,
-        &feature_mmx,
-        &feature_macrofusion,
-        &feature_mergeToThreewayBranch,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_falseDepsPopcnt,
-        &feature_sse42,
-        &feature_slow3opsLea,
-        &feature_idivqToDivl,
-        &feature_slowUnalignedMem32,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsaveopt,
-    },
-};
-
-pub const cpu_silvermont = Cpu{
-    .name = "silvermont",
-    .llvm_name = "silvermont",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_sahf,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_nopl,
-        &feature_sse,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_falseDepsPopcnt,
-        &feature_prfchw,
-        &feature_rdrnd,
-        &feature_sse42,
-        &feature_ssse3,
-        &feature_idivqToDivl,
-        &feature_slowIncdec,
-        &feature_slowLea,
-        &feature_slowPmulld,
-        &feature_slowTwoMemOps,
-        &feature_x87,
-    },
-};
-
-pub const cpu_skx = Cpu{
-    .name = "skx",
-    .llvm_name = "skx",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_adx,
-        &feature_sse,
-        &feature_aes,
-        &feature_avx,
-        &feature_avx2,
-        &feature_avx512f,
-        &feature_bmi,
-        &feature_bmi2,
-        &feature_avx512bw,
-        &feature_avx512cd,
-        &feature_clflushopt,
-        &feature_clwb,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_avx512dq,
-        &feature_ermsb,
-        &feature_f16c,
-        &feature_fma,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fastShldRotate,
-        &feature_fastScalarFsqrt,
-        &feature_fastVariableShuffle,
-        &feature_fastVectorFsqrt,
-        &feature_fastGather,
-        &feature_invpcid,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_mpx,
-        &feature_macrofusion,
-        &feature_mergeToThreewayBranch,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_pku,
-        &feature_popcnt,
-        &feature_falseDepsPopcnt,
-        &feature_prfchw,
-        &feature_rdrnd,
-        &feature_rdseed,
-        &feature_sse42,
-        &feature_slow3opsLea,
-        &feature_idivqToDivl,
-        &feature_avx512vl,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsavec,
-        &feature_xsaveopt,
-        &feature_xsaves,
-    },
-};
-
-pub const cpu_skylake = Cpu{
-    .name = "skylake",
-    .llvm_name = "skylake",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_adx,
-        &feature_sse,
-        &feature_aes,
-        &feature_avx,
-        &feature_avx2,
-        &feature_bmi,
-        &feature_bmi2,
-        &feature_clflushopt,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_ermsb,
-        &feature_f16c,
-        &feature_fma,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fastShldRotate,
-        &feature_fastScalarFsqrt,
-        &feature_fastVariableShuffle,
-        &feature_fastVectorFsqrt,
-        &feature_fastGather,
-        &feature_invpcid,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_mpx,
-        &feature_macrofusion,
-        &feature_mergeToThreewayBranch,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_falseDepsPopcnt,
-        &feature_prfchw,
-        &feature_rdrnd,
-        &feature_rdseed,
-        &feature_sgx,
-        &feature_sse42,
-        &feature_slow3opsLea,
-        &feature_idivqToDivl,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsavec,
-        &feature_xsaveopt,
-        &feature_xsaves,
-    },
-};
-
-pub const cpu_skylakeAvx512 = Cpu{
-    .name = "skylakeAvx512",
-    .llvm_name = "skylake-avx512",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_adx,
-        &feature_sse,
-        &feature_aes,
-        &feature_avx,
-        &feature_avx2,
-        &feature_avx512f,
-        &feature_bmi,
-        &feature_bmi2,
-        &feature_avx512bw,
-        &feature_avx512cd,
-        &feature_clflushopt,
-        &feature_clwb,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_avx512dq,
-        &feature_ermsb,
-        &feature_f16c,
-        &feature_fma,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fastShldRotate,
-        &feature_fastScalarFsqrt,
-        &feature_fastVariableShuffle,
-        &feature_fastVectorFsqrt,
-        &feature_fastGather,
-        &feature_invpcid,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_mpx,
-        &feature_macrofusion,
-        &feature_mergeToThreewayBranch,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_pku,
-        &feature_popcnt,
-        &feature_falseDepsPopcnt,
-        &feature_prfchw,
-        &feature_rdrnd,
-        &feature_rdseed,
-        &feature_sse42,
-        &feature_slow3opsLea,
-        &feature_idivqToDivl,
-        &feature_avx512vl,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsavec,
-        &feature_xsaveopt,
-        &feature_xsaves,
-    },
-};
-
-pub const cpu_slm = Cpu{
-    .name = "slm",
-    .llvm_name = "slm",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_sahf,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_nopl,
-        &feature_sse,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_falseDepsPopcnt,
-        &feature_prfchw,
-        &feature_rdrnd,
-        &feature_sse42,
-        &feature_ssse3,
-        &feature_idivqToDivl,
-        &feature_slowIncdec,
-        &feature_slowLea,
-        &feature_slowPmulld,
-        &feature_slowTwoMemOps,
-        &feature_x87,
-    },
-};
-
-pub const cpu_tremont = Cpu{
-    .name = "tremont",
-    .llvm_name = "tremont",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_sse,
-        &feature_aes,
-        &feature_cldemote,
-        &feature_clflushopt,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_gfni,
-        &feature_sahf,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_movdir64b,
-        &feature_movdiri,
-        &feature_mpx,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_prfchw,
-        &feature_ptwrite,
-        &feature_rdpid,
-        &feature_rdrnd,
-        &feature_rdseed,
-        &feature_sgx,
-        &feature_sha,
-        &feature_sse42,
-        &feature_ssse3,
-        &feature_slowIncdec,
-        &feature_slowLea,
-        &feature_slowTwoMemOps,
-        &feature_waitpkg,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsavec,
-        &feature_xsaveopt,
-        &feature_xsaves,
-    },
-};
-
-pub const cpu_westmere = Cpu{
-    .name = "westmere",
-    .llvm_name = "westmere",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_fxsr,
-        &feature_sahf,
-        &feature_mmx,
-        &feature_macrofusion,
-        &feature_nopl,
-        &feature_sse,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_sse42,
-        &feature_x87,
-    },
-};
-
-pub const cpu_winchipC6 = Cpu{
-    .name = "winchipC6",
-    .llvm_name = "winchip-c6",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_winchip2 = Cpu{
-    .name = "winchip2",
-    .llvm_name = "winchip2",
-    .dependencies = &[_]*const Feature {
-        &feature_mmx,
-        &feature_dnow3,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_x8664 = Cpu{
-    .name = "x8664",
-    .llvm_name = "x86-64",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_fxsr,
-        &feature_mmx,
-        &feature_macrofusion,
-        &feature_nopl,
-        &feature_sse,
-        &feature_sse2,
-        &feature_slow3opsLea,
-        &feature_slowIncdec,
-        &feature_x87,
-    },
-};
-
-pub const cpu_yonah = Cpu{
-    .name = "yonah",
-    .llvm_name = "yonah",
-    .dependencies = &[_]*const Feature {
-        &feature_cmov,
-        &feature_cx8,
-        &feature_fxsr,
-        &feature_mmx,
-        &feature_nopl,
-        &feature_sse,
-        &feature_sse3,
-        &feature_slowUnalignedMem16,
-        &feature_x87,
-    },
-};
-
-pub const cpu_znver1 = Cpu{
-    .name = "znver1",
-    .llvm_name = "znver1",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_adx,
-        &feature_sse,
-        &feature_aes,
-        &feature_avx2,
-        &feature_bmi,
-        &feature_bmi2,
-        &feature_branchfusion,
-        &feature_clflushopt,
-        &feature_clzero,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_f16c,
-        &feature_fma,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fast15bytenop,
-        &feature_fastBextr,
-        &feature_fastLzcnt,
-        &feature_fastScalarShiftMasks,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_mwaitx,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_prfchw,
-        &feature_rdrnd,
-        &feature_rdseed,
-        &feature_sha,
-        &feature_sse4a,
-        &feature_slowShld,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsavec,
-        &feature_xsaveopt,
-        &feature_xsaves,
-    },
-};
-
-pub const cpu_znver2 = Cpu{
-    .name = "znver2",
-    .llvm_name = "znver2",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_adx,
-        &feature_sse,
-        &feature_aes,
-        &feature_avx2,
-        &feature_bmi,
-        &feature_bmi2,
-        &feature_branchfusion,
-        &feature_clflushopt,
-        &feature_clwb,
-        &feature_clzero,
-        &feature_cmov,
-        &feature_cx8,
-        &feature_cx16,
-        &feature_f16c,
-        &feature_fma,
-        &feature_fsgsbase,
-        &feature_fxsr,
-        &feature_fast15bytenop,
-        &feature_fastBextr,
-        &feature_fastLzcnt,
-        &feature_fastScalarShiftMasks,
-        &feature_sahf,
-        &feature_lzcnt,
-        &feature_mmx,
-        &feature_movbe,
-        &feature_mwaitx,
-        &feature_nopl,
-        &feature_pclmul,
-        &feature_popcnt,
-        &feature_prfchw,
-        &feature_rdpid,
-        &feature_rdrnd,
-        &feature_rdseed,
-        &feature_sha,
-        &feature_sse4a,
-        &feature_slowShld,
-        &feature_wbnoinvd,
-        &feature_x87,
-        &feature_xsave,
-        &feature_xsavec,
-        &feature_xsaveopt,
-        &feature_xsaves,
-    },
-};
-
-pub const cpus = &[_]*const Cpu {
-    &cpu_amdfam10,
-    &cpu_athlon,
-    &cpu_athlon4,
-    &cpu_athlonFx,
-    &cpu_athlonMp,
-    &cpu_athlonTbird,
-    &cpu_athlonXp,
-    &cpu_athlon64,
-    &cpu_athlon64Sse3,
-    &cpu_atom,
-    &cpu_barcelona,
-    &cpu_bdver1,
-    &cpu_bdver2,
-    &cpu_bdver3,
-    &cpu_bdver4,
-    &cpu_bonnell,
-    &cpu_broadwell,
-    &cpu_btver1,
-    &cpu_btver2,
-    &cpu_c3,
-    &cpu_c32,
-    &cpu_cannonlake,
-    &cpu_cascadelake,
-    &cpu_cooperlake,
-    &cpu_coreAvxI,
-    &cpu_coreAvx2,
-    &cpu_core2,
-    &cpu_corei7,
-    &cpu_corei7Avx,
-    &cpu_generic,
-    &cpu_geode,
-    &cpu_goldmont,
-    &cpu_goldmontPlus,
-    &cpu_haswell,
-    &cpu_i386,
-    &cpu_i486,
-    &cpu_i586,
-    &cpu_i686,
-    &cpu_icelakeClient,
-    &cpu_icelakeServer,
-    &cpu_ivybridge,
-    &cpu_k6,
-    &cpu_k62,
-    &cpu_k63,
-    &cpu_k8,
-    &cpu_k8Sse3,
-    &cpu_knl,
-    &cpu_knm,
-    &cpu_lakemont,
-    &cpu_nehalem,
-    &cpu_nocona,
-    &cpu_opteron,
-    &cpu_opteronSse3,
-    &cpu_penryn,
-    &cpu_pentium,
-    &cpu_pentiumM,
-    &cpu_pentiumMmx,
-    &cpu_pentium2,
-    &cpu_pentium3,
-    &cpu_pentium3m,
-    &cpu_pentium4,
-    &cpu_pentium4m,
-    &cpu_pentiumpro,
-    &cpu_prescott,
-    &cpu_sandybridge,
-    &cpu_silvermont,
-    &cpu_skx,
-    &cpu_skylake,
-    &cpu_skylakeAvx512,
-    &cpu_slm,
-    &cpu_tremont,
-    &cpu_westmere,
-    &cpu_winchipC6,
-    &cpu_winchip2,
-    &cpu_x8664,
-    &cpu_yonah,
-    &cpu_znver1,
-    &cpu_znver2,
+const std = @import("../std.zig");
+const Cpu = std.Target.Cpu;
+
+pub const Feature = enum {
+    @"16bit_mode",
+    @"32bit_mode",
+    @"3dnow",
+    @"3dnowa",
+    @"64bit",
+    @"64bit_mode",
+    adx,
+    aes,
+    avx,
+    avx2,
+    avx512bf16,
+    avx512bitalg,
+    avx512bw,
+    avx512cd,
+    avx512dq,
+    avx512er,
+    avx512f,
+    avx512ifma,
+    avx512pf,
+    avx512vbmi,
+    avx512vbmi2,
+    avx512vl,
+    avx512vnni,
+    avx512vp2intersect,
+    avx512vpopcntdq,
+    bmi,
+    bmi2,
+    branchfusion,
+    cldemote,
+    clflushopt,
+    clwb,
+    clzero,
+    cmov,
+    cx16,
+    cx8,
+    enqcmd,
+    ermsb,
+    f16c,
+    false_deps_lzcnt_tzcnt,
+    false_deps_popcnt,
+    fast_11bytenop,
+    fast_15bytenop,
+    fast_bextr,
+    fast_gather,
+    fast_hops,
+    fast_lzcnt,
+    fast_partial_ymm_or_zmm_write,
+    fast_scalar_fsqrt,
+    fast_scalar_shift_masks,
+    fast_shld_rotate,
+    fast_variable_shuffle,
+    fast_vector_fsqrt,
+    fast_vector_shift_masks,
+    fma,
+    fma4,
+    fsgsbase,
+    fxsr,
+    gfni,
+    idivl_to_divb,
+    idivq_to_divl,
+    invpcid,
+    lea_sp,
+    lea_uses_ag,
+    lwp,
+    lzcnt,
+    macrofusion,
+    merge_to_threeway_branch,
+    mmx,
+    movbe,
+    movdir64b,
+    movdiri,
+    mpx,
+    mwaitx,
+    nopl,
+    pad_short_functions,
+    pclmul,
+    pconfig,
+    pku,
+    popcnt,
+    prefer_256_bit,
+    prefetchwt1,
+    prfchw,
+    ptwrite,
+    rdpid,
+    rdrnd,
+    rdseed,
+    retpoline,
+    retpoline_external_thunk,
+    retpoline_indirect_branches,
+    retpoline_indirect_calls,
+    rtm,
+    sahf,
+    sgx,
+    sha,
+    shstk,
+    slow_3ops_lea,
+    slow_incdec,
+    slow_lea,
+    slow_pmaddwd,
+    slow_pmulld,
+    slow_shld,
+    slow_two_mem_ops,
+    slow_unaligned_mem_16,
+    slow_unaligned_mem_32,
+    soft_float,
+    sse,
+    sse2,
+    sse3,
+    sse4_1,
+    sse4_2,
+    sse4a,
+    sse_unaligned_mem,
+    ssse3,
+    tbm,
+    vaes,
+    vpclmulqdq,
+    waitpkg,
+    wbnoinvd,
+    x87,
+    xop,
+    xsave,
+    xsavec,
+    xsaveopt,
+    xsaves,
+};
+
+pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
+
+pub const all_features = blk: {
+    const len = @typeInfo(Feature).Enum.fields.len;
+    std.debug.assert(len <= @typeInfo(Cpu.Feature.Set).Int.bits);
+    var result: [len]Cpu.Feature = undefined;
+
+    result[@enumToInt(Feature.@"16bit_mode")] = .{
+        .index = @enumToInt(Feature.@"16bit_mode"),
+        .name = @tagName(Feature.@"16bit_mode"),
+        .llvm_name = "16bit-mode",
+        .description = "16-bit mode (i8086)",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.@"32bit_mode")] = .{
+        .index = @enumToInt(Feature.@"32bit_mode"),
+        .name = @tagName(Feature.@"32bit_mode"),
+        .llvm_name = "32bit-mode",
+        .description = "32-bit mode (80386)",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.@"3dnow")] = .{
+        .index = @enumToInt(Feature.@"3dnow"),
+        .name = @tagName(Feature.@"3dnow"),
+        .llvm_name = "3dnow",
+        .description = "Enable 3DNow! instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+        }),
+    };
+
+    result[@enumToInt(Feature.@"3dnowa")] = .{
+        .index = @enumToInt(Feature.@"3dnowa"),
+        .name = @tagName(Feature.@"3dnowa"),
+        .llvm_name = "3dnowa",
+        .description = "Enable 3DNow! Athlon instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+        }),
+    };
+
+    result[@enumToInt(Feature.@"64bit")] = .{
+        .index = @enumToInt(Feature.@"64bit"),
+        .name = @tagName(Feature.@"64bit"),
+        .llvm_name = "64bit",
+        .description = "Support 64-bit instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.@"64bit_mode")] = .{
+        .index = @enumToInt(Feature.@"64bit_mode"),
+        .name = @tagName(Feature.@"64bit_mode"),
+        .llvm_name = "64bit-mode",
+        .description = "64-bit mode (x86_64)",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.adx)] = .{
+        .index = @enumToInt(Feature.adx),
+        .name = @tagName(Feature.adx),
+        .llvm_name = "adx",
+        .description = "Support ADX instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+
+    result[@enumToInt(Feature.aes)] = .{
+        .index = @enumToInt(Feature.aes),
+        .name = @tagName(Feature.aes),
+        .llvm_name = "aes",
+        .description = "Enable AES instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.avx)] = .{
+        .index = @enumToInt(Feature.avx),
+        .name = @tagName(Feature.avx),
+        .llvm_name = "avx",
+        .description = "Enable AVX instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.avx2)] = .{
+        .index = @enumToInt(Feature.avx2),
+        .name = @tagName(Feature.avx2),
+        .llvm_name = "avx2",
+        .description = "Enable AVX2 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.avx512f)] = .{
+        .index = @enumToInt(Feature.avx512f),
+        .name = @tagName(Feature.avx512f),
+        .llvm_name = "avx512f",
+        .description = "Enable AVX-512 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.avx512bf16)] = .{
+        .index = @enumToInt(Feature.avx512bf16),
+        .name = @tagName(Feature.avx512bf16),
+        .llvm_name = "avx512bf16",
+        .description = "Support bfloat16 floating point",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.avx512bitalg)] = .{
+        .index = @enumToInt(Feature.avx512bitalg),
+        .name = @tagName(Feature.avx512bitalg),
+        .llvm_name = "avx512bitalg",
+        .description = "Enable AVX-512 Bit Algorithms",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.bmi)] = .{
+        .index = @enumToInt(Feature.bmi),
+        .name = @tagName(Feature.bmi),
+        .llvm_name = "bmi",
+        .description = "Support BMI instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+
+    result[@enumToInt(Feature.bmi2)] = .{
+        .index = @enumToInt(Feature.bmi2),
+        .name = @tagName(Feature.bmi2),
+        .llvm_name = "bmi2",
+        .description = "Support BMI2 instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+
+    result[@enumToInt(Feature.avx512bw)] = .{
+        .index = @enumToInt(Feature.avx512bw),
+        .name = @tagName(Feature.avx512bw),
+        .llvm_name = "avx512bw",
+        .description = "Enable AVX-512 Byte and Word Instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.branchfusion)] = .{
+        .index = @enumToInt(Feature.branchfusion),
+        .name = @tagName(Feature.branchfusion),
+        .llvm_name = "branchfusion",
+        .description = "CMP/TEST can be fused with conditional branches",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+
+    result[@enumToInt(Feature.avx512cd)] = .{
+        .index = @enumToInt(Feature.avx512cd),
+        .name = @tagName(Feature.avx512cd),
+        .llvm_name = "avx512cd",
+        .description = "Enable AVX-512 Conflict Detection Instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.cldemote)] = .{
+        .index = @enumToInt(Feature.cldemote),
+        .name = @tagName(Feature.cldemote),
+        .llvm_name = "cldemote",
+        .description = "Enable Cache Demote",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+
+    result[@enumToInt(Feature.clflushopt)] = .{
+        .index = @enumToInt(Feature.clflushopt),
+        .name = @tagName(Feature.clflushopt),
+        .llvm_name = "clflushopt",
+        .description = "Flush A Cache Line Optimized",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+
+    result[@enumToInt(Feature.clwb)] = .{
+        .index = @enumToInt(Feature.clwb),
+        .name = @tagName(Feature.clwb),
+        .llvm_name = "clwb",
+        .description = "Cache Line Write Back",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+
+    result[@enumToInt(Feature.clzero)] = .{
+        .index = @enumToInt(Feature.clzero),
+        .name = @tagName(Feature.clzero),
+        .llvm_name = "clzero",
+        .description = "Enable Cache Line Zero",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+
+    result[@enumToInt(Feature.cmov)] = .{
+        .index = @enumToInt(Feature.cmov),
+        .name = @tagName(Feature.cmov),
+        .llvm_name = "cmov",
+        .description = "Enable conditional move instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+
+    result[@enumToInt(Feature.cx8)] = .{
+        .index = @enumToInt(Feature.cx8),
+        .name = @tagName(Feature.cx8),
+        .llvm_name = "cx8",
+        .description = "Support CMPXCHG8B instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+
+    result[@enumToInt(Feature.cx16)] = .{
+        .index = @enumToInt(Feature.cx16),
+        .name = @tagName(Feature.cx16),
+        .llvm_name = "cx16",
+        .description = "64-bit with cmpxchg16b",
+        .dependencies = featureSet(&[_]Feature{
+            .cx8,
+        }),
+    };
+
+    result[@enumToInt(Feature.avx512dq)] = .{
+        .index = @enumToInt(Feature.avx512dq),
+        .name = @tagName(Feature.avx512dq),
+        .llvm_name = "avx512dq",
+        .description = "Enable AVX-512 Doubleword and Quadword Instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.enqcmd)] = .{
+        .index = @enumToInt(Feature.enqcmd),
+        .name = @tagName(Feature.enqcmd),
+        .llvm_name = "enqcmd",
+        .description = "Has ENQCMD instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.avx512er)] = .{
+        .index = @enumToInt(Feature.avx512er),
+        .name = @tagName(Feature.avx512er),
+        .llvm_name = "avx512er",
+        .description = "Enable AVX-512 Exponential and Reciprocal Instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.ermsb)] = .{
+        .index = @enumToInt(Feature.ermsb),
+        .name = @tagName(Feature.ermsb),
+        .llvm_name = "ermsb",
+        .description = "REP MOVS/STOS are fast",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.f16c)] = .{
+        .index = @enumToInt(Feature.f16c),
+        .name = @tagName(Feature.f16c),
+        .llvm_name = "f16c",
+        .description = "Support 16-bit floating point conversion instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.fma)] = .{
+        .index = @enumToInt(Feature.fma),
+        .name = @tagName(Feature.fma),
+        .llvm_name = "fma",
+        .description = "Enable three-operand fused multiple-add",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.fma4)] = .{
+        .index = @enumToInt(Feature.fma4),
+        .name = @tagName(Feature.fma4),
+        .llvm_name = "fma4",
+        .description = "Enable four-operand fused multiple-add",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.fsgsbase)] = .{
+        .index = @enumToInt(Feature.fsgsbase),
+        .name = @tagName(Feature.fsgsbase),
+        .llvm_name = "fsgsbase",
+        .description = "Support FS/GS Base instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.fxsr)] = .{
+        .index = @enumToInt(Feature.fxsr),
+        .name = @tagName(Feature.fxsr),
+        .llvm_name = "fxsr",
+        .description = "Support fxsave/fxrestore instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.fast_11bytenop)] = .{
+        .index = @enumToInt(Feature.fast_11bytenop),
+        .name = @tagName(Feature.fast_11bytenop),
+        .llvm_name = "fast-11bytenop",
+        .description = "Target can quickly decode up to 11 byte NOPs",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.fast_15bytenop)] = .{
+        .index = @enumToInt(Feature.fast_15bytenop),
+        .name = @tagName(Feature.fast_15bytenop),
+        .llvm_name = "fast-15bytenop",
+        .description = "Target can quickly decode up to 15 byte NOPs",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.fast_bextr)] = .{
+        .index = @enumToInt(Feature.fast_bextr),
+        .name = @tagName(Feature.fast_bextr),
+        .llvm_name = "fast-bextr",
+        .description = "Indicates that the BEXTR instruction is implemented as a single uop with good throughput",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.fast_hops)] = .{
+        .index = @enumToInt(Feature.fast_hops),
+        .name = @tagName(Feature.fast_hops),
+        .llvm_name = "fast-hops",
+        .description = "Prefer horizontal vector math instructions (haddp, phsub, etc.) over normal vector instructions with shuffles",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.fast_lzcnt)] = .{
+        .index = @enumToInt(Feature.fast_lzcnt),
+        .name = @tagName(Feature.fast_lzcnt),
+        .llvm_name = "fast-lzcnt",
+        .description = "LZCNT instructions are as fast as most simple integer ops",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.fast_partial_ymm_or_zmm_write)] = .{
+        .index = @enumToInt(Feature.fast_partial_ymm_or_zmm_write),
+        .name = @tagName(Feature.fast_partial_ymm_or_zmm_write),
+        .llvm_name = "fast-partial-ymm-or-zmm-write",
+        .description = "Partial writes to YMM/ZMM registers are fast",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.fast_shld_rotate)] = .{
+        .index = @enumToInt(Feature.fast_shld_rotate),
+        .name = @tagName(Feature.fast_shld_rotate),
+        .llvm_name = "fast-shld-rotate",
+        .description = "SHLD can be used as a faster rotate",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.fast_scalar_fsqrt)] = .{
+        .index = @enumToInt(Feature.fast_scalar_fsqrt),
+        .name = @tagName(Feature.fast_scalar_fsqrt),
+        .llvm_name = "fast-scalar-fsqrt",
+        .description = "Scalar SQRT is fast (disable Newton-Raphson)",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.fast_scalar_shift_masks)] = .{
+        .index = @enumToInt(Feature.fast_scalar_shift_masks),
+        .name = @tagName(Feature.fast_scalar_shift_masks),
+        .llvm_name = "fast-scalar-shift-masks",
+        .description = "Prefer a left/right scalar logical shift pair over a shift+and pair",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.fast_variable_shuffle)] = .{
+        .index = @enumToInt(Feature.fast_variable_shuffle),
+        .name = @tagName(Feature.fast_variable_shuffle),
+        .llvm_name = "fast-variable-shuffle",
+        .description = "Shuffles with variable masks are fast",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.fast_vector_fsqrt)] = .{
+        .index = @enumToInt(Feature.fast_vector_fsqrt),
+        .name = @tagName(Feature.fast_vector_fsqrt),
+        .llvm_name = "fast-vector-fsqrt",
+        .description = "Vector SQRT is fast (disable Newton-Raphson)",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.fast_vector_shift_masks)] = .{
+        .index = @enumToInt(Feature.fast_vector_shift_masks),
+        .name = @tagName(Feature.fast_vector_shift_masks),
+        .llvm_name = "fast-vector-shift-masks",
+        .description = "Prefer a left/right vector logical shift pair over a shift+and pair",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.gfni)] = .{
+        .index = @enumToInt(Feature.gfni),
+        .name = @tagName(Feature.gfni),
+        .llvm_name = "gfni",
+        .description = "Enable Galois Field Arithmetic Instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.fast_gather)] = .{
+        .index = @enumToInt(Feature.fast_gather),
+        .name = @tagName(Feature.fast_gather),
+        .llvm_name = "fast-gather",
+        .description = "Indicates if gather is reasonably fast",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.avx512ifma)] = .{
+        .index = @enumToInt(Feature.avx512ifma),
+        .name = @tagName(Feature.avx512ifma),
+        .llvm_name = "avx512ifma",
+        .description = "Enable AVX-512 Integer Fused Multiple-Add",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.invpcid)] = .{
+        .index = @enumToInt(Feature.invpcid),
+        .name = @tagName(Feature.invpcid),
+        .llvm_name = "invpcid",
+        .description = "Invalidate Process-Context Identifier",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.sahf)] = .{
+        .index = @enumToInt(Feature.sahf),
+        .name = @tagName(Feature.sahf),
+        .llvm_name = "sahf",
+        .description = "Support LAHF and SAHF instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.lea_sp)] = .{
+        .index = @enumToInt(Feature.lea_sp),
+        .name = @tagName(Feature.lea_sp),
+        .llvm_name = "lea-sp",
+        .description = "Use LEA for adjusting the stack pointer",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.lea_uses_ag)] = .{
+        .index = @enumToInt(Feature.lea_uses_ag),
+        .name = @tagName(Feature.lea_uses_ag),
+        .llvm_name = "lea-uses-ag",
+        .description = "LEA instruction needs inputs at AG stage",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.lwp)] = .{
+        .index = @enumToInt(Feature.lwp),
+        .name = @tagName(Feature.lwp),
+        .llvm_name = "lwp",
+        .description = "Enable LWP instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.lzcnt)] = .{
+        .index = @enumToInt(Feature.lzcnt),
+        .name = @tagName(Feature.lzcnt),
+        .llvm_name = "lzcnt",
+        .description = "Support LZCNT instruction",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.false_deps_lzcnt_tzcnt)] = .{
+        .index = @enumToInt(Feature.false_deps_lzcnt_tzcnt),
+        .name = @tagName(Feature.false_deps_lzcnt_tzcnt),
+        .llvm_name = "false-deps-lzcnt-tzcnt",
+        .description = "LZCNT/TZCNT have a false dependency on dest register",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.mmx)] = .{
+        .index = @enumToInt(Feature.mmx),
+        .name = @tagName(Feature.mmx),
+        .llvm_name = "mmx",
+        .description = "Enable MMX instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.movbe)] = .{
+        .index = @enumToInt(Feature.movbe),
+        .name = @tagName(Feature.movbe),
+        .llvm_name = "movbe",
+        .description = "Support MOVBE instruction",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.movdir64b)] = .{
+        .index = @enumToInt(Feature.movdir64b),
+        .name = @tagName(Feature.movdir64b),
+        .llvm_name = "movdir64b",
+        .description = "Support movdir64b instruction",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.movdiri)] = .{
+        .index = @enumToInt(Feature.movdiri),
+        .name = @tagName(Feature.movdiri),
+        .llvm_name = "movdiri",
+        .description = "Support movdiri instruction",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.mpx)] = .{
+        .index = @enumToInt(Feature.mpx),
+        .name = @tagName(Feature.mpx),
+        .llvm_name = "mpx",
+        .description = "Support MPX instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.mwaitx)] = .{
+        .index = @enumToInt(Feature.mwaitx),
+        .name = @tagName(Feature.mwaitx),
+        .llvm_name = "mwaitx",
+        .description = "Enable MONITORX/MWAITX timer functionality",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.macrofusion)] = .{
+        .index = @enumToInt(Feature.macrofusion),
+        .name = @tagName(Feature.macrofusion),
+        .llvm_name = "macrofusion",
+        .description = "Various instructions can be fused with conditional branches",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.merge_to_threeway_branch)] = .{
+        .index = @enumToInt(Feature.merge_to_threeway_branch),
+        .name = @tagName(Feature.merge_to_threeway_branch),
+        .llvm_name = "merge-to-threeway-branch",
+        .description = "Merge branches to a three-way conditional branch",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.nopl)] = .{
+        .index = @enumToInt(Feature.nopl),
+        .name = @tagName(Feature.nopl),
+        .llvm_name = "nopl",
+        .description = "Enable NOPL instruction",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.pclmul)] = .{
+        .index = @enumToInt(Feature.pclmul),
+        .name = @tagName(Feature.pclmul),
+        .llvm_name = "pclmul",
+        .description = "Enable packed carry-less multiplication instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.pconfig)] = .{
+        .index = @enumToInt(Feature.pconfig),
+        .name = @tagName(Feature.pconfig),
+        .llvm_name = "pconfig",
+        .description = "platform configuration instruction",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.avx512pf)] = .{
+        .index = @enumToInt(Feature.avx512pf),
+        .name = @tagName(Feature.avx512pf),
+        .llvm_name = "avx512pf",
+        .description = "Enable AVX-512 PreFetch Instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.pku)] = .{
+        .index = @enumToInt(Feature.pku),
+        .name = @tagName(Feature.pku),
+        .llvm_name = "pku",
+        .description = "Enable protection keys",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.popcnt)] = .{
+        .index = @enumToInt(Feature.popcnt),
+        .name = @tagName(Feature.popcnt),
+        .llvm_name = "popcnt",
+        .description = "Support POPCNT instruction",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.false_deps_popcnt)] = .{
+        .index = @enumToInt(Feature.false_deps_popcnt),
+        .name = @tagName(Feature.false_deps_popcnt),
+        .llvm_name = "false-deps-popcnt",
+        .description = "POPCNT has a false dependency on dest register",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.prefetchwt1)] = .{
+        .index = @enumToInt(Feature.prefetchwt1),
+        .name = @tagName(Feature.prefetchwt1),
+        .llvm_name = "prefetchwt1",
+        .description = "Prefetch with Intent to Write and T1 Hint",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.prfchw)] = .{
+        .index = @enumToInt(Feature.prfchw),
+        .name = @tagName(Feature.prfchw),
+        .llvm_name = "prfchw",
+        .description = "Support PRFCHW instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.ptwrite)] = .{
+        .index = @enumToInt(Feature.ptwrite),
+        .name = @tagName(Feature.ptwrite),
+        .llvm_name = "ptwrite",
+        .description = "Support ptwrite instruction",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.pad_short_functions)] = .{
+        .index = @enumToInt(Feature.pad_short_functions),
+        .name = @tagName(Feature.pad_short_functions),
+        .llvm_name = "pad-short-functions",
+        .description = "Pad short functions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.prefer_256_bit)] = .{
+        .index = @enumToInt(Feature.prefer_256_bit),
+        .name = @tagName(Feature.prefer_256_bit),
+        .llvm_name = "prefer-256-bit",
+        .description = "Prefer 256-bit AVX instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.rdpid)] = .{
+        .index = @enumToInt(Feature.rdpid),
+        .name = @tagName(Feature.rdpid),
+        .llvm_name = "rdpid",
+        .description = "Support RDPID instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.rdrnd)] = .{
+        .index = @enumToInt(Feature.rdrnd),
+        .name = @tagName(Feature.rdrnd),
+        .llvm_name = "rdrnd",
+        .description = "Support RDRAND instruction",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.rdseed)] = .{
+        .index = @enumToInt(Feature.rdseed),
+        .name = @tagName(Feature.rdseed),
+        .llvm_name = "rdseed",
+        .description = "Support RDSEED instruction",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.rtm)] = .{
+        .index = @enumToInt(Feature.rtm),
+        .name = @tagName(Feature.rtm),
+        .llvm_name = "rtm",
+        .description = "Support RTM instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.retpoline)] = .{
+        .index = @enumToInt(Feature.retpoline),
+        .name = @tagName(Feature.retpoline),
+        .llvm_name = "retpoline",
+        .description = "Remove speculation of indirect branches from the generated code, either by avoiding them entirely or lowering them with a speculation blocking construct",
+        .dependencies = featureSet(&[_]Feature{
+            .retpoline_indirect_calls,
+            .retpoline_indirect_branches,
+        }),
+    };
+
+    result[@enumToInt(Feature.retpoline_external_thunk)] = .{
+        .index = @enumToInt(Feature.retpoline_external_thunk),
+        .name = @tagName(Feature.retpoline_external_thunk),
+        .llvm_name = "retpoline-external-thunk",
+        .description = "When lowering an indirect call or branch using a `retpoline`, rely on the specified user provided thunk rather than emitting one ourselves. Only has effect when combined with some other retpoline feature",
+        .dependencies = featureSet(&[_]Feature{
+            .retpoline_indirect_calls,
+        }),
+    };
+
+    result[@enumToInt(Feature.retpoline_indirect_branches)] = .{
+        .index = @enumToInt(Feature.retpoline_indirect_branches),
+        .name = @tagName(Feature.retpoline_indirect_branches),
+        .llvm_name = "retpoline-indirect-branches",
+        .description = "Remove speculation of indirect branches from the generated code",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.retpoline_indirect_calls)] = .{
+        .index = @enumToInt(Feature.retpoline_indirect_calls),
+        .name = @tagName(Feature.retpoline_indirect_calls),
+        .llvm_name = "retpoline-indirect-calls",
+        .description = "Remove speculation of indirect calls from the generated code",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.sgx)] = .{
+        .index = @enumToInt(Feature.sgx),
+        .name = @tagName(Feature.sgx),
+        .llvm_name = "sgx",
+        .description = "Enable Software Guard Extensions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.sha)] = .{
+        .index = @enumToInt(Feature.sha),
+        .name = @tagName(Feature.sha),
+        .llvm_name = "sha",
+        .description = "Enable SHA instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.shstk)] = .{
+        .index = @enumToInt(Feature.shstk),
+        .name = @tagName(Feature.shstk),
+        .llvm_name = "shstk",
+        .description = "Support CET Shadow-Stack instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.sse)] = .{
+        .index = @enumToInt(Feature.sse),
+        .name = @tagName(Feature.sse),
+        .llvm_name = "sse",
+        .description = "Enable SSE instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.sse2)] = .{
+        .index = @enumToInt(Feature.sse2),
+        .name = @tagName(Feature.sse2),
+        .llvm_name = "sse2",
+        .description = "Enable SSE2 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.sse3)] = .{
+        .index = @enumToInt(Feature.sse3),
+        .name = @tagName(Feature.sse3),
+        .llvm_name = "sse3",
+        .description = "Enable SSE3 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.sse4a)] = .{
+        .index = @enumToInt(Feature.sse4a),
+        .name = @tagName(Feature.sse4a),
+        .llvm_name = "sse4a",
+        .description = "Support SSE 4a instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.sse4_1)] = .{
+        .index = @enumToInt(Feature.sse4_1),
+        .name = @tagName(Feature.sse4_1),
+        .llvm_name = "sse4.1",
+        .description = "Enable SSE 4.1 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.sse4_2)] = .{
+        .index = @enumToInt(Feature.sse4_2),
+        .name = @tagName(Feature.sse4_2),
+        .llvm_name = "sse4.2",
+        .description = "Enable SSE 4.2 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.sse_unaligned_mem)] = .{
+        .index = @enumToInt(Feature.sse_unaligned_mem),
+        .name = @tagName(Feature.sse_unaligned_mem),
+        .llvm_name = "sse-unaligned-mem",
+        .description = "Allow unaligned memory operands with SSE instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.ssse3)] = .{
+        .index = @enumToInt(Feature.ssse3),
+        .name = @tagName(Feature.ssse3),
+        .llvm_name = "ssse3",
+        .description = "Enable SSSE3 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.slow_3ops_lea)] = .{
+        .index = @enumToInt(Feature.slow_3ops_lea),
+        .name = @tagName(Feature.slow_3ops_lea),
+        .llvm_name = "slow-3ops-lea",
+        .description = "LEA instruction with 3 ops or certain registers is slow",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.idivl_to_divb)] = .{
+        .index = @enumToInt(Feature.idivl_to_divb),
+        .name = @tagName(Feature.idivl_to_divb),
+        .llvm_name = "idivl-to-divb",
+        .description = "Use 8-bit divide for positive values less than 256",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.idivq_to_divl)] = .{
+        .index = @enumToInt(Feature.idivq_to_divl),
+        .name = @tagName(Feature.idivq_to_divl),
+        .llvm_name = "idivq-to-divl",
+        .description = "Use 32-bit divide for positive values less than 2^32",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.slow_incdec)] = .{
+        .index = @enumToInt(Feature.slow_incdec),
+        .name = @tagName(Feature.slow_incdec),
+        .llvm_name = "slow-incdec",
+        .description = "INC and DEC instructions are slower than ADD and SUB",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.slow_lea)] = .{
+        .index = @enumToInt(Feature.slow_lea),
+        .name = @tagName(Feature.slow_lea),
+        .llvm_name = "slow-lea",
+        .description = "LEA instruction with certain arguments is slow",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.slow_pmaddwd)] = .{
+        .index = @enumToInt(Feature.slow_pmaddwd),
+        .name = @tagName(Feature.slow_pmaddwd),
+        .llvm_name = "slow-pmaddwd",
+        .description = "PMADDWD is slower than PMULLD",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.slow_pmulld)] = .{
+        .index = @enumToInt(Feature.slow_pmulld),
+        .name = @tagName(Feature.slow_pmulld),
+        .llvm_name = "slow-pmulld",
+        .description = "PMULLD instruction is slow",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.slow_shld)] = .{
+        .index = @enumToInt(Feature.slow_shld),
+        .name = @tagName(Feature.slow_shld),
+        .llvm_name = "slow-shld",
+        .description = "SHLD instruction is slow",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.slow_two_mem_ops)] = .{
+        .index = @enumToInt(Feature.slow_two_mem_ops),
+        .name = @tagName(Feature.slow_two_mem_ops),
+        .llvm_name = "slow-two-mem-ops",
+        .description = "Two memory operand instructions are slow",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.slow_unaligned_mem_16)] = .{
+        .index = @enumToInt(Feature.slow_unaligned_mem_16),
+        .name = @tagName(Feature.slow_unaligned_mem_16),
+        .llvm_name = "slow-unaligned-mem-16",
+        .description = "Slow unaligned 16-byte memory access",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.slow_unaligned_mem_32)] = .{
+        .index = @enumToInt(Feature.slow_unaligned_mem_32),
+        .name = @tagName(Feature.slow_unaligned_mem_32),
+        .llvm_name = "slow-unaligned-mem-32",
+        .description = "Slow unaligned 32-byte memory access",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.soft_float)] = .{
+        .index = @enumToInt(Feature.soft_float),
+        .name = @tagName(Feature.soft_float),
+        .llvm_name = "soft-float",
+        .description = "Use software floating point features",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.tbm)] = .{
+        .index = @enumToInt(Feature.tbm),
+        .name = @tagName(Feature.tbm),
+        .llvm_name = "tbm",
+        .description = "Enable TBM instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.vaes)] = .{
+        .index = @enumToInt(Feature.vaes),
+        .name = @tagName(Feature.vaes),
+        .llvm_name = "vaes",
+        .description = "Promote selected AES instructions to AVX512/AVX registers",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.avx512vbmi)] = .{
+        .index = @enumToInt(Feature.avx512vbmi),
+        .name = @tagName(Feature.avx512vbmi),
+        .llvm_name = "avx512vbmi",
+        .description = "Enable AVX-512 Vector Byte Manipulation Instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.avx512vbmi2)] = .{
+        .index = @enumToInt(Feature.avx512vbmi2),
+        .name = @tagName(Feature.avx512vbmi2),
+        .llvm_name = "avx512vbmi2",
+        .description = "Enable AVX-512 further Vector Byte Manipulation Instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.avx512vl)] = .{
+        .index = @enumToInt(Feature.avx512vl),
+        .name = @tagName(Feature.avx512vl),
+        .llvm_name = "avx512vl",
+        .description = "Enable AVX-512 Vector Length eXtensions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.avx512vnni)] = .{
+        .index = @enumToInt(Feature.avx512vnni),
+        .name = @tagName(Feature.avx512vnni),
+        .llvm_name = "avx512vnni",
+        .description = "Enable AVX-512 Vector Neural Network Instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.avx512vp2intersect)] = .{
+        .index = @enumToInt(Feature.avx512vp2intersect),
+        .name = @tagName(Feature.avx512vp2intersect),
+        .llvm_name = "avx512vp2intersect",
+        .description = "Enable AVX-512 vp2intersect",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.vpclmulqdq)] = .{
+        .index = @enumToInt(Feature.vpclmulqdq),
+        .name = @tagName(Feature.vpclmulqdq),
+        .llvm_name = "vpclmulqdq",
+        .description = "Enable vpclmulqdq instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.avx512vpopcntdq)] = .{
+        .index = @enumToInt(Feature.avx512vpopcntdq),
+        .name = @tagName(Feature.avx512vpopcntdq),
+        .llvm_name = "avx512vpopcntdq",
+        .description = "Enable AVX-512 Population Count Instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.waitpkg)] = .{
+        .index = @enumToInt(Feature.waitpkg),
+        .name = @tagName(Feature.waitpkg),
+        .llvm_name = "waitpkg",
+        .description = "Wait and pause enhancements",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.wbnoinvd)] = .{
+        .index = @enumToInt(Feature.wbnoinvd),
+        .name = @tagName(Feature.wbnoinvd),
+        .llvm_name = "wbnoinvd",
+        .description = "Write Back No Invalidate",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.x87)] = .{
+        .index = @enumToInt(Feature.x87),
+        .name = @tagName(Feature.x87),
+        .llvm_name = "x87",
+        .description = "Enable X87 float instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.xop)] = .{
+        .index = @enumToInt(Feature.xop),
+        .name = @tagName(Feature.xop),
+        .llvm_name = "xop",
+        .description = "Enable XOP instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .sse,
+        }),
+    };
+
+    result[@enumToInt(Feature.xsave)] = .{
+        .index = @enumToInt(Feature.xsave),
+        .name = @tagName(Feature.xsave),
+        .llvm_name = "xsave",
+        .description = "Support xsave instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.xsavec)] = .{
+        .index = @enumToInt(Feature.xsavec),
+        .name = @tagName(Feature.xsavec),
+        .llvm_name = "xsavec",
+        .description = "Support xsavec instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.xsaveopt)] = .{
+        .index = @enumToInt(Feature.xsaveopt),
+        .name = @tagName(Feature.xsaveopt),
+        .llvm_name = "xsaveopt",
+        .description = "Support xsaveopt instructions",
+        .dependencies = 0,
+    };
+
+    result[@enumToInt(Feature.xsaves)] = .{
+        .index = @enumToInt(Feature.xsaves),
+        .name = @tagName(Feature.xsaves),
+        .llvm_name = "xsaves",
+        .description = "Support xsaves instructions",
+        .dependencies = 0,
+    };
+
+    break :blk result;
+};
+
+pub const cpu = struct {
+    pub const amdfam10 = Cpu{
+        .name = "amdfam10",
+        .llvm_name = "amdfam10",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnowa3,
+            .bit64,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .fast_scalar_shift_masks,
+            .sahf,
+            .lzcnt,
+            .nopl,
+            .popcnt,
+            .sse,
+            .sse4a,
+            .slow_shld,
+            .x87,
+        }),
+    };
+
+    pub const athlon = Cpu{
+        .name = "athlon",
+        .llvm_name = "athlon",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnowa3,
+            .cmov,
+            .cx8,
+            .nopl,
+            .slow_shld,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const athlon4 = Cpu{
+        .name = "athlon_4",
+        .llvm_name = "athlon-4",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnowa3,
+            .cmov,
+            .cx8,
+            .fxsr,
+            .nopl,
+            .sse,
+            .slow_shld,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const athlon_fx = Cpu{
+        .name = "athlon_fx",
+        .llvm_name = "athlon-fx",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnowa3,
+            .bit64,
+            .cmov,
+            .cx8,
+            .fxsr,
+            .fast_scalar_shift_masks,
+            .nopl,
+            .sse,
+            .sse2,
+            .slow_shld,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const athlon_mp = Cpu{
+        .name = "athlon_mp",
+        .llvm_name = "athlon-mp",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnowa3,
+            .cmov,
+            .cx8,
+            .fxsr,
+            .nopl,
+            .sse,
+            .slow_shld,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const athlon_tbird = Cpu{
+        .name = "athlon_tbird",
+        .llvm_name = "athlon-tbird",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnowa3,
+            .cmov,
+            .cx8,
+            .nopl,
+            .slow_shld,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const athlon_xp = Cpu{
+        .name = "athlon_xp",
+        .llvm_name = "athlon-xp",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnowa3,
+            .cmov,
+            .cx8,
+            .fxsr,
+            .nopl,
+            .sse,
+            .slow_shld,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const athlon64 = Cpu{
+        .name = "athlon64",
+        .llvm_name = "athlon64",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnowa3,
+            .bit64,
+            .cmov,
+            .cx8,
+            .fxsr,
+            .fast_scalar_shift_masks,
+            .nopl,
+            .sse,
+            .sse2,
+            .slow_shld,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const athlon64_sse3 = Cpu{
+        .name = "athlon64_sse3",
+        .llvm_name = "athlon64-sse3",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnowa3,
+            .bit64,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .fast_scalar_shift_masks,
+            .nopl,
+            .sse,
+            .sse3,
+            .slow_shld,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const atom = Cpu{
+        .name = "atom",
+        .llvm_name = "atom",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .sahf,
+            .lea_sp,
+            .lea_uses_ag,
+            .mmx,
+            .movbe,
+            .nopl,
+            .pad_short_functions,
+            .sse,
+            .ssse3,
+            .idivl_to_divb,
+            .idivq_to_divl,
+            .slow_two_mem_ops,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const barcelona = Cpu{
+        .name = "barcelona",
+        .llvm_name = "barcelona",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnowa3,
+            .bit64,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .fast_scalar_shift_masks,
+            .sahf,
+            .lzcnt,
+            .nopl,
+            .popcnt,
+            .sse,
+            .sse4a,
+            .slow_shld,
+            .x87,
+        }),
+    };
+
+    pub const bdver1 = Cpu{
+        .name = "bdver1",
+        .llvm_name = "bdver1",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .sse,
+            .aes,
+            .branchfusion,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .fast11bytenop,
+            .fast_scalar_shift_masks,
+            .sahf,
+            .lwp,
+            .lzcnt,
+            .mmx,
+            .nopl,
+            .pclmul,
+            .popcnt,
+            .prfchw,
+            .slow_shld,
+            .x87,
+            .xop,
+            .xsave,
+        }),
+    };
+
+    pub const bdver2 = Cpu{
+        .name = "bdver2",
+        .llvm_name = "bdver2",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .sse,
+            .aes,
+            .bmi,
+            .branchfusion,
+            .cmov,
+            .cx8,
+            .cx16,
+            .f16c,
+            .fma,
+            .fxsr,
+            .fast11bytenop,
+            .fast_bextr,
+            .fast_scalar_shift_masks,
+            .sahf,
+            .lwp,
+            .lzcnt,
+            .mmx,
+            .nopl,
+            .pclmul,
+            .popcnt,
+            .prfchw,
+            .slow_shld,
+            .tbm,
+            .x87,
+            .xop,
+            .xsave,
+        }),
+    };
+
+    pub const bdver3 = Cpu{
+        .name = "bdver3",
+        .llvm_name = "bdver3",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .sse,
+            .aes,
+            .bmi,
+            .branchfusion,
+            .cmov,
+            .cx8,
+            .cx16,
+            .f16c,
+            .fma,
+            .fsgsbase,
+            .fxsr,
+            .fast11bytenop,
+            .fast_bextr,
+            .fast_scalar_shift_masks,
+            .sahf,
+            .lwp,
+            .lzcnt,
+            .mmx,
+            .nopl,
+            .pclmul,
+            .popcnt,
+            .prfchw,
+            .slow_shld,
+            .tbm,
+            .x87,
+            .xop,
+            .xsave,
+            .xsaveopt,
+        }),
+    };
+
+    pub const bdver4 = Cpu{
+        .name = "bdver4",
+        .llvm_name = "bdver4",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .sse,
+            .aes,
+            .avx2,
+            .bmi,
+            .bmi2,
+            .branchfusion,
+            .cmov,
+            .cx8,
+            .cx16,
+            .f16c,
+            .fma,
+            .fsgsbase,
+            .fxsr,
+            .fast11bytenop,
+            .fast_bextr,
+            .fast_scalar_shift_masks,
+            .sahf,
+            .lwp,
+            .lzcnt,
+            .mmx,
+            .mwaitx,
+            .nopl,
+            .pclmul,
+            .popcnt,
+            .prfchw,
+            .slow_shld,
+            .tbm,
+            .x87,
+            .xop,
+            .xsave,
+            .xsaveopt,
+        }),
+    };
+
+    pub const bonnell = Cpu{
+        .name = "bonnell",
+        .llvm_name = "bonnell",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .sahf,
+            .lea_sp,
+            .lea_uses_ag,
+            .mmx,
+            .movbe,
+            .nopl,
+            .pad_short_functions,
+            .sse,
+            .ssse3,
+            .idivl_to_divb,
+            .idivq_to_divl,
+            .slow_two_mem_ops,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const broadwell = Cpu{
+        .name = "broadwell",
+        .llvm_name = "broadwell",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .adx,
+            .sse,
+            .avx,
+            .avx2,
+            .bmi,
+            .bmi2,
+            .cmov,
+            .cx8,
+            .cx16,
+            .ermsb,
+            .f16c,
+            .fma,
+            .fsgsbase,
+            .fxsr,
+            .fast_shld_rotate,
+            .fast_scalar_fsqrt,
+            .fast_variable_shuffle,
+            .invpcid,
+            .sahf,
+            .lzcnt,
+            .false_deps_lzcnt_tzcnt,
+            .mmx,
+            .movbe,
+            .macrofusion,
+            .merge_to_threeway_branch,
+            .nopl,
+            .pclmul,
+            .popcnt,
+            .false_deps_popcnt,
+            .prfchw,
+            .rdrnd,
+            .rdseed,
+            .sse42,
+            .slow_3ops_lea,
+            .idivq_to_divl,
+            .x87,
+            .xsave,
+            .xsaveopt,
+        }),
+    };
+
+    pub const btver1 = Cpu{
+        .name = "btver1",
+        .llvm_name = "btver1",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .fast15bytenop,
+            .fast_scalar_shift_masks,
+            .fast_vector_shift_masks,
+            .sahf,
+            .lzcnt,
+            .mmx,
+            .nopl,
+            .popcnt,
+            .prfchw,
+            .sse,
+            .sse4a,
+            .ssse3,
+            .slow_shld,
+            .x87,
+        }),
+    };
+
+    pub const btver2 = Cpu{
+        .name = "btver2",
+        .llvm_name = "btver2",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .sse,
+            .aes,
+            .avx,
+            .bmi,
+            .cmov,
+            .cx8,
+            .cx16,
+            .f16c,
+            .fxsr,
+            .fast15bytenop,
+            .fast_bextr,
+            .fast_hops,
+            .fast_lzcnt,
+            .fast_partial_ymm_or_zmm_write,
+            .fast_scalar_shift_masks,
+            .fast_vector_shift_masks,
+            .sahf,
+            .lzcnt,
+            .mmx,
+            .movbe,
+            .nopl,
+            .pclmul,
+            .popcnt,
+            .prfchw,
+            .sse4a,
+            .ssse3,
+            .slow_shld,
+            .x87,
+            .xsave,
+            .xsaveopt,
+        }),
+    };
+
+    pub const c3 = Cpu{
+        .name = "c3",
+        .llvm_name = "c3",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnow3,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const c32 = Cpu{
+        .name = "c3_2",
+        .llvm_name = "c3-2",
+        .dependencies = featureSet(&[_]Feature{
+            .cmov,
+            .cx8,
+            .fxsr,
+            .mmx,
+            .sse,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const cannonlake = Cpu{
+        .name = "cannonlake",
+        .llvm_name = "cannonlake",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .adx,
+            .sse,
+            .aes,
+            .avx,
+            .avx2,
+            .avx512f,
+            .bmi,
+            .bmi2,
+            .avx512bw,
+            .avx512cd,
+            .clflushopt,
+            .cmov,
+            .cx8,
+            .cx16,
+            .avx512dq,
+            .ermsb,
+            .f16c,
+            .fma,
+            .fsgsbase,
+            .fxsr,
+            .fast_shld_rotate,
+            .fast_scalar_fsqrt,
+            .fast_variable_shuffle,
+            .fast_vector_fsqrt,
+            .fast_gather,
+            .avx512ifma,
+            .invpcid,
+            .sahf,
+            .lzcnt,
+            .mmx,
+            .movbe,
+            .mpx,
+            .macrofusion,
+            .merge_to_threeway_branch,
+            .nopl,
+            .pclmul,
+            .pku,
+            .popcnt,
+            .prfchw,
+            .rdrnd,
+            .rdseed,
+            .sgx,
+            .sha,
+            .sse42,
+            .slow_3ops_lea,
+            .idivq_to_divl,
+            .avx512vbmi,
+            .avx512vl,
+            .x87,
+            .xsave,
+            .xsavec,
+            .xsaveopt,
+            .xsaves,
+        }),
+    };
+
+    pub const cascadelake = Cpu{
+        .name = "cascadelake",
+        .llvm_name = "cascadelake",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .adx,
+            .sse,
+            .aes,
+            .avx,
+            .avx2,
+            .avx512f,
+            .bmi,
+            .bmi2,
+            .avx512bw,
+            .avx512cd,
+            .clflushopt,
+            .clwb,
+            .cmov,
+            .cx8,
+            .cx16,
+            .avx512dq,
+            .ermsb,
+            .f16c,
+            .fma,
+            .fsgsbase,
+            .fxsr,
+            .fast_shld_rotate,
+            .fast_scalar_fsqrt,
+            .fast_variable_shuffle,
+            .fast_vector_fsqrt,
+            .fast_gather,
+            .invpcid,
+            .sahf,
+            .lzcnt,
+            .mmx,
+            .movbe,
+            .mpx,
+            .macrofusion,
+            .merge_to_threeway_branch,
+            .nopl,
+            .pclmul,
+            .pku,
+            .popcnt,
+            .false_deps_popcnt,
+            .prfchw,
+            .rdrnd,
+            .rdseed,
+            .sse42,
+            .slow_3ops_lea,
+            .idivq_to_divl,
+            .avx512vl,
+            .avx512vnni,
+            .x87,
+            .xsave,
+            .xsavec,
+            .xsaveopt,
+            .xsaves,
+        }),
+    };
+
+    pub const cooperlake = Cpu{
+        .name = "cooperlake",
+        .llvm_name = "cooperlake",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .adx,
+            .sse,
+            .aes,
+            .avx,
+            .avx2,
+            .avx512f,
+            .avx512bf16,
+            .bmi,
+            .bmi2,
+            .avx512bw,
+            .avx512cd,
+            .clflushopt,
+            .clwb,
+            .cmov,
+            .cx8,
+            .cx16,
+            .avx512dq,
+            .ermsb,
+            .f16c,
+            .fma,
+            .fsgsbase,
+            .fxsr,
+            .fast_shld_rotate,
+            .fast_scalar_fsqrt,
+            .fast_variable_shuffle,
+            .fast_vector_fsqrt,
+            .fast_gather,
+            .invpcid,
+            .sahf,
+            .lzcnt,
+            .mmx,
+            .movbe,
+            .mpx,
+            .macrofusion,
+            .merge_to_threeway_branch,
+            .nopl,
+            .pclmul,
+            .pku,
+            .popcnt,
+            .false_deps_popcnt,
+            .prfchw,
+            .rdrnd,
+            .rdseed,
+            .sse42,
+            .slow_3ops_lea,
+            .idivq_to_divl,
+            .avx512vl,
+            .avx512vnni,
+            .x87,
+            .xsave,
+            .xsavec,
+            .xsaveopt,
+            .xsaves,
+        }),
+    };
+
+    pub const core_avx_i = Cpu{
+        .name = "core_avx_i",
+        .llvm_name = "core-avx-i",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .sse,
+            .avx,
+            .cmov,
+            .cx8,
+            .cx16,
+            .f16c,
+            .fsgsbase,
+            .fxsr,
+            .fast_shld_rotate,
+            .fast_scalar_fsqrt,
+            .sahf,
+            .mmx,
+            .macrofusion,
+            .merge_to_threeway_branch,
+            .nopl,
+            .pclmul,
+            .popcnt,
+            .false_deps_popcnt,
+            .rdrnd,
+            .sse42,
+            .slow_3ops_lea,
+            .idivq_to_divl,
+            .slow_unaligned_mem_32,
+            .x87,
+            .xsave,
+            .xsaveopt,
+        }),
+    };
+
+    pub const core_avx2 = Cpu{
+        .name = "core_avx2",
+        .llvm_name = "core-avx2",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .sse,
+            .avx,
+            .avx2,
+            .bmi,
+            .bmi2,
+            .cmov,
+            .cx8,
+            .cx16,
+            .ermsb,
+            .f16c,
+            .fma,
+            .fsgsbase,
+            .fxsr,
+            .fast_shld_rotate,
+            .fast_scalar_fsqrt,
+            .fast_variable_shuffle,
+            .invpcid,
+            .sahf,
+            .lzcnt,
+            .false_deps_lzcnt_tzcnt,
+            .mmx,
+            .movbe,
+            .macrofusion,
+            .merge_to_threeway_branch,
+            .nopl,
+            .pclmul,
+            .popcnt,
+            .false_deps_popcnt,
+            .rdrnd,
+            .sse42,
+            .slow_3ops_lea,
+            .idivq_to_divl,
+            .x87,
+            .xsave,
+            .xsaveopt,
+        }),
+    };
+
+    pub const core2 = Cpu{
+        .name = "core2",
+        .llvm_name = "core2",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .sahf,
+            .mmx,
+            .macrofusion,
+            .nopl,
+            .sse,
+            .ssse3,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const corei7 = Cpu{
+        .name = "corei7",
+        .llvm_name = "corei7",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .sahf,
+            .mmx,
+            .macrofusion,
+            .nopl,
+            .popcnt,
+            .sse,
+            .sse42,
+            .x87,
+        }),
+    };
+
+    pub const corei7_avx = Cpu{
+        .name = "corei7_avx",
+        .llvm_name = "corei7-avx",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .sse,
+            .avx,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .fast_shld_rotate,
+            .fast_scalar_fsqrt,
+            .sahf,
+            .mmx,
+            .macrofusion,
+            .merge_to_threeway_branch,
+            .nopl,
+            .pclmul,
+            .popcnt,
+            .false_deps_popcnt,
+            .sse42,
+            .slow_3ops_lea,
+            .idivq_to_divl,
+            .slow_unaligned_mem_32,
+            .x87,
+            .xsave,
+            .xsaveopt,
+        }),
+    };
+
+    pub const generic = Cpu{
+        .name = "generic",
+        .llvm_name = "generic",
+        .dependencies = featureSet(&[_]Feature{
+            .cx8,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const geode = Cpu{
+        .name = "geode",
+        .llvm_name = "geode",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnowa3,
+            .cx8,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const goldmont = Cpu{
+        .name = "goldmont",
+        .llvm_name = "goldmont",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .sse,
+            .aes,
+            .clflushopt,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fsgsbase,
+            .fxsr,
+            .sahf,
+            .mmx,
+            .movbe,
+            .mpx,
+            .nopl,
+            .pclmul,
+            .popcnt,
+            .false_deps_popcnt,
+            .prfchw,
+            .rdrnd,
+            .rdseed,
+            .sha,
+            .sse42,
+            .ssse3,
+            .slow_incdec,
+            .slowLea,
+            .slow_two_mem_ops,
+            .x87,
+            .xsave,
+            .xsavec,
+            .xsaveopt,
+            .xsaves,
+        }),
+    };
+
+    pub const goldmont_plus = Cpu{
+        .name = "goldmont_plus",
+        .llvm_name = "goldmont-plus",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .sse,
+            .aes,
+            .clflushopt,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fsgsbase,
+            .fxsr,
+            .sahf,
+            .mmx,
+            .movbe,
+            .mpx,
+            .nopl,
+            .pclmul,
+            .popcnt,
+            .prfchw,
+            .ptwrite,
+            .rdpid,
+            .rdrnd,
+            .rdseed,
+            .sgx,
+            .sha,
+            .sse42,
+            .ssse3,
+            .slow_incdec,
+            .slowLea,
+            .slow_two_mem_ops,
+            .x87,
+            .xsave,
+            .xsavec,
+            .xsaveopt,
+            .xsaves,
+        }),
+    };
+
+    pub const haswell = Cpu{
+        .name = "haswell",
+        .llvm_name = "haswell",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .sse,
+            .avx,
+            .avx2,
+            .bmi,
+            .bmi2,
+            .cmov,
+            .cx8,
+            .cx16,
+            .ermsb,
+            .f16c,
+            .fma,
+            .fsgsbase,
+            .fxsr,
+            .fast_shld_rotate,
+            .fast_scalar_fsqrt,
+            .fast_variable_shuffle,
+            .invpcid,
+            .sahf,
+            .lzcnt,
+            .false_deps_lzcnt_tzcnt,
+            .mmx,
+            .movbe,
+            .macrofusion,
+            .merge_to_threeway_branch,
+            .nopl,
+            .pclmul,
+            .popcnt,
+            .false_deps_popcnt,
+            .rdrnd,
+            .sse42,
+            .slow_3ops_lea,
+            .idivq_to_divl,
+            .x87,
+            .xsave,
+            .xsaveopt,
+        }),
+    };
+
+    pub const i386 = Cpu{
+        .name = "i386",
+        .llvm_name = "i386",
+        .dependencies = featureSet(&[_]Feature{
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const i486 = Cpu{
+        .name = "i486",
+        .llvm_name = "i486",
+        .dependencies = featureSet(&[_]Feature{
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const i586 = Cpu{
+        .name = "i586",
+        .llvm_name = "i586",
+        .dependencies = featureSet(&[_]Feature{
+            .cx8,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const i686 = Cpu{
+        .name = "i686",
+        .llvm_name = "i686",
+        .dependencies = featureSet(&[_]Feature{
+            .cmov,
+            .cx8,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const icelake_client = Cpu{
+        .name = "icelake_client",
+        .llvm_name = "icelake-client",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .adx,
+            .sse,
+            .aes,
+            .avx,
+            .avx2,
+            .avx512f,
+            .avx512bitalg,
+            .bmi,
+            .bmi2,
+            .avx512bw,
+            .avx512cd,
+            .clflushopt,
+            .clwb,
+            .cmov,
+            .cx8,
+            .cx16,
+            .avx512dq,
+            .ermsb,
+            .f16c,
+            .fma,
+            .fsgsbase,
+            .fxsr,
+            .fast_shld_rotate,
+            .fast_scalar_fsqrt,
+            .fast_variable_shuffle,
+            .fast_vector_fsqrt,
+            .gfni,
+            .fast_gather,
+            .avx512ifma,
+            .invpcid,
+            .sahf,
+            .lzcnt,
+            .mmx,
+            .movbe,
+            .mpx,
+            .macrofusion,
+            .merge_to_threeway_branch,
+            .nopl,
+            .pclmul,
+            .pku,
+            .popcnt,
+            .prfchw,
+            .rdpid,
+            .rdrnd,
+            .rdseed,
+            .sgx,
+            .sha,
+            .sse42,
+            .slow_3ops_lea,
+            .idivq_to_divl,
+            .vaes,
+            .avx512vbmi,
+            .avx512vbmi2,
+            .avx512vl,
+            .avx512vnni,
+            .vpclmulqdq,
+            .avx512vpopcntdq,
+            .x87,
+            .xsave,
+            .xsavec,
+            .xsaveopt,
+            .xsaves,
+        }),
+    };
+
+    pub const icelake_server = Cpu{
+        .name = "icelake_server",
+        .llvm_name = "icelake-server",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .adx,
+            .sse,
+            .aes,
+            .avx,
+            .avx2,
+            .avx512f,
+            .avx512bitalg,
+            .bmi,
+            .bmi2,
+            .avx512bw,
+            .avx512cd,
+            .clflushopt,
+            .clwb,
+            .cmov,
+            .cx8,
+            .cx16,
+            .avx512dq,
+            .ermsb,
+            .f16c,
+            .fma,
+            .fsgsbase,
+            .fxsr,
+            .fast_shld_rotate,
+            .fast_scalar_fsqrt,
+            .fast_variable_shuffle,
+            .fast_vector_fsqrt,
+            .gfni,
+            .fast_gather,
+            .avx512ifma,
+            .invpcid,
+            .sahf,
+            .lzcnt,
+            .mmx,
+            .movbe,
+            .mpx,
+            .macrofusion,
+            .merge_to_threeway_branch,
+            .nopl,
+            .pclmul,
+            .pconfig,
+            .pku,
+            .popcnt,
+            .prfchw,
+            .rdpid,
+            .rdrnd,
+            .rdseed,
+            .sgx,
+            .sha,
+            .sse42,
+            .slow_3ops_lea,
+            .idivq_to_divl,
+            .vaes,
+            .avx512vbmi,
+            .avx512vbmi2,
+            .avx512vl,
+            .avx512vnni,
+            .vpclmulqdq,
+            .avx512vpopcntdq,
+            .wbnoinvd,
+            .x87,
+            .xsave,
+            .xsavec,
+            .xsaveopt,
+            .xsaves,
+        }),
+    };
+
+    pub const ivybridge = Cpu{
+        .name = "ivybridge",
+        .llvm_name = "ivybridge",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .sse,
+            .avx,
+            .cmov,
+            .cx8,
+            .cx16,
+            .f16c,
+            .fsgsbase,
+            .fxsr,
+            .fast_shld_rotate,
+            .fast_scalar_fsqrt,
+            .sahf,
+            .mmx,
+            .macrofusion,
+            .merge_to_threeway_branch,
+            .nopl,
+            .pclmul,
+            .popcnt,
+            .false_deps_popcnt,
+            .rdrnd,
+            .sse42,
+            .slow_3ops_lea,
+            .idivq_to_divl,
+            .slow_unaligned_mem_32,
+            .x87,
+            .xsave,
+            .xsaveopt,
+        }),
+    };
+
+    pub const k6 = Cpu{
+        .name = "k6",
+        .llvm_name = "k6",
+        .dependencies = featureSet(&[_]Feature{
+            .cx8,
+            .mmx,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const k62 = Cpu{
+        .name = "k6_2",
+        .llvm_name = "k6-2",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnow3,
+            .cx8,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const k63 = Cpu{
+        .name = "k6_3",
+        .llvm_name = "k6-3",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnow3,
+            .cx8,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const k8 = Cpu{
+        .name = "k8",
+        .llvm_name = "k8",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnowa3,
+            .bit64,
+            .cmov,
+            .cx8,
+            .fxsr,
+            .fast_scalar_shift_masks,
+            .nopl,
+            .sse,
+            .sse2,
+            .slow_shld,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const k8_sse3 = Cpu{
+        .name = "k8_sse3",
+        .llvm_name = "k8-sse3",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnowa3,
+            .bit64,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .fast_scalar_shift_masks,
+            .nopl,
+            .sse,
+            .sse3,
+            .slow_shld,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const knl = Cpu{
+        .name = "knl",
+        .llvm_name = "knl",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .adx,
+            .sse,
+            .aes,
+            .avx512f,
+            .bmi,
+            .bmi2,
+            .avx512cd,
+            .cmov,
+            .cx8,
+            .cx16,
+            .avx512er,
+            .f16c,
+            .fma,
+            .fsgsbase,
+            .fxsr,
+            .fast_partial_ymm_or_zmm_write,
+            .fast_gather,
+            .sahf,
+            .lzcnt,
+            .mmx,
+            .movbe,
+            .nopl,
+            .pclmul,
+            .avx512pf,
+            .popcnt,
+            .prefetchwt1,
+            .prfchw,
+            .rdrnd,
+            .rdseed,
+            .slow_3ops_lea,
+            .idivq_to_divl,
+            .slow_incdec,
+            .slow_pmaddwd,
+            .slow_two_mem_ops,
+            .x87,
+            .xsave,
+            .xsaveopt,
+        }),
+    };
+
+    pub const knm = Cpu{
+        .name = "knm",
+        .llvm_name = "knm",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .adx,
+            .sse,
+            .aes,
+            .avx512f,
+            .bmi,
+            .bmi2,
+            .avx512cd,
+            .cmov,
+            .cx8,
+            .cx16,
+            .avx512er,
+            .f16c,
+            .fma,
+            .fsgsbase,
+            .fxsr,
+            .fast_partial_ymm_or_zmm_write,
+            .fast_gather,
+            .sahf,
+            .lzcnt,
+            .mmx,
+            .movbe,
+            .nopl,
+            .pclmul,
+            .avx512pf,
+            .popcnt,
+            .prefetchwt1,
+            .prfchw,
+            .rdrnd,
+            .rdseed,
+            .slow_3ops_lea,
+            .idivq_to_divl,
+            .slow_incdec,
+            .slow_pmaddwd,
+            .slow_two_mem_ops,
+            .avx512vpopcntdq,
+            .x87,
+            .xsave,
+            .xsaveopt,
+        }),
+    };
+
+    pub const lakemont = Cpu{
+        .name = "lakemont",
+        .llvm_name = "lakemont",
+        .dependencies = 0,
+    };
+
+    pub const nehalem = Cpu{
+        .name = "nehalem",
+        .llvm_name = "nehalem",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .sahf,
+            .mmx,
+            .macrofusion,
+            .nopl,
+            .popcnt,
+            .sse,
+            .sse42,
+            .x87,
+        }),
+    };
+
+    pub const nocona = Cpu{
+        .name = "nocona",
+        .llvm_name = "nocona",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .mmx,
+            .nopl,
+            .sse,
+            .sse3,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const opteron = Cpu{
+        .name = "opteron",
+        .llvm_name = "opteron",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnowa3,
+            .bit64,
+            .cmov,
+            .cx8,
+            .fxsr,
+            .fast_scalar_shift_masks,
+            .nopl,
+            .sse,
+            .sse2,
+            .slow_shld,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const opteron_sse3 = Cpu{
+        .name = "opteron_sse3",
+        .llvm_name = "opteron-sse3",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnowa3,
+            .bit64,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .fast_scalar_shift_masks,
+            .nopl,
+            .sse,
+            .sse3,
+            .slow_shld,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const penryn = Cpu{
+        .name = "penryn",
+        .llvm_name = "penryn",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .sahf,
+            .mmx,
+            .macrofusion,
+            .nopl,
+            .sse,
+            .sse41,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const pentium = Cpu{
+        .name = "pentium",
+        .llvm_name = "pentium",
+        .dependencies = featureSet(&[_]Feature{
+            .cx8,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const pentium_m = Cpu{
+        .name = "pentium_m",
+        .llvm_name = "pentium-m",
+        .dependencies = featureSet(&[_]Feature{
+            .cmov,
+            .cx8,
+            .fxsr,
+            .mmx,
+            .nopl,
+            .sse,
+            .sse2,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const pentium_mmx = Cpu{
+        .name = "pentium_mmx",
+        .llvm_name = "pentium-mmx",
+        .dependencies = featureSet(&[_]Feature{
+            .cx8,
+            .mmx,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const pentium2 = Cpu{
+        .name = "pentium2",
+        .llvm_name = "pentium2",
+        .dependencies = featureSet(&[_]Feature{
+            .cmov,
+            .cx8,
+            .fxsr,
+            .mmx,
+            .nopl,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const pentium3 = Cpu{
+        .name = "pentium3",
+        .llvm_name = "pentium3",
+        .dependencies = featureSet(&[_]Feature{
+            .cmov,
+            .cx8,
+            .fxsr,
+            .mmx,
+            .nopl,
+            .sse,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const pentium3m = Cpu{
+        .name = "pentium3m",
+        .llvm_name = "pentium3m",
+        .dependencies = featureSet(&[_]Feature{
+            .cmov,
+            .cx8,
+            .fxsr,
+            .mmx,
+            .nopl,
+            .sse,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const pentium4 = Cpu{
+        .name = "pentium4",
+        .llvm_name = "pentium4",
+        .dependencies = featureSet(&[_]Feature{
+            .cmov,
+            .cx8,
+            .fxsr,
+            .mmx,
+            .nopl,
+            .sse,
+            .sse2,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const pentium4m = Cpu{
+        .name = "pentium4m",
+        .llvm_name = "pentium4m",
+        .dependencies = featureSet(&[_]Feature{
+            .cmov,
+            .cx8,
+            .fxsr,
+            .mmx,
+            .nopl,
+            .sse,
+            .sse2,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const pentiumpro = Cpu{
+        .name = "pentiumpro",
+        .llvm_name = "pentiumpro",
+        .dependencies = featureSet(&[_]Feature{
+            .cmov,
+            .cx8,
+            .nopl,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const prescott = Cpu{
+        .name = "prescott",
+        .llvm_name = "prescott",
+        .dependencies = featureSet(&[_]Feature{
+            .cmov,
+            .cx8,
+            .fxsr,
+            .mmx,
+            .nopl,
+            .sse,
+            .sse3,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const sandybridge = Cpu{
+        .name = "sandybridge",
+        .llvm_name = "sandybridge",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .sse,
+            .avx,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .fast_shld_rotate,
+            .fast_scalar_fsqrt,
+            .sahf,
+            .mmx,
+            .macrofusion,
+            .merge_to_threeway_branch,
+            .nopl,
+            .pclmul,
+            .popcnt,
+            .false_deps_popcnt,
+            .sse42,
+            .slow_3ops_lea,
+            .idivq_to_divl,
+            .slow_unaligned_mem_32,
+            .x87,
+            .xsave,
+            .xsaveopt,
+        }),
+    };
+
+    pub const silvermont = Cpu{
+        .name = "silvermont",
+        .llvm_name = "silvermont",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .sahf,
+            .mmx,
+            .movbe,
+            .nopl,
+            .sse,
+            .pclmul,
+            .popcnt,
+            .false_deps_popcnt,
+            .prfchw,
+            .rdrnd,
+            .sse42,
+            .ssse3,
+            .idivq_to_divl,
+            .slow_incdec,
+            .slowLea,
+            .slowPmulld,
+            .slow_two_mem_ops,
+            .x87,
+        }),
+    };
+
+    pub const skx = Cpu{
+        .name = "skx",
+        .llvm_name = "skx",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .adx,
+            .sse,
+            .aes,
+            .avx,
+            .avx2,
+            .avx512f,
+            .bmi,
+            .bmi2,
+            .avx512bw,
+            .avx512cd,
+            .clflushopt,
+            .clwb,
+            .cmov,
+            .cx8,
+            .cx16,
+            .avx512dq,
+            .ermsb,
+            .f16c,
+            .fma,
+            .fsgsbase,
+            .fxsr,
+            .fast_shld_rotate,
+            .fast_scalar_fsqrt,
+            .fast_variable_shuffle,
+            .fast_vector_fsqrt,
+            .fast_gather,
+            .invpcid,
+            .sahf,
+            .lzcnt,
+            .mmx,
+            .movbe,
+            .mpx,
+            .macrofusion,
+            .merge_to_threeway_branch,
+            .nopl,
+            .pclmul,
+            .pku,
+            .popcnt,
+            .false_deps_popcnt,
+            .prfchw,
+            .rdrnd,
+            .rdseed,
+            .sse42,
+            .slow_3ops_lea,
+            .idivq_to_divl,
+            .avx512vl,
+            .x87,
+            .xsave,
+            .xsavec,
+            .xsaveopt,
+            .xsaves,
+        }),
+    };
+
+    pub const skylake = Cpu{
+        .name = "skylake",
+        .llvm_name = "skylake",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .adx,
+            .sse,
+            .aes,
+            .avx,
+            .avx2,
+            .bmi,
+            .bmi2,
+            .clflushopt,
+            .cmov,
+            .cx8,
+            .cx16,
+            .ermsb,
+            .f16c,
+            .fma,
+            .fsgsbase,
+            .fxsr,
+            .fast_shld_rotate,
+            .fast_scalar_fsqrt,
+            .fast_variable_shuffle,
+            .fast_vector_fsqrt,
+            .fast_gather,
+            .invpcid,
+            .sahf,
+            .lzcnt,
+            .mmx,
+            .movbe,
+            .mpx,
+            .macrofusion,
+            .merge_to_threeway_branch,
+            .nopl,
+            .pclmul,
+            .popcnt,
+            .false_deps_popcnt,
+            .prfchw,
+            .rdrnd,
+            .rdseed,
+            .sgx,
+            .sse42,
+            .slow_3ops_lea,
+            .idivq_to_divl,
+            .x87,
+            .xsave,
+            .xsavec,
+            .xsaveopt,
+            .xsaves,
+        }),
+    };
+
+    pub const skylake_avx512 = Cpu{
+        .name = "skylake_avx512",
+        .llvm_name = "skylake-avx512",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .adx,
+            .sse,
+            .aes,
+            .avx,
+            .avx2,
+            .avx512f,
+            .bmi,
+            .bmi2,
+            .avx512bw,
+            .avx512cd,
+            .clflushopt,
+            .clwb,
+            .cmov,
+            .cx8,
+            .cx16,
+            .avx512dq,
+            .ermsb,
+            .f16c,
+            .fma,
+            .fsgsbase,
+            .fxsr,
+            .fast_shld_rotate,
+            .fast_scalar_fsqrt,
+            .fast_variable_shuffle,
+            .fast_vector_fsqrt,
+            .fast_gather,
+            .invpcid,
+            .sahf,
+            .lzcnt,
+            .mmx,
+            .movbe,
+            .mpx,
+            .macrofusion,
+            .merge_to_threeway_branch,
+            .nopl,
+            .pclmul,
+            .pku,
+            .popcnt,
+            .false_deps_popcnt,
+            .prfchw,
+            .rdrnd,
+            .rdseed,
+            .sse42,
+            .slow_3ops_lea,
+            .idivq_to_divl,
+            .avx512vl,
+            .x87,
+            .xsave,
+            .xsavec,
+            .xsaveopt,
+            .xsaves,
+        }),
+    };
+
+    pub const slm = Cpu{
+        .name = "slm",
+        .llvm_name = "slm",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .sahf,
+            .mmx,
+            .movbe,
+            .nopl,
+            .sse,
+            .pclmul,
+            .popcnt,
+            .false_deps_popcnt,
+            .prfchw,
+            .rdrnd,
+            .sse42,
+            .ssse3,
+            .idivq_to_divl,
+            .slow_incdec,
+            .slowLea,
+            .slowPmulld,
+            .slow_two_mem_ops,
+            .x87,
+        }),
+    };
+
+    pub const tremont = Cpu{
+        .name = "tremont",
+        .llvm_name = "tremont",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .sse,
+            .aes,
+            .cldemote,
+            .clflushopt,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fsgsbase,
+            .fxsr,
+            .gfni,
+            .sahf,
+            .mmx,
+            .movbe,
+            .movdir64b,
+            .movdiri,
+            .mpx,
+            .nopl,
+            .pclmul,
+            .popcnt,
+            .prfchw,
+            .ptwrite,
+            .rdpid,
+            .rdrnd,
+            .rdseed,
+            .sgx,
+            .sha,
+            .sse42,
+            .ssse3,
+            .slow_incdec,
+            .slowLea,
+            .slow_two_mem_ops,
+            .waitpkg,
+            .x87,
+            .xsave,
+            .xsavec,
+            .xsaveopt,
+            .xsaves,
+        }),
+    };
+
+    pub const westmere = Cpu{
+        .name = "westmere",
+        .llvm_name = "westmere",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .cmov,
+            .cx8,
+            .cx16,
+            .fxsr,
+            .sahf,
+            .mmx,
+            .macrofusion,
+            .nopl,
+            .sse,
+            .pclmul,
+            .popcnt,
+            .sse42,
+            .x87,
+        }),
+    };
+
+    pub const winchip_c6 = Cpu{
+        .name = "winchip_c6",
+        .llvm_name = "winchip-c6",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const winchip2 = Cpu{
+        .name = "winchip2",
+        .llvm_name = "winchip2",
+        .dependencies = featureSet(&[_]Feature{
+            .mmx,
+            .dnow3,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const x86_64 = Cpu{
+        .name = "x86_64",
+        .llvm_name = "x86-64",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .cmov,
+            .cx8,
+            .fxsr,
+            .mmx,
+            .macrofusion,
+            .nopl,
+            .sse,
+            .sse2,
+            .slow_3ops_lea,
+            .slow_incdec,
+            .x87,
+        }),
+    };
+
+    pub const yonah = Cpu{
+        .name = "yonah",
+        .llvm_name = "yonah",
+        .dependencies = featureSet(&[_]Feature{
+            .cmov,
+            .cx8,
+            .fxsr,
+            .mmx,
+            .nopl,
+            .sse,
+            .sse3,
+            .slow_unaligned_mem_16,
+            .x87,
+        }),
+    };
+
+    pub const znver1 = Cpu{
+        .name = "znver1",
+        .llvm_name = "znver1",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .adx,
+            .sse,
+            .aes,
+            .avx2,
+            .bmi,
+            .bmi2,
+            .branchfusion,
+            .clflushopt,
+            .clzero,
+            .cmov,
+            .cx8,
+            .cx16,
+            .f16c,
+            .fma,
+            .fsgsbase,
+            .fxsr,
+            .fast15bytenop,
+            .fast_bextr,
+            .fast_lzcnt,
+            .fast_scalar_shift_masks,
+            .sahf,
+            .lzcnt,
+            .mmx,
+            .movbe,
+            .mwaitx,
+            .nopl,
+            .pclmul,
+            .popcnt,
+            .prfchw,
+            .rdrnd,
+            .rdseed,
+            .sha,
+            .sse4a,
+            .slow_shld,
+            .x87,
+            .xsave,
+            .xsavec,
+            .xsaveopt,
+            .xsaves,
+        }),
+    };
+
+    pub const znver2 = Cpu{
+        .name = "znver2",
+        .llvm_name = "znver2",
+        .dependencies = featureSet(&[_]Feature{
+            .bit64,
+            .adx,
+            .sse,
+            .aes,
+            .avx2,
+            .bmi,
+            .bmi2,
+            .branchfusion,
+            .clflushopt,
+            .clwb,
+            .clzero,
+            .cmov,
+            .cx8,
+            .cx16,
+            .f16c,
+            .fma,
+            .fsgsbase,
+            .fxsr,
+            .fast15bytenop,
+            .fast_bextr,
+            .fast_lzcnt,
+            .fast_scalar_shift_masks,
+            .sahf,
+            .lzcnt,
+            .mmx,
+            .movbe,
+            .mwaitx,
+            .nopl,
+            .pclmul,
+            .popcnt,
+            .prfchw,
+            .rdpid,
+            .rdrnd,
+            .rdseed,
+            .sha,
+            .sse4a,
+            .slow_shld,
+            .wbnoinvd,
+            .x87,
+            .xsave,
+            .xsavec,
+            .xsaveopt,
+            .xsaves,
+        }),
+    };
+};
+
+pub const all_cpus = &[_]*const Cpu{
+    &cpu.amdfam10,
+    &cpu.athlon,
+    &cpu.athlon4,
+    &cpu.athlon_fx,
+    &cpu.athlon_mp,
+    &cpu.athlon_tbird,
+    &cpu.athlon_xp,
+    &cpu.athlon64,
+    &cpu.athlon64_sse3,
+    &cpu.atom,
+    &cpu.barcelona,
+    &cpu.bdver1,
+    &cpu.bdver2,
+    &cpu.bdver3,
+    &cpu.bdver4,
+    &cpu.bonnell,
+    &cpu.broadwell,
+    &cpu.btver1,
+    &cpu.btver2,
+    &cpu.c3,
+    &cpu.c32,
+    &cpu.cannonlake,
+    &cpu.cascadelake,
+    &cpu.cooperlake,
+    &cpu.core_avx_i,
+    &cpu.core_avx2,
+    &cpu.core2,
+    &cpu.corei7,
+    &cpu.corei7_avx,
+    &cpu.generic,
+    &cpu.geode,
+    &cpu.goldmont,
+    &cpu.goldmont_plus,
+    &cpu.haswell,
+    &cpu.i386,
+    &cpu.i486,
+    &cpu.i586,
+    &cpu.i686,
+    &cpu.icelake_client,
+    &cpu.icelake_server,
+    &cpu.ivybridge,
+    &cpu.k6,
+    &cpu.k62,
+    &cpu.k63,
+    &cpu.k8,
+    &cpu.k8_sse3,
+    &cpu.knl,
+    &cpu.knm,
+    &cpu.lakemont,
+    &cpu.nehalem,
+    &cpu.nocona,
+    &cpu.opteron,
+    &cpu.opteron_sse3,
+    &cpu.penryn,
+    &cpu.pentium,
+    &cpu.pentium_m,
+    &cpu.pentium_mmx,
+    &cpu.pentium2,
+    &cpu.pentium3,
+    &cpu.pentium3m,
+    &cpu.pentium4,
+    &cpu.pentium4m,
+    &cpu.pentiumpro,
+    &cpu.prescott,
+    &cpu.sandybridge,
+    &cpu.silvermont,
+    &cpu.skx,
+    &cpu.skylake,
+    &cpu.skylake_avx512,
+    &cpu.slm,
+    &cpu.tremont,
+    &cpu.westmere,
+    &cpu.winchip_c6,
+    &cpu.winchip2,
+    &cpu.x86_64,
+    &cpu.yonah,
+    &cpu.znver1,
+    &cpu.znver2,
 };
