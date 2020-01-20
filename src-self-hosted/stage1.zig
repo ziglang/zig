@@ -542,14 +542,14 @@ export fn stage2_list_features_for_arch(arch_name_ptr: [*]const u8, arch_name_le
 fn printFeaturesForArch(arch_name: []const u8, show_dependencies: bool) !void {
     const stdout_stream = &std.io.getStdOut().outStream().stream;
 
-    const arch = Target.parseArchTag(arch_name) catch {
+    const arch = Target.parseArchSub(arch_name) catch {
         std.debug.warn("Failed to parse arch '{}'\nInvoke 'zig targets' for a list of valid architectures\n", .{arch_name});
         return;
     };
 
     try stdout_stream.print("Available features for {}:\n", .{@tagName(arch)});
 
-    const features = std.target.getFeaturesForArch(arch);
+    const features = arch.allFeaturesList();
 
     var longest_len: usize = 0;
     for (features) |feature| {
@@ -568,7 +568,7 @@ fn printFeaturesForArch(arch_name: []const u8, show_dependencies: bool) !void {
 
         try stdout_stream.print(" - {}\n", .{feature.description});
 
-        if (show_dependencies and feature.dependencies.len > 0) {
+        if (show_dependencies and feature.dependencies != 0) {
             for (feature.dependencies) |dependency| {
                 try stdout_stream.print("    {}\n", .{dependency.name});
             }
@@ -622,7 +622,7 @@ fn printCpusForArch(arch_name: []const u8, show_dependencies: bool) !void {
 
 const Stage2CpuFeatures = struct {
     allocator: *mem.Allocator,
-    cpu_features: Target.CpuFeatures,
+    cpu_features: Target.Cross.CpuFeatures,
 
     llvm_cpu_name: ?[:0]const u8,
     llvm_features_str: ?[:0]const u8,

@@ -59,7 +59,7 @@ pub const Buffer = struct {
     /// is safe to `deinit`.
     pub fn toOwnedSlice(self: *Buffer) [:0]u8 {
         const allocator = self.list.allocator;
-        const result = allocator.shrink(self.list.items, self.len());
+        const result = self.list.toOwnedSlice();
         self.* = initNull(allocator);
         return result[0 .. result.len - 1 :0];
     }
