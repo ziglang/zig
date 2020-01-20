@@ -1687,7 +1687,9 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn addAssemblyFile(self: *LibExeObjStep, path: []const u8) void {
-        self.link_objects.append(LinkObject{ .AssemblyFile = self.builder.dupe(path) }) catch unreachable;
+        self.link_objects.append(LinkObject{
+            .AssemblyFile = .{ .path = self.builder.dupe(path) },
+        }) catch unreachable;
     }
 
     pub fn addAssemblyFileFromWriteFileStep(self: *LibExeObjStep, wfs: *WriteFileStep, basename: []const u8) void {
