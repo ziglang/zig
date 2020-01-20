@@ -299,4 +299,21 @@ pub const RunStep = struct {
             }
         }
     }
+
+    /// Goes through all current process args and `addArg`s those that follow the
+    /// first occurrence of `marker_arg` (by convention, typically "--"), if any.
+    fn addAllCurrentArgsFollowing(self: *RunStep, marker_arg: []const u8) void {
+        var args = process.args(); // we iterate all current args...
+        var should_add = false; // `true`d upon the first `marker_arg`
+
+        while (args.next(self.builder.allocator)) |arg_or_err| {
+            const arg = arg_or_err catch unreachable;
+            defer self.builder.allocator.free(arg);
+            if (should_add) {
+                self.addArg(arg); // addArg already `mem.dupe`s
+            } else {
+                should_add = mem.eql(u8, arg, marker_arg);
+            }
+        }
+    }
 };
