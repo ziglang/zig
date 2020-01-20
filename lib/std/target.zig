@@ -228,30 +228,40 @@ pub const Target = union(enum) {
 
             var it = mem.tokenize(features_text, ",");
             while (it.next()) |item_text| {
-                const feature_name = blk: {
-                    if (mem.startsWith(u8, item_text, "+")) {
-                        switch (mode) {
-                            .unknown, .baseline => mode = .baseline,
-                            .whitelist => return error.InvalidCpuFeatures,
-                        }
-                        break :blk item_text[1..];
-                    } else if (mem.startsWith(u8, item_text, "-")) {
-                        switch (mode) {
-                            .unknown, .baseline => mode = .baseline,
-                            .whitelist => return error.InvalidCpuFeatures,
-                        }
-                        break :blk item_text[1..];
-                    } else {
-                        switch (mode) {
-                            .unknown, .whitelist => mode = .whitelist,
-                            .baseline => return error.InvalidCpuFeatures,
-                        }
-                        break :blk item_text;
+                var feature_name: []const u8 = undefined;
+                var op: enum {
+                    add,
+                    sub,
+                } = undefined;
+                if (mem.startsWith(u8, item_text, "+")) {
+                    switch (mode) {
+                        .unknown, .baseline => mode = .baseline,
+                        .whitelist => return error.InvalidCpuFeatures,
                     }
-                };
+                    op = .add;
+                    feature_name = item_text[1..];
+                } else if (mem.startsWith(u8, item_text, "-")) {
+                    switch (mode) {
+                        .unknown, .baseline => mode = .baseline,
+                        .whitelist => return error.InvalidCpuFeatures,
+                    }
+                    op = .sub;
+                    feature_name = item_text[1..];
+                } else {
+                    switch (mode) {
+                        .unknown, .whitelist => mode = .whitelist,
+                        .baseline => return error.InvalidCpuFeatures,
+                    }
+                    op = .add;
+                    feature_name = item_text;
+                }
                 for (arch.allFeaturesList()) |feature, index| {
                     if (mem.eql(u8, feature_name, feature.name)) {
-                        set |= @splat(2, @as(Cpu.Feature.Set, 1) << @intCast(u7, index));
+                        const one_bit = @as(Cpu.Feature.Set, 1) << @intCast(u7, index);
+                        switch (op) {
+                            .add => set |= @splat(2, one_bit),
+                            .sub => set &= @splat(2, ~one_bit),
+                        }
                         break;
                     }
                 } else {
@@ -1050,3 +1060,13 @@ pub const Target = union(enum) {
         return .unavailable;
     }
 };
+
+test "parseCpuFeatureSet" {
+    const set = try @as(Target.Arch, .x86_64).parseCpuFeatureSet("-sse,-avx,-cx8");
+    std.testing.expect(!Target.x86.featureSetHas(set, .sse));
+    std.testing.expect(!Target.x86.featureSetHas(set, .avx));
+    std.testing.expect(!Target.x86.featureSetHas(set, .cx8));
+    // These are expected because they are part of the baseline
+    std.testing.expect(Target.x86.featureSetHas(set, .cmov));
+    std.testing.expect(Target.x86.featureSetHas(set, .fxsr));
+}

@@ -617,7 +617,7 @@ const Stage2CpuFeatures = struct {
                 if (mem.eql(u8, llvm_feat, this_llvm_name)) {
                     switch (op) {
                         .add => set |= @as(Target.Cpu.Feature.Set, 1) << @intCast(u7, index),
-                        .sub => set &= ~@as(Target.Cpu.Feature.Set, 1) << @intCast(u7, index),
+                        .sub => set &= ~(@as(Target.Cpu.Feature.Set, 1) << @intCast(u7, index)),
                     }
                     break;
                 }
