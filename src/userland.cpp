@@ -89,16 +89,6 @@ void stage2_progress_complete_one(Stage2ProgressNode *node) {}
 void stage2_progress_disable_tty(Stage2Progress *progress) {}
 void stage2_progress_update_node(Stage2ProgressNode *node, size_t completed_count, size_t estimated_total_items){}
 
-void stage2_list_features_for_arch(const char *arch_name_ptr, size_t arch_name_len, bool show_subfeatures) {
-    const char *msg = "stage0 called stage2_list_features_for_arch";
-    stage2_panic(msg, strlen(msg));
-}
-
-void stage2_list_cpus_for_arch(const char *arch_name_ptr, size_t arch_name_len, bool show_subfeatures) {
-    const char *msg = "stage0 called stage2_list_cpus_for_arch";
-    stage2_panic(msg, strlen(msg));
-}
-
 struct Stage2CpuFeatures {
     const char *llvm_cpu_name;
     const char *llvm_cpu_features;
@@ -149,4 +139,9 @@ void stage2_cpu_features_get_builtin_str(const Stage2CpuFeatures *cpu_features,
 {
     *ptr = cpu_features->builtin_str;
     *len = strlen(cpu_features->builtin_str);
+}
+
+int stage2_cmd_targets(void) {
+    const char *msg = "stage0 called stage2_cmd_targets";
+    stage2_panic(msg, strlen(msg));
 }

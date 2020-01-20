@@ -1213,10 +1213,10 @@ pub const cpu = struct {
     pub const amdfam10 = Cpu{
         .name = "amdfam10",
         .llvm_name = "amdfam10",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnowa3,
-            .bit64,
+            .@"3dnowa",
+            .@"64bit",
             .cmov,
             .cx8,
             .cx16,
@@ -1236,9 +1236,9 @@ pub const cpu = struct {
     pub const athlon = Cpu{
         .name = "athlon",
         .llvm_name = "athlon",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnowa3,
+            .@"3dnowa",
             .cmov,
             .cx8,
             .nopl,
@@ -1251,9 +1251,9 @@ pub const cpu = struct {
     pub const athlon4 = Cpu{
         .name = "athlon_4",
         .llvm_name = "athlon-4",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnowa3,
+            .@"3dnowa",
             .cmov,
             .cx8,
             .fxsr,
@@ -1268,10 +1268,10 @@ pub const cpu = struct {
     pub const athlon_fx = Cpu{
         .name = "athlon_fx",
         .llvm_name = "athlon-fx",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnowa3,
-            .bit64,
+            .@"3dnowa",
+            .@"64bit",
             .cmov,
             .cx8,
             .fxsr,
@@ -1288,9 +1288,9 @@ pub const cpu = struct {
     pub const athlon_mp = Cpu{
         .name = "athlon_mp",
         .llvm_name = "athlon-mp",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnowa3,
+            .@"3dnowa",
             .cmov,
             .cx8,
             .fxsr,
@@ -1305,9 +1305,9 @@ pub const cpu = struct {
     pub const athlon_tbird = Cpu{
         .name = "athlon_tbird",
         .llvm_name = "athlon-tbird",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnowa3,
+            .@"3dnowa",
             .cmov,
             .cx8,
             .nopl,
@@ -1320,9 +1320,9 @@ pub const cpu = struct {
     pub const athlon_xp = Cpu{
         .name = "athlon_xp",
         .llvm_name = "athlon-xp",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnowa3,
+            .@"3dnowa",
             .cmov,
             .cx8,
             .fxsr,
@@ -1337,10 +1337,10 @@ pub const cpu = struct {
     pub const athlon64 = Cpu{
         .name = "athlon64",
         .llvm_name = "athlon64",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnowa3,
-            .bit64,
+            .@"3dnowa",
+            .@"64bit",
             .cmov,
             .cx8,
             .fxsr,
@@ -1357,10 +1357,10 @@ pub const cpu = struct {
     pub const athlon64_sse3 = Cpu{
         .name = "athlon64_sse3",
         .llvm_name = "athlon64-sse3",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnowa3,
-            .bit64,
+            .@"3dnowa",
+            .@"64bit",
             .cmov,
             .cx8,
             .cx16,
@@ -1378,8 +1378,8 @@ pub const cpu = struct {
     pub const atom = Cpu{
         .name = "atom",
         .llvm_name = "atom",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .cmov,
             .cx8,
             .cx16,
@@ -1404,10 +1404,10 @@ pub const cpu = struct {
     pub const barcelona = Cpu{
         .name = "barcelona",
         .llvm_name = "barcelona",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnowa3,
-            .bit64,
+            .@"3dnowa",
+            .@"64bit",
             .cmov,
             .cx8,
             .cx16,
@@ -1427,8 +1427,8 @@ pub const cpu = struct {
     pub const bdver1 = Cpu{
         .name = "bdver1",
         .llvm_name = "bdver1",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .sse,
             .aes,
             .branchfusion,
@@ -1436,7 +1436,7 @@ pub const cpu = struct {
             .cx8,
             .cx16,
             .fxsr,
-            .fast11bytenop,
+            .fast_11bytenop,
             .fast_scalar_shift_masks,
             .sahf,
             .lwp,
@@ -1456,8 +1456,8 @@ pub const cpu = struct {
     pub const bdver2 = Cpu{
         .name = "bdver2",
         .llvm_name = "bdver2",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .sse,
             .aes,
             .bmi,
@@ -1468,7 +1468,7 @@ pub const cpu = struct {
             .f16c,
             .fma,
             .fxsr,
-            .fast11bytenop,
+            .fast_11bytenop,
             .fast_bextr,
             .fast_scalar_shift_masks,
             .sahf,
@@ -1490,8 +1490,8 @@ pub const cpu = struct {
     pub const bdver3 = Cpu{
         .name = "bdver3",
         .llvm_name = "bdver3",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .sse,
             .aes,
             .bmi,
@@ -1503,7 +1503,7 @@ pub const cpu = struct {
             .fma,
             .fsgsbase,
             .fxsr,
-            .fast11bytenop,
+            .fast_11bytenop,
             .fast_bextr,
             .fast_scalar_shift_masks,
             .sahf,
@@ -1526,8 +1526,8 @@ pub const cpu = struct {
     pub const bdver4 = Cpu{
         .name = "bdver4",
         .llvm_name = "bdver4",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .sse,
             .aes,
             .avx2,
@@ -1541,7 +1541,7 @@ pub const cpu = struct {
             .fma,
             .fsgsbase,
             .fxsr,
-            .fast11bytenop,
+            .fast_11bytenop,
             .fast_bextr,
             .fast_scalar_shift_masks,
             .sahf,
@@ -1565,8 +1565,8 @@ pub const cpu = struct {
     pub const bonnell = Cpu{
         .name = "bonnell",
         .llvm_name = "bonnell",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .cmov,
             .cx8,
             .cx16,
@@ -1591,8 +1591,8 @@ pub const cpu = struct {
     pub const broadwell = Cpu{
         .name = "broadwell",
         .llvm_name = "broadwell",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .adx,
             .sse,
             .avx,
@@ -1625,7 +1625,7 @@ pub const cpu = struct {
             .prfchw,
             .rdrnd,
             .rdseed,
-            .sse42,
+            .sse4_2,
             .slow_3ops_lea,
             .idivq_to_divl,
             .x87,
@@ -1637,13 +1637,13 @@ pub const cpu = struct {
     pub const btver1 = Cpu{
         .name = "btver1",
         .llvm_name = "btver1",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .cmov,
             .cx8,
             .cx16,
             .fxsr,
-            .fast15bytenop,
+            .fast_15bytenop,
             .fast_scalar_shift_masks,
             .fast_vector_shift_masks,
             .sahf,
@@ -1663,8 +1663,8 @@ pub const cpu = struct {
     pub const btver2 = Cpu{
         .name = "btver2",
         .llvm_name = "btver2",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .sse,
             .aes,
             .avx,
@@ -1674,7 +1674,7 @@ pub const cpu = struct {
             .cx16,
             .f16c,
             .fxsr,
-            .fast15bytenop,
+            .fast_15bytenop,
             .fast_bextr,
             .fast_hops,
             .fast_lzcnt,
@@ -1701,9 +1701,9 @@ pub const cpu = struct {
     pub const c3 = Cpu{
         .name = "c3",
         .llvm_name = "c3",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnow3,
+            .@"3dnow",
             .slow_unaligned_mem_16,
             .x87,
         }),
@@ -1712,7 +1712,7 @@ pub const cpu = struct {
     pub const c32 = Cpu{
         .name = "c3_2",
         .llvm_name = "c3-2",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .cmov,
             .cx8,
             .fxsr,
@@ -1726,8 +1726,8 @@ pub const cpu = struct {
     pub const cannonlake = Cpu{
         .name = "cannonlake",
         .llvm_name = "cannonlake",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .adx,
             .sse,
             .aes,
@@ -1771,7 +1771,7 @@ pub const cpu = struct {
             .rdseed,
             .sgx,
             .sha,
-            .sse42,
+            .sse4_2,
             .slow_3ops_lea,
             .idivq_to_divl,
             .avx512vbmi,
@@ -1787,8 +1787,8 @@ pub const cpu = struct {
     pub const cascadelake = Cpu{
         .name = "cascadelake",
         .llvm_name = "cascadelake",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .adx,
             .sse,
             .aes,
@@ -1831,7 +1831,7 @@ pub const cpu = struct {
             .prfchw,
             .rdrnd,
             .rdseed,
-            .sse42,
+            .sse4_2,
             .slow_3ops_lea,
             .idivq_to_divl,
             .avx512vl,
@@ -1847,8 +1847,8 @@ pub const cpu = struct {
     pub const cooperlake = Cpu{
         .name = "cooperlake",
         .llvm_name = "cooperlake",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .adx,
             .sse,
             .aes,
@@ -1892,7 +1892,7 @@ pub const cpu = struct {
             .prfchw,
             .rdrnd,
             .rdseed,
-            .sse42,
+            .sse4_2,
             .slow_3ops_lea,
             .idivq_to_divl,
             .avx512vl,
@@ -1908,8 +1908,8 @@ pub const cpu = struct {
     pub const core_avx_i = Cpu{
         .name = "core_avx_i",
         .llvm_name = "core-avx-i",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .sse,
             .avx,
             .cmov,
@@ -1929,7 +1929,7 @@ pub const cpu = struct {
             .popcnt,
             .false_deps_popcnt,
             .rdrnd,
-            .sse42,
+            .sse4_2,
             .slow_3ops_lea,
             .idivq_to_divl,
             .slow_unaligned_mem_32,
@@ -1942,8 +1942,8 @@ pub const cpu = struct {
     pub const core_avx2 = Cpu{
         .name = "core_avx2",
         .llvm_name = "core-avx2",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .sse,
             .avx,
             .avx2,
@@ -1973,7 +1973,7 @@ pub const cpu = struct {
             .popcnt,
             .false_deps_popcnt,
             .rdrnd,
-            .sse42,
+            .sse4_2,
             .slow_3ops_lea,
             .idivq_to_divl,
             .x87,
@@ -1985,8 +1985,8 @@ pub const cpu = struct {
     pub const core2 = Cpu{
         .name = "core2",
         .llvm_name = "core2",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .cmov,
             .cx8,
             .cx16,
@@ -2005,8 +2005,8 @@ pub const cpu = struct {
     pub const corei7 = Cpu{
         .name = "corei7",
         .llvm_name = "corei7",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .cmov,
             .cx8,
             .cx16,
@@ -2017,7 +2017,7 @@ pub const cpu = struct {
             .nopl,
             .popcnt,
             .sse,
-            .sse42,
+            .sse4_2,
             .x87,
         }),
     };
@@ -2025,8 +2025,8 @@ pub const cpu = struct {
     pub const corei7_avx = Cpu{
         .name = "corei7_avx",
         .llvm_name = "corei7-avx",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .sse,
             .avx,
             .cmov,
@@ -2043,7 +2043,7 @@ pub const cpu = struct {
             .pclmul,
             .popcnt,
             .false_deps_popcnt,
-            .sse42,
+            .sse4_2,
             .slow_3ops_lea,
             .idivq_to_divl,
             .slow_unaligned_mem_32,
@@ -2056,7 +2056,7 @@ pub const cpu = struct {
     pub const generic = Cpu{
         .name = "generic",
         .llvm_name = "generic",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .cx8,
             .slow_unaligned_mem_16,
             .x87,
@@ -2066,9 +2066,9 @@ pub const cpu = struct {
     pub const geode = Cpu{
         .name = "geode",
         .llvm_name = "geode",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnowa3,
+            .@"3dnowa",
             .cx8,
             .slow_unaligned_mem_16,
             .x87,
@@ -2078,8 +2078,8 @@ pub const cpu = struct {
     pub const goldmont = Cpu{
         .name = "goldmont",
         .llvm_name = "goldmont",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .sse,
             .aes,
             .clflushopt,
@@ -2100,10 +2100,10 @@ pub const cpu = struct {
             .rdrnd,
             .rdseed,
             .sha,
-            .sse42,
+            .sse4_2,
             .ssse3,
             .slow_incdec,
-            .slowLea,
+            .slow_lea,
             .slow_two_mem_ops,
             .x87,
             .xsave,
@@ -2116,8 +2116,8 @@ pub const cpu = struct {
     pub const goldmont_plus = Cpu{
         .name = "goldmont_plus",
         .llvm_name = "goldmont-plus",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .sse,
             .aes,
             .clflushopt,
@@ -2140,10 +2140,10 @@ pub const cpu = struct {
             .rdseed,
             .sgx,
             .sha,
-            .sse42,
+            .sse4_2,
             .ssse3,
             .slow_incdec,
-            .slowLea,
+            .slow_lea,
             .slow_two_mem_ops,
             .x87,
             .xsave,
@@ -2156,8 +2156,8 @@ pub const cpu = struct {
     pub const haswell = Cpu{
         .name = "haswell",
         .llvm_name = "haswell",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .sse,
             .avx,
             .avx2,
@@ -2187,7 +2187,7 @@ pub const cpu = struct {
             .popcnt,
             .false_deps_popcnt,
             .rdrnd,
-            .sse42,
+            .sse4_2,
             .slow_3ops_lea,
             .idivq_to_divl,
             .x87,
@@ -2196,38 +2196,38 @@ pub const cpu = struct {
         }),
     };
 
-    pub const i386 = Cpu{
-        .name = "i386",
+    pub const _i386 = Cpu{
+        .name = "_i386",
         .llvm_name = "i386",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .slow_unaligned_mem_16,
             .x87,
         }),
     };
 
-    pub const i486 = Cpu{
-        .name = "i486",
+    pub const _i486 = Cpu{
+        .name = "_i486",
         .llvm_name = "i486",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .slow_unaligned_mem_16,
             .x87,
         }),
     };
 
-    pub const i586 = Cpu{
-        .name = "i586",
+    pub const _i586 = Cpu{
+        .name = "_i586",
         .llvm_name = "i586",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .cx8,
             .slow_unaligned_mem_16,
             .x87,
         }),
     };
 
-    pub const i686 = Cpu{
-        .name = "i686",
+    pub const _i686 = Cpu{
+        .name = "_i686",
         .llvm_name = "i686",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .cmov,
             .cx8,
             .slow_unaligned_mem_16,
@@ -2238,8 +2238,8 @@ pub const cpu = struct {
     pub const icelake_client = Cpu{
         .name = "icelake_client",
         .llvm_name = "icelake-client",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .adx,
             .sse,
             .aes,
@@ -2287,7 +2287,7 @@ pub const cpu = struct {
             .rdseed,
             .sgx,
             .sha,
-            .sse42,
+            .sse4_2,
             .slow_3ops_lea,
             .idivq_to_divl,
             .vaes,
@@ -2308,8 +2308,8 @@ pub const cpu = struct {
     pub const icelake_server = Cpu{
         .name = "icelake_server",
         .llvm_name = "icelake-server",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .adx,
             .sse,
             .aes,
@@ -2358,7 +2358,7 @@ pub const cpu = struct {
             .rdseed,
             .sgx,
             .sha,
-            .sse42,
+            .sse4_2,
             .slow_3ops_lea,
             .idivq_to_divl,
             .vaes,
@@ -2380,8 +2380,8 @@ pub const cpu = struct {
     pub const ivybridge = Cpu{
         .name = "ivybridge",
         .llvm_name = "ivybridge",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .sse,
             .avx,
             .cmov,
@@ -2401,7 +2401,7 @@ pub const cpu = struct {
             .popcnt,
             .false_deps_popcnt,
             .rdrnd,
-            .sse42,
+            .sse4_2,
             .slow_3ops_lea,
             .idivq_to_divl,
             .slow_unaligned_mem_32,
@@ -2414,7 +2414,7 @@ pub const cpu = struct {
     pub const k6 = Cpu{
         .name = "k6",
         .llvm_name = "k6",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .cx8,
             .mmx,
             .slow_unaligned_mem_16,
@@ -2425,9 +2425,9 @@ pub const cpu = struct {
     pub const k62 = Cpu{
         .name = "k6_2",
         .llvm_name = "k6-2",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnow3,
+            .@"3dnow",
             .cx8,
             .slow_unaligned_mem_16,
             .x87,
@@ -2437,9 +2437,9 @@ pub const cpu = struct {
     pub const k63 = Cpu{
         .name = "k6_3",
         .llvm_name = "k6-3",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnow3,
+            .@"3dnow",
             .cx8,
             .slow_unaligned_mem_16,
             .x87,
@@ -2449,10 +2449,10 @@ pub const cpu = struct {
     pub const k8 = Cpu{
         .name = "k8",
         .llvm_name = "k8",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnowa3,
-            .bit64,
+            .@"3dnowa",
+            .@"64bit",
             .cmov,
             .cx8,
             .fxsr,
@@ -2469,10 +2469,10 @@ pub const cpu = struct {
     pub const k8_sse3 = Cpu{
         .name = "k8_sse3",
         .llvm_name = "k8-sse3",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnowa3,
-            .bit64,
+            .@"3dnowa",
+            .@"64bit",
             .cmov,
             .cx8,
             .cx16,
@@ -2490,8 +2490,8 @@ pub const cpu = struct {
     pub const knl = Cpu{
         .name = "knl",
         .llvm_name = "knl",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .adx,
             .sse,
             .aes,
@@ -2535,8 +2535,8 @@ pub const cpu = struct {
     pub const knm = Cpu{
         .name = "knm",
         .llvm_name = "knm",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .adx,
             .sse,
             .aes,
@@ -2581,14 +2581,14 @@ pub const cpu = struct {
     pub const lakemont = Cpu{
         .name = "lakemont",
         .llvm_name = "lakemont",
-        .dependencies = 0,
+        .features = 0,
     };
 
     pub const nehalem = Cpu{
         .name = "nehalem",
         .llvm_name = "nehalem",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .cmov,
             .cx8,
             .cx16,
@@ -2599,7 +2599,7 @@ pub const cpu = struct {
             .nopl,
             .popcnt,
             .sse,
-            .sse42,
+            .sse4_2,
             .x87,
         }),
     };
@@ -2607,8 +2607,8 @@ pub const cpu = struct {
     pub const nocona = Cpu{
         .name = "nocona",
         .llvm_name = "nocona",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .cmov,
             .cx8,
             .cx16,
@@ -2625,10 +2625,10 @@ pub const cpu = struct {
     pub const opteron = Cpu{
         .name = "opteron",
         .llvm_name = "opteron",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnowa3,
-            .bit64,
+            .@"3dnowa",
+            .@"64bit",
             .cmov,
             .cx8,
             .fxsr,
@@ -2645,10 +2645,10 @@ pub const cpu = struct {
     pub const opteron_sse3 = Cpu{
         .name = "opteron_sse3",
         .llvm_name = "opteron-sse3",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnowa3,
-            .bit64,
+            .@"3dnowa",
+            .@"64bit",
             .cmov,
             .cx8,
             .cx16,
@@ -2666,8 +2666,8 @@ pub const cpu = struct {
     pub const penryn = Cpu{
         .name = "penryn",
         .llvm_name = "penryn",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .cmov,
             .cx8,
             .cx16,
@@ -2677,7 +2677,7 @@ pub const cpu = struct {
             .macrofusion,
             .nopl,
             .sse,
-            .sse41,
+            .sse4_1,
             .slow_unaligned_mem_16,
             .x87,
         }),
@@ -2686,7 +2686,7 @@ pub const cpu = struct {
     pub const pentium = Cpu{
         .name = "pentium",
         .llvm_name = "pentium",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .cx8,
             .slow_unaligned_mem_16,
             .x87,
@@ -2696,7 +2696,7 @@ pub const cpu = struct {
     pub const pentium_m = Cpu{
         .name = "pentium_m",
         .llvm_name = "pentium-m",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .cmov,
             .cx8,
             .fxsr,
@@ -2712,7 +2712,7 @@ pub const cpu = struct {
     pub const pentium_mmx = Cpu{
         .name = "pentium_mmx",
         .llvm_name = "pentium-mmx",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .cx8,
             .mmx,
             .slow_unaligned_mem_16,
@@ -2723,7 +2723,7 @@ pub const cpu = struct {
     pub const pentium2 = Cpu{
         .name = "pentium2",
         .llvm_name = "pentium2",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .cmov,
             .cx8,
             .fxsr,
@@ -2737,7 +2737,7 @@ pub const cpu = struct {
     pub const pentium3 = Cpu{
         .name = "pentium3",
         .llvm_name = "pentium3",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .cmov,
             .cx8,
             .fxsr,
@@ -2752,7 +2752,7 @@ pub const cpu = struct {
     pub const pentium3m = Cpu{
         .name = "pentium3m",
         .llvm_name = "pentium3m",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .cmov,
             .cx8,
             .fxsr,
@@ -2767,7 +2767,7 @@ pub const cpu = struct {
     pub const pentium4 = Cpu{
         .name = "pentium4",
         .llvm_name = "pentium4",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .cmov,
             .cx8,
             .fxsr,
@@ -2783,7 +2783,7 @@ pub const cpu = struct {
     pub const pentium4m = Cpu{
         .name = "pentium4m",
         .llvm_name = "pentium4m",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .cmov,
             .cx8,
             .fxsr,
@@ -2799,7 +2799,7 @@ pub const cpu = struct {
     pub const pentiumpro = Cpu{
         .name = "pentiumpro",
         .llvm_name = "pentiumpro",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .cmov,
             .cx8,
             .nopl,
@@ -2811,7 +2811,7 @@ pub const cpu = struct {
     pub const prescott = Cpu{
         .name = "prescott",
         .llvm_name = "prescott",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .cmov,
             .cx8,
             .fxsr,
@@ -2827,8 +2827,8 @@ pub const cpu = struct {
     pub const sandybridge = Cpu{
         .name = "sandybridge",
         .llvm_name = "sandybridge",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .sse,
             .avx,
             .cmov,
@@ -2845,7 +2845,7 @@ pub const cpu = struct {
             .pclmul,
             .popcnt,
             .false_deps_popcnt,
-            .sse42,
+            .sse4_2,
             .slow_3ops_lea,
             .idivq_to_divl,
             .slow_unaligned_mem_32,
@@ -2858,8 +2858,8 @@ pub const cpu = struct {
     pub const silvermont = Cpu{
         .name = "silvermont",
         .llvm_name = "silvermont",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .cmov,
             .cx8,
             .cx16,
@@ -2874,12 +2874,12 @@ pub const cpu = struct {
             .false_deps_popcnt,
             .prfchw,
             .rdrnd,
-            .sse42,
+            .sse4_2,
             .ssse3,
             .idivq_to_divl,
             .slow_incdec,
-            .slowLea,
-            .slowPmulld,
+            .slow_lea,
+            .slow_pmulld,
             .slow_two_mem_ops,
             .x87,
         }),
@@ -2888,8 +2888,8 @@ pub const cpu = struct {
     pub const skx = Cpu{
         .name = "skx",
         .llvm_name = "skx",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .adx,
             .sse,
             .aes,
@@ -2932,7 +2932,7 @@ pub const cpu = struct {
             .prfchw,
             .rdrnd,
             .rdseed,
-            .sse42,
+            .sse4_2,
             .slow_3ops_lea,
             .idivq_to_divl,
             .avx512vl,
@@ -2947,8 +2947,8 @@ pub const cpu = struct {
     pub const skylake = Cpu{
         .name = "skylake",
         .llvm_name = "skylake",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .adx,
             .sse,
             .aes,
@@ -2986,7 +2986,7 @@ pub const cpu = struct {
             .rdrnd,
             .rdseed,
             .sgx,
-            .sse42,
+            .sse4_2,
             .slow_3ops_lea,
             .idivq_to_divl,
             .x87,
@@ -3000,8 +3000,8 @@ pub const cpu = struct {
     pub const skylake_avx512 = Cpu{
         .name = "skylake_avx512",
         .llvm_name = "skylake-avx512",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .adx,
             .sse,
             .aes,
@@ -3044,7 +3044,7 @@ pub const cpu = struct {
             .prfchw,
             .rdrnd,
             .rdseed,
-            .sse42,
+            .sse4_2,
             .slow_3ops_lea,
             .idivq_to_divl,
             .avx512vl,
@@ -3059,8 +3059,8 @@ pub const cpu = struct {
     pub const slm = Cpu{
         .name = "slm",
         .llvm_name = "slm",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .cmov,
             .cx8,
             .cx16,
@@ -3075,12 +3075,12 @@ pub const cpu = struct {
             .false_deps_popcnt,
             .prfchw,
             .rdrnd,
-            .sse42,
+            .sse4_2,
             .ssse3,
             .idivq_to_divl,
             .slow_incdec,
-            .slowLea,
-            .slowPmulld,
+            .slow_lea,
+            .slow_pmulld,
             .slow_two_mem_ops,
             .x87,
         }),
@@ -3089,8 +3089,8 @@ pub const cpu = struct {
     pub const tremont = Cpu{
         .name = "tremont",
         .llvm_name = "tremont",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .sse,
             .aes,
             .cldemote,
@@ -3117,10 +3117,10 @@ pub const cpu = struct {
             .rdseed,
             .sgx,
             .sha,
-            .sse42,
+            .sse4_2,
             .ssse3,
             .slow_incdec,
-            .slowLea,
+            .slow_lea,
             .slow_two_mem_ops,
             .waitpkg,
             .x87,
@@ -3134,8 +3134,8 @@ pub const cpu = struct {
     pub const westmere = Cpu{
         .name = "westmere",
         .llvm_name = "westmere",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .cmov,
             .cx8,
             .cx16,
@@ -3147,7 +3147,7 @@ pub const cpu = struct {
             .sse,
             .pclmul,
             .popcnt,
-            .sse42,
+            .sse4_2,
             .x87,
         }),
     };
@@ -3155,7 +3155,7 @@ pub const cpu = struct {
     pub const winchip_c6 = Cpu{
         .name = "winchip_c6",
         .llvm_name = "winchip-c6",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
             .slow_unaligned_mem_16,
             .x87,
@@ -3165,9 +3165,9 @@ pub const cpu = struct {
     pub const winchip2 = Cpu{
         .name = "winchip2",
         .llvm_name = "winchip2",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .mmx,
-            .dnow3,
+            .@"3dnow",
             .slow_unaligned_mem_16,
             .x87,
         }),
@@ -3176,8 +3176,8 @@ pub const cpu = struct {
     pub const x86_64 = Cpu{
         .name = "x86_64",
         .llvm_name = "x86-64",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .cmov,
             .cx8,
             .fxsr,
@@ -3195,7 +3195,7 @@ pub const cpu = struct {
     pub const yonah = Cpu{
         .name = "yonah",
         .llvm_name = "yonah",
-        .dependencies = featureSet(&[_]Feature{
+        .features = featureSet(&[_]Feature{
             .cmov,
             .cx8,
             .fxsr,
@@ -3211,8 +3211,8 @@ pub const cpu = struct {
     pub const znver1 = Cpu{
         .name = "znver1",
         .llvm_name = "znver1",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .adx,
             .sse,
             .aes,
@@ -3229,7 +3229,7 @@ pub const cpu = struct {
             .fma,
             .fsgsbase,
             .fxsr,
-            .fast15bytenop,
+            .fast_15bytenop,
             .fast_bextr,
             .fast_lzcnt,
             .fast_scalar_shift_masks,
@@ -3258,8 +3258,8 @@ pub const cpu = struct {
     pub const znver2 = Cpu{
         .name = "znver2",
         .llvm_name = "znver2",
-        .dependencies = featureSet(&[_]Feature{
-            .bit64,
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
             .adx,
             .sse,
             .aes,
@@ -3277,7 +3277,7 @@ pub const cpu = struct {
             .fma,
             .fsgsbase,
             .fxsr,
-            .fast15bytenop,
+            .fast_15bytenop,
             .fast_bextr,
             .fast_lzcnt,
             .fast_scalar_shift_masks,
@@ -3341,10 +3341,10 @@ pub const all_cpus = &[_]*const Cpu{
     &cpu.goldmont,
     &cpu.goldmont_plus,
     &cpu.haswell,
-    &cpu.i386,
-    &cpu.i486,
-    &cpu.i586,
-    &cpu.i686,
+    &cpu._i386,
+    &cpu._i486,
+    &cpu._i586,
+    &cpu._i686,
     &cpu.icelake_client,
     &cpu.icelake_server,
     &cpu.ivybridge,

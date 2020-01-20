@@ -1,5 +1,7 @@
 Finish these thigns before merging teh branch
 
+ * it gets the wrong answers with `-target-feature -sse,-avx`
+
  * finish refactoring target/arch/*
  * `zig builtin` integration 
  * move target details to better location

@@ -131,11 +131,6 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --test-name-prefix [text]    add prefix to all tests\n"
         "  --test-cmd [arg]             specify test execution command one arg at a time\n"
         "  --test-cmd-bin               appends test binary path to test cmd args\n"
-        "\n"
-        "Targets Options:\n"
-        "  --list-features [arch]       list available features for the given architecture\n"
-        "  --list-cpus [arch]           list available cpus for the given architecture\n"
-        "  --show-dependencies          list feature dependencies for each entry from --list-{features,cpus}\n"
     , arg0);
     return return_code;
 }
@@ -158,88 +153,6 @@ static int print_libc_usage(const char *arg0, FILE *file, int return_code) {
         "Parse a libc installation text file and validate it.\n"
     , arg0, arg0);
     return return_code;
-}
-
-static bool arch_available_in_llvm(ZigLLVM_ArchType arch) {
-    LLVMTargetRef target_ref;
-    char *err_msg = nullptr;
-    char triple_string[128];
-    sprintf(triple_string, "%s-unknown-unknown-unknown", ZigLLVMGetArchTypeName(arch));
-    return !LLVMGetTargetFromTriple(triple_string, &target_ref, &err_msg);
-}
-
-static int print_target_list(FILE *f) {
-    ZigTarget native;
-    get_native_target(&native);
-
-    fprintf(f, "Architectures:\n");
-    size_t arch_count = target_arch_count();
-    for (size_t arch_i = 0; arch_i < arch_count; arch_i += 1) {
-        ZigLLVM_ArchType arch = target_arch_enum(arch_i);
-        if (!arch_available_in_llvm(arch))
-            continue;
-        const char *arch_name = target_arch_name(arch);
-        SubArchList sub_arch_list = target_subarch_list(arch);
-        size_t sub_count = target_subarch_count(sub_arch_list);
-        const char *arch_native_str = (native.arch == arch) ? " (native)" : "";
-        fprintf(f, "  %s%s\n", arch_name, arch_native_str);
-        for (size_t sub_i = 0; sub_i < sub_count; sub_i += 1) {
-            ZigLLVM_SubArchType sub = target_subarch_enum(sub_arch_list, sub_i);
-            const char *sub_name = target_subarch_name(sub);
-            const char *sub_native_str = (native.arch == arch && native.sub_arch == sub) ? " (native)" : "";
-            fprintf(f, "    %s%s\n", sub_name, sub_native_str);
-        }
-    }
-
-    fprintf(f, "\nOperating Systems:\n");
-    size_t os_count = target_os_count();
-    for (size_t i = 0; i < os_count; i += 1) {
-        Os os_type = target_os_enum(i);
-        const char *native_str = (native.os == os_type) ? " (native)" : "";
-        fprintf(f, "  %s%s\n", target_os_name(os_type), native_str);
-    }
-
-    fprintf(f, "\nC ABIs:\n");
-    size_t abi_count = target_abi_count();
-    for (size_t i = 0; i < abi_count; i += 1) {
-        ZigLLVM_EnvironmentType abi = target_abi_enum(i);
-        const char *native_str = (native.abi == abi) ? " (native)" : "";
-        fprintf(f, "  %s%s\n", target_abi_name(abi), native_str);
-    }
-
-    fprintf(f, "\nAvailable libcs:\n");
-    size_t libc_count = target_libc_count();
-    for (size_t i = 0; i < libc_count; i += 1) {
-        ZigTarget libc_target;
-        target_libc_enum(i, &libc_target);
-        bool is_native = native.arch == libc_target.arch &&
-            native.os == libc_target.os &&
-            native.abi == libc_target.abi;
-        const char *native_str = is_native ? " (native)" : "";
-        fprintf(f, "  %s-%s-%s%s\n", target_arch_name(libc_target.arch),
-                target_os_name(libc_target.os), target_abi_name(libc_target.abi), native_str);
-    }
-
-    fprintf(f, "\nAvailable glibc versions:\n");
-    ZigGLibCAbi *glibc_abi;
-    Error err;
-    if ((err = glibc_load_metadata(&glibc_abi, get_zig_lib_dir(), true))) {
-        return EXIT_FAILURE;
-    }
-    for (size_t i = 0; i < glibc_abi->all_versions.length; i += 1) {
-        ZigGLibCVersion *this_ver = &glibc_abi->all_versions.at(i);
-        bool is_native = native.glibc_version != nullptr &&
-            native.glibc_version->major == this_ver->major &&
-            native.glibc_version->minor == this_ver->minor &&
-            native.glibc_version->patch == this_ver->patch;
-        const char *native_str = is_native ? " (native)" : "";
-        if (this_ver->patch == 0) {
-            fprintf(f, "  %d.%d%s\n", this_ver->major, this_ver->minor, native_str);
-        } else {
-            fprintf(f, "  %d.%d.%d%s\n", this_ver->major, this_ver->minor, this_ver->patch, native_str);
-        }
-    }
-    return EXIT_SUCCESS;
 }
 
 enum Cmd {
@@ -538,10 +451,6 @@ int main(int argc, char **argv) {
     const char *cpu = nullptr;
     const char *features = nullptr;
 
-    const char *targets_list_features_arch = nullptr;
-    const char *targets_list_cpus_arch = nullptr;
-    bool targets_show_dependencies = false;
-
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
 
@@ -792,8 +701,6 @@ int main(int argc, char **argv) {
                 cur_pkg = cur_pkg->parent;
             } else if (strcmp(arg, "-ffunction-sections") == 0) {
                 function_sections = true;
-            } else if (strcmp(arg, "--show-dependencies") == 0) {
-                targets_show_dependencies = true;
             } else if (i + 1 >= argc) {
                 fprintf(stderr, "Expected another argument after %s\n", arg);
                 return print_error_usage(arg0);
@@ -951,10 +858,6 @@ int main(int argc, char **argv) {
                             , argv[i]);
                         return EXIT_FAILURE;
                     }
-                } else if (strcmp(arg, "--list-features") == 0) {
-                    targets_list_features_arch = argv[i];
-                } else if (strcmp(arg, "--list-cpus") == 0) {
-                    targets_list_cpus_arch = argv[i];
                 } else if (strcmp(arg, "-target-cpu") == 0) {
                     cpu = argv[i];
                 } else if (strcmp(arg, "-target-feature") == 0) {
@@ -1468,21 +1371,7 @@ int main(int argc, char **argv) {
         return main_exit(root_progress_node, EXIT_SUCCESS);
     }
     case CmdTargets:
-        if (targets_list_features_arch != nullptr) {
-            stage2_list_features_for_arch(
-                targets_list_features_arch,
-                strlen(targets_list_features_arch),
-                targets_show_dependencies);
-            return 0;
-        } else if (targets_list_cpus_arch != nullptr) {
-            stage2_list_cpus_for_arch(
-                targets_list_cpus_arch,
-                strlen(targets_list_cpus_arch),
-                targets_show_dependencies);
-            return 0;
-        } else {
-            return print_target_list(stdout);
-        }
+        return stage2_cmd_targets();
     case CmdNone:
         return print_full_usage(arg0, stderr, EXIT_FAILURE);
     }

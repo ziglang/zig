@@ -49,6 +49,22 @@ pub const Target = union(enum) {
         other,
     };
 
+    pub const aarch64 = @import("target/aarch64.zig");
+    pub const amdgpu = @import("target/amdgpu.zig");
+    pub const arm = @import("target/arm.zig");
+    pub const avr = @import("target/avr.zig");
+    pub const bpf = @import("target/bpf.zig");
+    pub const hexagon = @import("target/hexagon.zig");
+    pub const mips = @import("target/mips.zig");
+    pub const msp430 = @import("target/msp430.zig");
+    pub const nvptx = @import("target/nvptx.zig");
+    pub const powerpc = @import("target/powerpc.zig");
+    pub const riscv = @import("target/riscv.zig");
+    pub const sparc = @import("target/sparc.zig");
+    pub const systemz = @import("target/systemz.zig");
+    pub const wasm = @import("target/wasm.zig");
+    pub const x86 = @import("target/x86.zig");
+
     pub const Arch = union(enum) {
         arm: Arm32,
         armeb: Arm32,
@@ -100,22 +116,6 @@ pub const Target = union(enum) {
         wasm64,
         renderscript32,
         renderscript64,
-
-        pub const aarch64 = @import("target/aarch64.zig");
-        pub const amdgpu = @import("target/amdgpu.zig");
-        pub const arm = @import("target/arm.zig");
-        pub const avr = @import("target/avr.zig");
-        pub const bpf = @import("target/bpf.zig");
-        pub const hexagon = @import("target/hexagon.zig");
-        pub const mips = @import("target/mips.zig");
-        pub const msp430 = @import("target/msp430.zig");
-        pub const nvptx = @import("target/nvptx.zig");
-        pub const powerpc = @import("target/powerpc.zig");
-        pub const riscv = @import("target/riscv.zig");
-        pub const sparc = @import("target/sparc.zig");
-        pub const systemz = @import("target/systemz.zig");
-        pub const wasm = @import("target/wasm.zig");
-        pub const x86 = @import("target/x86.zig");
 
         pub const Arm32 = enum {
             v8_5a,
@@ -251,7 +251,7 @@ pub const Target = union(enum) {
                 };
                 for (arch.allFeaturesList()) |feature, index| {
                     if (mem.eql(u8, feature_name, feature.name)) {
-                        set |= @splat(2, 1 << index);
+                        set |= @splat(2, @as(Cpu.Feature.Set, 1) << @intCast(u7, index));
                         break;
                     }
                 } else {
@@ -440,7 +440,7 @@ pub const Target = union(enum) {
                 // TODO .sparc, .sparcv9, .sparcel => sparc.baseline_features,
                 // TODO .s390x => systemz.baseline_features,
                 .i386 => x86.cpu.pentium4.features,
-                .x86_64 => x86.cpu.x8664.features,
+                .x86_64 => x86.cpu.x86_64.features,
                 // TODO .nvptx, .nvptx64 => nvptx.baseline_features,
                 // TODO .wasm32, .wasm64 => wasm.baseline_features,
 
@@ -451,21 +451,21 @@ pub const Target = union(enum) {
         /// All CPUs Zig is aware of, sorted lexicographically by name.
         pub fn allCpus(arch: Arch) []const *const Cpu {
             return switch (arch) {
-                .arm, .armeb, .thumb, .thumbeb => arm.all_cpus,
+                // TODO .arm, .armeb, .thumb, .thumbeb => arm.all_cpus,
                 .aarch64, .aarch64_be, .aarch64_32 => aarch64.all_cpus,
-                .avr => avr.all_cpus,
-                .bpfel, .bpfeb => bpf.all_cpus,
-                .hexagon => hexagon.all_cpus,
-                .mips, .mipsel, .mips64, .mips64el => mips.all_cpus,
-                .msp430 => msp430.all_cpus,
-                .powerpc, .powerpc64, .powerpc64le => powerpc.all_cpus,
-                .amdgcn => amdgpu.all_cpus,
-                .riscv32, .riscv64 => riscv.all_cpus,
-                .sparc, .sparcv9, .sparcel => sparc.all_cpus,
-                .s390x => systemz.all_cpus,
+                // TODO .avr => avr.all_cpus,
+                // TODO .bpfel, .bpfeb => bpf.all_cpus,
+                // TODO .hexagon => hexagon.all_cpus,
+                // TODO .mips, .mipsel, .mips64, .mips64el => mips.all_cpus,
+                // TODO .msp430 => msp430.all_cpus,
+                // TODO .powerpc, .powerpc64, .powerpc64le => powerpc.all_cpus,
+                // TODO .amdgcn => amdgpu.all_cpus,
+                // TODO .riscv32, .riscv64 => riscv.all_cpus,
+                // TODO .sparc, .sparcv9, .sparcel => sparc.all_cpus,
+                // TODO .s390x => systemz.all_cpus,
                 .i386, .x86_64 => x86.all_cpus,
-                .nvptx, .nvptx64 => nvptx.all_cpus,
-                .wasm32, .wasm64 => wasm.all_cpus,
+                // TODO .nvptx, .nvptx64 => nvptx.all_cpus,
+                // TODO .wasm32, .wasm64 => wasm.all_cpus,
 
                 else => &[0]*const Cpu{},
             };

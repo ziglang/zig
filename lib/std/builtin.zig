@@ -1,6 +1,9 @@
 pub usingnamespace @import("builtin");
 
 /// Deprecated: use `std.Target.Os`.
+pub const Target = std.Target;
+
+/// Deprecated: use `std.Target.Os`.
 pub const Os = std.Target.Os;
 
 /// Deprecated: use `std.Target.Arch`.

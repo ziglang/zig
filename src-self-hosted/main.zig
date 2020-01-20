@@ -791,7 +791,7 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
 
 // cmd:targets /////////////////////////////////////////////////////////////////////////////////////
 
-fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
+pub fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
     try stdout.write("Architectures:\n");
     {
         comptime var i: usize = 0;
