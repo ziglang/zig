@@ -192,7 +192,8 @@ ZIG_EXTERN_C Error stage2_cpu_features_parse_features(struct Stage2CpuFeatures *
         const char *zig_triple, const char *features);
 
 // ABI warning
-ZIG_EXTERN_C Error stage2_cpu_features_baseline(struct Stage2CpuFeatures **result);
+ZIG_EXTERN_C Error stage2_cpu_features_baseline(struct Stage2CpuFeatures **result,
+        const char *zig_triple);
 
 // ABI warning
 ZIG_EXTERN_C Error stage2_cpu_features_llvm(struct Stage2CpuFeatures **result,

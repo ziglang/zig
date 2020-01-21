@@ -104,7 +104,7 @@ Error stage2_cpu_features_parse_features(Stage2CpuFeatures **out, const char *zi
     const char *msg = "stage0 called stage2_cpu_features_parse_features";
     stage2_panic(msg, strlen(msg));
 }
-Error stage2_cpu_features_baseline(Stage2CpuFeatures **out) {
+Error stage2_cpu_features_baseline(Stage2CpuFeatures **out, const char *zig_triple) {
     Stage2CpuFeatures *result = allocate<Stage2CpuFeatures>(1, "Stage2CpuFeatures");
     result->builtin_str = ".baseline;\n";
     result->cache_hash = "\n\n";

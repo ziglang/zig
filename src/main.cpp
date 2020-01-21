@@ -1005,7 +1005,7 @@ int main(int argc, char **argv) {
             return main_exit(root_progress_node, EXIT_FAILURE);
         }
     } else {
-        if ((err = stage2_cpu_features_baseline(&target.cpu_features))) {
+        if ((err = stage2_cpu_features_baseline(&target.cpu_features, buf_ptr(&zig_triple_buf)))) {
             fprintf(stderr, "unable to determine baseline CPU features: %s\n", err_str(err));
             return main_exit(root_progress_node, EXIT_FAILURE);
         }

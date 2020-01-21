@@ -627,7 +627,7 @@ const Stage2CpuFeatures = struct {
 
     const Self = @This();
 
-    fn createBaseline(allocator: *mem.Allocator) !*Self {
+    fn createBaseline(allocator: *mem.Allocator, arch: Target.Arch) !*Self {
         const self = try allocator.create(Self);
         errdefer allocator.destroy(self);
 
@@ -641,10 +641,11 @@ const Stage2CpuFeatures = struct {
             .allocator = allocator,
             .cpu_features = .baseline,
             .llvm_cpu_name = null,
-            .llvm_features_str = null,
+            .llvm_features_str = try initLLVMFeatures(allocator, arch, arch.baselineFeatures()),
             .builtin_str = builtin_str,
             .cache_hash = cache_hash,
         };
+
         return self;
     }
 
@@ -658,7 +659,7 @@ const Stage2CpuFeatures = struct {
         const arch = target.Cross.arch;
         const cpu_features = try cpuFeaturesFromLLVM(arch, llvm_cpu_name_z, llvm_cpu_features);
         switch (cpu_features) {
-            .baseline => return createBaseline(allocator),
+            .baseline => return createBaseline(allocator, arch),
             .cpu => |cpu| return createFromCpu(allocator, arch, cpu),
             .features => |features| return createFromCpuFeatures(allocator, arch, features),
         }
@@ -688,6 +689,39 @@ const Stage2CpuFeatures = struct {
         return self;
     }
 
+    fn initLLVMFeatures(
+        allocator: *mem.Allocator,
+        arch: Target.Arch,
+        feature_set: Target.Cpu.Feature.Set,
+    ) ![*:0]const u8 {
+        var llvm_features_buffer = try std.Buffer.initSize(allocator, 0);
+        defer llvm_features_buffer.deinit();
+        // First, disable all features.
+        // This way, we only get the ones the user requests.
+        const all_features = arch.allFeaturesList();
+        for (all_features) |feature| {
+            if (feature.llvm_name) |llvm_name| {
+                try llvm_features_buffer.append("-");
+                try llvm_features_buffer.append(llvm_name);
+                try llvm_features_buffer.append(",");
+            }
+        }
+        for (all_features) |feature, index| {
+            if (!feature_set.isEnabled(@intCast(u8, index))) continue;
+
+            if (feature.llvm_name) |llvm_name| {
+                try llvm_features_buffer.append("+");
+                try llvm_features_buffer.append(llvm_name);
+                try llvm_features_buffer.append(",");
+            }
+        }
+
+        if (mem.endsWith(u8, llvm_features_buffer.toSliceConst(), ",")) {
+            llvm_features_buffer.shrink(llvm_features_buffer.len() - 1);
+        }
+        return llvm_features_buffer.toOwnedSlice().ptr;
+    }
+
     fn createFromCpuFeatures(
         allocator: *mem.Allocator,
         arch: Target.Arch,
@@ -710,36 +744,12 @@ const Stage2CpuFeatures = struct {
         );
         defer builtin_str_buffer.deinit();
 
-        var llvm_features_buffer = try std.Buffer.initSize(allocator, 0);
-        defer llvm_features_buffer.deinit();
-
-        // First, disable all features.
-        // This way, we only get the ones the user requests.
-        const all_features = arch.allFeaturesList();
-        for (all_features) |feature| {
-            if (feature.llvm_name) |llvm_name| {
-                try llvm_features_buffer.append("-");
-                try llvm_features_buffer.append(llvm_name);
-                try llvm_features_buffer.append(",");
-            }
-        }
-
-        for (all_features) |feature, index| {
+        for (arch.allFeaturesList()) |feature, index| {
             if (!feature_set.isEnabled(@intCast(u8, index))) continue;
-
-            if (feature.llvm_name) |llvm_name| {
-                try llvm_features_buffer.append("+");
-                try llvm_features_buffer.append(llvm_name);
-                try llvm_features_buffer.append(",");
-            }
 
             try builtin_str_buffer.append("        .");
             try builtin_str_buffer.append(feature.name);
             try builtin_str_buffer.append(",\n");
-        }
-
-        if (mem.endsWith(u8, llvm_features_buffer.toSliceConst(), ",")) {
-            llvm_features_buffer.shrink(llvm_features_buffer.len() - 1);
         }
 
         try builtin_str_buffer.append(
@@ -752,7 +762,7 @@ const Stage2CpuFeatures = struct {
             .allocator = allocator,
             .cpu_features = .{ .features = feature_set },
             .llvm_cpu_name = null,
-            .llvm_features_str = llvm_features_buffer.toOwnedSlice().ptr,
+            .llvm_features_str = try initLLVMFeatures(allocator, arch, feature_set),
             .builtin_str = builtin_str_buffer.toOwnedSlice(),
             .cache_hash = cache_hash,
         };
@@ -843,11 +853,23 @@ fn parseFeatures(zig_triple: [*:0]const u8, features_text: [*:0]const u8) !*Stag
 }
 
 // ABI warning
-export fn stage2_cpu_features_baseline(result: **Stage2CpuFeatures) Error {
-    result.* = Stage2CpuFeatures.createBaseline(std.heap.c_allocator) catch |err| switch (err) {
+export fn stage2_cpu_features_baseline(result: **Stage2CpuFeatures, zig_triple: [*:0]const u8) Error {
+    result.* = cpuFeaturesBaseline(zig_triple) catch |err| switch (err) {
         error.OutOfMemory => return .OutOfMemory,
+        error.UnknownArchitecture => return .UnknownArchitecture,
+        error.UnknownSubArchitecture => return .UnknownSubArchitecture,
+        error.UnknownOperatingSystem => return .UnknownOperatingSystem,
+        error.UnknownApplicationBinaryInterface => return .UnknownApplicationBinaryInterface,
+        error.MissingOperatingSystem => return .MissingOperatingSystem,
+        error.MissingArchitecture => return .MissingArchitecture,
     };
     return .None;
+}
+
+fn cpuFeaturesBaseline(zig_triple: [*:0]const u8) !*Stage2CpuFeatures {
+    const target = try Target.parse(mem.toSliceConst(u8, zig_triple));
+    const arch = target.Cross.arch;
+    return Stage2CpuFeatures.createBaseline(std.heap.c_allocator, arch);
 }
 
 // ABI warning
