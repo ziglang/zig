@@ -7,12 +7,12 @@ const debug = std.debug;
 const json_rpc = @import("json_rpc.zig");
 const serial = @import("json_serialize.zig");
 
-const LspError = error {
+const LspError = error{
     InvalidHeader,
     HeaderFieldTooLong,
     MessageTooLong,
     PrematureEndOfStream,
-    InvalidRequest
+    InvalidRequest,
 };
 
 pub fn MessageReader(comptime Error: type) type {
@@ -26,7 +26,7 @@ pub fn MessageReader(comptime Error: type) type {
         pub const Stream = io.InStream(Error);
 
         pub fn init(stream: *Stream, alloc: *mem.Allocator) Self {
-            return Self {
+            return Self{
                 .stream = stream,
                 .alloc = alloc,
                 .buffer = std.ArrayList(u8).init(alloc),
@@ -42,26 +42,26 @@ pub fn MessageReader(comptime Error: type) type {
 
             try self.buffer.resize(4 * 1024);
 
-            while(true) {
+            while (true) {
                 const line = try io.readLineSliceFrom(self.stream, self.buffer.toSlice());
-                if(line.len == 0){
+                if (line.len == 0) {
                     break;
                 }
 
                 const pos = mem.indexOf(u8, line, ": ") orelse return LspError.InvalidHeader;
-                if(mem.eql(u8, line[0..pos], "Content-Length")){
-                    jsonLen = try std.fmt.parseInt(u32, line[pos + 2..], 10);
+                if (mem.eql(u8, line[0..pos], "Content-Length")) {
+                    jsonLen = try std.fmt.parseInt(u32, line[pos + 2 ..], 10);
                 }
             }
 
-            if(jsonLen == null){
+            if (jsonLen == null) {
                 return LspError.InvalidHeader;
             }
 
             try self.buffer.resize(jsonLen.?);
-            
+
             const bytesRead = try self.stream.read(self.buffer.toSlice());
-            if(bytesRead != jsonLen.?){
+            if (bytesRead != jsonLen.?) {
                 return LspError.PrematureEndOfStream;
             }
 
@@ -72,7 +72,7 @@ pub fn MessageReader(comptime Error: type) type {
             errdefer tree.deinit();
 
             const request = try serial.deserialize(json_rpc.Request, tree.root, self.alloc);
-            if(!request.validate()){
+            if (!request.validate()) {
                 return error.InvalidRequest;
             }
             return request;
@@ -91,7 +91,7 @@ pub fn MessageWriter(comptime Error: type) type {
         pub const Stream = io.OutStream(Error);
 
         pub fn init(stream: *Stream, alloc: *mem.Allocator) Self {
-            return Self {
+            return Self{
                 .stream = stream,
                 .alloc = alloc,
                 .buffer = std.ArrayList(u8).init(alloc),
@@ -103,7 +103,7 @@ pub fn MessageWriter(comptime Error: type) type {
         }
 
         fn writeString(self: *Self, jsonStr: []const u8) !void {
-            try self.stream.print("Content-Length: {}\r\n\r\n{}", jsonStr.len, jsonStr);
+            try self.stream.print("Content-Length: {}\r\n\r\n{}", .{jsonStr.len, jsonStr});
         }
 
         pub fn writeResponse(self: *Self, response: json_rpc.Response) !void {
@@ -111,7 +111,7 @@ pub fn MessageWriter(comptime Error: type) type {
 
             var mem_buffer: [1024 * 128]u8 = undefined;
             var sliceStream = io.SliceOutStream.init(mem_buffer[0..]);
-            var jsonStream = json.WriteStream(@typeOf(sliceStream.stream), 1024).init(&sliceStream.stream);
+            var jsonStream = json.WriteStream(@TypeOf(sliceStream.stream), 1024).init(&sliceStream.stream);
 
             try serial.serialize(response, &jsonStream);
             try self.writeString(sliceStream.getWritten());
@@ -119,10 +119,10 @@ pub fn MessageWriter(comptime Error: type) type {
 
         pub fn writeRequest(self: *Self, request: json_rpc.Request) !void {
             debug.assert(request.validate());
-            
+
             var mem_buffer: [1024 * 128]u8 = undefined;
             var sliceStream = io.SliceOutStream.init(mem_buffer[0..]);
-            var jsonStream = json.WriteStream(@typeOf(sliceStream.stream), 1024).init(&sliceStream.stream);
+            var jsonStream = json.WriteStream(@TypeOf(sliceStream.stream), 1024).init(&sliceStream.stream);
 
             try serial.serialize(request, &jsonStream);
             try self.writeString(sliceStream.getWritten());

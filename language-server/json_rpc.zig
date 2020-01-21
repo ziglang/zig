@@ -13,23 +13,24 @@ const types = @import("types.zig");
 pub const Id = union(enum) {
     String: types.String,
     Integer: types.Integer,
-    Float: types.Float
+    Float: types.Float,
 };
 
 pub const Request = struct {
     jsonrpc: types.String = "2.0",
     method: types.String,
+
     /// Must be an Array or an Object
     params: json.Value,
     id: serial.MaybeDefined(?Id) = .NotDefined,
 
     pub fn validate(self: *const Request) bool {
-        if(!mem.eql(u8, self.jsonrpc, "2.0")){
+        if (!mem.eql(u8, self.jsonrpc, "2.0")) {
             return false;
         }
-        switch(self.params){
+        switch (self.params) {
             .Object, .Array => {},
-            else => return false
+            else => return false,
         }
 
         return true;
@@ -49,7 +50,7 @@ pub const Response = struct {
     };
 
     pub fn validate(self: *const Response) bool {
-        if(!mem.eql(u8, self.jsonrpc, "2.0")){
+        if (!mem.eql(u8, self.jsonrpc, "2.0")) {
             return false;
         }
 
@@ -57,7 +58,7 @@ pub const Response = struct {
         const resultDefined = self.result == .Defined;
 
         // exactly one of them must be defined
-        if(errorDefined == resultDefined){
+        if (errorDefined == resultDefined) {
             return false;
         }
 
@@ -72,20 +73,18 @@ pub fn Dispatcher(comptime ContextType: type) type {
         map: Map,
         context: *ContextType,
 
-        pub const DispatchError = error{
-            MethodNotFound,
-        };
+        pub const DispatchError = error{MethodNotFound};
         pub const MethodError = error{
             InvalidParams,
             InternalError,
         };
         pub const Error = DispatchError || MethodError;
-        
-        pub const Method = fn(*ContextType, Request) anyerror!void;
+
+        pub const Method = fn (*ContextType, Request) anyerror!void;
         pub const Map = std.StringHashMap(Method);
 
         pub fn init(context: *ContextType, alloc: *mem.Allocator) Self {
-            return Self {
+            return Self{
                 .map = Map.init(alloc),
                 .context = context,
             };
@@ -100,8 +99,8 @@ pub fn Dispatcher(comptime ContextType: type) type {
         }
 
         pub fn dispatch(self: *Self, message: Request) Error!void {
-            debug.warn("{}\n", message.method);
-            if(self.map.getValue(message.method)) |method| {
+            debug.warn("{}\n", .{message.method});
+            if (self.map.getValue(message.method)) |method| {
                 method(self.context, message) catch return error.InternalError;
             } else {
                 return error.MethodNotFound;

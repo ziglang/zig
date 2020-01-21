@@ -15,46 +15,46 @@ pub fn MaybeDefined(comptime T: type) type {
 }
 
 fn getMaybeDefinedChildType(comptime T: type) ?type {
-    switch(@typeInfo(T)){
+    switch (@typeInfo(T)) {
         .Union => |unionInfo| {
-            if(unionInfo.decls.len == 1 and comptime mem.eql(u8, unionInfo.decls[0].name, "__maybe_defined")){
+            if (unionInfo.decls.len == 1 and comptime mem.eql(u8, unionInfo.decls[0].name, "__maybe_defined")) {
                 return unionInfo.fields[1].field_type;
             } else {
                 return null;
             }
         },
-        else => return null
+        else => return null,
     }
 }
 
-pub const Structured = union(enum){
+pub const Structured = union(enum) {
     Array: json.Array,
-    Object: json.ObjectMap
+    Object: json.ObjectMap,
 };
 
-pub const Primitive = union(enum){
+pub const Primitive = union(enum) {
     Bool: bool,
     Integer: i64,
     Float: f64,
-    String: []const u8
+    String: []const u8,
 };
 
-pub const Number = union(enum){
+pub const Number = union(enum) {
     Integer: i64,
-    Float: f64
+    Float: f64,
 };
 
 /// jsonStream must be a pointer to std.json.WriteStream
 pub fn serialize(value: var, jsonStream: var) !void {
-    comptime const valueType = @typeOf(value);
+    comptime const valueType = @TypeOf(value);
     comptime const info = @typeInfo(valueType);
-    
-    if(valueType == json.Value){
+
+    if (valueType == json.Value) {
         try jsonStream.emitJson(value);
         return;
     }
 
-    switch(info){
+    switch (info) {
         .Null => {
             try jsonStream.emitNull();
         },
@@ -65,11 +65,11 @@ pub fn serialize(value: var, jsonStream: var) !void {
             try jsonStream.emitBool(value);
         },
         .Pointer => |ptrInfo| {
-            if(ptrInfo.child == u8){
+            if (ptrInfo.child == u8) {
                 try jsonStream.emitString(value);
             } else {
                 try jsonStream.beginArray();
-                for(value) |item, index| {
+                for (value) |item, index| {
                     try jsonStream.arrayElem();
                     try serialize(item, jsonStream);
                 }
@@ -79,9 +79,9 @@ pub fn serialize(value: var, jsonStream: var) !void {
         .Struct => |structInfo| {
             try jsonStream.beginObject();
 
-            inline for(structInfo.fields) |field, index| {
-                if(getMaybeDefinedChildType(field.field_type) != null) {
-                    if(@field(value, field.name) == .Defined) {
+            inline for (structInfo.fields) |field, index| {
+                if (getMaybeDefinedChildType(field.field_type) != null) {
+                    if (@field(value, field.name) == .Defined) {
                         try jsonStream.objectField(field.name);
                         try serialize(@field(value, field.name).Defined, jsonStream);
                     }
@@ -93,15 +93,15 @@ pub fn serialize(value: var, jsonStream: var) !void {
             try jsonStream.endObject();
         },
         .Optional => {
-            if(value) |notNull| {
+            if (value) |notNull| {
                 try serialize(notNull, jsonStream);
             } else {
                 try jsonStream.emitNull();
             }
         },
         .Union => |unionInfo| {
-            if(unionInfo.tag_type) |tagType| {
-                inline for(unionInfo.fields) |field| {
+            if (unionInfo.tag_type) |tagType| {
+                inline for (unionInfo.fields) |field| {
                     if (@enumToInt(@as(tagType, value)) == field.enum_field.?.value) {
                         return try serialize(@field(value, field.name), jsonStream);
                     }
@@ -117,18 +117,17 @@ pub fn serialize(value: var, jsonStream: var) !void {
     }
 }
 
-
 pub fn serialize2(value: var, alloc: *mem.Allocator) mem.Allocator.Error!json.Value {
-    comptime const valueType = @typeOf(value);
+    comptime const valueType = @TypeOf(value);
     comptime const info = @typeInfo(valueType);
-    
-    if(valueType == json.Value){
+
+    if (valueType == json.Value) {
         return value;
     }
 
-    switch(info){
+    switch (info) {
         .Null => {
-            return json.Value{.Null={}};
+            return json.Value{ .Null = {} };
         },
         .Int, .ComptimeInt => {
             return json.Value{ .Integer = value };
@@ -140,14 +139,14 @@ pub fn serialize2(value: var, alloc: *mem.Allocator) mem.Allocator.Error!json.Va
             return json.Value{ .Bool = value };
         },
         .Pointer => |ptrInfo| {
-            if(ptrInfo.size != .Slice){
+            if (ptrInfo.size != .Slice) {
                 @compileError("JSON deserialize: Unsupported pointer type: " ++ @typeName(T));
             }
-            if(ptrInfo.child == u8){
+            if (ptrInfo.child == u8) {
                 return json.Value{ .String = value };
             } else {
                 var arr = json.Value{ .Array = json.Array.init(alloc) };
-                for(value) |item, index| {
+                for (value) |item, index| {
                     try arr.Array.append(try serialize2(item, alloc));
                 }
                 return arr;
@@ -155,9 +154,9 @@ pub fn serialize2(value: var, alloc: *mem.Allocator) mem.Allocator.Error!json.Va
         },
         .Struct => |structInfo| {
             var obj = json.Value{ .Object = json.ObjectMap.init(alloc) };
-            inline for(structInfo.fields) |field, index| {
-                if(getMaybeDefinedChildType(field.field_type) != null) {
-                    if(@field(value, field.name) == .Defined) {
+            inline for (structInfo.fields) |field, index| {
+                if (getMaybeDefinedChildType(field.field_type) != null) {
+                    if (@field(value, field.name) == .Defined) {
                         try obj.Object.putNoClobber(field.name, try serialize2(@field(value, field.name).Defined, alloc));
                     }
                 } else {
@@ -167,15 +166,15 @@ pub fn serialize2(value: var, alloc: *mem.Allocator) mem.Allocator.Error!json.Va
             return obj;
         },
         .Optional => {
-            if(value) |notNull| {
+            if (value) |notNull| {
                 return try serialize2(notNull, alloc);
             } else {
-                return json.Value{.Null={}};
+                return json.Value{ .Null = {} };
             }
         },
         .Union => |unionInfo| {
-            if(unionInfo.tag_type) |tagType| {
-                inline for(unionInfo.fields) |field| {
+            if (unionInfo.tag_type) |tagType| {
+                inline for (unionInfo.fields) |field| {
                     if (@enumToInt(@as(tagType, value)) == field.enum_field.?.value) {
                         return try serialize2(@field(value, field.name), alloc);
                     }
@@ -191,9 +190,9 @@ pub fn serialize2(value: var, alloc: *mem.Allocator) mem.Allocator.Error!json.Va
     }
 }
 
-pub const DeserializeError = error {
+pub const DeserializeError = error{
     InvalidType,
-    MissingField
+    MissingField,
 } || mem.Allocator.Error;
 
 pub const DeserializeOptions = struct {
@@ -206,57 +205,57 @@ pub const DeserializeOptions = struct {
 pub fn deserialize(comptime T: type, value: json.Value, alloc: *mem.Allocator) DeserializeError!T {
     comptime const info = @typeInfo(T);
 
-    if(T == json.Value){
+    if (T == json.Value) {
         return value;
     }
 
-    switch(info){
+    switch (info) {
         .Int => {
-            if(value != .Integer){
+            if (value != .Integer) {
                 return error.InvalidType;
             }
             return value.Integer;
         },
         .Float => {
-            if(value != .Float){
+            if (value != .Float) {
                 return error.InvalidType;
             }
             return value.Float;
         },
         .Bool => {
-            if(value != .Bool){
+            if (value != .Bool) {
                 return error.InvalidType;
             }
             return value.Bool;
         },
         .Pointer => |ptrInfo| {
-            if(ptrInfo.size != .Slice){
+            if (ptrInfo.size != .Slice) {
                 @compileError("JSON deserialize: Unsupported pointer type: " ++ @typeName(T));
             }
-            if(ptrInfo.child == u8 and ptrInfo.is_const){
-                if(value != .String){
+            if (ptrInfo.child == u8 and ptrInfo.is_const) {
+                if (value != .String) {
                     return error.InvalidType;
                 }
                 return value.String;
             } else {
-                if(value != .Array){
+                if (value != .Array) {
                     return error.InvalidType;
                 }
                 var arr: T = try alloc.alloc(ptrInfo.child, value.Array.len);
-                for(value.Array.toSlice()) |item, index| {
+                for (value.Array.toSlice()) |item, index| {
                     arr[index] = try deserialize(ptrInfo.child, item, alloc);
                 }
                 return arr;
             }
         },
         .Struct => |structInfo| {
-            if(value != .Object){
+            if (value != .Object) {
                 return error.InvalidType;
             }
             var obj: T = undefined;
-            inline for(structInfo.fields) |field, index| {
-                if(getMaybeDefinedChildType(field.field_type)) |childType| {
-                    if(value.Object.getValue(field.name)) |fieldVal| {
+            inline for (structInfo.fields) |field, index| {
+                if (getMaybeDefinedChildType(field.field_type)) |childType| {
+                    if (value.Object.getValue(field.name)) |fieldVal| {
                         @field(obj, field.name) = MaybeDefined(childType){ .Defined = try deserialize(childType, fieldVal, alloc) };
                     } else {
                         @field(obj, field.name) = MaybeDefined(childType).NotDefined;
@@ -268,23 +267,23 @@ pub fn deserialize(comptime T: type, value: json.Value, alloc: *mem.Allocator) D
             return obj;
         },
         .Optional => |optionalInfo| {
-            if(value == .Null){
+            if (value == .Null) {
                 return null;
             } else {
                 return try deserialize(optionalInfo.child, value, alloc);
             }
         },
         .Union => |unionInfo| {
-            if(unionInfo.tag_type) |_| {
-                inline for(unionInfo.fields) |field| {
-                    if(typesMatch(field.field_type, value)){
+            if (unionInfo.tag_type) |_| {
+                inline for (unionInfo.fields) |field| {
+                    if (typesMatch(field.field_type, value)) {
                         const successOrError = deserialize(field.field_type, value, alloc);
 
-                        if(successOrError) |success| {
+                        if (successOrError) |success| {
                             return @unionInit(T, field.enum_field.?.name, success);
                         } else |err| {
                             // if it's just a type error try the next type in the union
-                            if(err != error.InvalidType and err != error.MissingField){
+                            if (err != error.InvalidType and err != error.MissingField) {
                                 return err;
                             }
                         }
@@ -304,7 +303,7 @@ pub fn deserialize(comptime T: type, value: json.Value, alloc: *mem.Allocator) D
 fn typesMatch(comptime fieldType: type, jsonTag: @TagType(json.Value)) bool {
     const info = @typeInfo(fieldType);
 
-    switch(jsonTag){
+    switch (jsonTag) {
         .Null => unreachable, // null is handled by optionals
         .Bool => {
             return info == .Bool;
@@ -328,9 +327,9 @@ fn typesMatch(comptime fieldType: type, jsonTag: @TagType(json.Value)) bool {
 }
 
 fn isStringType(comptime fieldType: type) bool {
-    return switch(@typeInfo(fieldType)){
+    return switch (@typeInfo(fieldType)) {
         .Pointer => |ptr| ptr.size == .Slice and ptr.child == u8 and ptr.is_const,
-        else => false
+        else => false,
     };
 }
 
@@ -343,7 +342,7 @@ test "deserialize" {
         maybe2: MaybeDefined(i64),
         maybeNull1: MaybeDefined(?i64),
         maybeNull2: MaybeDefined(?i64),
-        maybeNull3: MaybeDefined(?i64)
+        maybeNull3: MaybeDefined(?i64),
     };
 
     const in =
@@ -367,7 +366,7 @@ test "deserialize" {
     const testOut = try deserialize(Test, tree.root, debug.global_allocator);
 
     debug.warn("\n{}, arr = ", testOut);
-    for(testOut.arr) |b| {
+    for (testOut.arr) |b| {
         debug.warn("{}, ", b);
     }
     debug.warn("\n");

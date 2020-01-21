@@ -106,7 +106,7 @@ pub const builtins = [_][]const u8{
     "@typeId",
     "@typeInfo",
     "@typeName",
-    "@typeOf",
+    "@TypeOf",
     "@unionInit",
     "@Vector",
 };
