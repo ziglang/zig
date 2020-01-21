@@ -711,7 +711,7 @@ fn printLineInfo(
 
     // Show the matching source code line if possible
     if (line_info) |li| {
-        if (printLineFromFile(out_stream, li)) {
+        if (noasync printLineFromFile(out_stream, li)) {
             if (li.column > 0) {
                 // The caret already takes one char
                 const space_needed = @intCast(usize, li.column - 1);
