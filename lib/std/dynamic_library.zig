@@ -24,7 +24,7 @@ pub const DynLib = switch (builtin.os) {
 // fashion.
 const LinkMap = extern struct {
     l_addr: usize,
-    l_name: [*]const u8,
+    l_name: [*:0]const u8,
     l_ld: ?*elf.Dyn,
     l_next: ?*LinkMap,
     l_prev: ?*LinkMap,
@@ -277,7 +277,7 @@ pub const WindowsDynLib = struct {
     }
 
     pub fn openC(path_c: [*:0]const u8) !WindowsDynLib {
-        const path_w = try windows.cStrToPrefixedFileW(path);
+        const path_w = try windows.cStrToPrefixedFileW(path_c);
         return openW(&path_w);
     }
 

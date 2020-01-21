@@ -1,33 +1,11 @@
 #include "cache_hash.hpp"
 #include "os.hpp"
+#include "compiler.hpp"
 
 #include <stdio.h>
 
-static Buf saved_compiler_id = BUF_INIT;
-static Buf saved_cache_dir = BUF_INIT;
-static Buf saved_stage1_path = BUF_INIT;
-static Buf saved_lib_dir = BUF_INIT;
-static Buf saved_special_dir = BUF_INIT;
-static Buf saved_std_dir = BUF_INIT;
-
 static Buf saved_dynamic_linker_path = BUF_INIT;
 static bool searched_for_dyn_linker = false;
-
-static Buf saved_libc_path = BUF_INIT;
-static bool searched_for_libc = false;
-
-Buf *get_stage1_cache_path(void) {
-    if (saved_stage1_path.list.length != 0) {
-        return &saved_stage1_path;
-    }
-    Error err;
-    if ((err = os_get_cache_dir(&saved_cache_dir, "zig"))) {
-        fprintf(stderr, "Unable to get cache dir: %s\n", err_str(err));
-        exit(1);
-    }
-    os_path_join(&saved_cache_dir, buf_create_from_str("stage1"), &saved_stage1_path);
-    return &saved_stage1_path;
-}
 
 static void detect_dynamic_linker(Buf *lib_path) {
 #if defined(ZIG_OS_LINUX)
@@ -40,7 +18,10 @@ static void detect_dynamic_linker(Buf *lib_path) {
 #endif
 }
 
-const Buf *get_self_libc_path(void) {
+Buf *get_self_libc_path(void) {
+    static Buf saved_libc_path = BUF_INIT;
+    static bool searched_for_libc = false;
+
     for (;;) {
         if (saved_libc_path.list.length != 0) {
             return &saved_libc_path;
@@ -82,15 +63,16 @@ Buf *get_self_dynamic_linker_path(void) {
 }
 
 Error get_compiler_id(Buf **result) {
+    static Buf saved_compiler_id = BUF_INIT;
+
     if (saved_compiler_id.list.length != 0) {
         *result = &saved_compiler_id;
         return ErrorNone;
     }
 
     Error err;
-    Buf *stage1_dir = get_stage1_cache_path();
     Buf *manifest_dir = buf_alloc();
-    os_path_join(stage1_dir, buf_create_from_str("exe"), manifest_dir);
+    os_path_join(get_global_cache_dir(), buf_create_from_str("exe"), manifest_dir);
 
     CacheHash cache_hash;
     CacheHash *ch = &cache_hash;
@@ -190,9 +172,9 @@ static int find_zig_lib_dir(Buf *out_path) {
 }
 
 Buf *get_zig_lib_dir(void) {
-    if (saved_lib_dir.list.length != 0) {
+    static Buf saved_lib_dir = BUF_INIT;
+    if (saved_lib_dir.list.length != 0)
         return &saved_lib_dir;
-    }
     buf_resize(&saved_lib_dir, 0);
 
     int err;
@@ -204,9 +186,9 @@ Buf *get_zig_lib_dir(void) {
 }
 
 Buf *get_zig_std_dir(Buf *zig_lib_dir) {
-    if (saved_std_dir.list.length != 0) {
+    static Buf saved_std_dir = BUF_INIT;
+    if (saved_std_dir.list.length != 0)
         return &saved_std_dir;
-    }
     buf_resize(&saved_std_dir, 0);
 
     os_path_join(zig_lib_dir, buf_create_from_str("std"), &saved_std_dir);
@@ -215,12 +197,29 @@ Buf *get_zig_std_dir(Buf *zig_lib_dir) {
 }
 
 Buf *get_zig_special_dir(Buf *zig_lib_dir) {
-    if (saved_special_dir.list.length != 0) {
+    static Buf saved_special_dir = BUF_INIT;
+    if (saved_special_dir.list.length != 0)
         return &saved_special_dir;
-    }
     buf_resize(&saved_special_dir, 0);
 
     os_path_join(get_zig_std_dir(zig_lib_dir), buf_sprintf("special"), &saved_special_dir);
 
     return &saved_special_dir;
+}
+
+Buf *get_global_cache_dir(void) {
+    static Buf saved_global_cache_dir = BUF_INIT;
+    if (saved_global_cache_dir.list.length != 0)
+        return &saved_global_cache_dir;
+    buf_resize(&saved_global_cache_dir, 0);
+
+    Buf app_data_dir = BUF_INIT;
+    Error err;
+    if ((err = os_get_app_data_dir(&app_data_dir, "zig"))) {
+        fprintf(stderr, "Unable to get application data dir: %s\n", err_str(err));
+        exit(1);
+    }
+    os_path_join(&app_data_dir, buf_create_from_str("stage1"), &saved_global_cache_dir);
+    buf_deinit(&app_data_dir);
+    return &saved_global_cache_dir;
 }

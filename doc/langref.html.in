@@ -2157,6 +2157,7 @@ test "allowzero" {
       against buffer overflow and overreads.
       </p>
       {#code_begin|exe_build_err#}
+      {#link_libc#}
 const std = @import("std");
 
 // This is also available as `std.c.printf`.
@@ -2889,6 +2890,47 @@ test "switch using enum literals" {
         .Off => false,
     };
     assert(result);
+}
+      {#code_end#}
+      {#header_close#}
+
+      {#header_open|Non-exhaustive enum#}
+      <p>
+      A Non-exhaustive enum can be created by adding a trailing '_' field.
+      It  must specify a tag type and cannot consume every enumeration value.
+      </p>
+      <p>
+      {#link|@intToEnum#} on a non-exhaustive enum cannot fail.
+      </p>
+      <p>
+      A switch on a non-exhaustive enum can include a '_' prong as an alternative to an {#syntax#}else{#endsyntax#} prong
+      with the difference being that it makes it a compile error if all the known tag names are not handled by the switch.
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const Number = enum(u8) {
+    One,
+    Two,
+    Three,
+    _,
+};
+
+test "switch on non-exhaustive enum" {
+    const number = Number.One;
+    const result = switch (number) {
+        .One => true,
+        .Two,
+        .Three => false,
+        _ => false,
+    };
+    assert(result);
+    const is_one = switch (number) {
+        .One => true,
+        else => false,
+    };
+    assert(is_one);
 }
       {#code_end#}
       {#header_close#}
@@ -6814,6 +6856,19 @@ async fn func(y: *i32) void {
       </p>
       {#header_close#}
 
+      {#header_open|@bitSizeOf#}
+      <pre>{#syntax#}@bitSizeOf(comptime T: type) comptime_int{#endsyntax#}</pre>
+      <p>
+      This function returns the number of bits it takes to store {#syntax#}T{#endsyntax#} in memory.
+      The result is a target-specific compile time constant.
+      </p>
+      <p>
+      This function measures the size at runtime. For types that are disallowed at runtime, such as
+      {#syntax#}comptime_int{#endsyntax#} and {#syntax#}type{#endsyntax#}, the result is {#syntax#}0{#endsyntax#}.
+      </p>
+      {#see_also|@sizeOf|@typeInfo#}
+      {#header_close#}
+
       {#header_open|@breakpoint#}
       <pre>{#syntax#}@breakpoint(){#endsyntax#}</pre>
       <p>
@@ -8043,7 +8098,7 @@ test "@setRuntimeSafety" {
       This function measures the size at runtime. For types that are disallowed at runtime, such as
       {#syntax#}comptime_int{#endsyntax#} and {#syntax#}type{#endsyntax#}, the result is {#syntax#}0{#endsyntax#}.
       </p>
-      {#see_also|@typeInfo#}
+      {#see_also|@bitSizeOf|@typeInfo#}
       {#header_close#}
 
       {#header_open|@sliceToBytes#}
@@ -10211,13 +10266,13 @@ ContainerMembers
      / ContainerField
      /
 
-TestDecl &lt;- KEYWORD_test STRINGLITERAL Block
+TestDecl &lt;- KEYWORD_test STRINGLITERALSINGLE Block
 
 TopLevelComptime &lt;- KEYWORD_comptime BlockExpr
 
 TopLevelDecl
-    &lt;- (KEYWORD_export / KEYWORD_extern STRINGLITERAL? / KEYWORD_inline)? FnProto (SEMICOLON / Block)
-     / (KEYWORD_export / KEYWORD_extern STRINGLITERAL?)? KEYWORD_threadlocal? VarDecl
+    &lt;- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / KEYWORD_inline)? FnProto (SEMICOLON / Block)
+     / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
      / KEYWORD_usingnamespace Expr SEMICOLON
 
 FnProto &lt;- FnCC? KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? LinkSection? EXCLAMATIONMARK? (KEYWORD_var / TypeExpr)
@@ -10560,10 +10615,10 @@ INTEGER
      / "0o" [0-7]+ skip
      / "0x" hex+   skip
      /      [0-9]+ skip
+STRINGLITERALSINGLE &lt;- "\"" string_char* "\"" skip
 STRINGLITERAL
-    &lt;- "\"" string_char* "\"" skip
+    &lt;- STRINGLITERALSINGLE
      / line_string                 skip
-     / line_cstring                skip
 IDENTIFIER
     &lt;- !keyword [A-Za-z_] [A-Za-z0-9_]* skip
      / "@\"" string_char* "\""                            skip

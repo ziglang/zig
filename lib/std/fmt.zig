@@ -431,7 +431,7 @@ pub fn formatType(
                 },
                 else => return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) }),
             },
-            .Many => {
+            .Many, .C => {
                 if (ptr_info.child == u8) {
                     if (fmt.len > 0 and fmt[0] == 's') {
                         const len = mem.len(u8, value);
@@ -448,9 +448,6 @@ pub fn formatType(
                     return formatText(value, fmt, options, context, Errors, output);
                 }
                 return format(context, Errors, output, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value.ptr) });
-            },
-            .C => {
-                return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
             },
         },
         .Array => |info| {
@@ -585,9 +582,7 @@ pub fn formatAsciiChar(
     comptime Errors: type,
     output: fn (@TypeOf(context), []const u8) Errors!void,
 ) Errors!void {
-    if (std.ascii.isPrint(c))
-        return output(context, @as(*const [1]u8, &c)[0..]);
-    return format(context, Errors, output, "\\x{x:0<2}", .{c});
+    return output(context, @as(*const [1]u8, &c)[0..]);
 }
 
 pub fn formatBuf(
@@ -1287,8 +1282,16 @@ test "pointer" {
 }
 
 test "cstr" {
-    try testFmt("cstr: Test C\n", "cstr: {s}\n", .{"Test C"});
-    try testFmt("cstr: Test C    \n", "cstr: {s:10}\n", .{"Test C"});
+    try testFmt(
+        "cstr: Test C\n",
+        "cstr: {s}\n",
+        .{@ptrCast([*c]const u8, "Test C")},
+    );
+    try testFmt(
+        "cstr: Test C    \n",
+        "cstr: {s:10}\n",
+        .{@ptrCast([*c]const u8, "Test C")},
+    );
 }
 
 test "filesize" {

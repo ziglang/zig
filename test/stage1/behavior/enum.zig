@@ -11,21 +11,78 @@ test "extern enum" {
         };
         fn doTheTest(y: c_int) void {
             var x = i.o;
-            expect(@enumToInt(x) == 2);
-            x = @intToEnum(i, 12);
-            expect(@enumToInt(x) == 12);
-            x = @intToEnum(i, y);
-            expect(@enumToInt(x) == 52);
             switch (x) {
-                .n,
-                .o,
-                .p => unreachable,
-                else => {},
+                .n, .p => unreachable,
+                .o => {},
             }
         }
     };
     S.doTheTest(52);
     comptime S.doTheTest(52);
+}
+
+test "non-exhaustive enum" {
+    const S = struct {
+        const E = enum(u8) {
+            a,
+            b,
+            _,
+        };
+        fn doTheTest(y: u8) void {
+            var e: E = .b;
+            expect(switch (e) {
+                .a => false,
+                .b => true,
+                _ => false,
+            });
+            e = @intToEnum(E, 12);
+            expect(switch (e) {
+                .a => false,
+                .b => false,
+                _ => true,
+            });
+
+            expect(switch (e) {
+                .a => false,
+                .b => false,
+                else => true,
+            });
+            e = .b;
+            expect(switch (e) {
+                .a => false,
+                else => true,
+            });
+
+            expect(@typeInfo(E).Enum.fields.len == 2);
+            e = @intToEnum(E, 12);
+            expect(@enumToInt(e) == 12);
+            e = @intToEnum(E, y);
+            expect(@enumToInt(e) == 52);
+            expect(@typeInfo(E).Enum.is_exhaustive == false);
+        }
+    };
+    S.doTheTest(52);
+    comptime S.doTheTest(52);
+}
+
+test "empty non-exhaustive enum" {
+    const S = struct {
+        const E = enum(u8) {
+            _,
+        };
+        fn doTheTest(y: u8) void {
+            var e = @intToEnum(E, y);
+            expect(switch (e) {
+                _ => true,
+            });
+            expect(@enumToInt(e) == y);
+
+            expect(@typeInfo(E).Enum.fields.len == 0);
+            expect(@typeInfo(E).Enum.is_exhaustive == false);
+        }
+    };
+    S.doTheTest(42);
+    comptime S.doTheTest(42);
 }
 
 test "enum type" {
@@ -1056,4 +1113,9 @@ test "enum with one member default to u0 tag type" {
         X,
     };
     comptime expect(@TagType(E0) == u0);
+}
+
+test "tagName on enum literals" {
+    expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
+    comptime expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
 }

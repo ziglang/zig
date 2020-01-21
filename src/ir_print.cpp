@@ -930,6 +930,10 @@ static void ir_print_set_float_mode(IrPrint *irp, IrInstructionSetFloatMode *ins
 static void ir_print_array_type(IrPrint *irp, IrInstructionArrayType *instruction) {
     fprintf(irp->f, "[");
     ir_print_other_instruction(irp, instruction->size);
+    if (instruction->sentinel != nullptr) {
+        fprintf(irp->f, ":");
+        ir_print_other_instruction(irp, instruction->sentinel);
+    }
     fprintf(irp->f, "]");
     ir_print_other_instruction(irp, instruction->child_type);
 }
@@ -1035,7 +1039,10 @@ static void ir_print_asm_gen(IrPrint *irp, IrInstructionAsmGen *instruction) {
 }
 
 static void ir_print_size_of(IrPrint *irp, IrInstructionSizeOf *instruction) {
-    fprintf(irp->f, "@sizeOf(");
+    if (instruction->bit_size)
+        fprintf(irp->f, "@bitSizeOf(");
+    else
+        fprintf(irp->f, "@sizeOf(");
     ir_print_other_instruction(irp, instruction->type_value);
     fprintf(irp->f, ")");
 }

@@ -620,3 +620,21 @@ test "0-sized extern union definition" {
 
     expect(U.f == 1);
 }
+
+test "union initializer generates padding only if needed" {
+    const U = union(enum) {
+        A: u24,
+    };
+
+    var v = U{ .A = 532 };
+    expect(v.A == 532);
+}
+
+test "runtime tag name with single field" {
+    const U = union(enum) {
+        A: i32,
+    };
+
+    var v = U{ .A = 42 };
+    expect(std.mem.eql(u8, @tagName(v), "A"));
+}

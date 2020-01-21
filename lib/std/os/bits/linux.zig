@@ -18,7 +18,7 @@ pub usingnamespace switch (builtin.arch) {
     else => struct {},
 };
 
-const is_mips = builtin.arch == .mipsel;
+const is_mips = builtin.arch.isMIPS();
 
 pub const pid_t = i32;
 pub const fd_t = i32;
@@ -992,7 +992,7 @@ pub const dirent64 = extern struct {
 
 pub const dl_phdr_info = extern struct {
     dlpi_addr: usize,
-    dlpi_name: ?[*]const u8,
+    dlpi_name: ?[*:0]const u8,
     dlpi_phdr: [*]std.elf.Phdr,
     dlpi_phnum: u16,
 };

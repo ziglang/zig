@@ -3356,7 +3356,7 @@ static LLVMValueRef ir_render_int_to_enum(CodeGen *g, IrExecutable *executable, 
     LLVMValueRef tag_int_value = gen_widen_or_shorten(g, ir_want_runtime_safety(g, &instruction->base),
             instruction->target->value->type, tag_int_type, target_val);
 
-    if (ir_want_runtime_safety(g, &instruction->base) && wanted_type->data.enumeration.layout != ContainerLayoutExtern) {
+    if (ir_want_runtime_safety(g, &instruction->base) && !wanted_type->data.enumeration.non_exhaustive) {
         LLVMBasicBlockRef bad_value_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadValue");
         LLVMBasicBlockRef ok_value_block = LLVMAppendBasicBlock(g->cur_fn_val, "OkValue");
         size_t field_count = wanted_type->data.enumeration.src_field_count;
@@ -5065,6 +5065,11 @@ static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, IrExecutable *executable
 {
     ZigType *enum_type = instruction->target->value->type;
     assert(enum_type->id == ZigTypeIdEnum);
+    if (enum_type->data.enumeration.non_exhaustive) {
+        add_node_error(g, instruction->base.source_node,
+            buf_sprintf("TODO @tagName on non-exhaustive enum https://github.com/ziglang/zig/issues/3991"));
+        codegen_report_errors_and_exit(g);
+    }
 
     LLVMValueRef enum_name_function = get_enum_tag_name_function(g, enum_type);
 
@@ -7195,7 +7200,7 @@ check: switch (const_val->special) {
                     union_value_ref = LLVMGetUndef(union_type_ref);
                     make_unnamed_struct = false;
                 } else {
-                    uint64_t field_type_bytes = LLVMStoreSizeOfType(g->target_data_ref,
+                    uint64_t field_type_bytes = LLVMABISizeOfType(g->target_data_ref,
                             get_llvm_type(g, payload_value->type));
                     uint64_t pad_bytes = type_entry->data.unionation.union_abi_size - field_type_bytes;
                     LLVMValueRef correctly_typed_value = gen_const_val(g, payload_value, "");
@@ -7235,7 +7240,7 @@ check: switch (const_val->special) {
                     uint64_t last_field_offset = LLVMOffsetOfElement(g->target_data_ref, LLVMTypeOf(result), 1);
                     uint64_t end_offset = last_field_offset +
                         LLVMStoreSizeOfType(g->target_data_ref, LLVMTypeOf(fields[1]));
-                    uint64_t expected_sz = LLVMStoreSizeOfType(g->target_data_ref, get_llvm_type(g, type_entry));
+                    uint64_t expected_sz = LLVMABISizeOfType(g->target_data_ref, get_llvm_type(g, type_entry));
                     unsigned pad_sz = expected_sz - end_offset;
                     if (pad_sz != 0) {
                         fields[2] = LLVMGetUndef(LLVMArrayType(LLVMInt8Type(), pad_sz));
@@ -8299,6 +8304,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdFrameSize, "frameSize", 1);
     create_builtin_fn(g, BuiltinFnIdAs, "as", 2);
     create_builtin_fn(g, BuiltinFnIdCall, "call", 3);
+    create_builtin_fn(g, BuiltinFnIdBitSizeof, "bitSizeOf", 1);
 }
 
 static const char *bool_to_str(bool b) {
@@ -8616,7 +8622,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     Error err;
 
     Buf *manifest_dir = buf_alloc();
-    os_path_join(get_stage1_cache_path(), buf_create_from_str("builtin"), manifest_dir);
+    os_path_join(get_global_cache_dir(), buf_create_from_str("builtin"), manifest_dir);
 
     CacheHash cache_hash;
     cache_init(&cache_hash, manifest_dir);
@@ -8940,10 +8946,50 @@ static void detect_libc(CodeGen *g) {
     if (g->zig_target->is_native) {
         g->libc = allocate<ZigLibCInstallation>(1);
 
-        // Look for zig-cache/native_libc.txt
-        Buf *native_libc_txt = buf_alloc();
-        os_path_join(g->cache_dir, buf_create_from_str("native_libc.txt"), native_libc_txt);
-        if ((err = zig_libc_parse(g->libc, native_libc_txt, g->zig_target, false))) {
+        // search for native_libc.txt in following dirs:
+        //   - LOCAL_CACHE_DIR
+        //   - GLOBAL_CACHE_DIR
+        // if not found create at:
+        //   - GLOBAL_CACHE_DIR
+        // be mindful local/global caches may be the same dir
+
+        Buf basename = BUF_INIT;
+        buf_init_from_str(&basename, "native_libc.txt");
+
+        Buf local_libc_txt = BUF_INIT;
+        os_path_join(g->cache_dir, &basename, &local_libc_txt);
+
+        Buf global_libc_txt = BUF_INIT;
+        os_path_join(get_global_cache_dir(), &basename, &global_libc_txt);
+
+        Buf *pathnames[3] = { nullptr };
+        size_t pathnames_idx = 0;
+
+        pathnames[pathnames_idx] = &local_libc_txt;
+        pathnames_idx += 1;
+
+        if (!buf_eql_buf(pathnames[0], &global_libc_txt)) {
+            pathnames[pathnames_idx] = &global_libc_txt;
+            pathnames_idx += 1;
+        }
+
+        Buf* libc_txt = nullptr;
+        for (auto name : pathnames) {
+            if (name == nullptr)
+                break;
+
+            bool result;
+            if (os_file_exists(name, &result) != ErrorNone || !result)
+                continue;
+
+            libc_txt = name;
+            break;
+        }
+
+        if (libc_txt == nullptr)
+            libc_txt = &global_libc_txt;
+
+        if ((err = zig_libc_parse(g->libc, libc_txt, g->zig_target, false))) {
             if ((err = zig_libc_find_native(g->libc, true))) {
                 fprintf(stderr,
                     "Unable to link against libc: Unable to find libc installation: %s\n"
@@ -8955,7 +9001,7 @@ static void detect_libc(CodeGen *g) {
                     buf_ptr(g->cache_dir), err_str(err));
                 exit(1);
             }
-            Buf *native_libc_tmp = buf_sprintf("%s.tmp", buf_ptr(native_libc_txt));
+            Buf *native_libc_tmp = buf_sprintf("%s.tmp", buf_ptr(libc_txt));
             FILE *file = fopen(buf_ptr(native_libc_tmp), "wb");
             if (file == nullptr) {
                 fprintf(stderr, "Unable to open %s: %s\n", buf_ptr(native_libc_tmp), strerror(errno));
@@ -8966,8 +9012,8 @@ static void detect_libc(CodeGen *g) {
                 fprintf(stderr, "Unable to save %s: %s\n", buf_ptr(native_libc_tmp), strerror(errno));
                 exit(1);
             }
-            if ((err = os_rename(native_libc_tmp, native_libc_txt))) {
-                fprintf(stderr, "Unable to create %s: %s\n", buf_ptr(native_libc_txt), err_str(err));
+            if ((err = os_rename(native_libc_tmp, libc_txt))) {
+                fprintf(stderr, "Unable to create %s: %s\n", buf_ptr(libc_txt), err_str(err));
                 exit(1);
             }
         }
@@ -8995,6 +9041,10 @@ static void detect_libc(CodeGen *g) {
             g->libc_include_dir_len += 1;
         }
         assert(g->libc_include_dir_len == dir_count);
+
+        buf_deinit(&global_libc_txt);
+        buf_deinit(&local_libc_txt);
+        buf_deinit(&basename);
     } else if ((g->out_type == OutTypeExe || (g->out_type == OutTypeLib && g->is_dynamic)) &&
         !target_os_is_darwin(g->zig_target->os))
     {
@@ -10611,7 +10661,7 @@ CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType o
             name, strlen(name), 0);
 
     CodeGen *child_gen = codegen_create(nullptr, root_src_path, parent_gen->zig_target, out_type,
-        parent_gen->build_mode, parent_gen->zig_lib_dir, libc, get_stage1_cache_path(), false, child_progress_node);
+        parent_gen->build_mode, parent_gen->zig_lib_dir, libc, get_global_cache_dir(), false, child_progress_node);
     child_gen->root_out_name = buf_create_from_str(name);
     child_gen->disable_gen_h = true;
     child_gen->want_stack_check = WantStackCheckDisabled;
