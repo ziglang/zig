@@ -15815,33 +15815,52 @@ never_mind_just_calculate_it_normally:
     bool op1_is_int = op1_val->type->id == ZigTypeIdInt || op1_val->type->id == ZigTypeIdComptimeInt;
     bool op2_is_int = op2_val->type->id == ZigTypeIdInt || op2_val->type->id == ZigTypeIdComptimeInt;
 
-    BigInt *op1_bigint;
-    BigInt *op2_bigint;
-    bool need_to_free_op1_bigint = false;
-    bool need_to_free_op2_bigint = false;
-    if (op1_is_float) {
-        op1_bigint = allocate<BigInt>(1, "BigInt");
-        need_to_free_op1_bigint = true;
-        float_init_bigint(op1_bigint, op1_val);
-    } else {
-        assert(op1_is_int);
-        op1_bigint = &op1_val->data.x_bigint;
-    }
-    if (op2_is_float) {
-        op2_bigint = allocate<BigInt>(1, "BigInt");
-        need_to_free_op2_bigint = true;
-        float_init_bigint(op2_bigint, op2_val);
-    } else {
-        assert(op2_is_int);
-        op2_bigint = &op2_val->data.x_bigint;
+    if (op1_is_int && op2_is_int) {
+        Cmp cmp_result = bigint_cmp(&op1_val->data.x_bigint, &op2_val->data.x_bigint);
+        out_val->special = ConstValSpecialStatic;
+        out_val->data.x_bool = resolve_cmp_op_id(op_id, cmp_result);
+
+        return nullptr;
     }
 
-    Cmp cmp_result = bigint_cmp(op1_bigint, op2_bigint);
+    // Handle the case where one of the two operands is a fp value and the other
+    // is an integer value
+    ZigValue **int_val, **float_val;
+
+    if (op1_is_int && op2_is_float) {
+        int_val = &op1_val;
+        float_val = &op2_val;
+    } else if (op1_is_float && op2_is_int) {
+        int_val = &op2_val;
+        float_val = &op1_val;
+    } else {
+        zig_unreachable();
+    }
+
+    // They can never be equal if the fp value has a non-zero decimal part
+    if (op_id == IrBinOpCmpEq || op_id == IrBinOpCmpNotEq) {
+        if (float_has_fraction(*float_val)) {
+            out_val->special = ConstValSpecialStatic;
+            out_val->data.x_bool = op_id == IrBinOpCmpNotEq;
+
+            return nullptr;
+        }
+    }
+
+    // Cast the integer operand into a fp value to perform the comparison
+    {
+        IrInstruction *tmp = ir_const_noval(ira, source_instr);
+        tmp->value = *int_val;
+        IrInstruction *casted = ir_implicit_cast(ira, tmp, (*float_val)->type);
+        if (casted == ira->codegen->invalid_instruction)
+            return ira->codegen->trace_err;
+        *int_val = casted->value;
+    }
+
+    Cmp cmp_result = bigfloat_cmp(&op1_val->data.x_bigfloat, &op2_val->data.x_bigfloat);
     out_val->special = ConstValSpecialStatic;
     out_val->data.x_bool = resolve_cmp_op_id(op_id, cmp_result);
 
-    if (need_to_free_op1_bigint) destroy(op1_bigint, "BigInt");
-    if (need_to_free_op2_bigint) destroy(op2_bigint, "BigInt");
     return nullptr;
 }
 
