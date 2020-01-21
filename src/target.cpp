@@ -831,11 +831,14 @@ void init_all_targets(void) {
 
 void target_triple_zig(Buf *triple, const ZigTarget *target) {
     buf_resize(triple, 0);
+    const char *abi_name = target->abi == ZigLLVM_UnknownEnvironment ?
+        "none" : ZigLLVMGetEnvironmentTypeName(target->abi);
+
     buf_appendf(triple, "%s%s-%s-%s",
             ZigLLVMGetArchTypeName(target->arch),
             ZigLLVMGetSubArchTypeName(target->sub_arch),
             ZigLLVMGetOSTypeName(get_llvm_os_type(target->os)),
-            ZigLLVMGetEnvironmentTypeName(target->abi));
+            abi_name);
 }
 
 void target_triple_llvm(Buf *triple, const ZigTarget *target) {
