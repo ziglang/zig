@@ -2,35 +2,4 @@ Finish these thigns before merging teh branch
 
  * zig targets
    - use non-reflection based cpu detection?
- * finish refactoring target/arch/*
 
-
-const riscv32_default_features: []*const std.target.Feature = &[_]*const std.target.Feature{
-    &std.target.riscv.feature_a,
-    &std.target.riscv.feature_c,
-    &std.target.riscv.feature_d,
-    &std.target.riscv.feature_f,
-    &std.target.riscv.feature_m,
-    &std.target.riscv.feature_relax,
-};
-
-const riscv64_default_features: []*const std.target.Feature = &[_]*const std.target.Feature{
-    &std.target.riscv.feature_bit64,
-    &std.target.riscv.feature_a,
-    &std.target.riscv.feature_c,
-    &std.target.riscv.feature_d,
-    &std.target.riscv.feature_f,
-    &std.target.riscv.feature_m,
-    &std.target.riscv.feature_relax,
-};
-
-// Same as above but without sse.
-const i386_default_features_freestanding: []*const std.target.Feature = &[_]*const std.target.Feature{
-    &std.target.x86.feature_cmov,
-    &std.target.x86.feature_cx8,
-    &std.target.x86.feature_fxsr,
-    &std.target.x86.feature_mmx,
-    &std.target.x86.feature_nopl,
-    &std.target.x86.feature_slowUnalignedMem16,
-    &std.target.x86.feature_x87,
-};

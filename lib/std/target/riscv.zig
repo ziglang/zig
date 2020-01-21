@@ -101,3 +101,22 @@ pub const all_cpus = &[_]*const Cpu{
     &cpu.generic_rv32,
     &cpu.generic_rv64,
 };
+
+pub const baseline_32_features = featureSet(&[_]Feature{
+    .a,
+    .c,
+    .d,
+    .f,
+    .m,
+    .relax,
+});
+
+pub const baseline_64_features = featureSet(&[_]Feature{
+    .@"64bit",
+    .a,
+    .c,
+    .d,
+    .f,
+    .m,
+    .relax,
+});
