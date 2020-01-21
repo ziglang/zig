@@ -177,6 +177,41 @@ pub fn cmdTargets(
     }
     try jws.endArray();
 
+    try jws.objectField("cpus");
+    try jws.beginObject();
+    inline for (@typeInfo(Target.Arch).Union.fields) |field| {
+        try jws.objectField(field.name);
+        try jws.beginObject();
+        const arch = @unionInit(Target.Arch, field.name, undefined);
+        for (arch.allCpus()) |cpu| {
+            try jws.objectField(cpu.name);
+            try jws.beginArray();
+            for (arch.allFeaturesList()) |feature, i| {
+                if (cpu.features.isEnabled(@intCast(u8, i))) {
+                    try jws.arrayElem();
+                    try jws.emitString(feature.name);
+                }
+            }
+            try jws.endArray();
+        }
+        try jws.endObject();
+    }
+    try jws.endObject();
+
+    try jws.objectField("cpuFeatures");
+    try jws.beginObject();
+    inline for (@typeInfo(Target.Arch).Union.fields) |field| {
+        try jws.objectField(field.name);
+        try jws.beginArray();
+        const arch = @unionInit(Target.Arch, field.name, undefined);
+        for (arch.allFeaturesList()) |feature| {
+            try jws.arrayElem();
+            try jws.emitString(feature.name);
+        }
+        try jws.endArray();
+    }
+    try jws.endObject();
+
     try jws.objectField("native");
     try jws.beginObject();
     {
