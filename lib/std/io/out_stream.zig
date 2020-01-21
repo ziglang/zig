@@ -45,10 +45,14 @@ pub fn OutStream(comptime WriteError: type) type {
         }
 
         pub fn writeByteNTimes(self: *Self, byte: u8, n: usize) Error!void {
-            const slice = @as(*const [1]u8, &byte)[0..];
-            var i: usize = 0;
-            while (i < n) : (i += 1) {
-                try self.writeFn(self, slice);
+            var bytes: [256]u8 = undefined;
+            mem.set(u8, bytes[0..], byte);
+
+            var remaining: usize = n;
+            while (remaining > 0) {
+                const to_write = std.math.min(remaining, bytes.len);
+                try self.writeFn(self, bytes[0..to_write]);
+                remaining -= to_write;
             }
         }
 
