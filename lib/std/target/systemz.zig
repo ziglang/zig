@@ -1,610 +1,575 @@
-const Feature = @import("std").target.Feature;
-const Cpu = @import("std").target.Cpu;
+const std = @import("../std.zig");
+const Cpu = std.Target.Cpu;
 
-pub const feature_dfpPackedConversion = Feature{
-    .name = "dfpPackedConversion",
-    .llvm_name = "dfp-packed-conversion",
-    .description = "Assume that the DFP packed-conversion facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
+pub const Feature = enum {
+    deflate_conversion,
+    dfp_packed_conversion,
+    dfp_zoned_conversion,
+    distinct_ops,
+    enhanced_dat_2,
+    enhanced_sort,
+    execution_hint,
+    fast_serialization,
+    fp_extension,
+    guarded_storage,
+    high_word,
+    insert_reference_bits_multiple,
+    interlocked_access1,
+    load_and_trap,
+    load_and_zero_rightmost_byte,
+    load_store_on_cond,
+    load_store_on_cond_2,
+    message_security_assist_extension3,
+    message_security_assist_extension4,
+    message_security_assist_extension5,
+    message_security_assist_extension7,
+    message_security_assist_extension8,
+    message_security_assist_extension9,
+    miscellaneous_extensions,
+    miscellaneous_extensions_2,
+    miscellaneous_extensions_3,
+    population_count,
+    processor_assist,
+    reset_reference_bits_multiple,
+    transactional_execution,
+    vector,
+    vector_enhancements_1,
+    vector_enhancements_2,
+    vector_packed_decimal,
+    vector_packed_decimal_enhancement,
 };
 
-pub const feature_dfpZonedConversion = Feature{
-    .name = "dfpZonedConversion",
-    .llvm_name = "dfp-zoned-conversion",
-    .description = "Assume that the DFP zoned-conversion facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
+pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
+
+pub const all_features = blk: {
+    const len = @typeInfo(Feature).Enum.fields.len;
+    std.debug.assert(len <= @typeInfo(Cpu.Feature.Set).Int.bits);
+    var result: [len]Cpu.Feature = undefined;
+    result[@enumToInt(Feature.deflate_conversion)] = .{
+        .index = @enumToInt(Feature.deflate_conversion),
+        .name = @tagName(Feature.deflate_conversion),
+        .llvm_name = "deflate-conversion",
+        .description = "Assume that the deflate-conversion facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.dfp_packed_conversion)] = .{
+        .index = @enumToInt(Feature.dfp_packed_conversion),
+        .name = @tagName(Feature.dfp_packed_conversion),
+        .llvm_name = "dfp-packed-conversion",
+        .description = "Assume that the DFP packed-conversion facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.dfp_zoned_conversion)] = .{
+        .index = @enumToInt(Feature.dfp_zoned_conversion),
+        .name = @tagName(Feature.dfp_zoned_conversion),
+        .llvm_name = "dfp-zoned-conversion",
+        .description = "Assume that the DFP zoned-conversion facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.distinct_ops)] = .{
+        .index = @enumToInt(Feature.distinct_ops),
+        .name = @tagName(Feature.distinct_ops),
+        .llvm_name = "distinct-ops",
+        .description = "Assume that the distinct-operands facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.enhanced_dat_2)] = .{
+        .index = @enumToInt(Feature.enhanced_dat_2),
+        .name = @tagName(Feature.enhanced_dat_2),
+        .llvm_name = "enhanced-dat-2",
+        .description = "Assume that the enhanced-DAT facility 2 is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.enhanced_sort)] = .{
+        .index = @enumToInt(Feature.enhanced_sort),
+        .name = @tagName(Feature.enhanced_sort),
+        .llvm_name = "enhanced-sort",
+        .description = "Assume that the enhanced-sort facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.execution_hint)] = .{
+        .index = @enumToInt(Feature.execution_hint),
+        .name = @tagName(Feature.execution_hint),
+        .llvm_name = "execution-hint",
+        .description = "Assume that the execution-hint facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.fast_serialization)] = .{
+        .index = @enumToInt(Feature.fast_serialization),
+        .name = @tagName(Feature.fast_serialization),
+        .llvm_name = "fast-serialization",
+        .description = "Assume that the fast-serialization facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.fp_extension)] = .{
+        .index = @enumToInt(Feature.fp_extension),
+        .name = @tagName(Feature.fp_extension),
+        .llvm_name = "fp-extension",
+        .description = "Assume that the floating-point extension facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.guarded_storage)] = .{
+        .index = @enumToInt(Feature.guarded_storage),
+        .name = @tagName(Feature.guarded_storage),
+        .llvm_name = "guarded-storage",
+        .description = "Assume that the guarded-storage facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.high_word)] = .{
+        .index = @enumToInt(Feature.high_word),
+        .name = @tagName(Feature.high_word),
+        .llvm_name = "high-word",
+        .description = "Assume that the high-word facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.insert_reference_bits_multiple)] = .{
+        .index = @enumToInt(Feature.insert_reference_bits_multiple),
+        .name = @tagName(Feature.insert_reference_bits_multiple),
+        .llvm_name = "insert-reference-bits-multiple",
+        .description = "Assume that the insert-reference-bits-multiple facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.interlocked_access1)] = .{
+        .index = @enumToInt(Feature.interlocked_access1),
+        .name = @tagName(Feature.interlocked_access1),
+        .llvm_name = "interlocked-access1",
+        .description = "Assume that interlocked-access facility 1 is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.load_and_trap)] = .{
+        .index = @enumToInt(Feature.load_and_trap),
+        .name = @tagName(Feature.load_and_trap),
+        .llvm_name = "load-and-trap",
+        .description = "Assume that the load-and-trap facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.load_and_zero_rightmost_byte)] = .{
+        .index = @enumToInt(Feature.load_and_zero_rightmost_byte),
+        .name = @tagName(Feature.load_and_zero_rightmost_byte),
+        .llvm_name = "load-and-zero-rightmost-byte",
+        .description = "Assume that the load-and-zero-rightmost-byte facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.load_store_on_cond)] = .{
+        .index = @enumToInt(Feature.load_store_on_cond),
+        .name = @tagName(Feature.load_store_on_cond),
+        .llvm_name = "load-store-on-cond",
+        .description = "Assume that the load/store-on-condition facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.load_store_on_cond_2)] = .{
+        .index = @enumToInt(Feature.load_store_on_cond_2),
+        .name = @tagName(Feature.load_store_on_cond_2),
+        .llvm_name = "load-store-on-cond-2",
+        .description = "Assume that the load/store-on-condition facility 2 is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.message_security_assist_extension3)] = .{
+        .index = @enumToInt(Feature.message_security_assist_extension3),
+        .name = @tagName(Feature.message_security_assist_extension3),
+        .llvm_name = "message-security-assist-extension3",
+        .description = "Assume that the message-security-assist extension facility 3 is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.message_security_assist_extension4)] = .{
+        .index = @enumToInt(Feature.message_security_assist_extension4),
+        .name = @tagName(Feature.message_security_assist_extension4),
+        .llvm_name = "message-security-assist-extension4",
+        .description = "Assume that the message-security-assist extension facility 4 is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.message_security_assist_extension5)] = .{
+        .index = @enumToInt(Feature.message_security_assist_extension5),
+        .name = @tagName(Feature.message_security_assist_extension5),
+        .llvm_name = "message-security-assist-extension5",
+        .description = "Assume that the message-security-assist extension facility 5 is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.message_security_assist_extension7)] = .{
+        .index = @enumToInt(Feature.message_security_assist_extension7),
+        .name = @tagName(Feature.message_security_assist_extension7),
+        .llvm_name = "message-security-assist-extension7",
+        .description = "Assume that the message-security-assist extension facility 7 is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.message_security_assist_extension8)] = .{
+        .index = @enumToInt(Feature.message_security_assist_extension8),
+        .name = @tagName(Feature.message_security_assist_extension8),
+        .llvm_name = "message-security-assist-extension8",
+        .description = "Assume that the message-security-assist extension facility 8 is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.message_security_assist_extension9)] = .{
+        .index = @enumToInt(Feature.message_security_assist_extension9),
+        .name = @tagName(Feature.message_security_assist_extension9),
+        .llvm_name = "message-security-assist-extension9",
+        .description = "Assume that the message-security-assist extension facility 9 is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.miscellaneous_extensions)] = .{
+        .index = @enumToInt(Feature.miscellaneous_extensions),
+        .name = @tagName(Feature.miscellaneous_extensions),
+        .llvm_name = "miscellaneous-extensions",
+        .description = "Assume that the miscellaneous-extensions facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.miscellaneous_extensions_2)] = .{
+        .index = @enumToInt(Feature.miscellaneous_extensions_2),
+        .name = @tagName(Feature.miscellaneous_extensions_2),
+        .llvm_name = "miscellaneous-extensions-2",
+        .description = "Assume that the miscellaneous-extensions facility 2 is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.miscellaneous_extensions_3)] = .{
+        .index = @enumToInt(Feature.miscellaneous_extensions_3),
+        .name = @tagName(Feature.miscellaneous_extensions_3),
+        .llvm_name = "miscellaneous-extensions-3",
+        .description = "Assume that the miscellaneous-extensions facility 3 is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.population_count)] = .{
+        .index = @enumToInt(Feature.population_count),
+        .name = @tagName(Feature.population_count),
+        .llvm_name = "population-count",
+        .description = "Assume that the population-count facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.processor_assist)] = .{
+        .index = @enumToInt(Feature.processor_assist),
+        .name = @tagName(Feature.processor_assist),
+        .llvm_name = "processor-assist",
+        .description = "Assume that the processor-assist facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.reset_reference_bits_multiple)] = .{
+        .index = @enumToInt(Feature.reset_reference_bits_multiple),
+        .name = @tagName(Feature.reset_reference_bits_multiple),
+        .llvm_name = "reset-reference-bits-multiple",
+        .description = "Assume that the reset-reference-bits-multiple facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.transactional_execution)] = .{
+        .index = @enumToInt(Feature.transactional_execution),
+        .name = @tagName(Feature.transactional_execution),
+        .llvm_name = "transactional-execution",
+        .description = "Assume that the transactional-execution facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.vector)] = .{
+        .index = @enumToInt(Feature.vector),
+        .name = @tagName(Feature.vector),
+        .llvm_name = "vector",
+        .description = "Assume that the vectory facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.vector_enhancements_1)] = .{
+        .index = @enumToInt(Feature.vector_enhancements_1),
+        .name = @tagName(Feature.vector_enhancements_1),
+        .llvm_name = "vector-enhancements-1",
+        .description = "Assume that the vector enhancements facility 1 is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.vector_enhancements_2)] = .{
+        .index = @enumToInt(Feature.vector_enhancements_2),
+        .name = @tagName(Feature.vector_enhancements_2),
+        .llvm_name = "vector-enhancements-2",
+        .description = "Assume that the vector enhancements facility 2 is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.vector_packed_decimal)] = .{
+        .index = @enumToInt(Feature.vector_packed_decimal),
+        .name = @tagName(Feature.vector_packed_decimal),
+        .llvm_name = "vector-packed-decimal",
+        .description = "Assume that the vector packed decimal facility is installed",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.vector_packed_decimal_enhancement)] = .{
+        .index = @enumToInt(Feature.vector_packed_decimal_enhancement),
+        .name = @tagName(Feature.vector_packed_decimal_enhancement),
+        .llvm_name = "vector-packed-decimal-enhancement",
+        .description = "Assume that the vector packed decimal enhancement facility is installed",
+        .dependencies = 0,
+    };
+    break :blk result;
 };
 
-pub const feature_deflateConversion = Feature{
-    .name = "deflateConversion",
-    .llvm_name = "deflate-conversion",
-    .description = "Assume that the deflate-conversion facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
+pub const cpu = struct {
+    pub const arch10 = Cpu{
+        .name = "arch10",
+        .llvm_name = "arch10",
+        .features = featureSet(&[_]Feature{
+            .dfp_zoned_conversion,
+            .distinct_ops,
+            .enhanced_dat_2,
+            .execution_hint,
+            .fast_serialization,
+            .fp_extension,
+            .high_word,
+            .interlocked_access1,
+            .load_and_trap,
+            .load_store_on_cond,
+            .message_security_assist_extension3,
+            .message_security_assist_extension4,
+            .miscellaneous_extensions,
+            .population_count,
+            .processor_assist,
+            .reset_reference_bits_multiple,
+            .transactional_execution,
+        }),
+    };
+    pub const arch11 = Cpu{
+        .name = "arch11",
+        .llvm_name = "arch11",
+        .features = featureSet(&[_]Feature{
+            .dfp_packed_conversion,
+            .dfp_zoned_conversion,
+            .distinct_ops,
+            .enhanced_dat_2,
+            .execution_hint,
+            .fast_serialization,
+            .fp_extension,
+            .high_word,
+            .interlocked_access1,
+            .load_and_trap,
+            .load_and_zero_rightmost_byte,
+            .load_store_on_cond,
+            .load_store_on_cond_2,
+            .message_security_assist_extension3,
+            .message_security_assist_extension4,
+            .message_security_assist_extension5,
+            .miscellaneous_extensions,
+            .population_count,
+            .processor_assist,
+            .reset_reference_bits_multiple,
+            .transactional_execution,
+            .vector,
+        }),
+    };
+    pub const arch12 = Cpu{
+        .name = "arch12",
+        .llvm_name = "arch12",
+        .features = featureSet(&[_]Feature{
+            .dfp_packed_conversion,
+            .dfp_zoned_conversion,
+            .distinct_ops,
+            .enhanced_dat_2,
+            .execution_hint,
+            .fast_serialization,
+            .fp_extension,
+            .guarded_storage,
+            .high_word,
+            .insert_reference_bits_multiple,
+            .interlocked_access1,
+            .load_and_trap,
+            .load_and_zero_rightmost_byte,
+            .load_store_on_cond,
+            .load_store_on_cond_2,
+            .message_security_assist_extension3,
+            .message_security_assist_extension4,
+            .message_security_assist_extension5,
+            .message_security_assist_extension7,
+            .message_security_assist_extension8,
+            .miscellaneous_extensions,
+            .miscellaneous_extensions_2,
+            .population_count,
+            .processor_assist,
+            .reset_reference_bits_multiple,
+            .transactional_execution,
+            .vector,
+            .vector_enhancements_1,
+            .vector_packed_decimal,
+        }),
+    };
+    pub const arch13 = Cpu{
+        .name = "arch13",
+        .llvm_name = "arch13",
+        .features = featureSet(&[_]Feature{
+            .deflate_conversion,
+            .dfp_packed_conversion,
+            .dfp_zoned_conversion,
+            .distinct_ops,
+            .enhanced_dat_2,
+            .enhanced_sort,
+            .execution_hint,
+            .fast_serialization,
+            .fp_extension,
+            .guarded_storage,
+            .high_word,
+            .insert_reference_bits_multiple,
+            .interlocked_access1,
+            .load_and_trap,
+            .load_and_zero_rightmost_byte,
+            .load_store_on_cond,
+            .load_store_on_cond_2,
+            .message_security_assist_extension3,
+            .message_security_assist_extension4,
+            .message_security_assist_extension5,
+            .message_security_assist_extension7,
+            .message_security_assist_extension8,
+            .message_security_assist_extension9,
+            .miscellaneous_extensions,
+            .miscellaneous_extensions_2,
+            .miscellaneous_extensions_3,
+            .population_count,
+            .processor_assist,
+            .reset_reference_bits_multiple,
+            .transactional_execution,
+            .vector,
+            .vector_enhancements_1,
+            .vector_enhancements_2,
+            .vector_packed_decimal,
+            .vector_packed_decimal_enhancement,
+        }),
+    };
+    pub const arch8 = Cpu{
+        .name = "arch8",
+        .llvm_name = "arch8",
+        .features = 0,
+    };
+    pub const arch9 = Cpu{
+        .name = "arch9",
+        .llvm_name = "arch9",
+        .features = featureSet(&[_]Feature{
+            .distinct_ops,
+            .fast_serialization,
+            .fp_extension,
+            .high_word,
+            .interlocked_access1,
+            .load_store_on_cond,
+            .message_security_assist_extension3,
+            .message_security_assist_extension4,
+            .population_count,
+            .reset_reference_bits_multiple,
+        }),
+    };
+    pub const generic = Cpu{
+        .name = "generic",
+        .llvm_name = "generic",
+        .features = 0,
+    };
+    pub const z10 = Cpu{
+        .name = "z10",
+        .llvm_name = "z10",
+        .features = 0,
+    };
+    pub const z13 = Cpu{
+        .name = "z13",
+        .llvm_name = "z13",
+        .features = featureSet(&[_]Feature{
+            .dfp_packed_conversion,
+            .dfp_zoned_conversion,
+            .distinct_ops,
+            .enhanced_dat_2,
+            .execution_hint,
+            .fast_serialization,
+            .fp_extension,
+            .high_word,
+            .interlocked_access1,
+            .load_and_trap,
+            .load_and_zero_rightmost_byte,
+            .load_store_on_cond,
+            .load_store_on_cond_2,
+            .message_security_assist_extension3,
+            .message_security_assist_extension4,
+            .message_security_assist_extension5,
+            .miscellaneous_extensions,
+            .population_count,
+            .processor_assist,
+            .reset_reference_bits_multiple,
+            .transactional_execution,
+            .vector,
+        }),
+    };
+    pub const z14 = Cpu{
+        .name = "z14",
+        .llvm_name = "z14",
+        .features = featureSet(&[_]Feature{
+            .dfp_packed_conversion,
+            .dfp_zoned_conversion,
+            .distinct_ops,
+            .enhanced_dat_2,
+            .execution_hint,
+            .fast_serialization,
+            .fp_extension,
+            .guarded_storage,
+            .high_word,
+            .insert_reference_bits_multiple,
+            .interlocked_access1,
+            .load_and_trap,
+            .load_and_zero_rightmost_byte,
+            .load_store_on_cond,
+            .load_store_on_cond_2,
+            .message_security_assist_extension3,
+            .message_security_assist_extension4,
+            .message_security_assist_extension5,
+            .message_security_assist_extension7,
+            .message_security_assist_extension8,
+            .miscellaneous_extensions,
+            .miscellaneous_extensions_2,
+            .population_count,
+            .processor_assist,
+            .reset_reference_bits_multiple,
+            .transactional_execution,
+            .vector,
+            .vector_enhancements_1,
+            .vector_packed_decimal,
+        }),
+    };
+    pub const z196 = Cpu{
+        .name = "z196",
+        .llvm_name = "z196",
+        .features = featureSet(&[_]Feature{
+            .distinct_ops,
+            .fast_serialization,
+            .fp_extension,
+            .high_word,
+            .interlocked_access1,
+            .load_store_on_cond,
+            .message_security_assist_extension3,
+            .message_security_assist_extension4,
+            .population_count,
+            .reset_reference_bits_multiple,
+        }),
+    };
+    pub const zEC12 = Cpu{
+        .name = "zEC12",
+        .llvm_name = "zEC12",
+        .features = featureSet(&[_]Feature{
+            .dfp_zoned_conversion,
+            .distinct_ops,
+            .enhanced_dat_2,
+            .execution_hint,
+            .fast_serialization,
+            .fp_extension,
+            .high_word,
+            .interlocked_access1,
+            .load_and_trap,
+            .load_store_on_cond,
+            .message_security_assist_extension3,
+            .message_security_assist_extension4,
+            .miscellaneous_extensions,
+            .population_count,
+            .processor_assist,
+            .reset_reference_bits_multiple,
+            .transactional_execution,
+        }),
+    };
 };
 
-pub const feature_distinctOps = Feature{
-    .name = "distinctOps",
-    .llvm_name = "distinct-ops",
-    .description = "Assume that the distinct-operands facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_enhancedDat2 = Feature{
-    .name = "enhancedDat2",
-    .llvm_name = "enhanced-dat-2",
-    .description = "Assume that the enhanced-DAT facility 2 is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_enhancedSort = Feature{
-    .name = "enhancedSort",
-    .llvm_name = "enhanced-sort",
-    .description = "Assume that the enhanced-sort facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_executionHint = Feature{
-    .name = "executionHint",
-    .llvm_name = "execution-hint",
-    .description = "Assume that the execution-hint facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fpExtension = Feature{
-    .name = "fpExtension",
-    .llvm_name = "fp-extension",
-    .description = "Assume that the floating-point extension facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fastSerialization = Feature{
-    .name = "fastSerialization",
-    .llvm_name = "fast-serialization",
-    .description = "Assume that the fast-serialization facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_guardedStorage = Feature{
-    .name = "guardedStorage",
-    .llvm_name = "guarded-storage",
-    .description = "Assume that the guarded-storage facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_highWord = Feature{
-    .name = "highWord",
-    .llvm_name = "high-word",
-    .description = "Assume that the high-word facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_insertReferenceBitsMultiple = Feature{
-    .name = "insertReferenceBitsMultiple",
-    .llvm_name = "insert-reference-bits-multiple",
-    .description = "Assume that the insert-reference-bits-multiple facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_interlockedAccess1 = Feature{
-    .name = "interlockedAccess1",
-    .llvm_name = "interlocked-access1",
-    .description = "Assume that interlocked-access facility 1 is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_loadAndTrap = Feature{
-    .name = "loadAndTrap",
-    .llvm_name = "load-and-trap",
-    .description = "Assume that the load-and-trap facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_loadAndZeroRightmostByte = Feature{
-    .name = "loadAndZeroRightmostByte",
-    .llvm_name = "load-and-zero-rightmost-byte",
-    .description = "Assume that the load-and-zero-rightmost-byte facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_loadStoreOnCond = Feature{
-    .name = "loadStoreOnCond",
-    .llvm_name = "load-store-on-cond",
-    .description = "Assume that the load/store-on-condition facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_loadStoreOnCond2 = Feature{
-    .name = "loadStoreOnCond2",
-    .llvm_name = "load-store-on-cond-2",
-    .description = "Assume that the load/store-on-condition facility 2 is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_messageSecurityAssistExtension3 = Feature{
-    .name = "messageSecurityAssistExtension3",
-    .llvm_name = "message-security-assist-extension3",
-    .description = "Assume that the message-security-assist extension facility 3 is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_messageSecurityAssistExtension4 = Feature{
-    .name = "messageSecurityAssistExtension4",
-    .llvm_name = "message-security-assist-extension4",
-    .description = "Assume that the message-security-assist extension facility 4 is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_messageSecurityAssistExtension5 = Feature{
-    .name = "messageSecurityAssistExtension5",
-    .llvm_name = "message-security-assist-extension5",
-    .description = "Assume that the message-security-assist extension facility 5 is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_messageSecurityAssistExtension7 = Feature{
-    .name = "messageSecurityAssistExtension7",
-    .llvm_name = "message-security-assist-extension7",
-    .description = "Assume that the message-security-assist extension facility 7 is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_messageSecurityAssistExtension8 = Feature{
-    .name = "messageSecurityAssistExtension8",
-    .llvm_name = "message-security-assist-extension8",
-    .description = "Assume that the message-security-assist extension facility 8 is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_messageSecurityAssistExtension9 = Feature{
-    .name = "messageSecurityAssistExtension9",
-    .llvm_name = "message-security-assist-extension9",
-    .description = "Assume that the message-security-assist extension facility 9 is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_miscellaneousExtensions = Feature{
-    .name = "miscellaneousExtensions",
-    .llvm_name = "miscellaneous-extensions",
-    .description = "Assume that the miscellaneous-extensions facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_miscellaneousExtensions2 = Feature{
-    .name = "miscellaneousExtensions2",
-    .llvm_name = "miscellaneous-extensions-2",
-    .description = "Assume that the miscellaneous-extensions facility 2 is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_miscellaneousExtensions3 = Feature{
-    .name = "miscellaneousExtensions3",
-    .llvm_name = "miscellaneous-extensions-3",
-    .description = "Assume that the miscellaneous-extensions facility 3 is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_populationCount = Feature{
-    .name = "populationCount",
-    .llvm_name = "population-count",
-    .description = "Assume that the population-count facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_processorAssist = Feature{
-    .name = "processorAssist",
-    .llvm_name = "processor-assist",
-    .description = "Assume that the processor-assist facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_resetReferenceBitsMultiple = Feature{
-    .name = "resetReferenceBitsMultiple",
-    .llvm_name = "reset-reference-bits-multiple",
-    .description = "Assume that the reset-reference-bits-multiple facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_transactionalExecution = Feature{
-    .name = "transactionalExecution",
-    .llvm_name = "transactional-execution",
-    .description = "Assume that the transactional-execution facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_vector = Feature{
-    .name = "vector",
-    .llvm_name = "vector",
-    .description = "Assume that the vectory facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_vectorEnhancements1 = Feature{
-    .name = "vectorEnhancements1",
-    .llvm_name = "vector-enhancements-1",
-    .description = "Assume that the vector enhancements facility 1 is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_vectorEnhancements2 = Feature{
-    .name = "vectorEnhancements2",
-    .llvm_name = "vector-enhancements-2",
-    .description = "Assume that the vector enhancements facility 2 is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_vectorPackedDecimal = Feature{
-    .name = "vectorPackedDecimal",
-    .llvm_name = "vector-packed-decimal",
-    .description = "Assume that the vector packed decimal facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_vectorPackedDecimalEnhancement = Feature{
-    .name = "vectorPackedDecimalEnhancement",
-    .llvm_name = "vector-packed-decimal-enhancement",
-    .description = "Assume that the vector packed decimal enhancement facility is installed",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const features = &[_]*const Feature {
-    &feature_dfpPackedConversion,
-    &feature_dfpZonedConversion,
-    &feature_deflateConversion,
-    &feature_distinctOps,
-    &feature_enhancedDat2,
-    &feature_enhancedSort,
-    &feature_executionHint,
-    &feature_fpExtension,
-    &feature_fastSerialization,
-    &feature_guardedStorage,
-    &feature_highWord,
-    &feature_insertReferenceBitsMultiple,
-    &feature_interlockedAccess1,
-    &feature_loadAndTrap,
-    &feature_loadAndZeroRightmostByte,
-    &feature_loadStoreOnCond,
-    &feature_loadStoreOnCond2,
-    &feature_messageSecurityAssistExtension3,
-    &feature_messageSecurityAssistExtension4,
-    &feature_messageSecurityAssistExtension5,
-    &feature_messageSecurityAssistExtension7,
-    &feature_messageSecurityAssistExtension8,
-    &feature_messageSecurityAssistExtension9,
-    &feature_miscellaneousExtensions,
-    &feature_miscellaneousExtensions2,
-    &feature_miscellaneousExtensions3,
-    &feature_populationCount,
-    &feature_processorAssist,
-    &feature_resetReferenceBitsMultiple,
-    &feature_transactionalExecution,
-    &feature_vector,
-    &feature_vectorEnhancements1,
-    &feature_vectorEnhancements2,
-    &feature_vectorPackedDecimal,
-    &feature_vectorPackedDecimalEnhancement,
-};
-
-pub const cpu_arch10 = Cpu{
-    .name = "arch10",
-    .llvm_name = "arch10",
-    .dependencies = &[_]*const Feature {
-        &feature_dfpZonedConversion,
-        &feature_distinctOps,
-        &feature_enhancedDat2,
-        &feature_executionHint,
-        &feature_fpExtension,
-        &feature_fastSerialization,
-        &feature_highWord,
-        &feature_interlockedAccess1,
-        &feature_loadAndTrap,
-        &feature_loadStoreOnCond,
-        &feature_messageSecurityAssistExtension3,
-        &feature_messageSecurityAssistExtension4,
-        &feature_miscellaneousExtensions,
-        &feature_populationCount,
-        &feature_processorAssist,
-        &feature_resetReferenceBitsMultiple,
-        &feature_transactionalExecution,
-    },
-};
-
-pub const cpu_arch11 = Cpu{
-    .name = "arch11",
-    .llvm_name = "arch11",
-    .dependencies = &[_]*const Feature {
-        &feature_dfpPackedConversion,
-        &feature_dfpZonedConversion,
-        &feature_distinctOps,
-        &feature_enhancedDat2,
-        &feature_executionHint,
-        &feature_fpExtension,
-        &feature_fastSerialization,
-        &feature_highWord,
-        &feature_interlockedAccess1,
-        &feature_loadAndTrap,
-        &feature_loadAndZeroRightmostByte,
-        &feature_loadStoreOnCond,
-        &feature_loadStoreOnCond2,
-        &feature_messageSecurityAssistExtension3,
-        &feature_messageSecurityAssistExtension4,
-        &feature_messageSecurityAssistExtension5,
-        &feature_miscellaneousExtensions,
-        &feature_populationCount,
-        &feature_processorAssist,
-        &feature_resetReferenceBitsMultiple,
-        &feature_transactionalExecution,
-        &feature_vector,
-    },
-};
-
-pub const cpu_arch12 = Cpu{
-    .name = "arch12",
-    .llvm_name = "arch12",
-    .dependencies = &[_]*const Feature {
-        &feature_dfpPackedConversion,
-        &feature_dfpZonedConversion,
-        &feature_distinctOps,
-        &feature_enhancedDat2,
-        &feature_executionHint,
-        &feature_fpExtension,
-        &feature_fastSerialization,
-        &feature_guardedStorage,
-        &feature_highWord,
-        &feature_insertReferenceBitsMultiple,
-        &feature_interlockedAccess1,
-        &feature_loadAndTrap,
-        &feature_loadAndZeroRightmostByte,
-        &feature_loadStoreOnCond,
-        &feature_loadStoreOnCond2,
-        &feature_messageSecurityAssistExtension3,
-        &feature_messageSecurityAssistExtension4,
-        &feature_messageSecurityAssistExtension5,
-        &feature_messageSecurityAssistExtension7,
-        &feature_messageSecurityAssistExtension8,
-        &feature_miscellaneousExtensions,
-        &feature_miscellaneousExtensions2,
-        &feature_populationCount,
-        &feature_processorAssist,
-        &feature_resetReferenceBitsMultiple,
-        &feature_transactionalExecution,
-        &feature_vector,
-        &feature_vectorEnhancements1,
-        &feature_vectorPackedDecimal,
-    },
-};
-
-pub const cpu_arch13 = Cpu{
-    .name = "arch13",
-    .llvm_name = "arch13",
-    .dependencies = &[_]*const Feature {
-        &feature_dfpPackedConversion,
-        &feature_dfpZonedConversion,
-        &feature_deflateConversion,
-        &feature_distinctOps,
-        &feature_enhancedDat2,
-        &feature_enhancedSort,
-        &feature_executionHint,
-        &feature_fpExtension,
-        &feature_fastSerialization,
-        &feature_guardedStorage,
-        &feature_highWord,
-        &feature_insertReferenceBitsMultiple,
-        &feature_interlockedAccess1,
-        &feature_loadAndTrap,
-        &feature_loadAndZeroRightmostByte,
-        &feature_loadStoreOnCond,
-        &feature_loadStoreOnCond2,
-        &feature_messageSecurityAssistExtension3,
-        &feature_messageSecurityAssistExtension4,
-        &feature_messageSecurityAssistExtension5,
-        &feature_messageSecurityAssistExtension7,
-        &feature_messageSecurityAssistExtension8,
-        &feature_messageSecurityAssistExtension9,
-        &feature_miscellaneousExtensions,
-        &feature_miscellaneousExtensions2,
-        &feature_miscellaneousExtensions3,
-        &feature_populationCount,
-        &feature_processorAssist,
-        &feature_resetReferenceBitsMultiple,
-        &feature_transactionalExecution,
-        &feature_vector,
-        &feature_vectorEnhancements1,
-        &feature_vectorEnhancements2,
-        &feature_vectorPackedDecimal,
-        &feature_vectorPackedDecimalEnhancement,
-    },
-};
-
-pub const cpu_arch8 = Cpu{
-    .name = "arch8",
-    .llvm_name = "arch8",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const cpu_arch9 = Cpu{
-    .name = "arch9",
-    .llvm_name = "arch9",
-    .dependencies = &[_]*const Feature {
-        &feature_distinctOps,
-        &feature_fpExtension,
-        &feature_fastSerialization,
-        &feature_highWord,
-        &feature_interlockedAccess1,
-        &feature_loadStoreOnCond,
-        &feature_messageSecurityAssistExtension3,
-        &feature_messageSecurityAssistExtension4,
-        &feature_populationCount,
-        &feature_resetReferenceBitsMultiple,
-    },
-};
-
-pub const cpu_generic = Cpu{
-    .name = "generic",
-    .llvm_name = "generic",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const cpu_z10 = Cpu{
-    .name = "z10",
-    .llvm_name = "z10",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const cpu_z13 = Cpu{
-    .name = "z13",
-    .llvm_name = "z13",
-    .dependencies = &[_]*const Feature {
-        &feature_dfpPackedConversion,
-        &feature_dfpZonedConversion,
-        &feature_distinctOps,
-        &feature_enhancedDat2,
-        &feature_executionHint,
-        &feature_fpExtension,
-        &feature_fastSerialization,
-        &feature_highWord,
-        &feature_interlockedAccess1,
-        &feature_loadAndTrap,
-        &feature_loadAndZeroRightmostByte,
-        &feature_loadStoreOnCond,
-        &feature_loadStoreOnCond2,
-        &feature_messageSecurityAssistExtension3,
-        &feature_messageSecurityAssistExtension4,
-        &feature_messageSecurityAssistExtension5,
-        &feature_miscellaneousExtensions,
-        &feature_populationCount,
-        &feature_processorAssist,
-        &feature_resetReferenceBitsMultiple,
-        &feature_transactionalExecution,
-        &feature_vector,
-    },
-};
-
-pub const cpu_z14 = Cpu{
-    .name = "z14",
-    .llvm_name = "z14",
-    .dependencies = &[_]*const Feature {
-        &feature_dfpPackedConversion,
-        &feature_dfpZonedConversion,
-        &feature_distinctOps,
-        &feature_enhancedDat2,
-        &feature_executionHint,
-        &feature_fpExtension,
-        &feature_fastSerialization,
-        &feature_guardedStorage,
-        &feature_highWord,
-        &feature_insertReferenceBitsMultiple,
-        &feature_interlockedAccess1,
-        &feature_loadAndTrap,
-        &feature_loadAndZeroRightmostByte,
-        &feature_loadStoreOnCond,
-        &feature_loadStoreOnCond2,
-        &feature_messageSecurityAssistExtension3,
-        &feature_messageSecurityAssistExtension4,
-        &feature_messageSecurityAssistExtension5,
-        &feature_messageSecurityAssistExtension7,
-        &feature_messageSecurityAssistExtension8,
-        &feature_miscellaneousExtensions,
-        &feature_miscellaneousExtensions2,
-        &feature_populationCount,
-        &feature_processorAssist,
-        &feature_resetReferenceBitsMultiple,
-        &feature_transactionalExecution,
-        &feature_vector,
-        &feature_vectorEnhancements1,
-        &feature_vectorPackedDecimal,
-    },
-};
-
-pub const cpu_z196 = Cpu{
-    .name = "z196",
-    .llvm_name = "z196",
-    .dependencies = &[_]*const Feature {
-        &feature_distinctOps,
-        &feature_fpExtension,
-        &feature_fastSerialization,
-        &feature_highWord,
-        &feature_interlockedAccess1,
-        &feature_loadStoreOnCond,
-        &feature_messageSecurityAssistExtension3,
-        &feature_messageSecurityAssistExtension4,
-        &feature_populationCount,
-        &feature_resetReferenceBitsMultiple,
-    },
-};
-
-pub const cpu_zEC12 = Cpu{
-    .name = "zEC12",
-    .llvm_name = "zEC12",
-    .dependencies = &[_]*const Feature {
-        &feature_dfpZonedConversion,
-        &feature_distinctOps,
-        &feature_enhancedDat2,
-        &feature_executionHint,
-        &feature_fpExtension,
-        &feature_fastSerialization,
-        &feature_highWord,
-        &feature_interlockedAccess1,
-        &feature_loadAndTrap,
-        &feature_loadStoreOnCond,
-        &feature_messageSecurityAssistExtension3,
-        &feature_messageSecurityAssistExtension4,
-        &feature_miscellaneousExtensions,
-        &feature_populationCount,
-        &feature_processorAssist,
-        &feature_resetReferenceBitsMultiple,
-        &feature_transactionalExecution,
-    },
-};
-
-pub const cpus = &[_]*const Cpu {
-    &cpu_arch10,
-    &cpu_arch11,
-    &cpu_arch12,
-    &cpu_arch13,
-    &cpu_arch8,
-    &cpu_arch9,
-    &cpu_generic,
-    &cpu_z10,
-    &cpu_z13,
-    &cpu_z14,
-    &cpu_z196,
-    &cpu_zEC12,
+/// All systemz CPUs, sorted alphabetically by name.
+/// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
+/// compiler has inefficient memory and CPU usage, affecting build times.
+pub const all_cpus = &[_]*const Cpu{
+    &cpu.arch10,
+    &cpu.arch11,
+    &cpu.arch12,
+    &cpu.arch13,
+    &cpu.arch8,
+    &cpu.arch9,
+    &cpu.generic,
+    &cpu.z10,
+    &cpu.z13,
+    &cpu.z14,
+    &cpu.z196,
+    &cpu.zEC12,
 };

@@ -1,1115 +1,1035 @@
-const Feature = @import("std").target.Feature;
-const Cpu = @import("std").target.Cpu;
-
-pub const feature_bit64 = Feature{
-    .name = "bit64",
-    .llvm_name = "64bit",
-    .description = "Enable 64-bit instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_bitregs64 = Feature{
-    .name = "bitregs64",
-    .llvm_name = "64bitregs",
-    .description = "Enable 64-bit registers usage for ppc32 [beta]",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_altivec = Feature{
-    .name = "altivec",
-    .llvm_name = "altivec",
-    .description = "Enable Altivec instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_bpermd = Feature{
-    .name = "bpermd",
-    .llvm_name = "bpermd",
-    .description = "Enable the bpermd instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_booke = Feature{
-    .name = "booke",
-    .llvm_name = "booke",
-    .description = "Enable Book E instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_icbt,
-    },
-};
-
-pub const feature_cmpb = Feature{
-    .name = "cmpb",
-    .llvm_name = "cmpb",
-    .description = "Enable the cmpb instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_crbits = Feature{
-    .name = "crbits",
-    .llvm_name = "crbits",
-    .description = "Use condition-register bits individually",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_directMove = Feature{
-    .name = "directMove",
-    .llvm_name = "direct-move",
-    .description = "Enable Power8 direct move instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_e500 = Feature{
-    .name = "e500",
-    .llvm_name = "e500",
-    .description = "Enable E500/E500mc instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_extdiv = Feature{
-    .name = "extdiv",
-    .llvm_name = "extdiv",
-    .description = "Enable extended divide instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fcpsgn = Feature{
-    .name = "fcpsgn",
-    .llvm_name = "fcpsgn",
-    .description = "Enable the fcpsgn instruction",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_fpcvt = Feature{
-    .name = "fpcvt",
-    .llvm_name = "fpcvt",
-    .description = "Enable fc[ft]* (unsigned and single-precision) and lfiwzx instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_fprnd = Feature{
-    .name = "fprnd",
-    .llvm_name = "fprnd",
-    .description = "Enable the fri[mnpz] instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_fpu = Feature{
-    .name = "fpu",
-    .llvm_name = "fpu",
-    .description = "Enable classic FPU instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_fre = Feature{
-    .name = "fre",
-    .llvm_name = "fre",
-    .description = "Enable the fre instruction",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_fres = Feature{
-    .name = "fres",
-    .llvm_name = "fres",
-    .description = "Enable the fres instruction",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_frsqrte = Feature{
-    .name = "frsqrte",
-    .llvm_name = "frsqrte",
-    .description = "Enable the frsqrte instruction",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_frsqrtes = Feature{
-    .name = "frsqrtes",
-    .llvm_name = "frsqrtes",
-    .description = "Enable the frsqrtes instruction",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_fsqrt = Feature{
-    .name = "fsqrt",
-    .llvm_name = "fsqrt",
-    .description = "Enable the fsqrt instruction",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_float128 = Feature{
-    .name = "float128",
-    .llvm_name = "float128",
-    .description = "Enable the __float128 data type for IEEE-754R Binary128.",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_htm = Feature{
-    .name = "htm",
-    .llvm_name = "htm",
-    .description = "Enable Hardware Transactional Memory instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_hardFloat = Feature{
-    .name = "hardFloat",
-    .llvm_name = "hard-float",
-    .description = "Enable floating-point instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_icbt = Feature{
-    .name = "icbt",
-    .llvm_name = "icbt",
-    .description = "Enable icbt instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_isaV30Instructions = Feature{
-    .name = "isaV30Instructions",
-    .llvm_name = "isa-v30-instructions",
-    .description = "Enable instructions added in ISA 3.0.",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_isel = Feature{
-    .name = "isel",
-    .llvm_name = "isel",
-    .description = "Enable the isel instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_invariantFunctionDescriptors = Feature{
-    .name = "invariantFunctionDescriptors",
-    .llvm_name = "invariant-function-descriptors",
-    .description = "Assume function descriptors are invariant",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_ldbrx = Feature{
-    .name = "ldbrx",
-    .llvm_name = "ldbrx",
-    .description = "Enable the ldbrx instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_lfiwax = Feature{
-    .name = "lfiwax",
-    .llvm_name = "lfiwax",
-    .description = "Enable the lfiwax instruction",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_longcall = Feature{
-    .name = "longcall",
-    .llvm_name = "longcall",
-    .description = "Always use indirect calls",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_mfocrf = Feature{
-    .name = "mfocrf",
-    .llvm_name = "mfocrf",
-    .description = "Enable the MFOCRF instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_msync = Feature{
-    .name = "msync",
-    .llvm_name = "msync",
-    .description = "Has only the msync instruction instead of sync",
-    .dependencies = &[_]*const Feature {
-        &feature_icbt,
-    },
-};
-
-pub const feature_power8Altivec = Feature{
-    .name = "power8Altivec",
-    .llvm_name = "power8-altivec",
-    .description = "Enable POWER8 Altivec instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_crypto = Feature{
-    .name = "crypto",
-    .llvm_name = "crypto",
-    .description = "Enable POWER8 Crypto instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_power8Vector = Feature{
-    .name = "power8Vector",
-    .llvm_name = "power8-vector",
-    .description = "Enable POWER8 vector instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_power9Altivec = Feature{
-    .name = "power9Altivec",
-    .llvm_name = "power9-altivec",
-    .description = "Enable POWER9 Altivec instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_isaV30Instructions,
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_power9Vector = Feature{
-    .name = "power9Vector",
-    .llvm_name = "power9-vector",
-    .description = "Enable POWER9 vector instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_isaV30Instructions,
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_popcntd = Feature{
-    .name = "popcntd",
-    .llvm_name = "popcntd",
-    .description = "Enable the popcnt[dw] instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_ppc4xx = Feature{
-    .name = "ppc4xx",
-    .llvm_name = "ppc4xx",
-    .description = "Enable PPC 4xx instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_ppc6xx = Feature{
-    .name = "ppc6xx",
-    .llvm_name = "ppc6xx",
-    .description = "Enable PPC 6xx instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_ppcPostraSched = Feature{
-    .name = "ppcPostraSched",
-    .llvm_name = "ppc-postra-sched",
-    .description = "Use PowerPC post-RA scheduling strategy",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_ppcPreraSched = Feature{
-    .name = "ppcPreraSched",
-    .llvm_name = "ppc-prera-sched",
-    .description = "Use PowerPC pre-RA scheduling strategy",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_partwordAtomics = Feature{
-    .name = "partwordAtomics",
-    .llvm_name = "partword-atomics",
-    .description = "Enable l[bh]arx and st[bh]cx.",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_qpx = Feature{
-    .name = "qpx",
-    .llvm_name = "qpx",
-    .description = "Enable QPX instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_recipprec = Feature{
-    .name = "recipprec",
-    .llvm_name = "recipprec",
-    .description = "Assume higher precision reciprocal estimates",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_spe = Feature{
-    .name = "spe",
-    .llvm_name = "spe",
-    .description = "Enable SPE instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_stfiwx = Feature{
-    .name = "stfiwx",
-    .llvm_name = "stfiwx",
-    .description = "Enable the stfiwx instruction",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_securePlt = Feature{
-    .name = "securePlt",
-    .llvm_name = "secure-plt",
-    .description = "Enable secure plt mode",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_slowPopcntd = Feature{
-    .name = "slowPopcntd",
-    .llvm_name = "slow-popcntd",
-    .description = "Has slow popcnt[dw] instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_twoConstNr = Feature{
-    .name = "twoConstNr",
-    .llvm_name = "two-const-nr",
-    .description = "Requires two constant Newton-Raphson computation",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_vsx = Feature{
-    .name = "vsx",
-    .llvm_name = "vsx",
-    .description = "Enable VSX instructions",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const feature_vectorsUseTwoUnits = Feature{
-    .name = "vectorsUseTwoUnits",
-    .llvm_name = "vectors-use-two-units",
-    .description = "Vectors use two units",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const features = &[_]*const Feature {
-    &feature_bit64,
-    &feature_bitregs64,
-    &feature_altivec,
-    &feature_bpermd,
-    &feature_booke,
-    &feature_cmpb,
-    &feature_crbits,
-    &feature_directMove,
-    &feature_e500,
-    &feature_extdiv,
-    &feature_fcpsgn,
-    &feature_fpcvt,
-    &feature_fprnd,
-    &feature_fpu,
-    &feature_fre,
-    &feature_fres,
-    &feature_frsqrte,
-    &feature_frsqrtes,
-    &feature_fsqrt,
-    &feature_float128,
-    &feature_htm,
-    &feature_hardFloat,
-    &feature_icbt,
-    &feature_isaV30Instructions,
-    &feature_isel,
-    &feature_invariantFunctionDescriptors,
-    &feature_ldbrx,
-    &feature_lfiwax,
-    &feature_longcall,
-    &feature_mfocrf,
-    &feature_msync,
-    &feature_power8Altivec,
-    &feature_crypto,
-    &feature_power8Vector,
-    &feature_power9Altivec,
-    &feature_power9Vector,
-    &feature_popcntd,
-    &feature_ppc4xx,
-    &feature_ppc6xx,
-    &feature_ppcPostraSched,
-    &feature_ppcPreraSched,
-    &feature_partwordAtomics,
-    &feature_qpx,
-    &feature_recipprec,
-    &feature_spe,
-    &feature_stfiwx,
-    &feature_securePlt,
-    &feature_slowPopcntd,
-    &feature_twoConstNr,
-    &feature_vsx,
-    &feature_vectorsUseTwoUnits,
-};
-
-pub const cpu_440 = Cpu{
-    .name = "440",
-    .llvm_name = "440",
-    .dependencies = &[_]*const Feature {
-        &feature_icbt,
-        &feature_booke,
-        &feature_hardFloat,
-        &feature_fres,
-        &feature_frsqrte,
-        &feature_isel,
-        &feature_msync,
-    },
-};
-
-pub const cpu_450 = Cpu{
-    .name = "450",
-    .llvm_name = "450",
-    .dependencies = &[_]*const Feature {
-        &feature_icbt,
-        &feature_booke,
-        &feature_hardFloat,
-        &feature_fres,
-        &feature_frsqrte,
-        &feature_isel,
-        &feature_msync,
-    },
-};
-
-pub const cpu_601 = Cpu{
-    .name = "601",
-    .llvm_name = "601",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-        &feature_fpu,
-    },
-};
-
-pub const cpu_602 = Cpu{
-    .name = "602",
-    .llvm_name = "602",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-        &feature_fpu,
-    },
-};
-
-pub const cpu_603 = Cpu{
-    .name = "603",
-    .llvm_name = "603",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-        &feature_fres,
-        &feature_frsqrte,
-    },
-};
-
-pub const cpu_e603 = Cpu{
-    .name = "e603",
-    .llvm_name = "603e",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-        &feature_fres,
-        &feature_frsqrte,
-    },
-};
-
-pub const cpu_ev603 = Cpu{
-    .name = "ev603",
-    .llvm_name = "603ev",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-        &feature_fres,
-        &feature_frsqrte,
-    },
-};
-
-pub const cpu_604 = Cpu{
-    .name = "604",
-    .llvm_name = "604",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-        &feature_fres,
-        &feature_frsqrte,
-    },
-};
-
-pub const cpu_e604 = Cpu{
-    .name = "e604",
-    .llvm_name = "604e",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-        &feature_fres,
-        &feature_frsqrte,
-    },
-};
-
-pub const cpu_620 = Cpu{
-    .name = "620",
-    .llvm_name = "620",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-        &feature_fres,
-        &feature_frsqrte,
-    },
-};
-
-pub const cpu_7400 = Cpu{
-    .name = "7400",
-    .llvm_name = "7400",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-        &feature_altivec,
-        &feature_fres,
-        &feature_frsqrte,
-    },
-};
-
-pub const cpu_7450 = Cpu{
-    .name = "7450",
-    .llvm_name = "7450",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-        &feature_altivec,
-        &feature_fres,
-        &feature_frsqrte,
-    },
-};
-
-pub const cpu_750 = Cpu{
-    .name = "750",
-    .llvm_name = "750",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-        &feature_fres,
-        &feature_frsqrte,
-    },
-};
-
-pub const cpu_970 = Cpu{
-    .name = "970",
-    .llvm_name = "970",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_hardFloat,
-        &feature_altivec,
-        &feature_fres,
-        &feature_frsqrte,
-        &feature_fsqrt,
-        &feature_mfocrf,
-        &feature_stfiwx,
-    },
-};
-
-pub const cpu_a2 = Cpu{
-    .name = "a2",
-    .llvm_name = "a2",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_icbt,
-        &feature_booke,
-        &feature_cmpb,
-        &feature_hardFloat,
-        &feature_fcpsgn,
-        &feature_fpcvt,
-        &feature_fprnd,
-        &feature_fre,
-        &feature_fres,
-        &feature_frsqrte,
-        &feature_frsqrtes,
-        &feature_fsqrt,
-        &feature_isel,
-        &feature_ldbrx,
-        &feature_lfiwax,
-        &feature_mfocrf,
-        &feature_recipprec,
-        &feature_stfiwx,
-        &feature_slowPopcntd,
-    },
-};
-
-pub const cpu_a2q = Cpu{
-    .name = "a2q",
-    .llvm_name = "a2q",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_icbt,
-        &feature_booke,
-        &feature_cmpb,
-        &feature_hardFloat,
-        &feature_fcpsgn,
-        &feature_fpcvt,
-        &feature_fprnd,
-        &feature_fre,
-        &feature_fres,
-        &feature_frsqrte,
-        &feature_frsqrtes,
-        &feature_fsqrt,
-        &feature_isel,
-        &feature_ldbrx,
-        &feature_lfiwax,
-        &feature_mfocrf,
-        &feature_qpx,
-        &feature_recipprec,
-        &feature_stfiwx,
-        &feature_slowPopcntd,
-    },
-};
-
-pub const cpu_e500 = Cpu{
-    .name = "e500",
-    .llvm_name = "e500",
-    .dependencies = &[_]*const Feature {
-        &feature_icbt,
-        &feature_booke,
-        &feature_isel,
-    },
-};
-
-pub const cpu_e500mc = Cpu{
-    .name = "e500mc",
-    .llvm_name = "e500mc",
-    .dependencies = &[_]*const Feature {
-        &feature_icbt,
-        &feature_booke,
-        &feature_isel,
-        &feature_hardFloat,
-        &feature_stfiwx,
-    },
-};
-
-pub const cpu_e5500 = Cpu{
-    .name = "e5500",
-    .llvm_name = "e5500",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_icbt,
-        &feature_booke,
-        &feature_isel,
-        &feature_mfocrf,
-        &feature_hardFloat,
-        &feature_stfiwx,
-    },
-};
-
-pub const cpu_g3 = Cpu{
-    .name = "g3",
-    .llvm_name = "g3",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-        &feature_fres,
-        &feature_frsqrte,
-    },
-};
-
-pub const cpu_g4 = Cpu{
-    .name = "g4",
-    .llvm_name = "g4",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-        &feature_altivec,
-        &feature_fres,
-        &feature_frsqrte,
-    },
-};
-
-pub const cpu_g4Plus = Cpu{
-    .name = "g4Plus",
-    .llvm_name = "g4+",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-        &feature_altivec,
-        &feature_fres,
-        &feature_frsqrte,
-    },
-};
-
-pub const cpu_g5 = Cpu{
-    .name = "g5",
-    .llvm_name = "g5",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_hardFloat,
-        &feature_altivec,
-        &feature_fres,
-        &feature_frsqrte,
-        &feature_fsqrt,
-        &feature_mfocrf,
-        &feature_stfiwx,
-    },
-};
-
-pub const cpu_generic = Cpu{
-    .name = "generic",
-    .llvm_name = "generic",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const cpu_ppc = Cpu{
-    .name = "ppc",
-    .llvm_name = "ppc",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const cpu_ppc32 = Cpu{
-    .name = "ppc32",
-    .llvm_name = "ppc32",
-    .dependencies = &[_]*const Feature {
-        &feature_hardFloat,
-    },
-};
-
-pub const cpu_ppc64 = Cpu{
-    .name = "ppc64",
-    .llvm_name = "ppc64",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_hardFloat,
-        &feature_altivec,
-        &feature_fres,
-        &feature_frsqrte,
-        &feature_fsqrt,
-        &feature_mfocrf,
-        &feature_stfiwx,
-    },
-};
-
-pub const cpu_ppc64le = Cpu{
-    .name = "ppc64le",
-    .llvm_name = "ppc64le",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_hardFloat,
-        &feature_altivec,
-        &feature_bpermd,
-        &feature_cmpb,
-        &feature_directMove,
-        &feature_extdiv,
-        &feature_fcpsgn,
-        &feature_fpcvt,
-        &feature_fprnd,
-        &feature_fre,
-        &feature_fres,
-        &feature_frsqrte,
-        &feature_frsqrtes,
-        &feature_fsqrt,
-        &feature_htm,
-        &feature_icbt,
-        &feature_isel,
-        &feature_ldbrx,
-        &feature_lfiwax,
-        &feature_mfocrf,
-        &feature_power8Altivec,
-        &feature_crypto,
-        &feature_power8Vector,
-        &feature_popcntd,
-        &feature_partwordAtomics,
-        &feature_recipprec,
-        &feature_stfiwx,
-        &feature_twoConstNr,
-        &feature_vsx,
-    },
-};
-
-pub const cpu_pwr3 = Cpu{
-    .name = "pwr3",
-    .llvm_name = "pwr3",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_hardFloat,
-        &feature_altivec,
-        &feature_fres,
-        &feature_frsqrte,
-        &feature_mfocrf,
-        &feature_stfiwx,
-    },
-};
-
-pub const cpu_pwr4 = Cpu{
-    .name = "pwr4",
-    .llvm_name = "pwr4",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_hardFloat,
-        &feature_altivec,
-        &feature_fres,
-        &feature_frsqrte,
-        &feature_fsqrt,
-        &feature_mfocrf,
-        &feature_stfiwx,
-    },
-};
-
-pub const cpu_pwr5 = Cpu{
-    .name = "pwr5",
-    .llvm_name = "pwr5",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_hardFloat,
-        &feature_altivec,
-        &feature_fre,
-        &feature_fres,
-        &feature_frsqrte,
-        &feature_frsqrtes,
-        &feature_fsqrt,
-        &feature_mfocrf,
-        &feature_stfiwx,
-    },
-};
-
-pub const cpu_pwr5x = Cpu{
-    .name = "pwr5x",
-    .llvm_name = "pwr5x",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_hardFloat,
-        &feature_altivec,
-        &feature_fprnd,
-        &feature_fre,
-        &feature_fres,
-        &feature_frsqrte,
-        &feature_frsqrtes,
-        &feature_fsqrt,
-        &feature_mfocrf,
-        &feature_stfiwx,
-    },
-};
-
-pub const cpu_pwr6 = Cpu{
-    .name = "pwr6",
-    .llvm_name = "pwr6",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_hardFloat,
-        &feature_altivec,
-        &feature_cmpb,
-        &feature_fcpsgn,
-        &feature_fprnd,
-        &feature_fre,
-        &feature_fres,
-        &feature_frsqrte,
-        &feature_frsqrtes,
-        &feature_fsqrt,
-        &feature_lfiwax,
-        &feature_mfocrf,
-        &feature_recipprec,
-        &feature_stfiwx,
-    },
-};
-
-pub const cpu_pwr6x = Cpu{
-    .name = "pwr6x",
-    .llvm_name = "pwr6x",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_hardFloat,
-        &feature_altivec,
-        &feature_cmpb,
-        &feature_fcpsgn,
-        &feature_fprnd,
-        &feature_fre,
-        &feature_fres,
-        &feature_frsqrte,
-        &feature_frsqrtes,
-        &feature_fsqrt,
-        &feature_lfiwax,
-        &feature_mfocrf,
-        &feature_recipprec,
-        &feature_stfiwx,
-    },
-};
-
-pub const cpu_pwr7 = Cpu{
-    .name = "pwr7",
-    .llvm_name = "pwr7",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_hardFloat,
-        &feature_altivec,
-        &feature_bpermd,
-        &feature_cmpb,
-        &feature_extdiv,
-        &feature_fcpsgn,
-        &feature_fpcvt,
-        &feature_fprnd,
-        &feature_fre,
-        &feature_fres,
-        &feature_frsqrte,
-        &feature_frsqrtes,
-        &feature_fsqrt,
-        &feature_isel,
-        &feature_ldbrx,
-        &feature_lfiwax,
-        &feature_mfocrf,
-        &feature_popcntd,
-        &feature_recipprec,
-        &feature_stfiwx,
-        &feature_twoConstNr,
-        &feature_vsx,
-    },
-};
-
-pub const cpu_pwr8 = Cpu{
-    .name = "pwr8",
-    .llvm_name = "pwr8",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_hardFloat,
-        &feature_altivec,
-        &feature_bpermd,
-        &feature_cmpb,
-        &feature_directMove,
-        &feature_extdiv,
-        &feature_fcpsgn,
-        &feature_fpcvt,
-        &feature_fprnd,
-        &feature_fre,
-        &feature_fres,
-        &feature_frsqrte,
-        &feature_frsqrtes,
-        &feature_fsqrt,
-        &feature_htm,
-        &feature_icbt,
-        &feature_isel,
-        &feature_ldbrx,
-        &feature_lfiwax,
-        &feature_mfocrf,
-        &feature_power8Altivec,
-        &feature_crypto,
-        &feature_power8Vector,
-        &feature_popcntd,
-        &feature_partwordAtomics,
-        &feature_recipprec,
-        &feature_stfiwx,
-        &feature_twoConstNr,
-        &feature_vsx,
-    },
-};
-
-pub const cpu_pwr9 = Cpu{
-    .name = "pwr9",
-    .llvm_name = "pwr9",
-    .dependencies = &[_]*const Feature {
-        &feature_bit64,
-        &feature_hardFloat,
-        &feature_altivec,
-        &feature_bpermd,
-        &feature_cmpb,
-        &feature_directMove,
-        &feature_extdiv,
-        &feature_fcpsgn,
-        &feature_fpcvt,
-        &feature_fprnd,
-        &feature_fre,
-        &feature_fres,
-        &feature_frsqrte,
-        &feature_frsqrtes,
-        &feature_fsqrt,
-        &feature_htm,
-        &feature_icbt,
-        &feature_isaV30Instructions,
-        &feature_isel,
-        &feature_ldbrx,
-        &feature_lfiwax,
-        &feature_mfocrf,
-        &feature_power8Altivec,
-        &feature_crypto,
-        &feature_power8Vector,
-        &feature_power9Altivec,
-        &feature_power9Vector,
-        &feature_popcntd,
-        &feature_ppcPostraSched,
-        &feature_ppcPreraSched,
-        &feature_partwordAtomics,
-        &feature_recipprec,
-        &feature_stfiwx,
-        &feature_twoConstNr,
-        &feature_vsx,
-        &feature_vectorsUseTwoUnits,
-    },
-};
-
-pub const cpus = &[_]*const Cpu {
-    &cpu_440,
-    &cpu_450,
-    &cpu_601,
-    &cpu_602,
-    &cpu_603,
-    &cpu_e603,
-    &cpu_ev603,
-    &cpu_604,
-    &cpu_e604,
-    &cpu_620,
-    &cpu_7400,
-    &cpu_7450,
-    &cpu_750,
-    &cpu_970,
-    &cpu_a2,
-    &cpu_a2q,
-    &cpu_e500,
-    &cpu_e500mc,
-    &cpu_e5500,
-    &cpu_g3,
-    &cpu_g4,
-    &cpu_g4Plus,
-    &cpu_g5,
-    &cpu_generic,
-    &cpu_ppc,
-    &cpu_ppc32,
-    &cpu_ppc64,
-    &cpu_ppc64le,
-    &cpu_pwr3,
-    &cpu_pwr4,
-    &cpu_pwr5,
-    &cpu_pwr5x,
-    &cpu_pwr6,
-    &cpu_pwr6x,
-    &cpu_pwr7,
-    &cpu_pwr8,
-    &cpu_pwr9,
+const std = @import("../std.zig");
+const Cpu = std.Target.Cpu;
+
+pub const Feature = enum {
+    @"64bit",
+    @"64bitregs",
+    altivec,
+    booke,
+    bpermd,
+    cmpb,
+    crbits,
+    crypto,
+    direct_move,
+    e500,
+    extdiv,
+    fcpsgn,
+    float128,
+    fpcvt,
+    fprnd,
+    fpu,
+    fre,
+    fres,
+    frsqrte,
+    frsqrtes,
+    fsqrt,
+    hard_float,
+    htm,
+    icbt,
+    invariant_function_descriptors,
+    isa_v30_instructions,
+    isel,
+    ldbrx,
+    lfiwax,
+    longcall,
+    mfocrf,
+    msync,
+    partword_atomics,
+    popcntd,
+    power8_altivec,
+    power8_vector,
+    power9_altivec,
+    power9_vector,
+    ppc_postra_sched,
+    ppc_prera_sched,
+    ppc4xx,
+    ppc6xx,
+    qpx,
+    recipprec,
+    secure_plt,
+    slow_popcntd,
+    spe,
+    stfiwx,
+    two_const_nr,
+    vectors_use_two_units,
+    vsx,
+};
+
+pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
+
+pub const all_features = blk: {
+    const len = @typeInfo(Feature).Enum.fields.len;
+    std.debug.assert(len <= @typeInfo(Cpu.Feature.Set).Int.bits);
+    var result: [len]Cpu.Feature = undefined;
+    result[@enumToInt(Feature.@"64bit")] = .{
+        .index = @enumToInt(Feature.@"64bit"),
+        .name = @tagName(Feature.@"64bit"),
+        .llvm_name = "64bit",
+        .description = "Enable 64-bit instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.@"64bitregs")] = .{
+        .index = @enumToInt(Feature.@"64bitregs"),
+        .name = @tagName(Feature.@"64bitregs"),
+        .llvm_name = "64bitregs",
+        .description = "Enable 64-bit registers usage for ppc32 [beta]",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.altivec)] = .{
+        .index = @enumToInt(Feature.altivec),
+        .name = @tagName(Feature.altivec),
+        .llvm_name = "altivec",
+        .description = "Enable Altivec instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .fpu,
+        }),
+    };
+    result[@enumToInt(Feature.booke)] = .{
+        .index = @enumToInt(Feature.booke),
+        .name = @tagName(Feature.booke),
+        .llvm_name = "booke",
+        .description = "Enable Book E instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .icbt,
+        }),
+    };
+    result[@enumToInt(Feature.bpermd)] = .{
+        .index = @enumToInt(Feature.bpermd),
+        .name = @tagName(Feature.bpermd),
+        .llvm_name = "bpermd",
+        .description = "Enable the bpermd instruction",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.cmpb)] = .{
+        .index = @enumToInt(Feature.cmpb),
+        .name = @tagName(Feature.cmpb),
+        .llvm_name = "cmpb",
+        .description = "Enable the cmpb instruction",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.crbits)] = .{
+        .index = @enumToInt(Feature.crbits),
+        .name = @tagName(Feature.crbits),
+        .llvm_name = "crbits",
+        .description = "Use condition-register bits individually",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.crypto)] = .{
+        .index = @enumToInt(Feature.crypto),
+        .name = @tagName(Feature.crypto),
+        .llvm_name = "crypto",
+        .description = "Enable POWER8 Crypto instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .power8_altivec,
+        }),
+    };
+    result[@enumToInt(Feature.direct_move)] = .{
+        .index = @enumToInt(Feature.direct_move),
+        .name = @tagName(Feature.direct_move),
+        .llvm_name = "direct-move",
+        .description = "Enable Power8 direct move instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .vsx,
+        }),
+    };
+    result[@enumToInt(Feature.e500)] = .{
+        .index = @enumToInt(Feature.e500),
+        .name = @tagName(Feature.e500),
+        .llvm_name = "e500",
+        .description = "Enable E500/E500mc instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.extdiv)] = .{
+        .index = @enumToInt(Feature.extdiv),
+        .name = @tagName(Feature.extdiv),
+        .llvm_name = "extdiv",
+        .description = "Enable extended divide instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.fcpsgn)] = .{
+        .index = @enumToInt(Feature.fcpsgn),
+        .name = @tagName(Feature.fcpsgn),
+        .llvm_name = "fcpsgn",
+        .description = "Enable the fcpsgn instruction",
+        .dependencies = featureSet(&[_]Feature{
+            .fpu,
+        }),
+    };
+    result[@enumToInt(Feature.float128)] = .{
+        .index = @enumToInt(Feature.float128),
+        .name = @tagName(Feature.float128),
+        .llvm_name = "float128",
+        .description = "Enable the __float128 data type for IEEE-754R Binary128.",
+        .dependencies = featureSet(&[_]Feature{
+            .vsx,
+        }),
+    };
+    result[@enumToInt(Feature.fpcvt)] = .{
+        .index = @enumToInt(Feature.fpcvt),
+        .name = @tagName(Feature.fpcvt),
+        .llvm_name = "fpcvt",
+        .description = "Enable fc[ft]* (unsigned and single-precision) and lfiwzx instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .fpu,
+        }),
+    };
+    result[@enumToInt(Feature.fprnd)] = .{
+        .index = @enumToInt(Feature.fprnd),
+        .name = @tagName(Feature.fprnd),
+        .llvm_name = "fprnd",
+        .description = "Enable the fri[mnpz] instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .fpu,
+        }),
+    };
+    result[@enumToInt(Feature.fpu)] = .{
+        .index = @enumToInt(Feature.fpu),
+        .name = @tagName(Feature.fpu),
+        .llvm_name = "fpu",
+        .description = "Enable classic FPU instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .hard_float,
+        }),
+    };
+    result[@enumToInt(Feature.fre)] = .{
+        .index = @enumToInt(Feature.fre),
+        .name = @tagName(Feature.fre),
+        .llvm_name = "fre",
+        .description = "Enable the fre instruction",
+        .dependencies = featureSet(&[_]Feature{
+            .fpu,
+        }),
+    };
+    result[@enumToInt(Feature.fres)] = .{
+        .index = @enumToInt(Feature.fres),
+        .name = @tagName(Feature.fres),
+        .llvm_name = "fres",
+        .description = "Enable the fres instruction",
+        .dependencies = featureSet(&[_]Feature{
+            .fpu,
+        }),
+    };
+    result[@enumToInt(Feature.frsqrte)] = .{
+        .index = @enumToInt(Feature.frsqrte),
+        .name = @tagName(Feature.frsqrte),
+        .llvm_name = "frsqrte",
+        .description = "Enable the frsqrte instruction",
+        .dependencies = featureSet(&[_]Feature{
+            .fpu,
+        }),
+    };
+    result[@enumToInt(Feature.frsqrtes)] = .{
+        .index = @enumToInt(Feature.frsqrtes),
+        .name = @tagName(Feature.frsqrtes),
+        .llvm_name = "frsqrtes",
+        .description = "Enable the frsqrtes instruction",
+        .dependencies = featureSet(&[_]Feature{
+            .fpu,
+        }),
+    };
+    result[@enumToInt(Feature.fsqrt)] = .{
+        .index = @enumToInt(Feature.fsqrt),
+        .name = @tagName(Feature.fsqrt),
+        .llvm_name = "fsqrt",
+        .description = "Enable the fsqrt instruction",
+        .dependencies = featureSet(&[_]Feature{
+            .fpu,
+        }),
+    };
+    result[@enumToInt(Feature.hard_float)] = .{
+        .index = @enumToInt(Feature.hard_float),
+        .name = @tagName(Feature.hard_float),
+        .llvm_name = "hard-float",
+        .description = "Enable floating-point instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.htm)] = .{
+        .index = @enumToInt(Feature.htm),
+        .name = @tagName(Feature.htm),
+        .llvm_name = "htm",
+        .description = "Enable Hardware Transactional Memory instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.icbt)] = .{
+        .index = @enumToInt(Feature.icbt),
+        .name = @tagName(Feature.icbt),
+        .llvm_name = "icbt",
+        .description = "Enable icbt instruction",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.invariant_function_descriptors)] = .{
+        .index = @enumToInt(Feature.invariant_function_descriptors),
+        .name = @tagName(Feature.invariant_function_descriptors),
+        .llvm_name = "invariant-function-descriptors",
+        .description = "Assume function descriptors are invariant",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.isa_v30_instructions)] = .{
+        .index = @enumToInt(Feature.isa_v30_instructions),
+        .name = @tagName(Feature.isa_v30_instructions),
+        .llvm_name = "isa-v30-instructions",
+        .description = "Enable instructions added in ISA 3.0.",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.isel)] = .{
+        .index = @enumToInt(Feature.isel),
+        .name = @tagName(Feature.isel),
+        .llvm_name = "isel",
+        .description = "Enable the isel instruction",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.ldbrx)] = .{
+        .index = @enumToInt(Feature.ldbrx),
+        .name = @tagName(Feature.ldbrx),
+        .llvm_name = "ldbrx",
+        .description = "Enable the ldbrx instruction",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.lfiwax)] = .{
+        .index = @enumToInt(Feature.lfiwax),
+        .name = @tagName(Feature.lfiwax),
+        .llvm_name = "lfiwax",
+        .description = "Enable the lfiwax instruction",
+        .dependencies = featureSet(&[_]Feature{
+            .fpu,
+        }),
+    };
+    result[@enumToInt(Feature.longcall)] = .{
+        .index = @enumToInt(Feature.longcall),
+        .name = @tagName(Feature.longcall),
+        .llvm_name = "longcall",
+        .description = "Always use indirect calls",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.mfocrf)] = .{
+        .index = @enumToInt(Feature.mfocrf),
+        .name = @tagName(Feature.mfocrf),
+        .llvm_name = "mfocrf",
+        .description = "Enable the MFOCRF instruction",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.msync)] = .{
+        .index = @enumToInt(Feature.msync),
+        .name = @tagName(Feature.msync),
+        .llvm_name = "msync",
+        .description = "Has only the msync instruction instead of sync",
+        .dependencies = featureSet(&[_]Feature{
+            .booke,
+        }),
+    };
+    result[@enumToInt(Feature.partword_atomics)] = .{
+        .index = @enumToInt(Feature.partword_atomics),
+        .name = @tagName(Feature.partword_atomics),
+        .llvm_name = "partword-atomics",
+        .description = "Enable l[bh]arx and st[bh]cx.",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.popcntd)] = .{
+        .index = @enumToInt(Feature.popcntd),
+        .name = @tagName(Feature.popcntd),
+        .llvm_name = "popcntd",
+        .description = "Enable the popcnt[dw] instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.power8_altivec)] = .{
+        .index = @enumToInt(Feature.power8_altivec),
+        .name = @tagName(Feature.power8_altivec),
+        .llvm_name = "power8-altivec",
+        .description = "Enable POWER8 Altivec instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .altivec,
+        }),
+    };
+    result[@enumToInt(Feature.power8_vector)] = .{
+        .index = @enumToInt(Feature.power8_vector),
+        .name = @tagName(Feature.power8_vector),
+        .llvm_name = "power8-vector",
+        .description = "Enable POWER8 vector instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .power8_altivec,
+            .vsx,
+        }),
+    };
+    result[@enumToInt(Feature.power9_altivec)] = .{
+        .index = @enumToInt(Feature.power9_altivec),
+        .name = @tagName(Feature.power9_altivec),
+        .llvm_name = "power9-altivec",
+        .description = "Enable POWER9 Altivec instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .isa_v30_instructions,
+            .power8_altivec,
+        }),
+    };
+    result[@enumToInt(Feature.power9_vector)] = .{
+        .index = @enumToInt(Feature.power9_vector),
+        .name = @tagName(Feature.power9_vector),
+        .llvm_name = "power9-vector",
+        .description = "Enable POWER9 vector instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .isa_v30_instructions,
+            .power8_vector,
+            .power9_altivec,
+        }),
+    };
+    result[@enumToInt(Feature.ppc_postra_sched)] = .{
+        .index = @enumToInt(Feature.ppc_postra_sched),
+        .name = @tagName(Feature.ppc_postra_sched),
+        .llvm_name = "ppc-postra-sched",
+        .description = "Use PowerPC post-RA scheduling strategy",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.ppc_prera_sched)] = .{
+        .index = @enumToInt(Feature.ppc_prera_sched),
+        .name = @tagName(Feature.ppc_prera_sched),
+        .llvm_name = "ppc-prera-sched",
+        .description = "Use PowerPC pre-RA scheduling strategy",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.ppc4xx)] = .{
+        .index = @enumToInt(Feature.ppc4xx),
+        .name = @tagName(Feature.ppc4xx),
+        .llvm_name = "ppc4xx",
+        .description = "Enable PPC 4xx instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.ppc6xx)] = .{
+        .index = @enumToInt(Feature.ppc6xx),
+        .name = @tagName(Feature.ppc6xx),
+        .llvm_name = "ppc6xx",
+        .description = "Enable PPC 6xx instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.qpx)] = .{
+        .index = @enumToInt(Feature.qpx),
+        .name = @tagName(Feature.qpx),
+        .llvm_name = "qpx",
+        .description = "Enable QPX instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .fpu,
+        }),
+    };
+    result[@enumToInt(Feature.recipprec)] = .{
+        .index = @enumToInt(Feature.recipprec),
+        .name = @tagName(Feature.recipprec),
+        .llvm_name = "recipprec",
+        .description = "Assume higher precision reciprocal estimates",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.secure_plt)] = .{
+        .index = @enumToInt(Feature.secure_plt),
+        .name = @tagName(Feature.secure_plt),
+        .llvm_name = "secure-plt",
+        .description = "Enable secure plt mode",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.slow_popcntd)] = .{
+        .index = @enumToInt(Feature.slow_popcntd),
+        .name = @tagName(Feature.slow_popcntd),
+        .llvm_name = "slow-popcntd",
+        .description = "Has slow popcnt[dw] instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.spe)] = .{
+        .index = @enumToInt(Feature.spe),
+        .name = @tagName(Feature.spe),
+        .llvm_name = "spe",
+        .description = "Enable SPE instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .hard_float,
+        }),
+    };
+    result[@enumToInt(Feature.stfiwx)] = .{
+        .index = @enumToInt(Feature.stfiwx),
+        .name = @tagName(Feature.stfiwx),
+        .llvm_name = "stfiwx",
+        .description = "Enable the stfiwx instruction",
+        .dependencies = featureSet(&[_]Feature{
+            .fpu,
+        }),
+    };
+    result[@enumToInt(Feature.two_const_nr)] = .{
+        .index = @enumToInt(Feature.two_const_nr),
+        .name = @tagName(Feature.two_const_nr),
+        .llvm_name = "two-const-nr",
+        .description = "Requires two constant Newton-Raphson computation",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.vectors_use_two_units)] = .{
+        .index = @enumToInt(Feature.vectors_use_two_units),
+        .name = @tagName(Feature.vectors_use_two_units),
+        .llvm_name = "vectors-use-two-units",
+        .description = "Vectors use two units",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.vsx)] = .{
+        .index = @enumToInt(Feature.vsx),
+        .name = @tagName(Feature.vsx),
+        .llvm_name = "vsx",
+        .description = "Enable VSX instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .altivec,
+        }),
+    };
+    break :blk result;
+};
+
+pub const cpu = struct {
+    pub const @"440" = Cpu{
+        .name = "@"440"",
+        .llvm_name = "440",
+        .features = featureSet(&[_]Feature{
+            .booke,
+            .fres,
+            .frsqrte,
+            .icbt,
+            .isel,
+            .msync,
+        }),
+    };
+    pub const @"450" = Cpu{
+        .name = "@"450"",
+        .llvm_name = "450",
+        .features = featureSet(&[_]Feature{
+            .booke,
+            .fres,
+            .frsqrte,
+            .icbt,
+            .isel,
+            .msync,
+        }),
+    };
+    pub const @"601" = Cpu{
+        .name = "@"601"",
+        .llvm_name = "601",
+        .features = featureSet(&[_]Feature{
+            .fpu,
+        }),
+    };
+    pub const @"602" = Cpu{
+        .name = "@"602"",
+        .llvm_name = "602",
+        .features = featureSet(&[_]Feature{
+            .fpu,
+        }),
+    };
+    pub const @"603" = Cpu{
+        .name = "@"603"",
+        .llvm_name = "603",
+        .features = featureSet(&[_]Feature{
+            .fres,
+            .frsqrte,
+        }),
+    };
+    pub const @"603e" = Cpu{
+        .name = "@"603e"",
+        .llvm_name = "603e",
+        .features = featureSet(&[_]Feature{
+            .fres,
+            .frsqrte,
+        }),
+    };
+    pub const @"603ev" = Cpu{
+        .name = "@"603ev"",
+        .llvm_name = "603ev",
+        .features = featureSet(&[_]Feature{
+            .fres,
+            .frsqrte,
+        }),
+    };
+    pub const @"604" = Cpu{
+        .name = "@"604"",
+        .llvm_name = "604",
+        .features = featureSet(&[_]Feature{
+            .fres,
+            .frsqrte,
+        }),
+    };
+    pub const @"604e" = Cpu{
+        .name = "@"604e"",
+        .llvm_name = "604e",
+        .features = featureSet(&[_]Feature{
+            .fres,
+            .frsqrte,
+        }),
+    };
+    pub const @"620" = Cpu{
+        .name = "@"620"",
+        .llvm_name = "620",
+        .features = featureSet(&[_]Feature{
+            .fres,
+            .frsqrte,
+        }),
+    };
+    pub const @"7400" = Cpu{
+        .name = "@"7400"",
+        .llvm_name = "7400",
+        .features = featureSet(&[_]Feature{
+            .altivec,
+            .fres,
+            .frsqrte,
+        }),
+    };
+    pub const @"7450" = Cpu{
+        .name = "@"7450"",
+        .llvm_name = "7450",
+        .features = featureSet(&[_]Feature{
+            .altivec,
+            .fres,
+            .frsqrte,
+        }),
+    };
+    pub const @"750" = Cpu{
+        .name = "@"750"",
+        .llvm_name = "750",
+        .features = featureSet(&[_]Feature{
+            .fres,
+            .frsqrte,
+        }),
+    };
+    pub const @"970" = Cpu{
+        .name = "@"970"",
+        .llvm_name = "970",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .altivec,
+            .fres,
+            .frsqrte,
+            .fsqrt,
+            .mfocrf,
+            .stfiwx,
+        }),
+    };
+    pub const a2 = Cpu{
+        .name = "a2",
+        .llvm_name = "a2",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .booke,
+            .cmpb,
+            .fcpsgn,
+            .fpcvt,
+            .fprnd,
+            .fre,
+            .fres,
+            .frsqrte,
+            .frsqrtes,
+            .fsqrt,
+            .icbt,
+            .isel,
+            .ldbrx,
+            .lfiwax,
+            .mfocrf,
+            .recipprec,
+            .slow_popcntd,
+            .stfiwx,
+        }),
+    };
+    pub const a2q = Cpu{
+        .name = "a2q",
+        .llvm_name = "a2q",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .booke,
+            .cmpb,
+            .fcpsgn,
+            .fpcvt,
+            .fprnd,
+            .fre,
+            .fres,
+            .frsqrte,
+            .frsqrtes,
+            .fsqrt,
+            .icbt,
+            .isel,
+            .ldbrx,
+            .lfiwax,
+            .mfocrf,
+            .qpx,
+            .recipprec,
+            .slow_popcntd,
+            .stfiwx,
+        }),
+    };
+    pub const e500 = Cpu{
+        .name = "e500",
+        .llvm_name = "e500",
+        .features = featureSet(&[_]Feature{
+            .booke,
+            .icbt,
+            .isel,
+        }),
+    };
+    pub const e500mc = Cpu{
+        .name = "e500mc",
+        .llvm_name = "e500mc",
+        .features = featureSet(&[_]Feature{
+            .booke,
+            .icbt,
+            .isel,
+            .stfiwx,
+        }),
+    };
+    pub const e5500 = Cpu{
+        .name = "e5500",
+        .llvm_name = "e5500",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .booke,
+            .icbt,
+            .isel,
+            .mfocrf,
+            .stfiwx,
+        }),
+    };
+    pub const g3 = Cpu{
+        .name = "g3",
+        .llvm_name = "g3",
+        .features = featureSet(&[_]Feature{
+            .fres,
+            .frsqrte,
+        }),
+    };
+    pub const g4 = Cpu{
+        .name = "g4",
+        .llvm_name = "g4",
+        .features = featureSet(&[_]Feature{
+            .altivec,
+            .fres,
+            .frsqrte,
+        }),
+    };
+    pub const g4+ = Cpu{
+        .name = "g4+",
+        .llvm_name = "g4+",
+        .features = featureSet(&[_]Feature{
+            .altivec,
+            .fres,
+            .frsqrte,
+        }),
+    };
+    pub const g5 = Cpu{
+        .name = "g5",
+        .llvm_name = "g5",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .altivec,
+            .fres,
+            .frsqrte,
+            .fsqrt,
+            .mfocrf,
+            .stfiwx,
+        }),
+    };
+    pub const generic = Cpu{
+        .name = "generic",
+        .llvm_name = "generic",
+        .features = featureSet(&[_]Feature{
+            .hard_float,
+        }),
+    };
+    pub const ppc = Cpu{
+        .name = "ppc",
+        .llvm_name = "ppc",
+        .features = featureSet(&[_]Feature{
+            .hard_float,
+        }),
+    };
+    pub const ppc32 = Cpu{
+        .name = "ppc32",
+        .llvm_name = "ppc32",
+        .features = featureSet(&[_]Feature{
+            .hard_float,
+        }),
+    };
+    pub const ppc64 = Cpu{
+        .name = "ppc64",
+        .llvm_name = "ppc64",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .altivec,
+            .fres,
+            .frsqrte,
+            .fsqrt,
+            .mfocrf,
+            .stfiwx,
+        }),
+    };
+    pub const ppc64le = Cpu{
+        .name = "ppc64le",
+        .llvm_name = "ppc64le",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .altivec,
+            .bpermd,
+            .cmpb,
+            .crypto,
+            .direct_move,
+            .extdiv,
+            .fcpsgn,
+            .fpcvt,
+            .fprnd,
+            .fre,
+            .fres,
+            .frsqrte,
+            .frsqrtes,
+            .fsqrt,
+            .htm,
+            .icbt,
+            .isel,
+            .ldbrx,
+            .lfiwax,
+            .mfocrf,
+            .partword_atomics,
+            .popcntd,
+            .power8_altivec,
+            .power8_vector,
+            .recipprec,
+            .stfiwx,
+            .two_const_nr,
+            .vsx,
+        }),
+    };
+    pub const pwr3 = Cpu{
+        .name = "pwr3",
+        .llvm_name = "pwr3",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .altivec,
+            .fres,
+            .frsqrte,
+            .mfocrf,
+            .stfiwx,
+        }),
+    };
+    pub const pwr4 = Cpu{
+        .name = "pwr4",
+        .llvm_name = "pwr4",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .altivec,
+            .fres,
+            .frsqrte,
+            .fsqrt,
+            .mfocrf,
+            .stfiwx,
+        }),
+    };
+    pub const pwr5 = Cpu{
+        .name = "pwr5",
+        .llvm_name = "pwr5",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .altivec,
+            .fre,
+            .fres,
+            .frsqrte,
+            .frsqrtes,
+            .fsqrt,
+            .mfocrf,
+            .stfiwx,
+        }),
+    };
+    pub const pwr5x = Cpu{
+        .name = "pwr5x",
+        .llvm_name = "pwr5x",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .altivec,
+            .fprnd,
+            .fre,
+            .fres,
+            .frsqrte,
+            .frsqrtes,
+            .fsqrt,
+            .mfocrf,
+            .stfiwx,
+        }),
+    };
+    pub const pwr6 = Cpu{
+        .name = "pwr6",
+        .llvm_name = "pwr6",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .altivec,
+            .cmpb,
+            .fcpsgn,
+            .fprnd,
+            .fre,
+            .fres,
+            .frsqrte,
+            .frsqrtes,
+            .fsqrt,
+            .lfiwax,
+            .mfocrf,
+            .recipprec,
+            .stfiwx,
+        }),
+    };
+    pub const pwr6x = Cpu{
+        .name = "pwr6x",
+        .llvm_name = "pwr6x",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .altivec,
+            .cmpb,
+            .fcpsgn,
+            .fprnd,
+            .fre,
+            .fres,
+            .frsqrte,
+            .frsqrtes,
+            .fsqrt,
+            .lfiwax,
+            .mfocrf,
+            .recipprec,
+            .stfiwx,
+        }),
+    };
+    pub const pwr7 = Cpu{
+        .name = "pwr7",
+        .llvm_name = "pwr7",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .altivec,
+            .bpermd,
+            .cmpb,
+            .extdiv,
+            .fcpsgn,
+            .fpcvt,
+            .fprnd,
+            .fre,
+            .fres,
+            .frsqrte,
+            .frsqrtes,
+            .fsqrt,
+            .isel,
+            .ldbrx,
+            .lfiwax,
+            .mfocrf,
+            .popcntd,
+            .recipprec,
+            .stfiwx,
+            .two_const_nr,
+            .vsx,
+        }),
+    };
+    pub const pwr8 = Cpu{
+        .name = "pwr8",
+        .llvm_name = "pwr8",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .altivec,
+            .bpermd,
+            .cmpb,
+            .crypto,
+            .direct_move,
+            .extdiv,
+            .fcpsgn,
+            .fpcvt,
+            .fprnd,
+            .fre,
+            .fres,
+            .frsqrte,
+            .frsqrtes,
+            .fsqrt,
+            .htm,
+            .icbt,
+            .isel,
+            .ldbrx,
+            .lfiwax,
+            .mfocrf,
+            .partword_atomics,
+            .popcntd,
+            .power8_altivec,
+            .power8_vector,
+            .recipprec,
+            .stfiwx,
+            .two_const_nr,
+            .vsx,
+        }),
+    };
+    pub const pwr9 = Cpu{
+        .name = "pwr9",
+        .llvm_name = "pwr9",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .altivec,
+            .bpermd,
+            .cmpb,
+            .crypto,
+            .direct_move,
+            .extdiv,
+            .fcpsgn,
+            .fpcvt,
+            .fprnd,
+            .fre,
+            .fres,
+            .frsqrte,
+            .frsqrtes,
+            .fsqrt,
+            .htm,
+            .icbt,
+            .isa_v30_instructions,
+            .isel,
+            .ldbrx,
+            .lfiwax,
+            .mfocrf,
+            .partword_atomics,
+            .popcntd,
+            .power8_altivec,
+            .power8_vector,
+            .power9_altivec,
+            .power9_vector,
+            .ppc_postra_sched,
+            .ppc_prera_sched,
+            .recipprec,
+            .stfiwx,
+            .two_const_nr,
+            .vectors_use_two_units,
+            .vsx,
+        }),
+    };
+};
+
+/// All powerpc CPUs, sorted alphabetically by name.
+/// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
+/// compiler has inefficient memory and CPU usage, affecting build times.
+pub const all_cpus = &[_]*const Cpu{
+    &cpu.@"440",
+    &cpu.@"450",
+    &cpu.@"601",
+    &cpu.@"602",
+    &cpu.@"603",
+    &cpu.@"603e",
+    &cpu.@"603ev",
+    &cpu.@"604",
+    &cpu.@"604e",
+    &cpu.@"620",
+    &cpu.@"7400",
+    &cpu.@"7450",
+    &cpu.@"750",
+    &cpu.@"970",
+    &cpu.a2,
+    &cpu.a2q,
+    &cpu.e500,
+    &cpu.e500mc,
+    &cpu.e5500,
+    &cpu.g3,
+    &cpu.g4,
+    &cpu.g4+,
+    &cpu.g5,
+    &cpu.generic,
+    &cpu.ppc,
+    &cpu.ppc32,
+    &cpu.ppc64,
+    &cpu.ppc64le,
+    &cpu.pwr3,
+    &cpu.pwr4,
+    &cpu.pwr5,
+    &cpu.pwr5x,
+    &cpu.pwr6,
+    &cpu.pwr6x,
+    &cpu.pwr7,
+    &cpu.pwr8,
+    &cpu.pwr9,
 };

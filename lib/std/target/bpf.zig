@@ -1,75 +1,77 @@
-const Feature = @import("std").target.Feature;
-const Cpu = @import("std").target.Cpu;
+const std = @import("../std.zig");
+const Cpu = std.Target.Cpu;
 
-pub const feature_alu32 = Feature{
-    .name = "alu32",
-    .llvm_name = "alu32",
-    .description = "Enable ALU32 instructions",
-    .dependencies = &[_]*const Feature {
-    },
+pub const Feature = enum {
+    alu32,
+    dummy,
+    dwarfris,
 };
 
-pub const feature_dummy = Feature{
-    .name = "dummy",
-    .llvm_name = "dummy",
-    .description = "unused feature",
-    .dependencies = &[_]*const Feature {
-    },
+pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
+
+pub const all_features = blk: {
+    const len = @typeInfo(Feature).Enum.fields.len;
+    std.debug.assert(len <= @typeInfo(Cpu.Feature.Set).Int.bits);
+    var result: [len]Cpu.Feature = undefined;
+    result[@enumToInt(Feature.alu32)] = .{
+        .index = @enumToInt(Feature.alu32),
+        .name = @tagName(Feature.alu32),
+        .llvm_name = "alu32",
+        .description = "Enable ALU32 instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.dummy)] = .{
+        .index = @enumToInt(Feature.dummy),
+        .name = @tagName(Feature.dummy),
+        .llvm_name = "dummy",
+        .description = "unused feature",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.dwarfris)] = .{
+        .index = @enumToInt(Feature.dwarfris),
+        .name = @tagName(Feature.dwarfris),
+        .llvm_name = "dwarfris",
+        .description = "Disable MCAsmInfo DwarfUsesRelocationsAcrossSections",
+        .dependencies = 0,
+    };
+    break :blk result;
 };
 
-pub const feature_dwarfris = Feature{
-    .name = "dwarfris",
-    .llvm_name = "dwarfris",
-    .description = "Disable MCAsmInfo DwarfUsesRelocationsAcrossSections",
-    .dependencies = &[_]*const Feature {
-    },
+pub const cpu = struct {
+    pub const generic = Cpu{
+        .name = "generic",
+        .llvm_name = "generic",
+        .features = 0,
+    };
+    pub const probe = Cpu{
+        .name = "probe",
+        .llvm_name = "probe",
+        .features = 0,
+    };
+    pub const v1 = Cpu{
+        .name = "v1",
+        .llvm_name = "v1",
+        .features = 0,
+    };
+    pub const v2 = Cpu{
+        .name = "v2",
+        .llvm_name = "v2",
+        .features = 0,
+    };
+    pub const v3 = Cpu{
+        .name = "v3",
+        .llvm_name = "v3",
+        .features = 0,
+    };
 };
 
-pub const features = &[_]*const Feature {
-    &feature_alu32,
-    &feature_dummy,
-    &feature_dwarfris,
-};
-
-pub const cpu_generic = Cpu{
-    .name = "generic",
-    .llvm_name = "generic",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const cpu_probe = Cpu{
-    .name = "probe",
-    .llvm_name = "probe",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const cpu_v1 = Cpu{
-    .name = "v1",
-    .llvm_name = "v1",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const cpu_v2 = Cpu{
-    .name = "v2",
-    .llvm_name = "v2",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const cpu_v3 = Cpu{
-    .name = "v3",
-    .llvm_name = "v3",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const cpus = &[_]*const Cpu {
-    &cpu_generic,
-    &cpu_probe,
-    &cpu_v1,
-    &cpu_v2,
-    &cpu_v3,
+/// All bpf CPUs, sorted alphabetically by name.
+/// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
+/// compiler has inefficient memory and CPU usage, affecting build times.
+pub const all_cpus = &[_]*const Cpu{
+    &cpu.generic,
+    &cpu.probe,
+    &cpu.v1,
+    &cpu.v2,
+    &cpu.v3,
 };

@@ -1,2132 +1,1524 @@
-const Feature = @import("std").target.Feature;
-const Cpu = @import("std").target.Cpu;
-
-pub const feature_BitInsts16 = Feature{
-    .name = "BitInsts16",
-    .llvm_name = "16-bit-insts",
-    .description = "Has i16/f16 instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_addNoCarryInsts = Feature{
-    .name = "addNoCarryInsts",
-    .llvm_name = "add-no-carry-insts",
-    .description = "Have VALU add/sub instructions without carry out",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_apertureRegs = Feature{
-    .name = "apertureRegs",
-    .llvm_name = "aperture-regs",
-    .description = "Has Memory Aperture Base and Size Registers",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_atomicFaddInsts = Feature{
-    .name = "atomicFaddInsts",
-    .llvm_name = "atomic-fadd-insts",
-    .description = "Has buffer_atomic_add_f32, buffer_atomic_pk_add_f16, global_atomic_add_f32, global_atomic_pk_add_f16 instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_autoWaitcntBeforeBarrier = Feature{
-    .name = "autoWaitcntBeforeBarrier",
-    .llvm_name = "auto-waitcnt-before-barrier",
-    .description = "Hardware automatically inserts waitcnt before barrier",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_ciInsts = Feature{
-    .name = "ciInsts",
-    .llvm_name = "ci-insts",
-    .description = "Additional instructions for CI+",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_codeObjectV3 = Feature{
-    .name = "codeObjectV3",
-    .llvm_name = "code-object-v3",
-    .description = "Generate code object version 3",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_cumode = Feature{
-    .name = "cumode",
-    .llvm_name = "cumode",
-    .description = "Enable CU wavefront execution mode",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_dlInsts = Feature{
-    .name = "dlInsts",
-    .llvm_name = "dl-insts",
-    .description = "Has v_fmac_f32 and v_xnor_b32 instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_dpp = Feature{
-    .name = "dpp",
-    .llvm_name = "dpp",
-    .description = "Support DPP (Data Parallel Primitives) extension",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_dpp8 = Feature{
-    .name = "dpp8",
-    .llvm_name = "dpp8",
-    .description = "Support DPP8 (Data Parallel Primitives) extension",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_noSramEccSupport = Feature{
-    .name = "noSramEccSupport",
-    .llvm_name = "no-sram-ecc-support",
-    .description = "Hardware does not support SRAM ECC",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_noXnackSupport = Feature{
-    .name = "noXnackSupport",
-    .llvm_name = "no-xnack-support",
-    .description = "Hardware does not support XNACK",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_dot1Insts = Feature{
-    .name = "dot1Insts",
-    .llvm_name = "dot1-insts",
-    .description = "Has v_dot4_i32_i8 and v_dot8_i32_i4 instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_dot2Insts = Feature{
-    .name = "dot2Insts",
-    .llvm_name = "dot2-insts",
-    .description = "Has v_dot2_f32_f16, v_dot2_i32_i16, v_dot2_u32_u16, v_dot4_u32_u8, v_dot8_u32_u4 instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_dot3Insts = Feature{
-    .name = "dot3Insts",
-    .llvm_name = "dot3-insts",
-    .description = "Has v_dot8c_i32_i4 instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_dot4Insts = Feature{
-    .name = "dot4Insts",
-    .llvm_name = "dot4-insts",
-    .description = "Has v_dot2c_i32_i16 instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_dot5Insts = Feature{
-    .name = "dot5Insts",
-    .llvm_name = "dot5-insts",
-    .description = "Has v_dot2c_f32_f16 instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_dot6Insts = Feature{
-    .name = "dot6Insts",
-    .llvm_name = "dot6-insts",
-    .description = "Has v_dot4c_i32_i8 instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_DumpCode = Feature{
-    .name = "DumpCode",
-    .llvm_name = "DumpCode",
-    .description = "Dump MachineInstrs in the CodeEmitter",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_dumpcode = Feature{
-    .name = "dumpcode",
-    .llvm_name = "dumpcode",
-    .description = "Dump MachineInstrs in the CodeEmitter",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_enableDs128 = Feature{
-    .name = "enableDs128",
-    .llvm_name = "enable-ds128",
-    .description = "Use ds_{read|write}_b128",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_loadStoreOpt = Feature{
-    .name = "loadStoreOpt",
-    .llvm_name = "load-store-opt",
-    .description = "Enable SI load/store optimizer pass",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_enablePrtStrictNull = Feature{
-    .name = "enablePrtStrictNull",
-    .llvm_name = "enable-prt-strict-null",
-    .description = "Enable zeroing of result registers for sparse texture fetches",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_siScheduler = Feature{
-    .name = "siScheduler",
-    .llvm_name = "si-scheduler",
-    .description = "Enable SI Machine Scheduler",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_unsafeDsOffsetFolding = Feature{
-    .name = "unsafeDsOffsetFolding",
-    .llvm_name = "unsafe-ds-offset-folding",
-    .description = "Force using DS instruction immediate offsets on SI",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fmaf = Feature{
-    .name = "fmaf",
-    .llvm_name = "fmaf",
-    .description = "Enable single precision FMA (not as fast as mul+add, but fused)",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fp16Denormals = Feature{
-    .name = "fp16Denormals",
-    .llvm_name = "fp16-denormals",
-    .description = "Enable half precision denormal handling",
-    .dependencies = &[_]*const Feature {
-        &feature_fp64,
-    },
-};
-
-pub const feature_fp32Denormals = Feature{
-    .name = "fp32Denormals",
-    .llvm_name = "fp32-denormals",
-    .description = "Enable single precision denormal handling",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fp64 = Feature{
-    .name = "fp64",
-    .llvm_name = "fp64",
-    .description = "Enable double precision operations",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fp64Denormals = Feature{
-    .name = "fp64Denormals",
-    .llvm_name = "fp64-denormals",
-    .description = "Enable double and half precision denormal handling",
-    .dependencies = &[_]*const Feature {
-        &feature_fp64,
-    },
-};
-
-pub const feature_fp64Fp16Denormals = Feature{
-    .name = "fp64Fp16Denormals",
-    .llvm_name = "fp64-fp16-denormals",
-    .description = "Enable double and half precision denormal handling",
-    .dependencies = &[_]*const Feature {
-        &feature_fp64,
-    },
-};
-
-pub const feature_fpExceptions = Feature{
-    .name = "fpExceptions",
-    .llvm_name = "fp-exceptions",
-    .description = "Enable floating point exceptions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fastFmaf = Feature{
-    .name = "fastFmaf",
-    .llvm_name = "fast-fmaf",
-    .description = "Assuming f32 fma is at least as fast as mul + add",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_flatAddressSpace = Feature{
-    .name = "flatAddressSpace",
-    .llvm_name = "flat-address-space",
-    .description = "Support flat address space",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_flatForGlobal = Feature{
-    .name = "flatForGlobal",
-    .llvm_name = "flat-for-global",
-    .description = "Force to generate flat instruction for global",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_flatGlobalInsts = Feature{
-    .name = "flatGlobalInsts",
-    .llvm_name = "flat-global-insts",
-    .description = "Have global_* flat memory instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_flatInstOffsets = Feature{
-    .name = "flatInstOffsets",
-    .llvm_name = "flat-inst-offsets",
-    .description = "Flat instructions have immediate offset addressing mode",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_flatScratchInsts = Feature{
-    .name = "flatScratchInsts",
-    .llvm_name = "flat-scratch-insts",
-    .description = "Have scratch_* flat memory instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_flatSegmentOffsetBug = Feature{
-    .name = "flatSegmentOffsetBug",
-    .llvm_name = "flat-segment-offset-bug",
-    .description = "GFX10 bug, inst_offset ignored in flat segment",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_fmaMixInsts = Feature{
-    .name = "fmaMixInsts",
-    .llvm_name = "fma-mix-insts",
-    .description = "Has v_fma_mix_f32, v_fma_mixlo_f16, v_fma_mixhi_f16 instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_gcn3Encoding = Feature{
-    .name = "gcn3Encoding",
-    .llvm_name = "gcn3-encoding",
-    .description = "Encoding format for VI",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_gfx7Gfx8Gfx9Insts = Feature{
-    .name = "gfx7Gfx8Gfx9Insts",
-    .llvm_name = "gfx7-gfx8-gfx9-insts",
-    .description = "Instructions shared in GFX7, GFX8, GFX9",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_gfx8Insts = Feature{
-    .name = "gfx8Insts",
-    .llvm_name = "gfx8-insts",
-    .description = "Additional instructions for GFX8+",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_gfx9Insts = Feature{
-    .name = "gfx9Insts",
-    .llvm_name = "gfx9-insts",
-    .description = "Additional instructions for GFX9+",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_gfx10Insts = Feature{
-    .name = "gfx10Insts",
-    .llvm_name = "gfx10-insts",
-    .description = "Additional instructions for GFX10+",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_instFwdPrefetchBug = Feature{
-    .name = "instFwdPrefetchBug",
-    .llvm_name = "inst-fwd-prefetch-bug",
-    .description = "S_INST_PREFETCH instruction causes shader to hang",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_intClampInsts = Feature{
-    .name = "intClampInsts",
-    .llvm_name = "int-clamp-insts",
-    .description = "Support clamp for integer destination",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_inv2piInlineImm = Feature{
-    .name = "inv2piInlineImm",
-    .llvm_name = "inv-2pi-inline-imm",
-    .description = "Has 1 / (2 * pi) as inline immediate",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_ldsbankcount16 = Feature{
-    .name = "ldsbankcount16",
-    .llvm_name = "ldsbankcount16",
-    .description = "The number of LDS banks per compute unit.",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_ldsbankcount32 = Feature{
-    .name = "ldsbankcount32",
-    .llvm_name = "ldsbankcount32",
-    .description = "The number of LDS banks per compute unit.",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_ldsBranchVmemWarHazard = Feature{
-    .name = "ldsBranchVmemWarHazard",
-    .llvm_name = "lds-branch-vmem-war-hazard",
-    .description = "Switching between LDS and VMEM-tex not waiting VM_VSRC=0",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_ldsMisalignedBug = Feature{
-    .name = "ldsMisalignedBug",
-    .llvm_name = "lds-misaligned-bug",
-    .description = "Some GFX10 bug with misaligned multi-dword LDS access in WGP mode",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_localmemorysize0 = Feature{
-    .name = "localmemorysize0",
-    .llvm_name = "localmemorysize0",
-    .description = "The size of local memory in bytes",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_localmemorysize32768 = Feature{
-    .name = "localmemorysize32768",
-    .llvm_name = "localmemorysize32768",
-    .description = "The size of local memory in bytes",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_localmemorysize65536 = Feature{
-    .name = "localmemorysize65536",
-    .llvm_name = "localmemorysize65536",
-    .description = "The size of local memory in bytes",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_maiInsts = Feature{
-    .name = "maiInsts",
-    .llvm_name = "mai-insts",
-    .description = "Has mAI instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_mimgR128 = Feature{
-    .name = "mimgR128",
-    .llvm_name = "mimg-r128",
-    .description = "Support 128-bit texture resources",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_madMixInsts = Feature{
-    .name = "madMixInsts",
-    .llvm_name = "mad-mix-insts",
-    .description = "Has v_mad_mix_f32, v_mad_mixlo_f16, v_mad_mixhi_f16 instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_maxPrivateElementSize4 = Feature{
-    .name = "maxPrivateElementSize4",
-    .llvm_name = "max-private-element-size-4",
-    .description = "Maximum private access size may be 4",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_maxPrivateElementSize8 = Feature{
-    .name = "maxPrivateElementSize8",
-    .llvm_name = "max-private-element-size-8",
-    .description = "Maximum private access size may be 8",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_maxPrivateElementSize16 = Feature{
-    .name = "maxPrivateElementSize16",
-    .llvm_name = "max-private-element-size-16",
-    .description = "Maximum private access size may be 16",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_movrel = Feature{
-    .name = "movrel",
-    .llvm_name = "movrel",
-    .description = "Has v_movrel*_b32 instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_nsaEncoding = Feature{
-    .name = "nsaEncoding",
-    .llvm_name = "nsa-encoding",
-    .description = "Support NSA encoding for image instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_nsaToVmemBug = Feature{
-    .name = "nsaToVmemBug",
-    .llvm_name = "nsa-to-vmem-bug",
-    .description = "MIMG-NSA followed by VMEM fail if EXEC_LO or EXEC_HI equals zero",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_noDataDepHazard = Feature{
-    .name = "noDataDepHazard",
-    .llvm_name = "no-data-dep-hazard",
-    .description = "Does not need SW waitstates",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_noSdstCmpx = Feature{
-    .name = "noSdstCmpx",
-    .llvm_name = "no-sdst-cmpx",
-    .description = "V_CMPX does not write VCC/SGPR in addition to EXEC",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_offset3fBug = Feature{
-    .name = "offset3fBug",
-    .llvm_name = "offset-3f-bug",
-    .description = "Branch offset of 3f hardware bug",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_pkFmacF16Inst = Feature{
-    .name = "pkFmacF16Inst",
-    .llvm_name = "pk-fmac-f16-inst",
-    .description = "Has v_pk_fmac_f16 instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_promoteAlloca = Feature{
-    .name = "promoteAlloca",
-    .llvm_name = "promote-alloca",
-    .description = "Enable promote alloca pass",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_r128A16 = Feature{
-    .name = "r128A16",
-    .llvm_name = "r128-a16",
-    .description = "Support 16 bit coordindates/gradients/lod/clamp/mip types on gfx9",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_registerBanking = Feature{
-    .name = "registerBanking",
-    .llvm_name = "register-banking",
-    .description = "Has register banking",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sdwa = Feature{
-    .name = "sdwa",
-    .llvm_name = "sdwa",
-    .description = "Support SDWA (Sub-DWORD Addressing) extension",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sdwaMav = Feature{
-    .name = "sdwaMav",
-    .llvm_name = "sdwa-mav",
-    .description = "Support v_mac_f32/f16 with SDWA (Sub-DWORD Addressing) extension",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sdwaOmod = Feature{
-    .name = "sdwaOmod",
-    .llvm_name = "sdwa-omod",
-    .description = "Support OMod with SDWA (Sub-DWORD Addressing) extension",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sdwaOutModsVopc = Feature{
-    .name = "sdwaOutModsVopc",
-    .llvm_name = "sdwa-out-mods-vopc",
-    .description = "Support clamp for VOPC with SDWA (Sub-DWORD Addressing) extension",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sdwaScalar = Feature{
-    .name = "sdwaScalar",
-    .llvm_name = "sdwa-scalar",
-    .description = "Support scalar register with SDWA (Sub-DWORD Addressing) extension",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sdwaSdst = Feature{
-    .name = "sdwaSdst",
-    .llvm_name = "sdwa-sdst",
-    .description = "Support scalar dst for VOPC with SDWA (Sub-DWORD Addressing) extension",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sgprInitBug = Feature{
-    .name = "sgprInitBug",
-    .llvm_name = "sgpr-init-bug",
-    .description = "VI SGPR initialization bug requiring a fixed SGPR allocation size",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_smemToVectorWriteHazard = Feature{
-    .name = "smemToVectorWriteHazard",
-    .llvm_name = "smem-to-vector-write-hazard",
-    .description = "s_load_dword followed by v_cmp page faults",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sMemrealtime = Feature{
-    .name = "sMemrealtime",
-    .llvm_name = "s-memrealtime",
-    .description = "Has s_memrealtime instruction",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sramEcc = Feature{
-    .name = "sramEcc",
-    .llvm_name = "sram-ecc",
-    .description = "Enable SRAM ECC",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_scalarAtomics = Feature{
-    .name = "scalarAtomics",
-    .llvm_name = "scalar-atomics",
-    .description = "Has atomic scalar memory instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_scalarFlatScratchInsts = Feature{
-    .name = "scalarFlatScratchInsts",
-    .llvm_name = "scalar-flat-scratch-insts",
-    .description = "Have s_scratch_* flat memory instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_scalarStores = Feature{
-    .name = "scalarStores",
-    .llvm_name = "scalar-stores",
-    .description = "Has store scalar memory instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_trapHandler = Feature{
-    .name = "trapHandler",
-    .llvm_name = "trap-handler",
-    .description = "Trap handler support",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_trigReducedRange = Feature{
-    .name = "trigReducedRange",
-    .llvm_name = "trig-reduced-range",
-    .description = "Requires use of fract on arguments to trig instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_unalignedBufferAccess = Feature{
-    .name = "unalignedBufferAccess",
-    .llvm_name = "unaligned-buffer-access",
-    .description = "Support unaligned global loads and stores",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_unalignedScratchAccess = Feature{
-    .name = "unalignedScratchAccess",
-    .llvm_name = "unaligned-scratch-access",
-    .description = "Support unaligned scratch loads and stores",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_unpackedD16Vmem = Feature{
-    .name = "unpackedD16Vmem",
-    .llvm_name = "unpacked-d16-vmem",
-    .description = "Has unpacked d16 vmem instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_vgprIndexMode = Feature{
-    .name = "vgprIndexMode",
-    .llvm_name = "vgpr-index-mode",
-    .description = "Has VGPR mode register indexing",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_vmemToScalarWriteHazard = Feature{
-    .name = "vmemToScalarWriteHazard",
-    .llvm_name = "vmem-to-scalar-write-hazard",
-    .description = "VMEM instruction followed by scalar writing to EXEC mask, M0 or SGPR leads to incorrect execution.",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_vop3Literal = Feature{
-    .name = "vop3Literal",
-    .llvm_name = "vop3-literal",
-    .description = "Can use one literal in VOP3",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_vop3p = Feature{
-    .name = "vop3p",
-    .llvm_name = "vop3p",
-    .description = "Has VOP3P packed instructions",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_vcmpxExecWarHazard = Feature{
-    .name = "vcmpxExecWarHazard",
-    .llvm_name = "vcmpx-exec-war-hazard",
-    .description = "V_CMPX WAR hazard on EXEC (V_CMPX issue ONLY)",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_vcmpxPermlaneHazard = Feature{
-    .name = "vcmpxPermlaneHazard",
-    .llvm_name = "vcmpx-permlane-hazard",
-    .description = "TODO: describe me",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_vscnt = Feature{
-    .name = "vscnt",
-    .llvm_name = "vscnt",
-    .description = "Has separate store vscnt counter",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_wavefrontsize16 = Feature{
-    .name = "wavefrontsize16",
-    .llvm_name = "wavefrontsize16",
-    .description = "The number of threads per wavefront",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_wavefrontsize32 = Feature{
-    .name = "wavefrontsize32",
-    .llvm_name = "wavefrontsize32",
-    .description = "The number of threads per wavefront",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_wavefrontsize64 = Feature{
-    .name = "wavefrontsize64",
-    .llvm_name = "wavefrontsize64",
-    .description = "The number of threads per wavefront",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_xnack = Feature{
-    .name = "xnack",
-    .llvm_name = "xnack",
-    .description = "Enable XNACK support",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_halfRate64Ops = Feature{
-    .name = "halfRate64Ops",
-    .llvm_name = "half-rate-64-ops",
-    .description = "Most fp64 instructions are half rate instead of quarter",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const features = &[_]*const Feature {
-    &feature_BitInsts16,
-    &feature_addNoCarryInsts,
-    &feature_apertureRegs,
-    &feature_atomicFaddInsts,
-    &feature_autoWaitcntBeforeBarrier,
-    &feature_ciInsts,
-    &feature_codeObjectV3,
-    &feature_cumode,
-    &feature_dlInsts,
-    &feature_dpp,
-    &feature_dpp8,
-    &feature_noSramEccSupport,
-    &feature_noXnackSupport,
-    &feature_dot1Insts,
-    &feature_dot2Insts,
-    &feature_dot3Insts,
-    &feature_dot4Insts,
-    &feature_dot5Insts,
-    &feature_dot6Insts,
-    &feature_DumpCode,
-    &feature_dumpcode,
-    &feature_enableDs128,
-    &feature_loadStoreOpt,
-    &feature_enablePrtStrictNull,
-    &feature_siScheduler,
-    &feature_unsafeDsOffsetFolding,
-    &feature_fmaf,
-    &feature_fp16Denormals,
-    &feature_fp32Denormals,
-    &feature_fp64,
-    &feature_fp64Denormals,
-    &feature_fp64Fp16Denormals,
-    &feature_fpExceptions,
-    &feature_fastFmaf,
-    &feature_flatAddressSpace,
-    &feature_flatForGlobal,
-    &feature_flatGlobalInsts,
-    &feature_flatInstOffsets,
-    &feature_flatScratchInsts,
-    &feature_flatSegmentOffsetBug,
-    &feature_fmaMixInsts,
-    &feature_gcn3Encoding,
-    &feature_gfx7Gfx8Gfx9Insts,
-    &feature_gfx8Insts,
-    &feature_gfx9Insts,
-    &feature_gfx10Insts,
-    &feature_instFwdPrefetchBug,
-    &feature_intClampInsts,
-    &feature_inv2piInlineImm,
-    &feature_ldsbankcount16,
-    &feature_ldsbankcount32,
-    &feature_ldsBranchVmemWarHazard,
-    &feature_ldsMisalignedBug,
-    &feature_localmemorysize0,
-    &feature_localmemorysize32768,
-    &feature_localmemorysize65536,
-    &feature_maiInsts,
-    &feature_mimgR128,
-    &feature_madMixInsts,
-    &feature_maxPrivateElementSize4,
-    &feature_maxPrivateElementSize8,
-    &feature_maxPrivateElementSize16,
-    &feature_movrel,
-    &feature_nsaEncoding,
-    &feature_nsaToVmemBug,
-    &feature_noDataDepHazard,
-    &feature_noSdstCmpx,
-    &feature_offset3fBug,
-    &feature_pkFmacF16Inst,
-    &feature_promoteAlloca,
-    &feature_r128A16,
-    &feature_registerBanking,
-    &feature_sdwa,
-    &feature_sdwaMav,
-    &feature_sdwaOmod,
-    &feature_sdwaOutModsVopc,
-    &feature_sdwaScalar,
-    &feature_sdwaSdst,
-    &feature_sgprInitBug,
-    &feature_smemToVectorWriteHazard,
-    &feature_sMemrealtime,
-    &feature_sramEcc,
-    &feature_scalarAtomics,
-    &feature_scalarFlatScratchInsts,
-    &feature_scalarStores,
-    &feature_trapHandler,
-    &feature_trigReducedRange,
-    &feature_unalignedBufferAccess,
-    &feature_unalignedScratchAccess,
-    &feature_unpackedD16Vmem,
-    &feature_vgprIndexMode,
-    &feature_vmemToScalarWriteHazard,
-    &feature_vop3Literal,
-    &feature_vop3p,
-    &feature_vcmpxExecWarHazard,
-    &feature_vcmpxPermlaneHazard,
-    &feature_vscnt,
-    &feature_wavefrontsize16,
-    &feature_wavefrontsize32,
-    &feature_wavefrontsize64,
-    &feature_xnack,
-    &feature_halfRate64Ops,
-};
-
-pub const cpu_bonaire = Cpu{
-    .name = "bonaire",
-    .llvm_name = "bonaire",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount32,
-        &feature_trigReducedRange,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_movrel,
-        &feature_flatAddressSpace,
-        &feature_wavefrontsize64,
-        &feature_fp64,
-        &feature_mimgR128,
-        &feature_noSramEccSupport,
-        &feature_ciInsts,
-        &feature_localmemorysize65536,
-    },
-};
-
-pub const cpu_carrizo = Cpu{
-    .name = "carrizo",
-    .llvm_name = "carrizo",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_fastFmaf,
-        &feature_ldsbankcount32,
-        &feature_unpackedD16Vmem,
-        &feature_trigReducedRange,
-        &feature_vgprIndexMode,
-        &feature_movrel,
-        &feature_fp64,
-        &feature_gcn3Encoding,
-        &feature_mimgR128,
-        &feature_sdwa,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_intClampInsts,
-        &feature_ciInsts,
-        &feature_sdwaOutModsVopc,
-        &feature_sMemrealtime,
-        &feature_flatAddressSpace,
-        &feature_inv2piInlineImm,
-        &feature_wavefrontsize64,
-        &feature_noSramEccSupport,
-        &feature_sdwaMav,
-        &feature_localmemorysize65536,
-        &feature_scalarStores,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-        &feature_xnack,
-        &feature_halfRate64Ops,
-    },
-};
-
-pub const cpu_fiji = Cpu{
-    .name = "fiji",
-    .llvm_name = "fiji",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount32,
-        &feature_unpackedD16Vmem,
-        &feature_trigReducedRange,
-        &feature_vgprIndexMode,
-        &feature_movrel,
-        &feature_fp64,
-        &feature_gcn3Encoding,
-        &feature_mimgR128,
-        &feature_sdwa,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_intClampInsts,
-        &feature_ciInsts,
-        &feature_sdwaOutModsVopc,
-        &feature_sMemrealtime,
-        &feature_flatAddressSpace,
-        &feature_inv2piInlineImm,
-        &feature_wavefrontsize64,
-        &feature_noSramEccSupport,
-        &feature_sdwaMav,
-        &feature_localmemorysize65536,
-        &feature_scalarStores,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-    },
-};
-
-pub const cpu_generic = Cpu{
-    .name = "generic",
-    .llvm_name = "generic",
-    .dependencies = &[_]*const Feature {
-        &feature_wavefrontsize64,
-    },
-};
-
-pub const cpu_genericHsa = Cpu{
-    .name = "genericHsa",
-    .llvm_name = "generic-hsa",
-    .dependencies = &[_]*const Feature {
-        &feature_flatAddressSpace,
-        &feature_wavefrontsize64,
-    },
-};
-
-pub const cpu_gfx1010 = Cpu{
-    .name = "gfx1010",
-    .llvm_name = "gfx1010",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_dlInsts,
-        &feature_noXnackSupport,
-        &feature_flatSegmentOffsetBug,
-        &feature_fmaMixInsts,
-        &feature_movrel,
-        &feature_registerBanking,
-        &feature_addNoCarryInsts,
-        &feature_fp64,
-        &feature_sdwaScalar,
-        &feature_flatGlobalInsts,
-        &feature_mimgR128,
-        &feature_flatInstOffsets,
-        &feature_apertureRegs,
-        &feature_noSdstCmpx,
-        &feature_vop3p,
-        &feature_sdwa,
-        &feature_intClampInsts,
-        &feature_sdwaSdst,
-        &feature_noDataDepHazard,
-        &feature_flatScratchInsts,
-        &feature_ciInsts,
-        &feature_sMemrealtime,
-        &feature_pkFmacF16Inst,
-        &feature_dpp8,
-        &feature_flatAddressSpace,
-        &feature_inv2piInlineImm,
-        &feature_fastFmaf,
-        &feature_noSramEccSupport,
-        &feature_gfx10Insts,
-        &feature_localmemorysize65536,
-        &feature_gfx9Insts,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-        &feature_vop3Literal,
-        &feature_sdwaOmod,
-        &feature_vscnt,
-        &feature_instFwdPrefetchBug,
-        &feature_ldsbankcount32,
-        &feature_ldsBranchVmemWarHazard,
-        &feature_ldsMisalignedBug,
-        &feature_nsaEncoding,
-        &feature_nsaToVmemBug,
-        &feature_offset3fBug,
-        &feature_smemToVectorWriteHazard,
-        &feature_scalarAtomics,
-        &feature_scalarFlatScratchInsts,
-        &feature_scalarStores,
-        &feature_vmemToScalarWriteHazard,
-        &feature_vcmpxExecWarHazard,
-        &feature_vcmpxPermlaneHazard,
-        &feature_wavefrontsize32,
-    },
-};
-
-pub const cpu_gfx1011 = Cpu{
-    .name = "gfx1011",
-    .llvm_name = "gfx1011",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_dlInsts,
-        &feature_noXnackSupport,
-        &feature_dot1Insts,
-        &feature_dot2Insts,
-        &feature_dot5Insts,
-        &feature_dot6Insts,
-        &feature_flatSegmentOffsetBug,
-        &feature_fmaMixInsts,
-        &feature_movrel,
-        &feature_registerBanking,
-        &feature_addNoCarryInsts,
-        &feature_fp64,
-        &feature_sdwaScalar,
-        &feature_flatGlobalInsts,
-        &feature_mimgR128,
-        &feature_flatInstOffsets,
-        &feature_apertureRegs,
-        &feature_noSdstCmpx,
-        &feature_vop3p,
-        &feature_sdwa,
-        &feature_intClampInsts,
-        &feature_sdwaSdst,
-        &feature_noDataDepHazard,
-        &feature_flatScratchInsts,
-        &feature_ciInsts,
-        &feature_sMemrealtime,
-        &feature_pkFmacF16Inst,
-        &feature_dpp8,
-        &feature_flatAddressSpace,
-        &feature_inv2piInlineImm,
-        &feature_fastFmaf,
-        &feature_noSramEccSupport,
-        &feature_gfx10Insts,
-        &feature_localmemorysize65536,
-        &feature_gfx9Insts,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-        &feature_vop3Literal,
-        &feature_sdwaOmod,
-        &feature_vscnt,
-        &feature_instFwdPrefetchBug,
-        &feature_ldsbankcount32,
-        &feature_ldsBranchVmemWarHazard,
-        &feature_nsaEncoding,
-        &feature_nsaToVmemBug,
-        &feature_offset3fBug,
-        &feature_smemToVectorWriteHazard,
-        &feature_scalarAtomics,
-        &feature_scalarFlatScratchInsts,
-        &feature_scalarStores,
-        &feature_vmemToScalarWriteHazard,
-        &feature_vcmpxExecWarHazard,
-        &feature_vcmpxPermlaneHazard,
-        &feature_wavefrontsize32,
-    },
-};
-
-pub const cpu_gfx1012 = Cpu{
-    .name = "gfx1012",
-    .llvm_name = "gfx1012",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_dlInsts,
-        &feature_noXnackSupport,
-        &feature_dot1Insts,
-        &feature_dot2Insts,
-        &feature_dot5Insts,
-        &feature_dot6Insts,
-        &feature_flatSegmentOffsetBug,
-        &feature_fmaMixInsts,
-        &feature_movrel,
-        &feature_registerBanking,
-        &feature_addNoCarryInsts,
-        &feature_fp64,
-        &feature_sdwaScalar,
-        &feature_flatGlobalInsts,
-        &feature_mimgR128,
-        &feature_flatInstOffsets,
-        &feature_apertureRegs,
-        &feature_noSdstCmpx,
-        &feature_vop3p,
-        &feature_sdwa,
-        &feature_intClampInsts,
-        &feature_sdwaSdst,
-        &feature_noDataDepHazard,
-        &feature_flatScratchInsts,
-        &feature_ciInsts,
-        &feature_sMemrealtime,
-        &feature_pkFmacF16Inst,
-        &feature_dpp8,
-        &feature_flatAddressSpace,
-        &feature_inv2piInlineImm,
-        &feature_fastFmaf,
-        &feature_noSramEccSupport,
-        &feature_gfx10Insts,
-        &feature_localmemorysize65536,
-        &feature_gfx9Insts,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-        &feature_vop3Literal,
-        &feature_sdwaOmod,
-        &feature_vscnt,
-        &feature_instFwdPrefetchBug,
-        &feature_ldsbankcount32,
-        &feature_ldsBranchVmemWarHazard,
-        &feature_ldsMisalignedBug,
-        &feature_nsaEncoding,
-        &feature_nsaToVmemBug,
-        &feature_offset3fBug,
-        &feature_smemToVectorWriteHazard,
-        &feature_scalarAtomics,
-        &feature_scalarFlatScratchInsts,
-        &feature_scalarStores,
-        &feature_vmemToScalarWriteHazard,
-        &feature_vcmpxExecWarHazard,
-        &feature_vcmpxPermlaneHazard,
-        &feature_wavefrontsize32,
-    },
-};
-
-pub const cpu_gfx600 = Cpu{
-    .name = "gfx600",
-    .llvm_name = "gfx600",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_fastFmaf,
-        &feature_ldsbankcount32,
-        &feature_trigReducedRange,
-        &feature_movrel,
-        &feature_wavefrontsize64,
-        &feature_fp64,
-        &feature_mimgR128,
-        &feature_noSramEccSupport,
-        &feature_localmemorysize32768,
-        &feature_halfRate64Ops,
-    },
-};
-
-pub const cpu_gfx601 = Cpu{
-    .name = "gfx601",
-    .llvm_name = "gfx601",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount32,
-        &feature_trigReducedRange,
-        &feature_movrel,
-        &feature_wavefrontsize64,
-        &feature_fp64,
-        &feature_mimgR128,
-        &feature_noSramEccSupport,
-        &feature_localmemorysize32768,
-    },
-};
-
-pub const cpu_gfx700 = Cpu{
-    .name = "gfx700",
-    .llvm_name = "gfx700",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount32,
-        &feature_trigReducedRange,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_movrel,
-        &feature_flatAddressSpace,
-        &feature_wavefrontsize64,
-        &feature_fp64,
-        &feature_mimgR128,
-        &feature_noSramEccSupport,
-        &feature_ciInsts,
-        &feature_localmemorysize65536,
-    },
-};
-
-pub const cpu_gfx701 = Cpu{
-    .name = "gfx701",
-    .llvm_name = "gfx701",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_fastFmaf,
-        &feature_ldsbankcount32,
-        &feature_trigReducedRange,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_movrel,
-        &feature_flatAddressSpace,
-        &feature_wavefrontsize64,
-        &feature_fp64,
-        &feature_mimgR128,
-        &feature_noSramEccSupport,
-        &feature_ciInsts,
-        &feature_localmemorysize65536,
-        &feature_halfRate64Ops,
-    },
-};
-
-pub const cpu_gfx702 = Cpu{
-    .name = "gfx702",
-    .llvm_name = "gfx702",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_fastFmaf,
-        &feature_ldsbankcount16,
-        &feature_trigReducedRange,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_movrel,
-        &feature_flatAddressSpace,
-        &feature_wavefrontsize64,
-        &feature_fp64,
-        &feature_mimgR128,
-        &feature_noSramEccSupport,
-        &feature_ciInsts,
-        &feature_localmemorysize65536,
-    },
-};
-
-pub const cpu_gfx703 = Cpu{
-    .name = "gfx703",
-    .llvm_name = "gfx703",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount16,
-        &feature_trigReducedRange,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_movrel,
-        &feature_flatAddressSpace,
-        &feature_wavefrontsize64,
-        &feature_fp64,
-        &feature_mimgR128,
-        &feature_noSramEccSupport,
-        &feature_ciInsts,
-        &feature_localmemorysize65536,
-    },
-};
-
-pub const cpu_gfx704 = Cpu{
-    .name = "gfx704",
-    .llvm_name = "gfx704",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount32,
-        &feature_trigReducedRange,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_movrel,
-        &feature_flatAddressSpace,
-        &feature_wavefrontsize64,
-        &feature_fp64,
-        &feature_mimgR128,
-        &feature_noSramEccSupport,
-        &feature_ciInsts,
-        &feature_localmemorysize65536,
-    },
-};
-
-pub const cpu_gfx801 = Cpu{
-    .name = "gfx801",
-    .llvm_name = "gfx801",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_fastFmaf,
-        &feature_ldsbankcount32,
-        &feature_unpackedD16Vmem,
-        &feature_trigReducedRange,
-        &feature_vgprIndexMode,
-        &feature_movrel,
-        &feature_fp64,
-        &feature_gcn3Encoding,
-        &feature_mimgR128,
-        &feature_sdwa,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_intClampInsts,
-        &feature_ciInsts,
-        &feature_sdwaOutModsVopc,
-        &feature_sMemrealtime,
-        &feature_flatAddressSpace,
-        &feature_inv2piInlineImm,
-        &feature_wavefrontsize64,
-        &feature_noSramEccSupport,
-        &feature_sdwaMav,
-        &feature_localmemorysize65536,
-        &feature_scalarStores,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-        &feature_xnack,
-        &feature_halfRate64Ops,
-    },
-};
-
-pub const cpu_gfx802 = Cpu{
-    .name = "gfx802",
-    .llvm_name = "gfx802",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount32,
-        &feature_sgprInitBug,
-        &feature_unpackedD16Vmem,
-        &feature_trigReducedRange,
-        &feature_vgprIndexMode,
-        &feature_movrel,
-        &feature_fp64,
-        &feature_gcn3Encoding,
-        &feature_mimgR128,
-        &feature_sdwa,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_intClampInsts,
-        &feature_ciInsts,
-        &feature_sdwaOutModsVopc,
-        &feature_sMemrealtime,
-        &feature_flatAddressSpace,
-        &feature_inv2piInlineImm,
-        &feature_wavefrontsize64,
-        &feature_noSramEccSupport,
-        &feature_sdwaMav,
-        &feature_localmemorysize65536,
-        &feature_scalarStores,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-    },
-};
-
-pub const cpu_gfx803 = Cpu{
-    .name = "gfx803",
-    .llvm_name = "gfx803",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount32,
-        &feature_unpackedD16Vmem,
-        &feature_trigReducedRange,
-        &feature_vgprIndexMode,
-        &feature_movrel,
-        &feature_fp64,
-        &feature_gcn3Encoding,
-        &feature_mimgR128,
-        &feature_sdwa,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_intClampInsts,
-        &feature_ciInsts,
-        &feature_sdwaOutModsVopc,
-        &feature_sMemrealtime,
-        &feature_flatAddressSpace,
-        &feature_inv2piInlineImm,
-        &feature_wavefrontsize64,
-        &feature_noSramEccSupport,
-        &feature_sdwaMav,
-        &feature_localmemorysize65536,
-        &feature_scalarStores,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-    },
-};
-
-pub const cpu_gfx810 = Cpu{
-    .name = "gfx810",
-    .llvm_name = "gfx810",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_ldsbankcount16,
-        &feature_trigReducedRange,
-        &feature_vgprIndexMode,
-        &feature_movrel,
-        &feature_fp64,
-        &feature_gcn3Encoding,
-        &feature_mimgR128,
-        &feature_sdwa,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_intClampInsts,
-        &feature_ciInsts,
-        &feature_sdwaOutModsVopc,
-        &feature_sMemrealtime,
-        &feature_flatAddressSpace,
-        &feature_inv2piInlineImm,
-        &feature_wavefrontsize64,
-        &feature_noSramEccSupport,
-        &feature_sdwaMav,
-        &feature_localmemorysize65536,
-        &feature_scalarStores,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-        &feature_xnack,
-    },
-};
-
-pub const cpu_gfx900 = Cpu{
-    .name = "gfx900",
-    .llvm_name = "gfx900",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noSramEccSupport,
-        &feature_noXnackSupport,
-        &feature_vgprIndexMode,
-        &feature_addNoCarryInsts,
-        &feature_fp64,
-        &feature_gcn3Encoding,
-        &feature_sdwaScalar,
-        &feature_flatGlobalInsts,
-        &feature_scalarFlatScratchInsts,
-        &feature_flatInstOffsets,
-        &feature_apertureRegs,
-        &feature_vop3p,
-        &feature_sdwa,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_intClampInsts,
-        &feature_sdwaSdst,
-        &feature_flatScratchInsts,
-        &feature_ciInsts,
-        &feature_r128A16,
-        &feature_sMemrealtime,
-        &feature_flatAddressSpace,
-        &feature_scalarAtomics,
-        &feature_inv2piInlineImm,
-        &feature_fastFmaf,
-        &feature_wavefrontsize64,
-        &feature_localmemorysize65536,
-        &feature_scalarStores,
-        &feature_gfx9Insts,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-        &feature_sdwaOmod,
-        &feature_ldsbankcount32,
-        &feature_madMixInsts,
-    },
-};
-
-pub const cpu_gfx902 = Cpu{
-    .name = "gfx902",
-    .llvm_name = "gfx902",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noSramEccSupport,
-        &feature_vgprIndexMode,
-        &feature_addNoCarryInsts,
-        &feature_fp64,
-        &feature_gcn3Encoding,
-        &feature_sdwaScalar,
-        &feature_flatGlobalInsts,
-        &feature_scalarFlatScratchInsts,
-        &feature_flatInstOffsets,
-        &feature_apertureRegs,
-        &feature_vop3p,
-        &feature_sdwa,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_intClampInsts,
-        &feature_sdwaSdst,
-        &feature_flatScratchInsts,
-        &feature_ciInsts,
-        &feature_r128A16,
-        &feature_sMemrealtime,
-        &feature_flatAddressSpace,
-        &feature_scalarAtomics,
-        &feature_inv2piInlineImm,
-        &feature_fastFmaf,
-        &feature_wavefrontsize64,
-        &feature_localmemorysize65536,
-        &feature_scalarStores,
-        &feature_gfx9Insts,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-        &feature_sdwaOmod,
-        &feature_ldsbankcount32,
-        &feature_madMixInsts,
-        &feature_xnack,
-    },
-};
-
-pub const cpu_gfx904 = Cpu{
-    .name = "gfx904",
-    .llvm_name = "gfx904",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noSramEccSupport,
-        &feature_noXnackSupport,
-        &feature_fmaMixInsts,
-        &feature_vgprIndexMode,
-        &feature_addNoCarryInsts,
-        &feature_fp64,
-        &feature_gcn3Encoding,
-        &feature_sdwaScalar,
-        &feature_flatGlobalInsts,
-        &feature_scalarFlatScratchInsts,
-        &feature_flatInstOffsets,
-        &feature_apertureRegs,
-        &feature_vop3p,
-        &feature_sdwa,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_intClampInsts,
-        &feature_sdwaSdst,
-        &feature_flatScratchInsts,
-        &feature_ciInsts,
-        &feature_r128A16,
-        &feature_sMemrealtime,
-        &feature_flatAddressSpace,
-        &feature_scalarAtomics,
-        &feature_inv2piInlineImm,
-        &feature_fastFmaf,
-        &feature_wavefrontsize64,
-        &feature_localmemorysize65536,
-        &feature_scalarStores,
-        &feature_gfx9Insts,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-        &feature_sdwaOmod,
-        &feature_ldsbankcount32,
-    },
-};
-
-pub const cpu_gfx906 = Cpu{
-    .name = "gfx906",
-    .llvm_name = "gfx906",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_dlInsts,
-        &feature_noXnackSupport,
-        &feature_dot1Insts,
-        &feature_dot2Insts,
-        &feature_fmaMixInsts,
-        &feature_vgprIndexMode,
-        &feature_addNoCarryInsts,
-        &feature_fp64,
-        &feature_gcn3Encoding,
-        &feature_sdwaScalar,
-        &feature_flatGlobalInsts,
-        &feature_scalarFlatScratchInsts,
-        &feature_flatInstOffsets,
-        &feature_apertureRegs,
-        &feature_vop3p,
-        &feature_sdwa,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_intClampInsts,
-        &feature_sdwaSdst,
-        &feature_flatScratchInsts,
-        &feature_ciInsts,
-        &feature_r128A16,
-        &feature_sMemrealtime,
-        &feature_flatAddressSpace,
-        &feature_scalarAtomics,
-        &feature_inv2piInlineImm,
-        &feature_fastFmaf,
-        &feature_wavefrontsize64,
-        &feature_localmemorysize65536,
-        &feature_scalarStores,
-        &feature_gfx9Insts,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-        &feature_sdwaOmod,
-        &feature_ldsbankcount32,
-        &feature_halfRate64Ops,
-    },
-};
-
-pub const cpu_gfx908 = Cpu{
-    .name = "gfx908",
-    .llvm_name = "gfx908",
-    .dependencies = &[_]*const Feature {
-        &feature_atomicFaddInsts,
-        &feature_codeObjectV3,
-        &feature_dlInsts,
-        &feature_dot1Insts,
-        &feature_dot2Insts,
-        &feature_dot3Insts,
-        &feature_dot4Insts,
-        &feature_dot5Insts,
-        &feature_dot6Insts,
-        &feature_fmaMixInsts,
-        &feature_vgprIndexMode,
-        &feature_addNoCarryInsts,
-        &feature_fp64,
-        &feature_gcn3Encoding,
-        &feature_sdwaScalar,
-        &feature_flatGlobalInsts,
-        &feature_scalarFlatScratchInsts,
-        &feature_flatInstOffsets,
-        &feature_apertureRegs,
-        &feature_vop3p,
-        &feature_sdwa,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_intClampInsts,
-        &feature_sdwaSdst,
-        &feature_flatScratchInsts,
-        &feature_ciInsts,
-        &feature_r128A16,
-        &feature_sMemrealtime,
-        &feature_flatAddressSpace,
-        &feature_scalarAtomics,
-        &feature_inv2piInlineImm,
-        &feature_fastFmaf,
-        &feature_wavefrontsize64,
-        &feature_localmemorysize65536,
-        &feature_scalarStores,
-        &feature_gfx9Insts,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-        &feature_sdwaOmod,
-        &feature_ldsbankcount32,
-        &feature_maiInsts,
-        &feature_pkFmacF16Inst,
-        &feature_sramEcc,
-        &feature_halfRate64Ops,
-    },
-};
-
-pub const cpu_gfx909 = Cpu{
-    .name = "gfx909",
-    .llvm_name = "gfx909",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_vgprIndexMode,
-        &feature_addNoCarryInsts,
-        &feature_fp64,
-        &feature_gcn3Encoding,
-        &feature_sdwaScalar,
-        &feature_flatGlobalInsts,
-        &feature_scalarFlatScratchInsts,
-        &feature_flatInstOffsets,
-        &feature_apertureRegs,
-        &feature_vop3p,
-        &feature_sdwa,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_intClampInsts,
-        &feature_sdwaSdst,
-        &feature_flatScratchInsts,
-        &feature_ciInsts,
-        &feature_r128A16,
-        &feature_sMemrealtime,
-        &feature_flatAddressSpace,
-        &feature_scalarAtomics,
-        &feature_inv2piInlineImm,
-        &feature_fastFmaf,
-        &feature_wavefrontsize64,
-        &feature_localmemorysize65536,
-        &feature_scalarStores,
-        &feature_gfx9Insts,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-        &feature_sdwaOmod,
-        &feature_ldsbankcount32,
-        &feature_madMixInsts,
-        &feature_xnack,
-    },
-};
-
-pub const cpu_hainan = Cpu{
-    .name = "hainan",
-    .llvm_name = "hainan",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount32,
-        &feature_trigReducedRange,
-        &feature_movrel,
-        &feature_wavefrontsize64,
-        &feature_fp64,
-        &feature_mimgR128,
-        &feature_noSramEccSupport,
-        &feature_localmemorysize32768,
-    },
-};
-
-pub const cpu_hawaii = Cpu{
-    .name = "hawaii",
-    .llvm_name = "hawaii",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_fastFmaf,
-        &feature_ldsbankcount32,
-        &feature_trigReducedRange,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_movrel,
-        &feature_flatAddressSpace,
-        &feature_wavefrontsize64,
-        &feature_fp64,
-        &feature_mimgR128,
-        &feature_noSramEccSupport,
-        &feature_ciInsts,
-        &feature_localmemorysize65536,
-        &feature_halfRate64Ops,
-    },
-};
-
-pub const cpu_iceland = Cpu{
-    .name = "iceland",
-    .llvm_name = "iceland",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount32,
-        &feature_sgprInitBug,
-        &feature_unpackedD16Vmem,
-        &feature_trigReducedRange,
-        &feature_vgprIndexMode,
-        &feature_movrel,
-        &feature_fp64,
-        &feature_gcn3Encoding,
-        &feature_mimgR128,
-        &feature_sdwa,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_intClampInsts,
-        &feature_ciInsts,
-        &feature_sdwaOutModsVopc,
-        &feature_sMemrealtime,
-        &feature_flatAddressSpace,
-        &feature_inv2piInlineImm,
-        &feature_wavefrontsize64,
-        &feature_noSramEccSupport,
-        &feature_sdwaMav,
-        &feature_localmemorysize65536,
-        &feature_scalarStores,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-    },
-};
-
-pub const cpu_kabini = Cpu{
-    .name = "kabini",
-    .llvm_name = "kabini",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount16,
-        &feature_trigReducedRange,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_movrel,
-        &feature_flatAddressSpace,
-        &feature_wavefrontsize64,
-        &feature_fp64,
-        &feature_mimgR128,
-        &feature_noSramEccSupport,
-        &feature_ciInsts,
-        &feature_localmemorysize65536,
-    },
-};
-
-pub const cpu_kaveri = Cpu{
-    .name = "kaveri",
-    .llvm_name = "kaveri",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount32,
-        &feature_trigReducedRange,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_movrel,
-        &feature_flatAddressSpace,
-        &feature_wavefrontsize64,
-        &feature_fp64,
-        &feature_mimgR128,
-        &feature_noSramEccSupport,
-        &feature_ciInsts,
-        &feature_localmemorysize65536,
-    },
-};
-
-pub const cpu_mullins = Cpu{
-    .name = "mullins",
-    .llvm_name = "mullins",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount16,
-        &feature_trigReducedRange,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_movrel,
-        &feature_flatAddressSpace,
-        &feature_wavefrontsize64,
-        &feature_fp64,
-        &feature_mimgR128,
-        &feature_noSramEccSupport,
-        &feature_ciInsts,
-        &feature_localmemorysize65536,
-    },
-};
-
-pub const cpu_oland = Cpu{
-    .name = "oland",
-    .llvm_name = "oland",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount32,
-        &feature_trigReducedRange,
-        &feature_movrel,
-        &feature_wavefrontsize64,
-        &feature_fp64,
-        &feature_mimgR128,
-        &feature_noSramEccSupport,
-        &feature_localmemorysize32768,
-    },
-};
-
-pub const cpu_pitcairn = Cpu{
-    .name = "pitcairn",
-    .llvm_name = "pitcairn",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount32,
-        &feature_trigReducedRange,
-        &feature_movrel,
-        &feature_wavefrontsize64,
-        &feature_fp64,
-        &feature_mimgR128,
-        &feature_noSramEccSupport,
-        &feature_localmemorysize32768,
-    },
-};
-
-pub const cpu_polaris10 = Cpu{
-    .name = "polaris10",
-    .llvm_name = "polaris10",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount32,
-        &feature_unpackedD16Vmem,
-        &feature_trigReducedRange,
-        &feature_vgprIndexMode,
-        &feature_movrel,
-        &feature_fp64,
-        &feature_gcn3Encoding,
-        &feature_mimgR128,
-        &feature_sdwa,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_intClampInsts,
-        &feature_ciInsts,
-        &feature_sdwaOutModsVopc,
-        &feature_sMemrealtime,
-        &feature_flatAddressSpace,
-        &feature_inv2piInlineImm,
-        &feature_wavefrontsize64,
-        &feature_noSramEccSupport,
-        &feature_sdwaMav,
-        &feature_localmemorysize65536,
-        &feature_scalarStores,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-    },
-};
-
-pub const cpu_polaris11 = Cpu{
-    .name = "polaris11",
-    .llvm_name = "polaris11",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount32,
-        &feature_unpackedD16Vmem,
-        &feature_trigReducedRange,
-        &feature_vgprIndexMode,
-        &feature_movrel,
-        &feature_fp64,
-        &feature_gcn3Encoding,
-        &feature_mimgR128,
-        &feature_sdwa,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_intClampInsts,
-        &feature_ciInsts,
-        &feature_sdwaOutModsVopc,
-        &feature_sMemrealtime,
-        &feature_flatAddressSpace,
-        &feature_inv2piInlineImm,
-        &feature_wavefrontsize64,
-        &feature_noSramEccSupport,
-        &feature_sdwaMav,
-        &feature_localmemorysize65536,
-        &feature_scalarStores,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-    },
-};
-
-pub const cpu_stoney = Cpu{
-    .name = "stoney",
-    .llvm_name = "stoney",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_ldsbankcount16,
-        &feature_trigReducedRange,
-        &feature_vgprIndexMode,
-        &feature_movrel,
-        &feature_fp64,
-        &feature_gcn3Encoding,
-        &feature_mimgR128,
-        &feature_sdwa,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_intClampInsts,
-        &feature_ciInsts,
-        &feature_sdwaOutModsVopc,
-        &feature_sMemrealtime,
-        &feature_flatAddressSpace,
-        &feature_inv2piInlineImm,
-        &feature_wavefrontsize64,
-        &feature_noSramEccSupport,
-        &feature_sdwaMav,
-        &feature_localmemorysize65536,
-        &feature_scalarStores,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-        &feature_xnack,
-    },
-};
-
-pub const cpu_tahiti = Cpu{
-    .name = "tahiti",
-    .llvm_name = "tahiti",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_fastFmaf,
-        &feature_ldsbankcount32,
-        &feature_trigReducedRange,
-        &feature_movrel,
-        &feature_wavefrontsize64,
-        &feature_fp64,
-        &feature_mimgR128,
-        &feature_noSramEccSupport,
-        &feature_localmemorysize32768,
-        &feature_halfRate64Ops,
-    },
-};
-
-pub const cpu_tonga = Cpu{
-    .name = "tonga",
-    .llvm_name = "tonga",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount32,
-        &feature_sgprInitBug,
-        &feature_unpackedD16Vmem,
-        &feature_trigReducedRange,
-        &feature_vgprIndexMode,
-        &feature_movrel,
-        &feature_fp64,
-        &feature_gcn3Encoding,
-        &feature_mimgR128,
-        &feature_sdwa,
-        &feature_gfx7Gfx8Gfx9Insts,
-        &feature_intClampInsts,
-        &feature_ciInsts,
-        &feature_sdwaOutModsVopc,
-        &feature_sMemrealtime,
-        &feature_flatAddressSpace,
-        &feature_inv2piInlineImm,
-        &feature_wavefrontsize64,
-        &feature_noSramEccSupport,
-        &feature_sdwaMav,
-        &feature_localmemorysize65536,
-        &feature_scalarStores,
-        &feature_gfx8Insts,
-        &feature_dpp,
-        &feature_BitInsts16,
-    },
-};
-
-pub const cpu_verde = Cpu{
-    .name = "verde",
-    .llvm_name = "verde",
-    .dependencies = &[_]*const Feature {
-        &feature_codeObjectV3,
-        &feature_noXnackSupport,
-        &feature_ldsbankcount32,
-        &feature_trigReducedRange,
-        &feature_movrel,
-        &feature_wavefrontsize64,
-        &feature_fp64,
-        &feature_mimgR128,
-        &feature_noSramEccSupport,
-        &feature_localmemorysize32768,
-    },
-};
-
-pub const cpus = &[_]*const Cpu {
-    &cpu_bonaire,
-    &cpu_carrizo,
-    &cpu_fiji,
-    &cpu_generic,
-    &cpu_genericHsa,
-    &cpu_gfx1010,
-    &cpu_gfx1011,
-    &cpu_gfx1012,
-    &cpu_gfx600,
-    &cpu_gfx601,
-    &cpu_gfx700,
-    &cpu_gfx701,
-    &cpu_gfx702,
-    &cpu_gfx703,
-    &cpu_gfx704,
-    &cpu_gfx801,
-    &cpu_gfx802,
-    &cpu_gfx803,
-    &cpu_gfx810,
-    &cpu_gfx900,
-    &cpu_gfx902,
-    &cpu_gfx904,
-    &cpu_gfx906,
-    &cpu_gfx908,
-    &cpu_gfx909,
-    &cpu_hainan,
-    &cpu_hawaii,
-    &cpu_iceland,
-    &cpu_kabini,
-    &cpu_kaveri,
-    &cpu_mullins,
-    &cpu_oland,
-    &cpu_pitcairn,
-    &cpu_polaris10,
-    &cpu_polaris11,
-    &cpu_stoney,
-    &cpu_tahiti,
-    &cpu_tonga,
-    &cpu_verde,
+const std = @import("../std.zig");
+const Cpu = std.Target.Cpu;
+
+pub const Feature = enum {
+    @"16_bit_insts",
+    DumpCode,
+    add_no_carry_insts,
+    aperture_regs,
+    atomic_fadd_insts,
+    auto_waitcnt_before_barrier,
+    ci_insts,
+    code_object_v3,
+    cumode,
+    dl_insts,
+    dot1_insts,
+    dot2_insts,
+    dot3_insts,
+    dot4_insts,
+    dot5_insts,
+    dot6_insts,
+    dpp,
+    dpp8,
+    dumpcode,
+    enable_ds128,
+    enable_prt_strict_null,
+    fast_fmaf,
+    flat_address_space,
+    flat_for_global,
+    flat_global_insts,
+    flat_inst_offsets,
+    flat_scratch_insts,
+    flat_segment_offset_bug,
+    fma_mix_insts,
+    fmaf,
+    fp_exceptions,
+    fp16_denormals,
+    fp32_denormals,
+    fp64,
+    fp64_denormals,
+    fp64_fp16_denormals,
+    gcn3_encoding,
+    gfx10,
+    gfx10_insts,
+    gfx7_gfx8_gfx9_insts,
+    gfx8_insts,
+    gfx9,
+    gfx9_insts,
+    half_rate_64_ops,
+    inst_fwd_prefetch_bug,
+    int_clamp_insts,
+    inv_2pi_inline_imm,
+    lds_branch_vmem_war_hazard,
+    lds_misaligned_bug,
+    ldsbankcount16,
+    ldsbankcount32,
+    load_store_opt,
+    localmemorysize0,
+    localmemorysize32768,
+    localmemorysize65536,
+    mad_mix_insts,
+    mai_insts,
+    max_private_element_size_16,
+    max_private_element_size_4,
+    max_private_element_size_8,
+    mimg_r128,
+    movrel,
+    no_data_dep_hazard,
+    no_sdst_cmpx,
+    no_sram_ecc_support,
+    no_xnack_support,
+    nsa_encoding,
+    nsa_to_vmem_bug,
+    offset_3f_bug,
+    pk_fmac_f16_inst,
+    promote_alloca,
+    r128_a16,
+    register_banking,
+    s_memrealtime,
+    scalar_atomics,
+    scalar_flat_scratch_insts,
+    scalar_stores,
+    sdwa,
+    sdwa_mav,
+    sdwa_omod,
+    sdwa_out_mods_vopc,
+    sdwa_scalar,
+    sdwa_sdst,
+    sea_islands,
+    sgpr_init_bug,
+    si_scheduler,
+    smem_to_vector_write_hazard,
+    southern_islands,
+    sram_ecc,
+    trap_handler,
+    trig_reduced_range,
+    unaligned_buffer_access,
+    unaligned_scratch_access,
+    unpacked_d16_vmem,
+    unsafe_ds_offset_folding,
+    vcmpx_exec_war_hazard,
+    vcmpx_permlane_hazard,
+    vgpr_index_mode,
+    vmem_to_scalar_write_hazard,
+    volcanic_islands,
+    vop3_literal,
+    vop3p,
+    vscnt,
+    wavefrontsize16,
+    wavefrontsize32,
+    wavefrontsize64,
+    xnack,
+};
+
+pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
+
+pub const all_features = blk: {
+    const len = @typeInfo(Feature).Enum.fields.len;
+    std.debug.assert(len <= @typeInfo(Cpu.Feature.Set).Int.bits);
+    var result: [len]Cpu.Feature = undefined;
+    result[@enumToInt(Feature.@"16_bit_insts")] = .{
+        .index = @enumToInt(Feature.@"16_bit_insts"),
+        .name = @tagName(Feature.@"16_bit_insts"),
+        .llvm_name = "16-bit-insts",
+        .description = "Has i16/f16 instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.DumpCode)] = .{
+        .index = @enumToInt(Feature.DumpCode),
+        .name = @tagName(Feature.DumpCode),
+        .llvm_name = "DumpCode",
+        .description = "Dump MachineInstrs in the CodeEmitter",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.add_no_carry_insts)] = .{
+        .index = @enumToInt(Feature.add_no_carry_insts),
+        .name = @tagName(Feature.add_no_carry_insts),
+        .llvm_name = "add-no-carry-insts",
+        .description = "Have VALU add/sub instructions without carry out",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.aperture_regs)] = .{
+        .index = @enumToInt(Feature.aperture_regs),
+        .name = @tagName(Feature.aperture_regs),
+        .llvm_name = "aperture-regs",
+        .description = "Has Memory Aperture Base and Size Registers",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.atomic_fadd_insts)] = .{
+        .index = @enumToInt(Feature.atomic_fadd_insts),
+        .name = @tagName(Feature.atomic_fadd_insts),
+        .llvm_name = "atomic-fadd-insts",
+        .description = "Has buffer_atomic_add_f32, buffer_atomic_pk_add_f16, global_atomic_add_f32, global_atomic_pk_add_f16 instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.auto_waitcnt_before_barrier)] = .{
+        .index = @enumToInt(Feature.auto_waitcnt_before_barrier),
+        .name = @tagName(Feature.auto_waitcnt_before_barrier),
+        .llvm_name = "auto-waitcnt-before-barrier",
+        .description = "Hardware automatically inserts waitcnt before barrier",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.ci_insts)] = .{
+        .index = @enumToInt(Feature.ci_insts),
+        .name = @tagName(Feature.ci_insts),
+        .llvm_name = "ci-insts",
+        .description = "Additional instructions for CI+",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.code_object_v3)] = .{
+        .index = @enumToInt(Feature.code_object_v3),
+        .name = @tagName(Feature.code_object_v3),
+        .llvm_name = "code-object-v3",
+        .description = "Generate code object version 3",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.cumode)] = .{
+        .index = @enumToInt(Feature.cumode),
+        .name = @tagName(Feature.cumode),
+        .llvm_name = "cumode",
+        .description = "Enable CU wavefront execution mode",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.dl_insts)] = .{
+        .index = @enumToInt(Feature.dl_insts),
+        .name = @tagName(Feature.dl_insts),
+        .llvm_name = "dl-insts",
+        .description = "Has v_fmac_f32 and v_xnor_b32 instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.dot1_insts)] = .{
+        .index = @enumToInt(Feature.dot1_insts),
+        .name = @tagName(Feature.dot1_insts),
+        .llvm_name = "dot1-insts",
+        .description = "Has v_dot4_i32_i8 and v_dot8_i32_i4 instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.dot2_insts)] = .{
+        .index = @enumToInt(Feature.dot2_insts),
+        .name = @tagName(Feature.dot2_insts),
+        .llvm_name = "dot2-insts",
+        .description = "Has v_dot2_f32_f16, v_dot2_i32_i16, v_dot2_u32_u16, v_dot4_u32_u8, v_dot8_u32_u4 instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.dot3_insts)] = .{
+        .index = @enumToInt(Feature.dot3_insts),
+        .name = @tagName(Feature.dot3_insts),
+        .llvm_name = "dot3-insts",
+        .description = "Has v_dot8c_i32_i4 instruction",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.dot4_insts)] = .{
+        .index = @enumToInt(Feature.dot4_insts),
+        .name = @tagName(Feature.dot4_insts),
+        .llvm_name = "dot4-insts",
+        .description = "Has v_dot2c_i32_i16 instruction",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.dot5_insts)] = .{
+        .index = @enumToInt(Feature.dot5_insts),
+        .name = @tagName(Feature.dot5_insts),
+        .llvm_name = "dot5-insts",
+        .description = "Has v_dot2c_f32_f16 instruction",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.dot6_insts)] = .{
+        .index = @enumToInt(Feature.dot6_insts),
+        .name = @tagName(Feature.dot6_insts),
+        .llvm_name = "dot6-insts",
+        .description = "Has v_dot4c_i32_i8 instruction",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.dpp)] = .{
+        .index = @enumToInt(Feature.dpp),
+        .name = @tagName(Feature.dpp),
+        .llvm_name = "dpp",
+        .description = "Support DPP (Data Parallel Primitives) extension",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.dpp8)] = .{
+        .index = @enumToInt(Feature.dpp8),
+        .name = @tagName(Feature.dpp8),
+        .llvm_name = "dpp8",
+        .description = "Support DPP8 (Data Parallel Primitives) extension",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.dumpcode)] = .{
+        .index = @enumToInt(Feature.dumpcode),
+        .name = @tagName(Feature.dumpcode),
+        .llvm_name = "dumpcode",
+        .description = "Dump MachineInstrs in the CodeEmitter",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.enable_ds128)] = .{
+        .index = @enumToInt(Feature.enable_ds128),
+        .name = @tagName(Feature.enable_ds128),
+        .llvm_name = "enable-ds128",
+        .description = "Use ds_read|write_b128",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.enable_prt_strict_null)] = .{
+        .index = @enumToInt(Feature.enable_prt_strict_null),
+        .name = @tagName(Feature.enable_prt_strict_null),
+        .llvm_name = "enable-prt-strict-null",
+        .description = "Enable zeroing of result registers for sparse texture fetches",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.fast_fmaf)] = .{
+        .index = @enumToInt(Feature.fast_fmaf),
+        .name = @tagName(Feature.fast_fmaf),
+        .llvm_name = "fast-fmaf",
+        .description = "Assuming f32 fma is at least as fast as mul + add",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.flat_address_space)] = .{
+        .index = @enumToInt(Feature.flat_address_space),
+        .name = @tagName(Feature.flat_address_space),
+        .llvm_name = "flat-address-space",
+        .description = "Support flat address space",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.flat_for_global)] = .{
+        .index = @enumToInt(Feature.flat_for_global),
+        .name = @tagName(Feature.flat_for_global),
+        .llvm_name = "flat-for-global",
+        .description = "Force to generate flat instruction for global",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.flat_global_insts)] = .{
+        .index = @enumToInt(Feature.flat_global_insts),
+        .name = @tagName(Feature.flat_global_insts),
+        .llvm_name = "flat-global-insts",
+        .description = "Have global_* flat memory instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.flat_inst_offsets)] = .{
+        .index = @enumToInt(Feature.flat_inst_offsets),
+        .name = @tagName(Feature.flat_inst_offsets),
+        .llvm_name = "flat-inst-offsets",
+        .description = "Flat instructions have immediate offset addressing mode",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.flat_scratch_insts)] = .{
+        .index = @enumToInt(Feature.flat_scratch_insts),
+        .name = @tagName(Feature.flat_scratch_insts),
+        .llvm_name = "flat-scratch-insts",
+        .description = "Have scratch_* flat memory instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.flat_segment_offset_bug)] = .{
+        .index = @enumToInt(Feature.flat_segment_offset_bug),
+        .name = @tagName(Feature.flat_segment_offset_bug),
+        .llvm_name = "flat-segment-offset-bug",
+        .description = "GFX10 bug, inst_offset ignored in flat segment",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.fma_mix_insts)] = .{
+        .index = @enumToInt(Feature.fma_mix_insts),
+        .name = @tagName(Feature.fma_mix_insts),
+        .llvm_name = "fma-mix-insts",
+        .description = "Has v_fma_mix_f32, v_fma_mixlo_f16, v_fma_mixhi_f16 instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.fmaf)] = .{
+        .index = @enumToInt(Feature.fmaf),
+        .name = @tagName(Feature.fmaf),
+        .llvm_name = "fmaf",
+        .description = "Enable single precision FMA (not as fast as mul+add, but fused)",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.fp_exceptions)] = .{
+        .index = @enumToInt(Feature.fp_exceptions),
+        .name = @tagName(Feature.fp_exceptions),
+        .llvm_name = "fp-exceptions",
+        .description = "Enable floating point exceptions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.fp16_denormals)] = .{
+        .index = @enumToInt(Feature.fp16_denormals),
+        .name = @tagName(Feature.fp16_denormals),
+        .llvm_name = "fp16-denormals",
+        .description = "Enable half precision denormal handling",
+        .dependencies = featureSet(&[_]Feature{
+            .fp64_fp16_denormals,
+        }),
+    };
+    result[@enumToInt(Feature.fp32_denormals)] = .{
+        .index = @enumToInt(Feature.fp32_denormals),
+        .name = @tagName(Feature.fp32_denormals),
+        .llvm_name = "fp32-denormals",
+        .description = "Enable single precision denormal handling",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.fp64)] = .{
+        .index = @enumToInt(Feature.fp64),
+        .name = @tagName(Feature.fp64),
+        .llvm_name = "fp64",
+        .description = "Enable double precision operations",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.fp64_denormals)] = .{
+        .index = @enumToInt(Feature.fp64_denormals),
+        .name = @tagName(Feature.fp64_denormals),
+        .llvm_name = "fp64-denormals",
+        .description = "Enable double and half precision denormal handling",
+        .dependencies = featureSet(&[_]Feature{
+            .fp64,
+            .fp64_fp16_denormals,
+        }),
+    };
+    result[@enumToInt(Feature.fp64_fp16_denormals)] = .{
+        .index = @enumToInt(Feature.fp64_fp16_denormals),
+        .name = @tagName(Feature.fp64_fp16_denormals),
+        .llvm_name = "fp64-fp16-denormals",
+        .description = "Enable double and half precision denormal handling",
+        .dependencies = featureSet(&[_]Feature{
+            .fp64,
+        }),
+    };
+    result[@enumToInt(Feature.gcn3_encoding)] = .{
+        .index = @enumToInt(Feature.gcn3_encoding),
+        .name = @tagName(Feature.gcn3_encoding),
+        .llvm_name = "gcn3-encoding",
+        .description = "Encoding format for VI",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.gfx10)] = .{
+        .index = @enumToInt(Feature.gfx10),
+        .name = @tagName(Feature.gfx10),
+        .llvm_name = "gfx10",
+        .description = "GFX10 GPU generation",
+        .dependencies = featureSet(&[_]Feature{
+            .@"16_bit_insts",
+            .add_no_carry_insts,
+            .aperture_regs,
+            .ci_insts,
+            .dpp,
+            .dpp8,
+            .fast_fmaf,
+            .flat_address_space,
+            .flat_global_insts,
+            .flat_inst_offsets,
+            .flat_scratch_insts,
+            .fma_mix_insts,
+            .fp64,
+            .gfx10_insts,
+            .gfx8_insts,
+            .gfx9_insts,
+            .int_clamp_insts,
+            .inv_2pi_inline_imm,
+            .localmemorysize65536,
+            .mimg_r128,
+            .movrel,
+            .no_data_dep_hazard,
+            .no_sdst_cmpx,
+            .no_sram_ecc_support,
+            .pk_fmac_f16_inst,
+            .register_banking,
+            .s_memrealtime,
+            .sdwa,
+            .sdwa_omod,
+            .sdwa_scalar,
+            .sdwa_sdst,
+            .vop3_literal,
+            .vop3p,
+            .vscnt,
+        }),
+    };
+    result[@enumToInt(Feature.gfx10_insts)] = .{
+        .index = @enumToInt(Feature.gfx10_insts),
+        .name = @tagName(Feature.gfx10_insts),
+        .llvm_name = "gfx10-insts",
+        .description = "Additional instructions for GFX10+",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.gfx7_gfx8_gfx9_insts)] = .{
+        .index = @enumToInt(Feature.gfx7_gfx8_gfx9_insts),
+        .name = @tagName(Feature.gfx7_gfx8_gfx9_insts),
+        .llvm_name = "gfx7-gfx8-gfx9-insts",
+        .description = "Instructions shared in GFX7, GFX8, GFX9",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.gfx8_insts)] = .{
+        .index = @enumToInt(Feature.gfx8_insts),
+        .name = @tagName(Feature.gfx8_insts),
+        .llvm_name = "gfx8-insts",
+        .description = "Additional instructions for GFX8+",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.gfx9)] = .{
+        .index = @enumToInt(Feature.gfx9),
+        .name = @tagName(Feature.gfx9),
+        .llvm_name = "gfx9",
+        .description = "GFX9 GPU generation",
+        .dependencies = featureSet(&[_]Feature{
+            .@"16_bit_insts",
+            .add_no_carry_insts,
+            .aperture_regs,
+            .ci_insts,
+            .dpp,
+            .fast_fmaf,
+            .flat_address_space,
+            .flat_global_insts,
+            .flat_inst_offsets,
+            .flat_scratch_insts,
+            .fp64,
+            .gcn3_encoding,
+            .gfx7_gfx8_gfx9_insts,
+            .gfx8_insts,
+            .gfx9_insts,
+            .int_clamp_insts,
+            .inv_2pi_inline_imm,
+            .localmemorysize65536,
+            .r128_a16,
+            .s_memrealtime,
+            .scalar_atomics,
+            .scalar_flat_scratch_insts,
+            .scalar_stores,
+            .sdwa,
+            .sdwa_omod,
+            .sdwa_scalar,
+            .sdwa_sdst,
+            .vgpr_index_mode,
+            .vop3p,
+            .wavefrontsize64,
+        }),
+    };
+    result[@enumToInt(Feature.gfx9_insts)] = .{
+        .index = @enumToInt(Feature.gfx9_insts),
+        .name = @tagName(Feature.gfx9_insts),
+        .llvm_name = "gfx9-insts",
+        .description = "Additional instructions for GFX9+",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.half_rate_64_ops)] = .{
+        .index = @enumToInt(Feature.half_rate_64_ops),
+        .name = @tagName(Feature.half_rate_64_ops),
+        .llvm_name = "half-rate-64-ops",
+        .description = "Most fp64 instructions are half rate instead of quarter",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.inst_fwd_prefetch_bug)] = .{
+        .index = @enumToInt(Feature.inst_fwd_prefetch_bug),
+        .name = @tagName(Feature.inst_fwd_prefetch_bug),
+        .llvm_name = "inst-fwd-prefetch-bug",
+        .description = "S_INST_PREFETCH instruction causes shader to hang",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.int_clamp_insts)] = .{
+        .index = @enumToInt(Feature.int_clamp_insts),
+        .name = @tagName(Feature.int_clamp_insts),
+        .llvm_name = "int-clamp-insts",
+        .description = "Support clamp for integer destination",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.inv_2pi_inline_imm)] = .{
+        .index = @enumToInt(Feature.inv_2pi_inline_imm),
+        .name = @tagName(Feature.inv_2pi_inline_imm),
+        .llvm_name = "inv-2pi-inline-imm",
+        .description = "Has 1 / (2 * pi) as inline immediate",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.lds_branch_vmem_war_hazard)] = .{
+        .index = @enumToInt(Feature.lds_branch_vmem_war_hazard),
+        .name = @tagName(Feature.lds_branch_vmem_war_hazard),
+        .llvm_name = "lds-branch-vmem-war-hazard",
+        .description = "Switching between LDS and VMEM-tex not waiting VM_VSRC=0",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.lds_misaligned_bug)] = .{
+        .index = @enumToInt(Feature.lds_misaligned_bug),
+        .name = @tagName(Feature.lds_misaligned_bug),
+        .llvm_name = "lds-misaligned-bug",
+        .description = "Some GFX10 bug with misaligned multi-dword LDS access in WGP mode",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.ldsbankcount16)] = .{
+        .index = @enumToInt(Feature.ldsbankcount16),
+        .name = @tagName(Feature.ldsbankcount16),
+        .llvm_name = "ldsbankcount16",
+        .description = "The number of LDS banks per compute unit.",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.ldsbankcount32)] = .{
+        .index = @enumToInt(Feature.ldsbankcount32),
+        .name = @tagName(Feature.ldsbankcount32),
+        .llvm_name = "ldsbankcount32",
+        .description = "The number of LDS banks per compute unit.",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.load_store_opt)] = .{
+        .index = @enumToInt(Feature.load_store_opt),
+        .name = @tagName(Feature.load_store_opt),
+        .llvm_name = "load-store-opt",
+        .description = "Enable SI load/store optimizer pass",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.localmemorysize0)] = .{
+        .index = @enumToInt(Feature.localmemorysize0),
+        .name = @tagName(Feature.localmemorysize0),
+        .llvm_name = "localmemorysize0",
+        .description = "The size of local memory in bytes",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.localmemorysize32768)] = .{
+        .index = @enumToInt(Feature.localmemorysize32768),
+        .name = @tagName(Feature.localmemorysize32768),
+        .llvm_name = "localmemorysize32768",
+        .description = "The size of local memory in bytes",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.localmemorysize65536)] = .{
+        .index = @enumToInt(Feature.localmemorysize65536),
+        .name = @tagName(Feature.localmemorysize65536),
+        .llvm_name = "localmemorysize65536",
+        .description = "The size of local memory in bytes",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.mad_mix_insts)] = .{
+        .index = @enumToInt(Feature.mad_mix_insts),
+        .name = @tagName(Feature.mad_mix_insts),
+        .llvm_name = "mad-mix-insts",
+        .description = "Has v_mad_mix_f32, v_mad_mixlo_f16, v_mad_mixhi_f16 instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.mai_insts)] = .{
+        .index = @enumToInt(Feature.mai_insts),
+        .name = @tagName(Feature.mai_insts),
+        .llvm_name = "mai-insts",
+        .description = "Has mAI instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.max_private_element_size_16)] = .{
+        .index = @enumToInt(Feature.max_private_element_size_16),
+        .name = @tagName(Feature.max_private_element_size_16),
+        .llvm_name = "max-private-element-size-16",
+        .description = "Maximum private access size may be 16",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.max_private_element_size_4)] = .{
+        .index = @enumToInt(Feature.max_private_element_size_4),
+        .name = @tagName(Feature.max_private_element_size_4),
+        .llvm_name = "max-private-element-size-4",
+        .description = "Maximum private access size may be 4",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.max_private_element_size_8)] = .{
+        .index = @enumToInt(Feature.max_private_element_size_8),
+        .name = @tagName(Feature.max_private_element_size_8),
+        .llvm_name = "max-private-element-size-8",
+        .description = "Maximum private access size may be 8",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.mimg_r128)] = .{
+        .index = @enumToInt(Feature.mimg_r128),
+        .name = @tagName(Feature.mimg_r128),
+        .llvm_name = "mimg-r128",
+        .description = "Support 128-bit texture resources",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.movrel)] = .{
+        .index = @enumToInt(Feature.movrel),
+        .name = @tagName(Feature.movrel),
+        .llvm_name = "movrel",
+        .description = "Has v_movrel*_b32 instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.no_data_dep_hazard)] = .{
+        .index = @enumToInt(Feature.no_data_dep_hazard),
+        .name = @tagName(Feature.no_data_dep_hazard),
+        .llvm_name = "no-data-dep-hazard",
+        .description = "Does not need SW waitstates",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.no_sdst_cmpx)] = .{
+        .index = @enumToInt(Feature.no_sdst_cmpx),
+        .name = @tagName(Feature.no_sdst_cmpx),
+        .llvm_name = "no-sdst-cmpx",
+        .description = "V_CMPX does not write VCC/SGPR in addition to EXEC",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.no_sram_ecc_support)] = .{
+        .index = @enumToInt(Feature.no_sram_ecc_support),
+        .name = @tagName(Feature.no_sram_ecc_support),
+        .llvm_name = "no-sram-ecc-support",
+        .description = "Hardware does not support SRAM ECC",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.no_xnack_support)] = .{
+        .index = @enumToInt(Feature.no_xnack_support),
+        .name = @tagName(Feature.no_xnack_support),
+        .llvm_name = "no-xnack-support",
+        .description = "Hardware does not support XNACK",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.nsa_encoding)] = .{
+        .index = @enumToInt(Feature.nsa_encoding),
+        .name = @tagName(Feature.nsa_encoding),
+        .llvm_name = "nsa-encoding",
+        .description = "Support NSA encoding for image instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.nsa_to_vmem_bug)] = .{
+        .index = @enumToInt(Feature.nsa_to_vmem_bug),
+        .name = @tagName(Feature.nsa_to_vmem_bug),
+        .llvm_name = "nsa-to-vmem-bug",
+        .description = "MIMG-NSA followed by VMEM fail if EXEC_LO or EXEC_HI equals zero",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.offset_3f_bug)] = .{
+        .index = @enumToInt(Feature.offset_3f_bug),
+        .name = @tagName(Feature.offset_3f_bug),
+        .llvm_name = "offset-3f-bug",
+        .description = "Branch offset of 3f hardware bug",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.pk_fmac_f16_inst)] = .{
+        .index = @enumToInt(Feature.pk_fmac_f16_inst),
+        .name = @tagName(Feature.pk_fmac_f16_inst),
+        .llvm_name = "pk-fmac-f16-inst",
+        .description = "Has v_pk_fmac_f16 instruction",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.promote_alloca)] = .{
+        .index = @enumToInt(Feature.promote_alloca),
+        .name = @tagName(Feature.promote_alloca),
+        .llvm_name = "promote-alloca",
+        .description = "Enable promote alloca pass",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.r128_a16)] = .{
+        .index = @enumToInt(Feature.r128_a16),
+        .name = @tagName(Feature.r128_a16),
+        .llvm_name = "r128-a16",
+        .description = "Support 16 bit coordindates/gradients/lod/clamp/mip types on gfx9",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.register_banking)] = .{
+        .index = @enumToInt(Feature.register_banking),
+        .name = @tagName(Feature.register_banking),
+        .llvm_name = "register-banking",
+        .description = "Has register banking",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.s_memrealtime)] = .{
+        .index = @enumToInt(Feature.s_memrealtime),
+        .name = @tagName(Feature.s_memrealtime),
+        .llvm_name = "s-memrealtime",
+        .description = "Has s_memrealtime instruction",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.scalar_atomics)] = .{
+        .index = @enumToInt(Feature.scalar_atomics),
+        .name = @tagName(Feature.scalar_atomics),
+        .llvm_name = "scalar-atomics",
+        .description = "Has atomic scalar memory instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.scalar_flat_scratch_insts)] = .{
+        .index = @enumToInt(Feature.scalar_flat_scratch_insts),
+        .name = @tagName(Feature.scalar_flat_scratch_insts),
+        .llvm_name = "scalar-flat-scratch-insts",
+        .description = "Have s_scratch_* flat memory instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.scalar_stores)] = .{
+        .index = @enumToInt(Feature.scalar_stores),
+        .name = @tagName(Feature.scalar_stores),
+        .llvm_name = "scalar-stores",
+        .description = "Has store scalar memory instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sdwa)] = .{
+        .index = @enumToInt(Feature.sdwa),
+        .name = @tagName(Feature.sdwa),
+        .llvm_name = "sdwa",
+        .description = "Support SDWA (Sub-DWORD Addressing) extension",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sdwa_mav)] = .{
+        .index = @enumToInt(Feature.sdwa_mav),
+        .name = @tagName(Feature.sdwa_mav),
+        .llvm_name = "sdwa-mav",
+        .description = "Support v_mac_f32/f16 with SDWA (Sub-DWORD Addressing) extension",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sdwa_omod)] = .{
+        .index = @enumToInt(Feature.sdwa_omod),
+        .name = @tagName(Feature.sdwa_omod),
+        .llvm_name = "sdwa-omod",
+        .description = "Support OMod with SDWA (Sub-DWORD Addressing) extension",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sdwa_out_mods_vopc)] = .{
+        .index = @enumToInt(Feature.sdwa_out_mods_vopc),
+        .name = @tagName(Feature.sdwa_out_mods_vopc),
+        .llvm_name = "sdwa-out-mods-vopc",
+        .description = "Support clamp for VOPC with SDWA (Sub-DWORD Addressing) extension",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sdwa_scalar)] = .{
+        .index = @enumToInt(Feature.sdwa_scalar),
+        .name = @tagName(Feature.sdwa_scalar),
+        .llvm_name = "sdwa-scalar",
+        .description = "Support scalar register with SDWA (Sub-DWORD Addressing) extension",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sdwa_sdst)] = .{
+        .index = @enumToInt(Feature.sdwa_sdst),
+        .name = @tagName(Feature.sdwa_sdst),
+        .llvm_name = "sdwa-sdst",
+        .description = "Support scalar dst for VOPC with SDWA (Sub-DWORD Addressing) extension",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sea_islands)] = .{
+        .index = @enumToInt(Feature.sea_islands),
+        .name = @tagName(Feature.sea_islands),
+        .llvm_name = "sea-islands",
+        .description = "SEA_ISLANDS GPU generation",
+        .dependencies = featureSet(&[_]Feature{
+            .ci_insts,
+            .flat_address_space,
+            .fp64,
+            .gfx7_gfx8_gfx9_insts,
+            .localmemorysize65536,
+            .mimg_r128,
+            .movrel,
+            .no_sram_ecc_support,
+            .trig_reduced_range,
+            .wavefrontsize64,
+        }),
+    };
+    result[@enumToInt(Feature.sgpr_init_bug)] = .{
+        .index = @enumToInt(Feature.sgpr_init_bug),
+        .name = @tagName(Feature.sgpr_init_bug),
+        .llvm_name = "sgpr-init-bug",
+        .description = "VI SGPR initialization bug requiring a fixed SGPR allocation size",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.si_scheduler)] = .{
+        .index = @enumToInt(Feature.si_scheduler),
+        .name = @tagName(Feature.si_scheduler),
+        .llvm_name = "si-scheduler",
+        .description = "Enable SI Machine Scheduler",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.smem_to_vector_write_hazard)] = .{
+        .index = @enumToInt(Feature.smem_to_vector_write_hazard),
+        .name = @tagName(Feature.smem_to_vector_write_hazard),
+        .llvm_name = "smem-to-vector-write-hazard",
+        .description = "s_load_dword followed by v_cmp page faults",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.southern_islands)] = .{
+        .index = @enumToInt(Feature.southern_islands),
+        .name = @tagName(Feature.southern_islands),
+        .llvm_name = "southern-islands",
+        .description = "SOUTHERN_ISLANDS GPU generation",
+        .dependencies = featureSet(&[_]Feature{
+            .fp64,
+            .ldsbankcount32,
+            .localmemorysize32768,
+            .mimg_r128,
+            .movrel,
+            .no_sram_ecc_support,
+            .no_xnack_support,
+            .trig_reduced_range,
+            .wavefrontsize64,
+        }),
+    };
+    result[@enumToInt(Feature.sram_ecc)] = .{
+        .index = @enumToInt(Feature.sram_ecc),
+        .name = @tagName(Feature.sram_ecc),
+        .llvm_name = "sram-ecc",
+        .description = "Enable SRAM ECC",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.trap_handler)] = .{
+        .index = @enumToInt(Feature.trap_handler),
+        .name = @tagName(Feature.trap_handler),
+        .llvm_name = "trap-handler",
+        .description = "Trap handler support",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.trig_reduced_range)] = .{
+        .index = @enumToInt(Feature.trig_reduced_range),
+        .name = @tagName(Feature.trig_reduced_range),
+        .llvm_name = "trig-reduced-range",
+        .description = "Requires use of fract on arguments to trig instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.unaligned_buffer_access)] = .{
+        .index = @enumToInt(Feature.unaligned_buffer_access),
+        .name = @tagName(Feature.unaligned_buffer_access),
+        .llvm_name = "unaligned-buffer-access",
+        .description = "Support unaligned global loads and stores",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.unaligned_scratch_access)] = .{
+        .index = @enumToInt(Feature.unaligned_scratch_access),
+        .name = @tagName(Feature.unaligned_scratch_access),
+        .llvm_name = "unaligned-scratch-access",
+        .description = "Support unaligned scratch loads and stores",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.unpacked_d16_vmem)] = .{
+        .index = @enumToInt(Feature.unpacked_d16_vmem),
+        .name = @tagName(Feature.unpacked_d16_vmem),
+        .llvm_name = "unpacked-d16-vmem",
+        .description = "Has unpacked d16 vmem instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.unsafe_ds_offset_folding)] = .{
+        .index = @enumToInt(Feature.unsafe_ds_offset_folding),
+        .name = @tagName(Feature.unsafe_ds_offset_folding),
+        .llvm_name = "unsafe-ds-offset-folding",
+        .description = "Force using DS instruction immediate offsets on SI",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.vcmpx_exec_war_hazard)] = .{
+        .index = @enumToInt(Feature.vcmpx_exec_war_hazard),
+        .name = @tagName(Feature.vcmpx_exec_war_hazard),
+        .llvm_name = "vcmpx-exec-war-hazard",
+        .description = "V_CMPX WAR hazard on EXEC (V_CMPX issue ONLY)",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.vcmpx_permlane_hazard)] = .{
+        .index = @enumToInt(Feature.vcmpx_permlane_hazard),
+        .name = @tagName(Feature.vcmpx_permlane_hazard),
+        .llvm_name = "vcmpx-permlane-hazard",
+        .description = "TODO: describe me",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.vgpr_index_mode)] = .{
+        .index = @enumToInt(Feature.vgpr_index_mode),
+        .name = @tagName(Feature.vgpr_index_mode),
+        .llvm_name = "vgpr-index-mode",
+        .description = "Has VGPR mode register indexing",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.vmem_to_scalar_write_hazard)] = .{
+        .index = @enumToInt(Feature.vmem_to_scalar_write_hazard),
+        .name = @tagName(Feature.vmem_to_scalar_write_hazard),
+        .llvm_name = "vmem-to-scalar-write-hazard",
+        .description = "VMEM instruction followed by scalar writing to EXEC mask, M0 or SGPR leads to incorrect execution.",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.volcanic_islands)] = .{
+        .index = @enumToInt(Feature.volcanic_islands),
+        .name = @tagName(Feature.volcanic_islands),
+        .llvm_name = "volcanic-islands",
+        .description = "VOLCANIC_ISLANDS GPU generation",
+        .dependencies = featureSet(&[_]Feature{
+            .@"16_bit_insts",
+            .ci_insts,
+            .dpp,
+            .flat_address_space,
+            .fp64,
+            .gcn3_encoding,
+            .gfx7_gfx8_gfx9_insts,
+            .gfx8_insts,
+            .int_clamp_insts,
+            .inv_2pi_inline_imm,
+            .localmemorysize65536,
+            .mimg_r128,
+            .movrel,
+            .no_sram_ecc_support,
+            .s_memrealtime,
+            .scalar_stores,
+            .sdwa,
+            .sdwa_mav,
+            .sdwa_out_mods_vopc,
+            .trig_reduced_range,
+            .vgpr_index_mode,
+            .wavefrontsize64,
+        }),
+    };
+    result[@enumToInt(Feature.vop3_literal)] = .{
+        .index = @enumToInt(Feature.vop3_literal),
+        .name = @tagName(Feature.vop3_literal),
+        .llvm_name = "vop3-literal",
+        .description = "Can use one literal in VOP3",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.vop3p)] = .{
+        .index = @enumToInt(Feature.vop3p),
+        .name = @tagName(Feature.vop3p),
+        .llvm_name = "vop3p",
+        .description = "Has VOP3P packed instructions",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.vscnt)] = .{
+        .index = @enumToInt(Feature.vscnt),
+        .name = @tagName(Feature.vscnt),
+        .llvm_name = "vscnt",
+        .description = "Has separate store vscnt counter",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.wavefrontsize16)] = .{
+        .index = @enumToInt(Feature.wavefrontsize16),
+        .name = @tagName(Feature.wavefrontsize16),
+        .llvm_name = "wavefrontsize16",
+        .description = "The number of threads per wavefront",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.wavefrontsize32)] = .{
+        .index = @enumToInt(Feature.wavefrontsize32),
+        .name = @tagName(Feature.wavefrontsize32),
+        .llvm_name = "wavefrontsize32",
+        .description = "The number of threads per wavefront",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.wavefrontsize64)] = .{
+        .index = @enumToInt(Feature.wavefrontsize64),
+        .name = @tagName(Feature.wavefrontsize64),
+        .llvm_name = "wavefrontsize64",
+        .description = "The number of threads per wavefront",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.xnack)] = .{
+        .index = @enumToInt(Feature.xnack),
+        .name = @tagName(Feature.xnack),
+        .llvm_name = "xnack",
+        .description = "Enable XNACK support",
+        .dependencies = 0,
+    };
+    break :blk result;
+};
+
+pub const cpu = struct {
+    pub const bonaire = Cpu{
+        .name = "bonaire",
+        .llvm_name = "bonaire",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .sea_islands,
+        }),
+    };
+    pub const carrizo = Cpu{
+        .name = "carrizo",
+        .llvm_name = "carrizo",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .fast_fmaf,
+            .half_rate_64_ops,
+            .ldsbankcount32,
+            .unpacked_d16_vmem,
+            .volcanic_islands,
+            .xnack,
+        }),
+    };
+    pub const fiji = Cpu{
+        .name = "fiji",
+        .llvm_name = "fiji",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .unpacked_d16_vmem,
+            .volcanic_islands,
+        }),
+    };
+    pub const generic = Cpu{
+        .name = "generic",
+        .llvm_name = "generic",
+        .features = featureSet(&[_]Feature{
+            .wavefrontsize64,
+        }),
+    };
+    pub const generic_hsa = Cpu{
+        .name = "generic_hsa",
+        .llvm_name = "generic-hsa",
+        .features = featureSet(&[_]Feature{
+            .flat_address_space,
+            .wavefrontsize64,
+        }),
+    };
+    pub const gfx1010 = Cpu{
+        .name = "gfx1010",
+        .llvm_name = "gfx1010",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .dl_insts,
+            .flat_segment_offset_bug,
+            .gfx10,
+            .inst_fwd_prefetch_bug,
+            .lds_branch_vmem_war_hazard,
+            .lds_misaligned_bug,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .nsa_encoding,
+            .nsa_to_vmem_bug,
+            .offset_3f_bug,
+            .scalar_atomics,
+            .scalar_flat_scratch_insts,
+            .scalar_stores,
+            .smem_to_vector_write_hazard,
+            .vcmpx_exec_war_hazard,
+            .vcmpx_permlane_hazard,
+            .vmem_to_scalar_write_hazard,
+            .wavefrontsize32,
+        }),
+    };
+    pub const gfx1011 = Cpu{
+        .name = "gfx1011",
+        .llvm_name = "gfx1011",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .dl_insts,
+            .dot1_insts,
+            .dot2_insts,
+            .dot5_insts,
+            .dot6_insts,
+            .flat_segment_offset_bug,
+            .gfx10,
+            .inst_fwd_prefetch_bug,
+            .lds_branch_vmem_war_hazard,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .nsa_encoding,
+            .nsa_to_vmem_bug,
+            .offset_3f_bug,
+            .scalar_atomics,
+            .scalar_flat_scratch_insts,
+            .scalar_stores,
+            .smem_to_vector_write_hazard,
+            .vcmpx_exec_war_hazard,
+            .vcmpx_permlane_hazard,
+            .vmem_to_scalar_write_hazard,
+            .wavefrontsize32,
+        }),
+    };
+    pub const gfx1012 = Cpu{
+        .name = "gfx1012",
+        .llvm_name = "gfx1012",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .dl_insts,
+            .dot1_insts,
+            .dot2_insts,
+            .dot5_insts,
+            .dot6_insts,
+            .flat_segment_offset_bug,
+            .gfx10,
+            .inst_fwd_prefetch_bug,
+            .lds_branch_vmem_war_hazard,
+            .lds_misaligned_bug,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .nsa_encoding,
+            .nsa_to_vmem_bug,
+            .offset_3f_bug,
+            .scalar_atomics,
+            .scalar_flat_scratch_insts,
+            .scalar_stores,
+            .smem_to_vector_write_hazard,
+            .vcmpx_exec_war_hazard,
+            .vcmpx_permlane_hazard,
+            .vmem_to_scalar_write_hazard,
+            .wavefrontsize32,
+        }),
+    };
+    pub const gfx600 = Cpu{
+        .name = "gfx600",
+        .llvm_name = "gfx600",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .fast_fmaf,
+            .half_rate_64_ops,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .southern_islands,
+        }),
+    };
+    pub const gfx601 = Cpu{
+        .name = "gfx601",
+        .llvm_name = "gfx601",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .southern_islands,
+        }),
+    };
+    pub const gfx700 = Cpu{
+        .name = "gfx700",
+        .llvm_name = "gfx700",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .sea_islands,
+        }),
+    };
+    pub const gfx701 = Cpu{
+        .name = "gfx701",
+        .llvm_name = "gfx701",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .fast_fmaf,
+            .half_rate_64_ops,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .sea_islands,
+        }),
+    };
+    pub const gfx702 = Cpu{
+        .name = "gfx702",
+        .llvm_name = "gfx702",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .fast_fmaf,
+            .ldsbankcount16,
+            .no_xnack_support,
+            .sea_islands,
+        }),
+    };
+    pub const gfx703 = Cpu{
+        .name = "gfx703",
+        .llvm_name = "gfx703",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount16,
+            .no_xnack_support,
+            .sea_islands,
+        }),
+    };
+    pub const gfx704 = Cpu{
+        .name = "gfx704",
+        .llvm_name = "gfx704",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .sea_islands,
+        }),
+    };
+    pub const gfx801 = Cpu{
+        .name = "gfx801",
+        .llvm_name = "gfx801",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .fast_fmaf,
+            .half_rate_64_ops,
+            .ldsbankcount32,
+            .unpacked_d16_vmem,
+            .volcanic_islands,
+            .xnack,
+        }),
+    };
+    pub const gfx802 = Cpu{
+        .name = "gfx802",
+        .llvm_name = "gfx802",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .sgpr_init_bug,
+            .unpacked_d16_vmem,
+            .volcanic_islands,
+        }),
+    };
+    pub const gfx803 = Cpu{
+        .name = "gfx803",
+        .llvm_name = "gfx803",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .unpacked_d16_vmem,
+            .volcanic_islands,
+        }),
+    };
+    pub const gfx810 = Cpu{
+        .name = "gfx810",
+        .llvm_name = "gfx810",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount16,
+            .volcanic_islands,
+            .xnack,
+        }),
+    };
+    pub const gfx900 = Cpu{
+        .name = "gfx900",
+        .llvm_name = "gfx900",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .gfx9,
+            .ldsbankcount32,
+            .mad_mix_insts,
+            .no_sram_ecc_support,
+            .no_xnack_support,
+        }),
+    };
+    pub const gfx902 = Cpu{
+        .name = "gfx902",
+        .llvm_name = "gfx902",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .gfx9,
+            .ldsbankcount32,
+            .mad_mix_insts,
+            .no_sram_ecc_support,
+            .xnack,
+        }),
+    };
+    pub const gfx904 = Cpu{
+        .name = "gfx904",
+        .llvm_name = "gfx904",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .fma_mix_insts,
+            .gfx9,
+            .ldsbankcount32,
+            .no_sram_ecc_support,
+            .no_xnack_support,
+        }),
+    };
+    pub const gfx906 = Cpu{
+        .name = "gfx906",
+        .llvm_name = "gfx906",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .dl_insts,
+            .dot1_insts,
+            .dot2_insts,
+            .fma_mix_insts,
+            .gfx9,
+            .half_rate_64_ops,
+            .ldsbankcount32,
+            .no_xnack_support,
+        }),
+    };
+    pub const gfx908 = Cpu{
+        .name = "gfx908",
+        .llvm_name = "gfx908",
+        .features = featureSet(&[_]Feature{
+            .atomic_fadd_insts,
+            .code_object_v3,
+            .dl_insts,
+            .dot1_insts,
+            .dot2_insts,
+            .dot3_insts,
+            .dot4_insts,
+            .dot5_insts,
+            .dot6_insts,
+            .fma_mix_insts,
+            .gfx9,
+            .half_rate_64_ops,
+            .ldsbankcount32,
+            .mai_insts,
+            .pk_fmac_f16_inst,
+            .sram_ecc,
+        }),
+    };
+    pub const gfx909 = Cpu{
+        .name = "gfx909",
+        .llvm_name = "gfx909",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .gfx9,
+            .ldsbankcount32,
+            .mad_mix_insts,
+            .xnack,
+        }),
+    };
+    pub const hainan = Cpu{
+        .name = "hainan",
+        .llvm_name = "hainan",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .southern_islands,
+        }),
+    };
+    pub const hawaii = Cpu{
+        .name = "hawaii",
+        .llvm_name = "hawaii",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .fast_fmaf,
+            .half_rate_64_ops,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .sea_islands,
+        }),
+    };
+    pub const iceland = Cpu{
+        .name = "iceland",
+        .llvm_name = "iceland",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .sgpr_init_bug,
+            .unpacked_d16_vmem,
+            .volcanic_islands,
+        }),
+    };
+    pub const kabini = Cpu{
+        .name = "kabini",
+        .llvm_name = "kabini",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount16,
+            .no_xnack_support,
+            .sea_islands,
+        }),
+    };
+    pub const kaveri = Cpu{
+        .name = "kaveri",
+        .llvm_name = "kaveri",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .sea_islands,
+        }),
+    };
+    pub const mullins = Cpu{
+        .name = "mullins",
+        .llvm_name = "mullins",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount16,
+            .no_xnack_support,
+            .sea_islands,
+        }),
+    };
+    pub const oland = Cpu{
+        .name = "oland",
+        .llvm_name = "oland",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .southern_islands,
+        }),
+    };
+    pub const pitcairn = Cpu{
+        .name = "pitcairn",
+        .llvm_name = "pitcairn",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .southern_islands,
+        }),
+    };
+    pub const polaris10 = Cpu{
+        .name = "polaris10",
+        .llvm_name = "polaris10",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .unpacked_d16_vmem,
+            .volcanic_islands,
+        }),
+    };
+    pub const polaris11 = Cpu{
+        .name = "polaris11",
+        .llvm_name = "polaris11",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .unpacked_d16_vmem,
+            .volcanic_islands,
+        }),
+    };
+    pub const stoney = Cpu{
+        .name = "stoney",
+        .llvm_name = "stoney",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount16,
+            .volcanic_islands,
+            .xnack,
+        }),
+    };
+    pub const tahiti = Cpu{
+        .name = "tahiti",
+        .llvm_name = "tahiti",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .fast_fmaf,
+            .half_rate_64_ops,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .southern_islands,
+        }),
+    };
+    pub const tonga = Cpu{
+        .name = "tonga",
+        .llvm_name = "tonga",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .sgpr_init_bug,
+            .unpacked_d16_vmem,
+            .volcanic_islands,
+        }),
+    };
+    pub const verde = Cpu{
+        .name = "verde",
+        .llvm_name = "verde",
+        .features = featureSet(&[_]Feature{
+            .code_object_v3,
+            .ldsbankcount32,
+            .no_xnack_support,
+            .southern_islands,
+        }),
+    };
+};
+
+/// All amdgpu CPUs, sorted alphabetically by name.
+/// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
+/// compiler has inefficient memory and CPU usage, affecting build times.
+pub const all_cpus = &[_]*const Cpu{
+    &cpu.bonaire,
+    &cpu.carrizo,
+    &cpu.fiji,
+    &cpu.generic,
+    &cpu.generic_hsa,
+    &cpu.gfx1010,
+    &cpu.gfx1011,
+    &cpu.gfx1012,
+    &cpu.gfx600,
+    &cpu.gfx601,
+    &cpu.gfx700,
+    &cpu.gfx701,
+    &cpu.gfx702,
+    &cpu.gfx703,
+    &cpu.gfx704,
+    &cpu.gfx801,
+    &cpu.gfx802,
+    &cpu.gfx803,
+    &cpu.gfx810,
+    &cpu.gfx900,
+    &cpu.gfx902,
+    &cpu.gfx904,
+    &cpu.gfx906,
+    &cpu.gfx908,
+    &cpu.gfx909,
+    &cpu.hainan,
+    &cpu.hawaii,
+    &cpu.iceland,
+    &cpu.kabini,
+    &cpu.kaveri,
+    &cpu.mullins,
+    &cpu.oland,
+    &cpu.pitcairn,
+    &cpu.polaris10,
+    &cpu.polaris11,
+    &cpu.stoney,
+    &cpu.tahiti,
+    &cpu.tonga,
+    &cpu.verde,
 };

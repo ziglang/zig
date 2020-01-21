@@ -1,379 +1,354 @@
-const Feature = @import("std").target.Feature;
-const Cpu = @import("std").target.Cpu;
+const std = @import("../std.zig");
+const Cpu = std.Target.Cpu;
 
-pub const feature_ptx32 = Feature{
-    .name = "ptx32",
-    .llvm_name = "ptx32",
-    .description = "Use PTX version 3.2",
-    .dependencies = &[_]*const Feature {
-    },
+pub const Feature = enum {
+    ptx32,
+    ptx40,
+    ptx41,
+    ptx42,
+    ptx43,
+    ptx50,
+    ptx60,
+    ptx61,
+    ptx63,
+    ptx64,
+    sm_20,
+    sm_21,
+    sm_30,
+    sm_32,
+    sm_35,
+    sm_37,
+    sm_50,
+    sm_52,
+    sm_53,
+    sm_60,
+    sm_61,
+    sm_62,
+    sm_70,
+    sm_72,
+    sm_75,
 };
 
-pub const feature_ptx40 = Feature{
-    .name = "ptx40",
-    .llvm_name = "ptx40",
-    .description = "Use PTX version 4.0",
-    .dependencies = &[_]*const Feature {
-    },
+pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
+
+pub const all_features = blk: {
+    const len = @typeInfo(Feature).Enum.fields.len;
+    std.debug.assert(len <= @typeInfo(Cpu.Feature.Set).Int.bits);
+    var result: [len]Cpu.Feature = undefined;
+    result[@enumToInt(Feature.ptx32)] = .{
+        .index = @enumToInt(Feature.ptx32),
+        .name = @tagName(Feature.ptx32),
+        .llvm_name = "ptx32",
+        .description = "Use PTX version 3.2",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.ptx40)] = .{
+        .index = @enumToInt(Feature.ptx40),
+        .name = @tagName(Feature.ptx40),
+        .llvm_name = "ptx40",
+        .description = "Use PTX version 4.0",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.ptx41)] = .{
+        .index = @enumToInt(Feature.ptx41),
+        .name = @tagName(Feature.ptx41),
+        .llvm_name = "ptx41",
+        .description = "Use PTX version 4.1",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.ptx42)] = .{
+        .index = @enumToInt(Feature.ptx42),
+        .name = @tagName(Feature.ptx42),
+        .llvm_name = "ptx42",
+        .description = "Use PTX version 4.2",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.ptx43)] = .{
+        .index = @enumToInt(Feature.ptx43),
+        .name = @tagName(Feature.ptx43),
+        .llvm_name = "ptx43",
+        .description = "Use PTX version 4.3",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.ptx50)] = .{
+        .index = @enumToInt(Feature.ptx50),
+        .name = @tagName(Feature.ptx50),
+        .llvm_name = "ptx50",
+        .description = "Use PTX version 5.0",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.ptx60)] = .{
+        .index = @enumToInt(Feature.ptx60),
+        .name = @tagName(Feature.ptx60),
+        .llvm_name = "ptx60",
+        .description = "Use PTX version 6.0",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.ptx61)] = .{
+        .index = @enumToInt(Feature.ptx61),
+        .name = @tagName(Feature.ptx61),
+        .llvm_name = "ptx61",
+        .description = "Use PTX version 6.1",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.ptx63)] = .{
+        .index = @enumToInt(Feature.ptx63),
+        .name = @tagName(Feature.ptx63),
+        .llvm_name = "ptx63",
+        .description = "Use PTX version 6.3",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.ptx64)] = .{
+        .index = @enumToInt(Feature.ptx64),
+        .name = @tagName(Feature.ptx64),
+        .llvm_name = "ptx64",
+        .description = "Use PTX version 6.4",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sm_20)] = .{
+        .index = @enumToInt(Feature.sm_20),
+        .name = @tagName(Feature.sm_20),
+        .llvm_name = "sm_20",
+        .description = "Target SM 2.0",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sm_21)] = .{
+        .index = @enumToInt(Feature.sm_21),
+        .name = @tagName(Feature.sm_21),
+        .llvm_name = "sm_21",
+        .description = "Target SM 2.1",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sm_30)] = .{
+        .index = @enumToInt(Feature.sm_30),
+        .name = @tagName(Feature.sm_30),
+        .llvm_name = "sm_30",
+        .description = "Target SM 3.0",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sm_32)] = .{
+        .index = @enumToInt(Feature.sm_32),
+        .name = @tagName(Feature.sm_32),
+        .llvm_name = "sm_32",
+        .description = "Target SM 3.2",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sm_35)] = .{
+        .index = @enumToInt(Feature.sm_35),
+        .name = @tagName(Feature.sm_35),
+        .llvm_name = "sm_35",
+        .description = "Target SM 3.5",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sm_37)] = .{
+        .index = @enumToInt(Feature.sm_37),
+        .name = @tagName(Feature.sm_37),
+        .llvm_name = "sm_37",
+        .description = "Target SM 3.7",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sm_50)] = .{
+        .index = @enumToInt(Feature.sm_50),
+        .name = @tagName(Feature.sm_50),
+        .llvm_name = "sm_50",
+        .description = "Target SM 5.0",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sm_52)] = .{
+        .index = @enumToInt(Feature.sm_52),
+        .name = @tagName(Feature.sm_52),
+        .llvm_name = "sm_52",
+        .description = "Target SM 5.2",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sm_53)] = .{
+        .index = @enumToInt(Feature.sm_53),
+        .name = @tagName(Feature.sm_53),
+        .llvm_name = "sm_53",
+        .description = "Target SM 5.3",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sm_60)] = .{
+        .index = @enumToInt(Feature.sm_60),
+        .name = @tagName(Feature.sm_60),
+        .llvm_name = "sm_60",
+        .description = "Target SM 6.0",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sm_61)] = .{
+        .index = @enumToInt(Feature.sm_61),
+        .name = @tagName(Feature.sm_61),
+        .llvm_name = "sm_61",
+        .description = "Target SM 6.1",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sm_62)] = .{
+        .index = @enumToInt(Feature.sm_62),
+        .name = @tagName(Feature.sm_62),
+        .llvm_name = "sm_62",
+        .description = "Target SM 6.2",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sm_70)] = .{
+        .index = @enumToInt(Feature.sm_70),
+        .name = @tagName(Feature.sm_70),
+        .llvm_name = "sm_70",
+        .description = "Target SM 7.0",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sm_72)] = .{
+        .index = @enumToInt(Feature.sm_72),
+        .name = @tagName(Feature.sm_72),
+        .llvm_name = "sm_72",
+        .description = "Target SM 7.2",
+        .dependencies = 0,
+    };
+    result[@enumToInt(Feature.sm_75)] = .{
+        .index = @enumToInt(Feature.sm_75),
+        .name = @tagName(Feature.sm_75),
+        .llvm_name = "sm_75",
+        .description = "Target SM 7.5",
+        .dependencies = 0,
+    };
+    break :blk result;
 };
 
-pub const feature_ptx41 = Feature{
-    .name = "ptx41",
-    .llvm_name = "ptx41",
-    .description = "Use PTX version 4.1",
-    .dependencies = &[_]*const Feature {
-    },
+pub const cpu = struct {
+    pub const sm_20 = Cpu{
+        .name = "sm_20",
+        .llvm_name = "sm_20",
+        .features = featureSet(&[_]Feature{
+            .sm_20,
+        }),
+    };
+    pub const sm_21 = Cpu{
+        .name = "sm_21",
+        .llvm_name = "sm_21",
+        .features = featureSet(&[_]Feature{
+            .sm_21,
+        }),
+    };
+    pub const sm_30 = Cpu{
+        .name = "sm_30",
+        .llvm_name = "sm_30",
+        .features = featureSet(&[_]Feature{
+            .sm_30,
+        }),
+    };
+    pub const sm_32 = Cpu{
+        .name = "sm_32",
+        .llvm_name = "sm_32",
+        .features = featureSet(&[_]Feature{
+            .ptx40,
+            .sm_32,
+        }),
+    };
+    pub const sm_35 = Cpu{
+        .name = "sm_35",
+        .llvm_name = "sm_35",
+        .features = featureSet(&[_]Feature{
+            .sm_35,
+        }),
+    };
+    pub const sm_37 = Cpu{
+        .name = "sm_37",
+        .llvm_name = "sm_37",
+        .features = featureSet(&[_]Feature{
+            .ptx41,
+            .sm_37,
+        }),
+    };
+    pub const sm_50 = Cpu{
+        .name = "sm_50",
+        .llvm_name = "sm_50",
+        .features = featureSet(&[_]Feature{
+            .ptx40,
+            .sm_50,
+        }),
+    };
+    pub const sm_52 = Cpu{
+        .name = "sm_52",
+        .llvm_name = "sm_52",
+        .features = featureSet(&[_]Feature{
+            .ptx41,
+            .sm_52,
+        }),
+    };
+    pub const sm_53 = Cpu{
+        .name = "sm_53",
+        .llvm_name = "sm_53",
+        .features = featureSet(&[_]Feature{
+            .ptx42,
+            .sm_53,
+        }),
+    };
+    pub const sm_60 = Cpu{
+        .name = "sm_60",
+        .llvm_name = "sm_60",
+        .features = featureSet(&[_]Feature{
+            .ptx50,
+            .sm_60,
+        }),
+    };
+    pub const sm_61 = Cpu{
+        .name = "sm_61",
+        .llvm_name = "sm_61",
+        .features = featureSet(&[_]Feature{
+            .ptx50,
+            .sm_61,
+        }),
+    };
+    pub const sm_62 = Cpu{
+        .name = "sm_62",
+        .llvm_name = "sm_62",
+        .features = featureSet(&[_]Feature{
+            .ptx50,
+            .sm_62,
+        }),
+    };
+    pub const sm_70 = Cpu{
+        .name = "sm_70",
+        .llvm_name = "sm_70",
+        .features = featureSet(&[_]Feature{
+            .ptx60,
+            .sm_70,
+        }),
+    };
+    pub const sm_72 = Cpu{
+        .name = "sm_72",
+        .llvm_name = "sm_72",
+        .features = featureSet(&[_]Feature{
+            .ptx61,
+            .sm_72,
+        }),
+    };
+    pub const sm_75 = Cpu{
+        .name = "sm_75",
+        .llvm_name = "sm_75",
+        .features = featureSet(&[_]Feature{
+            .ptx63,
+            .sm_75,
+        }),
+    };
 };
 
-pub const feature_ptx42 = Feature{
-    .name = "ptx42",
-    .llvm_name = "ptx42",
-    .description = "Use PTX version 4.2",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_ptx43 = Feature{
-    .name = "ptx43",
-    .llvm_name = "ptx43",
-    .description = "Use PTX version 4.3",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_ptx50 = Feature{
-    .name = "ptx50",
-    .llvm_name = "ptx50",
-    .description = "Use PTX version 5.0",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_ptx60 = Feature{
-    .name = "ptx60",
-    .llvm_name = "ptx60",
-    .description = "Use PTX version 6.0",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_ptx61 = Feature{
-    .name = "ptx61",
-    .llvm_name = "ptx61",
-    .description = "Use PTX version 6.1",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_ptx63 = Feature{
-    .name = "ptx63",
-    .llvm_name = "ptx63",
-    .description = "Use PTX version 6.3",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_ptx64 = Feature{
-    .name = "ptx64",
-    .llvm_name = "ptx64",
-    .description = "Use PTX version 6.4",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sm_20 = Feature{
-    .name = "sm_20",
-    .llvm_name = "sm_20",
-    .description = "Target SM 2.0",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sm_21 = Feature{
-    .name = "sm_21",
-    .llvm_name = "sm_21",
-    .description = "Target SM 2.1",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sm_30 = Feature{
-    .name = "sm_30",
-    .llvm_name = "sm_30",
-    .description = "Target SM 3.0",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sm_32 = Feature{
-    .name = "sm_32",
-    .llvm_name = "sm_32",
-    .description = "Target SM 3.2",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sm_35 = Feature{
-    .name = "sm_35",
-    .llvm_name = "sm_35",
-    .description = "Target SM 3.5",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sm_37 = Feature{
-    .name = "sm_37",
-    .llvm_name = "sm_37",
-    .description = "Target SM 3.7",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sm_50 = Feature{
-    .name = "sm_50",
-    .llvm_name = "sm_50",
-    .description = "Target SM 5.0",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sm_52 = Feature{
-    .name = "sm_52",
-    .llvm_name = "sm_52",
-    .description = "Target SM 5.2",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sm_53 = Feature{
-    .name = "sm_53",
-    .llvm_name = "sm_53",
-    .description = "Target SM 5.3",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sm_60 = Feature{
-    .name = "sm_60",
-    .llvm_name = "sm_60",
-    .description = "Target SM 6.0",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sm_61 = Feature{
-    .name = "sm_61",
-    .llvm_name = "sm_61",
-    .description = "Target SM 6.1",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sm_62 = Feature{
-    .name = "sm_62",
-    .llvm_name = "sm_62",
-    .description = "Target SM 6.2",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sm_70 = Feature{
-    .name = "sm_70",
-    .llvm_name = "sm_70",
-    .description = "Target SM 7.0",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sm_72 = Feature{
-    .name = "sm_72",
-    .llvm_name = "sm_72",
-    .description = "Target SM 7.2",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const feature_sm_75 = Feature{
-    .name = "sm_75",
-    .llvm_name = "sm_75",
-    .description = "Target SM 7.5",
-    .dependencies = &[_]*const Feature {
-    },
-};
-
-pub const features = &[_]*const Feature {
-    &feature_ptx32,
-    &feature_ptx40,
-    &feature_ptx41,
-    &feature_ptx42,
-    &feature_ptx43,
-    &feature_ptx50,
-    &feature_ptx60,
-    &feature_ptx61,
-    &feature_ptx63,
-    &feature_ptx64,
-    &feature_sm_20,
-    &feature_sm_21,
-    &feature_sm_30,
-    &feature_sm_32,
-    &feature_sm_35,
-    &feature_sm_37,
-    &feature_sm_50,
-    &feature_sm_52,
-    &feature_sm_53,
-    &feature_sm_60,
-    &feature_sm_61,
-    &feature_sm_62,
-    &feature_sm_70,
-    &feature_sm_72,
-    &feature_sm_75,
-};
-
-pub const cpu_sm_20 = Cpu{
-    .name = "sm_20",
-    .llvm_name = "sm_20",
-    .dependencies = &[_]*const Feature {
-        &feature_sm_20,
-    },
-};
-
-pub const cpu_sm_21 = Cpu{
-    .name = "sm_21",
-    .llvm_name = "sm_21",
-    .dependencies = &[_]*const Feature {
-        &feature_sm_21,
-    },
-};
-
-pub const cpu_sm_30 = Cpu{
-    .name = "sm_30",
-    .llvm_name = "sm_30",
-    .dependencies = &[_]*const Feature {
-        &feature_sm_30,
-    },
-};
-
-pub const cpu_sm_32 = Cpu{
-    .name = "sm_32",
-    .llvm_name = "sm_32",
-    .dependencies = &[_]*const Feature {
-        &feature_ptx40,
-        &feature_sm_32,
-    },
-};
-
-pub const cpu_sm_35 = Cpu{
-    .name = "sm_35",
-    .llvm_name = "sm_35",
-    .dependencies = &[_]*const Feature {
-        &feature_sm_35,
-    },
-};
-
-pub const cpu_sm_37 = Cpu{
-    .name = "sm_37",
-    .llvm_name = "sm_37",
-    .dependencies = &[_]*const Feature {
-        &feature_ptx41,
-        &feature_sm_37,
-    },
-};
-
-pub const cpu_sm_50 = Cpu{
-    .name = "sm_50",
-    .llvm_name = "sm_50",
-    .dependencies = &[_]*const Feature {
-        &feature_ptx40,
-        &feature_sm_50,
-    },
-};
-
-pub const cpu_sm_52 = Cpu{
-    .name = "sm_52",
-    .llvm_name = "sm_52",
-    .dependencies = &[_]*const Feature {
-        &feature_ptx41,
-        &feature_sm_52,
-    },
-};
-
-pub const cpu_sm_53 = Cpu{
-    .name = "sm_53",
-    .llvm_name = "sm_53",
-    .dependencies = &[_]*const Feature {
-        &feature_ptx42,
-        &feature_sm_53,
-    },
-};
-
-pub const cpu_sm_60 = Cpu{
-    .name = "sm_60",
-    .llvm_name = "sm_60",
-    .dependencies = &[_]*const Feature {
-        &feature_ptx50,
-        &feature_sm_60,
-    },
-};
-
-pub const cpu_sm_61 = Cpu{
-    .name = "sm_61",
-    .llvm_name = "sm_61",
-    .dependencies = &[_]*const Feature {
-        &feature_ptx50,
-        &feature_sm_61,
-    },
-};
-
-pub const cpu_sm_62 = Cpu{
-    .name = "sm_62",
-    .llvm_name = "sm_62",
-    .dependencies = &[_]*const Feature {
-        &feature_ptx50,
-        &feature_sm_62,
-    },
-};
-
-pub const cpu_sm_70 = Cpu{
-    .name = "sm_70",
-    .llvm_name = "sm_70",
-    .dependencies = &[_]*const Feature {
-        &feature_ptx60,
-        &feature_sm_70,
-    },
-};
-
-pub const cpu_sm_72 = Cpu{
-    .name = "sm_72",
-    .llvm_name = "sm_72",
-    .dependencies = &[_]*const Feature {
-        &feature_ptx61,
-        &feature_sm_72,
-    },
-};
-
-pub const cpu_sm_75 = Cpu{
-    .name = "sm_75",
-    .llvm_name = "sm_75",
-    .dependencies = &[_]*const Feature {
-        &feature_ptx63,
-        &feature_sm_75,
-    },
-};
-
-pub const cpus = &[_]*const Cpu {
-    &cpu_sm_20,
-    &cpu_sm_21,
-    &cpu_sm_30,
-    &cpu_sm_32,
-    &cpu_sm_35,
-    &cpu_sm_37,
-    &cpu_sm_50,
-    &cpu_sm_52,
-    &cpu_sm_53,
-    &cpu_sm_60,
-    &cpu_sm_61,
-    &cpu_sm_62,
-    &cpu_sm_70,
-    &cpu_sm_72,
-    &cpu_sm_75,
+/// All nvptx CPUs, sorted alphabetically by name.
+/// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
+/// compiler has inefficient memory and CPU usage, affecting build times.
+pub const all_cpus = &[_]*const Cpu{
+    &cpu.sm_20,
+    &cpu.sm_21,
+    &cpu.sm_30,
+    &cpu.sm_32,
+    &cpu.sm_35,
+    &cpu.sm_37,
+    &cpu.sm_50,
+    &cpu.sm_52,
+    &cpu.sm_53,
+    &cpu.sm_60,
+    &cpu.sm_61,
+    &cpu.sm_62,
+    &cpu.sm_70,
+    &cpu.sm_72,
+    &cpu.sm_75,
 };
