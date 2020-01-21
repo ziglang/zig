@@ -13,6 +13,7 @@ const Target = std.Target;
 const self_hosted_main = @import("main.zig");
 const errmsg = @import("errmsg.zig");
 const DepTokenizer = @import("dep_tokenizer.zig").Tokenizer;
+const assert = std.debug.assert;
 
 var stderr_file: fs.File = undefined;
 var stderr: *io.OutStream(fs.File.WriteError) = undefined;
@@ -675,7 +676,7 @@ const Stage2CpuFeatures = struct {
         });
         errdefer allocator.free(builtin_str);
 
-        const cache_hash = try std.fmt.allocPrint0(allocator, "{}\n{x}", .{ cpu.name, cpu.features });
+        const cache_hash = try std.fmt.allocPrint0(allocator, "{}\n{x}", .{ cpu.name, cpu.features.bytes });
         errdefer allocator.free(cache_hash);
 
         self.* = Self{
@@ -696,29 +697,19 @@ const Stage2CpuFeatures = struct {
     ) ![*:0]const u8 {
         var llvm_features_buffer = try std.Buffer.initSize(allocator, 0);
         defer llvm_features_buffer.deinit();
-        // First, disable all features.
-        // This way, we only get the ones the user requests.
+
         const all_features = arch.allFeaturesList();
-        for (all_features) |feature| {
-            if (feature.llvm_name) |llvm_name| {
-                try llvm_features_buffer.append("-");
-                try llvm_features_buffer.append(llvm_name);
-                try llvm_features_buffer.append(",");
-            }
-        }
         for (all_features) |feature, index| {
-            if (!feature_set.isEnabled(@intCast(u8, index))) continue;
+            const llvm_name = feature.llvm_name orelse continue;
 
-            if (feature.llvm_name) |llvm_name| {
-                try llvm_features_buffer.append("+");
-                try llvm_features_buffer.append(llvm_name);
-                try llvm_features_buffer.append(",");
-            }
+            const plus_or_minus = "-+"[@boolToInt(feature_set.isEnabled(@intCast(u8, index)))];
+            try llvm_features_buffer.appendByte(plus_or_minus);
+            try llvm_features_buffer.append(llvm_name);
+            try llvm_features_buffer.append(",");
         }
+        assert(mem.endsWith(u8, llvm_features_buffer.toSliceConst(), ","));
+        llvm_features_buffer.shrink(llvm_features_buffer.len() - 1);
 
-        if (mem.endsWith(u8, llvm_features_buffer.toSliceConst(), ",")) {
-            llvm_features_buffer.shrink(llvm_features_buffer.len() - 1);
-        }
         return llvm_features_buffer.toOwnedSlice().ptr;
     }
 
@@ -730,7 +721,7 @@ const Stage2CpuFeatures = struct {
         const self = try allocator.create(Self);
         errdefer allocator.destroy(self);
 
-        const cache_hash = try std.fmt.allocPrint0(allocator, "\n{x}", .{feature_set});
+        const cache_hash = try std.fmt.allocPrint0(allocator, "\n{}", .{feature_set.bytes});
         errdefer allocator.free(cache_hash);
 
         const generic_arch_name = arch.genericName();
