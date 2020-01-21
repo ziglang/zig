@@ -972,6 +972,23 @@ pub const Target = union(enum) {
         }
     }
 
+    pub fn getObjectFormat(self: Target) ObjectFormat {
+        switch (self) {
+            .Native => return @import("builtin").object_format,
+            .Cross => blk: {
+                if (self.isWindows() or self.isUefi()) {
+                    return .coff;
+                } else if (self.isDarwin()) {
+                    return .macho;
+                }
+                if (self.isWasm()) {
+                    return .wasm;
+                }
+                return .elf;
+            },
+        }
+    }
+
     pub fn isMinGW(self: Target) bool {
         return self.isWindows() and self.isGnu();
     }

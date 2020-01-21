@@ -946,8 +946,8 @@ fn readSparseBitVector(stream: var, allocator: *mem.Allocator) ![]usize {
 fn findDwarfSectionFromElf(elf_file: *elf.Elf, name: []const u8) !?DwarfInfo.Section {
     const elf_header = (try elf_file.findSection(name)) orelse return null;
     return DwarfInfo.Section{
-        .offset = elf_header.offset,
-        .size = elf_header.size,
+        .offset = elf_header.sh_offset,
+        .size = elf_header.sh_size,
     };
 }
 
@@ -987,12 +987,12 @@ pub fn openElfDebugInfo(
 
     var di = DwarfInfo{
         .endian = efile.endian,
-        .debug_info = (data[@intCast(usize, debug_info.offset)..@intCast(usize, debug_info.offset + debug_info.size)]),
-        .debug_abbrev = (data[@intCast(usize, debug_abbrev.offset)..@intCast(usize, debug_abbrev.offset + debug_abbrev.size)]),
-        .debug_str = (data[@intCast(usize, debug_str.offset)..@intCast(usize, debug_str.offset + debug_str.size)]),
-        .debug_line = (data[@intCast(usize, debug_line.offset)..@intCast(usize, debug_line.offset + debug_line.size)]),
+        .debug_info = (data[@intCast(usize, debug_info.sh_offset)..@intCast(usize, debug_info.sh_offset + debug_info.sh_size)]),
+        .debug_abbrev = (data[@intCast(usize, debug_abbrev.sh_offset)..@intCast(usize, debug_abbrev.sh_offset + debug_abbrev.sh_size)]),
+        .debug_str = (data[@intCast(usize, debug_str.sh_offset)..@intCast(usize, debug_str.sh_offset + debug_str.sh_size)]),
+        .debug_line = (data[@intCast(usize, debug_line.sh_offset)..@intCast(usize, debug_line.sh_offset + debug_line.sh_size)]),
         .debug_ranges = if (opt_debug_ranges) |debug_ranges|
-            data[@intCast(usize, debug_ranges.offset)..@intCast(usize, debug_ranges.offset + debug_ranges.size)]
+            data[@intCast(usize, debug_ranges.sh_offset)..@intCast(usize, debug_ranges.sh_offset + debug_ranges.sh_size)]
         else
             null,
     };

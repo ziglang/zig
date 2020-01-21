@@ -21,6 +21,7 @@ pub const TranslateCStep = @import("build/translate_c.zig").TranslateCStep;
 pub const WriteFileStep = @import("build/write_file.zig").WriteFileStep;
 pub const RunStep = @import("build/run.zig").RunStep;
 pub const CheckFileStep = @import("build/check_file.zig").CheckFileStep;
+pub const InstallRawStep = @import("build/emit_raw.zig").InstallRawStep;
 
 pub const Builder = struct {
     install_tls: TopLevelStep,
@@ -824,6 +825,10 @@ pub const Builder = struct {
         self.getInstallStep().dependOn(&self.addInstallFileWithDir(src_path, .Lib, dest_rel_path).step);
     }
 
+    pub fn installRaw(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8) void {
+        self.getInstallStep().dependOn(&self.addInstallRaw(artifact, dest_filename).step);
+    }
+
     ///`dest_rel_path` is relative to install prefix path
     pub fn addInstallFile(self: *Builder, src_path: []const u8, dest_rel_path: []const u8) *InstallFileStep {
         return self.addInstallFileWithDir(src_path, .Prefix, dest_rel_path);
@@ -837,6 +842,10 @@ pub const Builder = struct {
     ///`dest_rel_path` is relative to lib path
     pub fn addInstallLibFile(self: *Builder, src_path: []const u8, dest_rel_path: []const u8) *InstallFileStep {
         return self.addInstallFileWithDir(src_path, .Lib, dest_rel_path);
+    }
+
+    pub fn addInstallRaw(self: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8) *InstallRawStep {
+        return InstallRawStep.create(self, artifact, dest_filename);
     }
 
     pub fn addInstallFileWithDir(
@@ -1405,6 +1414,10 @@ pub const LibExeObjStep = struct {
 
     pub fn install(self: *LibExeObjStep) void {
         self.builder.installArtifact(self);
+    }
+
+    pub fn installRaw(self: *LibExeObjStep, dest_filename: [] const u8) void {
+        self.builder.installRaw(self, dest_filename);
     }
 
     /// Creates a `RunStep` with an executable built with `addExecutable`.
