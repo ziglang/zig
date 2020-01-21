@@ -79,7 +79,9 @@ pub fn main() !void {
     } else if (mem.eql(u8, cmd, "libc")) {
         return cmdLibC(allocator, cmd_args);
     } else if (mem.eql(u8, cmd, "targets")) {
-        return @import("print_targets.zig").cmdTargets(allocator, cmd_args, stdout);
+        // TODO figure out the current target rather than using the target that was specified when
+        // compiling the compiler
+        return @import("print_targets.zig").cmdTargets(allocator, cmd_args, stdout, Target.current);
     } else if (mem.eql(u8, cmd, "version")) {
         return cmdVersion(allocator, cmd_args);
     } else if (mem.eql(u8, cmd, "zen")) {
