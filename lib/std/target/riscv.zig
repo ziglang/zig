@@ -16,28 +16,28 @@ pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
-    std.debug.assert(len <= @typeInfo(Cpu.Feature.Set).Int.bits);
+    std.debug.assert(len <= Cpu.Feature.Set.bit_count);
     var result: [len]Cpu.Feature = undefined;
     result[@enumToInt(Feature.@"64bit")] = .{
         .index = @enumToInt(Feature.@"64bit"),
         .name = @tagName(Feature.@"64bit"),
         .llvm_name = "64bit",
         .description = "Implements RV64",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.a)] = .{
         .index = @enumToInt(Feature.a),
         .name = @tagName(Feature.a),
         .llvm_name = "a",
         .description = "'A' (Atomic Instructions)",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.c)] = .{
         .index = @enumToInt(Feature.c),
         .name = @tagName(Feature.c),
         .llvm_name = "c",
         .description = "'C' (Compressed Instructions)",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.d)] = .{
         .index = @enumToInt(Feature.d),
@@ -53,28 +53,28 @@ pub const all_features = blk: {
         .name = @tagName(Feature.e),
         .llvm_name = "e",
         .description = "Implements RV32E (provides 16 rather than 32 GPRs)",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.f)] = .{
         .index = @enumToInt(Feature.f),
         .name = @tagName(Feature.f),
         .llvm_name = "f",
         .description = "'F' (Single-Precision Floating-Point)",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.m)] = .{
         .index = @enumToInt(Feature.m),
         .name = @tagName(Feature.m),
         .llvm_name = "m",
         .description = "'M' (Integer Multiplication and Division)",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.relax)] = .{
         .index = @enumToInt(Feature.relax),
         .name = @tagName(Feature.relax),
         .llvm_name = "relax",
         .description = "Enable Linker relaxation.",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     break :blk result;
 };
@@ -83,7 +83,7 @@ pub const cpu = struct {
     pub const generic_rv32 = Cpu{
         .name = "generic_rv32",
         .llvm_name = "generic-rv32",
-        .features = 0,
+        .features = featureSet(&[_]Feature{}),
     };
     pub const generic_rv64 = Cpu{
         .name = "generic_rv64",

@@ -27,140 +27,140 @@ pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
-    std.debug.assert(len <= @typeInfo(Cpu.Feature.Set).Int.bits);
+    std.debug.assert(len <= Cpu.Feature.Set.bit_count);
     var result: [len]Cpu.Feature = undefined;
     result[@enumToInt(Feature.deprecated_v8)] = .{
         .index = @enumToInt(Feature.deprecated_v8),
         .name = @tagName(Feature.deprecated_v8),
         .llvm_name = "deprecated-v8",
         .description = "Enable deprecated V8 instructions in V9 mode",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.detectroundchange)] = .{
         .index = @enumToInt(Feature.detectroundchange),
         .name = @tagName(Feature.detectroundchange),
         .llvm_name = "detectroundchange",
         .description = "LEON3 erratum detection: Detects any rounding mode change request: use only the round-to-nearest rounding mode",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fixallfdivsqrt)] = .{
         .index = @enumToInt(Feature.fixallfdivsqrt),
         .name = @tagName(Feature.fixallfdivsqrt),
         .llvm_name = "fixallfdivsqrt",
         .description = "LEON erratum fix: Fix FDIVS/FDIVD/FSQRTS/FSQRTD instructions with NOPs and floating-point store",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.hard_quad_float)] = .{
         .index = @enumToInt(Feature.hard_quad_float),
         .name = @tagName(Feature.hard_quad_float),
         .llvm_name = "hard-quad-float",
         .description = "Enable quad-word floating point instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.hasleoncasa)] = .{
         .index = @enumToInt(Feature.hasleoncasa),
         .name = @tagName(Feature.hasleoncasa),
         .llvm_name = "hasleoncasa",
         .description = "Enable CASA instruction for LEON3 and LEON4 processors",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.hasumacsmac)] = .{
         .index = @enumToInt(Feature.hasumacsmac),
         .name = @tagName(Feature.hasumacsmac),
         .llvm_name = "hasumacsmac",
         .description = "Enable UMAC and SMAC for LEON3 and LEON4 processors",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.insertnopload)] = .{
         .index = @enumToInt(Feature.insertnopload),
         .name = @tagName(Feature.insertnopload),
         .llvm_name = "insertnopload",
         .description = "LEON3 erratum fix: Insert a NOP instruction after every single-cycle load instruction when the next instruction is another load/store instruction",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.leon)] = .{
         .index = @enumToInt(Feature.leon),
         .name = @tagName(Feature.leon),
         .llvm_name = "leon",
         .description = "Enable LEON extensions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.leoncyclecounter)] = .{
         .index = @enumToInt(Feature.leoncyclecounter),
         .name = @tagName(Feature.leoncyclecounter),
         .llvm_name = "leoncyclecounter",
         .description = "Use the Leon cycle counter register",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.leonpwrpsr)] = .{
         .index = @enumToInt(Feature.leonpwrpsr),
         .name = @tagName(Feature.leonpwrpsr),
         .llvm_name = "leonpwrpsr",
         .description = "Enable the PWRPSR instruction",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.no_fmuls)] = .{
         .index = @enumToInt(Feature.no_fmuls),
         .name = @tagName(Feature.no_fmuls),
         .llvm_name = "no-fmuls",
         .description = "Disable the fmuls instruction.",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.no_fsmuld)] = .{
         .index = @enumToInt(Feature.no_fsmuld),
         .name = @tagName(Feature.no_fsmuld),
         .llvm_name = "no-fsmuld",
         .description = "Disable the fsmuld instruction.",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.popc)] = .{
         .index = @enumToInt(Feature.popc),
         .name = @tagName(Feature.popc),
         .llvm_name = "popc",
         .description = "Use the popc (population count) instruction",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.soft_float)] = .{
         .index = @enumToInt(Feature.soft_float),
         .name = @tagName(Feature.soft_float),
         .llvm_name = "soft-float",
         .description = "Use software emulation for floating point",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.soft_mul_div)] = .{
         .index = @enumToInt(Feature.soft_mul_div),
         .name = @tagName(Feature.soft_mul_div),
         .llvm_name = "soft-mul-div",
         .description = "Use software emulation for integer multiply and divide",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.v9)] = .{
         .index = @enumToInt(Feature.v9),
         .name = @tagName(Feature.v9),
         .llvm_name = "v9",
         .description = "Enable SPARC-V9 instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.vis)] = .{
         .index = @enumToInt(Feature.vis),
         .name = @tagName(Feature.vis),
         .llvm_name = "vis",
         .description = "Enable UltraSPARC Visual Instruction Set extensions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.vis2)] = .{
         .index = @enumToInt(Feature.vis2),
         .name = @tagName(Feature.vis2),
         .llvm_name = "vis2",
         .description = "Enable Visual Instruction Set extensions II",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.vis3)] = .{
         .index = @enumToInt(Feature.vis3),
         .name = @tagName(Feature.vis3),
         .llvm_name = "vis3",
         .description = "Enable Visual Instruction Set extensions III",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     break :blk result;
 };
@@ -185,12 +185,12 @@ pub const cpu = struct {
     pub const f934 = Cpu{
         .name = "f934",
         .llvm_name = "f934",
-        .features = 0,
+        .features = featureSet(&[_]Feature{}),
     };
     pub const generic = Cpu{
         .name = "generic",
         .llvm_name = "generic",
-        .features = 0,
+        .features = featureSet(&[_]Feature{}),
     };
     pub const gr712rc = Cpu{
         .name = "gr712rc",
@@ -214,7 +214,7 @@ pub const cpu = struct {
     pub const hypersparc = Cpu{
         .name = "hypersparc",
         .llvm_name = "hypersparc",
-        .features = 0,
+        .features = featureSet(&[_]Feature{}),
     };
     pub const leon2 = Cpu{
         .name = "leon2",
@@ -407,27 +407,27 @@ pub const cpu = struct {
     pub const sparclet = Cpu{
         .name = "sparclet",
         .llvm_name = "sparclet",
-        .features = 0,
+        .features = featureSet(&[_]Feature{}),
     };
     pub const sparclite = Cpu{
         .name = "sparclite",
         .llvm_name = "sparclite",
-        .features = 0,
+        .features = featureSet(&[_]Feature{}),
     };
     pub const sparclite86x = Cpu{
         .name = "sparclite86x",
         .llvm_name = "sparclite86x",
-        .features = 0,
+        .features = featureSet(&[_]Feature{}),
     };
     pub const supersparc = Cpu{
         .name = "supersparc",
         .llvm_name = "supersparc",
-        .features = 0,
+        .features = featureSet(&[_]Feature{}),
     };
     pub const tsc701 = Cpu{
         .name = "tsc701",
         .llvm_name = "tsc701",
-        .features = 0,
+        .features = featureSet(&[_]Feature{}),
     };
     pub const ultrasparc = Cpu{
         .name = "ultrasparc",
@@ -470,7 +470,7 @@ pub const cpu = struct {
     pub const v8 = Cpu{
         .name = "v8",
         .llvm_name = "v8",
-        .features = 0,
+        .features = featureSet(&[_]Feature{}),
     };
     pub const v9 = Cpu{
         .name = "v9",

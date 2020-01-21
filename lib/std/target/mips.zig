@@ -57,14 +57,14 @@ pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
-    std.debug.assert(len <= @typeInfo(Cpu.Feature.Set).Int.bits);
+    std.debug.assert(len <= Cpu.Feature.Set.bit_count);
     var result: [len]Cpu.Feature = undefined;
     result[@enumToInt(Feature.abs2008)] = .{
         .index = @enumToInt(Feature.abs2008),
         .name = @tagName(Feature.abs2008),
         .llvm_name = "abs2008",
         .description = "Disable IEEE 754-2008 abs.fmt mode",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.cnmips)] = .{
         .index = @enumToInt(Feature.cnmips),
@@ -80,14 +80,14 @@ pub const all_features = blk: {
         .name = @tagName(Feature.crc),
         .llvm_name = "crc",
         .description = "Mips R6 CRC ASE",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.dsp)] = .{
         .index = @enumToInt(Feature.dsp),
         .name = @tagName(Feature.dsp),
         .llvm_name = "dsp",
         .description = "Mips DSP ASE",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.dspr2)] = .{
         .index = @enumToInt(Feature.dspr2),
@@ -113,63 +113,63 @@ pub const all_features = blk: {
         .name = @tagName(Feature.eva),
         .llvm_name = "eva",
         .description = "Mips EVA ASE",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fp64)] = .{
         .index = @enumToInt(Feature.fp64),
         .name = @tagName(Feature.fp64),
         .llvm_name = "fp64",
         .description = "Support 64-bit FP registers",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fpxx)] = .{
         .index = @enumToInt(Feature.fpxx),
         .name = @tagName(Feature.fpxx),
         .llvm_name = "fpxx",
         .description = "Support for FPXX",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ginv)] = .{
         .index = @enumToInt(Feature.ginv),
         .name = @tagName(Feature.ginv),
         .llvm_name = "ginv",
         .description = "Mips Global Invalidate ASE",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.gp64)] = .{
         .index = @enumToInt(Feature.gp64),
         .name = @tagName(Feature.gp64),
         .llvm_name = "gp64",
         .description = "General Purpose Registers are 64-bit wide",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.long_calls)] = .{
         .index = @enumToInt(Feature.long_calls),
         .name = @tagName(Feature.long_calls),
         .llvm_name = "long-calls",
         .description = "Disable use of the jal instruction",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.micromips)] = .{
         .index = @enumToInt(Feature.micromips),
         .name = @tagName(Feature.micromips),
         .llvm_name = "micromips",
         .description = "microMips mode",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mips1)] = .{
         .index = @enumToInt(Feature.mips1),
         .name = @tagName(Feature.mips1),
         .llvm_name = "mips1",
         .description = "Mips I ISA Support [highly experimental]",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mips16)] = .{
         .index = @enumToInt(Feature.mips16),
         .name = @tagName(Feature.mips16),
         .llvm_name = "mips16",
         .description = "Mips16 mode",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mips2)] = .{
         .index = @enumToInt(Feature.mips2),
@@ -251,14 +251,14 @@ pub const all_features = blk: {
         .name = @tagName(Feature.mips3_32),
         .llvm_name = "mips3_32",
         .description = "Subset of MIPS-III that is also in MIPS32 [highly experimental]",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mips3_32r2)] = .{
         .index = @enumToInt(Feature.mips3_32r2),
         .name = @tagName(Feature.mips3_32r2),
         .llvm_name = "mips3_32r2",
         .description = "Subset of MIPS-III that is also in MIPS32r2 [highly experimental]",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mips4)] = .{
         .index = @enumToInt(Feature.mips4),
@@ -276,14 +276,14 @@ pub const all_features = blk: {
         .name = @tagName(Feature.mips4_32),
         .llvm_name = "mips4_32",
         .description = "Subset of MIPS-IV that is also in MIPS32 [highly experimental]",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mips4_32r2)] = .{
         .index = @enumToInt(Feature.mips4_32r2),
         .name = @tagName(Feature.mips4_32r2),
         .llvm_name = "mips4_32r2",
         .description = "Subset of MIPS-IV that is also in MIPS32r2 [highly experimental]",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mips5)] = .{
         .index = @enumToInt(Feature.mips5),
@@ -300,7 +300,7 @@ pub const all_features = blk: {
         .name = @tagName(Feature.mips5_32r2),
         .llvm_name = "mips5_32r2",
         .description = "Subset of MIPS-V that is also in MIPS32r2 [highly experimental]",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mips64)] = .{
         .index = @enumToInt(Feature.mips64),
@@ -359,42 +359,42 @@ pub const all_features = blk: {
         .name = @tagName(Feature.msa),
         .llvm_name = "msa",
         .description = "Mips MSA ASE",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mt)] = .{
         .index = @enumToInt(Feature.mt),
         .name = @tagName(Feature.mt),
         .llvm_name = "mt",
         .description = "Mips MT ASE",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.nan2008)] = .{
         .index = @enumToInt(Feature.nan2008),
         .name = @tagName(Feature.nan2008),
         .llvm_name = "nan2008",
         .description = "IEEE 754-2008 NaN encoding",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.noabicalls)] = .{
         .index = @enumToInt(Feature.noabicalls),
         .name = @tagName(Feature.noabicalls),
         .llvm_name = "noabicalls",
         .description = "Disable SVR4-style position-independent code",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.nomadd4)] = .{
         .index = @enumToInt(Feature.nomadd4),
         .name = @tagName(Feature.nomadd4),
         .llvm_name = "nomadd4",
         .description = "Disable 4-operand madd.fmt and related instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.nooddspreg)] = .{
         .index = @enumToInt(Feature.nooddspreg),
         .name = @tagName(Feature.nooddspreg),
         .llvm_name = "nooddspreg",
         .description = "Disable odd numbered single-precision registers",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.p5600)] = .{
         .index = @enumToInt(Feature.p5600),
@@ -410,56 +410,56 @@ pub const all_features = blk: {
         .name = @tagName(Feature.ptr64),
         .llvm_name = "ptr64",
         .description = "Pointers are 64-bit wide",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.single_float)] = .{
         .index = @enumToInt(Feature.single_float),
         .name = @tagName(Feature.single_float),
         .llvm_name = "single-float",
         .description = "Only supports single precision float",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.soft_float)] = .{
         .index = @enumToInt(Feature.soft_float),
         .name = @tagName(Feature.soft_float),
         .llvm_name = "soft-float",
         .description = "Does not support floating point instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sym32)] = .{
         .index = @enumToInt(Feature.sym32),
         .name = @tagName(Feature.sym32),
         .llvm_name = "sym32",
         .description = "Symbols are 32 bit on Mips64",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.use_indirect_jump_hazard)] = .{
         .index = @enumToInt(Feature.use_indirect_jump_hazard),
         .name = @tagName(Feature.use_indirect_jump_hazard),
         .llvm_name = "use-indirect-jump-hazard",
         .description = "Use indirect jump guards to prevent certain speculation based attacks",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.use_tcc_in_div)] = .{
         .index = @enumToInt(Feature.use_tcc_in_div),
         .name = @tagName(Feature.use_tcc_in_div),
         .llvm_name = "use-tcc-in-div",
         .description = "Force the assembler to use trapping",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.vfpu)] = .{
         .index = @enumToInt(Feature.vfpu),
         .name = @tagName(Feature.vfpu),
         .llvm_name = "vfpu",
         .description = "Enable vector FPU instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.virt)] = .{
         .index = @enumToInt(Feature.virt),
         .name = @tagName(Feature.virt),
         .llvm_name = "virt",
         .description = "Mips Virtualization ASE",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     break :blk result;
 };

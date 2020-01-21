@@ -32,21 +32,21 @@ pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
-    std.debug.assert(len <= @typeInfo(Cpu.Feature.Set).Int.bits);
+    std.debug.assert(len <= Cpu.Feature.Set.bit_count);
     var result: [len]Cpu.Feature = undefined;
     result[@enumToInt(Feature.duplex)] = .{
         .index = @enumToInt(Feature.duplex),
         .name = @tagName(Feature.duplex),
         .llvm_name = "duplex",
         .description = "Enable generation of duplex instruction",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.hvx)] = .{
         .index = @enumToInt(Feature.hvx),
         .name = @tagName(Feature.hvx),
         .llvm_name = "hvx",
         .description = "Hexagon HVX instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.hvx_length128b)] = .{
         .index = @enumToInt(Feature.hvx_length128b),
@@ -114,28 +114,28 @@ pub const all_features = blk: {
         .name = @tagName(Feature.long_calls),
         .llvm_name = "long-calls",
         .description = "Use constant-extended calls",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mem_noshuf)] = .{
         .index = @enumToInt(Feature.mem_noshuf),
         .name = @tagName(Feature.mem_noshuf),
         .llvm_name = "mem_noshuf",
         .description = "Supports mem_noshuf feature",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.memops)] = .{
         .index = @enumToInt(Feature.memops),
         .name = @tagName(Feature.memops),
         .llvm_name = "memops",
         .description = "Use memop instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.noreturn_stack_elim)] = .{
         .index = @enumToInt(Feature.noreturn_stack_elim),
         .name = @tagName(Feature.noreturn_stack_elim),
         .llvm_name = "noreturn-stack-elim",
         .description = "Eliminate stack allocation in a noreturn function when possible",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.nvj)] = .{
         .index = @enumToInt(Feature.nvj),
@@ -160,70 +160,70 @@ pub const all_features = blk: {
         .name = @tagName(Feature.packets),
         .llvm_name = "packets",
         .description = "Support for instruction packets",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserved_r19)] = .{
         .index = @enumToInt(Feature.reserved_r19),
         .name = @tagName(Feature.reserved_r19),
         .llvm_name = "reserved-r19",
         .description = "Reserve register R19",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.small_data)] = .{
         .index = @enumToInt(Feature.small_data),
         .name = @tagName(Feature.small_data),
         .llvm_name = "small-data",
         .description = "Allow GP-relative addressing of global variables",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.v5)] = .{
         .index = @enumToInt(Feature.v5),
         .name = @tagName(Feature.v5),
         .llvm_name = "v5",
         .description = "Enable Hexagon V5 architecture",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.v55)] = .{
         .index = @enumToInt(Feature.v55),
         .name = @tagName(Feature.v55),
         .llvm_name = "v55",
         .description = "Enable Hexagon V55 architecture",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.v60)] = .{
         .index = @enumToInt(Feature.v60),
         .name = @tagName(Feature.v60),
         .llvm_name = "v60",
         .description = "Enable Hexagon V60 architecture",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.v62)] = .{
         .index = @enumToInt(Feature.v62),
         .name = @tagName(Feature.v62),
         .llvm_name = "v62",
         .description = "Enable Hexagon V62 architecture",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.v65)] = .{
         .index = @enumToInt(Feature.v65),
         .name = @tagName(Feature.v65),
         .llvm_name = "v65",
         .description = "Enable Hexagon V65 architecture",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.v66)] = .{
         .index = @enumToInt(Feature.v66),
         .name = @tagName(Feature.v66),
         .llvm_name = "v66",
         .description = "Enable Hexagon V66 architecture",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.zreg)] = .{
         .index = @enumToInt(Feature.zreg),
         .name = @tagName(Feature.zreg),
         .llvm_name = "zreg",
         .description = "Hexagon ZReg extension instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     break :blk result;
 };

@@ -11,28 +11,28 @@ pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
-    std.debug.assert(len <= @typeInfo(Cpu.Feature.Set).Int.bits);
+    std.debug.assert(len <= Cpu.Feature.Set.bit_count);
     var result: [len]Cpu.Feature = undefined;
     result[@enumToInt(Feature.alu32)] = .{
         .index = @enumToInt(Feature.alu32),
         .name = @tagName(Feature.alu32),
         .llvm_name = "alu32",
         .description = "Enable ALU32 instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.dummy)] = .{
         .index = @enumToInt(Feature.dummy),
         .name = @tagName(Feature.dummy),
         .llvm_name = "dummy",
         .description = "unused feature",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.dwarfris)] = .{
         .index = @enumToInt(Feature.dwarfris),
         .name = @tagName(Feature.dwarfris),
         .llvm_name = "dwarfris",
         .description = "Disable MCAsmInfo DwarfUsesRelocationsAcrossSections",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     break :blk result;
 };
@@ -41,27 +41,27 @@ pub const cpu = struct {
     pub const generic = Cpu{
         .name = "generic",
         .llvm_name = "generic",
-        .features = 0,
+        .features = featureSet(&[_]Feature{}),
     };
     pub const probe = Cpu{
         .name = "probe",
         .llvm_name = "probe",
-        .features = 0,
+        .features = featureSet(&[_]Feature{}),
     };
     pub const v1 = Cpu{
         .name = "v1",
         .llvm_name = "v1",
-        .features = 0,
+        .features = featureSet(&[_]Feature{}),
     };
     pub const v2 = Cpu{
         .name = "v2",
         .llvm_name = "v2",
-        .features = 0,
+        .features = featureSet(&[_]Feature{}),
     };
     pub const v3 = Cpu{
         .name = "v3",
         .llvm_name = "v3",
-        .features = 0,
+        .features = featureSet(&[_]Feature{}),
     };
 };
 

@@ -59,21 +59,21 @@ pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
-    std.debug.assert(len <= @typeInfo(Cpu.Feature.Set).Int.bits);
+    std.debug.assert(len <= Cpu.Feature.Set.bit_count);
     var result: [len]Cpu.Feature = undefined;
     result[@enumToInt(Feature.@"64bit")] = .{
         .index = @enumToInt(Feature.@"64bit"),
         .name = @tagName(Feature.@"64bit"),
         .llvm_name = "64bit",
         .description = "Enable 64-bit instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.@"64bitregs")] = .{
         .index = @enumToInt(Feature.@"64bitregs"),
         .name = @tagName(Feature.@"64bitregs"),
         .llvm_name = "64bitregs",
         .description = "Enable 64-bit registers usage for ppc32 [beta]",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.altivec)] = .{
         .index = @enumToInt(Feature.altivec),
@@ -98,21 +98,21 @@ pub const all_features = blk: {
         .name = @tagName(Feature.bpermd),
         .llvm_name = "bpermd",
         .description = "Enable the bpermd instruction",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.cmpb)] = .{
         .index = @enumToInt(Feature.cmpb),
         .name = @tagName(Feature.cmpb),
         .llvm_name = "cmpb",
         .description = "Enable the cmpb instruction",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.crbits)] = .{
         .index = @enumToInt(Feature.crbits),
         .name = @tagName(Feature.crbits),
         .llvm_name = "crbits",
         .description = "Use condition-register bits individually",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.crypto)] = .{
         .index = @enumToInt(Feature.crypto),
@@ -137,14 +137,14 @@ pub const all_features = blk: {
         .name = @tagName(Feature.e500),
         .llvm_name = "e500",
         .description = "Enable E500/E500mc instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.extdiv)] = .{
         .index = @enumToInt(Feature.extdiv),
         .name = @tagName(Feature.extdiv),
         .llvm_name = "extdiv",
         .description = "Enable extended divide instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fcpsgn)] = .{
         .index = @enumToInt(Feature.fcpsgn),
@@ -241,49 +241,49 @@ pub const all_features = blk: {
         .name = @tagName(Feature.hard_float),
         .llvm_name = "hard-float",
         .description = "Enable floating-point instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.htm)] = .{
         .index = @enumToInt(Feature.htm),
         .name = @tagName(Feature.htm),
         .llvm_name = "htm",
         .description = "Enable Hardware Transactional Memory instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.icbt)] = .{
         .index = @enumToInt(Feature.icbt),
         .name = @tagName(Feature.icbt),
         .llvm_name = "icbt",
         .description = "Enable icbt instruction",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.invariant_function_descriptors)] = .{
         .index = @enumToInt(Feature.invariant_function_descriptors),
         .name = @tagName(Feature.invariant_function_descriptors),
         .llvm_name = "invariant-function-descriptors",
         .description = "Assume function descriptors are invariant",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.isa_v30_instructions)] = .{
         .index = @enumToInt(Feature.isa_v30_instructions),
         .name = @tagName(Feature.isa_v30_instructions),
         .llvm_name = "isa-v30-instructions",
         .description = "Enable instructions added in ISA 3.0.",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.isel)] = .{
         .index = @enumToInt(Feature.isel),
         .name = @tagName(Feature.isel),
         .llvm_name = "isel",
         .description = "Enable the isel instruction",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ldbrx)] = .{
         .index = @enumToInt(Feature.ldbrx),
         .name = @tagName(Feature.ldbrx),
         .llvm_name = "ldbrx",
         .description = "Enable the ldbrx instruction",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.lfiwax)] = .{
         .index = @enumToInt(Feature.lfiwax),
@@ -299,14 +299,14 @@ pub const all_features = blk: {
         .name = @tagName(Feature.longcall),
         .llvm_name = "longcall",
         .description = "Always use indirect calls",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mfocrf)] = .{
         .index = @enumToInt(Feature.mfocrf),
         .name = @tagName(Feature.mfocrf),
         .llvm_name = "mfocrf",
         .description = "Enable the MFOCRF instruction",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.msync)] = .{
         .index = @enumToInt(Feature.msync),
@@ -322,14 +322,14 @@ pub const all_features = blk: {
         .name = @tagName(Feature.partword_atomics),
         .llvm_name = "partword-atomics",
         .description = "Enable l[bh]arx and st[bh]cx.",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.popcntd)] = .{
         .index = @enumToInt(Feature.popcntd),
         .name = @tagName(Feature.popcntd),
         .llvm_name = "popcntd",
         .description = "Enable the popcnt[dw] instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.power8_altivec)] = .{
         .index = @enumToInt(Feature.power8_altivec),
@@ -376,28 +376,28 @@ pub const all_features = blk: {
         .name = @tagName(Feature.ppc_postra_sched),
         .llvm_name = "ppc-postra-sched",
         .description = "Use PowerPC post-RA scheduling strategy",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ppc_prera_sched)] = .{
         .index = @enumToInt(Feature.ppc_prera_sched),
         .name = @tagName(Feature.ppc_prera_sched),
         .llvm_name = "ppc-prera-sched",
         .description = "Use PowerPC pre-RA scheduling strategy",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ppc4xx)] = .{
         .index = @enumToInt(Feature.ppc4xx),
         .name = @tagName(Feature.ppc4xx),
         .llvm_name = "ppc4xx",
         .description = "Enable PPC 4xx instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ppc6xx)] = .{
         .index = @enumToInt(Feature.ppc6xx),
         .name = @tagName(Feature.ppc6xx),
         .llvm_name = "ppc6xx",
         .description = "Enable PPC 6xx instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.qpx)] = .{
         .index = @enumToInt(Feature.qpx),
@@ -413,21 +413,21 @@ pub const all_features = blk: {
         .name = @tagName(Feature.recipprec),
         .llvm_name = "recipprec",
         .description = "Assume higher precision reciprocal estimates",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.secure_plt)] = .{
         .index = @enumToInt(Feature.secure_plt),
         .name = @tagName(Feature.secure_plt),
         .llvm_name = "secure-plt",
         .description = "Enable secure plt mode",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.slow_popcntd)] = .{
         .index = @enumToInt(Feature.slow_popcntd),
         .name = @tagName(Feature.slow_popcntd),
         .llvm_name = "slow-popcntd",
         .description = "Has slow popcnt[dw] instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.spe)] = .{
         .index = @enumToInt(Feature.spe),
@@ -452,14 +452,14 @@ pub const all_features = blk: {
         .name = @tagName(Feature.two_const_nr),
         .llvm_name = "two-const-nr",
         .description = "Requires two constant Newton-Raphson computation",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.vectors_use_two_units)] = .{
         .index = @enumToInt(Feature.vectors_use_two_units),
         .name = @tagName(Feature.vectors_use_two_units),
         .llvm_name = "vectors-use-two-units",
         .description = "Vectors use two units",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.vsx)] = .{
         .index = @enumToInt(Feature.vsx),
@@ -475,7 +475,7 @@ pub const all_features = blk: {
 
 pub const cpu = struct {
     pub const @"440" = Cpu{
-        .name = "@"440"",
+        .name = "440",
         .llvm_name = "440",
         .features = featureSet(&[_]Feature{
             .booke,
@@ -487,7 +487,7 @@ pub const cpu = struct {
         }),
     };
     pub const @"450" = Cpu{
-        .name = "@"450"",
+        .name = "450",
         .llvm_name = "450",
         .features = featureSet(&[_]Feature{
             .booke,
@@ -499,21 +499,21 @@ pub const cpu = struct {
         }),
     };
     pub const @"601" = Cpu{
-        .name = "@"601"",
+        .name = "601",
         .llvm_name = "601",
         .features = featureSet(&[_]Feature{
             .fpu,
         }),
     };
     pub const @"602" = Cpu{
-        .name = "@"602"",
+        .name = "602",
         .llvm_name = "602",
         .features = featureSet(&[_]Feature{
             .fpu,
         }),
     };
     pub const @"603" = Cpu{
-        .name = "@"603"",
+        .name = "603",
         .llvm_name = "603",
         .features = featureSet(&[_]Feature{
             .fres,
@@ -521,7 +521,7 @@ pub const cpu = struct {
         }),
     };
     pub const @"603e" = Cpu{
-        .name = "@"603e"",
+        .name = "603e",
         .llvm_name = "603e",
         .features = featureSet(&[_]Feature{
             .fres,
@@ -529,7 +529,7 @@ pub const cpu = struct {
         }),
     };
     pub const @"603ev" = Cpu{
-        .name = "@"603ev"",
+        .name = "603ev",
         .llvm_name = "603ev",
         .features = featureSet(&[_]Feature{
             .fres,
@@ -537,7 +537,7 @@ pub const cpu = struct {
         }),
     };
     pub const @"604" = Cpu{
-        .name = "@"604"",
+        .name = "604",
         .llvm_name = "604",
         .features = featureSet(&[_]Feature{
             .fres,
@@ -545,7 +545,7 @@ pub const cpu = struct {
         }),
     };
     pub const @"604e" = Cpu{
-        .name = "@"604e"",
+        .name = "604e",
         .llvm_name = "604e",
         .features = featureSet(&[_]Feature{
             .fres,
@@ -553,7 +553,7 @@ pub const cpu = struct {
         }),
     };
     pub const @"620" = Cpu{
-        .name = "@"620"",
+        .name = "620",
         .llvm_name = "620",
         .features = featureSet(&[_]Feature{
             .fres,
@@ -561,7 +561,7 @@ pub const cpu = struct {
         }),
     };
     pub const @"7400" = Cpu{
-        .name = "@"7400"",
+        .name = "7400",
         .llvm_name = "7400",
         .features = featureSet(&[_]Feature{
             .altivec,
@@ -570,7 +570,7 @@ pub const cpu = struct {
         }),
     };
     pub const @"7450" = Cpu{
-        .name = "@"7450"",
+        .name = "7450",
         .llvm_name = "7450",
         .features = featureSet(&[_]Feature{
             .altivec,
@@ -579,7 +579,7 @@ pub const cpu = struct {
         }),
     };
     pub const @"750" = Cpu{
-        .name = "@"750"",
+        .name = "750",
         .llvm_name = "750",
         .features = featureSet(&[_]Feature{
             .fres,
@@ -587,7 +587,7 @@ pub const cpu = struct {
         }),
     };
     pub const @"970" = Cpu{
-        .name = "@"970"",
+        .name = "970",
         .llvm_name = "970",
         .features = featureSet(&[_]Feature{
             .@"64bit",
@@ -698,7 +698,7 @@ pub const cpu = struct {
             .frsqrte,
         }),
     };
-    pub const g4+ = Cpu{
+    pub const @"g4+" = Cpu{
         .name = "g4+",
         .llvm_name = "g4+",
         .features = featureSet(&[_]Feature{
@@ -1016,7 +1016,7 @@ pub const all_cpus = &[_]*const Cpu{
     &cpu.e5500,
     &cpu.g3,
     &cpu.g4,
-    &cpu.g4+,
+    &cpu.@"g4+",
     &cpu.g5,
     &cpu.generic,
     &cpu.ppc,

@@ -219,7 +219,8 @@ pub const Target = union(enum) {
         pub fn parseCpuFeatureSet(arch: Arch, features_text: []const u8) !Cpu.Feature.Set {
             // Here we compute both and choose the correct result at the end, based
             // on whether or not we saw + and - signs.
-            var set: @Vector(2, Cpu.Feature.Set) = [2]Cpu.Feature.Set{ 0, arch.baselineFeatures() };
+            var whitelist_set = Cpu.Feature.Set.empty();
+            var baseline_set = arch.baselineFeatures();
             var mode: enum {
                 unknown,
                 baseline,
@@ -257,10 +258,15 @@ pub const Target = union(enum) {
                 }
                 for (arch.allFeaturesList()) |feature, index| {
                     if (mem.eql(u8, feature_name, feature.name)) {
-                        const one_bit = @as(Cpu.Feature.Set, 1) << @intCast(u7, index);
                         switch (op) {
-                            .add => set |= @splat(2, one_bit),
-                            .sub => set &= @splat(2, ~one_bit),
+                            .add => {
+                                baseline_set.addFeature(@intCast(u8, index));
+                                whitelist_set.addFeature(@intCast(u8, index));
+                            },
+                            .sub => {
+                                baseline_set.removeFeature(@intCast(u8, index));
+                                whitelist_set.removeFeature(@intCast(u8, index));
+                            },
                         }
                         break;
                     }
@@ -270,8 +276,8 @@ pub const Target = union(enum) {
             }
 
             return switch (mode) {
-                .unknown, .whitelist => set[0],
-                .baseline => set[1],
+                .unknown, .whitelist => whitelist_set,
+                .baseline => baseline_set,
             };
         }
 
@@ -413,21 +419,21 @@ pub const Target = union(enum) {
         /// All CPU features Zig is aware of, sorted lexicographically by name.
         pub fn allFeaturesList(arch: Arch) []const Cpu.Feature {
             return switch (arch) {
-                .arm, .armeb, .thumb, .thumbeb => arm.all_features,
+                .arm, .armeb, .thumb, .thumbeb => &arm.all_features,
                 .aarch64, .aarch64_be, .aarch64_32 => &aarch64.all_features,
-                .avr => avr.all_features,
-                .bpfel, .bpfeb => bpf.all_features,
-                .hexagon => hexagon.all_features,
-                .mips, .mipsel, .mips64, .mips64el => mips.all_features,
-                .msp430 => msp430.all_features,
-                .powerpc, .powerpc64, .powerpc64le => powerpc.all_features,
-                .amdgcn => amdgpu.all_features,
-                .riscv32, .riscv64 => riscv.all_features,
-                .sparc, .sparcv9, .sparcel => sparc.all_features,
-                .s390x => systemz.all_features,
+                .avr => &avr.all_features,
+                .bpfel, .bpfeb => &bpf.all_features,
+                .hexagon => &hexagon.all_features,
+                .mips, .mipsel, .mips64, .mips64el => &mips.all_features,
+                .msp430 => &msp430.all_features,
+                .powerpc, .powerpc64, .powerpc64le => &powerpc.all_features,
+                .amdgcn => &amdgpu.all_features,
+                .riscv32, .riscv64 => &riscv.all_features,
+                .sparc, .sparcv9, .sparcel => &sparc.all_features,
+                .s390x => &systemz.all_features,
                 .i386, .x86_64 => &x86.all_features,
-                .nvptx, .nvptx64 => nvptx.all_features,
-                .wasm32, .wasm64 => wasm.all_features,
+                .nvptx, .nvptx64 => &nvptx.all_features,
+                .wasm32, .wasm64 => &wasm.all_features,
 
                 else => &[0]Cpu.Feature{},
             };
@@ -439,10 +445,11 @@ pub const Target = union(enum) {
             return switch (arch) {
                 .arm, .armeb, .thumb, .thumbeb => arm.cpu.generic.features,
                 .aarch64, .aarch64_be, .aarch64_32 => aarch64.cpu.generic.features,
-                .avr => avr.cpu.generic.features,
+                .avr => avr.baseline_features,
                 .bpfel, .bpfeb => bpf.cpu.generic.features,
                 .hexagon => hexagon.cpu.generic.features,
-                .mips, .mipsel, .mips64, .mips64el => mips.cpu.generic.features,
+                .mips, .mipsel => mips.cpu.mips32.features,
+                .mips64, .mips64el => mips.cpu.mips64.features,
                 .msp430 => msp430.cpu.generic.features,
                 .powerpc, .powerpc64, .powerpc64le => powerpc.cpu.generic.features,
                 .amdgcn => amdgpu.cpu.generic.features,
@@ -452,10 +459,10 @@ pub const Target = union(enum) {
                 .s390x => systemz.cpu.generic.features,
                 .i386 => x86.cpu.pentium4.features,
                 .x86_64 => x86.cpu.x86_64.features,
-                .nvptx, .nvptx64 => nvptx.cpu.generic.features,
+                .nvptx, .nvptx64 => nvptx.cpu.sm_20.features,
                 .wasm32, .wasm64 => wasm.cpu.generic.features,
 
-                else => 0,
+                else => Cpu.Feature.Set.empty(),
             };
         }
 
@@ -522,24 +529,46 @@ pub const Target = union(enum) {
             dependencies: Set,
 
             /// A bit set of all the features.
-            pub const Set = u128;
+            pub const Set = struct {
+                bytes: [bit_count / 8]u8,
 
-            pub fn isEnabled(set: Set, arch_feature_index: u7) bool {
-                return (set & (@as(Set, 1) << arch_feature_index)) != 0;
-            }
+                pub const bit_count = 22 * 8;
+
+                pub fn empty() Set {
+                    return .{ .bytes = [1]u8{0} ** 22 };
+                }
+
+                pub fn isEnabled(set: Set, arch_feature_index: u8) bool {
+                    const byte_index = arch_feature_index / 8;
+                    const bit_index = @intCast(u3, arch_feature_index % 8);
+                    return (set.bytes[byte_index] & (@as(u8, 1) << bit_index)) != 0;
+                }
+
+                pub fn addFeature(set: *Set, arch_feature_index: u8) void {
+                    const byte_index = arch_feature_index / 8;
+                    const bit_index = @intCast(u3, arch_feature_index % 8);
+                    set.bytes[byte_index] |= @as(u8, 1) << bit_index;
+                }
+
+                pub fn removeFeature(set: *Set, arch_feature_index: u8) void {
+                    const byte_index = arch_feature_index / 8;
+                    const bit_index = @intCast(u3, arch_feature_index % 8);
+                    set.bytes[byte_index] &= ~(@as(u8, 1) << bit_index);
+                }
+            };
 
             pub fn feature_set_fns(comptime F: type) type {
                 return struct {
                     pub fn featureSet(features: []const F) Set {
-                        var x: Set = 0;
+                        var x = Set.empty();
                         for (features) |feature| {
-                            x |= @as(Set, 1) << @enumToInt(feature);
+                            x.addFeature(@enumToInt(feature));
                         }
                         return x;
                     }
 
                     pub fn featureSetHas(set: Set, feature: F) bool {
-                        return (set & (@as(Set, 1) << @enumToInt(feature))) != 0;
+                        return set.isEnabled(@enumToInt(feature));
                     }
                 };
             }
@@ -748,7 +777,7 @@ pub const Target = union(enum) {
     pub fn parseArchSub(text: []const u8) ParseArchSubError!Arch {
         const info = @typeInfo(Arch);
         inline for (info.Union.fields) |field| {
-            if (mem.eql(u8, text, field.name)) {
+            if (mem.startsWith(u8, text, field.name)) {
                 if (field.field_type == void) {
                     return @as(Arch, @field(Arch, field.name));
                 } else {

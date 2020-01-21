@@ -33,182 +33,182 @@ pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
-    std.debug.assert(len <= @typeInfo(Cpu.Feature.Set).Int.bits);
+    std.debug.assert(len <= Cpu.Feature.Set.bit_count);
     var result: [len]Cpu.Feature = undefined;
     result[@enumToInt(Feature.ptx32)] = .{
         .index = @enumToInt(Feature.ptx32),
         .name = @tagName(Feature.ptx32),
         .llvm_name = "ptx32",
         .description = "Use PTX version 3.2",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ptx40)] = .{
         .index = @enumToInt(Feature.ptx40),
         .name = @tagName(Feature.ptx40),
         .llvm_name = "ptx40",
         .description = "Use PTX version 4.0",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ptx41)] = .{
         .index = @enumToInt(Feature.ptx41),
         .name = @tagName(Feature.ptx41),
         .llvm_name = "ptx41",
         .description = "Use PTX version 4.1",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ptx42)] = .{
         .index = @enumToInt(Feature.ptx42),
         .name = @tagName(Feature.ptx42),
         .llvm_name = "ptx42",
         .description = "Use PTX version 4.2",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ptx43)] = .{
         .index = @enumToInt(Feature.ptx43),
         .name = @tagName(Feature.ptx43),
         .llvm_name = "ptx43",
         .description = "Use PTX version 4.3",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ptx50)] = .{
         .index = @enumToInt(Feature.ptx50),
         .name = @tagName(Feature.ptx50),
         .llvm_name = "ptx50",
         .description = "Use PTX version 5.0",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ptx60)] = .{
         .index = @enumToInt(Feature.ptx60),
         .name = @tagName(Feature.ptx60),
         .llvm_name = "ptx60",
         .description = "Use PTX version 6.0",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ptx61)] = .{
         .index = @enumToInt(Feature.ptx61),
         .name = @tagName(Feature.ptx61),
         .llvm_name = "ptx61",
         .description = "Use PTX version 6.1",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ptx63)] = .{
         .index = @enumToInt(Feature.ptx63),
         .name = @tagName(Feature.ptx63),
         .llvm_name = "ptx63",
         .description = "Use PTX version 6.3",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ptx64)] = .{
         .index = @enumToInt(Feature.ptx64),
         .name = @tagName(Feature.ptx64),
         .llvm_name = "ptx64",
         .description = "Use PTX version 6.4",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm_20)] = .{
         .index = @enumToInt(Feature.sm_20),
         .name = @tagName(Feature.sm_20),
         .llvm_name = "sm_20",
         .description = "Target SM 2.0",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm_21)] = .{
         .index = @enumToInt(Feature.sm_21),
         .name = @tagName(Feature.sm_21),
         .llvm_name = "sm_21",
         .description = "Target SM 2.1",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm_30)] = .{
         .index = @enumToInt(Feature.sm_30),
         .name = @tagName(Feature.sm_30),
         .llvm_name = "sm_30",
         .description = "Target SM 3.0",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm_32)] = .{
         .index = @enumToInt(Feature.sm_32),
         .name = @tagName(Feature.sm_32),
         .llvm_name = "sm_32",
         .description = "Target SM 3.2",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm_35)] = .{
         .index = @enumToInt(Feature.sm_35),
         .name = @tagName(Feature.sm_35),
         .llvm_name = "sm_35",
         .description = "Target SM 3.5",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm_37)] = .{
         .index = @enumToInt(Feature.sm_37),
         .name = @tagName(Feature.sm_37),
         .llvm_name = "sm_37",
         .description = "Target SM 3.7",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm_50)] = .{
         .index = @enumToInt(Feature.sm_50),
         .name = @tagName(Feature.sm_50),
         .llvm_name = "sm_50",
         .description = "Target SM 5.0",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm_52)] = .{
         .index = @enumToInt(Feature.sm_52),
         .name = @tagName(Feature.sm_52),
         .llvm_name = "sm_52",
         .description = "Target SM 5.2",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm_53)] = .{
         .index = @enumToInt(Feature.sm_53),
         .name = @tagName(Feature.sm_53),
         .llvm_name = "sm_53",
         .description = "Target SM 5.3",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm_60)] = .{
         .index = @enumToInt(Feature.sm_60),
         .name = @tagName(Feature.sm_60),
         .llvm_name = "sm_60",
         .description = "Target SM 6.0",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm_61)] = .{
         .index = @enumToInt(Feature.sm_61),
         .name = @tagName(Feature.sm_61),
         .llvm_name = "sm_61",
         .description = "Target SM 6.1",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm_62)] = .{
         .index = @enumToInt(Feature.sm_62),
         .name = @tagName(Feature.sm_62),
         .llvm_name = "sm_62",
         .description = "Target SM 6.2",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm_70)] = .{
         .index = @enumToInt(Feature.sm_70),
         .name = @tagName(Feature.sm_70),
         .llvm_name = "sm_70",
         .description = "Target SM 7.0",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm_72)] = .{
         .index = @enumToInt(Feature.sm_72),
         .name = @tagName(Feature.sm_72),
         .llvm_name = "sm_72",
         .description = "Target SM 7.2",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm_75)] = .{
         .index = @enumToInt(Feature.sm_75),
         .name = @tagName(Feature.sm_75),
         .llvm_name = "sm_75",
         .description = "Target SM 7.5",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     break :blk result;
 };

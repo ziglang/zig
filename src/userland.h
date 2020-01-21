@@ -83,6 +83,7 @@ enum Error {
     ErrorUnknownCpuFeature,
     ErrorInvalidCpuFeatures,
     ErrorInvalidLlvmCpuFeaturesFormat,
+    ErrorUnknownApplicationBinaryInterface,
 };
 
 // ABI warning
@@ -184,18 +185,18 @@ struct Stage2CpuFeatures;
 
 // ABI warning
 ZIG_EXTERN_C Error stage2_cpu_features_parse_cpu(struct Stage2CpuFeatures **result,
-        const char *arch, const char *cpu_name);
+        const char *zig_triple, const char *cpu_name);
 
 // ABI warning
 ZIG_EXTERN_C Error stage2_cpu_features_parse_features(struct Stage2CpuFeatures **result,
-        const char *arch, const char *features);
+        const char *zig_triple, const char *features);
 
 // ABI warning
 ZIG_EXTERN_C Error stage2_cpu_features_baseline(struct Stage2CpuFeatures **result);
 
 // ABI warning
 ZIG_EXTERN_C Error stage2_cpu_features_llvm(struct Stage2CpuFeatures **result,
-        const char *arch, const char *llvm_cpu_name, const char *llvm_features);
+        const char *zig_triple, const char *llvm_cpu_name, const char *llvm_features);
 
 // ABI warning
 ZIG_EXTERN_C const char *stage2_cpu_features_get_llvm_cpu(const struct Stage2CpuFeatures *cpu_features);

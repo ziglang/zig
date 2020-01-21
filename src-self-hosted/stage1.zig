@@ -64,6 +64,7 @@ const Error = extern enum {
     CacheUnavailable,
     PathTooLong,
     CCompilerCannotFindFile,
+    NoCCompilerInstalled,
     ReadingDepFile,
     InvalidDepFile,
     MissingArchitecture,
@@ -89,6 +90,7 @@ const Error = extern enum {
     UnknownCpuFeature,
     InvalidCpuFeatures,
     InvalidLlvmCpuFeaturesFormat,
+    UnknownApplicationBinaryInterface,
 };
 
 const FILE = std.c.FILE;
@@ -585,11 +587,12 @@ const Stage2CpuFeatures = struct {
 
     fn createFromLLVM(
         allocator: *mem.Allocator,
-        arch_name: [*:0]const u8,
+        zig_triple: [*:0]const u8,
         llvm_cpu_name_z: [*:0]const u8,
         llvm_cpu_features: [*:0]const u8,
     ) !*Self {
-        const arch = try Target.parseArchSub(mem.toSliceConst(u8, arch_name));
+        const target = try Target.parse(mem.toSliceConst(u8, zig_triple));
+        const arch = target.Cross.arch;
         const llvm_cpu_name = mem.toSliceConst(u8, llvm_cpu_name_z);
 
         for (arch.allCpus()) |cpu| {
@@ -620,8 +623,8 @@ const Stage2CpuFeatures = struct {
                 const this_llvm_name = feature.llvm_name orelse continue;
                 if (mem.eql(u8, llvm_feat, this_llvm_name)) {
                     switch (op) {
-                        .add => set |= @as(Target.Cpu.Feature.Set, 1) << @intCast(u7, index),
-                        .sub => set &= ~(@as(Target.Cpu.Feature.Set, 1) << @intCast(u7, index)),
+                        .add => set.addFeature(@intCast(u8, index)),
+                        .sub => set.removeFeature(@intCast(u8, index)),
                     }
                     break;
                 }
@@ -691,7 +694,7 @@ const Stage2CpuFeatures = struct {
         }
 
         for (all_features) |feature, index| {
-            if (!Target.Cpu.Feature.isEnabled(feature_set, @intCast(u7, index))) continue;
+            if (!feature_set.isEnabled(@intCast(u8, index))) continue;
 
             if (feature.llvm_name) |llvm_name| {
                 try llvm_features_buffer.append("+");
@@ -736,43 +739,75 @@ const Stage2CpuFeatures = struct {
 // ABI warning
 export fn stage2_cpu_features_parse_cpu(
     result: **Stage2CpuFeatures,
-    arch_name: [*:0]const u8,
+    zig_triple: [*:0]const u8,
     cpu_name: [*:0]const u8,
 ) Error {
-    result.* = parseCpu(arch_name, cpu_name) catch |err| switch (err) {
+    result.* = parseCpu(zig_triple, cpu_name) catch |err| switch (err) {
         error.OutOfMemory => return .OutOfMemory,
-        error.UnknownCpu => return .UnknownCpu,
         error.UnknownArchitecture => return .UnknownArchitecture,
         error.UnknownSubArchitecture => return .UnknownSubArchitecture,
+        error.UnknownOperatingSystem => return .UnknownOperatingSystem,
+        error.UnknownApplicationBinaryInterface => return .UnknownApplicationBinaryInterface,
+        error.MissingOperatingSystem => return .MissingOperatingSystem,
+        error.MissingArchitecture => return .MissingArchitecture,
     };
     return .None;
 }
 
-fn parseCpu(arch_name: [*:0]const u8, cpu_name: [*:0]const u8) !*Stage2CpuFeatures {
-    const arch = try Target.parseArchSub(mem.toSliceConst(u8, arch_name));
-    const cpu = try arch.parseCpu(mem.toSliceConst(u8, cpu_name));
+fn parseCpu(zig_triple: [*:0]const u8, cpu_name_z: [*:0]const u8) !*Stage2CpuFeatures {
+    const cpu_name = mem.toSliceConst(u8, cpu_name_z);
+    const target = try Target.parse(mem.toSliceConst(u8, zig_triple));
+    const arch = target.Cross.arch;
+    const cpu = arch.parseCpu(cpu_name) catch |err| switch (err) {
+        error.UnknownCpu => {
+            std.debug.warn("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
+                cpu_name,
+                @tagName(arch),
+            });
+            for (arch.allCpus()) |cpu| {
+                std.debug.warn(" {}\n", .{cpu.name});
+            }
+            process.exit(1);
+        },
+        else => |e| return e,
+    };
     return Stage2CpuFeatures.createFromCpu(std.heap.c_allocator, arch, cpu);
 }
 
 // ABI warning
 export fn stage2_cpu_features_parse_features(
     result: **Stage2CpuFeatures,
-    arch_name: [*:0]const u8,
+    zig_triple: [*:0]const u8,
     features_text: [*:0]const u8,
 ) Error {
-    result.* = parseFeatures(arch_name, features_text) catch |err| switch (err) {
+    result.* = parseFeatures(zig_triple, features_text) catch |err| switch (err) {
         error.OutOfMemory => return .OutOfMemory,
-        error.UnknownCpuFeature => return .UnknownCpuFeature,
         error.InvalidCpuFeatures => return .InvalidCpuFeatures,
         error.UnknownArchitecture => return .UnknownArchitecture,
         error.UnknownSubArchitecture => return .UnknownSubArchitecture,
+        error.UnknownOperatingSystem => return .UnknownOperatingSystem,
+        error.UnknownApplicationBinaryInterface => return .UnknownApplicationBinaryInterface,
+        error.MissingOperatingSystem => return .MissingOperatingSystem,
+        error.MissingArchitecture => return .MissingArchitecture,
     };
     return .None;
 }
 
-fn parseFeatures(arch_name: [*:0]const u8, features_text: [*:0]const u8) !*Stage2CpuFeatures {
-    const arch = try Target.parseArchSub(mem.toSliceConst(u8, arch_name));
-    const set = try arch.parseCpuFeatureSet(mem.toSliceConst(u8, features_text));
+fn parseFeatures(zig_triple: [*:0]const u8, features_text: [*:0]const u8) !*Stage2CpuFeatures {
+    const target = try Target.parse(mem.toSliceConst(u8, zig_triple));
+    const arch = target.Cross.arch;
+    const set = arch.parseCpuFeatureSet(mem.toSliceConst(u8, features_text)) catch |err| switch (err) {
+        error.UnknownCpuFeature => {
+            std.debug.warn("Unknown CPU features specified.\nAvailable CPU features for architecture '{}':\n", .{
+                @tagName(arch),
+            });
+            for (arch.allFeaturesList()) |feature| {
+                std.debug.warn(" {}\n", .{feature.name});
+            }
+            process.exit(1);
+        },
+        else => |e| return e,
+    };
     return Stage2CpuFeatures.createFromCpuFeatures(std.heap.c_allocator, arch, set);
 }
 
@@ -787,13 +822,13 @@ export fn stage2_cpu_features_baseline(result: **Stage2CpuFeatures) Error {
 // ABI warning
 export fn stage2_cpu_features_llvm(
     result: **Stage2CpuFeatures,
-    arch_name: [*:0]const u8,
+    zig_triple: [*:0]const u8,
     llvm_cpu_name: [*:0]const u8,
     llvm_cpu_features: [*:0]const u8,
 ) Error {
     result.* = Stage2CpuFeatures.createFromLLVM(
         std.heap.c_allocator,
-        arch_name,
+        zig_triple,
         llvm_cpu_name,
         llvm_cpu_features,
     ) catch |err| switch (err) {
@@ -801,6 +836,10 @@ export fn stage2_cpu_features_llvm(
         error.UnknownArchitecture => return .UnknownArchitecture,
         error.UnknownSubArchitecture => return .UnknownSubArchitecture,
         error.InvalidLlvmCpuFeaturesFormat => return .InvalidLlvmCpuFeaturesFormat,
+        error.UnknownOperatingSystem => return .UnknownOperatingSystem,
+        error.UnknownApplicationBinaryInterface => return .UnknownApplicationBinaryInterface,
+        error.MissingOperatingSystem => return .MissingOperatingSystem,
+        error.MissingArchitecture => return .MissingArchitecture,
     };
     return .None;
 }

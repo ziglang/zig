@@ -154,7 +154,7 @@ pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
-    std.debug.assert(len <= @typeInfo(Cpu.Feature.Set).Int.bits);
+    std.debug.assert(len <= Cpu.Feature.Set.bit_count);
     var result: [len]Cpu.Feature = undefined;
     result[@enumToInt(Feature.a35)] = .{
         .index = @enumToInt(Feature.a35),
@@ -298,140 +298,140 @@ pub const all_features = blk: {
         .name = @tagName(Feature.aggressive_fma),
         .llvm_name = "aggressive-fma",
         .description = "Enable Aggressive FMA for floating-point.",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.alternate_sextload_cvt_f32_pattern)] = .{
         .index = @enumToInt(Feature.alternate_sextload_cvt_f32_pattern),
         .name = @tagName(Feature.alternate_sextload_cvt_f32_pattern),
         .llvm_name = "alternate-sextload-cvt-f32-pattern",
         .description = "Use alternative pattern for sextload convert to f32",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.altnzcv)] = .{
         .index = @enumToInt(Feature.altnzcv),
         .name = @tagName(Feature.altnzcv),
         .llvm_name = "altnzcv",
         .description = "Enable alternative NZCV format for floating point comparisons",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.am)] = .{
         .index = @enumToInt(Feature.am),
         .name = @tagName(Feature.am),
         .llvm_name = "am",
         .description = "Enable v8.4-A Activity Monitors extension",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.arith_bcc_fusion)] = .{
         .index = @enumToInt(Feature.arith_bcc_fusion),
         .name = @tagName(Feature.arith_bcc_fusion),
         .llvm_name = "arith-bcc-fusion",
         .description = "CPU fuses arithmetic+bcc operations",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.arith_cbz_fusion)] = .{
         .index = @enumToInt(Feature.arith_cbz_fusion),
         .name = @tagName(Feature.arith_cbz_fusion),
         .llvm_name = "arith-cbz-fusion",
         .description = "CPU fuses arithmetic + cbz/cbnz operations",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.balance_fp_ops)] = .{
         .index = @enumToInt(Feature.balance_fp_ops),
         .name = @tagName(Feature.balance_fp_ops),
         .llvm_name = "balance-fp-ops",
         .description = "balance mix of odd and even D-registers for fp multiply(-accumulate) ops",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.bti)] = .{
         .index = @enumToInt(Feature.bti),
         .name = @tagName(Feature.bti),
         .llvm_name = "bti",
         .description = "Enable Branch Target Identification",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.call_saved_x10)] = .{
         .index = @enumToInt(Feature.call_saved_x10),
         .name = @tagName(Feature.call_saved_x10),
         .llvm_name = "call-saved-x10",
         .description = "Make X10 callee saved.",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.call_saved_x11)] = .{
         .index = @enumToInt(Feature.call_saved_x11),
         .name = @tagName(Feature.call_saved_x11),
         .llvm_name = "call-saved-x11",
         .description = "Make X11 callee saved.",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.call_saved_x12)] = .{
         .index = @enumToInt(Feature.call_saved_x12),
         .name = @tagName(Feature.call_saved_x12),
         .llvm_name = "call-saved-x12",
         .description = "Make X12 callee saved.",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.call_saved_x13)] = .{
         .index = @enumToInt(Feature.call_saved_x13),
         .name = @tagName(Feature.call_saved_x13),
         .llvm_name = "call-saved-x13",
         .description = "Make X13 callee saved.",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.call_saved_x14)] = .{
         .index = @enumToInt(Feature.call_saved_x14),
         .name = @tagName(Feature.call_saved_x14),
         .llvm_name = "call-saved-x14",
         .description = "Make X14 callee saved.",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.call_saved_x15)] = .{
         .index = @enumToInt(Feature.call_saved_x15),
         .name = @tagName(Feature.call_saved_x15),
         .llvm_name = "call-saved-x15",
         .description = "Make X15 callee saved.",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.call_saved_x18)] = .{
         .index = @enumToInt(Feature.call_saved_x18),
         .name = @tagName(Feature.call_saved_x18),
         .llvm_name = "call-saved-x18",
         .description = "Make X18 callee saved.",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.call_saved_x8)] = .{
         .index = @enumToInt(Feature.call_saved_x8),
         .name = @tagName(Feature.call_saved_x8),
         .llvm_name = "call-saved-x8",
         .description = "Make X8 callee saved.",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.call_saved_x9)] = .{
         .index = @enumToInt(Feature.call_saved_x9),
         .name = @tagName(Feature.call_saved_x9),
         .llvm_name = "call-saved-x9",
         .description = "Make X9 callee saved.",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ccdp)] = .{
         .index = @enumToInt(Feature.ccdp),
         .name = @tagName(Feature.ccdp),
         .llvm_name = "ccdp",
         .description = "Enable v8.5 Cache Clean to Point of Deep Persistence",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ccidx)] = .{
         .index = @enumToInt(Feature.ccidx),
         .name = @tagName(Feature.ccidx),
         .llvm_name = "ccidx",
         .description = "Enable v8.3-A Extend of the CCSIDR number of sets",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ccpp)] = .{
         .index = @enumToInt(Feature.ccpp),
         .name = @tagName(Feature.ccpp),
         .llvm_name = "ccpp",
         .description = "Enable v8.2 data Cache Clean to Point of Persistence",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.complxnum)] = .{
         .index = @enumToInt(Feature.complxnum),
@@ -447,7 +447,7 @@ pub const all_features = blk: {
         .name = @tagName(Feature.crc),
         .llvm_name = "crc",
         .description = "Enable ARMv8 CRC-32 checksum instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.crypto)] = .{
         .index = @enumToInt(Feature.crypto),
@@ -465,7 +465,7 @@ pub const all_features = blk: {
         .name = @tagName(Feature.custom_cheap_as_move),
         .llvm_name = "custom-cheap-as-move",
         .description = "Use custom handling of cheap instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.cyclone)] = .{
         .index = @enumToInt(Feature.cyclone),
@@ -493,21 +493,21 @@ pub const all_features = blk: {
         .name = @tagName(Feature.disable_latency_sched_heuristic),
         .llvm_name = "disable-latency-sched-heuristic",
         .description = "Disable latency scheduling heuristic",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.dit)] = .{
         .index = @enumToInt(Feature.dit),
         .name = @tagName(Feature.dit),
         .llvm_name = "dit",
         .description = "Enable v8.4-A Data Independent Timing instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.dotprod)] = .{
         .index = @enumToInt(Feature.dotprod),
         .name = @tagName(Feature.dotprod),
         .llvm_name = "dotprod",
         .description = "Enable dot product support",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.exynos_cheap_as_move)] = .{
         .index = @enumToInt(Feature.exynos_cheap_as_move),
@@ -626,21 +626,21 @@ pub const all_features = blk: {
         .name = @tagName(Feature.fmi),
         .llvm_name = "fmi",
         .description = "Enable v8.4-A Flag Manipulation Instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.force_32bit_jump_tables)] = .{
         .index = @enumToInt(Feature.force_32bit_jump_tables),
         .name = @tagName(Feature.force_32bit_jump_tables),
         .llvm_name = "force-32bit-jump-tables",
         .description = "Force jump table entries to be 32-bits wide except at MinSize",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fp_armv8)] = .{
         .index = @enumToInt(Feature.fp_armv8),
         .name = @tagName(Feature.fp_armv8),
         .llvm_name = "fp-armv8",
         .description = "Enable ARMv8 FP",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fp16fml)] = .{
         .index = @enumToInt(Feature.fp16fml),
@@ -656,7 +656,7 @@ pub const all_features = blk: {
         .name = @tagName(Feature.fptoint),
         .llvm_name = "fptoint",
         .description = "Enable FRInt[32|64][Z|X] instructions that round a floating-point number to an integer (in FP format) forcing it to fit into a 32- or 64-bit int",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fullfp16)] = .{
         .index = @enumToInt(Feature.fullfp16),
@@ -672,42 +672,42 @@ pub const all_features = blk: {
         .name = @tagName(Feature.fuse_address),
         .llvm_name = "fuse-address",
         .description = "CPU fuses address generation and memory operations",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fuse_aes)] = .{
         .index = @enumToInt(Feature.fuse_aes),
         .name = @tagName(Feature.fuse_aes),
         .llvm_name = "fuse-aes",
         .description = "CPU fuses AES crypto operations",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fuse_arith_logic)] = .{
         .index = @enumToInt(Feature.fuse_arith_logic),
         .name = @tagName(Feature.fuse_arith_logic),
         .llvm_name = "fuse-arith-logic",
         .description = "CPU fuses arithmetic and logic operations",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fuse_crypto_eor)] = .{
         .index = @enumToInt(Feature.fuse_crypto_eor),
         .name = @tagName(Feature.fuse_crypto_eor),
         .llvm_name = "fuse-crypto-eor",
         .description = "CPU fuses AES/PMULL and EOR operations",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fuse_csel)] = .{
         .index = @enumToInt(Feature.fuse_csel),
         .name = @tagName(Feature.fuse_csel),
         .llvm_name = "fuse-csel",
         .description = "CPU fuses conditional select operations",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fuse_literals)] = .{
         .index = @enumToInt(Feature.fuse_literals),
         .name = @tagName(Feature.fuse_literals),
         .llvm_name = "fuse-literals",
         .description = "CPU fuses literal generation operations",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.jsconv)] = .{
         .index = @enumToInt(Feature.jsconv),
@@ -741,35 +741,35 @@ pub const all_features = blk: {
         .name = @tagName(Feature.lor),
         .llvm_name = "lor",
         .description = "Enables ARM v8.1 Limited Ordering Regions extension",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.lse)] = .{
         .index = @enumToInt(Feature.lse),
         .name = @tagName(Feature.lse),
         .llvm_name = "lse",
         .description = "Enable ARMv8.1 Large System Extension (LSE) atomic instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.lsl_fast)] = .{
         .index = @enumToInt(Feature.lsl_fast),
         .name = @tagName(Feature.lsl_fast),
         .llvm_name = "lsl-fast",
         .description = "CPU has a fastpath logical shift of up to 3 places",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mpam)] = .{
         .index = @enumToInt(Feature.mpam),
         .name = @tagName(Feature.mpam),
         .llvm_name = "mpam",
         .description = "Enable v8.4-A Memory system Partitioning and Monitoring extension",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mte)] = .{
         .index = @enumToInt(Feature.mte),
         .name = @tagName(Feature.mte),
         .llvm_name = "mte",
         .description = "Enable Memory Tagging Extension",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.neon)] = .{
         .index = @enumToInt(Feature.neon),
@@ -785,28 +785,28 @@ pub const all_features = blk: {
         .name = @tagName(Feature.no_neg_immediates),
         .llvm_name = "no-neg-immediates",
         .description = "Convert immediates and instructions to their negated or complemented equivalent when the immediate does not fit in the encoding.",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.nv)] = .{
         .index = @enumToInt(Feature.nv),
         .name = @tagName(Feature.nv),
         .llvm_name = "nv",
         .description = "Enable v8.4-A Nested Virtualization Enchancement",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.pa)] = .{
         .index = @enumToInt(Feature.pa),
         .name = @tagName(Feature.pa),
         .llvm_name = "pa",
         .description = "Enable v8.3-A Pointer Authentication enchancement",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.pan)] = .{
         .index = @enumToInt(Feature.pan),
         .name = @tagName(Feature.pan),
         .llvm_name = "pan",
         .description = "Enables ARM v8.1 Privileged Access-Never extension",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.pan_rwv)] = .{
         .index = @enumToInt(Feature.pan_rwv),
@@ -822,35 +822,35 @@ pub const all_features = blk: {
         .name = @tagName(Feature.perfmon),
         .llvm_name = "perfmon",
         .description = "Enable ARMv8 PMUv3 Performance Monitors extension",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.predictable_select_expensive)] = .{
         .index = @enumToInt(Feature.predictable_select_expensive),
         .name = @tagName(Feature.predictable_select_expensive),
         .llvm_name = "predictable-select-expensive",
         .description = "Prefer likely predicted branches over selects",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.predres)] = .{
         .index = @enumToInt(Feature.predres),
         .name = @tagName(Feature.predres),
         .llvm_name = "predres",
         .description = "Enable v8.5a execution and data prediction invalidation instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.rand)] = .{
         .index = @enumToInt(Feature.rand),
         .name = @tagName(Feature.rand),
         .llvm_name = "rand",
         .description = "Enable Random Number generation instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ras)] = .{
         .index = @enumToInt(Feature.ras),
         .name = @tagName(Feature.ras),
         .llvm_name = "ras",
         .description = "Enable ARMv8 Reliability, Availability and Serviceability Extensions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.rasv8_4)] = .{
         .index = @enumToInt(Feature.rasv8_4),
@@ -866,7 +866,7 @@ pub const all_features = blk: {
         .name = @tagName(Feature.rcpc),
         .llvm_name = "rcpc",
         .description = "Enable support for RCPC extension",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.rcpc_immo)] = .{
         .index = @enumToInt(Feature.rcpc_immo),
@@ -882,175 +882,175 @@ pub const all_features = blk: {
         .name = @tagName(Feature.rdm),
         .llvm_name = "rdm",
         .description = "Enable ARMv8.1 Rounding Double Multiply Add/Subtract instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x1)] = .{
         .index = @enumToInt(Feature.reserve_x1),
         .name = @tagName(Feature.reserve_x1),
         .llvm_name = "reserve-x1",
         .description = "Reserve X1, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x10)] = .{
         .index = @enumToInt(Feature.reserve_x10),
         .name = @tagName(Feature.reserve_x10),
         .llvm_name = "reserve-x10",
         .description = "Reserve X10, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x11)] = .{
         .index = @enumToInt(Feature.reserve_x11),
         .name = @tagName(Feature.reserve_x11),
         .llvm_name = "reserve-x11",
         .description = "Reserve X11, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x12)] = .{
         .index = @enumToInt(Feature.reserve_x12),
         .name = @tagName(Feature.reserve_x12),
         .llvm_name = "reserve-x12",
         .description = "Reserve X12, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x13)] = .{
         .index = @enumToInt(Feature.reserve_x13),
         .name = @tagName(Feature.reserve_x13),
         .llvm_name = "reserve-x13",
         .description = "Reserve X13, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x14)] = .{
         .index = @enumToInt(Feature.reserve_x14),
         .name = @tagName(Feature.reserve_x14),
         .llvm_name = "reserve-x14",
         .description = "Reserve X14, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x15)] = .{
         .index = @enumToInt(Feature.reserve_x15),
         .name = @tagName(Feature.reserve_x15),
         .llvm_name = "reserve-x15",
         .description = "Reserve X15, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x18)] = .{
         .index = @enumToInt(Feature.reserve_x18),
         .name = @tagName(Feature.reserve_x18),
         .llvm_name = "reserve-x18",
         .description = "Reserve X18, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x2)] = .{
         .index = @enumToInt(Feature.reserve_x2),
         .name = @tagName(Feature.reserve_x2),
         .llvm_name = "reserve-x2",
         .description = "Reserve X2, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x20)] = .{
         .index = @enumToInt(Feature.reserve_x20),
         .name = @tagName(Feature.reserve_x20),
         .llvm_name = "reserve-x20",
         .description = "Reserve X20, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x21)] = .{
         .index = @enumToInt(Feature.reserve_x21),
         .name = @tagName(Feature.reserve_x21),
         .llvm_name = "reserve-x21",
         .description = "Reserve X21, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x22)] = .{
         .index = @enumToInt(Feature.reserve_x22),
         .name = @tagName(Feature.reserve_x22),
         .llvm_name = "reserve-x22",
         .description = "Reserve X22, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x23)] = .{
         .index = @enumToInt(Feature.reserve_x23),
         .name = @tagName(Feature.reserve_x23),
         .llvm_name = "reserve-x23",
         .description = "Reserve X23, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x24)] = .{
         .index = @enumToInt(Feature.reserve_x24),
         .name = @tagName(Feature.reserve_x24),
         .llvm_name = "reserve-x24",
         .description = "Reserve X24, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x25)] = .{
         .index = @enumToInt(Feature.reserve_x25),
         .name = @tagName(Feature.reserve_x25),
         .llvm_name = "reserve-x25",
         .description = "Reserve X25, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x26)] = .{
         .index = @enumToInt(Feature.reserve_x26),
         .name = @tagName(Feature.reserve_x26),
         .llvm_name = "reserve-x26",
         .description = "Reserve X26, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x27)] = .{
         .index = @enumToInt(Feature.reserve_x27),
         .name = @tagName(Feature.reserve_x27),
         .llvm_name = "reserve-x27",
         .description = "Reserve X27, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x28)] = .{
         .index = @enumToInt(Feature.reserve_x28),
         .name = @tagName(Feature.reserve_x28),
         .llvm_name = "reserve-x28",
         .description = "Reserve X28, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x3)] = .{
         .index = @enumToInt(Feature.reserve_x3),
         .name = @tagName(Feature.reserve_x3),
         .llvm_name = "reserve-x3",
         .description = "Reserve X3, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x4)] = .{
         .index = @enumToInt(Feature.reserve_x4),
         .name = @tagName(Feature.reserve_x4),
         .llvm_name = "reserve-x4",
         .description = "Reserve X4, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x5)] = .{
         .index = @enumToInt(Feature.reserve_x5),
         .name = @tagName(Feature.reserve_x5),
         .llvm_name = "reserve-x5",
         .description = "Reserve X5, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x6)] = .{
         .index = @enumToInt(Feature.reserve_x6),
         .name = @tagName(Feature.reserve_x6),
         .llvm_name = "reserve-x6",
         .description = "Reserve X6, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x7)] = .{
         .index = @enumToInt(Feature.reserve_x7),
         .name = @tagName(Feature.reserve_x7),
         .llvm_name = "reserve-x7",
         .description = "Reserve X7, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x9)] = .{
         .index = @enumToInt(Feature.reserve_x9),
         .name = @tagName(Feature.reserve_x9),
         .llvm_name = "reserve-x9",
         .description = "Reserve X9, making it unavailable as a GPR",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.saphira)] = .{
         .index = @enumToInt(Feature.saphira),
@@ -1076,14 +1076,14 @@ pub const all_features = blk: {
         .name = @tagName(Feature.sb),
         .llvm_name = "sb",
         .description = "Enable v8.5 Speculation Barrier",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sel2)] = .{
         .index = @enumToInt(Feature.sel2),
         .name = @tagName(Feature.sel2),
         .llvm_name = "sel2",
         .description = "Enable v8.4-A Secure Exception Level 2 extension",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sha2)] = .{
         .index = @enumToInt(Feature.sha2),
@@ -1109,21 +1109,21 @@ pub const all_features = blk: {
         .name = @tagName(Feature.slow_misaligned_128store),
         .llvm_name = "slow-misaligned-128store",
         .description = "Misaligned 128 bit stores are slow",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.slow_paired_128)] = .{
         .index = @enumToInt(Feature.slow_paired_128),
         .name = @tagName(Feature.slow_paired_128),
         .llvm_name = "slow-paired-128",
         .description = "Paired 128 bit loads and stores are slow",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.slow_strqro_store)] = .{
         .index = @enumToInt(Feature.slow_strqro_store),
         .name = @tagName(Feature.slow_strqro_store),
         .llvm_name = "slow-strqro-store",
         .description = "STR of Q register with register offset is slow",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm4)] = .{
         .index = @enumToInt(Feature.sm4),
@@ -1139,35 +1139,35 @@ pub const all_features = blk: {
         .name = @tagName(Feature.spe),
         .llvm_name = "spe",
         .description = "Enable Statistical Profiling extension",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.specrestrict)] = .{
         .index = @enumToInt(Feature.specrestrict),
         .name = @tagName(Feature.specrestrict),
         .llvm_name = "specrestrict",
         .description = "Enable architectural speculation restriction",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ssbs)] = .{
         .index = @enumToInt(Feature.ssbs),
         .name = @tagName(Feature.ssbs),
         .llvm_name = "ssbs",
         .description = "Enable Speculative Store Bypass Safe bit",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.strict_align)] = .{
         .index = @enumToInt(Feature.strict_align),
         .name = @tagName(Feature.strict_align),
         .llvm_name = "strict-align",
         .description = "Disallow all unaligned memory access",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sve)] = .{
         .index = @enumToInt(Feature.sve),
         .name = @tagName(Feature.sve),
         .llvm_name = "sve",
         .description = "Enable Scalable Vector Extension (SVE) instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sve2)] = .{
         .index = @enumToInt(Feature.sve2),
@@ -1300,35 +1300,35 @@ pub const all_features = blk: {
         .name = @tagName(Feature.tlb_rmi),
         .llvm_name = "tlb-rmi",
         .description = "Enable v8.4-A TLB Range and Maintenance Instructions",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.tpidr_el1)] = .{
         .index = @enumToInt(Feature.tpidr_el1),
         .name = @tagName(Feature.tpidr_el1),
         .llvm_name = "tpidr-el1",
         .description = "Permit use of TPIDR_EL1 for the TLS base",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.tpidr_el2)] = .{
         .index = @enumToInt(Feature.tpidr_el2),
         .name = @tagName(Feature.tpidr_el2),
         .llvm_name = "tpidr-el2",
         .description = "Permit use of TPIDR_EL2 for the TLS base",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.tpidr_el3)] = .{
         .index = @enumToInt(Feature.tpidr_el3),
         .name = @tagName(Feature.tpidr_el3),
         .llvm_name = "tpidr-el3",
         .description = "Permit use of TPIDR_EL3 for the TLS base",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.tracev8_4)] = .{
         .index = @enumToInt(Feature.tracev8_4),
         .name = @tagName(Feature.tracev8_4),
         .llvm_name = "tracev8.4",
         .description = "Enable v8.4-A Trace extension",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.tsv110)] = .{
         .index = @enumToInt(Feature.tsv110),
@@ -1355,28 +1355,28 @@ pub const all_features = blk: {
         .name = @tagName(Feature.uaops),
         .llvm_name = "uaops",
         .description = "Enable v8.2 UAO PState",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.use_aa)] = .{
         .index = @enumToInt(Feature.use_aa),
         .name = @tagName(Feature.use_aa),
         .llvm_name = "use-aa",
         .description = "Use alias analysis during codegen",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.use_postra_scheduler)] = .{
         .index = @enumToInt(Feature.use_postra_scheduler),
         .name = @tagName(Feature.use_postra_scheduler),
         .llvm_name = "use-postra-scheduler",
         .description = "Schedule again after register allocation",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.use_reciprocal_square_root)] = .{
         .index = @enumToInt(Feature.use_reciprocal_square_root),
         .name = @tagName(Feature.use_reciprocal_square_root),
         .llvm_name = "use-reciprocal-square-root",
         .description = "Use the reciprocal square root approximation",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.v8_1a)] = .{
         .index = @enumToInt(Feature.v8_1a),
@@ -1461,14 +1461,14 @@ pub const all_features = blk: {
         .name = @tagName(Feature.vh),
         .llvm_name = "vh",
         .description = "Enables ARM v8.1 Virtual Host extension",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.zcm)] = .{
         .index = @enumToInt(Feature.zcm),
         .name = @tagName(Feature.zcm),
         .llvm_name = "zcm",
         .description = "Has zero-cycle register moves",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.zcz)] = .{
         .index = @enumToInt(Feature.zcz),
@@ -1485,21 +1485,21 @@ pub const all_features = blk: {
         .name = @tagName(Feature.zcz_fp),
         .llvm_name = "zcz-fp",
         .description = "Has zero-cycle zeroing instructions for FP registers",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.zcz_fp_workaround)] = .{
         .index = @enumToInt(Feature.zcz_fp_workaround),
         .name = @tagName(Feature.zcz_fp_workaround),
         .llvm_name = "zcz-fp-workaround",
         .description = "The zero-cycle floating-point zeroing instruction has a bug",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.zcz_gp)] = .{
         .index = @enumToInt(Feature.zcz_gp),
         .name = @tagName(Feature.zcz_gp),
         .llvm_name = "zcz-gp",
         .description = "Has zero-cycle zeroing instructions for generic registers",
-        .dependencies = 0,
+        .dependencies = featureSet(&[_]Feature{}),
     };
     break :blk result;
 };

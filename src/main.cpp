@@ -977,16 +977,19 @@ int main(int argc, char **argv) {
         }
     }
 
+    Buf zig_triple_buf = BUF_INIT;
+    target_triple_zig(&zig_triple_buf, &target);
+
     if (cpu && features) {
         fprintf(stderr, "-target-cpu and -target-feature options not allowed together\n");
         return main_exit(root_progress_node, EXIT_FAILURE);
     } else if (cpu) {
-        if ((err = stage2_cpu_features_parse_cpu(&target.cpu_features, target_arch_name(target.arch), cpu))) {
+        if ((err = stage2_cpu_features_parse_cpu(&target.cpu_features, buf_ptr(&zig_triple_buf), cpu))) {
             fprintf(stderr, "-target-cpu error: %s\n", err_str(err));
             return main_exit(root_progress_node, EXIT_FAILURE);
         }
     } else if (features) {
-        if ((err = stage2_cpu_features_parse_features(&target.cpu_features, target_arch_name(target.arch),
+        if ((err = stage2_cpu_features_parse_features(&target.cpu_features, buf_ptr(&zig_triple_buf),
                         features)))
         {
             fprintf(stderr, "-target-feature error: %s\n", err_str(err));
@@ -995,7 +998,7 @@ int main(int argc, char **argv) {
     } else if (target.is_native) {
         const char *cpu_name = ZigLLVMGetHostCPUName();
         const char *cpu_features = ZigLLVMGetNativeFeatures();
-        if ((err = stage2_cpu_features_llvm(&target.cpu_features, target_arch_name(target.arch),
+        if ((err = stage2_cpu_features_llvm(&target.cpu_features, buf_ptr(&zig_triple_buf),
                         cpu_name, cpu_features)))
         {
             fprintf(stderr, "unable to determine native CPU features: %s\n", err_str(err));
@@ -1014,9 +1017,7 @@ int main(int argc, char **argv) {
     }
 
     if (target_requires_pic(&target, have_libc) && want_pic == WantPICDisabled) {
-        Buf triple_buf = BUF_INIT;
-        target_triple_zig(&triple_buf, &target);
-        fprintf(stderr, "`--disable-pic` is incompatible with target '%s'\n", buf_ptr(&triple_buf));
+        fprintf(stderr, "`--disable-pic` is incompatible with target '%s'\n", buf_ptr(&zig_triple_buf));
         return print_error_usage(arg0);
     }
 

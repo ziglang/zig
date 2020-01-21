@@ -96,11 +96,11 @@ struct Stage2CpuFeatures {
     const char *cache_hash;
 };
 
-Error stage2_cpu_features_parse_cpu(Stage2CpuFeatures **out, const char *arch, const char *str) {
+Error stage2_cpu_features_parse_cpu(Stage2CpuFeatures **out, const char *zig_triple, const char *str) {
     const char *msg = "stage0 called stage2_cpu_features_parse_cpu";
     stage2_panic(msg, strlen(msg));
 }
-Error stage2_cpu_features_parse_features(Stage2CpuFeatures **out, const char *arch, const char *str) {
+Error stage2_cpu_features_parse_features(Stage2CpuFeatures **out, const char *zig_triple, const char *str) {
     const char *msg = "stage0 called stage2_cpu_features_parse_features";
     stage2_panic(msg, strlen(msg));
 }
@@ -111,7 +111,7 @@ Error stage2_cpu_features_baseline(Stage2CpuFeatures **out) {
     *out = result;
     return ErrorNone;
 }
-Error stage2_cpu_features_llvm(Stage2CpuFeatures **out, const char *arch,
+Error stage2_cpu_features_llvm(Stage2CpuFeatures **out, const char *zig_triple,
         const char *llvm_cpu_name, const char *llvm_features)
 {
     Stage2CpuFeatures *result = allocate<Stage2CpuFeatures>(1, "Stage2CpuFeatures");
