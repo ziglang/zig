@@ -9,6 +9,7 @@ pub fn cmdTargets(
     allocator: *Allocator,
     args: []const []const u8,
     stdout: *io.OutStream(fs.File.WriteError),
+    native_target: Target,
 ) !void {
     const BOS = io.BufferedOutStream(fs.File.WriteError);
     var bos = BOS.init(stdout);
@@ -76,21 +77,33 @@ pub fn cmdTargets(
     try jws.objectField("native");
     try jws.beginObject();
     {
-        const triple = try Target.current.zigTriple(allocator);
+        const triple = try native_target.zigTriple(allocator);
         defer allocator.free(triple);
         try jws.objectField("triple");
         try jws.emitString(triple);
     }
     try jws.objectField("arch");
-    try jws.emitString(@tagName(Target.current.getArch()));
+    try jws.emitString(@tagName(native_target.getArch()));
     try jws.objectField("os");
-    try jws.emitString(@tagName(Target.current.getOs()));
+    try jws.emitString(@tagName(native_target.getOs()));
     try jws.objectField("abi");
-    try jws.emitString(@tagName(Target.current.getAbi()));
+    try jws.emitString(@tagName(native_target.getAbi()));
     try jws.objectField("cpuName");
-    switch (Target.current.getCpuFeatures()) {
+    switch (native_target.getCpuFeatures()) {
         .baseline, .features => try jws.emitNull(),
         .cpu => |cpu| try jws.emitString(cpu.name),
+    }
+    {
+        try jws.objectField("cpuFeatures");
+        try jws.beginArray();
+        const feature_set = native_target.cpuFeatureSet();
+        for (native_target.getArch().allFeaturesList()) |feature, i| {
+            if (feature_set.isEnabled(@intCast(u8, i))) {
+                try jws.arrayElem();
+                try jws.emitString(feature.name);
+            }
+        }
+        try jws.endArray();
     }
     try jws.endObject();
 

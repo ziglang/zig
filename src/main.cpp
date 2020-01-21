@@ -1372,7 +1372,7 @@ int main(int argc, char **argv) {
         return main_exit(root_progress_node, EXIT_SUCCESS);
     }
     case CmdTargets:
-        return stage2_cmd_targets();
+        return stage2_cmd_targets(buf_ptr(&zig_triple_buf));
     case CmdNone:
         return print_full_usage(arg0, stderr, EXIT_FAILURE);
     }

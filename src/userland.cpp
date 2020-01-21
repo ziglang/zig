@@ -141,7 +141,7 @@ void stage2_cpu_features_get_builtin_str(const Stage2CpuFeatures *cpu_features,
     *len = strlen(cpu_features->builtin_str);
 }
 
-int stage2_cmd_targets(void) {
+int stage2_cmd_targets(const char *zig_triple) {
     const char *msg = "stage0 called stage2_cmd_targets";
     stage2_panic(msg, strlen(msg));
 }

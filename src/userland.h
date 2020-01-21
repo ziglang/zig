@@ -213,7 +213,7 @@ ZIG_EXTERN_C void stage2_cpu_features_get_cache_hash(const struct Stage2CpuFeatu
         const char **ptr, size_t *len);
 
 // ABI warning
-ZIG_EXTERN_C int stage2_cmd_targets(void);
+ZIG_EXTERN_C int stage2_cmd_targets(const char *zig_triple);
 
 
 #endif

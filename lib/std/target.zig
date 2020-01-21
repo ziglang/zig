@@ -631,9 +631,9 @@ pub const Target = union(enum) {
         };
     }
 
-    pub fn cpuFeaturesList(self: Target) []const *const Cpu.Feature {
+    pub fn cpuFeatureSet(self: Target) Cpu.Feature.Set {
         return switch (self.getCpuFeatures()) {
-            .baseline => self.arch.baselineFeatures(),
+            .baseline => self.getArch().baselineFeatures(),
             .cpu => |cpu| cpu.features,
             .features => |features| features,
         };
