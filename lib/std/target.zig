@@ -100,6 +100,7 @@ pub const Target = union(enum) {
         wasm64,
         renderscript32,
         renderscript64,
+        ve,
 
         pub const Arm32 = enum {
             v8_5a,
@@ -154,6 +155,9 @@ pub const Target = union(enum) {
         };
         pub const Mips = enum {
             r6,
+        };
+        pub const PPC = enum {
+            spe,
         };
 
         pub fn isARM(arch: Arch) bool {
@@ -309,8 +313,6 @@ pub const Target = union(enum) {
         code16,
         eabi,
         eabihf,
-        elfv1,
-        elfv2,
         android,
         musl,
         musleabi,

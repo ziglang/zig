@@ -21,6 +21,7 @@ static const SubArchList subarch_list_list[] = {
     SubArchListArm64,
     SubArchListKalimba,
     SubArchListMips,
+    SubArchListPPC,
 };
 
 static const ZigLLVM_SubArchType subarch_list_arm32[] = {
@@ -70,6 +71,10 @@ static const ZigLLVM_SubArchType subarch_list_kalimba[] = {
 
 static const ZigLLVM_SubArchType subarch_list_mips[] = {
     ZigLLVM_MipsSubArch_r6,
+};
+
+static const ZigLLVM_SubArchType subarch_list_ppc[] = {
+    ZigLLVM_PPCSubArch_spe,
 };
 
 static const ZigLLVM_ArchType arch_list[] = {
@@ -123,6 +128,7 @@ static const ZigLLVM_ArchType arch_list[] = {
     ZigLLVM_wasm64,         // WebAssembly with 64-bit pointers
     ZigLLVM_renderscript32, // 32-bit RenderScript
     ZigLLVM_renderscript64, // 64-bit RenderScript
+    ZigLLVM_ve,             // NEC SX-Aurora Vector Engine
 };
 
 static const ZigLLVM_VendorType vendor_list[] = {
@@ -627,6 +633,7 @@ SubArchList target_subarch_list(ZigLLVM_ArchType arch) {
         case ZigLLVM_wasm64:
         case ZigLLVM_renderscript32:
         case ZigLLVM_renderscript64:
+        case ZigLLVM_ve:
             return SubArchListNone;
     }
     zig_unreachable();
@@ -644,6 +651,8 @@ size_t target_subarch_count(SubArchList sub_arch_list) {
             return array_length(subarch_list_kalimba);
         case SubArchListMips:
             return array_length(subarch_list_mips);
+        case SubArchListPPC:
+            return array_length(subarch_list_ppc);
     }
     zig_unreachable();
 }
@@ -664,6 +673,9 @@ ZigLLVM_SubArchType target_subarch_enum(SubArchList sub_arch_list, size_t i) {
         case SubArchListMips:
             assert(i < array_length(subarch_list_mips));
             return subarch_list_mips[i];
+        case SubArchListPPC:
+            assert(i < array_length(subarch_list_ppc));
+            return subarch_list_ppc[i];
     }
     zig_unreachable();
 }
@@ -726,6 +738,8 @@ const char *target_subarch_name(ZigLLVM_SubArchType subarch) {
             return "v5";
         case ZigLLVM_MipsSubArch_r6:
             return "r6";
+        case ZigLLVM_PPCSubArch_spe:
+            return "spe";
     }
     zig_unreachable();
 }
@@ -935,6 +949,7 @@ uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
         case ZigLLVM_spir64:
         case ZigLLVM_wasm64:
         case ZigLLVM_renderscript64:
+        case ZigLLVM_ve:
             return 64;
     }
     zig_unreachable();
@@ -998,6 +1013,7 @@ uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch) {
         case ZigLLVM_spir64:
         case ZigLLVM_wasm64:
         case ZigLLVM_renderscript64:
+        case ZigLLVM_ve:
             return 64;
 
         case ZigLLVM_x86_64:
