@@ -17,28 +17,27 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.ext)] = .{
         .llvm_name = "ext",
         .description = "Enable MSP430-X extensions",
-        .dependencies = sparseFeatureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.hwmult16)] = .{
         .llvm_name = "hwmult16",
         .description = "Enable 16-bit hardware multiplier",
-        .dependencies = sparseFeatureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.hwmult32)] = .{
         .llvm_name = "hwmult32",
         .description = "Enable 32-bit hardware multiplier",
-        .dependencies = sparseFeatureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.hwmultf5)] = .{
         .llvm_name = "hwmultf5",
         .description = "Enable F5 series hardware multiplier",
-        .dependencies = sparseFeatureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);
     for (result) |*elem, i| {
         elem.index = i;
         elem.name = ti.Enum.fields[i].name;
-        elem.dependencies.initAsDependencies(i, &result);
     }
     break :blk result;
 };
@@ -47,17 +46,17 @@ pub const cpu = struct {
     pub const generic = Cpu{
         .name = "generic",
         .llvm_name = "generic",
-        .features = featureSet(&all_features, &[_]Feature{}),
+        .features = featureSet(&[_]Feature{}),
     };
     pub const msp430 = Cpu{
         .name = "msp430",
         .llvm_name = "msp430",
-        .features = featureSet(&all_features, &[_]Feature{}),
+        .features = featureSet(&[_]Feature{}),
     };
     pub const msp430x = Cpu{
         .name = "msp430x",
         .llvm_name = "msp430x",
-        .features = featureSet(&all_features, &[_]Feature{
+        .features = featureSet(&[_]Feature{
             .ext,
         }),
     };

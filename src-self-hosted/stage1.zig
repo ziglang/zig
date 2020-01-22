@@ -581,8 +581,8 @@ fn cpuFeaturesFromLLVM(
             const this_llvm_name = feature.llvm_name orelse continue;
             if (mem.eql(u8, llvm_feat, this_llvm_name)) {
                 switch (op) {
-                    .add => set.addSparseFeature(@intCast(u8, index)),
-                    .sub => set.removeSparseFeature(@intCast(u8, index)),
+                    .add => set.addFeature(@intCast(u8, index)),
+                    .sub => set.removeFeature(@intCast(u8, index)),
                 }
                 break;
             }
@@ -701,8 +701,9 @@ const Stage2CpuFeatures = struct {
         const all_features = arch.allFeaturesList();
         var populated_feature_set = feature_set;
         if (arch.subArchFeature()) |sub_arch_index| {
-            populated_feature_set.addFeature(sub_arch_index, all_features);
+            populated_feature_set.addFeature(sub_arch_index);
         }
+        populated_feature_set.populateDependencies(all_features);
         for (all_features) |feature, index| {
             const llvm_name = feature.llvm_name orelse continue;
             const plus_or_minus = "-+"[@boolToInt(populated_feature_set.isEnabled(@intCast(u8, index)))];

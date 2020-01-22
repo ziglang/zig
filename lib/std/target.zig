@@ -304,12 +304,12 @@ pub const Target = union(enum) {
                     if (mem.eql(u8, feature_name, feature.name)) {
                         switch (op) {
                             .add => {
-                                baseline_set.addFeature(index, all_features);
-                                whitelist_set.addFeature(index, all_features);
+                                baseline_set.addFeature(index);
+                                whitelist_set.addFeature(index);
                             },
                             .sub => {
-                                baseline_set.removeFeature(index, all_features);
-                                whitelist_set.removeFeature(index, all_features);
+                                baseline_set.removeFeature(index);
+                                whitelist_set.removeFeature(index);
                             },
                         }
                         break;
@@ -580,12 +580,8 @@ pub const Target = union(enum) {
             /// Human-friendly UTF-8 text.
             description: []const u8,
 
-            /// `Set` of all features this depends on, and this feature itself.
-            /// Can be "or"ed with another set to remove this feature and all
-            /// its dependencies.
-            /// Has a default value of `undefined` because the canonical
-            /// structures are populated via comptime logic.
-            dependencies: Set = undefined,
+            /// Sparse `Set` of features this depends on.
+            dependencies: Set,
 
             /// A bit set of all the features.
             pub const Set = struct {
@@ -598,6 +594,9 @@ pub const Target = union(enum) {
                 pub const ShiftInt = std.math.Log2Int(usize);
 
                 pub const empty = Set{ .ints = [1]usize{0} ** usize_count };
+                pub fn empty_workaround() Set {
+                    return Set{ .ints = [1]usize{0} ** usize_count };
+                }
 
                 pub fn isEnabled(set: Set, arch_feature_index: Index) bool {
                     const usize_index = arch_feature_index / @bitSizeOf(usize);
@@ -605,60 +604,28 @@ pub const Target = union(enum) {
                     return (set.ints[usize_index] & (@as(usize, 1) << bit_index)) != 0;
                 }
 
-                /// Adds the specified feature and all its dependencies to the set. O(1).
-                pub fn addFeature(
-                    set: *Set,
-                    arch_feature_index: Index,
-                    all_features_list: []const Cpu.Feature,
-                ) void {
-                    set.ints = @as(@Vector(usize_count, usize), set.ints) |
-                        @as(@Vector(usize_count, usize), all_features_list[arch_feature_index].dependencies.ints);
-                }
-
-                /// Removes the specified feature (TODO and all its dependents) from the set. O(1).
-                /// TODO improve this function to actually handle dependants rather than just calling
-                /// `removeSparseFeature`.
-                pub fn removeFeature(
-                    set: *Set,
-                    arch_feature_index: Index,
-                    all_features_list: []const Cpu.Feature,
-                ) void {
-                    set.removeSparseFeature(arch_feature_index);
-                }
-
                 /// Adds the specified feature but not its dependencies.
-                pub fn addSparseFeature(set: *Set, arch_feature_index: Index) void {
+                pub fn addFeature(set: *Set, arch_feature_index: Index) void {
                     const usize_index = arch_feature_index / @bitSizeOf(usize);
                     const bit_index = @intCast(ShiftInt, arch_feature_index % @bitSizeOf(usize));
                     set.ints[usize_index] |= @as(usize, 1) << bit_index;
                 }
 
                 /// Removes the specified feature but not its dependents.
-                pub fn removeSparseFeature(set: *Set, arch_feature_index: Index) void {
+                pub fn removeFeature(set: *Set, arch_feature_index: Index) void {
                     const usize_index = arch_feature_index / @bitSizeOf(usize);
                     const bit_index = @intCast(ShiftInt, arch_feature_index % @bitSizeOf(usize));
                     set.ints[usize_index] &= ~(@as(usize, 1) << bit_index);
                 }
 
-                pub fn initAsDependencies(
-                    set: *Set,
-                    arch_feature_index: Index,
-                    all_features_list: []const Cpu.Feature,
-                ) void {
-                    // fast-case to help reduce how much comptime code must execute
-                    const no_deps = for (set.ints) |elem| {
-                        if (elem != 0) break false;
-                    } else true;
-                    // add itself to its own dependencies for easy "or"ing later
-                    set.addSparseFeature(arch_feature_index);
-                    if (no_deps) return;
-
+                pub fn populateDependencies(set: *Set, all_features_list: []const Cpu.Feature) void {
                     var old = set.ints;
                     while (true) {
-                        for (all_features_list) |feature, index| {
-                            const casted_index = @intCast(Index, index);
-                            if (set.isEnabled(casted_index)) {
-                                set.addFeature(casted_index, all_features_list);
+                        for (all_features_list) |feature, index_usize| {
+                            const index = @intCast(Index, index_usize);
+                            if (set.isEnabled(index)) {
+                                set.ints = @as(@Vector(usize_count, usize), set.ints) |
+                                    @as(@Vector(usize_count, usize), feature.dependencies.ints);
                             }
                         }
                         const nothing_changed = mem.eql(usize, &old, &set.ints);
@@ -674,21 +641,11 @@ pub const Target = union(enum) {
 
             pub fn feature_set_fns(comptime F: type) type {
                 return struct {
-                    /// Populates a set with the list of features and all their dependencies included.
-                    pub fn featureSet(all_features_list: []const Feature, features: []const F) Set {
-                        var x: Set = Set.empty;
-                        for (features) |feature| {
-                            x.addFeature(@enumToInt(feature), all_features_list);
-                        }
-                        @compileLog(Set.empty);
-                        return x;
-                    }
-
                     /// Populates only the feature bits specified.
-                    pub fn sparseFeatureSet(features: []const F) Set {
-                        var x = Set.empty;
+                    pub fn featureSet(features: []const F) Set {
+                        var x = Set.empty_workaround(); // TODO remove empty_workaround
                         for (features) |feature| {
-                            x.addSparseFeature(@enumToInt(feature));
+                            x.addFeature(@enumToInt(feature));
                         }
                         return x;
                     }

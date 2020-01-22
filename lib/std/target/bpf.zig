@@ -16,23 +16,22 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.alu32)] = .{
         .llvm_name = "alu32",
         .description = "Enable ALU32 instructions",
-        .dependencies = sparseFeatureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.dummy)] = .{
         .llvm_name = "dummy",
         .description = "unused feature",
-        .dependencies = sparseFeatureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.dwarfris)] = .{
         .llvm_name = "dwarfris",
         .description = "Disable MCAsmInfo DwarfUsesRelocationsAcrossSections",
-        .dependencies = sparseFeatureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);
     for (result) |*elem, i| {
         elem.index = i;
         elem.name = ti.Enum.fields[i].name;
-        elem.dependencies.initAsDependencies(i, &result);
     }
     break :blk result;
 };
@@ -41,27 +40,27 @@ pub const cpu = struct {
     pub const generic = Cpu{
         .name = "generic",
         .llvm_name = "generic",
-        .features = featureSet(&all_features, &[_]Feature{}),
+        .features = featureSet(&[_]Feature{}),
     };
     pub const probe = Cpu{
         .name = "probe",
         .llvm_name = "probe",
-        .features = featureSet(&all_features, &[_]Feature{}),
+        .features = featureSet(&[_]Feature{}),
     };
     pub const v1 = Cpu{
         .name = "v1",
         .llvm_name = "v1",
-        .features = featureSet(&all_features, &[_]Feature{}),
+        .features = featureSet(&[_]Feature{}),
     };
     pub const v2 = Cpu{
         .name = "v2",
         .llvm_name = "v2",
-        .features = featureSet(&all_features, &[_]Feature{}),
+        .features = featureSet(&[_]Feature{}),
     };
     pub const v3 = Cpu{
         .name = "v3",
         .llvm_name = "v3",
-        .features = featureSet(&all_features, &[_]Feature{}),
+        .features = featureSet(&[_]Feature{}),
     };
 };
 

@@ -23,52 +23,52 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.atomics)] = .{
         .llvm_name = "atomics",
         .description = "Enable Atomics",
-        .dependencies = sparseFeatureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.bulk_memory)] = .{
         .llvm_name = "bulk-memory",
         .description = "Enable bulk memory operations",
-        .dependencies = sparseFeatureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.exception_handling)] = .{
         .llvm_name = "exception-handling",
         .description = "Enable Wasm exception handling",
-        .dependencies = sparseFeatureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.multivalue)] = .{
         .llvm_name = "multivalue",
         .description = "Enable multivalue blocks, instructions, and functions",
-        .dependencies = sparseFeatureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mutable_globals)] = .{
         .llvm_name = "mutable-globals",
         .description = "Enable mutable globals",
-        .dependencies = sparseFeatureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.nontrapping_fptoint)] = .{
         .llvm_name = "nontrapping-fptoint",
         .description = "Enable non-trapping float-to-int conversion operators",
-        .dependencies = sparseFeatureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sign_ext)] = .{
         .llvm_name = "sign-ext",
         .description = "Enable sign extension operators",
-        .dependencies = sparseFeatureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.simd128)] = .{
         .llvm_name = "simd128",
         .description = "Enable 128-bit SIMD",
-        .dependencies = sparseFeatureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.tail_call)] = .{
         .llvm_name = "tail-call",
         .description = "Enable tail call instructions",
-        .dependencies = sparseFeatureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.unimplemented_simd128)] = .{
         .llvm_name = "unimplemented-simd128",
         .description = "Enable 128-bit SIMD not yet implemented in engines",
-        .dependencies = sparseFeatureSet(&[_]Feature{
+        .dependencies = featureSet(&[_]Feature{
             .simd128,
         }),
     };
@@ -76,7 +76,6 @@ pub const all_features = blk: {
     for (result) |*elem, i| {
         elem.index = i;
         elem.name = ti.Enum.fields[i].name;
-        elem.dependencies.initAsDependencies(i, &result);
     }
     break :blk result;
 };
@@ -85,7 +84,7 @@ pub const cpu = struct {
     pub const bleeding_edge = Cpu{
         .name = "bleeding_edge",
         .llvm_name = "bleeding-edge",
-        .features = featureSet(&all_features, &[_]Feature{
+        .features = featureSet(&[_]Feature{
             .atomics,
             .mutable_globals,
             .nontrapping_fptoint,
@@ -96,12 +95,12 @@ pub const cpu = struct {
     pub const generic = Cpu{
         .name = "generic",
         .llvm_name = "generic",
-        .features = featureSet(&all_features, &[_]Feature{}),
+        .features = featureSet(&[_]Feature{}),
     };
     pub const mvp = Cpu{
         .name = "mvp",
         .llvm_name = "mvp",
-        .features = featureSet(&all_features, &[_]Feature{}),
+        .features = featureSet(&[_]Feature{}),
     };
 };
 
