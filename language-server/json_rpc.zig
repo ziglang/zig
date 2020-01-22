@@ -101,7 +101,13 @@ pub fn Dispatcher(comptime ContextType: type) type {
         pub fn dispatch(self: *Self, message: Request) Error!void {
             debug.warn("{}\n", .{message.method});
             if (self.map.getValue(message.method)) |method| {
-                method(self.context, message) catch return error.InternalError;
+                method(self.context, message) catch |err| {
+                    if(err == error.InvalidParams){
+                        return error.InvalidParams;
+                    } else {
+                        return error.InternalError;
+                    }
+                };
             } else {
                 return error.MethodNotFound;
             }

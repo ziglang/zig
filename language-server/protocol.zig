@@ -7,12 +7,17 @@ const debug = std.debug;
 const json_rpc = @import("json_rpc.zig");
 const serial = @import("json_serialize.zig");
 
-const LspError = error{
+pub const LspError = error{
     InvalidHeader,
     HeaderFieldTooLong,
     MessageTooLong,
     PrematureEndOfStream,
-    InvalidRequest,
+    InvalidMessage,
+};
+
+pub const Message = union(enum) {
+    Request: json_rpc.Request,
+    Response: json_rpc.Response,
 };
 
 pub fn MessageReader(comptime Error: type) type {
@@ -37,7 +42,7 @@ pub fn MessageReader(comptime Error: type) type {
             self.buffer.deinit();
         }
 
-        pub fn readMessage(self: *Self) !json_rpc.Request {
+        pub fn readMessage(self: *Self) !Message {
             var jsonLen: ?u32 = null;
 
             try self.buffer.resize(4 * 1024);
@@ -71,11 +76,19 @@ pub fn MessageReader(comptime Error: type) type {
             var tree = try parser.parse(self.buffer.toSlice());
             errdefer tree.deinit();
 
-            const request = try serial.deserialize(json_rpc.Request, tree.root, self.alloc);
-            if (!request.validate()) {
-                return error.InvalidRequest;
+            if (tree.root == .Object and tree.root.Object.contains("method")) {
+                const request = try serial.deserialize(json_rpc.Request, tree.root, self.alloc);
+                if (!request.validate()) {
+                    return error.InvalidMessage;
+                }
+                return Message{ .Request = request };
+            } else {
+                const response = try serial.deserialize(json_rpc.Response, tree.root, self.alloc);
+                if (!response.validate()) {
+                    return error.InvalidMessage;
+                }
+                return Message{ .Response = response };
             }
-            return request;
         }
     };
 }
@@ -103,7 +116,7 @@ pub fn MessageWriter(comptime Error: type) type {
         }
 
         fn writeString(self: *Self, jsonStr: []const u8) !void {
-            try self.stream.print("Content-Length: {}\r\n\r\n{}", .{jsonStr.len, jsonStr});
+            try self.stream.print("Content-Length: {}\r\n\r\n{}", .{ jsonStr.len, jsonStr });
         }
 
         pub fn writeResponse(self: *Self, response: json_rpc.Response) !void {

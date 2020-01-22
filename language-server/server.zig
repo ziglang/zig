@@ -40,11 +40,13 @@ pub const Server = struct {
     const MethodError = json_rpc.Dispatcher(Server).MethodError;
 
     alloc: *mem.Allocator,
+    msgWrite: protocol.MessageWriter(std.fs.File.WriteError),
     documents: std.StringHashMap(TextDocument),
 
-    pub fn init(allocator: *mem.Allocator) Self {
+    pub fn init(allocator: *mem.Allocator, messageWriter: protocol.MessageWriter(std.fs.File.WriteError)) Self {
         return Self{
             .alloc = allocator,
+            .msgWrite = messageWriter,
             .documents = std.StringHashMap(TextDocument).init(allocator),
         };
     }
@@ -73,7 +75,7 @@ pub const Server = struct {
             .result = .{ .Defined = tree.root },
             .id = req.id.Defined, // TODO check
         };
-        msgWrite.writeResponse(response) catch return MethodError.InternalError;
+        try self.msgWrite.writeResponse(response);
     }
 
     pub fn onInitialized(self: *Self, req: json_rpc.Request) MethodError!void {}
@@ -86,7 +88,7 @@ pub const Server = struct {
             .text = params.contentChanges[0].text,
         };
 
-        const tree = zig.parse(self.alloc, params.contentChanges[0].text) catch return MethodError.InternalError;
+        const tree = try zig.parse(self.alloc, params.contentChanges[0].text);
         defer tree.deinit();
 
         var diagnostics = try self.alloc.alloc(types.Diagnostic, tree.errors.len);
@@ -130,7 +132,7 @@ pub const Server = struct {
             .method = "textDocument/publishDiagnostics",
             .params = try serial.serialize2(outParam, self.alloc),
         };
-        try msgWrite.writeRequest(request);
+        try self.msgWrite.writeRequest(request);
     }
 
     pub fn onTextDocumentCompletion(self: *Self, req: json_rpc.Request) !void {
@@ -170,7 +172,7 @@ pub const Server = struct {
                     .id = req.id.Defined, // TODO check
                     .result = .{ .Defined = try serial.serialize2(items[0..], self.alloc) },
                 };
-                try msgWrite.writeResponse(response);
+                try self.msgWrite.writeResponse(response);
                 return;
             }
         }
@@ -179,25 +181,23 @@ pub const Server = struct {
             .id = req.id.Defined, // TODO check
             .result = .{ .Defined = json.Value.Null },
         };
-        try msgWrite.writeResponse(response);
+        try self.msgWrite.writeResponse(response);
     }
 };
 
-var heap = std.heap.direct_allocator;
-var out: *io.OutStream(std.fs.File.WriteError) = undefined;
-var msgWrite: protocol.MessageWriter(std.fs.File.WriteError) = undefined;
-
 pub fn main() !void {
+    const heap = std.heap.page_allocator;
+
     var in = io.getStdIn().inStream();
-    var stdoutStream = io.getStdOut().outStream();
-    out = &stdoutStream.stream;
+    var out = io.getStdOut().outStream();
 
     var msgReader = protocol.MessageReader(std.fs.File.ReadError).init(&in.stream, heap);
     defer msgReader.deinit();
 
-    msgWrite = protocol.MessageWriter(std.fs.File.WriteError).init(out, heap);
+    var msgWrite = protocol.MessageWriter(std.fs.File.WriteError).init(&out.stream, heap);
 
-    var server = Server.init(heap);
+    var server = Server.init(heap, msgWrite);
+    defer server.deinit();
 
     var dispatcher = json_rpc.Dispatcher(Server).init(&server, heap);
     defer dispatcher.deinit();
@@ -208,9 +208,9 @@ pub fn main() !void {
     try dispatcher.register("textDocument/completion", Server.onTextDocumentCompletion);
 
     while (true) {
-        const request = try msgReader.readMessage();
+        const message = try msgReader.readMessage();
 
-        dispatcher.dispatch(request) catch |err| {
+        dispatcher.dispatch(message.Request) catch |err| {
             debug.warn("{}", .{err});
         };
     }

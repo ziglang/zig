@@ -365,12 +365,6 @@ test "deserialize" {
 
     const testOut = try deserialize(Test, tree.root, debug.global_allocator);
 
-    debug.warn("\n{}, arr = ", testOut);
-    for (testOut.arr) |b| {
-        debug.warn("{}, ", b);
-    }
-    debug.warn("\n");
-
     expect(testOut.maybeNull1.Defined.? == 42);
     expect(testOut.maybeNull2.Defined == null);
     expect(testOut.maybeNull3 == .NotDefined);
