@@ -1578,7 +1578,7 @@ _mm_cvtsd_f64(__m128d __a)
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_load_pd(double const *__dp)
 {
-  return *(__m128d*)__dp;
+  return *(const __m128d*)__dp;
 }
 
 /// Loads a double-precision floating-point value from a specified memory
@@ -1599,7 +1599,7 @@ _mm_load1_pd(double const *__dp)
   struct __mm_load1_pd_struct {
     double __u;
   } __attribute__((__packed__, __may_alias__));
-  double __u = ((struct __mm_load1_pd_struct*)__dp)->__u;
+  double __u = ((const struct __mm_load1_pd_struct*)__dp)->__u;
   return __extension__ (__m128d){ __u, __u };
 }
 
@@ -1622,7 +1622,7 @@ _mm_load1_pd(double const *__dp)
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_loadr_pd(double const *__dp)
 {
-  __m128d __u = *(__m128d*)__dp;
+  __m128d __u = *(const __m128d*)__dp;
   return __builtin_shufflevector((__v2df)__u, (__v2df)__u, 1, 0);
 }
 
@@ -1643,7 +1643,7 @@ _mm_loadu_pd(double const *__dp)
   struct __loadu_pd {
     __m128d_u __v;
   } __attribute__((__packed__, __may_alias__));
-  return ((struct __loadu_pd*)__dp)->__v;
+  return ((const struct __loadu_pd*)__dp)->__v;
 }
 
 /// Loads a 64-bit integer value to the low element of a 128-bit integer
@@ -1663,7 +1663,7 @@ _mm_loadu_si64(void const *__a)
   struct __loadu_si64 {
     long long __v;
   } __attribute__((__packed__, __may_alias__));
-  long long __u = ((struct __loadu_si64*)__a)->__v;
+  long long __u = ((const struct __loadu_si64*)__a)->__v;
   return __extension__ (__m128i)(__v2di){__u, 0LL};
 }
 
@@ -1684,7 +1684,7 @@ _mm_loadu_si32(void const *__a)
   struct __loadu_si32 {
     int __v;
   } __attribute__((__packed__, __may_alias__));
-  int __u = ((struct __loadu_si32*)__a)->__v;
+  int __u = ((const struct __loadu_si32*)__a)->__v;
   return __extension__ (__m128i)(__v4si){__u, 0, 0, 0};
 }
 
@@ -1705,7 +1705,7 @@ _mm_loadu_si16(void const *__a)
   struct __loadu_si16 {
     short __v;
   } __attribute__((__packed__, __may_alias__));
-  short __u = ((struct __loadu_si16*)__a)->__v;
+  short __u = ((const struct __loadu_si16*)__a)->__v;
   return __extension__ (__m128i)(__v8hi){__u, 0, 0, 0, 0, 0, 0, 0};
 }
 
@@ -1726,7 +1726,7 @@ _mm_load_sd(double const *__dp)
   struct __mm_load_sd_struct {
     double __u;
   } __attribute__((__packed__, __may_alias__));
-  double __u = ((struct __mm_load_sd_struct*)__dp)->__u;
+  double __u = ((const struct __mm_load_sd_struct*)__dp)->__u;
   return __extension__ (__m128d){ __u, 0 };
 }
 
@@ -1753,7 +1753,7 @@ _mm_loadh_pd(__m128d __a, double const *__dp)
   struct __mm_loadh_pd_struct {
     double __u;
   } __attribute__((__packed__, __may_alias__));
-  double __u = ((struct __mm_loadh_pd_struct*)__dp)->__u;
+  double __u = ((const struct __mm_loadh_pd_struct*)__dp)->__u;
   return __extension__ (__m128d){ __a[0], __u };
 }
 
@@ -1780,7 +1780,7 @@ _mm_loadl_pd(__m128d __a, double const *__dp)
   struct __mm_loadl_pd_struct {
     double __u;
   } __attribute__((__packed__, __may_alias__));
-  double __u = ((struct __mm_loadl_pd_struct*)__dp)->__u;
+  double __u = ((const struct __mm_loadl_pd_struct*)__dp)->__u;
   return __extension__ (__m128d){ __u, __a[1] };
 }
 
@@ -2288,7 +2288,7 @@ _mm_adds_epu16(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_paddusw128((__v8hi)__a, (__v8hi)__b);
 }
 
-/// Computes the rounded avarages of corresponding elements of two
+/// Computes the rounded averages of corresponding elements of two
 ///    128-bit unsigned [16 x i8] vectors, saving each result in the
 ///    corresponding element of a 128-bit result vector of [16 x i8].
 ///
@@ -2308,7 +2308,7 @@ _mm_avg_epu8(__m128i __a, __m128i __b)
   return (__m128i)__builtin_ia32_pavgb128((__v16qi)__a, (__v16qi)__b);
 }
 
-/// Computes the rounded avarages of corresponding elements of two
+/// Computes the rounded averages of corresponding elements of two
 ///    128-bit unsigned [8 x i16] vectors, saving each result in the
 ///    corresponding element of a 128-bit result vector of [8 x i16].
 ///
@@ -3550,7 +3550,7 @@ _mm_loadu_si128(__m128i_u const *__p)
   struct __loadu_si128 {
     __m128i_u __v;
   } __attribute__((__packed__, __may_alias__));
-  return ((struct __loadu_si128*)__p)->__v;
+  return ((const struct __loadu_si128*)__p)->__v;
 }
 
 /// Returns a vector of [2 x i64] where the lower element is taken from
@@ -3571,7 +3571,7 @@ _mm_loadl_epi64(__m128i_u const *__p)
   struct __mm_loadl_epi64_struct {
     long long __u;
   } __attribute__((__packed__, __may_alias__));
-  return __extension__ (__m128i) { ((struct __mm_loadl_epi64_struct*)__p)->__u, 0};
+  return __extension__ (__m128i) { ((const struct __mm_loadl_epi64_struct*)__p)->__u, 0};
 }
 
 /// Generates a 128-bit vector of [4 x i32] with unspecified content.

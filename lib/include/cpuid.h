@@ -38,8 +38,8 @@
 #define signature_TM2_ecx 0x3638784d
 /* NSC:     "Geode by NSC" */
 #define signature_NSC_ebx 0x646f6547
-#define signature_NSC_edx 0x43534e20
-#define signature_NSC_ecx 0x79622065
+#define signature_NSC_edx 0x79622065
+#define signature_NSC_ecx 0x43534e20
 /* NEXGEN:  "NexGenDriven" */
 #define signature_NEXGEN_ebx 0x4778654e
 #define signature_NEXGEN_edx 0x72446e65

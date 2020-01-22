@@ -1627,7 +1627,7 @@ _mm_loadh_pi(__m128 __a, const __m64 *__p)
   struct __mm_loadh_pi_struct {
     __mm_loadh_pi_v2f32 __u;
   } __attribute__((__packed__, __may_alias__));
-  __mm_loadh_pi_v2f32 __b = ((struct __mm_loadh_pi_struct*)__p)->__u;
+  __mm_loadh_pi_v2f32 __b = ((const struct __mm_loadh_pi_struct*)__p)->__u;
   __m128 __bb = __builtin_shufflevector(__b, __b, 0, 1, 0, 1);
   return __builtin_shufflevector(__a, __bb, 0, 1, 4, 5);
 }
@@ -1654,7 +1654,7 @@ _mm_loadl_pi(__m128 __a, const __m64 *__p)
   struct __mm_loadl_pi_struct {
     __mm_loadl_pi_v2f32 __u;
   } __attribute__((__packed__, __may_alias__));
-  __mm_loadl_pi_v2f32 __b = ((struct __mm_loadl_pi_struct*)__p)->__u;
+  __mm_loadl_pi_v2f32 __b = ((const struct __mm_loadl_pi_struct*)__p)->__u;
   __m128 __bb = __builtin_shufflevector(__b, __b, 0, 1, 0, 1);
   return __builtin_shufflevector(__a, __bb, 4, 5, 2, 3);
 }
@@ -1680,7 +1680,7 @@ _mm_load_ss(const float *__p)
   struct __mm_load_ss_struct {
     float __u;
   } __attribute__((__packed__, __may_alias__));
-  float __u = ((struct __mm_load_ss_struct*)__p)->__u;
+  float __u = ((const struct __mm_load_ss_struct*)__p)->__u;
   return __extension__ (__m128){ __u, 0, 0, 0 };
 }
 
@@ -1702,7 +1702,7 @@ _mm_load1_ps(const float *__p)
   struct __mm_load1_ps_struct {
     float __u;
   } __attribute__((__packed__, __may_alias__));
-  float __u = ((struct __mm_load1_ps_struct*)__p)->__u;
+  float __u = ((const struct __mm_load1_ps_struct*)__p)->__u;
   return __extension__ (__m128){ __u, __u, __u, __u };
 }
 
@@ -1722,7 +1722,7 @@ _mm_load1_ps(const float *__p)
 static __inline__ __m128 __DEFAULT_FN_ATTRS
 _mm_load_ps(const float *__p)
 {
-  return *(__m128*)__p;
+  return *(const __m128*)__p;
 }
 
 /// Loads a 128-bit floating-point vector of [4 x float] from an
@@ -1742,7 +1742,7 @@ _mm_loadu_ps(const float *__p)
   struct __loadu_ps {
     __m128_u __v;
   } __attribute__((__packed__, __may_alias__));
-  return ((struct __loadu_ps*)__p)->__v;
+  return ((const struct __loadu_ps*)__p)->__v;
 }
 
 /// Loads four packed float values, in reverse order, from an aligned
@@ -2100,7 +2100,7 @@ _mm_storer_ps(float *__p, __m128 __a)
 ///    be generated. \n
 ///    _MM_HINT_T2: Move data using the T2 hint. The PREFETCHT2 instruction will
 ///    be generated.
-#define _mm_prefetch(a, sel) (__builtin_prefetch((void *)(a), \
+#define _mm_prefetch(a, sel) (__builtin_prefetch((const void *)(a), \
                                                  ((sel) >> 2) & 1, (sel) & 0x3))
 #endif
 

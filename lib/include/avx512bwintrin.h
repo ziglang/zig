@@ -1731,13 +1731,13 @@ _mm512_loadu_epi16 (void const *__P)
   struct __loadu_epi16 {
     __m512i_u __v;
   } __attribute__((__packed__, __may_alias__));
-  return ((struct __loadu_epi16*)__P)->__v;
+  return ((const struct __loadu_epi16*)__P)->__v;
 }
 
 static __inline__ __m512i __DEFAULT_FN_ATTRS512
 _mm512_mask_loadu_epi16 (__m512i __W, __mmask32 __U, void const *__P)
 {
-  return (__m512i) __builtin_ia32_loaddquhi512_mask ((__v32hi *) __P,
+  return (__m512i) __builtin_ia32_loaddquhi512_mask ((const __v32hi *) __P,
                  (__v32hi) __W,
                  (__mmask32) __U);
 }
@@ -1745,7 +1745,7 @@ _mm512_mask_loadu_epi16 (__m512i __W, __mmask32 __U, void const *__P)
 static __inline__ __m512i __DEFAULT_FN_ATTRS512
 _mm512_maskz_loadu_epi16 (__mmask32 __U, void const *__P)
 {
-  return (__m512i) __builtin_ia32_loaddquhi512_mask ((__v32hi *) __P,
+  return (__m512i) __builtin_ia32_loaddquhi512_mask ((const __v32hi *) __P,
                  (__v32hi)
                  _mm512_setzero_si512 (),
                  (__mmask32) __U);
@@ -1757,13 +1757,13 @@ _mm512_loadu_epi8 (void const *__P)
   struct __loadu_epi8 {
     __m512i_u __v;
   } __attribute__((__packed__, __may_alias__));
-  return ((struct __loadu_epi8*)__P)->__v;
+  return ((const struct __loadu_epi8*)__P)->__v;
 }
 
 static __inline__ __m512i __DEFAULT_FN_ATTRS512
 _mm512_mask_loadu_epi8 (__m512i __W, __mmask64 __U, void const *__P)
 {
-  return (__m512i) __builtin_ia32_loaddquqi512_mask ((__v64qi *) __P,
+  return (__m512i) __builtin_ia32_loaddquqi512_mask ((const __v64qi *) __P,
                  (__v64qi) __W,
                  (__mmask64) __U);
 }
@@ -1771,7 +1771,7 @@ _mm512_mask_loadu_epi8 (__m512i __W, __mmask64 __U, void const *__P)
 static __inline__ __m512i __DEFAULT_FN_ATTRS512
 _mm512_maskz_loadu_epi8 (__mmask64 __U, void const *__P)
 {
-  return (__m512i) __builtin_ia32_loaddquqi512_mask ((__v64qi *) __P,
+  return (__m512i) __builtin_ia32_loaddquqi512_mask ((const __v64qi *) __P,
                  (__v64qi)
                  _mm512_setzero_si512 (),
                  (__mmask64) __U);

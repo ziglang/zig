@@ -35,6 +35,8 @@
 #ifndef _MMINTRIN_H_INCLUDED
 #define _MMINTRIN_H_INCLUDED
 
+#if defined(__linux__) && defined(__ppc64__)
+
 #include <altivec.h>
 /* The Intel API is flexible enough that we must allow aliasing with other
    vector types, and their scalar components.  */
@@ -1440,4 +1442,9 @@ extern __inline __m64
   return (res.as_m64);
 #endif
 }
+
+#else
+#include_next <mmintrin.h>
+#endif /* defined(__linux__) && defined(__ppc64__) */
+
 #endif /* _MMINTRIN_H_INCLUDED */

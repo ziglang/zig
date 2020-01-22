@@ -64,9 +64,8 @@
 #include <vpclmulqdqintrin.h>
 #endif
 
-#if !defined(_MSC_VER) || __has_feature(modules) || defined(__BMI__)
+/* No feature check desired due to internal checks */
 #include <bmiintrin.h>
-#endif
 
 #if !defined(_MSC_VER) || __has_feature(modules) || defined(__BMI2__)
 #include <bmi2intrin.h>
@@ -302,7 +301,7 @@ _loadbe_i16(void const * __P) {
   struct __loadu_i16 {
     short __v;
   } __attribute__((__packed__, __may_alias__));
-  return __builtin_bswap16(((struct __loadu_i16*)__P)->__v);
+  return __builtin_bswap16(((const struct __loadu_i16*)__P)->__v);
 }
 
 static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("movbe")))
@@ -318,7 +317,7 @@ _loadbe_i32(void const * __P) {
   struct __loadu_i32 {
     int __v;
   } __attribute__((__packed__, __may_alias__));
-  return __builtin_bswap32(((struct __loadu_i32*)__P)->__v);
+  return __builtin_bswap32(((const struct __loadu_i32*)__P)->__v);
 }
 
 static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("movbe")))
@@ -335,7 +334,7 @@ _loadbe_i64(void const * __P) {
   struct __loadu_i64 {
     long long __v;
   } __attribute__((__packed__, __may_alias__));
-  return __builtin_bswap64(((struct __loadu_i64*)__P)->__v);
+  return __builtin_bswap64(((const struct __loadu_i64*)__P)->__v);
 }
 
 static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("movbe")))

@@ -211,7 +211,15 @@ inline __device__ unsigned int __ballot_sync(unsigned int mask, int pred) {
   return __nvvm_vote_ballot_sync(mask, pred);
 }
 
-inline __device__ unsigned int __activemask() { return __nvvm_vote_ballot(1); }
+inline __device__ unsigned int __activemask() {
+#if CUDA_VERSION < 9020
+  return __nvvm_vote_ballot(1);
+#else
+  unsigned int mask;
+  asm volatile("activemask.b32 %0;" : "=r"(mask));
+  return mask;
+#endif
+}
 
 inline __device__ unsigned int __fns(unsigned mask, unsigned base, int offset) {
   return __nvvm_fns(mask, base, offset);
