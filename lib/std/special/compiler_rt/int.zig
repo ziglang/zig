@@ -2,7 +2,7 @@
 const builtin = @import("builtin");
 const testing = @import("std").testing;
 const maxInt = @import("std").math.maxInt;
-const minInt = @import("std").math.maxInt;
+const minInt = @import("std").math.minInt;
 
 const udivmod = @import("udivmod.zig").udivmod;
 
