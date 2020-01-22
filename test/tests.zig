@@ -101,7 +101,7 @@ const test_targets = [_]TestTarget{
         .target = Target{
             .Cross = CrossTarget{
                 .os = .linux,
-                .arch = builtin.Arch{ .aarch64 = builtin.Arch.Arm64.v8_1a },
+                .arch = builtin.Arch{ .aarch64 = builtin.Arch.Arm64.v8_5a },
                 .abi = .none,
             },
         },
@@ -110,7 +110,7 @@ const test_targets = [_]TestTarget{
         .target = Target{
             .Cross = CrossTarget{
                 .os = .linux,
-                .arch = builtin.Arch{ .aarch64 = builtin.Arch.Arm64.v8_1a },
+                .arch = builtin.Arch{ .aarch64 = builtin.Arch.Arm64.v8_5a },
                 .abi = .musl,
             },
         },
@@ -120,7 +120,7 @@ const test_targets = [_]TestTarget{
         .target = Target{
             .Cross = CrossTarget{
                 .os = .linux,
-                .arch = builtin.Arch{ .aarch64 = builtin.Arch.Arm64.v8_1a },
+                .arch = builtin.Arch{ .aarch64 = builtin.Arch.Arm64.v8_5a },
                 .abi = .gnu,
             },
         },
