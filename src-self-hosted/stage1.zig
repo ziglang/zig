@@ -540,26 +540,24 @@ export fn stage2_progress_update_node(node: *std.Progress.Node, done_count: usiz
     node.context.maybeRefresh();
 }
 
+/// I have observed the CPU name reported by LLVM being incorrect. On
+/// the SourceHut build services, LLVM 9.0 reports the CPU as "athlon-xp",
+/// which is a 32-bit CPU, even though the system is 64-bit and the reported
+/// CPU features include, among other things, +64bit.
+/// So the strategy taken here is that we observe both reported CPU, and the
+/// reported CPU features. The features are trusted more; but if the features
+/// match exactly the features of the reported CPU, then we trust the reported CPU.
 fn cpuFeaturesFromLLVM(
     arch: Target.Arch,
     llvm_cpu_name_z: ?[*:0]const u8,
     llvm_cpu_features_opt: ?[*:0]const u8,
 ) !Target.CpuFeatures {
-    if (llvm_cpu_name_z) |cpu_name_z| {
-        const llvm_cpu_name = mem.toSliceConst(u8, cpu_name_z);
-
-        for (arch.allCpus()) |cpu| {
-            const this_llvm_name = cpu.llvm_name orelse continue;
-            if (mem.eql(u8, this_llvm_name, llvm_cpu_name)) {
-                return Target.CpuFeatures{ .cpu = cpu };
-            }
-        }
-    }
-
     var set = arch.baselineFeatures();
     const llvm_cpu_features = llvm_cpu_features_opt orelse return Target.CpuFeatures{
         .features = set,
     };
+
+    const all_features = arch.allFeaturesList();
 
     var it = mem.tokenize(mem.toSliceConst(u8, llvm_cpu_features), ",");
     while (it.next()) |decorated_llvm_feat| {
@@ -577,7 +575,7 @@ fn cpuFeaturesFromLLVM(
         } else {
             return error.InvalidLlvmCpuFeaturesFormat;
         }
-        for (arch.allFeaturesList()) |feature, index| {
+        for (all_features) |feature, index| {
             const this_llvm_name = feature.llvm_name orelse continue;
             if (mem.eql(u8, llvm_feat, this_llvm_name)) {
                 switch (op) {
@@ -588,6 +586,27 @@ fn cpuFeaturesFromLLVM(
             }
         }
     }
+
+    if (llvm_cpu_name_z) |cpu_name_z| {
+        const llvm_cpu_name = mem.toSliceConst(u8, cpu_name_z);
+
+        for (arch.allCpus()) |cpu| {
+            const this_llvm_name = cpu.llvm_name orelse continue;
+            if (mem.eql(u8, this_llvm_name, llvm_cpu_name)) {
+                // Only trust the CPU if the reported features exactly match.
+                var populated_reported_features = set;
+                populated_reported_features.populateDependencies(all_features);
+                var populated_cpu_features = cpu.features;
+                populated_cpu_features.populateDependencies(all_features);
+                if (populated_reported_features.eql(populated_cpu_features)) {
+                    return Target.CpuFeatures{ .cpu = cpu };
+                } else {
+                    return Target.CpuFeatures{ .features = set };
+                }
+            }
+        }
+    }
+
     return Target.CpuFeatures{ .features = set };
 }
 

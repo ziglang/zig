@@ -637,6 +637,10 @@ pub const Target = union(enum) {
                 pub fn asBytes(set: *const Set) *const [byte_count]u8 {
                     return @ptrCast(*const [byte_count]u8, &set.ints);
                 }
+
+                pub fn eql(set: Set, other: Set) bool {
+                    return mem.eql(usize, &set.ints, &other.ints);
+                }
             };
 
             pub fn feature_set_fns(comptime F: type) type {
