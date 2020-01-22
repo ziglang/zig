@@ -59,7 +59,7 @@ pub const Server = struct {
         const result =
             \\{
             \\    "capabilities": {
-            \\        "textDocumentSync": {"change" :1},
+            \\        "textDocumentSync": {"openClose": true, "change": 1},
             \\        "completionProvider": {"triggerCharacters": ["@"]}
             \\    }
             \\}
@@ -80,15 +80,45 @@ pub const Server = struct {
 
     pub fn onInitialized(self: *Self, req: json_rpc.Request) MethodError!void {}
 
+    pub fn onTextDocumentDidOpen(self: *Self, req: json_rpc.Request) !void {
+        const params = serial.deserialize(types.DidOpenTextDocumentParams, req.params, self.alloc) catch return MethodError.InvalidParams;
+
+        const document = TextDocument{
+            .uri = params.textDocument.uri,
+            .text = params.textDocument.text,
+        };
+
+        const alreadyThere = try self.documents.put(params.textDocument.uri, document);
+        if(alreadyThere != null){
+            return MethodError.InvalidParams;
+        }
+
+        try self.publishDiagnostics(document);
+    }
+
     pub fn onTextDocumentDidChange(self: *Self, req: json_rpc.Request) !void {
         const params = serial.deserialize(types.DidChangeTextDocumentParams, req.params, self.alloc) catch return MethodError.InvalidParams;
 
-        (try self.documents.getOrPut(params.textDocument.uri)).kv.value = TextDocument{
+        const document = TextDocument{
             .uri = params.textDocument.uri,
             .text = params.contentChanges[0].text,
         };
 
-        const tree = try zig.parse(self.alloc, params.contentChanges[0].text);
+        (self.documents.get(params.textDocument.uri) orelse return MethodError.InvalidParams).value = document;
+
+        try self.publishDiagnostics(document);
+    }
+
+    pub fn onTextDocumentDidClose(self: *Self, req: json_rpc.Request) !void {
+        const params = serial.deserialize(types.DidCloseTextDocumentParams, req.params, self.alloc) catch return MethodError.InvalidParams;
+
+        if(self.documents.remove(params.textDocument.uri) == null){
+            return MethodError.InvalidParams;
+        }
+    }
+
+    fn publishDiagnostics(self: *Self, document: TextDocument) !void {
+        const tree = try zig.parse(self.alloc, document.text);
         defer tree.deinit();
 
         var diagnostics = try self.alloc.alloc(types.Diagnostic, tree.errors.len);
@@ -124,7 +154,7 @@ pub const Server = struct {
         }
 
         const outParam = types.PublishDiagnosticsParams{
-            .uri = params.textDocument.uri,
+            .uri = document.uri,
             .diagnostics = diagnostics,
         };
 
@@ -204,7 +234,9 @@ pub fn main() !void {
 
     try dispatcher.register("initialize", Server.onInitialize);
     try dispatcher.register("initialized", Server.onInitialized);
+    try dispatcher.register("textDocument/didOpen", Server.onTextDocumentDidOpen);
     try dispatcher.register("textDocument/didChange", Server.onTextDocumentDidChange);
+    try dispatcher.register("textDocument/didClose", Server.onTextDocumentDidClose);
     try dispatcher.register("textDocument/completion", Server.onTextDocumentCompletion);
 
     while (true) {

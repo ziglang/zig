@@ -9,6 +9,9 @@ pub const Array = json.Array;
 pub const Object = json.ObjectMap;
 pub const Any = json.Value;
 
+// Specification:
+// https://microsoft.github.io/language-server-protocol/specifications/specification-current/
+
 pub const ErrorCodes = struct {
     // Defined by JSON RPC
     pub const ParseError = -32700;
@@ -185,4 +188,19 @@ pub const CompletionItemKind = struct {
     pub const Event = 23;
     pub const Operator = 24;
     pub const TypeParameter = 25;
+};
+
+pub const DidCloseTextDocumentParams = struct {
+    textDocument: TextDocumentIdentifier,
+};
+
+pub const DidOpenTextDocumentParams = struct {
+    textDocument: TextDocumentItem,
+};
+
+pub const TextDocumentItem = struct {
+    uri: DocumentUri,
+    languageId: String,
+    version: Integer,
+    text: String,
 };
