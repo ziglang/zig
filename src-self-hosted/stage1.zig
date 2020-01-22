@@ -659,11 +659,20 @@ const Stage2CpuFeatures = struct {
         const target = try Target.parse(mem.toSliceConst(u8, zig_triple));
         const arch = target.Cross.arch;
         const cpu_features = try cpuFeaturesFromLLVM(arch, llvm_cpu_name_z, llvm_cpu_features);
-        switch (cpu_features) {
-            .baseline => return createBaseline(allocator, arch),
-            .cpu => |cpu| return createFromCpu(allocator, arch, cpu),
-            .features => |features| return createFromCpuFeatures(allocator, arch, features),
+        const result = switch (cpu_features) {
+            .baseline => try createBaseline(allocator, arch),
+            .cpu => |cpu| try createFromCpu(allocator, arch, cpu),
+            .features => |features| try createFromCpuFeatures(allocator, arch, features),
+        };
+        // LLVM creates invalid binaries on Windows sometimes.
+        // See https://github.com/ziglang/zig/issues/508
+        // As a workaround we do not use target native features on Windows.
+        // This logic is repeated in codegen.cpp
+        if (target.isWindows() or target.isUefi()) {
+            result.llvm_cpu_name = "";
+            result.llvm_features_str = "";
         }
+        return result;
     }
 
     fn createFromCpu(allocator: *mem.Allocator, arch: Target.Arch, cpu: *const Target.Cpu) !*Self {
@@ -742,9 +751,11 @@ const Stage2CpuFeatures = struct {
         for (arch.allFeaturesList()) |feature, index| {
             if (!feature_set.isEnabled(@intCast(u8, index))) continue;
 
-            try builtin_str_buffer.append("        .");
+            // TODO some kind of "zig identifier escape" function rather than
+            // unconditionally using @"" syntax
+            try builtin_str_buffer.append("        .@\"");
             try builtin_str_buffer.append(feature.name);
-            try builtin_str_buffer.append(",\n");
+            try builtin_str_buffer.append("\",\n");
         }
 
         try builtin_str_buffer.append(

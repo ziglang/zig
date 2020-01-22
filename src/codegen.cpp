@@ -8785,15 +8785,15 @@ static void init(CodeGen *g) {
     const char *target_specific_features = "";
 
     if (g->zig_target->is_native) {
+        target_specific_cpu_args = ZigLLVMGetHostCPUName();
+        target_specific_features = ZigLLVMGetNativeFeatures();
         // LLVM creates invalid binaries on Windows sometimes.
         // See https://github.com/ziglang/zig/issues/508
         // As a workaround we do not use target native features on Windows.
+        // This logic is repeated in stage1.zig
         if (g->zig_target->os == OsWindows || g->zig_target->os == OsUefi) {
             target_specific_cpu_args = "";
             target_specific_features = "";
-        } else {
-            target_specific_cpu_args = ZigLLVMGetHostCPUName();
-            target_specific_features = ZigLLVMGetNativeFeatures();
         }
     }
 
