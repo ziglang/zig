@@ -8581,7 +8581,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             stage2_cpu_features_get_builtin_str(g->zig_target->cpu_features, &ptr, &len);
             buf_append_mem(contents, ptr, len);
         } else {
-            buf_append_str(contents, ".baseline;\n");
+            buf_append_str(contents, "arch.getBaselineCpuFeatures();\n");
         }
     }
     if (g->libc_link_lib != nullptr && g->zig_target->glibc_version != nullptr) {

@@ -1,5 +1,6 @@
 const tests = @import("tests.zig");
 const builtin = @import("builtin");
+const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("empty declaration",
@@ -1005,7 +1006,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.addWithTarget("Calling convention", tests.Target{
-        .Cross = .{ .os = .linux, .arch = .i386, .abi = .none },
+        .Cross = .{
+            .os = .linux,
+            .arch = .i386,
+            .abi = .none,
+            .cpu_features = Target.Arch.i386.getBaselineCpuFeatures(),
+        },
     },
         \\void __attribute__((fastcall)) foo1(float *a);
         \\void __attribute__((stdcall)) foo2(float *a);
@@ -1021,7 +1027,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.addWithTarget("Calling convention", tests.Target{
-        .Cross = .{ .os = .linux, .arch = .{ .arm = .v8_5a }, .abi = .none },
+        .Cross = .{
+            .os = .linux,
+            .arch = .{ .arm = .v8_5a },
+            .abi = .none,
+            .cpu_features = (Target.Arch{ .arm = .v8_5a }).getBaselineCpuFeatures(),
+        },
     },
         \\void __attribute__((pcs("aapcs"))) foo1(float *a);
         \\void __attribute__((pcs("aapcs-vfp"))) foo2(float *a);
@@ -1031,7 +1042,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.addWithTarget("Calling convention", tests.Target{
-        .Cross = .{ .os = .linux, .arch = .{ .aarch64 = .v8_5a }, .abi = .none },
+        .Cross = .{
+            .os = .linux,
+            .arch = .{ .aarch64 = .v8_5a },
+            .abi = .none,
+            .cpu_features = (Target.Arch{ .aarch64 = .v8_5a }).getBaselineCpuFeatures(),
+        },
     },
         \\void __attribute__((aarch64_vector_pcs)) foo1(float *a);
     , &[_][]const u8{

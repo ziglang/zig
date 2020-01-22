@@ -227,16 +227,14 @@ pub fn cmdTargets(
     try jws.objectField("abi");
     try jws.emitString(@tagName(native_target.getAbi()));
     try jws.objectField("cpuName");
-    switch (native_target.getCpuFeatures()) {
-        .baseline, .features => try jws.emitNull(),
-        .cpu => |cpu| try jws.emitString(cpu.name),
-    }
+    const cpu_features = native_target.getCpuFeatures();
+    try jws.emitString(cpu_features.cpu.name);
     {
         try jws.objectField("cpuFeatures");
         try jws.beginArray();
-        const feature_set = native_target.cpuFeatureSet();
-        for (native_target.getArch().allFeaturesList()) |feature, i| {
-            if (feature_set.isEnabled(@intCast(u8, i))) {
+        for (native_target.getArch().allFeaturesList()) |feature, i_usize| {
+            const index = @intCast(Target.Cpu.Feature.Set.Index, i_usize);
+            if (cpu_features.features.isEnabled(index)) {
                 try jws.arrayElem();
                 try jws.emitString(feature.name);
             }

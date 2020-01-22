@@ -2,7 +2,8 @@
 // src-self-hosted/stage1.zig
 
 #include "userland.h"
-#include "ast_render.hpp"
+#include "util.hpp"
+#include "zig_llvm.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -96,32 +97,30 @@ struct Stage2CpuFeatures {
     const char *cache_hash;
 };
 
-Error stage2_cpu_features_parse_cpu(Stage2CpuFeatures **out, const char *zig_triple, const char *str) {
-    const char *msg = "stage0 called stage2_cpu_features_parse_cpu";
-    stage2_panic(msg, strlen(msg));
-}
-Error stage2_cpu_features_parse_features(Stage2CpuFeatures **out, const char *zig_triple, const char *str) {
-    const char *msg = "stage0 called stage2_cpu_features_parse_features";
-    stage2_panic(msg, strlen(msg));
-}
-Error stage2_cpu_features_baseline(Stage2CpuFeatures **out, const char *zig_triple) {
-    Stage2CpuFeatures *result = allocate<Stage2CpuFeatures>(1, "Stage2CpuFeatures");
-    result->builtin_str = ".baseline;\n";
-    result->cache_hash = "\n\n";
-    *out = result;
-    return ErrorNone;
-}
-Error stage2_cpu_features_llvm(Stage2CpuFeatures **out, const char *zig_triple,
-        const char *llvm_cpu_name, const char *llvm_features)
+Error stage2_cpu_features_parse(struct Stage2CpuFeatures **out, const char *zig_triple,
+        const char *cpu_name, const char *cpu_features)
 {
-    Stage2CpuFeatures *result = allocate<Stage2CpuFeatures>(1, "Stage2CpuFeatures");
-    result->llvm_cpu_name = llvm_cpu_name;
-    result->llvm_cpu_features = llvm_features;
-    result->builtin_str = ".baseline;\n";
-    result->cache_hash = "native\n\n";
-    *out = result;
-    return ErrorNone;
+    if (zig_triple == nullptr) {
+        Stage2CpuFeatures *result = allocate<Stage2CpuFeatures>(1, "Stage2CpuFeatures");
+        result->llvm_cpu_name = ZigLLVMGetHostCPUName();
+        result->llvm_cpu_features = ZigLLVMGetNativeFeatures();
+        result->builtin_str = "arch.getBaselineCpuFeatures();\n";
+        result->cache_hash = "native\n\n";
+        *out = result;
+        return ErrorNone;
+    }
+    if (cpu_name == nullptr && cpu_features == nullptr) {
+        Stage2CpuFeatures *result = allocate<Stage2CpuFeatures>(1, "Stage2CpuFeatures");
+        result->builtin_str = "arch.getBaselineCpuFeatures();\n";
+        result->cache_hash = "\n\n";
+        *out = result;
+        return ErrorNone;
+    }
+
+    const char *msg = "stage0 called stage2_cpu_features_parse with non-null cpu name or features";
+    stage2_panic(msg, strlen(msg));
 }
+
 void stage2_cpu_features_get_cache_hash(const Stage2CpuFeatures *cpu_features,
         const char **ptr, size_t *len)
 {

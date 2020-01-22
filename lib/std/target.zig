@@ -172,6 +172,15 @@ pub const Target = union(enum) {
             r6,
         };
 
+        pub fn subArchName(arch: Arch) ?[]const u8 {
+            return switch (arch) {
+                .arm, .armeb, .thumb, .thumbeb => |arm32| @tagName(arm32),
+                .aarch64, .aarch64_be, .aarch64_32 => |arm64| @tagName(arm64),
+                .kalimba => |kalimba| @tagName(kalimba),
+                else => return null,
+            };
+        }
+
         pub fn subArchFeature(arch: Arch) ?u8 {
             return switch (arch) {
                 .arm, .armeb, .thumb, .thumbeb => |arm32| switch (arm32) {
@@ -251,24 +260,12 @@ pub const Target = union(enum) {
             return error.UnknownCpu;
         }
 
-        /// This parsing function supports 2 syntaxes.
-        /// * Comma-separated list of features, with + or - in front of each feature. This
-        ///   form represents a deviation from baseline.
-        /// * Comma-separated list of features, with no + or - in front of each feature. This
-        ///   form represents an exclusive list of enabled features; no other features besides
-        ///   the ones listed, and their dependencies, will be enabled.
+        /// Comma-separated list of features, with + or - in front of each feature. This
+        /// form represents a deviation from baseline CPU, which is provided as a parameter.
         /// Extra commas are ignored.
-        pub fn parseCpuFeatureSet(arch: Arch, features_text: []const u8) !Cpu.Feature.Set {
-            // Here we compute both and choose the correct result at the end, based
-            // on whether or not we saw + and - signs.
-            var whitelist_set = Cpu.Feature.Set.empty;
-            var baseline_set = arch.baselineFeatures();
-            var mode: enum {
-                unknown,
-                baseline,
-                whitelist,
-            } = .unknown;
-
+        pub fn parseCpuFeatureSet(arch: Arch, cpu: *const Cpu, features_text: []const u8) !Cpu.Feature.Set {
+            const all_features = arch.allFeaturesList();
+            var set = cpu.features;
             var it = mem.tokenize(features_text, ",");
             while (it.next()) |item_text| {
                 var feature_name: []const u8 = undefined;
@@ -277,40 +274,20 @@ pub const Target = union(enum) {
                     sub,
                 } = undefined;
                 if (mem.startsWith(u8, item_text, "+")) {
-                    switch (mode) {
-                        .unknown, .baseline => mode = .baseline,
-                        .whitelist => return error.InvalidCpuFeatures,
-                    }
                     op = .add;
                     feature_name = item_text[1..];
                 } else if (mem.startsWith(u8, item_text, "-")) {
-                    switch (mode) {
-                        .unknown, .baseline => mode = .baseline,
-                        .whitelist => return error.InvalidCpuFeatures,
-                    }
                     op = .sub;
                     feature_name = item_text[1..];
                 } else {
-                    switch (mode) {
-                        .unknown, .whitelist => mode = .whitelist,
-                        .baseline => return error.InvalidCpuFeatures,
-                    }
-                    op = .add;
-                    feature_name = item_text;
+                    return error.InvalidCpuFeatures;
                 }
-                const all_features = arch.allFeaturesList();
                 for (all_features) |feature, index_usize| {
                     const index = @intCast(Cpu.Feature.Set.Index, index_usize);
                     if (mem.eql(u8, feature_name, feature.name)) {
                         switch (op) {
-                            .add => {
-                                baseline_set.addFeature(index);
-                                whitelist_set.addFeature(index);
-                            },
-                            .sub => {
-                                baseline_set.removeFeature(index);
-                                whitelist_set.removeFeature(index);
-                            },
+                            .add => set.addFeature(index),
+                            .sub => set.removeFeature(index),
                         }
                         break;
                     }
@@ -319,10 +296,8 @@ pub const Target = union(enum) {
                 }
             }
 
-            return switch (mode) {
-                .unknown, .whitelist => whitelist_set,
-                .baseline => baseline_set,
-            };
+            set.populateDependencies(all_features);
+            return set;
         }
 
         pub fn toElfMachine(arch: Arch) std.elf.EM {
@@ -485,29 +460,37 @@ pub const Target = union(enum) {
 
         /// The "default" set of CPU features for cross-compiling. A conservative set
         /// of features that is expected to be supported on most available hardware.
-        pub fn baselineFeatures(arch: Arch) Cpu.Feature.Set {
-            return switch (arch) {
-                .arm, .armeb, .thumb, .thumbeb => arm.cpu.generic.features,
-                .aarch64, .aarch64_be, .aarch64_32 => aarch64.cpu.generic.features,
-                .avr => avr.baseline_features,
-                .bpfel, .bpfeb => bpf.cpu.generic.features,
-                .hexagon => hexagon.cpu.generic.features,
-                .mips, .mipsel => mips.cpu.mips32.features,
-                .mips64, .mips64el => mips.cpu.mips64.features,
-                .msp430 => msp430.cpu.generic.features,
-                .powerpc, .powerpc64, .powerpc64le => powerpc.cpu.generic.features,
-                .amdgcn => amdgpu.cpu.generic.features,
-                .riscv32 => riscv.baseline_32_features,
-                .riscv64 => riscv.baseline_64_features,
-                .sparc, .sparcv9, .sparcel => sparc.cpu.generic.features,
-                .s390x => systemz.cpu.generic.features,
-                .i386 => x86.cpu.pentium4.features,
-                .x86_64 => x86.cpu.x86_64.features,
-                .nvptx, .nvptx64 => nvptx.cpu.sm_20.features,
-                .wasm32, .wasm64 => wasm.cpu.generic.features,
-
-                else => Cpu.Feature.Set.empty,
+        pub fn getBaselineCpuFeatures(arch: Arch) CpuFeatures {
+            const S = struct {
+                const generic_cpu = Cpu{
+                    .name = "generic",
+                    .llvm_name = null,
+                    .features = Cpu.Feature.Set.empty,
+                };
             };
+            const cpu = switch (arch) {
+                .arm, .armeb, .thumb, .thumbeb => &arm.cpu.generic,
+                .aarch64, .aarch64_be, .aarch64_32 => &aarch64.cpu.generic,
+                .avr => &avr.cpu.avr1,
+                .bpfel, .bpfeb => &bpf.cpu.generic,
+                .hexagon => &hexagon.cpu.generic,
+                .mips, .mipsel => &mips.cpu.mips32,
+                .mips64, .mips64el => &mips.cpu.mips64,
+                .msp430 => &msp430.cpu.generic,
+                .powerpc, .powerpc64, .powerpc64le => &powerpc.cpu.generic,
+                .amdgcn => &amdgpu.cpu.generic,
+                .riscv32 => &riscv.cpu.baseline_rv32,
+                .riscv64 => &riscv.cpu.baseline_rv64,
+                .sparc, .sparcv9, .sparcel => &sparc.cpu.generic,
+                .s390x => &systemz.cpu.generic,
+                .i386 => &x86.cpu.pentium4,
+                .x86_64 => &x86.cpu.x86_64,
+                .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
+                .wasm32, .wasm64 => &wasm.cpu.generic,
+
+                else => &S.generic_cpu,
+            };
+            return CpuFeatures.initFromCpu(arch, cpu);
         }
 
         /// All CPUs Zig is aware of, sorted lexicographically by name.
@@ -685,19 +668,28 @@ pub const Target = union(enum) {
         arch: Arch,
         os: Os,
         abi: Abi,
-        cpu_features: CpuFeatures = .baseline,
+        cpu_features: CpuFeatures,
     };
 
-    pub const CpuFeatures = union(enum) {
-        /// The "default" set of CPU features for cross-compiling. A conservative set
-        /// of features that is expected to be supported on most available hardware.
-        baseline,
-
-        /// Target one specific CPU.
+    pub const CpuFeatures = struct {
+        /// The CPU to target. It has a set of features
+        /// which are overridden with the `features` field.
         cpu: *const Cpu,
 
         /// Explicitly provide the entire CPU feature set.
         features: Cpu.Feature.Set,
+
+        pub fn initFromCpu(arch: Arch, cpu: *const Cpu) CpuFeatures {
+            var features = cpu.features;
+            if (arch.subArchFeature()) |sub_arch_index| {
+                features.addFeature(sub_arch_index);
+            }
+            features.populateDependencies(arch.allFeaturesList());
+            return CpuFeatures{
+                .cpu = cpu,
+                .features = features,
+            };
+        }
     };
 
     pub const current = Target{
@@ -715,14 +707,6 @@ pub const Target = union(enum) {
         return switch (self) {
             .Native => builtin.cpu_features,
             .Cross => |cross| cross.cpu_features,
-        };
-    }
-
-    pub fn cpuFeatureSet(self: Target) Cpu.Feature.Set {
-        return switch (self.getCpuFeatures()) {
-            .baseline => self.getArch().baselineFeatures(),
-            .cpu => |cpu| cpu.features,
-            .features => |features| features,
         };
     }
 
@@ -791,14 +775,18 @@ pub const Target = union(enum) {
         });
     }
 
+    /// TODO: Support CPU features here?
+    /// https://github.com/ziglang/zig/issues/4261
     pub fn parse(text: []const u8) !Target {
         var it = mem.separate(text, "-");
         const arch_name = it.next() orelse return error.MissingArchitecture;
         const os_name = it.next() orelse return error.MissingOperatingSystem;
         const abi_name = it.next();
+        const arch = try parseArchSub(arch_name);
 
         var cross = Cross{
-            .arch = try parseArchSub(arch_name),
+            .arch = arch,
+            .cpu_features = arch.getBaselineCpuFeatures(),
             .os = try parseOs(os_name),
             .abi = undefined,
         };

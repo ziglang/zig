@@ -866,7 +866,7 @@ int main(int argc, char **argv) {
                     cpu = argv[i];
                 } else if (strcmp(arg, "-target-feature") == 0) {
                     features = argv[i];
-                }else {
+                } else {
                     fprintf(stderr, "Invalid argument: %s\n", arg);
                     return print_error_usage(arg0);
                 }
@@ -984,35 +984,10 @@ int main(int argc, char **argv) {
     Buf zig_triple_buf = BUF_INIT;
     target_triple_zig(&zig_triple_buf, &target);
 
-    if (cpu && features) {
-        fprintf(stderr, "-target-cpu and -target-feature options not allowed together\n");
+    const char *stage2_triple_arg = target.is_native ? nullptr : buf_ptr(&zig_triple_buf);
+    if ((err = stage2_cpu_features_parse(&target.cpu_features, stage2_triple_arg, cpu, features))) {
+        fprintf(stderr, "unable to initialize CPU features: %s\n", err_str(err));
         return main_exit(root_progress_node, EXIT_FAILURE);
-    } else if (cpu) {
-        if ((err = stage2_cpu_features_parse_cpu(&target.cpu_features, buf_ptr(&zig_triple_buf), cpu))) {
-            fprintf(stderr, "-target-cpu error: %s\n", err_str(err));
-            return main_exit(root_progress_node, EXIT_FAILURE);
-        }
-    } else if (features) {
-        if ((err = stage2_cpu_features_parse_features(&target.cpu_features, buf_ptr(&zig_triple_buf),
-                        features)))
-        {
-            fprintf(stderr, "-target-feature error: %s\n", err_str(err));
-            return main_exit(root_progress_node, EXIT_FAILURE);
-        }
-    } else if (target.is_native) {
-        const char *cpu_name = ZigLLVMGetHostCPUName();
-        const char *cpu_features = ZigLLVMGetNativeFeatures();
-        if ((err = stage2_cpu_features_llvm(&target.cpu_features, buf_ptr(&zig_triple_buf),
-                        cpu_name, cpu_features)))
-        {
-            fprintf(stderr, "unable to determine native CPU features: %s\n", err_str(err));
-            return main_exit(root_progress_node, EXIT_FAILURE);
-        }
-    } else {
-        if ((err = stage2_cpu_features_baseline(&target.cpu_features, buf_ptr(&zig_triple_buf)))) {
-            fprintf(stderr, "unable to determine baseline CPU features: %s\n", err_str(err));
-            return main_exit(root_progress_node, EXIT_FAILURE);
-        }
     }
 
     if (output_dir != nullptr && enable_cache == CacheOptOn) {

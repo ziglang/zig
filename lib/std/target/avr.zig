@@ -2378,7 +2378,3 @@ pub const all_cpus = &[_]*const Cpu{
     &cpu.avrxmega7,
     &cpu.m3000,
 };
-
-pub const baseline_features = featureSet(&[_]Feature{
-    .avr0,
-});

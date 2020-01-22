@@ -69,11 +69,39 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
+    pub const baseline_rv32 = Cpu{
+        .name = "baseline_rv32",
+        .llvm_name = "generic-rv32",
+        .features = featureSet(&[_]Feature{
+            .a,
+            .c,
+            .d,
+            .f,
+            .m,
+            .relax,
+        }),
+    };
+
+    pub const baseline_rv64 = Cpu{
+        .name = "baseline_rv64",
+        .llvm_name = "generic-rv64",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .a,
+            .c,
+            .d,
+            .f,
+            .m,
+            .relax,
+        }),
+    };
+
     pub const generic_rv32 = Cpu{
         .name = "generic_rv32",
         .llvm_name = "generic-rv32",
         .features = featureSet(&[_]Feature{}),
     };
+
     pub const generic_rv64 = Cpu{
         .name = "generic_rv64",
         .llvm_name = "generic-rv64",
@@ -87,25 +115,8 @@ pub const cpu = struct {
 /// TODO: Replace this with usage of `std.meta.declList`. It does work, but stage1
 /// compiler has inefficient memory and CPU usage, affecting build times.
 pub const all_cpus = &[_]*const Cpu{
+    &cpu.baseline_rv32,
+    &cpu.baseline_rv64,
     &cpu.generic_rv32,
     &cpu.generic_rv64,
 };
-
-pub const baseline_32_features = featureSet(&[_]Feature{
-    .a,
-    .c,
-    .d,
-    .f,
-    .m,
-    .relax,
-});
-
-pub const baseline_64_features = featureSet(&[_]Feature{
-    .@"64bit",
-    .a,
-    .c,
-    .d,
-    .f,
-    .m,
-    .relax,
-});
