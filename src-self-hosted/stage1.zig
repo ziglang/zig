@@ -790,7 +790,11 @@ fn stage2ParseCpuFeatures(
         };
     } else cpu.features;
 
+    if (arch.subArchFeature()) |index| {
+        set.addFeature(index);
+    }
     set.populateDependencies(arch.allFeaturesList());
+
     return Stage2CpuFeatures.createFromCpuFeatures(std.heap.c_allocator, arch, .{
         .cpu = cpu,
         .features = set,

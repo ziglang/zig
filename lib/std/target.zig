@@ -181,7 +181,7 @@ pub const Target = union(enum) {
             };
         }
 
-        pub fn subArchFeature(arch: Arch) ?u8 {
+        pub fn subArchFeature(arch: Arch) ?Cpu.Feature.Set.Index {
             return switch (arch) {
                 .arm, .armeb, .thumb, .thumbeb => |arm32| switch (arm32) {
                     .v8_5a => @enumToInt(arm.Feature.armv8_5_a),
@@ -295,8 +295,6 @@ pub const Target = union(enum) {
                     return error.UnknownCpuFeature;
                 }
             }
-
-            set.populateDependencies(all_features);
             return set;
         }
 

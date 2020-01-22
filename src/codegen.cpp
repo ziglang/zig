@@ -10679,6 +10679,7 @@ CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType o
     child_gen->verbose_llvm_ir = parent_gen->verbose_llvm_ir;
     child_gen->verbose_cimport = parent_gen->verbose_cimport;
     child_gen->verbose_cc = parent_gen->verbose_cc;
+    child_gen->verbose_llvm_cpu_features = parent_gen->verbose_llvm_cpu_features;
     child_gen->llvm_argv = parent_gen->llvm_argv;
     child_gen->dynamic_linker_path = parent_gen->dynamic_linker_path;
 
