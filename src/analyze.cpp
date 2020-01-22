@@ -2569,14 +2569,7 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
         return ErrorSemanticAnalyzeFail;
     }
 
-    enum_type->data.enumeration.src_field_count = field_count;
-    enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
-    enum_type->data.enumeration.fields_by_name.init(field_count);
-
     Scope *scope = &enum_type->data.enumeration.decls_scope->base;
-
-    HashMap<BigInt, AstNode *, bigint_hash, bigint_eql> occupied_tag_values = {};
-    occupied_tag_values.init(field_count);
 
     ZigType *tag_int_type;
     if (enum_type->data.enumeration.layout == ContainerLayoutExtern) {
@@ -2612,13 +2605,14 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
                                     buf_ptr(&wanted_tag_int_type->name)));
                     add_error_note(g, msg, decl_node->data.container_decl.init_arg_expr,
                         buf_sprintf("any integral type of size 8, 16, 32, 64 or 128 bit is valid"));
-                    return ErrorNone;
+                    return ErrorSemanticAnalyzeFail;
                 }
             }
             tag_int_type = wanted_tag_int_type;
         }
     }
 
+    enum_type->data.enumeration.non_exhaustive = false;
     enum_type->data.enumeration.tag_int_type = tag_int_type;
     enum_type->size_in_bits = tag_int_type->size_in_bits;
     enum_type->abi_size = tag_int_type->abi_size;
@@ -2626,6 +2620,31 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
 
     BigInt bi_one;
     bigint_init_unsigned(&bi_one, 1);
+
+    AstNode *last_field_node = decl_node->data.container_decl.fields.at(field_count - 1);
+    if (buf_eql_str(last_field_node->data.struct_field.name, "_")) {
+        field_count -= 1;
+        if (field_count > 1 && log2_u64(field_count) == enum_type->size_in_bits) {
+            add_node_error(g, last_field_node, buf_sprintf("non-exhaustive enum specifies every value"));
+            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+        }
+        if (decl_node->data.container_decl.init_arg_expr == nullptr) {
+            add_node_error(g, last_field_node, buf_sprintf("non-exhaustive enum must specify size"));
+            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+        }
+        if (last_field_node->data.struct_field.value != nullptr) {
+            add_node_error(g, last_field_node, buf_sprintf("value assigned to '_' field of non-exhaustive enum"));
+            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
+        }
+        enum_type->data.enumeration.non_exhaustive = true;
+    }
+
+    enum_type->data.enumeration.src_field_count = field_count;
+    enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
+    enum_type->data.enumeration.fields_by_name.init(field_count);
+
+    HashMap<BigInt, AstNode *, bigint_hash, bigint_eql> occupied_tag_values = {};
+    occupied_tag_values.init(field_count);
 
     TypeEnumField *last_enum_field = nullptr;
 
@@ -2646,6 +2665,11 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
                 buf_sprintf("structs and unions, not enums, support field alignment"));
             add_error_note(g, msg, decl_node,
                     buf_sprintf("consider 'union(enum)' here"));
+        }
+
+        if (buf_eql_str(type_enum_field->name, "_")) {
+            add_node_error(g, field_node, buf_sprintf("'_' field of non-exhaustive enum must be last"));
+            enum_type->data.enumeration.resolve_status = ResolveStatusInvalid;
         }
 
         auto field_entry = enum_type->data.enumeration.fields_by_name.put_unique(type_enum_field->name, type_enum_field);
@@ -8288,7 +8312,7 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatu
 
     uint32_t field_count = enum_type->data.enumeration.src_field_count;
 
-    assert(enum_type->data.enumeration.fields);
+    assert(field_count == 0 || enum_type->data.enumeration.fields != nullptr);
     ZigLLVMDIEnumerator **di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
 
     for (uint32_t i = 0; i < field_count; i += 1) {

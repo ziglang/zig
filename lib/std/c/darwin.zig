@@ -70,47 +70,52 @@ pub const AI_NUMERICHOST = 0x00000004;
 /// prevent service name resolution
 pub const AI_NUMERICSERV = 0x00001000;
 
-///  address family for hostname not supported
-pub const EAI_ADDRFAMILY = 1;
+pub const EAI = extern enum(c_int) {
+    /// address family for hostname not supported
+    ADDRFAMILY = 1,
 
-/// temporary failure in name resolution
-pub const EAI_AGAIN = 2;
+    /// temporary failure in name resolution
+    AGAIN = 2,
 
-/// invalid value for ai_flags
-pub const EAI_BADFLAGS = 3;
+    /// invalid value for ai_flags
+    BADFLAGS = 3,
 
-/// non-recoverable failure in name resolution
-pub const EAI_FAIL = 4;
+    /// non-recoverable failure in name resolution
+    FAIL = 4,
 
-/// ai_family not supported
-pub const EAI_FAMILY = 5;
+    /// ai_family not supported
+    FAMILY = 5,
 
-/// memory allocation failure
-pub const EAI_MEMORY = 6;
+    /// memory allocation failure
+    MEMORY = 6,
 
-/// no address associated with hostname
-pub const EAI_NODATA = 7;
+    /// no address associated with hostname
+    NODATA = 7,
 
-/// hostname nor servname provided, or not known
-pub const EAI_NONAME = 8;
+    /// hostname nor servname provided, or not known
+    NONAME = 8,
 
-/// servname not supported for ai_socktype
-pub const EAI_SERVICE = 9;
+    /// servname not supported for ai_socktype
+    SERVICE = 9,
 
-/// ai_socktype not supported
-pub const EAI_SOCKTYPE = 10;
+    /// ai_socktype not supported
+    SOCKTYPE = 10,
 
-/// system error returned in errno
-pub const EAI_SYSTEM = 11;
+    /// system error returned in errno
+    SYSTEM = 11,
 
-/// invalid value for hints
-pub const EAI_BADHINTS = 12;
+    /// invalid value for hints
+    BADHINTS = 12,
 
-/// resolved protocol is unknown
-pub const EAI_PROTOCOL = 13;
+    /// resolved protocol is unknown
+    PROTOCOL = 13,
 
-/// argument buffer overflow
-pub const EAI_OVERFLOW = 14;
+    /// argument buffer overflow
+    OVERFLOW = 14,
+
+    _,
+};
+
 pub const EAI_MAX = 15;
 
 pub const pthread_mutex_t = extern struct {

@@ -358,6 +358,8 @@ struct LazyValueSizeOf {
 
     IrAnalyze *ira;
     IrInstruction *target_type;
+
+    bool bit_size;
 };
 
 struct LazyValueSliceType {
@@ -1383,6 +1385,7 @@ struct ZigTypeEnum {
     ContainerLayout layout;
     ResolveStatus resolve_status;
 
+    bool non_exhaustive;
     bool resolve_loop_flag;
 };
 
@@ -1754,6 +1757,7 @@ enum BuiltinFnId {
     BuiltinFnIdFrameSize,
     BuiltinFnIdAs,
     BuiltinFnIdCall,
+    BuiltinFnIdBitSizeof,
 };
 
 struct BuiltinFnEntry {
@@ -3146,6 +3150,7 @@ struct IrInstructionAsmGen {
 struct IrInstructionSizeOf {
     IrInstruction base;
 
+    bool bit_size;
     IrInstruction *type_value;
 };
 
@@ -3665,6 +3670,7 @@ struct IrInstructionCheckSwitchProngs {
     IrInstructionCheckSwitchProngsRange *ranges;
     size_t range_count;
     bool have_else_prong;
+    bool have_underscore_prong;
 };
 
 struct IrInstructionCheckStatementIsVoid {

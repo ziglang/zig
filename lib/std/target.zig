@@ -125,6 +125,16 @@ pub const Target = union(enum) {
             v5,
             v5te,
             v4t,
+
+            pub fn version(version: Arm32) comptime_int {
+                return switch (version) {
+                    .v8_5a, .v8_4a, .v8_3a, .v8_2a, .v8_1a, .v8, .v8r, .v8m_baseline, .v8m_mainline, .v8_1m_mainline => 8,
+                    .v7, .v7em, .v7m, .v7s, .v7k, .v7ve => 7,
+                    .v6, .v6m, .v6k, .v6t2 => 6,
+                    .v5, .v5te => 5,
+                    .v4t => 4,
+                };
+            }
         };
         pub const Arm64 = enum {
             v8_5a,
@@ -145,6 +155,34 @@ pub const Target = union(enum) {
         pub const Mips = enum {
             r6,
         };
+
+        pub fn isARM(arch: Arch) bool {
+            return switch (arch) {
+                .arm, .armeb => true,
+                else => false,
+            };
+        }
+
+        pub fn isThumb(arch: Arch) bool {
+            return switch (arch) {
+                .thumb, .thumbeb => true,
+                else => false,
+            };
+        }
+
+        pub fn isWasm(arch: Arch) bool {
+            return switch (arch) {
+                .wasm32, .wasm64 => true,
+                else => false,
+            };
+        }
+
+        pub fn isMIPS(arch: Arch) bool {
+            return switch (arch) {
+                .mips, .mipsel, .mips64, .mips64el => true,
+                else => false,
+            };
+        }
 
         pub fn toElfMachine(arch: Arch) std.elf.EM {
             return switch (arch) {

@@ -6,7 +6,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
 
-const comparedf2 = @import("comparedf2.zig");
+const comparedf2 = @import("compareXf2.zig");
 
 const TestVector = struct {
     a: f64,

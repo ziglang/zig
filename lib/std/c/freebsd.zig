@@ -23,47 +23,51 @@ pub const pthread_attr_t = extern struct {
     __align: c_long,
 };
 
-/// address family for hostname not supported
-pub const EAI_ADDRFAMILY = 1;
+pub const EAI = extern enum(c_int) {
+    /// address family for hostname not supported
+    ADDRFAMILY = 1,
 
-/// name could not be resolved at this time
-pub const EAI_AGAIN = 2;
+    /// name could not be resolved at this time
+    AGAIN = 2,
 
-/// flags parameter had an invalid value
-pub const EAI_BADFLAGS = 3;
+    /// flags parameter had an invalid value
+    BADFLAGS = 3,
 
-/// non-recoverable failure in name resolution
-pub const EAI_FAIL = 4;
+    /// non-recoverable failure in name resolution
+    FAIL = 4,
 
-/// address family not recognized
-pub const EAI_FAMILY = 5;
+    /// address family not recognized
+    FAMILY = 5,
 
-/// memory allocation failure
-pub const EAI_MEMORY = 6;
+    /// memory allocation failure
+    MEMORY = 6,
 
-/// no address associated with hostname
-pub const EAI_NODATA = 7;
+    /// no address associated with hostname
+    NODATA = 7,
 
-/// name does not resolve
-pub const EAI_NONAME = 8;
+    /// name does not resolve
+    NONAME = 8,
 
-/// service not recognized for socket type
-pub const EAI_SERVICE = 9;
+    /// service not recognized for socket type
+    SERVICE = 9,
 
-/// intended socket type was not recognized
-pub const EAI_SOCKTYPE = 10;
+    /// intended socket type was not recognized
+    SOCKTYPE = 10,
 
-/// system error returned in errno
-pub const EAI_SYSTEM = 11;
+    /// system error returned in errno
+    SYSTEM = 11,
 
-/// invalid value for hints
-pub const EAI_BADHINTS = 12;
+    /// invalid value for hints
+    BADHINTS = 12,
 
-/// resolved protocol is unknown
-pub const EAI_PROTOCOL = 13;
+    /// resolved protocol is unknown
+    PROTOCOL = 13,
 
-/// argument buffer overflow
-pub const EAI_OVERFLOW = 14;
+    /// argument buffer overflow
+    OVERFLOW = 14,
+
+    _,
+};
 
 pub const EAI_MAX = 15;
 
