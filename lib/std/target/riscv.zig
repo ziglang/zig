@@ -16,66 +16,56 @@ pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
-    std.debug.assert(len <= Cpu.Feature.Set.bit_count);
+    std.debug.assert(len <= Cpu.Feature.Set.needed_bit_count);
     var result: [len]Cpu.Feature = undefined;
     result[@enumToInt(Feature.@"64bit")] = .{
-        .index = @enumToInt(Feature.@"64bit"),
-        .name = @tagName(Feature.@"64bit"),
         .llvm_name = "64bit",
         .description = "Implements RV64",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.a)] = .{
-        .index = @enumToInt(Feature.a),
-        .name = @tagName(Feature.a),
         .llvm_name = "a",
         .description = "'A' (Atomic Instructions)",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.c)] = .{
-        .index = @enumToInt(Feature.c),
-        .name = @tagName(Feature.c),
         .llvm_name = "c",
         .description = "'C' (Compressed Instructions)",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.d)] = .{
-        .index = @enumToInt(Feature.d),
-        .name = @tagName(Feature.d),
         .llvm_name = "d",
         .description = "'D' (Double-Precision Floating-Point)",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .f,
         }),
     };
     result[@enumToInt(Feature.e)] = .{
-        .index = @enumToInt(Feature.e),
-        .name = @tagName(Feature.e),
         .llvm_name = "e",
         .description = "Implements RV32E (provides 16 rather than 32 GPRs)",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.f)] = .{
-        .index = @enumToInt(Feature.f),
-        .name = @tagName(Feature.f),
         .llvm_name = "f",
         .description = "'F' (Single-Precision Floating-Point)",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.m)] = .{
-        .index = @enumToInt(Feature.m),
-        .name = @tagName(Feature.m),
         .llvm_name = "m",
         .description = "'M' (Integer Multiplication and Division)",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.relax)] = .{
-        .index = @enumToInt(Feature.relax),
-        .name = @tagName(Feature.relax),
         .llvm_name = "relax",
         .description = "Enable Linker relaxation.",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
+    const ti = @typeInfo(Feature);
+    for (result) |*elem, i| {
+        elem.index = i;
+        elem.name = ti.Enum.fields[i].name;
+        elem.dependencies.initAsDependencies(i, &result);
+    }
     break :blk result;
 };
 
@@ -83,12 +73,12 @@ pub const cpu = struct {
     pub const generic_rv32 = Cpu{
         .name = "generic_rv32",
         .llvm_name = "generic-rv32",
-        .features = featureSet(&[_]Feature{}),
+        .features = featureSet(&all_features, &[_]Feature{}),
     };
     pub const generic_rv64 = Cpu{
         .name = "generic_rv64",
         .llvm_name = "generic-rv64",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .@"64bit",
         }),
     };
@@ -102,7 +92,7 @@ pub const all_cpus = &[_]*const Cpu{
     &cpu.generic_rv64,
 };
 
-pub const baseline_32_features = featureSet(&[_]Feature{
+pub const baseline_32_features = featureSet(&all_features, &[_]Feature{
     .a,
     .c,
     .d,
@@ -111,7 +101,7 @@ pub const baseline_32_features = featureSet(&[_]Feature{
     .relax,
 });
 
-pub const baseline_64_features = featureSet(&[_]Feature{
+pub const baseline_64_features = featureSet(&all_features, &[_]Feature{
     .@"64bit",
     .a,
     .c,

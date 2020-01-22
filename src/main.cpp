@@ -93,6 +93,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --verbose-llvm-ir            enable compiler debug output for LLVM IR\n"
         "  --verbose-cimport            enable compiler debug output for C imports\n"
         "  --verbose-cc                 enable compiler debug output for C compilation\n"
+        "  --verbose-llvm-cpu-features  enable compiler debug output for LLVM CPU features\n"
         "  -dirafter [dir]              add directory to AFTER include search path\n"
         "  -isystem [dir]               add directory to SYSTEM include search path\n"
         "  -I[dir]                      add directory to include search path\n"
@@ -398,6 +399,7 @@ int main(int argc, char **argv) {
     bool verbose_llvm_ir = false;
     bool verbose_cimport = false;
     bool verbose_cc = false;
+    bool verbose_llvm_cpu_features = false;
     bool link_eh_frame_hdr = false;
     ErrColor color = ErrColorAuto;
     CacheOpt enable_cache = CacheOptAuto;
@@ -614,6 +616,8 @@ int main(int argc, char **argv) {
                 verbose_cimport = true;
             } else if (strcmp(arg, "--verbose-cc") == 0) {
                 verbose_cc = true;
+            } else if (strcmp(arg, "--verbose-llvm-cpu-features") == 0) {
+                verbose_llvm_cpu_features = true;
             } else if (strcmp(arg, "-rdynamic") == 0) {
                 rdynamic = true;
             } else if (strcmp(arg, "--each-lib-rpath") == 0) {
@@ -1184,6 +1188,7 @@ int main(int argc, char **argv) {
             g->verbose_llvm_ir = verbose_llvm_ir;
             g->verbose_cimport = verbose_cimport;
             g->verbose_cc = verbose_cc;
+            g->verbose_llvm_cpu_features = verbose_llvm_cpu_features;
             g->output_dir = output_dir;
             g->disable_gen_h = disable_gen_h;
             g->bundle_compiler_rt = bundle_compiler_rt;

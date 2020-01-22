@@ -1983,7 +1983,7 @@ pub const LibExeObjStep = struct {
 
                         var feature_str_buffer = try std.Buffer.initSize(builder.allocator, 0);
                         for (self.target.getArch().allFeaturesList()) |feature, i| {
-                            if (features.isEnabled(@intCast(u8, i))) {
+                            if (features.isEnabled(@intCast(Target.Cpu.Feature.Set.Index, i))) {
                                 try feature_str_buffer.append(feature.name);
                                 try feature_str_buffer.append(",");
                             }

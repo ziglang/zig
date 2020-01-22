@@ -153,15 +153,14 @@ pub const Feature = enum {
 pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
+    @setEvalBranchQuota(10000);
     const len = @typeInfo(Feature).Enum.fields.len;
-    std.debug.assert(len <= Cpu.Feature.Set.bit_count);
+    std.debug.assert(len <= Cpu.Feature.Set.needed_bit_count);
     var result: [len]Cpu.Feature = undefined;
     result[@enumToInt(Feature.a35)] = .{
-        .index = @enumToInt(Feature.a35),
-        .name = @tagName(Feature.a35),
         .llvm_name = "a35",
         .description = "Cortex-A35 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .crc,
             .crypto,
             .fp_armv8,
@@ -170,11 +169,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.a53)] = .{
-        .index = @enumToInt(Feature.a53),
-        .name = @tagName(Feature.a53),
         .llvm_name = "a53",
         .description = "Cortex-A53 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .balance_fp_ops,
             .crc,
             .crypto,
@@ -188,11 +185,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.a55)] = .{
-        .index = @enumToInt(Feature.a55),
-        .name = @tagName(Feature.a55),
         .llvm_name = "a55",
         .description = "Cortex-A55 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .crypto,
             .dotprod,
             .fp_armv8,
@@ -205,11 +200,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.a57)] = .{
-        .index = @enumToInt(Feature.a57),
-        .name = @tagName(Feature.a57),
         .llvm_name = "a57",
         .description = "Cortex-A57 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .balance_fp_ops,
             .crc,
             .crypto,
@@ -224,11 +217,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.a72)] = .{
-        .index = @enumToInt(Feature.a72),
-        .name = @tagName(Feature.a72),
         .llvm_name = "a72",
         .description = "Cortex-A72 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .crc,
             .crypto,
             .fp_armv8,
@@ -238,11 +229,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.a73)] = .{
-        .index = @enumToInt(Feature.a73),
-        .name = @tagName(Feature.a73),
         .llvm_name = "a73",
         .description = "Cortex-A73 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .crc,
             .crypto,
             .fp_armv8,
@@ -252,11 +241,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.a75)] = .{
-        .index = @enumToInt(Feature.a75),
-        .name = @tagName(Feature.a75),
         .llvm_name = "a75",
         .description = "Cortex-A75 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .crypto,
             .dotprod,
             .fp_armv8,
@@ -269,11 +256,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.a76)] = .{
-        .index = @enumToInt(Feature.a76),
-        .name = @tagName(Feature.a76),
         .llvm_name = "a76",
         .description = "Cortex-A76 ARM processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .crypto,
             .dotprod,
             .fp_armv8,
@@ -285,194 +270,142 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.aes)] = .{
-        .index = @enumToInt(Feature.aes),
-        .name = @tagName(Feature.aes),
         .llvm_name = "aes",
         .description = "Enable AES support",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .neon,
         }),
     };
     result[@enumToInt(Feature.aggressive_fma)] = .{
-        .index = @enumToInt(Feature.aggressive_fma),
-        .name = @tagName(Feature.aggressive_fma),
         .llvm_name = "aggressive-fma",
         .description = "Enable Aggressive FMA for floating-point.",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.alternate_sextload_cvt_f32_pattern)] = .{
-        .index = @enumToInt(Feature.alternate_sextload_cvt_f32_pattern),
-        .name = @tagName(Feature.alternate_sextload_cvt_f32_pattern),
         .llvm_name = "alternate-sextload-cvt-f32-pattern",
         .description = "Use alternative pattern for sextload convert to f32",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.altnzcv)] = .{
-        .index = @enumToInt(Feature.altnzcv),
-        .name = @tagName(Feature.altnzcv),
         .llvm_name = "altnzcv",
         .description = "Enable alternative NZCV format for floating point comparisons",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.am)] = .{
-        .index = @enumToInt(Feature.am),
-        .name = @tagName(Feature.am),
         .llvm_name = "am",
         .description = "Enable v8.4-A Activity Monitors extension",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.arith_bcc_fusion)] = .{
-        .index = @enumToInt(Feature.arith_bcc_fusion),
-        .name = @tagName(Feature.arith_bcc_fusion),
         .llvm_name = "arith-bcc-fusion",
         .description = "CPU fuses arithmetic+bcc operations",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.arith_cbz_fusion)] = .{
-        .index = @enumToInt(Feature.arith_cbz_fusion),
-        .name = @tagName(Feature.arith_cbz_fusion),
         .llvm_name = "arith-cbz-fusion",
         .description = "CPU fuses arithmetic + cbz/cbnz operations",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.balance_fp_ops)] = .{
-        .index = @enumToInt(Feature.balance_fp_ops),
-        .name = @tagName(Feature.balance_fp_ops),
         .llvm_name = "balance-fp-ops",
         .description = "balance mix of odd and even D-registers for fp multiply(-accumulate) ops",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.bti)] = .{
-        .index = @enumToInt(Feature.bti),
-        .name = @tagName(Feature.bti),
         .llvm_name = "bti",
         .description = "Enable Branch Target Identification",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.call_saved_x10)] = .{
-        .index = @enumToInt(Feature.call_saved_x10),
-        .name = @tagName(Feature.call_saved_x10),
         .llvm_name = "call-saved-x10",
         .description = "Make X10 callee saved.",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.call_saved_x11)] = .{
-        .index = @enumToInt(Feature.call_saved_x11),
-        .name = @tagName(Feature.call_saved_x11),
         .llvm_name = "call-saved-x11",
         .description = "Make X11 callee saved.",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.call_saved_x12)] = .{
-        .index = @enumToInt(Feature.call_saved_x12),
-        .name = @tagName(Feature.call_saved_x12),
         .llvm_name = "call-saved-x12",
         .description = "Make X12 callee saved.",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.call_saved_x13)] = .{
-        .index = @enumToInt(Feature.call_saved_x13),
-        .name = @tagName(Feature.call_saved_x13),
         .llvm_name = "call-saved-x13",
         .description = "Make X13 callee saved.",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.call_saved_x14)] = .{
-        .index = @enumToInt(Feature.call_saved_x14),
-        .name = @tagName(Feature.call_saved_x14),
         .llvm_name = "call-saved-x14",
         .description = "Make X14 callee saved.",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.call_saved_x15)] = .{
-        .index = @enumToInt(Feature.call_saved_x15),
-        .name = @tagName(Feature.call_saved_x15),
         .llvm_name = "call-saved-x15",
         .description = "Make X15 callee saved.",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.call_saved_x18)] = .{
-        .index = @enumToInt(Feature.call_saved_x18),
-        .name = @tagName(Feature.call_saved_x18),
         .llvm_name = "call-saved-x18",
         .description = "Make X18 callee saved.",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.call_saved_x8)] = .{
-        .index = @enumToInt(Feature.call_saved_x8),
-        .name = @tagName(Feature.call_saved_x8),
         .llvm_name = "call-saved-x8",
         .description = "Make X8 callee saved.",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.call_saved_x9)] = .{
-        .index = @enumToInt(Feature.call_saved_x9),
-        .name = @tagName(Feature.call_saved_x9),
         .llvm_name = "call-saved-x9",
         .description = "Make X9 callee saved.",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ccdp)] = .{
-        .index = @enumToInt(Feature.ccdp),
-        .name = @tagName(Feature.ccdp),
         .llvm_name = "ccdp",
         .description = "Enable v8.5 Cache Clean to Point of Deep Persistence",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ccidx)] = .{
-        .index = @enumToInt(Feature.ccidx),
-        .name = @tagName(Feature.ccidx),
         .llvm_name = "ccidx",
         .description = "Enable v8.3-A Extend of the CCSIDR number of sets",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ccpp)] = .{
-        .index = @enumToInt(Feature.ccpp),
-        .name = @tagName(Feature.ccpp),
         .llvm_name = "ccpp",
         .description = "Enable v8.2 data Cache Clean to Point of Persistence",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.complxnum)] = .{
-        .index = @enumToInt(Feature.complxnum),
-        .name = @tagName(Feature.complxnum),
         .llvm_name = "complxnum",
         .description = "Enable v8.3-A Floating-point complex number support",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .neon,
         }),
     };
     result[@enumToInt(Feature.crc)] = .{
-        .index = @enumToInt(Feature.crc),
-        .name = @tagName(Feature.crc),
         .llvm_name = "crc",
         .description = "Enable ARMv8 CRC-32 checksum instructions",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.crypto)] = .{
-        .index = @enumToInt(Feature.crypto),
-        .name = @tagName(Feature.crypto),
         .llvm_name = "crypto",
         .description = "Enable cryptographic instructions",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .aes,
             .neon,
             .sha2,
         }),
     };
     result[@enumToInt(Feature.custom_cheap_as_move)] = .{
-        .index = @enumToInt(Feature.custom_cheap_as_move),
-        .name = @tagName(Feature.custom_cheap_as_move),
         .llvm_name = "custom-cheap-as-move",
         .description = "Use custom handling of cheap instructions",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.cyclone)] = .{
-        .index = @enumToInt(Feature.cyclone),
-        .name = @tagName(Feature.cyclone),
         .llvm_name = "cyclone",
         .description = "Cyclone",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .alternate_sextload_cvt_f32_pattern,
             .arith_bcc_fusion,
             .arith_cbz_fusion,
@@ -489,41 +422,31 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.disable_latency_sched_heuristic)] = .{
-        .index = @enumToInt(Feature.disable_latency_sched_heuristic),
-        .name = @tagName(Feature.disable_latency_sched_heuristic),
         .llvm_name = "disable-latency-sched-heuristic",
         .description = "Disable latency scheduling heuristic",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.dit)] = .{
-        .index = @enumToInt(Feature.dit),
-        .name = @tagName(Feature.dit),
         .llvm_name = "dit",
         .description = "Enable v8.4-A Data Independent Timing instructions",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.dotprod)] = .{
-        .index = @enumToInt(Feature.dotprod),
-        .name = @tagName(Feature.dotprod),
         .llvm_name = "dotprod",
         .description = "Enable dot product support",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.exynos_cheap_as_move)] = .{
-        .index = @enumToInt(Feature.exynos_cheap_as_move),
-        .name = @tagName(Feature.exynos_cheap_as_move),
         .llvm_name = "exynos-cheap-as-move",
         .description = "Use Exynos specific handling of cheap instructions",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .custom_cheap_as_move,
         }),
     };
     result[@enumToInt(Feature.exynosm1)] = .{
-        .index = @enumToInt(Feature.exynosm1),
-        .name = @tagName(Feature.exynosm1),
         .llvm_name = "exynosm1",
         .description = "Samsung Exynos-M1 processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .crc,
             .crypto,
             .exynos_cheap_as_move,
@@ -538,11 +461,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.exynosm2)] = .{
-        .index = @enumToInt(Feature.exynosm2),
-        .name = @tagName(Feature.exynosm2),
         .llvm_name = "exynosm2",
         .description = "Samsung Exynos-M2 processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .crc,
             .crypto,
             .exynos_cheap_as_move,
@@ -556,11 +477,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.exynosm3)] = .{
-        .index = @enumToInt(Feature.exynosm3),
-        .name = @tagName(Feature.exynosm3),
         .llvm_name = "exynosm3",
         .description = "Samsung Exynos-M3 processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .crc,
             .crypto,
             .exynos_cheap_as_move,
@@ -577,11 +496,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.exynosm4)] = .{
-        .index = @enumToInt(Feature.exynosm4),
-        .name = @tagName(Feature.exynosm4),
         .llvm_name = "exynosm4",
         .description = "Samsung Exynos-M4 processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .arith_bcc_fusion,
             .arith_cbz_fusion,
             .crypto,
@@ -602,11 +519,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.falkor)] = .{
-        .index = @enumToInt(Feature.falkor),
-        .name = @tagName(Feature.falkor),
         .llvm_name = "falkor",
         .description = "Qualcomm Falkor processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .crc,
             .crypto,
             .custom_cheap_as_move,
@@ -622,108 +537,80 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.fmi)] = .{
-        .index = @enumToInt(Feature.fmi),
-        .name = @tagName(Feature.fmi),
         .llvm_name = "fmi",
         .description = "Enable v8.4-A Flag Manipulation Instructions",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.force_32bit_jump_tables)] = .{
-        .index = @enumToInt(Feature.force_32bit_jump_tables),
-        .name = @tagName(Feature.force_32bit_jump_tables),
         .llvm_name = "force-32bit-jump-tables",
         .description = "Force jump table entries to be 32-bits wide except at MinSize",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fp_armv8)] = .{
-        .index = @enumToInt(Feature.fp_armv8),
-        .name = @tagName(Feature.fp_armv8),
         .llvm_name = "fp-armv8",
         .description = "Enable ARMv8 FP",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fp16fml)] = .{
-        .index = @enumToInt(Feature.fp16fml),
-        .name = @tagName(Feature.fp16fml),
         .llvm_name = "fp16fml",
         .description = "Enable FP16 FML instructions",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .fullfp16,
         }),
     };
     result[@enumToInt(Feature.fptoint)] = .{
-        .index = @enumToInt(Feature.fptoint),
-        .name = @tagName(Feature.fptoint),
         .llvm_name = "fptoint",
         .description = "Enable FRInt[32|64][Z|X] instructions that round a floating-point number to an integer (in FP format) forcing it to fit into a 32- or 64-bit int",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fullfp16)] = .{
-        .index = @enumToInt(Feature.fullfp16),
-        .name = @tagName(Feature.fullfp16),
         .llvm_name = "fullfp16",
         .description = "Full FP16",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .fp_armv8,
         }),
     };
     result[@enumToInt(Feature.fuse_address)] = .{
-        .index = @enumToInt(Feature.fuse_address),
-        .name = @tagName(Feature.fuse_address),
         .llvm_name = "fuse-address",
         .description = "CPU fuses address generation and memory operations",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fuse_aes)] = .{
-        .index = @enumToInt(Feature.fuse_aes),
-        .name = @tagName(Feature.fuse_aes),
         .llvm_name = "fuse-aes",
         .description = "CPU fuses AES crypto operations",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fuse_arith_logic)] = .{
-        .index = @enumToInt(Feature.fuse_arith_logic),
-        .name = @tagName(Feature.fuse_arith_logic),
         .llvm_name = "fuse-arith-logic",
         .description = "CPU fuses arithmetic and logic operations",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fuse_crypto_eor)] = .{
-        .index = @enumToInt(Feature.fuse_crypto_eor),
-        .name = @tagName(Feature.fuse_crypto_eor),
         .llvm_name = "fuse-crypto-eor",
         .description = "CPU fuses AES/PMULL and EOR operations",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fuse_csel)] = .{
-        .index = @enumToInt(Feature.fuse_csel),
-        .name = @tagName(Feature.fuse_csel),
         .llvm_name = "fuse-csel",
         .description = "CPU fuses conditional select operations",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fuse_literals)] = .{
-        .index = @enumToInt(Feature.fuse_literals),
-        .name = @tagName(Feature.fuse_literals),
         .llvm_name = "fuse-literals",
         .description = "CPU fuses literal generation operations",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.jsconv)] = .{
-        .index = @enumToInt(Feature.jsconv),
-        .name = @tagName(Feature.jsconv),
         .llvm_name = "jsconv",
         .description = "Enable v8.3-A JavaScript FP conversion enchancement",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .fp_armv8,
         }),
     };
     result[@enumToInt(Feature.kryo)] = .{
-        .index = @enumToInt(Feature.kryo),
-        .name = @tagName(Feature.kryo),
         .llvm_name = "kryo",
         .description = "Qualcomm Kryo processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .crc,
             .crypto,
             .custom_cheap_as_move,
@@ -737,327 +624,237 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.lor)] = .{
-        .index = @enumToInt(Feature.lor),
-        .name = @tagName(Feature.lor),
         .llvm_name = "lor",
         .description = "Enables ARM v8.1 Limited Ordering Regions extension",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.lse)] = .{
-        .index = @enumToInt(Feature.lse),
-        .name = @tagName(Feature.lse),
         .llvm_name = "lse",
         .description = "Enable ARMv8.1 Large System Extension (LSE) atomic instructions",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.lsl_fast)] = .{
-        .index = @enumToInt(Feature.lsl_fast),
-        .name = @tagName(Feature.lsl_fast),
         .llvm_name = "lsl-fast",
         .description = "CPU has a fastpath logical shift of up to 3 places",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mpam)] = .{
-        .index = @enumToInt(Feature.mpam),
-        .name = @tagName(Feature.mpam),
         .llvm_name = "mpam",
         .description = "Enable v8.4-A Memory system Partitioning and Monitoring extension",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mte)] = .{
-        .index = @enumToInt(Feature.mte),
-        .name = @tagName(Feature.mte),
         .llvm_name = "mte",
         .description = "Enable Memory Tagging Extension",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.neon)] = .{
-        .index = @enumToInt(Feature.neon),
-        .name = @tagName(Feature.neon),
         .llvm_name = "neon",
         .description = "Enable Advanced SIMD instructions",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .fp_armv8,
         }),
     };
     result[@enumToInt(Feature.no_neg_immediates)] = .{
-        .index = @enumToInt(Feature.no_neg_immediates),
-        .name = @tagName(Feature.no_neg_immediates),
         .llvm_name = "no-neg-immediates",
         .description = "Convert immediates and instructions to their negated or complemented equivalent when the immediate does not fit in the encoding.",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.nv)] = .{
-        .index = @enumToInt(Feature.nv),
-        .name = @tagName(Feature.nv),
         .llvm_name = "nv",
         .description = "Enable v8.4-A Nested Virtualization Enchancement",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.pa)] = .{
-        .index = @enumToInt(Feature.pa),
-        .name = @tagName(Feature.pa),
         .llvm_name = "pa",
         .description = "Enable v8.3-A Pointer Authentication enchancement",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.pan)] = .{
-        .index = @enumToInt(Feature.pan),
-        .name = @tagName(Feature.pan),
         .llvm_name = "pan",
         .description = "Enables ARM v8.1 Privileged Access-Never extension",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.pan_rwv)] = .{
-        .index = @enumToInt(Feature.pan_rwv),
-        .name = @tagName(Feature.pan_rwv),
         .llvm_name = "pan-rwv",
         .description = "Enable v8.2 PAN s1e1R and s1e1W Variants",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .pan,
         }),
     };
     result[@enumToInt(Feature.perfmon)] = .{
-        .index = @enumToInt(Feature.perfmon),
-        .name = @tagName(Feature.perfmon),
         .llvm_name = "perfmon",
         .description = "Enable ARMv8 PMUv3 Performance Monitors extension",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.predictable_select_expensive)] = .{
-        .index = @enumToInt(Feature.predictable_select_expensive),
-        .name = @tagName(Feature.predictable_select_expensive),
         .llvm_name = "predictable-select-expensive",
         .description = "Prefer likely predicted branches over selects",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.predres)] = .{
-        .index = @enumToInt(Feature.predres),
-        .name = @tagName(Feature.predres),
         .llvm_name = "predres",
         .description = "Enable v8.5a execution and data prediction invalidation instructions",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.rand)] = .{
-        .index = @enumToInt(Feature.rand),
-        .name = @tagName(Feature.rand),
         .llvm_name = "rand",
         .description = "Enable Random Number generation instructions",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ras)] = .{
-        .index = @enumToInt(Feature.ras),
-        .name = @tagName(Feature.ras),
         .llvm_name = "ras",
         .description = "Enable ARMv8 Reliability, Availability and Serviceability Extensions",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.rasv8_4)] = .{
-        .index = @enumToInt(Feature.rasv8_4),
-        .name = @tagName(Feature.rasv8_4),
         .llvm_name = "rasv8_4",
         .description = "Enable v8.4-A Reliability, Availability and Serviceability extension",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .ras,
         }),
     };
     result[@enumToInt(Feature.rcpc)] = .{
-        .index = @enumToInt(Feature.rcpc),
-        .name = @tagName(Feature.rcpc),
         .llvm_name = "rcpc",
         .description = "Enable support for RCPC extension",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.rcpc_immo)] = .{
-        .index = @enumToInt(Feature.rcpc_immo),
-        .name = @tagName(Feature.rcpc_immo),
         .llvm_name = "rcpc-immo",
         .description = "Enable v8.4-A RCPC instructions with Immediate Offsets",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .rcpc,
         }),
     };
     result[@enumToInt(Feature.rdm)] = .{
-        .index = @enumToInt(Feature.rdm),
-        .name = @tagName(Feature.rdm),
         .llvm_name = "rdm",
         .description = "Enable ARMv8.1 Rounding Double Multiply Add/Subtract instructions",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x1)] = .{
-        .index = @enumToInt(Feature.reserve_x1),
-        .name = @tagName(Feature.reserve_x1),
         .llvm_name = "reserve-x1",
         .description = "Reserve X1, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x10)] = .{
-        .index = @enumToInt(Feature.reserve_x10),
-        .name = @tagName(Feature.reserve_x10),
         .llvm_name = "reserve-x10",
         .description = "Reserve X10, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x11)] = .{
-        .index = @enumToInt(Feature.reserve_x11),
-        .name = @tagName(Feature.reserve_x11),
         .llvm_name = "reserve-x11",
         .description = "Reserve X11, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x12)] = .{
-        .index = @enumToInt(Feature.reserve_x12),
-        .name = @tagName(Feature.reserve_x12),
         .llvm_name = "reserve-x12",
         .description = "Reserve X12, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x13)] = .{
-        .index = @enumToInt(Feature.reserve_x13),
-        .name = @tagName(Feature.reserve_x13),
         .llvm_name = "reserve-x13",
         .description = "Reserve X13, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x14)] = .{
-        .index = @enumToInt(Feature.reserve_x14),
-        .name = @tagName(Feature.reserve_x14),
         .llvm_name = "reserve-x14",
         .description = "Reserve X14, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x15)] = .{
-        .index = @enumToInt(Feature.reserve_x15),
-        .name = @tagName(Feature.reserve_x15),
         .llvm_name = "reserve-x15",
         .description = "Reserve X15, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x18)] = .{
-        .index = @enumToInt(Feature.reserve_x18),
-        .name = @tagName(Feature.reserve_x18),
         .llvm_name = "reserve-x18",
         .description = "Reserve X18, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x2)] = .{
-        .index = @enumToInt(Feature.reserve_x2),
-        .name = @tagName(Feature.reserve_x2),
         .llvm_name = "reserve-x2",
         .description = "Reserve X2, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x20)] = .{
-        .index = @enumToInt(Feature.reserve_x20),
-        .name = @tagName(Feature.reserve_x20),
         .llvm_name = "reserve-x20",
         .description = "Reserve X20, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x21)] = .{
-        .index = @enumToInt(Feature.reserve_x21),
-        .name = @tagName(Feature.reserve_x21),
         .llvm_name = "reserve-x21",
         .description = "Reserve X21, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x22)] = .{
-        .index = @enumToInt(Feature.reserve_x22),
-        .name = @tagName(Feature.reserve_x22),
         .llvm_name = "reserve-x22",
         .description = "Reserve X22, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x23)] = .{
-        .index = @enumToInt(Feature.reserve_x23),
-        .name = @tagName(Feature.reserve_x23),
         .llvm_name = "reserve-x23",
         .description = "Reserve X23, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x24)] = .{
-        .index = @enumToInt(Feature.reserve_x24),
-        .name = @tagName(Feature.reserve_x24),
         .llvm_name = "reserve-x24",
         .description = "Reserve X24, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x25)] = .{
-        .index = @enumToInt(Feature.reserve_x25),
-        .name = @tagName(Feature.reserve_x25),
         .llvm_name = "reserve-x25",
         .description = "Reserve X25, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x26)] = .{
-        .index = @enumToInt(Feature.reserve_x26),
-        .name = @tagName(Feature.reserve_x26),
         .llvm_name = "reserve-x26",
         .description = "Reserve X26, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x27)] = .{
-        .index = @enumToInt(Feature.reserve_x27),
-        .name = @tagName(Feature.reserve_x27),
         .llvm_name = "reserve-x27",
         .description = "Reserve X27, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x28)] = .{
-        .index = @enumToInt(Feature.reserve_x28),
-        .name = @tagName(Feature.reserve_x28),
         .llvm_name = "reserve-x28",
         .description = "Reserve X28, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x3)] = .{
-        .index = @enumToInt(Feature.reserve_x3),
-        .name = @tagName(Feature.reserve_x3),
         .llvm_name = "reserve-x3",
         .description = "Reserve X3, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x4)] = .{
-        .index = @enumToInt(Feature.reserve_x4),
-        .name = @tagName(Feature.reserve_x4),
         .llvm_name = "reserve-x4",
         .description = "Reserve X4, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x5)] = .{
-        .index = @enumToInt(Feature.reserve_x5),
-        .name = @tagName(Feature.reserve_x5),
         .llvm_name = "reserve-x5",
         .description = "Reserve X5, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x6)] = .{
-        .index = @enumToInt(Feature.reserve_x6),
-        .name = @tagName(Feature.reserve_x6),
         .llvm_name = "reserve-x6",
         .description = "Reserve X6, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x7)] = .{
-        .index = @enumToInt(Feature.reserve_x7),
-        .name = @tagName(Feature.reserve_x7),
         .llvm_name = "reserve-x7",
         .description = "Reserve X7, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.reserve_x9)] = .{
-        .index = @enumToInt(Feature.reserve_x9),
-        .name = @tagName(Feature.reserve_x9),
         .llvm_name = "reserve-x9",
         .description = "Reserve X9, making it unavailable as a GPR",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.saphira)] = .{
-        .index = @enumToInt(Feature.saphira),
-        .name = @tagName(Feature.saphira),
         .llvm_name = "saphira",
         .description = "Qualcomm Saphira processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .crypto,
             .custom_cheap_as_move,
             .fp_armv8,
@@ -1072,157 +869,119 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.sb)] = .{
-        .index = @enumToInt(Feature.sb),
-        .name = @tagName(Feature.sb),
         .llvm_name = "sb",
         .description = "Enable v8.5 Speculation Barrier",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sel2)] = .{
-        .index = @enumToInt(Feature.sel2),
-        .name = @tagName(Feature.sel2),
         .llvm_name = "sel2",
         .description = "Enable v8.4-A Secure Exception Level 2 extension",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sha2)] = .{
-        .index = @enumToInt(Feature.sha2),
-        .name = @tagName(Feature.sha2),
         .llvm_name = "sha2",
         .description = "Enable SHA1 and SHA256 support",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .neon,
         }),
     };
     result[@enumToInt(Feature.sha3)] = .{
-        .index = @enumToInt(Feature.sha3),
-        .name = @tagName(Feature.sha3),
         .llvm_name = "sha3",
         .description = "Enable SHA512 and SHA3 support",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .neon,
             .sha2,
         }),
     };
     result[@enumToInt(Feature.slow_misaligned_128store)] = .{
-        .index = @enumToInt(Feature.slow_misaligned_128store),
-        .name = @tagName(Feature.slow_misaligned_128store),
         .llvm_name = "slow-misaligned-128store",
         .description = "Misaligned 128 bit stores are slow",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.slow_paired_128)] = .{
-        .index = @enumToInt(Feature.slow_paired_128),
-        .name = @tagName(Feature.slow_paired_128),
         .llvm_name = "slow-paired-128",
         .description = "Paired 128 bit loads and stores are slow",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.slow_strqro_store)] = .{
-        .index = @enumToInt(Feature.slow_strqro_store),
-        .name = @tagName(Feature.slow_strqro_store),
         .llvm_name = "slow-strqro-store",
         .description = "STR of Q register with register offset is slow",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm4)] = .{
-        .index = @enumToInt(Feature.sm4),
-        .name = @tagName(Feature.sm4),
         .llvm_name = "sm4",
         .description = "Enable SM3 and SM4 support",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .neon,
         }),
     };
     result[@enumToInt(Feature.spe)] = .{
-        .index = @enumToInt(Feature.spe),
-        .name = @tagName(Feature.spe),
         .llvm_name = "spe",
         .description = "Enable Statistical Profiling extension",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.specrestrict)] = .{
-        .index = @enumToInt(Feature.specrestrict),
-        .name = @tagName(Feature.specrestrict),
         .llvm_name = "specrestrict",
         .description = "Enable architectural speculation restriction",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ssbs)] = .{
-        .index = @enumToInt(Feature.ssbs),
-        .name = @tagName(Feature.ssbs),
         .llvm_name = "ssbs",
         .description = "Enable Speculative Store Bypass Safe bit",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.strict_align)] = .{
-        .index = @enumToInt(Feature.strict_align),
-        .name = @tagName(Feature.strict_align),
         .llvm_name = "strict-align",
         .description = "Disallow all unaligned memory access",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sve)] = .{
-        .index = @enumToInt(Feature.sve),
-        .name = @tagName(Feature.sve),
         .llvm_name = "sve",
         .description = "Enable Scalable Vector Extension (SVE) instructions",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sve2)] = .{
-        .index = @enumToInt(Feature.sve2),
-        .name = @tagName(Feature.sve2),
         .llvm_name = "sve2",
         .description = "Enable Scalable Vector Extension 2 (SVE2) instructions",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .sve,
         }),
     };
     result[@enumToInt(Feature.sve2_aes)] = .{
-        .index = @enumToInt(Feature.sve2_aes),
-        .name = @tagName(Feature.sve2_aes),
         .llvm_name = "sve2-aes",
         .description = "Enable AES SVE2 instructions",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .aes,
             .sve2,
         }),
     };
     result[@enumToInt(Feature.sve2_bitperm)] = .{
-        .index = @enumToInt(Feature.sve2_bitperm),
-        .name = @tagName(Feature.sve2_bitperm),
         .llvm_name = "sve2-bitperm",
         .description = "Enable bit permutation SVE2 instructions",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .sve2,
         }),
     };
     result[@enumToInt(Feature.sve2_sha3)] = .{
-        .index = @enumToInt(Feature.sve2_sha3),
-        .name = @tagName(Feature.sve2_sha3),
         .llvm_name = "sve2-sha3",
         .description = "Enable SHA3 SVE2 instructions",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .sha3,
             .sve2,
         }),
     };
     result[@enumToInt(Feature.sve2_sm4)] = .{
-        .index = @enumToInt(Feature.sve2_sm4),
-        .name = @tagName(Feature.sve2_sm4),
         .llvm_name = "sve2-sm4",
         .description = "Enable SM4 SVE2 instructions",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .sm4,
             .sve2,
         }),
     };
     result[@enumToInt(Feature.thunderx)] = .{
-        .index = @enumToInt(Feature.thunderx),
-        .name = @tagName(Feature.thunderx),
         .llvm_name = "thunderx",
         .description = "Cavium ThunderX processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .crc,
             .crypto,
             .fp_armv8,
@@ -1233,11 +992,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.thunderx2t99)] = .{
-        .index = @enumToInt(Feature.thunderx2t99),
-        .name = @tagName(Feature.thunderx2t99),
         .llvm_name = "thunderx2t99",
         .description = "Cavium ThunderX2 processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .aggressive_fma,
             .arith_bcc_fusion,
             .crc,
@@ -1251,11 +1008,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.thunderxt81)] = .{
-        .index = @enumToInt(Feature.thunderxt81),
-        .name = @tagName(Feature.thunderxt81),
         .llvm_name = "thunderxt81",
         .description = "Cavium ThunderX processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .crc,
             .crypto,
             .fp_armv8,
@@ -1266,11 +1021,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.thunderxt83)] = .{
-        .index = @enumToInt(Feature.thunderxt83),
-        .name = @tagName(Feature.thunderxt83),
         .llvm_name = "thunderxt83",
         .description = "Cavium ThunderX processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .crc,
             .crypto,
             .fp_armv8,
@@ -1281,11 +1034,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.thunderxt88)] = .{
-        .index = @enumToInt(Feature.thunderxt88),
-        .name = @tagName(Feature.thunderxt88),
         .llvm_name = "thunderxt88",
         .description = "Cavium ThunderX processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .crc,
             .crypto,
             .fp_armv8,
@@ -1296,46 +1047,34 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.tlb_rmi)] = .{
-        .index = @enumToInt(Feature.tlb_rmi),
-        .name = @tagName(Feature.tlb_rmi),
         .llvm_name = "tlb-rmi",
         .description = "Enable v8.4-A TLB Range and Maintenance Instructions",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.tpidr_el1)] = .{
-        .index = @enumToInt(Feature.tpidr_el1),
-        .name = @tagName(Feature.tpidr_el1),
         .llvm_name = "tpidr-el1",
         .description = "Permit use of TPIDR_EL1 for the TLS base",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.tpidr_el2)] = .{
-        .index = @enumToInt(Feature.tpidr_el2),
-        .name = @tagName(Feature.tpidr_el2),
         .llvm_name = "tpidr-el2",
         .description = "Permit use of TPIDR_EL2 for the TLS base",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.tpidr_el3)] = .{
-        .index = @enumToInt(Feature.tpidr_el3),
-        .name = @tagName(Feature.tpidr_el3),
         .llvm_name = "tpidr-el3",
         .description = "Permit use of TPIDR_EL3 for the TLS base",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.tracev8_4)] = .{
-        .index = @enumToInt(Feature.tracev8_4),
-        .name = @tagName(Feature.tracev8_4),
         .llvm_name = "tracev8.4",
         .description = "Enable v8.4-A Trace extension",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.tsv110)] = .{
-        .index = @enumToInt(Feature.tsv110),
-        .name = @tagName(Feature.tsv110),
         .llvm_name = "tsv110",
         .description = "HiSilicon TS-V110 processors",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .crypto,
             .custom_cheap_as_move,
             .dotprod,
@@ -1351,39 +1090,29 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.uaops)] = .{
-        .index = @enumToInt(Feature.uaops),
-        .name = @tagName(Feature.uaops),
         .llvm_name = "uaops",
         .description = "Enable v8.2 UAO PState",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.use_aa)] = .{
-        .index = @enumToInt(Feature.use_aa),
-        .name = @tagName(Feature.use_aa),
         .llvm_name = "use-aa",
         .description = "Use alias analysis during codegen",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.use_postra_scheduler)] = .{
-        .index = @enumToInt(Feature.use_postra_scheduler),
-        .name = @tagName(Feature.use_postra_scheduler),
         .llvm_name = "use-postra-scheduler",
         .description = "Schedule again after register allocation",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.use_reciprocal_square_root)] = .{
-        .index = @enumToInt(Feature.use_reciprocal_square_root),
-        .name = @tagName(Feature.use_reciprocal_square_root),
         .llvm_name = "use-reciprocal-square-root",
         .description = "Use the reciprocal square root approximation",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.v8_1a)] = .{
-        .index = @enumToInt(Feature.v8_1a),
-        .name = @tagName(Feature.v8_1a),
         .llvm_name = "v8.1a",
         .description = "Support ARM v8.1a instructions",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .crc,
             .lor,
             .lse,
@@ -1393,11 +1122,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.v8_2a)] = .{
-        .index = @enumToInt(Feature.v8_2a),
-        .name = @tagName(Feature.v8_2a),
         .llvm_name = "v8.2a",
         .description = "Support ARM v8.2a instructions",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .ccpp,
             .pan_rwv,
             .ras,
@@ -1406,11 +1133,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.v8_3a)] = .{
-        .index = @enumToInt(Feature.v8_3a),
-        .name = @tagName(Feature.v8_3a),
         .llvm_name = "v8.3a",
         .description = "Support ARM v8.3a instructions",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .ccidx,
             .complxnum,
             .jsconv,
@@ -1420,11 +1145,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.v8_4a)] = .{
-        .index = @enumToInt(Feature.v8_4a),
-        .name = @tagName(Feature.v8_4a),
         .llvm_name = "v8.4a",
         .description = "Support ARM v8.4a instructions",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .am,
             .dit,
             .dotprod,
@@ -1440,11 +1163,9 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.v8_5a)] = .{
-        .index = @enumToInt(Feature.v8_5a),
-        .name = @tagName(Feature.v8_5a),
         .llvm_name = "v8.5a",
         .description = "Support ARM v8.5a instructions",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .altnzcv,
             .bti,
             .ccdp,
@@ -1457,50 +1178,44 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.vh)] = .{
-        .index = @enumToInt(Feature.vh),
-        .name = @tagName(Feature.vh),
         .llvm_name = "vh",
         .description = "Enables ARM v8.1 Virtual Host extension",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.zcm)] = .{
-        .index = @enumToInt(Feature.zcm),
-        .name = @tagName(Feature.zcm),
         .llvm_name = "zcm",
         .description = "Has zero-cycle register moves",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.zcz)] = .{
-        .index = @enumToInt(Feature.zcz),
-        .name = @tagName(Feature.zcz),
         .llvm_name = "zcz",
         .description = "Has zero-cycle zeroing instructions",
-        .dependencies = featureSet(&[_]Feature{
+        .dependencies = sparseFeatureSet(&[_]Feature{
             .zcz_fp,
             .zcz_gp,
         }),
     };
     result[@enumToInt(Feature.zcz_fp)] = .{
-        .index = @enumToInt(Feature.zcz_fp),
-        .name = @tagName(Feature.zcz_fp),
         .llvm_name = "zcz-fp",
         .description = "Has zero-cycle zeroing instructions for FP registers",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.zcz_fp_workaround)] = .{
-        .index = @enumToInt(Feature.zcz_fp_workaround),
-        .name = @tagName(Feature.zcz_fp_workaround),
         .llvm_name = "zcz-fp-workaround",
         .description = "The zero-cycle floating-point zeroing instruction has a bug",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.zcz_gp)] = .{
-        .index = @enumToInt(Feature.zcz_gp),
-        .name = @tagName(Feature.zcz_gp),
         .llvm_name = "zcz-gp",
         .description = "Has zero-cycle zeroing instructions for generic registers",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = sparseFeatureSet(&[_]Feature{}),
     };
+    const ti = @typeInfo(Feature);
+    for (result) |*elem, i| {
+        elem.index = i;
+        elem.name = ti.Enum.fields[i].name;
+        elem.dependencies.initAsDependencies(i, &result);
+    }
     break :blk result;
 };
 
@@ -1508,126 +1223,126 @@ pub const cpu = struct {
     pub const apple_latest = Cpu{
         .name = "apple_latest",
         .llvm_name = "apple-latest",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .cyclone,
         }),
     };
     pub const cortex_a35 = Cpu{
         .name = "cortex_a35",
         .llvm_name = "cortex-a35",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .a35,
         }),
     };
     pub const cortex_a53 = Cpu{
         .name = "cortex_a53",
         .llvm_name = "cortex-a53",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .a53,
         }),
     };
     pub const cortex_a55 = Cpu{
         .name = "cortex_a55",
         .llvm_name = "cortex-a55",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .a55,
         }),
     };
     pub const cortex_a57 = Cpu{
         .name = "cortex_a57",
         .llvm_name = "cortex-a57",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .a57,
         }),
     };
     pub const cortex_a72 = Cpu{
         .name = "cortex_a72",
         .llvm_name = "cortex-a72",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .a72,
         }),
     };
     pub const cortex_a73 = Cpu{
         .name = "cortex_a73",
         .llvm_name = "cortex-a73",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .a73,
         }),
     };
     pub const cortex_a75 = Cpu{
         .name = "cortex_a75",
         .llvm_name = "cortex-a75",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .a75,
         }),
     };
     pub const cortex_a76 = Cpu{
         .name = "cortex_a76",
         .llvm_name = "cortex-a76",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .a76,
         }),
     };
     pub const cortex_a76ae = Cpu{
         .name = "cortex_a76ae",
         .llvm_name = "cortex-a76ae",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .a76,
         }),
     };
     pub const cyclone = Cpu{
         .name = "cyclone",
         .llvm_name = "cyclone",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .cyclone,
         }),
     };
     pub const exynos_m1 = Cpu{
         .name = "exynos_m1",
         .llvm_name = "exynos-m1",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .exynosm1,
         }),
     };
     pub const exynos_m2 = Cpu{
         .name = "exynos_m2",
         .llvm_name = "exynos-m2",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .exynosm2,
         }),
     };
     pub const exynos_m3 = Cpu{
         .name = "exynos_m3",
         .llvm_name = "exynos-m3",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .exynosm3,
         }),
     };
     pub const exynos_m4 = Cpu{
         .name = "exynos_m4",
         .llvm_name = "exynos-m4",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .exynosm4,
         }),
     };
     pub const exynos_m5 = Cpu{
         .name = "exynos_m5",
         .llvm_name = "exynos-m5",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .exynosm4,
         }),
     };
     pub const falkor = Cpu{
         .name = "falkor",
         .llvm_name = "falkor",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .falkor,
         }),
     };
     pub const generic = Cpu{
         .name = "generic",
         .llvm_name = "generic",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .fp_armv8,
             .fuse_aes,
             .neon,
@@ -1638,56 +1353,56 @@ pub const cpu = struct {
     pub const kryo = Cpu{
         .name = "kryo",
         .llvm_name = "kryo",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .kryo,
         }),
     };
     pub const saphira = Cpu{
         .name = "saphira",
         .llvm_name = "saphira",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .saphira,
         }),
     };
     pub const thunderx = Cpu{
         .name = "thunderx",
         .llvm_name = "thunderx",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .thunderx,
         }),
     };
     pub const thunderx2t99 = Cpu{
         .name = "thunderx2t99",
         .llvm_name = "thunderx2t99",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .thunderx2t99,
         }),
     };
     pub const thunderxt81 = Cpu{
         .name = "thunderxt81",
         .llvm_name = "thunderxt81",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .thunderxt81,
         }),
     };
     pub const thunderxt83 = Cpu{
         .name = "thunderxt83",
         .llvm_name = "thunderxt83",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .thunderxt83,
         }),
     };
     pub const thunderxt88 = Cpu{
         .name = "thunderxt88",
         .llvm_name = "thunderxt88",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .thunderxt88,
         }),
     };
     pub const tsv110 = Cpu{
         .name = "tsv110",
         .llvm_name = "tsv110",
-        .features = featureSet(&[_]Feature{
+        .features = featureSet(&all_features, &[_]Feature{
             .tsv110,
         }),
     };

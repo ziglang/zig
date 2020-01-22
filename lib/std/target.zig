@@ -172,6 +172,48 @@ pub const Target = union(enum) {
             r6,
         };
 
+        pub fn subArchFeature(arch: Arch) ?u8 {
+            return switch (arch) {
+                .arm, .armeb, .thumb, .thumbeb => |arm32| switch (arm32) {
+                    .v8_5a => @enumToInt(arm.Feature.armv8_5_a),
+                    .v8_4a => @enumToInt(arm.Feature.armv8_4_a),
+                    .v8_3a => @enumToInt(arm.Feature.armv8_3_a),
+                    .v8_2a => @enumToInt(arm.Feature.armv8_2_a),
+                    .v8_1a => @enumToInt(arm.Feature.armv8_1_a),
+                    .v8 => @enumToInt(arm.Feature.armv8_a),
+                    .v8r => @enumToInt(arm.Feature.armv8_r),
+                    .v8m_baseline => @enumToInt(arm.Feature.armv8_m_base),
+                    .v8m_mainline => @enumToInt(arm.Feature.armv8_m_main),
+                    .v8_1m_mainline => @enumToInt(arm.Feature.armv8_1_m_main),
+                    .v7 => @enumToInt(arm.Feature.armv7_a),
+                    .v7em => @enumToInt(arm.Feature.armv7e_m),
+                    .v7m => @enumToInt(arm.Feature.armv7_m),
+                    .v7s => @enumToInt(arm.Feature.armv7s),
+                    .v7k => @enumToInt(arm.Feature.armv7k),
+                    .v7ve => @enumToInt(arm.Feature.armv7ve),
+                    .v6 => @enumToInt(arm.Feature.armv6),
+                    .v6m => @enumToInt(arm.Feature.armv6_m),
+                    .v6k => @enumToInt(arm.Feature.armv6k),
+                    .v6t2 => @enumToInt(arm.Feature.armv6t2),
+                    .v5 => @enumToInt(arm.Feature.armv5t),
+                    .v5te => @enumToInt(arm.Feature.armv5te),
+                    .v4t => @enumToInt(arm.Feature.armv4t),
+                },
+                .aarch64, .aarch64_be, .aarch64_32 => |arm64| switch (arm64) {
+                    .v8_5a => @enumToInt(aarch64.Feature.v8_5a),
+                    .v8_4a => @enumToInt(aarch64.Feature.v8_4a),
+                    .v8_3a => @enumToInt(aarch64.Feature.v8_3a),
+                    .v8_2a => @enumToInt(aarch64.Feature.v8_2a),
+                    .v8_1a => @enumToInt(aarch64.Feature.v8_1a),
+                    .v8 => @enumToInt(aarch64.Feature.v8_1a),
+                    .v8r => @enumToInt(aarch64.Feature.v8_1a),
+                    .v8m_baseline => @enumToInt(aarch64.Feature.v8_1a),
+                    .v8m_mainline => @enumToInt(aarch64.Feature.v8_1a),
+                },
+                else => return null,
+            };
+        }
+
         pub fn isARM(arch: Arch) bool {
             return switch (arch) {
                 .arm, .armeb => true,
@@ -219,7 +261,7 @@ pub const Target = union(enum) {
         pub fn parseCpuFeatureSet(arch: Arch, features_text: []const u8) !Cpu.Feature.Set {
             // Here we compute both and choose the correct result at the end, based
             // on whether or not we saw + and - signs.
-            var whitelist_set = Cpu.Feature.Set.empty();
+            var whitelist_set = Cpu.Feature.Set.empty;
             var baseline_set = arch.baselineFeatures();
             var mode: enum {
                 unknown,
@@ -256,16 +298,18 @@ pub const Target = union(enum) {
                     op = .add;
                     feature_name = item_text;
                 }
-                for (arch.allFeaturesList()) |feature, index| {
+                const all_features = arch.allFeaturesList();
+                for (all_features) |feature, index_usize| {
+                    const index = @intCast(Cpu.Feature.Set.Index, index_usize);
                     if (mem.eql(u8, feature_name, feature.name)) {
                         switch (op) {
                             .add => {
-                                baseline_set.addFeature(@intCast(u8, index));
-                                whitelist_set.addFeature(@intCast(u8, index));
+                                baseline_set.addFeature(index, all_features);
+                                whitelist_set.addFeature(index, all_features);
                             },
                             .sub => {
-                                baseline_set.removeFeature(@intCast(u8, index));
-                                whitelist_set.removeFeature(@intCast(u8, index));
+                                baseline_set.removeFeature(index, all_features);
+                                whitelist_set.removeFeature(index, all_features);
                             },
                         }
                         break;
@@ -462,7 +506,7 @@ pub const Target = union(enum) {
                 .nvptx, .nvptx64 => nvptx.cpu.sm_20.features,
                 .wasm32, .wasm64 => wasm.cpu.generic.features,
 
-                else => Cpu.Feature.Set.empty(),
+                else => Cpu.Feature.Set.empty,
             };
         }
 
@@ -521,48 +565,130 @@ pub const Target = union(enum) {
         features: Feature.Set,
 
         pub const Feature = struct {
-            /// The bit index into `Set`.
-            index: u8,
-            name: []const u8,
+            /// The bit index into `Set`. Has a default value of `undefined` because the canonical
+            /// structures are populated via comptime logic.
+            index: Set.Index = undefined,
+
+            /// Has a default value of `undefined` because the canonical
+            /// structures are populated via comptime logic.
+            name: []const u8 = undefined,
+
+            /// If this corresponds to an LLVM-recognized feature, this will be populated;
+            /// otherwise null.
             llvm_name: ?[:0]const u8,
+
+            /// Human-friendly UTF-8 text.
             description: []const u8,
-            dependencies: Set,
+
+            /// `Set` of all features this depends on, and this feature itself.
+            /// Can be "or"ed with another set to remove this feature and all
+            /// its dependencies.
+            /// Has a default value of `undefined` because the canonical
+            /// structures are populated via comptime logic.
+            dependencies: Set = undefined,
 
             /// A bit set of all the features.
             pub const Set = struct {
-                bytes: [bit_count / 8]u8,
+                ints: [usize_count]usize,
 
-                pub const bit_count = 22 * 8;
+                pub const needed_bit_count = 174;
+                pub const byte_count = (needed_bit_count + 7) / 8;
+                pub const usize_count = (byte_count + (@sizeOf(usize) - 1)) / @sizeOf(usize);
+                pub const Index = std.math.Log2Int(@IntType(false, usize_count * @bitSizeOf(usize)));
+                pub const ShiftInt = std.math.Log2Int(usize);
 
-                pub fn empty() Set {
-                    return .{ .bytes = [1]u8{0} ** 22 };
+                pub const empty = Set{ .ints = [1]usize{0} ** usize_count };
+
+                pub fn isEnabled(set: Set, arch_feature_index: Index) bool {
+                    const usize_index = arch_feature_index / @bitSizeOf(usize);
+                    const bit_index = @intCast(ShiftInt, arch_feature_index % @bitSizeOf(usize));
+                    return (set.ints[usize_index] & (@as(usize, 1) << bit_index)) != 0;
                 }
 
-                pub fn isEnabled(set: Set, arch_feature_index: u8) bool {
-                    const byte_index = arch_feature_index / 8;
-                    const bit_index = @intCast(u3, arch_feature_index % 8);
-                    return (set.bytes[byte_index] & (@as(u8, 1) << bit_index)) != 0;
+                /// Adds the specified feature and all its dependencies to the set. O(1).
+                pub fn addFeature(
+                    set: *Set,
+                    arch_feature_index: Index,
+                    all_features_list: []const Cpu.Feature,
+                ) void {
+                    set.ints = @as(@Vector(usize_count, usize), set.ints) |
+                        @as(@Vector(usize_count, usize), all_features_list[arch_feature_index].dependencies.ints);
                 }
 
-                pub fn addFeature(set: *Set, arch_feature_index: u8) void {
-                    const byte_index = arch_feature_index / 8;
-                    const bit_index = @intCast(u3, arch_feature_index % 8);
-                    set.bytes[byte_index] |= @as(u8, 1) << bit_index;
+                /// Removes the specified feature (TODO and all its dependents) from the set. O(1).
+                /// TODO improve this function to actually handle dependants rather than just calling
+                /// `removeSparseFeature`.
+                pub fn removeFeature(
+                    set: *Set,
+                    arch_feature_index: Index,
+                    all_features_list: []const Cpu.Feature,
+                ) void {
+                    set.removeSparseFeature(arch_feature_index);
                 }
 
-                pub fn removeFeature(set: *Set, arch_feature_index: u8) void {
-                    const byte_index = arch_feature_index / 8;
-                    const bit_index = @intCast(u3, arch_feature_index % 8);
-                    set.bytes[byte_index] &= ~(@as(u8, 1) << bit_index);
+                /// Adds the specified feature but not its dependencies.
+                pub fn addSparseFeature(set: *Set, arch_feature_index: Index) void {
+                    const usize_index = arch_feature_index / @bitSizeOf(usize);
+                    const bit_index = @intCast(ShiftInt, arch_feature_index % @bitSizeOf(usize));
+                    set.ints[usize_index] |= @as(usize, 1) << bit_index;
+                }
+
+                /// Removes the specified feature but not its dependents.
+                pub fn removeSparseFeature(set: *Set, arch_feature_index: Index) void {
+                    const usize_index = arch_feature_index / @bitSizeOf(usize);
+                    const bit_index = @intCast(ShiftInt, arch_feature_index % @bitSizeOf(usize));
+                    set.ints[usize_index] &= ~(@as(usize, 1) << bit_index);
+                }
+
+                pub fn initAsDependencies(
+                    set: *Set,
+                    arch_feature_index: Index,
+                    all_features_list: []const Cpu.Feature,
+                ) void {
+                    // fast-case to help reduce how much comptime code must execute
+                    const no_deps = for (set.ints) |elem| {
+                        if (elem != 0) break false;
+                    } else true;
+                    // add itself to its own dependencies for easy "or"ing later
+                    set.addSparseFeature(arch_feature_index);
+                    if (no_deps) return;
+
+                    var old = set.ints;
+                    while (true) {
+                        for (all_features_list) |feature, index| {
+                            const casted_index = @intCast(Index, index);
+                            if (set.isEnabled(casted_index)) {
+                                set.addFeature(casted_index, all_features_list);
+                            }
+                        }
+                        const nothing_changed = mem.eql(usize, &old, &set.ints);
+                        if (nothing_changed) return;
+                        old = set.ints;
+                    }
+                }
+
+                pub fn asBytes(set: *const Set) *const [byte_count]u8 {
+                    return @ptrCast(*const [byte_count]u8, &set.ints);
                 }
             };
 
             pub fn feature_set_fns(comptime F: type) type {
                 return struct {
-                    pub fn featureSet(features: []const F) Set {
-                        var x = Set.empty();
+                    /// Populates a set with the list of features and all their dependencies included.
+                    pub fn featureSet(all_features_list: []const Feature, features: []const F) Set {
+                        var x: Set = Set.empty;
                         for (features) |feature| {
-                            x.addFeature(@enumToInt(feature));
+                            x.addFeature(@enumToInt(feature), all_features_list);
+                        }
+                        @compileLog(Set.empty);
+                        return x;
+                    }
+
+                    /// Populates only the feature bits specified.
+                    pub fn sparseFeatureSet(features: []const F) Set {
+                        var x = Set.empty;
+                        for (features) |feature| {
+                            x.addSparseFeature(@enumToInt(feature));
                         }
                         return x;
                     }

@@ -581,8 +581,8 @@ fn cpuFeaturesFromLLVM(
             const this_llvm_name = feature.llvm_name orelse continue;
             if (mem.eql(u8, llvm_feat, this_llvm_name)) {
                 switch (op) {
-                    .add => set.addFeature(@intCast(u8, index)),
-                    .sub => set.removeFeature(@intCast(u8, index)),
+                    .add => set.addSparseFeature(@intCast(u8, index)),
+                    .sub => set.removeSparseFeature(@intCast(u8, index)),
                 }
                 break;
             }
@@ -676,7 +676,7 @@ const Stage2CpuFeatures = struct {
         });
         errdefer allocator.free(builtin_str);
 
-        const cache_hash = try std.fmt.allocPrint0(allocator, "{}\n{x}", .{ cpu.name, cpu.features.bytes });
+        const cache_hash = try std.fmt.allocPrint0(allocator, "{}\n{}", .{ cpu.name, cpu.features.asBytes() });
         errdefer allocator.free(cache_hash);
 
         self.* = Self{
@@ -699,10 +699,13 @@ const Stage2CpuFeatures = struct {
         defer llvm_features_buffer.deinit();
 
         const all_features = arch.allFeaturesList();
+        var populated_feature_set = feature_set;
+        if (arch.subArchFeature()) |sub_arch_index| {
+            populated_feature_set.addFeature(sub_arch_index, all_features);
+        }
         for (all_features) |feature, index| {
             const llvm_name = feature.llvm_name orelse continue;
-
-            const plus_or_minus = "-+"[@boolToInt(feature_set.isEnabled(@intCast(u8, index)))];
+            const plus_or_minus = "-+"[@boolToInt(populated_feature_set.isEnabled(@intCast(u8, index)))];
             try llvm_features_buffer.appendByte(plus_or_minus);
             try llvm_features_buffer.append(llvm_name);
             try llvm_features_buffer.append(",");
@@ -721,7 +724,7 @@ const Stage2CpuFeatures = struct {
         const self = try allocator.create(Self);
         errdefer allocator.destroy(self);
 
-        const cache_hash = try std.fmt.allocPrint0(allocator, "\n{}", .{feature_set.bytes});
+        const cache_hash = try std.fmt.allocPrint0(allocator, "\n{}", .{feature_set.asBytes()});
         errdefer allocator.free(cache_hash);
 
         const generic_arch_name = arch.genericName();
