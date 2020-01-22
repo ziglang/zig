@@ -1172,7 +1172,9 @@ pub const Target = union(enum) {
 };
 
 test "parseCpuFeatureSet" {
-    const set = try @as(Target.Arch, .x86_64).parseCpuFeatureSet("-sse,-avx,-cx8");
+    const arch: Target.Arch = .x86_64;
+    const baseline = arch.getBaselineCpuFeatures();
+    const set = try arch.parseCpuFeatureSet(baseline.cpu, "-sse,-avx,-cx8");
     std.testing.expect(!Target.x86.featureSetHas(set, .sse));
     std.testing.expect(!Target.x86.featureSetHas(set, .avx));
     std.testing.expect(!Target.x86.featureSetHas(set, .cx8));
