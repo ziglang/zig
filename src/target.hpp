@@ -60,6 +60,7 @@ enum SubArchList {
     SubArchListArm64,
     SubArchListKalimba,
     SubArchListMips,
+    SubArchListPPC,
 };
 
 enum TargetSubsystem {

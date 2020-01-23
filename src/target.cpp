@@ -202,8 +202,6 @@ static const ZigLLVM_EnvironmentType abi_list[] = {
     ZigLLVM_CODE16,
     ZigLLVM_EABI,
     ZigLLVM_EABIHF,
-    ZigLLVM_ELFv1,
-    ZigLLVM_ELFv2,
     ZigLLVM_Android,
     ZigLLVM_Musl,
     ZigLLVM_MuslEABI,
@@ -765,6 +763,8 @@ const char *target_subarch_list_name(SubArchList sub_arch_list) {
             return "Kalimba";
         case SubArchListMips:
             return "Mips";
+        case SubArchListPPC:
+            return "PPC";
     }
     zig_unreachable();
 }
@@ -1386,6 +1386,7 @@ const char *target_dynamic_linker(const ZigTarget *target) {
                 case ZigLLVM_lanai:
                 case ZigLLVM_renderscript32:
                 case ZigLLVM_renderscript64:
+                case ZigLLVM_ve:
                     zig_panic("TODO implement target_dynamic_linker for this arch");
             }
             zig_unreachable();
@@ -1515,6 +1516,7 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
         case ZigLLVM_xcore:
         case ZigLLVM_ppc:
         case ZigLLVM_ppc64:
+        case ZigLLVM_ve:
             zig_panic("TODO populate this table with stack pointer register name for this CPU architecture");
     }
     zig_unreachable();
@@ -1576,6 +1578,7 @@ bool target_is_arm(const ZigTarget *target) {
         case ZigLLVM_xcore:
         case ZigLLVM_ppc:
         case ZigLLVM_ppc64:
+        case ZigLLVM_ve:
             return false;
     }
     zig_unreachable();
@@ -1814,8 +1817,6 @@ const char *target_libc_generic_name(const ZigTarget *target) {
         case ZigLLVM_CODE16:
         case ZigLLVM_EABI:
         case ZigLLVM_EABIHF:
-        case ZigLLVM_ELFv1:
-        case ZigLLVM_ELFv2:
         case ZigLLVM_Android:
         case ZigLLVM_MSVC:
         case ZigLLVM_Itanium:

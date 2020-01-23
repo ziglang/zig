@@ -757,6 +757,7 @@ pub const Target = union(enum) {
             .bpfeb,
             .sparcv9,
             .s390x,
+            .ve,
             => return 64,
         }
     }
