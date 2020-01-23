@@ -532,9 +532,8 @@ ZIG_EXTERN_C const char *ZigLLVMGetOSTypeName(enum ZigLLVM_OSType os);
 ZIG_EXTERN_C const char *ZigLLVMGetEnvironmentTypeName(enum ZigLLVM_EnvironmentType abi);
 
 ZIG_EXTERN_C bool ZigLLDLink(enum ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_count,
-        void (*append_diagnostic_stdout)(void *, const char *, size_t),
-        void (*append_diagnostic_stderr)(void *, const char *, size_t),
-        void *context);
+        void (*append_diagnostic)(void *, const char *, size_t),
+        void *context_stdout, void *context_stderr);
 
 ZIG_EXTERN_C bool ZigLLVMWriteArchive(const char *archive_name, const char **file_names, size_t file_name_count,
         enum ZigLLVM_OSType os_type);

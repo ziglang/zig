@@ -1077,14 +1077,13 @@ bool ZigLLVMWriteArchive(const char *archive_name, const char **file_names, size
 
 
 bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_count,
-        void (*append_diagnostic_stdout)(void *, const char *, size_t),
-        void (*append_diagnostic_stderr)(void *, const char *, size_t),
-        void *context)
+        void (*append_diagnostic)(void *, const char *, size_t),
+        void *context_stdout, void *context_stderr)
 {
     ArrayRef<const char *> array_ref_args(args, arg_count);
 
-    MyOStream diag_stdout(append_diagnostic_stdout, context);
-    MyOStream diag_stderr(append_diagnostic_stderr, context);
+    MyOStream diag_stdout(append_diagnostic, context_stdout);
+    MyOStream diag_stderr(append_diagnostic, context_stderr);
 
     switch (oformat) {
         case ZigLLVM_UnknownObjectFormat:
