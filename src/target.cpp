@@ -57,9 +57,6 @@ static const ZigLLVM_SubArchType subarch_list_arm64[] = {
     ZigLLVM_ARMSubArch_v8_2a,
     ZigLLVM_ARMSubArch_v8_1a,
     ZigLLVM_ARMSubArch_v8,
-    ZigLLVM_ARMSubArch_v8r,
-    ZigLLVM_ARMSubArch_v8m_baseline,
-    ZigLLVM_ARMSubArch_v8m_mainline,
 };
 
 static const ZigLLVM_SubArchType subarch_list_kalimba[] = {
@@ -683,7 +680,7 @@ const char *target_subarch_name(ZigLLVM_SubArchType subarch) {
         case ZigLLVM_ARMSubArch_v8_1a:
             return "v8_1a";
         case ZigLLVM_ARMSubArch_v8:
-            return "v8";
+            return "v8a";
         case ZigLLVM_ARMSubArch_v8r:
             return "v8r";
         case ZigLLVM_ARMSubArch_v8m_baseline:
@@ -693,7 +690,7 @@ const char *target_subarch_name(ZigLLVM_SubArchType subarch) {
         case ZigLLVM_ARMSubArch_v8_1m_mainline:
             return "v8_1m_mainline";
         case ZigLLVM_ARMSubArch_v7:
-            return "v7";
+            return "v7a";
         case ZigLLVM_ARMSubArch_v7em:
             return "v7em";
         case ZigLLVM_ARMSubArch_v7m:

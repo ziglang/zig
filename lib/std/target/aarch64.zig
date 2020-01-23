@@ -137,6 +137,7 @@ pub const Feature = enum {
     use_aa,
     use_postra_scheduler,
     use_reciprocal_square_root,
+    v8a,
     v8_1a,
     v8_2a,
     v8_3a,
@@ -153,6 +154,7 @@ pub const Feature = enum {
 pub usingnamespace Cpu.Feature.feature_set_fns(Feature);
 
 pub const all_features = blk: {
+    @setEvalBranchQuota(2000);
     const len = @typeInfo(Feature).Enum.fields.len;
     std.debug.assert(len <= Cpu.Feature.Set.needed_bit_count);
     var result: [len]Cpu.Feature = undefined;
@@ -1108,6 +1110,14 @@ pub const all_features = blk: {
         .description = "Use the reciprocal square root approximation",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.v8a)] = .{
+        .llvm_name = null,
+        .description = "Support ARM v8a instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .fp_armv8,
+            .neon,
+        }),
+    };
     result[@enumToInt(Feature.v8_1a)] = .{
         .llvm_name = "v8.1a",
         .description = "Support ARM v8.1a instructions",
@@ -1118,6 +1128,7 @@ pub const all_features = blk: {
             .pan,
             .rdm,
             .vh,
+            .v8a,
         }),
     };
     result[@enumToInt(Feature.v8_2a)] = .{

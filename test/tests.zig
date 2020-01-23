@@ -111,8 +111,8 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .os = .linux,
-                    .arch = Target.Arch{ .aarch64 = .v8_1a },
-                    .cpu_features = (Target.Arch{ .aarch64 = .v8_1a }).getBaselineCpuFeatures(),
+                    .arch = Target.Arch{ .aarch64 = .v8a },
+                    .cpu_features = (Target.Arch{ .aarch64 = .v8a }).getBaselineCpuFeatures(),
                     .abi = .none,
                 },
             },
@@ -121,8 +121,8 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .os = .linux,
-                    .arch = Target.Arch{ .aarch64 = .v8_1a },
-                    .cpu_features = (Target.Arch{ .aarch64 = .v8_1a }).getBaselineCpuFeatures(),
+                    .arch = Target.Arch{ .aarch64 = .v8a },
+                    .cpu_features = (Target.Arch{ .aarch64 = .v8a }).getBaselineCpuFeatures(),
                     .abi = .musl,
                 },
             },
@@ -132,8 +132,8 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .os = .linux,
-                    .arch = Target.Arch{ .aarch64 = .v8_1a },
-                    .cpu_features = (Target.Arch{ .aarch64 = .v8_1a }).getBaselineCpuFeatures(),
+                    .arch = Target.Arch{ .aarch64 = .v8a },
+                    .cpu_features = (Target.Arch{ .aarch64 = .v8a }).getBaselineCpuFeatures(),
                     .abi = .gnu,
                 },
             },
@@ -144,8 +144,8 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .os = .linux,
-                    .arch = Target.Arch{ .arm = .v8_1a },
-                    .cpu_features = (Target.Arch{ .arm = .v8_1a }).getBaselineCpuFeatures(),
+                    .arch = Target.Arch{ .arm = .v8a },
+                    .cpu_features = (Target.Arch{ .arm = .v8a }).getBaselineCpuFeatures(),
                     .abi = .none,
                 },
             },
@@ -154,8 +154,8 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .os = .linux,
-                    .arch = Target.Arch{ .arm = .v8_1a },
-                    .cpu_features = (Target.Arch{ .arm = .v8_1a }).getBaselineCpuFeatures(),
+                    .arch = Target.Arch{ .arm = .v8a },
+                    .cpu_features = (Target.Arch{ .arm = .v8a }).getBaselineCpuFeatures(),
                     .abi = .musleabihf,
                 },
             },
@@ -166,8 +166,8 @@ const test_targets = blk: {
         //    .target = Target{
         //        .Cross = CrossTarget{
         //            .os = .linux,
-        //            .arch = Target.Arch{ .arm = .v8_1a },
-        //            .cpu_features = (Target.Arch{ .arm = .v8_1a }).getBaselineCpuFeatures(),
+        //            .arch = Target.Arch{ .arm = .v8a },
+        //            .cpu_features = (Target.Arch{ .arm = .v8a }).getBaselineCpuFeatures(),
         //            .abi = .gnueabihf,
         //        },
         //    },
