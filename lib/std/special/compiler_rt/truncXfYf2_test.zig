@@ -151,6 +151,10 @@ fn test__trunctfsf2(a: f128, expected: u32) void {
 }
 
 test "trunctfsf2" {
+    if (@import("std").Target.current.isWindows()) {
+        // TODO https://github.com/ziglang/zig/issues/508
+        return error.SkipZigTest;
+    }
     // qnan
     test__trunctfsf2(@bitCast(f128, @as(u128, 0x7fff800000000000 << 64)), 0x7fc00000);
     // nan
@@ -186,6 +190,10 @@ fn test__trunctfdf2(a: f128, expected: u64) void {
 }
 
 test "trunctfdf2" {
+    if (@import("std").Target.current.isWindows()) {
+        // TODO https://github.com/ziglang/zig/issues/508
+        return error.SkipZigTest;
+    }
     // qnan
     test__trunctfdf2(@bitCast(f128, @as(u128, 0x7fff800000000000 << 64)), 0x7ff8000000000000);
     // nan

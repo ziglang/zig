@@ -11,6 +11,10 @@ fn test__fixtfti(a: f128, expected: i128) void {
 }
 
 test "fixtfti" {
+    if (@import("std").Target.current.isWindows()) {
+        // TODO https://github.com/ziglang/zig/issues/508
+        return error.SkipZigTest;
+    }
     //warn("\n", .{});
     test__fixtfti(-math.f128_max, math.minInt(i128));
 
