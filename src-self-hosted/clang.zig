@@ -492,6 +492,7 @@ pub const ZigClangDeclKind = extern enum {
     Friend,
     FriendTemplate,
     Import,
+    LifetimeExtendedTemporary,
     LinkageSpec,
     Label,
     Namespace,

@@ -23,6 +23,7 @@
 #include <clang/Frontend/ASTUnit.h>
 #include <clang/Frontend/CompilerInstance.h>
 #include <clang/AST/APValue.h>
+#include <clang/AST/Attr.h>
 #include <clang/AST/Expr.h>
 
 #if __GNUC__ >= 8
@@ -846,6 +847,7 @@ void ZigClang_detect_enum_DeclKind(clang::Decl::Kind x) {
         case clang::Decl::Friend:
         case clang::Decl::FriendTemplate:
         case clang::Decl::Import:
+        case clang::Decl::LifetimeExtendedTemporary:
         case clang::Decl::LinkageSpec:
         case clang::Decl::Label:
         case clang::Decl::Namespace:
@@ -927,6 +929,7 @@ static_assert((clang::Decl::Kind)ZigClangDeclFileScopeAsm == clang::Decl::FileSc
 static_assert((clang::Decl::Kind)ZigClangDeclFriend == clang::Decl::Friend, "");
 static_assert((clang::Decl::Kind)ZigClangDeclFriendTemplate == clang::Decl::FriendTemplate, "");
 static_assert((clang::Decl::Kind)ZigClangDeclImport == clang::Decl::Import, "");
+static_assert((clang::Decl::Kind)ZigClangDeclLifetimeExtendedTemporary == clang::Decl::LifetimeExtendedTemporary, "");
 static_assert((clang::Decl::Kind)ZigClangDeclLinkageSpec == clang::Decl::LinkageSpec, "");
 static_assert((clang::Decl::Kind)ZigClangDeclLabel == clang::Decl::Label, "");
 static_assert((clang::Decl::Kind)ZigClangDeclNamespace == clang::Decl::Namespace, "");
