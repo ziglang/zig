@@ -167,3 +167,12 @@ test "nested bitcast" {
     S.foo(42);
     comptime S.foo(42);
 }
+
+test "bitcast passed as tuple element" {
+    const S = struct {
+        fn foo(args: var) void {
+            expect(args[0] == 1.00000e-09);
+        }
+    };
+    S.foo(.{@bitCast(f32, @as(u32, 814313563))});
+}
