@@ -1225,11 +1225,6 @@ pub const cpu = struct {
             .cyclone,
         }),
     };
-    pub const baseline = Cpu{
-        .name = "baseline",
-        .llvm_name = null,
-        .features = featureSet(&[_]Feature{}),
-    };
     pub const cortex_a35 = Cpu{
         .name = "cortex_a35",
         .llvm_name = "cortex-a35",
@@ -1416,7 +1411,6 @@ pub const cpu = struct {
 /// compiler has inefficient memory and CPU usage, affecting build times.
 pub const all_cpus = &[_]*const Cpu{
     &cpu.apple_latest,
-    &cpu.baseline,
     &cpu.cortex_a35,
     &cpu.cortex_a53,
     &cpu.cortex_a55,
