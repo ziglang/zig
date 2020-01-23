@@ -7,7 +7,10 @@ usingnamespace @import("../os/bits.zig");
 
 extern "c" fn __error() *c_int;
 pub extern "c" fn _NSGetExecutablePath(buf: [*]u8, bufsize: *u32) c_int;
+pub extern "c" fn _dyld_image_count() u32;
 pub extern "c" fn _dyld_get_image_header(image_index: u32) ?*mach_header;
+pub extern "c" fn _dyld_get_image_vmaddr_slide(image_index: u32) usize;
+pub extern "c" fn _dyld_get_image_name(image_index: u32) [*:0]const u8;
 
 pub extern "c" fn __getdirentries64(fd: c_int, buf_ptr: [*]u8, buf_len: usize, basep: *i64) isize;
 
