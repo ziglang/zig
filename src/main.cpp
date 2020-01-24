@@ -141,15 +141,15 @@ static int print_libc_usage(const char *arg0, FILE *file, int return_code) {
         "You can save this into a file and then edit the paths to create a cross\n"
         "compilation libc kit. Then you can pass `--libc [file]` for Zig to use it.\n"
         "\n"
-        "When compiling natively and no `--libc` argument provided, Zig automatically\n"
-        "creates zig-cache/native_libc.txt so that it does not have to detect libc\n"
-        "on every invocation. You can remove this file to have Zig re-detect the\n"
-        "native libc.\n"
+        "When compiling natively and no `--libc` argument provided, Zig will create\n"
+        "`%s/native_libc.txt`\n"
+        "so that it does not have to detect libc on every invocation. You can remove\n"
+        "this file to have Zig re-detect the native libc.\n"
         "\n\n"
         "Usage: %s libc [file]\n"
         "\n"
         "Parse a libc installation text file and validate it.\n"
-    , arg0, arg0);
+    , arg0, buf_ptr(get_global_cache_dir()), arg0);
     return return_code;
 }
 
