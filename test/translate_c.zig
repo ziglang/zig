@@ -2615,4 +2615,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return foo((@intCast(c_int, @bitCast(i1, @intCast(u1, @boolToInt(c)))) != @intCast(c_int, @bitCast(i1, @intCast(u1, @boolToInt(b))))));
         \\}
     });
+
+    cases.add("Don't make const parameters mutable",
+        \\int max(const int x, int y) {
+        \\    return (x > y) ? x : y;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(x: c_int, arg_y: c_int) c_int {
+        \\    var y = arg_y;
+        \\    return if (x > y) x else y;
+        \\}
+    });
+            
 }

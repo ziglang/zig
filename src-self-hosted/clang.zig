@@ -768,6 +768,7 @@ pub extern fn ZigClangFieldDecl_getCanonicalDecl(field_decl: ?*const struct_ZigC
 pub extern fn ZigClangEnumDecl_getCanonicalDecl(self: ?*const struct_ZigClangEnumDecl) ?*const struct_ZigClangTagDecl;
 pub extern fn ZigClangTypedefNameDecl_getCanonicalDecl(self: ?*const struct_ZigClangTypedefNameDecl) ?*const struct_ZigClangTypedefNameDecl;
 pub extern fn ZigClangFunctionDecl_getCanonicalDecl(self: ?*const struct_ZigClangFunctionDecl) ?*const struct_ZigClangFunctionDecl;
+pub extern fn ZigClangParmVarDecl_getOriginalType(self: ?*const struct_ZigClangParmVarDecl) struct_ZigClangQualType;
 pub extern fn ZigClangVarDecl_getCanonicalDecl(self: ?*const struct_ZigClangVarDecl) ?*const struct_ZigClangVarDecl;
 pub extern fn ZigClangVarDecl_getSectionAttribute(self: *const ZigClangVarDecl, len: *usize) ?[*]const u8;
 pub extern fn ZigClangFunctionDecl_getAlignedAttribute(self: *const ZigClangFunctionDecl, *const ZigClangASTContext) c_uint;
