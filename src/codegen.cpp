@@ -9787,6 +9787,7 @@ static void prepend_c_type_to_decl_list(CodeGen *g, GenH *gen_h, ZigType *type_e
             zig_unreachable();
         case ZigTypeIdVoid:
         case ZigTypeIdUnreachable:
+            return;
         case ZigTypeIdBool:
             g->c_want_stdbool = true;
             return;
