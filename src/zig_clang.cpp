@@ -1625,7 +1625,7 @@ unsigned ZigClangFunctionDecl_getAlignedAttribute(const struct ZigClangFunctionD
     return 0;
 }
 
-ZigClangQualType ZigClangParmVarDecl_getType(const struct ZigClangParmVarDecl *self) {
+ZigClangQualType ZigClangParmVarDecl_getOriginalType(const struct ZigClangParmVarDecl *self) {
     return bitcast(reinterpret_cast<const clang::ParmVarDecl *>(self)->getOriginalType());
 }
 

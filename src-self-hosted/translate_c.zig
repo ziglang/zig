@@ -502,7 +502,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
         const mangled_param_name = try block_scope.makeMangledName(c, param_name);
 
         const c_param = ZigClangFunctionDecl_getParamDecl(fn_decl, param_id);
-        const qual_type = ZigClangParmVarDecl_getType(c_param);
+        const qual_type = ZigClangParmVarDecl_getOriginalType(c_param);
         const is_const = ZigClangQualType_isConstQualified(qual_type);
 
         const arg_name = blk: {
