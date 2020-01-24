@@ -2,6 +2,7 @@ const std = @import("std");
 
 const debug = std.debug;
 const mem = std.mem;
+const heap = std.heap;
 const json = std.json;
 const expect = std.testing.expect;
 
@@ -117,7 +118,17 @@ pub fn serialize(value: var, jsonStream: var) !void {
     }
 }
 
-pub fn serialize2(value: var, alloc: *mem.Allocator) mem.Allocator.Error!json.Value {
+pub fn serialize2(value: var, alloc: *mem.Allocator) mem.Allocator.Error!json.ValueTree {
+    var arena = heap.ArenaAllocator.init(alloc);
+    errdefer arena.deinit();
+
+    return json.ValueTree{
+        .root = try serialize2Impl(value, &arena.allocator),
+        .arena = arena,
+    };
+}
+
+fn serialize2Impl(value: var, alloc: *mem.Allocator) mem.Allocator.Error!json.Value {
     comptime const valueType = @TypeOf(value);
     comptime const info = @typeInfo(valueType);
 
@@ -147,7 +158,7 @@ pub fn serialize2(value: var, alloc: *mem.Allocator) mem.Allocator.Error!json.Va
             } else {
                 var arr = json.Value{ .Array = json.Array.init(alloc) };
                 for (value) |item, index| {
-                    try arr.Array.append(try serialize2(item, alloc));
+                    try arr.Array.append(try serialize2Impl(item, alloc));
                 }
                 return arr;
             }
@@ -157,17 +168,17 @@ pub fn serialize2(value: var, alloc: *mem.Allocator) mem.Allocator.Error!json.Va
             inline for (structInfo.fields) |field, index| {
                 if (getMaybeDefinedChildType(field.field_type) != null) {
                     if (@field(value, field.name) == .Defined) {
-                        try obj.Object.putNoClobber(field.name, try serialize2(@field(value, field.name).Defined, alloc));
+                        try obj.Object.putNoClobber(field.name, try serialize2Impl(@field(value, field.name).Defined, alloc));
                     }
                 } else {
-                    try obj.Object.putNoClobber(field.name, try serialize2(@field(value, field.name), alloc));
+                    try obj.Object.putNoClobber(field.name, try serialize2Impl(@field(value, field.name), alloc));
                 }
             }
             return obj;
         },
         .Optional => {
             if (value) |notNull| {
-                return try serialize2(notNull, alloc);
+                return try serialize2Impl(notNull, alloc);
             } else {
                 return json.Value{ .Null = {} };
             }
@@ -176,7 +187,7 @@ pub fn serialize2(value: var, alloc: *mem.Allocator) mem.Allocator.Error!json.Va
             if (unionInfo.tag_type) |tagType| {
                 inline for (unionInfo.fields) |field| {
                     if (@enumToInt(@as(tagType, value)) == field.enum_field.?.value) {
-                        return try serialize2(@field(value, field.name), alloc);
+                        return try serialize2Impl(@field(value, field.name), alloc);
                     }
                 }
                 unreachable;
@@ -201,8 +212,29 @@ pub const DeserializeOptions = struct {
     allowExtraFields: bool,
 };
 
+pub fn DeserializeResult(comptime T: type) type {
+    return struct {
+        result: T,
+        arena: heap.ArenaAllocator,
+
+        pub fn deinit(self: *@This()) void {
+            self.arena.deinit();
+        }
+    };
+}
+
 /// Unions are tried to be filled with first matching json.Value type
-pub fn deserialize(comptime T: type, value: json.Value, alloc: *mem.Allocator) DeserializeError!T {
+pub fn deserialize(comptime T: type, value: json.Value, alloc: *mem.Allocator) DeserializeError!DeserializeResult(T) {
+    var arena = heap.ArenaAllocator.init(alloc);
+    errdefer arena.deinit();
+
+    return DeserializeResult(T){
+        .result = try deserializeImpl(T, value, &arena.allocator),
+        .arena = arena,
+    };
+}
+
+fn deserializeImpl(comptime T: type, value: json.Value, alloc: *mem.Allocator) DeserializeError!T {
     comptime const info = @typeInfo(T);
 
     if (T == json.Value) {
@@ -243,7 +275,7 @@ pub fn deserialize(comptime T: type, value: json.Value, alloc: *mem.Allocator) D
                 }
                 var arr: T = try alloc.alloc(ptrInfo.child, value.Array.len);
                 for (value.Array.toSlice()) |item, index| {
-                    arr[index] = try deserialize(ptrInfo.child, item, alloc);
+                    arr[index] = try deserializeImpl(ptrInfo.child, item, alloc);
                 }
                 return arr;
             }
@@ -256,12 +288,12 @@ pub fn deserialize(comptime T: type, value: json.Value, alloc: *mem.Allocator) D
             inline for (structInfo.fields) |field, index| {
                 if (getMaybeDefinedChildType(field.field_type)) |childType| {
                     if (value.Object.getValue(field.name)) |fieldVal| {
-                        @field(obj, field.name) = MaybeDefined(childType){ .Defined = try deserialize(childType, fieldVal, alloc) };
+                        @field(obj, field.name) = MaybeDefined(childType){ .Defined = try deserializeImpl(childType, fieldVal, alloc) };
                     } else {
                         @field(obj, field.name) = MaybeDefined(childType).NotDefined;
                     }
                 } else {
-                    @field(obj, field.name) = try deserialize(field.field_type, value.Object.getValue(field.name) orelse return error.MissingField, alloc);
+                    @field(obj, field.name) = try deserializeImpl(field.field_type, value.Object.getValue(field.name) orelse return error.MissingField, alloc);
                 }
             }
             return obj;
@@ -270,14 +302,14 @@ pub fn deserialize(comptime T: type, value: json.Value, alloc: *mem.Allocator) D
             if (value == .Null) {
                 return null;
             } else {
-                return try deserialize(optionalInfo.child, value, alloc);
+                return try deserializeImpl(optionalInfo.child, value, alloc);
             }
         },
         .Union => |unionInfo| {
             if (unionInfo.tag_type) |_| {
                 inline for (unionInfo.fields) |field| {
                     if (typesMatch(field.field_type, value)) {
-                        const successOrError = deserialize(field.field_type, value, alloc);
+                        const successOrError = deserializeImpl(field.field_type, value, alloc);
 
                         if (successOrError) |success| {
                             return @unionInit(T, field.enum_field.?.name, success);

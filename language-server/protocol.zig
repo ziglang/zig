@@ -12,85 +12,41 @@ pub const LspError = error{
     HeaderFieldTooLong,
     MessageTooLong,
     PrematureEndOfStream,
-    InvalidMessage,
 };
 
-pub const Message = union(enum) {
-    Request: json_rpc.Request,
-    Response: json_rpc.Response,
-};
+pub fn readMessageAlloc(stream: var, alloc: *mem.Allocator) ![]u8 {
+    var jsonLen: ?usize = null;
+    var buffer: [4 * 1024]u8 = undefined;
 
-pub fn MessageReader(comptime Error: type) type {
-    return struct {
-        const Self = @This();
+    while (true) {
+        const line = io.readLineSliceFrom(stream, buffer[0..]) catch |err| switch (err) {
+            error.OutOfMemory => return LspError.HeaderFieldTooLong,
+            else => return err,
+        };
 
-        buffer: std.ArrayList(u8),
-        stream: *Stream,
-        alloc: *mem.Allocator,
-
-        pub const Stream = io.InStream(Error);
-
-        pub fn init(stream: *Stream, alloc: *mem.Allocator) Self {
-            return Self{
-                .stream = stream,
-                .alloc = alloc,
-                .buffer = std.ArrayList(u8).init(alloc),
-            };
+        if (line.len == 0) {
+            break; // end of header
         }
 
-        pub fn deinit(self: *Self) void {
-            self.buffer.deinit();
+        const pos = mem.indexOf(u8, line, ": ") orelse return LspError.InvalidHeader;
+        if (mem.eql(u8, line[0..pos], "Content-Length")) {
+            jsonLen = try std.fmt.parseInt(usize, line[pos + 2 ..], 10);
         }
+    }
 
-        pub fn readMessage(self: *Self) !Message {
-            var jsonLen: ?u32 = null;
+    if (jsonLen == null) {
+        return LspError.InvalidHeader;
+    }
 
-            try self.buffer.resize(4 * 1024);
+    var jsonStr = try alloc.alloc(u8, jsonLen.?);
+    errdefer alloc.free(jsonStr);
 
-            while (true) {
-                const line = try io.readLineSliceFrom(self.stream, self.buffer.toSlice());
-                if (line.len == 0) {
-                    break;
-                }
+    const bytesRead = try stream.read(jsonStr);
+    if (bytesRead != jsonLen.?) {
+        return LspError.PrematureEndOfStream;
+    }
 
-                const pos = mem.indexOf(u8, line, ": ") orelse return LspError.InvalidHeader;
-                if (mem.eql(u8, line[0..pos], "Content-Length")) {
-                    jsonLen = try std.fmt.parseInt(u32, line[pos + 2 ..], 10);
-                }
-            }
-
-            if (jsonLen == null) {
-                return LspError.InvalidHeader;
-            }
-
-            try self.buffer.resize(jsonLen.?);
-
-            const bytesRead = try self.stream.read(self.buffer.toSlice());
-            if (bytesRead != jsonLen.?) {
-                return LspError.PrematureEndOfStream;
-            }
-
-            var parser = json.Parser.init(self.alloc, true);
-            defer parser.deinit();
-
-            var tree = try parser.parse(self.buffer.toSlice());
-            errdefer tree.deinit();
-
-            if (tree.root == .Object and tree.root.Object.contains("method")) {
-                const request = try serial.deserialize(json_rpc.Request, tree.root, self.alloc);
-                if (!request.validate()) {
-                    return error.InvalidMessage;
-                }
-                return Message{ .Request = request };
-            } else {
-                const response = try serial.deserialize(json_rpc.Response, tree.root, self.alloc);
-                if (!response.validate()) {
-                    return error.InvalidMessage;
-                }
-                return Message{ .Response = response };
-            }
-        }
-    };
+    return jsonStr;
 }
 
 pub fn MessageWriter(comptime Error: type) type {

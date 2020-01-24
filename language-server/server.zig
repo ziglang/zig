@@ -81,15 +81,17 @@ pub const Server = struct {
     pub fn onInitialized(self: *Self, req: json_rpc.Request) MethodError!void {}
 
     pub fn onTextDocumentDidOpen(self: *Self, req: json_rpc.Request) !void {
-        const params = serial.deserialize(types.DidOpenTextDocumentParams, req.params, self.alloc) catch return MethodError.InvalidParams;
+        var deserialized = serial.deserialize(types.DidOpenTextDocumentParams, req.params, self.alloc) catch return MethodError.InvalidParams;
+        defer deserialized.deinit();
+        const params = deserialized.result;
 
         const document = TextDocument{
-            .uri = params.textDocument.uri,
-            .text = params.textDocument.text,
+            .uri = try mem.dupe(self.alloc, u8, params.textDocument.uri),
+            .text = try mem.dupe(self.alloc, u8, params.textDocument.text),
         };
 
-        const alreadyThere = try self.documents.put(params.textDocument.uri, document);
-        if(alreadyThere != null){
+        const alreadyThere = try self.documents.put(document.uri, document);
+        if (alreadyThere != null) {
             return MethodError.InvalidParams;
         }
 
@@ -97,22 +99,27 @@ pub const Server = struct {
     }
 
     pub fn onTextDocumentDidChange(self: *Self, req: json_rpc.Request) !void {
-        const params = serial.deserialize(types.DidChangeTextDocumentParams, req.params, self.alloc) catch return MethodError.InvalidParams;
+        var deserialized = serial.deserialize(types.DidChangeTextDocumentParams, req.params, self.alloc) catch return MethodError.InvalidParams;
+        defer deserialized.deinit();
+        const params = deserialized.result;
 
-        const document = TextDocument{
-            .uri = params.textDocument.uri,
-            .text = params.contentChanges[0].text,
-        };
+        var entry = self.documents.get(params.textDocument.uri) orelse return MethodError.InvalidParams;
+        self.alloc.free(entry.*.value.text);
+        entry.*.value.text = try mem.dupe(self.alloc, u8, params.contentChanges[0].text);
 
-        (self.documents.get(params.textDocument.uri) orelse return MethodError.InvalidParams).value = document;
-
-        try self.publishDiagnostics(document);
+        try self.publishDiagnostics(entry.*.value);
     }
 
     pub fn onTextDocumentDidClose(self: *Self, req: json_rpc.Request) !void {
-        const params = serial.deserialize(types.DidCloseTextDocumentParams, req.params, self.alloc) catch return MethodError.InvalidParams;
+        var deserialized = serial.deserialize(types.DidCloseTextDocumentParams, req.params, self.alloc) catch return MethodError.InvalidParams;
+        defer deserialized.deinit();
+        const params = deserialized.result;
 
-        if(self.documents.remove(params.textDocument.uri) == null){
+        var maybeEntry = self.documents.remove(params.textDocument.uri);
+        if (maybeEntry) |entry| {
+            self.alloc.free(entry.value.uri);
+            self.alloc.free(entry.value.text);
+        } else {
             return MethodError.InvalidParams;
         }
     }
@@ -158,15 +165,20 @@ pub const Server = struct {
             .diagnostics = diagnostics,
         };
 
+        var resultTree = try serial.serialize2(outParam, self.alloc);
+        defer resultTree.deinit();
+
         var request = json_rpc.Request{
             .method = "textDocument/publishDiagnostics",
-            .params = try serial.serialize2(outParam, self.alloc),
+            .params = resultTree.root,
         };
         try self.msgWrite.writeRequest(request);
     }
 
     pub fn onTextDocumentCompletion(self: *Self, req: json_rpc.Request) !void {
-        const params = serial.deserialize(types.CompletionParams, req.params, self.alloc) catch return MethodError.InvalidParams;
+        var deserialized = serial.deserialize(types.CompletionParams, req.params, self.alloc) catch return MethodError.InvalidParams;
+        defer deserialized.deinit();
+        const params = deserialized.result;
 
         const document = (self.documents.getValue(params.textDocument.uri) orelse return MethodError.InvalidParams);
 
@@ -198,9 +210,12 @@ pub const Server = struct {
                     };
                 }
 
+                var tree = try serial.serialize2(items[0..], self.alloc);
+                defer tree.deinit();
+
                 var response = json_rpc.Response{
                     .id = req.id.Defined, // TODO check
-                    .result = .{ .Defined = try serial.serialize2(items[0..], self.alloc) },
+                    .result = .{ .Defined = tree.root },
                 };
                 try self.msgWrite.writeResponse(response);
                 return;
@@ -216,13 +231,12 @@ pub const Server = struct {
 };
 
 pub fn main() !void {
-    const heap = std.heap.page_allocator;
+    var failingAlloc = std.debug.FailingAllocator.init(std.heap.page_allocator, 10000000000);
+    const heap = &failingAlloc.allocator;
+    // const heap = std.heap.page_allocator;
 
     var in = io.getStdIn().inStream();
     var out = io.getStdOut().outStream();
-
-    var msgReader = protocol.MessageReader(std.fs.File.ReadError).init(&in.stream, heap);
-    defer msgReader.deinit();
 
     var msgWrite = protocol.MessageWriter(std.fs.File.WriteError).init(&out.stream, heap);
 
@@ -240,10 +254,25 @@ pub fn main() !void {
     try dispatcher.register("textDocument/completion", Server.onTextDocumentCompletion);
 
     while (true) {
-        const message = try msgReader.readMessage();
+        debug.warn("mem: {}\n", .{failingAlloc.allocated_bytes - failingAlloc.freed_bytes});
+        const message = try protocol.readMessageAlloc(&in.stream, heap);
+        defer heap.free(message);
 
-        dispatcher.dispatch(message.Request) catch |err| {
-            debug.warn("{}", .{err});
+        var parser = json.Parser.init(heap, false);
+        defer parser.deinit();
+
+        var tree = try parser.parse(message);
+        defer tree.deinit();
+
+        var request = try serial.deserialize(json_rpc.Request, tree.root, heap);
+        defer request.deinit();
+
+        if (!request.result.validate()) {
+            return error.InvalidMessage;
+        }
+
+        dispatcher.dispatch(request.result) catch |err| {
+            debug.warn("{}\n", .{err});
         };
     }
 }
