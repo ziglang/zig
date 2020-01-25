@@ -127,14 +127,14 @@ pub const Header = packed struct {
 /// sequence of labels: first "www", then "google", then "com", with a length
 /// prefix for all of them, ending in a null byte.
 ///
-/// Keep in mind DNSName's are not singularly deserializeable, as the names
+/// Keep in mind Name's are not singularly deserializeable, as the names
 /// could be pointers to different bytes in the packet.
 /// (RFC1035, section 4.1.4 Message Compression)
-pub const DNSName = struct {
+pub const Name = struct {
     /// The name's labels.
     labels: [][]const u8,
 
-    /// Returns the total size in bytes of the DNSName as if it was sent
+    /// Returns the total size in bytes of the Name as if it was sent
     /// over a socket.
     pub fn size(self: @This()) usize {
         // by default, add the null octet at the end of it
@@ -149,13 +149,13 @@ pub const DNSName = struct {
         return total_size;
     }
 
-    /// Convert a DNSName to a human-friendly domain name.
+    /// Convert a Name to a human-friendly domain name.
     /// Does not add a period to the end of it.
     pub fn toStr(self: @This(), allocator: *Allocator) ![]u8 {
         return try std.mem.join(allocator, ".", self.labels);
     }
 
-    /// Get a DNSName out of a domain name ("www.google.com", for example).
+    /// Get a Name out of a domain name ("www.google.com", for example).
     pub fn fromString(allocator: *Allocator, domain: []const u8) !@This() {
         if (domain.len > 255) return error.Overflow;
 
@@ -175,7 +175,7 @@ pub const DNSName = struct {
             labels[labels_idx] = label;
         }
 
-        return DNSName{ .labels = labels[0..] };
+        return Name{ .labels = labels[0..] };
     }
 
     pub fn serialize(self: @This(), serializer: var) !void {
@@ -212,7 +212,7 @@ pub const DNSName = struct {
 
 /// Represents a DNS question sent on the packet's question list.
 pub const Question = struct {
-    qname: DNSName,
+    qname: Name,
     qtype: Type,
     qclass: Class,
 };
@@ -220,7 +220,7 @@ pub const Question = struct {
 /// Represents a single DNS resource. Appears on the answer, authority,
 /// and additional lists of the packet.
 pub const Resource = struct {
-    name: DNSName,
+    name: Name,
 
     rr_type: Type,
     class: Class,
@@ -257,7 +257,7 @@ pub const Resource = struct {
 };
 
 /// Represents a Label if it is a pointer to a set of labels OR a single label.
-/// DNSName's, by RFC1035 can appear in three ways (in binary form):
+/// Name's, by RFC1035 can appear in three ways (in binary form):
 ///  - As a set of labels, ending with a null byte.
 ///  - As a set of labels, with a pointer to another set of labels,
 ///     ending with null.
@@ -441,11 +441,11 @@ pub const Packet = struct {
         return null;
     }
 
-    /// Deserializes a DNSName, which represents a slice of slice of u8 ([][]u8)
+    /// Deserializes a Name, which represents a slice of slice of u8 ([][]u8)
     pub fn deserializeName(
         self: *Self,
         deserial: *DNSDeserializer,
-    ) (Error || Allocator.Error)!DNSName {
+    ) (Error || Allocator.Error)!Name {
 
         // Removing this causes the compiler to send a
         // 'error: recursive function cannot be async'
@@ -467,7 +467,7 @@ pub const Packet = struct {
                 switch (denulled_label) {
                     .Pointer => |label_ptr| {
                         if (labels_idx == 0) {
-                            return DNSName{ .labels = label_ptr };
+                            return Name{ .labels = label_ptr };
                         } else {
                             // in here we have an existing label in the labels slice, e.g "leah",
                             // and then label_ptr points to a [][]const u8, e.g
@@ -484,7 +484,7 @@ pub const Packet = struct {
                                 }
                             }
 
-                            return DNSName{ .labels = labels };
+                            return Name{ .labels = labels };
                         }
                     },
                     .Label => |label_val| labels[labels_idx] = label_val,
@@ -497,7 +497,7 @@ pub const Packet = struct {
             labels_idx += 1;
         }
 
-        return DNSName{ .labels = labels };
+        return Name{ .labels = labels };
     }
 
     /// (almost) Deserialize an RDATA section. This only deserializes to a slice of u8.
@@ -549,7 +549,7 @@ pub const Packet = struct {
     pub fn deserialize(self: *Self, deserializer: var) !void {
         self.header = try deserializer.deserialize(Header);
 
-        // deserialize our questions, but since they contain DNSName,
+        // deserialize our questions, but since they contain Name,
         // the deserialization is messier than what it should be..
 
         var i: usize = 0;

@@ -15,7 +15,7 @@ test "convert domain string to dns name" {
     const allocator = &arena.allocator;
 
     const domain = "www.google.com";
-    var name = try dns.DNSName.fromString(allocator, domain[0..]);
+    var name = try dns.Name.fromString(allocator, domain[0..]);
     std.debug.assert(name.labels.len == 3);
     testing.expect(std.mem.eql(u8, name.labels[0], "www"));
     testing.expect(std.mem.eql(u8, name.labels[1], "google"));
@@ -151,7 +151,7 @@ test "serialization of google.com/A (question)" {
     pkt.header.rd = true;
     pkt.header.z = 2;
 
-    var qname = try dns.DNSName.fromString(allocator, "google.com");
+    var qname = try dns.Name.fromString(allocator, "google.com");
 
     try pkt.addQuestion(dns.Question{ .qname = qname, .qtype = .A, .qclass = .IN });
 
@@ -191,7 +191,7 @@ test "size() methods are good" {
     defer arena.deinit();
     const allocator = &arena.allocator;
 
-    var name = try dns.DNSName.fromString(allocator, "example.com");
+    var name = try dns.Name.fromString(allocator, "example.com");
 
     // length + data + length + data + null
     testing.expectEqual(@as(usize, 1 + 7 + 1 + 3 + 1), name.size());
@@ -222,7 +222,7 @@ test "rdata serialization" {
     pkt.header.rd = true;
     pkt.header.z = 2;
 
-    var name = try dns.DNSName.fromString(allocator, "google.com");
+    var name = try dns.Name.fromString(allocator, "google.com");
     var pkt_rdata = dns.rdata.DNSRData{
         .A = try std.net.Address.parseIp4("127.0.0.1", 0),
     };

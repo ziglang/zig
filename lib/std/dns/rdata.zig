@@ -9,8 +9,8 @@ const OutError = io.SliceOutStream.Error;
 const Type = dns.Type;
 
 pub const SOAData = struct {
-    mname: dns.DNSName,
-    rname: dns.DNSName,
+    mname: dns.Name,
+    rname: dns.Name,
     serial: u32,
     refresh: u32,
     retry: u32,
@@ -20,14 +20,14 @@ pub const SOAData = struct {
 
 pub const MXData = struct {
     preference: u16,
-    exchange: dns.DNSName,
+    exchange: dns.Name,
 };
 
 pub const SRVData = struct {
     priority: u16,
     weight: u16,
     port: u16,
-    target: dns.DNSName,
+    target: dns.Name,
 };
 
 /// DNS RDATA representation to a "native-r" type for nicer usage.
@@ -35,15 +35,15 @@ pub const DNSRData = union(Type) {
     A: std.net.Address,
     AAAA: std.net.Address,
 
-    NS: dns.DNSName,
-    MD: dns.DNSName,
-    MF: dns.DNSName,
-    CNAME: dns.DNSName,
+    NS: dns.Name,
+    MD: dns.Name,
+    MF: dns.Name,
+    CNAME: dns.Name,
     SOA: SOAData,
 
-    MB: dns.DNSName,
-    MG: dns.DNSName,
-    MR: dns.DNSName,
+    MB: dns.Name,
+    MG: dns.Name,
+    MR: dns.Name,
 
     // ????
     NULL: void,
@@ -54,16 +54,16 @@ pub const DNSRData = union(Type) {
         proto: u8,
         // how to define bit map? align(8)?
     },
-    PTR: dns.DNSName,
+    PTR: dns.Name,
 
-    // TODO replace by DNSName?
+    // TODO replace by Name?
     HINFO: struct {
         cpu: []const u8,
         os: []const u8,
     },
     MINFO: struct {
-        rmailbx: dns.DNSName,
-        emailbx: dns.DNSName,
+        rmailbx: dns.Name,
+        emailbx: dns.Name,
     },
     MX: MXData,
     TXT: [][]const u8,
