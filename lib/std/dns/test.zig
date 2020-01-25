@@ -88,8 +88,8 @@ test "deserialization of original google.com/A" {
     const question = pkt.questions.at(0);
 
     expectGoogleLabels(question.qname.labels);
-    std.testing.expectEqual(question.qtype, dns.DNSType.A);
-    std.testing.expectEqual(question.qclass, dns.DNSClass.IN);
+    std.testing.expectEqual(question.qtype, dns.Type.A);
+    std.testing.expectEqual(question.qclass, dns.Class.IN);
 }
 
 test "deserialization of reply google.com/A" {
@@ -108,18 +108,18 @@ test "deserialization of reply google.com/A" {
     var question = pkt.questions.at(0);
 
     expectGoogleLabels(question.qname.labels);
-    testing.expectEqual(dns.DNSType.A, question.qtype);
-    testing.expectEqual(dns.DNSClass.IN, question.qclass);
+    testing.expectEqual(dns.Type.A, question.qtype);
+    testing.expectEqual(dns.Class.IN, question.qclass);
 
     var answer = pkt.answers.at(0);
 
     expectGoogleLabels(answer.name.labels);
-    testing.expectEqual(dns.DNSType.A, answer.rr_type);
-    testing.expectEqual(dns.DNSClass.IN, answer.class);
+    testing.expectEqual(dns.Type.A, answer.rr_type);
+    testing.expectEqual(dns.Class.IN, answer.class);
     testing.expectEqual(@as(i32, 300), answer.ttl);
 
     var answer_rdata = try rdata.deserializeRData(pkt, answer);
-    testing.expectEqual(dns.DNSType.A, @as(dns.DNSType, answer_rdata));
+    testing.expectEqual(dns.Type.A, @as(dns.Type, answer_rdata));
 
     const addr = @ptrCast(*[4]u8, &answer_rdata.A.in.addr).*;
     testing.expectEqual(@as(u8, 216), addr[0]);
@@ -182,8 +182,8 @@ fn deserialTest(allocator: *Allocator, buf: []u8) !Packet {
 }
 
 test "convert string to dns type" {
-    var parsed = try dns.DNSType.fromStr("AAAA");
-    testing.expectEqual(dns.DNSType.AAAA, parsed);
+    var parsed = try dns.Type.fromStr("AAAA");
+    testing.expectEqual(dns.Type.AAAA, parsed);
 }
 
 test "size() methods are good" {

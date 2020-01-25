@@ -6,7 +6,7 @@ const fmt = std.fmt;
 const dns = std.dns;
 const InError = io.SliceInStream.Error;
 const OutError = io.SliceOutStream.Error;
-const DNSType = dns.DNSType;
+const Type = dns.Type;
 
 pub const SOAData = struct {
     mname: dns.DNSName,
@@ -31,7 +31,7 @@ pub const SRVData = struct {
 };
 
 /// DNS RDATA representation to a "native-r" type for nicer usage.
-pub const DNSRData = union(dns.DNSType) {
+pub const DNSRData = union(Type) {
     A: std.net.Address,
     AAAA: std.net.Address,
 

@@ -12,7 +12,7 @@ pub const ResourceList = std.ArrayList(Resource);
 const InError = std.io.SliceInStream.Error;
 pub const DNSDeserializer = std.io.Deserializer(.Big, .Bit, InError);
 pub const Error = error{
-    UnknownDNSType,
+    UnknownType,
     RDATANotSupported,
     DeserialFail,
     ParseFail,
@@ -30,7 +30,7 @@ pub const ResponseCode = enum(u4) {
 
 /// Represents a DNS type.
 /// Keep in mind this enum does not declare all possible DNS types.
-pub const DNSType = enum(u16) {
+pub const Type = enum(u16) {
     A = 1,
     NS = 2,
     MD = 3,
@@ -63,17 +63,17 @@ pub const DNSType = enum(u16) {
     // trying to get it non-exhaustive gives "TODO @tagName on non-exhaustive enum https://github.com/ziglang/zig/issues/3991"
     //_,
 
-    /// Convert a given string to an integer representing a DNSType.
-    pub fn fromStr(str: []const u8) !DNSType {
+    /// Convert a given string to an integer representing a Type.
+    pub fn fromStr(str: []const u8) !@This() {
         if (str.len > 10) return error.Overflow;
 
         var uppercased: [10]u8 = undefined;
         toUpper(str, uppercased[0..]);
 
-        const type_info = @typeInfo(DNSType).Enum;
+        const type_info = @typeInfo(@This()).Enum;
         inline for (type_info.fields) |field| {
             if (mem.eql(u8, uppercased[0..str.len], field.name)) {
-                return @intToEnum(DNSType, field.value);
+                return @intToEnum(@This(), field.value);
             }
         }
 
@@ -81,7 +81,7 @@ pub const DNSType = enum(u16) {
     }
 };
 
-pub const DNSClass = enum(u16) {
+pub const Class = enum(u16) {
     IN = 1,
     CS = 2,
     CH = 3,
@@ -213,8 +213,8 @@ pub const DNSName = struct {
 /// Represents a DNS question sent on the packet's question list.
 pub const Question = struct {
     qname: DNSName,
-    qtype: DNSType,
-    qclass: DNSClass,
+    qtype: Type,
+    qclass: Class,
 };
 
 /// Represents a single DNS resource. Appears on the answer, authority,
@@ -222,8 +222,8 @@ pub const Question = struct {
 pub const Resource = struct {
     name: DNSName,
 
-    rr_type: DNSType,
-    class: DNSClass,
+    rr_type: Type,
+    class: Class,
     ttl: i32,
 
     /// Use the dns.rdata module to interprete a resource's RDATA.
@@ -536,8 +536,8 @@ pub const Packet = struct {
 
             var resource = Resource{
                 .name = name,
-                .rr_type = @intToEnum(DNSType, rr_type),
-                .class = @intToEnum(DNSClass, class),
+                .rr_type = @intToEnum(Type, rr_type),
+                .class = @intToEnum(Class, class),
                 .ttl = ttl,
                 .opaque_rdata = opaque_rdata,
             };
@@ -561,8 +561,8 @@ pub const Packet = struct {
 
             var question = Question{
                 .qname = name,
-                .qtype = @intToEnum(DNSType, qtype),
-                .qclass = @intToEnum(DNSClass, qclass),
+                .qtype = @intToEnum(Type, qtype),
+                .qclass = @intToEnum(Class, qclass),
             };
 
             try self.questions.append(question);
