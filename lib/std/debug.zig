@@ -1377,9 +1377,13 @@ pub const DwarfInfo = struct {
             if (compile_unit.pc_range) |range| {
                 if (target_address >= range.start and target_address < range.end) return compile_unit;
             }
-            if (compile_unit.die.getAttrSecOffset(DW.AT_ranges)) |ranges_offset| {
-                var base_address: usize = 0;
-                if (di.debug_ranges) |debug_ranges| {
+            if (di.debug_ranges) |debug_ranges| {
+                if (compile_unit.die.getAttrSecOffset(DW.AT_ranges)) |ranges_offset| {
+                    // All the addresses in the list are relative to the value
+                    // specified by DW_AT_low_pc or to some other value encoded
+                    // in the list itself
+                    var base_address = try compile_unit.die.getAttrAddr(DW.AT_low_pc);
+
                     try di.dwarf_seekable_stream.seekTo(debug_ranges.offset + ranges_offset);
                     while (true) {
                         const begin_addr = try di.dwarf_in_stream.readIntLittle(usize);
@@ -1387,18 +1391,21 @@ pub const DwarfInfo = struct {
                         if (begin_addr == 0 and end_addr == 0) {
                             break;
                         }
+                        // This entry selects a new value for the base address
                         if (begin_addr == maxInt(usize)) {
-                            base_address = begin_addr;
+                            base_address = end_addr;
                             continue;
                         }
-                        if (target_address >= begin_addr and target_address < end_addr) {
+                        if (target_address >= base_address + begin_addr and target_address < base_address + end_addr) {
                             return compile_unit;
                         }
                     }
+
+                    return error.InvalidDebugInfo;
+                } else |err| {
+                    if (err != error.MissingDebugInfo) return err;
+                    continue;
                 }
-            } else |err| {
-                if (err != error.MissingDebugInfo) return err;
-                continue;
             }
         }
         return error.MissingDebugInfo;
