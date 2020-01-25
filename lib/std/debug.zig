@@ -1478,7 +1478,8 @@ pub const DwarfInfo = struct {
 
         assert(line_info_offset < di.debug_line.size);
 
-        try di.dwarf_seekable_stream.seekTo(di.debug_line.offset + line_info_offset);
+        const this_unit_offset = di.debug_line.offset + line_info_offset;
+        try di.dwarf_seekable_stream.seekTo(this_unit_offset);
 
         var is_64: bool = undefined;
         const unit_length = try readInitialLength(@TypeOf(di.dwarf_in_stream.readFn).ReturnType.ErrorSet, di.dwarf_in_stream, &is_64);
@@ -1546,7 +1547,9 @@ pub const DwarfInfo = struct {
 
         try di.dwarf_seekable_stream.seekTo(prog_start_offset);
 
-        while (true) {
+        const next_unit_pos = this_unit_offset + next_offset;
+
+        while ((try di.dwarf_seekable_stream.getPos()) < next_unit_pos) {
             const opcode = try di.dwarf_in_stream.readByte();
 
             if (opcode == DW.LNS_extended_op) {
@@ -1557,7 +1560,7 @@ pub const DwarfInfo = struct {
                     DW.LNE_end_sequence => {
                         prog.end_sequence = true;
                         if (try prog.checkLineMatch()) |info| return info;
-                        return error.MissingDebugInfo;
+                        prog.reset();
                     },
                     DW.LNE_set_address => {
                         const addr = try di.dwarf_in_stream.readInt(usize, di.endian);
@@ -1814,6 +1817,7 @@ const LineNumberProgram = struct {
     basic_block: bool,
     end_sequence: bool,
 
+    default_is_stmt: bool,
     target_address: usize,
     include_dirs: []const []const u8,
     file_entries: *ArrayList(FileEntry),
@@ -1826,6 +1830,25 @@ const LineNumberProgram = struct {
     prev_basic_block: bool,
     prev_end_sequence: bool,
 
+    // Reset the state machine following the DWARF specification
+    pub fn reset(self: *LineNumberProgram) void {
+        self.address = 0;
+        self.file = 1;
+        self.line = 1;
+        self.column = 0;
+        self.is_stmt = self.default_is_stmt;
+        self.basic_block = false;
+        self.end_sequence = false;
+        // Invalidate all the remaining fields
+        self.prev_address = 0;
+        self.prev_file = undefined;
+        self.prev_line = undefined;
+        self.prev_column = undefined;
+        self.prev_is_stmt = undefined;
+        self.prev_basic_block = undefined;
+        self.prev_end_sequence = undefined;
+    }
+
     pub fn init(is_stmt: bool, include_dirs: []const []const u8, file_entries: *ArrayList(FileEntry), target_address: usize) LineNumberProgram {
         return LineNumberProgram{
             .address = 0,
@@ -1837,6 +1860,7 @@ const LineNumberProgram = struct {
             .end_sequence = false,
             .include_dirs = include_dirs,
             .file_entries = file_entries,
+            .default_is_stmt = is_stmt,
             .target_address = target_address,
             .prev_address = 0,
             .prev_file = undefined,
