@@ -191,7 +191,7 @@ static void generate_error_name_table(CodeGen *g);
 static bool value_is_all_undef(CodeGen *g, ZigValue *const_val);
 static void gen_undef_init(CodeGen *g, uint32_t ptr_align_bytes, ZigType *value_type, LLVMValueRef ptr);
 static LLVMValueRef build_alloca(CodeGen *g, ZigType *type_entry, const char *name, uint32_t alignment);
-static LLVMValueRef gen_await_early_return(CodeGen *g, IrInstruction *source_instr,
+static LLVMValueRef gen_await_early_return(CodeGen *g, IrInstGen *source_instr,
         LLVMValueRef target_frame_ptr, ZigType *result_type, ZigType *ptr_result_type,
         LLVMValueRef result_loc, bool non_async);
 static Error get_tmp_filename(CodeGen *g, Buf *out, Buf *suffix);
@@ -877,14 +877,14 @@ static LLVMValueRef get_handle_value(CodeGen *g, LLVMValueRef ptr, ZigType *type
     }
 }
 
-static void ir_assert(bool ok, IrInstruction *source_instruction) {
+static void ir_assert(bool ok, IrInstGen *source_instruction) {
     if (ok) return;
-    src_assert(ok, source_instruction->source_node);
+    src_assert(ok, source_instruction->base.source_node);
 }
 
-static bool ir_want_fast_math(CodeGen *g, IrInstruction *instruction) {
+static bool ir_want_fast_math(CodeGen *g, IrInstGen *instruction) {
     // TODO memoize
-    Scope *scope = instruction->scope;
+    Scope *scope = instruction->base.scope;
     while (scope) {
         if (scope->id == ScopeIdBlock) {
             ScopeBlock *block_scope = (ScopeBlock *)scope;
@@ -919,8 +919,8 @@ static bool ir_want_runtime_safety_scope(CodeGen *g, Scope *scope) {
             g->build_mode != BuildModeSmallRelease);
 }
 
-static bool ir_want_runtime_safety(CodeGen *g, IrInstruction *instruction) {
-    return ir_want_runtime_safety_scope(g, instruction->scope);
+static bool ir_want_runtime_safety(CodeGen *g, IrInstGen *instruction) {
+    return ir_want_runtime_safety_scope(g, instruction->base.scope);
 }
 
 static Buf *panic_msg_buf(PanicMsgId msg_id) {
@@ -1046,8 +1046,8 @@ static void gen_assertion_scope(CodeGen *g, PanicMsgId msg_id, Scope *source_sco
     }
 }
 
-static void gen_assertion(CodeGen *g, PanicMsgId msg_id, IrInstruction *source_instruction) {
-    return gen_assertion_scope(g, msg_id, source_instruction->scope);
+static void gen_assertion(CodeGen *g, PanicMsgId msg_id, IrInstGen *source_instruction) {
+    return gen_assertion_scope(g, msg_id, source_instruction->base.scope);
 }
 
 static LLVMValueRef get_stacksave_fn_val(CodeGen *g) {
@@ -1761,7 +1761,7 @@ static void gen_var_debug_decl(CodeGen *g, ZigVar *var) {
             LLVMGetInsertBlock(g->builder));
 }
 
-static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
+static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstGen *instruction) {
     Error err;
 
     bool value_has_bits;
@@ -1772,8 +1772,8 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
         return nullptr;
 
     if (!instruction->llvm_value) {
-        if (instruction->id == IrInstructionIdAwaitGen) {
-            IrInstructionAwaitGen *await = reinterpret_cast<IrInstructionAwaitGen*>(instruction);
+        if (instruction->id == IrInstGenIdAwait) {
+            IrInstGenAwait *await = reinterpret_cast<IrInstGenAwait*>(instruction);
             if (await->result_loc != nullptr) {
                 return get_handle_value(g, ir_llvm_value(g, await->result_loc),
                     await->result_loc->value->type->data.pointer.child_type, await->result_loc->value->type);
@@ -1856,9 +1856,9 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
         case FnWalkIdCall: {
             if (src_i >= fn_walk->data.call.inst->arg_count)
                 return false;
-            IrInstruction *arg = fn_walk->data.call.inst->args[src_i];
+            IrInstGen *arg = fn_walk->data.call.inst->args[src_i];
             ty = arg->value->type;
-            source_node = arg->source_node;
+            source_node = arg->base.source_node;
             val = ir_llvm_value(g, arg);
             break;
         }
@@ -2091,10 +2091,10 @@ void walk_function_params(CodeGen *g, ZigType *fn_type, FnWalk *fn_walk) {
         return;
     }
     if (fn_walk->id == FnWalkIdCall) {
-        IrInstructionCallGen *instruction = fn_walk->data.call.inst;
+        IrInstGenCall *instruction = fn_walk->data.call.inst;
         bool is_var_args = fn_walk->data.call.is_var_args;
         for (size_t call_i = 0; call_i < instruction->arg_count; call_i += 1) {
-            IrInstruction *param_instruction = instruction->args[call_i];
+            IrInstGen *param_instruction = instruction->args[call_i];
             ZigType *param_type = param_instruction->value->type;
             if (is_var_args || type_has_bits(param_type)) {
                 LLVMValueRef param_value = ir_llvm_value(g, param_instruction);
@@ -2309,14 +2309,14 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
     return fn_val;
 
 }
-static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *executable,
-        IrInstructionSaveErrRetAddr *save_err_ret_addr_instruction)
+static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenSaveErrRetAddr *save_err_ret_addr_instruction)
 {
     assert(g->have_err_ret_tracing);
 
     LLVMValueRef return_err_fn = get_return_err_fn(g);
     bool is_llvm_alloca;
-    LLVMValueRef my_err_trace_val = get_cur_err_ret_trace_val(g, save_err_ret_addr_instruction->base.scope,
+    LLVMValueRef my_err_trace_val = get_cur_err_ret_trace_val(g, save_err_ret_addr_instruction->base.base.scope,
             &is_llvm_alloca);
     ZigLLVMBuildCall(g->builder, return_err_fn, &my_err_trace_val, 1,
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAuto, "");
@@ -2331,7 +2331,7 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
     return nullptr;
 }
 
-static void gen_assert_resume_id(CodeGen *g, IrInstruction *source_instr, ResumeId resume_id, PanicMsgId msg_id,
+static void gen_assert_resume_id(CodeGen *g, IrInstGen *source_instr, ResumeId resume_id, PanicMsgId msg_id,
         LLVMBasicBlockRef end_bb)
 {
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
@@ -2408,7 +2408,7 @@ static LLVMValueRef gen_maybe_atomic_op(CodeGen *g, LLVMAtomicRMWBinOp op, LLVMV
     }
 }
 
-static void gen_async_return(CodeGen *g, IrInstructionReturn *instruction) {
+static void gen_async_return(CodeGen *g, IrInstGenReturn *instruction) {
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
 
     ZigType *operand_type = (instruction->operand != nullptr) ? instruction->operand->value->type : nullptr;
@@ -2487,7 +2487,7 @@ static void gen_async_return(CodeGen *g, IrInstructionReturn *instruction) {
                     frame_index_trace_arg(g, ret_type) + 1, "");
             LLVMValueRef dest_trace_ptr = LLVMBuildLoad(g->builder, awaiter_trace_ptr_ptr, "");
             bool is_llvm_alloca;
-            LLVMValueRef my_err_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope, &is_llvm_alloca);
+            LLVMValueRef my_err_trace_val = get_cur_err_ret_trace_val(g, instruction->base.base.scope, &is_llvm_alloca);
             LLVMValueRef args[] = { dest_trace_ptr, my_err_trace_val };
             ZigLLVMBuildCall(g->builder, get_merge_err_ret_traces_fn_val(g), args, 2,
                     get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAuto, "");
@@ -2502,7 +2502,7 @@ static void gen_async_return(CodeGen *g, IrInstructionReturn *instruction) {
     LLVMBuildRetVoid(g->builder);
 }
 
-static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *instruction) {
+static LLVMValueRef ir_render_return(CodeGen *g, IrExecutableGen *executable, IrInstGenReturn *instruction) {
     if (fn_is_async(g->cur_fn)) {
         gen_async_return(g, instruction);
         return nullptr;
@@ -2843,12 +2843,12 @@ static LLVMValueRef gen_rem(CodeGen *g, bool want_runtime_safety, bool want_fast
 
 }
 
-static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
-        IrInstructionBinOp *bin_op_instruction)
+static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenBinOp *bin_op_instruction)
 {
     IrBinOp op_id = bin_op_instruction->op_id;
-    IrInstruction *op1 = bin_op_instruction->op1;
-    IrInstruction *op2 = bin_op_instruction->op2;
+    IrInstGen *op1 = bin_op_instruction->op1;
+    IrInstGen *op2 = bin_op_instruction->op2;
 
     ZigType *operand_type = op1->value->type;
     ZigType *scalar_type = (operand_type->id == ZigTypeIdVector) ? operand_type->data.vector.elem_type : operand_type;
@@ -3053,8 +3053,8 @@ static void add_error_range_check(CodeGen *g, ZigType *err_set_type, ZigType *in
     }
 }
 
-static LLVMValueRef ir_render_resize_slice(CodeGen *g, IrExecutable *executable,
-        IrInstructionResizeSlice *instruction)
+static LLVMValueRef ir_render_resize_slice(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenResizeSlice *instruction)
 {
     ZigType *actual_type = instruction->operand->value->type;
     ZigType *wanted_type = instruction->base.value->type;
@@ -3121,8 +3121,8 @@ static LLVMValueRef ir_render_resize_slice(CodeGen *g, IrExecutable *executable,
     return result_loc;
 }
 
-static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
-        IrInstructionCast *cast_instruction)
+static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenCast *cast_instruction)
 {
     ZigType *actual_type = cast_instruction->value->value->type;
     ZigType *wanted_type = cast_instruction->base.value->type;
@@ -3199,8 +3199,8 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
     zig_unreachable();
 }
 
-static LLVMValueRef ir_render_ptr_of_array_to_slice(CodeGen *g, IrExecutable *executable,
-        IrInstructionPtrOfArrayToSlice *instruction)
+static LLVMValueRef ir_render_ptr_of_array_to_slice(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenPtrOfArrayToSlice *instruction)
 {
     ZigType *actual_type = instruction->operand->value->type;
     ZigType *slice_type = instruction->base.value->type;
@@ -3236,8 +3236,8 @@ static LLVMValueRef ir_render_ptr_of_array_to_slice(CodeGen *g, IrExecutable *ex
     return result_loc;
 }
 
-static LLVMValueRef ir_render_ptr_cast(CodeGen *g, IrExecutable *executable,
-        IrInstructionPtrCastGen *instruction)
+static LLVMValueRef ir_render_ptr_cast(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenPtrCast *instruction)
 {
     ZigType *wanted_type = instruction->base.value->type;
     if (!type_has_bits(wanted_type)) {
@@ -3262,8 +3262,8 @@ static LLVMValueRef ir_render_ptr_cast(CodeGen *g, IrExecutable *executable,
     return result_ptr;
 }
 
-static LLVMValueRef ir_render_bit_cast(CodeGen *g, IrExecutable *executable,
-        IrInstructionBitCastGen *instruction)
+static LLVMValueRef ir_render_bit_cast(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenBitCast *instruction)
 {
     ZigType *wanted_type = instruction->base.value->type;
     ZigType *actual_type = instruction->operand->value->type;
@@ -3286,8 +3286,8 @@ static LLVMValueRef ir_render_bit_cast(CodeGen *g, IrExecutable *executable,
     }
 }
 
-static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutable *executable,
-        IrInstructionWidenOrShorten *instruction)
+static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenWidenOrShorten *instruction)
 {
     ZigType *actual_type = instruction->target->value->type;
     // TODO instead of this logic, use the Noop instruction to change the type from
@@ -3303,7 +3303,7 @@ static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutable *executa
             instruction->base.value->type, target_val);
 }
 
-static LLVMValueRef ir_render_int_to_ptr(CodeGen *g, IrExecutable *executable, IrInstructionIntToPtr *instruction) {
+static LLVMValueRef ir_render_int_to_ptr(CodeGen *g, IrExecutableGen *executable, IrInstGenIntToPtr *instruction) {
     ZigType *wanted_type = instruction->base.value->type;
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
 
@@ -3341,13 +3341,13 @@ static LLVMValueRef ir_render_int_to_ptr(CodeGen *g, IrExecutable *executable, I
     return LLVMBuildIntToPtr(g->builder, target_val, get_llvm_type(g, wanted_type), "");
 }
 
-static LLVMValueRef ir_render_ptr_to_int(CodeGen *g, IrExecutable *executable, IrInstructionPtrToInt *instruction) {
+static LLVMValueRef ir_render_ptr_to_int(CodeGen *g, IrExecutableGen *executable, IrInstGenPtrToInt *instruction) {
     ZigType *wanted_type = instruction->base.value->type;
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
     return LLVMBuildPtrToInt(g->builder, target_val, get_llvm_type(g, wanted_type), "");
 }
 
-static LLVMValueRef ir_render_int_to_enum(CodeGen *g, IrExecutable *executable, IrInstructionIntToEnum *instruction) {
+static LLVMValueRef ir_render_int_to_enum(CodeGen *g, IrExecutableGen *executable, IrInstGenIntToEnum *instruction) {
     ZigType *wanted_type = instruction->base.value->type;
     assert(wanted_type->id == ZigTypeIdEnum);
     ZigType *tag_int_type = wanted_type->data.enumeration.tag_int_type;
@@ -3374,7 +3374,7 @@ static LLVMValueRef ir_render_int_to_enum(CodeGen *g, IrExecutable *executable, 
     return tag_int_value;
 }
 
-static LLVMValueRef ir_render_int_to_err(CodeGen *g, IrExecutable *executable, IrInstructionIntToErr *instruction) {
+static LLVMValueRef ir_render_int_to_err(CodeGen *g, IrExecutableGen *executable, IrInstGenIntToErr *instruction) {
     ZigType *wanted_type = instruction->base.value->type;
     assert(wanted_type->id == ZigTypeIdErrorSet);
 
@@ -3391,7 +3391,7 @@ static LLVMValueRef ir_render_int_to_err(CodeGen *g, IrExecutable *executable, I
     return gen_widen_or_shorten(g, false, actual_type, g->err_tag_type, target_val);
 }
 
-static LLVMValueRef ir_render_err_to_int(CodeGen *g, IrExecutable *executable, IrInstructionErrToInt *instruction) {
+static LLVMValueRef ir_render_err_to_int(CodeGen *g, IrExecutableGen *executable, IrInstGenErrToInt *instruction) {
     ZigType *wanted_type = instruction->base.value->type;
     assert(wanted_type->id == ZigTypeIdInt);
     assert(!wanted_type->data.integral.is_signed);
@@ -3417,8 +3417,8 @@ static LLVMValueRef ir_render_err_to_int(CodeGen *g, IrExecutable *executable, I
     }
 }
 
-static LLVMValueRef ir_render_unreachable(CodeGen *g, IrExecutable *executable,
-        IrInstructionUnreachable *unreachable_instruction)
+static LLVMValueRef ir_render_unreachable(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenUnreachable *unreachable_instruction)
 {
     if (ir_want_runtime_safety(g, &unreachable_instruction->base)) {
         gen_safety_crash(g, PanicMsgIdUnreachable);
@@ -3428,8 +3428,8 @@ static LLVMValueRef ir_render_unreachable(CodeGen *g, IrExecutable *executable,
     return nullptr;
 }
 
-static LLVMValueRef ir_render_cond_br(CodeGen *g, IrExecutable *executable,
-        IrInstructionCondBr *cond_br_instruction)
+static LLVMValueRef ir_render_cond_br(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenCondBr *cond_br_instruction)
 {
     LLVMBuildCondBr(g->builder,
             ir_llvm_value(g, cond_br_instruction->condition),
@@ -3438,51 +3438,56 @@ static LLVMValueRef ir_render_cond_br(CodeGen *g, IrExecutable *executable,
     return nullptr;
 }
 
-static LLVMValueRef ir_render_br(CodeGen *g, IrExecutable *executable, IrInstructionBr *br_instruction) {
+static LLVMValueRef ir_render_br(CodeGen *g, IrExecutableGen *executable, IrInstGenBr *br_instruction) {
     LLVMBuildBr(g->builder, br_instruction->dest_block->llvm_block);
     return nullptr;
 }
 
-static LLVMValueRef ir_render_un_op(CodeGen *g, IrExecutable *executable, IrInstructionUnOp *un_op_instruction) {
-    IrUnOp op_id = un_op_instruction->op_id;
-    LLVMValueRef expr = ir_llvm_value(g, un_op_instruction->value);
-    ZigType *operand_type = un_op_instruction->value->value->type;
-    ZigType *scalar_type = (operand_type->id == ZigTypeIdVector) ? operand_type->data.vector.elem_type : operand_type;
-
-    switch (op_id) {
-        case IrUnOpInvalid:
-        case IrUnOpOptional:
-        case IrUnOpDereference:
-            zig_unreachable();
-        case IrUnOpNegation:
-        case IrUnOpNegationWrap:
-            {
-                if (scalar_type->id == ZigTypeIdFloat) {
-                    ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &un_op_instruction->base));
-                    return LLVMBuildFNeg(g->builder, expr, "");
-                } else if (scalar_type->id == ZigTypeIdInt) {
-                    if (op_id == IrUnOpNegationWrap) {
-                        return LLVMBuildNeg(g->builder, expr, "");
-                    } else if (ir_want_runtime_safety(g, &un_op_instruction->base)) {
-                        LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(expr));
-                        return gen_overflow_op(g, operand_type, AddSubMulSub, zero, expr);
-                    } else if (scalar_type->data.integral.is_signed) {
-                        return LLVMBuildNSWNeg(g->builder, expr, "");
-                    } else {
-                        return LLVMBuildNUWNeg(g->builder, expr, "");
-                    }
-                } else {
-                    zig_unreachable();
-                }
-            }
-        case IrUnOpBinNot:
-            return LLVMBuildNot(g->builder, expr, "");
-    }
-
-    zig_unreachable();
+static LLVMValueRef ir_render_binary_not(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenBinaryNot *inst)
+{
+    LLVMValueRef operand = ir_llvm_value(g, inst->operand);
+    return LLVMBuildNot(g->builder, operand, "");
 }
 
-static LLVMValueRef ir_render_bool_not(CodeGen *g, IrExecutable *executable, IrInstructionBoolNot *instruction) {
+static LLVMValueRef ir_gen_negation(CodeGen *g, IrInstGen *inst, IrInstGen *operand, bool wrapping) {
+    LLVMValueRef llvm_operand = ir_llvm_value(g, operand);
+    ZigType *operand_type = operand->value->type;
+    ZigType *scalar_type = (operand_type->id == ZigTypeIdVector) ?
+        operand_type->data.vector.elem_type : operand_type;
+
+    if (scalar_type->id == ZigTypeIdFloat) {
+        ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, inst));
+        return LLVMBuildFNeg(g->builder, llvm_operand, "");
+    } else if (scalar_type->id == ZigTypeIdInt) {
+        if (wrapping) {
+            return LLVMBuildNeg(g->builder, llvm_operand, "");
+        } else if (ir_want_runtime_safety(g, inst)) {
+            LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(llvm_operand));
+            return gen_overflow_op(g, operand_type, AddSubMulSub, zero, llvm_operand);
+        } else if (scalar_type->data.integral.is_signed) {
+            return LLVMBuildNSWNeg(g->builder, llvm_operand, "");
+        } else {
+            return LLVMBuildNUWNeg(g->builder, llvm_operand, "");
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static LLVMValueRef ir_render_negation(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenNegation *inst)
+{
+    return ir_gen_negation(g, &inst->base, inst->operand, false);
+}
+
+static LLVMValueRef ir_render_negation_wrapping(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenNegationWrapping *inst)
+{
+    return ir_gen_negation(g, &inst->base, inst->operand, true);
+}
+
+static LLVMValueRef ir_render_bool_not(CodeGen *g, IrExecutableGen *executable, IrInstGenBoolNot *instruction) {
     LLVMValueRef value = ir_llvm_value(g, instruction->value);
     LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(value));
     return LLVMBuildICmp(g->builder, LLVMIntEQ, value, zero, "");
@@ -3496,14 +3501,14 @@ static void render_decl_var(CodeGen *g, ZigVar *var) {
     gen_var_debug_decl(g, var);
 }
 
-static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable, IrInstructionDeclVarGen *instruction) {
+static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutableGen *executable, IrInstGenDeclVar *instruction) {
     instruction->var->ptr_instruction = instruction->var_ptr;
     render_decl_var(g, instruction->var);
     return nullptr;
 }
 
-static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable,
-        IrInstructionLoadPtrGen *instruction)
+static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenLoadPtr *instruction)
 {
     ZigType *child_type = instruction->base.value->type;
     if (!type_has_bits(child_type))
@@ -3705,7 +3710,7 @@ static void gen_undef_init(CodeGen *g, uint32_t ptr_align_bytes, ZigType *value_
     }
 }
 
-static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, IrInstructionStorePtr *instruction) {
+static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutableGen *executable, IrInstGenStorePtr *instruction) {
     Error err;
 
     ZigType *ptr_type = instruction->ptr->value->type;
@@ -3715,7 +3720,7 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
         codegen_report_errors_and_exit(g);
     if (!ptr_type_has_bits)
         return nullptr;
-    if (instruction->ptr->ref_count == 0) {
+    if (instruction->ptr->base.ref_count == 0) {
         // In this case, this StorePtr instruction should be elided. Something happened like this:
         //     var t = true;
         //     const x = if (t) Num.Two else unreachable;
@@ -3737,8 +3742,8 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
     return nullptr;
 }
 
-static LLVMValueRef ir_render_vector_store_elem(CodeGen *g, IrExecutable *executable,
-        IrInstructionVectorStoreElem *instruction)
+static LLVMValueRef ir_render_vector_store_elem(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenVectorStoreElem *instruction)
 {
     LLVMValueRef vector_ptr = ir_llvm_value(g, instruction->vector_ptr);
     LLVMValueRef index = ir_llvm_value(g, instruction->index);
@@ -3750,7 +3755,7 @@ static LLVMValueRef ir_render_vector_store_elem(CodeGen *g, IrExecutable *execut
     return nullptr;
 }
 
-static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutable *executable, IrInstructionVarPtr *instruction) {
+static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutableGen *executable, IrInstGenVarPtr *instruction) {
     if (instruction->base.value->special != ConstValSpecialRuntime)
         return ir_llvm_value(g, &instruction->base);
     ZigVar *var = instruction->var;
@@ -3762,8 +3767,8 @@ static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutable *executable, IrIn
     }
 }
 
-static LLVMValueRef ir_render_return_ptr(CodeGen *g, IrExecutable *executable,
-        IrInstructionReturnPtr *instruction)
+static LLVMValueRef ir_render_return_ptr(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenReturnPtr *instruction)
 {
     if (!type_has_bits(instruction->base.value->type))
         return nullptr;
@@ -3771,7 +3776,7 @@ static LLVMValueRef ir_render_return_ptr(CodeGen *g, IrExecutable *executable,
     return g->cur_ret_ptr;
 }
 
-static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrInstructionElemPtr *instruction) {
+static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutableGen *executable, IrInstGenElemPtr *instruction) {
     LLVMValueRef array_ptr_ptr = ir_llvm_value(g, instruction->array_ptr);
     ZigType *array_ptr_type = instruction->array_ptr->value->type;
     assert(array_ptr_type->id == ZigTypeIdPointer);
@@ -3947,7 +3952,7 @@ static void render_async_spills(CodeGen *g) {
     ZigType *frame_type = g->cur_fn->frame_type->data.frame.locals_struct;
 
     for (size_t alloca_i = 0; alloca_i < g->cur_fn->alloca_gen_list.length; alloca_i += 1) {
-        IrInstructionAllocaGen *instruction = g->cur_fn->alloca_gen_list.at(alloca_i);
+        IrInstGenAlloca *instruction = g->cur_fn->alloca_gen_list.at(alloca_i);
         if (instruction->field_index == SIZE_MAX)
             continue;
 
@@ -4014,7 +4019,7 @@ static void gen_init_stack_trace(CodeGen *g, LLVMValueRef trace_field_ptr, LLVMV
     LLVMBuildStore(g->builder, LLVMConstInt(usize_type_ref, stack_trace_ptr_count, false), addrs_len_ptr);
 }
 
-static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstructionCallGen *instruction) {
+static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrInstGenCall *instruction) {
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
 
     LLVMValueRef fn_val;
@@ -4149,7 +4154,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
                 LLVMValueRef err_ret_trace_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc,
                         frame_index_trace_arg(g, src_return_type) + 1, "");
                 bool is_llvm_alloca;
-                LLVMValueRef my_err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope,
+                LLVMValueRef my_err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.base.scope,
                         &is_llvm_alloca);
                 LLVMBuildStore(g->builder, my_err_ret_trace_val, err_ret_trace_ptr_ptr);
             }
@@ -4208,7 +4213,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
                 gen_init_stack_trace(g, trace_field_ptr, addrs_field_ptr);
 
                 bool is_llvm_alloca;
-                gen_param_values.append(get_cur_err_ret_trace_val(g, instruction->base.scope, &is_llvm_alloca));
+                gen_param_values.append(get_cur_err_ret_trace_val(g, instruction->base.base.scope, &is_llvm_alloca));
             }
         }
     } else {
@@ -4217,7 +4222,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         }
         if (prefix_arg_err_ret_stack) {
             bool is_llvm_alloca;
-            gen_param_values.append(get_cur_err_ret_trace_val(g, instruction->base.scope, &is_llvm_alloca));
+            gen_param_values.append(get_cur_err_ret_trace_val(g, instruction->base.base.scope, &is_llvm_alloca));
         }
     }
     FnWalk fn_walk = {};
@@ -4327,13 +4332,13 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
 
             LLVMPositionBuilderAtEnd(g->builder, call_bb);
             gen_assert_resume_id(g, &instruction->base, ResumeIdReturn, PanicMsgIdResumedAnAwaitingFn, nullptr);
-            render_async_var_decls(g, instruction->base.scope);
+            render_async_var_decls(g, instruction->base.base.scope);
 
             if (!type_has_bits(src_return_type))
                 return nullptr;
 
             if (result_loc != nullptr) {
-                if (instruction->result_loc->id == IrInstructionIdReturnPtr) {
+                if (instruction->result_loc->id == IrInstGenIdReturnPtr) {
                     instruction->base.spill = nullptr;
                     return g->cur_ret_ptr;
                 } else {
@@ -4393,8 +4398,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     }
 }
 
-static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executable,
-    IrInstructionStructFieldPtr *instruction)
+static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutableGen *executable,
+    IrInstGenStructFieldPtr *instruction)
 {
     Error err;
 
@@ -4444,8 +4449,8 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executa
     return field_ptr_val;
 }
 
-static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executable,
-    IrInstructionUnionFieldPtr *instruction)
+static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutableGen *executable,
+    IrInstGenUnionFieldPtr *instruction)
 {
     if (instruction->base.value->special != ConstValSpecialRuntime)
         return nullptr;
@@ -4544,8 +4549,8 @@ static size_t find_asm_index(CodeGen *g, AstNode *node, AsmToken *tok, Buf *src_
     return SIZE_MAX;
 }
 
-static LLVMValueRef ir_render_asm_gen(CodeGen *g, IrExecutable *executable, IrInstructionAsmGen *instruction) {
-    AstNode *asm_node = instruction->base.source_node;
+static LLVMValueRef ir_render_asm_gen(CodeGen *g, IrExecutableGen *executable, IrInstGenAsm *instruction) {
+    AstNode *asm_node = instruction->base.base.source_node;
     assert(asm_node->type == NodeTypeAsmExpr);
     AstNodeAsmExpr *asm_expr = &asm_node->data.asm_expr;
 
@@ -4629,7 +4634,7 @@ static LLVMValueRef ir_render_asm_gen(CodeGen *g, IrExecutable *executable, IrIn
     for (size_t i = 0; i < asm_expr->input_list.length; i += 1, total_index += 1, param_index += 1) {
         AsmInput *asm_input = asm_expr->input_list.at(i);
         buf_replace(asm_input->constraint, ',', '|');
-        IrInstruction *ir_input = instruction->input_list[i];
+        IrInstGen *ir_input = instruction->input_list[i];
         buf_append_buf(&constraint_buf, asm_input->constraint);
         if (total_index + 1 < total_constraint_count) {
             buf_append_char(&constraint_buf, ',');
@@ -4692,14 +4697,14 @@ static LLVMValueRef gen_non_null_bit(CodeGen *g, ZigType *maybe_type, LLVMValueR
     return gen_load_untyped(g, maybe_field_ptr, 0, false, "");
 }
 
-static LLVMValueRef ir_render_test_non_null(CodeGen *g, IrExecutable *executable,
-    IrInstructionTestNonNull *instruction)
+static LLVMValueRef ir_render_test_non_null(CodeGen *g, IrExecutableGen *executable,
+    IrInstGenTestNonNull *instruction)
 {
     return gen_non_null_bit(g, instruction->value->value->type, ir_llvm_value(g, instruction->value));
 }
 
-static LLVMValueRef ir_render_optional_unwrap_ptr(CodeGen *g, IrExecutable *executable,
-        IrInstructionOptionalUnwrapPtr *instruction)
+static LLVMValueRef ir_render_optional_unwrap_ptr(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenOptionalUnwrapPtr *instruction)
 {
     if (instruction->base.value->special != ConstValSpecialRuntime)
         return nullptr;
@@ -4801,7 +4806,7 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, ZigType *expr_type, BuiltinFn
     return fn_val;
 }
 
-static LLVMValueRef ir_render_clz(CodeGen *g, IrExecutable *executable, IrInstructionClz *instruction) {
+static LLVMValueRef ir_render_clz(CodeGen *g, IrExecutableGen *executable, IrInstGenClz *instruction) {
     ZigType *int_type = instruction->op->value->type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdClz);
     LLVMValueRef operand = ir_llvm_value(g, instruction->op);
@@ -4813,7 +4818,7 @@ static LLVMValueRef ir_render_clz(CodeGen *g, IrExecutable *executable, IrInstru
     return gen_widen_or_shorten(g, false, int_type, instruction->base.value->type, wrong_size_int);
 }
 
-static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutable *executable, IrInstructionCtz *instruction) {
+static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutableGen *executable, IrInstGenCtz *instruction) {
     ZigType *int_type = instruction->op->value->type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdCtz);
     LLVMValueRef operand = ir_llvm_value(g, instruction->op);
@@ -4825,7 +4830,7 @@ static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutable *executable, IrInstru
     return gen_widen_or_shorten(g, false, int_type, instruction->base.value->type, wrong_size_int);
 }
 
-static LLVMValueRef ir_render_shuffle_vector(CodeGen *g, IrExecutable *executable, IrInstructionShuffleVector *instruction) {
+static LLVMValueRef ir_render_shuffle_vector(CodeGen *g, IrExecutableGen *executable, IrInstGenShuffleVector *instruction) {
     uint64_t len_a = instruction->a->value->type->data.vector.len;
     uint64_t len_mask = instruction->mask->value->type->data.vector.len;
 
@@ -4834,7 +4839,7 @@ static LLVMValueRef ir_render_shuffle_vector(CodeGen *g, IrExecutable *executabl
     // when changing code, so Zig uses negative numbers to index the
     // second vector. These start at -1 and go down, and are easiest to use
     // with the ~ operator. Here we convert between the two formats.
-    IrInstruction *mask = instruction->mask;
+    IrInstGen *mask = instruction->mask;
     LLVMValueRef *values = allocate<LLVMValueRef>(len_mask);
     for (uint64_t i = 0; i < len_mask; i++) {
         if (mask->value->data.x_array.data.s_none.elements[i].special == ConstValSpecialUndef) {
@@ -4855,7 +4860,7 @@ static LLVMValueRef ir_render_shuffle_vector(CodeGen *g, IrExecutable *executabl
         llvm_mask_value, "");
 }
 
-static LLVMValueRef ir_render_splat(CodeGen *g, IrExecutable *executable, IrInstructionSplatGen *instruction) {
+static LLVMValueRef ir_render_splat(CodeGen *g, IrExecutableGen *executable, IrInstGenSplat *instruction) {
     ZigType *result_type = instruction->base.value->type;
     ir_assert(result_type->id == ZigTypeIdVector, &instruction->base);
     uint32_t len = result_type->data.vector.len;
@@ -4867,7 +4872,7 @@ static LLVMValueRef ir_render_splat(CodeGen *g, IrExecutable *executable, IrInst
     return LLVMBuildShuffleVector(g->builder, op_vector, undef_vector, LLVMConstNull(mask_llvm_type), "");
 }
 
-static LLVMValueRef ir_render_pop_count(CodeGen *g, IrExecutable *executable, IrInstructionPopCount *instruction) {
+static LLVMValueRef ir_render_pop_count(CodeGen *g, IrExecutableGen *executable, IrInstGenPopCount *instruction) {
     ZigType *int_type = instruction->op->value->type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdPopCount);
     LLVMValueRef operand = ir_llvm_value(g, instruction->op);
@@ -4875,7 +4880,7 @@ static LLVMValueRef ir_render_pop_count(CodeGen *g, IrExecutable *executable, Ir
     return gen_widen_or_shorten(g, false, int_type, instruction->base.value->type, wrong_size_int);
 }
 
-static LLVMValueRef ir_render_switch_br(CodeGen *g, IrExecutable *executable, IrInstructionSwitchBr *instruction) {
+static LLVMValueRef ir_render_switch_br(CodeGen *g, IrExecutableGen *executable, IrInstGenSwitchBr *instruction) {
     ZigType *target_type = instruction->target_value->value->type;
     LLVMBasicBlockRef else_block = instruction->else_block->llvm_block;
 
@@ -4889,7 +4894,7 @@ static LLVMValueRef ir_render_switch_br(CodeGen *g, IrExecutable *executable, Ir
                                                 (unsigned)instruction->case_count);
 
     for (size_t i = 0; i < instruction->case_count; i += 1) {
-        IrInstructionSwitchBrCase *this_case = &instruction->cases[i];
+        IrInstGenSwitchBrCase *this_case = &instruction->cases[i];
 
         LLVMValueRef case_value = ir_llvm_value(g, this_case->value);
         if (target_type->id == ZigTypeIdPointer) {
@@ -4903,7 +4908,7 @@ static LLVMValueRef ir_render_switch_br(CodeGen *g, IrExecutable *executable, Ir
     return nullptr;
 }
 
-static LLVMValueRef ir_render_phi(CodeGen *g, IrExecutable *executable, IrInstructionPhi *instruction) {
+static LLVMValueRef ir_render_phi(CodeGen *g, IrExecutableGen *executable, IrInstGenPhi *instruction) {
     if (!type_has_bits(instruction->base.value->type))
         return nullptr;
 
@@ -4925,7 +4930,7 @@ static LLVMValueRef ir_render_phi(CodeGen *g, IrExecutable *executable, IrInstru
     return phi;
 }
 
-static LLVMValueRef ir_render_ref(CodeGen *g, IrExecutable *executable, IrInstructionRefGen *instruction) {
+static LLVMValueRef ir_render_ref(CodeGen *g, IrExecutableGen *executable, IrInstGenRef *instruction) {
     if (!type_has_bits(instruction->base.value->type)) {
         return nullptr;
     }
@@ -4939,7 +4944,7 @@ static LLVMValueRef ir_render_ref(CodeGen *g, IrExecutable *executable, IrInstru
     }
 }
 
-static LLVMValueRef ir_render_err_name(CodeGen *g, IrExecutable *executable, IrInstructionErrName *instruction) {
+static LLVMValueRef ir_render_err_name(CodeGen *g, IrExecutableGen *executable, IrInstGenErrName *instruction) {
     assert(g->generate_error_name_table);
 
     if (g->errors_by_index.length == 1) {
@@ -5060,13 +5065,13 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
     return fn_val;
 }
 
-static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, IrExecutable *executable,
-        IrInstructionTagName *instruction)
+static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenTagName *instruction)
 {
     ZigType *enum_type = instruction->target->value->type;
     assert(enum_type->id == ZigTypeIdEnum);
     if (enum_type->data.enumeration.non_exhaustive) {
-        add_node_error(g, instruction->base.source_node,
+        add_node_error(g, instruction->base.base.source_node,
             buf_sprintf("TODO @tagName on non-exhaustive enum https://github.com/ziglang/zig/issues/3991"));
         codegen_report_errors_and_exit(g);
     }
@@ -5078,8 +5083,8 @@ static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, IrExecutable *executable
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAuto, "");
 }
 
-static LLVMValueRef ir_render_field_parent_ptr(CodeGen *g, IrExecutable *executable,
-        IrInstructionFieldParentPtr *instruction)
+static LLVMValueRef ir_render_field_parent_ptr(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenFieldParentPtr *instruction)
 {
     ZigType *container_ptr_type = instruction->base.value->type;
     assert(container_ptr_type->id == ZigTypeIdPointer);
@@ -5105,7 +5110,7 @@ static LLVMValueRef ir_render_field_parent_ptr(CodeGen *g, IrExecutable *executa
     }
 }
 
-static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutable *executable, IrInstructionAlignCast *instruction) {
+static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutableGen *executable, IrInstGenAlignCast *instruction) {
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
     assert(target_val);
 
@@ -5168,11 +5173,11 @@ static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutable *executable, I
     return target_val;
 }
 
-static LLVMValueRef ir_render_error_return_trace(CodeGen *g, IrExecutable *executable,
-        IrInstructionErrorReturnTrace *instruction)
+static LLVMValueRef ir_render_error_return_trace(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenErrorReturnTrace *instruction)
 {
     bool is_llvm_alloca;
-    LLVMValueRef cur_err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope, &is_llvm_alloca);
+    LLVMValueRef cur_err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.base.scope, &is_llvm_alloca);
     if (cur_err_ret_trace_val == nullptr) {
         return LLVMConstNull(get_llvm_type(g, ptr_to_stack_trace_type(g)));
     }
@@ -5210,7 +5215,7 @@ static enum ZigLLVM_AtomicRMWBinOp to_ZigLLVMAtomicRMWBinOp(AtomicRmwOp op, bool
     zig_unreachable();
 }
 
-static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutable *executable, IrInstructionCmpxchgGen *instruction) {
+static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutableGen *executable, IrInstGenCmpxchg *instruction) {
     LLVMValueRef ptr_val = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef cmp_val = ir_llvm_value(g, instruction->cmp_value);
     LLVMValueRef new_val = ir_llvm_value(g, instruction->new_value);
@@ -5251,13 +5256,13 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutable *executable, IrIn
     return result_loc;
 }
 
-static LLVMValueRef ir_render_fence(CodeGen *g, IrExecutable *executable, IrInstructionFence *instruction) {
+static LLVMValueRef ir_render_fence(CodeGen *g, IrExecutableGen *executable, IrInstGenFence *instruction) {
     LLVMAtomicOrdering atomic_order = to_LLVMAtomicOrdering(instruction->order);
     LLVMBuildFence(g->builder, atomic_order, false, "");
     return nullptr;
 }
 
-static LLVMValueRef ir_render_truncate(CodeGen *g, IrExecutable *executable, IrInstructionTruncate *instruction) {
+static LLVMValueRef ir_render_truncate(CodeGen *g, IrExecutableGen *executable, IrInstGenTruncate *instruction) {
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
     ZigType *dest_type = instruction->base.value->type;
     ZigType *src_type = instruction->target->value->type;
@@ -5272,7 +5277,7 @@ static LLVMValueRef ir_render_truncate(CodeGen *g, IrExecutable *executable, IrI
     }
 }
 
-static LLVMValueRef ir_render_memset(CodeGen *g, IrExecutable *executable, IrInstructionMemset *instruction) {
+static LLVMValueRef ir_render_memset(CodeGen *g, IrExecutableGen *executable, IrInstGenMemset *instruction) {
     LLVMValueRef dest_ptr = ir_llvm_value(g, instruction->dest_ptr);
     LLVMValueRef len_val = ir_llvm_value(g, instruction->count);
 
@@ -5284,7 +5289,7 @@ static LLVMValueRef ir_render_memset(CodeGen *g, IrExecutable *executable, IrIns
 
     bool val_is_undef = value_is_all_undef(g, instruction->byte->value);
     LLVMValueRef fill_char;
-    if (val_is_undef && ir_want_runtime_safety_scope(g, instruction->base.scope)) {
+    if (val_is_undef && ir_want_runtime_safety_scope(g, instruction->base.base.scope)) {
         fill_char = LLVMConstInt(LLVMInt8Type(), 0xaa, false);
     } else {
         fill_char = ir_llvm_value(g, instruction->byte);
@@ -5298,7 +5303,7 @@ static LLVMValueRef ir_render_memset(CodeGen *g, IrExecutable *executable, IrIns
     return nullptr;
 }
 
-static LLVMValueRef ir_render_memcpy(CodeGen *g, IrExecutable *executable, IrInstructionMemcpy *instruction) {
+static LLVMValueRef ir_render_memcpy(CodeGen *g, IrExecutableGen *executable, IrInstGenMemcpy *instruction) {
     LLVMValueRef dest_ptr = ir_llvm_value(g, instruction->dest_ptr);
     LLVMValueRef src_ptr = ir_llvm_value(g, instruction->src_ptr);
     LLVMValueRef len_val = ir_llvm_value(g, instruction->count);
@@ -5320,7 +5325,7 @@ static LLVMValueRef ir_render_memcpy(CodeGen *g, IrExecutable *executable, IrIns
     return nullptr;
 }
 
-static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInstructionSliceGen *instruction) {
+static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutableGen *executable, IrInstGenSlice *instruction) {
     LLVMValueRef array_ptr_ptr = ir_llvm_value(g, instruction->ptr);
     ZigType *array_ptr_type = instruction->ptr->value->type;
     assert(array_ptr_type->id == ZigTypeIdPointer);
@@ -5482,13 +5487,13 @@ static LLVMValueRef get_trap_fn_val(CodeGen *g) {
 }
 
 
-static LLVMValueRef ir_render_breakpoint(CodeGen *g, IrExecutable *executable, IrInstructionBreakpoint *instruction) {
+static LLVMValueRef ir_render_breakpoint(CodeGen *g, IrExecutableGen *executable, IrInstGenBreakpoint *instruction) {
     LLVMBuildCall(g->builder, get_trap_fn_val(g), nullptr, 0, "");
     return nullptr;
 }
 
-static LLVMValueRef ir_render_return_address(CodeGen *g, IrExecutable *executable,
-        IrInstructionReturnAddress *instruction)
+static LLVMValueRef ir_render_return_address(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenReturnAddress *instruction)
 {
     LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_i32->llvm_type);
     LLVMValueRef ptr_val = LLVMBuildCall(g->builder, get_return_address_fn_val(g), &zero, 1, "");
@@ -5509,19 +5514,19 @@ static LLVMValueRef get_frame_address_fn_val(CodeGen *g) {
     return g->frame_address_fn_val;
 }
 
-static LLVMValueRef ir_render_frame_address(CodeGen *g, IrExecutable *executable,
-        IrInstructionFrameAddress *instruction)
+static LLVMValueRef ir_render_frame_address(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenFrameAddress *instruction)
 {
     LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_i32->llvm_type);
     LLVMValueRef ptr_val = LLVMBuildCall(g->builder, get_frame_address_fn_val(g), &zero, 1, "");
     return LLVMBuildPtrToInt(g->builder, ptr_val, g->builtin_types.entry_usize->llvm_type, "");
 }
 
-static LLVMValueRef ir_render_handle(CodeGen *g, IrExecutable *executable, IrInstructionFrameHandle *instruction) {
+static LLVMValueRef ir_render_handle(CodeGen *g, IrExecutableGen *executable, IrInstGenFrameHandle *instruction) {
     return g->cur_frame_ptr;
 }
 
-static LLVMValueRef render_shl_with_overflow(CodeGen *g, IrInstructionOverflowOp *instruction) {
+static LLVMValueRef render_shl_with_overflow(CodeGen *g, IrInstGenOverflowOp *instruction) {
     ZigType *int_type = instruction->result_ptr_type;
     assert(int_type->id == ZigTypeIdInt);
 
@@ -5546,7 +5551,7 @@ static LLVMValueRef render_shl_with_overflow(CodeGen *g, IrInstructionOverflowOp
     return overflow_bit;
 }
 
-static LLVMValueRef ir_render_overflow_op(CodeGen *g, IrExecutable *executable, IrInstructionOverflowOp *instruction) {
+static LLVMValueRef ir_render_overflow_op(CodeGen *g, IrExecutableGen *executable, IrInstGenOverflowOp *instruction) {
     AddSubMul add_sub_mul;
     switch (instruction->op) {
         case IrOverflowOpAdd:
@@ -5584,7 +5589,7 @@ static LLVMValueRef ir_render_overflow_op(CodeGen *g, IrExecutable *executable, 
     return overflow_bit;
 }
 
-static LLVMValueRef ir_render_test_err(CodeGen *g, IrExecutable *executable, IrInstructionTestErrGen *instruction) {
+static LLVMValueRef ir_render_test_err(CodeGen *g, IrExecutableGen *executable, IrInstGenTestErr *instruction) {
     ZigType *err_union_type = instruction->err_union->value->type;
     ZigType *payload_type = err_union_type->data.error_union.payload_type;
     LLVMValueRef err_union_handle = ir_llvm_value(g, instruction->err_union);
@@ -5601,8 +5606,8 @@ static LLVMValueRef ir_render_test_err(CodeGen *g, IrExecutable *executable, IrI
     return LLVMBuildICmp(g->builder, LLVMIntNE, err_val, zero, "");
 }
 
-static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executable,
-        IrInstructionUnwrapErrCode *instruction)
+static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenUnwrapErrCode *instruction)
 {
     if (instruction->base.value->special != ConstValSpecialRuntime)
         return nullptr;
@@ -5621,8 +5626,8 @@ static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executab
     }
 }
 
-static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *executable,
-        IrInstructionUnwrapErrPayload *instruction)
+static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenUnwrapErrPayload *instruction)
 {
     Error err;
 
@@ -5665,7 +5670,7 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *execu
         LLVMBuildCondBr(g->builder, cond_val, ok_block, err_block);
 
         LLVMPositionBuilderAtEnd(g->builder, err_block);
-        gen_safety_crash_for_err(g, err_val, instruction->base.scope);
+        gen_safety_crash_for_err(g, err_val, instruction->base.base.scope);
 
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
@@ -5682,7 +5687,7 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *execu
     }
 }
 
-static LLVMValueRef ir_render_optional_wrap(CodeGen *g, IrExecutable *executable, IrInstructionOptionalWrap *instruction) {
+static LLVMValueRef ir_render_optional_wrap(CodeGen *g, IrExecutableGen *executable, IrInstGenOptionalWrap *instruction) {
     ZigType *wanted_type = instruction->base.value->type;
 
     assert(wanted_type->id == ZigTypeIdOptional);
@@ -5718,7 +5723,7 @@ static LLVMValueRef ir_render_optional_wrap(CodeGen *g, IrExecutable *executable
     return result_loc;
 }
 
-static LLVMValueRef ir_render_err_wrap_code(CodeGen *g, IrExecutable *executable, IrInstructionErrWrapCode *instruction) {
+static LLVMValueRef ir_render_err_wrap_code(CodeGen *g, IrExecutableGen *executable, IrInstGenErrWrapCode *instruction) {
     ZigType *wanted_type = instruction->base.value->type;
 
     assert(wanted_type->id == ZigTypeIdErrorUnion);
@@ -5738,7 +5743,7 @@ static LLVMValueRef ir_render_err_wrap_code(CodeGen *g, IrExecutable *executable
     return result_loc;
 }
 
-static LLVMValueRef ir_render_err_wrap_payload(CodeGen *g, IrExecutable *executable, IrInstructionErrWrapPayload *instruction) {
+static LLVMValueRef ir_render_err_wrap_payload(CodeGen *g, IrExecutableGen *executable, IrInstGenErrWrapPayload *instruction) {
     ZigType *wanted_type = instruction->base.value->type;
 
     assert(wanted_type->id == ZigTypeIdErrorUnion);
@@ -5769,7 +5774,7 @@ static LLVMValueRef ir_render_err_wrap_payload(CodeGen *g, IrExecutable *executa
     return result_loc;
 }
 
-static LLVMValueRef ir_render_union_tag(CodeGen *g, IrExecutable *executable, IrInstructionUnionTag *instruction) {
+static LLVMValueRef ir_render_union_tag(CodeGen *g, IrExecutableGen *executable, IrInstGenUnionTag *instruction) {
     ZigType *union_type = instruction->value->value->type;
 
     ZigType *tag_type = union_type->data.unionation.tag_type;
@@ -5787,15 +5792,15 @@ static LLVMValueRef ir_render_union_tag(CodeGen *g, IrExecutable *executable, Ir
     return get_handle_value(g, tag_field_ptr, tag_type, ptr_type);
 }
 
-static LLVMValueRef ir_render_panic(CodeGen *g, IrExecutable *executable, IrInstructionPanic *instruction) {
+static LLVMValueRef ir_render_panic(CodeGen *g, IrExecutableGen *executable, IrInstGenPanic *instruction) {
     bool is_llvm_alloca;
-    LLVMValueRef err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope, &is_llvm_alloca);
+    LLVMValueRef err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.base.scope, &is_llvm_alloca);
     gen_panic(g, ir_llvm_value(g, instruction->msg), err_ret_trace_val, is_llvm_alloca);
     return nullptr;
 }
 
-static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutable *executable,
-        IrInstructionAtomicRmw *instruction)
+static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenAtomicRmw *instruction)
 {
     bool is_signed;
     ZigType *operand_type = instruction->operand->value->type;
@@ -5805,8 +5810,8 @@ static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutable *executable,
     } else {
         is_signed = false;
     }
-    enum ZigLLVM_AtomicRMWBinOp op = to_ZigLLVMAtomicRMWBinOp(instruction->resolved_op, is_signed, is_float);
-    LLVMAtomicOrdering ordering = to_LLVMAtomicOrdering(instruction->resolved_ordering);
+    enum ZigLLVM_AtomicRMWBinOp op = to_ZigLLVMAtomicRMWBinOp(instruction->op, is_signed, is_float);
+    LLVMAtomicOrdering ordering = to_LLVMAtomicOrdering(instruction->ordering);
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef operand = ir_llvm_value(g, instruction->operand);
 
@@ -5823,20 +5828,20 @@ static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutable *executable,
     return LLVMBuildIntToPtr(g->builder, uncasted_result, get_llvm_type(g, operand_type), "");
 }
 
-static LLVMValueRef ir_render_atomic_load(CodeGen *g, IrExecutable *executable,
-        IrInstructionAtomicLoad *instruction)
+static LLVMValueRef ir_render_atomic_load(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenAtomicLoad *instruction)
 {
-    LLVMAtomicOrdering ordering = to_LLVMAtomicOrdering(instruction->resolved_ordering);
+    LLVMAtomicOrdering ordering = to_LLVMAtomicOrdering(instruction->ordering);
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef load_inst = gen_load(g, ptr, instruction->ptr->value->type, "");
     LLVMSetOrdering(load_inst, ordering);
     return load_inst;
 }
 
-static LLVMValueRef ir_render_atomic_store(CodeGen *g, IrExecutable *executable,
-        IrInstructionAtomicStore *instruction)
+static LLVMValueRef ir_render_atomic_store(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenAtomicStore *instruction)
 {
-    LLVMAtomicOrdering ordering = to_LLVMAtomicOrdering(instruction->resolved_ordering);
+    LLVMAtomicOrdering ordering = to_LLVMAtomicOrdering(instruction->ordering);
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef value = ir_llvm_value(g, instruction->value);
     LLVMValueRef store_inst = gen_store(g, value, ptr, instruction->ptr->value->type);
@@ -5844,13 +5849,13 @@ static LLVMValueRef ir_render_atomic_store(CodeGen *g, IrExecutable *executable,
     return nullptr;
 }
 
-static LLVMValueRef ir_render_float_op(CodeGen *g, IrExecutable *executable, IrInstructionFloatOp *instruction) {
+static LLVMValueRef ir_render_float_op(CodeGen *g, IrExecutableGen *executable, IrInstGenFloatOp *instruction) {
     LLVMValueRef operand = ir_llvm_value(g, instruction->operand);
     LLVMValueRef fn_val = get_float_fn(g, instruction->base.value->type, ZigLLVMFnIdFloatOp, instruction->fn_id);
     return LLVMBuildCall(g->builder, fn_val, &operand, 1, "");
 }
 
-static LLVMValueRef ir_render_mul_add(CodeGen *g, IrExecutable *executable, IrInstructionMulAdd *instruction) {
+static LLVMValueRef ir_render_mul_add(CodeGen *g, IrExecutableGen *executable, IrInstGenMulAdd *instruction) {
     LLVMValueRef op1 = ir_llvm_value(g, instruction->op1);
     LLVMValueRef op2 = ir_llvm_value(g, instruction->op2);
     LLVMValueRef op3 = ir_llvm_value(g, instruction->op3);
@@ -5865,7 +5870,7 @@ static LLVMValueRef ir_render_mul_add(CodeGen *g, IrExecutable *executable, IrIn
     return LLVMBuildCall(g->builder, fn_val, args, 3, "");
 }
 
-static LLVMValueRef ir_render_bswap(CodeGen *g, IrExecutable *executable, IrInstructionBswap *instruction) {
+static LLVMValueRef ir_render_bswap(CodeGen *g, IrExecutableGen *executable, IrInstGenBswap *instruction) {
     LLVMValueRef op = ir_llvm_value(g, instruction->op);
     ZigType *expr_type = instruction->base.value->type;
     bool is_vector = expr_type->id == ZigTypeIdVector;
@@ -5899,7 +5904,7 @@ static LLVMValueRef ir_render_bswap(CodeGen *g, IrExecutable *executable, IrInst
     return LLVMBuildTrunc(g->builder, shifted, get_llvm_type(g, expr_type), "");
 }
 
-static LLVMValueRef ir_render_bit_reverse(CodeGen *g, IrExecutable *executable, IrInstructionBitReverse *instruction) {
+static LLVMValueRef ir_render_bit_reverse(CodeGen *g, IrExecutableGen *executable, IrInstGenBitReverse *instruction) {
     LLVMValueRef op = ir_llvm_value(g, instruction->op);
     ZigType *int_type = instruction->base.value->type;
     assert(int_type->id == ZigTypeIdInt);
@@ -5907,8 +5912,8 @@ static LLVMValueRef ir_render_bit_reverse(CodeGen *g, IrExecutable *executable, 
     return LLVMBuildCall(g->builder, fn_val, &op, 1, "");
 }
 
-static LLVMValueRef ir_render_vector_to_array(CodeGen *g, IrExecutable *executable,
-        IrInstructionVectorToArray *instruction)
+static LLVMValueRef ir_render_vector_to_array(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenVectorToArray *instruction)
 {
     ZigType *array_type = instruction->base.value->type;
     assert(array_type->id == ZigTypeIdArray);
@@ -5941,8 +5946,8 @@ static LLVMValueRef ir_render_vector_to_array(CodeGen *g, IrExecutable *executab
     return result_loc;
 }
 
-static LLVMValueRef ir_render_array_to_vector(CodeGen *g, IrExecutable *executable,
-        IrInstructionArrayToVector *instruction)
+static LLVMValueRef ir_render_array_to_vector(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenArrayToVector *instruction)
 {
     ZigType *vector_type = instruction->base.value->type;
     assert(vector_type->id == ZigTypeIdVector);
@@ -5978,8 +5983,8 @@ static LLVMValueRef ir_render_array_to_vector(CodeGen *g, IrExecutable *executab
     }
 }
 
-static LLVMValueRef ir_render_assert_zero(CodeGen *g, IrExecutable *executable,
-        IrInstructionAssertZero *instruction)
+static LLVMValueRef ir_render_assert_zero(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenAssertZero *instruction)
 {
     LLVMValueRef target = ir_llvm_value(g, instruction->target);
     ZigType *int_type = instruction->target->value->type;
@@ -5989,8 +5994,8 @@ static LLVMValueRef ir_render_assert_zero(CodeGen *g, IrExecutable *executable,
     return nullptr;
 }
 
-static LLVMValueRef ir_render_assert_non_null(CodeGen *g, IrExecutable *executable,
-        IrInstructionAssertNonNull *instruction)
+static LLVMValueRef ir_render_assert_non_null(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenAssertNonNull *instruction)
 {
     LLVMValueRef target = ir_llvm_value(g, instruction->target);
     ZigType *target_type = instruction->target->value->type;
@@ -6014,8 +6019,8 @@ static LLVMValueRef ir_render_assert_non_null(CodeGen *g, IrExecutable *executab
     return nullptr;
 }
 
-static LLVMValueRef ir_render_suspend_begin(CodeGen *g, IrExecutable *executable,
-        IrInstructionSuspendBegin *instruction)
+static LLVMValueRef ir_render_suspend_begin(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenSuspendBegin *instruction)
 {
     if (fn_is_async(g->cur_fn)) {
         instruction->resume_bb = gen_suspend_begin(g, "SuspendResume");
@@ -6023,8 +6028,8 @@ static LLVMValueRef ir_render_suspend_begin(CodeGen *g, IrExecutable *executable
     return nullptr;
 }
 
-static LLVMValueRef ir_render_suspend_finish(CodeGen *g, IrExecutable *executable,
-        IrInstructionSuspendFinish *instruction)
+static LLVMValueRef ir_render_suspend_finish(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenSuspendFinish *instruction)
 {
     LLVMBuildRetVoid(g->builder);
 
@@ -6032,11 +6037,11 @@ static LLVMValueRef ir_render_suspend_finish(CodeGen *g, IrExecutable *executabl
     if (ir_want_runtime_safety(g, &instruction->base)) {
         LLVMBuildStore(g->builder, g->cur_bad_not_suspended_index, g->cur_async_resume_index_ptr);
     }
-    render_async_var_decls(g, instruction->base.scope);
+    render_async_var_decls(g, instruction->base.base.scope);
     return nullptr;
 }
 
-static LLVMValueRef gen_await_early_return(CodeGen *g, IrInstruction *source_instr,
+static LLVMValueRef gen_await_early_return(CodeGen *g, IrInstGen *source_instr,
         LLVMValueRef target_frame_ptr, ZigType *result_type, ZigType *ptr_result_type,
         LLVMValueRef result_loc, bool non_async)
 {
@@ -6062,7 +6067,7 @@ static LLVMValueRef gen_await_early_return(CodeGen *g, IrInstruction *source_ins
                 frame_index_trace_arg(g, result_type), "");
         LLVMValueRef src_trace_ptr = LLVMBuildLoad(g->builder, their_trace_ptr_ptr, "");
         bool is_llvm_alloca;
-        LLVMValueRef dest_trace_ptr = get_cur_err_ret_trace_val(g, source_instr->scope, &is_llvm_alloca);
+        LLVMValueRef dest_trace_ptr = get_cur_err_ret_trace_val(g, source_instr->base.scope, &is_llvm_alloca);
         LLVMValueRef args[] = { dest_trace_ptr, src_trace_ptr };
         ZigLLVMBuildCall(g->builder, get_merge_err_ret_traces_fn_val(g), args, 2,
                 get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAuto, "");
@@ -6075,7 +6080,7 @@ static LLVMValueRef gen_await_early_return(CodeGen *g, IrInstruction *source_ins
     }
 }
 
-static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInstructionAwaitGen *instruction) {
+static LLVMValueRef ir_render_await(CodeGen *g, IrExecutableGen *executable, IrInstGenAwait *instruction) {
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
     LLVMValueRef zero = LLVMConstNull(usize_type_ref);
     LLVMValueRef target_frame_ptr = ir_llvm_value(g, instruction->frame);
@@ -6112,7 +6117,7 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInst
     // supply the error return trace pointer
     if (codegen_fn_has_err_ret_tracing_arg(g, result_type)) {
         bool is_llvm_alloca;
-        LLVMValueRef my_err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope, &is_llvm_alloca);
+        LLVMValueRef my_err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.base.scope, &is_llvm_alloca);
         assert(my_err_ret_trace_val != nullptr);
         LLVMValueRef err_ret_trace_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr,
                 frame_index_trace_arg(g, result_type) + 1, "");
@@ -6160,7 +6165,7 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutable *executable, IrInst
     return nullptr;
 }
 
-static LLVMValueRef ir_render_resume(CodeGen *g, IrExecutable *executable, IrInstructionResume *instruction) {
+static LLVMValueRef ir_render_resume(CodeGen *g, IrExecutableGen *executable, IrInstGenResume *instruction) {
     LLVMValueRef frame = ir_llvm_value(g, instruction->frame);
     ZigType *frame_type = instruction->frame->value->type;
     assert(frame_type->id == ZigTypeIdAnyFrame);
@@ -6169,15 +6174,15 @@ static LLVMValueRef ir_render_resume(CodeGen *g, IrExecutable *executable, IrIns
     return nullptr;
 }
 
-static LLVMValueRef ir_render_frame_size(CodeGen *g, IrExecutable *executable,
-        IrInstructionFrameSizeGen *instruction)
+static LLVMValueRef ir_render_frame_size(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenFrameSize *instruction)
 {
     LLVMValueRef fn_val = ir_llvm_value(g, instruction->fn);
     return gen_frame_size(g, fn_val);
 }
 
-static LLVMValueRef ir_render_spill_begin(CodeGen *g, IrExecutable *executable,
-        IrInstructionSpillBegin *instruction)
+static LLVMValueRef ir_render_spill_begin(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenSpillBegin *instruction)
 {
     if (!fn_is_async(g->cur_fn))
         return nullptr;
@@ -6196,7 +6201,7 @@ static LLVMValueRef ir_render_spill_begin(CodeGen *g, IrExecutable *executable,
     zig_unreachable();
 }
 
-static LLVMValueRef ir_render_spill_end(CodeGen *g, IrExecutable *executable, IrInstructionSpillEnd *instruction) {
+static LLVMValueRef ir_render_spill_end(CodeGen *g, IrExecutableGen *executable, IrInstGenSpillEnd *instruction) {
     if (!fn_is_async(g->cur_fn))
         return ir_llvm_value(g, instruction->begin->operand);
 
@@ -6212,17 +6217,17 @@ static LLVMValueRef ir_render_spill_end(CodeGen *g, IrExecutable *executable, Ir
     zig_unreachable();
 }
 
-static LLVMValueRef ir_render_vector_extract_elem(CodeGen *g, IrExecutable *executable,
-        IrInstructionVectorExtractElem *instruction)
+static LLVMValueRef ir_render_vector_extract_elem(CodeGen *g, IrExecutableGen *executable,
+        IrInstGenVectorExtractElem *instruction)
 {
     LLVMValueRef vector = ir_llvm_value(g, instruction->vector);
     LLVMValueRef index = ir_llvm_value(g, instruction->index);
     return LLVMBuildExtractElement(g->builder, vector, index, "");
 }
 
-static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
-    AstNode *source_node = instruction->source_node;
-    Scope *scope = instruction->scope;
+static void set_debug_location(CodeGen *g, IrInstGen *instruction) {
+    AstNode *source_node = instruction->base.source_node;
+    Scope *scope = instruction->base.scope;
 
     assert(source_node);
     assert(scope);
@@ -6231,263 +6236,183 @@ static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
             (int)source_node->column + 1, get_di_scope(g, scope));
 }
 
-static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, IrInstruction *instruction) {
+static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutableGen *executable, IrInstGen *instruction) {
     switch (instruction->id) {
-        case IrInstructionIdInvalid:
-        case IrInstructionIdConst:
-        case IrInstructionIdTypeOf:
-        case IrInstructionIdFieldPtr:
-        case IrInstructionIdSetCold:
-        case IrInstructionIdSetRuntimeSafety:
-        case IrInstructionIdSetFloatMode:
-        case IrInstructionIdArrayType:
-        case IrInstructionIdAnyFrameType:
-        case IrInstructionIdSliceType:
-        case IrInstructionIdSizeOf:
-        case IrInstructionIdSwitchTarget:
-        case IrInstructionIdContainerInitFields:
-        case IrInstructionIdCompileErr:
-        case IrInstructionIdCompileLog:
-        case IrInstructionIdImport:
-        case IrInstructionIdCImport:
-        case IrInstructionIdCInclude:
-        case IrInstructionIdCDefine:
-        case IrInstructionIdCUndef:
-        case IrInstructionIdEmbedFile:
-        case IrInstructionIdIntType:
-        case IrInstructionIdVectorType:
-        case IrInstructionIdMemberCount:
-        case IrInstructionIdMemberType:
-        case IrInstructionIdMemberName:
-        case IrInstructionIdAlignOf:
-        case IrInstructionIdFnProto:
-        case IrInstructionIdTestComptime:
-        case IrInstructionIdCheckSwitchProngs:
-        case IrInstructionIdCheckStatementIsVoid:
-        case IrInstructionIdTypeName:
-        case IrInstructionIdDeclRef:
-        case IrInstructionIdSwitchVar:
-        case IrInstructionIdSwitchElseVar:
-        case IrInstructionIdByteOffsetOf:
-        case IrInstructionIdBitOffsetOf:
-        case IrInstructionIdTypeInfo:
-        case IrInstructionIdType:
-        case IrInstructionIdHasField:
-        case IrInstructionIdTypeId:
-        case IrInstructionIdSetEvalBranchQuota:
-        case IrInstructionIdPtrType:
-        case IrInstructionIdOpaqueType:
-        case IrInstructionIdSetAlignStack:
-        case IrInstructionIdArgType:
-        case IrInstructionIdTagType:
-        case IrInstructionIdExport:
-        case IrInstructionIdErrorUnion:
-        case IrInstructionIdAddImplicitReturnType:
-        case IrInstructionIdIntCast:
-        case IrInstructionIdFloatCast:
-        case IrInstructionIdIntToFloat:
-        case IrInstructionIdFloatToInt:
-        case IrInstructionIdBoolToInt:
-        case IrInstructionIdErrSetCast:
-        case IrInstructionIdFromBytes:
-        case IrInstructionIdToBytes:
-        case IrInstructionIdEnumToInt:
-        case IrInstructionIdCheckRuntimeScope:
-        case IrInstructionIdDeclVarSrc:
-        case IrInstructionIdPtrCastSrc:
-        case IrInstructionIdCmpxchgSrc:
-        case IrInstructionIdLoadPtr:
-        case IrInstructionIdHasDecl:
-        case IrInstructionIdUndeclaredIdent:
-        case IrInstructionIdCallExtra:
-        case IrInstructionIdCallSrc:
-        case IrInstructionIdCallSrcArgs:
-        case IrInstructionIdAllocaSrc:
-        case IrInstructionIdEndExpr:
-        case IrInstructionIdImplicitCast:
-        case IrInstructionIdResolveResult:
-        case IrInstructionIdResetResult:
-        case IrInstructionIdContainerInitList:
-        case IrInstructionIdSliceSrc:
-        case IrInstructionIdRef:
-        case IrInstructionIdBitCastSrc:
-        case IrInstructionIdTestErrSrc:
-        case IrInstructionIdUnionInitNamedField:
-        case IrInstructionIdFrameType:
-        case IrInstructionIdFrameSizeSrc:
-        case IrInstructionIdAllocaGen:
-        case IrInstructionIdAwaitSrc:
-        case IrInstructionIdSplatSrc:
-        case IrInstructionIdMergeErrSets:
-        case IrInstructionIdAsmSrc:
+        case IrInstGenIdInvalid:
+        case IrInstGenIdConst:
+        case IrInstGenIdAlloca:
             zig_unreachable();
 
-        case IrInstructionIdDeclVarGen:
-            return ir_render_decl_var(g, executable, (IrInstructionDeclVarGen *)instruction);
-        case IrInstructionIdReturn:
-            return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
-        case IrInstructionIdBinOp:
-            return ir_render_bin_op(g, executable, (IrInstructionBinOp *)instruction);
-        case IrInstructionIdCast:
-            return ir_render_cast(g, executable, (IrInstructionCast *)instruction);
-        case IrInstructionIdUnreachable:
-            return ir_render_unreachable(g, executable, (IrInstructionUnreachable *)instruction);
-        case IrInstructionIdCondBr:
-            return ir_render_cond_br(g, executable, (IrInstructionCondBr *)instruction);
-        case IrInstructionIdBr:
-            return ir_render_br(g, executable, (IrInstructionBr *)instruction);
-        case IrInstructionIdUnOp:
-            return ir_render_un_op(g, executable, (IrInstructionUnOp *)instruction);
-        case IrInstructionIdLoadPtrGen:
-            return ir_render_load_ptr(g, executable, (IrInstructionLoadPtrGen *)instruction);
-        case IrInstructionIdStorePtr:
-            return ir_render_store_ptr(g, executable, (IrInstructionStorePtr *)instruction);
-        case IrInstructionIdVectorStoreElem:
-            return ir_render_vector_store_elem(g, executable, (IrInstructionVectorStoreElem *)instruction);
-        case IrInstructionIdVarPtr:
-            return ir_render_var_ptr(g, executable, (IrInstructionVarPtr *)instruction);
-        case IrInstructionIdReturnPtr:
-            return ir_render_return_ptr(g, executable, (IrInstructionReturnPtr *)instruction);
-        case IrInstructionIdElemPtr:
-            return ir_render_elem_ptr(g, executable, (IrInstructionElemPtr *)instruction);
-        case IrInstructionIdCallGen:
-            return ir_render_call(g, executable, (IrInstructionCallGen *)instruction);
-        case IrInstructionIdStructFieldPtr:
-            return ir_render_struct_field_ptr(g, executable, (IrInstructionStructFieldPtr *)instruction);
-        case IrInstructionIdUnionFieldPtr:
-            return ir_render_union_field_ptr(g, executable, (IrInstructionUnionFieldPtr *)instruction);
-        case IrInstructionIdAsmGen:
-            return ir_render_asm_gen(g, executable, (IrInstructionAsmGen *)instruction);
-        case IrInstructionIdTestNonNull:
-            return ir_render_test_non_null(g, executable, (IrInstructionTestNonNull *)instruction);
-        case IrInstructionIdOptionalUnwrapPtr:
-            return ir_render_optional_unwrap_ptr(g, executable, (IrInstructionOptionalUnwrapPtr *)instruction);
-        case IrInstructionIdClz:
-            return ir_render_clz(g, executable, (IrInstructionClz *)instruction);
-        case IrInstructionIdCtz:
-            return ir_render_ctz(g, executable, (IrInstructionCtz *)instruction);
-        case IrInstructionIdPopCount:
-            return ir_render_pop_count(g, executable, (IrInstructionPopCount *)instruction);
-        case IrInstructionIdSwitchBr:
-            return ir_render_switch_br(g, executable, (IrInstructionSwitchBr *)instruction);
-        case IrInstructionIdBswap:
-            return ir_render_bswap(g, executable, (IrInstructionBswap *)instruction);
-        case IrInstructionIdBitReverse:
-            return ir_render_bit_reverse(g, executable, (IrInstructionBitReverse *)instruction);
-        case IrInstructionIdPhi:
-            return ir_render_phi(g, executable, (IrInstructionPhi *)instruction);
-        case IrInstructionIdRefGen:
-            return ir_render_ref(g, executable, (IrInstructionRefGen *)instruction);
-        case IrInstructionIdErrName:
-            return ir_render_err_name(g, executable, (IrInstructionErrName *)instruction);
-        case IrInstructionIdCmpxchgGen:
-            return ir_render_cmpxchg(g, executable, (IrInstructionCmpxchgGen *)instruction);
-        case IrInstructionIdFence:
-            return ir_render_fence(g, executable, (IrInstructionFence *)instruction);
-        case IrInstructionIdTruncate:
-            return ir_render_truncate(g, executable, (IrInstructionTruncate *)instruction);
-        case IrInstructionIdBoolNot:
-            return ir_render_bool_not(g, executable, (IrInstructionBoolNot *)instruction);
-        case IrInstructionIdMemset:
-            return ir_render_memset(g, executable, (IrInstructionMemset *)instruction);
-        case IrInstructionIdMemcpy:
-            return ir_render_memcpy(g, executable, (IrInstructionMemcpy *)instruction);
-        case IrInstructionIdSliceGen:
-            return ir_render_slice(g, executable, (IrInstructionSliceGen *)instruction);
-        case IrInstructionIdBreakpoint:
-            return ir_render_breakpoint(g, executable, (IrInstructionBreakpoint *)instruction);
-        case IrInstructionIdReturnAddress:
-            return ir_render_return_address(g, executable, (IrInstructionReturnAddress *)instruction);
-        case IrInstructionIdFrameAddress:
-            return ir_render_frame_address(g, executable, (IrInstructionFrameAddress *)instruction);
-        case IrInstructionIdFrameHandle:
-            return ir_render_handle(g, executable, (IrInstructionFrameHandle *)instruction);
-        case IrInstructionIdOverflowOp:
-            return ir_render_overflow_op(g, executable, (IrInstructionOverflowOp *)instruction);
-        case IrInstructionIdTestErrGen:
-            return ir_render_test_err(g, executable, (IrInstructionTestErrGen *)instruction);
-        case IrInstructionIdUnwrapErrCode:
-            return ir_render_unwrap_err_code(g, executable, (IrInstructionUnwrapErrCode *)instruction);
-        case IrInstructionIdUnwrapErrPayload:
-            return ir_render_unwrap_err_payload(g, executable, (IrInstructionUnwrapErrPayload *)instruction);
-        case IrInstructionIdOptionalWrap:
-            return ir_render_optional_wrap(g, executable, (IrInstructionOptionalWrap *)instruction);
-        case IrInstructionIdErrWrapCode:
-            return ir_render_err_wrap_code(g, executable, (IrInstructionErrWrapCode *)instruction);
-        case IrInstructionIdErrWrapPayload:
-            return ir_render_err_wrap_payload(g, executable, (IrInstructionErrWrapPayload *)instruction);
-        case IrInstructionIdUnionTag:
-            return ir_render_union_tag(g, executable, (IrInstructionUnionTag *)instruction);
-        case IrInstructionIdPtrCastGen:
-            return ir_render_ptr_cast(g, executable, (IrInstructionPtrCastGen *)instruction);
-        case IrInstructionIdBitCastGen:
-            return ir_render_bit_cast(g, executable, (IrInstructionBitCastGen *)instruction);
-        case IrInstructionIdWidenOrShorten:
-            return ir_render_widen_or_shorten(g, executable, (IrInstructionWidenOrShorten *)instruction);
-        case IrInstructionIdPtrToInt:
-            return ir_render_ptr_to_int(g, executable, (IrInstructionPtrToInt *)instruction);
-        case IrInstructionIdIntToPtr:
-            return ir_render_int_to_ptr(g, executable, (IrInstructionIntToPtr *)instruction);
-        case IrInstructionIdIntToEnum:
-            return ir_render_int_to_enum(g, executable, (IrInstructionIntToEnum *)instruction);
-        case IrInstructionIdIntToErr:
-            return ir_render_int_to_err(g, executable, (IrInstructionIntToErr *)instruction);
-        case IrInstructionIdErrToInt:
-            return ir_render_err_to_int(g, executable, (IrInstructionErrToInt *)instruction);
-        case IrInstructionIdPanic:
-            return ir_render_panic(g, executable, (IrInstructionPanic *)instruction);
-        case IrInstructionIdTagName:
-            return ir_render_enum_tag_name(g, executable, (IrInstructionTagName *)instruction);
-        case IrInstructionIdFieldParentPtr:
-            return ir_render_field_parent_ptr(g, executable, (IrInstructionFieldParentPtr *)instruction);
-        case IrInstructionIdAlignCast:
-            return ir_render_align_cast(g, executable, (IrInstructionAlignCast *)instruction);
-        case IrInstructionIdErrorReturnTrace:
-            return ir_render_error_return_trace(g, executable, (IrInstructionErrorReturnTrace *)instruction);
-        case IrInstructionIdAtomicRmw:
-            return ir_render_atomic_rmw(g, executable, (IrInstructionAtomicRmw *)instruction);
-        case IrInstructionIdAtomicLoad:
-            return ir_render_atomic_load(g, executable, (IrInstructionAtomicLoad *)instruction);
-        case IrInstructionIdAtomicStore:
-            return ir_render_atomic_store(g, executable, (IrInstructionAtomicStore *)instruction);
-        case IrInstructionIdSaveErrRetAddr:
-            return ir_render_save_err_ret_addr(g, executable, (IrInstructionSaveErrRetAddr *)instruction);
-        case IrInstructionIdFloatOp:
-            return ir_render_float_op(g, executable, (IrInstructionFloatOp *)instruction);
-        case IrInstructionIdMulAdd:
-            return ir_render_mul_add(g, executable, (IrInstructionMulAdd *)instruction);
-        case IrInstructionIdArrayToVector:
-            return ir_render_array_to_vector(g, executable, (IrInstructionArrayToVector *)instruction);
-        case IrInstructionIdVectorToArray:
-            return ir_render_vector_to_array(g, executable, (IrInstructionVectorToArray *)instruction);
-        case IrInstructionIdAssertZero:
-            return ir_render_assert_zero(g, executable, (IrInstructionAssertZero *)instruction);
-        case IrInstructionIdAssertNonNull:
-            return ir_render_assert_non_null(g, executable, (IrInstructionAssertNonNull *)instruction);
-        case IrInstructionIdResizeSlice:
-            return ir_render_resize_slice(g, executable, (IrInstructionResizeSlice *)instruction);
-        case IrInstructionIdPtrOfArrayToSlice:
-            return ir_render_ptr_of_array_to_slice(g, executable, (IrInstructionPtrOfArrayToSlice *)instruction);
-        case IrInstructionIdSuspendBegin:
-            return ir_render_suspend_begin(g, executable, (IrInstructionSuspendBegin *)instruction);
-        case IrInstructionIdSuspendFinish:
-            return ir_render_suspend_finish(g, executable, (IrInstructionSuspendFinish *)instruction);
-        case IrInstructionIdResume:
-            return ir_render_resume(g, executable, (IrInstructionResume *)instruction);
-        case IrInstructionIdFrameSizeGen:
-            return ir_render_frame_size(g, executable, (IrInstructionFrameSizeGen *)instruction);
-        case IrInstructionIdAwaitGen:
-            return ir_render_await(g, executable, (IrInstructionAwaitGen *)instruction);
-        case IrInstructionIdSpillBegin:
-            return ir_render_spill_begin(g, executable, (IrInstructionSpillBegin *)instruction);
-        case IrInstructionIdSpillEnd:
-            return ir_render_spill_end(g, executable, (IrInstructionSpillEnd *)instruction);
-        case IrInstructionIdShuffleVector:
-            return ir_render_shuffle_vector(g, executable, (IrInstructionShuffleVector *) instruction);
-        case IrInstructionIdSplatGen:
-            return ir_render_splat(g, executable, (IrInstructionSplatGen *) instruction);
-        case IrInstructionIdVectorExtractElem:
-            return ir_render_vector_extract_elem(g, executable, (IrInstructionVectorExtractElem *) instruction);
+        case IrInstGenIdDeclVar:
+            return ir_render_decl_var(g, executable, (IrInstGenDeclVar *)instruction);
+        case IrInstGenIdReturn:
+            return ir_render_return(g, executable, (IrInstGenReturn *)instruction);
+        case IrInstGenIdBinOp:
+            return ir_render_bin_op(g, executable, (IrInstGenBinOp *)instruction);
+        case IrInstGenIdCast:
+            return ir_render_cast(g, executable, (IrInstGenCast *)instruction);
+        case IrInstGenIdUnreachable:
+            return ir_render_unreachable(g, executable, (IrInstGenUnreachable *)instruction);
+        case IrInstGenIdCondBr:
+            return ir_render_cond_br(g, executable, (IrInstGenCondBr *)instruction);
+        case IrInstGenIdBr:
+            return ir_render_br(g, executable, (IrInstGenBr *)instruction);
+        case IrInstGenIdBinaryNot:
+            return ir_render_binary_not(g, executable, (IrInstGenBinaryNot *)instruction);
+        case IrInstGenIdNegation:
+            return ir_render_negation(g, executable, (IrInstGenNegation *)instruction);
+        case IrInstGenIdNegationWrapping:
+            return ir_render_negation_wrapping(g, executable, (IrInstGenNegationWrapping *)instruction);
+        case IrInstGenIdLoadPtr:
+            return ir_render_load_ptr(g, executable, (IrInstGenLoadPtr *)instruction);
+        case IrInstGenIdStorePtr:
+            return ir_render_store_ptr(g, executable, (IrInstGenStorePtr *)instruction);
+        case IrInstGenIdVectorStoreElem:
+            return ir_render_vector_store_elem(g, executable, (IrInstGenVectorStoreElem *)instruction);
+        case IrInstGenIdVarPtr:
+            return ir_render_var_ptr(g, executable, (IrInstGenVarPtr *)instruction);
+        case IrInstGenIdReturnPtr:
+            return ir_render_return_ptr(g, executable, (IrInstGenReturnPtr *)instruction);
+        case IrInstGenIdElemPtr:
+            return ir_render_elem_ptr(g, executable, (IrInstGenElemPtr *)instruction);
+        case IrInstGenIdCall:
+            return ir_render_call(g, executable, (IrInstGenCall *)instruction);
+        case IrInstGenIdStructFieldPtr:
+            return ir_render_struct_field_ptr(g, executable, (IrInstGenStructFieldPtr *)instruction);
+        case IrInstGenIdUnionFieldPtr:
+            return ir_render_union_field_ptr(g, executable, (IrInstGenUnionFieldPtr *)instruction);
+        case IrInstGenIdAsm:
+            return ir_render_asm_gen(g, executable, (IrInstGenAsm *)instruction);
+        case IrInstGenIdTestNonNull:
+            return ir_render_test_non_null(g, executable, (IrInstGenTestNonNull *)instruction);
+        case IrInstGenIdOptionalUnwrapPtr:
+            return ir_render_optional_unwrap_ptr(g, executable, (IrInstGenOptionalUnwrapPtr *)instruction);
+        case IrInstGenIdClz:
+            return ir_render_clz(g, executable, (IrInstGenClz *)instruction);
+        case IrInstGenIdCtz:
+            return ir_render_ctz(g, executable, (IrInstGenCtz *)instruction);
+        case IrInstGenIdPopCount:
+            return ir_render_pop_count(g, executable, (IrInstGenPopCount *)instruction);
+        case IrInstGenIdSwitchBr:
+            return ir_render_switch_br(g, executable, (IrInstGenSwitchBr *)instruction);
+        case IrInstGenIdBswap:
+            return ir_render_bswap(g, executable, (IrInstGenBswap *)instruction);
+        case IrInstGenIdBitReverse:
+            return ir_render_bit_reverse(g, executable, (IrInstGenBitReverse *)instruction);
+        case IrInstGenIdPhi:
+            return ir_render_phi(g, executable, (IrInstGenPhi *)instruction);
+        case IrInstGenIdRef:
+            return ir_render_ref(g, executable, (IrInstGenRef *)instruction);
+        case IrInstGenIdErrName:
+            return ir_render_err_name(g, executable, (IrInstGenErrName *)instruction);
+        case IrInstGenIdCmpxchg:
+            return ir_render_cmpxchg(g, executable, (IrInstGenCmpxchg *)instruction);
+        case IrInstGenIdFence:
+            return ir_render_fence(g, executable, (IrInstGenFence *)instruction);
+        case IrInstGenIdTruncate:
+            return ir_render_truncate(g, executable, (IrInstGenTruncate *)instruction);
+        case IrInstGenIdBoolNot:
+            return ir_render_bool_not(g, executable, (IrInstGenBoolNot *)instruction);
+        case IrInstGenIdMemset:
+            return ir_render_memset(g, executable, (IrInstGenMemset *)instruction);
+        case IrInstGenIdMemcpy:
+            return ir_render_memcpy(g, executable, (IrInstGenMemcpy *)instruction);
+        case IrInstGenIdSlice:
+            return ir_render_slice(g, executable, (IrInstGenSlice *)instruction);
+        case IrInstGenIdBreakpoint:
+            return ir_render_breakpoint(g, executable, (IrInstGenBreakpoint *)instruction);
+        case IrInstGenIdReturnAddress:
+            return ir_render_return_address(g, executable, (IrInstGenReturnAddress *)instruction);
+        case IrInstGenIdFrameAddress:
+            return ir_render_frame_address(g, executable, (IrInstGenFrameAddress *)instruction);
+        case IrInstGenIdFrameHandle:
+            return ir_render_handle(g, executable, (IrInstGenFrameHandle *)instruction);
+        case IrInstGenIdOverflowOp:
+            return ir_render_overflow_op(g, executable, (IrInstGenOverflowOp *)instruction);
+        case IrInstGenIdTestErr:
+            return ir_render_test_err(g, executable, (IrInstGenTestErr *)instruction);
+        case IrInstGenIdUnwrapErrCode:
+            return ir_render_unwrap_err_code(g, executable, (IrInstGenUnwrapErrCode *)instruction);
+        case IrInstGenIdUnwrapErrPayload:
+            return ir_render_unwrap_err_payload(g, executable, (IrInstGenUnwrapErrPayload *)instruction);
+        case IrInstGenIdOptionalWrap:
+            return ir_render_optional_wrap(g, executable, (IrInstGenOptionalWrap *)instruction);
+        case IrInstGenIdErrWrapCode:
+            return ir_render_err_wrap_code(g, executable, (IrInstGenErrWrapCode *)instruction);
+        case IrInstGenIdErrWrapPayload:
+            return ir_render_err_wrap_payload(g, executable, (IrInstGenErrWrapPayload *)instruction);
+        case IrInstGenIdUnionTag:
+            return ir_render_union_tag(g, executable, (IrInstGenUnionTag *)instruction);
+        case IrInstGenIdPtrCast:
+            return ir_render_ptr_cast(g, executable, (IrInstGenPtrCast *)instruction);
+        case IrInstGenIdBitCast:
+            return ir_render_bit_cast(g, executable, (IrInstGenBitCast *)instruction);
+        case IrInstGenIdWidenOrShorten:
+            return ir_render_widen_or_shorten(g, executable, (IrInstGenWidenOrShorten *)instruction);
+        case IrInstGenIdPtrToInt:
+            return ir_render_ptr_to_int(g, executable, (IrInstGenPtrToInt *)instruction);
+        case IrInstGenIdIntToPtr:
+            return ir_render_int_to_ptr(g, executable, (IrInstGenIntToPtr *)instruction);
+        case IrInstGenIdIntToEnum:
+            return ir_render_int_to_enum(g, executable, (IrInstGenIntToEnum *)instruction);
+        case IrInstGenIdIntToErr:
+            return ir_render_int_to_err(g, executable, (IrInstGenIntToErr *)instruction);
+        case IrInstGenIdErrToInt:
+            return ir_render_err_to_int(g, executable, (IrInstGenErrToInt *)instruction);
+        case IrInstGenIdPanic:
+            return ir_render_panic(g, executable, (IrInstGenPanic *)instruction);
+        case IrInstGenIdTagName:
+            return ir_render_enum_tag_name(g, executable, (IrInstGenTagName *)instruction);
+        case IrInstGenIdFieldParentPtr:
+            return ir_render_field_parent_ptr(g, executable, (IrInstGenFieldParentPtr *)instruction);
+        case IrInstGenIdAlignCast:
+            return ir_render_align_cast(g, executable, (IrInstGenAlignCast *)instruction);
+        case IrInstGenIdErrorReturnTrace:
+            return ir_render_error_return_trace(g, executable, (IrInstGenErrorReturnTrace *)instruction);
+        case IrInstGenIdAtomicRmw:
+            return ir_render_atomic_rmw(g, executable, (IrInstGenAtomicRmw *)instruction);
+        case IrInstGenIdAtomicLoad:
+            return ir_render_atomic_load(g, executable, (IrInstGenAtomicLoad *)instruction);
+        case IrInstGenIdAtomicStore:
+            return ir_render_atomic_store(g, executable, (IrInstGenAtomicStore *)instruction);
+        case IrInstGenIdSaveErrRetAddr:
+            return ir_render_save_err_ret_addr(g, executable, (IrInstGenSaveErrRetAddr *)instruction);
+        case IrInstGenIdFloatOp:
+            return ir_render_float_op(g, executable, (IrInstGenFloatOp *)instruction);
+        case IrInstGenIdMulAdd:
+            return ir_render_mul_add(g, executable, (IrInstGenMulAdd *)instruction);
+        case IrInstGenIdArrayToVector:
+            return ir_render_array_to_vector(g, executable, (IrInstGenArrayToVector *)instruction);
+        case IrInstGenIdVectorToArray:
+            return ir_render_vector_to_array(g, executable, (IrInstGenVectorToArray *)instruction);
+        case IrInstGenIdAssertZero:
+            return ir_render_assert_zero(g, executable, (IrInstGenAssertZero *)instruction);
+        case IrInstGenIdAssertNonNull:
+            return ir_render_assert_non_null(g, executable, (IrInstGenAssertNonNull *)instruction);
+        case IrInstGenIdResizeSlice:
+            return ir_render_resize_slice(g, executable, (IrInstGenResizeSlice *)instruction);
+        case IrInstGenIdPtrOfArrayToSlice:
+            return ir_render_ptr_of_array_to_slice(g, executable, (IrInstGenPtrOfArrayToSlice *)instruction);
+        case IrInstGenIdSuspendBegin:
+            return ir_render_suspend_begin(g, executable, (IrInstGenSuspendBegin *)instruction);
+        case IrInstGenIdSuspendFinish:
+            return ir_render_suspend_finish(g, executable, (IrInstGenSuspendFinish *)instruction);
+        case IrInstGenIdResume:
+            return ir_render_resume(g, executable, (IrInstGenResume *)instruction);
+        case IrInstGenIdFrameSize:
+            return ir_render_frame_size(g, executable, (IrInstGenFrameSize *)instruction);
+        case IrInstGenIdAwait:
+            return ir_render_await(g, executable, (IrInstGenAwait *)instruction);
+        case IrInstGenIdSpillBegin:
+            return ir_render_spill_begin(g, executable, (IrInstGenSpillBegin *)instruction);
+        case IrInstGenIdSpillEnd:
+            return ir_render_spill_end(g, executable, (IrInstGenSpillEnd *)instruction);
+        case IrInstGenIdShuffleVector:
+            return ir_render_shuffle_vector(g, executable, (IrInstGenShuffleVector *) instruction);
+        case IrInstGenIdSplat:
+            return ir_render_splat(g, executable, (IrInstGenSplat *) instruction);
+        case IrInstGenIdVectorExtractElem:
+            return ir_render_vector_extract_elem(g, executable, (IrInstGenVectorExtractElem *) instruction);
     }
     zig_unreachable();
 }
@@ -6495,21 +6420,21 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
 static void ir_render(CodeGen *g, ZigFn *fn_entry) {
     assert(fn_entry);
 
-    IrExecutable *executable = &fn_entry->analyzed_executable;
+    IrExecutableGen *executable = &fn_entry->analyzed_executable;
     assert(executable->basic_block_list.length > 0);
 
     for (size_t block_i = 0; block_i < executable->basic_block_list.length; block_i += 1) {
-        IrBasicBlock *current_block = executable->basic_block_list.at(block_i);
+        IrBasicBlockGen *current_block = executable->basic_block_list.at(block_i);
         if (get_scope_typeof(current_block->scope) != nullptr) {
             LLVMBuildBr(g->builder, current_block->llvm_block);
         }
         assert(current_block->llvm_block);
         LLVMPositionBuilderAtEnd(g->builder, current_block->llvm_block);
         for (size_t instr_i = 0; instr_i < current_block->instruction_list.length; instr_i += 1) {
-            IrInstruction *instruction = current_block->instruction_list.at(instr_i);
-            if (instruction->ref_count == 0 && !ir_has_side_effects(instruction))
+            IrInstGen *instruction = current_block->instruction_list.at(instr_i);
+            if (instruction->base.ref_count == 0 && !ir_inst_gen_has_side_effects(instruction))
                 continue;
-            if (get_scope_typeof(instruction->scope) != nullptr)
+            if (get_scope_typeof(instruction->base.scope) != nullptr)
                 continue;
 
             if (!g->strip_debug_symbols) {
@@ -7401,7 +7326,7 @@ static void generate_error_name_table(CodeGen *g) {
 }
 
 static void build_all_basic_blocks(CodeGen *g, ZigFn *fn) {
-    IrExecutable *executable = &fn->analyzed_executable;
+    IrExecutableGen *executable = &fn->analyzed_executable;
     assert(executable->basic_block_list.length > 0);
     LLVMValueRef fn_val = fn_llvm_value(g, fn);
     LLVMBasicBlockRef first_bb = nullptr;
@@ -7410,7 +7335,7 @@ static void build_all_basic_blocks(CodeGen *g, ZigFn *fn) {
         g->cur_preamble_llvm_block = first_bb;
     }
     for (size_t block_i = 0; block_i < executable->basic_block_list.length; block_i += 1) {
-        IrBasicBlock *bb = executable->basic_block_list.at(block_i);
+        IrBasicBlockGen *bb = executable->basic_block_list.at(block_i);
         bb->llvm_block = LLVMAppendBasicBlock(fn_val, bb->name_hint);
     }
     if (first_bb == nullptr) {
@@ -7643,10 +7568,10 @@ static void do_code_gen(CodeGen *g) {
         if (!is_async) {
             // allocate async frames for noasync calls & awaits to async functions
             ZigType *largest_call_frame_type = nullptr;
-            IrInstruction *all_calls_alloca = ir_create_alloca(g, &fn_table_entry->fndef_scope->base,
+            IrInstGen *all_calls_alloca = ir_create_alloca(g, &fn_table_entry->fndef_scope->base,
                     fn_table_entry->body_node, fn_table_entry, g->builtin_types.entry_void, "@async_call_frame");
             for (size_t i = 0; i < fn_table_entry->call_list.length; i += 1) {
-                IrInstructionCallGen *call = fn_table_entry->call_list.at(i);
+                IrInstGenCall *call = fn_table_entry->call_list.at(i);
                 if (call->fn_entry == nullptr)
                     continue;
                 if (!fn_is_async(call->fn_entry))
@@ -7668,7 +7593,7 @@ static void do_code_gen(CodeGen *g) {
             }
             // allocate temporary stack data
             for (size_t alloca_i = 0; alloca_i < fn_table_entry->alloca_gen_list.length; alloca_i += 1) {
-                IrInstructionAllocaGen *instruction = fn_table_entry->alloca_gen_list.at(alloca_i);
+                IrInstGenAlloca *instruction = fn_table_entry->alloca_gen_list.at(alloca_i);
                 ZigType *ptr_type = instruction->base.value->type;
                 assert(ptr_type->id == ZigTypeIdPointer);
                 ZigType *child_type = ptr_type->data.pointer.child_type;
@@ -7676,7 +7601,7 @@ static void do_code_gen(CodeGen *g) {
                     zig_unreachable();
                 if (!type_has_bits(child_type))
                     continue;
-                if (instruction->base.ref_count == 0)
+                if (instruction->base.base.ref_count == 0)
                     continue;
                 if (instruction->base.value->special != ConstValSpecialRuntime) {
                     if (const_ptr_pointee(nullptr, g, instruction->base.value, nullptr)->special !=
@@ -7793,7 +7718,7 @@ static void do_code_gen(CodeGen *g) {
                 ZigLLVMSetCurrentDebugLocation(g->builder, (int)source_node->line + 1,
                         (int)source_node->column + 1, get_di_scope(g, fn_table_entry->child_scope));
             }
-            IrExecutable *executable = &fn_table_entry->analyzed_executable;
+            IrExecutableGen *executable = &fn_table_entry->analyzed_executable;
             LLVMBasicBlockRef bad_resume_block = LLVMAppendBasicBlock(g->cur_fn_val, "BadResume");
             LLVMPositionBuilderAtEnd(g->builder, bad_resume_block);
             gen_assertion_scope(g, PanicMsgIdBadResume, fn_table_entry->child_scope);
@@ -7820,7 +7745,7 @@ static void do_code_gen(CodeGen *g) {
             g->cur_async_switch_instr = switch_instr;
 
             LLVMValueRef zero = LLVMConstNull(usize_type_ref);
-            IrBasicBlock *entry_block = executable->basic_block_list.at(0);
+            IrBasicBlockGen *entry_block = executable->basic_block_list.at(0);
             LLVMAddCase(switch_instr, zero, entry_block->llvm_block);
             g->cur_resume_block_count += 1;
 
@@ -7852,7 +7777,7 @@ static void do_code_gen(CodeGen *g) {
 
                 gen_init_stack_trace(g, trace_field_ptr, addrs_field_ptr);
             }
-            render_async_var_decls(g, entry_block->instruction_list.at(0)->scope);
+            render_async_var_decls(g, entry_block->instruction_list.at(0)->base.scope);
         } else {
             // create debug variable declarations for parameters
             // rely on the first variables in the variable_list being parameters.
@@ -7941,6 +7866,12 @@ static void zig_llvm_emit_output(CodeGen *g) {
         default:
             zig_unreachable();
     }
+    LLVMDisposeModule(g->module);
+    g->module = nullptr;
+    LLVMDisposeTargetData(g->target_data_ref);
+    g->target_data_ref = nullptr;
+    LLVMDisposeTargetMachine(g->target_machine);
+    g->target_machine = nullptr;
 }
 
 struct CIntTypeInfo {
@@ -8846,14 +8777,16 @@ static void init(CodeGen *g) {
     define_builtin_types(g);
     define_intern_values(g);
 
-    IrInstruction *sentinel_instructions = allocate<IrInstruction>(2);
-    g->invalid_instruction = &sentinel_instructions[0];
-    g->invalid_instruction->value = allocate<ZigValue>(1, "ZigValue");
-    g->invalid_instruction->value->type = g->builtin_types.entry_invalid;
+    IrInstGen *sentinel_instructions = allocate<IrInstGen>(2);
+    g->invalid_inst_gen = &sentinel_instructions[0];
+    g->invalid_inst_gen->value = allocate<ZigValue>(1, "ZigValue");
+    g->invalid_inst_gen->value->type = g->builtin_types.entry_invalid;
 
     g->unreach_instruction = &sentinel_instructions[1];
     g->unreach_instruction->value = allocate<ZigValue>(1, "ZigValue");
     g->unreach_instruction->value->type = g->builtin_types.entry_unreachable;
+
+    g->invalid_inst_src = allocate<IrInstSrc>(1);
 
     define_builtin_fns(g);
     Error err;
