@@ -81,7 +81,7 @@ pub fn getSelfDebugInfo() !*DebugInfo {
     }
 }
 
-fn detectTTYConfig() TTY.Config {
+pub fn detectTTYConfig() TTY.Config {
     var bytes: [128]u8 = undefined;
     const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
     if (process.getEnvVarOwned(allocator, "ZIG_DEBUG_COLOR")) |_| {
@@ -89,7 +89,7 @@ fn detectTTYConfig() TTY.Config {
     } else |_| {
         if (stderr_file.supportsAnsiEscapeCodes()) {
             return .escape_codes;
-        } else if (builtin.os == .windows) {
+        } else if (builtin.os == .windows and stderr_file.isTty()) {
             return .windows_api;
         } else {
             return .no_color;

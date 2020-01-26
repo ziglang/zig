@@ -622,6 +622,9 @@ pub const StackTracesContext = struct {
             child.stderr_behavior = .Pipe;
             child.env_map = b.env_map;
 
+            if (b.verbose) {
+                printInvocation(args.toSliceConst());
+            }
             child.spawn() catch |err| debug.panic("Unable to spawn {}: {}\n", .{ full_exe_path, @errorName(err) });
 
             var stdout = Buffer.initNull(b.allocator);
