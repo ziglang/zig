@@ -2,7 +2,8 @@
 // src-self-hosted/stage1.zig
 
 #include "userland.h"
-#include "ast_render.hpp"
+#include "util.hpp"
+#include "zig_llvm.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -88,3 +89,58 @@ void stage2_progress_end(Stage2ProgressNode *node) {}
 void stage2_progress_complete_one(Stage2ProgressNode *node) {}
 void stage2_progress_disable_tty(Stage2Progress *progress) {}
 void stage2_progress_update_node(Stage2ProgressNode *node, size_t completed_count, size_t estimated_total_items){}
+
+struct Stage2CpuFeatures {
+    const char *llvm_cpu_name;
+    const char *llvm_cpu_features;
+    const char *builtin_str;
+    const char *cache_hash;
+};
+
+Error stage2_cpu_features_parse(struct Stage2CpuFeatures **out, const char *zig_triple,
+        const char *cpu_name, const char *cpu_features)
+{
+    if (zig_triple == nullptr) {
+        Stage2CpuFeatures *result = allocate<Stage2CpuFeatures>(1, "Stage2CpuFeatures");
+        result->llvm_cpu_name = ZigLLVMGetHostCPUName();
+        result->llvm_cpu_features = ZigLLVMGetNativeFeatures();
+        result->builtin_str = "arch.getBaselineCpuFeatures();\n";
+        result->cache_hash = "native\n\n";
+        *out = result;
+        return ErrorNone;
+    }
+    if (cpu_name == nullptr && cpu_features == nullptr) {
+        Stage2CpuFeatures *result = allocate<Stage2CpuFeatures>(1, "Stage2CpuFeatures");
+        result->builtin_str = "arch.getBaselineCpuFeatures();\n";
+        result->cache_hash = "\n\n";
+        *out = result;
+        return ErrorNone;
+    }
+
+    const char *msg = "stage0 called stage2_cpu_features_parse with non-null cpu name or features";
+    stage2_panic(msg, strlen(msg));
+}
+
+void stage2_cpu_features_get_cache_hash(const Stage2CpuFeatures *cpu_features,
+        const char **ptr, size_t *len)
+{
+    *ptr = cpu_features->cache_hash;
+    *len = strlen(cpu_features->cache_hash);
+}
+const char *stage2_cpu_features_get_llvm_cpu(const Stage2CpuFeatures *cpu_features) {
+    return cpu_features->llvm_cpu_name;
+}
+const char *stage2_cpu_features_get_llvm_features(const Stage2CpuFeatures *cpu_features) {
+    return cpu_features->llvm_cpu_features;
+}
+void stage2_cpu_features_get_builtin_str(const Stage2CpuFeatures *cpu_features, 
+        const char **ptr, size_t *len)
+{
+    *ptr = cpu_features->builtin_str;
+    *len = strlen(cpu_features->builtin_str);
+}
+
+int stage2_cmd_targets(const char *zig_triple) {
+    const char *msg = "stage0 called stage2_cmd_targets";
+    stage2_panic(msg, strlen(msg));
+}

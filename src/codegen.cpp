@@ -30,11 +30,6 @@ enum ResumeId {
     ResumeIdCall,
 };
 
-// TODO https://github.com/ziglang/zig/issues/2883
-// Until then we have this same default as Clang.
-// This avoids https://github.com/ziglang/zig/issues/3275
-static const char *riscv_default_features = "+a,+c,+d,+f,+m,+relax";
-
 static void init_darwin_native(CodeGen *g) {
     char *osx_target = getenv("MACOSX_DEPLOYMENT_TARGET");
     char *ios_target = getenv("IPHONEOS_DEPLOYMENT_TARGET");
@@ -8509,6 +8504,17 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const os = Os.%s;\n", cur_os);
     buf_appendf(contents, "pub const arch = %s;\n", cur_arch);
     buf_appendf(contents, "pub const abi = Abi.%s;\n", cur_abi);
+    {
+        buf_append_str(contents, "pub const cpu_features: CpuFeatures = ");
+        if (g->zig_target->cpu_features != nullptr) {
+            const char *ptr;
+            size_t len;
+            stage2_cpu_features_get_builtin_str(g->zig_target->cpu_features, &ptr, &len);
+            buf_append_mem(contents, ptr, len);
+        } else {
+            buf_append_str(contents, "arch.getBaselineCpuFeatures();\n");
+        }
+    }
     if (g->libc_link_lib != nullptr && g->zig_target->glibc_version != nullptr) {
         buf_appendf(contents,
             "pub const glibc_version: ?Version = Version{.major = %d, .minor = %d, .patch = %d};\n",
@@ -8576,6 +8582,12 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_int(&cache_hash, g->zig_target->vendor);
     cache_int(&cache_hash, g->zig_target->os);
     cache_int(&cache_hash, g->zig_target->abi);
+    if (g->zig_target->cpu_features != nullptr) {
+        const char *ptr;
+        size_t len;
+        stage2_cpu_features_get_cache_hash(g->zig_target->cpu_features, &ptr, &len);
+        cache_str(&cache_hash, ptr);
+    }
     if (g->zig_target->glibc_version != nullptr) {
         cache_int(&cache_hash, g->zig_target->glibc_version->major);
         cache_int(&cache_hash, g->zig_target->glibc_version->minor);
@@ -8700,37 +8712,25 @@ static void init(CodeGen *g) {
         reloc_mode = LLVMRelocStatic;
     }
 
-    const char *target_specific_cpu_args;
-    const char *target_specific_features;
+    const char *target_specific_cpu_args = "";
+    const char *target_specific_features = "";
+
     if (g->zig_target->is_native) {
-        // LLVM creates invalid binaries on Windows sometimes.
-        // See https://github.com/ziglang/zig/issues/508
-        // As a workaround we do not use target native features on Windows.
-        if (g->zig_target->os == OsWindows || g->zig_target->os == OsUefi) {
-            target_specific_cpu_args = "";
-            target_specific_features = "";
-        } else {
-            target_specific_cpu_args = ZigLLVMGetHostCPUName();
-            target_specific_features = ZigLLVMGetNativeFeatures();
-        }
-    } else if (target_is_riscv(g->zig_target)) {
-        // TODO https://github.com/ziglang/zig/issues/2883
-        // Be aware of https://github.com/ziglang/zig/issues/3275
-        target_specific_cpu_args = "";
-        target_specific_features = riscv_default_features;
-    } else if (g->zig_target->arch == ZigLLVM_x86) {
-        // This is because we're really targeting i686 rather than i386.
-        // It's pretty much impossible to use many of the language features
-        // such as fp16 if you stick use the x87 only. This is also what clang
-        // uses as base cpu.
-        // TODO https://github.com/ziglang/zig/issues/2883
-        target_specific_cpu_args = "pentium4";
-        target_specific_features = (g->zig_target->os == OsFreestanding) ? "-sse": "";
-    } else {
-        target_specific_cpu_args = "";
-        target_specific_features = "";
+        target_specific_cpu_args = ZigLLVMGetHostCPUName();
+        target_specific_features = ZigLLVMGetNativeFeatures();
     }
 
+    // Override CPU and features if defined by user.
+    if (g->zig_target->cpu_features != nullptr) {
+        target_specific_cpu_args = stage2_cpu_features_get_llvm_cpu(g->zig_target->cpu_features);
+        target_specific_features = stage2_cpu_features_get_llvm_features(g->zig_target->cpu_features);
+    }
+    if (g->verbose_llvm_cpu_features) {
+        fprintf(stderr, "name=%s triple=%s\n", buf_ptr(g->root_out_name), buf_ptr(&g->llvm_triple_str));
+        fprintf(stderr, "name=%s target_specific_cpu_args=%s\n", buf_ptr(g->root_out_name), target_specific_cpu_args);
+        fprintf(stderr, "name=%s target_specific_features=%s\n", buf_ptr(g->root_out_name), target_specific_features);
+    }
+    
     g->target_machine = ZigLLVMCreateTargetMachine(target_ref, buf_ptr(&g->llvm_triple_str),
             target_specific_cpu_args, target_specific_features, opt_level, reloc_mode,
             LLVMCodeModelDefault, g->function_sections);
@@ -9061,21 +9061,22 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         args.append("-target");
         args.append(buf_ptr(&g->llvm_triple_str));
 
-        if (target_is_musl(g->zig_target) && target_is_riscv(g->zig_target)) {
-            // Musl depends on atomic instructions, which are disabled by default in Clang/LLVM's
-            // cross compilation CPU info for RISCV.
-            // TODO: https://github.com/ziglang/zig/issues/2883
+        const char *llvm_cpu = stage2_cpu_features_get_llvm_cpu(g->zig_target->cpu_features);
+        if (llvm_cpu != nullptr) {
+            args.append("-Xclang");
+            args.append("-target-cpu");
+            args.append("-Xclang");
+            args.append(llvm_cpu);
+        }
+        const char *llvm_target_features = stage2_cpu_features_get_llvm_features(g->zig_target->cpu_features);
+        if (llvm_target_features != nullptr) {
             args.append("-Xclang");
             args.append("-target-feature");
             args.append("-Xclang");
-            args.append(riscv_default_features);
-        } else if (g->zig_target->os == OsFreestanding && g->zig_target->arch == ZigLLVM_x86) {
-            args.append("-Xclang");
-            args.append("-target-feature");
-            args.append("-Xclang");
-            args.append("-sse");
+            args.append(llvm_target_features);
         }
     }
+
     if (g->zig_target->os == OsFreestanding) {
         args.append("-ffreestanding");
     }
@@ -10270,6 +10271,12 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_int(ch, g->zig_target->vendor);
     cache_int(ch, g->zig_target->os);
     cache_int(ch, g->zig_target->abi);
+    if (g->zig_target->cpu_features != nullptr) {
+        const char *ptr;
+        size_t len;
+        stage2_cpu_features_get_cache_hash(g->zig_target->cpu_features, &ptr, &len);
+        cache_str(ch, ptr);
+    }
     if (g->zig_target->glibc_version != nullptr) {
         cache_int(ch, g->zig_target->glibc_version->major);
         cache_int(ch, g->zig_target->glibc_version->minor);
@@ -10610,6 +10617,7 @@ CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType o
     child_gen->verbose_llvm_ir = parent_gen->verbose_llvm_ir;
     child_gen->verbose_cimport = parent_gen->verbose_cimport;
     child_gen->verbose_cc = parent_gen->verbose_cc;
+    child_gen->verbose_llvm_cpu_features = parent_gen->verbose_llvm_cpu_features;
     child_gen->llvm_argv = parent_gen->llvm_argv;
     child_gen->dynamic_linker_path = parent_gen->dynamic_linker_path;
 

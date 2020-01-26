@@ -1,6 +1,9 @@
 pub usingnamespace @import("builtin");
 
 /// Deprecated: use `std.Target.Os`.
+pub const Target = std.Target;
+
+/// Deprecated: use `std.Target.Os`.
 pub const Os = std.Target.Os;
 
 /// Deprecated: use `std.Target.Arch`.
@@ -14,6 +17,12 @@ pub const ObjectFormat = std.Target.ObjectFormat;
 
 /// Deprecated: use `std.Target.SubSystem`.
 pub const SubSystem = std.Target.SubSystem;
+
+/// Deprecated: use `std.Target.CpuFeatures`.
+pub const CpuFeatures = std.Target.CpuFeatures;
+
+/// Deprecated: use `std.Target.Cpu`.
+pub const Cpu = std.Target.Cpu;
 
 /// `explicit_subsystem` is missing when the subsystem is automatically detected,
 /// so Zig standard library has the subsystem detection logic here. This should generally be

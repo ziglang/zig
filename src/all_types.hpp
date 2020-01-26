@@ -2174,6 +2174,7 @@ struct CodeGen {
     bool verbose_llvm_ir;
     bool verbose_cimport;
     bool verbose_cc;
+    bool verbose_llvm_cpu_features;
     bool error_during_imports;
     bool generate_error_name_table;
     bool enable_cache; // mutually exclusive with output_dir

@@ -9,9 +9,11 @@ const process = std.process;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const Buffer = std.Buffer;
+const Target = std.Target;
 const self_hosted_main = @import("main.zig");
 const errmsg = @import("errmsg.zig");
 const DepTokenizer = @import("dep_tokenizer.zig").Tokenizer;
+const assert = std.debug.assert;
 
 var stderr_file: fs.File = undefined;
 var stderr: *io.OutStream(fs.File.WriteError) = undefined;
@@ -63,6 +65,7 @@ const Error = extern enum {
     CacheUnavailable,
     PathTooLong,
     CCompilerCannotFindFile,
+    NoCCompilerInstalled,
     ReadingDepFile,
     InvalidDepFile,
     MissingArchitecture,
@@ -80,6 +83,15 @@ const Error = extern enum {
     OperationAborted,
     BrokenPipe,
     NoSpaceLeft,
+    NotLazy,
+    IsAsync,
+    ImportOutsidePkgPath,
+    UnknownCpu,
+    UnknownSubArchitecture,
+    UnknownCpuFeature,
+    InvalidCpuFeatures,
+    InvalidLlvmCpuFeaturesFormat,
+    UnknownApplicationBinaryInterface,
 };
 
 const FILE = std.c.FILE;
@@ -149,7 +161,7 @@ fn fmtMain(argc: c_int, argv: [*]const [*:0]const u8) !void {
     const argc_usize = @intCast(usize, argc);
     var arg_i: usize = 0;
     while (arg_i < argc_usize) : (arg_i += 1) {
-        try args_list.append(std.mem.toSliceConst(u8, argv[arg_i]));
+        try args_list.append(mem.toSliceConst(u8, argv[arg_i]));
     }
 
     stdout = &std.io.getStdOut().outStream().stream;
@@ -526,4 +538,295 @@ export fn stage2_progress_update_node(node: *std.Progress.Node, done_count: usiz
     node.estimated_total_items = total_count;
     node.activate();
     node.context.maybeRefresh();
+}
+
+fn cpuFeaturesFromLLVM(
+    arch: Target.Arch,
+    llvm_cpu_name_z: ?[*:0]const u8,
+    llvm_cpu_features_opt: ?[*:0]const u8,
+) !Target.CpuFeatures {
+    var result = arch.getBaselineCpuFeatures();
+
+    if (llvm_cpu_name_z) |cpu_name_z| {
+        const llvm_cpu_name = mem.toSliceConst(u8, cpu_name_z);
+
+        for (arch.allCpus()) |cpu| {
+            const this_llvm_name = cpu.llvm_name orelse continue;
+            if (mem.eql(u8, this_llvm_name, llvm_cpu_name)) {
+                // Here we use the non-dependencies-populated set,
+                // so that subtracting features later in this function
+                // affect the prepopulated set.
+                result = Target.CpuFeatures{
+                    .cpu = cpu,
+                    .features = cpu.features,
+                };
+                break;
+            }
+        }
+    }
+
+    const all_features = arch.allFeaturesList();
+
+    if (llvm_cpu_features_opt) |llvm_cpu_features| {
+        var it = mem.tokenize(mem.toSliceConst(u8, llvm_cpu_features), ",");
+        while (it.next()) |decorated_llvm_feat| {
+            var op: enum {
+                add,
+                sub,
+            } = undefined;
+            var llvm_feat: []const u8 = undefined;
+            if (mem.startsWith(u8, decorated_llvm_feat, "+")) {
+                op = .add;
+                llvm_feat = decorated_llvm_feat[1..];
+            } else if (mem.startsWith(u8, decorated_llvm_feat, "-")) {
+                op = .sub;
+                llvm_feat = decorated_llvm_feat[1..];
+            } else {
+                return error.InvalidLlvmCpuFeaturesFormat;
+            }
+            for (all_features) |feature, index_usize| {
+                const this_llvm_name = feature.llvm_name orelse continue;
+                if (mem.eql(u8, llvm_feat, this_llvm_name)) {
+                    const index = @intCast(Target.Cpu.Feature.Set.Index, index_usize);
+                    switch (op) {
+                        .add => result.features.addFeature(index),
+                        .sub => result.features.removeFeature(index),
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    result.features.populateDependencies(all_features);
+    return result;
+}
+
+// ABI warning
+export fn stage2_cmd_targets(zig_triple: [*:0]const u8) c_int {
+    cmdTargets(zig_triple) catch |err| {
+        std.debug.warn("unable to list targets: {}\n", .{@errorName(err)});
+        return -1;
+    };
+    return 0;
+}
+
+fn cmdTargets(zig_triple: [*:0]const u8) !void {
+    var target = try Target.parse(mem.toSliceConst(u8, zig_triple));
+    target.Cross.cpu_features = blk: {
+        const llvm = @import("llvm.zig");
+        const llvm_cpu_name = llvm.GetHostCPUName();
+        const llvm_cpu_features = llvm.GetNativeFeatures();
+        break :blk try cpuFeaturesFromLLVM(target.Cross.arch, llvm_cpu_name, llvm_cpu_features);
+    };
+    return @import("print_targets.zig").cmdTargets(
+        std.heap.c_allocator,
+        &[0][]u8{},
+        &std.io.getStdOut().outStream().stream,
+        target,
+    );
+}
+
+const Stage2CpuFeatures = struct {
+    allocator: *mem.Allocator,
+    cpu_features: Target.CpuFeatures,
+
+    llvm_features_str: ?[*:0]const u8,
+
+    builtin_str: [:0]const u8,
+    cache_hash: [:0]const u8,
+
+    const Self = @This();
+
+    fn createFromNative(allocator: *mem.Allocator) !*Self {
+        const arch = Target.current.getArch();
+        const llvm = @import("llvm.zig");
+        const llvm_cpu_name = llvm.GetHostCPUName();
+        const llvm_cpu_features = llvm.GetNativeFeatures();
+        const cpu_features = try cpuFeaturesFromLLVM(arch, llvm_cpu_name, llvm_cpu_features);
+        return createFromCpuFeatures(allocator, arch, cpu_features);
+    }
+
+    fn createFromCpuFeatures(
+        allocator: *mem.Allocator,
+        arch: Target.Arch,
+        cpu_features: Target.CpuFeatures,
+    ) !*Self {
+        const self = try allocator.create(Self);
+        errdefer allocator.destroy(self);
+
+        const cache_hash = try std.fmt.allocPrint0(allocator, "{}\n{}", .{
+            cpu_features.cpu.name,
+            cpu_features.features.asBytes(),
+        });
+        errdefer allocator.free(cache_hash);
+
+        const generic_arch_name = arch.genericName();
+        var builtin_str_buffer = try std.Buffer.allocPrint(allocator,
+            \\CpuFeatures{{
+            \\    .cpu = &Target.{}.cpu.{},
+            \\    .features = Target.{}.featureSet(&[_]Target.{}.Feature{{
+            \\
+        , .{
+            generic_arch_name,
+            cpu_features.cpu.name,
+            generic_arch_name,
+            generic_arch_name,
+        });
+        defer builtin_str_buffer.deinit();
+
+        var llvm_features_buffer = try std.Buffer.initSize(allocator, 0);
+        defer llvm_features_buffer.deinit();
+
+        for (arch.allFeaturesList()) |feature, index_usize| {
+            const index = @intCast(Target.Cpu.Feature.Set.Index, index_usize);
+            const is_enabled = cpu_features.features.isEnabled(index);
+
+            if (feature.llvm_name) |llvm_name| {
+                const plus_or_minus = "-+"[@boolToInt(is_enabled)];
+                try llvm_features_buffer.appendByte(plus_or_minus);
+                try llvm_features_buffer.append(llvm_name);
+                try llvm_features_buffer.append(",");
+            }
+
+            if (is_enabled) {
+                // TODO some kind of "zig identifier escape" function rather than
+                // unconditionally using @"" syntax
+                try builtin_str_buffer.append("        .@\"");
+                try builtin_str_buffer.append(feature.name);
+                try builtin_str_buffer.append("\",\n");
+            }
+        }
+
+        try builtin_str_buffer.append(
+            \\    }),
+            \\};
+            \\
+        );
+
+        assert(mem.endsWith(u8, llvm_features_buffer.toSliceConst(), ","));
+        llvm_features_buffer.shrink(llvm_features_buffer.len() - 1);
+
+        self.* = Self{
+            .allocator = allocator,
+            .cpu_features = cpu_features,
+            .llvm_features_str = llvm_features_buffer.toOwnedSlice().ptr,
+            .builtin_str = builtin_str_buffer.toOwnedSlice(),
+            .cache_hash = cache_hash,
+        };
+        return self;
+    }
+
+    fn destroy(self: *Self) void {
+        self.allocator.free(self.cache_hash);
+        self.allocator.free(self.builtin_str);
+        // TODO if (self.llvm_features_str) |llvm_features_str| self.allocator.free(llvm_features_str);
+        self.allocator.destroy(self);
+    }
+};
+
+// ABI warning
+export fn stage2_cpu_features_parse(
+    result: **Stage2CpuFeatures,
+    zig_triple: ?[*:0]const u8,
+    cpu_name: ?[*:0]const u8,
+    cpu_features: ?[*:0]const u8,
+) Error {
+    result.* = stage2ParseCpuFeatures(zig_triple, cpu_name, cpu_features) catch |err| switch (err) {
+        error.OutOfMemory => return .OutOfMemory,
+        error.UnknownArchitecture => return .UnknownArchitecture,
+        error.UnknownSubArchitecture => return .UnknownSubArchitecture,
+        error.UnknownOperatingSystem => return .UnknownOperatingSystem,
+        error.UnknownApplicationBinaryInterface => return .UnknownApplicationBinaryInterface,
+        error.MissingOperatingSystem => return .MissingOperatingSystem,
+        error.MissingArchitecture => return .MissingArchitecture,
+        error.InvalidLlvmCpuFeaturesFormat => return .InvalidLlvmCpuFeaturesFormat,
+        error.InvalidCpuFeatures => return .InvalidCpuFeatures,
+    };
+    return .None;
+}
+
+fn stage2ParseCpuFeatures(
+    zig_triple_oz: ?[*:0]const u8,
+    cpu_name_oz: ?[*:0]const u8,
+    cpu_features_oz: ?[*:0]const u8,
+) !*Stage2CpuFeatures {
+    const zig_triple_z = zig_triple_oz orelse return Stage2CpuFeatures.createFromNative(std.heap.c_allocator);
+    const target = try Target.parse(mem.toSliceConst(u8, zig_triple_z));
+    const arch = target.Cross.arch;
+
+    const cpu = if (cpu_name_oz) |cpu_name_z| blk: {
+        const cpu_name = mem.toSliceConst(u8, cpu_name_z);
+        break :blk arch.parseCpu(cpu_name) catch |err| switch (err) {
+            error.UnknownCpu => {
+                std.debug.warn("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
+                    cpu_name,
+                    @tagName(arch),
+                });
+                for (arch.allCpus()) |cpu| {
+                    std.debug.warn(" {}\n", .{cpu.name});
+                }
+                process.exit(1);
+            },
+            else => |e| return e,
+        };
+    } else target.Cross.cpu_features.cpu;
+
+    var set = if (cpu_features_oz) |cpu_features_z| blk: {
+        const cpu_features = mem.toSliceConst(u8, cpu_features_z);
+        break :blk arch.parseCpuFeatureSet(cpu, cpu_features) catch |err| switch (err) {
+            error.UnknownCpuFeature => {
+                std.debug.warn(
+                    \\Unknown CPU features specified.
+                    \\Available CPU features for architecture '{}':
+                    \\
+                , .{@tagName(arch)});
+                for (arch.allFeaturesList()) |feature| {
+                    std.debug.warn(" {}\n", .{feature.name});
+                }
+                process.exit(1);
+            },
+            else => |e| return e,
+        };
+    } else cpu.features;
+
+    if (arch.subArchFeature()) |index| {
+        set.addFeature(index);
+    }
+    set.populateDependencies(arch.allFeaturesList());
+
+    return Stage2CpuFeatures.createFromCpuFeatures(std.heap.c_allocator, arch, .{
+        .cpu = cpu,
+        .features = set,
+    });
+}
+
+// ABI warning
+export fn stage2_cpu_features_get_cache_hash(
+    cpu_features: *const Stage2CpuFeatures,
+    ptr: *[*:0]const u8,
+    len: *usize,
+) void {
+    ptr.* = cpu_features.cache_hash.ptr;
+    len.* = cpu_features.cache_hash.len;
+}
+
+// ABI warning
+export fn stage2_cpu_features_get_builtin_str(
+    cpu_features: *const Stage2CpuFeatures,
+    ptr: *[*:0]const u8,
+    len: *usize,
+) void {
+    ptr.* = cpu_features.builtin_str.ptr;
+    len.* = cpu_features.builtin_str.len;
+}
+
+// ABI warning
+export fn stage2_cpu_features_get_llvm_cpu(cpu_features: *const Stage2CpuFeatures) ?[*:0]const u8 {
+    return if (cpu_features.cpu_features.cpu.llvm_name) |s| s.ptr else null;
+}
+
+// ABI warning
+export fn stage2_cpu_features_get_llvm_features(cpu_features: *const Stage2CpuFeatures) ?[*:0]const u8 {
+    return cpu_features.llvm_features_str;
 }
