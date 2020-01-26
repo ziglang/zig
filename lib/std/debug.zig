@@ -81,10 +81,20 @@ pub fn getSelfDebugInfo() !*DebugInfo {
     }
 }
 
-fn wantTtyColor() bool {
+fn detectTTYConfig() TTY.Config {
     var bytes: [128]u8 = undefined;
     const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
-    return if (process.getEnvVarOwned(allocator, "ZIG_DEBUG_COLOR")) |_| true else |_| stderr_file.isTty();
+    if (process.getEnvVarOwned(allocator, "ZIG_DEBUG_COLOR")) |_| {
+        return .escape_codes;
+    } else |_| {
+        if (stderr_file.supportsAnsiEscapeCodes()) {
+            return .escape_codes;
+        } else if (builtin.os == .windows) {
+            return .windows_api;
+        } else {
+            return .no_color;
+        }
+    }
 }
 
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
@@ -99,7 +109,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
         stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
         return;
     };
-    writeCurrentStackTrace(stderr, debug_info, wantTtyColor(), start_addr) catch |err| {
+    writeCurrentStackTrace(stderr, debug_info, detectTTYConfig(), start_addr) catch |err| {
         stderr.print("Unable to dump stack trace: {}\n", .{@errorName(err)}) catch return;
         return;
     };
@@ -118,16 +128,16 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
         stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
         return;
     };
-    const tty_color = wantTtyColor();
-    printSourceAtAddress(debug_info, stderr, ip, tty_color) catch return;
+    const tty_config = detectTTYConfig();
+    printSourceAtAddress(debug_info, stderr, ip, tty_config) catch return;
     const first_return_address = @intToPtr(*const usize, bp + @sizeOf(usize)).*;
-    printSourceAtAddress(debug_info, stderr, first_return_address - 1, tty_color) catch return;
+    printSourceAtAddress(debug_info, stderr, first_return_address - 1, tty_config) catch return;
     var it = StackIterator{
         .first_addr = null,
         .fp = bp,
     };
     while (it.next()) |return_address| {
-        printSourceAtAddress(debug_info, stderr, return_address - 1, tty_color) catch return;
+        printSourceAtAddress(debug_info, stderr, return_address - 1, tty_config) catch return;
     }
 }
 
@@ -191,7 +201,7 @@ pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
         stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
         return;
     };
-    writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, wantTtyColor()) catch |err| {
+    writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, detectTTYConfig()) catch |err| {
         stderr.print("Unable to dump stack trace: {}\n", .{@errorName(err)}) catch return;
         return;
     };
@@ -264,7 +274,7 @@ pub fn writeStackTrace(
     out_stream: var,
     allocator: *mem.Allocator,
     debug_info: *DebugInfo,
-    tty_color: bool,
+    tty_config: TTY.Config,
 ) !void {
     if (builtin.strip_debug_info) return error.MissingDebugInfo;
     var frame_index: usize = 0;
@@ -275,7 +285,7 @@ pub fn writeStackTrace(
         frame_index = (frame_index + 1) % stack_trace.instruction_addresses.len;
     }) {
         const return_address = stack_trace.instruction_addresses[frame_index];
-        try printSourceAtAddress(debug_info, out_stream, return_address - 1, tty_color);
+        try printSourceAtAddress(debug_info, out_stream, return_address - 1, tty_config);
     }
 }
 
@@ -319,20 +329,25 @@ pub const StackIterator = struct {
     }
 };
 
-pub fn writeCurrentStackTrace(out_stream: var, debug_info: *DebugInfo, tty_color: bool, start_addr: ?usize) !void {
+pub fn writeCurrentStackTrace(
+    out_stream: var,
+    debug_info: *DebugInfo,
+    tty_config: TTY.Config,
+    start_addr: ?usize,
+) !void {
     if (builtin.os == .windows) {
-        return writeCurrentStackTraceWindows(out_stream, debug_info, tty_color, start_addr);
+        return writeCurrentStackTraceWindows(out_stream, debug_info, tty_config, start_addr);
     }
     var it = StackIterator.init(start_addr);
     while (it.next()) |return_address| {
-        try printSourceAtAddress(debug_info, out_stream, return_address - 1, tty_color);
+        try printSourceAtAddress(debug_info, out_stream, return_address - 1, tty_config);
     }
 }
 
 pub fn writeCurrentStackTraceWindows(
     out_stream: var,
     debug_info: *DebugInfo,
-    tty_color: bool,
+    tty_config: TTY.Config,
     start_addr: ?usize,
 ) !void {
     var addr_buf: [1024]usize = undefined;
@@ -345,23 +360,28 @@ pub fn writeCurrentStackTraceWindows(
         return;
     } else 0;
     for (addrs[start_i..]) |addr| {
-        try printSourceAtAddress(debug_info, out_stream, addr, tty_color);
+        try printSourceAtAddress(debug_info, out_stream, addr, tty_config);
     }
 }
 
 /// TODO once https://github.com/ziglang/zig/issues/3157 is fully implemented,
 /// make this `noasync fn` and remove the individual noasync calls.
-pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
+pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: usize, tty_config: TTY.Config) !void {
     if (builtin.os == .windows) {
-        return noasync printSourceAtAddressWindows(debug_info, out_stream, address, tty_color);
+        return noasync printSourceAtAddressWindows(debug_info, out_stream, address, tty_config);
     }
     if (comptime std.Target.current.isDarwin()) {
-        return noasync printSourceAtAddressMacOs(debug_info, out_stream, address, tty_color);
+        return noasync printSourceAtAddressMacOs(debug_info, out_stream, address, tty_config);
     }
-    return noasync printSourceAtAddressPosix(debug_info, out_stream, address, tty_color);
+    return noasync printSourceAtAddressPosix(debug_info, out_stream, address, tty_config);
 }
 
-fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_address: usize, tty_color: bool) !void {
+fn printSourceAtAddressWindows(
+    di: *DebugInfo,
+    out_stream: var,
+    relocated_address: usize,
+    tty_config: TTY.Config,
+) !void {
     const allocator = getDebugInfoAllocator();
     const base_address = process.getBaseAddress();
     const relative_address = relocated_address - base_address;
@@ -379,7 +399,7 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
         }
     } else {
         // we have no information to add to the address
-        return printLineInfo(out_stream, null, relocated_address, "???", "???", tty_color, printLineFromFileAnyOs);
+        return printLineInfo(out_stream, null, relocated_address, "???", "???", tty_config, printLineFromFileAnyOs);
     };
 
     const mod = &di.modules[mod_index];
@@ -507,84 +527,80 @@ fn printSourceAtAddressWindows(di: *DebugInfo, out_stream: var, relocated_addres
         relocated_address,
         symbol_name,
         obj_basename,
-        tty_color,
+        tty_config,
         printLineFromFileAnyOs,
     );
 }
 
-const TtyColor = enum {
-    Red,
-    Green,
-    Cyan,
-    White,
-    Dim,
-    Bold,
-    Reset,
+pub const TTY = struct {
+    pub const Color = enum {
+        Red,
+        Green,
+        Cyan,
+        White,
+        Dim,
+        Bold,
+        Reset,
+    };
+
+    pub const Config = enum {
+        no_color,
+        escape_codes,
+        // TODO give this a payload of file handle
+        windows_api,
+
+        fn setColor(conf: Config, out_stream: var, color: Color) void {
+            switch (conf) {
+                .no_color => return,
+                .escape_codes => switch (color) {
+                    .Red => out_stream.write(RED) catch return,
+                    .Green => out_stream.write(GREEN) catch return,
+                    .Cyan => out_stream.write(CYAN) catch return,
+                    .White, .Bold => out_stream.write(WHITE) catch return,
+                    .Dim => out_stream.write(DIM) catch return,
+                    .Reset => out_stream.write(RESET) catch return,
+                },
+                .windows_api => if (builtin.os == .windows) {
+                    const S = struct {
+                        var attrs: windows.WORD = undefined;
+                        var init_attrs = false;
+                    };
+                    if (!S.init_attrs) {
+                        S.init_attrs = true;
+                        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+                        // TODO handle error
+                        _ = windows.kernel32.GetConsoleScreenBufferInfo(stderr_file.handle, &info);
+                        S.attrs = info.wAttributes;
+                    }
+
+                    // TODO handle errors
+                    switch (color) {
+                        .Red => {
+                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY) catch {};
+                        },
+                        .Green => {
+                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY) catch {};
+                        },
+                        .Cyan => {
+                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY) catch {};
+                        },
+                        .White, .Bold => {
+                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY) catch {};
+                        },
+                        .Dim => {
+                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_INTENSITY) catch {};
+                        },
+                        .Reset => {
+                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, S.attrs) catch {};
+                        },
+                    }
+                } else {
+                    unreachable;
+                },
+            }
+        }
+    };
 };
-
-/// TODO this is a special case hack right now. clean it up and maybe make it part of std.fmt
-fn setTtyColor(tty_color: TtyColor) void {
-    if (stderr_file.supportsAnsiEscapeCodes()) {
-        switch (tty_color) {
-            TtyColor.Red => {
-                stderr_file.write(RED) catch return;
-            },
-            TtyColor.Green => {
-                stderr_file.write(GREEN) catch return;
-            },
-            TtyColor.Cyan => {
-                stderr_file.write(CYAN) catch return;
-            },
-            TtyColor.White, TtyColor.Bold => {
-                stderr_file.write(WHITE) catch return;
-            },
-            TtyColor.Dim => {
-                stderr_file.write(DIM) catch return;
-            },
-            TtyColor.Reset => {
-                stderr_file.write(RESET) catch return;
-            },
-        }
-
-        return;
-    }
-
-    if (builtin.os == .windows) {
-        const S = struct {
-            var attrs: windows.WORD = undefined;
-            var init_attrs = false;
-        };
-        if (!S.init_attrs) {
-            S.init_attrs = true;
-            var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-            // TODO handle error
-            _ = windows.kernel32.GetConsoleScreenBufferInfo(stderr_file.handle, &info);
-            S.attrs = info.wAttributes;
-        }
-
-        // TODO handle errors
-        switch (tty_color) {
-            TtyColor.Red => {
-                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY) catch {};
-            },
-            TtyColor.Green => {
-                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY) catch {};
-            },
-            TtyColor.Cyan => {
-                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY) catch {};
-            },
-            TtyColor.White, TtyColor.Bold => {
-                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY) catch {};
-            },
-            TtyColor.Dim => {
-                _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_INTENSITY) catch {};
-            },
-            TtyColor.Reset => {
-                _ = windows.SetConsoleTextAttribute(stderr_file.handle, S.attrs) catch {};
-            },
-        }
-    }
-}
 
 fn populateModule(di: *DebugInfo, mod: *Module) !void {
     if (mod.populated)
@@ -650,12 +666,12 @@ fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const Mach
     return null;
 }
 
-fn printSourceAtAddressMacOs(di: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
+fn printSourceAtAddressMacOs(di: *DebugInfo, out_stream: var, address: usize, tty_config: TTY.Config) !void {
     const base_addr = process.getBaseAddress();
     const adjusted_addr = 0x100000000 + (address - base_addr);
 
     const symbol = machoSearchSymbols(di.symbols, adjusted_addr) orelse {
-        return printLineInfo(out_stream, null, address, "???", "???", tty_color, printLineFromFileAnyOs);
+        return printLineInfo(out_stream, null, address, "???", "???", tty_config, printLineFromFileAnyOs);
     };
 
     const symbol_name = mem.toSliceConst(u8, @ptrCast([*:0]const u8, di.strings.ptr + symbol.nlist.n_strx));
@@ -676,13 +692,13 @@ fn printSourceAtAddressMacOs(di: *DebugInfo, out_stream: var, address: usize, tt
         address,
         symbol_name,
         compile_unit_name,
-        tty_color,
+        tty_config,
         printLineFromFileAnyOs,
     );
 }
 
-pub fn printSourceAtAddressPosix(debug_info: *DebugInfo, out_stream: var, address: usize, tty_color: bool) !void {
-    return debug_info.printSourceAtAddress(out_stream, address, tty_color, printLineFromFileAnyOs);
+pub fn printSourceAtAddressPosix(debug_info: *DebugInfo, out_stream: var, address: usize, tty_config: TTY.Config) !void {
+    return debug_info.printSourceAtAddress(out_stream, address, tty_config, printLineFromFileAnyOs);
 }
 
 fn printLineInfo(
@@ -691,10 +707,10 @@ fn printLineInfo(
     address: usize,
     symbol_name: []const u8,
     compile_unit_name: []const u8,
-    tty_color: bool,
+    tty_config: TTY.Config,
     comptime printLineFromFile: var,
 ) !void {
-    if (tty_color) setTtyColor(.White);
+    tty_config.setColor(out_stream, .White);
 
     if (line_info) |*li| {
         try out_stream.print("{}:{}:{}", .{ li.file_name, li.line, li.column });
@@ -702,11 +718,11 @@ fn printLineInfo(
         try out_stream.print("???:?:?", .{});
     }
 
-    if (tty_color) setTtyColor(.Reset);
+    tty_config.setColor(out_stream, .Reset);
     try out_stream.write(": ");
-    if (tty_color) setTtyColor(.Dim);
+    tty_config.setColor(out_stream, .Dim);
     try out_stream.print("0x{x} in {} ({})", .{ address, symbol_name, compile_unit_name });
-    if (tty_color) setTtyColor(.Reset);
+    tty_config.setColor(out_stream, .Reset);
     try out_stream.write("\n");
 
     // Show the matching source code line if possible
@@ -717,9 +733,9 @@ fn printLineInfo(
                 const space_needed = @intCast(usize, li.column - 1);
 
                 try out_stream.writeByteNTimes(' ', space_needed);
-                if (tty_color) setTtyColor(.Green);
+                tty_config.setColor(out_stream, .Green);
                 try out_stream.write("^");
-                if (tty_color) setTtyColor(.Reset);
+                tty_config.setColor(out_stream, .Reset);
             }
             try out_stream.write("\n");
         } else |err| switch (err) {
@@ -1167,11 +1183,11 @@ pub const DwarfInfo = struct {
         self: *DwarfInfo,
         out_stream: var,
         address: usize,
-        tty_color: bool,
+        tty_config: TTY.Config,
         comptime printLineFromFile: var,
     ) !void {
         const compile_unit = self.findCompileUnit(address) catch {
-            return printLineInfo(out_stream, null, address, "???", "???", tty_color, printLineFromFile);
+            return printLineInfo(out_stream, null, address, "???", "???", tty_config, printLineFromFile);
         };
 
         const compile_unit_name = try compile_unit.die.getAttrString(self, DW.AT_name);
@@ -1188,7 +1204,7 @@ pub const DwarfInfo = struct {
             address,
             symbol_name,
             compile_unit_name,
-            tty_color,
+            tty_config,
             printLineFromFile,
         );
     }
