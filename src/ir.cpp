@@ -23263,9 +23263,9 @@ static IrInstGen *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrInstSrc
     }
 
     if (target->value->type->id != ZigTypeIdEnum) {
-        ir_add_error(ira, target,
+        ir_add_error(ira, &target->base,
             buf_sprintf("expected enum tag, found '%s'", buf_ptr(&target->value->type->name)));
-        return ira->codegen->invalid_instruction;
+        return ira->codegen->invalid_inst_gen;
     }
 
     if (target->value->type->data.enumeration.src_field_count == 1 &&
