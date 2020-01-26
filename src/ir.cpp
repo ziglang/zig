@@ -1959,7 +1959,7 @@ static T *ir_create_instruction(IrBuilderSrc *irb, Scope *scope, AstNode *source
     const char *name = nullptr;
 #ifdef ZIG_ENABLE_MEM_PROFILE
     T *dummy = nullptr;
-    name = ir_instruction_type_str(ir_inst_id(dummy));
+    name = ir_inst_src_type_str(ir_inst_id(dummy));
 #endif
     T *special_instruction = allocate<T>(1, name);
     special_instruction->base.id = ir_inst_id(special_instruction);

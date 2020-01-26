@@ -58,283 +58,283 @@ static void ir_print_other_inst_gen(IrPrintGen *irp, IrInstGen *inst);
 const char* ir_inst_src_type_str(IrInstSrcId id) {
     switch (id) {
         case IrInstSrcIdInvalid:
-            return "Invalid";
+            return "SrcInvalid";
         case IrInstSrcIdShuffleVector:
-            return "Shuffle";
+            return "SrcShuffle";
         case IrInstSrcIdSplat:
-            return "Splat";
+            return "SrcSplat";
         case IrInstSrcIdDeclVar:
-            return "DeclVar";
+            return "SrcDeclVar";
         case IrInstSrcIdBr:
-            return "Br";
+            return "SrcBr";
         case IrInstSrcIdCondBr:
-            return "CondBr";
+            return "SrcCondBr";
         case IrInstSrcIdSwitchBr:
-            return "SwitchBr";
+            return "SrcSwitchBr";
         case IrInstSrcIdSwitchVar:
-            return "SwitchVar";
+            return "SrcSwitchVar";
         case IrInstSrcIdSwitchElseVar:
-            return "SwitchElseVar";
+            return "SrcSwitchElseVar";
         case IrInstSrcIdSwitchTarget:
-            return "SwitchTarget";
+            return "SrcSwitchTarget";
         case IrInstSrcIdPhi:
-            return "Phi";
+            return "SrcPhi";
         case IrInstSrcIdUnOp:
-            return "UnOp";
+            return "SrcUnOp";
         case IrInstSrcIdBinOp:
-            return "BinOp";
+            return "SrcBinOp";
         case IrInstSrcIdMergeErrSets:
-            return "MergeErrSets";
+            return "SrcMergeErrSets";
         case IrInstSrcIdLoadPtr:
-            return "LoadPtr";
+            return "SrcLoadPtr";
         case IrInstSrcIdStorePtr:
-            return "StorePtr";
+            return "SrcStorePtr";
         case IrInstSrcIdFieldPtr:
-            return "FieldPtr";
+            return "SrcFieldPtr";
         case IrInstSrcIdElemPtr:
-            return "ElemPtr";
+            return "SrcElemPtr";
         case IrInstSrcIdVarPtr:
-            return "VarPtr";
+            return "SrcVarPtr";
         case IrInstSrcIdCallExtra:
-            return "CallExtra";
+            return "SrcCallExtra";
         case IrInstSrcIdCall:
-            return "Call";
+            return "SrcCall";
         case IrInstSrcIdCallArgs:
-            return "CallArgs";
+            return "SrcCallArgs";
         case IrInstSrcIdConst:
-            return "Const";
+            return "SrcConst";
         case IrInstSrcIdReturn:
-            return "Return";
+            return "SrcReturn";
         case IrInstSrcIdContainerInitList:
-            return "ContainerInitList";
+            return "SrcContainerInitList";
         case IrInstSrcIdContainerInitFields:
-            return "ContainerInitFields";
+            return "SrcContainerInitFields";
         case IrInstSrcIdUnreachable:
-            return "Unreachable";
+            return "SrcUnreachable";
         case IrInstSrcIdTypeOf:
-            return "TypeOf";
+            return "SrcTypeOf";
         case IrInstSrcIdSetCold:
-            return "SetCold";
+            return "SrcSetCold";
         case IrInstSrcIdSetRuntimeSafety:
-            return "SetRuntimeSafety";
+            return "SrcSetRuntimeSafety";
         case IrInstSrcIdSetFloatMode:
-            return "SetFloatMode";
+            return "SrcSetFloatMode";
         case IrInstSrcIdArrayType:
-            return "ArrayType";
+            return "SrcArrayType";
         case IrInstSrcIdAnyFrameType:
-            return "AnyFrameType";
+            return "SrcAnyFrameType";
         case IrInstSrcIdSliceType:
-            return "SliceType";
+            return "SrcSliceType";
         case IrInstSrcIdAsm:
-            return "Asm";
+            return "SrcAsm";
         case IrInstSrcIdSizeOf:
-            return "SizeOf";
+            return "SrcSizeOf";
         case IrInstSrcIdTestNonNull:
-            return "TestNonNull";
+            return "SrcTestNonNull";
         case IrInstSrcIdOptionalUnwrapPtr:
-            return "OptionalUnwrapPtr";
+            return "SrcOptionalUnwrapPtr";
         case IrInstSrcIdClz:
-            return "Clz";
+            return "SrcClz";
         case IrInstSrcIdCtz:
-            return "Ctz";
+            return "SrcCtz";
         case IrInstSrcIdPopCount:
-            return "PopCount";
+            return "SrcPopCount";
         case IrInstSrcIdBswap:
-            return "Bswap";
+            return "SrcBswap";
         case IrInstSrcIdBitReverse:
-            return "BitReverse";
+            return "SrcBitReverse";
         case IrInstSrcIdImport:
-            return "Import";
+            return "SrcImport";
         case IrInstSrcIdCImport:
-            return "CImport";
+            return "SrcCImport";
         case IrInstSrcIdCInclude:
-            return "CInclude";
+            return "SrcCInclude";
         case IrInstSrcIdCDefine:
-            return "CDefine";
+            return "SrcCDefine";
         case IrInstSrcIdCUndef:
-            return "CUndef";
+            return "SrcCUndef";
         case IrInstSrcIdRef:
-            return "Ref";
+            return "SrcRef";
         case IrInstSrcIdCompileErr:
-            return "CompileErr";
+            return "SrcCompileErr";
         case IrInstSrcIdCompileLog:
-            return "CompileLog";
+            return "SrcCompileLog";
         case IrInstSrcIdErrName:
-            return "ErrName";
+            return "SrcErrName";
         case IrInstSrcIdEmbedFile:
-            return "EmbedFile";
+            return "SrcEmbedFile";
         case IrInstSrcIdCmpxchg:
-            return "Cmpxchg";
+            return "SrcCmpxchg";
         case IrInstSrcIdFence:
-            return "Fence";
+            return "SrcFence";
         case IrInstSrcIdTruncate:
-            return "Truncate";
+            return "SrcTruncate";
         case IrInstSrcIdIntCast:
-            return "IntCast";
+            return "SrcIntCast";
         case IrInstSrcIdFloatCast:
-            return "FloatCast";
+            return "SrcFloatCast";
         case IrInstSrcIdIntToFloat:
-            return "IntToFloat";
+            return "SrcIntToFloat";
         case IrInstSrcIdFloatToInt:
-            return "FloatToInt";
+            return "SrcFloatToInt";
         case IrInstSrcIdBoolToInt:
-            return "BoolToInt";
+            return "SrcBoolToInt";
         case IrInstSrcIdIntType:
-            return "IntType";
+            return "SrcIntType";
         case IrInstSrcIdVectorType:
-            return "VectorType";
+            return "SrcVectorType";
         case IrInstSrcIdBoolNot:
-            return "BoolNot";
+            return "SrcBoolNot";
         case IrInstSrcIdMemset:
-            return "Memset";
+            return "SrcMemset";
         case IrInstSrcIdMemcpy:
-            return "Memcpy";
+            return "SrcMemcpy";
         case IrInstSrcIdSlice:
-            return "Slice";
+            return "SrcSlice";
         case IrInstSrcIdMemberCount:
-            return "MemberCount";
+            return "SrcMemberCount";
         case IrInstSrcIdMemberType:
-            return "MemberType";
+            return "SrcMemberType";
         case IrInstSrcIdMemberName:
-            return "MemberName";
+            return "SrcMemberName";
         case IrInstSrcIdBreakpoint:
-            return "Breakpoint";
+            return "SrcBreakpoint";
         case IrInstSrcIdReturnAddress:
-            return "ReturnAddress";
+            return "SrcReturnAddress";
         case IrInstSrcIdFrameAddress:
-            return "FrameAddress";
+            return "SrcFrameAddress";
         case IrInstSrcIdFrameHandle:
-            return "FrameHandle";
+            return "SrcFrameHandle";
         case IrInstSrcIdFrameType:
-            return "FrameType";
+            return "SrcFrameType";
         case IrInstSrcIdFrameSize:
-            return "FrameSize";
+            return "SrcFrameSize";
         case IrInstSrcIdAlignOf:
-            return "AlignOf";
+            return "SrcAlignOf";
         case IrInstSrcIdOverflowOp:
-            return "OverflowOp";
+            return "SrcOverflowOp";
         case IrInstSrcIdTestErr:
-            return "TestErr";
+            return "SrcTestErr";
         case IrInstSrcIdMulAdd:
-            return "MulAdd";
+            return "SrcMulAdd";
         case IrInstSrcIdFloatOp:
-            return "FloatOp";
+            return "SrcFloatOp";
         case IrInstSrcIdUnwrapErrCode:
-            return "UnwrapErrCode";
+            return "SrcUnwrapErrCode";
         case IrInstSrcIdUnwrapErrPayload:
-            return "UnwrapErrPayload";
+            return "SrcUnwrapErrPayload";
         case IrInstSrcIdFnProto:
-            return "FnProto";
+            return "SrcFnProto";
         case IrInstSrcIdTestComptime:
-            return "TestComptime";
+            return "SrcTestComptime";
         case IrInstSrcIdPtrCast:
-            return "PtrCast";
+            return "SrcPtrCast";
         case IrInstSrcIdBitCast:
-            return "BitCast";
+            return "SrcBitCast";
         case IrInstSrcIdIntToPtr:
-            return "IntToPtr";
+            return "SrcIntToPtr";
         case IrInstSrcIdPtrToInt:
-            return "PtrToInt";
+            return "SrcPtrToInt";
         case IrInstSrcIdIntToEnum:
-            return "IntToEnum";
+            return "SrcIntToEnum";
         case IrInstSrcIdEnumToInt:
-            return "EnumToInt";
+            return "SrcEnumToInt";
         case IrInstSrcIdIntToErr:
-            return "IntToErr";
+            return "SrcIntToErr";
         case IrInstSrcIdErrToInt:
-            return "ErrToInt";
+            return "SrcErrToInt";
         case IrInstSrcIdCheckSwitchProngs:
-            return "CheckSwitchProngs";
+            return "SrcCheckSwitchProngs";
         case IrInstSrcIdCheckStatementIsVoid:
-            return "CheckStatementIsVoid";
+            return "SrcCheckStatementIsVoid";
         case IrInstSrcIdTypeName:
-            return "TypeName";
+            return "SrcTypeName";
         case IrInstSrcIdDeclRef:
-            return "DeclRef";
+            return "SrcDeclRef";
         case IrInstSrcIdPanic:
-            return "Panic";
+            return "SrcPanic";
         case IrInstSrcIdTagName:
-            return "TagName";
+            return "SrcTagName";
         case IrInstSrcIdTagType:
-            return "TagType";
+            return "SrcTagType";
         case IrInstSrcIdFieldParentPtr:
-            return "FieldParentPtr";
+            return "SrcFieldParentPtr";
         case IrInstSrcIdByteOffsetOf:
-            return "ByteOffsetOf";
+            return "SrcByteOffsetOf";
         case IrInstSrcIdBitOffsetOf:
-            return "BitOffsetOf";
+            return "SrcBitOffsetOf";
         case IrInstSrcIdTypeInfo:
-            return "TypeInfo";
+            return "SrcTypeInfo";
         case IrInstSrcIdType:
-            return "Type";
+            return "SrcType";
         case IrInstSrcIdHasField:
-            return "HasField";
+            return "SrcHasField";
         case IrInstSrcIdTypeId:
-            return "TypeId";
+            return "SrcTypeId";
         case IrInstSrcIdSetEvalBranchQuota:
-            return "SetEvalBranchQuota";
+            return "SrcSetEvalBranchQuota";
         case IrInstSrcIdPtrType:
-            return "PtrType";
+            return "SrcPtrType";
         case IrInstSrcIdAlignCast:
-            return "AlignCast";
+            return "SrcAlignCast";
         case IrInstSrcIdImplicitCast:
-            return "ImplicitCast";
+            return "SrcImplicitCast";
         case IrInstSrcIdResolveResult:
-            return "ResolveResult";
+            return "SrcResolveResult";
         case IrInstSrcIdResetResult:
-            return "ResetResult";
+            return "SrcResetResult";
         case IrInstSrcIdOpaqueType:
-            return "OpaqueType";
+            return "SrcOpaqueType";
         case IrInstSrcIdSetAlignStack:
-            return "SetAlignStack";
+            return "SrcSetAlignStack";
         case IrInstSrcIdArgType:
-            return "ArgType";
+            return "SrcArgType";
         case IrInstSrcIdExport:
-            return "Export";
+            return "SrcExport";
         case IrInstSrcIdErrorReturnTrace:
-            return "ErrorReturnTrace";
+            return "SrcErrorReturnTrace";
         case IrInstSrcIdErrorUnion:
-            return "ErrorUnion";
+            return "SrcErrorUnion";
         case IrInstSrcIdAtomicRmw:
-            return "AtomicRmw";
+            return "SrcAtomicRmw";
         case IrInstSrcIdAtomicLoad:
-            return "AtomicLoad";
+            return "SrcAtomicLoad";
         case IrInstSrcIdAtomicStore:
-            return "AtomicStore";
+            return "SrcAtomicStore";
         case IrInstSrcIdSaveErrRetAddr:
-            return "SaveErrRetAddr";
+            return "SrcSaveErrRetAddr";
         case IrInstSrcIdAddImplicitReturnType:
-            return "AddImplicitReturnType";
+            return "SrcAddImplicitReturnType";
         case IrInstSrcIdErrSetCast:
-            return "ErrSetCast";
+            return "SrcErrSetCast";
         case IrInstSrcIdToBytes:
-            return "ToBytes";
+            return "SrcToBytes";
         case IrInstSrcIdFromBytes:
-            return "FromBytes";
+            return "SrcFromBytes";
         case IrInstSrcIdCheckRuntimeScope:
-            return "CheckRuntimeScope";
+            return "SrcCheckRuntimeScope";
         case IrInstSrcIdHasDecl:
-            return "HasDecl";
+            return "SrcHasDecl";
         case IrInstSrcIdUndeclaredIdent:
-            return "UndeclaredIdent";
+            return "SrcUndeclaredIdent";
         case IrInstSrcIdAlloca:
-            return "Alloca";
+            return "SrcAlloca";
         case IrInstSrcIdEndExpr:
-            return "EndExpr";
+            return "SrcEndExpr";
         case IrInstSrcIdUnionInitNamedField:
-            return "UnionInitNamedField";
+            return "SrcUnionInitNamedField";
         case IrInstSrcIdSuspendBegin:
-            return "SuspendBegin";
+            return "SrcSuspendBegin";
         case IrInstSrcIdSuspendFinish:
-            return "SuspendFinish";
+            return "SrcSuspendFinish";
         case IrInstSrcIdAwait:
-            return "AwaitSr";
+            return "SrcAwaitSr";
         case IrInstSrcIdResume:
-            return "Resume";
+            return "SrcResume";
         case IrInstSrcIdSpillBegin:
-            return "SpillBegin";
+            return "SrcSpillBegin";
         case IrInstSrcIdSpillEnd:
-            return "SpillEnd";
+            return "SrcSpillEnd";
     }
     zig_unreachable();
 }
@@ -342,181 +342,181 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
 const char* ir_inst_gen_type_str(IrInstGenId id) {
     switch (id) {
         case IrInstGenIdInvalid:
-            return "Invalid";
+            return "GenInvalid";
         case IrInstGenIdShuffleVector:
-            return "Shuffle";
+            return "GenShuffle";
         case IrInstGenIdSplat:
-            return "Splat";
+            return "GenSplat";
         case IrInstGenIdDeclVar:
-            return "DeclVar";
+            return "GenDeclVar";
         case IrInstGenIdBr:
-            return "Br";
+            return "GenBr";
         case IrInstGenIdCondBr:
-            return "CondBr";
+            return "GenCondBr";
         case IrInstGenIdSwitchBr:
-            return "SwitchBr";
+            return "GenSwitchBr";
         case IrInstGenIdPhi:
-            return "Phi";
+            return "GenPhi";
         case IrInstGenIdBinOp:
-            return "BinOp";
+            return "GenBinOp";
         case IrInstGenIdLoadPtr:
-            return "LoadPtr";
+            return "GenLoadPtr";
         case IrInstGenIdStorePtr:
-            return "StorePtr";
+            return "GenStorePtr";
         case IrInstGenIdVectorStoreElem:
-            return "VectorStoreElem";
+            return "GenVectorStoreElem";
         case IrInstGenIdStructFieldPtr:
-            return "StructFieldPtr";
+            return "GenStructFieldPtr";
         case IrInstGenIdUnionFieldPtr:
-            return "UnionFieldPtr";
+            return "GenUnionFieldPtr";
         case IrInstGenIdElemPtr:
-            return "ElemPtr";
+            return "GenElemPtr";
         case IrInstGenIdVarPtr:
-            return "VarPtr";
+            return "GenVarPtr";
         case IrInstGenIdReturnPtr:
-            return "ReturnPtr";
+            return "GenReturnPtr";
         case IrInstGenIdCall:
-            return "Call";
+            return "GenCall";
         case IrInstGenIdConst:
-            return "Const";
+            return "GenConst";
         case IrInstGenIdReturn:
-            return "Return";
+            return "GenReturn";
         case IrInstGenIdCast:
-            return "Cast";
+            return "GenCast";
         case IrInstGenIdResizeSlice:
-            return "ResizeSlice";
+            return "GenResizeSlice";
         case IrInstGenIdUnreachable:
-            return "Unreachable";
+            return "GenUnreachable";
         case IrInstGenIdAsm:
-            return "Asm";
+            return "GenAsm";
         case IrInstGenIdTestNonNull:
-            return "TestNonNull";
+            return "GenTestNonNull";
         case IrInstGenIdOptionalUnwrapPtr:
-            return "OptionalUnwrapPtr";
+            return "GenOptionalUnwrapPtr";
         case IrInstGenIdOptionalWrap:
-            return "OptionalWrap";
+            return "GenOptionalWrap";
         case IrInstGenIdUnionTag:
-            return "UnionTag";
+            return "GenUnionTag";
         case IrInstGenIdClz:
-            return "Clz";
+            return "GenClz";
         case IrInstGenIdCtz:
-            return "Ctz";
+            return "GenCtz";
         case IrInstGenIdPopCount:
-            return "PopCount";
+            return "GenPopCount";
         case IrInstGenIdBswap:
-            return "Bswap";
+            return "GenBswap";
         case IrInstGenIdBitReverse:
-            return "BitReverse";
+            return "GenBitReverse";
         case IrInstGenIdRef:
-            return "Ref";
+            return "GenRef";
         case IrInstGenIdErrName:
-            return "ErrName";
+            return "GenErrName";
         case IrInstGenIdCmpxchg:
-            return "Cmpxchg";
+            return "GenCmpxchg";
         case IrInstGenIdFence:
-            return "Fence";
+            return "GenFence";
         case IrInstGenIdTruncate:
-            return "Truncate";
+            return "GenTruncate";
         case IrInstGenIdBoolNot:
-            return "BoolNot";
+            return "GenBoolNot";
         case IrInstGenIdMemset:
-            return "Memset";
+            return "GenMemset";
         case IrInstGenIdMemcpy:
-            return "Memcpy";
+            return "GenMemcpy";
         case IrInstGenIdSlice:
-            return "Slice";
+            return "GenSlice";
         case IrInstGenIdBreakpoint:
-            return "Breakpoint";
+            return "GenBreakpoint";
         case IrInstGenIdReturnAddress:
-            return "ReturnAddress";
+            return "GenReturnAddress";
         case IrInstGenIdFrameAddress:
-            return "FrameAddress";
+            return "GenFrameAddress";
         case IrInstGenIdFrameHandle:
-            return "FrameHandle";
+            return "GenFrameHandle";
         case IrInstGenIdFrameSize:
-            return "FrameSize";
+            return "GenFrameSize";
         case IrInstGenIdOverflowOp:
-            return "OverflowOp";
+            return "GenOverflowOp";
         case IrInstGenIdTestErr:
-            return "TestErr";
+            return "GenTestErr";
         case IrInstGenIdMulAdd:
-            return "MulAdd";
+            return "GenMulAdd";
         case IrInstGenIdFloatOp:
-            return "FloatOp";
+            return "GenFloatOp";
         case IrInstGenIdUnwrapErrCode:
-            return "UnwrapErrCode";
+            return "GenUnwrapErrCode";
         case IrInstGenIdUnwrapErrPayload:
-            return "UnwrapErrPayload";
+            return "GenUnwrapErrPayload";
         case IrInstGenIdErrWrapCode:
-            return "ErrWrapCode";
+            return "GenErrWrapCode";
         case IrInstGenIdErrWrapPayload:
-            return "ErrWrapPayload";
+            return "GenErrWrapPayload";
         case IrInstGenIdPtrCast:
-            return "PtrCast";
+            return "GenPtrCast";
         case IrInstGenIdBitCast:
-            return "BitCast";
+            return "GenBitCast";
         case IrInstGenIdWidenOrShorten:
-            return "WidenOrShorten";
+            return "GenWidenOrShorten";
         case IrInstGenIdIntToPtr:
-            return "IntToPtr";
+            return "GenIntToPtr";
         case IrInstGenIdPtrToInt:
-            return "PtrToInt";
+            return "GenPtrToInt";
         case IrInstGenIdIntToEnum:
-            return "IntToEnum";
+            return "GenIntToEnum";
         case IrInstGenIdIntToErr:
-            return "IntToErr";
+            return "GenIntToErr";
         case IrInstGenIdErrToInt:
-            return "ErrToInt";
+            return "GenErrToInt";
         case IrInstGenIdPanic:
-            return "Panic";
+            return "GenPanic";
         case IrInstGenIdTagName:
-            return "TagName";
+            return "GenTagName";
         case IrInstGenIdFieldParentPtr:
-            return "FieldParentPtr";
+            return "GenFieldParentPtr";
         case IrInstGenIdAlignCast:
-            return "AlignCast";
+            return "GenAlignCast";
         case IrInstGenIdErrorReturnTrace:
-            return "ErrorReturnTrace";
+            return "GenErrorReturnTrace";
         case IrInstGenIdAtomicRmw:
-            return "AtomicRmw";
+            return "GenAtomicRmw";
         case IrInstGenIdAtomicLoad:
-            return "AtomicLoad";
+            return "GenAtomicLoad";
         case IrInstGenIdAtomicStore:
-            return "AtomicStore";
+            return "GenAtomicStore";
         case IrInstGenIdSaveErrRetAddr:
-            return "SaveErrRetAddr";
+            return "GenSaveErrRetAddr";
         case IrInstGenIdVectorToArray:
-            return "VectorToArray";
+            return "GenVectorToArray";
         case IrInstGenIdArrayToVector:
-            return "ArrayToVector";
+            return "GenArrayToVector";
         case IrInstGenIdAssertZero:
-            return "AssertZero";
+            return "GenAssertZero";
         case IrInstGenIdAssertNonNull:
-            return "AssertNonNull";
+            return "GenAssertNonNull";
         case IrInstGenIdAlloca:
-            return "Alloca";
+            return "GenAlloca";
         case IrInstGenIdPtrOfArrayToSlice:
-            return "PtrOfArrayToSlice";
+            return "GenPtrOfArrayToSlice";
         case IrInstGenIdSuspendBegin:
-            return "SuspendBegin";
+            return "GenSuspendBegin";
         case IrInstGenIdSuspendFinish:
-            return "SuspendFinish";
+            return "GenSuspendFinish";
         case IrInstGenIdAwait:
-            return "Await";
+            return "GenAwait";
         case IrInstGenIdResume:
-            return "Resume";
+            return "GenResume";
         case IrInstGenIdSpillBegin:
-            return "SpillBegin";
+            return "GenSpillBegin";
         case IrInstGenIdSpillEnd:
-            return "SpillEnd";
+            return "GenSpillEnd";
         case IrInstGenIdVectorExtractElem:
-            return "VectorExtractElem";
+            return "GenVectorExtractElem";
         case IrInstGenIdBinaryNot:
-            return "BinaryNot";
+            return "GenBinaryNot";
         case IrInstGenIdNegation:
-            return "Negation";
+            return "GenNegation";
         case IrInstGenIdNegationWrapping:
-            return "NegationWrapping";
+            return "GenNegationWrapping";
     }
     zig_unreachable();
 }
