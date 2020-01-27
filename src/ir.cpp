@@ -271,6 +271,7 @@ static IrInstGen *ir_analyze_inferred_field_ptr(IrAnalyze *ira, Buf *field_name,
     IrInst* source_instr, IrInstGen *container_ptr, ZigType *container_type);
 static ResultLoc *no_result_loc(void);
 static IrInstGen *ir_analyze_test_non_null(IrAnalyze *ira, IrInst *source_inst, IrInstGen *value);
+static IrInstGen *ir_error_dependency_loop(IrAnalyze *ira, IrInst *source_instr);
 
 static void destroy_instruction_src(IrInstSrc *inst) {
 #ifdef ZIG_ENABLE_MEM_PROFILE
@@ -20999,8 +21000,13 @@ static IrInstGen *ir_analyze_container_member_access_inner(IrAnalyze *ira,
                 resolve_top_level_decl(ira->codegen, tld, source_instr->source_node, false);
                 if (tld->resolution == TldResolutionInvalid)
                     return ira->codegen->invalid_inst_gen;
+                if (tld->resolution == TldResolutionResolving)
+                    return ir_error_dependency_loop(ira, source_instr);
+
                 TldFn *tld_fn = (TldFn *)tld;
                 ZigFn *fn_entry = tld_fn->fn_entry;
+                assert(fn_entry != nullptr);
+
                 if (type_is_invalid(fn_entry->type_entry))
                     return ira->codegen->invalid_inst_gen;
 
@@ -21010,8 +21016,13 @@ static IrInstGen *ir_analyze_container_member_access_inner(IrAnalyze *ira,
                 resolve_top_level_decl(ira->codegen, tld, source_instr->source_node, false);
                 if (tld->resolution == TldResolutionInvalid)
                     return ira->codegen->invalid_inst_gen;
+                if (tld->resolution == TldResolutionResolving)
+                    return ir_error_dependency_loop(ira, source_instr);
+
                 TldVar *tld_var = (TldVar *)tld;
                 ZigVar *var = tld_var->var;
+                assert(var != nullptr);
+
                 if (type_is_invalid(var->var_type))
                     return ira->codegen->invalid_inst_gen;
 
@@ -21334,6 +21345,8 @@ static IrInstGen *ir_analyze_decl_ref(IrAnalyze *ira, IrInst* source_instruction
     if (tld->resolution == TldResolutionInvalid) {
         return ira->codegen->invalid_inst_gen;
     }
+    if (tld->resolution == TldResolutionResolving)
+        return ir_error_dependency_loop(ira, source_instruction);
 
     switch (tld->id) {
         case TldIdContainer:
@@ -21343,9 +21356,8 @@ static IrInstGen *ir_analyze_decl_ref(IrAnalyze *ira, IrInst* source_instruction
         case TldIdVar: {
             TldVar *tld_var = (TldVar *)tld;
             ZigVar *var = tld_var->var;
-            if (var == nullptr) {
-                return ir_error_dependency_loop(ira, source_instruction);
-            }
+            assert(var != nullptr);
+
             if (tld_var->extern_lib_name != nullptr) {
                 add_link_lib_symbol(ira, tld_var->extern_lib_name, buf_create_from_str(var->name),
                         source_instruction->source_node);
@@ -21356,7 +21368,7 @@ static IrInstGen *ir_analyze_decl_ref(IrAnalyze *ira, IrInst* source_instruction
         case TldIdFn: {
             TldFn *tld_fn = (TldFn *)tld;
             ZigFn *fn_entry = tld_fn->fn_entry;
-            assert(fn_entry->type_entry);
+            assert(fn_entry->type_entry != nullptr);
 
             if (type_is_invalid(fn_entry->type_entry))
                 return ira->codegen->invalid_inst_gen;
@@ -23536,11 +23548,14 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
 
     while ((curr_entry = decl_it.next()) != nullptr) {
         // If the declaration is unresolved, force it to be resolved again.
-        if (curr_entry->value->resolution == TldResolutionUnresolved) {
-            resolve_top_level_decl(ira->codegen, curr_entry->value, curr_entry->value->source_node, false);
-            if (curr_entry->value->resolution != TldResolutionOk) {
-                return ErrorSemanticAnalyzeFail;
-            }
+        resolve_top_level_decl(ira->codegen, curr_entry->value, curr_entry->value->source_node, false);
+        if (curr_entry->value->resolution == TldResolutionInvalid) {
+            return ErrorSemanticAnalyzeFail;
+        }
+
+        if (curr_entry->value->resolution == TldResolutionResolving) {
+            ir_error_dependency_loop(ira, source_instr);
+            return ErrorSemanticAnalyzeFail;
         }
 
         // Skip comptime blocks and test functions.
@@ -23597,6 +23612,8 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
             case TldIdVar:
                 {
                     ZigVar *var = ((TldVar *)curr_entry->value)->var;
+                    assert(var != nullptr);
+
                     if ((err = type_resolve(ira->codegen, var->const_value->type, ResolveStatusSizeKnown)))
                         return ErrorSemanticAnalyzeFail;
 
@@ -23627,11 +23644,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
 
                     ZigFn *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
                     assert(!fn_entry->is_test);
-
-                    if (fn_entry->type_entry == nullptr) {
-                        ir_error_dependency_loop(ira, source_instr);
-                        return ErrorSemanticAnalyzeFail;
-                    }
+                    assert(fn_entry->type_entry != nullptr);
 
                     AstNodeFnProto *fn_node = &fn_entry->proto_node->data.fn_proto;
 
