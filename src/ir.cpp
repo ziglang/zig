@@ -18525,10 +18525,11 @@ static IrInstGen *ir_resolve_result_raw(IrAnalyze *ira, IrInst *suspend_source_i
                 return ira->codegen->invalid_inst_gen;
             }
 
-            uint64_t parent_ptr_align = get_ptr_align(ira->codegen, parent_ptr_type);
             if ((err = type_resolve(ira->codegen, value_type, ResolveStatusAlignmentKnown))) {
                 return ira->codegen->invalid_inst_gen;
             }
+            uint64_t parent_ptr_align = 0;
+            if (type_has_bits(value_type)) parent_ptr_align = get_ptr_align(ira->codegen, parent_ptr_type);
             ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, value_type,
                     parent_ptr_type->data.pointer.is_const, parent_ptr_type->data.pointer.is_volatile, PtrLenSingle,
                     parent_ptr_align, 0, 0, parent_ptr_type->data.pointer.allow_zero);
