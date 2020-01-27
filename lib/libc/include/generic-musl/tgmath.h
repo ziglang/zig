@@ -34,7 +34,7 @@ rules applied to all the function return types so it is long
 double or long double complex except for integral functions)
 
 this cannot be done in c99, so the typeof gcc extension is
-used and that the type of ?: depends on whether an operand is
+used and that the type of ?: depends on wether an operand is
 a null pointer constant or not
 (in c11 _Generic can be used)
 

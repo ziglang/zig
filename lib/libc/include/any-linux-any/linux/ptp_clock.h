@@ -138,7 +138,7 @@ struct ptp_pin_desc {
 	_IOWR(PTP_CLK_MAGIC, 8, struct ptp_sys_offset_precise)
 
 struct ptp_extts_event {
-	struct ptp_clock_time t; /* Time event occurred. */
+	struct ptp_clock_time t; /* Time event occured. */
 	unsigned int index;      /* Which channel produced the event. */
 	unsigned int flags;      /* Reserved for future use. */
 	unsigned int rsv[2];     /* Reserved for future use. */

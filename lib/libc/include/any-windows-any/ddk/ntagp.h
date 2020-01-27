@@ -34,7 +34,7 @@ DEFINE_GUID(GUID_AGP_BUS_INTERFACE_STANDARD, 0x2ef74803, 0xd8d3, 0x11d1, 0x9c, 0
 #define AGP_BUS_INTERFACE_V4                     4
 #define AGP_BUS_INTERFACE_V5                     5
 
-/* Indicates whether the GART supports mapping of physical memory for the CPU */
+/* Indicates wether the GART supports mapping of physical memory for the CPU */
 #define AGP_CAPABILITIES_MAP_PHYSICAL            0x00000001
 #define AGP_CAPABILITIES_CACHE_COHERENT          0x00000002
 #define AGP_CAPABILITIES_REQUIRES_GPU_FLUSH      0x00000004
