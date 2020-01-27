@@ -160,7 +160,7 @@ enum {
  *     before being operational.
  *     Some WiMAX API calls might work.
  *
- * @WIMAX_ST_RADIO_OFF: The device is fully up; radio is off (wether
+ * @WIMAX_ST_RADIO_OFF: The device is fully up; radio is off (whether
  *     by hardware or software switches).
  *     It is recommended to always leave the device in this state
  *     after initialization.

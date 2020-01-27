@@ -52,7 +52,7 @@
 #define V4L2_CID_XILINX_TPG_MOTION_SPEED	(V4L2_CID_XILINX_TPG + 7)
 /* The row of horizontal cross hair location */
 #define V4L2_CID_XILINX_TPG_CROSS_HAIR_ROW	(V4L2_CID_XILINX_TPG + 8)
-/* The colum of vertical cross hair location */
+/* The column of vertical cross hair location */
 #define V4L2_CID_XILINX_TPG_CROSS_HAIR_COLUMN	(V4L2_CID_XILINX_TPG + 9)
 /* Set starting point of sine wave for horizontal component */
 #define V4L2_CID_XILINX_TPG_ZPLATE_HOR_START	(V4L2_CID_XILINX_TPG + 10)

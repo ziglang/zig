@@ -2154,7 +2154,7 @@ void __pformat_emit_xfloat( __pformat_fpreg_t value, __pformat_t *stream )
     if( stream->precision > 0 )
       min_width += stream->precision;
 
-    /* Adjust the minimum width requirement, to accomodate the
+    /* Adjust the minimum width requirement, to accommodate the
      * sign, radix indicator and at least one exponent digit...
      */
     min_width += stream->flags & PFORMAT_SIGNED ? 6 : 5;

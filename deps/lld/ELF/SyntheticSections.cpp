@@ -1335,7 +1335,7 @@ template <class ELFT> void DynamicSection<ELFT>::finalizeContents() {
   // iplt relocations. It is possible to have only iplt relocations in the
   // output. In that case relaPlt is empty and have zero offset, the same offset
   // as relaIplt has. And we still want to emit proper dynamic tags for that
-  // case, so here we always use relaPlt as marker for the begining of
+  // case, so here we always use relaPlt as marker for the beginning of
   // .rel[a].plt section.
   if (isMain && (in.relaPlt->isNeeded() || in.relaIplt->isNeeded())) {
     addInSec(DT_JMPREL, in.relaPlt);

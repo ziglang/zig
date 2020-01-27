@@ -179,7 +179,7 @@ fn addXf3(comptime T: type, a: T, b: T) T {
         // If a == -b, return +zero.
         if (aSignificand == 0) return @bitCast(T, @as(Z, 0));
 
-        // If partial cancellation occured, we need to left-shift the result
+        // If partial cancellation occurred, we need to left-shift the result
         // and adjust the exponent:
         if (aSignificand < implicitBit << 3) {
             const shift = @intCast(i32, @clz(Z, aSignificand)) - @intCast(i32, @clz(@IntType(false, T.bit_count), implicitBit << 3));

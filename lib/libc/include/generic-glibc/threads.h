@@ -77,7 +77,7 @@ typedef union
 /* Threads functions.  */
 
 /* Create a new thread executing the function __FUNC.  Arguments for __FUNC
-   are passed through __ARG.  If succesful, __THR is set to new thread
+   are passed through __ARG.  If successful, __THR is set to new thread
    identifier.  */
 extern int thrd_create (thrd_t *__thr, thrd_start_t __func, void *__arg);
 
