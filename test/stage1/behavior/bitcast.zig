@@ -177,3 +177,13 @@ test "bitcast passed as tuple element" {
     };
     S.foo(.{@bitCast(f32, @as(u32, 0x414570A4))});
 }
+
+test "triple level result location with bitcast sandwich passed as tuple element" {
+    const S = struct {
+        fn foo(args: var) void {
+            comptime expect(@TypeOf(args[0]) == f64);
+            expect(args[0] > 12.33 and args[0] < 12.35);
+        }
+    };
+    S.foo(.{@as(f64, @bitCast(f32, @as(u32, 0x414570A4)))});
+}

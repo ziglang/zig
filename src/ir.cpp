@@ -18505,6 +18505,7 @@ static IrInstGen *ir_resolve_result_raw(IrAnalyze *ira, IrInst *suspend_source_i
                 return bitcasted_value;
             }
 
+            bool parent_was_written = result_bit_cast->parent->written;
             IrInstGen *parent_result_loc = ir_resolve_result(ira, suspend_source_instr, result_bit_cast->parent,
                     dest_type, bitcasted_value, force_runtime, true);
             if (parent_result_loc == nullptr || type_is_invalid(parent_result_loc->value->type) ||
@@ -18521,12 +18522,23 @@ static IrInstGen *ir_resolve_result_raw(IrAnalyze *ira, IrInst *suspend_source_i
                 return parent_result_loc;
             }
 
-            if ((err = type_resolve(ira->codegen, child_type, ResolveStatusAlignmentKnown))) {
+            if ((err = type_resolve(ira->codegen, child_type, ResolveStatusSizeKnown))) {
                 return ira->codegen->invalid_inst_gen;
             }
 
-            if ((err = type_resolve(ira->codegen, value_type, ResolveStatusAlignmentKnown))) {
+            if ((err = type_resolve(ira->codegen, value_type, ResolveStatusSizeKnown))) {
                 return ira->codegen->invalid_inst_gen;
+            }
+
+            if (child_type != ira->codegen->builtin_types.entry_var) {
+                if (type_size(ira->codegen, child_type) != type_size(ira->codegen, value_type)) {
+                    // pointer cast won't work; we need a temporary location.
+                    result_bit_cast->parent->written = parent_was_written;
+                    result_loc->written = true;
+                    result_loc->resolved_loc = ir_resolve_result(ira, suspend_source_instr, no_result_loc(),
+                            value_type, bitcasted_value, force_runtime, true);
+                    return result_loc->resolved_loc;
+                }
             }
             uint64_t parent_ptr_align = 0;
             if (type_has_bits(value_type)) parent_ptr_align = get_ptr_align(ira->codegen, parent_ptr_type);
