@@ -15644,8 +15644,26 @@ static IrInstGen *ir_evaluate_bin_op_cmp(IrAnalyze *ira, ZigType *resolved_type,
 }
 
 // Returns ErrorNotLazy when the value cannot be determined
-static Error lazy_cmp_zero(AstNode *source_node, ZigValue *val, Cmp *result) {
+static Error lazy_cmp_zero(CodeGen *codegen, AstNode *source_node, ZigValue *val, Cmp *result) {
     Error err;
+
+    switch (type_has_one_possible_value(codegen, val->type)) {
+        case OnePossibleValueInvalid:
+            return ErrorSemanticAnalyzeFail;
+        case OnePossibleValueNo:
+            break;
+        case OnePossibleValueYes:
+            switch (val->type->id) {
+                case ZigTypeIdInt:
+                    src_assert(val->type->data.integral.bit_count == 0, source_node);
+                    *result = CmpEQ;
+                    return ErrorNone;
+                case ZigTypeIdUndefined:
+                    return ErrorNotLazy;
+                default:
+                    zig_unreachable();
+            }
+    }
 
     switch (val->special) {
         case ConstValSpecialRuntime:
@@ -15700,12 +15718,12 @@ static ErrorMsg *ir_eval_bin_op_cmp_scalar(IrAnalyze *ira, IrInst* source_instr,
         // Before resolving the values, we special case comparisons against zero. These can often
         // be done without resolving lazy values, preventing potential dependency loops.
         Cmp op1_cmp_zero;
-        if ((err = lazy_cmp_zero(source_instr->source_node, op1_val, &op1_cmp_zero))) {
+        if ((err = lazy_cmp_zero(ira->codegen, source_instr->source_node, op1_val, &op1_cmp_zero))) {
             if (err == ErrorNotLazy) goto never_mind_just_calculate_it_normally;
             return ira->codegen->trace_err;
         }
         Cmp op2_cmp_zero;
-        if ((err = lazy_cmp_zero(source_instr->source_node, op2_val, &op2_cmp_zero))) {
+        if ((err = lazy_cmp_zero(ira->codegen, source_instr->source_node, op2_val, &op2_cmp_zero))) {
             if (err == ErrorNotLazy) goto never_mind_just_calculate_it_normally;
             return ira->codegen->trace_err;
         }
@@ -15869,14 +15887,14 @@ static IrInstGen *ir_analyze_bin_op_cmp_numeric(IrAnalyze *ira, IrInst *source_i
     }
     Cmp op1_cmp_zero;
     bool have_op1_cmp_zero = false;
-    if ((err = lazy_cmp_zero(source_instr->source_node, op1->value, &op1_cmp_zero))) {
+    if ((err = lazy_cmp_zero(ira->codegen, source_instr->source_node, op1->value, &op1_cmp_zero))) {
         if (err != ErrorNotLazy) return ira->codegen->invalid_inst_gen;
     } else {
         have_op1_cmp_zero = true;
     }
     Cmp op2_cmp_zero;
     bool have_op2_cmp_zero = false;
-    if ((err = lazy_cmp_zero(source_instr->source_node, op2->value, &op2_cmp_zero))) {
+    if ((err = lazy_cmp_zero(ira->codegen, source_instr->source_node, op2->value, &op2_cmp_zero))) {
         if (err != ErrorNotLazy) return ira->codegen->invalid_inst_gen;
     } else {
         have_op2_cmp_zero = true;
