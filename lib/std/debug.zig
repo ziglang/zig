@@ -412,7 +412,7 @@ fn printSourceAtAddressWindows(
         if (prefix.RecordLen < 2)
             return error.InvalidDebugInfo;
         switch (prefix.RecordKind) {
-            pdb.SymbolKind.S_LPROC32 => {
+            .S_LPROC32, .S_GPROC32 => {
                 const proc_sym = @ptrCast(*pdb.ProcSym, &mod.symbols[symbol_i + @sizeOf(pdb.RecordPrefix)]);
                 const vaddr_start = coff_section.header.virtual_address + proc_sym.CodeOffset;
                 const vaddr_end = vaddr_start + proc_sym.CodeSize;
