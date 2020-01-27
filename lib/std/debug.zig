@@ -360,7 +360,7 @@ pub fn writeCurrentStackTraceWindows(
         return;
     } else 0;
     for (addrs[start_i..]) |addr| {
-        try printSourceAtAddress(debug_info, out_stream, addr, tty_config);
+        try printSourceAtAddress(debug_info, out_stream, addr - 1, tty_config);
     }
 }
 
