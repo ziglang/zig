@@ -618,7 +618,6 @@ test "peer resolution of string literals" {
                 .b => "two",
                 .c => "three",
                 .d => "four",
-                else => unreachable,
             };
             expect(mem.eql(u8, cmd, "two"));
         }

@@ -1625,6 +1625,10 @@ unsigned ZigClangFunctionDecl_getAlignedAttribute(const struct ZigClangFunctionD
     return 0;
 }
 
+ZigClangQualType ZigClangParmVarDecl_getOriginalType(const struct ZigClangParmVarDecl *self) {
+    return bitcast(reinterpret_cast<const clang::ParmVarDecl *>(self)->getOriginalType());
+}
+
 const ZigClangRecordDecl *ZigClangRecordDecl_getDefinition(const ZigClangRecordDecl *zig_record_decl) {
     const clang::RecordDecl *record_decl = reinterpret_cast<const clang::RecordDecl *>(zig_record_decl);
     const clang::RecordDecl *definition = record_decl->getDefinition();
@@ -1875,6 +1879,11 @@ bool ZigClangType_isArrayType(const ZigClangType *self) {
 bool ZigClangType_isRecordType(const ZigClangType *self) {
     auto casted = reinterpret_cast<const clang::Type *>(self);
     return casted->isRecordType();
+}
+
+bool ZigClangType_isConstantArrayType(const ZigClangType *self) {
+    auto casted = reinterpret_cast<const clang::Type *>(self);
+    return casted->isConstantArrayType();
 }
 
 const char *ZigClangType_getTypeClassName(const ZigClangType *self) {

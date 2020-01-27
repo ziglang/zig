@@ -431,7 +431,7 @@ pub fn formatType(
                 },
                 else => return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) }),
             },
-            .Many => {
+            .Many, .C => {
                 if (ptr_info.child == u8) {
                     if (fmt.len > 0 and fmt[0] == 's') {
                         const len = mem.len(u8, value);
@@ -448,9 +448,6 @@ pub fn formatType(
                     return formatText(value, fmt, options, context, Errors, output);
                 }
                 return format(context, Errors, output, "{}@{x}", .{ @typeName(ptr_info.child), @ptrToInt(value.ptr) });
-            },
-            .C => {
-                return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
             },
         },
         .Array => |info| {
@@ -1138,6 +1135,11 @@ fn countSize(size: *usize, bytes: []const u8) (error{}!void) {
     size.* += bytes.len;
 }
 
+pub fn allocPrint0(allocator: *mem.Allocator, comptime fmt: []const u8, args: var) AllocPrintError![:0]u8 {
+    const result = try allocPrint(allocator, fmt ++ "\x00", args);
+    return result[0 .. result.len - 1 :0];
+}
+
 test "bufPrintInt" {
     var buffer: [100]u8 = undefined;
     const buf = buffer[0..];
@@ -1285,8 +1287,16 @@ test "pointer" {
 }
 
 test "cstr" {
-    try testFmt("cstr: Test C\n", "cstr: {s}\n", .{"Test C"});
-    try testFmt("cstr: Test C    \n", "cstr: {s:10}\n", .{"Test C"});
+    try testFmt(
+        "cstr: Test C\n",
+        "cstr: {s}\n",
+        .{@ptrCast([*c]const u8, "Test C")},
+    );
+    try testFmt(
+        "cstr: Test C    \n",
+        "cstr: {s:10}\n",
+        .{@ptrCast([*c]const u8, "Test C")},
+    );
 }
 
 test "filesize" {

@@ -452,18 +452,18 @@ pub fn getAddressList(allocator: *mem.Allocator, name: []const u8, port: u16) !*
         };
         var res: *os.addrinfo = undefined;
         switch (os.system.getaddrinfo(name_c.ptr, @ptrCast([*:0]const u8, port_c.ptr), &hints, &res)) {
-            0 => {},
-            c.EAI_ADDRFAMILY => return error.HostLacksNetworkAddresses,
-            c.EAI_AGAIN => return error.TemporaryNameServerFailure,
-            c.EAI_BADFLAGS => unreachable, // Invalid hints
-            c.EAI_FAIL => return error.NameServerFailure,
-            c.EAI_FAMILY => return error.AddressFamilyNotSupported,
-            c.EAI_MEMORY => return error.OutOfMemory,
-            c.EAI_NODATA => return error.HostLacksNetworkAddresses,
-            c.EAI_NONAME => return error.UnknownHostName,
-            c.EAI_SERVICE => return error.ServiceUnavailable,
-            c.EAI_SOCKTYPE => unreachable, // Invalid socket type requested in hints
-            c.EAI_SYSTEM => switch (os.errno(-1)) {
+            @intToEnum(os.system.EAI, 0) => {},
+            .ADDRFAMILY => return error.HostLacksNetworkAddresses,
+            .AGAIN => return error.TemporaryNameServerFailure,
+            .BADFLAGS => unreachable, // Invalid hints
+            .FAIL => return error.NameServerFailure,
+            .FAMILY => return error.AddressFamilyNotSupported,
+            .MEMORY => return error.OutOfMemory,
+            .NODATA => return error.HostLacksNetworkAddresses,
+            .NONAME => return error.UnknownHostName,
+            .SERVICE => return error.ServiceUnavailable,
+            .SOCKTYPE => unreachable, // Invalid socket type requested in hints
+            .SYSTEM => switch (os.errno(-1)) {
                 else => |e| return os.unexpectedErrno(e),
             },
             else => unreachable,

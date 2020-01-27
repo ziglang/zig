@@ -175,6 +175,7 @@ pub const Allocator = struct {
 
         const old_byte_slice = @sliceToBytes(old_mem);
         const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return Error.OutOfMemory;
+        // Note: can't set shrunk memory to undefined as memory shouldn't be modified on realloc failure
         const byte_slice = try self.reallocFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
         assert(byte_slice.len == byte_count);
         if (new_n > old_mem.len) {
@@ -221,6 +222,7 @@ pub const Allocator = struct {
         const byte_count = @sizeOf(T) * new_n;
 
         const old_byte_slice = @sliceToBytes(old_mem);
+        @memset(old_byte_slice.ptr + byte_count, undefined, old_byte_slice.len - byte_count);
         const byte_slice = self.shrinkFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
         assert(byte_slice.len == byte_count);
         return @bytesToSlice(T, @alignCast(new_alignment, byte_slice));
@@ -234,6 +236,7 @@ pub const Allocator = struct {
         const bytes_len = bytes.len + @boolToInt(Slice.sentinel != null);
         if (bytes_len == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
+        @memset(non_const_ptr, undefined, bytes_len);
         const shrink_result = self.shrinkFn(self, non_const_ptr[0..bytes_len], Slice.alignment, 0, 1);
         assert(shrink_result.len == 0);
     }

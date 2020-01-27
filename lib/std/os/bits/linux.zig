@@ -18,7 +18,7 @@ pub usingnamespace switch (builtin.arch) {
     else => struct {},
 };
 
-const is_mips = builtin.arch == .mipsel;
+const is_mips = builtin.arch.isMIPS();
 
 pub const pid_t = i32;
 pub const fd_t = i32;

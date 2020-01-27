@@ -57,9 +57,6 @@ static const ZigLLVM_SubArchType subarch_list_arm64[] = {
     ZigLLVM_ARMSubArch_v8_2a,
     ZigLLVM_ARMSubArch_v8_1a,
     ZigLLVM_ARMSubArch_v8,
-    ZigLLVM_ARMSubArch_v8r,
-    ZigLLVM_ARMSubArch_v8m_baseline,
-    ZigLLVM_ARMSubArch_v8m_mainline,
 };
 
 static const ZigLLVM_SubArchType subarch_list_kalimba[] = {
@@ -683,7 +680,7 @@ const char *target_subarch_name(ZigLLVM_SubArchType subarch) {
         case ZigLLVM_ARMSubArch_v8_1a:
             return "v8_1a";
         case ZigLLVM_ARMSubArch_v8:
-            return "v8";
+            return "v8a";
         case ZigLLVM_ARMSubArch_v8r:
             return "v8r";
         case ZigLLVM_ARMSubArch_v8m_baseline:
@@ -693,7 +690,7 @@ const char *target_subarch_name(ZigLLVM_SubArchType subarch) {
         case ZigLLVM_ARMSubArch_v8_1m_mainline:
             return "v8_1m_mainline";
         case ZigLLVM_ARMSubArch_v7:
-            return "v7";
+            return "v7a";
         case ZigLLVM_ARMSubArch_v7em:
             return "v7em";
         case ZigLLVM_ARMSubArch_v7m:
@@ -832,10 +829,10 @@ void init_all_targets(void) {
 void target_triple_zig(Buf *triple, const ZigTarget *target) {
     buf_resize(triple, 0);
     buf_appendf(triple, "%s%s-%s-%s",
-            ZigLLVMGetArchTypeName(target->arch),
-            ZigLLVMGetSubArchTypeName(target->sub_arch),
-            ZigLLVMGetOSTypeName(get_llvm_os_type(target->os)),
-            ZigLLVMGetEnvironmentTypeName(target->abi));
+            target_arch_name(target->arch),
+            target_subarch_name(target->sub_arch),
+            target_os_name(target->os),
+            target_abi_name(target->abi));
 }
 
 void target_triple_llvm(Buf *triple, const ZigTarget *target) {

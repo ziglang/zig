@@ -556,3 +556,21 @@ pub fn refAllDecls(comptime T: type) void {
     if (!builtin.is_test) return;
     _ = declarations(T);
 }
+
+/// Returns a slice of pointers to public declarations of a namespace.
+pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const Decl {
+    const S = struct {
+        fn declNameLessThan(lhs: *const Decl, rhs: *const Decl) bool {
+            return mem.lessThan(u8, lhs.name, rhs.name);
+        }
+    };
+    comptime {
+        const decls = declarations(Namespace);
+        var array: [decls.len]*const Decl = undefined;
+        for (decls) |decl, i| {
+            array[i] = &@field(Namespace, decl.name);
+        }
+        std.sort.sort(*const Decl, &array, S.declNameLessThan);
+        return &array;
+    }
+}

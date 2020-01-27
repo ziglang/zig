@@ -32,25 +32,29 @@ pub const NI_NAMEREQD = 0x08;
 pub const NI_DGRAM = 0x10;
 pub const NI_NUMERICSCOPE = 0x100;
 
-pub const EAI_BADFLAGS = -1;
-pub const EAI_NONAME = -2;
-pub const EAI_AGAIN = -3;
-pub const EAI_FAIL = -4;
-pub const EAI_FAMILY = -6;
-pub const EAI_SOCKTYPE = -7;
-pub const EAI_SERVICE = -8;
-pub const EAI_MEMORY = -10;
-pub const EAI_SYSTEM = -11;
-pub const EAI_OVERFLOW = -12;
+pub const EAI = extern enum(c_int) {
+    BADFLAGS = -1,
+    NONAME = -2,
+    AGAIN = -3,
+    FAIL = -4,
+    FAMILY = -6,
+    SOCKTYPE = -7,
+    SERVICE = -8,
+    MEMORY = -10,
+    SYSTEM = -11,
+    OVERFLOW = -12,
 
-pub const EAI_NODATA = -5;
-pub const EAI_ADDRFAMILY = -9;
-pub const EAI_INPROGRESS = -100;
-pub const EAI_CANCELED = -101;
-pub const EAI_NOTCANCELED = -102;
-pub const EAI_ALLDONE = -103;
-pub const EAI_INTR = -104;
-pub const EAI_IDN_ENCODE = -105;
+    NODATA = -5,
+    ADDRFAMILY = -9,
+    INPROGRESS = -100,
+    CANCELED = -101,
+    NOTCANCELED = -102,
+    ALLDONE = -103,
+    INTR = -104,
+    IDN_ENCODE = -105,
+
+    _,
+};
 
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
 pub extern "c" fn sched_getaffinity(pid: c_int, size: usize, set: *cpu_set_t) c_int;

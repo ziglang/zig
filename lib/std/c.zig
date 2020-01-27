@@ -185,7 +185,7 @@ pub extern "c" fn getaddrinfo(
     noalias service: [*:0]const u8,
     noalias hints: *const addrinfo,
     noalias res: **addrinfo,
-) c_int;
+) EAI;
 
 pub extern "c" fn freeaddrinfo(res: *addrinfo) void;
 
@@ -197,9 +197,9 @@ pub extern "c" fn getnameinfo(
     noalias serv: [*]u8,
     servlen: socklen_t,
     flags: u32,
-) c_int;
+) EAI;
 
-pub extern "c" fn gai_strerror(errcode: c_int) [*:0]const u8;
+pub extern "c" fn gai_strerror(errcode: EAI) [*:0]const u8;
 
 pub extern "c" fn poll(fds: [*]pollfd, nfds: nfds_t, timeout: c_int) c_int;
 

@@ -8,16 +8,7 @@ const uefi = std.os.uefi;
 
 var starting_stack_ptr: [*]usize = undefined;
 
-const is_wasm = switch (builtin.arch) {
-    .wasm32, .wasm64 => true,
-    else => false,
-};
-
-const is_mips = switch (builtin.arch) {
-    .mips, .mipsel, .mips64, .mips64el => true,
-    else => false,
-};
-const start_sym_name = if (is_mips) "__start" else "_start";
+const start_sym_name = if (builtin.arch.isMIPS()) "__start" else "_start";
 
 comptime {
     if (builtin.output_mode == .Lib and builtin.link_mode == .Dynamic) {
@@ -35,7 +26,7 @@ comptime {
             }
         } else if (builtin.os == .uefi) {
             if (!@hasDecl(root, "EfiMain")) @export(EfiMain, .{ .name = "EfiMain" });
-        } else if (is_wasm and builtin.os == .freestanding) {
+        } else if (builtin.arch.isWasm() and builtin.os == .freestanding) {
             if (!@hasDecl(root, start_sym_name)) @export(wasm_freestanding_start, .{ .name = start_sym_name });
         } else if (builtin.os != .other and builtin.os != .freestanding) {
             if (!@hasDecl(root, start_sym_name)) @export(_start, .{ .name = start_sym_name });

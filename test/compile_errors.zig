@@ -1,7 +1,64 @@
 const tests = @import("tests.zig");
 const builtin = @import("builtin");
+const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("dependency loop in top-level decl with @TypeInfo",
+        \\export const foo = @typeInfo(@This());
+    , &[_][]const u8{
+        "tmp.zig:1:20: error: dependency loop detected",
+    });
+
+    cases.addTest("non-exhaustive enums",
+        \\const A = enum {
+        \\    a,
+        \\    b,
+        \\    _ = 1,
+        \\};
+        \\const B = enum(u1) {
+        \\    a,
+        \\    _,
+        \\    b,
+        \\};
+        \\const C = enum(u1) {
+        \\    a,
+        \\    b,
+        \\    _,
+        \\};
+        \\pub export fn entry() void {
+        \\    _ = A;
+        \\    _ = B;
+        \\    _ = C;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:4:5: error: non-exhaustive enum must specify size",
+        "error: value assigned to '_' field of non-exhaustive enum",
+        "error: non-exhaustive enum specifies every value",
+        "error: '_' field of non-exhaustive enum must be last",
+    });
+
+    cases.addTest("switching with non-exhaustive enums",
+        \\const E = enum(u8) {
+        \\    a,
+        \\    b,
+        \\    _,
+        \\};
+        \\pub export fn entry() void {
+        \\    var e: E = .b;
+        \\    switch (e) { // error: switch not handling the tag `b`
+        \\        .a => {},
+        \\        _ => {},
+        \\    }
+        \\    switch (e) { // error: switch on non-exhaustive enum must include `else` or `_` prong
+        \\        .a => {},
+        \\        .b => {},
+        \\    }
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:8:5: error: enumeration value 'E.b' not handled in switch",
+        "tmp.zig:12:5: error: switch on non-exhaustive enum must include `else` or `_` prong",
+    });
+
     cases.addTest("@export with empty name string",
         \\pub export fn entry() void { }
         \\comptime {
@@ -139,25 +196,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:2:13: error: pointer type '[*]align(4) u8' requires aligned address",
     });
 
-    cases.add("switch on extern enum missing else prong",
-        \\const i = extern enum {
-        \\    n = 0,
-        \\    o = 2,
-        \\    p = 4,
-        \\    q = 4,
-        \\};
-        \\pub fn main() void {
-        \\    var x = @intToEnum(i, 52);
-        \\    switch (x) {
-        \\        .n,
-        \\        .o,
-        \\        .p => unreachable,
-        \\    }
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:9:5: error: switch on an extern enum must have an else prong",
-    });
-
     cases.add("invalid float literal",
         \\const std = @import("std");
         \\
@@ -241,9 +279,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         , &[_][]const u8{
             "tmp.zig:3:5: error: target arch 'wasm32' does not support calling with a new stack",
         });
-        tc.target = tests.Target{
-            .Cross = tests.CrossTarget{
+        tc.target = Target{
+            .Cross = .{
                 .arch = .wasm32,
+                .cpu_features = Target.Arch.wasm32.getBaselineCpuFeatures(),
                 .os = .wasi,
                 .abi = .none,
             },
@@ -642,9 +681,10 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         , &[_][]const u8{
             "tmp.zig:2:14: error: could not find 'foo' in the inputs or outputs",
         });
-        tc.target = tests.Target{
-            .Cross = tests.CrossTarget{
+        tc.target = Target{
+            .Cross = .{
                 .arch = .x86_64,
+                .cpu_features = Target.Arch.x86_64.getBaselineCpuFeatures(),
                 .os = .linux,
                 .abi = .gnu,
             },

@@ -2893,6 +2893,47 @@ test "switch using enum literals" {
 }
       {#code_end#}
       {#header_close#}
+
+      {#header_open|Non-exhaustive enum#}
+      <p>
+      A Non-exhaustive enum can be created by adding a trailing '_' field.
+      It  must specify a tag type and cannot consume every enumeration value.
+      </p>
+      <p>
+      {#link|@intToEnum#} on a non-exhaustive enum cannot fail.
+      </p>
+      <p>
+      A switch on a non-exhaustive enum can include a '_' prong as an alternative to an {#syntax#}else{#endsyntax#} prong
+      with the difference being that it makes it a compile error if all the known tag names are not handled by the switch.
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+const assert = std.debug.assert;
+
+const Number = enum(u8) {
+    One,
+    Two,
+    Three,
+    _,
+};
+
+test "switch on non-exhaustive enum" {
+    const number = Number.One;
+    const result = switch (number) {
+        .One => true,
+        .Two,
+        .Three => false,
+        _ => false,
+    };
+    assert(result);
+    const is_one = switch (number) {
+        .One => true,
+        else => false,
+    };
+    assert(is_one);
+}
+      {#code_end#}
+      {#header_close#}
       {#header_close#}
 
       {#header_open|union#}

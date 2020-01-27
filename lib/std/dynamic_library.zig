@@ -277,7 +277,7 @@ pub const WindowsDynLib = struct {
     }
 
     pub fn openC(path_c: [*:0]const u8) !WindowsDynLib {
-        const path_w = try windows.cStrToPrefixedFileW(path);
+        const path_w = try windows.cStrToPrefixedFileW(path_c);
         return openW(&path_w);
     }
 

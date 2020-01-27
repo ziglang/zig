@@ -1,6 +1,8 @@
 // Builtin functions that operate on integer types
 const builtin = @import("builtin");
 const testing = @import("std").testing;
+const maxInt = @import("std").math.maxInt;
+const minInt = @import("std").math.minInt;
 
 const udivmod = @import("udivmod.zig").udivmod;
 
@@ -577,4 +579,62 @@ test "test_umodsi3" {
 fn test_one_umodsi3(a: u32, b: u32, expected_r: u32) void {
     const r: u32 = __umodsi3(a, b);
     testing.expect(r == expected_r);
+}
+
+pub fn __mulsi3(a: i32, b: i32) callconv(.C) i32 {
+    @setRuntimeSafety(builtin.is_test);
+
+    var ua = @bitCast(u32, a);
+    var ub = @bitCast(u32, b);
+    var r: u32 = 0;
+
+    while (ua > 0) {
+        if ((ua & 1) != 0) r +%= ub;
+        ua >>= 1;
+        ub <<= 1;
+    }
+
+    return @bitCast(i32, r);
+}
+
+fn test_one_mulsi3(a: i32, b: i32, result: i32) void {
+    testing.expectEqual(result, __mulsi3(a, b));
+}
+
+test "mulsi3" {
+    test_one_mulsi3(0, 0, 0);
+    test_one_mulsi3(0, 1, 0);
+    test_one_mulsi3(1, 0, 0);
+    test_one_mulsi3(0, 10, 0);
+    test_one_mulsi3(10, 0, 0);
+    test_one_mulsi3(0, maxInt(i32), 0);
+    test_one_mulsi3(maxInt(i32), 0, 0);
+    test_one_mulsi3(0, -1, 0);
+    test_one_mulsi3(-1, 0, 0);
+    test_one_mulsi3(0, -10, 0);
+    test_one_mulsi3(-10, 0, 0);
+    test_one_mulsi3(0, minInt(i32), 0);
+    test_one_mulsi3(minInt(i32), 0, 0);
+    test_one_mulsi3(1, 1, 1);
+    test_one_mulsi3(1, 10, 10);
+    test_one_mulsi3(10, 1, 10);
+    test_one_mulsi3(1, maxInt(i32), maxInt(i32));
+    test_one_mulsi3(maxInt(i32), 1, maxInt(i32));
+    test_one_mulsi3(1, -1, -1);
+    test_one_mulsi3(1, -10, -10);
+    test_one_mulsi3(-10, 1, -10);
+    test_one_mulsi3(1, minInt(i32), minInt(i32));
+    test_one_mulsi3(minInt(i32), 1, minInt(i32));
+    test_one_mulsi3(46340, 46340, 2147395600);
+    test_one_mulsi3(-46340, 46340, -2147395600);
+    test_one_mulsi3(46340, -46340, -2147395600);
+    test_one_mulsi3(-46340, -46340, 2147395600);
+    test_one_mulsi3(4194303, 8192, @truncate(i32, 34359730176));
+    test_one_mulsi3(-4194303, 8192, @truncate(i32, -34359730176));
+    test_one_mulsi3(4194303, -8192, @truncate(i32, -34359730176));
+    test_one_mulsi3(-4194303, -8192, @truncate(i32, 34359730176));
+    test_one_mulsi3(8192, 4194303, @truncate(i32, 34359730176));
+    test_one_mulsi3(-8192, 4194303, @truncate(i32, -34359730176));
+    test_one_mulsi3(8192, -4194303, @truncate(i32, -34359730176));
+    test_one_mulsi3(-8192, -4194303, @truncate(i32, 34359730176));
 }
