@@ -3120,8 +3120,14 @@ static LLVMValueRef ir_render_resize_slice(CodeGen *g, IrExecutableGen *executab
 static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutableGen *executable,
         IrInstGenCast *cast_instruction)
 {
+    Error err;
     ZigType *actual_type = cast_instruction->value->value->type;
     ZigType *wanted_type = cast_instruction->base.value->type;
+    bool wanted_type_has_bits;
+    if ((err = type_has_bits2(g, wanted_type, &wanted_type_has_bits)))
+        codegen_report_errors_and_exit(g);
+    if (!wanted_type_has_bits)
+        return nullptr;
     LLVMValueRef expr_val = ir_llvm_value(g, cast_instruction->value);
     ir_assert(expr_val, &cast_instruction->base);
 

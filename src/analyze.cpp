@@ -593,9 +593,9 @@ ZigType *get_pointer_to_type_extra2(CodeGen *g, ZigType *child_type, bool is_con
     }
 
     if (inferred_struct_field != nullptr) {
-        entry->abi_size = g->builtin_types.entry_usize->abi_size;
-        entry->size_in_bits = g->builtin_types.entry_usize->size_in_bits;
-        entry->abi_align = g->builtin_types.entry_usize->abi_align;
+        entry->abi_size = SIZE_MAX;
+        entry->size_in_bits = SIZE_MAX;
+        entry->abi_align = UINT32_MAX;
     } else if (type_is_resolved(child_type, ResolveStatusZeroBitsKnown)) {
         if (type_has_bits(child_type)) {
             entry->abi_size = g->builtin_types.entry_usize->abi_size;
@@ -6474,7 +6474,21 @@ static Error resolve_pointer_zero_bits(CodeGen *g, ZigType *ty) {
     }
     ty->data.pointer.resolve_loop_flag_zero_bits = true;
 
-    ZigType *elem_type = ty->data.pointer.child_type;
+    ZigType *elem_type;
+    InferredStructField *isf = ty->data.pointer.inferred_struct_field;
+    if (isf != nullptr) {
+        TypeStructField *field = find_struct_type_field(isf->inferred_struct_type, isf->field_name);
+        assert(field != nullptr);
+        if (field->is_comptime) {
+            ty->abi_size = 0;
+            ty->size_in_bits = 0;
+            ty->abi_align = 0;
+            return ErrorNone;
+        }
+        elem_type = field->type_entry;
+    } else {
+        elem_type = ty->data.pointer.child_type;
+    }
 
     bool has_bits;
     if ((err = type_has_bits2(g, elem_type, &has_bits)))
