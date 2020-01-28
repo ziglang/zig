@@ -5700,6 +5700,9 @@ ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
             assert(field_type != nullptr);
             result->data.x_struct.fields[i] = get_the_one_possible_value(g, field_type);
         }
+    } else if (result->type->id == ZigTypeIdPointer) {
+        result->data.x_ptr.special = ConstPtrSpecialRef;
+        result->data.x_ptr.data.ref.pointee = get_the_one_possible_value(g, result->type->data.pointer.child_type);
     }
     g->one_possible_values.put(type_entry, result);
     return result;
@@ -9471,7 +9474,11 @@ static void dump_value_indent(ZigValue *val, int indent) {
                     fprintf(stderr, " ");
                 }
                 fprintf(stderr, "%s: ", buf_ptr(val->type->data.structure.fields[i]->name));
-                dump_value_indent(val->data.x_struct.fields[i], 1);
+                if (val->data.x_struct.fields == nullptr) {
+                    fprintf(stderr, "<null>\n");
+                } else {
+                    dump_value_indent(val->data.x_struct.fields[i], 1);
+                }
             }
             for (int i = 0; i < indent; i += 1) {
                 fprintf(stderr, " ");
@@ -9505,6 +9512,9 @@ static void dump_value_indent(ZigValue *val, int indent) {
 
         case ZigTypeIdPointer:
             switch (val->data.x_ptr.special) {
+                case ConstPtrSpecialInvalid:
+                    fprintf(stderr, "<!invalid ptr!>\n");
+                    return;
                 case ConstPtrSpecialRef:
                     fprintf(stderr, "<ref\n");
                     dump_value_indent(val->data.x_ptr.data.ref.pointee, indent + 1);
@@ -9523,6 +9533,14 @@ static void dump_value_indent(ZigValue *val, int indent) {
                             }
                             fprintf(stderr, "(invalid null field)\n");
                         }
+                    }
+                    break;
+                }
+                case ConstPtrSpecialBaseOptionalPayload: {
+                    ZigValue *optional_val = val->data.x_ptr.data.base_optional_payload.optional_val;
+                    fprintf(stderr, "<optional %p payload\n", optional_val);
+                    if (optional_val != nullptr) {
+                        dump_value_indent(optional_val, indent + 1);
                     }
                     break;
                 }
