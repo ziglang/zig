@@ -1658,7 +1658,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     cases.addTest("return invalid type from test",
         \\test "example" { return 1; }
     , &[_][]const u8{
-        "tmp.zig:1:25: error: integer value 1 cannot be coerced to type 'void'",
+        "tmp.zig:1:25: error: expected type 'void', found 'comptime_int'",
     });
 
     cases.add("threadlocal qualifier on const",
@@ -2487,7 +2487,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    var rule_set = try Foo.init();
         \\}
     , &[_][]const u8{
-        "tmp.zig:2:10: error: expected type 'i32', found 'type'",
+        "tmp.zig:2:19: error: expected type 'i32', found 'type'",
     });
 
     cases.add("slicing single-item pointer",
@@ -3393,7 +3393,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\fn b() void {}
     , &[_][]const u8{
-        "tmp.zig:3:6: error: unreachable code",
+        "tmp.zig:3:5: error: unreachable code",
     });
 
     cases.add("bad import",
@@ -4011,8 +4011,8 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() usize { return @sizeOf(@TypeOf(Foo)); }
     , &[_][]const u8{
-        "tmp.zig:5:25: error: unable to evaluate constant expression",
-        "tmp.zig:2:12: note: referenced here",
+        "tmp.zig:5:25: error: cannot store runtime value in compile time variable",
+        "tmp.zig:2:12: note: called from here",
     });
 
     cases.add("addition with non numbers",
@@ -4652,7 +4652,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\fn something() anyerror!void { }
     , &[_][]const u8{
         "tmp.zig:2:5: error: expected type 'void', found 'anyerror'",
-        "tmp.zig:1:15: note: return type declared here",
     });
 
     cases.add("invalid pointer for var type",
@@ -5743,7 +5742,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    @export(entry, .{.name = "entry", .linkage = @as(u32, 1234) });
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:50: error: expected type 'std.builtin.GlobalLinkage', found 'u32'",
+        "tmp.zig:3:59: error: expected type 'std.builtin.GlobalLinkage', found 'comptime_int'",
     });
 
     cases.add("struct with invalid field",

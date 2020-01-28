@@ -317,6 +317,7 @@ struct ConstErrValue {
 struct ConstBoundFnValue {
     ZigFn *fn;
     IrInstGen *first_arg;
+    IrInst *first_arg_src;
 };
 
 struct ConstArgTuple {
