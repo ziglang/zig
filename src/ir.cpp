@@ -17729,7 +17729,7 @@ static IrInstGen *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstSrcDeclV
             var->var_type = ira->codegen->builtin_types.entry_invalid;
             return ir_const_void(ira, &decl_var_instruction->base.base);
         }
-        var->align_bytes = get_abi_alignment(ira->codegen, result_type);
+        var->align_bytes = get_ptr_align(ira->codegen, var_ptr->value->type);
     } else {
         if (!ir_resolve_align(ira, decl_var_instruction->align_value->child, nullptr, &var->align_bytes)) {
             var->var_type = ira->codegen->builtin_types.entry_invalid;
