@@ -7,7 +7,6 @@ const zig = std.zig;
 
 const protocol = @import("protocol.zig");
 const types = @import("types.zig");
-const json_rpc = @import("json_rpc.zig");
 const serial = @import("json_serialize.zig");
 const data = @import("data.zig");
 
@@ -37,16 +36,16 @@ pub const TextDocument = struct {
 pub const Server = struct {
     const Self = @This();
 
-    const MethodError = json_rpc.Dispatcher(Server).MethodError;
+    const MethodError = protocol.Dispatcher(Server).MethodError;
 
     alloc: *mem.Allocator,
-    msgWrite: protocol.MessageWriter(std.fs.File.WriteError),
+    outStream: *io.OutStream(std.fs.File.WriteError),
     documents: std.StringHashMap(TextDocument),
 
-    pub fn init(allocator: *mem.Allocator, messageWriter: protocol.MessageWriter(std.fs.File.WriteError)) Self {
+    pub fn init(allocator: *mem.Allocator, outStream: *io.OutStream(std.fs.File.WriteError)) Self {
         return Self{
             .alloc = allocator,
-            .msgWrite = messageWriter,
+            .outStream = outStream,
             .documents = std.StringHashMap(TextDocument).init(allocator),
         };
     }
@@ -55,7 +54,18 @@ pub const Server = struct {
         self.documents.deinit();
     }
 
-    pub fn onInitialize(self: *Self, req: json_rpc.Request) !void {
+    fn send(self: *Self, requestOrResponse: var) !void {
+        debug.assert(requestOrResponse.validate());
+
+        var mem_buffer: [1024 * 128]u8 = undefined;
+        var sliceStream = io.SliceOutStream.init(mem_buffer[0..]);
+        var jsonStream = json.WriteStream(@TypeOf(sliceStream.stream), 1024).init(&sliceStream.stream);
+
+        try serial.serialize(requestOrResponse, &jsonStream);
+        try protocol.writeMessage(self.outStream, sliceStream.getWritten());
+    }
+
+    pub fn onInitialize(self: *Self, params: types.InitializeParams, reqId: types.RequestId) !void {
         const result =
             \\{
             \\    "capabilities": {
@@ -71,20 +81,15 @@ pub const Server = struct {
         var tree = try parser.parse(result[0..]);
         defer tree.deinit();
 
-        var response = json_rpc.Response{
+        try self.send(types.Response{
             .result = .{ .Defined = tree.root },
-            .id = req.id.Defined, // TODO check
-        };
-        try self.msgWrite.writeResponse(response);
+            .id = reqId,
+        });
     }
 
-    pub fn onInitialized(self: *Self, req: json_rpc.Request) MethodError!void {}
+    pub fn onInitialized(self: *Self, params: types.InitializedParams) MethodError!void {}
 
-    pub fn onTextDocumentDidOpen(self: *Self, req: json_rpc.Request) !void {
-        var deserialized = serial.deserialize(types.DidOpenTextDocumentParams, req.params, self.alloc) catch return MethodError.InvalidParams;
-        defer deserialized.deinit();
-        const params = deserialized.result;
-
+    pub fn onTextDocumentDidOpen(self: *Self, params: types.DidOpenTextDocumentParams) !void {
         const document = TextDocument{
             .uri = try mem.dupe(self.alloc, u8, params.textDocument.uri),
             .text = try mem.dupe(self.alloc, u8, params.textDocument.text),
@@ -98,11 +103,7 @@ pub const Server = struct {
         try self.publishDiagnostics(document);
     }
 
-    pub fn onTextDocumentDidChange(self: *Self, req: json_rpc.Request) !void {
-        var deserialized = serial.deserialize(types.DidChangeTextDocumentParams, req.params, self.alloc) catch return MethodError.InvalidParams;
-        defer deserialized.deinit();
-        const params = deserialized.result;
-
+    pub fn onTextDocumentDidChange(self: *Self, params: types.DidChangeTextDocumentParams) !void {
         var entry = self.documents.get(params.textDocument.uri) orelse return MethodError.InvalidParams;
         self.alloc.free(entry.*.value.text);
         entry.*.value.text = try mem.dupe(self.alloc, u8, params.contentChanges[0].text);
@@ -110,11 +111,7 @@ pub const Server = struct {
         try self.publishDiagnostics(entry.*.value);
     }
 
-    pub fn onTextDocumentDidClose(self: *Self, req: json_rpc.Request) !void {
-        var deserialized = serial.deserialize(types.DidCloseTextDocumentParams, req.params, self.alloc) catch return MethodError.InvalidParams;
-        defer deserialized.deinit();
-        const params = deserialized.result;
-
+    pub fn onTextDocumentDidClose(self: *Self, params: types.DidCloseTextDocumentParams) !void {
         var maybeEntry = self.documents.remove(params.textDocument.uri);
         if (maybeEntry) |entry| {
             self.alloc.free(entry.value.uri);
@@ -168,18 +165,13 @@ pub const Server = struct {
         var resultTree = try serial.serialize2(outParam, self.alloc);
         defer resultTree.deinit();
 
-        var request = json_rpc.Request{
+        try self.send(types.Request{
             .method = "textDocument/publishDiagnostics",
             .params = resultTree.root,
-        };
-        try self.msgWrite.writeRequest(request);
+        });
     }
 
-    pub fn onTextDocumentCompletion(self: *Self, req: json_rpc.Request) !void {
-        var deserialized = serial.deserialize(types.CompletionParams, req.params, self.alloc) catch return MethodError.InvalidParams;
-        defer deserialized.deinit();
-        const params = deserialized.result;
-
+    pub fn onTextDocumentCompletion(self: *Self, params: types.CompletionParams, reqId: types.RequestId) !void {
         const document = (self.documents.getValue(params.textDocument.uri) orelse return MethodError.InvalidParams);
 
         const posToCheck = types.Position{
@@ -213,20 +205,18 @@ pub const Server = struct {
                 var tree = try serial.serialize2(items[0..], self.alloc);
                 defer tree.deinit();
 
-                var response = json_rpc.Response{
-                    .id = req.id.Defined, // TODO check
+                try self.send(types.Response{
+                    .id = reqId,
                     .result = .{ .Defined = tree.root },
-                };
-                try self.msgWrite.writeResponse(response);
+                });
                 return;
             }
         }
 
-        var response = json_rpc.Response{
-            .id = req.id.Defined, // TODO check
+        try self.send(types.Response{
+            .id = reqId,
             .result = .{ .Defined = json.Value.Null },
-        };
-        try self.msgWrite.writeResponse(response);
+        });
     }
 };
 
@@ -238,20 +228,18 @@ pub fn main() !void {
     var in = io.getStdIn().inStream();
     var out = io.getStdOut().outStream();
 
-    var msgWrite = protocol.MessageWriter(std.fs.File.WriteError).init(&out.stream, heap);
-
-    var server = Server.init(heap, msgWrite);
+    var server = Server.init(heap, &out.stream);
     defer server.deinit();
 
-    var dispatcher = json_rpc.Dispatcher(Server).init(&server, heap);
+    var dispatcher = protocol.Dispatcher(Server).init(&server, heap);
     defer dispatcher.deinit();
 
-    try dispatcher.register("initialize", Server.onInitialize);
-    try dispatcher.register("initialized", Server.onInitialized);
-    try dispatcher.register("textDocument/didOpen", Server.onTextDocumentDidOpen);
-    try dispatcher.register("textDocument/didChange", Server.onTextDocumentDidChange);
-    try dispatcher.register("textDocument/didClose", Server.onTextDocumentDidClose);
-    try dispatcher.register("textDocument/completion", Server.onTextDocumentCompletion);
+    try dispatcher.registerRequest("initialize", types.InitializeParams, Server.onInitialize);
+    try dispatcher.registerNotification("initialized", types.InitializedParams, Server.onInitialized);
+    try dispatcher.registerNotification("textDocument/didOpen", types.DidOpenTextDocumentParams, Server.onTextDocumentDidOpen);
+    try dispatcher.registerNotification("textDocument/didChange", types.DidChangeTextDocumentParams, Server.onTextDocumentDidChange);
+    try dispatcher.registerNotification("textDocument/didClose", types.DidCloseTextDocumentParams, Server.onTextDocumentDidClose);
+    try dispatcher.registerRequest("textDocument/completion", types.CompletionParams, Server.onTextDocumentCompletion);
 
     while (true) {
         debug.warn("mem: {}\n", .{failingAlloc.allocated_bytes - failingAlloc.freed_bytes});
@@ -264,7 +252,7 @@ pub fn main() !void {
         var tree = try parser.parse(message);
         defer tree.deinit();
 
-        var request = try serial.deserialize(json_rpc.Request, tree.root, heap);
+        var request = try serial.deserialize(types.Request, tree.root, heap);
         defer request.deinit();
 
         if (!request.result.validate()) {

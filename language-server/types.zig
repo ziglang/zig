@@ -1,4 +1,5 @@
-const json = @import("std").json;
+const std = @import("std");
+const json = std.json;
 const MaybeDefined = @import("json_serialize.zig").MaybeDefined;
 
 pub const String = []const u8;
@@ -11,6 +12,56 @@ pub const Any = json.Value;
 
 // Specification:
 // https://microsoft.github.io/language-server-protocol/specifications/specification-current/
+
+pub const RequestId = union(enum) {
+    String: String,
+    Integer: Integer,
+    Float: Float,
+};
+
+pub const Request = struct {
+    jsonrpc: String = "2.0",
+    method: String,
+
+    /// Must be an Array or an Object
+    params: Any,
+    id: MaybeDefined(RequestId) = .NotDefined,
+
+    pub fn validate(self: *const Request) bool {
+        if (!std.mem.eql(u8, self.jsonrpc, "2.0")) {
+            return false;
+        }
+        return switch (self.params) {
+            .Object, .Array => true,
+            else => false,
+        };
+    }
+};
+
+pub const Response = struct {
+    jsonrpc: String = "2.0",
+    @"error": MaybeDefined(Error) = .NotDefined,
+    result: MaybeDefined(Any) = .NotDefined,
+    id: ?RequestId,
+
+    pub const Error = struct {
+        code: Integer,
+        message: String,
+        data: MaybeDefined(Any),
+    };
+
+    pub fn validate(self: *const Response) bool {
+        if (!std.mem.eql(u8, self.jsonrpc, "2.0")) {
+            return false;
+        }
+
+        const errorDefined = self.@"error" == .Defined;
+        const resultDefined = self.result == .Defined;
+
+        // exactly one of them must be defined
+        return errorDefined != resultDefined;
+    }
+};
 
 pub const ErrorCodes = struct {
     // Defined by JSON RPC
@@ -99,9 +150,11 @@ pub const InitializeParams = struct {
     rootUri: ?DocumentUri,
     initializationOptions: MaybeDefined(Any),
     capabilities: ClientCapabilities,
-    trace: MaybeDefined(String),
-    workspaceFolders: MaybeDefined(?[]WorkspaceFolder),
+    // trace: MaybeDefined(String),
+    // workspaceFolders: MaybeDefined(?[]WorkspaceFolder),
 };
+
+pub const InitializedParams = struct {};
 
 pub const Trace = struct {
     pub const Off = "off";
