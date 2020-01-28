@@ -2286,6 +2286,7 @@ struct ZigVar {
     bool is_thread_local;
     bool is_comptime_memoized;
     bool is_comptime_memoized_value;
+    bool did_the_decl_codegen;
 };
 
 struct ErrorTableEntry {

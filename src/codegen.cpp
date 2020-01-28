@@ -3505,6 +3505,7 @@ static void render_decl_var(CodeGen *g, ZigVar *var) {
 
 static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutableGen *executable, IrInstGenDeclVar *instruction) {
     instruction->var->ptr_instruction = instruction->var_ptr;
+    instruction->var->did_the_decl_codegen = true;
     render_decl_var(g, instruction->var);
     return nullptr;
 }
@@ -3973,7 +3974,7 @@ static void render_async_var_decls(CodeGen *g, Scope *scope) {
                 return;
             case ScopeIdVarDecl: {
                 ZigVar *var = reinterpret_cast<ScopeVarDecl *>(scope)->var;
-                if (var->ptr_instruction != nullptr) {
+                if (var->did_the_decl_codegen) {
                     render_decl_var(g, var);
                 }
                 // fallthrough
