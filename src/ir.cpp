@@ -18413,7 +18413,7 @@ static IrInstGen *ir_resolve_result_raw(IrAnalyze *ira, IrInst *suspend_source_i
 
             IrInstGen *casted_value;
             if (value != nullptr) {
-                casted_value = ir_implicit_cast(ira, value, dest_type);
+                casted_value = ir_implicit_cast2(ira, suspend_source_instr, value, dest_type);
                 if (type_is_invalid(casted_value->value->type))
                     return ira->codegen->invalid_inst_gen;
                 dest_type = casted_value->value->type;
@@ -18860,7 +18860,8 @@ static IrInstGen *ir_analyze_async_call(IrAnalyze *ira, IrInst* source_instr, Zi
         if (type_is_invalid(result_loc->value->type) || result_loc->value->type->id == ZigTypeIdUnreachable) {
             return result_loc;
         }
-        result_loc = ir_implicit_cast(ira, result_loc, get_pointer_to_type(ira->codegen, frame_type, false));
+        result_loc = ir_implicit_cast2(ira, &call_result_loc->source_instruction->base, result_loc,
+                get_pointer_to_type(ira->codegen, frame_type, false));
         if (type_is_invalid(result_loc->value->type))
             return ira->codegen->invalid_inst_gen;
         return &ir_build_call_gen(ira, source_instr, fn_entry, fn_ref, arg_count,
@@ -19177,7 +19178,7 @@ static IrInstGen *ir_analyze_store_ptr(IrAnalyze *ira, IrInst* source_instr,
 }
 
 static IrInstGen *analyze_casted_new_stack(IrAnalyze *ira, IrInst* source_instr,
-        IrInstGen *new_stack, bool is_async_call_builtin, ZigFn *fn_entry)
+        IrInstGen *new_stack, IrInst *new_stack_src, bool is_async_call_builtin, ZigFn *fn_entry)
 {
     if (new_stack == nullptr)
         return nullptr;
@@ -19202,14 +19203,14 @@ static IrInstGen *analyze_casted_new_stack(IrAnalyze *ira, IrInst* source_instr,
                 false, false, PtrLenUnknown, target_fn_align(ira->codegen->zig_target), 0, 0, false);
         ZigType *u8_slice = get_slice_type(ira->codegen, u8_ptr);
         ira->codegen->need_frame_size_prefix_data = true;
-        return ir_implicit_cast(ira, new_stack, u8_slice);
+        return ir_implicit_cast2(ira, new_stack_src, new_stack, u8_slice);
     }
 }
 
 static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
     ZigFn *fn_entry, ZigType *fn_type, IrInstGen *fn_ref,
     IrInstGen *first_arg_ptr, CallModifier modifier,
-    IrInstGen *new_stack, bool is_async_call_builtin,
+    IrInstGen *new_stack, IrInst *new_stack_src, bool is_async_call_builtin,
     IrInstGen **args_ptr, size_t args_len, IrInstGen *ret_ptr, ResultLoc *call_result_loc)
 {
     Error err;
@@ -19486,8 +19487,8 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
             case ReqCompTimeYes:
                 // Throw out our work and call the function as if it were comptime.
                 return ir_analyze_fn_call(ira, source_instr, fn_entry, fn_type, fn_ref, first_arg_ptr,
-                        CallModifierCompileTime, new_stack, is_async_call_builtin, args_ptr, args_len,
-                        ret_ptr, call_result_loc);
+                        CallModifierCompileTime, new_stack, new_stack_src, is_async_call_builtin,
+                        args_ptr, args_len, ret_ptr, call_result_loc);
             case ReqCompTimeInvalid:
                 return ira->codegen->invalid_inst_gen;
             case ReqCompTimeNo:
@@ -19522,7 +19523,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
         }
 
         IrInstGen *casted_new_stack = analyze_casted_new_stack(ira, source_instr, new_stack,
-                is_async_call_builtin, impl_fn);
+                new_stack_src, is_async_call_builtin, impl_fn);
         if (casted_new_stack != nullptr && type_is_invalid(casted_new_stack->value->type))
             return ira->codegen->invalid_inst_gen;
 
@@ -19647,7 +19648,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
         return ira->codegen->invalid_inst_gen;
     }
 
-    IrInstGen *casted_new_stack = analyze_casted_new_stack(ira, source_instr, new_stack,
+    IrInstGen *casted_new_stack = analyze_casted_new_stack(ira, source_instr, new_stack, new_stack_src,
             is_async_call_builtin, fn_entry);
     if (casted_new_stack != nullptr && type_is_invalid(casted_new_stack->value->type))
         return ira->codegen->invalid_inst_gen;
@@ -19706,10 +19707,12 @@ static IrInstGen *ir_analyze_fn_call_src(IrAnalyze *ira, IrInstSrcCall *call_ins
     IrInstGen *first_arg_ptr, CallModifier modifier)
 {
     IrInstGen *new_stack = nullptr;
+    IrInst *new_stack_src = nullptr;
     if (call_instruction->new_stack) {
         new_stack = call_instruction->new_stack->child;
         if (type_is_invalid(new_stack->value->type))
             return ira->codegen->invalid_inst_gen;
+        new_stack_src = &call_instruction->new_stack->base;
     }
     IrInstGen **args_ptr = allocate<IrInstGen *>(call_instruction->arg_count, "IrInstGen *");
     for (size_t i = 0; i < call_instruction->arg_count; i += 1) {
@@ -19724,7 +19727,7 @@ static IrInstGen *ir_analyze_fn_call_src(IrAnalyze *ira, IrInstSrcCall *call_ins
             return ira->codegen->invalid_inst_gen;
     }
     IrInstGen *result = ir_analyze_fn_call(ira, &call_instruction->base.base, fn_entry, fn_type, fn_ref,
-            first_arg_ptr, modifier, new_stack, call_instruction->is_async_call_builtin,
+            first_arg_ptr, modifier, new_stack, new_stack_src, call_instruction->is_async_call_builtin,
             args_ptr, call_instruction->arg_count, ret_ptr, call_instruction->result_loc);
     deallocate(args_ptr, call_instruction->arg_count, "IrInstGen *");
     return result;
@@ -19824,7 +19827,7 @@ static IrInstGen *ir_analyze_call_extra(IrAnalyze *ira, IrInst* source_instr,
     }
 
     return ir_analyze_fn_call(ira, source_instr, fn, fn_type, fn_ref, first_arg_ptr,
-        modifier, stack, false, args_ptr, args_len, nullptr, result_loc);
+        modifier, stack, &stack->base, false, args_ptr, args_len, nullptr, result_loc);
 }
 
 static IrInstGen *ir_analyze_instruction_call_extra(IrAnalyze *ira, IrInstSrcCallExtra *instruction) {
@@ -29477,7 +29480,7 @@ static IrInstGen *ir_analyze_instruction_resume(IrAnalyze *ira, IrInstSrcResume 
     }
 
     ZigType *any_frame_type = get_any_frame_type(ira->codegen, nullptr);
-    IrInstGen *casted_frame = ir_implicit_cast(ira, frame, any_frame_type);
+    IrInstGen *casted_frame = ir_implicit_cast2(ira, &instruction->frame->base, frame, any_frame_type);
     if (type_is_invalid(casted_frame->value->type))
         return ira->codegen->invalid_inst_gen;
 
