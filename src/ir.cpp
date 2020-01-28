@@ -18668,14 +18668,16 @@ static IrInstGen *ir_resolve_result(IrAnalyze *ira, IrInst *suspend_source_instr
     ir_assert(result_loc->value->type->id == ZigTypeIdPointer, suspend_source_instr);
     ZigType *actual_elem_type = result_loc->value->type->data.pointer.child_type;
     if (actual_elem_type->id == ZigTypeIdOptional && value_type->id != ZigTypeIdOptional &&
-            value_type->id != ZigTypeIdNull)
+            value_type->id != ZigTypeIdNull && value_type->id != ZigTypeIdUndefined)
     {
         bool same_comptime_repr = types_have_same_zig_comptime_repr(ira->codegen, actual_elem_type, value_type);
         if (!same_comptime_repr) {
             result_loc_pass1->written = was_written;
             return ir_analyze_unwrap_optional_payload(ira, suspend_source_instr, result_loc, false, true);
         }
-    } else if (actual_elem_type->id == ZigTypeIdErrorUnion && value_type->id != ZigTypeIdErrorUnion) {
+    } else if (actual_elem_type->id == ZigTypeIdErrorUnion && value_type->id != ZigTypeIdErrorUnion &&
+            value_type->id != ZigTypeIdUndefined)
+    {
         if (value_type->id == ZigTypeIdErrorSet) {
             return ir_analyze_unwrap_err_code(ira, suspend_source_instr, result_loc, true);
         } else {
@@ -18683,7 +18685,7 @@ static IrInstGen *ir_resolve_result(IrAnalyze *ira, IrInst *suspend_source_instr
                     result_loc, false, true);
             ZigType *actual_payload_type = actual_elem_type->data.error_union.payload_type;
             if (actual_payload_type->id == ZigTypeIdOptional && value_type->id != ZigTypeIdOptional &&
-                value_type->id != ZigTypeIdNull)
+                value_type->id != ZigTypeIdNull && value_type->id != ZigTypeIdUndefined)
             {
                 return ir_analyze_unwrap_optional_payload(ira, suspend_source_instr, unwrapped_err_ptr, false, true);
             } else {
