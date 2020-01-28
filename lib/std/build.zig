@@ -1978,6 +1978,9 @@ pub const LibExeObjStep = struct {
 
                 const all_features = self.target.getArch().allFeaturesList();
                 var populated_cpu_features = cross.cpu_features.cpu.features;
+                if (self.target.getArch().subArchFeature()) |sub_arch_index| {
+                    populated_cpu_features.addFeature(sub_arch_index);
+                }
                 populated_cpu_features.populateDependencies(all_features);
 
                 if (populated_cpu_features.eql(cross.cpu_features.features)) {
