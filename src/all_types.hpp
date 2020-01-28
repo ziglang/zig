@@ -317,6 +317,7 @@ struct ConstErrValue {
 struct ConstBoundFnValue {
     ZigFn *fn;
     IrInstGen *first_arg;
+    IrInst *first_arg_src;
 };
 
 struct ConstArgTuple {
@@ -502,6 +503,9 @@ struct ZigValue {
     // uncomment these to find bugs. can't leave them uncommented because of a gcc-9 warning
     //ZigValue(const ZigValue &other) = delete; // plz zero initialize with {}
     //ZigValue& operator= (const ZigValue &other) = delete; // use copy_const_val
+
+    // for use in debuggers
+    void dump();
 };
 
 enum ReturnKnowledge {
@@ -1256,6 +1260,7 @@ static const uint32_t VECTOR_INDEX_RUNTIME = UINT32_MAX - 1;
 struct InferredStructField {
     ZigType *inferred_struct_type;
     Buf *field_name;
+    bool already_resolved;
 };
 
 struct ZigTypePointer {
@@ -2262,7 +2267,6 @@ struct ZigVar {
     Scope *parent_scope;
     Scope *child_scope;
     LLVMValueRef param_value_ref;
-    size_t mem_slot_index;
     IrExecutableSrc *owner_exec;
 
     Buf *section_name;
@@ -2283,6 +2287,7 @@ struct ZigVar {
     bool is_thread_local;
     bool is_comptime_memoized;
     bool is_comptime_memoized_value;
+    bool did_the_decl_codegen;
 };
 
 struct ErrorTableEntry {

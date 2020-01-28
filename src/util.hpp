@@ -38,6 +38,8 @@
 
 #if defined(__MINGW32__) || defined(__MINGW64__)
 #define BREAKPOINT __debugbreak()
+#elif defined(__i386__) || defined(__x86_64__)
+#define BREAKPOINT __asm__ volatile("int $0x03");
 #elif defined(__clang__)
 #define BREAKPOINT __builtin_debugtrap()
 #elif defined(__GNUC__)
@@ -48,8 +50,6 @@
 #endif
 
 #endif
-
-#include "softfloat.hpp"
 
 ATTRIBUTE_COLD
 ATTRIBUTE_NORETURN
@@ -242,23 +242,6 @@ bool ptr_eq(const void *a, const void *b);
 
 static inline uint8_t log2_u64(uint64_t x) {
     return (63 - clzll(x));
-}
-
-static inline float16_t zig_double_to_f16(double x) {
-    float64_t y;
-    static_assert(sizeof(x) == sizeof(y), "");
-    memcpy(&y, &x, sizeof(x));
-    return f64_to_f16(y);
-}
-
-
-// Return value is safe to coerce to float even when |x| is NaN or Infinity.
-static inline double zig_f16_to_double(float16_t x) {
-    float64_t y = f16_to_f64(x);
-    double z;
-    static_assert(sizeof(y) == sizeof(z), "");
-    memcpy(&z, &y, sizeof(y));
-    return z;
 }
 
 void zig_pretty_print_bytes(FILE *f, double n);

@@ -804,3 +804,16 @@ test "comptime assign int to optional int" {
         expectEqual(20, x.?);
     }
 }
+
+test "return 0 from function that has u0 return type" {
+    const S = struct {
+        fn foo_zero() u0 {
+            return 0;
+        }
+    };
+    comptime {
+        if (S.foo_zero() != 0) {
+            @compileError("test failed");
+        }
+    }
+}

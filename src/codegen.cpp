@@ -20,6 +20,7 @@
 #include "zig_llvm.h"
 #include "userland.h"
 #include "dump_analysis.hpp"
+#include "softfloat.hpp"
 
 #include <stdio.h>
 #include <errno.h>
@@ -3119,8 +3120,14 @@ static LLVMValueRef ir_render_resize_slice(CodeGen *g, IrExecutableGen *executab
 static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutableGen *executable,
         IrInstGenCast *cast_instruction)
 {
+    Error err;
     ZigType *actual_type = cast_instruction->value->value->type;
     ZigType *wanted_type = cast_instruction->base.value->type;
+    bool wanted_type_has_bits;
+    if ((err = type_has_bits2(g, wanted_type, &wanted_type_has_bits)))
+        codegen_report_errors_and_exit(g);
+    if (!wanted_type_has_bits)
+        return nullptr;
     LLVMValueRef expr_val = ir_llvm_value(g, cast_instruction->value);
     ir_assert(expr_val, &cast_instruction->base);
 
@@ -3498,6 +3505,7 @@ static void render_decl_var(CodeGen *g, ZigVar *var) {
 
 static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutableGen *executable, IrInstGenDeclVar *instruction) {
     instruction->var->ptr_instruction = instruction->var_ptr;
+    instruction->var->did_the_decl_codegen = true;
     render_decl_var(g, instruction->var);
     return nullptr;
 }
@@ -3966,7 +3974,7 @@ static void render_async_var_decls(CodeGen *g, Scope *scope) {
                 return;
             case ScopeIdVarDecl: {
                 ZigVar *var = reinterpret_cast<ScopeVarDecl *>(scope)->var;
-                if (var->ptr_instruction != nullptr) {
+                if (var->did_the_decl_codegen) {
                     render_decl_var(g, var);
                 }
                 // fallthrough
@@ -4723,6 +4731,10 @@ static LLVMValueRef ir_render_optional_unwrap_ptr(CodeGen *g, IrExecutableGen *e
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
     if (!type_has_bits(child_type)) {
+        if (instruction->initializing) {
+            LLVMValueRef non_null_bit = LLVMConstInt(LLVMInt1Type(), 1, false);
+            gen_store_untyped(g, non_null_bit, base_ptr, 0, false);
+        }
         return nullptr;
     } else {
         bool is_scalar = !handle_is_ptr(maybe_type);
@@ -7529,7 +7541,7 @@ static void do_code_gen(CodeGen *g) {
         } else {
             if (want_sret) {
                 g->cur_ret_ptr = LLVMGetParam(fn, 0);
-            } else if (handle_is_ptr(fn_type_id->return_type)) {
+            } else if (type_has_bits(fn_type_id->return_type)) {
                 g->cur_ret_ptr = build_alloca(g, fn_type_id->return_type, "result", 0);
                 // TODO add debug info variable for this
             } else {

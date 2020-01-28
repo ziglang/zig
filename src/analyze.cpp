@@ -593,9 +593,9 @@ ZigType *get_pointer_to_type_extra2(CodeGen *g, ZigType *child_type, bool is_con
     }
 
     if (inferred_struct_field != nullptr) {
-        entry->abi_size = g->builtin_types.entry_usize->abi_size;
-        entry->size_in_bits = g->builtin_types.entry_usize->size_in_bits;
-        entry->abi_align = g->builtin_types.entry_usize->abi_align;
+        entry->abi_size = SIZE_MAX;
+        entry->size_in_bits = SIZE_MAX;
+        entry->abi_align = UINT32_MAX;
     } else if (type_is_resolved(child_type, ResolveStatusZeroBitsKnown)) {
         if (type_has_bits(child_type)) {
             entry->abi_size = g->builtin_types.entry_usize->abi_size;
@@ -1102,11 +1102,28 @@ ZigType *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind
 ZigValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *type_entry,
         Buf *type_name, UndefAllowed undef)
 {
+    Error err;
+
+    ZigValue *result = create_const_vals(1);
+    ZigValue *result_ptr = create_const_vals(1);
+    result->special = ConstValSpecialUndef;
+    result->type = (type_entry == nullptr) ? g->builtin_types.entry_var : type_entry;
+    result_ptr->special = ConstValSpecialStatic;
+    result_ptr->type = get_pointer_to_type(g, result->type, false);
+    result_ptr->data.x_ptr.mut = ConstPtrMutComptimeVar;
+    result_ptr->data.x_ptr.special = ConstPtrSpecialRef;
+    result_ptr->data.x_ptr.data.ref.pointee = result;
+
     size_t backward_branch_count = 0;
     size_t backward_branch_quota = default_backward_branch_quota;
-    return ir_eval_const_value(g, scope, node, type_entry,
+    if ((err = ir_eval_const_value(g, scope, node, result_ptr,
             &backward_branch_count, &backward_branch_quota,
-            nullptr, nullptr, node, type_name, nullptr, nullptr, undef);
+            nullptr, nullptr, node, type_name, nullptr, nullptr, undef)))
+    {
+        return g->invalid_inst_gen->value;
+    }
+    destroy(result_ptr, "ZigValue");
+    return result;
 }
 
 Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent_type,
@@ -3829,7 +3846,6 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
     variable_entry->var_type = var_type;
     variable_entry->parent_scope = parent_scope;
     variable_entry->shadowable = false;
-    variable_entry->mem_slot_index = SIZE_MAX;
     variable_entry->src_arg_index = SIZE_MAX;
 
     assert(name);
@@ -3930,7 +3946,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
 
     // TODO more validation for types that can't be used for export/extern variables
     ZigType *implicit_type = nullptr;
-    if (explicit_type && explicit_type->id == ZigTypeIdInvalid) {
+    if (explicit_type != nullptr && explicit_type->id == ZigTypeIdInvalid) {
         implicit_type = explicit_type;
     } else if (var_decl->expr) {
         init_value = analyze_const_value(g, tld_var->base.parent_scope, var_decl->expr, explicit_type,
@@ -4718,8 +4734,14 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
     assert(!fn_type->data.fn.is_generic);
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
 
+    if (fn->analyzed_executable.begin_scope == nullptr) {
+        fn->analyzed_executable.begin_scope = &fn->def_scope->base;
+    }
+    if (fn->analyzed_executable.source_node == nullptr) {
+        fn->analyzed_executable.source_node = fn->body_node;
+    }
     ZigType *block_return_type = ir_analyze(g, fn->ir_executable,
-            &fn->analyzed_executable, fn_type_id->return_type, return_type_node);
+            &fn->analyzed_executable, fn_type_id->return_type, return_type_node, nullptr);
     fn->src_implicit_return_type = block_return_type;
 
     if (type_is_invalid(block_return_type) || fn->analyzed_executable.first_err_trace_msg != nullptr) {
@@ -5619,6 +5641,8 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
                 return OnePossibleValueYes;
             return type_has_one_possible_value(g, type_entry->data.array.child_type);
         case ZigTypeIdStruct:
+            // If the recursive function call asks, then we are not one possible value.
+            type_entry->one_possible_value = OnePossibleValueNo;
             for (size_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
                 TypeStructField *field = type_entry->data.structure.fields[i];
                 OnePossibleValue opv = (field->type_entry != nullptr) ?
@@ -5626,6 +5650,7 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
                     type_val_resolve_has_one_possible_value(g, field->type_val);
                 switch (opv) {
                     case OnePossibleValueInvalid:
+                        type_entry->one_possible_value = OnePossibleValueInvalid;
                         return OnePossibleValueInvalid;
                     case OnePossibleValueNo:
                         return OnePossibleValueNo;
@@ -5633,6 +5658,7 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
                         continue;
                 }
             }
+            type_entry->one_possible_value = OnePossibleValueYes;
             return OnePossibleValueYes;
         case ZigTypeIdErrorSet:
         case ZigTypeIdEnum:
@@ -5678,6 +5704,9 @@ ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
             assert(field_type != nullptr);
             result->data.x_struct.fields[i] = get_the_one_possible_value(g, field_type);
         }
+    } else if (result->type->id == ZigTypeIdPointer) {
+        result->data.x_ptr.special = ConstPtrSpecialRef;
+        result->data.x_ptr.data.ref.pointee = get_the_one_possible_value(g, result->type->data.pointer.child_type);
     }
     g->one_possible_values.put(type_entry, result);
     return result;
@@ -6452,7 +6481,21 @@ static Error resolve_pointer_zero_bits(CodeGen *g, ZigType *ty) {
     }
     ty->data.pointer.resolve_loop_flag_zero_bits = true;
 
-    ZigType *elem_type = ty->data.pointer.child_type;
+    ZigType *elem_type;
+    InferredStructField *isf = ty->data.pointer.inferred_struct_field;
+    if (isf != nullptr) {
+        TypeStructField *field = find_struct_type_field(isf->inferred_struct_type, isf->field_name);
+        assert(field != nullptr);
+        if (field->is_comptime) {
+            ty->abi_size = 0;
+            ty->size_in_bits = 0;
+            ty->abi_align = 0;
+            return ErrorNone;
+        }
+        elem_type = field->type_entry;
+    } else {
+        elem_type = ty->data.pointer.child_type;
+    }
 
     bool has_bits;
     if ((err = type_has_bits2(g, elem_type, &has_bits)))
@@ -6875,6 +6918,7 @@ static void render_const_val_array(CodeGen *g, Buf *buf, Buf *type_name, ZigValu
         }
         case ConstArraySpecialNone: {
             ZigValue *base = &array->data.s_none.elements[start];
+            assert(base != nullptr);
             assert(start + len <= const_val->type->data.array.len);
 
             buf_appendf(buf, "%s{", buf_ptr(type_name));
@@ -6890,6 +6934,10 @@ static void render_const_val_array(CodeGen *g, Buf *buf, Buf *type_name, ZigValu
 }
 
 void render_const_value(CodeGen *g, Buf *buf, ZigValue *const_val) {
+    if (const_val == nullptr) {
+        buf_appendf(buf, "(invalid nullptr value)");
+        return;
+    }
     switch (const_val->special) {
         case ConstValSpecialRuntime:
             buf_appendf(buf, "(runtime value)");
@@ -9295,10 +9343,13 @@ bool type_has_optional_repr(ZigType *ty) {
 }
 
 void copy_const_val(ZigValue *dest, ZigValue *src) {
+    uint32_t prev_align = dest->llvm_align;
+    ConstParent prev_parent = dest->parent;
     memcpy(dest, src, sizeof(ZigValue));
+    dest->llvm_align = prev_align;
     if (src->special != ConstValSpecialStatic)
         return;
-    dest->parent.id = ConstParentIdNone;
+    dest->parent = prev_parent;
     if (dest->type->id == ZigTypeIdStruct) {
         dest->data.x_struct.fields = alloc_const_vals_ptrs(dest->type->data.structure.src_field_count);
         for (size_t i = 0; i < dest->type->data.structure.src_field_count; i += 1) {
@@ -9306,6 +9357,16 @@ void copy_const_val(ZigValue *dest, ZigValue *src) {
             dest->data.x_struct.fields[i]->parent.id = ConstParentIdStruct;
             dest->data.x_struct.fields[i]->parent.data.p_struct.struct_val = dest;
             dest->data.x_struct.fields[i]->parent.data.p_struct.field_index = i;
+        }
+    } else if (dest->type->id == ZigTypeIdArray) {
+        if (dest->data.x_array.special == ConstArraySpecialNone) {
+            dest->data.x_array.data.s_none.elements = create_const_vals(dest->type->data.array.len);
+            for (uint64_t i = 0; i < dest->type->data.array.len; i += 1) {
+                copy_const_val(&dest->data.x_array.data.s_none.elements[i], &src->data.x_array.data.s_none.elements[i]);
+                dest->data.x_array.data.s_none.elements[i].parent.id = ConstParentIdArray;
+                dest->data.x_array.data.s_none.elements[i].parent.data.p_array.array_val = dest;
+                dest->data.x_array.data.s_none.elements[i].parent.data.p_array.elem_index = i;
+            }
         }
     } else if (type_has_optional_repr(dest->type) && dest->data.x_optional != nullptr) {
         dest->data.x_optional = create_const_vals(1);
@@ -9351,6 +9412,171 @@ bool type_is_numeric(ZigType *ty) {
             return false;
     }
     zig_unreachable();
+}
+
+static void dump_value_indent(ZigValue *val, int indent) {
+    for (int i = 0; i < indent; i += 1) {
+        fprintf(stderr, " ");
+    }
+    fprintf(stderr, "Value@%p(", val);
+    if (val->type != nullptr) {
+        fprintf(stderr, "%s)", buf_ptr(&val->type->name));
+    } else {
+        fprintf(stderr, "type=nullptr)");
+    }
+    switch (val->special) {
+        case ConstValSpecialUndef:
+            fprintf(stderr, "[undefined]\n");
+            return;
+        case ConstValSpecialLazy:
+            fprintf(stderr, "[lazy]\n");
+            return;
+        case ConstValSpecialRuntime:
+            fprintf(stderr, "[runtime]\n");
+            return;
+        case ConstValSpecialStatic:
+            break;
+    }
+    if (val->type == nullptr)
+        return;
+    switch (val->type->id) {
+        case ZigTypeIdInvalid:
+            fprintf(stderr, "<invalid>\n");
+            return;
+        case ZigTypeIdUnreachable:
+            fprintf(stderr, "<unreachable>\n");
+            return;
+        case ZigTypeIdUndefined:
+            fprintf(stderr, "<undefined>\n");
+            return;
+        case ZigTypeIdVoid:
+            fprintf(stderr, "<{}>\n");
+            return;
+        case ZigTypeIdMetaType:
+            fprintf(stderr, "<%s>\n", buf_ptr(&val->data.x_type->name));
+            return;
+        case ZigTypeIdBool:
+            fprintf(stderr, "<%s>\n", val->data.x_bool ? "true" : "false");
+            return;
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdInt: {
+            Buf *tmp_buf = buf_alloc();
+            bigint_append_buf(tmp_buf, &val->data.x_bigint, 10);
+            fprintf(stderr, "<%s>\n", buf_ptr(tmp_buf));
+            buf_destroy(tmp_buf);
+            return;
+        }
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdFloat:
+            fprintf(stderr, "<TODO dump number>\n");
+            return;
+
+        case ZigTypeIdStruct:
+            fprintf(stderr, "<struct\n");
+            for (size_t i = 0; i < val->type->data.structure.src_field_count; i += 1) {
+                for (int j = 0; j < indent; j += 1) {
+                    fprintf(stderr, " ");
+                }
+                fprintf(stderr, "%s: ", buf_ptr(val->type->data.structure.fields[i]->name));
+                if (val->data.x_struct.fields == nullptr) {
+                    fprintf(stderr, "<null>\n");
+                } else {
+                    dump_value_indent(val->data.x_struct.fields[i], 1);
+                }
+            }
+            for (int i = 0; i < indent; i += 1) {
+                fprintf(stderr, " ");
+            }
+            fprintf(stderr, ">\n");
+            return;
+
+        case ZigTypeIdOptional:
+            fprintf(stderr, "<\n");
+            dump_value_indent(val->data.x_optional, indent + 1);
+
+            for (int i = 0; i < indent; i += 1) {
+                fprintf(stderr, " ");
+            }
+            fprintf(stderr, ">\n");
+            return;
+
+        case ZigTypeIdErrorUnion:
+            if (val->data.x_err_union.payload != nullptr) {
+                fprintf(stderr, "<\n");
+                dump_value_indent(val->data.x_err_union.payload, indent + 1);
+            } else {
+                fprintf(stderr, "<\n");
+                dump_value_indent(val->data.x_err_union.error_set, 0);
+            }
+            for (int i = 0; i < indent; i += 1) {
+                fprintf(stderr, " ");
+            }
+            fprintf(stderr, ">\n");
+            return;
+
+        case ZigTypeIdPointer:
+            switch (val->data.x_ptr.special) {
+                case ConstPtrSpecialInvalid:
+                    fprintf(stderr, "<!invalid ptr!>\n");
+                    return;
+                case ConstPtrSpecialRef:
+                    fprintf(stderr, "<ref\n");
+                    dump_value_indent(val->data.x_ptr.data.ref.pointee, indent + 1);
+                    break;
+                case ConstPtrSpecialBaseStruct: {
+                    ZigValue *struct_val = val->data.x_ptr.data.base_struct.struct_val;
+                    size_t field_index = val->data.x_ptr.data.base_struct.field_index;
+                    fprintf(stderr, "<struct %p field %zu\n", struct_val, field_index);
+                    if (struct_val != nullptr) {
+                        ZigValue *field_val = struct_val->data.x_struct.fields[field_index];
+                        if (field_val != nullptr) {
+                            dump_value_indent(field_val, indent + 1);
+                        } else {
+                            for (int i = 0; i < indent; i += 1) {
+                                fprintf(stderr, " ");
+                            }
+                            fprintf(stderr, "(invalid null field)\n");
+                        }
+                    }
+                    break;
+                }
+                case ConstPtrSpecialBaseOptionalPayload: {
+                    ZigValue *optional_val = val->data.x_ptr.data.base_optional_payload.optional_val;
+                    fprintf(stderr, "<optional %p payload\n", optional_val);
+                    if (optional_val != nullptr) {
+                        dump_value_indent(optional_val, indent + 1);
+                    }
+                    break;
+                }
+                default:
+                    fprintf(stderr, "TODO dump more pointer things\n");
+            }
+            for (int i = 0; i < indent; i += 1) {
+                fprintf(stderr, " ");
+            }
+            fprintf(stderr, ">\n");
+            return;
+
+        case ZigTypeIdVector:
+        case ZigTypeIdArray:
+        case ZigTypeIdNull:
+        case ZigTypeIdErrorSet:
+        case ZigTypeIdEnum:
+        case ZigTypeIdUnion:
+        case ZigTypeIdFn:
+        case ZigTypeIdBoundFn:
+        case ZigTypeIdOpaque:
+        case ZigTypeIdFnFrame:
+        case ZigTypeIdAnyFrame:
+        case ZigTypeIdEnumLiteral:
+            fprintf(stderr, "<TODO dump value>\n");
+            return;
+    }
+    zig_unreachable();
+}
+
+void ZigValue::dump() {
+    dump_value_indent(this, 0);
 }
 
 // float ops that take a single argument
