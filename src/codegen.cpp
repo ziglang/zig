@@ -4731,6 +4731,10 @@ static LLVMValueRef ir_render_optional_unwrap_ptr(CodeGen *g, IrExecutableGen *e
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
     if (!type_has_bits(child_type)) {
+        if (instruction->initializing) {
+            LLVMValueRef non_null_bit = LLVMConstInt(LLVMInt1Type(), 1, false);
+            gen_store_untyped(g, non_null_bit, base_ptr, 0, false);
+        }
         return nullptr;
     } else {
         bool is_scalar = !handle_is_ptr(maybe_type);

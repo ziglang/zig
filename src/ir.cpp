@@ -10402,6 +10402,7 @@ static Error ir_exec_scan_for_side_effects(CodeGen *codegen, IrExecutableGen *ex
             if (instr_is_comptime(instruction)) {
                 switch (instruction->id) {
                     case IrInstGenIdUnwrapErrPayload:
+                    case IrInstGenIdOptionalUnwrapPtr:
                     case IrInstGenIdUnionFieldPtr:
                         continue;
                     default:
@@ -18671,7 +18672,7 @@ static IrInstGen *ir_resolve_result(IrAnalyze *ira, IrInst *suspend_source_instr
     {
         bool same_comptime_repr = types_have_same_zig_comptime_repr(ira->codegen, actual_elem_type, value_type);
         if (!same_comptime_repr) {
-            result_loc_pass1->written = false;
+            result_loc_pass1->written = was_written;
             return ir_analyze_unwrap_optional_payload(ira, suspend_source_instr, result_loc, false, true);
         }
     } else if (actual_elem_type->id == ZigTypeIdErrorUnion && value_type->id != ZigTypeIdErrorUnion) {
@@ -29971,7 +29972,6 @@ bool ir_inst_gen_has_side_effects(IrInstGen *instruction) {
         case IrInstGenIdReturnPtr:
         case IrInstGenIdStructFieldPtr:
         case IrInstGenIdTestNonNull:
-        case IrInstGenIdOptionalUnwrapPtr:
         case IrInstGenIdClz:
         case IrInstGenIdCtz:
         case IrInstGenIdPopCount:
@@ -30028,6 +30028,8 @@ bool ir_inst_gen_has_side_effects(IrInstGen *instruction) {
             return reinterpret_cast<IrInstGenUnwrapErrCode *>(instruction)->initializing;
         case IrInstGenIdUnionFieldPtr:
             return reinterpret_cast<IrInstGenUnionFieldPtr *>(instruction)->initializing;
+        case IrInstGenIdOptionalUnwrapPtr:
+            return reinterpret_cast<IrInstGenOptionalUnwrapPtr *>(instruction)->initializing;
         case IrInstGenIdErrWrapPayload:
             return reinterpret_cast<IrInstGenErrWrapPayload *>(instruction)->result_loc != nullptr;
         case IrInstGenIdErrWrapCode:
