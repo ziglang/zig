@@ -5641,6 +5641,8 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
                 return OnePossibleValueYes;
             return type_has_one_possible_value(g, type_entry->data.array.child_type);
         case ZigTypeIdStruct:
+            // If the recursive function call asks, then we are not one possible value.
+            type_entry->one_possible_value = OnePossibleValueNo;
             for (size_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
                 TypeStructField *field = type_entry->data.structure.fields[i];
                 OnePossibleValue opv = (field->type_entry != nullptr) ?
@@ -5648,6 +5650,7 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
                     type_val_resolve_has_one_possible_value(g, field->type_val);
                 switch (opv) {
                     case OnePossibleValueInvalid:
+                        type_entry->one_possible_value = OnePossibleValueInvalid;
                         return OnePossibleValueInvalid;
                     case OnePossibleValueNo:
                         return OnePossibleValueNo;
@@ -5655,6 +5658,7 @@ OnePossibleValue type_has_one_possible_value(CodeGen *g, ZigType *type_entry) {
                         continue;
                 }
             }
+            type_entry->one_possible_value = OnePossibleValueYes;
             return OnePossibleValueYes;
         case ZigTypeIdErrorSet:
         case ZigTypeIdEnum:
