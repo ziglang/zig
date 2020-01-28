@@ -186,8 +186,9 @@ fn iter_fn(info: *dl_phdr_info, size: usize, data: ?*usize) callconv(.C) i32 {
 
         if (phdr.p_type != elf.PT_LOAD) continue;
 
+        const reloc_addr = info.dlpi_addr + phdr.p_vaddr;
         // Find the ELF header
-        const elf_header = @intToPtr(*elf.Ehdr, phdr.p_vaddr - phdr.p_offset);
+        const elf_header = @intToPtr(*elf.Ehdr, reloc_addr - phdr.p_offset);
         // Validate the magic
         if (!mem.eql(u8, elf_header.e_ident[0..4], "\x7fELF")) return -1;
         // Consistency check
