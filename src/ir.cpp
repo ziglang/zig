@@ -8477,9 +8477,8 @@ static IrInstSrc *ir_gen_for_expr(IrBuilderSrc *irb, Scope *parent_scope, AstNod
     ResultLocPeerParent *peer_parent = ir_build_result_peers(irb, cond_br_inst, end_block, result_loc, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(irb, body_block);
-    Scope *elem_ptr_scope = node->data.for_expr.elem_is_ptr ? parent_scope : &spill_scope->base;
-    IrInstSrc *elem_ptr = ir_build_elem_ptr(irb, elem_ptr_scope, node, array_val_ptr, index_val, false,
-            PtrLenSingle, nullptr);
+    IrInstSrc *elem_ptr = ir_build_elem_ptr(irb, &spill_scope->base, node, array_val_ptr, index_val,
+            false, PtrLenSingle, nullptr);
     // TODO make it an error to write to element variable or i variable.
     Buf *elem_var_name = elem_node->data.symbol_expr.symbol;
     ZigVar *elem_var = ir_create_var(irb, elem_node, parent_scope, elem_var_name, true, false, false, is_comptime);
