@@ -14,6 +14,11 @@ pub fn main() anyerror!void {
 
     for (test_fn_list) |test_fn, i| {
         std.testing.allocator_instance.reset();
+        defer {
+            std.testing.leak_count_allocator_instance.validate() catch |err| {
+                @panic(@errorName(err));
+            };
+        }
 
         var test_node = root_node.start(test_fn.name, null);
         test_node.activate();
@@ -37,8 +42,6 @@ pub fn main() anyerror!void {
                 return err;
             },
         }
-
-        try std.testing.leak_count_allocator_instance.validate();
     }
     root_node.end();
     if (ok_count == test_fn_list.len) {
