@@ -1101,7 +1101,7 @@ pub usingnamespace switch (builtin.arch) {
             Wvr: [2]DWORD64,
 
             pub fn getRegs(ctx: *const CONTEXT) struct {bp: usize, ip: usize} {
-                return .{.bp = @intCast(usize, ctx.Fp), .ip = @intCast(usize, ctx.Pc)};
+                return .{.bp = @intCast(usize, ctx.DUMMYUNIONNAME.DUMMYSTRUCTNAME.Fp), .ip = @intCast(usize, ctx.Pc)};
             }
         };
 
