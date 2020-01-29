@@ -1149,6 +1149,7 @@ pub const LibExeObjStep = struct {
     name_prefix: []const u8,
     filter: ?[]const u8,
     single_threaded: bool,
+    code_model: builtin.CodeModel = .default,
 
     root_src: ?FileSource,
     out_h_filename: []const u8,
@@ -1968,6 +1969,11 @@ pub const LibExeObjStep = struct {
         }
         if (self.disable_sanitize_c) {
             try zig_args.append("-fno-sanitize-c");
+        }
+
+        if (self.code_model != .default) {
+            try zig_args.append("-code-model");
+            try zig_args.append(@tagName(self.code_model));
         }
 
         switch (self.target) {

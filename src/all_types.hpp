@@ -1947,6 +1947,15 @@ enum BuildMode {
     BuildModeSmallRelease,
 };
 
+enum CodeModel {
+    CodeModelDefault,
+    CodeModelTiny,
+    CodeModelSmall,
+    CodeModelKernel,
+    CodeModelMedium,
+    CodeModelLarge,
+};
+
 enum EmitFileType {
     EmitFileTypeBinary,
     EmitFileTypeAssembly,
@@ -2235,6 +2244,7 @@ struct CodeGen {
     bool enable_dump_analysis;
     bool enable_doc_generation;
     bool disable_bin_generation;
+    CodeModel code_model;
 
     Buf *mmacosx_version_min;
     Buf *mios_version_min;

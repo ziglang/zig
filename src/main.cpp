@@ -103,6 +103,9 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -D[macro]=[value]            define C [macro] to [value] (1 if [value] omitted)\n"
         "  -target-cpu [cpu]            target one specific CPU by name\n"
         "  -target-feature [features]   specify the set of CPU features to target\n"
+        "  -code-model [default|tiny|   set target code model\n"
+        "               small|kernel|\n"
+        "               medium|large]\n"
         "\n"
         "Link Options:\n"
         "  --bundle-compiler-rt         for static libraries, include compiler-rt symbols\n"
@@ -452,6 +455,7 @@ int main(int argc, char **argv) {
     bool function_sections = false;
     const char *cpu = nullptr;
     const char *features = nullptr;
+    CodeModel code_model = CodeModelDefault;
 
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
@@ -768,6 +772,23 @@ int main(int argc, char **argv) {
                     clang_argv.append(argv[i]);
 
                     llvm_argv.append(argv[i]);
+                } else if (strcmp(arg, "-code-model") == 0) {
+                    if (strcmp(argv[i], "default") == 0) {
+                        code_model = CodeModelDefault;
+                    } else if (strcmp(argv[i], "tiny") == 0) {
+                        code_model = CodeModelTiny;
+                    } else if (strcmp(argv[i], "small") == 0) {
+                        code_model = CodeModelSmall;
+                    } else if (strcmp(argv[i], "kernel") == 0) {
+                        code_model = CodeModelKernel;
+                    } else if (strcmp(argv[i], "medium") == 0) {
+                        code_model = CodeModelMedium;
+                    } else if (strcmp(argv[i], "large") == 0) {
+                        code_model = CodeModelLarge;
+                    } else {
+                        fprintf(stderr, "-code-model options are 'default', 'tiny', 'small', 'kernel', 'medium', or 'large'\n");
+                        return print_error_usage(arg0);
+                    }
                 } else if (strcmp(arg, "--override-lib-dir") == 0) {
                     override_lib_dir = buf_create_from_str(argv[i]);
                 } else if (strcmp(arg, "--main-pkg-path") == 0) {
@@ -1170,6 +1191,7 @@ int main(int argc, char **argv) {
             codegen_set_errmsg_color(g, color);
             g->system_linker_hack = system_linker_hack;
             g->function_sections = function_sections;
+            g->code_model = code_model;
 
 
             for (size_t i = 0; i < lib_dirs.length; i += 1) {

@@ -8365,6 +8365,25 @@ static bool detect_err_ret_tracing(CodeGen *g) {
         g->build_mode != BuildModeSmallRelease;
 }
 
+static LLVMCodeModel to_llvm_code_model(CodeGen *g) {
+        switch (g->code_model) {
+            case CodeModelDefault:
+                return LLVMCodeModelDefault;
+            case CodeModelTiny:
+                return LLVMCodeModelTiny;
+            case CodeModelSmall:
+                return LLVMCodeModelSmall;
+            case CodeModelKernel:
+                return LLVMCodeModelKernel;
+            case CodeModelMedium:
+                return LLVMCodeModelMedium;
+            case CodeModelLarge:
+                return LLVMCodeModelLarge;
+        }
+
+        zig_unreachable();
+}
+
 Buf *codegen_generate_builtin_source(CodeGen *g) {
     g->have_dynamic_link = detect_dynamic_link(g);
     g->have_pic = detect_pic(g);
@@ -8545,6 +8564,34 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const strip_debug_info = %s;\n", bool_to_str(g->strip_debug_symbols));
 
     {
+        const char *code_model;
+        switch (g->code_model) {
+        case CodeModelDefault:
+            code_model = "default";
+            break;
+        case CodeModelTiny:
+            code_model = "tiny";
+            break;
+        case CodeModelSmall:
+            code_model = "small";
+            break;
+        case CodeModelKernel:
+            code_model = "kernel";
+            break;
+        case CodeModelMedium:
+            code_model = "medium";
+            break;
+        case CodeModelLarge:
+            code_model = "large";
+            break;
+        default:
+            zig_unreachable();
+        }
+
+        buf_appendf(contents, "pub const code_model = CodeModel.%s;\n", code_model);
+    }
+
+    {
         TargetSubsystem detected_subsystem = detect_subsystem(g);
         if (detected_subsystem != TargetSubsystemAuto) {
             buf_appendf(contents, "pub const explicit_subsystem = SubSystem.%s;\n", subsystem_to_str(detected_subsystem));
@@ -8588,6 +8635,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_bool(&cache_hash, g->is_dynamic);
     cache_bool(&cache_hash, g->is_test_build);
     cache_bool(&cache_hash, g->is_single_threaded);
+    cache_int(&cache_hash, g->code_model);
     cache_int(&cache_hash, g->zig_target->is_native);
     cache_int(&cache_hash, g->zig_target->arch);
     cache_int(&cache_hash, g->zig_target->sub_arch);
@@ -8745,7 +8793,7 @@ static void init(CodeGen *g) {
     
     g->target_machine = ZigLLVMCreateTargetMachine(target_ref, buf_ptr(&g->llvm_triple_str),
             target_specific_cpu_args, target_specific_features, opt_level, reloc_mode,
-            LLVMCodeModelDefault, g->function_sections);
+            to_llvm_code_model(g), g->function_sections);
 
     g->target_data_ref = LLVMCreateTargetDataLayout(g->target_machine);
 
@@ -9527,6 +9575,8 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     cache_bool(cache_hash, g->have_sanitize_c);
     cache_bool(cache_hash, want_valgrind_support(g));
     cache_bool(cache_hash, g->function_sections);
+    cache_int(cache_hash, g->code_model);
+
     for (size_t arg_i = 0; arg_i < g->clang_argv_len; arg_i += 1) {
         cache_str(cache_hash, g->clang_argv[arg_i]);
     }
@@ -10696,6 +10746,7 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     g->one_possible_values.init(32);
     g->is_test_build = is_test_build;
     g->is_single_threaded = false;
+    g->code_model = CodeModelDefault;
     buf_resize(&g->global_asm, 0);
 
     for (size_t i = 0; i < array_length(symbols_that_llvm_depends_on); i += 1) {
