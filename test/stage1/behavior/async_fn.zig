@@ -1182,6 +1182,42 @@ test "suspend in for loop" {
     S.doTheTest();
 }
 
+test "suspend in while loop" {
+    const S = struct {
+        var global_frame: ?anyframe = null;
+
+        fn doTheTest() void {
+            _ = async atest();
+            while (global_frame) |f| resume f;
+        }
+
+        fn atest() void {
+            expect(optional(6) == 6);
+            expect(errunion(6) == 6);
+        }
+        fn optional(stuff: ?u32) u32 {
+            global_frame = @frame();
+            defer global_frame = null;
+            while (stuff) |val| {
+                suspend;
+                return val;
+            }
+            return 0;
+        }
+        fn errunion(stuff: anyerror!u32) u32 {
+            global_frame = @frame();
+            defer global_frame = null;
+            while (stuff) |val| {
+                suspend;
+                return val;
+            } else |err| {
+                return 0;
+            }
+        }
+    };
+    S.doTheTest();
+}
+
 test "correctly spill when returning the error union result of another async fn" {
     const S = struct {
         var global_frame: anyframe = undefined;
