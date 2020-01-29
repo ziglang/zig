@@ -22768,7 +22768,9 @@ static IrInstGen *ir_analyze_instruction_switch_else_var(IrAnalyze *ira,
         }
         // Make note of the errors handled by other cases
         ErrorTableEntry **errors = allocate<ErrorTableEntry *>(ira->codegen->errors_by_index.length);
-        for (size_t case_i = 0; case_i < instruction->switch_br->case_count; case_i += 1) {
+        // We may not have any case in the switch if this is a lone else
+        const size_t switch_cases = instruction->switch_br ? instruction->switch_br->case_count : 0;
+        for (size_t case_i = 0; case_i < switch_cases; case_i += 1) {
             IrInstSrcSwitchBrCase *br_case = &instruction->switch_br->cases[case_i];
             IrInstGen *case_expr = br_case->value->child;
             if (case_expr->value->type->id == ZigTypeIdErrorSet) {
