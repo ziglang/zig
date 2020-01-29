@@ -129,7 +129,7 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
         return;
     };
     const tty_config = detectTTYConfig();
-    printSourceAtAddress(debug_info, stderr, if (builtin.os == .windows) (ip + 1) else ip, tty_config) catch return;
+    printSourceAtAddress(debug_info, stderr, ip, tty_config) catch return;
     const first_return_address = @intToPtr(*const usize, bp + @sizeOf(usize)).*;
     printSourceAtAddress(debug_info, stderr, first_return_address - 1, tty_config) catch return;
     var it = StackIterator{
@@ -471,7 +471,7 @@ fn printSourceAtAddressWindows(
                                 line_index += @sizeOf(pdb.LineNumberEntry);
 
                                 const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
-                                if (relative_address <= vaddr_start) {
+                                if (relative_address < vaddr_start) {
                                     break;
                                 }
                             }
