@@ -443,12 +443,22 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
     };
 
     var fn_qt = ZigClangFunctionDecl_getType(fn_decl);
-    var fn_type = ZigClangQualType_getTypePtr(fn_qt);
-    if (ZigClangType_getTypeClass(fn_type) == .Attributed) {
-        const attr_type = @ptrCast(*const ZigClangAttributedType, fn_type);
-        fn_qt = ZigClangAttributedType_getEquivalentType(attr_type);
-        fn_type = ZigClangQualType_getTypePtr(fn_qt);
-    }
+
+    const fn_type = while (true) {
+        const fn_type = ZigClangQualType_getTypePtr(fn_qt);
+
+        switch (ZigClangType_getTypeClass(fn_type)) {
+            .Attributed => {
+                const attr_type = @ptrCast(*const ZigClangAttributedType, fn_type);
+                fn_qt = ZigClangAttributedType_getEquivalentType(attr_type);
+            },
+            .Paren => {
+                const paren_type = @ptrCast(*const ZigClangParenType, fn_type);
+                fn_qt = ZigClangParenType_getInnerType(paren_type);
+            },
+            else => break fn_type,
+        }
+    } else unreachable;
 
     const proto_node = switch (ZigClangType_getTypeClass(fn_type)) {
         .FunctionProto => blk: {
@@ -505,7 +515,7 @@ fn visitFnDecl(c: *Context, fn_decl: *const ZigClangFunctionDecl) Error!void {
 
         const arg_name = blk: {
             const param_prefix = if (is_const) "" else "arg_";
-            const bare_arg_name = try std.fmt.allocPrint(c.a(), "{}{}", .{param_prefix, mangled_param_name});
+            const bare_arg_name = try std.fmt.allocPrint(c.a(), "{}{}", .{ param_prefix, mangled_param_name });
             break :blk try block_scope.makeMangledName(c, bare_arg_name);
         };
 
