@@ -1390,8 +1390,12 @@ pub const DwarfInfo = struct {
 
                     // All the addresses in the list are relative to the value
                     // specified by DW_AT_low_pc or to some other value encoded
-                    // in the list itself
-                    var base_address = try compile_unit.die.getAttrAddr(DW.AT_low_pc);
+                    // in the list itself.
+                    // If no starting value is specified use zero.
+                    var base_address = compile_unit.die.getAttrAddr(DW.AT_low_pc) catch |err| switch (err) {
+                        error.MissingDebugInfo => 0,
+                        else => return err,
+                    };
 
                     try s.seekable_stream.seekTo(ranges_offset);
 
@@ -1410,8 +1414,6 @@ pub const DwarfInfo = struct {
                             return compile_unit;
                         }
                     }
-
-                    return error.InvalidDebugInfo;
                 } else |err| {
                     if (err != error.MissingDebugInfo) return err;
                     continue;
