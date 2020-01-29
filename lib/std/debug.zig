@@ -2307,15 +2307,283 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: *const c_vo
 }
 
 fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(.Stdcall) c_long {
-    const exception_address = @ptrToInt(info.ExceptionRecord.ExceptionAddress);
     switch (info.ExceptionRecord.ExceptionCode) {
-        windows.EXCEPTION_DATATYPE_MISALIGNMENT => panicExtra(null, exception_address, "Unaligned Memory Access", .{}),
-        windows.EXCEPTION_ACCESS_VIOLATION => panicExtra(null, exception_address, "Segmentation fault at address 0x{x}", .{info.ExceptionRecord.ExceptionInformation[1]}),
-        windows.EXCEPTION_ILLEGAL_INSTRUCTION => panicExtra(null, exception_address, "Illegal Instruction", .{}),
-        windows.EXCEPTION_STACK_OVERFLOW => panicExtra(null, exception_address, "Stack Overflow", .{}),
+        windows.EXCEPTION_DATATYPE_MISALIGNMENT => handleSegfaultWindowsExtra(info, 0, "Unaligned Memory Access"),
+        windows.EXCEPTION_ACCESS_VIOLATION => handleSegfaultWindowsExtra(info, 1, null),
+        windows.EXCEPTION_ILLEGAL_INSTRUCTION => handleSegfaultWindowsExtra(info, 2, null),
+        windows.EXCEPTION_STACK_OVERFLOW => handleSegfaultWindowsExtra(info, 0, "Stack Overflow"),
         else => return windows.EXCEPTION_CONTINUE_SEARCH,
     }
 }
+
+// zig won't let me use an anon enum here
+fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, comptime msg: u8, comptime format: ?[]const u8) noreturn {
+    const exception_address = @ptrToInt(info.ExceptionRecord.ExceptionAddress);
+    if (comptime windows_exception_context.haveContext) {
+        const regs = windows_exception_context.getRegs(info.ContextRecord);
+        switch (msg) {
+            0 => std.debug.warn("{}\n", .{format.?}),
+            1 => std.debug.warn("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
+            2 => std.debug.warn("Illegal instruction at address 0x{x}\n", .{regs.ip}),
+            else => unreachable,
+        }
+
+        dumpStackTraceFromBase(regs.bp, regs.ip);
+        os.abort();
+    } else {
+        switch (msg) {
+            0 => panicExtra(null, exception_address, format.?, .{}),
+            1 => panicExtra(null, exception_address, "Segmentation fault at address 0x{x}", .{info.ExceptionRecord.ExceptionInformation[1]}),
+            2 => panicExtra(null, exception_address, "Illegal Instruction", .{}),
+            else => unreachable,
+        }
+    }
+}
+
+pub const windows_exception_context = switch (builtin.arch) {
+    .i386 => struct {
+        pub const haveContext = true;
+
+        pub fn getRegs(ptr: *c_void) struct {bp: usize, ip: usize} {
+            const ctx = @ptrCast(*const CONTEXT, @alignCast(@alignOf(CONTEXT), ptr));
+            return .{.bp = @intCast(usize, ctx.Ebp), .ip = @intCast(usize, ctx.Eip)};
+        }
+
+        pub const CONTEXT = extern struct {
+            ContextFlags: DWORD,
+            Dr0: DWORD,
+            Dr1: DWORD,
+            Dr2: DWORD,
+            Dr3: DWORD,
+            Dr6: DWORD,
+            Dr7: DWORD,
+            FloatSave: FLOATING_SAVE_AREA,
+            SegGs: DWORD,
+            SegFs: DWORD,
+            SegEs: DWORD,
+            SegDs: DWORD,
+            Edi: DWORD,
+            Esi: DWORD,
+            Ebx: DWORD,
+            Edx: DWORD,
+            Ecx: DWORD,
+            Eax: DWORD,
+            Ebp: DWORD,
+            Eip: DWORD,
+            SegCs: DWORD,
+            EFlags: DWORD,
+            Esp: DWORD,
+            SegSs: DWORD,
+            ExtendedRegisters: [512]BYTE,
+        };
+
+        pub const FLOATING_SAVE_AREA = extern struct {
+            ControlWord: DWORD,
+            StatusWord: DWORD,
+            TagWord: DWORD,
+            ErrorOffset: DWORD,
+            ErrorSelector: DWORD,
+            DataOffset: DWORD,
+            DataSelector: DWORD,
+            RegisterArea: [80]BYTE,
+            Cr0NpxState: DWORD,
+        };
+
+        pub const BYTE = u8;
+        pub const DWORD = c_ulong;
+    },
+    .x86_64 => struct {
+        pub const haveContext = true;
+
+        pub fn getRegs(ptr: *c_void) struct {bp: usize, ip: usize} {
+            const ctx = @ptrCast(*const CONTEXT, @alignCast(@alignOf(CONTEXT), ptr));
+            return .{.bp = @intCast(usize, ctx.Rbp), .ip = @intCast(usize, ctx.Rip)};
+        }
+
+        pub const CONTEXT = extern struct {
+            P1Home: DWORD64,
+            P2Home: DWORD64,
+            P3Home: DWORD64,
+            P4Home: DWORD64,
+            P5Home: DWORD64,
+            P6Home: DWORD64,
+            ContextFlags: DWORD,
+            MxCsr: DWORD,
+            SegCs: WORD,
+            SegDs: WORD,
+            SegEs: WORD,
+            SegFs: WORD,
+            SegGs: WORD,
+            SegSs: WORD,
+            EFlags: DWORD,
+            Dr0: DWORD64,
+            Dr1: DWORD64,
+            Dr2: DWORD64,
+            Dr3: DWORD64,
+            Dr6: DWORD64,
+            Dr7: DWORD64,
+            Rax: DWORD64,
+            Rcx: DWORD64,
+            Rdx: DWORD64,
+            Rbx: DWORD64,
+            Rsp: DWORD64,
+            Rbp: DWORD64,
+            Rsi: DWORD64,
+            Rdi: DWORD64,
+            R8: DWORD64,
+            R9: DWORD64,
+            R10: DWORD64,
+            R11: DWORD64,
+            R12: DWORD64,
+            R13: DWORD64,
+            R14: DWORD64,
+            R15: DWORD64,
+            Rip: DWORD64,
+            DUMMYUNIONNAME: extern union {
+                FltSave: XMM_SAVE_AREA32,
+                FloatSave: XMM_SAVE_AREA32,
+                DUMMYSTRUCTNAME: extern struct {
+                    Header: [2]M128A,
+                    Legacy: [8]M128A,
+                    Xmm0: M128A,
+                    Xmm1: M128A,
+                    Xmm2: M128A,
+                    Xmm3: M128A,
+                    Xmm4: M128A,
+                    Xmm5: M128A,
+                    Xmm6: M128A,
+                    Xmm7: M128A,
+                    Xmm8: M128A,
+                    Xmm9: M128A,
+                    Xmm10: M128A,
+                    Xmm11: M128A,
+                    Xmm12: M128A,
+                    Xmm13: M128A,
+                    Xmm14: M128A,
+                    Xmm15: M128A,
+                },
+            },
+            VectorRegister: [26]M128A,
+            VectorControl: DWORD64,
+            DebugControl: DWORD64,
+            LastBranchToRip: DWORD64,
+            LastBranchFromRip: DWORD64,
+            LastExceptionToRip: DWORD64,
+            LastExceptionFromRip: DWORD64,
+        };
+
+        pub const XMM_SAVE_AREA32 = extern struct {
+            ControlWord: WORD,
+            StatusWord: WORD,
+            TagWord: BYTE,
+            Reserved1: BYTE,
+            ErrorOpcode: WORD,
+            ErrorOffset: DWORD,
+            ErrorSelector: WORD,
+            Reserved2: WORD,
+            DataOffset: DWORD,
+            DataSelector: WORD,
+            Reserved3: WORD,
+            MxCsr: DWORD,
+            MxCsr_Mask: DWORD,
+            FloatRegisters: [8]M128A,
+            XmmRegisters: [16]M128A,
+            Reserved4: [96]BYTE,
+        };
+
+        pub const M128A = extern struct {
+            Low: ULONGLONG,
+            High: LONGLONG,
+        };
+
+        pub const BYTE = u8;
+        pub const WORD = u16;
+        pub const DWORD = u32;
+        pub const DWORD64 = u64;
+        pub const LONGLONG = c_longlong;
+        pub const ULONGLONG = c_ulonglong;
+    },
+    .aarch64 => struct {
+        pub const haveContext = true;
+
+        pub fn getRegs(ptr: *c_void) struct {bp: usize, ip: usize} {
+            const ctx = @ptrCast(*const CONTEXT, @alignCast(@alignOf(CONTEXT), ptr));
+            return .{.bp = @intCast(usize, ctx.Fp), .ip = @intCast(usize, ctx.Pc)};
+        }
+
+        pub const CONTEXT = extern struct {
+            ContextFlags: ULONG,
+            Cpsr: ULONG,
+            DUMMYUNIONNAME: extern union {
+                DUMMYSTRUCTNAME: extern struct {
+                    X0: DWORD64,
+                    X1: DWORD64,
+                    X2: DWORD64,
+                    X3: DWORD64,
+                    X4: DWORD64,
+                    X5: DWORD64,
+                    X6: DWORD64,
+                    X7: DWORD64,
+                    X8: DWORD64,
+                    X9: DWORD64,
+                    X10: DWORD64,
+                    X11: DWORD64,
+                    X12: DWORD64,
+                    X13: DWORD64,
+                    X14: DWORD64,
+                    X15: DWORD64,
+                    X16: DWORD64,
+                    X17: DWORD64,
+                    X18: DWORD64,
+                    X19: DWORD64,
+                    X20: DWORD64,
+                    X21: DWORD64,
+                    X22: DWORD64,
+                    X23: DWORD64,
+                    X24: DWORD64,
+                    X25: DWORD64,
+                    X26: DWORD64,
+                    X27: DWORD64,
+                    X28: DWORD64,
+                    Fp: DWORD64,
+                    Lr: DWORD64,
+                },
+                X: [31]DWORD64,
+            },
+            Sp: DWORD64,
+            Pc: DWORD64,
+            V: [32]NEON128,
+            Fpcr: DWORD,
+            Fpsr: DWORD,
+            Bcr: [8]DWORD,
+            Bvr: [8]DWORD64,
+            Wcr: [2]DWORD,
+            Wvr: [2]DWORD64,
+        };
+
+        pub const NEON128 = extern union {
+            DUMMYSTRUCTNAME: extern struct {
+                Low: ULONGLONG,
+                High: LONGLONG,
+            },
+            D: [2]f64,
+            S: [4]f32,
+            H: [8]WORD,
+            B: [16]BYTE,
+        };
+
+        pub const ULONG = c_ulong;
+        pub const LONGLONG = c_longlong;
+        pub const ULONGLONG = c_ulonglong;
+        pub const BYTE = u8;
+        pub const WORD = c_ushort;
+        pub const DWORD = c_ulong;
+        pub const DWORD64 = c_ulonglong;
+    },
+    else => struct {
+        pub const haveContext = false;
+    },
+};
 
 pub fn dumpStackPointerAddr(prefix: []const u8) void {
     const sp = asm (""
