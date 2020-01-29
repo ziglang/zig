@@ -3,6 +3,22 @@ const tests = @import("tests.zig");
 const nl = std.cstr.line_sep;
 
 pub fn addCases(cases: *tests.RunTranslatedCContext) void {
+    cases.add("array initializer",
+        \\#include <stdlib.h>
+        \\int main(int argc, char **argv) {
+        \\    int a0[4] = {1};
+        \\    int a1[4] = {1,2,3,4};
+        \\    int s0 = 0, s1 = 0;
+        \\    for (int i = 0; i < 4; i++) {
+        \\        s0 += a0[i];
+        \\        s1 += a1[i];
+        \\    }
+        \\    if (s0 != 1) abort();
+        \\    if (s1 != 10) abort();
+        \\    return 0;
+        \\}
+    , "");
+
     cases.add("forward declarations",
         \\#include <stdlib.h>
         \\int foo(int);
