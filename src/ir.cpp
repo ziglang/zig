@@ -11161,6 +11161,38 @@ void float_read_ieee597(ZigValue *val, uint8_t *buf, bool is_big_endian) {
     }
 }
 
+static void value_to_bigfloat(BigFloat *out, ZigValue *val) {
+    switch (val->type->id) {
+        case ZigTypeIdInt:
+        case ZigTypeIdComptimeInt:
+            bigfloat_init_bigint(out, &val->data.x_bigint);
+            return;
+        case ZigTypeIdComptimeFloat:
+            *out = val->data.x_bigfloat;
+            return;
+        case ZigTypeIdFloat: switch (val->type->data.floating.bit_count) {
+            case 16:
+                bigfloat_init_16(out, val->data.x_f16);
+                return;
+            case 32:
+                bigfloat_init_32(out, val->data.x_f32);
+                return;
+            case 64:
+                bigfloat_init_64(out, val->data.x_f64);
+                return;
+            case 80:
+                zig_panic("TODO");
+            case 128:
+                bigfloat_init_128(out, val->data.x_f128);
+                return;
+            default:
+                zig_unreachable();
+        }
+        default:
+            zig_unreachable();
+    }
+}
+
 static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstGen *instruction, ZigType *other_type,
         bool explicit_cast)
 {
@@ -15825,39 +15857,31 @@ never_mind_just_calculate_it_normally:
 
     // Handle the case where one of the two operands is a fp value and the other
     // is an integer value
-    ZigValue **int_val, **float_val;
-
+    ZigValue *float_val;
     if (op1_is_int && op2_is_float) {
-        int_val = &op1_val;
-        float_val = &op2_val;
+        float_val = op2_val;
     } else if (op1_is_float && op2_is_int) {
-        int_val = &op2_val;
-        float_val = &op1_val;
+        float_val = op1_val;
     } else {
         zig_unreachable();
     }
 
     // They can never be equal if the fp value has a non-zero decimal part
     if (op_id == IrBinOpCmpEq || op_id == IrBinOpCmpNotEq) {
-        if (float_has_fraction(*float_val)) {
+        if (float_has_fraction(float_val)) {
             out_val->special = ConstValSpecialStatic;
             out_val->data.x_bool = op_id == IrBinOpCmpNotEq;
-
             return nullptr;
         }
     }
 
     // Cast the integer operand into a fp value to perform the comparison
-    {
-        IrInstruction *tmp = ir_const_noval(ira, source_instr);
-        tmp->value = *int_val;
-        IrInstruction *casted = ir_implicit_cast(ira, tmp, (*float_val)->type);
-        if (casted == ira->codegen->invalid_instruction)
-            return ira->codegen->trace_err;
-        *int_val = casted->value;
-    }
+    BigFloat op1_bigfloat;
+    BigFloat op2_bigfloat;
+    value_to_bigfloat(&op1_bigfloat, op1_val);
+    value_to_bigfloat(&op2_bigfloat, op2_val);
 
-    Cmp cmp_result = bigfloat_cmp(&op1_val->data.x_bigfloat, &op2_val->data.x_bigfloat);
+    Cmp cmp_result = bigfloat_cmp(&op1_bigfloat, &op2_bigfloat);
     out_val->special = ConstValSpecialStatic;
     out_val->data.x_bool = resolve_cmp_op_id(op_id, cmp_result);
 
