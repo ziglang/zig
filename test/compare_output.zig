@@ -445,7 +445,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\const std = @import("std");
             \\const io = std.io;
             \\const os = std.os;
-            \\const allocator = std.debug.global_allocator;
+            \\const allocator = std.testing.allocator;
             \\
             \\pub fn main() !void {
             \\    var args_it = std.process.args();
@@ -486,7 +486,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\const std = @import("std");
             \\const io = std.io;
             \\const os = std.os;
-            \\const allocator = std.debug.global_allocator;
+            \\const allocator = std.testing.allocator;
             \\
             \\pub fn main() !void {
             \\    var args_it = std.process.args();

@@ -150,7 +150,7 @@ pub const Buffer = struct {
 };
 
 test "simple Buffer" {
-    var buf = try Buffer.init(debug.global_allocator, "");
+    var buf = try Buffer.init(testing.allocator, "");
     testing.expect(buf.len() == 0);
     try buf.append("hello");
     try buf.append(" ");
@@ -169,14 +169,14 @@ test "simple Buffer" {
 }
 
 test "Buffer.initSize" {
-    var buf = try Buffer.initSize(debug.global_allocator, 3);
+    var buf = try Buffer.initSize(testing.allocator, 3);
     testing.expect(buf.len() == 3);
     try buf.append("hello");
     testing.expect(mem.eql(u8, buf.toSliceConst()[3..], "hello"));
 }
 
 test "Buffer.initCapacity" {
-    var buf = try Buffer.initCapacity(debug.global_allocator, 10);
+    var buf = try Buffer.initCapacity(testing.allocator, 10);
     testing.expect(buf.len() == 0);
     testing.expect(buf.capacity() >= 10);
     const old_cap = buf.capacity();

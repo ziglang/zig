@@ -665,7 +665,7 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 }
 
 test "resolve" {
-    const cwd = try process.getCwdAlloc(debug.global_allocator);
+    const cwd = try process.getCwdAlloc(testing.allocator);
     if (builtin.os == .windows) {
         if (windowsParsePath(cwd).kind == WindowsPath.Kind.Drive) {
             cwd[0] = asciiUpper(cwd[0]);
@@ -683,11 +683,11 @@ test "resolveWindows" {
         return error.SkipZigTest;
     }
     if (builtin.os == .windows) {
-        const cwd = try process.getCwdAlloc(debug.global_allocator);
+        const cwd = try process.getCwdAlloc(testing.allocator);
         const parsed_cwd = windowsParsePath(cwd);
         {
             const result = testResolveWindows(&[_][]const u8{ "/usr/local", "lib\\zig\\std\\array_list.zig" });
-            const expected = try join(debug.global_allocator, &[_][]const u8{
+            const expected = try join(testing.allocator, &[_][]const u8{
                 parsed_cwd.disk_designator,
                 "usr\\local\\lib\\zig\\std\\array_list.zig",
             });
@@ -698,7 +698,7 @@ test "resolveWindows" {
         }
         {
             const result = testResolveWindows(&[_][]const u8{ "usr/local", "lib\\zig" });
-            const expected = try join(debug.global_allocator, &[_][]const u8{
+            const expected = try join(testing.allocator, &[_][]const u8{
                 cwd,
                 "usr\\local\\lib\\zig",
             });
@@ -738,11 +738,11 @@ test "resolvePosix" {
 }
 
 fn testResolveWindows(paths: []const []const u8) []u8 {
-    return resolveWindows(debug.global_allocator, paths) catch unreachable;
+    return resolveWindows(testing.allocator, paths) catch unreachable;
 }
 
 fn testResolvePosix(paths: []const []const u8) []u8 {
-    return resolvePosix(debug.global_allocator, paths) catch unreachable;
+    return resolvePosix(testing.allocator, paths) catch unreachable;
 }
 
 /// If the path is a file in the current directory (no directory component)
@@ -1166,11 +1166,11 @@ test "relative" {
 }
 
 fn testRelativePosix(from: []const u8, to: []const u8, expected_output: []const u8) void {
-    const result = relativePosix(debug.global_allocator, from, to) catch unreachable;
+    const result = relativePosix(testing.allocator, from, to) catch unreachable;
     testing.expectEqualSlices(u8, expected_output, result);
 }
 
 fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []const u8) void {
-    const result = relativeWindows(debug.global_allocator, from, to) catch unreachable;
+    const result = relativeWindows(testing.allocator, from, to) catch unreachable;
     testing.expectEqualSlices(u8, expected_output, result);
 }

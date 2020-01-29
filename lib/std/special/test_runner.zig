@@ -13,6 +13,7 @@ pub fn main() anyerror!void {
     };
 
     for (test_fn_list) |test_fn, i| {
+        std.testing.allocator_instance.reset();
         var test_node = root_node.start(test_fn.name, null);
         test_node.activate();
         progress.refresh();

@@ -1,10 +1,10 @@
 const std = @import("std.zig");
 const Allocator = std.mem.Allocator;
-const debug = std.debug;
-const assert = debug.assert;
-const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
-const expectError = std.testing.expectError;
+const assert = std.debug.assert;
+const testing = std.testing;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
+const expectError = testing.expectError;
 
 /// Priority queue for storing generic data. Initialize with `init`.
 pub fn PriorityQueue(comptime T: type) type {
@@ -239,7 +239,7 @@ fn greaterThan(a: u32, b: u32) bool {
 const PQ = PriorityQueue(u32);
 
 test "std.PriorityQueue: add and remove min heap" {
-    var queue = PQ.init(debug.global_allocator, lessThan);
+    var queue = PQ.init(testing.allocator, lessThan);
     defer queue.deinit();
 
     try queue.add(54);
@@ -257,7 +257,7 @@ test "std.PriorityQueue: add and remove min heap" {
 }
 
 test "std.PriorityQueue: add and remove same min heap" {
-    var queue = PQ.init(debug.global_allocator, lessThan);
+    var queue = PQ.init(testing.allocator, lessThan);
     defer queue.deinit();
 
     try queue.add(1);
@@ -275,14 +275,14 @@ test "std.PriorityQueue: add and remove same min heap" {
 }
 
 test "std.PriorityQueue: removeOrNull on empty" {
-    var queue = PQ.init(debug.global_allocator, lessThan);
+    var queue = PQ.init(testing.allocator, lessThan);
     defer queue.deinit();
 
     expect(queue.removeOrNull() == null);
 }
 
 test "std.PriorityQueue: edge case 3 elements" {
-    var queue = PQ.init(debug.global_allocator, lessThan);
+    var queue = PQ.init(testing.allocator, lessThan);
     defer queue.deinit();
 
     try queue.add(9);
@@ -294,7 +294,7 @@ test "std.PriorityQueue: edge case 3 elements" {
 }
 
 test "std.PriorityQueue: peek" {
-    var queue = PQ.init(debug.global_allocator, lessThan);
+    var queue = PQ.init(testing.allocator, lessThan);
     defer queue.deinit();
 
     expect(queue.peek() == null);
@@ -306,7 +306,7 @@ test "std.PriorityQueue: peek" {
 }
 
 test "std.PriorityQueue: sift up with odd indices" {
-    var queue = PQ.init(debug.global_allocator, lessThan);
+    var queue = PQ.init(testing.allocator, lessThan);
     defer queue.deinit();
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
     for (items) |e| {
@@ -320,7 +320,7 @@ test "std.PriorityQueue: sift up with odd indices" {
 }
 
 test "std.PriorityQueue: addSlice" {
-    var queue = PQ.init(debug.global_allocator, lessThan);
+    var queue = PQ.init(testing.allocator, lessThan);
     defer queue.deinit();
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
     try queue.addSlice(items[0..]);
@@ -333,8 +333,8 @@ test "std.PriorityQueue: addSlice" {
 
 test "std.PriorityQueue: fromOwnedSlice" {
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
-    const heap_items = try std.mem.dupe(debug.global_allocator, u32, items[0..]);
-    var queue = PQ.fromOwnedSlice(debug.global_allocator, lessThan, heap_items[0..]);
+    const heap_items = try std.mem.dupe(testing.allocator, u32, items[0..]);
+    var queue = PQ.fromOwnedSlice(testing.allocator, lessThan, heap_items[0..]);
     defer queue.deinit();
 
     const sorted_items = [_]u32{ 1, 2, 5, 6, 7, 7, 11, 12, 13, 14, 15, 15, 16, 21, 22, 24, 24, 25 };
@@ -344,7 +344,7 @@ test "std.PriorityQueue: fromOwnedSlice" {
 }
 
 test "std.PriorityQueue: add and remove max heap" {
-    var queue = PQ.init(debug.global_allocator, greaterThan);
+    var queue = PQ.init(testing.allocator, greaterThan);
     defer queue.deinit();
 
     try queue.add(54);
@@ -362,7 +362,7 @@ test "std.PriorityQueue: add and remove max heap" {
 }
 
 test "std.PriorityQueue: add and remove same max heap" {
-    var queue = PQ.init(debug.global_allocator, greaterThan);
+    var queue = PQ.init(testing.allocator, greaterThan);
     defer queue.deinit();
 
     try queue.add(1);
@@ -380,8 +380,8 @@ test "std.PriorityQueue: add and remove same max heap" {
 }
 
 test "std.PriorityQueue: iterator" {
-    var queue = PQ.init(debug.global_allocator, lessThan);
-    var map = std.AutoHashMap(u32, void).init(debug.global_allocator);
+    var queue = PQ.init(testing.allocator, lessThan);
+    var map = std.AutoHashMap(u32, void).init(testing.allocator);
     defer {
         queue.deinit();
         map.deinit();
@@ -402,7 +402,7 @@ test "std.PriorityQueue: iterator" {
 }
 
 test "std.PriorityQueue: remove at index" {
-    var queue = PQ.init(debug.global_allocator, lessThan);
+    var queue = PQ.init(testing.allocator, lessThan);
     defer queue.deinit();
 
     try queue.add(3);

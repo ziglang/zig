@@ -2,6 +2,11 @@ const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 const std = @import("std.zig");
 
+/// This should only be used in temporary test programs.
+pub const allocator = &allocator_instance.allocator;
+pub var allocator_instance = std.heap.ThreadSafeFixedBufferAllocator.init(allocator_mem[0..]);
+var allocator_mem: [100 * 1024]u8 = undefined;
+
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
 /// and then aborts when actual_error_union is not expected_error.
 pub fn expectError(expected_error: anyerror, actual_error_union: var) void {
