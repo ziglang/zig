@@ -656,3 +656,26 @@ pub const Node = struct {
         },
     };
 };
+
+pub const Expr = struct {
+    id: Id,
+    ty: *Type,
+    value: union(enum) {
+        None,
+    },
+
+    pub const Id = enum {
+        Infix,
+        Literal,
+    };
+
+    pub const Infix = struct {
+        base: Expr = Expr{ .id = .Infix },
+        lhs: *Expr,
+        op_token: TokenIndex,
+        op: Op,
+        rhs: *Expr,
+
+        pub const Op = enum {};
+    };
+};

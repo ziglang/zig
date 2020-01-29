@@ -15,7 +15,6 @@ pub const Error = error{ParseError} || Allocator.Error;
 pub const Options = struct {
     // /// Keep simple macros unexpanded and add the definitions to the ast
     // retain_macros: bool = false,
-
     /// Warning or error
     warn_as_err: union(enum) {
         /// All warnings are warnings
@@ -335,7 +334,9 @@ const Parser = struct {
     fn staticAssert(parser: *Parser) !?*Node {
         const tok = parser.eatToken(.Keyword_static_assert) orelse return null;
         _ = try parser.expectToken(.LParen);
-        const const_expr = try parser.constExpr();
+        const const_expr = (try parser.constExpr()) orelse parser.err(.{
+            .ExpectedExpr = .{ .token = parser.it.index },
+        });
         _ = try parser.expectToken(.Comma);
         const str = try parser.expectToken(.StringLiteral);
         _ = try parser.expectToken(.RParen);
@@ -707,7 +708,9 @@ const Parser = struct {
     fn alignSpec(parser: *Parser, ds: *Node.DeclSpec) !bool {
         if (parser.eatToken(.Keyword_alignas)) |tok| {
             _ = try parser.expectToken(.LParen);
-            const node = (try parser.typeName()) orelse (try parser.constExpr());
+            const node = (try parser.typeName()) orelse (try parser.constExpr()) orelse parser.err(.{
+                .ExpectedExpr = .{ .token = parser.it.index },
+            });
             if (ds.align_spec != null) {
                 try parser.warn(.{
                     .DuplicateSpecifier = .{ .token = parser.it.index },
@@ -769,7 +772,9 @@ const Parser = struct {
             .value = null,
         };
         if (parser.eatToken(.Equal)) |eq| {
-            node.value = try parser.constExpr();
+            node.value = (try parser.constExpr()) orelse parser.err(.{
+                .ExpectedExpr = .{ .token = parser.it.index },
+            });
         }
         return &node.base;
     }
@@ -845,10 +850,14 @@ const Parser = struct {
     }
 
     /// TypeName <- TypeSpec* AbstractDeclarator?
-    fn typeName(parser: *Parser) !*Node {
+    fn typeName(parser: *Parser) Error!?*Node {
+        @panic("TODO");
+    }
 
     /// RecordDeclarator <- Declarator? (COLON ConstExpr)?
-    fn recordDeclarator(parser: *Parser) !*Node {}
+    fn recordDeclarator(parser: *Parser) Error!*Node.RecordDeclarator {
+        @panic("TODO");
+    }
 
     /// Pointer <- ASTERISK TypeQual* Pointer?
     fn pointer(parser: *Parser) Error!?*Node.Pointer {
@@ -1001,14 +1010,18 @@ const Parser = struct {
     }
 
     /// Expr <- AssignmentExpr (COMMA Expr)*
-    fn expr(parser: *Parser) !*Node {}
+    fn expr(parser: *Parser) Error!?*Expr {
+        @panic("TODO");
+    }
 
     /// AssignmentExpr
     ///     <- ConditionalExpr // TODO recursive?
     ///     / UnaryExpr (EQUAL / ASTERISKEQUAL / SLASHEQUAL / PERCENTEQUAL / PLUSEQUAL / MINUSEQUA /
     ///     / ANGLEBRACKETANGLEBRACKETLEFTEQUAL / ANGLEBRACKETANGLEBRACKETRIGHTEQUAL /
     ///     / AMPERSANDEQUAL / CARETEQUAL / PIPEEQUAL) AssignmentExpr
-    fn assignmentExpr(parser: *Parser) !*Node {}
+    fn assignmentExpr(parser: *Parser) !?*Expr {
+        @panic("TODO");
+    }
 
     /// ConstExpr <- ConditionalExpr
     fn constExpr(parser: *Parser) Error!?*Expr {
@@ -1022,37 +1035,59 @@ const Parser = struct {
     }
 
     /// ConditionalExpr <- LogicalOrExpr (QUESTIONMARK Expr COLON ConditionalExpr)?
-    fn conditionalExpr(parser: *Parser) !*Node {}
+    fn conditionalExpr(parser: *Parser) Error!?*Expr {
+        @panic("TODO");
+    }
 
     /// LogicalOrExpr <- LogicalAndExpr (PIPEPIPE LogicalOrExpr)*
-    fn logicalOrExpr(parser: *Parser) !*Node {}
+    fn logicalOrExpr(parser: *Parser) !*Node {
+        const lhs = (try parser.logicalAndExpr()) orelse return null;
+    }
 
     /// LogicalAndExpr <- BinOrExpr (AMPERSANDAMPERSAND LogicalAndExpr)*
-    fn logicalAndExpr(parser: *Parser) !*Node {}
+    fn logicalAndExpr(parser: *Parser) !*Node {
+        @panic("TODO");
+    }
 
     /// BinOrExpr <- BinXorExpr (PIPE BinOrExpr)*
-    fn binOrExpr(parser: *Parser) !*Node {}
+    fn binOrExpr(parser: *Parser) !*Node {
+        @panic("TODO");
+    }
 
     /// BinXorExpr <- BinAndExpr (CARET BinXorExpr)*
-    fn binXorExpr(parser: *Parser) !*Node {}
+    fn binXorExpr(parser: *Parser) !*Node {
+        @panic("TODO");
+    }
 
     /// BinAndExpr <- EqualityExpr (AMPERSAND BinAndExpr)*
-    fn binAndExpr(parser: *Parser) !*Node {}
+    fn binAndExpr(parser: *Parser) !*Node {
+        @panic("TODO");
+    }
 
     /// EqualityExpr <- ComparisionExpr ((EQUALEQUAL / BANGEQUAL) EqualityExpr)*
-    fn equalityExpr(parser: *Parser) !*Node {}
+    fn equalityExpr(parser: *Parser) !*Node {
+        @panic("TODO");
+    }
 
     /// ComparisionExpr <- ShiftExpr (ANGLEBRACKETLEFT / ANGLEBRACKETLEFTEQUAL /ANGLEBRACKETRIGHT / ANGLEBRACKETRIGHTEQUAL) ComparisionExpr)*
-    fn comparisionExpr(parser: *Parser) !*Node {}
+    fn comparisionExpr(parser: *Parser) !*Node {
+        @panic("TODO");
+    }
 
     /// ShiftExpr <- AdditiveExpr (ANGLEBRACKETANGLEBRACKETLEFT / ANGLEBRACKETANGLEBRACKETRIGHT) ShiftExpr)*
-    fn shiftExpr(parser: *Parser) !*Node {}
+    fn shiftExpr(parser: *Parser) !*Node {
+        @panic("TODO");
+    }
 
     /// AdditiveExpr <- MultiplicativeExpr (PLUS / MINUS) AdditiveExpr)*
-    fn additiveExpr(parser: *Parser) !*Node {}
+    fn additiveExpr(parser: *Parser) !*Node {
+        @panic("TODO");
+    }
 
     /// MultiplicativeExpr <- UnaryExpr (ASTERISK / SLASH / PERCENT) MultiplicativeExpr)*
-    fn multiplicativeExpr(parser: *Parser) !*Node {}
+    fn multiplicativeExpr(parser: *Parser) !*Node {
+        @panic("TODO");
+    }
 
     /// UnaryExpr
     ///     <- LPAREN TypeName RPAREN UnaryExpr
@@ -1061,19 +1096,25 @@ const Parser = struct {
     ///     / Keyword_alignof LAPERN TypeName RPAREN
     ///     / (AMPERSAND / ASTERISK / PLUS / PLUSPLUS / MINUS / MINUSMINUS / TILDE / BANG) UnaryExpr
     ///     / PrimaryExpr PostFixExpr*
-    fn unaryExpr(parser: *Parser) !*Node {}
+    fn unaryExpr(parser: *Parser) !*Node {
+        @panic("TODO");
+    }
 
     /// PrimaryExpr
     ///     <- IDENTIFIER
     ///     / INTEGERLITERAL / FLOATLITERAL / STRINGLITERAL / CHARLITERAL
     ///     / LPAREN Expr RPAREN
     ///     / Keyword_generic LPAREN AssignmentExpr (COMMA Generic)+ RPAREN
-    fn primaryExpr(parser: *Parser) !*Node {}
+    fn primaryExpr(parser: *Parser) !*Node {
+        @panic("TODO");
+    }
 
     /// Generic
     ///     <- TypeName COLON AssignmentExpr
     ///     / Keyword_default COLON AssignmentExpr
-    fn generic(parser: *Parser) !*Node {}
+    fn generic(parser: *Parser) !*Node {
+        @panic("TODO");
+    }
 
     /// PostFixExpr
     ///     <- LPAREN TypeName RPAREN LBRACE Initializers RBRACE
@@ -1081,20 +1122,28 @@ const Parser = struct {
     ///     / LPAREN (AssignmentExpr (COMMA AssignmentExpr)*)? RPAREN
     ///     / (PERIOD / ARROW) IDENTIFIER
     ///     / (PLUSPLUS / MINUSMINUS)
-    fn postFixExpr(parser: *Parser) !*Node {}
+    fn postFixExpr(parser: *Parser) !*Node {
+        @panic("TODO");
+    }
 
     /// Initializers <- ((Designator+ EQUAL)? Initializer COMMA)* (Designator+ EQUAL)? Initializer COMMA?
-    fn initializers(parser: *Parser) !*Node {}
+    fn initializers(parser: *Parser) !*Node {
+        @panic("TODO");
+    }
 
     /// Initializer
     ///     <- LBRACE Initializers RBRACE
     ///     / AssignmentExpr
-    fn initializer(parser: *Parser) !*Node {}
+    fn initializer(parser: *Parser, dr: *Node.Declarator) Error!?*Node {
+        @panic("TODO");
+    }
 
     /// Designator
     ///     <- LBRACKET ConstExpr RBRACKET
     ///     / PERIOD IDENTIFIER
-    fn designator(parser: *Parser) !*Node {}
+    fn designator(parser: *Parser) !*Node {
+        @panic("TODO");
+    }
 
     /// CompoundStmt <- LBRACE (Declaration / Stmt)* RBRACE
     fn compoundStmt(parser: *Parser) Error!?*Node {
@@ -1196,7 +1245,7 @@ const Parser = struct {
             try parser.pushScope(.Loop);
             defer parser.popScope();
             _ = try parser.expectToken(.LParen);
-            const init = if (try parser.declaration()) |decl| blk:{
+            const init = if (try parser.declaration()) |decl| blk: {
                 // TODO disallow storage class other than auto and register
                 break :blk decl;
             } else try parser.exprStmt();
@@ -1235,7 +1284,7 @@ const Parser = struct {
             _ = try parser.expectToken(.Colon);
             const node = try parser.arena.create(Node.LabeledStmt);
             node.* = .{
-                .kind = .{.Default = tok },
+                .kind = .{ .Default = tok },
                 .stmt = try parser.stmt(),
             };
             return &node.base;
@@ -1244,7 +1293,7 @@ const Parser = struct {
             _ = try parser.expectToken(.Colon);
             const node = try parser.arena.create(Node.LabeledStmt);
             node.* = .{
-                .kind = .{.Case = tok },
+                .kind = .{ .Case = tok },
                 .stmt = try parser.stmt(),
             };
             return &node.base;
@@ -1289,7 +1338,7 @@ const Parser = struct {
             if (parser.eatToken(.Colon)) |_| {
                 const node = try parser.arena.create(Node.LabeledStmt);
                 node.* = .{
-                    .kind = .{.Label = tok },
+                    .kind = .{ .Label = tok },
                     .stmt = try parser.stmt(),
                 };
                 return &node.base;
@@ -1379,3 +1428,4 @@ const Parser = struct {
         });
     }
 };
+
