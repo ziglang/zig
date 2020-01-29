@@ -1,6 +1,7 @@
 const std = @import("std");
 const debug = std.debug;
-const expect = std.testing.expect;
+const testing = std.testing;
+const expect = testing.expect;
 
 var argv: [*]const [*]const u8 = undefined;
 
@@ -23,6 +24,7 @@ fn foo(args: [][]const u8) void {
 
 fn bar(argc: usize) void {
     const args = testing.leak_count_allocator.alloc([]const u8, argc) catch unreachable;
+    defer testing.leak_count_allocator.free(args);
     for (args) |_, i| {
         const ptr = argv[i];
         args[i] = ptr[0..strlen(ptr)];
