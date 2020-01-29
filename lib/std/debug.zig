@@ -19,8 +19,8 @@ const windows = std.os.windows;
 
 pub const leb = @import("debug/leb128.zig");
 
-pub const FailingAllocator = @import("debug/failing_allocator.zig").FailingAllocator;
-pub const failing_allocator = &FailingAllocator.init(&global_fixed_allocator.allocator, 0).allocator;
+pub const global_allocator = @compileError("Please switch to std.testing.leak_count_allocator.");
+pub const failing_allocator = @compileError("Please switch to std.testing.failing_allocator.");
 
 pub const runtime_safety = switch (builtin.mode) {
     .Debug, .ReleaseSafe => true,
@@ -2191,12 +2191,6 @@ fn readInitialLength(comptime E: type, in_stream: *io.InStream(E), is_64: *bool)
         return @as(u64, first_32_bits);
     }
 }
-
-pub const global_allocator = blk: {
-    @compileError("Please switch to std.testing.leak_count_allocator.");
-};
-var global_fixed_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(global_allocator_mem[0..]);
-var global_allocator_mem: [100 * 1024]u8 = undefined;
 
 /// TODO multithreaded awareness
 var debug_info_allocator: ?*mem.Allocator = null;

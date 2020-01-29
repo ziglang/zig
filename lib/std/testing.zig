@@ -7,47 +7,12 @@ pub const allocator = &allocator_instance.allocator;
 pub var allocator_instance = std.heap.ThreadSafeFixedBufferAllocator.init(allocator_mem[0..]);
 var allocator_mem: [100 * 1024]u8 = undefined;
 
-pub const leak_count_allocator = &leak_count_allocator_instance.allocator;
+pub const FailingAllocator = @import("testing/failing_allocator.zig").FailingAllocator;
+pub const failing_allocator = &FailingAllocator.init(allocator, 0).allocator;
+
+pub const LeakCountAllocator = @import("testing/leak_count_allocator.zig").LeakCountAllocator;
 pub var leak_count_allocator_instance = LeakCountAllocator.init(allocator);
-const LeakCountAllocator = struct {
-    count: usize,
-    allocator: std.mem.Allocator,
-    internal_allocator: *std.mem.Allocator,
-
-    fn init(allo: *std.mem.Allocator) LeakCountAllocator {
-        return .{
-            .count = 0,
-            .allocator = .{
-                .reallocFn = realloc,
-                .shrinkFn = shrink,
-            },
-            .internal_allocator = allo,
-        };
-    }
-
-    fn realloc(allo: *std.mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
-        const self = @fieldParentPtr(LeakCountAllocator, "allocator", allo);
-        if (old_mem.len == 0) {
-            self.count += 1;
-        }
-        return self.internal_allocator.reallocFn(self.internal_allocator, old_mem, old_align, new_size, new_align);
-    }
-
-    fn shrink(allo: *std.mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
-        const self = @fieldParentPtr(LeakCountAllocator, "allocator", allo);
-        if (new_size == 0) {
-            self.count -= 1;
-        }
-        return self.internal_allocator.shrinkFn(self.internal_allocator, old_mem, old_align, new_size, new_align);
-    }
-
-    fn validate(self: LeakCountAllocator) !void {
-        if (self.count > 0) {
-            std.debug.warn("Detected leaked allocations without matching free: {}\n", .{self.count});
-            return error.Leak;
-        }
-    }
-};
+pub const leak_count_allocator = &leak_count_allocator_instance.allocator;
 
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
 /// and then aborts when actual_error_union is not expected_error.
