@@ -8111,6 +8111,7 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
         } else {
             payload_scope = subexpr_scope;
         }
+        ScopeExpr *spill_scope = create_expr_scope(irb->codegen, node, payload_scope);
         IrInstSrc *err_val_ptr = ir_gen_node_extra(irb, node->data.while_expr.condition, subexpr_scope,
                 LValPtr, nullptr);
         if (err_val_ptr == irb->codegen->invalid_inst_src)
@@ -8134,10 +8135,10 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
 
         ir_set_cursor_at_end_and_append_block(irb, body_block);
         if (var_symbol) {
-            IrInstSrc *payload_ptr = ir_build_unwrap_err_payload_src(irb, payload_scope, symbol_node,
+            IrInstSrc *payload_ptr = ir_build_unwrap_err_payload_src(irb, &spill_scope->base, symbol_node,
                     err_val_ptr, false, false);
             IrInstSrc *var_ptr = node->data.while_expr.var_is_ptr ?
-                ir_build_ref_src(irb, payload_scope, symbol_node, payload_ptr, true, false) : payload_ptr;
+                ir_build_ref_src(irb, &spill_scope->base, symbol_node, payload_ptr, true, false) : payload_ptr;
             ir_build_var_decl_src(irb, payload_scope, symbol_node, payload_var, nullptr, var_ptr);
         }
 
@@ -8152,6 +8153,7 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
         loop_scope->incoming_values = &incoming_values;
         loop_scope->lval = lval;
         loop_scope->peer_parent = peer_parent;
+        loop_scope->spill_scope = spill_scope;
 
         // Note the body block of the loop is not the place that lval and result_loc are used -
         // it's actually in break statements, handled similarly to return statements.
@@ -8247,7 +8249,7 @@ static IrInstSrc *ir_gen_while_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
         ir_set_cursor_at_end_and_append_block(irb, body_block);
         IrInstSrc *payload_ptr = ir_build_optional_unwrap_ptr(irb, &spill_scope->base, symbol_node, maybe_val_ptr, false, false);
         IrInstSrc *var_ptr = node->data.while_expr.var_is_ptr ?
-            ir_build_ref_src(irb, child_scope, symbol_node, payload_ptr, true, false) : payload_ptr;
+            ir_build_ref_src(irb, &spill_scope->base, symbol_node, payload_ptr, true, false) : payload_ptr;
         ir_build_var_decl_src(irb, child_scope, symbol_node, payload_var, nullptr, var_ptr);
 
         ZigList<IrInstSrc *> incoming_values = {0};
