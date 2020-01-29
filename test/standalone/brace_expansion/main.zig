@@ -201,7 +201,7 @@ pub fn main() !void {
 }
 
 test "invalid inputs" {
-    global_allocator = std.testing.allocator;
+    global_allocator = std.testing.leak_count_allocator;
 
     expectError("}ABC", error.InvalidInput);
     expectError("{ABC", error.InvalidInput);
@@ -222,7 +222,7 @@ fn expectError(test_input: []const u8, expected_err: anyerror) void {
 }
 
 test "valid inputs" {
-    global_allocator = std.testing.allocator;
+    global_allocator = std.testing.leak_count_allocator;
 
     expectExpansion("{x,y,z}", "x y z");
     expectExpansion("{A,B}{x,y}", "Ax Ay Bx By");

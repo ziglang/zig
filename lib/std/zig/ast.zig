@@ -2287,7 +2287,7 @@ pub const Node = struct {
 test "iterate" {
     var root = Node.Root{
         .base = Node{ .id = Node.Id.Root },
-        .decls = Node.Root.DeclList.init(std.testing.allocator),
+        .decls = Node.Root.DeclList.init(std.testing.leak_count_allocator),
         .eof_token = 0,
     };
     var base = &root.base;

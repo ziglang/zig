@@ -22,7 +22,7 @@ fn foo(args: [][]const u8) void {
 }
 
 fn bar(argc: usize) void {
-    const args = testing.allocator.alloc([]const u8, argc) catch unreachable;
+    const args = testing.leak_count_allocator.alloc([]const u8, argc) catch unreachable;
     for (args) |_, i| {
         const ptr = argv[i];
         args[i] = ptr[0..strlen(ptr)];

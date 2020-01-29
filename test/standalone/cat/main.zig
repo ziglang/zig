@@ -4,7 +4,7 @@ const process = std.process;
 const fs = std.fs;
 const mem = std.mem;
 const warn = std.debug.warn;
-const allocator = std.testing.allocator;
+const allocator = std.testing.leak_count_allocator;
 
 pub fn main() !void {
     var args_it = process.args();

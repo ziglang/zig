@@ -2193,7 +2193,7 @@ fn readInitialLength(comptime E: type, in_stream: *io.InStream(E), is_64: *bool)
 }
 
 pub const global_allocator = blk: {
-    @compileError("Please switch to std.testing.allocator.");
+    @compileError("Please switch to std.testing.leak_count_allocator.");
 };
 var global_fixed_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(global_allocator_mem[0..]);
 var global_allocator_mem: [100 * 1024]u8 = undefined;
