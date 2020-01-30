@@ -149,6 +149,7 @@ pub fn getDynamicLinkerPath(self: Target) ?[]const u8 {
                 .renderscript32,
                 .renderscript64,
                 .aarch64_32,
+                .ve,
                 => return null,
             }
         },
