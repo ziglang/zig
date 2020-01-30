@@ -33,6 +33,9 @@ pub const LeakCountAllocator = struct {
     fn shrink(allocator: *std.mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
         const self = @fieldParentPtr(LeakCountAllocator, "allocator", allocator);
         if (new_size == 0) {
+            if (self.count == 0) {
+                std.debug.panic("error - too many calls to free, most likely double free", .{});
+            }
             self.count -= 1;
         }
         return self.internal_allocator.shrinkFn(self.internal_allocator, old_mem, old_align, new_size, new_align);
