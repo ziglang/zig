@@ -382,6 +382,7 @@ const ZigClangStmtClass = extern enum {
     ParenListExprClass,
     PredefinedExprClass,
     PseudoObjectExprClass,
+    RequiresExprClass,
     ShuffleVectorExprClass,
     SizeOfPackExprClass,
     SourceLocExprClass,
@@ -557,6 +558,7 @@ pub const ZigClangDeclKind = extern enum {
     ObjCPropertyImpl,
     PragmaComment,
     PragmaDetectMismatch,
+    RequiresExprBody,
     StaticAssert,
     TranslationUnit,
 };

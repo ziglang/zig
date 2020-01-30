@@ -571,6 +571,7 @@ void ZigClang_detect_enum_StmtClass(clang::Stmt::StmtClass x) {
         case ZigClangStmt_ParenListExprClass:
         case ZigClangStmt_PredefinedExprClass:
         case ZigClangStmt_PseudoObjectExprClass:
+        case ZigClangStmt_RequiresExprClass:
         case ZigClangStmt_ShuffleVectorExprClass:
         case ZigClangStmt_SizeOfPackExprClass:
         case ZigClangStmt_SourceLocExprClass:
@@ -782,6 +783,7 @@ static_assert((clang::Stmt::StmtClass)ZigClangStmt_ParenExprClass == clang::Stmt
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_ParenListExprClass == clang::Stmt::ParenListExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_PredefinedExprClass == clang::Stmt::PredefinedExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_PseudoObjectExprClass == clang::Stmt::PseudoObjectExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_RequiresExprClass == clang::Stmt::RequiresExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_ShuffleVectorExprClass == clang::Stmt::ShuffleVectorExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_SizeOfPackExprClass == clang::Stmt::SizeOfPackExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_SourceLocExprClass == clang::Stmt::SourceLocExprClass, "");
@@ -912,6 +914,7 @@ void ZigClang_detect_enum_DeclKind(clang::Decl::Kind x) {
         case clang::Decl::ObjCPropertyImpl:
         case clang::Decl::PragmaComment:
         case clang::Decl::PragmaDetectMismatch:
+        case clang::Decl::RequiresExprBody:
         case clang::Decl::StaticAssert:
         case clang::Decl::TranslationUnit:
             break;
@@ -994,6 +997,7 @@ static_assert((clang::Decl::Kind)ZigClangDeclOMPThreadPrivate == clang::Decl::OM
 static_assert((clang::Decl::Kind)ZigClangDeclObjCPropertyImpl == clang::Decl::ObjCPropertyImpl, "");
 static_assert((clang::Decl::Kind)ZigClangDeclPragmaComment == clang::Decl::PragmaComment, "");
 static_assert((clang::Decl::Kind)ZigClangDeclPragmaDetectMismatch == clang::Decl::PragmaDetectMismatch, "");
+static_assert((clang::Decl::Kind)ZigClangDeclRequiresExprBody == clang::Decl::RequiresExprBody, "");
 static_assert((clang::Decl::Kind)ZigClangDeclStaticAssert == clang::Decl::StaticAssert, "");
 static_assert((clang::Decl::Kind)ZigClangDeclTranslationUnit == clang::Decl::TranslationUnit, "");
 

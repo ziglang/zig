@@ -460,6 +460,7 @@ enum ZigClangStmtClass {
     ZigClangStmt_ParenListExprClass,
     ZigClangStmt_PredefinedExprClass,
     ZigClangStmt_PseudoObjectExprClass,
+    ZigClangStmt_RequiresExprClass,
     ZigClangStmt_ShuffleVectorExprClass,
     ZigClangStmt_SizeOfPackExprClass,
     ZigClangStmt_SourceLocExprClass,
@@ -618,6 +619,7 @@ enum ZigClangDeclKind {
     ZigClangDeclObjCPropertyImpl,
     ZigClangDeclPragmaComment,
     ZigClangDeclPragmaDetectMismatch,
+    ZigClangDeclRequiresExprBody,
     ZigClangDeclStaticAssert,
     ZigClangDeclTranslationUnit,
 };
