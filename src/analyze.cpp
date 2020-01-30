@@ -9205,7 +9205,7 @@ static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_r
             if (type->llvm_di_type != nullptr) return;
 
             type->llvm_type = LLVMVectorType(get_llvm_type(g, type->data.vector.elem_type), type->data.vector.len);
-            type->llvm_di_type = ZigLLVMDIBuilderCreateVectorType(g->dbuilder, type->size_in_bits,
+            type->llvm_di_type = ZigLLVMDIBuilderCreateVectorType(g->dbuilder, 8 * type->abi_size,
                     type->abi_align, get_llvm_di_type(g, type->data.vector.elem_type), type->data.vector.len);
             return;
         }
