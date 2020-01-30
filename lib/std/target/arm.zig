@@ -100,6 +100,9 @@ pub const Feature = enum {
     muxed_units,
     mve,
     mve_fp,
+    mve1beat,
+    mve2beat,
+    mve4beat,
     nacl_trap,
     neon,
     neon_fpmovs,
@@ -129,6 +132,7 @@ pub const Feature = enum {
     slow_odd_reg,
     slow_vdup32,
     slow_vgetlni32,
+    slowfpvfmx,
     slowfpvmlx,
     soft_float,
     splat_vfp_neon,
@@ -137,7 +141,6 @@ pub const Feature = enum {
     thumb_mode,
     thumb2,
     trustzone,
-    use_aa,
     use_misched,
     v4t,
     v5t,
@@ -158,8 +161,6 @@ pub const Feature = enum {
     v8m,
     v8m_main,
     vfp2,
-    vfp2d16,
-    vfp2d16sp,
     vfp2sp,
     vfp3,
     vfp3d16,
@@ -746,9 +747,9 @@ pub const all_features = blk: {
             .slow_fp_brcc,
             .slow_vdup32,
             .slow_vgetlni32,
+            .slowfpvfmx,
             .slowfpvmlx,
             .splat_vfp_neon,
-            .use_aa,
             .wide_stride_vfp,
             .zcz,
         }),
@@ -936,6 +937,21 @@ pub const all_features = blk: {
             .mve,
         }),
     };
+    result[@enumToInt(Feature.mve1beat)] = .{
+        .llvm_name = "mve1beat",
+        .description = "Model MVE instructions as a 1 beat per tick architecture",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.mve2beat)] = .{
+        .llvm_name = "mve2beat",
+        .description = "Model MVE instructions as a 2 beats per tick architecture",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.mve4beat)] = .{
+        .llvm_name = "mve4beat",
+        .description = "Model MVE instructions as a 4 beats per tick architecture",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.nacl_trap)] = .{
         .llvm_name = "nacl-trap",
         .description = "NaCl trap",
@@ -1085,6 +1101,11 @@ pub const all_features = blk: {
         .description = "Has slow VGETLNi32 - prefer VMOV",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.slowfpvfmx)] = .{
+        .llvm_name = "slowfpvfmx",
+        .description = "Disable VFP / NEON FMA instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.slowfpvmlx)] = .{
         .llvm_name = "slowfpvmlx",
         .description = "Disable VFP / NEON MAC instructions",
@@ -1125,11 +1146,6 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.trustzone)] = .{
         .llvm_name = "trustzone",
         .description = "Enable support for TrustZone security extensions",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.use_aa)] = .{
-        .llvm_name = "use-aa",
-        .description = "Use alias analysis during codegen",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.use_misched)] = .{
@@ -1270,30 +1286,15 @@ pub const all_features = blk: {
         .llvm_name = "vfp2",
         .description = "Enable VFP2 instructions",
         .dependencies = featureSet(&[_]Feature{
-            .vfp2d16,
-            .vfp2sp,
-        }),
-    };
-    result[@enumToInt(Feature.vfp2d16)] = .{
-        .llvm_name = "vfp2d16",
-        .description = "Enable VFP2 instructions",
-        .dependencies = featureSet(&[_]Feature{
             .fp64,
-            .vfp2d16sp,
-        }),
-    };
-    result[@enumToInt(Feature.vfp2d16sp)] = .{
-        .llvm_name = "vfp2d16sp",
-        .description = "Enable VFP2 instructions with no double precision",
-        .dependencies = featureSet(&[_]Feature{
-            .fpregs,
+            .vfp2sp,
         }),
     };
     result[@enumToInt(Feature.vfp2sp)] = .{
         .llvm_name = "vfp2sp",
         .description = "Enable VFP2 instructions with no double precision",
         .dependencies = featureSet(&[_]Feature{
-            .vfp2d16sp,
+            .fpregs,
         }),
     };
     result[@enumToInt(Feature.vfp3)] = .{
@@ -1704,6 +1705,7 @@ pub const cpu = struct {
             .mp,
             .ret_addr_stack,
             .slow_fp_brcc,
+            .slowfpvfmx,
             .slowfpvmlx,
             .trustzone,
             .vfp4,
@@ -1758,6 +1760,7 @@ pub const cpu = struct {
             .mp,
             .ret_addr_stack,
             .slow_fp_brcc,
+            .slowfpvfmx,
             .slowfpvmlx,
             .trustzone,
             .vfp4,
@@ -1838,6 +1841,7 @@ pub const cpu = struct {
             .nonpipelined_vfp,
             .ret_addr_stack,
             .slow_fp_brcc,
+            .slowfpvfmx,
             .slowfpvmlx,
             .trustzone,
             .vmlx_forwarding,
@@ -1901,7 +1905,6 @@ pub const cpu = struct {
             .loop_align,
             .m3,
             .no_branch_predictor,
-            .use_aa,
             .use_misched,
         }),
     };
@@ -1914,8 +1917,8 @@ pub const cpu = struct {
             .fp_armv8d16sp,
             .loop_align,
             .no_branch_predictor,
+            .slowfpvfmx,
             .slowfpvmlx,
-            .use_aa,
             .use_misched,
         }),
     };
@@ -1928,8 +1931,8 @@ pub const cpu = struct {
             .fp_armv8d16sp,
             .loop_align,
             .no_branch_predictor,
+            .slowfpvfmx,
             .slowfpvmlx,
-            .use_aa,
             .use_misched,
         }),
     };
@@ -1940,8 +1943,8 @@ pub const cpu = struct {
             .armv7e_m,
             .loop_align,
             .no_branch_predictor,
+            .slowfpvfmx,
             .slowfpvmlx,
-            .use_aa,
             .use_misched,
             .vfp4d16sp,
         }),
@@ -1973,6 +1976,7 @@ pub const cpu = struct {
             .r4,
             .ret_addr_stack,
             .slow_fp_brcc,
+            .slowfpvfmx,
             .slowfpvmlx,
             .vfp3d16,
         }),
@@ -1987,6 +1991,7 @@ pub const cpu = struct {
             .r5,
             .ret_addr_stack,
             .slow_fp_brcc,
+            .slowfpvfmx,
             .slowfpvmlx,
             .vfp3d16,
         }),
@@ -1998,7 +2003,6 @@ pub const cpu = struct {
             .armv8_r,
             .fpao,
             .r52,
-            .use_aa,
             .use_misched,
         }),
     };
@@ -2014,6 +2018,7 @@ pub const cpu = struct {
             .r7,
             .ret_addr_stack,
             .slow_fp_brcc,
+            .slowfpvfmx,
             .slowfpvmlx,
             .vfp3d16,
         }),
@@ -2029,6 +2034,7 @@ pub const cpu = struct {
             .mp,
             .ret_addr_stack,
             .slow_fp_brcc,
+            .slowfpvfmx,
             .slowfpvmlx,
             .vfp3d16,
         }),
@@ -2047,6 +2053,7 @@ pub const cpu = struct {
             .mp,
             .neonfp,
             .ret_addr_stack,
+            .slowfpvfmx,
             .slowfpvmlx,
             .swift,
             .use_misched,
@@ -2063,7 +2070,7 @@ pub const cpu = struct {
     };
     pub const exynos_m1 = Cpu{
         .name = "exynos_m1",
-        .llvm_name = "exynos-m1",
+        .llvm_name = null,
         .features = featureSet(&[_]Feature{
             .armv8_a,
             .exynos,
@@ -2071,7 +2078,7 @@ pub const cpu = struct {
     };
     pub const exynos_m2 = Cpu{
         .name = "exynos_m2",
-        .llvm_name = "exynos-m2",
+        .llvm_name = null,
         .features = featureSet(&[_]Feature{
             .armv8_a,
             .exynos,
@@ -2162,6 +2169,18 @@ pub const cpu = struct {
             .armv6k,
         }),
     };
+    pub const neoverse_n1 = Cpu{
+        .name = "neoverse_n1",
+        .llvm_name = "neoverse-n1",
+        .features = featureSet(&[_]Feature{
+            .armv8_2_a,
+            .crc,
+            .crypto,
+            .dotprod,
+            .hwdiv,
+            .hwdiv_arm,
+        }),
+    };
     pub const sc000 = Cpu{
         .name = "sc000",
         .llvm_name = "sc000",
@@ -2176,7 +2195,6 @@ pub const cpu = struct {
             .armv7_m,
             .m3,
             .no_branch_predictor,
-            .use_aa,
             .use_misched,
         }),
     };
@@ -2227,6 +2245,7 @@ pub const cpu = struct {
             .slow_odd_reg,
             .slow_vdup32,
             .slow_vgetlni32,
+            .slowfpvfmx,
             .slowfpvmlx,
             .swift,
             .use_misched,
@@ -2322,6 +2341,7 @@ pub const all_cpus = &[_]*const Cpu{
     &cpu.kryo,
     &cpu.mpcore,
     &cpu.mpcorenovfp,
+    &cpu.neoverse_n1,
     &cpu.sc000,
     &cpu.sc300,
     &cpu.strongarm,

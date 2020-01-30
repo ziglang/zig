@@ -4,6 +4,7 @@ const Cpu = std.Target.Cpu;
 pub const Feature = enum {
     @"64bit",
     @"64bitregs",
+    allow_unaligned_fp_access,
     altivec,
     booke,
     bpermd,
@@ -69,6 +70,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.@"64bitregs")] = .{
         .llvm_name = "64bitregs",
         .description = "Enable 64-bit registers usage for ppc32 [beta]",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.allow_unaligned_fp_access)] = .{
+        .llvm_name = "allow-unaligned-fp-access",
+        .description = "CPU does not trap on unaligned FP access",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.altivec)] = .{
@@ -560,6 +566,7 @@ pub const cpu = struct {
             .booke,
             .icbt,
             .isel,
+            .spe,
         }),
     };
     pub const e500mc = Cpu{
@@ -582,6 +589,45 @@ pub const cpu = struct {
             .isel,
             .mfocrf,
             .stfiwx,
+        }),
+    };
+    pub const future = Cpu{
+        .name = "future",
+        .llvm_name = "future",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .allow_unaligned_fp_access,
+            .altivec,
+            .bpermd,
+            .cmpb,
+            .crypto,
+            .direct_move,
+            .extdiv,
+            .fcpsgn,
+            .fpcvt,
+            .fprnd,
+            .fre,
+            .fres,
+            .frsqrte,
+            .frsqrtes,
+            .fsqrt,
+            .htm,
+            .icbt,
+            .isa_v30_instructions,
+            .isel,
+            .ldbrx,
+            .lfiwax,
+            .mfocrf,
+            .partword_atomics,
+            .popcntd,
+            .power8_altivec,
+            .power8_vector,
+            .power9_altivec,
+            .power9_vector,
+            .recipprec,
+            .stfiwx,
+            .two_const_nr,
+            .vsx,
         }),
     };
     pub const g3 = Cpu{
@@ -662,6 +708,7 @@ pub const cpu = struct {
         .llvm_name = "ppc64le",
         .features = featureSet(&[_]Feature{
             .@"64bit",
+            .allow_unaligned_fp_access,
             .altivec,
             .bpermd,
             .cmpb,
@@ -793,6 +840,7 @@ pub const cpu = struct {
         .llvm_name = "pwr7",
         .features = featureSet(&[_]Feature{
             .@"64bit",
+            .allow_unaligned_fp_access,
             .altivec,
             .bpermd,
             .cmpb,
@@ -821,6 +869,7 @@ pub const cpu = struct {
         .llvm_name = "pwr8",
         .features = featureSet(&[_]Feature{
             .@"64bit",
+            .allow_unaligned_fp_access,
             .altivec,
             .bpermd,
             .cmpb,
@@ -856,6 +905,7 @@ pub const cpu = struct {
         .llvm_name = "pwr9",
         .features = featureSet(&[_]Feature{
             .@"64bit",
+            .allow_unaligned_fp_access,
             .altivec,
             .bpermd,
             .cmpb,
@@ -917,6 +967,7 @@ pub const all_cpus = &[_]*const Cpu{
     &cpu.e500,
     &cpu.e500mc,
     &cpu.e5500,
+    &cpu.future,
     &cpu.g3,
     &cpu.g4,
     &cpu.@"g4+",
