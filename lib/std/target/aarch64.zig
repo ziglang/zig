@@ -564,7 +564,7 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.exynosm1)] = .{
-        .llvm_name = "exynosm1",
+        .llvm_name = null,
         .description = "Samsung Exynos-M1 processors",
         .dependencies = featureSet(&[_]Feature{
             .crc,
@@ -581,7 +581,7 @@ pub const all_features = blk: {
         }),
     };
     result[@enumToInt(Feature.exynosm2)] = .{
-        .llvm_name = "exynosm2",
+        .llvm_name = null,
         .description = "Samsung Exynos-M2 processors",
         .dependencies = featureSet(&[_]Feature{
             .crc,
