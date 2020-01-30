@@ -23,10 +23,11 @@ pub const LeakCountAllocator = struct {
 
     fn realloc(allocator: *std.mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) ![]u8 {
         const self = @fieldParentPtr(LeakCountAllocator, "allocator", allocator);
+        var data = try self.internal_allocator.reallocFn(self.internal_allocator, old_mem, old_align, new_size, new_align);
         if (old_mem.len == 0) {
             self.count += 1;
         }
-        return self.internal_allocator.reallocFn(self.internal_allocator, old_mem, old_align, new_size, new_align);
+        return data;
     }
 
     fn shrink(allocator: *std.mem.Allocator, old_mem: []u8, old_align: u29, new_size: usize, new_align: u29) []u8 {
