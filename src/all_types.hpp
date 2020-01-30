@@ -1767,7 +1767,6 @@ enum BuiltinFnId {
     BuiltinFnIdFieldParentPtr,
     BuiltinFnIdByteOffsetOf,
     BuiltinFnIdBitOffsetOf,
-    BuiltinFnIdNewStackCall,
     BuiltinFnIdAsyncCall,
     BuiltinFnIdTypeId,
     BuiltinFnIdShlExact,

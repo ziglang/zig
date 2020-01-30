@@ -8215,7 +8215,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdNearbyInt, "nearbyInt", 1);
     create_builtin_fn(g, BuiltinFnIdRound, "round", 1);
     create_builtin_fn(g, BuiltinFnIdMulAdd, "mulAdd", 4);
-    create_builtin_fn(g, BuiltinFnIdNewStackCall, "newStackCall", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdAsyncCall, "asyncCall", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdTypeId, "typeId", 1);
     create_builtin_fn(g, BuiltinFnIdShlExact, "shlExact", 2);

@@ -7001,40 +7001,6 @@ pub const CallOptions = struct {
     };
 };
       {#code_end#}
-
-      {#header_open|Calling with a New Stack#}
-      <p>
-      When the {#syntax#}stack{#endsyntax#} option is provided, instead of using the same stack as the caller, the function uses the provided stack.
-      </p>
-      {#code_begin|test|new_stack_call#}
-const std = @import("std");
-const assert = std.debug.assert;
-
-var new_stack_bytes: [1024]u8 align(16) = undefined;
-
-test "calling a function with a new stack" {
-    const arg = 1234;
-
-    const a = @call(.{.stack = new_stack_bytes[0..512]}, targetFunction, .{arg});
-    const b = @call(.{.stack = new_stack_bytes[512..]}, targetFunction, .{arg});
-    _ = targetFunction(arg);
-
-    assert(arg == 1234);
-    assert(a < b);
-}
-
-fn targetFunction(x: i32) usize {
-    assert(x == 1234);
-
-    var local_variable: i32 = 42;
-    const ptr = &local_variable;
-    ptr.* += 1;
-
-    assert(local_variable == 43);
-    return @ptrToInt(ptr);
-}
-      {#code_end#}
-      {#header_close#}
       {#header_close#}
 
       {#header_open|@cDefine#}
