@@ -123,7 +123,8 @@ pub const Node = struct {
         return node;
     }
 
-    fn getLast(node: *Node) *Node {
+    fn getLast(nodeconst: *Node) *Node {
+        var node = nodeconst;
         while (node.right) |right| {
             node = right;
         }
