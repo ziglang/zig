@@ -1502,6 +1502,19 @@ static Buf *build_a_raw(CodeGen *parent_gen, const char *aname, Buf *full_path, 
         new_link_lib->provided_explicitly = parent_gen->libc_link_lib->provided_explicitly;
     }
 
+    // Override the inherited build mode parameter
+    if (!parent_gen->is_test_build) {
+        switch (parent_gen->build_mode) {
+            case BuildModeDebug:
+            case BuildModeFastRelease:
+            case BuildModeSafeRelease:
+                child_gen->build_mode = BuildModeFastRelease;
+                break;
+            case BuildModeSmallRelease:
+                break;
+        }
+    }
+
     child_gen->function_sections = true;
     child_gen->want_stack_check = WantStackCheckDisabled;
 

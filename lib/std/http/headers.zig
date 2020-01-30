@@ -172,7 +172,7 @@ pub const Headers = struct {
             var dex = HeaderIndexList.init(self.allocator);
             try dex.append(n - 1);
             errdefer dex.deinit();
-            _ = try self.index.put(name, dex);
+            _ = try self.index.put(name_dup, dex);
         }
         self.data.appendAssumeCapacity(entry);
     }

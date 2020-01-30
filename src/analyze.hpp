@@ -120,7 +120,7 @@ ScopeLoop *create_loop_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeSuspend *create_suspend_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeFnDef *create_fndef_scope(CodeGen *g, AstNode *node, Scope *parent, ZigFn *fn_entry);
 Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent);
-Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstruction *is_comptime);
+Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstSrc *is_comptime);
 Scope *create_typeof_scope(CodeGen *g, AstNode *node, Scope *parent);
 ScopeExpr *create_expr_scope(CodeGen *g, AstNode *node, Scope *parent);
 
@@ -271,8 +271,6 @@ ZigType *resolve_struct_field_type(CodeGen *g, TypeStructField *struct_field);
 
 void add_async_error_notes(CodeGen *g, ErrorMsg *msg, ZigFn *fn);
 
-IrInstruction *ir_create_alloca(CodeGen *g, Scope *scope, AstNode *source_node, ZigFn *fn,
-        ZigType *var_type, const char *name_hint);
 Error analyze_import(CodeGen *codegen, ZigType *source_import, Buf *import_target_str,
         ZigType **out_import, Buf **out_import_target_path, Buf *out_full_path);
 ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry);
@@ -281,4 +279,5 @@ void copy_const_val(ZigValue *dest, ZigValue *src);
 bool type_has_optional_repr(ZigType *ty);
 bool is_opt_err_set(ZigType *ty);
 bool type_is_numeric(ZigType *ty);
+const char *float_op_to_name(BuiltinFnId op);
 #endif

@@ -2697,7 +2697,7 @@ pub fn dl_iterate_phdr(
     // the whole ELF image
     if (it.end()) {
         var info = dl_phdr_info{
-            .dlpi_addr = elf_base,
+            .dlpi_addr = 0,
             .dlpi_name = "/proc/self/exe",
             .dlpi_phdr = phdrs.ptr,
             .dlpi_phnum = ehdr.e_phnum,

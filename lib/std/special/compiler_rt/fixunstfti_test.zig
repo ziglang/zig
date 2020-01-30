@@ -9,6 +9,10 @@ fn test__fixunstfti(a: f128, expected: u128) void {
 const inf128 = @bitCast(f128, @as(u128, 0x7fff0000000000000000000000000000));
 
 test "fixunstfti" {
+    if (@import("std").Target.current.isWindows()) {
+        // TODO https://github.com/ziglang/zig/issues/508
+        return error.SkipZigTest;
+    }
     test__fixunstfti(inf128, 0xffffffffffffffffffffffffffffffff);
 
     test__fixunstfti(0.0, 0);

@@ -92,6 +92,7 @@ struct ZigTarget {
     Os os;
     ZigLLVM_EnvironmentType abi;
     ZigGLibCVersion *glibc_version; // null means default
+    Stage2CpuFeatures *cpu_features;
     bool is_native;
 };
 

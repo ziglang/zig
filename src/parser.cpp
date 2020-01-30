@@ -147,7 +147,7 @@ static void ast_invalid_token_error(ParseContext *pc, Token *token) {
 }
 
 static AstNode *ast_create_node_no_line_info(ParseContext *pc, NodeType type) {
-    AstNode *node = allocate<AstNode>(1);
+    AstNode *node = allocate<AstNode>(1, "AstNode");
     node->type = type;
     node->owner = pc->owner;
     return node;

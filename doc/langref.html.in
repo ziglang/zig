@@ -10113,7 +10113,7 @@ Available libcs:
       The Zig Standard Library ({#syntax#}@import("std"){#endsyntax#}) has architecture, environment, and operating system
       abstractions, and thus takes additional work to support more platforms.
       Not all standard library code requires operating system abstractions, however,
-      so things such as generic data structures work an all above platforms.
+      so things such as generic data structures work on all above platforms.
       </p>
       <p>The current list of targets supported by the Zig Standard Library is:</p>
       <ul>

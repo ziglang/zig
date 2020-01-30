@@ -529,6 +529,10 @@ test "comptime_int xor" {
 }
 
 test "f128" {
+    if (std.Target.current.isWindows()) {
+        // TODO https://github.com/ziglang/zig/issues/508
+        return error.SkipZigTest;
+    }
     test_f128();
     comptime test_f128();
 }
@@ -625,6 +629,10 @@ test "vector integer addition" {
 test "NaN comparison" {
     if (@import("builtin").arch == .riscv64) {
         // TODO: https://github.com/ziglang/zig/issues/3338
+        return error.SkipZigTest;
+    }
+    if (std.Target.current.isWindows()) {
+        // TODO https://github.com/ziglang/zig/issues/508
         return error.SkipZigTest;
     }
     testNanEqNan(f16);

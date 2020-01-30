@@ -95,6 +95,10 @@ test "math.fabs64.special" {
 }
 
 test "math.fabs128.special" {
+    if (std.Target.current.isWindows()) {
+        // TODO https://github.com/ziglang/zig/issues/508
+        return error.SkipZigTest;
+    }
     expect(math.isPositiveInf(fabs(math.inf(f128))));
     expect(math.isPositiveInf(fabs(-math.inf(f128))));
     expect(math.isNan(fabs(math.nan(f128))));
