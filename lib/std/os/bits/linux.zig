@@ -1515,3 +1515,77 @@ pub const rusage = extern struct {
     nivcsw: isize,
     __reserved: [16]isize = [1]isize{0} ** 16,
 };
+
+pub const cc_t = u8;
+pub const speed_t = u32;
+pub const tcflag_t = u32;
+
+pub const NCCS = 32;
+
+pub const IGNBRK = 1;
+pub const BRKINT = 2;
+pub const IGNPAR = 4;
+pub const PARMRK = 8;
+pub const INPCK = 16;
+pub const ISTRIP = 32;
+pub const INLCR = 64;
+pub const IGNCR = 128;
+pub const ICRNL = 256;
+pub const IUCLC = 512;
+pub const IXON = 1024;
+pub const IXANY = 2048;
+pub const IXOFF = 4096;
+pub const IMAXBEL = 8192;
+pub const IUTF8 = 16384;
+
+pub const OPOST = 1;
+pub const OLCUC = 2;
+pub const ONLCR = 4;
+pub const OCRNL = 8;
+pub const ONOCR = 16;
+pub const ONLRET = 32;
+pub const OFILL = 64;
+pub const OFDEL = 128;
+pub const VTDLY = 16384;
+pub const VT0 = 0;
+pub const VT1 = 16384;
+
+pub const CSIZE = 48;
+pub const CS5 = 0;
+pub const CS6 = 16;
+pub const CS7 = 32;
+pub const CS8 = 48;
+pub const CSTOPB = 64;
+pub const CREAD = 128;
+pub const PARENB = 256;
+pub const PARODD = 512;
+pub const HUPCL = 1024;
+pub const CLOCAL = 2048;
+
+pub const ISIG = 1;
+pub const ICANON = 2;
+pub const ECHO = 8;
+pub const ECHOE = 16;
+pub const ECHOK = 32;
+pub const ECHONL = 64;
+pub const NOFLSH = 128;
+pub const TOSTOP = 256;
+pub const IEXTEN = 32768;
+
+pub const TCSA = extern enum(usize) {
+    NOW,
+    DRAIN,
+    FLUSH,
+    _,
+};
+
+pub const termios = extern struct {
+    iflag: tcflag_t,
+    oflag: tcflag_t,
+    cflag: tcflag_t,
+    lflag: tcflag_t,
+    line: cc_t,
+    cc: [NCCS]cc_t,
+    ispeed: speed_t,
+    ospeed: speed_t,
+};
