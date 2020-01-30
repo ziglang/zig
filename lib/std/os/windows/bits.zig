@@ -930,7 +930,7 @@ pub usingnamespace switch (builtin.arch) {
             ExtendedRegisters: [512]BYTE,
 
             pub fn getRegs(ctx: *const CONTEXT) struct {bp: usize, ip: usize} {
-                return .{.bp = @intCast(usize, ctx.Ebp), .ip = @intCast(usize, ctx.Eip)};
+                return .{.bp = ctx.Ebp, .ip = ctx.Eip};
             }  
         };
 
@@ -1033,7 +1033,7 @@ pub usingnamespace switch (builtin.arch) {
             LastExceptionFromRip: DWORD64,
 
             pub fn getRegs(ctx: *const CONTEXT) struct {bp: usize, ip: usize} {
-                return .{.bp = @intCast(usize, ctx.Rbp), .ip = @intCast(usize, ctx.Rip)};
+                return .{.bp = ctx.Rbp, .ip = ctx.Rip};
             }
         };
 
@@ -1101,7 +1101,7 @@ pub usingnamespace switch (builtin.arch) {
             Wvr: [2]DWORD64,
 
             pub fn getRegs(ctx: *const CONTEXT) struct {bp: usize, ip: usize} {
-                return .{.bp = @intCast(usize, ctx.DUMMYUNIONNAME.DUMMYSTRUCTNAME.Fp), .ip = @intCast(usize, ctx.Pc)};
+                return .{.bp = ctx.DUMMYUNIONNAME.DUMMYSTRUCTNAME.Fp, .ip = ctx.Pc};
             }
         };
 
