@@ -5,6 +5,67 @@ const mem = std.mem;
 const math = std.math;
 const builtin = @import("builtin");
 
+pub fn binarySearch(comptime T: type, items: []T, comptime compareFn: fn (val: T) math.Order) ?usize {
+    if (items.len < 1)
+        return null;
+
+    var left: usize = 0;
+    var right: usize = items.len - 1;
+
+    while (left <= right) {
+        // Avoid overflowing in the midpoint calculation
+        const mid = left + (right - left) / 2;
+        // Compare the midpoint element with the key
+        switch (compareFn(items[mid])) {
+            .eq => return mid,
+            .lt => left = mid + 1,
+            .gt => right = mid - 1,
+        }
+    }
+
+    return null;
+}
+
+test "std.sort.binarySearch" {
+    const S = struct {
+        fn makeComparisonPred(comptime T: type, value: T) type {
+            return struct {
+                fn pred(v: T) math.Order {
+                    return math.order(v, value);
+                }
+            };
+        }
+    };
+    testing.expectEqual(
+        @as(?usize, null),
+        binarySearch(u32, &[_]u32{}, S.makeComparisonPred(u32, 1).pred),
+    );
+    testing.expectEqual(
+        @as(?usize, 0),
+        binarySearch(u32, &[_]u32{1}, S.makeComparisonPred(u32, 1).pred),
+    );
+    testing.expectEqual(
+        @as(?usize, null),
+        binarySearch(u32, &[_]u32{0}, S.makeComparisonPred(u32, 1).pred),
+    );
+    testing.expectEqual(
+        @as(?usize, 4),
+        binarySearch(u32, &[_]u32{ 1, 2, 3, 4, 5 }, S.makeComparisonPred(u32, 5).pred),
+    );
+    testing.expectEqual(
+        @as(?usize, 0),
+        binarySearch(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, S.makeComparisonPred(u32, 2).pred),
+    );
+    testing.expectEqual(
+        @as(?usize, 1),
+        binarySearch(i32, &[_]i32{ -7, -4, 0, 9, 10 }, S.makeComparisonPred(i32, -4).pred),
+    );
+    testing.expectEqual(
+        @as(?usize, 3),
+        binarySearch(i32, &[_]i32{ -100, -25, 2, 98, 99, 100 }, S.makeComparisonPred(i32, 98).pred),
+    );
+}
+
 /// Stable in-place sort. O(n) best case, O(pow(n, 2)) worst case. O(1) memory (no allocator required).
 pub fn insertionSort(comptime T: type, items: []T, lessThan: fn (lhs: T, rhs: T) bool) void {
     var i: usize = 1;
