@@ -13,10 +13,11 @@ pub fn main() anyerror!void {
     };
 
     for (test_fn_list) |test_fn, i| {
-        std.testing.allocator_instance.reset();
+        std.testing.base_allocator_instance.reset();
         defer {
-            std.testing.leak_count_allocator_instance.validate() catch |err| {
-                @panic(@errorName(err));
+            std.testing.allocator_instance.validate() catch |err| switch (err) {
+                error.Leak => std.debug.panic("", .{}),
+                else => std.debug.panic("error.{}", .{@errorName(err)}),
             };
         }
 

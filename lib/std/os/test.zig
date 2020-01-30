@@ -9,7 +9,7 @@ const elf = std.elf;
 const File = std.fs.File;
 const Thread = std.Thread;
 
-const a = std.testing.leak_count_allocator;
+const a = std.testing.allocator;
 
 const builtin = @import("builtin");
 const AtomicRmwOp = builtin.AtomicRmwOp;

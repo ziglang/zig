@@ -150,7 +150,7 @@ pub const Buffer = struct {
 };
 
 test "simple Buffer" {
-    var buf = try Buffer.init(testing.leak_count_allocator, "");
+    var buf = try Buffer.init(testing.allocator, "");
     defer buf.deinit();
 
     testing.expect(buf.len() == 0);
@@ -172,7 +172,7 @@ test "simple Buffer" {
 }
 
 test "Buffer.initSize" {
-    var buf = try Buffer.initSize(testing.leak_count_allocator, 3);
+    var buf = try Buffer.initSize(testing.allocator, 3);
     defer buf.deinit();
     testing.expect(buf.len() == 3);
     try buf.append("hello");
@@ -180,7 +180,7 @@ test "Buffer.initSize" {
 }
 
 test "Buffer.initCapacity" {
-    var buf = try Buffer.initCapacity(testing.leak_count_allocator, 10);
+    var buf = try Buffer.initCapacity(testing.allocator, 10);
     defer buf.deinit();
     testing.expect(buf.len() == 0);
     testing.expect(buf.capacity() >= 10);

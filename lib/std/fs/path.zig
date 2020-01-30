@@ -665,8 +665,8 @@ pub fn resolvePosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 }
 
 test "resolve" {
-    const cwd = try process.getCwdAlloc(testing.leak_count_allocator);
-    defer testing.leak_count_allocator.free(cwd);
+    const cwd = try process.getCwdAlloc(testing.allocator);
+    defer testing.allocator.free(cwd);
     if (builtin.os == .windows) {
         if (windowsParsePath(cwd).kind == WindowsPath.Kind.Drive) {
             cwd[0] = asciiUpper(cwd[0]);
@@ -684,26 +684,26 @@ test "resolveWindows" {
         return error.SkipZigTest;
     }
     if (builtin.os == .windows) {
-        const cwd = try process.getCwdAlloc(testing.leak_count_allocator);
-        defer testing.leak_count_allocator.free(cwd);
+        const cwd = try process.getCwdAlloc(testing.allocator);
+        defer testing.allocator.free(cwd);
         const parsed_cwd = windowsParsePath(cwd);
         {
-            const expected = try join(testing.leak_count_allocator, &[_][]const u8{
+            const expected = try join(testing.allocator, &[_][]const u8{
                 parsed_cwd.disk_designator,
                 "usr\\local\\lib\\zig\\std\\array_list.zig",
             });
-            defer testing.leak_count_allocator.free(expected);
+            defer testing.allocator.free(expected);
             if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
                 expected[0] = asciiUpper(parsed_cwd.disk_designator[0]);
             }
             try testResolveWindows(&[_][]const u8{ "/usr/local", "lib\\zig\\std\\array_list.zig" }, expected);
         }
         {
-            const expected = try join(testing.leak_count_allocator, &[_][]const u8{
+            const expected = try join(testing.allocator, &[_][]const u8{
                 cwd,
                 "usr\\local\\lib\\zig",
             });
-            defer testing.leak_count_allocator.free(expected);
+            defer testing.allocator.free(expected);
             if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
                 expected[0] = asciiUpper(parsed_cwd.disk_designator[0]);
             }
@@ -740,14 +740,14 @@ test "resolvePosix" {
 }
 
 fn testResolveWindows(paths: []const []const u8, expected: []const u8) !void {
-    const actual = try resolveWindows(testing.leak_count_allocator, paths);
-    defer testing.leak_count_allocator.free(actual);
+    const actual = try resolveWindows(testing.allocator, paths);
+    defer testing.allocator.free(actual);
     return testing.expect(mem.eql(u8, actual, expected));
 }
 
 fn testResolvePosix(paths: []const []const u8, expected: []const u8) !void {
-    const actual = try resolvePosix(testing.leak_count_allocator, paths);
-    defer testing.leak_count_allocator.free(actual);
+    const actual = try resolvePosix(testing.allocator, paths);
+    defer testing.allocator.free(actual);
     return testing.expect(mem.eql(u8, actual, expected));
 }
 
@@ -1172,13 +1172,13 @@ test "relative" {
 }
 
 fn testRelativePosix(from: []const u8, to: []const u8, expected_output: []const u8) !void {
-    const result = try relativePosix(testing.leak_count_allocator, from, to);
-    defer testing.leak_count_allocator.free(result);
+    const result = try relativePosix(testing.allocator, from, to);
+    defer testing.allocator.free(result);
     testing.expectEqualSlices(u8, expected_output, result);
 }
 
 fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []const u8) !void {
-    const result = try relativeWindows(testing.leak_count_allocator, from, to);
-    defer testing.leak_count_allocator.free(result);
+    const result = try relativeWindows(testing.allocator, from, to);
+    defer testing.allocator.free(result);
     testing.expectEqualSlices(u8, expected_output, result);
 }
