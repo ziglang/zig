@@ -83,6 +83,7 @@ pub const BufMap = struct {
 };
 
 test "BufMap" {
+    // TODO: uncomment and fix the leak
     var bufmap = BufMap.init(std.heap.page_allocator);
     defer bufmap.deinit();
 

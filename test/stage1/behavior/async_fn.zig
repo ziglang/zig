@@ -410,8 +410,8 @@ test "heap allocated async function frame" {
         var x: i32 = 42;
 
         fn doTheTest() !void {
-            const frame = try std.heap.page_allocator.create(@Frame(someFunc));
-            defer std.heap.page_allocator.destroy(frame);
+            const frame = try std.testing.allocator.create(@Frame(someFunc));
+            defer std.testing.allocator.destroy(frame);
 
             expect(x == 42);
             frame.* = async someFunc();
@@ -671,7 +671,7 @@ fn testAsyncAwaitTypicalUsage(
         }
 
         fn amain() !void {
-            const allocator = std.heap.page_allocator; // TODO once we have the debug allocator, use that, so that this can detect leaks
+            const allocator = std.testing.allocator;
             var download_frame = async fetchUrl(allocator, "https://example.com/");
             var download_awaited = false;
             errdefer if (!download_awaited) {

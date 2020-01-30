@@ -1059,7 +1059,10 @@ pub const Builder = struct {
 };
 
 test "builder.findProgram compiles" {
+    // TODO: uncomment and fix the leak
+    // const builder = try Builder.create(std.testing.allocator, "zig", "zig-cache", "zig-cache");
     const builder = try Builder.create(std.heap.page_allocator, "zig", "zig-cache", "zig-cache");
+    defer builder.destroy();
     _ = builder.findProgram(&[_][]const u8{}, &[_][]const u8{}) catch null;
 }
 
