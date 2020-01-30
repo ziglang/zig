@@ -7,16 +7,14 @@ const builtin = @import("builtin");
 
 /// Stable in-place sort. O(n) best case, O(pow(n, 2)) worst case. O(1) memory (no allocator required).
 pub fn insertionSort(comptime T: type, items: []T, lessThan: fn (lhs: T, rhs: T) bool) void {
-    {
-        var i: usize = 1;
-        while (i < items.len) : (i += 1) {
-            const x = items[i];
-            var j: usize = i;
-            while (j > 0 and lessThan(x, items[j - 1])) : (j -= 1) {
-                items[j] = items[j - 1];
-            }
-            items[j] = x;
+    var i: usize = 1;
+    while (i < items.len) : (i += 1) {
+        const x = items[i];
+        var j: usize = i;
+        while (j > 0 and lessThan(x, items[j - 1])) : (j -= 1) {
+            items[j] = items[j - 1];
         }
+        items[j] = x;
     }
 }
 

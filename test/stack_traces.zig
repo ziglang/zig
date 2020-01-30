@@ -51,11 +51,15 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 // debug
                     \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in main (test)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\
                 ,
                 // release-safe
                     \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in std.start.main (test)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\
                 ,
                 // release-fast
@@ -74,13 +78,21 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 // debug
                     \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in foo (test)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\source.zig:8:5: [address] in main (test)
+                    \\    try foo();
+                    \\    ^
                     \\
                 ,
                 // release-safe
                     \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in std.start.main (test)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\source.zig:8:5: [address] in std.start.main (test)
+                    \\    try foo();
+                    \\    ^
                     \\
                 ,
                 // release-fast
@@ -99,17 +111,33 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 // debug
                     \\error: TheSkyIsFalling
                     \\source.zig:12:5: [address] in make_error (test)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\source.zig:8:5: [address] in bar (test)
+                    \\    return make_error();
+                    \\    ^
                     \\source.zig:4:5: [address] in foo (test)
+                    \\    try bar();
+                    \\    ^
                     \\source.zig:16:5: [address] in main (test)
+                    \\    try foo();
+                    \\    ^
                     \\
                 ,
                 // release-safe
                     \\error: TheSkyIsFalling
                     \\source.zig:12:5: [address] in std.start.main (test)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\source.zig:8:5: [address] in std.start.main (test)
+                    \\    return make_error();
+                    \\    ^
                     \\source.zig:4:5: [address] in std.start.main (test)
+                    \\    try bar();
+                    \\    ^
                     \\source.zig:16:5: [address] in std.start.main (test)
+                    \\    try foo();
+                    \\    ^
                     \\
                 ,
                 // release-fast
@@ -130,11 +158,15 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 // debug
                     \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in main (test)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\
                 ,
                 // release-safe
                     \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in std.start.posixCallMainAndExit (test)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\
                 ,
                 // release-fast
@@ -153,13 +185,21 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 // debug
                     \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in foo (test)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\source.zig:8:5: [address] in main (test)
+                    \\    try foo();
+                    \\    ^
                     \\
                 ,
                 // release-safe
                     \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in std.start.posixCallMainAndExit (test)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\source.zig:8:5: [address] in std.start.posixCallMainAndExit (test)
+                    \\    try foo();
+                    \\    ^
                     \\
                 ,
                 // release-fast
@@ -178,17 +218,33 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 // debug
                     \\error: TheSkyIsFalling
                     \\source.zig:12:5: [address] in make_error (test)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\source.zig:8:5: [address] in bar (test)
+                    \\    return make_error();
+                    \\    ^
                     \\source.zig:4:5: [address] in foo (test)
+                    \\    try bar();
+                    \\    ^
                     \\source.zig:16:5: [address] in main (test)
+                    \\    try foo();
+                    \\    ^
                     \\
                 ,
                 // release-safe
                     \\error: TheSkyIsFalling
                     \\source.zig:12:5: [address] in std.start.posixCallMainAndExit (test)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\source.zig:8:5: [address] in std.start.posixCallMainAndExit (test)
+                    \\    return make_error();
+                    \\    ^
                     \\source.zig:4:5: [address] in std.start.posixCallMainAndExit (test)
+                    \\    try bar();
+                    \\    ^
                     \\source.zig:16:5: [address] in std.start.posixCallMainAndExit (test)
+                    \\    try foo();
+                    \\    ^
                     \\
                 ,
                 // release-fast
@@ -209,11 +265,15 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 // debug
                     \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in _main.0 (test.o)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\
                 ,
                 // release-safe
                     \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in _main (test.o)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\
                 ,
                 // release-fast
@@ -232,13 +292,21 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 // debug
                     \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in _foo (test.o)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\source.zig:8:5: [address] in _main.0 (test.o)
+                    \\    try foo();
+                    \\    ^
                     \\
                 ,
                 // release-safe
                     \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in _main (test.o)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\source.zig:8:5: [address] in _main (test.o)
+                    \\    try foo();
+                    \\    ^
                     \\
                 ,
                 // release-fast
@@ -257,17 +325,33 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 // debug
                     \\error: TheSkyIsFalling
                     \\source.zig:12:5: [address] in _make_error (test.o)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\source.zig:8:5: [address] in _bar (test.o)
+                    \\    return make_error();
+                    \\    ^
                     \\source.zig:4:5: [address] in _foo (test.o)
+                    \\    try bar();
+                    \\    ^
                     \\source.zig:16:5: [address] in _main.0 (test.o)
+                    \\    try foo();
+                    \\    ^
                     \\
                 ,
                 // release-safe
                     \\error: TheSkyIsFalling
                     \\source.zig:12:5: [address] in _main (test.o)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\source.zig:8:5: [address] in _main (test.o)
+                    \\    return make_error();
+                    \\    ^
                     \\source.zig:4:5: [address] in _main (test.o)
+                    \\    try bar();
+                    \\    ^
                     \\source.zig:16:5: [address] in _main (test.o)
+                    \\    try foo();
+                    \\    ^
                     \\
                 ,
                 // release-fast
@@ -288,6 +372,8 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 // debug
                     \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in main (test.obj)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\
                 ,
                 // release-safe
@@ -309,7 +395,11 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 // debug
                 \\error: TheSkyIsFalling
                     \\source.zig:4:5: [address] in foo (test.obj)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\source.zig:8:5: [address] in main (test.obj)
+                    \\    try foo();
+                    \\    ^
                     \\
                 ,
                 // release-safe
@@ -331,9 +421,17 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
                 // debug
                 \\error: TheSkyIsFalling
                     \\source.zig:12:5: [address] in make_error (test.obj)
+                    \\    return error.TheSkyIsFalling;
+                    \\    ^
                     \\source.zig:8:5: [address] in bar (test.obj)
+                    \\    return make_error();
+                    \\    ^
                     \\source.zig:4:5: [address] in foo (test.obj)
+                    \\    try bar();
+                    \\    ^
                     \\source.zig:16:5: [address] in main (test.obj)
+                    \\    try foo();
+                    \\    ^
                     \\
                 ,
                 // release-safe

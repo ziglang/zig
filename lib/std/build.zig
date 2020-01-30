@@ -484,6 +484,7 @@ pub const Builder = struct {
                         .arch = builtin.arch,
                         .os = builtin.os,
                         .abi = builtin.abi,
+                        .cpu_features = builtin.cpu_features,
                     },
                 }).linuxTriple(self.allocator);
 
@@ -1058,7 +1059,10 @@ pub const Builder = struct {
 };
 
 test "builder.findProgram compiles" {
+    // TODO: uncomment and fix the leak
+    // const builder = try Builder.create(std.testing.allocator, "zig", "zig-cache", "zig-cache");
     const builder = try Builder.create(std.heap.page_allocator, "zig", "zig-cache", "zig-cache");
+    defer builder.destroy();
     _ = builder.findProgram(&[_][]const u8{}, &[_][]const u8{}) catch null;
 }
 
@@ -1148,6 +1152,7 @@ pub const LibExeObjStep = struct {
     name_prefix: []const u8,
     filter: ?[]const u8,
     single_threaded: bool,
+    code_model: builtin.CodeModel = .default,
 
     root_src: ?FileSource,
     out_h_filename: []const u8,
@@ -1375,6 +1380,7 @@ pub const LibExeObjStep = struct {
                 .arch = target_arch,
                 .os = target_os,
                 .abi = target_abi,
+                .cpu_features = target_arch.getBaselineCpuFeatures(),
             },
         });
     }
@@ -1968,11 +1974,56 @@ pub const LibExeObjStep = struct {
             try zig_args.append("-fno-sanitize-c");
         }
 
+        if (self.code_model != .default) {
+            try zig_args.append("-code-model");
+            try zig_args.append(@tagName(self.code_model));
+        }
+
         switch (self.target) {
             .Native => {},
-            .Cross => {
+            .Cross => |cross| {
                 try zig_args.append("-target");
                 try zig_args.append(self.target.zigTriple(builder.allocator) catch unreachable);
+
+                const all_features = self.target.getArch().allFeaturesList();
+                var populated_cpu_features = cross.cpu_features.cpu.features;
+                if (self.target.getArch().subArchFeature()) |sub_arch_index| {
+                    populated_cpu_features.addFeature(sub_arch_index);
+                }
+                populated_cpu_features.populateDependencies(all_features);
+
+                if (populated_cpu_features.eql(cross.cpu_features.features)) {
+                    // The CPU name alone is sufficient.
+                    // If it is the baseline CPU, no command line args are required.
+                    if (cross.cpu_features.cpu != self.target.getArch().getBaselineCpuFeatures().cpu) {
+                        try zig_args.append("-target-cpu");
+                        try zig_args.append(cross.cpu_features.cpu.name);
+                    }
+                } else {
+                    try zig_args.append("-target-cpu");
+                    try zig_args.append(cross.cpu_features.cpu.name);
+
+                    try zig_args.append("-target-feature");
+                    var feature_str_buffer = try std.Buffer.initSize(builder.allocator, 0);
+                    for (all_features) |feature, i_usize| {
+                        const i = @intCast(Target.Cpu.Feature.Set.Index, i_usize);
+                        const in_cpu_set = populated_cpu_features.isEnabled(i);
+                        const in_actual_set = cross.cpu_features.features.isEnabled(i);
+                        if (in_cpu_set and !in_actual_set) {
+                            try feature_str_buffer.appendByte('-');
+                            try feature_str_buffer.append(feature.name);
+                            try feature_str_buffer.appendByte(',');
+                        } else if (!in_cpu_set and in_actual_set) {
+                            try feature_str_buffer.appendByte('+');
+                            try feature_str_buffer.append(feature.name);
+                            try feature_str_buffer.appendByte(',');
+                        }
+                    }
+                    if (mem.endsWith(u8, feature_str_buffer.toSliceConst(), ",")) {
+                        feature_str_buffer.shrink(feature_str_buffer.len() - 1);
+                    }
+                    try zig_args.append(feature_str_buffer.toSliceConst());
+                }
             },
         }
 

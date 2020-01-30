@@ -1,5 +1,8 @@
 pub usingnamespace @import("builtin");
 
+/// Deprecated: use `std.Target`.
+pub const Target = std.Target;
+
 /// Deprecated: use `std.Target.Os`.
 pub const Os = std.Target.Os;
 
@@ -14,6 +17,12 @@ pub const ObjectFormat = std.Target.ObjectFormat;
 
 /// Deprecated: use `std.Target.SubSystem`.
 pub const SubSystem = std.Target.SubSystem;
+
+/// Deprecated: use `std.Target.CpuFeatures`.
+pub const CpuFeatures = std.Target.CpuFeatures;
+
+/// Deprecated: use `std.Target.Cpu`.
+pub const Cpu = std.Target.Cpu;
 
 /// `explicit_subsystem` is missing when the subsystem is automatically detected,
 /// so Zig standard library has the subsystem detection logic here. This should generally be
@@ -80,6 +89,21 @@ pub const AtomicRmwOp = enum {
     Xor,
     Max,
     Min,
+};
+
+/// The code model puts constraints on the location of symbols and the size of code and data.
+/// The selection of a code model is a trade off on speed and restrictions that needs to be selected on a per application basis to meet its requirements.
+/// A slightly more detailed explanation can be found in (for example) the [System V Application Binary Interface (x86_64)](https://github.com/hjl-tools/x86-psABI/wiki/x86-64-psABI-1.0.pdf) 3.5.1.
+///
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const CodeModel = enum {
+    default,
+    tiny,
+    small,
+    kernel,
+    medium,
+    large,
 };
 
 /// This data structure is used by the Zig language code generation and

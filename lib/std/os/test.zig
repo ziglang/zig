@@ -9,7 +9,7 @@ const elf = std.elf;
 const File = std.fs.File;
 const Thread = std.Thread;
 
-const a = std.debug.global_allocator;
+const a = std.testing.allocator;
 
 const builtin = @import("builtin");
 const AtomicRmwOp = builtin.AtomicRmwOp;
@@ -186,8 +186,9 @@ fn iter_fn(info: *dl_phdr_info, size: usize, data: ?*usize) callconv(.C) i32 {
 
         if (phdr.p_type != elf.PT_LOAD) continue;
 
+        const reloc_addr = info.dlpi_addr + phdr.p_vaddr;
         // Find the ELF header
-        const elf_header = @intToPtr(*elf.Ehdr, phdr.p_vaddr - phdr.p_offset);
+        const elf_header = @intToPtr(*elf.Ehdr, reloc_addr - phdr.p_offset);
         // Validate the magic
         if (!mem.eql(u8, elf_header.e_ident[0..4], "\x7fELF")) return -1;
         // Consistency check
@@ -234,8 +235,8 @@ test "pipe" {
 }
 
 test "argsAlloc" {
-    var args = try std.process.argsAlloc(std.heap.page_allocator);
-    std.process.argsFree(std.heap.page_allocator, args);
+    var args = try std.process.argsAlloc(std.testing.allocator);
+    std.process.argsFree(std.testing.allocator, args);
 }
 
 test "memfd_create" {

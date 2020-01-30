@@ -8,7 +8,7 @@ const ChildProcess = std.ChildProcess;
 var a: *std.mem.Allocator = undefined;
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
     var arg_it = process.args();

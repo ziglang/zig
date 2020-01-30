@@ -3,6 +3,9 @@
 set -x
 set -e
 
+sudo pkg update -f
+yes | sudo pkg install cmake py27-s3cmd wget curl jq
+
 ZIGDIR="$(pwd)"
 CACHE_BASENAME="llvm+clang-9.0.0-freebsd-x86_64-release"
 PREFIX="$HOME/$CACHE_BASENAME"

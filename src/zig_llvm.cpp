@@ -821,7 +821,7 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
         case ZigLLVM_ARMSubArch_v8_1a:
             return "v8.1a";
         case ZigLLVM_ARMSubArch_v8:
-            return "v8";
+            return "v8a";
         case ZigLLVM_ARMSubArch_v8r:
             return "v8r";
         case ZigLLVM_ARMSubArch_v8m_baseline:
@@ -831,7 +831,7 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
         case ZigLLVM_ARMSubArch_v8_1m_mainline:
             return "v8.1m.main";
         case ZigLLVM_ARMSubArch_v7:
-            return "v7";
+            return "v7a";
         case ZigLLVM_ARMSubArch_v7em:
             return "v7em";
         case ZigLLVM_ARMSubArch_v7m:

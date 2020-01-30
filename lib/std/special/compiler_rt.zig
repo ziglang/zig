@@ -130,6 +130,7 @@ comptime {
     @export(@import("compiler_rt/int.zig").__udivmoddi4, .{ .name = "__udivmoddi4", .linkage = linkage });
     @export(@import("compiler_rt/popcountdi2.zig").__popcountdi2, .{ .name = "__popcountdi2", .linkage = linkage });
 
+    @export(@import("compiler_rt/int.zig").__mulsi3, .{ .name = "__mulsi3", .linkage = linkage });
     @export(@import("compiler_rt/muldi3.zig").__muldi3, .{ .name = "__muldi3", .linkage = linkage });
     @export(@import("compiler_rt/int.zig").__divmoddi4, .{ .name = "__divmoddi4", .linkage = linkage });
     @export(@import("compiler_rt/int.zig").__divsi3, .{ .name = "__divsi3", .linkage = linkage });

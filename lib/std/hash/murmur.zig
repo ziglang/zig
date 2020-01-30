@@ -15,7 +15,7 @@ pub const Murmur2_32 = struct {
         const m: u32 = 0x5bd1e995;
         const len = @truncate(u32, str.len);
         var h1: u32 = seed ^ len;
-        for (@ptrCast([*]allowzero align(1) const u32, str.ptr)[0..(len >> 2)]) |v| {
+        for (@ptrCast([*]align(1) const u32, str.ptr)[0..(len >> 2)]) |v| {
             var k1: u32 = v;
             if (builtin.endian == builtin.Endian.Big)
                 k1 = @byteSwap(u32, k1);
@@ -100,7 +100,7 @@ pub const Murmur2_64 = struct {
         const m: u64 = 0xc6a4a7935bd1e995;
         const len = @as(u64, str.len);
         var h1: u64 = seed ^ (len *% m);
-        for (@ptrCast([*]allowzero align(1) const u64, str.ptr)[0..@intCast(usize, len >> 3)]) |v| {
+        for (@ptrCast([*]align(1) const u64, str.ptr)[0..@intCast(usize, len >> 3)]) |v| {
             var k1: u64 = v;
             if (builtin.endian == builtin.Endian.Big)
                 k1 = @byteSwap(u64, k1);
@@ -180,7 +180,7 @@ pub const Murmur3_32 = struct {
         const c2: u32 = 0x1b873593;
         const len = @truncate(u32, str.len);
         var h1: u32 = seed;
-        for (@ptrCast([*]allowzero align(1) const u32, str.ptr)[0..(len >> 2)]) |v| {
+        for (@ptrCast([*]align(1) const u32, str.ptr)[0..(len >> 2)]) |v| {
             var k1: u32 = v;
             if (builtin.endian == builtin.Endian.Big)
                 k1 = @byteSwap(u32, k1);

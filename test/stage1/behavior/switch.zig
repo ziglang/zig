@@ -479,3 +479,17 @@ test "switch on pointer type" {
     comptime expect(2 == S.doTheTest(S.P2));
     comptime expect(3 == S.doTheTest(S.P3));
 }
+
+test "switch on error set with single else" {
+    const S = struct {
+        fn doTheTest() void {
+            var some: error{Foo} = error.Foo;
+            expect(switch (some) {
+                else => |a| true,
+            });
+        }
+    };
+
+    S.doTheTest();
+    comptime S.doTheTest();
+}

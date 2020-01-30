@@ -38,236 +38,260 @@ const TestTarget = struct {
     disable_native: bool = false,
 };
 
-const test_targets = [_]TestTarget{
-    TestTarget{},
-    TestTarget{
-        .link_libc = true,
-    },
-    TestTarget{
-        .single_threaded = true,
-    },
+const test_targets = blk: {
+    // getBaselineCpuFeatures calls populateDependencies which has a O(N ^ 2) algorithm
+    // (where N is roughly 160, which technically makes it O(1), but it adds up to a
+    // lot of branches)
+    @setEvalBranchQuota(50000);
+    break :blk [_]TestTarget{
+        TestTarget{},
+        TestTarget{
+            .link_libc = true,
+        },
+        TestTarget{
+            .single_threaded = true,
+        },
 
-    TestTarget{
-        .target = Target{
-            .Cross = CrossTarget{
-                .os = .linux,
-                .arch = .x86_64,
-                .abi = .none,
+        TestTarget{
+            .target = Target{
+                .Cross = CrossTarget{
+                    .os = .linux,
+                    .arch = .x86_64,
+                    .abi = .none,
+                    .cpu_features = Target.Arch.x86_64.getBaselineCpuFeatures(),
+                },
             },
         },
-    },
-    TestTarget{
-        .target = Target{
-            .Cross = CrossTarget{
-                .os = .linux,
-                .arch = .x86_64,
-                .abi = .gnu,
+        TestTarget{
+            .target = Target{
+                .Cross = CrossTarget{
+                    .os = .linux,
+                    .arch = .x86_64,
+                    .abi = .gnu,
+                    .cpu_features = Target.Arch.x86_64.getBaselineCpuFeatures(),
+                },
             },
+            .link_libc = true,
         },
-        .link_libc = true,
-    },
-    TestTarget{
-        .target = Target{
-            .Cross = CrossTarget{
-                .os = .linux,
-                .arch = .x86_64,
-                .abi = .musl,
+        TestTarget{
+            .target = Target{
+                .Cross = CrossTarget{
+                    .os = .linux,
+                    .arch = .x86_64,
+                    .cpu_features = Target.Arch.x86_64.getBaselineCpuFeatures(),
+                    .abi = .musl,
+                },
             },
+            .link_libc = true,
         },
-        .link_libc = true,
-    },
 
-    TestTarget{
-        .target = Target{
-            .Cross = CrossTarget{
-                .os = .linux,
-                .arch = .i386,
-                .abi = .none,
+        TestTarget{
+            .target = Target{
+                .Cross = CrossTarget{
+                    .os = .linux,
+                    .arch = .i386,
+                    .cpu_features = Target.Arch.i386.getBaselineCpuFeatures(),
+                    .abi = .none,
+                },
             },
         },
-    },
-    TestTarget{
-        .target = Target{
-            .Cross = CrossTarget{
-                .os = .linux,
-                .arch = .i386,
-                .abi = .musl,
+        TestTarget{
+            .target = Target{
+                .Cross = CrossTarget{
+                    .os = .linux,
+                    .arch = .i386,
+                    .cpu_features = Target.Arch.i386.getBaselineCpuFeatures(),
+                    .abi = .musl,
+                },
             },
+            .link_libc = true,
         },
-        .link_libc = true,
-    },
 
-    TestTarget{
-        .target = Target{
-            .Cross = CrossTarget{
-                .os = .linux,
-                .arch = builtin.Arch{ .aarch64 = builtin.Arch.Arm64.v8_5a },
-                .abi = .none,
+        TestTarget{
+            .target = Target{
+                .Cross = CrossTarget{
+                    .os = .linux,
+                    .arch = Target.Arch{ .aarch64 = .v8a },
+                    .cpu_features = (Target.Arch{ .aarch64 = .v8a }).getBaselineCpuFeatures(),
+                    .abi = .none,
+                },
             },
         },
-    },
-    TestTarget{
-        .target = Target{
-            .Cross = CrossTarget{
-                .os = .linux,
-                .arch = builtin.Arch{ .aarch64 = builtin.Arch.Arm64.v8_5a },
-                .abi = .musl,
+        TestTarget{
+            .target = Target{
+                .Cross = CrossTarget{
+                    .os = .linux,
+                    .arch = Target.Arch{ .aarch64 = .v8a },
+                    .cpu_features = (Target.Arch{ .aarch64 = .v8a }).getBaselineCpuFeatures(),
+                    .abi = .musl,
+                },
             },
+            .link_libc = true,
         },
-        .link_libc = true,
-    },
-    TestTarget{
-        .target = Target{
-            .Cross = CrossTarget{
-                .os = .linux,
-                .arch = builtin.Arch{ .aarch64 = builtin.Arch.Arm64.v8_5a },
-                .abi = .gnu,
+        TestTarget{
+            .target = Target{
+                .Cross = CrossTarget{
+                    .os = .linux,
+                    .arch = Target.Arch{ .aarch64 = .v8a },
+                    .cpu_features = (Target.Arch{ .aarch64 = .v8a }).getBaselineCpuFeatures(),
+                    .abi = .gnu,
+                },
             },
+            .link_libc = true,
         },
-        .link_libc = true,
-    },
 
-    TestTarget{
-        .target = Target{
-            .Cross = CrossTarget{
-                .os = .linux,
-                .arch = builtin.Arch{ .arm = builtin.Arch.Arm32.v8_5a },
-                .abi = .none,
+        TestTarget{
+            .target = Target{
+                .Cross = CrossTarget{
+                    .os = .linux,
+                    .arch = Target.Arch{ .arm = .v8a },
+                    .cpu_features = (Target.Arch{ .arm = .v8a }).getBaselineCpuFeatures(),
+                    .abi = .none,
+                },
             },
         },
-    },
-    TestTarget{
-        .target = Target{
-            .Cross = CrossTarget{
-                .os = .linux,
-                .arch = builtin.Arch{ .arm = builtin.Arch.Arm32.v8_5a },
-                .abi = .musleabihf,
+        TestTarget{
+            .target = Target{
+                .Cross = CrossTarget{
+                    .os = .linux,
+                    .arch = Target.Arch{ .arm = .v8a },
+                    .cpu_features = (Target.Arch{ .arm = .v8a }).getBaselineCpuFeatures(),
+                    .abi = .musleabihf,
+                },
+            },
+            .link_libc = true,
+        },
+        // TODO https://github.com/ziglang/zig/issues/3287
+        //TestTarget{
+        //    .target = Target{
+        //        .Cross = CrossTarget{
+        //            .os = .linux,
+        //            .arch = Target.Arch{ .arm = .v8a },
+        //            .cpu_features = (Target.Arch{ .arm = .v8a }).getBaselineCpuFeatures(),
+        //            .abi = .gnueabihf,
+        //        },
+        //    },
+        //    .link_libc = true,
+        //},
+
+        TestTarget{
+            .target = Target{
+                .Cross = CrossTarget{
+                    .os = .linux,
+                    .arch = .mipsel,
+                    .cpu_features = Target.Arch.mipsel.getBaselineCpuFeatures(),
+                    .abi = .none,
+                },
             },
         },
-        .link_libc = true,
-    },
-    // TODO https://github.com/ziglang/zig/issues/3287
-    //TestTarget{
-    //    .target = Target{
-    //        .Cross = CrossTarget{
-    //            .os = .linux,
-    //            .arch = builtin.Arch{ .arm = builtin.Arch.Arm32.v8_5a },
-    //            .abi = .gnueabihf,
-    //        },
-    //    },
-    //    .link_libc = true,
-    //},
+        TestTarget{
+            .target = Target{
+                .Cross = CrossTarget{
+                    .os = .linux,
+                    .arch = .mipsel,
+                    .cpu_features = Target.Arch.mipsel.getBaselineCpuFeatures(),
+                    .abi = .musl,
+                },
+            },
+            .link_libc = true,
+        },
 
-    TestTarget{
-        .target = Target{
-            .Cross = CrossTarget{
-                .os = .linux,
-                .arch = .mipsel,
-                .abi = .none,
+        TestTarget{
+            .target = Target{
+                .Cross = CrossTarget{
+                    .os = .macosx,
+                    .arch = .x86_64,
+                    .cpu_features = Target.Arch.x86_64.getBaselineCpuFeatures(),
+                    .abi = .gnu,
+                },
+            },
+            // TODO https://github.com/ziglang/zig/issues/3295
+            .disable_native = true,
+        },
+
+        TestTarget{
+            .target = Target{
+                .Cross = CrossTarget{
+                    .os = .windows,
+                    .arch = .i386,
+                    .cpu_features = Target.Arch.i386.getBaselineCpuFeatures(),
+                    .abi = .msvc,
+                },
             },
         },
-    },
-    TestTarget{
-        .target = Target{
-            .Cross = CrossTarget{
-                .os = .linux,
-                .arch = .mipsel,
-                .abi = .musl,
+
+        TestTarget{
+            .target = Target{
+                .Cross = CrossTarget{
+                    .os = .windows,
+                    .arch = .x86_64,
+                    .cpu_features = Target.Arch.x86_64.getBaselineCpuFeatures(),
+                    .abi = .msvc,
+                },
             },
         },
-        .link_libc = true,
-    },
 
-    TestTarget{
-        .target = Target{
-            .Cross = CrossTarget{
-                .os = .macosx,
-                .arch = .x86_64,
-                .abi = .gnu,
+        TestTarget{
+            .target = Target{
+                .Cross = CrossTarget{
+                    .os = .windows,
+                    .arch = .i386,
+                    .cpu_features = Target.Arch.i386.getBaselineCpuFeatures(),
+                    .abi = .gnu,
+                },
             },
+            .link_libc = true,
         },
-        // TODO https://github.com/ziglang/zig/issues/3295
-        .disable_native = true,
-    },
 
-    TestTarget{
-        .target = Target{
-            .Cross = CrossTarget{
-                .os = .windows,
-                .arch = .i386,
-                .abi = .msvc,
+        TestTarget{
+            .target = Target{
+                .Cross = CrossTarget{
+                    .os = .windows,
+                    .arch = .x86_64,
+                    .cpu_features = Target.Arch.x86_64.getBaselineCpuFeatures(),
+                    .abi = .gnu,
+                },
             },
+            .link_libc = true,
         },
-    },
 
-    TestTarget{
-        .target = Target{
-            .Cross = CrossTarget{
-                .os = .windows,
-                .arch = .x86_64,
-                .abi = .msvc,
-            },
+        // Do the release tests last because they take a long time
+        TestTarget{
+            .mode = .ReleaseFast,
         },
-    },
-
-    TestTarget{
-        .target = Target{
-            .Cross = CrossTarget{
-                .os = .windows,
-                .arch = .i386,
-                .abi = .gnu,
-            },
+        TestTarget{
+            .link_libc = true,
+            .mode = .ReleaseFast,
         },
-        .link_libc = true,
-    },
-
-    TestTarget{
-        .target = Target{
-            .Cross = CrossTarget{
-                .os = .windows,
-                .arch = .x86_64,
-                .abi = .gnu,
-            },
+        TestTarget{
+            .mode = .ReleaseFast,
+            .single_threaded = true,
         },
-        .link_libc = true,
-    },
 
-    // Do the release tests last because they take a long time
-    TestTarget{
-        .mode = .ReleaseFast,
-    },
-    TestTarget{
-        .link_libc = true,
-        .mode = .ReleaseFast,
-    },
-    TestTarget{
-        .mode = .ReleaseFast,
-        .single_threaded = true,
-    },
+        TestTarget{
+            .mode = .ReleaseSafe,
+        },
+        TestTarget{
+            .link_libc = true,
+            .mode = .ReleaseSafe,
+        },
+        TestTarget{
+            .mode = .ReleaseSafe,
+            .single_threaded = true,
+        },
 
-    TestTarget{
-        .mode = .ReleaseSafe,
-    },
-    TestTarget{
-        .link_libc = true,
-        .mode = .ReleaseSafe,
-    },
-    TestTarget{
-        .mode = .ReleaseSafe,
-        .single_threaded = true,
-    },
-
-    TestTarget{
-        .mode = .ReleaseSmall,
-    },
-    TestTarget{
-        .link_libc = true,
-        .mode = .ReleaseSmall,
-    },
-    TestTarget{
-        .mode = .ReleaseSmall,
-        .single_threaded = true,
-    },
+        TestTarget{
+            .mode = .ReleaseSmall,
+        },
+        TestTarget{
+            .link_libc = true,
+            .mode = .ReleaseSmall,
+        },
+        TestTarget{
+            .mode = .ReleaseSmall,
+            .single_threaded = true,
+        },
+    };
 };
 
 const max_stdout_size = 1 * 1024 * 1024; // 1 MB
@@ -598,6 +622,9 @@ pub const StackTracesContext = struct {
             child.stderr_behavior = .Pipe;
             child.env_map = b.env_map;
 
+            if (b.verbose) {
+                printInvocation(args.toSliceConst());
+            }
             child.spawn() catch |err| debug.panic("Unable to spawn {}: {}\n", .{ full_exe_path, @errorName(err) });
 
             var stdout = Buffer.initNull(b.allocator);

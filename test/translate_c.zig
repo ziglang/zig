@@ -1,7 +1,43 @@
 const tests = @import("tests.zig");
 const builtin = @import("builtin");
+const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("function prototype with parenthesis",
+        \\void (f0) (void *L);
+        \\void ((f1)) (void *L);
+        \\void (((f2))) (void *L);
+    , &[_][]const u8{
+        \\pub extern fn f0(L: ?*c_void) void;
+        \\pub extern fn f1(L: ?*c_void) void;
+        \\pub extern fn f2(L: ?*c_void) void;
+    });
+
+    cases.add("array initializer w/ typedef",
+        \\typedef unsigned char uuid_t[16];
+        \\static const uuid_t UUID_NULL __attribute__ ((unused)) = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    , &[_][]const u8{
+        \\pub const uuid_t = [16]u8;
+        \\pub const UUID_NULL: uuid_t = [16]u8{
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\    @bitCast(u8, @truncate(i8, @as(c_int, 0))),
+        \\};
+    });
+
     cases.add("empty declaration",
         \\;
     , &[_][]const u8{""});
@@ -51,7 +87,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    .x = @as(c_int, 1),
         \\};
         \\pub export var ub: union_unnamed_1 = union_unnamed_1{
-        \\    .c = .{
+        \\    .c = [4]u8{
         \\        @bitCast(u8, @truncate(i8, @as(c_int, 'a'))),
         \\        @bitCast(u8, @truncate(i8, @as(c_int, 'b'))),
         \\        @bitCast(u8, @truncate(i8, @as(c_int, 'b'))),
@@ -1005,7 +1041,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.addWithTarget("Calling convention", tests.Target{
-        .Cross = .{ .os = .linux, .arch = .i386, .abi = .none },
+        .Cross = .{
+            .os = .linux,
+            .arch = .i386,
+            .abi = .none,
+            .cpu_features = Target.Arch.i386.getBaselineCpuFeatures(),
+        },
     },
         \\void __attribute__((fastcall)) foo1(float *a);
         \\void __attribute__((stdcall)) foo2(float *a);
@@ -1021,7 +1062,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.addWithTarget("Calling convention", tests.Target{
-        .Cross = .{ .os = .linux, .arch = .{ .arm = .v8_5a }, .abi = .none },
+        .Cross = .{
+            .os = .linux,
+            .arch = .{ .arm = .v8_5a },
+            .abi = .none,
+            .cpu_features = (Target.Arch{ .arm = .v8_5a }).getBaselineCpuFeatures(),
+        },
     },
         \\void __attribute__((pcs("aapcs"))) foo1(float *a);
         \\void __attribute__((pcs("aapcs-vfp"))) foo2(float *a);
@@ -1031,7 +1077,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     });
 
     cases.addWithTarget("Calling convention", tests.Target{
-        .Cross = .{ .os = .linux, .arch = .{ .aarch64 = .v8_5a }, .abi = .none },
+        .Cross = .{
+            .os = .linux,
+            .arch = .{ .aarch64 = .v8_5a },
+            .abi = .none,
+            .cpu_features = (Target.Arch{ .aarch64 = .v8_5a }).getBaselineCpuFeatures(),
+        },
     },
         \\void __attribute__((aarch64_vector_pcs)) foo1(float *a);
     , &[_][]const u8{
@@ -1067,12 +1118,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub fn foo() callconv(.C) void {
-        \\    var arr: [10]u8 = .{
+        \\    var arr: [10]u8 = [1]u8{
         \\        @bitCast(u8, @truncate(i8, @as(c_int, 1))),
-        \\    } ++ .{0} ** 9;
-        \\    var arr1: [10][*c]u8 = .{
+        \\    } ++ [1]u8{0} ** 9;
+        \\    var arr1: [10][*c]u8 = [1][*c]u8{
         \\        null,
-        \\    } ++ .{null} ** 9;
+        \\    } ++ [1][*c]u8{null} ** 9;
         \\}
     });
 
@@ -1519,7 +1570,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("undefined array global",
         \\int array[100] = {};
     , &[_][]const u8{
-        \\pub export var array: [100]c_int = .{0} ** 100;
+        \\pub export var array: [100]c_int = [1]c_int{0} ** 100;
     });
 
     cases.add("restrict -> noalias",
@@ -1853,7 +1904,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return array[index];
         \\}
     , &[_][]const u8{
-        \\pub export var array: [100]c_int = .{0} ** 100;
+        \\pub export var array: [100]c_int = [1]c_int{0} ** 100;
         \\pub export fn foo(arg_index: c_int) c_int {
         \\    var index = arg_index;
         \\    return array[@intCast(c_uint, index)];
@@ -2588,6 +2639,17 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var b: bool = (@intCast(c_int, @bitCast(i1, @intCast(u1, @boolToInt(a)))) != @as(c_int, 0));
         \\    var c: bool = @ptrToInt(foo) != 0;
         \\    return foo((@intCast(c_int, @bitCast(i1, @intCast(u1, @boolToInt(c)))) != @intCast(c_int, @bitCast(i1, @intCast(u1, @boolToInt(b))))));
+        \\}
+    });
+
+    cases.add("Don't make const parameters mutable",
+        \\int max(const int x, int y) {
+        \\    return (x > y) ? x : y;
+        \\}
+    , &[_][]const u8{
+        \\pub export fn max(x: c_int, arg_y: c_int) c_int {
+        \\    var y = arg_y;
+        \\    return if (x > y) x else y;
         \\}
     });
 }

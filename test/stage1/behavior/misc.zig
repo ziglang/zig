@@ -781,3 +781,16 @@ test "pointer to thread local array" {
     std.mem.copy(u8, buffer[0..], s);
     std.testing.expectEqualSlices(u8, buffer[0..], s);
 }
+
+test "auto created variables have correct alignment" {
+    const S = struct {
+        fn foo(str: [*]const u8) u32 {
+            for (@ptrCast([*]align(1) const u32, str)[0..1]) |v| {
+                return v;
+            }
+            return 0;
+        }
+    };
+    expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
+    comptime expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
+}

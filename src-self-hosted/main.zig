@@ -79,7 +79,9 @@ pub fn main() !void {
     } else if (mem.eql(u8, cmd, "libc")) {
         return cmdLibC(allocator, cmd_args);
     } else if (mem.eql(u8, cmd, "targets")) {
-        return cmdTargets(allocator, cmd_args);
+        // TODO figure out the current target rather than using the target that was specified when
+        // compiling the compiler
+        return @import("print_targets.zig").cmdTargets(allocator, cmd_args, stdout, Target.current);
     } else if (mem.eql(u8, cmd, "version")) {
         return cmdVersion(allocator, cmd_args);
     } else if (mem.eql(u8, cmd, "zen")) {
@@ -785,48 +787,6 @@ async fn fmtPath(fmt: *Fmt, file_path_ref: []const u8, check_mode: bool) FmtErro
         if (anything_changed) {
             try stderr.print("{}\n", .{file_path});
             try baf.finish();
-        }
-    }
-}
-
-// cmd:targets /////////////////////////////////////////////////////////////////////////////////////
-
-fn cmdTargets(allocator: *Allocator, args: []const []const u8) !void {
-    try stdout.write("Architectures:\n");
-    {
-        comptime var i: usize = 0;
-        inline while (i < @memberCount(builtin.Arch)) : (i += 1) {
-            comptime const arch_tag = @memberName(builtin.Arch, i);
-            // NOTE: Cannot use empty string, see #918.
-            comptime const native_str = if (comptime mem.eql(u8, arch_tag, @tagName(builtin.arch))) " (native)\n" else "\n";
-
-            try stdout.print("  {}{}", .{ arch_tag, native_str });
-        }
-    }
-    try stdout.write("\n");
-
-    try stdout.write("Operating Systems:\n");
-    {
-        comptime var i: usize = 0;
-        inline while (i < @memberCount(Target.Os)) : (i += 1) {
-            comptime const os_tag = @memberName(Target.Os, i);
-            // NOTE: Cannot use empty string, see #918.
-            comptime const native_str = if (comptime mem.eql(u8, os_tag, @tagName(builtin.os))) " (native)\n" else "\n";
-
-            try stdout.print("  {}{}", .{ os_tag, native_str });
-        }
-    }
-    try stdout.write("\n");
-
-    try stdout.write("C ABIs:\n");
-    {
-        comptime var i: usize = 0;
-        inline while (i < @memberCount(Target.Abi)) : (i += 1) {
-            comptime const abi_tag = @memberName(Target.Abi, i);
-            // NOTE: Cannot use empty string, see #918.
-            comptime const native_str = if (comptime mem.eql(u8, abi_tag, @tagName(builtin.abi))) " (native)\n" else "\n";
-
-            try stdout.print("  {}{}", .{ abi_tag, native_str });
         }
     }
 }

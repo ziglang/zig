@@ -57,7 +57,7 @@ test "LoggingAllocator" {
     var slice_stream = std.io.SliceOutStream.init(buf[0..]);
     const stream = &slice_stream.stream;
 
-    const allocator = &LoggingAllocator.init(std.heap.page_allocator, @ptrCast(*AnyErrorOutStream, stream)).allocator;
+    const allocator = &LoggingAllocator.init(std.testing.allocator, @ptrCast(*AnyErrorOutStream, stream)).allocator;
 
     const ptr = try allocator.alloc(u8, 10);
     allocator.free(ptr);

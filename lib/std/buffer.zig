@@ -57,11 +57,11 @@ pub const Buffer = struct {
 
     /// The caller owns the returned memory. The Buffer becomes null and
     /// is safe to `deinit`.
-    pub fn toOwnedSlice(self: *Buffer) []u8 {
+    pub fn toOwnedSlice(self: *Buffer) [:0]u8 {
         const allocator = self.list.allocator;
-        const result = allocator.shrink(self.list.items, self.len());
+        const result = self.list.toOwnedSlice();
         self.* = initNull(allocator);
-        return result;
+        return result[0 .. result.len - 1 :0];
     }
 
     pub fn allocPrint(allocator: *Allocator, comptime format: []const u8, args: var) !Buffer {
@@ -142,7 +142,9 @@ pub const Buffer = struct {
 };
 
 test "simple Buffer" {
-    var buf = try Buffer.init(debug.global_allocator, "");
+    var buf = try Buffer.init(testing.allocator, "");
+    defer buf.deinit();
+
     testing.expect(buf.len() == 0);
     try buf.append("hello");
     try buf.append(" ");
@@ -151,6 +153,7 @@ test "simple Buffer" {
     testing.expect(mem.eql(u8, mem.toSliceConst(u8, buf.toSliceConst().ptr), buf.toSliceConst()));
 
     var buf2 = try Buffer.initFromBuffer(buf);
+    defer buf2.deinit();
     testing.expect(buf.eql(buf2.toSliceConst()));
 
     testing.expect(buf.startsWith("hell"));
@@ -161,14 +164,16 @@ test "simple Buffer" {
 }
 
 test "Buffer.initSize" {
-    var buf = try Buffer.initSize(debug.global_allocator, 3);
+    var buf = try Buffer.initSize(testing.allocator, 3);
+    defer buf.deinit();
     testing.expect(buf.len() == 3);
     try buf.append("hello");
     testing.expect(mem.eql(u8, buf.toSliceConst()[3..], "hello"));
 }
 
 test "Buffer.initCapacity" {
-    var buf = try Buffer.initCapacity(debug.global_allocator, 10);
+    var buf = try Buffer.initCapacity(testing.allocator, 10);
+    defer buf.deinit();
     testing.expect(buf.len() == 0);
     testing.expect(buf.capacity() >= 10);
     const old_cap = buf.capacity();
