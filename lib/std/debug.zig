@@ -131,6 +131,7 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
     const tty_config = detectTTYConfig();
     printSourceAtAddress(debug_info, stderr, ip, tty_config) catch return;
     const first_return_address = @intToPtr(*const usize, bp + @sizeOf(usize)).*;
+    if (first_return_address == 0) return; // The whole call stack may be optimized out
     printSourceAtAddress(debug_info, stderr, first_return_address - 1, tty_config) catch return;
     var it = StackIterator{
         .first_addr = null,
