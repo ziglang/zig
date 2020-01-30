@@ -5359,7 +5359,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 test "turn HashMap into a set with void" {
-    var map = std.HashMap(i32, void, hash_i32, eql_i32).init(std.debug.global_allocator);
+    var map = std.HashMap(i32, void, hash_i32, eql_i32).init(std.testing.allocator);
     defer map.deinit();
 
     _ = try map.put(1, {});
@@ -9281,9 +9281,8 @@ fn concat(allocator: *Allocator, a: []const u8, b: []const u8) ![]u8 {
       In the above example, 100 bytes of stack memory are used to initialize a
       {#syntax#}FixedBufferAllocator{#endsyntax#}, which is then passed to a function.
       As a convenience there is a global {#syntax#}FixedBufferAllocator{#endsyntax#}
-      available for quick tests at {#syntax#}std.debug.global_allocator{#endsyntax#},
-      however it is deprecated and should be avoided in favor of directly using a
-      {#syntax#}FixedBufferAllocator{#endsyntax#} as in the example above.
+      available for quick tests at {#syntax#}std.testing.allocator{#endsyntax#},
+      which will also do perform basic leak detection.
       </p>
       <p>
       Currently Zig has no general purpose allocator, but there is
@@ -9341,7 +9340,7 @@ pub fn main() !void {
           </li>
           <li>
               Are you writing a test, and you want to make sure {#syntax#}error.OutOfMemory{#endsyntax#}
-              is handled correctly? In this case, use {#syntax#}std.debug.FailingAllocator{#endsyntax#}.
+              is handled correctly? In this case, use {#syntax#}std.testing.FailingAllocator{#endsyntax#}.
           </li>
           <li>
               Finally, if none of the above apply, you need a general purpose allocator. Zig does not
