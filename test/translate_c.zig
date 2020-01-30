@@ -3,6 +3,26 @@ const builtin = @import("builtin");
 const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("function prototype translated as optional",
+        \\typedef void (*fnptr_ty)(void);
+        \\typedef __attribute__((cdecl)) void (*fnptr_attr_ty)(void);
+        \\struct foo {
+        \\    __attribute__((cdecl)) void (*foo)(void);
+        \\    void (*bar)(void);
+        \\    fnptr_ty baz;
+        \\    fnptr_attr_ty qux;
+        \\};
+    , &[_][]const u8{
+        \\pub const fnptr_ty = ?fn () callconv(.C) void;
+        \\pub const fnptr_attr_ty = ?fn () callconv(.C) void;
+        \\pub const struct_foo = extern struct {
+        \\    foo: ?fn () callconv(.C) void,
+        \\    bar: ?fn () callconv(.C) void,
+        \\    baz: fnptr_ty,
+        \\    qux: fnptr_attr_ty,
+        \\};
+    });
+
     cases.add("function prototype with parenthesis",
         \\void (f0) (void *L);
         \\void ((f1)) (void *L);

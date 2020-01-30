@@ -3446,31 +3446,10 @@ fn qualTypeToLog2IntRef(rp: RestorePoint, qt: ZigClangQualType, source_loc: ZigC
 }
 
 fn qualTypeChildIsFnProto(qt: ZigClangQualType) bool {
-    const ty = ZigClangQualType_getTypePtr(qt);
+    const ty = qualTypeCanon(qt);
 
     switch (ZigClangType_getTypeClass(ty)) {
         .FunctionProto, .FunctionNoProto => return true,
-        .Elaborated => {
-            const elaborated_ty = @ptrCast(*const ZigClangElaboratedType, ty);
-            return qualTypeChildIsFnProto(ZigClangElaboratedType_getNamedType(elaborated_ty));
-        },
-        .Typedef => {
-            const typedef_ty = @ptrCast(*const ZigClangTypedefType, ty);
-            const typedef_decl = ZigClangTypedefType_getDecl(typedef_ty);
-            return qualTypeChildIsFnProto(ZigClangTypedefNameDecl_getUnderlyingType(typedef_decl));
-        },
-        .Paren => {
-            const paren_type = @ptrCast(*const ZigClangParenType, ty);
-            const inner_type = ZigClangParenType_getInnerType(paren_type);
-            switch (ZigClangQualType_getTypeClass(inner_type)) {
-                .FunctionProto, .FunctionNoProto => return true,
-                else => return false,
-            }
-        },
-        .Attributed => {
-            const attr_type = @ptrCast(*const ZigClangAttributedType, ty);
-            return qualTypeChildIsFnProto(ZigClangAttributedType_getEquivalentType(attr_type));
-        },
         else => return false,
     }
 }
