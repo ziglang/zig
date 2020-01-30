@@ -3327,3 +3327,35 @@ pub fn getrusage(who: i32) rusage {
         else => unreachable,
     }
 }
+
+pub const TermiosGetError = error{
+    NotATerminal,
+} || UnexpectedError;
+
+pub fn tcgetattr(handle: fd_t) TermiosGetError!termios {
+    var term: termios = undefined;
+    switch (errno(system.tcgetattr(handle, &term))) {
+        0 => return term,
+        EBADF => unreachable,
+        ENOTTY => return error.NotATerminal,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub const TermiosSetError = TermiosGetError || error{
+    ProcessOrphaned,
+};
+
+pub fn tcsetattr(handle: fd_t, optional_action: TCSA, termios_p: termios) TermiosSetError!void {
+    while (true) {
+        switch (errno(system.tcsetattr(handle, optional_action, &termios_p))) {
+            0 => return,
+            EBADF => unreachable,
+            EINTR => continue,
+            EINVAL => unreachable,
+            ENOTTY => return error.NotATerminal,
+            EIO => return error.ProcessOrphaned,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
