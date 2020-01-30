@@ -2773,7 +2773,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
     const needed_alloc_count = x: {
         // Try it once with unlimited memory, make sure it works
         var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-        var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, maxInt(usize));
+        var failing_allocator = std.testing.FailingAllocator.init(&fixed_allocator.allocator, maxInt(usize));
         var anything_changed: bool = undefined;
         const result_source = try testParse(source, &failing_allocator.allocator, &anything_changed);
         if (!mem.eql(u8, result_source, expected_source)) {
@@ -2797,7 +2797,7 @@ fn testTransform(source: []const u8, expected_source: []const u8) !void {
     var fail_index: usize = 0;
     while (fail_index < needed_alloc_count) : (fail_index += 1) {
         var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-        var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, fail_index);
+        var failing_allocator = std.testing.FailingAllocator.init(&fixed_allocator.allocator, fail_index);
         var anything_changed: bool = undefined;
         if (testParse(source, &failing_allocator.allocator, &anything_changed)) |_| {
             return error.NondeterministicMemoryUsage;

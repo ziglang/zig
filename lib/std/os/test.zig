@@ -9,7 +9,7 @@ const elf = std.elf;
 const File = std.fs.File;
 const Thread = std.Thread;
 
-const a = std.debug.global_allocator;
+const a = std.testing.allocator;
 
 const builtin = @import("builtin");
 const AtomicRmwOp = builtin.AtomicRmwOp;
@@ -235,8 +235,8 @@ test "pipe" {
 }
 
 test "argsAlloc" {
-    var args = try std.process.argsAlloc(std.heap.page_allocator);
-    std.process.argsFree(std.heap.page_allocator, args);
+    var args = try std.process.argsAlloc(std.testing.allocator);
+    std.process.argsFree(std.testing.allocator, args);
 }
 
 test "memfd_create" {

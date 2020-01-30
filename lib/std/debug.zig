@@ -19,8 +19,8 @@ const windows = std.os.windows;
 
 pub const leb = @import("debug/leb128.zig");
 
-pub const FailingAllocator = @import("debug/failing_allocator.zig").FailingAllocator;
-pub const failing_allocator = &FailingAllocator.init(global_allocator, 0).allocator;
+pub const global_allocator = @compileError("Please switch to std.testing.allocator.");
+pub const failing_allocator = @compileError("Please switch to std.testing.failing_allocator.");
 
 pub const runtime_safety = switch (builtin.mode) {
     .Debug, .ReleaseSafe => true,
@@ -2195,11 +2195,6 @@ fn readInitialLength(comptime E: type, in_stream: *io.InStream(E), is_64: *bool)
         return @as(u64, first_32_bits);
     }
 }
-
-/// This should only be used in temporary test programs.
-pub const global_allocator = &global_fixed_allocator.allocator;
-var global_fixed_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(global_allocator_mem[0..]);
-var global_allocator_mem: [100 * 1024]u8 = undefined;
 
 /// TODO multithreaded awareness
 var debug_info_allocator: ?*mem.Allocator = null;

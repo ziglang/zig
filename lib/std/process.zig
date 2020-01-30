@@ -79,7 +79,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
         // https://github.com/WebAssembly/WASI/issues/27
         var environ = try allocator.alloc(?[*:0]u8, environ_count + 1);
         defer allocator.free(environ);
-        var environ_buf = try std.heap.page_allocator.alloc(u8, environ_buf_size);
+        var environ_buf = try allocator.alloc(u8, environ_buf_size);
         defer allocator.free(environ_buf);
 
         const environ_get_ret = os.wasi.environ_get(environ.ptr, environ_buf.ptr);
@@ -114,7 +114,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
 }
 
 test "os.getEnvMap" {
-    var env = try getEnvMap(std.debug.global_allocator);
+    var env = try getEnvMap(std.testing.allocator);
     defer env.deinit();
 }
 
@@ -165,7 +165,7 @@ pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwned
 }
 
 test "os.getEnvVarOwned" {
-    var ga = std.debug.global_allocator;
+    var ga = std.testing.allocator;
     testing.expectError(error.EnvironmentVariableNotFound, getEnvVarOwned(ga, "BADENV"));
 }
 
@@ -492,10 +492,11 @@ test "windows arg parsing" {
 fn testWindowsCmdLine(input_cmd_line: [*]const u8, expected_args: []const []const u8) void {
     var it = ArgIteratorWindows.initWithCmdLine(input_cmd_line);
     for (expected_args) |expected_arg| {
-        const arg = it.next(std.debug.global_allocator).? catch unreachable;
+        const arg = it.next(std.testing.allocator).? catch unreachable;
+        defer std.testing.allocator.free(arg);
         testing.expectEqualSlices(u8, expected_arg, arg);
     }
-    testing.expect(it.next(std.debug.global_allocator) == null);
+    testing.expect(it.next(std.testing.allocator) == null);
 }
 
 pub const UserInfo = struct {

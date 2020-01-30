@@ -13,6 +13,8 @@ pub fn main() anyerror!void {
     };
 
     for (test_fn_list) |test_fn, i| {
+        std.testing.base_allocator_instance.reset();
+
         var test_node = root_node.start(test_fn.name, null);
         test_node.activate();
         progress.refresh();
@@ -22,6 +24,10 @@ pub fn main() anyerror!void {
         if (test_fn.func()) |_| {
             ok_count += 1;
             test_node.end();
+            std.testing.allocator_instance.validate() catch |err| switch (err) {
+                error.Leak => std.debug.panic("", .{}),
+                else => std.debug.panic("error.{}", .{@errorName(err)}),
+            };
             if (progress.terminal == null) std.debug.warn("OK\n", .{});
         } else |err| switch (err) {
             error.SkipZigTest => {

@@ -234,8 +234,8 @@ test "hash pointer" {
 test "hash slice shallow" {
     // Allocate one array dynamically so that we're assured it is not merged
     // with the other by the optimization passes.
-    const array1 = try std.heap.page_allocator.create([6]u32);
-    defer std.heap.page_allocator.destroy(array1);
+    const array1 = try std.testing.allocator.create([6]u32);
+    defer std.testing.allocator.destroy(array1);
     array1.* = [_]u32{ 1, 2, 3, 4, 5, 6 };
     const array2 = [_]u32{ 1, 2, 3, 4, 5, 6 };
     const a = array1[0..];
@@ -250,8 +250,8 @@ test "hash slice shallow" {
 test "hash slice deep" {
     // Allocate one array dynamically so that we're assured it is not merged
     // with the other by the optimization passes.
-    const array1 = try std.heap.page_allocator.create([6]u32);
-    defer std.heap.page_allocator.destroy(array1);
+    const array1 = try std.testing.allocator.create([6]u32);
+    defer std.testing.allocator.destroy(array1);
     array1.* = [_]u32{ 1, 2, 3, 4, 5, 6 };
     const array2 = [_]u32{ 1, 2, 3, 4, 5, 6 };
     const a = array1[0..];
@@ -278,7 +278,7 @@ test "hash struct deep" {
         }
     };
 
-    const allocator = std.heap.page_allocator;
+    const allocator = std.testing.allocator;
     const foo = try Foo.init(allocator, 123, 1.0, true);
     const bar = try Foo.init(allocator, 123, 1.0, true);
     const baz = try Foo.init(allocator, 123, 1.0, false);

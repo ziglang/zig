@@ -604,7 +604,7 @@ test "PackedIntArray at end of available memory" {
         p: PackedArray,
     };
 
-    const allocator = std.heap.page_allocator;
+    const allocator = std.testing.allocator;
 
     var pad = try allocator.create(Padded);
     defer allocator.destroy(pad);
@@ -618,7 +618,7 @@ test "PackedIntSlice at end of available memory" {
     }
     const PackedSlice = PackedIntSlice(u11);
 
-    const allocator = std.heap.page_allocator;
+    const allocator = std.testing.allocator;
 
     var page = try allocator.alloc(u8, std.mem.page_size);
     defer allocator.free(page);

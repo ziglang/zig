@@ -43,9 +43,10 @@ pub const BufMap = struct {
     pub fn set(self: *BufMap, key: []const u8, value: []const u8) !void {
         const value_copy = try self.copy(value);
         errdefer self.free(value_copy);
-        // Avoid copying key if it already exists
         const get_or_put = try self.hash_map.getOrPut(key);
-        if (!get_or_put.found_existing) {
+        if (get_or_put.found_existing) {
+            self.free(get_or_put.kv.value);
+        } else {
             get_or_put.kv.key = self.copy(key) catch |err| {
                 _ = self.hash_map.remove(key);
                 return err;
@@ -83,7 +84,7 @@ pub const BufMap = struct {
 };
 
 test "BufMap" {
-    var bufmap = BufMap.init(std.heap.page_allocator);
+    var bufmap = BufMap.init(std.testing.allocator);
     defer bufmap.deinit();
 
     try bufmap.set("x", "1");
