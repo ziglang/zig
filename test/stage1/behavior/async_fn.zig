@@ -935,12 +935,12 @@ fn recursiveAsyncFunctionTest(comptime suspending_implementation: bool) type {
                 _ = async amain(&result);
                 return result;
             } else {
-                return fib(std.heap.page_allocator, 10) catch unreachable;
+                return fib(std.testing.allocator, 10) catch unreachable;
             }
         }
 
         fn amain(result: *u32) void {
-            var x = async fib(std.heap.page_allocator, 10);
+            var x = async fib(std.testing.allocator, 10);
             result.* = (await x) catch unreachable;
         }
     };
