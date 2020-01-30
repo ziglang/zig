@@ -1991,6 +1991,29 @@ fn transInitListExprRecord(
     return &init_node.base;
 }
 
+fn transCreateNodeArrayType(
+    rp: RestorePoint,
+    source_loc: ZigClangSourceLocation,
+    ty: *const ZigClangType,
+    len: var,
+) TransError!*ast.Node {
+    var node = try transCreateNodePrefixOp(
+        rp.c,
+        .{
+            .ArrayType = .{
+                .len_expr = undefined,
+                .sentinel = null,
+            },
+        },
+        .LBracket,
+        "[",
+    );
+    node.op.ArrayType.len_expr = try transCreateNodeInt(rp.c, len);
+    _ = try appendToken(rp.c, .RBracket, "]");
+    node.rhs = try transType(rp, ty, source_loc);
+    return &node.base;
+}
+
 fn transInitListExprArray(
     rp: RestorePoint,
     scope: *Scope,
@@ -2011,8 +2034,13 @@ fn transInitListExprArray(
     var init_node: *ast.Node.SuffixOp = undefined;
     var cat_tok: ast.TokenIndex = undefined;
     if (init_count != 0) {
-        const dot_tok = try appendToken(rp.c, .Period, ".");
-        init_node = try transCreateNodeContainerInitializer(rp.c, dot_tok);
+        const ty_node = try transCreateNodeArrayType(
+            rp,
+            loc,
+            ZigClangQualType_getTypePtr(child_qt),
+            init_count,
+        );
+        init_node = try transCreateNodeArrayInitializer(rp.c, ty_node);
         var i: c_uint = 0;
         while (i < init_count) : (i += 1) {
             const elem_expr = ZigClangInitListExpr_getInit(expr, i);
@@ -2026,8 +2054,8 @@ fn transInitListExprArray(
         cat_tok = try appendToken(rp.c, .PlusPlus, "++");
     }
 
-    const dot_tok = try appendToken(rp.c, .Period, ".");
-    var filler_init_node = try transCreateNodeContainerInitializer(rp.c, dot_tok);
+    const ty_node = try transCreateNodeArrayType(rp, loc, ZigClangQualType_getTypePtr(child_qt), 1);
+    var filler_init_node = try transCreateNodeArrayInitializer(rp.c, ty_node);
     const filler_val_expr = ZigClangInitListExpr_getArrayFiller(expr);
     try filler_init_node.op.ArrayInitializer.push(try transExpr(rp, scope, filler_val_expr, .used, .r_value));
     filler_init_node.rtoken = try appendToken(rp.c, .RBrace, "}");
@@ -3878,11 +3906,11 @@ fn transCreateNodeBoolLiteral(c: *Context, value: bool) !*ast.Node {
     return &node.base;
 }
 
-fn transCreateNodeContainerInitializer(c: *Context, dot_tok: ast.TokenIndex) !*ast.Node.SuffixOp {
+fn transCreateNodeArrayInitializer(c: *Context, ty: *ast.Node) !*ast.Node.SuffixOp {
     _ = try appendToken(c, .LBrace, "{");
     const node = try c.a().create(ast.Node.SuffixOp);
     node.* = ast.Node.SuffixOp{
-        .lhs = .{ .dot = dot_tok },
+        .lhs = .{ .node = ty },
         .op = .{
             .ArrayInitializer = ast.Node.SuffixOp.Op.InitList.init(c.a()),
         },
