@@ -10,10 +10,14 @@ pub const TokenIndex = usize;
 pub const Tree = struct {
     source: []const u8,
     tokens: TokenList,
+
     /// undefined on parse error (errors not empty)
     root_node: *Node.Root,
     arena_allocator: std.heap.ArenaAllocator,
     errors: ErrorList,
+
+    /// translate-c uses this to avoid having to emit correct newlines
+    /// TODO get rid of this hack
     generated: bool = false,
 
     pub const TokenList = SegmentedList(Token, 64);

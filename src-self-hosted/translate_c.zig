@@ -4716,6 +4716,7 @@ fn appendToken(c: *Context, token_id: Token.Id, bytes: []const u8) !ast.TokenInd
 }
 
 fn appendTokenFmt(c: *Context, token_id: Token.Id, comptime format: []const u8, args: var) !ast.TokenIndex {
+    assert(token_id != .Invalid);
     const S = struct {
         fn callback(context: *Context, bytes: []const u8) error{OutOfMemory}!void {
             return context.source_buffer.append(bytes);
