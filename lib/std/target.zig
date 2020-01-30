@@ -348,6 +348,7 @@ pub const Target = union(enum) {
                 .bpfeb => ._BPF,
                 .sparcv9 => ._SPARCV9,
                 .s390x => ._S390,
+                .ve => ._NONE,
             };
         }
 
@@ -389,6 +390,7 @@ pub const Target = union(enum) {
                 .renderscript32,
                 .renderscript64,
                 .shave,
+                .ve,
                 => .Little,
 
                 .arc,
