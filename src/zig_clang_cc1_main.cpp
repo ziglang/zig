@@ -274,4 +274,3 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
 
   return !Success;
 }
-
