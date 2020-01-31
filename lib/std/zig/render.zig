@@ -1344,11 +1344,22 @@ fn renderExpression(
                 try renderToken(tree, stream, fn_proto.fn_token, indent, start_col, Space.Space); // fn
                 break :blk tree.nextToken(fn_proto.fn_token);
             };
+            assert(tree.tokens.at(lparen).id == .LParen);
 
-            const rparen = tree.prevToken(switch (fn_proto.return_type) {
-                ast.Node.FnProto.ReturnType.Explicit => |node| node.firstToken(),
-                ast.Node.FnProto.ReturnType.InferErrorSet => |node| tree.prevToken(node.firstToken()),
+            const rparen = tree.prevToken(
+            // the first token for the annotation expressions is the left
+            // parenthesis, hence the need for two prevToken
+            if (fn_proto.align_expr) |align_expr|
+                tree.prevToken(tree.prevToken(align_expr.firstToken()))
+            else if (fn_proto.section_expr) |section_expr|
+                tree.prevToken(tree.prevToken(section_expr.firstToken()))
+            else if (fn_proto.callconv_expr) |callconv_expr|
+                tree.prevToken(tree.prevToken(callconv_expr.firstToken()))
+            else switch (fn_proto.return_type) {
+                .Explicit => |node| node.firstToken(),
+                .InferErrorSet => |node| tree.prevToken(node.firstToken()),
             });
+            assert(tree.tokens.at(rparen).id == .RParen);
 
             const src_params_trailing_comma = blk: {
                 const maybe_comma = tree.tokens.at(rparen - 1).id;
