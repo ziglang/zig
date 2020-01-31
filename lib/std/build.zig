@@ -1075,9 +1075,10 @@ pub const CrossTarget = std.Target.Cross;
 /// Deprecated. Use `std.Target`.
 pub const Target = std.Target;
 
-const Pkg = struct {
+pub const Pkg = struct {
     name: []const u8,
     path: []const u8,
+    dependencies: ?[]Pkg = null,
 };
 
 const CSourceFile = struct {
@@ -1742,6 +1743,10 @@ pub const LibExeObjStep = struct {
         self.framework_dirs.append(self.builder.dupe(dir_path)) catch unreachable;
     }
 
+    pub fn addPackage(self: *LibExeObjStep, package: Pkg) void {
+        self.packages.append(package) catch unreachable;
+    }
+
     pub fn addPackagePath(self: *LibExeObjStep, name: []const u8, pkg_index_path: []const u8) void {
         self.packages.append(Pkg{
             .name = self.builder.dupe(name),
@@ -2091,10 +2096,20 @@ pub const LibExeObjStep = struct {
             },
         }
         for (self.packages.toSliceConst()) |pkg| {
-            zig_args.append("--pkg-begin") catch unreachable;
-            zig_args.append(pkg.name) catch unreachable;
-            zig_args.append(builder.pathFromRoot(pkg.path)) catch unreachable;
-            zig_args.append("--pkg-end") catch unreachable;
+            try zig_args.append("--pkg-begin");
+            try zig_args.append(pkg.name);
+            try zig_args.append(builder.pathFromRoot(pkg.path));
+
+            if (pkg.dependencies) |dependencies| {
+                for (dependencies) |sub_pkg| {
+                    try zig_args.append("--pkg-begin");
+                    try zig_args.append(sub_pkg.name);
+                    try zig_args.append(builder.pathFromRoot(sub_pkg.path));
+                    try zig_args.append("--pkg-end");
+                }
+            }
+
+            try zig_args.append("--pkg-end");
         }
 
         for (self.include_dirs.toSliceConst()) |include_dir| {
