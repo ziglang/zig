@@ -662,7 +662,7 @@ pub fn WSAStartup(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
     var wsadata: ws2_32.WSADATA = undefined;
     return switch (ws2_32.WSAStartup((@as(WORD, minorVersion) << 8) | majorVersion, &wsadata)) {
         0 => wsadata,
-        else => |err| unexpectedWSAError(err),
+        else => |err| unexpectedWSAError(@intToEnum(WinsockError, err)),
     };
 }
 
@@ -687,10 +687,10 @@ pub fn WSASocketW(
     const rc = ws2_32.WSASocketW(af, socket_type, protocol, protocolInfo, g, dwFlags);
     if (rc == ws2_32.INVALID_SOCKET) {
         switch (ws2_32.WSAGetLastError()) {
-            ws2_32.WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
-            ws2_32.WSAEMFILE => return error.ProcessFdQuotaExceeded,
-            ws2_32.WSAENOBUFS => return error.SystemResources,
-            ws2_32.WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,
+            .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+            .WSAEMFILE => return error.ProcessFdQuotaExceeded,
+            .WSAENOBUFS => return error.SystemResources,
+            .WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,
             else => |err| return unexpectedWSAError(err),
         }
     }
@@ -1050,8 +1050,8 @@ pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
     return error.Unexpected;
 }
 
-pub fn unexpectedWSAError(err: c_int) std.os.UnexpectedError {
-    return unexpectedError(@intToEnum(Win32Error, @intCast(u16, err)));
+pub fn unexpectedWSAError(err: WinsockError) std.os.UnexpectedError {
+    return unexpectedError(@intToEnum(Win32Error, @enumToInt(err)));
 }
 
 /// Call this when you made a windows NtDll call
