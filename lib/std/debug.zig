@@ -997,8 +997,6 @@ pub fn openElfDebugInfo(
             null,
     };
 
-    efile.close();
-
     try openDwarfDebugInfo(&di, allocator);
     return di;
 }
