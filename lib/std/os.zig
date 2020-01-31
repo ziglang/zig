@@ -1176,15 +1176,15 @@ pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*:0]const u16, flags: u32) UnlinkatEr
         null,
         0,
     );
-    if (rc == w.STATUS.SUCCESS) {
+    if (rc == .SUCCESS) {
         rc = w.ntdll.NtClose(tmp_handle);
     }
     switch (rc) {
-        w.STATUS.SUCCESS => return,
-        w.STATUS.OBJECT_NAME_INVALID => unreachable,
-        w.STATUS.OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        w.STATUS.INVALID_PARAMETER => unreachable,
-        w.STATUS.FILE_IS_A_DIRECTORY => return error.IsDir,
+        .SUCCESS => return,
+        .OBJECT_NAME_INVALID => unreachable,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .INVALID_PARAMETER => unreachable,
+        .FILE_IS_A_DIRECTORY => return error.IsDir,
         else => return w.unexpectedStatus(rc),
     }
 }

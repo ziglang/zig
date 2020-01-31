@@ -6,7 +6,7 @@ const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
 pub const ERROR = @import("error.zig");
-pub const STATUS = @import("status.zig");
+pub usingnamespace @import("ntstatus.zig");
 pub const LANG = @import("lang.zig");
 pub const SUBLANG = @import("sublang.zig");
 
@@ -62,7 +62,6 @@ pub const ULONGLONG = u64;
 pub const LONGLONG = i64;
 pub const HLOCAL = HANDLE;
 pub const LANGID = c_ushort;
-pub const NTSTATUS = ULONG;
 
 pub const va_list = *@OpaqueType();
 
@@ -929,9 +928,12 @@ pub usingnamespace switch (builtin.arch) {
             SegSs: DWORD,
             ExtendedRegisters: [512]BYTE,
 
-            pub fn getRegs(ctx: *const CONTEXT) struct {bp: usize, ip: usize} {
-                return .{.bp = ctx.Ebp, .ip = ctx.Eip};
-            }  
+            pub fn getRegs(ctx: *const CONTEXT) struct {
+                bp: usize,
+                ip: usize,
+            } {
+                return .{ .bp = ctx.Ebp, .ip = ctx.Eip };
+            }
         };
 
         pub const PCONTEXT = *CONTEXT;
@@ -1032,8 +1034,11 @@ pub usingnamespace switch (builtin.arch) {
             LastExceptionToRip: DWORD64,
             LastExceptionFromRip: DWORD64,
 
-            pub fn getRegs(ctx: *const CONTEXT) struct {bp: usize, ip: usize} {
-                return .{.bp = ctx.Rbp, .ip = ctx.Rip};
+            pub fn getRegs(ctx: *const CONTEXT) struct {
+                bp: usize,
+                ip: usize,
+            } {
+                return .{ .bp = ctx.Rbp, .ip = ctx.Rip };
             }
         };
 
@@ -1100,8 +1105,11 @@ pub usingnamespace switch (builtin.arch) {
             Wcr: [2]DWORD,
             Wvr: [2]DWORD64,
 
-            pub fn getRegs(ctx: *const CONTEXT) struct {bp: usize, ip: usize} {
-                return .{.bp = ctx.DUMMYUNIONNAME.DUMMYSTRUCTNAME.Fp, .ip = ctx.Pc};
+            pub fn getRegs(ctx: *const CONTEXT) struct {
+                bp: usize,
+                ip: usize,
+            } {
+                return .{ .bp = ctx.DUMMYUNIONNAME.DUMMYSTRUCTNAME.Fp, .ip = ctx.Pc };
             }
         };
 

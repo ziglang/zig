@@ -225,10 +225,10 @@ pub const File = struct {
             var info: windows.FILE_ALL_INFORMATION = undefined;
             const rc = windows.ntdll.NtQueryInformationFile(self.handle, &io_status_block, &info, @sizeOf(windows.FILE_ALL_INFORMATION), .FileAllInformation);
             switch (rc) {
-                windows.STATUS.SUCCESS => {},
-                windows.STATUS.BUFFER_OVERFLOW => {},
-                windows.STATUS.INVALID_PARAMETER => unreachable,
-                windows.STATUS.ACCESS_DENIED => return error.AccessDenied,
+                .SUCCESS => {},
+                .BUFFER_OVERFLOW => {},
+                .INVALID_PARAMETER => unreachable,
+                .ACCESS_DENIED => return error.AccessDenied,
                 else => return windows.unexpectedStatus(rc),
             }
             return Stat{

@@ -1057,7 +1057,7 @@ pub fn unexpectedWSAError(err: c_int) std.os.UnexpectedError {
 /// and you get an unexpected status.
 pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
-        std.debug.warn("error.Unexpected NTSTATUS=0x{x}\n", .{status});
+        std.debug.warn("error.Unexpected NTSTATUS=0x{x}\n", .{@enumToInt(status)});
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
