@@ -73,7 +73,7 @@ pub extern "kernel32" fn FindFirstFileW(lpFileName: [*:0]const u16, lpFindFileDa
 pub extern "kernel32" fn FindClose(hFindFile: HANDLE) callconv(.Stdcall) BOOL;
 pub extern "kernel32" fn FindNextFileW(hFindFile: HANDLE, lpFindFileData: *WIN32_FIND_DATAW) callconv(.Stdcall) BOOL;
 
-pub extern "kernel32" fn FormatMessageW(dwFlags: DWORD, lpSource: ?LPVOID, dwMessageId: DWORD, dwLanguageId: DWORD, lpBuffer: [*]u16, nSize: DWORD, Arguments: ?*va_list) callconv(.Stdcall) DWORD;
+pub extern "kernel32" fn FormatMessageW(dwFlags: DWORD, lpSource: ?LPVOID, dwMessageId: Win32Error, dwLanguageId: DWORD, lpBuffer: [*]u16, nSize: DWORD, Arguments: ?*va_list) callconv(.Stdcall) DWORD;
 
 pub extern "kernel32" fn FreeEnvironmentStringsW(penv: [*:0]u16) callconv(.Stdcall) BOOL;
 
@@ -104,7 +104,7 @@ pub extern "kernel32" fn GetModuleFileNameW(hModule: ?HMODULE, lpFilename: [*]u1
 
 pub extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*]const WCHAR) callconv(.Stdcall) HMODULE;
 
-pub extern "kernel32" fn GetLastError() callconv(.Stdcall) DWORD;
+pub extern "kernel32" fn GetLastError() callconv(.Stdcall) Win32Error;
 
 pub extern "kernel32" fn GetFileInformationByHandle(
     hFile: HANDLE,

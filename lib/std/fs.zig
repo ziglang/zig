@@ -598,8 +598,8 @@ pub const Dir = struct {
                         self.index = 0;
                         self.end_index = io.Information;
                         switch (rc) {
-                            w.STATUS.SUCCESS => {},
-                            w.STATUS.ACCESS_DENIED => return error.AccessDenied,
+                            .SUCCESS => {},
+                            .ACCESS_DENIED => return error.AccessDenied,
                             else => return w.unexpectedStatus(rc),
                         }
                     }
@@ -837,16 +837,16 @@ pub const Dir = struct {
             0,
         );
         switch (rc) {
-            w.STATUS.SUCCESS => return result,
-            w.STATUS.OBJECT_NAME_INVALID => unreachable,
-            w.STATUS.OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-            w.STATUS.OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-            w.STATUS.INVALID_PARAMETER => unreachable,
-            w.STATUS.SHARING_VIOLATION => return error.SharingViolation,
-            w.STATUS.ACCESS_DENIED => return error.AccessDenied,
-            w.STATUS.PIPE_BUSY => return error.PipeBusy,
-            w.STATUS.OBJECT_PATH_SYNTAX_BAD => unreachable,
-            w.STATUS.OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+            .SUCCESS => return result,
+            .OBJECT_NAME_INVALID => unreachable,
+            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .INVALID_PARAMETER => unreachable,
+            .SHARING_VIOLATION => return error.SharingViolation,
+            .ACCESS_DENIED => return error.AccessDenied,
+            .PIPE_BUSY => return error.PipeBusy,
+            .OBJECT_PATH_SYNTAX_BAD => unreachable,
+            .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
             else => return w.unexpectedStatus(rc),
         }
     }
@@ -990,11 +990,11 @@ pub const Dir = struct {
             0,
         );
         switch (rc) {
-            w.STATUS.SUCCESS => return result,
-            w.STATUS.OBJECT_NAME_INVALID => unreachable,
-            w.STATUS.OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-            w.STATUS.OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-            w.STATUS.INVALID_PARAMETER => unreachable,
+            .SUCCESS => return result,
+            .OBJECT_NAME_INVALID => unreachable,
+            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .INVALID_PARAMETER => unreachable,
             else => return w.unexpectedStatus(rc),
         }
     }

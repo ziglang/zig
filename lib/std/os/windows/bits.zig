@@ -5,8 +5,8 @@ const std = @import("../../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
-pub const ERROR = @import("error.zig");
-pub const STATUS = @import("status.zig");
+pub usingnamespace @import("win32error.zig");
+pub usingnamespace @import("ntstatus.zig");
 pub const LANG = @import("lang.zig");
 pub const SUBLANG = @import("sublang.zig");
 
@@ -62,7 +62,6 @@ pub const ULONGLONG = u64;
 pub const LONGLONG = i64;
 pub const HLOCAL = HANDLE;
 pub const LANGID = c_ushort;
-pub const NTSTATUS = ULONG;
 
 pub const va_list = *@OpaqueType();
 

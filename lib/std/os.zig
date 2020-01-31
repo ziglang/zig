@@ -1176,15 +1176,15 @@ pub fn unlinkatW(dirfd: fd_t, sub_path_w: [*:0]const u16, flags: u32) UnlinkatEr
         null,
         0,
     );
-    if (rc == w.STATUS.SUCCESS) {
+    if (rc == .SUCCESS) {
         rc = w.ntdll.NtClose(tmp_handle);
     }
     switch (rc) {
-        w.STATUS.SUCCESS => return,
-        w.STATUS.OBJECT_NAME_INVALID => unreachable,
-        w.STATUS.OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        w.STATUS.INVALID_PARAMETER => unreachable,
-        w.STATUS.FILE_IS_A_DIRECTORY => return error.IsDir,
+        .SUCCESS => return,
+        .OBJECT_NAME_INVALID => unreachable,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .INVALID_PARAMETER => unreachable,
+        .FILE_IS_A_DIRECTORY => return error.IsDir,
         else => return w.unexpectedStatus(rc),
     }
 }
@@ -2345,9 +2345,9 @@ pub fn accessW(path: [*:0]const u16, mode: u32) windows.GetFileAttributesError!v
         return;
     }
     switch (windows.kernel32.GetLastError()) {
-        windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-        windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-        windows.ERROR.ACCESS_DENIED => return error.PermissionDenied,
+        .FILE_NOT_FOUND => return error.FileNotFound,
+        .PATH_NOT_FOUND => return error.FileNotFound,
+        .ACCESS_DENIED => return error.PermissionDenied,
         else => |err| return windows.unexpectedError(err),
     }
 }
