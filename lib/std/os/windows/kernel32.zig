@@ -88,6 +88,8 @@ pub extern "kernel32" fn GetCurrentDirectoryW(nBufferLength: DWORD, lpBuffer: ?[
 pub extern "kernel32" fn GetCurrentThread() callconv(.Stdcall) HANDLE;
 pub extern "kernel32" fn GetCurrentThreadId() callconv(.Stdcall) DWORD;
 
+pub extern "kernel32" fn GetCurrentProcess() callconv(.Stdcall) HANDLE;
+
 pub extern "kernel32" fn GetEnvironmentStringsW() callconv(.Stdcall) ?[*:0]u16;
 
 pub extern "kernel32" fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: [*]u16, nSize: DWORD) callconv(.Stdcall) DWORD;
@@ -246,3 +248,31 @@ pub extern "kernel32" fn LeaveCriticalSection(lpCriticalSection: *CRITICAL_SECTI
 pub extern "kernel32" fn DeleteCriticalSection(lpCriticalSection: *CRITICAL_SECTION) callconv(.Stdcall) void;
 
 pub extern "kernel32" fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*c_void, Context: ?*c_void) callconv(.Stdcall) BOOL;
+
+pub extern "kernel32" fn K32EmptyWorkingSet(hProcess: HANDLE) callconv(.Stdcall) BOOL;
+pub extern "kernel32" fn K32EnumDeviceDrivers(lpImageBase: [*c]LPVOID, cb: DWORD, lpcbNeeded: LPDWORD) callconv(.Stdcall) BOOL;
+pub extern "kernel32" fn K32EnumPageFilesA(pCallBackRoutine: PENUM_PAGE_FILE_CALLBACKA, pContext: LPVOID) callconv(.Stdcall) BOOL;
+pub extern "kernel32" fn K32EnumPageFilesW(pCallBackRoutine: PENUM_PAGE_FILE_CALLBACKW, pContext: LPVOID) callconv(.Stdcall) BOOL;
+pub extern "kernel32" fn K32EnumProcessModules(hProcess: HANDLE, lphModule: [*c]HMODULE, cb: DWORD, lpcbNeeded: LPDWORD) callconv(.Stdcall) BOOL;
+pub extern "kernel32" fn K32EnumProcessModulesEx(hProcess: HANDLE, lphModule: [*c]HMODULE, cb: DWORD, lpcbNeeded: LPDWORD, dwFilterFlag: DWORD) callconv(.Stdcall) BOOL;
+pub extern "kernel32" fn K32EnumProcesses(lpidProcess: [*c]DWORD, cb: DWORD, cbNeeded: [*c]DWORD) callconv(.Stdcall) BOOL;
+pub extern "kernel32" fn K32GetDeviceDriverBaseNameA(ImageBase: LPVOID, lpBaseName: LPSTR, nSize: DWORD) callconv(.Stdcall) DWORD;
+pub extern "kernel32" fn K32GetDeviceDriverBaseNameW(ImageBase: LPVOID, lpBaseName: LPWSTR, nSize: DWORD) callconv(.Stdcall) DWORD;
+pub extern "kernel32" fn K32GetDeviceDriverFileNameA(ImageBase: LPVOID, lpFilename: LPSTR, nSize: DWORD) callconv(.Stdcall) DWORD;
+pub extern "kernel32" fn K32GetDeviceDriverFileNameW(ImageBase: LPVOID, lpFilename: LPWSTR, nSize: DWORD) callconv(.Stdcall) DWORD;
+pub extern "kernel32" fn K32GetMappedFileNameA(hProcess: HANDLE, lpv: LPVOID, lpFilename: LPSTR, nSize: DWORD) callconv(.Stdcall) DWORD;
+pub extern "kernel32" fn K32GetMappedFileNameW(hProcess: HANDLE, lpv: LPVOID, lpFilename: LPWSTR, nSize: DWORD) callconv(.Stdcall) DWORD;
+pub extern "kernel32" fn K32GetModuleBaseNameA(hProcess: HANDLE, hModule: HMODULE, lpBaseName: LPSTR, nSize: DWORD) callconv(.Stdcall) DWORD;
+pub extern "kernel32" fn K32GetModuleBaseNameW(hProcess: HANDLE, hModule: HMODULE, lpBaseName: LPWSTR, nSize: DWORD) callconv(.Stdcall) DWORD;
+pub extern "kernel32" fn K32GetModuleFileNameExA(hProcess: HANDLE, hModule: HMODULE, lpFilename: LPSTR, nSize: DWORD) callconv(.Stdcall) DWORD;
+pub extern "kernel32" fn K32GetModuleFileNameExW(hProcess: HANDLE, hModule: HMODULE, lpFilename: LPWSTR, nSize: DWORD) callconv(.Stdcall) DWORD;
+pub extern "kernel32" fn K32GetModuleInformation(hProcess: HANDLE, hModule: HMODULE, lpmodinfo: LPMODULEINFO, cb: DWORD) callconv(.Stdcall) BOOL;
+pub extern "kernel32" fn K32GetPerformanceInfo(pPerformanceInformation: PPERFORMACE_INFORMATION, cb: DWORD) callconv(.Stdcall) BOOL;
+pub extern "kernel32" fn K32GetProcessImageFileNameA(hProcess: HANDLE, lpImageFileName: LPSTR, nSize: DWORD) callconv(.Stdcall) DWORD;
+pub extern "kernel32" fn K32GetProcessImageFileNameW(hProcess: HANDLE, lpImageFileName: LPWSTR, nSize: DWORD) callconv(.Stdcall) DWORD;
+pub extern "kernel32" fn K32GetProcessMemoryInfo(Process: HANDLE, ppsmemCounters: PPROCESS_MEMORY_COUNTERS, cb: DWORD) callconv(.Stdcall) BOOL;
+pub extern "kernel32" fn K32GetWsChanges(hProcess: HANDLE, lpWatchInfo: PPSAPI_WS_WATCH_INFORMATION, cb: DWORD) callconv(.Stdcall) BOOL;
+pub extern "kernel32" fn K32GetWsChangesEx(hProcess: HANDLE, lpWatchInfoEx: PPSAPI_WS_WATCH_INFORMATION_EX, cb: DWORD) callconv(.Stdcall) BOOL;
+pub extern "kernel32" fn K32InitializeProcessForWsWatch(hProcess: HANDLE) callconv(.Stdcall) BOOL;
+pub extern "kernel32" fn K32QueryWorkingSet(hProcess: HANDLE, pv: PVOID, cb: DWORD) callconv(.Stdcall) BOOL;
+pub extern "kernel32" fn K32QueryWorkingSetEx(hProcess: HANDLE, pv: PVOID, cb: DWORD) callconv(.Stdcall) BOOL;
