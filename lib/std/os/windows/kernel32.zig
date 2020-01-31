@@ -88,6 +88,8 @@ pub extern "kernel32" fn GetCurrentDirectoryW(nBufferLength: DWORD, lpBuffer: ?[
 pub extern "kernel32" fn GetCurrentThread() callconv(.Stdcall) HANDLE;
 pub extern "kernel32" fn GetCurrentThreadId() callconv(.Stdcall) DWORD;
 
+pub extern "kernel32" fn GetCurrentProcess() callconv(.Stdcall) HANDLE;
+
 pub extern "kernel32" fn GetEnvironmentStringsW() callconv(.Stdcall) ?[*:0]u16;
 
 pub extern "kernel32" fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: [*]u16, nSize: DWORD) callconv(.Stdcall) DWORD;
