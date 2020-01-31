@@ -365,14 +365,21 @@ pub fn formatType(
             try output(context, "error.");
             return output(context, @errorName(value));
         },
-        .Enum => {
+        .Enum => |enumInfo| {
             if (comptime std.meta.trait.hasFn("format")(T)) {
                 return value.format(fmt, options, context, Errors, output);
             }
 
             try output(context, @typeName(T));
-            try output(context, ".");
-            return formatType(@tagName(value), "", options, context, Errors, output, max_depth);
+            if (enumInfo.is_exhaustive) {
+                try output(context, ".");
+                return formatType(@tagName(value), "", options, context, Errors, output, max_depth);
+            } else {
+                // TODO: when @tagName works on exhaustive enums print known enum strings
+                try output(context, "(");
+                try formatType(@enumToInt(value), "", options, context, Errors, output, max_depth);
+                try output(context, ")");
+            }
         },
         .Union => {
             if (comptime std.meta.trait.hasFn("format")(T)) {
