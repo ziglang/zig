@@ -1,3 +1,41 @@
+test "zig fmt: trailing comma in fn parameter list" {
+    try testCanonical(
+        \\pub fn f(
+        \\    a: i32,
+        \\    b: i32,
+        \\) i32 {}
+        \\pub fn f(
+        \\    a: i32,
+        \\    b: i32,
+        \\) align(8) i32 {}
+        \\pub fn f(
+        \\    a: i32,
+        \\    b: i32,
+        \\) linksection(".text") i32 {}
+        \\pub fn f(
+        \\    a: i32,
+        \\    b: i32,
+        \\) callconv(.C) i32 {}
+        \\pub fn f(
+        \\    a: i32,
+        \\    b: i32,
+        \\) align(8) linksection(".text") i32 {}
+        \\pub fn f(
+        \\    a: i32,
+        \\    b: i32,
+        \\) align(8) callconv(.C) i32 {}
+        \\pub fn f(
+        \\    a: i32,
+        \\    b: i32,
+        \\) align(8) linksection(".text") callconv(.C) i32 {}
+        \\pub fn f(
+        \\    a: i32,
+        \\    b: i32,
+        \\) linksection(".text") callconv(.C) i32 {}
+        \\
+    );
+}
+
 // TODO: Remove condition after deprecating 'typeOf'. See https://github.com/ziglang/zig/issues/1348
 test "zig fmt: change @typeOf to @TypeOf" {
     try testTransform(
