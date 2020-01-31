@@ -1735,17 +1735,17 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn addLibPath(self: *LibExeObjStep, path: []const u8) void {
-        self.lib_paths.append(path) catch unreachable;
+        self.lib_paths.append(self.builder.dupe(path)) catch unreachable;
     }
 
     pub fn addFrameworkDir(self: *LibExeObjStep, dir_path: []const u8) void {
-        self.framework_dirs.append(dir_path) catch unreachable;
+        self.framework_dirs.append(self.builder.dupe(dir_path)) catch unreachable;
     }
 
     pub fn addPackagePath(self: *LibExeObjStep, name: []const u8, pkg_index_path: []const u8) void {
         self.packages.append(Pkg{
-            .name = name,
-            .path = pkg_index_path,
+            .name = self.builder.dupe(name),
+            .path = self.builder.dupe(pkg_index_path),
         }) catch unreachable;
     }
 
