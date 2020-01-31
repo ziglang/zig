@@ -2345,9 +2345,9 @@ pub fn accessW(path: [*:0]const u16, mode: u32) windows.GetFileAttributesError!v
         return;
     }
     switch (windows.kernel32.GetLastError()) {
-        windows.ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-        windows.ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-        windows.ERROR.ACCESS_DENIED => return error.PermissionDenied,
+        .FILE_NOT_FOUND => return error.FileNotFound,
+        .PATH_NOT_FOUND => return error.FileNotFound,
+        .ACCESS_DENIED => return error.PermissionDenied,
         else => |err| return windows.unexpectedError(err),
     }
 }

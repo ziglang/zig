@@ -5,7 +5,7 @@ const std = @import("../../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
-pub const ERROR = @import("error.zig");
+pub usingnamespace @import("win32error.zig");
 pub usingnamespace @import("ntstatus.zig");
 pub const LANG = @import("lang.zig");
 pub const SUBLANG = @import("sublang.zig");

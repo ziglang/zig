@@ -160,12 +160,12 @@ pub fn pwriteWindows(fd: fd_t, data: []const u8, offset: u64) os.WindowsWriteErr
     var bytes_transferred: windows.DWORD = undefined;
     if (windows.kernel32.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
         switch (windows.kernel32.GetLastError()) {
-            windows.ERROR.IO_PENDING => unreachable,
-            windows.ERROR.INVALID_USER_BUFFER => return error.SystemResources,
-            windows.ERROR.NOT_ENOUGH_MEMORY => return error.SystemResources,
-            windows.ERROR.OPERATION_ABORTED => return error.OperationAborted,
-            windows.ERROR.NOT_ENOUGH_QUOTA => return error.SystemResources,
-            windows.ERROR.BROKEN_PIPE => return error.BrokenPipe,
+            .IO_PENDING => unreachable,
+            .INVALID_USER_BUFFER => return error.SystemResources,
+            .NOT_ENOUGH_MEMORY => return error.SystemResources,
+            .OPERATION_ABORTED => return error.OperationAborted,
+            .NOT_ENOUGH_QUOTA => return error.SystemResources,
+            .BROKEN_PIPE => return error.BrokenPipe,
             else => |err| return windows.unexpectedError(err),
         }
     }
@@ -320,10 +320,10 @@ pub fn preadWindows(fd: fd_t, data: []u8, offset: u64) !usize {
     var bytes_transferred: windows.DWORD = undefined;
     if (windows.kernel32.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
         switch (windows.kernel32.GetLastError()) {
-            windows.ERROR.IO_PENDING => unreachable,
-            windows.ERROR.OPERATION_ABORTED => return error.OperationAborted,
-            windows.ERROR.BROKEN_PIPE => return error.BrokenPipe,
-            windows.ERROR.HANDLE_EOF => return @as(usize, bytes_transferred),
+            .IO_PENDING => unreachable,
+            .OPERATION_ABORTED => return error.OperationAborted,
+            .BROKEN_PIPE => return error.BrokenPipe,
+            .HANDLE_EOF => return @as(usize, bytes_transferred),
             else => |err| return windows.unexpectedError(err),
         }
     }
