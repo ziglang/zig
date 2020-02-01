@@ -1,3 +1,14 @@
+test "zig fmt: trailing comma in container declaration" {
+    try testCanonical(
+        \\const X = struct { foo: i32 };
+        \\const X = struct { foo: i32, bar: i32 };
+        \\const X = struct { foo: i32 = 1, bar: i32 = 2 };
+        \\const X = struct { foo: i32 align(4), bar: i32 align(4) };
+        \\const X = struct { foo: i32 align(4) = 1, bar: i32 align(4) = 2 };
+        \\
+    );
+}
+
 test "zig fmt: trailing comma in fn parameter list" {
     try testCanonical(
         \\pub fn f(
@@ -727,10 +738,7 @@ test "zig fmt: enum decl with no trailing comma" {
     try testTransform(
         \\const StrLitKind = enum {Normal, C};
     ,
-        \\const StrLitKind = enum {
-        \\    Normal,
-        \\    C,
-        \\};
+        \\const StrLitKind = enum { Normal, C };
         \\
     );
 }
@@ -989,11 +997,7 @@ test "zig fmt: no trailing comma on struct decl" {
         \\    k: usize, s: u32, t: u32
         \\};
     ,
-        \\const RoundParam = struct {
-        \\    k: usize,
-        \\    s: u32,
-        \\    t: u32,
-        \\};
+        \\const RoundParam = struct { k: usize, s: u32, t: u32 };
         \\
     );
 }
@@ -2560,10 +2564,8 @@ test "zig fmt: if type expr" {
     );
 }
 test "zig fmt: file ends with struct field" {
-    try testTransform(
+    try testCanonical(
         \\a: bool
-    ,
-        \\a: bool,
         \\
     );
 }
