@@ -1181,8 +1181,8 @@ fn renderExpression(
 
             // Check if the first declaration and the { are on the same line
             const src_has_newline = !tree.tokensOnSameLine(
+                container_decl.lbrace_token,
                 container_decl.fields_and_decls.at(0).*.firstToken(),
-                container_decl.rbrace_token,
             );
 
             // We can only print all the elements in-line if all the

@@ -7,6 +7,15 @@ test "zig fmt: trailing comma in container declaration" {
         \\const X = struct { foo: i32 align(4) = 1, bar: i32 align(4) = 2 };
         \\
     );
+    try testTransform(
+        \\const X = struct {
+        \\    foo: i32, bar: i8 };
+    ,
+        \\const X = struct {
+        \\    foo: i32, bar: i8
+        \\};
+        \\
+    );
 }
 
 test "zig fmt: trailing comma in fn parameter list" {
