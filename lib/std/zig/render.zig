@@ -1179,6 +1179,12 @@ fn renderExpression(
                 break :blk tree.tokens.at(maybe_comma).id == .Comma;
             };
 
+            // Check if the first declaration and the { are on the same line
+            const src_has_newline = !tree.tokensOnSameLine(
+                container_decl.fields_and_decls.at(0).*.firstToken(),
+                container_decl.rbrace_token,
+            );
+
             // We can only print all the elements in-line if all the
             // declarations inside are fields
             const src_has_only_fields = blk: {
@@ -1205,6 +1211,19 @@ fn renderExpression(
                 }
 
                 try stream.writeByteNTimes(' ', indent);
+            } else if (src_has_newline) {
+                // All the declarations on the same line, but place the items on
+                // their own line
+                try renderToken(tree, stream, container_decl.lbrace_token, indent, start_col, .Newline); // {
+
+                const new_indent = indent + indent_delta;
+                try stream.writeByteNTimes(' ', new_indent);
+
+                var it = container_decl.fields_and_decls.iterator(0);
+                while (it.next()) |decl| {
+                    const space_after_decl: Space = if (it.peek() == null) .Newline else .Space;
+                    try renderContainerDecl(allocator, stream, tree, new_indent, start_col, decl.*, space_after_decl);
+                }
             } else {
                 // All the declarations on the same line
                 try renderToken(tree, stream, container_decl.lbrace_token, indent, start_col, .Space); // {

@@ -992,12 +992,10 @@ test "zig fmt: empty block with only comment" {
 }
 
 test "zig fmt: no trailing comma on struct decl" {
-    try testTransform(
+    try testCanonical(
         \\const RoundParam = struct {
         \\    k: usize, s: u32, t: u32
         \\};
-    ,
-        \\const RoundParam = struct { k: usize, s: u32, t: u32 };
         \\
     );
 }
