@@ -56,9 +56,7 @@ pub fn getAppDataDir(allocator: *mem.Allocator, appname: []const u8) GetAppDataD
 }
 
 test "getAppDataDir" {
-    var buf: [512]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(buf[0..]).allocator;
-
     // We can't actually validate the result
-    _ = getAppDataDir(allocator, "zig") catch return;
+    const dir = getAppDataDir(std.testing.allocator, "zig") catch return;
+    defer std.testing.allocator.free(dir);
 }

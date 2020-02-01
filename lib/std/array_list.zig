@@ -244,10 +244,7 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
 }
 
 test "std.ArrayList.init" {
-    var bytes: [1024]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
-
-    var list = ArrayList(i32).init(allocator);
+    var list = ArrayList(i32).init(testing.allocator);
     defer list.deinit();
 
     testing.expect(list.len == 0);
@@ -255,19 +252,14 @@ test "std.ArrayList.init" {
 }
 
 test "std.ArrayList.initCapacity" {
-    var bytes: [1024]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
-    var list = try ArrayList(i8).initCapacity(allocator, 200);
+    var list = try ArrayList(i8).initCapacity(testing.allocator, 200);
     defer list.deinit();
     testing.expect(list.len == 0);
     testing.expect(list.capacity() >= 200);
 }
 
 test "std.ArrayList.basic" {
-    var bytes: [1024]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
-
-    var list = ArrayList(i32).init(allocator);
+    var list = ArrayList(i32).init(testing.allocator);
     defer list.deinit();
 
     // setting on empty list is out of bounds

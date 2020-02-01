@@ -2886,8 +2886,7 @@ fn testCanonical(source: []const u8) !void {
 }
 
 fn testError(source: []const u8) !void {
-    var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-    const tree = try std.zig.parse(&fixed_allocator.allocator, source);
+    const tree = try std.zig.parse(std.testing.allocator, source);
     defer tree.deinit();
 
     std.testing.expect(tree.errors.len != 0);
