@@ -8846,13 +8846,13 @@ static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
     ZigType *gen_return_type;
     if (is_async) {
         gen_return_type = g->builtin_types.entry_void;
-        param_di_types.append(get_llvm_di_type(g, gen_return_type));
+        param_di_types.append(nullptr);
     } else if (!type_has_bits(fn_type_id->return_type)) {
         gen_return_type = g->builtin_types.entry_void;
-        param_di_types.append(get_llvm_di_type(g, gen_return_type));
+        param_di_types.append(nullptr);
     } else if (first_arg_return) {
         gen_return_type = g->builtin_types.entry_void;
-        param_di_types.append(get_llvm_di_type(g, gen_return_type));
+        param_di_types.append(nullptr);
         ZigType *gen_type = get_pointer_to_type(g, fn_type_id->return_type, false);
         gen_param_types.append(get_llvm_type(g, gen_type));
         param_di_types.append(get_llvm_di_type(g, gen_type));
@@ -8955,7 +8955,7 @@ void resolve_llvm_types_fn(CodeGen *g, ZigFn *fn) {
     ZigList<ZigLLVMDIType *> param_di_types = {};
     ZigList<LLVMTypeRef> gen_param_types = {};
     // first "parameter" is return value
-    param_di_types.append(get_llvm_di_type(g, gen_return_type));
+    param_di_types.append(nullptr);
 
     ZigType *frame_type = get_fn_frame_type(g, fn);
     ZigType *ptr_type = get_pointer_to_type(g, frame_type, false);
