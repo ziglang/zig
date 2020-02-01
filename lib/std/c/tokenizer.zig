@@ -631,7 +631,7 @@ pub const Tokenizer = struct {
                 },
                 .BackSlashCr => switch (c) {
                     '\n' => {
-                        state =  .Start;
+                        state = .Start;
                     },
                     else => {
                         result.id = .Invalid;
