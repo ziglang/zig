@@ -214,7 +214,7 @@ const ChunkState = struct {
             // input is coming, so this compression is not CHUNK_END.
             if (self.block_len == BLOCK_LEN) {
                 var block_words: [16]u32 = undefined;
-                words_from_little_endian_bytes(&block_words, &self.block);
+                words_from_little_endian_bytes(block_words[0..], self.block[0..]);
                 self.chaining_value = first_8_words(compress(
                     self.chaining_value,
                     block_words,
@@ -234,7 +234,7 @@ const ChunkState = struct {
 
     fn output(self: *const ChunkState) Output {
         var block_words: [16]u32 = undefined;
-        words_from_little_endian_bytes(&block_words, &self.block);
+        words_from_little_endian_bytes(block_words[0..], self.block[0..]);
         return Output{
             .input_chaining_value = self.chaining_value,
             .block_words = block_words,
@@ -299,7 +299,7 @@ pub const Blake3 = struct {
     /// Construct a new `Blake3` for the keyed hash function.
     pub fn init_keyed(key: [KEY_LEN]u8) Blake3 {
         var key_words: [8]u32 = undefined;
-        words_from_little_endian_bytes(&key_words, key[0..]);
+        words_from_little_endian_bytes(key_words[0..], key[0..]);
         return Blake3.init_internal(key_words, KEYED_HASH);
     }
 
@@ -311,7 +311,7 @@ pub const Blake3 = struct {
         var context_key: [KEY_LEN]u8 = undefined;
         context_hasher.final(context_key[0..]);
         var context_key_words: [8]u32 = undefined;
-        words_from_little_endian_bytes(&context_key_words, &context_key);
+        words_from_little_endian_bytes(context_key_words[0..], context_key[0..]);
         return Blake3.init_internal(context_key_words, DERIVE_KEY_MATERIAL);
     }
 
