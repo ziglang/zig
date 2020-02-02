@@ -1209,12 +1209,14 @@ pub const Value = union(enum) {
             .Null => return true,
             .Bool => |self_bool| return self_bool == other.Bool,
             .Integer => |self_int| return self_int == other.Integer,
-            .Float => |self_float| return self_float == other.Float, // TODO: reconsider if/when std.math gets a dedicated float eql
+            .Float => |self_float| return self_float == other.Float,
             .String => |self_string| return mem.eql(u8, self_string, other.String),
 
-            .Array => |self_array| if (self_array.len == other.Array.len) {
+            .Array => |self_array| {
+                if (self_array.len != other.Array.len)
+                    return false;
                 for (self_array.items[0..self_array.len]) |self_array_item, i|
-                    if (!eql(self_array_item, other.Array.items[i]))
+                    if (!self_array_item.eql(other.Array.items[i]))
                         return false;
                 return true;
             },
@@ -1223,7 +1225,7 @@ pub const Value = union(enum) {
                 var hash_map_iter = self_object.iterator();
                 while (hash_map_iter.next()) |item| {
                     if (other.Object.getValue(item.key)) |other_value| {
-                        if (!eql(item.value, other_value)) return false;
+                        if (!item.value.eql(other_value)) return false;
                     } else return false;
                 }
                 return true;
