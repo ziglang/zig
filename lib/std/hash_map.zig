@@ -303,8 +303,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn (key: K) u3
         }
 
         fn initCapacity(hm: *Self, capacity: usize) !void {
-            const capacity_min = try math.ceilPowerOfTwo(usize, capacity);
-            hm.entries = try hm.allocator.alloc(Entry, capacity_min);
+            hm.entries = try hm.allocator.alloc(Entry, optimizedCapacity(capacity));
             hm.size = 0;
             hm.max_distance_from_start_index = 0;
             for (hm.entries) |*entry| {
