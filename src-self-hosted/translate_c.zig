@@ -4830,7 +4830,6 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
                 const macro = @ptrCast(*ZigClangMacroDefinitionRecord, entity);
                 const raw_name = ZigClangMacroDefinitionRecord_getName_getNameStart(macro);
                 const begin_loc = ZigClangMacroDefinitionRecord_getSourceRange_getBegin(macro);
-                // const end_loc = ZigClangMacroDefinitionRecord_getSourceRange_getEnd(macro);
 
                 const name = try c.str(raw_name);
                 // TODO https://github.com/ziglang/zig/issues/3756
@@ -4841,8 +4840,6 @@ fn transPreprocessorEntities(c: *Context, unit: *ZigClangASTUnit) Error!void {
                 }
 
                 const begin_c = ZigClangSourceManager_getCharacterData(c.source_manager, begin_loc);
-                // const end_c = ZigClangSourceManager_getCharacterData(c.source_manager, end_loc);
-                // const slice = begin_c[0 .. @ptrToInt(end_c) - @ptrToInt(begin_c)];
                 const slice = begin_c[0..mem.len(u8, begin_c)];
 
                 tok_list.shrink(0);
@@ -5023,7 +5020,7 @@ fn transMacroFnDefine(c: *Context, it: *CTokenList.Iterator, source: []const u8,
     const return_expr = try transCreateNodeReturnExpr(c);
     const expr = try parseCExpr(c, it, source, source_loc, scope);
     const last = it.next().?;
-    if (last.id != .Eof)
+    if (last.id != .Eof and last.id != .Nl)
         return failDecl(
             c,
             source_loc,
@@ -5122,7 +5119,7 @@ fn parseCNumLit(c: *Context, tok: *CToken, source: []const u8, source_loc: ZigCl
         const cast_node = try transCreateNodeBuiltinFnCall(c, "@as");
         try cast_node.params.push(try transCreateNodeIdentifier(c, switch (tok.id.FloatLiteral) {
             .F => "f32",
-            .L => "f64",
+            .L => "c_longdouble",
             else => unreachable,
         }));
         _ = try appendToken(c, .Comma, ",");
@@ -5309,6 +5306,15 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
         .IntegerLiteral, .FloatLiteral => {
             return parseCNumLit(c, tok, source, source_loc);
         },
+        // eventually this will be replaced by std.c.parse which will handle these correctly
+        .Keyword_void,
+        .Keyword_bool,
+        .Keyword_double,
+        .Keyword_long,
+        .Keyword_int,
+        .Keyword_float,
+        .Keyword_short,
+        .Keyword_char,
         .Identifier => {
             const mangled_name = scope.getAlias(source[tok.start..tok.end]);
             return transCreateNodeIdentifier(c, mangled_name);
@@ -5631,12 +5637,12 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                 };
                 node = &and_node.base;
             },
-            .LBrace => {
+            .LBracket => {
                 const arr_node = try transCreateNodeArrayAccess(c, node);
                 arr_node.op.ArrayAccess = try parseCPrefixOpExpr(c, it, source, source_loc, scope);
-                arr_node.rtoken = try appendToken(c, .RBrace, "]");
+                arr_node.rtoken = try appendToken(c, .RBracket, "]");
                 node = &arr_node.base;
-                if (it.next().?.id != .RBrace) {
+                if (it.next().?.id != .RBracket) {
                     const first_tok = it.list.at(0);
                     try failDecl(
                         c,

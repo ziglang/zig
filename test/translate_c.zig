@@ -618,6 +618,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         },
     );
 
+    cases.add("float suffixes",
+        \\#define foo 3.14f
+        \\#define bar 16.e-2l
+    , &[_][]const u8{
+        "pub const foo = @as(f32, 3.14);",
+        "pub const bar = @as(c_longdouble, 16.e-2);",
+    });
+
     cases.add("null statements",
         \\void foo(void) {
         \\    ;;;;;
