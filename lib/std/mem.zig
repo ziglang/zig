@@ -365,9 +365,10 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     return true;
 }
 
-pub fn len(comptime T: type, ptr: [*:0]const T) usize {
+pub fn len(comptime T: type, ptr: var) usize {
+    const sentinel: T = comptime meta.Sentinel(@TypeOf(ptr));
     var count: usize = 0;
-    while (ptr[count] != 0) : (count += 1) {}
+    while (ptr[count] != sentinel) : (count += 1) {}
     return count;
 }
 
