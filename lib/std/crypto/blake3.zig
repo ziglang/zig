@@ -119,11 +119,11 @@ fn compress(
     return state;
 }
 
-fn first_8_words(compression_output: [16]u32) [8]u32 {
-    return @ptrCast(*const [8]u32, &compression_output).*;
+fn first_8_words(words: [16]u32) [8]u32 {
+    return @ptrCast(*const [8]u32, &words).*;
 }
 
-fn words_from_little_endian_bytes(bytes: []const u8, words: []u32) void {
+fn words_from_little_endian_bytes(words: []u32, bytes: []const u8) void {
     var byte_slice = bytes;
     for (words) |*word| {
         word.* = mem.readIntSliceLittle(u32, byte_slice);
@@ -141,7 +141,7 @@ const Output = struct {
     counter: u64,
     flags: u8,
 
-    fn chaining_value(self: *Output) [8]u32 {
+    fn chaining_value(self: *const Output) [8]u32 {
         return first_8_words(compress(
             self.input_chaining_value,
             self.block_words,
@@ -151,7 +151,7 @@ const Output = struct {
         ));
     }
 
-    fn root_output_bytes(self: *Output, output: []u8) void {
+    fn root_output_bytes(self: *const Output, output: []u8) void {
         var out_block_it = ChunkIterator.init(output, 2 * OUT_LEN);
         var output_block_counter: usize = 0;
         while (out_block_it.next()) |out_block| {
@@ -214,7 +214,7 @@ const ChunkState = struct {
             // input is coming, so this compression is not CHUNK_END.
             if (self.block_len == BLOCK_LEN) {
                 var block_words: [16]u32 = undefined;
-                words_from_little_endian_bytes(&self.block, &block_words);
+                words_from_little_endian_bytes(&block_words, &self.block);
                 self.chaining_value = first_8_words(compress(
                     self.chaining_value,
                     block_words,
@@ -234,7 +234,7 @@ const ChunkState = struct {
 
     fn output(self: *const ChunkState) Output {
         var block_words: [16]u32 = undefined;
-        words_from_little_endian_bytes(&self.block, &block_words);
+        words_from_little_endian_bytes(&block_words, &self.block);
         return Output{
             .input_chaining_value = self.chaining_value,
             .block_words = block_words,
@@ -299,7 +299,7 @@ pub const Blake3 = struct {
     /// Construct a new `Blake3` for the keyed hash function.
     pub fn init_keyed(key: [KEY_LEN]u8) Blake3 {
         var key_words: [8]u32 = undefined;
-        words_from_little_endian_bytes(key[0..], &key_words);
+        words_from_little_endian_bytes(&key_words, key[0..]);
         return Blake3.init_internal(key_words, KEYED_HASH);
     }
 
@@ -311,7 +311,7 @@ pub const Blake3 = struct {
         var context_key: [KEY_LEN]u8 = undefined;
         context_hasher.final(context_key[0..]);
         var context_key_words: [8]u32 = undefined;
-        words_from_little_endian_bytes(&context_key, &context_key_words);
+        words_from_little_endian_bytes(&context_key_words, &context_key);
         return Blake3.init_internal(context_key_words, DERIVE_KEY_MATERIAL);
     }
 
@@ -327,12 +327,12 @@ pub const Blake3 = struct {
         self.cv_stack_len = 0;
     }
 
-    fn push_stack(self: *Blake3, cv: [8]u32) void {
+    fn push_cv(self: *Blake3, cv: [8]u32) void {
         self.cv_stack[self.cv_stack_len] = cv;
         self.cv_stack_len += 1;
     }
 
-    fn pop_stack(self: *Blake3) [8]u32 {
+    fn pop_cv(self: *Blake3) [8]u32 {
         self.cv_stack_len -= 1;
         return self.cv_stack[self.cv_stack_len];
     }
@@ -348,10 +348,10 @@ pub const Blake3 = struct {
         // by the number of trailing 0-bits in the new total number of chunks.
         var chunk_counter = total_chunks;
         while (chunk_counter & 1 == 0) {
-            new_cv = parent_cv(self.pop_stack(), new_cv, self.key, self.flags);
+            new_cv = parent_cv(self.pop_cv(), new_cv, self.key, self.flags);
             chunk_counter >>= 1;
         }
-        self.push_stack(new_cv);
+        self.push_cv(new_cv);
     }
 
     /// Add input to the hash state. This can be called any number of times.
@@ -376,7 +376,7 @@ pub const Blake3 = struct {
     }
 
     /// Finalize the hash and write any number of output bytes.
-    pub fn final(self: *Blake3, out_slice: []u8) void {
+    pub fn final(self: *const Blake3, out_slice: []u8) void {
         // Starting with the Output from the current chunk, compute all the
         // parent chaining values along the right edge of the tree, until we
         // have the root Output.
