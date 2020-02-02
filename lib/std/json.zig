@@ -1221,7 +1221,9 @@ pub const Value = union(enum) {
                 return true;
             },
 
-            .Object => |self_object| if (self_object.count() == other.Object.count()) {
+            .Object => |self_object| {
+                if (self_object.count() != other.Object.count())
+                    return false;
                 var hash_map_iter = self_object.iterator();
                 while (hash_map_iter.next()) |item| {
                     if (other.Object.getValue(item.key)) |other_value| {
