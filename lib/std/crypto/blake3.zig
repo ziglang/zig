@@ -395,6 +395,20 @@ pub const Blake3 = struct {
     }
 };
 
+// Use named type declarations to workaround crash with anonymous structs (issue #4373).
+const ReferenceTest = struct {
+    key: *const [KEY_LEN]u8,
+    context_string: []const u8,
+    cases: []const ReferenceTestCase,
+};
+
+const ReferenceTestCase = struct {
+    input_len: usize,
+    hash: *const [262]u8,
+    keyed_hash: *const [262]u8,
+    derive_key: *const [262]u8,
+};
+
 // Each test is an input length and three outputs, one for each of the `hash`, `keyed_hash`, and
 // `derive_key` modes. The input in each case is filled with a 251-byte-long repeating pattern:
 // 0, 1, 2, ..., 249, 250, 0, 1, ... The key used with `keyed_hash` is the 32-byte ASCII string
@@ -406,15 +420,10 @@ pub const Blake3 = struct {
 // that the first 32 bytes match their default-length output.
 //
 // Source: https://github.com/BLAKE3-team/BLAKE3/blob/92d421dea1a89e2f079f4dbd93b0dab41234b279/test_vectors/test_vectors.json
-const reference_test = .{
+const reference_test = ReferenceTest{
     .key = "whats the Elvish word for friend",
     .context_string = "BLAKE3 2019-12-27 16:29:52 test vectors context",
-    .cases = [_]struct {
-        input_len: usize,
-        hash: *const [262]u8,
-        keyed_hash: *const [262]u8,
-        derive_key: *const [262]u8,
-    }{
+    .cases = &[_]ReferenceTestCase{
         .{
             .input_len = 0,
             .hash = "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262e00f03e7b69af26b7faaf09fcd333050338ddfe085b8cc869ca98b206c08243a26f5487789e8f660afe6c99ef9e0c52b92e7393024a80459cf91f476f9ffdbda7001c22e159b402631f277ca96f2defdf1078282314e763699a31c5363165421cce14d",
