@@ -448,8 +448,8 @@ pub fn formatType(
                 }
                 if (ptr_info.child == u8) {
                     if (fmt.len > 0 and fmt[0] == 's') {
-                        const len = mem.len(u8, value);
-                        return formatText(value[0..len], fmt, options, context, Errors, output);
+                        const slice = mem.pointerToSlice([:0]const u8, @as([*:0]const u8, value));
+                        return formatText(slice, fmt, options, context, Errors, output);
                     }
                 }
                 return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
