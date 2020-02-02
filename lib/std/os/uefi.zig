@@ -40,7 +40,8 @@ pub const Guid = extern struct {
                 self.time_mid,
                 self.time_high_and_version,
                 self.clock_seq_high_and_reserved,
-                self.clock_seq_low, self.node,
+                self.clock_seq_low,
+                self.node,
             });
         } else {
             @compileError("Unknown format character: '" ++ f ++ "'");

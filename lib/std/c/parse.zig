@@ -1428,4 +1428,3 @@ const Parser = struct {
         });
     }
 };
-

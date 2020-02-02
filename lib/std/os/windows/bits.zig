@@ -928,10 +928,7 @@ pub usingnamespace switch (builtin.arch) {
             SegSs: DWORD,
             ExtendedRegisters: [512]BYTE,
 
-            pub fn getRegs(ctx: *const CONTEXT) struct {
-                bp: usize,
-                ip: usize,
-            } {
+            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
                 return .{ .bp = ctx.Ebp, .ip = ctx.Eip };
             }
         };
@@ -1034,10 +1031,7 @@ pub usingnamespace switch (builtin.arch) {
             LastExceptionToRip: DWORD64,
             LastExceptionFromRip: DWORD64,
 
-            pub fn getRegs(ctx: *const CONTEXT) struct {
-                bp: usize,
-                ip: usize,
-            } {
+            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
                 return .{ .bp = ctx.Rbp, .ip = ctx.Rip };
             }
         };
@@ -1105,11 +1099,11 @@ pub usingnamespace switch (builtin.arch) {
             Wcr: [2]DWORD,
             Wvr: [2]DWORD64,
 
-            pub fn getRegs(ctx: *const CONTEXT) struct {
-                bp: usize,
-                ip: usize,
-            } {
-                return .{ .bp = ctx.DUMMYUNIONNAME.DUMMYSTRUCTNAME.Fp, .ip = ctx.Pc };
+            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
+                return .{
+                    .bp = ctx.DUMMYUNIONNAME.DUMMYSTRUCTNAME.Fp,
+                    .ip = ctx.Pc,
+                };
             }
         };
 
