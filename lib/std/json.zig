@@ -1205,7 +1205,9 @@ pub const Value = union(enum) {
     /// json.Value equality comparison: for `.Array`s and `.Object`s, equal
     /// sizes are prerequisite before further probing into their contents.
     pub fn eql(self: Value, other: Value) bool {
-        if (std.meta.activeTag(self) == std.meta.activeTag(other)) switch (self) {
+        if (std.meta.activeTag(self) != std.meta.activeTag(other))
+            return false;
+        switch (self) {
             .Null => return true,
             .Bool => |self_bool| return self_bool == other.Bool,
             .Integer => |self_int| return self_int == other.Integer,
@@ -1233,7 +1235,7 @@ pub const Value = union(enum) {
                 return true;
             },
         };
-        return false;
+        unreachable;
     }
 };
 
