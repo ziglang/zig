@@ -134,6 +134,8 @@ pub const Hash = struct {
         }
     }
 
+    pub const digest_length = 32;
+
     /// Finish the current hashing operation, writing the hash to `out`
     ///
     /// From 4.9 "Application to hashing"
