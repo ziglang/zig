@@ -70,7 +70,7 @@ fn g(state: *[16]u32, a: usize, b: usize, c: usize, d: usize, mx: u32, my: u32) 
     state[b] = math.rotr(u32, state[b] ^ state[c], 7);
 }
 
-fn round(state: *[16]u32, msg: *const [16]u32, schedule: *const [16]u8) void {
+fn round(state: *[16]u32, msg: [16]u32, schedule: [16]u8) void {
     // Mix the columns.
     g(state, 0, 4, 8, 12, msg[schedule[0]], msg[schedule[1]]);
     g(state, 1, 5, 9, 13, msg[schedule[2]], msg[schedule[3]]);
@@ -85,8 +85,8 @@ fn round(state: *[16]u32, msg: *const [16]u32, schedule: *const [16]u8) void {
 }
 
 fn compress(
-    chaining_value: *const [8]u32,
-    block_words: *const [16]u32,
+    chaining_value: [8]u32,
+    block_words: [16]u32,
     block_len: u32,
     counter: u64,
     flags: u8,
@@ -109,7 +109,7 @@ fn compress(
         block_len,
         flags,
     };
-    for (MSG_SCHEDULE) |*schedule| {
+    for (MSG_SCHEDULE) |schedule| {
         round(&state, block_words, schedule);
     }
     for (chaining_value) |_, i| {
@@ -143,8 +143,8 @@ const Output = struct {
 
     fn chaining_value(self: *Output) [8]u32 {
         return first_8_words(compress(
-            &self.input_chaining_value,
-            &self.block_words,
+            self.input_chaining_value,
+            self.block_words,
             self.block_len,
             self.counter,
             self.flags,
@@ -156,8 +156,8 @@ const Output = struct {
         var output_block_counter: usize = 0;
         while (out_block_it.next()) |out_block| {
             var words = compress(
-                &self.input_chaining_value,
-                &self.block_words,
+                self.input_chaining_value,
+                self.block_words,
                 self.block_len,
                 output_block_counter,
                 self.flags | ROOT,
@@ -216,8 +216,8 @@ const ChunkState = struct {
                 var block_words: [16]u32 = undefined;
                 words_from_little_endian_bytes(&self.block, &block_words);
                 self.chaining_value = first_8_words(compress(
-                    &self.chaining_value,
-                    &block_words,
+                    self.chaining_value,
+                    block_words,
                     BLOCK_LEN,
                     self.chunk_counter,
                     self.flags | self.start_flag(),
@@ -232,7 +232,7 @@ const ChunkState = struct {
         }
     }
 
-    fn output(self: *ChunkState) Output {
+    fn output(self: *const ChunkState) Output {
         var block_words: [16]u32 = undefined;
         words_from_little_endian_bytes(&self.block, &block_words);
         return Output{
@@ -297,9 +297,9 @@ pub const Blake3 = struct {
     }
 
     /// Construct a new `Blake3` for the keyed hash function.
-    pub fn init_keyed(key: *const [KEY_LEN]u8) Blake3 {
+    pub fn init_keyed(key: [KEY_LEN]u8) Blake3 {
         var key_words: [8]u32 = undefined;
-        words_from_little_endian_bytes(key, &key_words);
+        words_from_little_endian_bytes(key[0..], &key_words);
         return Blake3.init_internal(key_words, KEYED_HASH);
     }
 
@@ -550,7 +550,7 @@ const reference_test = .{
     },
 };
 
-fn test_blake3(hasher: *Blake3, input_len: usize, expected_hex: *const [262]u8) void {
+fn test_blake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) void {
     // Setup input pattern
     var input_pattern: [251]u8 = undefined;
     for (input_pattern) |*e, i| e.* = @truncate(u8, i);
@@ -570,18 +570,18 @@ fn test_blake3(hasher: *Blake3, input_len: usize, expected_hex: *const [262]u8) 
 
     // Compare to expected value
     var expected_bytes: [expected_hex.len / 2]u8 = undefined;
-    fmt.hexToBytes(expected_bytes[0..], expected_hex) catch unreachable;
+    fmt.hexToBytes(expected_bytes[0..], expected_hex[0..]) catch unreachable;
     testing.expectEqual(actual_bytes, expected_bytes);
 }
 
 test "BLAKE3 reference test cases" {
     var hash = &Blake3.init();
-    var keyed_hash = &Blake3.init_keyed(reference_test.key);
+    var keyed_hash = &Blake3.init_keyed(reference_test.key.*);
     var derive_key = &Blake3.init_derive_key(reference_test.context_string);
 
     for (reference_test.cases) |t| {
-        test_blake3(hash, t.input_len, t.hash);
-        test_blake3(keyed_hash, t.input_len, t.keyed_hash);
-        test_blake3(derive_key, t.input_len, t.derive_key);
+        test_blake3(hash, t.input_len, t.hash.*);
+        test_blake3(keyed_hash, t.input_len, t.keyed_hash.*);
+        test_blake3(derive_key, t.input_len, t.derive_key.*);
     }
 }
