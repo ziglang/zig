@@ -1224,6 +1224,8 @@ fn renderExpression(
                     const space_after_decl: Space = if (it.peek() == null) .Newline else .Space;
                     try renderContainerDecl(allocator, stream, tree, new_indent, start_col, decl.*, space_after_decl);
                 }
+
+                try stream.writeByteNTimes(' ', indent);
             } else {
                 // All the declarations on the same line
                 try renderToken(tree, stream, container_decl.lbrace_token, indent, start_col, .Space); // {

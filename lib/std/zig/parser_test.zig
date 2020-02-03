@@ -7,6 +7,16 @@ test "zig fmt: trailing comma in container declaration" {
         \\const X = struct { foo: i32 align(4) = 1, bar: i32 align(4) = 2 };
         \\
     );
+    try testCanonical(
+        \\test "" {
+        \\    comptime {
+        \\        const X = struct {
+        \\            x: i32
+        \\        };
+        \\    }
+        \\}
+        \\
+    );
     try testTransform(
         \\const X = struct {
         \\    foo: i32, bar: i8 };
