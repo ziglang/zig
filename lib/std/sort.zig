@@ -5,7 +5,7 @@ const mem = std.mem;
 const math = std.math;
 const builtin = @import("builtin");
 
-pub fn binarySearch(comptime T: type, items: []T, comptime compareFn: fn (val: T) math.Order) ?usize {
+pub fn binarySearch(comptime T: type, key: T, items: []const T, comptime compareFn: fn (lhs: T, rhs: T) math.Order) ?usize {
     if (items.len < 1)
         return null;
 
@@ -15,11 +15,11 @@ pub fn binarySearch(comptime T: type, items: []T, comptime compareFn: fn (val: T
     while (left <= right) {
         // Avoid overflowing in the midpoint calculation
         const mid = left + (right - left) / 2;
-        // Compare the midpoint element with the key
-        switch (compareFn(items[mid])) {
+        // Compare the key with the midpoint element
+        switch (compareFn(key, items[mid])) {
             .eq => return mid,
-            .lt => left = mid + 1,
-            .gt => right = mid - 1,
+            .gt => left = mid + 1,
+            .lt => right = mid - 1,
         }
     }
 
@@ -28,41 +28,40 @@ pub fn binarySearch(comptime T: type, items: []T, comptime compareFn: fn (val: T
 
 test "std.sort.binarySearch" {
     const S = struct {
-        fn makeComparisonPred(comptime T: type, value: T) type {
-            return struct {
-                fn pred(v: T) math.Order {
-                    return math.order(v, value);
-                }
-            };
+        fn order_u32(lhs: u32, rhs: u32) math.Order {
+            return math.order(lhs, rhs);
+        }
+        fn order_i32(lhs: i32, rhs: i32) math.Order {
+            return math.order(lhs, rhs);
         }
     };
     testing.expectEqual(
         @as(?usize, null),
-        binarySearch(u32, &[_]u32{}, S.makeComparisonPred(u32, 1).pred),
+        binarySearch(u32, 1, &[_]u32{}, S.order_u32),
     );
     testing.expectEqual(
         @as(?usize, 0),
-        binarySearch(u32, &[_]u32{1}, S.makeComparisonPred(u32, 1).pred),
+        binarySearch(u32, 1, &[_]u32{1}, S.order_u32),
     );
     testing.expectEqual(
         @as(?usize, null),
-        binarySearch(u32, &[_]u32{0}, S.makeComparisonPred(u32, 1).pred),
+        binarySearch(u32, 1, &[_]u32{0}, S.order_u32),
     );
     testing.expectEqual(
         @as(?usize, 4),
-        binarySearch(u32, &[_]u32{ 1, 2, 3, 4, 5 }, S.makeComparisonPred(u32, 5).pred),
+        binarySearch(u32, 5, &[_]u32{ 1, 2, 3, 4, 5 }, S.order_u32),
     );
     testing.expectEqual(
         @as(?usize, 0),
-        binarySearch(u32, &[_]u32{ 2, 4, 8, 16, 32, 64 }, S.makeComparisonPred(u32, 2).pred),
+        binarySearch(u32, 2, &[_]u32{ 2, 4, 8, 16, 32, 64 }, S.order_u32),
     );
     testing.expectEqual(
         @as(?usize, 1),
-        binarySearch(i32, &[_]i32{ -7, -4, 0, 9, 10 }, S.makeComparisonPred(i32, -4).pred),
+        binarySearch(i32, -4, &[_]i32{ -7, -4, 0, 9, 10 }, S.order_i32),
     );
     testing.expectEqual(
         @as(?usize, 3),
-        binarySearch(i32, &[_]i32{ -100, -25, 2, 98, 99, 100 }, S.makeComparisonPred(i32, 98).pred),
+        binarySearch(i32, 98, &[_]i32{ -100, -25, 2, 98, 99, 100 }, S.order_i32),
     );
 }
 
