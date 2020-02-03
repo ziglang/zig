@@ -375,3 +375,8 @@ test "sentinel of opaque pointer type" {
     const c_void_info = @typeInfo(*c_void);
     expect(c_void_info.Pointer.sentinel == null);
 }
+
+test "defaut value for a var-typed field" {
+    const S = struct { x: var };
+    expect(@typeInfo(S).Struct.fields[0].default_value == null);
+}

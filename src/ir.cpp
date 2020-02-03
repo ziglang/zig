@@ -24415,9 +24415,16 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
 
                     // default_value: var
                     inner_fields[3]->special = ConstValSpecialStatic;
-                    inner_fields[3]->type = get_optional_type(ira->codegen, struct_field->type_entry);
-                    memoize_field_init_val(ira->codegen, type_entry, struct_field);
-                    set_optional_payload(inner_fields[3], struct_field->init_val);
+                    // XXX This check is wrong, if a field has type `var` and
+                    // has a default value the `default_value` field won't be
+                    // filled
+                    if (struct_field->type_entry->id != ZigTypeIdOpaque) {
+                        inner_fields[3]->type = get_optional_type(ira->codegen, struct_field->type_entry);
+                        memoize_field_init_val(ira->codegen, type_entry, struct_field);
+                        set_optional_payload(inner_fields[3], struct_field->init_val);
+                    } else {
+                        inner_fields[3]->type = ira->codegen->builtin_types.entry_null;
+                    }
 
                     ZigValue *name = create_const_str_lit(ira->codegen, struct_field->name)->data.x_ptr.data.ref.pointee;
                     init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(struct_field->name), true);
