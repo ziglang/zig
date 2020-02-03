@@ -866,7 +866,7 @@ fn expectTokens(tl: *TokenList, src: [*:0]const u8, expected: []CToken) void {
 }
 
 test "tokenize macro" {
-    var tl = TokenList.init(std.heap.page_allocator);
+    var tl = TokenList.init(std.testing.allocator);
     defer tl.deinit();
 
     expectTokens(&tl, "TEST(0\n", &[_]CToken{
@@ -904,7 +904,7 @@ test "tokenize macro" {
 }
 
 test "tokenize macro ops" {
-    var tl = TokenList.init(std.heap.page_allocator);
+    var tl = TokenList.init(std.testing.allocator);
     defer tl.deinit();
 
     expectTokens(&tl, "ADD A + B", &[_]CToken{

@@ -347,7 +347,7 @@ pub fn LinearFifo(
 }
 
 test "LinearFifo(u8, .Dynamic)" {
-    var fifo = LinearFifo(u8, .Dynamic).init(debug.global_allocator);
+    var fifo = LinearFifo(u8, .Dynamic).init(testing.allocator);
     defer fifo.deinit();
 
     try fifo.write("HELLO");
@@ -422,7 +422,7 @@ test "LinearFifo" {
             var fifo = switch (bt) {
                 .Static => FifoType.init(),
                 .Slice => FifoType.init(buf[0..]),
-                .Dynamic => FifoType.init(debug.global_allocator),
+                .Dynamic => FifoType.init(testing.allocator),
             };
             defer fifo.deinit();
 

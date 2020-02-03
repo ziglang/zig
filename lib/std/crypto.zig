@@ -21,6 +21,8 @@ pub const Blake2s256 = blake2.Blake2s256;
 pub const Blake2b384 = blake2.Blake2b384;
 pub const Blake2b512 = blake2.Blake2b512;
 
+pub const Blake3 = @import("crypto/blake3.zig").Blake3;
+
 const hmac = @import("crypto/hmac.zig");
 pub const HmacMd5 = hmac.HmacMd5;
 pub const HmacSha1 = hmac.HmacSha1;
@@ -44,6 +46,7 @@ pub const randomBytes = std.os.getrandom;
 test "crypto" {
     _ = @import("crypto/aes.zig");
     _ = @import("crypto/blake2.zig");
+    _ = @import("crypto/blake3.zig");
     _ = @import("crypto/chacha20.zig");
     _ = @import("crypto/gimli.zig");
     _ = @import("crypto/hmac.zig");

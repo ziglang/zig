@@ -1,10 +1,4 @@
 image: freebsd/latest
-packages:
-  - cmake
-  - py27-s3cmd
-  - wget
-  - curl
-  - jq
 secrets:
   - 6c60aaee-92e7-4e7d-812c-114817689b4d
   - dd0bd962-7664-4d3e-b0f3-41c9ee96b8b8

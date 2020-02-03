@@ -5765,7 +5765,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\
         \\export fn entry() void {
         \\    const a = MdNode.Header {
-        \\        .text = MdText.init(&std.debug.global_allocator),
+        \\        .text = MdText.init(&std.testing.allocator),
         \\        .weight = HeaderWeight.H1,
         \\    };
         \\}

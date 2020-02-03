@@ -1,8 +1,8 @@
 const std = @import("std");
 
 pub fn main() !void {
-    const args = try std.process.argsAlloc(std.debug.global_allocator);
-    defer std.process.argsFree(std.debug.global_allocator, args);
+    const args = try std.process.argsAlloc(std.testing.allocator);
+    defer std.process.argsFree(std.testing.allocator, args);
 
     const dynlib_name = args[1];
 

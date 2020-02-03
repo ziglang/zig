@@ -891,7 +891,7 @@ pub fn readLineSlice(slice: []u8) ![]u8 {
 pub fn readLineSliceFrom(stream: var, slice: []u8) ![]u8 {
     // We cannot use Buffer.fromOwnedSlice, as it wants to append a null byte
     // after taking ownership, which would always require an allocation.
-    var buf = std.Buffer{ .list = std.ArrayList(u8).fromOwnedSlice(debug.failing_allocator, slice) };
+    var buf = std.Buffer{ .list = std.ArrayList(u8).fromOwnedSlice(testing.failing_allocator, slice) };
     try buf.resize(0);
     return try readLineFrom(stream, &buf);
 }

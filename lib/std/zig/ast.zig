@@ -784,6 +784,11 @@ pub const Node = struct {
                 i -= 1;
             }
 
+            if (self.align_expr) |align_expr| {
+                if (i < 1) return align_expr;
+                i -= 1;
+            }
+
             if (self.value_expr) |value_expr| {
                 if (i < 1) return value_expr;
                 i -= 1;
@@ -799,6 +804,11 @@ pub const Node = struct {
         pub fn lastToken(self: *const ContainerField) TokenIndex {
             if (self.value_expr) |value_expr| {
                 return value_expr.lastToken();
+            }
+            if (self.align_expr) |align_expr| {
+                // The expression refers to what's inside the parenthesis, the
+                // last token is the closing one
+                return align_expr.lastToken() + 1;
             }
             if (self.type_expr) |type_expr| {
                 return type_expr.lastToken();
@@ -2291,7 +2301,7 @@ pub const Node = struct {
 test "iterate" {
     var root = Node.Root{
         .base = Node{ .id = Node.Id.Root },
-        .decls = Node.Root.DeclList.init(std.debug.global_allocator),
+        .decls = Node.Root.DeclList.init(std.testing.allocator),
         .eof_token = 0,
     };
     var base = &root.base;

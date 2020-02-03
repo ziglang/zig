@@ -4,7 +4,7 @@ const process = std.process;
 const fs = std.fs;
 const mem = std.mem;
 const warn = std.debug.warn;
-const allocator = std.debug.global_allocator;
+const allocator = std.testing.allocator;
 
 pub fn main() !void {
     var args_it = process.args();

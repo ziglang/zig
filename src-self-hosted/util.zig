@@ -32,23 +32,6 @@ pub fn getFloatAbi(self: Target) FloatAbi {
     };
 }
 
-pub fn getObjectFormat(target: Target) Target.ObjectFormat {
-    switch (target) {
-        .Native => return @import("builtin").object_format,
-        .Cross => blk: {
-            if (target.isWindows() or target.isUefi()) {
-                return .coff;
-            } else if (target.isDarwin()) {
-                return .macho;
-            }
-            if (target.isWasm()) {
-                return .wasm;
-            }
-            return .elf;
-        },
-    }
-}
-
 pub fn getDynamicLinkerPath(self: Target) ?[]const u8 {
     const env = self.getAbi();
     const arch = self.getArch();

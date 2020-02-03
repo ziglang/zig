@@ -5,8 +5,8 @@ const std = @import("../../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
-pub const ERROR = @import("error.zig");
-pub const STATUS = @import("status.zig");
+pub usingnamespace @import("win32error.zig");
+pub usingnamespace @import("ntstatus.zig");
 pub const LANG = @import("lang.zig");
 pub const SUBLANG = @import("sublang.zig");
 
@@ -23,7 +23,6 @@ pub const BOOL = c_int;
 pub const BOOLEAN = BYTE;
 pub const BYTE = u8;
 pub const CHAR = u8;
-pub const DWORD = u32;
 pub const FLOAT = f32;
 pub const HANDLE = *c_void;
 pub const HCRYPTPROV = ULONG_PTR;
@@ -52,6 +51,8 @@ pub const DWORD_PTR = ULONG_PTR;
 pub const UNICODE = false;
 pub const WCHAR = u16;
 pub const WORD = u16;
+pub const DWORD = u32;
+pub const DWORD64 = u64;
 pub const LARGE_INTEGER = i64;
 pub const USHORT = u16;
 pub const SHORT = i16;
@@ -61,7 +62,6 @@ pub const ULONGLONG = u64;
 pub const LONGLONG = i64;
 pub const HLOCAL = HANDLE;
 pub const LANGID = c_ushort;
-pub const NTSTATUS = ULONG;
 
 pub const va_list = *@OpaqueType();
 
@@ -887,9 +887,236 @@ pub const EXCEPTION_RECORD = extern struct {
     ExceptionInformation: [15]usize,
 };
 
+pub usingnamespace switch (builtin.arch) {
+    .i386 => struct {
+        pub const FLOATING_SAVE_AREA = extern struct {
+            ControlWord: DWORD,
+            StatusWord: DWORD,
+            TagWord: DWORD,
+            ErrorOffset: DWORD,
+            ErrorSelector: DWORD,
+            DataOffset: DWORD,
+            DataSelector: DWORD,
+            RegisterArea: [80]BYTE,
+            Cr0NpxState: DWORD,
+        };
+
+        pub const CONTEXT = extern struct {
+            ContextFlags: DWORD,
+            Dr0: DWORD,
+            Dr1: DWORD,
+            Dr2: DWORD,
+            Dr3: DWORD,
+            Dr6: DWORD,
+            Dr7: DWORD,
+            FloatSave: FLOATING_SAVE_AREA,
+            SegGs: DWORD,
+            SegFs: DWORD,
+            SegEs: DWORD,
+            SegDs: DWORD,
+            Edi: DWORD,
+            Esi: DWORD,
+            Ebx: DWORD,
+            Edx: DWORD,
+            Ecx: DWORD,
+            Eax: DWORD,
+            Ebp: DWORD,
+            Eip: DWORD,
+            SegCs: DWORD,
+            EFlags: DWORD,
+            Esp: DWORD,
+            SegSs: DWORD,
+            ExtendedRegisters: [512]BYTE,
+
+            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
+                return .{ .bp = ctx.Ebp, .ip = ctx.Eip };
+            }
+        };
+
+        pub const PCONTEXT = *CONTEXT;
+    },
+    .x86_64 => struct {
+        pub const M128A = extern struct {
+            Low: ULONGLONG,
+            High: LONGLONG,
+        };
+
+        pub const XMM_SAVE_AREA32 = extern struct {
+            ControlWord: WORD,
+            StatusWord: WORD,
+            TagWord: BYTE,
+            Reserved1: BYTE,
+            ErrorOpcode: WORD,
+            ErrorOffset: DWORD,
+            ErrorSelector: WORD,
+            Reserved2: WORD,
+            DataOffset: DWORD,
+            DataSelector: WORD,
+            Reserved3: WORD,
+            MxCsr: DWORD,
+            MxCsr_Mask: DWORD,
+            FloatRegisters: [8]M128A,
+            XmmRegisters: [16]M128A,
+            Reserved4: [96]BYTE,
+        };
+
+        pub const CONTEXT = extern struct {
+            P1Home: DWORD64,
+            P2Home: DWORD64,
+            P3Home: DWORD64,
+            P4Home: DWORD64,
+            P5Home: DWORD64,
+            P6Home: DWORD64,
+            ContextFlags: DWORD,
+            MxCsr: DWORD,
+            SegCs: WORD,
+            SegDs: WORD,
+            SegEs: WORD,
+            SegFs: WORD,
+            SegGs: WORD,
+            SegSs: WORD,
+            EFlags: DWORD,
+            Dr0: DWORD64,
+            Dr1: DWORD64,
+            Dr2: DWORD64,
+            Dr3: DWORD64,
+            Dr6: DWORD64,
+            Dr7: DWORD64,
+            Rax: DWORD64,
+            Rcx: DWORD64,
+            Rdx: DWORD64,
+            Rbx: DWORD64,
+            Rsp: DWORD64,
+            Rbp: DWORD64,
+            Rsi: DWORD64,
+            Rdi: DWORD64,
+            R8: DWORD64,
+            R9: DWORD64,
+            R10: DWORD64,
+            R11: DWORD64,
+            R12: DWORD64,
+            R13: DWORD64,
+            R14: DWORD64,
+            R15: DWORD64,
+            Rip: DWORD64,
+            DUMMYUNIONNAME: extern union {
+                FltSave: XMM_SAVE_AREA32,
+                FloatSave: XMM_SAVE_AREA32,
+                DUMMYSTRUCTNAME: extern struct {
+                    Header: [2]M128A,
+                    Legacy: [8]M128A,
+                    Xmm0: M128A,
+                    Xmm1: M128A,
+                    Xmm2: M128A,
+                    Xmm3: M128A,
+                    Xmm4: M128A,
+                    Xmm5: M128A,
+                    Xmm6: M128A,
+                    Xmm7: M128A,
+                    Xmm8: M128A,
+                    Xmm9: M128A,
+                    Xmm10: M128A,
+                    Xmm11: M128A,
+                    Xmm12: M128A,
+                    Xmm13: M128A,
+                    Xmm14: M128A,
+                    Xmm15: M128A,
+                },
+            },
+            VectorRegister: [26]M128A,
+            VectorControl: DWORD64,
+            DebugControl: DWORD64,
+            LastBranchToRip: DWORD64,
+            LastBranchFromRip: DWORD64,
+            LastExceptionToRip: DWORD64,
+            LastExceptionFromRip: DWORD64,
+
+            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
+                return .{ .bp = ctx.Rbp, .ip = ctx.Rip };
+            }
+        };
+
+        pub const PCONTEXT = *CONTEXT;
+    },
+    .aarch64 => struct {
+        pub const NEON128 = extern union {
+            DUMMYSTRUCTNAME: extern struct {
+                Low: ULONGLONG,
+                High: LONGLONG,
+            },
+            D: [2]f64,
+            S: [4]f32,
+            H: [8]WORD,
+            B: [16]BYTE,
+        };
+
+        pub const CONTEXT = extern struct {
+            ContextFlags: ULONG,
+            Cpsr: ULONG,
+            DUMMYUNIONNAME: extern union {
+                DUMMYSTRUCTNAME: extern struct {
+                    X0: DWORD64,
+                    X1: DWORD64,
+                    X2: DWORD64,
+                    X3: DWORD64,
+                    X4: DWORD64,
+                    X5: DWORD64,
+                    X6: DWORD64,
+                    X7: DWORD64,
+                    X8: DWORD64,
+                    X9: DWORD64,
+                    X10: DWORD64,
+                    X11: DWORD64,
+                    X12: DWORD64,
+                    X13: DWORD64,
+                    X14: DWORD64,
+                    X15: DWORD64,
+                    X16: DWORD64,
+                    X17: DWORD64,
+                    X18: DWORD64,
+                    X19: DWORD64,
+                    X20: DWORD64,
+                    X21: DWORD64,
+                    X22: DWORD64,
+                    X23: DWORD64,
+                    X24: DWORD64,
+                    X25: DWORD64,
+                    X26: DWORD64,
+                    X27: DWORD64,
+                    X28: DWORD64,
+                    Fp: DWORD64,
+                    Lr: DWORD64,
+                },
+                X: [31]DWORD64,
+            },
+            Sp: DWORD64,
+            Pc: DWORD64,
+            V: [32]NEON128,
+            Fpcr: DWORD,
+            Fpsr: DWORD,
+            Bcr: [8]DWORD,
+            Bvr: [8]DWORD64,
+            Wcr: [2]DWORD,
+            Wvr: [2]DWORD64,
+
+            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
+                return .{
+                    .bp = ctx.DUMMYUNIONNAME.DUMMYSTRUCTNAME.Fp,
+                    .ip = ctx.Pc,
+                };
+            }
+        };
+
+        pub const PCONTEXT = *CONTEXT;
+    },
+    else => struct {
+        pub const PCONTEXT = *c_void;
+    },
+};
+
 pub const EXCEPTION_POINTERS = extern struct {
     ExceptionRecord: *EXCEPTION_RECORD,
-    ContextRecord: *c_void,
+    ContextRecord: PCONTEXT,
 };
 
 pub const VECTORED_EXCEPTION_HANDLER = fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(.Stdcall) c_long;
@@ -1012,3 +1239,85 @@ pub const CURDIR = extern struct {
 };
 
 pub const DUPLICATE_SAME_ACCESS = 2;
+
+pub const MODULEINFO = extern struct {
+    lpBaseOfDll: LPVOID,
+    SizeOfImage: DWORD,
+    EntryPoint: LPVOID,
+};
+pub const LPMODULEINFO = *MODULEINFO;
+
+pub const PSAPI_WS_WATCH_INFORMATION = extern struct {
+    FaultingPc: LPVOID,
+    FaultingVa: LPVOID,
+};
+pub const PPSAPI_WS_WATCH_INFORMATION = *PSAPI_WS_WATCH_INFORMATION;
+
+pub const PROCESS_MEMORY_COUNTERS = extern struct {
+    cb: DWORD,
+    PageFaultCount: DWORD,
+    PeakWorkingSetSize: SIZE_T,
+    WorkingSetSize: SIZE_T,
+    QuotaPeakPagedPoolUsage: SIZE_T,
+    QuotaPagedPoolUsage: SIZE_T,
+    QuotaPeakNonPagedPoolUsage: SIZE_T,
+    QuotaNonPagedPoolUsage: SIZE_T,
+    PagefileUsage: SIZE_T,
+    PeakPagefileUsage: SIZE_T,
+};
+pub const PPROCESS_MEMORY_COUNTERS = *PROCESS_MEMORY_COUNTERS;
+
+pub const PROCESS_MEMORY_COUNTERS_EX = extern struct {
+    cb: DWORD,
+    PageFaultCount: DWORD,
+    PeakWorkingSetSize: SIZE_T,
+    WorkingSetSize: SIZE_T,
+    QuotaPeakPagedPoolUsage: SIZE_T,
+    QuotaPagedPoolUsage: SIZE_T,
+    QuotaPeakNonPagedPoolUsage: SIZE_T,
+    QuotaNonPagedPoolUsage: SIZE_T,
+    PagefileUsage: SIZE_T,
+    PeakPagefileUsage: SIZE_T,
+    PrivateUsage: SIZE_T,
+};
+pub const PPROCESS_MEMORY_COUNTERS_EX = *PROCESS_MEMORY_COUNTERS_EX;
+
+pub const PERFORMANCE_INFORMATION = extern struct {
+    cb: DWORD,
+    CommitTotal: SIZE_T,
+    CommitLimit: SIZE_T,
+    CommitPeak: SIZE_T,
+    PhysicalTotal: SIZE_T,
+    PhysicalAvailable: SIZE_T,
+    SystemCache: SIZE_T,
+    KernelTotal: SIZE_T,
+    KernelPaged: SIZE_T,
+    KernelNonpaged: SIZE_T,
+    PageSize: SIZE_T,
+    HandleCount: DWORD,
+    ProcessCount: DWORD,
+    ThreadCount: DWORD,
+};
+pub const PPERFORMANCE_INFORMATION = *PERFORMANCE_INFORMATION;
+
+pub const PERFORMACE_INFORMATION = PERFORMANCE_INFORMATION;
+pub const PPERFORMACE_INFORMATION = *PERFORMANCE_INFORMATION;
+
+pub const ENUM_PAGE_FILE_INFORMATION = extern struct {
+    cb: DWORD,
+    Reserved: DWORD,
+    TotalSize: SIZE_T,
+    TotalInUse: SIZE_T,
+    PeakUsage: SIZE_T,
+};
+pub const PENUM_PAGE_FILE_INFORMATION = *ENUM_PAGE_FILE_INFORMATION;
+
+pub const PENUM_PAGE_FILE_CALLBACKW = ?fn (?LPVOID, PENUM_PAGE_FILE_INFORMATION, LPCWSTR) callconv(.C) BOOL;
+pub const PENUM_PAGE_FILE_CALLBACKA = ?fn (?LPVOID, PENUM_PAGE_FILE_INFORMATION, LPCSTR) callconv(.C) BOOL;
+
+pub const PSAPI_WS_WATCH_INFORMATION_EX = extern struct {
+    BasicInfo: PSAPI_WS_WATCH_INFORMATION,
+    FaultingThreadId: ULONG_PTR,
+    Flags: ULONG_PTR,
+};
+pub const PPSAPI_WS_WATCH_INFORMATION_EX = *PSAPI_WS_WATCH_INFORMATION_EX;

@@ -21,17 +21,6 @@ pub const FormatOptions = struct {
     fill: u8 = ' ',
 };
 
-fn nextArg(comptime used_pos_args: *u32, comptime maybe_pos_arg: ?comptime_int, comptime next_arg: *comptime_int) comptime_int {
-    if (maybe_pos_arg) |pos_arg| {
-        used_pos_args.* |= 1 << pos_arg;
-        return pos_arg;
-    } else {
-        const arg = next_arg.*;
-        next_arg.* += 1;
-        return arg;
-    }
-}
-
 fn peekIsAlign(comptime fmt: []const u8) bool {
     // Should only be called during a state transition to the format segment.
     comptime assert(fmt[0] == ':');
@@ -113,12 +102,36 @@ pub fn format(
 
     comptime var start_index = 0;
     comptime var state = State.Start;
-    comptime var next_arg = 0;
     comptime var maybe_pos_arg: ?comptime_int = null;
-    comptime var used_pos_args: ArgSetType = 0;
     comptime var specifier_start = 0;
     comptime var specifier_end = 0;
     comptime var options = FormatOptions{};
+    comptime var arg_state: struct {
+        next_arg: usize = 0,
+        used_args: ArgSetType = 0,
+        args_len: usize = args.len,
+
+        fn hasUnusedArgs(comptime self: *@This()) bool {
+            return (@popCount(ArgSetType, self.used_args) != self.args_len);
+        }
+
+        fn nextArg(comptime self: *@This(), comptime pos_arg: ?comptime_int) comptime_int {
+            const next_idx = pos_arg orelse blk: {
+                const arg = self.next_arg;
+                self.next_arg += 1;
+                break :blk arg;
+            };
+
+            if (next_idx >= self.args_len) {
+                @compileError("Too few arguments");
+            }
+
+            // Mark this argument as used
+            self.used_args |= 1 << next_idx;
+
+            return next_idx;
+        }
+    } = .{};
 
     inline for (fmt) |c, i| {
         switch (state) {
@@ -166,11 +179,7 @@ pub fn format(
                     }
                 },
                 '}' => {
-                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
-
-                    if (arg_to_print >= args.len) {
-                        @compileError("Too few arguments");
-                    }
+                    const arg_to_print = comptime arg_state.nextArg(maybe_pos_arg);
 
                     try formatType(
                         args[arg_to_print],
@@ -203,7 +212,7 @@ pub fn format(
                     state = if (comptime peekIsAlign(fmt[i..])) State.FormatFillAndAlign else State.FormatWidth;
                 },
                 '}' => {
-                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
+                    const arg_to_print = comptime arg_state.nextArg(maybe_pos_arg);
 
                     try formatType(
                         args[arg_to_print],
@@ -250,7 +259,7 @@ pub fn format(
                     state = .FormatPrecision;
                 },
                 '}' => {
-                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
+                    const arg_to_print = comptime arg_state.nextArg(maybe_pos_arg);
 
                     try formatType(
                         args[arg_to_print],
@@ -278,7 +287,7 @@ pub fn format(
                     options.precision.? += c - '0';
                 },
                 '}' => {
-                    const arg_to_print = comptime nextArg(&used_pos_args, maybe_pos_arg, &next_arg);
+                    const arg_to_print = comptime arg_state.nextArg(maybe_pos_arg);
 
                     try formatType(
                         args[arg_to_print],
@@ -299,13 +308,7 @@ pub fn format(
         }
     }
     comptime {
-        // All arguments must have been printed but we allow mixing positional and fixed to achieve this.
-        var i: usize = 0;
-        inline while (i < next_arg) : (i += 1) {
-            used_pos_args |= 1 << i;
-        }
-
-        if (@popCount(ArgSetType, used_pos_args) != args.len) {
+        if (comptime arg_state.hasUnusedArgs()) {
             @compileError("Unused arguments");
         }
         if (state != State.Start) {
@@ -362,14 +365,21 @@ pub fn formatType(
             try output(context, "error.");
             return output(context, @errorName(value));
         },
-        .Enum => {
+        .Enum => |enumInfo| {
             if (comptime std.meta.trait.hasFn("format")(T)) {
                 return value.format(fmt, options, context, Errors, output);
             }
 
             try output(context, @typeName(T));
-            try output(context, ".");
-            return formatType(@tagName(value), "", options, context, Errors, output, max_depth);
+            if (enumInfo.is_exhaustive) {
+                try output(context, ".");
+                return formatType(@tagName(value), "", options, context, Errors, output, max_depth);
+            } else {
+                // TODO: when @tagName works on exhaustive enums print known enum strings
+                try output(context, "(");
+                try formatType(@enumToInt(value), "", options, context, Errors, output, max_depth);
+                try output(context, ")");
+            }
         },
         .Union => {
             if (comptime std.meta.trait.hasFn("format")(T)) {
@@ -1598,7 +1608,8 @@ test "hexToBytes" {
 test "formatIntValue with comptime_int" {
     const value: comptime_int = 123456789123456789;
 
-    var buf = try std.Buffer.init(std.debug.global_allocator, "");
+    var buf = try std.Buffer.init(std.testing.allocator, "");
+    defer buf.deinit();
     try formatIntValue(value, "", FormatOptions{}, &buf, @TypeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append);
     std.testing.expect(mem.eql(u8, buf.toSlice(), "123456789123456789"));
 }
@@ -1652,19 +1663,23 @@ test "formatType max_depth" {
     inst.a = &inst;
     inst.tu.ptr = &inst.tu;
 
-    var buf0 = try std.Buffer.init(std.debug.global_allocator, "");
+    var buf0 = try std.Buffer.init(std.testing.allocator, "");
+    defer buf0.deinit();
     try formatType(inst, "", FormatOptions{}, &buf0, @TypeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 0);
     std.testing.expect(mem.eql(u8, buf0.toSlice(), "S{ ... }"));
 
-    var buf1 = try std.Buffer.init(std.debug.global_allocator, "");
+    var buf1 = try std.Buffer.init(std.testing.allocator, "");
+    defer buf1.deinit();
     try formatType(inst, "", FormatOptions{}, &buf1, @TypeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 1);
     std.testing.expect(mem.eql(u8, buf1.toSlice(), "S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }"));
 
-    var buf2 = try std.Buffer.init(std.debug.global_allocator, "");
+    var buf2 = try std.Buffer.init(std.testing.allocator, "");
+    defer buf2.deinit();
     try formatType(inst, "", FormatOptions{}, &buf2, @TypeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 2);
     std.testing.expect(mem.eql(u8, buf2.toSlice(), "S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }"));
 
-    var buf3 = try std.Buffer.init(std.debug.global_allocator, "");
+    var buf3 = try std.Buffer.init(std.testing.allocator, "");
+    defer buf3.deinit();
     try formatType(inst, "", FormatOptions{}, &buf3, @TypeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 3);
     std.testing.expect(mem.eql(u8, buf3.toSlice(), "S{ .a = S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ .ptr = TU{ ... } } }, .e = E.Two, .vec = (10.200,2.220) }"));
 }

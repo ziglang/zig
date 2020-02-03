@@ -19,8 +19,8 @@ const windows = std.os.windows;
 
 pub const leb = @import("debug/leb128.zig");
 
-pub const FailingAllocator = @import("debug/failing_allocator.zig").FailingAllocator;
-pub const failing_allocator = &FailingAllocator.init(global_allocator, 0).allocator;
+pub const global_allocator = @compileError("Please switch to std.testing.allocator.");
+pub const failing_allocator = @compileError("Please switch to std.testing.failing_allocator.");
 
 pub const runtime_safety = switch (builtin.mode) {
     .Debug, .ReleaseSafe => true,
@@ -131,6 +131,7 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
     const tty_config = detectTTYConfig();
     printSourceAtAddress(debug_info, stderr, ip, tty_config) catch return;
     const first_return_address = @intToPtr(*const usize, bp + @sizeOf(usize)).*;
+    if (first_return_address == 0) return; // The whole call stack may be optimized out
     printSourceAtAddress(debug_info, stderr, first_return_address - 1, tty_config) catch return;
     var it = StackIterator{
         .first_addr = null,
@@ -325,6 +326,7 @@ pub const StackIterator = struct {
         }
 
         const return_address = @intToPtr(*const usize, self.fp - fp_adjust_factor + @sizeOf(usize)).*;
+        if (return_address == 0) return null;
         return return_address;
     }
 };
@@ -470,7 +472,7 @@ fn printSourceAtAddressWindows(
                                 line_index += @sizeOf(pdb.LineNumberEntry);
 
                                 const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
-                                if (relative_address <= vaddr_start) {
+                                if (relative_address < vaddr_start) {
                                     break;
                                 }
                             }
@@ -944,8 +946,8 @@ fn readSparseBitVector(stream: var, allocator: *mem.Allocator) ![]usize {
 fn findDwarfSectionFromElf(elf_file: *elf.Elf, name: []const u8) !?DwarfInfo.Section {
     const elf_header = (try elf_file.findSection(name)) orelse return null;
     return DwarfInfo.Section{
-        .offset = elf_header.offset,
-        .size = elf_header.size,
+        .offset = elf_header.sh_offset,
+        .size = elf_header.sh_size,
     };
 }
 
@@ -985,12 +987,12 @@ pub fn openElfDebugInfo(
 
     var di = DwarfInfo{
         .endian = efile.endian,
-        .debug_info = (data[@intCast(usize, debug_info.offset)..@intCast(usize, debug_info.offset + debug_info.size)]),
-        .debug_abbrev = (data[@intCast(usize, debug_abbrev.offset)..@intCast(usize, debug_abbrev.offset + debug_abbrev.size)]),
-        .debug_str = (data[@intCast(usize, debug_str.offset)..@intCast(usize, debug_str.offset + debug_str.size)]),
-        .debug_line = (data[@intCast(usize, debug_line.offset)..@intCast(usize, debug_line.offset + debug_line.size)]),
+        .debug_info = (data[@intCast(usize, debug_info.sh_offset)..@intCast(usize, debug_info.sh_offset + debug_info.sh_size)]),
+        .debug_abbrev = (data[@intCast(usize, debug_abbrev.sh_offset)..@intCast(usize, debug_abbrev.sh_offset + debug_abbrev.sh_size)]),
+        .debug_str = (data[@intCast(usize, debug_str.sh_offset)..@intCast(usize, debug_str.sh_offset + debug_str.sh_size)]),
+        .debug_line = (data[@intCast(usize, debug_line.sh_offset)..@intCast(usize, debug_line.sh_offset + debug_line.sh_size)]),
         .debug_ranges = if (opt_debug_ranges) |debug_ranges|
-            data[@intCast(usize, debug_ranges.offset)..@intCast(usize, debug_ranges.offset + debug_ranges.size)]
+            data[@intCast(usize, debug_ranges.sh_offset)..@intCast(usize, debug_ranges.sh_offset + debug_ranges.sh_size)]
         else
             null,
     };
@@ -1390,8 +1392,12 @@ pub const DwarfInfo = struct {
 
                     // All the addresses in the list are relative to the value
                     // specified by DW_AT_low_pc or to some other value encoded
-                    // in the list itself
-                    var base_address = try compile_unit.die.getAttrAddr(DW.AT_low_pc);
+                    // in the list itself.
+                    // If no starting value is specified use zero.
+                    var base_address = compile_unit.die.getAttrAddr(DW.AT_low_pc) catch |err| switch (err) {
+                        error.MissingDebugInfo => 0,
+                        else => return err,
+                    };
 
                     try s.seekable_stream.seekTo(ranges_offset);
 
@@ -1410,8 +1416,6 @@ pub const DwarfInfo = struct {
                             return compile_unit;
                         }
                     }
-
-                    return error.InvalidDebugInfo;
                 } else |err| {
                     if (err != error.MissingDebugInfo) return err;
                     continue;
@@ -2192,11 +2196,6 @@ fn readInitialLength(comptime E: type, in_stream: *io.InStream(E), is_64: *bool)
     }
 }
 
-/// This should only be used in temporary test programs.
-pub const global_allocator = &global_fixed_allocator.allocator;
-var global_fixed_allocator = std.heap.ThreadSafeFixedBufferAllocator.init(global_allocator_mem[0..]);
-var global_allocator_mem: [100 * 1024]u8 = undefined;
-
 /// TODO multithreaded awareness
 var debug_info_allocator: ?*mem.Allocator = null;
 var debug_info_arena_allocator: std.heap.ArenaAllocator = undefined;
@@ -2307,13 +2306,36 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: *const c_vo
 }
 
 fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(.Stdcall) c_long {
-    const exception_address = @ptrToInt(info.ExceptionRecord.ExceptionAddress);
     switch (info.ExceptionRecord.ExceptionCode) {
-        windows.EXCEPTION_DATATYPE_MISALIGNMENT => panicExtra(null, exception_address, "Unaligned Memory Access", .{}),
-        windows.EXCEPTION_ACCESS_VIOLATION => panicExtra(null, exception_address, "Segmentation fault at address 0x{x}", .{info.ExceptionRecord.ExceptionInformation[1]}),
-        windows.EXCEPTION_ILLEGAL_INSTRUCTION => panicExtra(null, exception_address, "Illegal Instruction", .{}),
-        windows.EXCEPTION_STACK_OVERFLOW => panicExtra(null, exception_address, "Stack Overflow", .{}),
+        windows.EXCEPTION_DATATYPE_MISALIGNMENT => handleSegfaultWindowsExtra(info, 0, "Unaligned Memory Access"),
+        windows.EXCEPTION_ACCESS_VIOLATION => handleSegfaultWindowsExtra(info, 1, null),
+        windows.EXCEPTION_ILLEGAL_INSTRUCTION => handleSegfaultWindowsExtra(info, 2, null),
+        windows.EXCEPTION_STACK_OVERFLOW => handleSegfaultWindowsExtra(info, 0, "Stack Overflow"),
         else => return windows.EXCEPTION_CONTINUE_SEARCH,
+    }
+}
+
+// zig won't let me use an anon enum here https://github.com/ziglang/zig/issues/3707
+fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, comptime msg: u8, comptime format: ?[]const u8) noreturn {
+    const exception_address = @ptrToInt(info.ExceptionRecord.ExceptionAddress);
+    if (@hasDecl(windows, "CONTEXT")) {
+        const regs = info.ContextRecord.getRegs();
+        switch (msg) {
+            0 => std.debug.warn("{}\n", .{format.?}),
+            1 => std.debug.warn("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
+            2 => std.debug.warn("Illegal instruction at address 0x{x}\n", .{regs.ip}),
+            else => unreachable,
+        }
+
+        dumpStackTraceFromBase(regs.bp, regs.ip);
+        os.abort();
+    } else {
+        switch (msg) {
+            0 => panicExtra(null, exception_address, format.?, .{}),
+            1 => panicExtra(null, exception_address, "Segmentation fault at address 0x{x}", .{info.ExceptionRecord.ExceptionInformation[1]}),
+            2 => panicExtra(null, exception_address, "Illegal Instruction", .{}),
+            else => unreachable,
+        }
     }
 }
 

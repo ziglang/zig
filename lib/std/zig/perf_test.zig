@@ -25,7 +25,7 @@ pub fn main() !void {
 
     var stdout_file = std.io.getStdOut();
     const stdout = &stdout_file.outStream().stream;
-    try stdout.print("{:.3} MiB/s, {} KiB used \n", .{mb_per_sec, memory_used / 1024});
+    try stdout.print("{:.3} MiB/s, {} KiB used \n", .{ mb_per_sec, memory_used / 1024 });
 }
 
 fn testOnce() usize {

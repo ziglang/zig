@@ -65,7 +65,7 @@ pub const BufSet = struct {
 };
 
 test "BufSet" {
-    var bufset = BufSet.init(std.heap.page_allocator);
+    var bufset = BufSet.init(std.testing.allocator);
     defer bufset.deinit();
 
     try bufset.put("x");
