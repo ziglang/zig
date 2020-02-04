@@ -364,6 +364,11 @@ add_library(zig_cpp STATIC ${ZIG_CPP_SOURCES})
 set_target_properties(zig_cpp PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
 )
+target_link_libraries(zig_cpp LINK_PUBLIC
+    ${CLANG_LIBRARIES}
+    ${LLD_LIBRARIES}
+    ${LLVM_LIBRARIES}
+)
 
 add_library(opt_c_util STATIC ${OPTIMIZED_C_SOURCES})
 set_target_properties(opt_c_util PROPERTIES
@@ -379,9 +384,6 @@ target_link_libraries(compiler LINK_PUBLIC
     zig_cpp
     opt_c_util
     ${SOFTFLOAT_LIBRARIES}
-    ${CLANG_LIBRARIES}
-    ${LLD_LIBRARIES}
-    ${LLVM_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
 if(NOT MSVC)
