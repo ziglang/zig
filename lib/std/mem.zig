@@ -324,6 +324,21 @@ test "mem.secureZero" {
 pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
     const n = math.min(lhs.len, rhs.len);
     var i: usize = 0;
+
+    if (T == u8) {
+        // Pack multiple bytes into one register
+        const usize_bytes = @sizeOf(usize);
+        while ((i + 1) * usize_bytes <= n) : (i += usize_bytes) {
+            const a = std.mem.readIntBig(usize, @ptrCast(*const [usize_bytes]u8, &lhs[i]));
+            const b = std.mem.readIntBig(usize, @ptrCast(*const [usize_bytes]u8, &rhs[i]));
+            switch (std.math.order(a, b)) {
+                .eq => continue,
+                .lt => return .lt,
+                .gt => return .gt,
+            }
+        }
+    }
+
     while (i < n) : (i += 1) {
         switch (math.order(lhs[i], rhs[i])) {
             .eq => continue,
@@ -340,6 +355,10 @@ test "order" {
     testing.expect(order(u8, "abc", "abc0") == .lt);
     testing.expect(order(u8, "", "") == .eq);
     testing.expect(order(u8, "", "a") == .lt);
+
+    testing.expect(order(u8, "abcdefgh", "abcdefgh") == .eq);
+    testing.expect(order(u8, "abcdefga", "abcdefgh") == .lt);
+    testing.expect(order(u8, "abcdefgz", "abcdefgh") == .gt);
 }
 
 /// Returns true if lhs < rhs, false otherwise
