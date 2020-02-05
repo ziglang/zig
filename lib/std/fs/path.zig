@@ -173,7 +173,7 @@ pub fn isAbsoluteWindows(path: []const u8) bool {
     return isAbsoluteWindowsImpl(u8, path);
 }
 
-pub fn isAbsoluteW(path_w: [*:0]const u16) bool {
+pub fn isAbsoluteWindowsW(path_w: [*:0]const u16) bool {
     return isAbsoluteWindowsImpl(u16, mem.toSliceConst(u16, path_w));
 }
 

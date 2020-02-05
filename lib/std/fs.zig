@@ -810,7 +810,7 @@ pub const Dir = struct {
         };
         var attr = w.OBJECT_ATTRIBUTES{
             .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
-            .RootDirectory = if (path.isAbsoluteW(sub_path_w)) null else self.fd,
+            .RootDirectory = if (path.isAbsoluteWindowsW(sub_path_w)) null else self.fd,
             .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
             .ObjectName = &nt_name,
             .SecurityDescriptor = null,
@@ -960,7 +960,7 @@ pub const Dir = struct {
         };
         var attr = w.OBJECT_ATTRIBUTES{
             .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
-            .RootDirectory = if (path.isAbsoluteW(sub_path_w)) null else self.fd,
+            .RootDirectory = if (path.isAbsoluteWindowsW(sub_path_w)) null else self.fd,
             .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
             .ObjectName = &nt_name,
             .SecurityDescriptor = null,
@@ -1327,7 +1327,7 @@ pub fn openFileAbsoluteC(absolute_path_c: [*:0]const u8, flags: File.OpenFlags) 
 
 /// Same as `openFileAbsolute` but the path parameter is WTF-16 encoded.
 pub fn openFileAbsoluteW(absolute_path_w: [*:0]const u16, flags: File.OpenFlags) File.OpenError!File {
-    assert(path.isAbsoluteW(absolute_path_w));
+    assert(path.isAbsoluteWindowsW(absolute_path_w));
     return cwd().openFileW(absolute_path_w, flags);
 }
 
@@ -1350,7 +1350,7 @@ pub fn createFileAbsoluteC(absolute_path_c: [*:0]const u8, flags: File.CreateFla
 
 /// Same as `createFileAbsolute` but the path parameter is WTF-16 encoded.
 pub fn createFileAbsoluteW(absolute_path_w: [*:0]const u16, flags: File.CreateFlags) File.OpenError!File {
-    assert(path.isAbsoluteW(absolute_path_w));
+    assert(path.isAbsoluteWindowsW(absolute_path_w));
     return cwd().createFileW(absolute_path_w, flags);
 }
 
@@ -1371,7 +1371,7 @@ pub fn deleteFileAbsoluteC(absolute_path_c: [*:0]const u8) DeleteFileError!void 
 
 /// Same as `deleteFileAbsolute` except the parameter is WTF-16 encoded.
 pub fn deleteFileAbsoluteW(absolute_path_w: [*:0]const u16) DeleteFileError!void {
-    assert(path.isAbsoluteW(absolute_path_w));
+    assert(path.isAbsoluteWindowsW(absolute_path_w));
     return cwd().deleteFileW(absolute_path_w);
 }
 
