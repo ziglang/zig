@@ -8602,6 +8602,9 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
         buf_appendf(contents,
             "pub var test_functions: []TestFn = undefined; // overwritten later\n"
         );
+
+        buf_appendf(contents, "pub const test_io_mode = %s;\n",
+            g->test_is_evented ? ".evented" : ".blocking");
     }
 
     return contents;
@@ -8635,6 +8638,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_bool(&cache_hash, g->is_dynamic);
     cache_bool(&cache_hash, g->is_test_build);
     cache_bool(&cache_hash, g->is_single_threaded);
+    cache_bool(&cache_hash, g->test_is_evented);
     cache_int(&cache_hash, g->code_model);
     cache_int(&cache_hash, g->zig_target->is_native);
     cache_int(&cache_hash, g->zig_target->arch);
@@ -10350,6 +10354,7 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     if (g->is_test_build) {
         cache_buf_opt(ch, g->test_filter);
         cache_buf_opt(ch, g->test_name_prefix);
+        cache_bool(ch, g->test_is_evented);
     }
     cache_bool(ch, g->link_eh_frame_hdr);
     cache_bool(ch, g->is_single_threaded);

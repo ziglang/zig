@@ -2,6 +2,8 @@ const std = @import("std");
 const io = std.io;
 const builtin = @import("builtin");
 
+pub const io_mode = builtin.test_io_mode;
+
 pub fn main() anyerror!void {
     const test_fn_list = builtin.test_functions;
     var ok_count: usize = 0;
