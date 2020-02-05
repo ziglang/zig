@@ -11864,7 +11864,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
         }
         assert(wanted_type->data.fn.is_generic ||
                 wanted_type->data.fn.fn_type_id.next_param_index  == wanted_type->data.fn.fn_type_id.param_count);
-        for (size_t i = 0; i < wanted_type->data.fn.fn_type_id.next_param_index; i += 1) {
+        for (size_t i = 0; i < wanted_type->data.fn.fn_type_id.param_count; i += 1) {
             // note it's reversed for parameters
             FnTypeParamInfo *actual_param_info = &actual_type->data.fn.fn_type_id.param_info[i];
             FnTypeParamInfo *expected_param_info = &wanted_type->data.fn.fn_type_id.param_info[i];
@@ -30285,7 +30285,7 @@ static ZigType *ir_resolve_lazy_fn_type(IrAnalyze *ira, AstNode *source_node, La
         if (param_is_var_args) {
             if (fn_type_id.cc == CallingConventionC) {
                 fn_type_id.param_count = fn_type_id.next_param_index;
-                continue;
+                break;
             } else if (fn_type_id.cc == CallingConventionUnspecified) {
                 return get_generic_fn_type(ira->codegen, &fn_type_id);
             } else {

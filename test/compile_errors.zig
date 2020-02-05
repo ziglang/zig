@@ -3,6 +3,17 @@ const builtin = @import("builtin");
 const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("type mismatch in C prototype with varargs",
+        \\const fn_ty = ?fn ([*c]u8, ...) callconv(.C) void;
+        \\extern fn fn_decl(fmt: [*:0]u8, ...) void;
+        \\
+        \\export fn main() void {
+        \\    const x: fn_ty = fn_decl;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:5:22: error: expected type 'fn([*c]u8, ...) callconv(.C) void', found 'fn([*:0]u8, ...) callconv(.C) void'",
+    });
+
     cases.addTest("dependency loop in top-level decl with @TypeInfo",
         \\export const foo = @typeInfo(@This());
     , &[_][]const u8{
