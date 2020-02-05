@@ -130,13 +130,7 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
     };
     const tty_config = detectTTYConfig();
     printSourceAtAddress(debug_info, stderr, ip, tty_config) catch return;
-    const first_return_address = @intToPtr(*const usize, bp + @sizeOf(usize)).*;
-    if (first_return_address == 0) return; // The whole call stack may be optimized out
-    printSourceAtAddress(debug_info, stderr, first_return_address - 1, tty_config) catch return;
-    var it = StackIterator{
-        .first_addr = null,
-        .fp = bp,
-    };
+    var it = StackIterator.init(null, bp);
     while (it.next()) |return_address| {
         printSourceAtAddress(debug_info, stderr, return_address - 1, tty_config) catch return;
     }
@@ -179,7 +173,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace
         }
         stack_trace.index = slice.len;
     } else {
-        var it = StackIterator.init(first_address);
+        var it = StackIterator.init(first_address, null);
         for (stack_trace.instruction_addresses) |*addr, i| {
             addr.* = it.next() orelse {
                 stack_trace.index = i;
@@ -291,13 +285,15 @@ pub fn writeStackTrace(
 }
 
 pub const StackIterator = struct {
-    first_addr: ?usize,
+    // Skip every frame before this address is found
+    first_address: ?usize,
+    // Last known value of the frame pointer register
     fp: usize,
 
-    pub fn init(first_addr: ?usize) StackIterator {
+    pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
         return StackIterator{
-            .first_addr = first_addr,
-            .fp = @frameAddress(),
+            .first_address = first_address,
+            .fp = fp orelse @frameAddress(),
         };
     }
 
@@ -305,29 +301,45 @@ pub const StackIterator = struct {
     // the previous fp is stored, while on some other architectures such as
     // RISC-V it points to the "top" of the frame, just above where the previous
     // fp and the return address are stored.
-    const fp_adjust_factor = if (builtin.arch == .riscv32 or builtin.arch == .riscv64)
+    const fp_offset = if (builtin.arch.isRISCV())
         2 * @sizeOf(usize)
     else
         0;
 
     fn next(self: *StackIterator) ?usize {
-        if (self.fp <= fp_adjust_factor) return null;
-        self.fp = @intToPtr(*const usize, self.fp - fp_adjust_factor).*;
-        if (self.fp <= fp_adjust_factor) return null;
+        var address = self.next_internal() orelse return null;
 
-        if (self.first_addr) |addr| {
-            while (self.fp > fp_adjust_factor) : (self.fp = @intToPtr(*const usize, self.fp - fp_adjust_factor).*) {
-                const return_address = @intToPtr(*const usize, self.fp - fp_adjust_factor + @sizeOf(usize)).*;
-                if (addr == return_address) {
-                    self.first_addr = null;
-                    return return_address;
-                }
+        if (self.first_address) |first_address| {
+            while (address != first_address) {
+                address = self.next_internal() orelse return null;
             }
+            self.first_address = null;
         }
 
-        const return_address = @intToPtr(*const usize, self.fp - fp_adjust_factor + @sizeOf(usize)).*;
-        if (return_address == 0) return null;
-        return return_address;
+        return address;
+    }
+
+    fn next_internal(self: *StackIterator) ?usize {
+        const fp = math.sub(usize, self.fp, fp_offset) catch return null;
+
+        // Sanity check
+        if (fp == 0 or !mem.isAligned(fp, @alignOf(usize)))
+            return null;
+
+        const new_fp = @intToPtr(*const usize, fp).*;
+
+        // Sanity check: the stack grows down thus all the parent frames must be
+        // be at addresses that are greater (or equal) than the previous one.
+        // A zero frame pointer often signals this is the last frame, that case
+        // is gracefully handled by the next call to next_internal
+        if (new_fp != 0 and new_fp < self.fp)
+            return null;
+
+        const new_pc = @intToPtr(*const usize, fp + @sizeOf(usize)).*;
+
+        self.fp = new_fp;
+
+        return new_pc;
     }
 };
 
@@ -340,7 +352,7 @@ pub fn writeCurrentStackTrace(
     if (builtin.os == .windows) {
         return writeCurrentStackTraceWindows(out_stream, debug_info, tty_config, start_addr);
     }
-    var it = StackIterator.init(start_addr);
+    var it = StackIterator.init(start_addr, null);
     while (it.next()) |return_address| {
         try printSourceAtAddress(debug_info, out_stream, return_address - 1, tty_config);
     }
