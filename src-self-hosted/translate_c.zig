@@ -5129,7 +5129,14 @@ fn parseCNumLit(c: *Context, tok: *CToken, source: []const u8, source_loc: ZigCl
     } else unreachable;
 }
 
-fn zigifyEscapeSequences(ctx: *Context, source: []const u8, name: []const u8, source_loc: ZigClangSourceLocation) ![]const u8 {
+fn zigifyEscapeSequences(ctx: *Context, source_bytes: []const u8, name: []const u8, source_loc: ZigClangSourceLocation) ![]const u8 {
+    var source = source_bytes;
+    for (source) |c, i| {
+        if (c == '\"' or c == '\'') {
+            source = source[i..];
+            break;
+        }
+    }
     for (source) |c| {
         if (c == '\\') {
             break;

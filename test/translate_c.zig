@@ -626,6 +626,20 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         "pub const bar = @as(c_longdouble, 16.e-2);",
     });
 
+    cases.add("comments",
+        \\#define foo 1 //foo
+        \\#define bar /* bar */ 2
+    , &[_][]const u8{
+        "pub const foo = 1;",
+        "pub const bar = 2;",
+    });
+
+    cases.add("string prefix",
+        \\#define foo L"hello"
+    , &[_][]const u8{
+        "pub const foo = \"hello\";",
+    });
+
     cases.add("null statements",
         \\void foo(void) {
         \\    ;;;;;

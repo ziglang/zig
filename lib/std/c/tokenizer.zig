@@ -1049,7 +1049,6 @@ pub const Tokenizer = struct {
                 .LineComment => switch (c) {
                     '\n' => {
                         result.id = .LineComment;
-                        self.index += 1;
                         break;
                     },
                     else => {},
