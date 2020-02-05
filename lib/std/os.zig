@@ -2237,6 +2237,7 @@ pub const MMapError = error{
 } || UnexpectedError;
 
 /// Map files or devices into memory.
+/// `length` does not need to be aligned.
 /// Use of a mapped region can result in these signals:
 /// * SIGSEGV - Attempted write into a region mapped as read-only.
 /// * SIGBUS - Attempted  access to a portion of the buffer that does not correspond to the file
@@ -3328,9 +3329,7 @@ pub fn getrusage(who: i32) rusage {
     }
 }
 
-pub const TermiosGetError = error{
-    NotATerminal,
-} || UnexpectedError;
+pub const TermiosGetError = error{NotATerminal} || UnexpectedError;
 
 pub fn tcgetattr(handle: fd_t) TermiosGetError!termios {
     var term: termios = undefined;
@@ -3342,9 +3341,7 @@ pub fn tcgetattr(handle: fd_t) TermiosGetError!termios {
     }
 }
 
-pub const TermiosSetError = TermiosGetError || error{
-    ProcessOrphaned,
-};
+pub const TermiosSetError = TermiosGetError || error{ProcessOrphaned};
 
 pub fn tcsetattr(handle: fd_t, optional_action: TCSA, termios_p: termios) TermiosSetError!void {
     while (true) {
