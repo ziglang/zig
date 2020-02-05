@@ -806,7 +806,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc) {
         if (param_decl->data.param_decl.is_var_args)
             res->data.fn_proto.is_var_args = true;
         if (i != params.length - 1 && res->data.fn_proto.is_var_args)
-            ast_error(pc, first, "Function prototype have varargs as a none last paramter.");
+            ast_error(pc, first, "Function prototype have varargs as a none last parameter.");
     }
     return res;
 }
