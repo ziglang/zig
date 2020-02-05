@@ -1572,7 +1572,7 @@ pub const NOFLSH = 128;
 pub const TOSTOP = 256;
 pub const IEXTEN = 32768;
 
-pub const TCSA = extern enum(usize) {
+pub const TCSA = extern enum(c_uint) {
     NOW,
     DRAIN,
     FLUSH,
