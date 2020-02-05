@@ -2237,6 +2237,7 @@ pub const MMapError = error{
 } || UnexpectedError;
 
 /// Map files or devices into memory.
+/// `length` must be aligned to `mem.page_size`.
 /// Use of a mapped region can result in these signals:
 /// * SIGSEGV - Attempted write into a region mapped as read-only.
 /// * SIGBUS - Attempted  access to a portion of the buffer that does not correspond to the file
