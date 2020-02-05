@@ -4811,6 +4811,15 @@ fn transCreateNodeIdentifier(c: *Context, name: []const u8) !*ast.Node {
     return &identifier.base;
 }
 
+fn transCreateNodeTypeIdentifier(c: *Context, name: []const u8) !*ast.Node {
+    const token_index = try appendTokenFmt(c, .Identifier, "{}", .{name});
+    const identifier = try c.a().create(ast.Node.Identifier);
+    identifier.* = .{
+        .token = token_index,
+    };
+    return &identifier.base;
+}
+
 pub fn freeErrors(errors: []ClangErrMsg) void {
     ZigClangErrorMsg_delete(errors.ptr, errors.len);
 }
@@ -5314,14 +5323,15 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
             return parseCNumLit(c, tok, source, source_loc);
         },
         // eventually this will be replaced by std.c.parse which will handle these correctly
-        .Keyword_void,
-        .Keyword_bool,
-        .Keyword_double,
-        .Keyword_long,
-        .Keyword_int,
-        .Keyword_float,
-        .Keyword_short,
-        .Keyword_char,
+        .Keyword_void => return transCreateNodeTypeIdentifier(c, "c_void"),
+        .Keyword_bool => return transCreateNodeTypeIdentifier(c, "bool"),
+        .Keyword_double => return transCreateNodeTypeIdentifier(c, "f64"),
+        .Keyword_long => return transCreateNodeTypeIdentifier(c, "c_long"),
+        .Keyword_int => return transCreateNodeTypeIdentifier(c, "c_int"),
+        .Keyword_float => return transCreateNodeTypeIdentifier(c, "f32"),
+        .Keyword_short => return transCreateNodeTypeIdentifier(c, "c_short"),
+        .Keyword_char => return transCreateNodeTypeIdentifier(c, "c_char"),
+        .Keyword_unsigned => return transCreateNodeTypeIdentifier(c, "c_uint"),
         .Identifier => {
             const mangled_name = scope.getAlias(source[tok.start..tok.end]);
             return transCreateNodeIdentifier(c, mangled_name);
@@ -5483,7 +5493,17 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                     // hack to get zig fmt to render a comma in builtin calls
                     _ = try appendToken(c, .Comma, ",");
 
-                    const ptr = try transCreateNodePtrType(c, false, false, .Identifier);
+                    const ptr_kind = blk:{
+                        // * token
+                        _ = it.prev();
+                        // last token of `node`
+                        const prev_id = it.prev().?.id;
+                        _ = it.next();
+                        _ = it.next();
+                        break :blk if (prev_id == .Keyword_void) .Asterisk else Token.Id.Identifier;
+                    };
+
+                    const ptr = try transCreateNodePtrType(c, false, false, ptr_kind);
                     ptr.rhs = node;
                     return &ptr.base;
                 } else {

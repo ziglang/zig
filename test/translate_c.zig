@@ -2530,8 +2530,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("macro cast",
         \\#define FOO(bar) baz((void *)(baz))
     , &[_][]const u8{
-        \\pub inline fn FOO(bar: var) @TypeOf(baz(if (@typeId(@TypeOf(baz)) == .Pointer) @ptrCast([*c]void, baz) else if (@typeId(@TypeOf(baz)) == .Int) @intToPtr([*c]void, baz) else @as([*c]void, baz))) {
-        \\    return baz(if (@typeId(@TypeOf(baz)) == .Pointer) @ptrCast([*c]void, baz) else if (@typeId(@TypeOf(baz)) == .Int) @intToPtr([*c]void, baz) else @as([*c]void, baz));
+        \\pub inline fn FOO(bar: var) @TypeOf(baz(if (@typeId(@TypeOf(baz)) == .Pointer) @ptrCast(*c_void, baz) else if (@typeId(@TypeOf(baz)) == .Int) @intToPtr(*c_void, baz) else @as(*c_void, baz))) {
+        \\    return baz(if (@typeId(@TypeOf(baz)) == .Pointer) @ptrCast(*c_void, baz) else if (@typeId(@TypeOf(baz)) == .Int) @intToPtr(*c_void, baz) else @as(*c_void, baz));
         \\}
     });
 
