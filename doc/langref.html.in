@@ -9595,10 +9595,95 @@ test "assert in release fast mode" {
       </p>
       {#header_close#}
       {#header_open|Zig Build System#}
-      <p>TODO: explain purpose, it's supposed to replace make/cmake</p>
-      <p>TODO: example of building a zig executable</p>
-      <p>TODO: example of building a C library</p>
-      {#header_close#}
+The Zig Build System is a replacement for make/cmake.
+
+      {#header_open|Basic Executable#}
+
+      <p>initialize a `zig build` application in the current directory</p>
+      <pre><code class="shell">
+$ zig init-exe
+Created build.zig
+Created src/main.zig
+
+Next, try `zig build --help` or `zig build run`
+      </code></pre>
+
+      {#code_begin|syntax|main#}
+const std = @import("std");
+
+pub fn main() anyerror!void {
+    std.debug.warn("All your base are belong to us.\n", .{});
+}
+      {#code_end#}
+      {#code_begin|syntax|builder#}
+const Builder = @import("std").build.Builder;
+
+pub fn build(b: *Builder) void {
+    const mode = b.standardReleaseOptions();
+    const exe = b.addExecutable("example", "main.zig");
+    exe.setBuildMode(mode);
+
+    const run_cmd = exe.run();
+
+    const run_step = b.step("run", "Run the app");
+    run_step.dependOn(&run_cmd.step);
+
+    b.default_step.dependOn(&exe.step);
+    b.installArtifact(exe);
+}
+      {#code_end#}
+
+      <p><code>zig build run<code> will now run the executable</p>
+      <pre><code class="shell"> 
+$ zig build run
+All your base are belong to us.
+      </code></pre>
+
+      {#header_close#} <!-- Basic Executable -->
+
+      {#header_open|Basic Library#}
+
+      <p>initialize a `zig build` library in the current directory</p>
+      <pre><code class="shell">
+$ zig init-exe
+Created build.zig
+Created src/main.zig
+
+Next, try `zig build --help` or `zig build test`
+      </code></pre>
+
+      {#code_begin|syntax|main#}
+const std = @import("std");
+const testing = std.testing;
+
+export fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+test "basic add functionality" {
+    testing.expect(add(3, 7) == 10);
+}
+      {#code_end#}
+
+      {#code_begin|syntax|builder#}
+const Builder = @import("std").build.Builder;
+
+pub fn build(b: *Builder) void {
+    const mode = b.standardReleaseOptions();
+    const lib = b.addStaticLibrary("test", "src/main.zig");
+    lib.setBuildMode(mode);
+    lib.install();
+
+    var main_tests = b.addTest("src/main.zig");
+    main_tests.setBuildMode(mode);
+
+    const test_step = b.step("test", "Run library tests");
+    test_step.dependOn(&main_tests.step);
+}
+      {#code_end#}
+      {#header_close#} <!-- Basic Library -->
+
+      {#header_close#} <!-- Zig Build System -->
       {#header_open|C#}
       <p>
       Although Zig is independent of C, and, unlike most other languages, does not depend on libc,
