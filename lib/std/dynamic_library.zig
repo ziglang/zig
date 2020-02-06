@@ -9,9 +9,10 @@ const elf = std.elf;
 const windows = std.os.windows;
 const system = std.os.system;
 const maxInt = std.math.maxInt;
+const max = std.math.max;
 
 pub const DynLib = switch (builtin.os) {
-    .linux => if (builtin.link_libc) DlDynlib else LinuxDynLib,
+    .linux => if (builtin.link_libc) DlDynlib else ElfDynLib,
     .windows => WindowsDynLib,
     .macosx, .tvos, .watchos, .ios, .freebsd => DlDynlib,
     else => void,
@@ -100,102 +101,127 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
     return LinkMap.Iterator{ .current = link_map_ptr };
 }
 
-pub const LinuxDynLib = struct {
-    pub const Error = ElfLib.Error;
-
-    elf_lib: ElfLib,
-    fd: i32,
-    memory: []align(mem.page_size) u8,
-
-    /// Trusts the file
-    pub fn open(path: []const u8) !LinuxDynLib {
-        const fd = try os.open(path, 0, os.O_RDONLY | os.O_CLOEXEC);
-        errdefer os.close(fd);
-
-        // TODO remove this @intCast
-        const size = @intCast(usize, (try os.fstat(fd)).size);
-
-        const bytes = try os.mmap(
-            null,
-            mem.alignForward(size, mem.page_size),
-            os.PROT_READ | os.PROT_EXEC,
-            os.MAP_PRIVATE,
-            fd,
-            0,
-        );
-        errdefer os.munmap(bytes);
-
-        return LinuxDynLib{
-            .elf_lib = try ElfLib.init(bytes),
-            .fd = fd,
-            .memory = bytes,
-        };
-    }
-
-    pub fn openC(path_c: [*:0]const u8) !LinuxDynLib {
-        return open(mem.toSlice(u8, path_c));
-    }
-
-    pub fn close(self: *LinuxDynLib) void {
-        os.munmap(self.memory);
-        os.close(self.fd);
-        self.* = undefined;
-    }
-
-    pub fn lookup(self: *LinuxDynLib, comptime T: type, name: [:0]const u8) ?T {
-        if (self.elf_lib.lookup("", name)) |symbol| {
-            return @intToPtr(T, symbol);
-        } else {
-            return null;
-        }
-    }
-};
-
-pub const ElfLib = struct {
-    pub const Error = error{
-        NotElfFile,
-        NotDynamicLibrary,
-        MissingDynamicLinkingInformation,
-        BaseNotFound,
-        ElfStringSectionNotFound,
-        ElfSymSectionNotFound,
-        ElfHashTableNotFound,
-    };
-
+pub const ElfDynLib = struct {
     strings: [*:0]u8,
     syms: [*]elf.Sym,
     hashtab: [*]os.Elf_Symndx,
     versym: ?[*]u16,
     verdef: ?*elf.Verdef,
-    base: usize,
+    memory: []align(mem.page_size) u8,
 
-    // Trusts the memory
-    pub fn init(bytes: []align(@alignOf(elf.Ehdr)) u8) !ElfLib {
-        const eh = @ptrCast(*elf.Ehdr, bytes.ptr);
+    pub const Error = error{
+        NotElfFile,
+        NotDynamicLibrary,
+        MissingDynamicLinkingInformation,
+        ElfStringSectionNotFound,
+        ElfSymSectionNotFound,
+        ElfHashTableNotFound,
+    };
+
+    /// Trusts the file. Malicious file will be able to execute arbitrary code.
+    pub fn open(path: []const u8) !ElfDynLib {
+        const fd = try os.open(path, 0, os.O_RDONLY | os.O_CLOEXEC);
+        defer os.close(fd);
+
+        const stat = try os.fstat(fd);
+        const size = try std.math.cast(usize, stat.size);
+
+        // This one is to read the ELF info. We do more mmapping later
+        // corresponding to the actual LOAD sections.
+        const file_bytes = try os.mmap(
+            null,
+            mem.alignForward(size, mem.page_size),
+            os.PROT_READ,
+            os.MAP_PRIVATE,
+            fd,
+            0,
+        );
+        defer os.munmap(file_bytes);
+
+        const eh = @ptrCast(*elf.Ehdr, file_bytes.ptr);
         if (!mem.eql(u8, eh.e_ident[0..4], "\x7fELF")) return error.NotElfFile;
         if (eh.e_type != elf.ET.DYN) return error.NotDynamicLibrary;
 
-        const elf_addr = @ptrToInt(bytes.ptr);
-        var ph_addr: usize = elf_addr + eh.e_phoff;
+        const elf_addr = @ptrToInt(file_bytes.ptr);
 
-        var base: usize = maxInt(usize);
+        // Iterate over the program header entries to find out the
+        // dynamic vector as well as the total size of the virtual memory.
         var maybe_dynv: ?[*]usize = null;
+        var virt_addr_end: usize = 0;
         {
             var i: usize = 0;
+            var ph_addr: usize = elf_addr + eh.e_phoff;
             while (i < eh.e_phnum) : ({
                 i += 1;
                 ph_addr += eh.e_phentsize;
             }) {
                 const ph = @intToPtr(*elf.Phdr, ph_addr);
                 switch (ph.p_type) {
-                    elf.PT_LOAD => base = elf_addr + ph.p_offset - ph.p_vaddr,
+                    elf.PT_LOAD => virt_addr_end = max(virt_addr_end, ph.p_vaddr + ph.p_memsz),
                     elf.PT_DYNAMIC => maybe_dynv = @intToPtr([*]usize, elf_addr + ph.p_offset),
                     else => {},
                 }
             }
         }
         const dynv = maybe_dynv orelse return error.MissingDynamicLinkingInformation;
-        if (base == maxInt(usize)) return error.BaseNotFound;
+
+        // Reserve the entire range (with no permissions) so that we can do MAP_FIXED below.
+        const all_loaded_mem = try os.mmap(
+            null,
+            virt_addr_end,
+            os.PROT_NONE,
+            os.MAP_PRIVATE | os.MAP_ANONYMOUS,
+            -1,
+            0,
+        );
+        errdefer os.munmap(all_loaded_mem);
+
+        const base = @ptrToInt(all_loaded_mem.ptr);
+
+        // Now iterate again and actually load all the program sections.
+        {
+            var i: usize = 0;
+            var ph_addr: usize = elf_addr + eh.e_phoff;
+            while (i < eh.e_phnum) : ({
+                i += 1;
+                ph_addr += eh.e_phentsize;
+            }) {
+                const ph = @intToPtr(*elf.Phdr, ph_addr);
+                switch (ph.p_type) {
+                    elf.PT_LOAD => {
+                        // The VirtAddr may not be page-aligned; in such case there will be
+                        // extra nonsense mapped before/after the VirtAddr,MemSiz
+                        const aligned_addr = (base + ph.p_vaddr) & ~(@as(usize, mem.page_size) - 1);
+                        const extra_bytes = (base + ph.p_vaddr) - aligned_addr;
+                        const extended_memsz = mem.alignForward(ph.p_memsz + extra_bytes, mem.page_size);
+                        const ptr = @intToPtr([*]align(mem.page_size) u8, aligned_addr);
+                        const prot = elfToMmapProt(ph.p_flags);
+                        if ((ph.p_flags & elf.PF_W) == 0) {
+                            // If it does not need write access, it can be mapped from the fd.
+                            _ = try os.mmap(
+                                ptr,
+                                extended_memsz,
+                                prot,
+                                os.MAP_PRIVATE | os.MAP_FIXED,
+                                fd,
+                                ph.p_offset - extra_bytes,
+                            );
+                        } else {
+                            const sect_mem = try os.mmap(
+                                ptr,
+                                extended_memsz,
+                                prot,
+                                os.MAP_PRIVATE | os.MAP_FIXED | os.MAP_ANONYMOUS,
+                                -1,
+                                0,
+                            );
+                            mem.copy(u8, sect_mem, file_bytes[0..ph.p_filesz]);
+                        }
+                    },
+                    else => {},
+                }
+            }
+        }
 
         var maybe_strings: ?[*:0]u8 = null;
         var maybe_syms: ?[*]elf.Sym = null;
@@ -218,8 +244,8 @@ pub const ElfLib = struct {
             }
         }
 
-        return ElfLib{
-            .base = base,
+        return ElfDynLib{
+            .memory = all_loaded_mem,
             .strings = maybe_strings orelse return error.ElfStringSectionNotFound,
             .syms = maybe_syms orelse return error.ElfSymSectionNotFound,
             .hashtab = maybe_hashtab orelse return error.ElfHashTableNotFound,
@@ -228,8 +254,27 @@ pub const ElfLib = struct {
         };
     }
 
+    /// Trusts the file. Malicious file will be able to execute arbitrary code.
+    pub fn openC(path_c: [*:0]const u8) !ElfDynLib {
+        return open(mem.toSlice(u8, path_c));
+    }
+
+    /// Trusts the file
+    pub fn close(self: *ElfDynLib) void {
+        os.munmap(self.memory);
+        self.* = undefined;
+    }
+
+    pub fn lookup(self: *ElfDynLib, comptime T: type, name: [:0]const u8) ?T {
+        if (self.lookupAddress("", name)) |symbol| {
+            return @intToPtr(T, symbol);
+        } else {
+            return null;
+        }
+    }
+
     /// Returns the address of the symbol
-    pub fn lookup(self: *const ElfLib, vername: []const u8, name: []const u8) ?usize {
+    pub fn lookupAddress(self: *const ElfDynLib, vername: []const u8, name: []const u8) ?usize {
         const maybe_versym = if (self.verdef == null) null else self.versym;
 
         const OK_TYPES = (1 << elf.STT_NOTYPE | 1 << elf.STT_OBJECT | 1 << elf.STT_FUNC | 1 << elf.STT_COMMON);
@@ -245,10 +290,18 @@ pub const ElfLib = struct {
                 if (!checkver(self.verdef.?, versym[i], vername, self.strings))
                     continue;
             }
-            return self.base + self.syms[i].st_value;
+            return @ptrToInt(self.memory.ptr) + self.syms[i].st_value;
         }
 
         return null;
+    }
+
+    fn elfToMmapProt(elf_prot: u64) u32 {
+        var result: u32 = os.PROT_NONE;
+        if ((elf_prot & elf.PF_R) != 0) result |= os.PROT_READ;
+        if ((elf_prot & elf.PF_W) != 0) result |= os.PROT_WRITE;
+        if ((elf_prot & elf.PF_X) != 0) result |= os.PROT_EXEC;
+        return result;
     }
 };
 

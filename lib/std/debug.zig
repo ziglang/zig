@@ -378,6 +378,7 @@ pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: us
     return noasync printSourceAtAddressPosix(debug_info, out_stream, address, tty_config);
 }
 
+/// TODO resources https://github.com/ziglang/zig/issues/4353
 fn printSourceAtAddressWindows(
     di: *DebugInfo,
     out_stream: var,
@@ -604,6 +605,7 @@ pub const TTY = struct {
     };
 };
 
+/// TODO resources https://github.com/ziglang/zig/issues/4353
 fn populateModule(di: *DebugInfo, mod: *Module) !void {
     if (mod.populated)
         return;
@@ -755,6 +757,7 @@ pub const OpenSelfDebugInfoError = error{
     UnsupportedOperatingSystem,
 };
 
+/// TODO resources https://github.com/ziglang/zig/issues/4353
 /// TODO once https://github.com/ziglang/zig/issues/3157 is fully implemented,
 /// make this `noasync fn` and remove the individual noasync calls.
 pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
@@ -963,6 +966,7 @@ pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: *mem.Allocator) !void {
     try di.scanAllCompileUnits();
 }
 
+/// TODO resources https://github.com/ziglang/zig/issues/4353
 pub fn openElfDebugInfo(
     allocator: *mem.Allocator,
     data: []u8,
@@ -997,12 +1001,11 @@ pub fn openElfDebugInfo(
             null,
     };
 
-    efile.close();
-
     try openDwarfDebugInfo(&di, allocator);
     return di;
 }
 
+/// TODO resources https://github.com/ziglang/zig/issues/4353
 fn openSelfDebugInfoPosix(allocator: *mem.Allocator) !DwarfInfo {
     var exe_file = try fs.openSelfExe();
     errdefer exe_file.close();
@@ -1022,6 +1025,7 @@ fn openSelfDebugInfoPosix(allocator: *mem.Allocator) !DwarfInfo {
     return openElfDebugInfo(allocator, exe_mmap);
 }
 
+/// TODO resources https://github.com/ziglang/zig/issues/4353
 fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
     const hdr = &std.c._mh_execute_header;
     assert(hdr.magic == std.macho.MH_MAGIC_64);
@@ -2074,6 +2078,7 @@ fn getAbbrevTableEntry(abbrev_table: *const AbbrevTable, abbrev_code: u64) ?*con
     return null;
 }
 
+/// TODO resources https://github.com/ziglang/zig/issues/4353
 fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, address: usize) !LineInfo {
     const ofile = symbol.ofile orelse return error.MissingDebugInfo;
     const gop = try di.ofiles.getOrPut(ofile);
