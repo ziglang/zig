@@ -4,6 +4,7 @@ const maxInt = std.math.maxInt;
 
 pub const fd_t = c_int;
 pub const pid_t = c_int;
+pub const mode_t = c_uint;
 
 pub const in_port_t = u16;
 pub const sa_family_t = u8;

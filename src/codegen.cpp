@@ -362,14 +362,16 @@ static uint32_t frame_index_arg(CodeGen *g, ZigType *return_type) {
 }
 
 // label (grep this): [fn_frame_struct_layout]
-static uint32_t frame_index_trace_stack(CodeGen *g, FnTypeId *fn_type_id) {
-    uint32_t result = frame_index_arg(g, fn_type_id->return_type);
-    for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
-        if (type_has_bits(fn_type_id->param_info->type)) {
-            result += 1;
-        }
+static uint32_t frame_index_trace_stack(CodeGen *g, ZigFn *fn) {
+    size_t field_index = 6;
+    bool have_stack_trace = codegen_fn_has_err_ret_tracing_arg(g, fn->type_entry->data.fn.fn_type_id.return_type);
+    if (have_stack_trace) {
+        field_index += 2;
     }
-    return result;
+    field_index += fn->type_entry->data.fn.fn_type_id.param_count;
+    ZigType *locals_struct = fn->frame_type->data.frame.locals_struct;
+    TypeStructField *field = locals_struct->data.structure.fields[field_index];
+    return field->gen_index;
 }
 
 
@@ -7742,7 +7744,7 @@ static void do_code_gen(CodeGen *g) {
             }
             uint32_t trace_field_index_stack = UINT32_MAX;
             if (codegen_fn_has_err_ret_tracing_stack(g, fn_table_entry, true)) {
-                trace_field_index_stack = frame_index_trace_stack(g, fn_type_id);
+                trace_field_index_stack = frame_index_trace_stack(g, fn_table_entry);
                 g->cur_err_ret_trace_val_stack = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr,
                         trace_field_index_stack, "");
             }
@@ -9396,22 +9398,13 @@ static void update_test_functions_builtin_decl(CodeGen *g) {
     for (size_t i = 0; i < g->test_fns.length; i += 1) {
         ZigFn *test_fn_entry = g->test_fns.at(i);
 
-        if (fn_is_async(test_fn_entry)) {
-            ErrorMsg *msg = add_node_error(g, test_fn_entry->proto_node,
-                buf_create_from_str("test functions cannot be async"));
-            add_error_note(g, msg, test_fn_entry->proto_node,
-                buf_sprintf("this restriction may be lifted in the future. See https://github.com/ziglang/zig/issues/3117 for more details"));
-            add_async_error_notes(g, msg, test_fn_entry);
-            continue;
-        }
-
         ZigValue *this_val = &test_fn_array->data.x_array.data.s_none.elements[i];
         this_val->special = ConstValSpecialStatic;
         this_val->type = struct_type;
         this_val->parent.id = ConstParentIdArray;
         this_val->parent.data.p_array.array_val = test_fn_array;
         this_val->parent.data.p_array.elem_index = i;
-        this_val->data.x_struct.fields = alloc_const_vals_ptrs(2);
+        this_val->data.x_struct.fields = alloc_const_vals_ptrs(3);
 
         ZigValue *name_field = this_val->data.x_struct.fields[0];
         ZigValue *name_array_val = create_const_str_lit(g, &test_fn_entry->symbol_name)->data.x_ptr.data.ref.pointee;
@@ -9423,6 +9416,19 @@ static void update_test_functions_builtin_decl(CodeGen *g) {
         fn_field->data.x_ptr.special = ConstPtrSpecialFunction;
         fn_field->data.x_ptr.mut = ConstPtrMutComptimeConst;
         fn_field->data.x_ptr.data.fn.fn_entry = test_fn_entry;
+
+        ZigValue *frame_size_field = this_val->data.x_struct.fields[2];
+        frame_size_field->type = get_optional_type(g, g->builtin_types.entry_usize);
+        frame_size_field->special = ConstValSpecialStatic;
+        frame_size_field->data.x_optional = nullptr;
+
+        if (fn_is_async(test_fn_entry)) {
+            frame_size_field->data.x_optional = create_const_vals(1);
+            frame_size_field->data.x_optional->special = ConstValSpecialStatic;
+            frame_size_field->data.x_optional->type = g->builtin_types.entry_usize;
+            bigint_init_unsigned(&frame_size_field->data.x_optional->data.x_bigint,
+                    test_fn_entry->frame_type->abi_size);
+        }
     }
     report_errors_and_maybe_exit(g);
 
