@@ -1416,7 +1416,7 @@ pub const LibExeObjStep = struct {
         self.builder.installArtifact(self);
     }
 
-    pub fn installRaw(self: *LibExeObjStep, dest_filename: [] const u8) void {
+    pub fn installRaw(self: *LibExeObjStep, dest_filename: []const u8) void {
         self.builder.installRaw(self, dest_filename);
     }
 
@@ -2135,7 +2135,7 @@ pub const LibExeObjStep = struct {
                     try zig_args.append("-isystem");
                     try zig_args.append(self.builder.pathFromRoot(include_path));
                 },
-                .OtherStep => |other| {
+                .OtherStep => |other| if (!other.disable_gen_h) {
                     const h_path = other.getOutputHPath();
                     try zig_args.append("-isystem");
                     try zig_args.append(fs.path.dirname(h_path).?);
