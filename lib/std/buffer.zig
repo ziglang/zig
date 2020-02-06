@@ -151,7 +151,7 @@ pub const Buffer = struct {
     pub fn print(self: *Buffer, comptime fmt: []const u8, args: var) !void {
         try std.fmt.format(
             self,
-            @TypeOf(Buffer.append).ReturnType.ErrorSet,
+            @typeInfo(@TypeOf(Buffer.append)).Fn.return_type.?.ErrorSet,
             Buffer.append,
             fmt,
             args,
