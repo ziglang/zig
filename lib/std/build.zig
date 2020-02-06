@@ -259,11 +259,13 @@ pub const Builder = struct {
         }));
     }
 
+    /// Add a `.so` shared library to the build outputs
     pub fn addSharedLibrary(self: *Builder, name: []const u8, root_src: ?[]const u8, ver: Version) *LibExeObjStep {
         const root_src_param = if (root_src) |p| @as(FileSource, .{ .path = p }) else null;
         return LibExeObjStep.createSharedLibrary(self, name, root_src_param, ver);
     }
 
+    /// Add a `.a` static library to the build outputs
     pub fn addStaticLibrary(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
         const root_src_param = if (root_src) |p| @as(FileSource, .{ .path = p }) else null;
         return LibExeObjStep.createStaticLibrary(self, name, root_src_param);
@@ -1395,6 +1397,8 @@ pub const LibExeObjStep = struct {
         });
     }
 
+    /// Override the build Target.
+    /// The default target is the host system.
     pub fn setTheTarget(self: *LibExeObjStep, target: Target) void {
         self.target = target;
         self.computeOutFileNames();
@@ -1408,6 +1412,8 @@ pub const LibExeObjStep = struct {
         };
     }
 
+    /// Override the build output directory.
+    /// The default output directory is the current directory.
     pub fn setOutputDir(self: *LibExeObjStep, dir: []const u8) void {
         self.output_dir = self.builder.dupePath(dir);
     }
@@ -1416,7 +1422,7 @@ pub const LibExeObjStep = struct {
         self.builder.installArtifact(self);
     }
 
-    pub fn installRaw(self: *LibExeObjStep, dest_filename: [] const u8) void {
+    pub fn installRaw(self: *LibExeObjStep, dest_filename: []const u8) void {
         self.builder.installRaw(self, dest_filename);
     }
 
@@ -1438,6 +1444,8 @@ pub const LibExeObjStep = struct {
         return run_step;
     }
 
+    /// Override the `--linker-script` argument.
+    /// By default the operating system's linker script is used.
     pub fn setLinkerScriptPath(self: *LibExeObjStep, path: []const u8) void {
         self.linker_script = path;
     }
@@ -1617,6 +1625,7 @@ pub const LibExeObjStep = struct {
         self.filter = text;
     }
 
+    /// Add a C source code file to the build.
     pub fn addCSourceFile(self: *LibExeObjStep, file: []const u8, args: []const []const u8) void {
         self.addCSourceFileSource(.{
             .args = args,
@@ -1637,10 +1646,12 @@ pub const LibExeObjStep = struct {
         self.link_objects.append(LinkObject{ .CSourceFile = c_source_file }) catch unreachable;
     }
 
+    /// Enable compiler debug output for linking
     pub fn setVerboseLink(self: *LibExeObjStep, value: bool) void {
         self.verbose_link = value;
     }
 
+    /// Enable compiler debug output for C compilation
     pub fn setVerboseCC(self: *LibExeObjStep, value: bool) void {
         self.verbose_cc = value;
     }
@@ -1730,6 +1741,7 @@ pub const LibExeObjStep = struct {
         self.link_objects.append(LinkObject{ .StaticPath = self.builder.dupe(path) }) catch unreachable;
     }
 
+    /// Add a dependency on an object file.
     pub fn addObject(self: *LibExeObjStep, obj: *LibExeObjStep) void {
         assert(obj.kind == Kind.Obj);
         self.linkLibraryOrObject(obj);
@@ -1744,10 +1756,12 @@ pub const LibExeObjStep = struct {
         self.include_dirs.append(IncludeDir{ .RawPathSystem = self.builder.dupe(path) }) catch unreachable;
     }
 
+    /// Add a `-I` or `-isystem` path.
     pub fn addIncludeDir(self: *LibExeObjStep, path: []const u8) void {
         self.include_dirs.append(IncludeDir{ .RawPath = self.builder.dupe(path) }) catch unreachable;
     }
 
+    /// Add a `-L` path.
     pub fn addLibPath(self: *LibExeObjStep, path: []const u8) void {
         self.lib_paths.append(self.builder.dupe(path)) catch unreachable;
     }
@@ -1809,6 +1823,7 @@ pub const LibExeObjStep = struct {
         self.exec_cmd_args = args;
     }
 
+    /// Pass `--system-linker-hack`
     pub fn enableSystemLinkerHack(self: *LibExeObjStep) void {
         self.system_linker_hack = true;
     }
