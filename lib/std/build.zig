@@ -495,12 +495,16 @@ pub const Builder = struct {
 
                 self.addNativeSystemIncludeDir("/usr/local/include");
                 self.addNativeSystemLibPath("/usr/local/lib");
+                self.addNativeSystemLibPath("/usr/local/lib64");
 
                 self.addNativeSystemIncludeDir(self.fmt("/usr/include/{}", .{triple}));
                 self.addNativeSystemLibPath(self.fmt("/usr/lib/{}", .{triple}));
 
                 self.addNativeSystemIncludeDir("/usr/include");
+                self.addNativeSystemLibPath("/lib");
+                self.addNativeSystemLibPath("/lib64");
                 self.addNativeSystemLibPath("/usr/lib");
+                self.addNativeSystemLibPath("/usr/lib64");
 
                 // example: on a 64-bit debian-based linux distro, with zlib installed from apt:
                 // zlib.h is in /usr/include (added above)
