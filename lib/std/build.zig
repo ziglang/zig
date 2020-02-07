@@ -926,11 +926,9 @@ pub const Builder = struct {
 
         try child.spawn();
 
-        var stdout = std.Buffer.initNull(self.allocator);
-        defer std.Buffer.deinit(&stdout);
-
         var stdout_file_in_stream = child.stdout.?.inStream();
-        try stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
+        const stdout = try stdout_file_in_stream.stream.readAllAlloc(self.allocator, max_output_size);
+        errdefer self.allocator.free(stdout);
 
         const term = try child.wait();
         switch (term) {
@@ -939,7 +937,7 @@ pub const Builder = struct {
                     out_code.* = @truncate(u8, code);
                     return error.ExitCodeFailure;
                 }
-                return stdout.toOwnedSlice();
+                return stdout;
             },
             .Signal, .Stopped, .Unknown => |code| {
                 out_code.* = @truncate(u8, code);
