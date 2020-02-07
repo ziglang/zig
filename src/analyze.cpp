@@ -3419,8 +3419,12 @@ void add_fn_export(CodeGen *g, ZigFn *fn_table_entry, const char *symbol_name, G
     } else if (cc == CallingConventionStdcall && g->zig_target->os == OsWindows) {
         if (strcmp(symbol_name, "WinMain") == 0) {
             g->have_winmain = true;
+        } else if (strcmp(symbol_name, "wWinMain") == 0) {
+            g->have_wwinmain = true;
         } else if (strcmp(symbol_name, "WinMainCRTStartup") == 0) {
             g->have_winmain_crt_startup = true;
+        } else if (strcmp(symbol_name, "wWinMainCRTStartup") == 0) {
+            g->have_wwinmain_crt_startup = true;
         } else if (strcmp(symbol_name, "DllMainCRTStartup") == 0) {
             g->have_dllmain_crt_startup = true;
         }

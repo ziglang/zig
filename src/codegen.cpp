@@ -8340,9 +8340,9 @@ TargetSubsystem detect_subsystem(CodeGen *g) {
     if (g->zig_target->os == OsWindows) {
         if (g->have_dllmain_crt_startup || (g->out_type == OutTypeLib && g->is_dynamic))
             return TargetSubsystemAuto;
-        if (g->have_c_main || g->is_test_build || g->have_winmain_crt_startup)
+        if (g->have_c_main || g->is_test_build || g->have_winmain_crt_startup || g->have_wwinmain_crt_startup)
             return TargetSubsystemConsole;
-        if (g->have_winmain)
+        if (g->have_winmain || g->have_wwinmain)
             return TargetSubsystemWindows;
     } else if (g->zig_target->os == OsUefi) {
         return TargetSubsystemEfiApplication;

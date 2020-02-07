@@ -21,7 +21,7 @@ comptime {
                 @export(main, .{ .name = "main", .linkage = .Weak });
             }
         } else if (builtin.os == .windows) {
-            if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup")) {
+            if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup")) {
                 @export(WinMainCRTStartup, .{ .name = "WinMainCRTStartup" });
             }
         } else if (builtin.os == .uefi) {
