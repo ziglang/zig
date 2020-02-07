@@ -65,22 +65,31 @@ pub fn InStream(comptime ReadError: type) type {
         /// If `buffer.len()` would exceed `max_size`, `error.StreamTooLong` is returned and
         /// the contents read from the stream are lost.
         pub fn readAllBuffer(self: *Self, buffer: *Buffer, max_size: usize) !void {
-            try buffer.resize(0);
+            try buffer.list.ensureCapacity(1);
+            buffer.list.len = 0;
+            errdefer buffer.resize(0) catch unreachable; // make sure we leave buffer in a valid state on error
+            try self.readAllArrayList(&buffer.list, max_size);
+            try buffer.list.append(0);
+        }
 
+        /// Appends to the ArrayList contents by reading from the stream until end of stream is found.
+        /// If the ArrayList length would exceed `max_size`, `error.StreamTooLong` is returned and the contents
+        /// read from the stream so far are lost.
+        pub fn readAllArrayList(self: *Self, array_list: *std.ArrayList(u8), max_size: usize) !void {
             var actual_buf_len: usize = 0;
             while (true) {
-                const dest_slice = buffer.toSlice()[actual_buf_len..];
+                const dest_slice = array_list.toSlice()[actual_buf_len..];
                 const bytes_read = try self.readFull(dest_slice);
                 actual_buf_len += bytes_read;
 
                 if (bytes_read != dest_slice.len) {
-                    buffer.shrink(actual_buf_len);
+                    array_list.shrink(actual_buf_len);
                     return;
                 }
 
                 const new_buf_size = math.min(max_size, actual_buf_len + mem.page_size);
                 if (new_buf_size == actual_buf_len) return error.StreamTooLong;
-                try buffer.resize(new_buf_size);
+                try array_list.resize(new_buf_size);
             }
         }
 
@@ -89,11 +98,10 @@ pub fn InStream(comptime ReadError: type) type {
         /// Caller owns returned memory.
         /// If this function returns an error, the contents from the stream read so far are lost.
         pub fn readAllAlloc(self: *Self, allocator: *mem.Allocator, max_size: usize) ![]u8 {
-            var buf = Buffer.initNull(allocator);
-            defer buf.deinit();
-
-            try self.readAllBuffer(&buf, max_size);
-            return buf.toOwnedSlice();
+            var array_list = std.ArrayList(u8).init(allocator);
+            defer array_list.deinit();
+            try self.readAllArrayList(&array_list, max_size);
+            return array_list.toOwnedSlice();
         }
 
         /// Replaces `buffer` contents by reading from the stream until `delimiter` is found.
@@ -101,8 +109,18 @@ pub fn InStream(comptime ReadError: type) type {
         /// If `buffer.len()` would exceed `max_size`, `error.StreamTooLong` is returned and the contents
         /// read from the stream so far are lost.
         pub fn readUntilDelimiterBuffer(self: *Self, buffer: *Buffer, delimiter: u8, max_size: usize) !void {
-            try buffer.resize(0);
+            try buffer.list.ensureCapacity(1);
+            buffer.list.len = 0;
+            errdefer buffer.resize(0) catch unreachable; // make sure we leave buffer in a valid state on error
+            try self.readUntilDelimiterArrayList(&buffer.list, delimiter, max_size);
+            try buffer.list.append(0);
+        }
 
+        /// Appends to the ArrayList contents by reading from the stream until `delimiter` is found.
+        /// Does not include the delimiter in the result.
+        /// If the ArrayList length would exceed `max_size`, `error.StreamTooLong` is returned and the contents
+        /// read from the stream so far are lost.
+        pub fn readUntilDelimiterArrayList(self: *Self, array_list: *std.ArrayList(u8), delimiter: u8, max_size: usize) !void {
             while (true) {
                 var byte: u8 = try self.readByte();
 
@@ -110,11 +128,11 @@ pub fn InStream(comptime ReadError: type) type {
                     return;
                 }
 
-                if (buffer.len() == max_size) {
+                if (array_list.len == max_size) {
                     return error.StreamTooLong;
                 }
 
-                try buffer.appendByte(byte);
+                try array_list.append(byte);
             }
         }
 
@@ -123,11 +141,10 @@ pub fn InStream(comptime ReadError: type) type {
         /// Caller owns returned memory.
         /// If this function returns an error, the contents from the stream read so far are lost.
         pub fn readUntilDelimiterAlloc(self: *Self, allocator: *mem.Allocator, delimiter: u8, max_size: usize) ![]u8 {
-            var buf = Buffer.initNull(allocator);
-            defer buf.deinit();
-
-            try self.readUntilDelimiterBuffer(&buf, delimiter, max_size);
-            return buf.toOwnedSlice();
+            var array_list = std.ArrayList(u8).init(allocator);
+            defer array_list.deinit();
+            try self.readUntilDelimiterArrayList(&array_list, delimiter, max_size);
+            return array_list.toOwnedSlice();
         }
 
         /// Reads from the stream until specified byte is found. If the buffer is not
