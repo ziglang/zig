@@ -185,7 +185,7 @@ pub const RunStep = struct {
         };
 
         var stderr: []const u8 = undefined;
-        switch (self.stdout_behavior) {
+        switch (self.stderr_action) {
             .expect_exact, .expect_matches => {
                 var stderr_file_in_stream = child.stderr.?.inStream();
                 stderr = stderr_file_in_stream.stream.readAllAlloc(self.builder.allocator, max_stdout_size) catch unreachable;
