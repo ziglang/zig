@@ -249,6 +249,10 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             return self.pop();
         }
 
+        pub fn eql(self: Self, m: []const T) bool {
+            return mem.eql(T, self.toSliceConst(), m);
+        }
+
         pub fn startsWith(self: Self, m: []const T) bool {
             if (self.len < m.len) return false;
             return mem.eql(T, self.items[0..m.len], m);
