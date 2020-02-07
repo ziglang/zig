@@ -2529,15 +2529,8 @@ pub fn pipe() PipeError![2]fd_t {
 
 pub fn pipe2(flags: u32) PipeError![2]fd_t {
     if (comptime std.Target.current.isDarwin()) {
-        var fds: [2]fd_t = undefined;
-        switch (errno(system.pipe(&fds, flags))) {
-            0 => {},
-            EINVAL => unreachable, // Invalid flags
-            EFAULT => unreachable, // Invalid fds pointer
-            ENFILE => return error.SystemFdQuotaExceeded,
-            EMFILE => return error.ProcessFdQuotaExceeded,
-            else => |err| return unexpectedErrno(err),
-        }
+        var fds: [2]fd_t = try pipe();
+        if (flags == 0) return fds;
         errdefer {
             close(fds[0]);
             close(fds[1]);
