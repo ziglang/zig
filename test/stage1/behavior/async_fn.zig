@@ -1329,3 +1329,45 @@ test "async call with @call" {
     };
     S.doTheTest();
 }
+
+test "async function passed 0-bit arg after non-0-bit arg" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+        var global_int: i32 = 0;
+
+        fn foo() void {
+            _ = async bar(1, .{});
+        }
+
+        fn bar(x: i32, args: var) anyerror!void {
+            global_frame = @frame();
+            suspend;
+            global_int = x;
+        }
+    };
+    S.foo();
+    resume S.global_frame;
+    expect(S.global_int == 1);
+}
+
+test "async function passed align(16) arg after align(8) arg" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+        var global_int: u128 = 0;
+
+        fn foo() void {
+            var a: u128 = 99;
+            _ = async bar(10, .{a});
+        }
+
+        fn bar(x: u64, args: var) anyerror!void {
+            expect(x == 10);
+            global_frame = @frame();
+            suspend;
+            global_int = args[0];
+        }
+    };
+    S.foo();
+    resume S.global_frame;
+    expect(S.global_int == 99);
+}

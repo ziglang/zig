@@ -343,22 +343,54 @@ static LLVMLinkage to_llvm_linkage(GlobalLinkageId id) {
     zig_unreachable();
 }
 
-// label (grep this): [fn_frame_struct_layout]
-static uint32_t frame_index_trace_arg(CodeGen *g, ZigType *return_type) {
-    // [0] *ReturnType (callee's)
-    // [1] *ReturnType (awaiter's)
-    // [2] ReturnType
-    uint32_t return_field_count = type_has_bits(return_type) ? 3 : 0;
-    return frame_ret_start + return_field_count;
+struct CalcLLVMFieldIndex {
+    uint32_t offset;
+    uint32_t field_index;
+};
+
+static void calc_llvm_field_index_add(CodeGen *g, CalcLLVMFieldIndex *calc, ZigType *ty) {
+    if (!type_has_bits(ty)) return;
+    uint32_t ty_align = get_abi_alignment(g, ty);
+    if (calc->offset % ty_align != 0) {
+        uint32_t llvm_align = LLVMABIAlignmentOfType(g->target_data_ref, get_llvm_type(g, ty));
+        if (llvm_align >= ty_align) {
+            ty_align = llvm_align; // llvm's padding is sufficient
+        } else if (calc->offset) {
+            calc->field_index += 1; // zig will insert an extra padding field here
+        }
+        calc->offset += ty_align - (calc->offset % ty_align); // padding bytes
+    }
+    calc->offset += ty->abi_size;
+    calc->field_index += 1;
 }
 
 // label (grep this): [fn_frame_struct_layout]
-static uint32_t frame_index_arg(CodeGen *g, ZigType *return_type) {
-    bool have_stack_trace = codegen_fn_has_err_ret_tracing_arg(g, return_type);
-    // [0] *StackTrace (callee's)
-    // [1] *StackTrace (awaiter's)
-    uint32_t trace_field_count = have_stack_trace ? 2 : 0;
-    return frame_index_trace_arg(g, return_type) + trace_field_count;
+static void frame_index_trace_arg_calc(CodeGen *g, CalcLLVMFieldIndex *calc, ZigType *return_type) {
+    calc_llvm_field_index_add(g, calc, g->builtin_types.entry_usize); // function pointer
+    calc_llvm_field_index_add(g, calc, g->builtin_types.entry_usize); // resume index
+    calc_llvm_field_index_add(g, calc, g->builtin_types.entry_usize); // awaiter index
+
+    if (type_has_bits(return_type)) {
+        calc_llvm_field_index_add(g, calc, g->builtin_types.entry_usize); // *ReturnType (callee's)
+        calc_llvm_field_index_add(g, calc, g->builtin_types.entry_usize); // *ReturnType (awaiter's)
+        calc_llvm_field_index_add(g, calc, return_type); // ReturnType
+    }
+}
+
+static uint32_t frame_index_trace_arg(CodeGen *g, ZigType *return_type) {
+    CalcLLVMFieldIndex calc = {0};
+    frame_index_trace_arg_calc(g, &calc, return_type);
+    return calc.field_index;
+}
+
+// label (grep this): [fn_frame_struct_layout]
+static void frame_index_arg_calc(CodeGen *g, CalcLLVMFieldIndex *calc, ZigType *return_type) {
+    frame_index_trace_arg_calc(g, calc, return_type);
+
+    if (codegen_fn_has_err_ret_tracing_arg(g, return_type)) {
+        calc_llvm_field_index_add(g, calc, g->builtin_types.entry_usize); // *StackTrace (callee's)
+        calc_llvm_field_index_add(g, calc, g->builtin_types.entry_usize); // *StackTrace (awaiter's)
+    }
 }
 
 // label (grep this): [fn_frame_struct_layout]
@@ -3922,7 +3954,9 @@ static void set_call_instr_sret(CodeGen *g, LLVMValueRef call_instr) {
 static void render_async_spills(CodeGen *g) {
     ZigType *fn_type = g->cur_fn->type_entry;
     ZigType *import = get_scope_import(&g->cur_fn->fndef_scope->base);
-    uint32_t async_var_index = frame_index_arg(g, fn_type->data.fn.fn_type_id.return_type);
+
+    CalcLLVMFieldIndex arg_calc = {0};
+    frame_index_arg_calc(g, &arg_calc, fn_type->data.fn.fn_type_id.return_type);
     for (size_t var_i = 0; var_i < g->cur_fn->variable_list.length; var_i += 1) {
         ZigVar *var = g->cur_fn->variable_list.at(var_i);
 
@@ -3943,8 +3977,8 @@ static void render_async_spills(CodeGen *g) {
             continue;
         }
 
-        var->value_ref = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, async_var_index, var->name);
-        async_var_index += 1;
+        calc_llvm_field_index_add(g, &arg_calc, var->var_type);
+        var->value_ref = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, arg_calc.field_index - 1, var->name);
         if (var->decl_node) {
             var->di_loc_var = ZigLLVMCreateAutoVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
                 var->name, import->data.structure.root_struct->di_file,
@@ -4267,17 +4301,35 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
     LLVMValueRef result;
 
     if (callee_is_async) {
-        uint32_t arg_start_i = frame_index_arg(g, fn_type->data.fn.fn_type_id.return_type);
+        CalcLLVMFieldIndex arg_calc_start = {0};
+        frame_index_arg_calc(g, &arg_calc_start, fn_type->data.fn.fn_type_id.return_type);
 
         LLVMValueRef casted_frame;
         if (instruction->new_stack != nullptr && instruction->fn_entry == nullptr) {
             // We need the frame type to be a pointer to a struct that includes the args
-            size_t field_count = arg_start_i + gen_param_values.length;
+
+            // Count ahead to determine how many llvm struct fields we need.
+            CalcLLVMFieldIndex arg_calc = arg_calc_start;
+            for (size_t i = 0; i < gen_param_types.length; i += 1) {
+                calc_llvm_field_index_add(g, &arg_calc, gen_param_types.at(i));
+            }
+            size_t field_count = arg_calc.field_index;
+
             LLVMTypeRef *field_types = allocate_nonzero<LLVMTypeRef>(field_count);
             LLVMGetStructElementTypes(LLVMGetElementType(LLVMTypeOf(frame_result_loc)), field_types);
-            assert(LLVMCountStructElementTypes(LLVMGetElementType(LLVMTypeOf(frame_result_loc))) == arg_start_i);
+            assert(LLVMCountStructElementTypes(LLVMGetElementType(LLVMTypeOf(frame_result_loc))) == arg_calc_start.field_index);
+
+            arg_calc = arg_calc_start;
             for (size_t arg_i = 0; arg_i < gen_param_values.length; arg_i += 1) {
-                field_types[arg_start_i + arg_i] = LLVMTypeOf(gen_param_values.at(arg_i));
+                CalcLLVMFieldIndex prev = arg_calc;
+                calc_llvm_field_index_add(g, &arg_calc, gen_param_types.at(arg_i));
+                field_types[arg_calc.field_index - 1] = LLVMTypeOf(gen_param_values.at(arg_i));
+                if (arg_calc.field_index - prev.field_index > 1) {
+                    // Padding field
+                    uint32_t pad_bytes = arg_calc.offset - prev.offset - gen_param_types.at(arg_i)->abi_size;
+                    LLVMTypeRef pad_llvm_type = LLVMArrayType(LLVMInt8Type(), pad_bytes);
+                    field_types[arg_calc.field_index - 2] = pad_llvm_type;
+                }
             }
             LLVMTypeRef frame_with_args_type = LLVMStructType(field_types, field_count, false);
             LLVMTypeRef ptr_frame_with_args_type = LLVMPointerType(frame_with_args_type, 0);
@@ -4287,8 +4339,10 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
             casted_frame = frame_result_loc;
         }
 
+        CalcLLVMFieldIndex arg_calc = arg_calc_start;
         for (size_t arg_i = 0; arg_i < gen_param_values.length; arg_i += 1) {
-            LLVMValueRef arg_ptr = LLVMBuildStructGEP(g->builder, casted_frame, arg_start_i + arg_i, "");
+            calc_llvm_field_index_add(g, &arg_calc, gen_param_types.at(arg_i));
+            LLVMValueRef arg_ptr = LLVMBuildStructGEP(g->builder, casted_frame, arg_calc.field_index - 1, "");
             gen_assign_raw(g, arg_ptr, get_pointer_to_type(g, gen_param_types.at(arg_i), true),
                     gen_param_values.at(arg_i));
         }

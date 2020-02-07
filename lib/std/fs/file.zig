@@ -195,7 +195,7 @@ pub const File = struct {
             }
             return Stat{
                 .size = @bitCast(u64, info.StandardInformation.EndOfFile),
-                .mode = {},
+                .mode = 0,
                 .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
                 .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
                 .ctime = windows.fromSysTime(info.BasicInformation.CreationTime),
