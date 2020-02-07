@@ -11,6 +11,9 @@ const fd_t = os.fd_t;
 const File = std.fs.File;
 const Allocator = mem.Allocator;
 
+const global_event_loop = Loop.instance orelse
+    @compileError("std.fs.Watch currently only works with event-based I/O");
+
 const WatchEventId = enum {
     CloseWrite,
     Delete,

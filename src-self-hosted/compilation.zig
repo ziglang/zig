@@ -29,7 +29,7 @@ const Package = @import("package.zig").Package;
 const link = @import("link.zig").link;
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const CInt = @import("c_int.zig").CInt;
-const fs = event.fs;
+const fs = std.fs;
 const util = @import("util.zig");
 
 const max_src_size = 2 * 1024 * 1024 * 1024; // 2 GiB
@@ -442,7 +442,7 @@ pub const Compilation = struct {
         comp.name = try Buffer.init(comp.arena(), name);
         comp.llvm_triple = try util.getTriple(comp.arena(), target);
         comp.llvm_target = try util.llvmTargetFromTriple(comp.llvm_triple);
-        comp.zig_std_dir = try std.fs.path.join(comp.arena(), &[_][]const u8{ zig_lib_dir, "std" });
+        comp.zig_std_dir = try fs.path.join(comp.arena(), &[_][]const u8{ zig_lib_dir, "std" });
 
         const opt_level = switch (build_mode) {
             .Debug => llvm.CodeGenLevelNone,
@@ -488,8 +488,8 @@ pub const Compilation = struct {
         defer comp.events.deinit();
 
         if (root_src_path) |root_src| {
-            const dirname = std.fs.path.dirname(root_src) orelse ".";
-            const basename = std.fs.path.basename(root_src);
+            const dirname = fs.path.dirname(root_src) orelse ".";
+            const basename = fs.path.basename(root_src);
 
             comp.root_package = try Package.create(comp.arena(), dirname, basename);
             comp.std_package = try Package.create(comp.arena(), comp.zig_std_dir, "std.zig");
@@ -521,7 +521,7 @@ pub const Compilation = struct {
         if (comp.tmp_dir.getOrNull()) |tmp_dir_result|
             if (tmp_dir_result.*) |tmp_dir| {
                 // TODO evented I/O?
-                std.fs.deleteTree(tmp_dir) catch {};
+                fs.deleteTree(tmp_dir) catch {};
             } else |_| {};
     }
 
@@ -797,7 +797,7 @@ pub const Compilation = struct {
 
     async fn rebuildFile(self: *Compilation, root_scope: *Scope.Root) BuildError!void {
         const tree_scope = blk: {
-            const source_code = fs.readFile(
+            const source_code = fs.cwd().readFileAlloc(
                 self.gpa(),
                 root_scope.realpath,
                 max_src_size,
@@ -935,8 +935,8 @@ pub const Compilation = struct {
     fn initialCompile(self: *Compilation) !void {
         if (self.root_src_path) |root_src_path| {
             const root_scope = blk: {
-                // TODO async/await std.fs.realpath
-                const root_src_real_path = std.fs.realpathAlloc(self.gpa(), root_src_path) catch |err| {
+                // TODO async/await fs.realpath
+                const root_src_real_path = fs.realpathAlloc(self.gpa(), root_src_path) catch |err| {
                     try self.addCompileErrorCli(root_src_path, "unable to open: {}", .{@errorName(err)});
                     return;
                 };
@@ -1157,7 +1157,7 @@ pub const Compilation = struct {
         const file_name = try std.fmt.allocPrint(self.gpa(), "{}{}", .{ file_prefix[0..], suffix });
         defer self.gpa().free(file_name);
 
-        const full_path = try std.fs.path.join(self.gpa(), &[_][]const u8{ tmp_dir, file_name[0..] });
+        const full_path = try fs.path.join(self.gpa(), &[_][]const u8{ tmp_dir, file_name[0..] });
         errdefer self.gpa().free(full_path);
 
         return Buffer.fromOwnedSlice(self.gpa(), full_path);
@@ -1178,8 +1178,8 @@ pub const Compilation = struct {
         const zig_dir_path = try getZigDir(self.gpa());
         defer self.gpa().free(zig_dir_path);
 
-        const tmp_dir = try std.fs.path.join(self.arena(), &[_][]const u8{ zig_dir_path, comp_dir_name[0..] });
-        try std.fs.makePath(self.gpa(), tmp_dir);
+        const tmp_dir = try fs.path.join(self.arena(), &[_][]const u8{ zig_dir_path, comp_dir_name[0..] });
+        try fs.makePath(self.gpa(), tmp_dir);
         return tmp_dir;
     }
 
@@ -1351,7 +1351,7 @@ async fn addFnToLinkSet(comp: *Compilation, fn_val: *Value.Fn) Compilation.Build
 }
 
 fn getZigDir(allocator: *mem.Allocator) ![]u8 {
-    return std.fs.getAppDataDir(allocator, "zig");
+    return fs.getAppDataDir(allocator, "zig");
 }
 
 fn analyzeFnType(
