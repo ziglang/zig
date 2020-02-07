@@ -6369,6 +6369,12 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
                 // This instruction does its own spilling specially, or otherwise doesn't need it.
                 continue;
             }
+            if (instruction->id == IrInstGenIdCast &&
+                reinterpret_cast<IrInstGenCast *>(instruction)->cast_op == CastOpNoop)
+            {
+                // The IR instruction exists only to change the type according to Zig. No spill needed.
+                continue;
+            }
             if (instruction->value->special != ConstValSpecialRuntime)
                 continue;
             if (instruction->base.ref_count == 0)

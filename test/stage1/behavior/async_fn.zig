@@ -1336,7 +1336,7 @@ test "async function passed 0-bit arg after non-0-bit arg" {
         var global_int: i32 = 0;
 
         fn foo() void {
-            _ = async bar(1, .{});
+            bar(1, .{}) catch unreachable;
         }
 
         fn bar(x: i32, args: var) anyerror!void {
@@ -1345,7 +1345,7 @@ test "async function passed 0-bit arg after non-0-bit arg" {
             global_int = x;
         }
     };
-    S.foo();
+    _ = async S.foo();
     resume S.global_frame;
     expect(S.global_int == 1);
 }
@@ -1357,7 +1357,7 @@ test "async function passed align(16) arg after align(8) arg" {
 
         fn foo() void {
             var a: u128 = 99;
-            _ = async bar(10, .{a});
+            bar(10, .{a}) catch unreachable;
         }
 
         fn bar(x: u64, args: var) anyerror!void {
@@ -1367,7 +1367,7 @@ test "async function passed align(16) arg after align(8) arg" {
             global_int = args[0];
         }
     };
-    S.foo();
+    _ = async S.foo();
     resume S.global_frame;
     expect(S.global_int == 99);
 }
