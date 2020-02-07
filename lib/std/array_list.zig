@@ -248,6 +248,17 @@ pub fn AlignedArrayList(comptime T: type, comptime alignment: ?u29) type {
             if (self.len == 0) return null;
             return self.pop();
         }
+
+        pub fn startsWith(self: Self, m: []const T) bool {
+            if (self.len < m.len) return false;
+            return mem.eql(T, self.items[0..m.len], m);
+        }
+
+        pub fn endsWith(self: Self, m: []const T) bool {
+            if (self.len < m.len) return false;
+            const start = self.len - m.len;
+            return mem.eql(T, self.items[start..self.len], m);
+        }
     };
 }
 

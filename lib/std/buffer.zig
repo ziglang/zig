@@ -133,7 +133,7 @@ pub const Buffer = struct {
 
     pub fn startsWith(self: Buffer, m: []const u8) bool {
         if (self.len() < m.len) return false;
-        return mem.eql(u8, self.list.items[0..m.len], m);
+        return self.list.startsWith(m);
     }
 
     pub fn endsWith(self: Buffer, m: []const u8) bool {
