@@ -564,8 +564,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
     add_uwtable_attr(g, llvm_fn);
     addLLVMFnAttr(llvm_fn, "nobuiltin");
     if (codegen_have_frame_pointer(g) && fn->fn_inline != FnInlineAlways) {
-        ZigLLVMAddFunctionAttr(llvm_fn, "no-frame-pointer-elim", "true");
-        ZigLLVMAddFunctionAttr(llvm_fn, "no-frame-pointer-elim-non-leaf", nullptr);
+        ZigLLVMAddFunctionAttr(llvm_fn, "frame-pointer", "all");
     }
     if (fn->section_name) {
         LLVMSetSection(llvm_fn, buf_ptr(fn->section_name));
@@ -1128,8 +1127,7 @@ static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
     // on any architecture.
     addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
     if (codegen_have_frame_pointer(g)) {
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
+        ZigLLVMAddFunctionAttr(fn_val, "frame-pointer", "all");
     }
 
     LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn_val, "Entry");
@@ -1206,8 +1204,7 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
     if (codegen_have_frame_pointer(g)) {
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
+        ZigLLVMAddFunctionAttr(fn_val, "frame-pointer", "all");
     }
 
     // this is above the ZigLLVMClearCurrentDebugLocation
@@ -1290,8 +1287,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
     if (codegen_have_frame_pointer(g)) {
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
+        ZigLLVMAddFunctionAttr(fn_val, "frame-pointer", "all");
     }
     // Not setting alignment here. See the comment above about
     // "Cannot getTypeInfo() on a type that is unsized!"
@@ -4995,8 +4991,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
     if (codegen_have_frame_pointer(g)) {
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
-        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
+        ZigLLVMAddFunctionAttr(fn_val, "frame-pointer", "all");
     }
 
     LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
