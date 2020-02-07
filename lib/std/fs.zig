@@ -817,7 +817,10 @@ pub const Dir = struct {
     ) File.OpenError!File {
         const w = os.windows;
 
-        var result = File{ .handle = undefined };
+        var result = File{
+            .handle = undefined,
+            .io_mode = .blocking,
+        };
 
         const path_len_bytes = math.cast(u16, mem.toSliceConst(u16, sub_path_w).len * 2) catch |err| switch (err) {
             error.Overflow => return error.NameTooLong,
