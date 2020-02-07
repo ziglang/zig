@@ -2256,6 +2256,7 @@ pub fn attachSegfaultHandler() void {
 
     os.sigaction(os.SIGSEGV, &act, null);
     os.sigaction(os.SIGILL, &act, null);
+    os.sigaction(os.SIGBUS, &act, null);
 }
 
 fn resetSegfaultHandler() void {
@@ -2273,6 +2274,7 @@ fn resetSegfaultHandler() void {
     };
     os.sigaction(os.SIGSEGV, &act, null);
     os.sigaction(os.SIGILL, &act, null);
+    os.sigaction(os.SIGBUS, &act, null);
 }
 
 fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: *const c_void) callconv(.C) noreturn {
@@ -2285,6 +2287,7 @@ fn handleSegfaultLinux(sig: i32, info: *const os.siginfo_t, ctx_ptr: *const c_vo
     switch (sig) {
         os.SIGSEGV => std.debug.warn("Segmentation fault at address 0x{x}\n", .{addr}),
         os.SIGILL => std.debug.warn("Illegal instruction at address 0x{x}\n", .{addr}),
+        os.SIGBUS => std.debug.warn("Bus error at address 0x{x}\n", .{addr}),
         else => unreachable,
     }
     switch (builtin.arch) {
