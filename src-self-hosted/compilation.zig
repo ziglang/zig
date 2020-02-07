@@ -451,14 +451,11 @@ pub const Compilation = struct {
 
         const reloc_mode = if (is_static) llvm.RelocStatic else llvm.RelocPIC;
 
-        // LLVM creates invalid binaries on Windows sometimes.
-        // See https://github.com/ziglang/zig/issues/508
-        // As a workaround we do not use target native features on Windows.
         var target_specific_cpu_args: ?[*:0]u8 = null;
         var target_specific_cpu_features: ?[*:0]u8 = null;
         defer llvm.DisposeMessage(target_specific_cpu_args);
         defer llvm.DisposeMessage(target_specific_cpu_features);
-        if (target == Target.Native and !target.isWindows()) {
+        if (target == Target.Native) {
             target_specific_cpu_args = llvm.GetHostCPUName() orelse return error.OutOfMemory;
             target_specific_cpu_features = llvm.GetNativeFeatures() orelse return error.OutOfMemory;
         }

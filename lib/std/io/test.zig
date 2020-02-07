@@ -547,10 +547,6 @@ fn testSerializerDeserializer(comptime endian: builtin.Endian, comptime packing:
 }
 
 test "Serializer/Deserializer generic" {
-    if (std.Target.current.isWindows()) {
-        // TODO https://github.com/ziglang/zig/issues/508
-        return error.SkipZigTest;
-    }
     try testSerializerDeserializer(builtin.Endian.Big, .Byte);
     try testSerializerDeserializer(builtin.Endian.Little, .Byte);
     try testSerializerDeserializer(builtin.Endian.Big, .Bit);
