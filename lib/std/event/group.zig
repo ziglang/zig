@@ -22,7 +22,7 @@ pub fn Group(comptime ReturnType: type) type {
         const AllocStack = std.atomic.Stack(Node);
 
         pub const Node = struct {
-            bytes: []const u8 = [0]u8{},
+            bytes: []const u8 = &[0]u8{},
             handle: anyframe->ReturnType,
         };
 

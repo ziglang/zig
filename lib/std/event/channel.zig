@@ -267,17 +267,16 @@ pub fn Channel(comptime T: type) type {
 }
 
 test "std.event.Channel" {
+    if (!std.io.is_async) return error.SkipZigTest;
+
     // https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
 
     // https://github.com/ziglang/zig/issues/3251
     if (builtin.os == .freebsd) return error.SkipZigTest;
 
-    // TODO provide a way to run tests in evented I/O mode
-    if (!std.io.is_async) return error.SkipZigTest;
-
     var channel: Channel(i32) = undefined;
-    channel.init([0]i32{});
+    channel.init(&[0]i32{});
     defer channel.deinit();
 
     var handle = async testChannelGetter(&channel);
