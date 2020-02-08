@@ -4059,6 +4059,8 @@ static void gen_init_stack_trace(CodeGen *g, LLVMValueRef trace_field_ptr, LLVMV
 }
 
 static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrInstGenCall *instruction) {
+    Error err;
+
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
 
     LLVMValueRef fn_val;
@@ -4089,6 +4091,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
     ZigList<ZigType *> gen_param_types = {};
     LLVMValueRef result_loc = instruction->result_loc ? ir_llvm_value(g, instruction->result_loc) : nullptr;
     LLVMValueRef zero = LLVMConstNull(usize_type_ref);
+    bool need_frame_ptr_ptr_spill = false;
     LLVMValueRef frame_result_loc_uncasted = nullptr;
     LLVMValueRef frame_result_loc;
     LLVMValueRef awaiter_init_val;
@@ -4127,14 +4130,17 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
 
                     LLVMPositionBuilderAtEnd(g->builder, ok_block);
                 }
+                need_frame_ptr_ptr_spill = true;
                 LLVMValueRef frame_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_slice_ptr, slice_ptr_index, "");
                 LLVMValueRef frame_ptr = LLVMBuildLoad(g->builder, frame_ptr_ptr, "");
                 if (instruction->fn_entry == nullptr) {
                     ZigType *anyframe_type = get_any_frame_type(g, src_return_type);
                     frame_result_loc = LLVMBuildBitCast(g->builder, frame_ptr, get_llvm_type(g, anyframe_type), "");
                 } else {
-                    ZigType *ptr_frame_type = get_pointer_to_type(g,
-                            get_fn_frame_type(g, instruction->fn_entry), false);
+                    ZigType *frame_type = get_fn_frame_type(g, instruction->fn_entry);
+                    if ((err = type_resolve(g, frame_type, ResolveStatusLLVMFull)))
+                        codegen_report_errors_and_exit(g);
+                    ZigType *ptr_frame_type = get_pointer_to_type(g, frame_type, false);
                     frame_result_loc = LLVMBuildBitCast(g->builder, frame_ptr,
                             get_llvm_type(g, ptr_frame_type), "");
                 }
@@ -4405,6 +4411,11 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
                 }
             }
 
+            if (need_frame_ptr_ptr_spill) {
+                LLVMValueRef frame_slice_ptr = ir_llvm_value(g, instruction->new_stack);
+                LLVMValueRef frame_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_slice_ptr, slice_ptr_index, "");
+                frame_result_loc_uncasted = LLVMBuildLoad(g->builder, frame_ptr_ptr, "");
+            }
             if (frame_result_loc_uncasted != nullptr && instruction->fn_entry != nullptr) {
                 // Instead of a spill, we do the bitcast again. The uncasted LLVM IR instruction will
                 // be an Alloca from the entry block, so it does not need to be spilled.
