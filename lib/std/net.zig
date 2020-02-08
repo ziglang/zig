@@ -378,8 +378,8 @@ pub fn connectUnixSocket(path: []const u8) !fs.File {
     );
 
     return fs.File{
-        .handle = socket,
-        .is_blocking = std.io.mode,
+        .handle = sockfd,
+        .io_mode = std.io.mode,
     };
 }
 

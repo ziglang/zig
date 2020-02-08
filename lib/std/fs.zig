@@ -706,6 +706,7 @@ pub const Dir = struct {
     }
 
     /// Opens a file for reading or writing, without attempting to create a new file.
+    /// To create a new file, see `createFile`.
     /// Call `File.close` to release the resource.
     /// Asserts that the path parameter has no null bytes.
     pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
