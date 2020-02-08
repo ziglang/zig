@@ -8874,7 +8874,9 @@ static IrInstSrc *ir_gen_if_optional_expr(IrBuilderSrc *irb, Scope *scope, AstNo
     AstNode *else_node = node->data.test_expr.else_node;
     bool var_is_ptr = node->data.test_expr.var_is_ptr;
 
-    IrInstSrc *maybe_val_ptr = ir_gen_node_extra(irb, expr_node, scope, LValPtr, nullptr);
+    ScopeExpr *spill_scope = create_expr_scope(irb->codegen, expr_node, scope);
+
+    IrInstSrc *maybe_val_ptr = ir_gen_node_extra(irb, expr_node, &spill_scope->base, LValPtr, nullptr);
     if (maybe_val_ptr == irb->codegen->invalid_inst_src)
         return maybe_val_ptr;
 
@@ -8899,7 +8901,7 @@ static IrInstSrc *ir_gen_if_optional_expr(IrBuilderSrc *irb, Scope *scope, AstNo
 
     ir_set_cursor_at_end_and_append_block(irb, then_block);
 
-    Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, scope, is_comptime);
+    Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, &spill_scope->base, is_comptime);
     Scope *var_scope;
     if (var_symbol) {
         bool is_shadowable = false;

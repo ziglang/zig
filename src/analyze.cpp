@@ -6104,11 +6104,12 @@ static void mark_suspension_point(Scope *scope) {
                 continue;
             }
             case ScopeIdExpr: {
+                ScopeExpr *parent_expr_scope = reinterpret_cast<ScopeExpr *>(scope);
                 if (!looking_for_exprs) {
+                    parent_expr_scope->need_spill = MemoizedBoolTrue;
                     // Now we're only looking for a block, to see if it's in a loop (see the case ScopeIdBlock)
                     continue;
                 }
-                ScopeExpr *parent_expr_scope = reinterpret_cast<ScopeExpr *>(scope);
                 if (child_expr_scope != nullptr) {
                     for (size_t i = 0; parent_expr_scope->children_ptr[i] != child_expr_scope; i += 1) {
                         assert(i < parent_expr_scope->children_len);
