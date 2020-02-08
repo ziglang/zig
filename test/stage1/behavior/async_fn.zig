@@ -1416,3 +1416,27 @@ test "async function call resolves target fn frame, runtime func" {
     resume S.global_frame;
     expect(S.global_int == 10);
 }
+
+test "properly spill optional payload capture value" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+        var global_int: usize = 2;
+
+        fn foo() void {
+            var opt: ?usize = 1234;
+            if (opt) |x| {
+                bar();
+                global_int += x;
+            }
+        }
+
+        fn bar() void {
+            global_frame = @frame();
+            suspend;
+            global_int += 1;
+        }
+    };
+    _ = async S.foo();
+    resume S.global_frame;
+    expect(S.global_int == 1237);
+}

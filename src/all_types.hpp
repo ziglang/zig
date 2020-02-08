@@ -2490,6 +2490,9 @@ struct ScopeExpr {
     size_t children_len;
 
     MemoizedBool need_spill;
+    // This is a hack. I apologize for this, I need this to work so that I
+    // can make progress on other fronts. I'll pay off this tech debt eventually.
+    bool spill_harder;
 };
 
 // synchronized with code in define_builtin_compile_vars
