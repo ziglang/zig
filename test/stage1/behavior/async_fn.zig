@@ -1372,7 +1372,7 @@ test "async function passed align(16) arg after align(8) arg" {
     expect(S.global_int == 99);
 }
 
-test "async function call resolves target fn frame" {
+test "async function call resolves target fn frame, comptime func" {
     const S = struct {
         var global_frame: anyframe = undefined;
         var global_int: i32 = 9;
@@ -1381,6 +1381,29 @@ test "async function call resolves target fn frame" {
             const stack_size = 1000;
             var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
             return await @asyncCall(&stack_frame, {}, bar);
+        }
+
+        fn bar() anyerror!void {
+            global_frame = @frame();
+            suspend;
+            global_int += 1;
+        }
+    };
+    _ = async S.foo();
+    resume S.global_frame;
+    expect(S.global_int == 10);
+}
+
+test "async function call resolves target fn frame, runtime func" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+        var global_int: i32 = 9;
+
+        fn foo() anyerror!void {
+            const stack_size = 1000;
+            var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
+            var func: async fn () anyerror!void = bar;
+            return await @asyncCall(&stack_frame, {}, func);
         }
 
         fn bar() anyerror!void {
