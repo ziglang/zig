@@ -768,3 +768,10 @@ test "variable initialization uses result locations properly with regards to the
     const x: i32 = if (b) 1 else 2;
     expect(x == 1);
 }
+
+var global_struct: struct { f0: usize } = undefined;
+
+test "assignment to optional pointer result loc" {
+    var foo: struct { ptr: ?*c_void } = .{ .ptr = &global_struct };
+    expect(foo.ptr.? == @ptrCast(*c_void, &global_struct));
+}

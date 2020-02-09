@@ -862,8 +862,8 @@ static bool types_have_same_zig_comptime_repr(CodeGen *codegen, ZigType *expecte
     if (expected == actual)
         return true;
 
-    // Resolve the types now as get_codegen_ptr_type calls type_has_bits, remove
-    // this hack once that's not necessary anymore
+    // Resolve the types now as get_codegen_ptr_type calls type_has_bits.
+    // (ideally get_codegen_ptr_type should also take a CodeGen parameter)
     assertNoError(type_resolve(codegen, expected, ResolveStatusZeroBitsKnown));
     assertNoError(type_resolve(codegen, actual, ResolveStatusZeroBitsKnown));
 
