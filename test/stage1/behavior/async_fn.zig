@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const expectError = std.testing.expectError;
 
 var global_x: i32 = 1;
 
@@ -1439,4 +1440,44 @@ test "properly spill optional payload capture value" {
     _ = async S.foo();
     resume S.global_frame;
     expect(S.global_int == 1237);
+}
+
+test "handle defer interfering with return value spill" {
+    const S = struct {
+        var global_frame1: anyframe = undefined;
+        var global_frame2: anyframe = undefined;
+        var finished = false;
+        var baz_happened = false;
+
+        fn doTheTest() void {
+            _ = async testFoo();
+            resume global_frame1;
+            resume global_frame2;
+            expect(baz_happened);
+            expect(finished);
+        }
+
+        fn testFoo() void {
+            expectError(error.Bad, foo());
+            finished = true;
+        }
+
+        fn foo() anyerror!void {
+            defer baz();
+            return bar() catch |err| return err;
+        }
+
+        fn bar() anyerror!void {
+            global_frame1 = @frame();
+            suspend;
+            return error.Bad;
+        }
+
+        fn baz() void {
+            global_frame2 = @frame();
+            suspend;
+            baz_happened = true;
+        }
+    };
+    S.doTheTest();
 }

@@ -6367,7 +6367,9 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
             IrInstGen *instruction = block->instruction_list.at(instr_i);
             if (instruction->id == IrInstGenIdAwait ||
                 instruction->id == IrInstGenIdVarPtr ||
-                instruction->id == IrInstGenIdAlloca)
+                instruction->id == IrInstGenIdAlloca ||
+                instruction->id == IrInstGenIdSpillBegin ||
+                instruction->id == IrInstGenIdSpillEnd)
             {
                 // This instruction does its own spilling specially, or otherwise doesn't need it.
                 continue;

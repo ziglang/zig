@@ -2561,7 +2561,12 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutableGen *executable, Ir
             LLVMBuildRet(g->builder, by_val_value);
         }
     } else if (instruction->operand == nullptr) {
-        LLVMBuildRetVoid(g->builder);
+        if (g->cur_ret_ptr == nullptr) {
+            LLVMBuildRetVoid(g->builder);
+        } else {
+            LLVMValueRef by_val_value = gen_load_untyped(g, g->cur_ret_ptr, 0, false, "");
+            LLVMBuildRet(g->builder, by_val_value);
+        }
     } else {
         LLVMValueRef value = ir_llvm_value(g, instruction->operand);
         LLVMBuildRet(g->builder, value);
@@ -5715,18 +5720,24 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutableGen *ex
     bool want_safety = instruction->safety_check_on && ir_want_runtime_safety(g, &instruction->base) &&
         g->errors_by_index.length > 1;
 
-    bool value_has_bits;
-    if ((err = type_has_bits2(g, instruction->base.value->type, &value_has_bits)))
-        codegen_report_errors_and_exit(g);
-
-    if (!want_safety && !value_has_bits)
-        return nullptr;
-
     ZigType *ptr_type = instruction->value->value->type;
     assert(ptr_type->id == ZigTypeIdPointer);
     ZigType *err_union_type = ptr_type->data.pointer.child_type;
     ZigType *payload_type = err_union_type->data.error_union.payload_type;
     LLVMValueRef err_union_ptr = ir_llvm_value(g, instruction->value);
+
+    LLVMValueRef zero = LLVMConstNull(get_llvm_type(g, g->err_tag_type));
+    bool value_has_bits;
+    if ((err = type_has_bits2(g, instruction->base.value->type, &value_has_bits)))
+        codegen_report_errors_and_exit(g);
+    if (!want_safety && !value_has_bits) {
+        if (instruction->initializing) {
+            gen_store_untyped(g, zero, err_union_ptr, 0, false);
+        }
+        return nullptr;
+    }
+
+
     LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type, ptr_type);
 
     if (!type_has_bits(err_union_type->data.error_union.err_set_type)) {
@@ -5741,7 +5752,6 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutableGen *ex
         } else {
             err_val = err_union_handle;
         }
-        LLVMValueRef zero = LLVMConstNull(get_llvm_type(g, g->err_tag_type));
         LLVMValueRef cond_val = LLVMBuildICmp(g->builder, LLVMIntEQ, err_val, zero, "");
         LLVMBasicBlockRef err_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapErrError");
         LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapErrOk");
@@ -5761,6 +5771,9 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutableGen *ex
         }
         return LLVMBuildStructGEP(g->builder, err_union_handle, err_union_payload_index, "");
     } else {
+        if (instruction->initializing) {
+            gen_store_untyped(g, zero, err_union_ptr, 0, false);
+        }
         return nullptr;
     }
 }
