@@ -726,32 +726,38 @@ fn printSourceAtAddressMacOs(di: *DebugInfo, out_stream: var, address: usize, tt
 }
 
 pub fn printSourceAtAddressPosix(debug_info: *DebugInfo, out_stream: var, address: usize, tty_config: TTY.Config) !void {
-    const compile_unit = debug_info.findCompileUnit(address) catch {
+    // XXX Print as much as possible anyway
+    const module = try debug_info.lookupByAddress(address);
+
+    const reloc_address = address - module.base_address;
+    warn("reloc {x} => {x}\n", .{ address, reloc_address });
+
+    if (module.dwarf.findCompileUnit(reloc_address) catch null) |compile_unit| {
+        const compile_unit_name = try compile_unit.die.getAttrString(&module.dwarf, DW.AT_name);
+        const symbol_name = module.dwarf.getSymbolName(reloc_address) orelse "???";
+        const line_info = module.dwarf.getLineNumberInfo(compile_unit.*, reloc_address) catch |err| switch (err) {
+            error.MissingDebugInfo, error.InvalidDebugInfo => null,
+            else => return err,
+        };
+        defer if (line_info) |li| li.deinit();
+
         return printLineInfo(
             out_stream,
-            null,
+            line_info,
             address,
-            "???",
-            "???",
+            symbol_name,
+            compile_unit_name,
             tty_config,
             printLineFromFileAnyOs,
         );
-    };
+    }
 
-    const compile_unit_name = try compile_unit.die.getAttrString(debug_info, DW.AT_name);
-    const symbol_name = debug_info.getSymbolName(address) orelse "???";
-    const line_info = debug_info.getLineNumberInfo(compile_unit.*, address) catch |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => null,
-        else => return err,
-    };
-    defer if (line_info) |li| li.deinit();
-
-    try printLineInfo(
+    return printLineInfo(
         out_stream,
-        line_info,
+        null,
         address,
-        symbol_name,
-        compile_unit_name,
+        "???",
+        "???",
         tty_config,
         printLineFromFileAnyOs,
     );
@@ -823,6 +829,10 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
     }
     if (comptime std.Target.current.isDarwin()) {
         return noasync openSelfDebugInfoMacOs(allocator);
+    }
+    if (builtin.os == .linux) {
+        _ = try allocator.create(u32);
+        return DebugInfo.init(allocator);
     }
     return noasync openSelfDebugInfoPosix(allocator);
 }
@@ -1190,7 +1200,113 @@ const MachoSymbol = struct {
     }
 };
 
-pub const DebugInfo = switch (builtin.os) {
+pub const DebugInfo = struct {
+    allocator: *mem.Allocator,
+    address_map: std.StringHashMap(*ObjectDebugInfo),
+
+    pub fn init(allocator: *mem.Allocator) DebugInfo {
+        return DebugInfo{
+            .allocator = allocator,
+            .address_map = std.StringHashMap(*ObjectDebugInfo).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *DebugInfo) void {
+        self.address_map.deinit();
+    }
+
+    pub fn lookupByAddress(self: *DebugInfo, address: usize) !*ObjectDebugInfo {
+        const obj_di = try self.lookupModuleDl(address);
+        return obj_di;
+    }
+
+    fn lookupModuleDl(self: *DebugInfo, address: usize) !*ObjectDebugInfo {
+        var ctx = DIPContext{ .address = address };
+
+        warn("lookup {x}\n", .{address});
+
+        // XXX Locking?
+        if (os.dl_iterate_phdr(DIPContext, dl_iterate_phdr_callback, &ctx) == 0)
+            return error.DebugInfoNotFound;
+
+        warn("found in \"{s}\"\n", .{ctx.name});
+
+        if (self.address_map.getValue(ctx.name)) |obj_di| {
+            warn("cache hit!\n", .{});
+            return obj_di;
+        }
+
+        const exe_file = if (ctx.name.len > 0)
+            try fs.openFileAbsolute(ctx.name, .{})
+        else
+            try fs.openSelfExe();
+        defer exe_file.close();
+
+        const exe_len = math.cast(usize, try exe_file.getEndPos()) catch
+            return error.DebugInfoTooLarge;
+        const exe_mmap = try os.mmap(
+            null,
+            exe_len,
+            os.PROT_READ,
+            os.MAP_SHARED,
+            exe_file.handle,
+            0,
+        );
+        errdefer os.munmap(exe_mmap);
+
+        const obj_di = try self.allocator.create(ObjectDebugInfo);
+        errdefer self.allocator.destroy(obj_di);
+
+        try self.address_map.putNoClobber(ctx.name, obj_di);
+
+        obj_di.* = .{
+            .dwarf = try openElfDebugInfo(self.allocator, exe_mmap),
+            .mapped_memory = exe_mmap,
+            .base_address = ctx.base_address,
+        };
+
+        return obj_di;
+    }
+};
+
+const DIPContext = struct {
+    address: usize,
+    base_address: usize = undefined,
+    name: []const u8 = undefined,
+};
+
+fn dl_iterate_phdr_callback(info: *os.dl_phdr_info, size: usize, context: ?*DIPContext) callconv(.C) i32 {
+    const address = context.?.address;
+
+    // The base address is too high
+    if (address < info.dlpi_addr)
+        return 0;
+
+    const phdrs = info.dlpi_phdr[0..info.dlpi_phnum];
+    for (phdrs) |*phdr| {
+        if (phdr.p_type != elf.PT_LOAD) continue;
+
+        const seg_start = info.dlpi_addr + phdr.p_vaddr;
+        const seg_end = seg_start + phdr.p_memsz;
+
+        if (address > seg_start and address <= seg_end) {
+            // Android libc uses NULL instead of an empty string to mark the
+            // main program
+            context.?.name = if (info.dlpi_name) |dlpi_name|
+                mem.toSliceConst(u8, dlpi_name)
+            else
+                "";
+            context.?.base_address = info.dlpi_addr;
+            // Stop the iteration
+            return 1;
+        }
+    }
+
+    // Continue the iteration
+    return 0;
+}
+
+pub const ObjectDebugInfo = switch (builtin.os) {
     .macosx, .ios, .watchos, .tvos => struct {
         symbols: []const MachoSymbol,
         strings: []const u8,
@@ -1212,6 +1328,11 @@ pub const DebugInfo = switch (builtin.os) {
         coff: *coff.Coff,
         sect_contribs: []pdb.SectionContribEntry,
         modules: []Module,
+    },
+    .linux => struct {
+        base_address: usize,
+        dwarf: DW.DwarfInfo,
+        mapped_memory: []u8,
     },
     else => DW.DwarfInfo,
 };
