@@ -495,12 +495,16 @@ pub const Builder = struct {
 
                 self.addNativeSystemIncludeDir("/usr/local/include");
                 self.addNativeSystemLibPath("/usr/local/lib");
+                self.addNativeSystemLibPath("/usr/local/lib64");
 
                 self.addNativeSystemIncludeDir(self.fmt("/usr/include/{}", .{triple}));
                 self.addNativeSystemLibPath(self.fmt("/usr/lib/{}", .{triple}));
 
                 self.addNativeSystemIncludeDir("/usr/include");
+                self.addNativeSystemLibPath("/lib");
+                self.addNativeSystemLibPath("/lib64");
                 self.addNativeSystemLibPath("/usr/lib");
+                self.addNativeSystemLibPath("/usr/lib64");
 
                 // example: on a 64-bit debian-based linux distro, with zlib installed from apt:
                 // zlib.h is in /usr/include (added above)
@@ -1416,7 +1420,7 @@ pub const LibExeObjStep = struct {
         self.builder.installArtifact(self);
     }
 
-    pub fn installRaw(self: *LibExeObjStep, dest_filename: [] const u8) void {
+    pub fn installRaw(self: *LibExeObjStep, dest_filename: []const u8) void {
         self.builder.installRaw(self, dest_filename);
     }
 
@@ -2135,7 +2139,7 @@ pub const LibExeObjStep = struct {
                     try zig_args.append("-isystem");
                     try zig_args.append(self.builder.pathFromRoot(include_path));
                 },
-                .OtherStep => |other| {
+                .OtherStep => |other| if (!other.disable_gen_h) {
                     const h_path = other.getOutputHPath();
                     try zig_args.append("-isystem");
                     try zig_args.append(fs.path.dirname(h_path).?);

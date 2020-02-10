@@ -2174,7 +2174,9 @@ struct CodeGen {
     bool is_big_endian;
     bool have_c_main;
     bool have_winmain;
+    bool have_wwinmain;
     bool have_winmain_crt_startup;
+    bool have_wwinmain_crt_startup;
     bool have_dllmain_crt_startup;
     bool have_err_ret_tracing;
     bool link_eh_frame_hdr;
@@ -2243,6 +2245,7 @@ struct CodeGen {
     bool enable_dump_analysis;
     bool enable_doc_generation;
     bool disable_bin_generation;
+    bool test_is_evented;
     CodeModel code_model;
 
     Buf *mmacosx_version_min;
@@ -2488,6 +2491,9 @@ struct ScopeExpr {
     size_t children_len;
 
     MemoizedBool need_spill;
+    // This is a hack. I apologize for this, I need this to work so that I
+    // can make progress on other fronts. I'll pay off this tech debt eventually.
+    bool spill_harder;
 };
 
 // synchronized with code in define_builtin_compile_vars

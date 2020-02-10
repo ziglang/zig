@@ -1061,6 +1061,14 @@ pub fn getrusage(who: i32, usage: *rusage) usize {
     return syscall2(SYS_getrusage, @bitCast(usize, @as(isize, who)), @ptrToInt(usage));
 }
 
+pub fn tcgetattr(fd: fd_t, termios_p: *termios) usize {
+    return syscall3(SYS_ioctl, @bitCast(usize, @as(isize, fd)), TCGETS, @ptrToInt(termios_p));
+}
+
+pub fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) usize {
+    return syscall3(SYS_ioctl, @bitCast(usize, @as(isize, fd)), TCSETS + @enumToInt(optional_action), @ptrToInt(termios_p));
+}
+
 test "" {
     if (builtin.os == .linux) {
         _ = @import("linux/test.zig");

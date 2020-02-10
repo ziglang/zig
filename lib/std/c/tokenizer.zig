@@ -776,12 +776,14 @@ pub const Tokenizer = struct {
                         }
                     },
                     else => {
+                        self.index -= 1;
                         state = if (string) .StringLiteral else .CharLiteral;
                     },
                 },
                 .HexEscape => switch (c) {
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
                     else => {
+                        self.index -= 1;
                         state = if (string) .StringLiteral else .CharLiteral;
                     },
                 },
@@ -797,6 +799,7 @@ pub const Tokenizer = struct {
                             result.id = .Invalid;
                             break;
                         }
+                        self.index -= 1;
                         state = if (string) .StringLiteral else .CharLiteral;
                     },
                 },
@@ -1046,7 +1049,6 @@ pub const Tokenizer = struct {
                 .LineComment => switch (c) {
                     '\n' => {
                         result.id = .LineComment;
-                        self.index += 1;
                         break;
                     },
                     else => {},
@@ -1217,6 +1219,7 @@ pub const Tokenizer = struct {
                             result.id = .Invalid;
                             break;
                         }
+                        self.index -= 1;
                         state = .FloatSuffix;
                     },
                 },

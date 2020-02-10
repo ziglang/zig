@@ -733,6 +733,32 @@ test "xoroshiro sequence" {
     }
 }
 
+// Gimli
+//
+// CSPRNG
+pub const Gimli = struct {
+    random: Random,
+    state: std.crypto.gimli.State,
+
+    pub fn init(init_s: u64) Gimli {
+        var self = Gimli{
+            .random = Random{ .fillFn = fill },
+            .state = std.crypto.gimli.State{
+                .data = [_]u32{0} ** (std.crypto.gimli.State.BLOCKBYTES / 4),
+            },
+        };
+        self.state.data[0] = @truncate(u32, init_s >> 32);
+        self.state.data[1] = @truncate(u32, init_s);
+        return self;
+    }
+
+    fn fill(r: *Random, buf: []u8) void {
+        const self = @fieldParentPtr(Gimli, "random", r);
+
+        self.state.squeeze(buf);
+    }
+};
+
 // ISAAC64 - http://www.burtleburtle.net/bob/rand/isaacafa.html
 //
 // CSPRNG

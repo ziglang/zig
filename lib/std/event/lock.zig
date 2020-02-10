@@ -117,21 +117,21 @@ pub const Lock = struct {
 };
 
 test "std.event.Lock" {
+    if (!std.io.is_async) return error.SkipZigTest;
+
     // TODO https://github.com/ziglang/zig/issues/1908
     if (builtin.single_threaded) return error.SkipZigTest;
 
     // TODO https://github.com/ziglang/zig/issues/3251
     if (builtin.os == .freebsd) return error.SkipZigTest;
 
-    // TODO provide a way to run tests in evented I/O mode
-    if (!std.io.is_async) return error.SkipZigTest;
-
     var lock = Lock.init();
     defer lock.deinit();
 
     _ = async testLock(&lock);
 
-    testing.expectEqualSlices(i32, [1]i32{3 * @intCast(i32, shared_test_data.len)} ** shared_test_data.len, shared_test_data);
+    const expected_result = [1]i32{3 * @intCast(i32, shared_test_data.len)} ** shared_test_data.len;
+    testing.expectEqualSlices(i32, &expected_result, &shared_test_data);
 }
 
 async fn testLock(lock: *Lock) void {

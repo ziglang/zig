@@ -18,12 +18,11 @@ pub fn SinglyLinkedList(comptime T: type) type {
 
         /// Node inside the linked list wrapping the actual data.
         pub const Node = struct {
-            next: ?*Node,
+            next: ?*Node = null,
             data: T,
 
             pub fn init(data: T) Node {
                 return Node{
-                    .next = null,
                     .data = data,
                 };
             }
@@ -196,14 +195,12 @@ pub fn TailQueue(comptime T: type) type {
 
         /// Node inside the linked list wrapping the actual data.
         pub const Node = struct {
-            prev: ?*Node,
-            next: ?*Node,
+            prev: ?*Node = null,
+            next: ?*Node = null,
             data: T,
 
             pub fn init(data: T) Node {
                 return Node{
-                    .prev = null,
-                    .next = null,
                     .data = data,
                 };
             }

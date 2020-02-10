@@ -12,6 +12,8 @@ const socklen_t = linux.socklen_t;
 const iovec = linux.iovec;
 const iovec_const = linux.iovec_const;
 
+pub const mode_t = usize;
+
 pub const SYS_read = 0;
 pub const SYS_write = 1;
 pub const SYS_open = 2;
