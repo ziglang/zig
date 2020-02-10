@@ -1956,12 +1956,6 @@ enum CodeModel {
     CodeModelLarge,
 };
 
-enum EmitFileType {
-    EmitFileTypeBinary,
-    EmitFileTypeAssembly,
-    EmitFileTypeLLVMIr,
-};
-
 struct LinkLib {
     Buf *name;
     Buf *path;
@@ -2191,6 +2185,8 @@ struct CodeGen {
     bool verbose_cimport;
     bool verbose_cc;
     bool verbose_llvm_cpu_features;
+    bool emit_asm;
+    bool emit_llvm_ir;
     bool error_during_imports;
     bool generate_error_name_table;
     bool enable_cache; // mutually exclusive with output_dir
@@ -2223,7 +2219,6 @@ struct CodeGen {
     size_t version_patch;
     const char *linker_script;
 
-    EmitFileType emit_file_type;
     BuildMode build_mode;
     OutType out_type;
     const ZigTarget *zig_target;
