@@ -5122,6 +5122,8 @@ fn parseCNumLit(c: *Context, tok: *CToken, source: []const u8, source_loc: ZigCl
         cast_node.rparen_token = try appendToken(c, .RParen, ")");
         return &cast_node.base;
     } else if (tok.id == .FloatLiteral) {
+        if (lit_bytes[0] == '.')
+            lit_bytes = try std.fmt.allocPrint(c.a(), "0{}", .{lit_bytes});
         if (tok.id.FloatLiteral == .None) {
             return transCreateNodeFloat(c, lit_bytes);
         }
@@ -5493,7 +5495,7 @@ fn parseCSuffixOpExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8,
                     // hack to get zig fmt to render a comma in builtin calls
                     _ = try appendToken(c, .Comma, ",");
 
-                    const ptr_kind = blk:{
+                    const ptr_kind = blk: {
                         // * token
                         _ = it.prev();
                         // last token of `node`
