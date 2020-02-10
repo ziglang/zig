@@ -383,6 +383,11 @@ pub fn formatType(
     }
 
     const T = @TypeOf(value);
+
+    if (comptime std.meta.trait.hasFn("format")(T)) {
+        return value.format(fmt, options, generator);
+    }
+
     switch (@typeInfo(T)) {
         .ComptimeInt, .Int, .Float => {
             return formatValue(value, fmt, options, generator);
@@ -416,17 +421,11 @@ pub fn formatType(
             return;
         },
         .Enum => {
-            // if (comptime std.meta.trait.hasFn("format")(T)) {
-            //     return value.format(fmt, options, context, Errors, output);
-            // }
             suspend generator.yield(@frame(), @typeName(T) ++ ".");
             suspend generator.yield(@frame(), @tagName(value));
             return;
         },
         .Union => |union_info| {
-            // if (comptime std.meta.trait.hasFn("format")(T)) {
-            //     return value.format(fmt, options, context, Errors, output);
-            // }
             if (union_info.tag_type) |UnionTagType| {
                 suspend generator.yield(@frame(), @typeName(T));
                 if (max_depth == 0) {
@@ -447,9 +446,6 @@ pub fn formatType(
             }
         },
         .Struct => |struct_info| {
-            // if (comptime std.meta.trait.hasFn("format")(T)) {
-            //     return value.format(fmt, options, context, Errors, output);
-            // }
             suspend generator.yield(@frame(), @typeName(T));
             if (max_depth == 0) {
                 suspend generator.yield(@frame(), "{ ... }");
@@ -1440,42 +1436,40 @@ test "float.libc.sanity" {
     try testFmt("f64: 18014400656965630.00000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1518338049)))});
 }
 
-// test "custom" {
-//     const Vec2 = struct {
-//         const SelfType = @This();
-//         x: f32,
-//         y: f32,
+test "custom" {
+    const Vec2 = struct {
+        const SelfType = @This();
+        x: f32,
+        y: f32,
 
-//         pub fn format(
-//             self: SelfType,
-//             comptime fmt: []const u8,
-//             options: FormatOptions,
-//             context: var,
-//             comptime Errors: type,
-//             output: fn (@TypeOf(context), []const u8) Errors!void,
-//         ) Errors!void {
-//             if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "p")) {
-//                 return std.fmt.format(context, Errors, output, "({d:.3},{d:.3})", .{ self.x, self.y });
-//             } else if (comptime std.mem.eql(u8, fmt, "d")) {
-//                 return std.fmt.format(context, Errors, output, "{d:.3}x{d:.3}", .{ self.x, self.y });
-//             } else {
-//                 @compileError("Unknown format character: '" ++ fmt ++ "'");
-//             }
-//         }
-//     };
+        pub fn format(
+            self: SelfType,
+            comptime fmt: []const u8,
+            options: FormatOptions,
+            generator: *Generator([]const u8),
+        ) void {
+            if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "p")) {
+                return std.fmtgen.format(generator, "({d:.3},{d:.3})", .{ self.x, self.y });
+            } else if (comptime std.mem.eql(u8, fmt, "d")) {
+                return std.fmtgen.format(generator, "{d:.3}x{d:.3}", .{ self.x, self.y });
+            } else {
+                @compileError("Unknown format character: '" ++ fmt ++ "'");
+            }
+        }
+    };
 
-//     var buf1: [32]u8 = undefined;
-//     var value = Vec2{
-//         .x = 10.2,
-//         .y = 2.22,
-//     };
-//     try testFmt("point: (10.200,2.220)\n", "point: {}\n", .{&value});
-//     try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", .{&value});
+    var buf1: [32]u8 = undefined;
+    var value = Vec2{
+        .x = 10.2,
+        .y = 2.22,
+    };
+    try testFmt("point: (10.200,2.220)\n", "point: {}\n", .{&value});
+    try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", .{&value});
 
-//     // same thing but not passing a pointer
-//     try testFmt("point: (10.200,2.220)\n", "point: {}\n", .{value});
-//     try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", .{value});
-// }
+    // same thing but not passing a pointer
+    try testFmt("point: (10.200,2.220)\n", "point: {}\n", .{value});
+    try testFmt("dim: 10.200x2.220\n", "dim: {d}\n", .{value});
+}
 
 test "struct" {
     const S = struct {

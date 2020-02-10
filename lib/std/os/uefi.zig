@@ -5,7 +5,7 @@ pub const protocols = @import("uefi/protocols.zig");
 pub const status = @import("uefi/status.zig");
 pub const tables = @import("uefi/tables.zig");
 
-const fmt = @import("std").fmt;
+const fmtgen = @import("std").fmtgen;
 
 /// The EFI image's handle that is passed to its entry point.
 pub var handle: Handle = undefined;
@@ -29,13 +29,11 @@ pub const Guid = extern struct {
     pub fn format(
         self: @This(),
         comptime f: []const u8,
-        options: fmt.FormatOptions,
-        context: var,
-        comptime Errors: type,
-        output: fn (@TypeOf(context), []const u8) Errors!void,
+        options: fmtgen.FormatOptions,
+        generator: *std.fmtgen.Generator([]const u8),
     ) Errors!void {
         if (f.len == 0) {
-            return fmt.format(context, Errors, output, "{x:0>8}-{x:0>4}-{x:0>4}-{x:0>2}{x:0>2}-{x:0>12}", .{
+            fmtgen.format(generator, "{x:0>8}-{x:0>4}-{x:0>4}-{x:0>2}{x:0>2}-{x:0>12}", .{
                 self.time_low,
                 self.time_mid,
                 self.time_high_and_version,

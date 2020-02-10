@@ -128,7 +128,7 @@ pub const Address = extern union {
                 ip_slice[15] = ptr[3];
                 return result;
             } else {
-                const digit = try std.fmt.charToDigit(c, 16);
+                const digit = try std.fmtgen.charToDigit(c, 16);
                 if (@mulWithOverflow(u16, x, 16, &x)) {
                     return error.Overflow;
                 }
@@ -268,16 +268,14 @@ pub const Address = extern union {
     pub fn format(
         self: Address,
         comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        context: var,
-        comptime Errors: type,
-        comptime output: fn (@TypeOf(context), []const u8) Errors!void,
-    ) !void {
+        options: std.fmtgen.FormatOptions,
+        generator: *std.fmtgen.Generator([]const u8),
+    ) void {
         switch (self.any.family) {
             os.AF_INET => {
                 const port = mem.bigToNative(u16, self.in.port);
                 const bytes = @ptrCast(*const [4]u8, &self.in.addr);
-                try std.fmt.format(context, Errors, output, "{}.{}.{}.{}:{}", .{
+                std.fmtgen.format(generator, "{}.{}.{}.{}:{}", .{
                     bytes[0],
                     bytes[1],
                     bytes[2],
@@ -288,7 +286,7 @@ pub const Address = extern union {
             os.AF_INET6 => {
                 const port = mem.bigToNative(u16, self.in6.port);
                 if (mem.eql(u8, self.in6.addr[0..12], &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
-                    try std.fmt.format(context, Errors, output, "[::ffff:{}.{}.{}.{}]:{}", .{
+                    std.fmtgen.format(generator, "[::ffff:{}.{}.{}.{}]:{}", .{
                         self.in6.addr[12],
                         self.in6.addr[13],
                         self.in6.addr[14],
@@ -308,30 +306,30 @@ pub const Address = extern union {
                         break :blk buf;
                     },
                 };
-                try output(context, "[");
+                suspend generator.yield(@frame(), "[");
                 var i: usize = 0;
                 var abbrv = false;
                 while (i < native_endian_parts.len) : (i += 1) {
                     if (native_endian_parts[i] == 0) {
                         if (!abbrv) {
-                            try output(context, if (i == 0) "::" else ":");
+                            suspend generator.yield(@frame(), if (i == 0) "::" else ":");
                             abbrv = true;
                         }
                         continue;
                     }
-                    try std.fmt.format(context, Errors, output, "{x}", .{native_endian_parts[i]});
+                    std.fmtgen.format(generator, "{x}", .{native_endian_parts[i]});
                     if (i != native_endian_parts.len - 1) {
-                        try output(context, ":");
+                        suspend generator.yield(@frame(), ":");
                     }
                 }
-                try std.fmt.format(context, Errors, output, "]:{}", .{port});
+                std.fmtgen.format(generator, "]:{}", .{port});
             },
             os.AF_UNIX => {
                 if (!has_unix_sockets) {
                     unreachable;
                 }
 
-                try std.fmt.format(context, Errors, output, "{}", .{&self.un.path});
+                std.fmtgen.format(generator, "{}", .{&self.un.path});
             },
             else => unreachable,
         }
@@ -1030,7 +1028,7 @@ fn getResolvConf(allocator: *mem.Allocator, rc: *ResolvConf) !void {
                 var colon_it = mem.separate(sub_tok, ":");
                 const name = colon_it.next().?;
                 const value_txt = colon_it.next() orelse continue;
-                const value = std.fmt.parseInt(u8, value_txt, 10) catch |err| switch (err) {
+                const value = std.fmtgen.parseInt(u8, value_txt, 10) catch |err| switch (err) {
                     error.Overflow => 255,
                     error.InvalidCharacter => continue,
                 };

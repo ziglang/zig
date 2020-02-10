@@ -353,16 +353,14 @@ pub const Headers = struct {
     pub fn format(
         self: Self,
         comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        context: var,
-        comptime Errors: type,
-        output: fn (@TypeOf(context), []const u8) Errors!void,
-    ) Errors!void {
+        options: std.fmtgen.FormatOptions,
+        generator: *std.fmtgen.Generator([]const u8),
+    ) void {
         for (self.toSlice()) |entry| {
-            try output(context, entry.name);
-            try output(context, ": ");
-            try output(context, entry.value);
-            try output(context, "\n");
+            suspend generator.yield(@frame(), entry.name);
+            suspend generator.yield(@frame(), ": ");
+            suspend generator.yield(@frame(), entry.value);
+            suspend generator.yield(@frame(), "\n");
         }
     }
 };
@@ -597,5 +595,5 @@ test "Headers.format" {
         \\foo: bar
         \\cookie: somevalue
         \\
-    , try std.fmt.bufPrint(buf[0..], "{}", .{h}));
+    , try std.fmtgen.bufPrint(buf[0..], "{}", .{h}));
 }
