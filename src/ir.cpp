@@ -11592,7 +11592,8 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             wanted_ptr_type->data.pointer.sentinel == nullptr ||
             (actual_ptr_type->data.pointer.sentinel != nullptr &&
              const_values_equal(ira->codegen, wanted_ptr_type->data.pointer.sentinel,
-                 actual_ptr_type->data.pointer.sentinel));
+                 actual_ptr_type->data.pointer.sentinel)) ||
+            actual_ptr_type->data.pointer.ptr_len == PtrLenC;
         if (!ok_null_term_ptrs) {
             result.id = ConstCastResultIdPtrSentinel;
             result.data.bad_ptr_sentinel = allocate_nonzero<ConstCastPtrSentinel>(1);
