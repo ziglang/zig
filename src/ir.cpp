@@ -771,23 +771,9 @@ static void ira_deref(IrAnalyze *ira) {
     destroy(ira, "IrAnalyze");
 }
 
-static ZigValue *const_ptr_pointee_unchecked(CodeGen *g, ZigValue *const_val) {
+static ZigValue *const_ptr_pointee_unchecked_no_isf(CodeGen *g, ZigValue *const_val) {
     assert(get_src_ptr_type(const_val->type) != nullptr);
     assert(const_val->special == ConstValSpecialStatic);
-    ZigValue *result;
-
-    InferredStructField *isf = const_val->type->data.pointer.inferred_struct_field;
-    if (isf != nullptr) {
-        TypeStructField *field = find_struct_type_field(isf->inferred_struct_type, isf->field_name);
-        assert(field != nullptr);
-        if (field->is_comptime) {
-            assert(field->init_val != nullptr);
-            return field->init_val;
-        }
-        assert(const_val->data.x_ptr.special == ConstPtrSpecialRef);
-        ZigValue *struct_val = const_val->data.x_ptr.data.ref.pointee;
-        return struct_val->data.x_struct.fields[field->src_index];
-    }
 
     switch (type_has_one_possible_value(g, const_val->type->data.pointer.child_type)) {
         case OnePossibleValueInvalid:
@@ -798,6 +784,7 @@ static ZigValue *const_ptr_pointee_unchecked(CodeGen *g, ZigValue *const_val) {
             break;
     }
 
+    ZigValue *result;
     switch (const_val->data.x_ptr.special) {
         case ConstPtrSpecialInvalid:
             zig_unreachable();
@@ -841,6 +828,26 @@ static ZigValue *const_ptr_pointee_unchecked(CodeGen *g, ZigValue *const_val) {
     }
     assert(result != nullptr);
     return result;
+}
+
+static ZigValue *const_ptr_pointee_unchecked(CodeGen *g, ZigValue *const_val) {
+    assert(get_src_ptr_type(const_val->type) != nullptr);
+    assert(const_val->special == ConstValSpecialStatic);
+
+    InferredStructField *isf = const_val->type->data.pointer.inferred_struct_field;
+    if (isf != nullptr) {
+        TypeStructField *field = find_struct_type_field(isf->inferred_struct_type, isf->field_name);
+        assert(field != nullptr);
+        if (field->is_comptime) {
+            assert(field->init_val != nullptr);
+            return field->init_val;
+        }
+        ZigValue *struct_val = const_ptr_pointee_unchecked_no_isf(g, const_val);
+        assert(struct_val->type->id == ZigTypeIdStruct);
+        return struct_val->data.x_struct.fields[field->src_index];
+    }
+
+    return const_ptr_pointee_unchecked_no_isf(g, const_val);
 }
 
 static bool is_tuple(ZigType *type) {
