@@ -1255,31 +1255,25 @@ pub const DebugInfo = struct {
             const seg_end = seg_start + info.SizeOfImage;
 
             if (address >= seg_start and address < seg_end) {
-                var name_buffer: [windows.PATH_MAX_WIDE]u16 = [_]u16{0} ** windows.PATH_MAX_WIDE;
-                // XXX Use W variant
-                const len = windows.kernel32.K32GetModuleFileNameExW(
+                var name_buffer: [windows.MAX_PATH]u8 = undefined;
+                // XXX: Use W variant (#534)
+                const len = windows.kernel32.K32GetModuleFileNameExA(
                     process_handle,
                     module,
-                    @ptrCast(windows.LPWSTR, &name_buffer),
-                    @sizeOf(@TypeOf(name_buffer)) / @sizeOf(u16),
+                    @ptrCast(windows.LPSTR, &name_buffer),
+                    @sizeOf(@TypeOf(name_buffer)) / @sizeOf(u8),
                 );
                 assert(len > 0);
-                const name_slice = mem.toSlice(u16, name_buffer[0..:0]);
-                warn("slice len {}\n", .{name_slice.len});
-
-                const x = try std.unicode.utf16leToUtf8Alloc(self.allocator, name_buffer[0..]);
-                warn("ask for {s} len {}\n", .{ x, name_slice.len });
-                self.allocator.free(x);
 
                 if (self.address_map.getValue(seg_start)) |obj_di| {
-                    warn("cache hit!\n", .{});
                     return obj_di;
                 }
 
-                warn("loading?\n", .{});
-                const file_obj = try fs.openFileAbsoluteW(name_slice, .{});
+                // XXX: The compiler segfaults if the slicing is done as a
+                // parameter
+                const tmp = name_buffer[0..:0];
+                const file_obj = try fs.cwd().openFileC(tmp, .{});
                 errdefer file_obj.close();
-                warn("loaded!\n", .{});
 
                 const obj_di = try self.allocator.create(ObjectDebugInfo);
                 errdefer self.allocator.destroy(obj_di);
