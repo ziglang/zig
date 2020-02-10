@@ -3,6 +3,26 @@ const builtin = @import("builtin");
 const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("function prototype translated as optional",
+        \\typedef void (*fnptr_ty)(void);
+        \\typedef __attribute__((cdecl)) void (*fnptr_attr_ty)(void);
+        \\struct foo {
+        \\    __attribute__((cdecl)) void (*foo)(void);
+        \\    void (*bar)(void);
+        \\    fnptr_ty baz;
+        \\    fnptr_attr_ty qux;
+        \\};
+    , &[_][]const u8{
+        \\pub const fnptr_ty = ?fn () callconv(.C) void;
+        \\pub const fnptr_attr_ty = ?fn () callconv(.C) void;
+        \\pub const struct_foo = extern struct {
+        \\    foo: ?fn () callconv(.C) void,
+        \\    bar: ?fn () callconv(.C) void,
+        \\    baz: fnptr_ty,
+        \\    qux: fnptr_attr_ty,
+        \\};
+    });
+
     cases.add("function prototype with parenthesis",
         \\void (f0) (void *L);
         \\void ((f1)) (void *L);
@@ -597,6 +617,28 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             "pub const NOT_ZERO = ~@as(c_uint, 0);",
         },
     );
+
+    cases.add("float suffixes",
+        \\#define foo 3.14f
+        \\#define bar 16.e-2l
+    , &[_][]const u8{
+        "pub const foo = @as(f32, 3.14);",
+        "pub const bar = @as(c_longdouble, 16.e-2);",
+    });
+
+    cases.add("comments",
+        \\#define foo 1 //foo
+        \\#define bar /* bar */ 2
+    , &[_][]const u8{
+        "pub const foo = 1;",
+        "pub const bar = 2;",
+    });
+
+    cases.add("string prefix",
+        \\#define foo L"hello"
+    , &[_][]const u8{
+        "pub const foo = \"hello\";",
+    });
 
     cases.add("null statements",
         \\void foo(void) {
@@ -2488,8 +2530,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("macro cast",
         \\#define FOO(bar) baz((void *)(baz))
     , &[_][]const u8{
-        \\pub inline fn FOO(bar: var) @TypeOf(baz(if (@typeId(@TypeOf(baz)) == .Pointer) @ptrCast([*c]void, baz) else if (@typeId(@TypeOf(baz)) == .Int) @intToPtr([*c]void, baz) else @as([*c]void, baz))) {
-        \\    return baz(if (@typeId(@TypeOf(baz)) == .Pointer) @ptrCast([*c]void, baz) else if (@typeId(@TypeOf(baz)) == .Int) @intToPtr([*c]void, baz) else @as([*c]void, baz));
+        \\pub inline fn FOO(bar: var) @TypeOf(baz(if (@typeId(@TypeOf(baz)) == .Pointer) @ptrCast(*c_void, baz) else if (@typeId(@TypeOf(baz)) == .Int) @intToPtr(*c_void, baz) else @as(*c_void, baz))) {
+        \\    return baz(if (@typeId(@TypeOf(baz)) == .Pointer) @ptrCast(*c_void, baz) else if (@typeId(@TypeOf(baz)) == .Int) @intToPtr(*c_void, baz) else @as(*c_void, baz));
         \\}
     });
 

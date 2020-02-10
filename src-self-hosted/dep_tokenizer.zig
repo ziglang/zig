@@ -998,7 +998,8 @@ fn printCharValues(out: var, bytes: []const u8) !void {
 
 fn printUnderstandableChar(out: var, char: u8) !void {
     if (!std.ascii.isPrint(char) or char == ' ') {
-        std.fmt.format(out.context, anyerror, out.output, "\\x{X:2}", .{char}) catch {};
+        const output = @typeInfo(@TypeOf(out)).Pointer.child.output;
+        std.fmt.format(out.context, anyerror, output, "\\x{X:2}", .{char}) catch {};
     } else {
         try out.write("'");
         try out.write(&[_]u8{printable_char_tab[char]});
@@ -1021,34 +1022,20 @@ comptime {
 // output: must be a function that takes a `self` idiom parameter
 // and a bytes parameter
 // context: must be that self
-fn makeOutput(output: var, context: var) Output(@TypeOf(output)) {
-    return Output(@TypeOf(output)){
-        .output = output,
+fn makeOutput(comptime output: var, context: var) Output(output, @TypeOf(context)) {
+    return Output(output, @TypeOf(context)){
         .context = context,
     };
 }
 
-fn Output(comptime T: type) type {
-    const args = switch (@typeInfo(T)) {
-        .Fn => |f| f.args,
-        else => @compileError("output parameter is not a function"),
-    };
-    if (args.len != 2) {
-        @compileError("output function must take 2 arguments");
-    }
-    const at0 = args[0].arg_type orelse @compileError("output arg[0] does not have a type");
-    const at1 = args[1].arg_type orelse @compileError("output arg[1] does not have a type");
-    const arg1p = switch (@typeInfo(at1)) {
-        .Pointer => |p| p,
-        else => @compileError("output arg[1] is not a slice"),
-    };
-    if (arg1p.child != u8) @compileError("output arg[1] is not a u8 slice");
+fn Output(comptime output_func: var, comptime Context: type) type {
     return struct {
-        output: T,
-        context: at0,
+        context: Context,
 
-        fn write(self: *@This(), bytes: []const u8) !void {
-            try self.output(self.context, bytes);
+        pub const output = output_func;
+
+        fn write(self: @This(), bytes: []const u8) !void {
+            try output_func(self.context, bytes);
         }
     };
 }

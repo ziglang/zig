@@ -5,8 +5,8 @@ const std = @import("../../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
 
-pub const ERROR = @import("error.zig");
-pub const STATUS = @import("status.zig");
+pub usingnamespace @import("win32error.zig");
+pub usingnamespace @import("ntstatus.zig");
 pub const LANG = @import("lang.zig");
 pub const SUBLANG = @import("sublang.zig");
 
@@ -62,7 +62,6 @@ pub const ULONGLONG = u64;
 pub const LONGLONG = i64;
 pub const HLOCAL = HANDLE;
 pub const LANGID = c_ushort;
-pub const NTSTATUS = ULONG;
 
 pub const va_list = *@OpaqueType();
 
@@ -929,9 +928,9 @@ pub usingnamespace switch (builtin.arch) {
             SegSs: DWORD,
             ExtendedRegisters: [512]BYTE,
 
-            pub fn getRegs(ctx: *const CONTEXT) struct {bp: usize, ip: usize} {
-                return .{.bp = ctx.Ebp, .ip = ctx.Eip};
-            }  
+            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
+                return .{ .bp = ctx.Ebp, .ip = ctx.Eip };
+            }
         };
 
         pub const PCONTEXT = *CONTEXT;
@@ -1032,8 +1031,8 @@ pub usingnamespace switch (builtin.arch) {
             LastExceptionToRip: DWORD64,
             LastExceptionFromRip: DWORD64,
 
-            pub fn getRegs(ctx: *const CONTEXT) struct {bp: usize, ip: usize} {
-                return .{.bp = ctx.Rbp, .ip = ctx.Rip};
+            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
+                return .{ .bp = ctx.Rbp, .ip = ctx.Rip };
             }
         };
 
@@ -1100,8 +1099,11 @@ pub usingnamespace switch (builtin.arch) {
             Wcr: [2]DWORD,
             Wvr: [2]DWORD64,
 
-            pub fn getRegs(ctx: *const CONTEXT) struct {bp: usize, ip: usize} {
-                return .{.bp = ctx.DUMMYUNIONNAME.DUMMYSTRUCTNAME.Fp, .ip = ctx.Pc};
+            pub fn getRegs(ctx: *const CONTEXT) struct { bp: usize, ip: usize } {
+                return .{
+                    .bp = ctx.DUMMYUNIONNAME.DUMMYSTRUCTNAME.Fp,
+                    .ip = ctx.Pc,
+                };
             }
         };
 
@@ -1237,3 +1239,85 @@ pub const CURDIR = extern struct {
 };
 
 pub const DUPLICATE_SAME_ACCESS = 2;
+
+pub const MODULEINFO = extern struct {
+    lpBaseOfDll: LPVOID,
+    SizeOfImage: DWORD,
+    EntryPoint: LPVOID,
+};
+pub const LPMODULEINFO = *MODULEINFO;
+
+pub const PSAPI_WS_WATCH_INFORMATION = extern struct {
+    FaultingPc: LPVOID,
+    FaultingVa: LPVOID,
+};
+pub const PPSAPI_WS_WATCH_INFORMATION = *PSAPI_WS_WATCH_INFORMATION;
+
+pub const PROCESS_MEMORY_COUNTERS = extern struct {
+    cb: DWORD,
+    PageFaultCount: DWORD,
+    PeakWorkingSetSize: SIZE_T,
+    WorkingSetSize: SIZE_T,
+    QuotaPeakPagedPoolUsage: SIZE_T,
+    QuotaPagedPoolUsage: SIZE_T,
+    QuotaPeakNonPagedPoolUsage: SIZE_T,
+    QuotaNonPagedPoolUsage: SIZE_T,
+    PagefileUsage: SIZE_T,
+    PeakPagefileUsage: SIZE_T,
+};
+pub const PPROCESS_MEMORY_COUNTERS = *PROCESS_MEMORY_COUNTERS;
+
+pub const PROCESS_MEMORY_COUNTERS_EX = extern struct {
+    cb: DWORD,
+    PageFaultCount: DWORD,
+    PeakWorkingSetSize: SIZE_T,
+    WorkingSetSize: SIZE_T,
+    QuotaPeakPagedPoolUsage: SIZE_T,
+    QuotaPagedPoolUsage: SIZE_T,
+    QuotaPeakNonPagedPoolUsage: SIZE_T,
+    QuotaNonPagedPoolUsage: SIZE_T,
+    PagefileUsage: SIZE_T,
+    PeakPagefileUsage: SIZE_T,
+    PrivateUsage: SIZE_T,
+};
+pub const PPROCESS_MEMORY_COUNTERS_EX = *PROCESS_MEMORY_COUNTERS_EX;
+
+pub const PERFORMANCE_INFORMATION = extern struct {
+    cb: DWORD,
+    CommitTotal: SIZE_T,
+    CommitLimit: SIZE_T,
+    CommitPeak: SIZE_T,
+    PhysicalTotal: SIZE_T,
+    PhysicalAvailable: SIZE_T,
+    SystemCache: SIZE_T,
+    KernelTotal: SIZE_T,
+    KernelPaged: SIZE_T,
+    KernelNonpaged: SIZE_T,
+    PageSize: SIZE_T,
+    HandleCount: DWORD,
+    ProcessCount: DWORD,
+    ThreadCount: DWORD,
+};
+pub const PPERFORMANCE_INFORMATION = *PERFORMANCE_INFORMATION;
+
+pub const PERFORMACE_INFORMATION = PERFORMANCE_INFORMATION;
+pub const PPERFORMACE_INFORMATION = *PERFORMANCE_INFORMATION;
+
+pub const ENUM_PAGE_FILE_INFORMATION = extern struct {
+    cb: DWORD,
+    Reserved: DWORD,
+    TotalSize: SIZE_T,
+    TotalInUse: SIZE_T,
+    PeakUsage: SIZE_T,
+};
+pub const PENUM_PAGE_FILE_INFORMATION = *ENUM_PAGE_FILE_INFORMATION;
+
+pub const PENUM_PAGE_FILE_CALLBACKW = ?fn (?LPVOID, PENUM_PAGE_FILE_INFORMATION, LPCWSTR) callconv(.C) BOOL;
+pub const PENUM_PAGE_FILE_CALLBACKA = ?fn (?LPVOID, PENUM_PAGE_FILE_INFORMATION, LPCSTR) callconv(.C) BOOL;
+
+pub const PSAPI_WS_WATCH_INFORMATION_EX = extern struct {
+    BasicInfo: PSAPI_WS_WATCH_INFORMATION,
+    FaultingThreadId: ULONG_PTR,
+    Flags: ULONG_PTR,
+};
+pub const PPSAPI_WS_WATCH_INFORMATION_EX = *PSAPI_WS_WATCH_INFORMATION_EX;

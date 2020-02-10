@@ -113,11 +113,20 @@ pub fn Queue(comptime T: type) type {
 
         pub fn dumpToStream(self: *Self, comptime Error: type, stream: *std.io.OutStream(Error)) Error!void {
             const S = struct {
-                fn dumpRecursive(s: *std.io.OutStream(Error), optional_node: ?*Node, indent: usize) Error!void {
+                fn dumpRecursive(
+                    s: *std.io.OutStream(Error),
+                    optional_node: ?*Node,
+                    indent: usize,
+                    comptime depth: comptime_int,
+                ) Error!void {
                     try s.writeByteNTimes(' ', indent);
                     if (optional_node) |node| {
                         try s.print("0x{x}={}\n", .{ @ptrToInt(node), node.data });
-                        try dumpRecursive(s, node.next, indent + 1);
+                        if (depth == 0) {
+                            try s.print("(max depth)\n", .{});
+                            return;
+                        }
+                        try dumpRecursive(s, node.next, indent + 1, depth - 1);
                     } else {
                         try s.print("(null)\n", .{});
                     }
@@ -127,9 +136,9 @@ pub fn Queue(comptime T: type) type {
             defer held.release();
 
             try stream.print("head: ", .{});
-            try S.dumpRecursive(stream, self.head, 0);
+            try S.dumpRecursive(stream, self.head, 0, 4);
             try stream.print("tail: ", .{});
-            try S.dumpRecursive(stream, self.tail, 0);
+            try S.dumpRecursive(stream, self.tail, 0, 4);
         }
     };
 }

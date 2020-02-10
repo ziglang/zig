@@ -238,6 +238,13 @@ pub const Target = union(enum) {
             };
         }
 
+        pub fn isRISCV(arch: Arch) bool {
+            return switch (arch) {
+                .riscv32, .riscv64 => true,
+                else => false,
+            };
+        }
+
         pub fn isMIPS(arch: Arch) bool {
             return switch (arch) {
                 .mips, .mipsel, .mips64, .mips64el => true,
@@ -594,6 +601,8 @@ pub const Target = union(enum) {
                 }
 
                 pub fn populateDependencies(set: *Set, all_features_list: []const Cpu.Feature) void {
+                    @setEvalBranchQuota(1000000);
+
                     var old = set.ints;
                     while (true) {
                         for (all_features_list) |feature, index_usize| {
@@ -969,6 +978,23 @@ pub const Target = union(enum) {
         switch (self) {
             .Native => return builtin.abi,
             .Cross => |t| return t.abi,
+        }
+    }
+
+    pub fn getObjectFormat(self: Target) ObjectFormat {
+        switch (self) {
+            .Native => return @import("builtin").object_format,
+            .Cross => blk: {
+                if (self.isWindows() or self.isUefi()) {
+                    return .coff;
+                } else if (self.isDarwin()) {
+                    return .macho;
+                }
+                if (self.isWasm()) {
+                    return .wasm;
+                }
+                return .elf;
+            },
         }
     }
 

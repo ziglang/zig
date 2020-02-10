@@ -329,17 +329,18 @@ pub const ChildProcess = struct {
     }
 
     fn spawnPosix(self: *ChildProcess) SpawnError!void {
-        const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try os.pipe() else undefined;
+        const pipe_flags = if (io.is_async) os.O_NONBLOCK else 0;
+        const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
             destroyPipe(stdin_pipe);
         };
 
-        const stdout_pipe = if (self.stdout_behavior == StdIo.Pipe) try os.pipe() else undefined;
+        const stdout_pipe = if (self.stdout_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
         errdefer if (self.stdout_behavior == StdIo.Pipe) {
             destroyPipe(stdout_pipe);
         };
 
-        const stderr_pipe = if (self.stderr_behavior == StdIo.Pipe) try os.pipe() else undefined;
+        const stderr_pipe = if (self.stderr_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
         errdefer if (self.stderr_behavior == StdIo.Pipe) {
             destroyPipe(stderr_pipe);
         };
@@ -426,17 +427,26 @@ pub const ChildProcess = struct {
         // we are the parent
         const pid = @intCast(i32, pid_result);
         if (self.stdin_behavior == StdIo.Pipe) {
-            self.stdin = File.openHandle(stdin_pipe[1]);
+            self.stdin = File{
+                .handle = stdin_pipe[1],
+                .io_mode = std.io.mode,
+            };
         } else {
             self.stdin = null;
         }
         if (self.stdout_behavior == StdIo.Pipe) {
-            self.stdout = File.openHandle(stdout_pipe[0]);
+            self.stdout = File{
+                .handle = stdout_pipe[0],
+                .io_mode = std.io.mode,
+            };
         } else {
             self.stdout = null;
         }
         if (self.stderr_behavior == StdIo.Pipe) {
-            self.stderr = File.openHandle(stderr_pipe[0]);
+            self.stderr = File{
+                .handle = stderr_pipe[0],
+                .io_mode = std.io.mode,
+            };
         } else {
             self.stderr = null;
         }
@@ -661,17 +671,26 @@ pub const ChildProcess = struct {
         };
 
         if (g_hChildStd_IN_Wr) |h| {
-            self.stdin = File.openHandle(h);
+            self.stdin = File{
+                .handle = h,
+                .io_mode = io.mode,
+            };
         } else {
             self.stdin = null;
         }
         if (g_hChildStd_OUT_Rd) |h| {
-            self.stdout = File.openHandle(h);
+            self.stdout = File{
+                .handle = h,
+                .io_mode = io.mode,
+            };
         } else {
             self.stdout = null;
         }
         if (g_hChildStd_ERR_Rd) |h| {
-            self.stderr = File.openHandle(h);
+            self.stderr = File{
+                .handle = h,
+                .io_mode = io.mode,
+            };
         } else {
             self.stderr = null;
         }
@@ -693,10 +712,10 @@ pub const ChildProcess = struct {
 
     fn setUpChildIo(stdio: StdIo, pipe_fd: i32, std_fileno: i32, dev_null_fd: i32) !void {
         switch (stdio) {
-            StdIo.Pipe => try os.dup2(pipe_fd, std_fileno),
-            StdIo.Close => os.close(std_fileno),
-            StdIo.Inherit => {},
-            StdIo.Ignore => try os.dup2(dev_null_fd, std_fileno),
+            .Pipe => try os.dup2(pipe_fd, std_fileno),
+            .Close => os.close(std_fileno),
+            .Inherit => {},
+            .Ignore => try os.dup2(dev_null_fd, std_fileno),
         }
     }
 };
@@ -811,12 +830,22 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
 const ErrInt = @IntType(false, @sizeOf(anyerror) * 8);
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
-    const stream = &File.openHandle(fd).outStream().stream;
+    const file = File{
+        .handle = fd,
+        .io_mode = .blocking,
+        .async_block_allowed = File.async_block_allowed_yes,
+    };
+    const stream = &file.outStream().stream;
     stream.writeIntNative(u64, @intCast(u64, value)) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
-    const stream = &File.openHandle(fd).inStream().stream;
+    const file = File{
+        .handle = fd,
+        .io_mode = .blocking,
+        .async_block_allowed = File.async_block_allowed_yes,
+    };
+    const stream = &file.inStream().stream;
     return @intCast(ErrInt, stream.readIntNative(u64) catch return error.SystemResources);
 }
 

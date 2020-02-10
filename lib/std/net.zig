@@ -271,7 +271,7 @@ pub const Address = extern union {
         options: std.fmt.FormatOptions,
         context: var,
         comptime Errors: type,
-        output: fn (@TypeOf(context), []const u8) Errors!void,
+        comptime output: fn (@TypeOf(context), []const u8) Errors!void,
     ) !void {
         switch (self.any.family) {
             os.AF_INET => {
@@ -361,7 +361,7 @@ pub const Address = extern union {
 };
 
 pub fn connectUnixSocket(path: []const u8) !fs.File {
-    const opt_non_block = if (std.io.mode == .evented) os.SOCK_NONBLOCK else 0;
+    const opt_non_block = if (std.io.is_async) os.SOCK_NONBLOCK else 0;
     const sockfd = try os.socket(
         os.AF_UNIX,
         os.SOCK_STREAM | os.SOCK_CLOEXEC | opt_non_block,
@@ -377,7 +377,10 @@ pub fn connectUnixSocket(path: []const u8) !fs.File {
         addr.getOsSockLen(),
     );
 
-    return fs.File.openHandle(sockfd);
+    return fs.File{
+        .handle = sockfd,
+        .io_mode = std.io.mode,
+    };
 }
 
 pub const AddressList = struct {
@@ -412,7 +415,7 @@ pub fn tcpConnectToAddress(address: Address) !fs.File {
     errdefer os.close(sockfd);
     try os.connect(sockfd, &address.any, address.getOsSockLen());
 
-    return fs.File{ .handle = sockfd };
+    return fs.File{ .handle = sockfd, .io_mode = std.io.mode };
 }
 
 /// Call `AddressList.deinit` on the result.
@@ -1379,7 +1382,10 @@ pub const StreamServer = struct {
         var adr_len: os.socklen_t = @sizeOf(Address);
         if (os.accept4(self.sockfd.?, &accepted_addr.any, &adr_len, accept_flags)) |fd| {
             return Connection{
-                .file = fs.File.openHandle(fd),
+                .file = fs.File{
+                    .handle = fd,
+                    .io_mode = std.io.mode,
+                },
                 .address = accepted_addr,
             };
         } else |err| switch (err) {

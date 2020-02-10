@@ -8,18 +8,29 @@ const assert = std.debug.assert;
 const windows = os.windows;
 const Os = builtin.Os;
 const maxInt = std.math.maxInt;
+const need_async_thread = std.fs.need_async_thread;
 
 pub const File = struct {
     /// The OS-specific file descriptor or file handle.
     handle: os.fd_t,
 
-    pub const Mode = switch (builtin.os) {
-        Os.windows => void,
-        else => u32,
-    };
+    /// On some systems, such as Linux, file system file descriptors are incapable of non-blocking I/O.
+    /// This forces us to perform asynchronous I/O on a dedicated thread, to achieve non-blocking
+    /// file-system I/O. To do this, `File` must be aware of whether it is a file system file descriptor,
+    /// or, more specifically, whether the I/O is blocking.
+    io_mode: io.Mode,
+
+    /// Even when std.io.mode is async, it is still sometimes desirable to perform blocking I/O, although
+    /// not by default. For example, when printing a stack trace to stderr.
+    async_block_allowed: @TypeOf(async_block_allowed_no) = async_block_allowed_no,
+
+    pub const async_block_allowed_yes = if (io.is_async) true else {};
+    pub const async_block_allowed_no = if (io.is_async) false else {};
+
+    pub const Mode = os.mode_t;
 
     pub const default_mode = switch (builtin.os) {
-        Os.windows => {},
+        .windows => 0,
         else => 0o666,
     };
 
@@ -49,87 +60,27 @@ pub const File = struct {
         mode: Mode = default_mode,
     };
 
-    /// Deprecated; call `std.fs.Dir.openFile` directly.
-    pub fn openRead(path: []const u8) OpenError!File {
-        return std.fs.cwd().openFile(path, .{});
-    }
-
-    /// Deprecated; call `std.fs.Dir.openFileC` directly.
-    pub fn openReadC(path_c: [*:0]const u8) OpenError!File {
-        return std.fs.cwd().openFileC(path_c, .{});
-    }
-
-    /// Deprecated; call `std.fs.Dir.openFileW` directly.
-    pub fn openReadW(path_w: [*:0]const u16) OpenError!File {
-        return std.fs.cwd().openFileW(path_w, .{});
-    }
-
-    /// Deprecated; call `std.fs.Dir.createFile` directly.
-    pub fn openWrite(path: []const u8) OpenError!File {
-        return std.fs.cwd().createFile(path, .{});
-    }
-
-    /// Deprecated; call `std.fs.Dir.createFile` directly.
-    pub fn openWriteMode(path: []const u8, file_mode: Mode) OpenError!File {
-        return std.fs.cwd().createFile(path, .{ .mode = file_mode });
-    }
-
-    /// Deprecated; call `std.fs.Dir.createFileC` directly.
-    pub fn openWriteModeC(path_c: [*:0]const u8, file_mode: Mode) OpenError!File {
-        return std.fs.cwd().createFileC(path_c, .{ .mode = file_mode });
-    }
-
-    /// Deprecated; call `std.fs.Dir.createFileW` directly.
-    pub fn openWriteModeW(path_w: [*:0]const u16, file_mode: Mode) OpenError!File {
-        return std.fs.cwd().createFileW(path_w, .{ .mode = file_mode });
-    }
-
-    /// Deprecated; call `std.fs.Dir.createFile` directly.
-    pub fn openWriteNoClobber(path: []const u8, file_mode: Mode) OpenError!File {
-        return std.fs.cwd().createFile(path, .{
-            .mode = file_mode,
-            .exclusive = true,
-        });
-    }
-
-    /// Deprecated; call `std.fs.Dir.createFileC` directly.
-    pub fn openWriteNoClobberC(path_c: [*:0]const u8, file_mode: Mode) OpenError!File {
-        return std.fs.cwd().createFileC(path_c, .{
-            .mode = file_mode,
-            .exclusive = true,
-        });
-    }
-
-    /// Deprecated; call `std.fs.Dir.createFileW` directly.
-    pub fn openWriteNoClobberW(path_w: [*:0]const u16, file_mode: Mode) OpenError!File {
-        return std.fs.cwd().createFileW(path_w, .{
-            .mode = file_mode,
-            .exclusive = true,
-        });
-    }
-
-    pub fn openHandle(handle: os.fd_t) File {
-        return File{ .handle = handle };
-    }
-
     /// Test for the existence of `path`.
     /// `path` is UTF8-encoded.
     /// In general it is recommended to avoid this function. For example,
     /// instead of testing if a file exists and then opening it, just
     /// open it and handle the error for file not found.
     /// TODO: deprecate this and move it to `std.fs.Dir`.
+    /// TODO: integrate with async I/O
     pub fn access(path: []const u8) !void {
         return os.access(path, os.F_OK);
     }
 
     /// Same as `access` except the parameter is null-terminated.
     /// TODO: deprecate this and move it to `std.fs.Dir`.
+    /// TODO: integrate with async I/O
     pub fn accessC(path: [*:0]const u8) !void {
         return os.accessC(path, os.F_OK);
     }
 
     /// Same as `access` except the parameter is null-terminated UTF16LE-encoded.
     /// TODO: deprecate this and move it to `std.fs.Dir`.
+    /// TODO: integrate with async I/O
     pub fn accessW(path: [*:0]const u16) !void {
         return os.accessW(path, os.F_OK);
     }
@@ -137,7 +88,11 @@ pub const File = struct {
     /// Upon success, the stream is in an uninitialized state. To continue using it,
     /// you must use the open() function.
     pub fn close(self: File) void {
-        return os.close(self.handle);
+        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+            std.event.Loop.instance.?.close(self.handle);
+        } else {
+            return os.close(self.handle);
+        }
     }
 
     /// Test whether the file refers to a terminal.
@@ -167,26 +122,31 @@ pub const File = struct {
     pub const SeekError = os.SeekError;
 
     /// Repositions read/write file offset relative to the current offset.
+    /// TODO: integrate with async I/O
     pub fn seekBy(self: File, offset: i64) SeekError!void {
         return os.lseek_CUR(self.handle, offset);
     }
 
     /// Repositions read/write file offset relative to the end.
+    /// TODO: integrate with async I/O
     pub fn seekFromEnd(self: File, offset: i64) SeekError!void {
         return os.lseek_END(self.handle, offset);
     }
 
     /// Repositions read/write file offset relative to the beginning.
+    /// TODO: integrate with async I/O
     pub fn seekTo(self: File, offset: u64) SeekError!void {
         return os.lseek_SET(self.handle, offset);
     }
 
     pub const GetPosError = os.SeekError || os.FStatError;
 
+    /// TODO: integrate with async I/O
     pub fn getPos(self: File) GetPosError!u64 {
         return os.lseek_CUR_get(self.handle);
     }
 
+    /// TODO: integrate with async I/O
     pub fn getEndPos(self: File) GetPosError!u64 {
         if (builtin.os == .windows) {
             return windows.GetFileSizeEx(self.handle);
@@ -196,6 +156,7 @@ pub const File = struct {
 
     pub const ModeError = os.FStatError;
 
+    /// TODO: integrate with async I/O
     pub fn mode(self: File) ModeError!Mode {
         if (builtin.os == .windows) {
             return {};
@@ -219,21 +180,22 @@ pub const File = struct {
 
     pub const StatError = os.FStatError;
 
+    /// TODO: integrate with async I/O
     pub fn stat(self: File) StatError!Stat {
         if (builtin.os == .windows) {
             var io_status_block: windows.IO_STATUS_BLOCK = undefined;
             var info: windows.FILE_ALL_INFORMATION = undefined;
             const rc = windows.ntdll.NtQueryInformationFile(self.handle, &io_status_block, &info, @sizeOf(windows.FILE_ALL_INFORMATION), .FileAllInformation);
             switch (rc) {
-                windows.STATUS.SUCCESS => {},
-                windows.STATUS.BUFFER_OVERFLOW => {},
-                windows.STATUS.INVALID_PARAMETER => unreachable,
-                windows.STATUS.ACCESS_DENIED => return error.AccessDenied,
+                .SUCCESS => {},
+                .BUFFER_OVERFLOW => {},
+                .INVALID_PARAMETER => unreachable,
+                .ACCESS_DENIED => return error.AccessDenied,
                 else => return windows.unexpectedStatus(rc),
             }
             return Stat{
                 .size = @bitCast(u64, info.StandardInformation.EndOfFile),
-                .mode = {},
+                .mode = 0,
                 .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
                 .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
                 .ctime = windows.fromSysTime(info.BasicInformation.CreationTime),
@@ -259,6 +221,7 @@ pub const File = struct {
     /// and therefore this function cannot guarantee any precision will be stored.
     /// Further, the maximum value is limited by the system ABI. When a value is provided
     /// that exceeds this range, the value is clamped to the maximum.
+    /// TODO: integrate with async I/O
     pub fn updateTimes(
         self: File,
         /// access timestamp in nanoseconds
@@ -287,21 +250,61 @@ pub const File = struct {
     pub const ReadError = os.ReadError;
 
     pub fn read(self: File, buffer: []u8) ReadError!usize {
+        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+            return std.event.Loop.instance.?.read(self.handle, buffer);
+        }
         return os.read(self.handle, buffer);
+    }
+
+    pub fn pread(self: File, buffer: []u8, offset: u64) ReadError!usize {
+        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+            return std.event.Loop.instance.?.pread(self.handle, buffer);
+        }
+        return os.pread(self.handle, buffer, offset);
+    }
+
+    pub fn readv(self: File, iovecs: []const os.iovec) ReadError!usize {
+        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+            return std.event.Loop.instance.?.readv(self.handle, iovecs);
+        }
+        return os.readv(self.handle, iovecs);
+    }
+
+    pub fn preadv(self: File, iovecs: []const os.iovec, offset: u64) ReadError!usize {
+        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+            return std.event.Loop.instance.?.preadv(self.handle, iovecs, offset);
+        }
+        return os.preadv(self.handle, iovecs, offset);
     }
 
     pub const WriteError = os.WriteError;
 
     pub fn write(self: File, bytes: []const u8) WriteError!void {
+        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+            return std.event.Loop.instance.?.write(self.handle, bytes);
+        }
         return os.write(self.handle, bytes);
     }
 
-    pub fn writev_iovec(self: File, iovecs: []const os.iovec_const) WriteError!void {
-        if (std.event.Loop.instance) |loop| {
-            return std.event.fs.writevPosix(loop, self.handle, iovecs);
-        } else {
-            return os.writev(self.handle, iovecs);
+    pub fn pwrite(self: File, bytes: []const u8, offset: u64) WriteError!void {
+        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+            return std.event.Loop.instance.?.pwrite(self.handle, bytes, offset);
         }
+        return os.pwrite(self.handle, bytes, offset);
+    }
+
+    pub fn writev(self: File, iovecs: []const os.iovec_const) WriteError!void {
+        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+            return std.event.Loop.instance.?.writev(self.handle, iovecs);
+        }
+        return os.writev(self.handle, iovecs);
+    }
+
+    pub fn pwritev(self: File, iovecs: []const os.iovec_const, offset: usize) WriteError!void {
+        if (need_async_thread and self.io_mode == .blocking and !self.async_block_allowed) {
+            return std.event.Loop.instance.?.pwritev(self.handle, iovecs);
+        }
+        return os.pwritev(self.handle, iovecs);
     }
 
     pub fn inStream(file: File) InStream {

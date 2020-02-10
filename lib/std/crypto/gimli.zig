@@ -19,7 +19,6 @@ pub const State = struct {
     pub const BLOCKBYTES = 48;
     pub const RATE = 16;
 
-    // TODO: https://github.com/ziglang/zig/issues/2673#issuecomment-501763017
     data: [BLOCKBYTES / 4]u32,
 
     const Self = @This();
@@ -134,6 +133,8 @@ pub const Hash = struct {
         }
     }
 
+    pub const digest_length = 32;
+
     /// Finish the current hashing operation, writing the hash to `out`
     ///
     /// From 4.9 "Application to hashing"
@@ -165,4 +166,223 @@ test "hash" {
     var md: [32]u8 = undefined;
     hash(&md, &msg);
     htest.assertEqual("1C9A03DC6A5DDC5444CFC6F4B154CFF5CF081633B2CEA4D7D0AE7CCFED5AAA44", &md);
+}
+
+pub const Aead = struct {
+    /// ad: Associated Data
+    /// npub: public nonce
+    /// k: private key
+    fn init(ad: []const u8, npub: [16]u8, k: [32]u8) State {
+        var state = State{
+            .data = undefined,
+        };
+        const buf = state.toSlice();
+
+        // Gimli-Cipher initializes a 48-byte Gimli state to a 16-byte nonce
+        // followed by a 32-byte key.
+        assert(npub.len + k.len == State.BLOCKBYTES);
+        std.mem.copy(u8, buf[0..npub.len], &npub);
+        std.mem.copy(u8, buf[npub.len .. npub.len + k.len], &k);
+
+        // It then applies the Gimli permutation.
+        state.permute();
+
+        {
+            // Gimli-Cipher then handles each block of associated data, including
+            // exactly one final non-full block, in the same way as Gimli-Hash.
+            var data = ad;
+            while (data.len >= State.RATE) : (data = data[State.RATE..]) {
+                for (buf[0..State.RATE]) |*p, i| {
+                    p.* ^= data[i];
+                }
+                state.permute();
+            }
+            for (buf[0..data.len]) |*p, i| {
+                p.* ^= data[i];
+            }
+
+            // XOR 1 into the next byte of the state
+            buf[data.len] ^= 1;
+            // XOR 1 into the last byte of the state, position 47.
+            buf[buf.len - 1] ^= 1;
+
+            state.permute();
+        }
+
+        return state;
+    }
+
+    /// c: ciphertext: output buffer should be of size m.len
+    /// at: authentication tag: output MAC
+    /// m: message
+    /// ad: Associated Data
+    /// npub: public nonce
+    /// k: private key
+    pub fn encrypt(c: []u8, at: *[State.RATE]u8, m: []const u8, ad: []const u8, npub: [16]u8, k: [32]u8) void {
+        assert(c.len == m.len);
+
+        var state = Aead.init(ad, npub, k);
+        const buf = state.toSlice();
+
+        // Gimli-Cipher then handles each block of plaintext, including
+        // exactly one final non-full block, in the same way as Gimli-Hash.
+        // Whenever a plaintext byte is XORed into a state byte, the new state
+        // byte is output as ciphertext.
+        var in = m;
+        var out = c;
+        while (in.len >= State.RATE) : ({
+            in = in[State.RATE..];
+            out = out[State.RATE..];
+        }) {
+            for (buf[0..State.RATE]) |*p, i| {
+                p.* ^= in[i];
+                out[i] = p.*;
+            }
+            state.permute();
+        }
+        for (buf[0..in.len]) |*p, i| {
+            p.* ^= in[i];
+            out[i] = p.*;
+        }
+
+        // XOR 1 into the next byte of the state
+        buf[in.len] ^= 1;
+        // XOR 1 into the last byte of the state, position 47.
+        buf[buf.len - 1] ^= 1;
+
+        state.permute();
+
+        // After the final non-full block of plaintext, the first 16 bytes
+        // of the state are output as an authentication tag.
+        std.mem.copy(u8, at, buf[0..State.RATE]);
+    }
+
+    /// m: message: output buffer should be of size c.len
+    /// c: ciphertext
+    /// at: authentication tag
+    /// ad: Associated Data
+    /// npub: public nonce
+    /// k: private key
+    /// NOTE: the check of the authentication tag is currently not done in constant time
+    pub fn decrypt(m: []u8, c: []const u8, at: [State.RATE]u8, ad: []u8, npub: [16]u8, k: [32]u8) !void {
+        assert(c.len == m.len);
+
+        var state = Aead.init(ad, npub, k);
+        const buf = state.toSlice();
+
+        var in = c;
+        var out = m;
+        while (in.len >= State.RATE) : ({
+            in = in[State.RATE..];
+            out = out[State.RATE..];
+        }) {
+            for (buf[0..State.RATE]) |*p, i| {
+                out[i] = p.* ^ in[i];
+                p.* = in[i];
+            }
+            state.permute();
+        }
+        for (buf[0..in.len]) |*p, i| {
+            out[i] = p.* ^ in[i];
+            p.* = in[i];
+        }
+
+        // XOR 1 into the next byte of the state
+        buf[in.len] ^= 1;
+        // XOR 1 into the last byte of the state, position 47.
+        buf[buf.len - 1] ^= 1;
+
+        state.permute();
+
+        // After the final non-full block of plaintext, the first 16 bytes
+        // of the state are the authentication tag.
+        // TODO: use a constant-time equality check here, see https://github.com/ziglang/zig/issues/1776
+        if (!mem.eql(u8, buf[0..State.RATE], &at)) {
+            @memset(m.ptr, undefined, m.len);
+            return error.InvalidMessage;
+        }
+    }
+};
+
+test "cipher" {
+    var key: [32]u8 = undefined;
+    try std.fmt.hexToBytes(&key, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F");
+    var nonce: [16]u8 = undefined;
+    try std.fmt.hexToBytes(&nonce, "000102030405060708090A0B0C0D0E0F");
+    { // test vector (1) from NIST KAT submission.
+        const ad: [0]u8 = undefined;
+        const pt: [0]u8 = undefined;
+
+        var ct: [pt.len]u8 = undefined;
+        var at: [16]u8 = undefined;
+        Aead.encrypt(&ct, &at, &pt, &ad, nonce, key);
+        htest.assertEqual("", &ct);
+        htest.assertEqual("14DA9BB7120BF58B985A8E00FDEBA15B", &at);
+
+        var pt2: [pt.len]u8 = undefined;
+        try Aead.decrypt(&pt2, &ct, at, &ad, nonce, key);
+        testing.expectEqualSlices(u8, &pt, &pt2);
+    }
+    { // test vector (34) from NIST KAT submission.
+        const ad: [0]u8 = undefined;
+        var pt: [2 / 2]u8 = undefined;
+        try std.fmt.hexToBytes(&pt, "00");
+
+        var ct: [pt.len]u8 = undefined;
+        var at: [16]u8 = undefined;
+        Aead.encrypt(&ct, &at, &pt, &ad, nonce, key);
+        htest.assertEqual("7F", &ct);
+        htest.assertEqual("80492C317B1CD58A1EDC3A0D3E9876FC", &at);
+
+        var pt2: [pt.len]u8 = undefined;
+        try Aead.decrypt(&pt2, &ct, at, &ad, nonce, key);
+        testing.expectEqualSlices(u8, &pt, &pt2);
+    }
+    { // test vector (106) from NIST KAT submission.
+        var ad: [12 / 2]u8 = undefined;
+        try std.fmt.hexToBytes(&ad, "000102030405");
+        var pt: [6 / 2]u8 = undefined;
+        try std.fmt.hexToBytes(&pt, "000102");
+
+        var ct: [pt.len]u8 = undefined;
+        var at: [16]u8 = undefined;
+        Aead.encrypt(&ct, &at, &pt, &ad, nonce, key);
+        htest.assertEqual("484D35", &ct);
+        htest.assertEqual("030BBEA23B61C00CED60A923BDCF9147", &at);
+
+        var pt2: [pt.len]u8 = undefined;
+        try Aead.decrypt(&pt2, &ct, at, &ad, nonce, key);
+        testing.expectEqualSlices(u8, &pt, &pt2);
+    }
+    { // test vector (790) from NIST KAT submission.
+        var ad: [60 / 2]u8 = undefined;
+        try std.fmt.hexToBytes(&ad, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D");
+        var pt: [46 / 2]u8 = undefined;
+        try std.fmt.hexToBytes(&pt, "000102030405060708090A0B0C0D0E0F10111213141516");
+
+        var ct: [pt.len]u8 = undefined;
+        var at: [16]u8 = undefined;
+        Aead.encrypt(&ct, &at, &pt, &ad, nonce, key);
+        htest.assertEqual("6815B4A0ECDAD01596EAD87D9E690697475D234C6A13D1", &ct);
+        htest.assertEqual("DFE23F1642508290D68245279558B2FB", &at);
+
+        var pt2: [pt.len]u8 = undefined;
+        try Aead.decrypt(&pt2, &ct, at, &ad, nonce, key);
+        testing.expectEqualSlices(u8, &pt, &pt2);
+    }
+    { // test vector (1057) from NIST KAT submission.
+        const ad: [0]u8 = undefined;
+        var pt: [64 / 2]u8 = undefined;
+        try std.fmt.hexToBytes(&pt, "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F");
+
+        var ct: [pt.len]u8 = undefined;
+        var at: [16]u8 = undefined;
+        Aead.encrypt(&ct, &at, &pt, &ad, nonce, key);
+        htest.assertEqual("7F8A2CF4F52AA4D6B2E74105C30A2777B9D0C8AEFDD555DE35861BD3011F652F", &ct);
+        htest.assertEqual("7256456FA935AC34BBF55AE135F33257", &at);
+
+        var pt2: [pt.len]u8 = undefined;
+        try Aead.decrypt(&pt2, &ct, at, &ad, nonce, key);
+        testing.expectEqualSlices(u8, &pt, &pt2);
+    }
 }

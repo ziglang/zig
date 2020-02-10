@@ -2,7 +2,19 @@ cmake_minimum_required(VERSION 2.8.5)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug" CACHE STRING
-        "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel." FORCE)
+        "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel." FORCE)
+endif()
+
+set(_list "None;Debug;Release;RelWithDebInfo;MinSizeRel")
+list(FIND _list ${CMAKE_BUILD_TYPE} _index)
+if(${_index} EQUAL -1)
+    string(REPLACE ";" ", " _list_pretty "${_list}")
+    message("::")
+    message(":: ERROR: Invalid build type: ${CMAKE_BUILD_TYPE}")
+    message("::")
+    message(":: valid types: { ${_list_pretty} }")
+    message("::")
+    message(FATAL_ERROR)
 endif()
 
 if(NOT CMAKE_INSTALL_PREFIX)

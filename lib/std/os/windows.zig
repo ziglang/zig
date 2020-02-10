@@ -15,6 +15,7 @@ pub const advapi32 = @import("windows/advapi32.zig");
 pub const kernel32 = @import("windows/kernel32.zig");
 pub const ntdll = @import("windows/ntdll.zig");
 pub const ole32 = @import("windows/ole32.zig");
+pub const psapi = @import("windows/psapi.zig");
 pub const shell32 = @import("windows/shell32.zig");
 pub const ws2_32 = @import("windows/ws2_32.zig");
 
@@ -72,14 +73,14 @@ pub fn CreateFileW(
 
     if (result == INVALID_HANDLE_VALUE) {
         switch (kernel32.GetLastError()) {
-            ERROR.SHARING_VIOLATION => return error.SharingViolation,
-            ERROR.ALREADY_EXISTS => return error.PathAlreadyExists,
-            ERROR.FILE_EXISTS => return error.PathAlreadyExists,
-            ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-            ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-            ERROR.ACCESS_DENIED => return error.AccessDenied,
-            ERROR.PIPE_BUSY => return error.PipeBusy,
-            ERROR.FILENAME_EXCED_RANGE => return error.NameTooLong,
+            .SHARING_VIOLATION => return error.SharingViolation,
+            .ALREADY_EXISTS => return error.PathAlreadyExists,
+            .FILE_EXISTS => return error.PathAlreadyExists,
+            .FILE_NOT_FOUND => return error.FileNotFound,
+            .PATH_NOT_FOUND => return error.FileNotFound,
+            .ACCESS_DENIED => return error.AccessDenied,
+            .PIPE_BUSY => return error.PipeBusy,
+            .FILENAME_EXCED_RANGE => return error.NameTooLong,
             else => |err| return unexpectedError(err),
         }
     }
@@ -132,7 +133,7 @@ pub fn DeviceIoControl(
         overlapped,
     ) == 0) {
         switch (kernel32.GetLastError()) {
-            ERROR.IO_PENDING => if (overlapped == null) unreachable,
+            .IO_PENDING => if (overlapped == null) unreachable,
             else => |err| return unexpectedError(err),
         }
     }
@@ -143,7 +144,7 @@ pub fn GetOverlappedResult(h: HANDLE, overlapped: *OVERLAPPED, wait: bool) !DWOR
     var bytes: DWORD = undefined;
     if (kernel32.GetOverlappedResult(h, overlapped, &bytes, @boolToInt(wait)) == 0) {
         switch (kernel32.GetLastError()) {
-            ERROR.IO_INCOMPLETE => if (!wait) return error.WouldBlock else unreachable,
+            .IO_INCOMPLETE => if (!wait) return error.WouldBlock else unreachable,
             else => |err| return unexpectedError(err),
         }
     }
@@ -246,8 +247,8 @@ pub fn FindFirstFile(dir_path: []const u8, find_file_data: *WIN32_FIND_DATAW) Fi
 
     if (handle == INVALID_HANDLE_VALUE) {
         switch (kernel32.GetLastError()) {
-            ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-            ERROR.PATH_NOT_FOUND => return error.FileNotFound,
+            .FILE_NOT_FOUND => return error.FileNotFound,
+            .PATH_NOT_FOUND => return error.FileNotFound,
             else => |err| return unexpectedError(err),
         }
     }
@@ -261,7 +262,7 @@ pub const FindNextFileError = error{Unexpected};
 pub fn FindNextFile(handle: HANDLE, find_file_data: *WIN32_FIND_DATAW) FindNextFileError!bool {
     if (kernel32.FindNextFileW(handle, find_file_data) == 0) {
         switch (kernel32.GetLastError()) {
-            ERROR.NO_MORE_FILES => return false,
+            .NO_MORE_FILES => return false,
             else => |err| return unexpectedError(err),
         }
     }
@@ -278,7 +279,7 @@ pub fn CreateIoCompletionPort(
 ) CreateIoCompletionPortError!HANDLE {
     const handle = kernel32.CreateIoCompletionPort(file_handle, existing_completion_port, completion_key, concurrent_thread_count) orelse {
         switch (kernel32.GetLastError()) {
-            ERROR.INVALID_PARAMETER => unreachable,
+            .INVALID_PARAMETER => unreachable,
             else => |err| return unexpectedError(err),
         }
     };
@@ -322,9 +323,9 @@ pub fn GetQueuedCompletionStatus(
         dwMilliseconds,
     ) == FALSE) {
         switch (kernel32.GetLastError()) {
-            ERROR.ABANDONED_WAIT_0 => return GetQueuedCompletionStatusResult.Aborted,
-            ERROR.OPERATION_ABORTED => return GetQueuedCompletionStatusResult.Cancelled,
-            ERROR.HANDLE_EOF => return GetQueuedCompletionStatusResult.EOF,
+            .ABANDONED_WAIT_0 => return GetQueuedCompletionStatusResult.Aborted,
+            .OPERATION_ABORTED => return GetQueuedCompletionStatusResult.Cancelled,
+            .HANDLE_EOF => return GetQueuedCompletionStatusResult.EOF,
             else => |err| {
                 if (std.debug.runtime_safety) {
                     std.debug.panic("unexpected error: {}\n", .{err});
@@ -343,24 +344,77 @@ pub fn FindClose(hFindFile: HANDLE) void {
     assert(kernel32.FindClose(hFindFile) != 0);
 }
 
-pub const ReadFileError = error{Unexpected};
+pub const ReadFileError = error{
+    OperationAborted,
+    BrokenPipe,
+    Unexpected,
+};
 
-pub fn ReadFile(in_hFile: HANDLE, buffer: []u8) ReadFileError!usize {
-    var index: usize = 0;
-    while (index < buffer.len) {
-        const want_read_count = @intCast(DWORD, math.min(@as(DWORD, maxInt(DWORD)), buffer.len - index));
-        var amt_read: DWORD = undefined;
-        if (kernel32.ReadFile(in_hFile, buffer.ptr + index, want_read_count, &amt_read, null) == 0) {
-            switch (kernel32.GetLastError()) {
-                ERROR.OPERATION_ABORTED => continue,
-                ERROR.BROKEN_PIPE => return index,
-                else => |err| return unexpectedError(err),
+/// If buffer's length exceeds what a Windows DWORD integer can hold, it will be broken into
+/// multiple non-atomic reads.
+pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usize {
+    if (std.event.Loop.instance) |loop| {
+        // TODO support async ReadFile with no offset
+        const off = offset.?;
+        var resume_node = std.event.Loop.ResumeNode.Basic{
+            .base = .{
+                .id = .Basic,
+                .handle = @frame(),
+                .overlapped = OVERLAPPED{
+                    .Internal = 0,
+                    .InternalHigh = 0,
+                    .Offset = @truncate(u32, off),
+                    .OffsetHigh = @truncate(u32, off >> 32),
+                    .hEvent = null,
+                },
+            },
+        };
+        // TODO only call create io completion port once per fd
+        _ = windows.CreateIoCompletionPort(fd, loop.os_data.io_port, undefined, undefined) catch undefined;
+        loop.beginOneEvent();
+        suspend {
+            // TODO handle buffer bigger than DWORD can hold
+            _ = windows.kernel32.ReadFile(fd, buffer.ptr, @intCast(windows.DWORD, buffer.len), null, &resume_node.base.overlapped);
+        }
+        var bytes_transferred: windows.DWORD = undefined;
+        if (windows.kernel32.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, windows.FALSE) == 0) {
+            switch (windows.kernel32.GetLastError()) {
+                .IO_PENDING => unreachable,
+                .OPERATION_ABORTED => return error.OperationAborted,
+                .BROKEN_PIPE => return error.BrokenPipe,
+                .HANDLE_EOF => return @as(usize, bytes_transferred),
+                else => |err| return windows.unexpectedError(err),
             }
         }
-        if (amt_read == 0) return index;
-        index += amt_read;
+        return @as(usize, bytes_transferred);
+    } else {
+        var index: usize = 0;
+        while (index < buffer.len) {
+            const want_read_count = @intCast(DWORD, math.min(@as(DWORD, maxInt(DWORD)), buffer.len - index));
+            var amt_read: DWORD = undefined;
+            var overlapped_data: OVERLAPPED = undefined;
+            const overlapped: ?*OVERLAPPED = if (offset) |off| blk: {
+                overlapped_data = .{
+                    .Internal = 0,
+                    .InternalHigh = 0,
+                    .Offset = @truncate(u32, off + index),
+                    .OffsetHigh = @truncate(u32, (off + index) >> 32),
+                    .hEvent = null,
+                };
+                break :blk &overlapped_data;
+            } else null;
+            if (kernel32.ReadFile(in_hFile, buffer.ptr + index, want_read_count, &amt_read, overlapped) == 0) {
+                switch (kernel32.GetLastError()) {
+                    .OPERATION_ABORTED => continue,
+                    .BROKEN_PIPE => return index,
+                    else => |err| return unexpectedError(err),
+                }
+            }
+            if (amt_read == 0) return index;
+            index += amt_read;
+        }
+        return index;
     }
-    return index;
 }
 
 pub const WriteFileError = error{
@@ -370,20 +424,66 @@ pub const WriteFileError = error{
     Unexpected,
 };
 
-/// This function is for blocking file descriptors only. For non-blocking, see
-/// `WriteFileAsync`.
-pub fn WriteFile(handle: HANDLE, bytes: []const u8) WriteFileError!void {
-    var bytes_written: DWORD = undefined;
-    // TODO replace this @intCast with a loop that writes all the bytes
-    if (kernel32.WriteFile(handle, bytes.ptr, @intCast(u32, bytes.len), &bytes_written, null) == 0) {
-        switch (kernel32.GetLastError()) {
-            ERROR.INVALID_USER_BUFFER => return error.SystemResources,
-            ERROR.NOT_ENOUGH_MEMORY => return error.SystemResources,
-            ERROR.OPERATION_ABORTED => return error.OperationAborted,
-            ERROR.NOT_ENOUGH_QUOTA => return error.SystemResources,
-            ERROR.IO_PENDING => unreachable, // this function is for blocking files only
-            ERROR.BROKEN_PIPE => return error.BrokenPipe,
-            else => |err| return unexpectedError(err),
+pub fn WriteFile(handle: HANDLE, bytes: []const u8, offset: ?u64) WriteFileError!void {
+    if (std.event.Loop.instance) |loop| {
+        // TODO support async WriteFile with no offset
+        const off = offset.?;
+        var resume_node = std.event.Loop.ResumeNode.Basic{
+            .base = .{
+                .id = .Basic,
+                .handle = @frame(),
+                .overlapped = OVERLAPPED{
+                    .Internal = 0,
+                    .InternalHigh = 0,
+                    .Offset = @truncate(u32, off),
+                    .OffsetHigh = @truncate(u32, off >> 32),
+                    .hEvent = null,
+                },
+            },
+        };
+        // TODO only call create io completion port once per fd
+        _ = CreateIoCompletionPort(fd, loop.os_data.io_port, undefined, undefined);
+        loop.beginOneEvent();
+        suspend {
+            // TODO replace this @intCast with a loop that writes all the bytes
+            _ = kernel32.WriteFile(fd, bytes.ptr, @intCast(windows.DWORD, bytes.len), null, &resume_node.base.overlapped);
+        }
+        var bytes_transferred: windows.DWORD = undefined;
+        if (kernel32.GetOverlappedResult(fd, &resume_node.base.overlapped, &bytes_transferred, FALSE) == 0) {
+            switch (kernel32.GetLastError()) {
+                .IO_PENDING => unreachable,
+                .INVALID_USER_BUFFER => return error.SystemResources,
+                .NOT_ENOUGH_MEMORY => return error.SystemResources,
+                .OPERATION_ABORTED => return error.OperationAborted,
+                .NOT_ENOUGH_QUOTA => return error.SystemResources,
+                .BROKEN_PIPE => return error.BrokenPipe,
+                else => |err| return windows.unexpectedError(err),
+            }
+        }
+    } else {
+        var bytes_written: DWORD = undefined;
+        var overlapped_data: OVERLAPPED = undefined;
+        const overlapped: ?*OVERLAPPED = if (offset) |off| blk: {
+            overlapped_data = .{
+                .Internal = 0,
+                .InternalHigh = 0,
+                .Offset = @truncate(u32, off),
+                .OffsetHigh = @truncate(u32, off >> 32),
+                .hEvent = null,
+            };
+            break :blk &overlapped_data;
+        } else null;
+        // TODO replace this @intCast with a loop that writes all the bytes
+        if (kernel32.WriteFile(handle, bytes.ptr, @intCast(u32, bytes.len), &bytes_written, overlapped) == 0) {
+            switch (kernel32.GetLastError()) {
+                .INVALID_USER_BUFFER => return error.SystemResources,
+                .NOT_ENOUGH_MEMORY => return error.SystemResources,
+                .OPERATION_ABORTED => return error.OperationAborted,
+                .NOT_ENOUGH_QUOTA => return error.SystemResources,
+                .IO_PENDING => unreachable, // this function is for blocking files only
+                .BROKEN_PIPE => return error.BrokenPipe,
+                else => |err| return unexpectedError(err),
+            }
         }
     }
 }
@@ -456,12 +556,12 @@ pub fn DeleteFile(filename: []const u8) DeleteFileError!void {
 pub fn DeleteFileW(filename: [*:0]const u16) DeleteFileError!void {
     if (kernel32.DeleteFileW(filename) == 0) {
         switch (kernel32.GetLastError()) {
-            ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-            ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-            ERROR.ACCESS_DENIED => return error.AccessDenied,
-            ERROR.FILENAME_EXCED_RANGE => return error.NameTooLong,
-            ERROR.INVALID_PARAMETER => return error.NameTooLong,
-            ERROR.SHARING_VIOLATION => return error.FileBusy,
+            .FILE_NOT_FOUND => return error.FileNotFound,
+            .PATH_NOT_FOUND => return error.FileNotFound,
+            .ACCESS_DENIED => return error.AccessDenied,
+            .FILENAME_EXCED_RANGE => return error.NameTooLong,
+            .INVALID_PARAMETER => return error.NameTooLong,
+            .SHARING_VIOLATION => return error.FileBusy,
             else => |err| return unexpectedError(err),
         }
     }
@@ -497,8 +597,8 @@ pub fn CreateDirectory(pathname: []const u8, attrs: ?*SECURITY_ATTRIBUTES) Creat
 pub fn CreateDirectoryW(pathname: [*:0]const u16, attrs: ?*SECURITY_ATTRIBUTES) CreateDirectoryError!void {
     if (kernel32.CreateDirectoryW(pathname, attrs) == 0) {
         switch (kernel32.GetLastError()) {
-            ERROR.ALREADY_EXISTS => return error.PathAlreadyExists,
-            ERROR.PATH_NOT_FOUND => return error.FileNotFound,
+            .ALREADY_EXISTS => return error.PathAlreadyExists,
+            .PATH_NOT_FOUND => return error.FileNotFound,
             else => |err| return unexpectedError(err),
         }
     }
@@ -518,8 +618,8 @@ pub fn RemoveDirectory(dir_path: []const u8) RemoveDirectoryError!void {
 pub fn RemoveDirectoryW(dir_path_w: [*:0]const u16) RemoveDirectoryError!void {
     if (kernel32.RemoveDirectoryW(dir_path_w) == 0) {
         switch (kernel32.GetLastError()) {
-            ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-            ERROR.DIR_NOT_EMPTY => return error.DirNotEmpty,
+            .PATH_NOT_FOUND => return error.FileNotFound,
+            .DIR_NOT_EMPTY => return error.DirNotEmpty,
             else => |err| return unexpectedError(err),
         }
     }
@@ -550,8 +650,8 @@ pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!v
     const ipos = @bitCast(LARGE_INTEGER, offset);
     if (kernel32.SetFilePointerEx(handle, ipos, null, FILE_BEGIN) == 0) {
         switch (kernel32.GetLastError()) {
-            ERROR.INVALID_PARAMETER => unreachable,
-            ERROR.INVALID_HANDLE => unreachable,
+            .INVALID_PARAMETER => unreachable,
+            .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
         }
     }
@@ -561,8 +661,8 @@ pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!v
 pub fn SetFilePointerEx_CURRENT(handle: HANDLE, offset: i64) SetFilePointerError!void {
     if (kernel32.SetFilePointerEx(handle, offset, null, FILE_CURRENT) == 0) {
         switch (kernel32.GetLastError()) {
-            ERROR.INVALID_PARAMETER => unreachable,
-            ERROR.INVALID_HANDLE => unreachable,
+            .INVALID_PARAMETER => unreachable,
+            .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
         }
     }
@@ -572,8 +672,8 @@ pub fn SetFilePointerEx_CURRENT(handle: HANDLE, offset: i64) SetFilePointerError
 pub fn SetFilePointerEx_END(handle: HANDLE, offset: i64) SetFilePointerError!void {
     if (kernel32.SetFilePointerEx(handle, offset, null, FILE_END) == 0) {
         switch (kernel32.GetLastError()) {
-            ERROR.INVALID_PARAMETER => unreachable,
-            ERROR.INVALID_HANDLE => unreachable,
+            .INVALID_PARAMETER => unreachable,
+            .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
         }
     }
@@ -584,8 +684,8 @@ pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
     var result: LARGE_INTEGER = undefined;
     if (kernel32.SetFilePointerEx(handle, 0, &result, FILE_CURRENT) == 0) {
         switch (kernel32.GetLastError()) {
-            ERROR.INVALID_PARAMETER => unreachable,
-            ERROR.INVALID_HANDLE => unreachable,
+            .INVALID_PARAMETER => unreachable,
+            .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
         }
     }
@@ -610,11 +710,11 @@ pub fn GetFinalPathNameByHandleW(
     const rc = kernel32.GetFinalPathNameByHandleW(hFile, buf_ptr, buf_len, flags);
     if (rc == 0) {
         switch (kernel32.GetLastError()) {
-            ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-            ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-            ERROR.NOT_ENOUGH_MEMORY => return error.SystemResources,
-            ERROR.FILENAME_EXCED_RANGE => return error.NameTooLong,
-            ERROR.INVALID_PARAMETER => unreachable,
+            .FILE_NOT_FOUND => return error.FileNotFound,
+            .PATH_NOT_FOUND => return error.FileNotFound,
+            .NOT_ENOUGH_MEMORY => return error.SystemResources,
+            .FILENAME_EXCED_RANGE => return error.NameTooLong,
+            .INVALID_PARAMETER => unreachable,
             else => |err| return unexpectedError(err),
         }
     }
@@ -648,9 +748,9 @@ pub fn GetFileAttributesW(lpFileName: [*:0]const u16) GetFileAttributesError!DWO
     const rc = kernel32.GetFileAttributesW(lpFileName);
     if (rc == INVALID_FILE_ATTRIBUTES) {
         switch (kernel32.GetLastError()) {
-            ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-            ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-            ERROR.ACCESS_DENIED => return error.PermissionDenied,
+            .FILE_NOT_FOUND => return error.FileNotFound,
+            .PATH_NOT_FOUND => return error.FileNotFound,
+            .ACCESS_DENIED => return error.PermissionDenied,
             else => |err| return unexpectedError(err),
         }
     }
@@ -661,7 +761,7 @@ pub fn WSAStartup(majorVersion: u8, minorVersion: u8) !ws2_32.WSADATA {
     var wsadata: ws2_32.WSADATA = undefined;
     return switch (ws2_32.WSAStartup((@as(WORD, minorVersion) << 8) | majorVersion, &wsadata)) {
         0 => wsadata,
-        else => |err| unexpectedWSAError(err),
+        else => |err| unexpectedWSAError(@intToEnum(WinsockError, err)),
     };
 }
 
@@ -686,10 +786,10 @@ pub fn WSASocketW(
     const rc = ws2_32.WSASocketW(af, socket_type, protocol, protocolInfo, g, dwFlags);
     if (rc == ws2_32.INVALID_SOCKET) {
         switch (ws2_32.WSAGetLastError()) {
-            ws2_32.WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
-            ws2_32.WSAEMFILE => return error.ProcessFdQuotaExceeded,
-            ws2_32.WSAENOBUFS => return error.SystemResources,
-            ws2_32.WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,
+            .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+            .WSAEMFILE => return error.ProcessFdQuotaExceeded,
+            .WSAENOBUFS => return error.SystemResources,
+            .WSAEPROTONOSUPPORT => return error.ProtocolNotSupported,
             else => |err| return unexpectedWSAError(err),
         }
     }
@@ -800,7 +900,7 @@ pub fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: [*]u16, nSize: DWORD) G
     const rc = kernel32.GetEnvironmentVariableW(lpName, lpBuffer, nSize);
     if (rc == 0) {
         switch (kernel32.GetLastError()) {
-            ERROR.ENVVAR_NOT_FOUND => return error.EnvironmentVariableNotFound,
+            .ENVVAR_NOT_FOUND => return error.EnvironmentVariableNotFound,
             else => |err| return unexpectedError(err),
         }
     }
@@ -839,11 +939,11 @@ pub fn CreateProcessW(
         lpProcessInformation,
     ) == 0) {
         switch (kernel32.GetLastError()) {
-            ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-            ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-            ERROR.ACCESS_DENIED => return error.AccessDenied,
-            ERROR.INVALID_PARAMETER => unreachable,
-            ERROR.INVALID_NAME => return error.InvalidName,
+            .FILE_NOT_FOUND => return error.FileNotFound,
+            .PATH_NOT_FOUND => return error.FileNotFound,
+            .ACCESS_DENIED => return error.AccessDenied,
+            .INVALID_PARAMETER => unreachable,
+            .INVALID_NAME => return error.InvalidName,
             else => |err| return unexpectedError(err),
         }
     }
@@ -857,9 +957,9 @@ pub const LoadLibraryError = error{
 pub fn LoadLibraryW(lpLibFileName: [*:0]const u16) LoadLibraryError!HMODULE {
     return kernel32.LoadLibraryW(lpLibFileName) orelse {
         switch (kernel32.GetLastError()) {
-            ERROR.FILE_NOT_FOUND => return error.FileNotFound,
-            ERROR.PATH_NOT_FOUND => return error.FileNotFound,
-            ERROR.MOD_NOT_FOUND => return error.FileNotFound,
+            .FILE_NOT_FOUND => return error.FileNotFound,
+            .PATH_NOT_FOUND => return error.FileNotFound,
+            .MOD_NOT_FOUND => return error.FileNotFound,
             else => |err| return unexpectedError(err),
         }
     };
@@ -1036,28 +1136,28 @@ inline fn MAKELANGID(p: c_ushort, s: c_ushort) LANGID {
 
 /// Call this when you made a windows DLL call or something that does SetLastError
 /// and you get an unexpected error.
-pub fn unexpectedError(err: DWORD) std.os.UnexpectedError {
+pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
         // 614 is the length of the longest windows error desciption
         var buf_u16: [614]u16 = undefined;
         var buf_u8: [614]u8 = undefined;
         var len = kernel32.FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, null, err, MAKELANGID(LANG.NEUTRAL, SUBLANG.DEFAULT), buf_u16[0..].ptr, buf_u16.len / @sizeOf(TCHAR), null);
         _ = std.unicode.utf16leToUtf8(&buf_u8, buf_u16[0..len]) catch unreachable;
-        std.debug.warn("error.Unexpected: GetLastError({}): {}\n", .{ err, buf_u8[0..len] });
+        std.debug.warn("error.Unexpected: GetLastError({}): {}\n", .{ @enumToInt(err), buf_u8[0..len] });
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
 }
 
-pub fn unexpectedWSAError(err: c_int) std.os.UnexpectedError {
-    return unexpectedError(@intCast(DWORD, err));
+pub fn unexpectedWSAError(err: WinsockError) std.os.UnexpectedError {
+    return unexpectedError(@intToEnum(Win32Error, @enumToInt(err)));
 }
 
 /// Call this when you made a windows NtDll call
 /// and you get an unexpected status.
 pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
-        std.debug.warn("error.Unexpected NTSTATUS=0x{x}\n", .{status});
+        std.debug.warn("error.Unexpected NTSTATUS=0x{x}\n", .{@enumToInt(status)});
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;

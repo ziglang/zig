@@ -3,10 +3,45 @@ const builtin = @import("builtin");
 const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("type mismatch in C prototype with varargs",
+        \\const fn_ty = ?fn ([*c]u8, ...) callconv(.C) void;
+        \\extern fn fn_decl(fmt: [*:0]u8, ...) void;
+        \\
+        \\export fn main() void {
+        \\    const x: fn_ty = fn_decl;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:5:22: error: expected type 'fn([*c]u8, ...) callconv(.C) void', found 'fn([*:0]u8, ...) callconv(.C) void'",
+    });
+
     cases.addTest("dependency loop in top-level decl with @TypeInfo",
         \\export const foo = @typeInfo(@This());
     , &[_][]const u8{
         "tmp.zig:1:20: error: dependency loop detected",
+    });
+
+    cases.add("function call assigned to incorrect type",
+        \\export fn entry() void {
+        \\    var arr: [4]f32 = undefined;
+        \\    arr = concat();
+        \\}
+        \\fn concat() [16]f32 {
+        \\    return [1]f32{0}**16;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:17: error: expected type '[4]f32', found '[16]f32'",
+    });
+
+    cases.add("generic function call assigned to incorrect type",
+        \\pub export fn entry() void {
+        \\    var res: []i32 = undefined;
+        \\    res = myAlloc(i32);
+        \\}
+        \\fn myAlloc(comptime arg: type) anyerror!arg{
+        \\    unreachable;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:18: error: expected type '[]i32', found 'anyerror!i32",
     });
 
     cases.addTest("non-exhaustive enums",
@@ -5266,25 +5301,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     , &[_][]const u8{
         "tmp.zig:2:30: error: cannot set section of local variable 'foo'",
-    });
-
-    cases.add("returning address of local variable - simple",
-        \\export fn foo() *i32 {
-        \\    var a: i32 = undefined;
-        \\    return &a;
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:3:13: error: function returns address of local variable",
-    });
-
-    cases.add("returning address of local variable - phi",
-        \\export fn foo(c: bool) *i32 {
-        \\    var a: i32 = undefined;
-        \\    var b: i32 = undefined;
-        \\    return if (c) &a else &b;
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:4:12: error: function returns address of local variable",
     });
 
     cases.add("inner struct member shadowing outer struct member",

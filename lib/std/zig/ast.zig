@@ -10,6 +10,7 @@ pub const TokenIndex = usize;
 pub const Tree = struct {
     source: []const u8,
     tokens: TokenList,
+
     /// undefined on parse error (errors not empty)
     root_node: *Node.Root,
     arena_allocator: std.heap.ArenaAllocator,
@@ -780,6 +781,11 @@ pub const Node = struct {
                 i -= 1;
             }
 
+            if (self.align_expr) |align_expr| {
+                if (i < 1) return align_expr;
+                i -= 1;
+            }
+
             if (self.value_expr) |value_expr| {
                 if (i < 1) return value_expr;
                 i -= 1;
@@ -795,6 +801,11 @@ pub const Node = struct {
         pub fn lastToken(self: *const ContainerField) TokenIndex {
             if (self.value_expr) |value_expr| {
                 return value_expr.lastToken();
+            }
+            if (self.align_expr) |align_expr| {
+                // The expression refers to what's inside the parenthesis, the
+                // last token is the closing one
+                return align_expr.lastToken() + 1;
             }
             if (self.type_expr) |type_expr| {
                 return type_expr.lastToken();
