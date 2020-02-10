@@ -41,9 +41,9 @@ const Module = struct {
 /// Tries to write to stderr, unbuffered, and ignores any error returned.
 /// Does not append a newline.
 var stderr_file: File = undefined;
-var stderr_file_out_stream: File.OutStreamOld = undefined;
+var stderr_file_out_stream: File.OutStream = undefined;
 
-var stderr_stream: ?*io.OutStreamOld(File.WriteError) = null;
+var stderr_stream: ?*io.OutStream(File.WriteError) = null;
 var stderr_mutex = std.Mutex.init();
 
 pub fn warn(comptime fmt: []const u8, args: var) void {
@@ -53,12 +53,12 @@ pub fn warn(comptime fmt: []const u8, args: var) void {
     noasync stderr.print(fmt, args) catch return;
 }
 
-pub fn getStderrStream() *io.OutStreamOld(File.WriteError) {
+pub fn getStderrStream() *io.OutStream(File.WriteError) {
     if (stderr_stream) |st| {
         return st;
     } else {
         stderr_file = io.getStdErr();
-        stderr_file_out_stream = stderr_file.outStreamOld();
+        stderr_file_out_stream = stderr_file.outStream();
         const st = &stderr_file_out_stream.stream;
         stderr_stream = st;
         return st;
