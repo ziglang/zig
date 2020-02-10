@@ -1255,13 +1255,14 @@ pub const DebugInfo = struct {
             const seg_end = seg_start + info.SizeOfImage;
 
             if (address >= seg_start and address < seg_end) {
-                var name_buffer: [windows.MAX_PATH]u8 = undefined;
-                // XXX: Use W variant (#534)
-                const len = windows.kernel32.K32GetModuleFileNameExA(
+                var name_buffer: [windows.PATH_MAX_WIDE + 4:0]u16 = undefined;
+                // openFileAbsoluteW requires the prefix to be present
+                mem.copy(u16, name_buffer[0..4], &[_]u16{ '\\', '?', '?', '\\' });
+                const len = windows.kernel32.K32GetModuleFileNameExW(
                     process_handle,
                     module,
-                    @ptrCast(windows.LPSTR, &name_buffer),
-                    @sizeOf(@TypeOf(name_buffer)) / @sizeOf(u8),
+                    @ptrCast(windows.LPWSTR, &name_buffer[4]),
+                    windows.PATH_MAX_WIDE,
                 );
                 assert(len > 0);
 
@@ -1270,9 +1271,9 @@ pub const DebugInfo = struct {
                 }
 
                 // XXX: The compiler segfaults if the slicing is done as a
-                // parameter
+                // parameter (#4423)
                 const tmp = name_buffer[0..:0];
-                const file_obj = try fs.cwd().openFileC(tmp, .{});
+                const file_obj = try fs.openFileAbsoluteW(tmp, .{});
                 errdefer file_obj.close();
 
                 const obj_di = try self.allocator.create(ObjectDebugInfo);
@@ -1292,8 +1293,6 @@ pub const DebugInfo = struct {
 
     fn lookupModuleDl(self: *DebugInfo, address: usize) !*ObjectDebugInfo {
         var ctx = DIPContext{ .address = address };
-
-        warn("lookup {x}\n", .{address});
 
         // XXX Locking?
         if (os.dl_iterate_phdr(DIPContext, dl_iterate_phdr_callback, &ctx) == 0)
