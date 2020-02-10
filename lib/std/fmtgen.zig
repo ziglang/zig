@@ -420,10 +420,17 @@ pub fn formatType(
             suspend generator.yield(@frame(), @errorName(value));
             return;
         },
-        .Enum => {
-            suspend generator.yield(@frame(), @typeName(T) ++ ".");
-            suspend generator.yield(@frame(), @tagName(value));
-            return;
+        .Enum => |enumInfo| {
+            suspend generator.yield(@frame(), @typeName(T));
+            if (enumInfo.is_exhaustive) {
+                suspend generator.yield(@frame(), ".");
+                return formatType(@tagName(value), fmt, options, generator, max_depth);
+            } else {
+                // TODO: when @tagName works on exhaustive enums print known enum strings
+                suspend generator.yield(@frame(), "(");
+                formatType(@enumToInt(value), fmt, options, generator, max_depth);
+                suspend generator.yield(@frame(), ")");
+            }
         },
         .Union => |union_info| {
             if (union_info.tag_type) |UnionTagType| {
