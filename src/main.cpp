@@ -754,10 +754,12 @@ int main(int argc, char **argv) {
                 } else if (strcmp(arg, "--emit") == 0) {
                     if (strcmp(argv[i], "asm") == 0) {
                         emit_asm = true;
+                        disable_bin_generation = true;
                     } else if (strcmp(argv[i], "bin") == 0) {
                         disable_bin_generation = false;
                     } else if (strcmp(argv[i], "llvm-ir") == 0) {
                         emit_llvm_ir = true;
+                        disable_bin_generation = true;
                     } else {
                         fprintf(stderr, "--emit options are 'asm', 'bin', or 'llvm-ir'\n");
                         return print_error_usage(arg0);
