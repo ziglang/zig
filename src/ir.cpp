@@ -5252,6 +5252,7 @@ static IrInstSrc *ir_gen_return(IrBuilderSrc *irb, Scope *scope, AstNode *node, 
                         return irb->codegen->invalid_inst_src;
                 } else {
                     return_value = ir_build_const_void(irb, scope, node);
+                    ir_build_end_expr(irb, scope, node, return_value, &result_loc_ret->base);
                 }
 
                 ir_mark_gen(ir_build_add_implicit_return_type(irb, scope, node, return_value, result_loc_ret));
@@ -5262,7 +5263,7 @@ static IrInstSrc *ir_gen_return(IrBuilderSrc *irb, Scope *scope, AstNode *node, 
                 if (!have_err_defers && !irb->codegen->have_err_ret_tracing) {
                     // only generate unconditional defers
                     ir_gen_defers_for_block(irb, scope, outer_scope, false);
-                    IrInstSrc *result = ir_build_return_src(irb, scope, node, return_value);
+                    IrInstSrc *result = ir_build_return_src(irb, scope, node, nullptr);
                     result_loc_ret->base.source_instruction = result;
                     return result;
                 }
@@ -5270,10 +5271,6 @@ static IrInstSrc *ir_gen_return(IrBuilderSrc *irb, Scope *scope, AstNode *node, 
 
                 IrBasicBlockSrc *err_block = ir_create_basic_block(irb, scope, "ErrRetErr");
                 IrBasicBlockSrc *ok_block = ir_create_basic_block(irb, scope, "ErrRetOk");
-
-                if (!have_err_defers) {
-                    ir_gen_defers_for_block(irb, scope, outer_scope, false);
-                }
 
                 IrInstSrc *is_err = ir_build_test_err_src(irb, scope, node, return_value, false, true);
 
@@ -5288,22 +5285,18 @@ static IrInstSrc *ir_gen_return(IrBuilderSrc *irb, Scope *scope, AstNode *node, 
                 IrBasicBlockSrc *ret_stmt_block = ir_create_basic_block(irb, scope, "RetStmt");
 
                 ir_set_cursor_at_end_and_append_block(irb, err_block);
-                if (have_err_defers) {
-                    ir_gen_defers_for_block(irb, scope, outer_scope, true);
-                }
+                ir_gen_defers_for_block(irb, scope, outer_scope, true);
                 if (irb->codegen->have_err_ret_tracing && !should_inline) {
                     ir_build_save_err_ret_addr_src(irb, scope, node);
                 }
                 ir_build_br(irb, scope, node, ret_stmt_block, is_comptime);
 
                 ir_set_cursor_at_end_and_append_block(irb, ok_block);
-                if (have_err_defers) {
-                    ir_gen_defers_for_block(irb, scope, outer_scope, false);
-                }
+                ir_gen_defers_for_block(irb, scope, outer_scope, false);
                 ir_build_br(irb, scope, node, ret_stmt_block, is_comptime);
 
                 ir_set_cursor_at_end_and_append_block(irb, ret_stmt_block);
-                IrInstSrc *result = ir_build_return_src(irb, scope, node, return_value);
+                IrInstSrc *result = ir_build_return_src(irb, scope, node, nullptr);
                 result_loc_ret->base.source_instruction = result;
                 return result;
             }
@@ -8874,7 +8867,10 @@ static IrInstSrc *ir_gen_if_optional_expr(IrBuilderSrc *irb, Scope *scope, AstNo
     AstNode *else_node = node->data.test_expr.else_node;
     bool var_is_ptr = node->data.test_expr.var_is_ptr;
 
-    IrInstSrc *maybe_val_ptr = ir_gen_node_extra(irb, expr_node, scope, LValPtr, nullptr);
+    ScopeExpr *spill_scope = create_expr_scope(irb->codegen, expr_node, scope);
+    spill_scope->spill_harder = true;
+
+    IrInstSrc *maybe_val_ptr = ir_gen_node_extra(irb, expr_node, &spill_scope->base, LValPtr, nullptr);
     if (maybe_val_ptr == irb->codegen->invalid_inst_src)
         return maybe_val_ptr;
 
@@ -8899,7 +8895,7 @@ static IrInstSrc *ir_gen_if_optional_expr(IrBuilderSrc *irb, Scope *scope, AstNo
 
     ir_set_cursor_at_end_and_append_block(irb, then_block);
 
-    Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, scope, is_comptime);
+    Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, &spill_scope->base, is_comptime);
     Scope *var_scope;
     if (var_symbol) {
         bool is_shadowable = false;
@@ -9619,7 +9615,10 @@ static IrInstSrc *ir_gen_catch(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
     }
 
 
-    IrInstSrc *err_union_ptr = ir_gen_node_extra(irb, op1_node, parent_scope, LValPtr, nullptr);
+    ScopeExpr *spill_scope = create_expr_scope(irb->codegen, op1_node, parent_scope);
+    spill_scope->spill_harder = true;
+
+    IrInstSrc *err_union_ptr = ir_gen_node_extra(irb, op1_node, &spill_scope->base, LValPtr, nullptr);
     if (err_union_ptr == irb->codegen->invalid_inst_src)
         return irb->codegen->invalid_inst_src;
 
@@ -9641,7 +9640,7 @@ static IrInstSrc *ir_gen_catch(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
             is_comptime);
 
     ir_set_cursor_at_end_and_append_block(irb, err_block);
-    Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, parent_scope, is_comptime);
+    Scope *subexpr_scope = create_runtime_scope(irb->codegen, node, &spill_scope->base, is_comptime);
     Scope *err_scope;
     if (var_node) {
         assert(var_node->type == NodeTypeSymbol);
@@ -15494,6 +15493,12 @@ static IrInstGen *ir_analyze_instruction_add_implicit_return_type(IrAnalyze *ira
 }
 
 static IrInstGen *ir_analyze_instruction_return(IrAnalyze *ira, IrInstSrcReturn *instruction) {
+    if (instruction->operand == nullptr) {
+        // result location mechanism took care of it.
+        IrInstGen *result = ir_build_return_gen(ira, &instruction->base.base, nullptr);
+        return ir_finish_anal(ira, result);
+    }
+
     IrInstGen *operand = instruction->operand->child;
     if (type_is_invalid(operand->value->type))
         return ir_unreach_error(ira);
@@ -19586,6 +19591,12 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
                 if (type_is_invalid(result_loc->value->type) || result_loc->value->type->id == ZigTypeIdUnreachable) {
                     return result_loc;
                 }
+                IrInstGen *dummy_value = ir_const(ira, source_instr, impl_fn_type_id->return_type);
+                dummy_value->value->special = ConstValSpecialRuntime;
+                IrInstGen *dummy_result = ir_implicit_cast2(ira, source_instr,
+                        dummy_value, result_loc->value->type->data.pointer.child_type);
+                if (type_is_invalid(dummy_result->value->type))
+                    return ira->codegen->invalid_inst_gen;
                 ZigType *res_child_type = result_loc->value->type->data.pointer.child_type;
                 if (res_child_type == ira->codegen->builtin_types.entry_var) {
                     res_child_type = impl_fn_type_id->return_type;
@@ -19718,6 +19729,12 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
             if (type_is_invalid(result_loc->value->type) || result_loc->value->type->id == ZigTypeIdUnreachable) {
                 return result_loc;
             }
+            IrInstGen *dummy_value = ir_const(ira, source_instr, return_type);
+            dummy_value->value->special = ConstValSpecialRuntime;
+            IrInstGen *dummy_result = ir_implicit_cast2(ira, source_instr,
+                    dummy_value, result_loc->value->type->data.pointer.child_type);
+            if (type_is_invalid(dummy_result->value->type))
+                return ira->codegen->invalid_inst_gen;
             ZigType *res_child_type = result_loc->value->type->data.pointer.child_type;
             if (res_child_type == ira->codegen->builtin_types.entry_var) {
                 res_child_type = return_type;
@@ -29548,8 +29565,13 @@ static IrInstGen *ir_analyze_instruction_spill_begin(IrAnalyze *ira, IrInstSrcSp
     if (!type_has_bits(operand->value->type))
         return ir_const_void(ira, &instruction->base.base);
 
-    ir_assert(instruction->spill_id == SpillIdRetErrCode, &instruction->base.base);
-    ira->new_irb.exec->need_err_code_spill = true;
+    switch (instruction->spill_id) {
+        case SpillIdInvalid:
+            zig_unreachable();
+        case SpillIdRetErrCode:
+            ira->new_irb.exec->need_err_code_spill = true;
+            break;
+    }
 
     return ir_build_spill_begin_gen(ira, &instruction->base.base, operand, instruction->spill_id);
 }
@@ -29559,8 +29581,12 @@ static IrInstGen *ir_analyze_instruction_spill_end(IrAnalyze *ira, IrInstSrcSpil
     if (type_is_invalid(operand->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    if (ir_should_inline(ira->old_irb.exec, instruction->base.base.scope) || !type_has_bits(operand->value->type))
+    if (ir_should_inline(ira->old_irb.exec, instruction->base.base.scope) ||
+        !type_has_bits(operand->value->type) ||
+        instr_is_comptime(operand))
+    {
         return operand;
+    }
 
     ir_assert(instruction->begin->base.child->id == IrInstGenIdSpillBegin, &instruction->base.base);
     IrInstGenSpillBegin *begin = reinterpret_cast<IrInstGenSpillBegin *>(instruction->begin->base.child);

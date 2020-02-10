@@ -78,7 +78,7 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 pub fn format(
     context: var,
     comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
+    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
     comptime fmt: []const u8,
     args: var,
 ) Errors!void {
@@ -326,7 +326,7 @@ pub fn formatType(
     options: FormatOptions,
     context: var,
     comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
+    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
     max_depth: usize,
 ) Errors!void {
     if (comptime std.mem.eql(u8, fmt, "*")) {
@@ -488,7 +488,7 @@ fn formatValue(
     options: FormatOptions,
     context: var,
     comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
+    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
 ) Errors!void {
     if (comptime std.mem.eql(u8, fmt, "B")) {
         return formatBytes(value, options, 1000, context, Errors, output);
@@ -510,7 +510,7 @@ pub fn formatIntValue(
     options: FormatOptions,
     context: var,
     comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
+    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
 ) Errors!void {
     comptime var radix = 10;
     comptime var uppercase = false;
@@ -552,7 +552,7 @@ fn formatFloatValue(
     options: FormatOptions,
     context: var,
     comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
+    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
 ) Errors!void {
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
         return formatFloatScientific(value, options, context, Errors, output);
@@ -569,7 +569,7 @@ pub fn formatText(
     options: FormatOptions,
     context: var,
     comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
+    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
 ) Errors!void {
     if (fmt.len == 0) {
         return output(context, bytes);
@@ -590,7 +590,7 @@ pub fn formatAsciiChar(
     options: FormatOptions,
     context: var,
     comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
+    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
 ) Errors!void {
     return output(context, @as(*const [1]u8, &c)[0..]);
 }
@@ -600,7 +600,7 @@ pub fn formatBuf(
     options: FormatOptions,
     context: var,
     comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
+    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
 ) Errors!void {
     try output(context, buf);
 
@@ -620,7 +620,7 @@ pub fn formatFloatScientific(
     options: FormatOptions,
     context: var,
     comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
+    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
 ) Errors!void {
     var x = @floatCast(f64, value);
 
@@ -715,7 +715,7 @@ pub fn formatFloatDecimal(
     options: FormatOptions,
     context: var,
     comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
+    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
 ) Errors!void {
     var x = @as(f64, value);
 
@@ -861,7 +861,7 @@ pub fn formatBytes(
     comptime radix: usize,
     context: var,
     comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
+    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
 ) Errors!void {
     if (value == 0) {
         return output(context, "0B");
@@ -902,7 +902,7 @@ pub fn formatInt(
     options: FormatOptions,
     context: var,
     comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
+    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
 ) Errors!void {
     const int_value = if (@TypeOf(value) == comptime_int) blk: {
         const Int = math.IntFittingRange(value, value);
@@ -924,7 +924,7 @@ fn formatIntSigned(
     options: FormatOptions,
     context: var,
     comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
+    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
 ) Errors!void {
     const new_options = FormatOptions{
         .width = if (options.width) |w| (if (w == 0) 0 else w - 1) else null,
@@ -955,7 +955,7 @@ fn formatIntUnsigned(
     options: FormatOptions,
     context: var,
     comptime Errors: type,
-    output: fn (@TypeOf(context), []const u8) Errors!void,
+    comptime output: fn (@TypeOf(context), []const u8) Errors!void,
 ) Errors!void {
     assert(base >= 2);
     var buf: [math.max(@TypeOf(value).bit_count, 1)]u8 = undefined;
@@ -1419,7 +1419,7 @@ test "custom" {
             options: FormatOptions,
             context: var,
             comptime Errors: type,
-            output: fn (@TypeOf(context), []const u8) Errors!void,
+            comptime output: fn (@TypeOf(context), []const u8) Errors!void,
         ) Errors!void {
             if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "p")) {
                 return std.fmt.format(context, Errors, output, "({d:.3},{d:.3})", .{ self.x, self.y });
@@ -1626,7 +1626,7 @@ test "formatType max_depth" {
             options: FormatOptions,
             context: var,
             comptime Errors: type,
-            output: fn (@TypeOf(context), []const u8) Errors!void,
+            comptime output: fn (@TypeOf(context), []const u8) Errors!void,
         ) Errors!void {
             if (fmt.len == 0) {
                 return std.fmt.format(context, Errors, output, "({d:.3},{d:.3})", .{ self.x, self.y });

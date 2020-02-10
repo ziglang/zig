@@ -571,8 +571,9 @@ pub fn utf8ToUtf16LeWithNull(allocator: *mem.Allocator, utf8: []const u8) ![:0]u
         }
     }
 
+    const len = result.len;
     try result.append(0);
-    return result.toOwnedSlice()[0..:0];
+    return result.toOwnedSlice()[0..len :0];
 }
 
 /// Returns index of next character. If exact fit, returned index equals output slice length.
@@ -619,12 +620,14 @@ test "utf8ToUtf16LeWithNull" {
         var bytes: [128]u8 = undefined;
         const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
         const utf16 = try utf8ToUtf16LeWithNull(allocator, "𐐷");
-        testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc\x00\x00", @sliceToBytes(utf16[0..]));
+        testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", @sliceToBytes(utf16[0..]));
+        testing.expect(utf16[2] == 0);
     }
     {
         var bytes: [128]u8 = undefined;
         const allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
         const utf16 = try utf8ToUtf16LeWithNull(allocator, "\u{10FFFF}");
-        testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf\x00\x00", @sliceToBytes(utf16[0..]));
+        testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", @sliceToBytes(utf16[0..]));
+        testing.expect(utf16[2] == 0);
     }
 }

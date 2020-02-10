@@ -135,6 +135,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --test-name-prefix [text]    add prefix to all tests\n"
         "  --test-cmd [arg]             specify test execution command one arg at a time\n"
         "  --test-cmd-bin               appends test binary path to test cmd args\n"
+        "  --test-evented-io            runs the test in evented I/O mode\n"
     , arg0);
     return return_code;
 }
@@ -427,6 +428,7 @@ int main(int argc, char **argv) {
     ZigList<CFile *> c_source_files = {0};
     const char *test_filter = nullptr;
     const char *test_name_prefix = nullptr;
+    bool test_evented_io = false;
     size_t ver_major = 0;
     size_t ver_minor = 0;
     size_t ver_patch = 0;
@@ -722,6 +724,8 @@ int main(int argc, char **argv) {
                 emit_llvm_ir = true;
             } else if (strcmp(arg, "-fno-emit-llvm-ir") == 0) {
                 emit_llvm_ir = false;
+            } else if (strcmp(arg, "--test-evented-io") == 0) {
+                test_evented_io = true;
             } else if (i + 1 >= argc) {
                 fprintf(stderr, "Expected another argument after %s\n", arg);
                 return print_error_usage(arg0);
@@ -1074,6 +1078,7 @@ int main(int argc, char **argv) {
         g->want_stack_check = want_stack_check;
         g->want_sanitize_c = want_sanitize_c;
         g->want_single_threaded = want_single_threaded;
+        g->test_is_evented = test_evented_io;
         Buf *builtin_source = codegen_generate_builtin_source(g);
         if (fwrite(buf_ptr(builtin_source), 1, buf_len(builtin_source), stdout) != buf_len(builtin_source)) {
             fprintf(stderr, "unable to write to stdout: %s\n", strerror(ferror(stdout)));
@@ -1247,6 +1252,7 @@ int main(int argc, char **argv) {
             if (test_filter) {
                 codegen_set_test_filter(g, buf_create_from_str(test_filter));
             }
+            g->test_is_evented = test_evented_io;
 
             if (test_name_prefix) {
                 codegen_set_test_name_prefix(g, buf_create_from_str(test_name_prefix));

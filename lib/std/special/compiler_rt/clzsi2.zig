@@ -45,8 +45,9 @@ fn __clzsi2_thumb1() callconv(.Naked) void {
         \\ subs r0, r1, r0
         \\ bx lr
         \\ .p2align 2
+        \\ // Number of bits set in the 0-15 range
         \\ LUT:
-        \\ .byte 4,3,2,2,1,1,1,1,0,0,0,0,0,0,0,0
+        \\ .byte 0,1,2,2,3,3,3,3,4,4,4,4,4,4,4,4
     );
 
     unreachable;

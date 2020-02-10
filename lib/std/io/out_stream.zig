@@ -9,14 +9,11 @@ pub const stack_size: usize = if (@hasDecl(root, "stack_size_std_io_OutStream"))
 else
     default_stack_size;
 
-/// TODO this is not integrated with evented I/O yet.
-/// https://github.com/ziglang/zig/issues/3557
 pub fn OutStream(comptime WriteError: type) type {
     return struct {
         const Self = @This();
         pub const Error = WriteError;
-        // TODO https://github.com/ziglang/zig/issues/3557
-        pub const WriteFn = if (std.io.is_async and false)
+        pub const WriteFn = if (std.io.is_async)
             async fn (self: *Self, bytes: []const u8) Error!void
         else
             fn (self: *Self, bytes: []const u8) Error!void;
@@ -24,8 +21,7 @@ pub fn OutStream(comptime WriteError: type) type {
         writeFn: WriteFn,
 
         pub fn write(self: *Self, bytes: []const u8) Error!void {
-            // TODO https://github.com/ziglang/zig/issues/3557
-            if (std.io.is_async and false) {
+            if (std.io.is_async) {
                 // Let's not be writing 0xaa in safe modes for upwards of 4 MiB for every stream write.
                 @setRuntimeSafety(false);
                 var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
@@ -36,12 +32,12 @@ pub fn OutStream(comptime WriteError: type) type {
         }
 
         pub fn print(self: *Self, comptime format: []const u8, args: var) Error!void {
-            return std.fmt.format(self, Error, self.writeFn, format, args);
+            return std.fmt.format(self, Error, write, format, args);
         }
 
         pub fn writeByte(self: *Self, byte: u8) Error!void {
-            const slice = @as(*const [1]u8, &byte)[0..];
-            return self.writeFn(self, slice);
+            const array = [1]u8{byte};
+            return self.write(&array);
         }
 
         pub fn writeByteNTimes(self: *Self, byte: u8, n: usize) Error!void {
@@ -51,7 +47,7 @@ pub fn OutStream(comptime WriteError: type) type {
             var remaining: usize = n;
             while (remaining > 0) {
                 const to_write = std.math.min(remaining, bytes.len);
-                try self.writeFn(self, bytes[0..to_write]);
+                try self.write(bytes[0..to_write]);
                 remaining -= to_write;
             }
         }
@@ -60,32 +56,32 @@ pub fn OutStream(comptime WriteError: type) type {
         pub fn writeIntNative(self: *Self, comptime T: type, value: T) Error!void {
             var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
             mem.writeIntNative(T, &bytes, value);
-            return self.writeFn(self, &bytes);
+            return self.write(&bytes);
         }
 
         /// Write a foreign-endian integer.
         pub fn writeIntForeign(self: *Self, comptime T: type, value: T) Error!void {
             var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
             mem.writeIntForeign(T, &bytes, value);
-            return self.writeFn(self, &bytes);
+            return self.write(&bytes);
         }
 
         pub fn writeIntLittle(self: *Self, comptime T: type, value: T) Error!void {
             var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
             mem.writeIntLittle(T, &bytes, value);
-            return self.writeFn(self, &bytes);
+            return self.write(&bytes);
         }
 
         pub fn writeIntBig(self: *Self, comptime T: type, value: T) Error!void {
             var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
             mem.writeIntBig(T, &bytes, value);
-            return self.writeFn(self, &bytes);
+            return self.write(&bytes);
         }
 
         pub fn writeInt(self: *Self, comptime T: type, value: T, endian: builtin.Endian) Error!void {
             var bytes: [(T.bit_count + 7) / 8]u8 = undefined;
             mem.writeInt(T, &bytes, value, endian);
-            return self.writeFn(self, &bytes);
+            return self.write(&bytes);
         }
     };
 }

@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const expectError = std.testing.expectError;
 
 var global_x: i32 = 1;
 
@@ -1325,6 +1326,157 @@ test "async call with @call" {
                 global_frame = @frame();
             }
             return 42;
+        }
+    };
+    S.doTheTest();
+}
+
+test "async function passed 0-bit arg after non-0-bit arg" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+        var global_int: i32 = 0;
+
+        fn foo() void {
+            bar(1, .{}) catch unreachable;
+        }
+
+        fn bar(x: i32, args: var) anyerror!void {
+            global_frame = @frame();
+            suspend;
+            global_int = x;
+        }
+    };
+    _ = async S.foo();
+    resume S.global_frame;
+    expect(S.global_int == 1);
+}
+
+test "async function passed align(16) arg after align(8) arg" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+        var global_int: u128 = 0;
+
+        fn foo() void {
+            var a: u128 = 99;
+            bar(10, .{a}) catch unreachable;
+        }
+
+        fn bar(x: u64, args: var) anyerror!void {
+            expect(x == 10);
+            global_frame = @frame();
+            suspend;
+            global_int = args[0];
+        }
+    };
+    _ = async S.foo();
+    resume S.global_frame;
+    expect(S.global_int == 99);
+}
+
+test "async function call resolves target fn frame, comptime func" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+        var global_int: i32 = 9;
+
+        fn foo() anyerror!void {
+            const stack_size = 1000;
+            var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
+            return await @asyncCall(&stack_frame, {}, bar);
+        }
+
+        fn bar() anyerror!void {
+            global_frame = @frame();
+            suspend;
+            global_int += 1;
+        }
+    };
+    _ = async S.foo();
+    resume S.global_frame;
+    expect(S.global_int == 10);
+}
+
+test "async function call resolves target fn frame, runtime func" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+        var global_int: i32 = 9;
+
+        fn foo() anyerror!void {
+            const stack_size = 1000;
+            var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
+            var func: async fn () anyerror!void = bar;
+            return await @asyncCall(&stack_frame, {}, func);
+        }
+
+        fn bar() anyerror!void {
+            global_frame = @frame();
+            suspend;
+            global_int += 1;
+        }
+    };
+    _ = async S.foo();
+    resume S.global_frame;
+    expect(S.global_int == 10);
+}
+
+test "properly spill optional payload capture value" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+        var global_int: usize = 2;
+
+        fn foo() void {
+            var opt: ?usize = 1234;
+            if (opt) |x| {
+                bar();
+                global_int += x;
+            }
+        }
+
+        fn bar() void {
+            global_frame = @frame();
+            suspend;
+            global_int += 1;
+        }
+    };
+    _ = async S.foo();
+    resume S.global_frame;
+    expect(S.global_int == 1237);
+}
+
+test "handle defer interfering with return value spill" {
+    const S = struct {
+        var global_frame1: anyframe = undefined;
+        var global_frame2: anyframe = undefined;
+        var finished = false;
+        var baz_happened = false;
+
+        fn doTheTest() void {
+            _ = async testFoo();
+            resume global_frame1;
+            resume global_frame2;
+            expect(baz_happened);
+            expect(finished);
+        }
+
+        fn testFoo() void {
+            expectError(error.Bad, foo());
+            finished = true;
+        }
+
+        fn foo() anyerror!void {
+            defer baz();
+            return bar() catch |err| return err;
+        }
+
+        fn bar() anyerror!void {
+            global_frame1 = @frame();
+            suspend;
+            return error.Bad;
+        }
+
+        fn baz() void {
+            global_frame2 = @frame();
+            suspend;
+            baz_happened = true;
         }
     };
     S.doTheTest();

@@ -7,6 +7,7 @@ pub fn S_ISCHR(m: u32) bool {
 pub const fd_t = c_int;
 pub const pid_t = c_int;
 pub const off_t = c_long;
+pub const mode_t = c_uint;
 
 pub const ENOTSUP = EOPNOTSUPP;
 pub const EWOULDBLOCK = EAGAIN;

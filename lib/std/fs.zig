@@ -23,6 +23,8 @@ pub const realpathW = os.realpathW;
 pub const getAppDataDir = @import("fs/get_app_data_dir.zig").getAppDataDir;
 pub const GetAppDataDirError = @import("fs/get_app_data_dir.zig").GetAppDataDirError;
 
+pub const Watch = @import("fs/watch.zig").Watch;
+
 /// This represents the maximum size of a UTF-8 encoded file path.
 /// All file system operations which return a path are guaranteed to
 /// fit into a UTF-8 encoded array of this length.
@@ -42,6 +44,13 @@ pub const base64_encoder = base64.Base64Encoder.init(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
     base64.standard_pad_char,
 );
+
+/// Whether or not async file system syscalls need a dedicated thread because the operating
+/// system does not support non-blocking I/O on the file system.
+pub const need_async_thread = std.io.is_async and switch (builtin.os) {
+    .windows, .other => false,
+    else => true,
+};
 
 /// TODO remove the allocator requirement from this API
 pub fn atomicSymLink(allocator: *Allocator, existing_path: []const u8, new_path: []const u8) !void {
@@ -688,11 +697,16 @@ pub const Dir = struct {
     }
 
     pub fn close(self: *Dir) void {
-        os.close(self.fd);
+        if (need_async_thread) {
+            std.event.Loop.instance.?.close(self.fd);
+        } else {
+            os.close(self.fd);
+        }
         self.* = undefined;
     }
 
     /// Opens a file for reading or writing, without attempting to create a new file.
+    /// To create a new file, see `createFile`.
     /// Call `File.close` to release the resource.
     /// Asserts that the path parameter has no null bytes.
     pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
@@ -718,8 +732,11 @@ pub const Dir = struct {
             @as(u32, os.O_WRONLY)
         else
             @as(u32, os.O_RDONLY);
-        const fd = try os.openatC(self.fd, sub_path, os_flags, 0);
-        return File{ .handle = fd };
+        const fd = if (need_async_thread)
+            try std.event.Loop.instance.?.openatZ(self.fd, sub_path, os_flags, 0)
+        else
+            try os.openatC(self.fd, sub_path, os_flags, 0);
+        return File{ .handle = fd, .io_mode = .blocking };
     }
 
     /// Same as `openFile` but Windows-only and the path parameter is
@@ -756,8 +773,11 @@ pub const Dir = struct {
             (if (flags.truncate) @as(u32, os.O_TRUNC) else 0) |
             (if (flags.read) @as(u32, os.O_RDWR) else os.O_WRONLY) |
             (if (flags.exclusive) @as(u32, os.O_EXCL) else 0);
-        const fd = try os.openatC(self.fd, sub_path_c, os_flags, flags.mode);
-        return File{ .handle = fd };
+        const fd = if (need_async_thread)
+            try std.event.Loop.instance.?.openatZ(self.fd, sub_path_c, os_flags, flags.mode)
+        else
+            try os.openatC(self.fd, sub_path_c, os_flags, flags.mode);
+        return File{ .handle = fd, .io_mode = .blocking };
     }
 
     /// Same as `createFile` but Windows-only and the path parameter is
@@ -798,7 +818,10 @@ pub const Dir = struct {
     ) File.OpenError!File {
         const w = os.windows;
 
-        var result = File{ .handle = undefined };
+        var result = File{
+            .handle = undefined,
+            .io_mode = .blocking,
+        };
 
         const path_len_bytes = math.cast(u16, mem.toSliceConst(u16, sub_path_w).len * 2) catch |err| switch (err) {
             error.Overflow => return error.NameTooLong,
@@ -919,7 +942,12 @@ pub const Dir = struct {
     }
 
     fn openDirFlagsC(self: Dir, sub_path_c: [*:0]const u8, flags: u32) OpenError!Dir {
-        const fd = os.openatC(self.fd, sub_path_c, flags | os.O_DIRECTORY, 0) catch |err| switch (err) {
+        const os_flags = flags | os.O_DIRECTORY;
+        const result = if (need_async_thread)
+            std.event.Loop.instance.?.openatZ(self.fd, sub_path_c, os_flags, 0)
+        else
+            os.openatC(self.fd, sub_path_c, os_flags, 0);
+        const fd = result catch |err| switch (err) {
             error.FileTooBig => unreachable, // can't happen for directories
             error.IsDir => unreachable, // we're providing O_DIRECTORY
             error.NoSpaceLeft => unreachable, // not providing O_CREAT
@@ -1588,4 +1616,5 @@ test "" {
     _ = @import("fs/path.zig");
     _ = @import("fs/file.zig");
     _ = @import("fs/get_app_data_dir.zig");
+    _ = @import("fs/watch.zig");
 }

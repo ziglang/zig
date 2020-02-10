@@ -50,7 +50,7 @@ pub fn warn(comptime fmt: []const u8, args: var) void {
     const held = stderr_mutex.acquire();
     defer held.release();
     const stderr = getStderrStream();
-    stderr.print(fmt, args) catch return;
+    noasync stderr.print(fmt, args) catch return;
 }
 
 pub fn getStderrStream() *io.OutStream(File.WriteError) {
@@ -102,15 +102,15 @@ pub fn detectTTYConfig() TTY.Config {
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     const stderr = getStderrStream();
     if (builtin.strip_debug_info) {
-        stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
+        noasync stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
         return;
     }
     const debug_info = getSelfDebugInfo() catch |err| {
-        stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
+        noasync stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
         return;
     };
     writeCurrentStackTrace(stderr, debug_info, detectTTYConfig(), start_addr) catch |err| {
-        stderr.print("Unable to dump stack trace: {}\n", .{@errorName(err)}) catch return;
+        noasync stderr.print("Unable to dump stack trace: {}\n", .{@errorName(err)}) catch return;
         return;
     };
 }
@@ -121,11 +121,11 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
     const stderr = getStderrStream();
     if (builtin.strip_debug_info) {
-        stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
+        noasync stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
         return;
     }
     const debug_info = getSelfDebugInfo() catch |err| {
-        stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
+        noasync stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
         return;
     };
     const tty_config = detectTTYConfig();
@@ -189,15 +189,15 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *builtin.StackTrace
 pub fn dumpStackTrace(stack_trace: builtin.StackTrace) void {
     const stderr = getStderrStream();
     if (builtin.strip_debug_info) {
-        stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
+        noasync stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
         return;
     }
     const debug_info = getSelfDebugInfo() catch |err| {
-        stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
+        noasync stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", .{@errorName(err)}) catch return;
         return;
     };
     writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, detectTTYConfig()) catch |err| {
-        stderr.print("Unable to dump stack trace: {}\n", .{@errorName(err)}) catch return;
+        noasync stderr.print("Unable to dump stack trace: {}\n", .{@errorName(err)}) catch return;
         return;
     };
 }
@@ -238,7 +238,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
     switch (@atomicRmw(u8, &panicking, .Add, 1, .SeqCst)) {
         0 => {
             const stderr = getStderrStream();
-            stderr.print(format ++ "\n", args) catch os.abort();
+            noasync stderr.print(format ++ "\n", args) catch os.abort();
             if (trace) |t| {
                 dumpStackTrace(t.*);
             }
@@ -568,12 +568,12 @@ pub const TTY = struct {
             switch (conf) {
                 .no_color => return,
                 .escape_codes => switch (color) {
-                    .Red => out_stream.write(RED) catch return,
-                    .Green => out_stream.write(GREEN) catch return,
-                    .Cyan => out_stream.write(CYAN) catch return,
-                    .White, .Bold => out_stream.write(WHITE) catch return,
-                    .Dim => out_stream.write(DIM) catch return,
-                    .Reset => out_stream.write(RESET) catch return,
+                    .Red => noasync out_stream.write(RED) catch return,
+                    .Green => noasync out_stream.write(GREEN) catch return,
+                    .Cyan => noasync out_stream.write(CYAN) catch return,
+                    .White, .Bold => noasync out_stream.write(WHITE) catch return,
+                    .Dim => noasync out_stream.write(DIM) catch return,
+                    .Reset => noasync out_stream.write(RESET) catch return,
                 },
                 .windows_api => if (builtin.os == .windows) {
                     const S = struct {
@@ -729,17 +729,17 @@ fn printLineInfo(
     tty_config.setColor(out_stream, .White);
 
     if (line_info) |*li| {
-        try out_stream.print("{}:{}:{}", .{ li.file_name, li.line, li.column });
+        try noasync out_stream.print("{}:{}:{}", .{ li.file_name, li.line, li.column });
     } else {
-        try out_stream.print("???:?:?", .{});
+        try noasync out_stream.write("???:?:?");
     }
 
     tty_config.setColor(out_stream, .Reset);
-    try out_stream.write(": ");
+    try noasync out_stream.write(": ");
     tty_config.setColor(out_stream, .Dim);
-    try out_stream.print("0x{x} in {} ({})", .{ address, symbol_name, compile_unit_name });
+    try noasync out_stream.print("0x{x} in {} ({})", .{ address, symbol_name, compile_unit_name });
     tty_config.setColor(out_stream, .Reset);
-    try out_stream.write("\n");
+    try noasync out_stream.write("\n");
 
     // Show the matching source code line if possible
     if (line_info) |li| {
@@ -748,12 +748,12 @@ fn printLineInfo(
                 // The caret already takes one char
                 const space_needed = @intCast(usize, li.column - 1);
 
-                try out_stream.writeByteNTimes(' ', space_needed);
+                try noasync out_stream.writeByteNTimes(' ', space_needed);
                 tty_config.setColor(out_stream, .Green);
-                try out_stream.write("^");
+                try noasync out_stream.write("^");
                 tty_config.setColor(out_stream, .Reset);
             }
-            try out_stream.write("\n");
+            try noasync out_stream.write("\n");
         } else |err| switch (err) {
             error.EndOfFile, error.FileNotFound => {},
             error.BadPathName => {},
