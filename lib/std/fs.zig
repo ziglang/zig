@@ -859,6 +859,8 @@ pub const Dir = struct {
             null,
             0,
         );
+        std.debug.warn("here? rc {x}\n", .{rc});
+
         switch (rc) {
             .SUCCESS => return result,
             .OBJECT_NAME_INVALID => unreachable,

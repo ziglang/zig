@@ -248,7 +248,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
     }
 
     switch (@atomicRmw(u8, &panicking, .Add, 1, .SeqCst)) {
-        0 => {
+        0, 1 => {
             const stderr = getStderrStream();
             noasync stderr.print(format ++ "\n", args) catch os.abort();
             if (trace) |t| {
@@ -256,7 +256,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
             }
             dumpCurrentStackTrace(first_trace_addr);
         },
-        1 => {
+        2 => {
             // TODO detect if a different thread caused the panic, because in that case
             // we would want to return here instead of calling abort, so that the thread
             // which first called panic can finish printing a stack trace.
@@ -404,13 +404,15 @@ pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: us
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
 fn printSourceAtAddressWindows(
-    di: *DebugInfo,
+    di1: *DebugInfo,
     out_stream: var,
     relocated_address: usize,
     tty_config: TTY.Config,
 ) !void {
+    const di = try di1.lookupByAddress(relocated_address);
+
     const allocator = getDebugInfoAllocator();
-    const base_address = process.getBaseAddress();
+    const base_address = di.base_address;
     const relative_address = relocated_address - base_address;
 
     var coff_section: *coff.Section = undefined;
@@ -630,7 +632,7 @@ pub const TTY = struct {
 };
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
-fn populateModule(di: *DebugInfo, mod: *Module) !void {
+fn populateModule(di: *ObjectDebugInfo, mod: *Module) !void {
     if (mod.populated)
         return;
     const allocator = getDebugInfoAllocator();
@@ -824,27 +826,28 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
     if (@hasDecl(root, "os") and @hasDecl(root.os, "debug") and @hasDecl(root.os.debug, "openSelfDebugInfo")) {
         return noasync root.os.debug.openSelfDebugInfo(allocator);
     }
-    if (builtin.os == .windows) {
-        return noasync openSelfDebugInfoWindows(allocator);
-    }
     if (comptime std.Target.current.isDarwin()) {
         return noasync openSelfDebugInfoMacOs(allocator);
     }
-    if (builtin.os == .linux) {
+    if (builtin.os == .linux or builtin.os == .windows) {
         _ = try allocator.create(u32);
         return DebugInfo.init(allocator);
     }
     return noasync openSelfDebugInfoPosix(allocator);
 }
 
-fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !DebugInfo {
+fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !ObjectDebugInfo {
     const self_file = try fs.openSelfExe();
     defer self_file.close();
+    return openCoffDebugInfo(allocator, self_file);
+}
 
+fn openCoffDebugInfo(allocator: *mem.Allocator, self_file: fs.File) !ObjectDebugInfo {
     const coff_obj = try allocator.create(coff.Coff);
     coff_obj.* = coff.Coff.init(allocator, self_file);
 
-    var di = DebugInfo{
+    var di = ObjectDebugInfo{
+        .base_address = 0,
         .coff = coff_obj,
         .pdb = undefined,
         .sect_contribs = undefined,
@@ -1202,22 +1205,95 @@ const MachoSymbol = struct {
 
 pub const DebugInfo = struct {
     allocator: *mem.Allocator,
-    address_map: std.StringHashMap(*ObjectDebugInfo),
+    address_map: std.AutoHashMap(usize, *ObjectDebugInfo),
 
     pub fn init(allocator: *mem.Allocator) DebugInfo {
         return DebugInfo{
             .allocator = allocator,
-            .address_map = std.StringHashMap(*ObjectDebugInfo).init(allocator),
+            .address_map = std.AutoHashMap(usize, *ObjectDebugInfo).init(allocator),
         };
     }
 
     pub fn deinit(self: *DebugInfo) void {
+        // XXX Free the values
         self.address_map.deinit();
     }
 
     pub fn lookupByAddress(self: *DebugInfo, address: usize) !*ObjectDebugInfo {
-        const obj_di = try self.lookupModuleDl(address);
+        const obj_di = if (builtin.os == .windows)
+            try self.lookupModuleWin32(address)
+        else
+            try self.lookupModuleDl(address);
         return obj_di;
+    }
+
+    fn lookupModuleWin32(self: *DebugInfo, address: usize) !*ObjectDebugInfo {
+        const process_handle = windows.kernel32.GetCurrentProcess();
+
+        var modules: [32]windows.HMODULE = undefined;
+        var modules_needed: windows.DWORD = undefined;
+        // XXX Ask for the number of modules by passing size zero
+        if (windows.kernel32.K32EnumProcessModules(
+            process_handle,
+            @ptrCast([*]windows.HMODULE, &modules),
+            @sizeOf(@TypeOf(modules)),
+            &modules_needed,
+        ) == 0)
+            return error.DebugInfoNotFound;
+
+        for (modules[0..modules_needed]) |module| {
+            var info: windows.MODULEINFO = undefined;
+            if (windows.kernel32.K32GetModuleInformation(
+                process_handle,
+                module,
+                &info,
+                @sizeOf(@TypeOf(info)),
+            ) == 0)
+                return error.DebugInfoNotFound;
+
+            const seg_start = @ptrToInt(info.lpBaseOfDll);
+            const seg_end = seg_start + info.SizeOfImage;
+
+            if (address >= seg_start and address < seg_end) {
+                var name_buffer: [windows.PATH_MAX_WIDE]u16 = [_]u16{0} ** windows.PATH_MAX_WIDE;
+                // XXX Use W variant
+                const len = windows.kernel32.K32GetModuleFileNameExW(
+                    process_handle,
+                    module,
+                    @ptrCast(windows.LPWSTR, &name_buffer),
+                    @sizeOf(@TypeOf(name_buffer)) / @sizeOf(u16),
+                );
+                assert(len > 0);
+                const name_slice = mem.toSlice(u16, name_buffer[0..:0]);
+                warn("slice len {}\n", .{name_slice.len});
+
+                const x = try std.unicode.utf16leToUtf8Alloc(self.allocator, name_buffer[0..]);
+                warn("ask for {s} len {}\n", .{ x, name_slice.len });
+                self.allocator.free(x);
+
+                if (self.address_map.getValue(seg_start)) |obj_di| {
+                    warn("cache hit!\n", .{});
+                    return obj_di;
+                }
+
+                warn("loading?\n", .{});
+                const file_obj = try fs.openFileAbsoluteW(name_slice, .{});
+                errdefer file_obj.close();
+                warn("loaded!\n", .{});
+
+                const obj_di = try self.allocator.create(ObjectDebugInfo);
+                errdefer self.allocator.destroy(obj_di);
+
+                try self.address_map.putNoClobber(seg_start, obj_di);
+
+                obj_di.* = try openCoffDebugInfo(self.allocator, file_obj);
+                obj_di.base_address = seg_start;
+
+                return obj_di;
+            }
+        }
+
+        return error.DebugInfoNotFound;
     }
 
     fn lookupModuleDl(self: *DebugInfo, address: usize) !*ObjectDebugInfo {
@@ -1231,7 +1307,7 @@ pub const DebugInfo = struct {
 
         warn("found in \"{s}\"\n", .{ctx.name});
 
-        if (self.address_map.getValue(ctx.name)) |obj_di| {
+        if (self.address_map.getValue(ctx.base_address)) |obj_di| {
             warn("cache hit!\n", .{});
             return obj_di;
         }
@@ -1257,7 +1333,7 @@ pub const DebugInfo = struct {
         const obj_di = try self.allocator.create(ObjectDebugInfo);
         errdefer self.allocator.destroy(obj_di);
 
-        try self.address_map.putNoClobber(ctx.name, obj_di);
+        try self.address_map.putNoClobber(ctx.base_address, obj_di);
 
         obj_di.* = .{
             .dwarf = try openElfDebugInfo(self.allocator, exe_mmap),
@@ -1289,7 +1365,7 @@ fn dl_iterate_phdr_callback(info: *os.dl_phdr_info, size: usize, context: ?*DIPC
         const seg_start = info.dlpi_addr + phdr.p_vaddr;
         const seg_end = seg_start + phdr.p_memsz;
 
-        if (address > seg_start and address <= seg_end) {
+        if (address >= seg_start and address < seg_end) {
             // Android libc uses NULL instead of an empty string to mark the
             // main program
             context.?.name = if (info.dlpi_name) |dlpi_name|
@@ -1324,6 +1400,7 @@ pub const ObjectDebugInfo = switch (builtin.os) {
         }
     },
     .uefi, .windows => struct {
+        base_address: usize,
         pdb: pdb.Pdb,
         coff: *coff.Coff,
         sect_contribs: []pdb.SectionContribEntry,
