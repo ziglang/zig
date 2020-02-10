@@ -373,11 +373,11 @@ pub fn formatType(
             try output(context, @typeName(T));
             if (enumInfo.is_exhaustive) {
                 try output(context, ".");
-                return formatType(@tagName(value), "", options, context, Errors, output, max_depth);
+                try output(context, @tagName(value));
             } else {
                 // TODO: when @tagName works on exhaustive enums print known enum strings
                 try output(context, "(");
-                try formatType(@enumToInt(value), "", options, context, Errors, output, max_depth);
+                try formatType(@enumToInt(value), fmt, options, context, Errors, output, max_depth);
                 try output(context, ")");
             }
         },
@@ -397,7 +397,7 @@ pub fn formatType(
                 try output(context, " = ");
                 inline for (info.fields) |u_field| {
                     if (@enumToInt(@as(UnionTagType, value)) == u_field.enum_field.?.value) {
-                        try formatType(@field(value, u_field.name), "", options, context, Errors, output, max_depth - 1);
+                        try formatType(@field(value, u_field.name), fmt, options, context, Errors, output, max_depth - 1);
                     }
                 }
                 try output(context, " }");
@@ -424,7 +424,7 @@ pub fn formatType(
                 }
                 try output(context, @memberName(T, field_i));
                 try output(context, " = ");
-                try formatType(@field(value, @memberName(T, field_i)), "", options, context, Errors, output, max_depth - 1);
+                try formatType(@field(value, @memberName(T, field_i)), fmt, options, context, Errors, output, max_depth - 1);
             }
             try output(context, " }");
         },
@@ -1341,6 +1341,20 @@ test "enum" {
     const value = Enum.Two;
     try testFmt("enum: Enum.Two\n", "enum: {}\n", .{value});
     try testFmt("enum: Enum.Two\n", "enum: {}\n", .{&value});
+}
+
+test "non-exhaustive enum" {
+    const Enum = enum(u16) {
+        One = 0x000f,
+        Two = 0xbeef,
+        _,
+    };
+    try testFmt("enum: Enum(15)\n", "enum: {}\n", .{Enum.One});
+    try testFmt("enum: Enum(48879)\n", "enum: {}\n", .{Enum.Two});
+    try testFmt("enum: Enum(4660)\n", "enum: {}\n", .{@intToEnum(Enum, 0x1234)});
+    try testFmt("enum: Enum(f)\n", "enum: {x}\n", .{Enum.One});
+    try testFmt("enum: Enum(beef)\n", "enum: {x}\n", .{Enum.Two});
+    try testFmt("enum: Enum(1234)\n", "enum: {x}\n", .{@intToEnum(Enum, 0x1234)});
 }
 
 test "float.scientific" {
