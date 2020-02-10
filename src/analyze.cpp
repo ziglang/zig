@@ -6108,11 +6108,14 @@ static void mark_suspension_point(Scope *scope) {
                 continue;
             }
             case ScopeIdExpr: {
+                ScopeExpr *parent_expr_scope = reinterpret_cast<ScopeExpr *>(scope);
                 if (!looking_for_exprs) {
+                    if (parent_expr_scope->spill_harder) {
+                        parent_expr_scope->need_spill = MemoizedBoolTrue;
+                    }
                     // Now we're only looking for a block, to see if it's in a loop (see the case ScopeIdBlock)
                     continue;
                 }
-                ScopeExpr *parent_expr_scope = reinterpret_cast<ScopeExpr *>(scope);
                 if (child_expr_scope != nullptr) {
                     for (size_t i = 0; parent_expr_scope->children_ptr[i] != child_expr_scope; i += 1) {
                         assert(i < parent_expr_scope->children_len);
@@ -6146,6 +6149,15 @@ static bool scope_needs_spill(Scope *scope) {
             return true;
     }
     zig_unreachable();
+}
+
+static ZigType *resolve_type_isf(ZigType *ty) {
+    if (ty->id != ZigTypeIdPointer) return ty;
+    InferredStructField *isf = ty->data.pointer.inferred_struct_field;
+    if (isf == nullptr) return ty;
+    TypeStructField *field = find_struct_type_field(isf->inferred_struct_type, isf->field_name);
+    assert(field != nullptr);
+    return field->type_entry;
 }
 
 static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
@@ -6249,6 +6261,9 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         }
         ZigFn *callee = call->fn_entry;
         if (callee == nullptr) {
+            if (call->fn_ref->value->type->data.fn.fn_type_id.cc != CallingConventionAsync) {
+                continue;
+            }
             add_node_error(g, call->base.base.source_node,
                 buf_sprintf("function is not comptime-known; @asyncCall required"));
             return ErrorSemanticAnalyzeFail;
@@ -6356,9 +6371,17 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
             IrInstGen *instruction = block->instruction_list.at(instr_i);
             if (instruction->id == IrInstGenIdAwait ||
                 instruction->id == IrInstGenIdVarPtr ||
-                instruction->id == IrInstGenIdAlloca)
+                instruction->id == IrInstGenIdAlloca ||
+                instruction->id == IrInstGenIdSpillBegin ||
+                instruction->id == IrInstGenIdSpillEnd)
             {
                 // This instruction does its own spilling specially, or otherwise doesn't need it.
+                continue;
+            }
+            if (instruction->id == IrInstGenIdCast &&
+                reinterpret_cast<IrInstGenCast *>(instruction)->cast_op == CastOpNoop)
+            {
+                // The IR instruction exists only to change the type according to Zig. No spill needed.
                 continue;
             }
             if (instruction->value->special != ConstValSpecialRuntime)
@@ -6406,7 +6429,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         } else {
             param_name = buf_sprintf("@arg%" ZIG_PRI_usize, arg_i);
         }
-        ZigType *param_type = param_info->type;
+        ZigType *param_type = resolve_type_isf(param_info->type);
         if ((err = type_resolve(g, param_type, ResolveStatusSizeKnown))) {
             return err;
         }
@@ -6425,7 +6448,7 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         instruction->field_index = SIZE_MAX;
         ZigType *ptr_type = instruction->base.value->type;
         assert(ptr_type->id == ZigTypeIdPointer);
-        ZigType *child_type = ptr_type->data.pointer.child_type;
+        ZigType *child_type = resolve_type_isf(ptr_type->data.pointer.child_type);
         if (!type_has_bits(child_type))
             continue;
         if (instruction->base.base.ref_count == 0)
@@ -6452,8 +6475,6 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
         }
         instruction->field_index = fields.length;
 
-        src_assert(child_type->id != ZigTypeIdPointer || child_type->data.pointer.inferred_struct_field == nullptr,
-                instruction->base.base.source_node);
         fields.append({name, child_type, instruction->align});
     }
 
@@ -8255,6 +8276,8 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
     size_t debug_field_index = 0;
     for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *field = struct_type->data.structure.fields[i];
+        //fprintf(stderr, "%s at gen index %zu\n", buf_ptr(field->name), field->gen_index);
+
         size_t gen_field_index = field->gen_index;
         if (gen_field_index == SIZE_MAX) {
             continue;

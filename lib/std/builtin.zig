@@ -458,6 +458,7 @@ pub const ExportOptions = struct {
 pub const TestFn = struct {
     name: []const u8,
     func: fn () anyerror!void,
+    async_frame_size: ?usize,
 };
 
 /// This function type is used by the Zig language code generation and

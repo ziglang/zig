@@ -47,7 +47,10 @@ fn getStdOutHandle() os.fd_t {
 }
 
 pub fn getStdOut() File {
-    return File.openHandle(getStdOutHandle());
+    return File{
+        .handle = getStdOutHandle(),
+        .io_mode = .blocking,
+    };
 }
 
 fn getStdErrHandle() os.fd_t {
@@ -63,7 +66,11 @@ fn getStdErrHandle() os.fd_t {
 }
 
 pub fn getStdErr() File {
-    return File.openHandle(getStdErrHandle());
+    return File{
+        .handle = getStdErrHandle(),
+        .io_mode = .blocking,
+        .async_block_allowed = File.async_block_allowed_yes,
+    };
 }
 
 fn getStdInHandle() os.fd_t {
@@ -79,7 +86,10 @@ fn getStdInHandle() os.fd_t {
 }
 
 pub fn getStdIn() File {
-    return File.openHandle(getStdInHandle());
+    return File{
+        .handle = getStdInHandle(),
+        .io_mode = .blocking,
+    };
 }
 
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;

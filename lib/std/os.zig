@@ -169,7 +169,12 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
         return error.NoDevice;
     }
 
-    const stream = &std.fs.File.openHandle(fd).inStream().stream;
+    const file = std.fs.File{
+        .handle = fd,
+        .io_mode = .blocking,
+        .async_block_allowed = std.fs.File.async_block_allowed_yes,
+    };
+    const stream = &file.inStream().stream;
     stream.readNoEof(buf) catch return error.Unexpected;
 }
 
@@ -293,7 +298,7 @@ pub const ReadError = error{
 /// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
 pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     if (builtin.os == .windows) {
-        return windows.ReadFile(fd, buf);
+        return windows.ReadFile(fd, buf, null);
     }
 
     if (builtin.os == .wasi and !builtin.link_libc) {
@@ -335,9 +340,37 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
 }
 
 /// Number of bytes read is returned. Upon reading end-of-file, zero is returned.
-/// If the application has a global event loop enabled, EAGAIN is handled
-/// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
+///
+/// For POSIX systems, if the application has a global event loop enabled, EAGAIN is handled
+/// via the event loop. Otherwise EAGAIN results in `error.WouldBlock`.
+/// On Windows, if the application has a global event loop enabled, I/O Completion Ports are
+/// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
+///
+/// This operation is non-atomic on the following systems:
+/// * Windows
+/// On these systems, the read races with concurrent writes to the same file descriptor.
 pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
+    if (builtin.os == .windows) {
+        // TODO batch these into parallel requests
+        var off: usize = 0;
+        var iov_i: usize = 0;
+        var inner_off: usize = 0;
+        while (true) {
+            const v = iov[iov_i];
+            const amt_read = try read(fd, v.iov_base[inner_off .. v.iov_len - inner_off]);
+            off += amt_read;
+            inner_off += amt_read;
+            if (inner_off == v.len) {
+                iov_i += 1;
+                inner_off = 0;
+                if (iov_i == iov.len) {
+                    return off;
+                }
+            }
+            if (amt_read == 0) return off; // EOF
+        } else unreachable; // TODO https://github.com/ziglang/zig/issues/707
+    }
+
     while (true) {
         // TODO handle the case when iov_len is too large and get rid of this @intCast
         const rc = system.readv(fd, iov.ptr, @intCast(u32, iov.len));
@@ -363,8 +396,56 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
 }
 
 /// Number of bytes read is returned. Upon reading end-of-file, zero is returned.
-/// If the application has a global event loop enabled, EAGAIN is handled
-/// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
+///
+/// Retries when interrupted by a signal.
+///
+/// For POSIX systems, if the application has a global event loop enabled, EAGAIN is handled
+/// via the event loop. Otherwise EAGAIN results in `error.WouldBlock`.
+/// On Windows, if the application has a global event loop enabled, I/O Completion Ports are
+/// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
+pub fn pread(fd: fd_t, buf: []u8, offset: u64) ReadError!usize {
+    if (builtin.os == .windows) {
+        return windows.ReadFile(fd, buf, offset);
+    }
+
+    while (true) {
+        const rc = system.pread(fd, buf.ptr, buf.len, offset);
+        switch (errno(rc)) {
+            0 => return @intCast(usize, rc),
+            EINTR => continue,
+            EINVAL => unreachable,
+            EFAULT => unreachable,
+            EAGAIN => if (std.event.Loop.instance) |loop| {
+                loop.waitUntilFdReadable(fd);
+                continue;
+            } else {
+                return error.WouldBlock;
+            },
+            EBADF => unreachable, // Always a race condition.
+            EIO => return error.InputOutput,
+            EISDIR => return error.IsDir,
+            ENOBUFS => return error.SystemResources,
+            ENOMEM => return error.SystemResources,
+            ECONNRESET => return error.ConnectionResetByPeer,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+    return index;
+}
+
+/// Number of bytes read is returned. Upon reading end-of-file, zero is returned.
+///
+/// Retries when interrupted by a signal.
+///
+/// For POSIX systems, if the application has a global event loop enabled, EAGAIN is handled
+/// via the event loop. Otherwise EAGAIN results in `error.WouldBlock`.
+/// On Windows, if the application has a global event loop enabled, I/O Completion Ports are
+/// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
+///
+/// This operation is non-atomic on the following systems:
+/// * Darwin
+/// * Windows
+/// On these systems, the read races with concurrent writes to the same file descriptor.
 pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) ReadError!usize {
     if (comptime std.Target.current.isDarwin()) {
         // Darwin does not have preadv but it does have pread.
@@ -409,6 +490,28 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) ReadError!usize {
             }
         }
     }
+
+    if (builtin.os == .windows) {
+        // TODO batch these into parallel requests
+        var off: usize = 0;
+        var iov_i: usize = 0;
+        var inner_off: usize = 0;
+        while (true) {
+            const v = iov[iov_i];
+            const amt_read = try pread(fd, v.iov_base[inner_off .. v.iov_len - inner_off], offset + off);
+            off += amt_read;
+            inner_off += amt_read;
+            if (inner_off == v.len) {
+                iov_i += 1;
+                inner_off = 0;
+                if (iov_i == iov.len) {
+                    return off;
+                }
+            }
+            if (amt_read == 0) return off; // EOF
+        } else unreachable; // TODO https://github.com/ziglang/zig/issues/707
+    }
+
     while (true) {
         // TODO handle the case when iov_len is too large and get rid of this @intCast
         const rc = system.preadv(fd, iov.ptr, @intCast(u32, iov.len), offset);
@@ -451,11 +554,9 @@ pub const WriteError = error{
 /// Write to a file descriptor. Keeps trying if it gets interrupted.
 /// If the application has a global event loop enabled, EAGAIN is handled
 /// via the event loop. Otherwise EAGAIN results in error.WouldBlock.
-/// TODO evented I/O integration is disabled until
-/// https://github.com/ziglang/zig/issues/3557 is solved.
 pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
     if (builtin.os == .windows) {
-        return windows.WriteFile(fd, bytes);
+        return windows.WriteFile(fd, bytes, null);
     }
 
     if (builtin.os == .wasi and !builtin.link_libc) {
@@ -488,14 +589,12 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!void {
             EINTR => continue,
             EINVAL => unreachable,
             EFAULT => unreachable,
-            // TODO https://github.com/ziglang/zig/issues/3557
-            EAGAIN => return error.WouldBlock,
-            //EAGAIN => if (std.event.Loop.instance) |loop| {
-            //    loop.waitUntilFdWritable(fd);
-            //    continue;
-            //} else {
-            //    return error.WouldBlock;
-            //},
+            EAGAIN => if (std.event.Loop.instance) |loop| {
+                loop.waitUntilFdWritable(fd);
+                continue;
+            } else {
+                return error.WouldBlock;
+            },
             EBADF => unreachable, // Always a race condition.
             EDESTADDRREQ => unreachable, // `connect` was never called.
             EDQUOT => return error.DiskQuota,
@@ -540,8 +639,57 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!void {
     }
 }
 
+/// Write to a file descriptor, with a position offset.
+///
+/// Retries when interrupted by a signal.
+///
+/// For POSIX systems, if the application has a global event loop enabled, EAGAIN is handled
+/// via the event loop. Otherwise EAGAIN results in `error.WouldBlock`.
+/// On Windows, if the application has a global event loop enabled, I/O Completion Ports are
+/// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
+pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) WriteError!void {
+    if (comptime std.Target.current.isWindows()) {
+        return windows.WriteFile(fd, bytes, offset);
+    }
+
+    while (true) {
+        const rc = system.pwrite(fd, bytes.ptr, bytes.len, offset);
+        switch (errno(rc)) {
+            0 => return,
+            EINTR => continue,
+            EINVAL => unreachable,
+            EFAULT => unreachable,
+            EAGAIN => if (std.event.Loop.instance) |loop| {
+                loop.waitUntilFdWritable(fd);
+                continue;
+            } else {
+                return error.WouldBlock;
+            },
+            EBADF => unreachable, // Always a race condition.
+            EDESTADDRREQ => unreachable, // `connect` was never called.
+            EDQUOT => return error.DiskQuota,
+            EFBIG => return error.FileTooBig,
+            EIO => return error.InputOutput,
+            ENOSPC => return error.NoSpaceLeft,
+            EPERM => return error.AccessDenied,
+            EPIPE => return error.BrokenPipe,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
 /// Write multiple buffers to a file descriptor, with a position offset.
-/// Keeps trying if it gets interrupted.
+///
+/// Retries when interrupted by a signal.
+///
+/// If the application has a global event loop enabled, EAGAIN is handled
+/// via the event loop. Otherwise EAGAIN results in `error.WouldBlock`.
+///
+/// This operation is non-atomic on the following systems:
+/// * Darwin
+/// * Windows
+/// On these systems, the write races with concurrent writes to the same file descriptor, and
+/// the file can be in a partially written state when an error occurs.
 pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) WriteError!void {
     if (comptime std.Target.current.isDarwin()) {
         // Darwin does not have pwritev but it does have pwrite.
@@ -587,6 +735,15 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) WriteError!void 
                 else => return unexpectedErrno(err),
             }
         }
+    }
+
+    if (comptime std.Target.current.isWindows()) {
+        var off = offset;
+        for (iov) |item| {
+            try pwrite(fd, item.iov_base[0..item.iov_len], off);
+            off += buf.len;
+        }
+        return;
     }
 
     while (true) {
@@ -694,7 +851,7 @@ pub fn openC(file_path: [*:0]const u8, flags: u32, perm: usize) OpenError!fd_t {
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// `file_path` is relative to the open directory handle `dir_fd`.
 /// See also `openatC`.
-pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: usize) OpenError!fd_t {
+pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: mode_t) OpenError!fd_t {
     const file_path_c = try toPosixPath(file_path);
     return openatC(dir_fd, &file_path_c, flags, mode);
 }
@@ -702,7 +859,7 @@ pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: u32, mode: usize) Open
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// `file_path` is relative to the open directory handle `dir_fd`.
 /// See also `openat`.
-pub fn openatC(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: usize) OpenError!fd_t {
+pub fn openatC(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t) OpenError!fd_t {
     while (true) {
         const rc = system.openat(dir_fd, file_path, flags, mode);
         switch (errno(rc)) {
@@ -2372,6 +2529,22 @@ pub fn pipe() PipeError![2]fd_t {
 }
 
 pub fn pipe2(flags: u32) PipeError![2]fd_t {
+    if (comptime std.Target.current.isDarwin()) {
+        var fds: [2]fd_t = try pipe();
+        if (flags == 0) return fds;
+        errdefer {
+            close(fds[0]);
+            close(fds[1]);
+        }
+        for (fds) |fd| switch (errno(system.fcntl(fd, F_SETFL, flags))) {
+            0 => {},
+            EINVAL => unreachable, // Invalid flags
+            EBADF => unreachable, // Always a race condition
+            else => |err| return unexpectedErrno(err),
+        };
+        return fds;
+    }
+
     var fds: [2]fd_t = undefined;
     switch (errno(system.pipe2(&fds, flags))) {
         0 => return fds,

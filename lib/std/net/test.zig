@@ -81,17 +81,15 @@ test "resolve DNS" {
 }
 
 test "listen on a port, send bytes, receive bytes" {
+    if (!std.io.is_async) return error.SkipZigTest;
+
     if (std.builtin.os != .linux) {
         // TODO build abstractions for other operating systems
         return error.SkipZigTest;
     }
-    if (std.io.mode != .evented) {
-        // TODO add ability to run tests in non-blocking I/O mode
-        return error.SkipZigTest;
-    }
 
     // TODO doing this at comptime crashed the compiler
-    const localhost = net.Address.parseIp("127.0.0.1", 0);
+    const localhost = try net.Address.parseIp("127.0.0.1", 0);
 
     var server = net.StreamServer.init(net.StreamServer.Options{});
     defer server.deinit();
