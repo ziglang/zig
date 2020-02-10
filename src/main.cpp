@@ -376,7 +376,6 @@ static int main0(int argc, char **argv) {
     }
 
     Cmd cmd = CmdNone;
-    EmitFileType emit_file_type = EmitFileTypeBinary;
     const char *in_file = nullptr;
     Buf *output_dir = nullptr;
     bool strip = false;
@@ -425,6 +424,8 @@ static int main0(int argc, char **argv) {
     bool enable_dump_analysis = false;
     bool enable_doc_generation = false;
     bool disable_bin_generation = false;
+    bool emit_asm = false;
+    bool emit_llvm_ir = false;
     const char *cache_dir = nullptr;
     CliPkg *cur_pkg = heap::c_allocator.create<CliPkg>();
     BuildMode build_mode = BuildModeDebug;
@@ -701,6 +702,18 @@ static int main0(int argc, char **argv) {
                 function_sections = true;
             } else if (strcmp(arg, "--test-evented-io") == 0) {
                 test_evented_io = true;
+            } else if (strcmp(arg, "-femit-bin") == 0) {
+                disable_bin_generation = false;
+            } else if (strcmp(arg, "-fno-emit-bin") == 0) {
+                disable_bin_generation = true;
+            } else if (strcmp(arg, "-femit-asm") == 0) {
+                emit_asm = true;
+            } else if (strcmp(arg, "-fno-emit-asm") == 0) {
+                emit_asm = false;
+            } else if (strcmp(arg, "-femit-llvm-ir") == 0) {
+                emit_llvm_ir = true;
+            } else if (strcmp(arg, "-fno-emit-llvm-ir") == 0) {
+                emit_llvm_ir = false;
             } else if (i + 1 >= argc) {
                 fprintf(stderr, "Expected another argument after %s\n", arg);
                 return print_error_usage(arg0);
@@ -732,11 +745,11 @@ static int main0(int argc, char **argv) {
                     }
                 } else if (strcmp(arg, "--emit") == 0) {
                     if (strcmp(argv[i], "asm") == 0) {
-                        emit_file_type = EmitFileTypeAssembly;
+                        emit_asm = true;
                     } else if (strcmp(argv[i], "bin") == 0) {
-                        emit_file_type = EmitFileTypeBinary;
+                        disable_bin_generation = false;
                     } else if (strcmp(argv[i], "llvm-ir") == 0) {
-                        emit_file_type = EmitFileTypeLLVMIr;
+                        emit_llvm_ir = true;
                     } else {
                         fprintf(stderr, "--emit options are 'asm', 'bin', or 'llvm-ir'\n");
                         return print_error_usage(arg0);
@@ -1026,8 +1039,8 @@ static int main0(int argc, char **argv) {
         return print_error_usage(arg0);
     }
 
-    if (emit_file_type != EmitFileTypeBinary && in_file == nullptr) {
-        fprintf(stderr, "A root source file is required when using `--emit asm` or `--emit llvm-ir`\n");
+    if ((emit_asm || emit_llvm_ir) && in_file == nullptr) {
+        fprintf(stderr, "A root source file is required when using `-femit-asm` or `-femit-llvm-ir`\n");
         return print_error_usage(arg0);
     }
 
@@ -1098,7 +1111,7 @@ static int main0(int argc, char **argv) {
             {
                 fprintf(stderr, "Expected source file argument.\n");
                 return print_error_usage(arg0);
-            } else if (cmd == CmdRun && emit_file_type != EmitFileTypeBinary) {
+            } else if (cmd == CmdRun && disable_bin_generation) {
                 fprintf(stderr, "Cannot run non-executable file.\n");
                 return print_error_usage(arg0);
             }
@@ -1262,7 +1275,8 @@ static int main0(int argc, char **argv) {
 
 
             if (cmd == CmdBuild || cmd == CmdRun) {
-                codegen_set_emit_file_type(g, emit_file_type);
+                codegen_set_emit_asm(g, emit_asm);
+                codegen_set_emit_llvm_ir(g, emit_llvm_ir);
 
                 g->enable_cache = get_cache_opt(enable_cache, cmd == CmdRun);
                 codegen_build_and_link(g);
@@ -1330,7 +1344,8 @@ static int main0(int argc, char **argv) {
                     codegen_print_timing_report(g, stderr);
                 return main_exit(root_progress_node, EXIT_SUCCESS);
             } else if (cmd == CmdTest) {
-                codegen_set_emit_file_type(g, emit_file_type);
+                codegen_set_emit_asm(g, emit_asm);
+                codegen_set_emit_llvm_ir(g, emit_llvm_ir);
 
                 ZigTarget native;
                 get_native_target(&native);
@@ -1359,7 +1374,7 @@ static int main0(int argc, char **argv) {
                 Buf *test_exe_path = buf_alloc();
                 *test_exe_path = os_path_resolve(&test_exe_path_unresolved, 1);
 
-                if (emit_file_type != EmitFileTypeBinary) {
+                if (disable_bin_generation) {
                     fprintf(stderr, "Created %s but skipping execution because it is non executable.\n",
                             buf_ptr(test_exe_path));
                     return main_exit(root_progress_node, EXIT_SUCCESS);

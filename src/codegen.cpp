@@ -121,10 +121,6 @@ void codegen_set_lib_version(CodeGen *g, size_t major, size_t minor, size_t patc
     g->version_patch = patch;
 }
 
-void codegen_set_emit_file_type(CodeGen *g, EmitFileType emit_file_type) {
-    g->emit_file_type = emit_file_type;
-}
-
 void codegen_set_each_lib_rpath(CodeGen *g, bool each_lib_rpath) {
     g->each_lib_rpath = each_lib_rpath;
 }
@@ -7919,6 +7915,14 @@ static void do_code_gen(CodeGen *g) {
     }
 }
 
+void codegen_set_emit_asm(CodeGen *g, bool emit) {
+    g->emit_asm = emit;
+}
+
+void codegen_set_emit_llvm_ir(CodeGen *g, bool emit) {
+    g->emit_llvm_ir = emit;
+}
+
 static void zig_llvm_emit_output(CodeGen *g) {
     g->pass1_arena->destruct(&heap::c_allocator);
     g->pass1_arena = nullptr;
@@ -7927,48 +7931,40 @@ static void zig_llvm_emit_output(CodeGen *g) {
 
     Buf *output_path = &g->o_file_output_path;
     char *err_msg = nullptr;
-    switch (g->emit_file_type) {
-        case EmitFileTypeBinary:
-            if (g->disable_bin_generation)
-                return;
-            if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
-                        ZigLLVM_EmitBinary, &err_msg, g->build_mode == BuildModeDebug, is_small,
-                        g->enable_time_report))
-            {
-                zig_panic("unable to write object file %s: %s", buf_ptr(output_path), err_msg);
-            }
-            validate_inline_fns(g);
-            g->link_objects.append(output_path);
-            if (g->bundle_compiler_rt && (g->out_type == OutTypeObj ||
-                (g->out_type == OutTypeLib && !g->is_dynamic)))
-            {
-                zig_link_add_compiler_rt(g, g->sub_progress_node);
-            }
-            break;
-
-        case EmitFileTypeAssembly:
-            if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
-                        ZigLLVM_EmitAssembly, &err_msg, g->build_mode == BuildModeDebug, is_small,
-                        g->enable_time_report))
-            {
-                zig_panic("unable to write assembly file %s: %s", buf_ptr(output_path), err_msg);
-            }
-            validate_inline_fns(g);
-            break;
-
-        case EmitFileTypeLLVMIr:
-            if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
-                        ZigLLVM_EmitLLVMIr, &err_msg, g->build_mode == BuildModeDebug, is_small,
-                        g->enable_time_report))
-            {
-                zig_panic("unable to write llvm-ir file %s: %s", buf_ptr(output_path), err_msg);
-            }
-            validate_inline_fns(g);
-            break;
-
-        default:
-            zig_unreachable();
+    if (!g->disable_bin_generation) {
+        if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
+                    ZigLLVM_EmitBinary, &err_msg, g->build_mode == BuildModeDebug, is_small,
+                    g->enable_time_report))
+        {
+            zig_panic("unable to write object file %s: %s", buf_ptr(output_path), err_msg);
+        }
+        validate_inline_fns(g);
+        g->link_objects.append(output_path);
+        if (g->bundle_compiler_rt && (g->out_type == OutTypeObj ||
+            (g->out_type == OutTypeLib && !g->is_dynamic)))
+        {
+            zig_link_add_compiler_rt(g, g->sub_progress_node);
+        }
     }
+    if (g->emit_asm) {
+        if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
+                    ZigLLVM_EmitAssembly, &err_msg, g->build_mode == BuildModeDebug, is_small,
+                    g->enable_time_report))
+        {
+            zig_panic("unable to write assembly file %s: %s", buf_ptr(output_path), err_msg);
+        }
+        validate_inline_fns(g);
+    }
+    if (g->emit_llvm_ir) {
+        if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
+                    ZigLLVM_EmitLLVMIr, &err_msg, g->build_mode == BuildModeDebug, is_small,
+                    g->enable_time_report))
+        {
+            zig_panic("unable to write llvm-ir file %s: %s", buf_ptr(output_path), err_msg);
+        }
+        validate_inline_fns(g);
+    }
+
     LLVMDisposeModule(g->module);
     g->module = nullptr;
     LLVMDisposeTargetData(g->target_data_ref);
@@ -10497,52 +10493,47 @@ static void resolve_out_paths(CodeGen *g) {
 
     Buf *out_basename = buf_create_from_buf(g->root_out_name);
     Buf *o_basename = buf_create_from_buf(g->root_out_name);
-    switch (g->emit_file_type) {
-        case EmitFileTypeBinary: {
-            switch (g->out_type) {
-                case OutTypeUnknown:
-                    zig_unreachable();
-                case OutTypeObj:
-                    if (g->enable_cache && g->link_objects.length == 1 && !need_llvm_module(g)) {
-                        buf_init_from_buf(&g->output_file_path, g->link_objects.at(0));
-                        return;
-                    }
-                    if (need_llvm_module(g) && g->link_objects.length != 0 && !g->enable_cache &&
-                        buf_eql_buf(o_basename, out_basename))
-                    {
-                        // make it not collide with main output object
-                        buf_append_str(o_basename, ".root");
-                    }
-                    buf_append_str(o_basename, target_o_file_ext(g->zig_target));
-                    buf_append_str(out_basename, target_o_file_ext(g->zig_target));
-                    break;
-                case OutTypeExe:
-                    buf_append_str(o_basename, target_o_file_ext(g->zig_target));
-                    buf_append_str(out_basename, target_exe_file_ext(g->zig_target));
-                    break;
-                case OutTypeLib:
-                    buf_append_str(o_basename, target_o_file_ext(g->zig_target));
-                    buf_resize(out_basename, 0);
-                    buf_append_str(out_basename, target_lib_file_prefix(g->zig_target));
-                    buf_append_buf(out_basename, g->root_out_name);
-                    buf_append_str(out_basename, target_lib_file_ext(g->zig_target, !g->is_dynamic,
-                                g->version_major, g->version_minor, g->version_patch));
-                    break;
-            }
-            break;
+    if (!g->disable_bin_generation) {
+        switch (g->out_type) {
+            case OutTypeUnknown:
+                zig_unreachable();
+            case OutTypeObj:
+                if (g->enable_cache && g->link_objects.length == 1 && !need_llvm_module(g)) {
+                    buf_init_from_buf(&g->output_file_path, g->link_objects.at(0));
+                    return;
+                }
+                if (need_llvm_module(g) && g->link_objects.length != 0 && !g->enable_cache &&
+                    buf_eql_buf(o_basename, out_basename))
+                {
+                    // make it not collide with main output object
+                    buf_append_str(o_basename, ".root");
+                }
+                buf_append_str(o_basename, target_o_file_ext(g->zig_target));
+                buf_append_str(out_basename, target_o_file_ext(g->zig_target));
+                break;
+            case OutTypeExe:
+                buf_append_str(o_basename, target_o_file_ext(g->zig_target));
+                buf_append_str(out_basename, target_exe_file_ext(g->zig_target));
+                break;
+            case OutTypeLib:
+                buf_append_str(o_basename, target_o_file_ext(g->zig_target));
+                buf_resize(out_basename, 0);
+                buf_append_str(out_basename, target_lib_file_prefix(g->zig_target));
+                buf_append_buf(out_basename, g->root_out_name);
+                buf_append_str(out_basename, target_lib_file_ext(g->zig_target, !g->is_dynamic,
+                            g->version_major, g->version_minor, g->version_patch));
+                break;
         }
-        case EmitFileTypeAssembly: {
-            const char *asm_ext = target_asm_file_ext(g->zig_target);
-            buf_append_str(o_basename, asm_ext);
-            buf_append_str(out_basename, asm_ext);
-            break;
-        }
-        case EmitFileTypeLLVMIr: {
-            const char *llvm_ir_ext = target_llvm_ir_file_ext(g->zig_target);
-            buf_append_str(o_basename, llvm_ir_ext);
-            buf_append_str(out_basename, llvm_ir_ext);
-            break;
-        }
+    }
+    else if (g->emit_asm) {
+        const char *asm_ext = target_asm_file_ext(g->zig_target);
+        buf_append_str(o_basename, asm_ext);
+        buf_append_str(out_basename, asm_ext);
+    }
+    else if (g->emit_llvm_ir) {
+        const char *llvm_ir_ext = target_llvm_ir_file_ext(g->zig_target);
+        buf_append_str(o_basename, llvm_ir_ext);
+        buf_append_str(out_basename, llvm_ir_ext);
     }
 
     os_path_join(g->output_dir, o_basename, &g->o_file_output_path);
@@ -10708,7 +10699,7 @@ void codegen_build_and_link(CodeGen *g) {
         // If there is more than one object, we have to link them (with -r).
         // Finally, if we didn't make an object from zig source, and we don't have caching enabled,
         // then we have an object from C source that we must copy to the output dir which we do with a -r link.
-        if (!g->disable_bin_generation && g->emit_file_type == EmitFileTypeBinary &&
+        if (!g->disable_bin_generation  &&
                 (g->out_type != OutTypeObj || g->link_objects.length > 1 ||
                     (!need_llvm_module(g) && !g->enable_cache)))
         {
