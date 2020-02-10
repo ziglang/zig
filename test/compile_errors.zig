@@ -3,6 +3,30 @@ const builtin = @import("builtin");
 const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.add("function call assigned to incorrect type",
+        \\export fn entry() void {
+        \\    var arr: [4]f32 = undefined;
+        \\    arr = concat();
+        \\}
+        \\fn concat() [16]f32 {
+        \\    return [1]f32{0}**16;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:17: error: expected type '[4]f32', found '[16]f32'",
+    });
+
+    cases.add("generic function call assigned to incorrect type",
+        \\pub export fn entry() void {
+        \\    var res: []i32 = undefined;
+        \\    res = myAlloc(i32);
+        \\}
+        \\fn myAlloc(comptime arg: type) anyerror!arg{
+        \\    unreachable;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:3:18: error: expected type '[]i32', found 'anyerror!i32",
+    });
+
     cases.addTest("dependency loop in top-level decl with @TypeInfo",
         \\export const foo = @typeInfo(@This());
     , &[_][]const u8{
