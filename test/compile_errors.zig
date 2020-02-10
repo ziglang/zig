@@ -3,6 +3,12 @@ const builtin = @import("builtin");
 const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("dependency loop in top-level decl with @TypeInfo",
+        \\export const foo = @typeInfo(@This());
+    , &[_][]const u8{
+        "tmp.zig:1:20: error: dependency loop detected",
+    });
+
     cases.add("function call assigned to incorrect type",
         \\export fn entry() void {
         \\    var arr: [4]f32 = undefined;
@@ -25,12 +31,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\}
     , &[_][]const u8{
         "tmp.zig:3:18: error: expected type '[]i32', found 'anyerror!i32",
-    });
-
-    cases.addTest("dependency loop in top-level decl with @TypeInfo",
-        \\export const foo = @typeInfo(@This());
-    , &[_][]const u8{
-        "tmp.zig:1:20: error: dependency loop detected",
     });
 
     cases.addTest("non-exhaustive enums",
