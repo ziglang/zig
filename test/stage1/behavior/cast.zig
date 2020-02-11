@@ -782,3 +782,16 @@ test "cast between [*c]T and ?[*:0]T on fn parameter" {
     };
     S.doTheTest();
 }
+
+test "cast between C pointer with different but compatible types" {
+    const S = struct {
+        fn foo(arg: [*]c_ushort) u16 {
+            return arg[0];
+        }
+        fn doTheTest() void {
+            var x = [_]u16{ 4, 2, 1, 3 };
+            expect(foo(@ptrCast([*]u16, &x)) == 4);
+        }
+    };
+    S.doTheTest();
+}
