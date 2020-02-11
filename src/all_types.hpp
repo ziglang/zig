@@ -370,10 +370,20 @@ enum LazyValueId {
     LazyValueIdFnType,
     LazyValueIdErrUnionType,
     LazyValueIdArrayType,
+    LazyValueIdTypeInfoDecls,
 };
 
 struct LazyValue {
     LazyValueId id;
+};
+
+struct LazyValueTypeInfoDecls {
+    LazyValue base;
+
+    IrAnalyze *ira;
+
+    ScopeDecls *decls_scope;
+    IrInst *source_instr;
 };
 
 struct LazyValueAlignOf {

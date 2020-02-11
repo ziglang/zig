@@ -21192,6 +21192,13 @@ static IrInstGen *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInst* source_ins
                 return ira->codegen->invalid_inst_gen;
             if (type_is_invalid(struct_val->type))
                 return ira->codegen->invalid_inst_gen;
+
+            // This to allow lazy values to be resolved.
+            if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec,
+                source_instr->source_node, struct_val, UndefOk)))
+            {
+                return ira->codegen->invalid_inst_gen;
+            }
             if (initializing && struct_val->special == ConstValSpecialUndef) {
                 struct_val->data.x_struct.fields = alloc_const_vals_ptrs(ira->codegen, struct_type->data.structure.src_field_count);
                 struct_val->special = ConstValSpecialStatic;
@@ -23597,7 +23604,7 @@ static ZigType *ir_type_info_get_type(IrAnalyze *ira, const char *type_name, Zig
 }
 
 static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigValue *out_val,
-        ScopeDecls *decls_scope)
+        ScopeDecls *decls_scope, bool resolve_types)
 {
     Error err;
     ZigType *type_info_declaration_type = ir_type_info_get_type(ira, "Declaration", nullptr);
@@ -23607,6 +23614,24 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
     ensure_field_index(type_info_declaration_type, "name", 0);
     ensure_field_index(type_info_declaration_type, "is_pub", 1);
     ensure_field_index(type_info_declaration_type, "data", 2);
+
+    if (!resolve_types) {
+        ZigType *ptr_type = get_pointer_to_type_extra(ira->codegen, type_info_declaration_type,
+            false, false, PtrLenUnknown, 0, 0, 0, false);
+
+        out_val->special = ConstValSpecialLazy;
+        out_val->type = get_slice_type(ira->codegen, ptr_type);
+
+        LazyValueTypeInfoDecls *lazy_type_info_decls = heap::c_allocator.create<LazyValueTypeInfoDecls>();
+        lazy_type_info_decls->ira = ira; ira_ref(ira);
+        out_val->data.x_lazy = &lazy_type_info_decls->base;
+        lazy_type_info_decls->base.id = LazyValueIdTypeInfoDecls;
+
+        lazy_type_info_decls->source_instr = source_instr;
+        lazy_type_info_decls->decls_scope = decls_scope;
+
+        return ErrorNone;
+    }
 
     ZigType *type_info_declaration_data_type = ir_type_info_get_type(ira, "Data", type_info_declaration_type);
     if ((err = type_resolve(ira->codegen, type_info_declaration_data_type, ResolveStatusSizeKnown)))
@@ -24160,7 +24185,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 // decls: []TypeInfo.Declaration
                 ensure_field_index(result->type, "decls", 3);
                 if ((err = ir_make_type_info_decls(ira, source_instr, fields[3],
-                            type_entry->data.enumeration.decls_scope)))
+                            type_entry->data.enumeration.decls_scope, false)))
                 {
                     return err;
                 }
@@ -24332,7 +24357,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 // decls: []TypeInfo.Declaration
                 ensure_field_index(result->type, "decls", 3);
                 if ((err = ir_make_type_info_decls(ira, source_instr, fields[3],
-                                type_entry->data.unionation.decls_scope)))
+                                type_entry->data.unionation.decls_scope, false)))
                 {
                     return err;
                 }
@@ -24424,7 +24449,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 // decls: []TypeInfo.Declaration
                 ensure_field_index(result->type, "decls", 2);
                 if ((err = ir_make_type_info_decls(ira, source_instr, fields[2],
-                                type_entry->data.structure.decls_scope)))
+                                type_entry->data.structure.decls_scope, false)))
                 {
                     return err;
                 }
@@ -30361,6 +30386,18 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
     switch (val->data.x_lazy->id) {
         case LazyValueIdInvalid:
             zig_unreachable();
+        case LazyValueIdTypeInfoDecls: {
+            LazyValueTypeInfoDecls *type_info_decls = reinterpret_cast<LazyValueTypeInfoDecls *>(val->data.x_lazy);
+            IrAnalyze *ira = type_info_decls->ira;
+
+            if ((err = ir_make_type_info_decls(ira, type_info_decls->source_instr, val, type_info_decls->decls_scope, true)))
+            {
+                return err;
+            };
+
+            // We can't free the lazy value here, because multiple other ZigValues might be pointing to it.
+            return ErrorNone;
+        }
         case LazyValueIdAlignOf: {
             LazyValueAlignOf *lazy_align_of = reinterpret_cast<LazyValueAlignOf *>(val->data.x_lazy);
             IrAnalyze *ira = lazy_align_of->ira;
