@@ -9,7 +9,6 @@ const mem = std.mem;
 const process = std.process;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
-const Buffer = std.Buffer;
 
 const c = @import("c.zig");
 const introspect = @import("introspect.zig");
