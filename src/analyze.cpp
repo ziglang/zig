@@ -1150,6 +1150,7 @@ Error type_val_resolve_zero_bits(CodeGen *g, ZigValue *type_val, ZigType *parent
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
         case LazyValueIdSizeOf:
+        case LazyValueIdTypeInfoDecls:
             zig_unreachable();
         case LazyValueIdPtrType: {
             LazyValuePtrType *lazy_ptr_type = reinterpret_cast<LazyValuePtrType *>(type_val->data.x_lazy);
@@ -1209,6 +1210,7 @@ Error type_val_resolve_is_opaque_type(CodeGen *g, ZigValue *type_val, bool *is_o
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
         case LazyValueIdSizeOf:
+        case LazyValueIdTypeInfoDecls:
             zig_unreachable();
         case LazyValueIdSliceType:
         case LazyValueIdPtrType:
@@ -1230,6 +1232,7 @@ static ReqCompTime type_val_resolve_requires_comptime(CodeGen *g, ZigValue *type
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
         case LazyValueIdSizeOf:
+        case LazyValueIdTypeInfoDecls:
             zig_unreachable();
         case LazyValueIdSliceType: {
             LazyValueSliceType *lazy_slice_type = reinterpret_cast<LazyValueSliceType *>(type_val->data.x_lazy);
@@ -1303,6 +1306,7 @@ start_over:
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
         case LazyValueIdSizeOf:
+        case LazyValueIdTypeInfoDecls:
             zig_unreachable();
         case LazyValueIdSliceType: {
             LazyValueSliceType *lazy_slice_type = reinterpret_cast<LazyValueSliceType *>(type_val->data.x_lazy);
@@ -1370,6 +1374,7 @@ Error type_val_resolve_abi_align(CodeGen *g, AstNode *source_node, ZigValue *typ
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
         case LazyValueIdSizeOf:
+        case LazyValueIdTypeInfoDecls:
             zig_unreachable();
         case LazyValueIdSliceType:
         case LazyValueIdPtrType:
@@ -1412,6 +1417,7 @@ static OnePossibleValue type_val_resolve_has_one_possible_value(CodeGen *g, ZigV
         case LazyValueIdInvalid:
         case LazyValueIdAlignOf:
         case LazyValueIdSizeOf:
+        case LazyValueIdTypeInfoDecls:
             zig_unreachable();
         case LazyValueIdSliceType: // it has the len field
         case LazyValueIdOptType: // it has the optional bit

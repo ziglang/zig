@@ -30,10 +30,11 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         "tmp.zig:5:22: error: expected type 'fn([*c]u8, ...) callconv(.C) void', found 'fn([*:0]u8, ...) callconv(.C) void'",
     });
 
-    cases.addTest("dependency loop in top-level decl with @TypeInfo",
-        \\export const foo = @typeInfo(@This());
+    cases.addTest("dependency loop in top-level decl with @TypeInfo when accessing the decls",
+        \\export const foo = @typeInfo(@This()).Struct.decls;
     , &[_][]const u8{
         "tmp.zig:1:20: error: dependency loop detected",
+        "tmp.zig:1:45: note: referenced here",
     });
 
     cases.add("function call assigned to incorrect type",
@@ -1344,24 +1345,6 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
     , &[_][]const u8{
         "tmp.zig:1:13: error: struct 'Foo' depends on itself",
         "tmp.zig:8:28: note: referenced here",
-    });
-
-    cases.add("@typeInfo causing depend on itself compile error",
-        \\const start = struct {
-        \\    fn crash() bug() {
-        \\        return bug;
-        \\    }
-        \\};
-        \\fn bug() void {
-        \\    _ = @typeInfo(start).Struct;
-        \\}
-        \\export fn entry() void {
-        \\    var boom = start.crash();
-        \\}
-    , &[_][]const u8{
-        "tmp.zig:7:9: error: dependency loop detected",
-        "tmp.zig:2:19: note: referenced here",
-        "tmp.zig:10:21: note: referenced here",
     });
 
     cases.add("enum field value references enum",
