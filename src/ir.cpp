@@ -11873,10 +11873,15 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
     }
 
     if (wanted_type->id == ZigTypeIdInt && actual_type->id == ZigTypeIdInt) {
-        result.id = ConstCastResultIdIntShorten;
-        result.data.int_shorten = heap::c_allocator.allocate_nonzero<ConstCastIntShorten>(1);
-        result.data.int_shorten->wanted_type = wanted_type;
-        result.data.int_shorten->actual_type = actual_type;
+        if (wanted_type->data.integral.is_signed != actual_type->data.integral.is_signed ||
+            wanted_type->data.integral.bit_count != actual_type->data.integral.bit_count)
+        {
+            result.id = ConstCastResultIdIntShorten;
+            result.data.int_shorten = heap::c_allocator.allocate_nonzero<ConstCastIntShorten>(1);
+            result.data.int_shorten->wanted_type = wanted_type;
+            result.data.int_shorten->actual_type = actual_type;
+            return result;
+        }
         return result;
     }
 
