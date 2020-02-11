@@ -9,7 +9,6 @@ const mem = std.mem;
 const process = std.process;
 const ArrayList = std.ArrayList;
 const BufMap = std.BufMap;
-const Buffer = std.Buffer;
 const warn = std.debug.warn;
 
 const max_stdout_size = 1 * 1024 * 1024; // 1 MiB
