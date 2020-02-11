@@ -147,7 +147,7 @@ static void ast_invalid_token_error(ParseContext *pc, Token *token) {
 }
 
 static AstNode *ast_create_node_no_line_info(ParseContext *pc, NodeType type) {
-    AstNode *node = allocate<AstNode>(1, "AstNode");
+    AstNode *node = heap::c_allocator.create<AstNode>();
     node->type = type;
     node->owner = pc->owner;
     return node;
@@ -1966,7 +1966,7 @@ static AsmOutput *ast_parse_asm_output_item(ParseContext *pc) {
 
     expect_token(pc, TokenIdRParen);
 
-    AsmOutput *res = allocate<AsmOutput>(1);
+    AsmOutput *res = heap::c_allocator.create<AsmOutput>();
     res->asm_symbolic_name = token_buf(sym_name);
     res->constraint = token_buf(str);
     res->variable_name = token_buf(var_name);
@@ -2003,7 +2003,7 @@ static AsmInput *ast_parse_asm_input_item(ParseContext *pc) {
     AstNode *expr = ast_expect(pc, ast_parse_expr);
     expect_token(pc, TokenIdRParen);
 
-    AsmInput *res = allocate<AsmInput>(1);
+    AsmInput *res = heap::c_allocator.create<AsmInput>();
     res->asm_symbolic_name = token_buf(sym_name);
     res->constraint = token_buf(constraint);
     res->expr = expr;

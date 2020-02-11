@@ -397,10 +397,10 @@ static void invalid_char_error(Tokenize *t, uint8_t c) {
 void tokenize(Buf *buf, Tokenization *out) {
     Tokenize t = {0};
     t.out = out;
-    t.tokens = out->tokens = allocate<ZigList<Token>>(1);
+    t.tokens = out->tokens = heap::c_allocator.create<ZigList<Token>>();
     t.buf = buf;
 
-    out->line_offsets = allocate<ZigList<size_t>>(1);
+    out->line_offsets = heap::c_allocator.create<ZigList<size_t>>();
     out->line_offsets->append(0);
 
     // Skip the UTF-8 BOM if present

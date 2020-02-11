@@ -107,7 +107,7 @@ static void populate_termination(Termination *term, int status) {
 }
 
 static void os_spawn_process_posix(ZigList<const char *> &args, Termination *term) {
-    const char **argv = allocate<const char *>(args.length + 1);
+    const char **argv = heap::c_allocator.allocate<const char *>(args.length + 1);
     for (size_t i = 0; i < args.length; i += 1) {
         argv[i] = args.at(i);
     }
@@ -688,7 +688,7 @@ static Buf os_path_resolve_posix(Buf **paths_ptr, size_t paths_len) {
 
     if (have_abs) {
         result_len = max_size;
-        result_ptr = allocate_nonzero<uint8_t>(result_len);
+        result_ptr = heap::c_allocator.allocate_nonzero<uint8_t>(result_len);
     } else {
         Buf cwd = BUF_INIT;
         int err;
@@ -696,7 +696,7 @@ static Buf os_path_resolve_posix(Buf **paths_ptr, size_t paths_len) {
             zig_panic("get cwd failed");
         }
         result_len = max_size + buf_len(&cwd) + 1;
-        result_ptr = allocate_nonzero<uint8_t>(result_len);
+        result_ptr = heap::c_allocator.allocate_nonzero<uint8_t>(result_len);
         memcpy(result_ptr, buf_ptr(&cwd), buf_len(&cwd));
         result_index += buf_len(&cwd);
     }
@@ -816,7 +816,7 @@ static Error os_exec_process_posix(ZigList<const char *> &args,
         if (dup2(stderr_pipe[1], STDERR_FILENO) == -1)
             zig_panic("dup2 failed");
 
-        const char **argv = allocate<const char *>(args.length + 1);
+        const char **argv = heap::c_allocator.allocate<const char *>(args.length + 1);
         argv[args.length] = nullptr;
         for (size_t i = 0; i < args.length; i += 1) {
             argv[i] = args.at(i);
@@ -1134,7 +1134,7 @@ static bool is_stderr_cyg_pty(void) {
     if (stderr_handle == INVALID_HANDLE_VALUE)
         return false;
 
-    int size = sizeof(FILE_NAME_INFO) + sizeof(WCHAR) * MAX_PATH;
+    const int size = sizeof(FILE_NAME_INFO) + sizeof(WCHAR) * MAX_PATH;
     FILE_NAME_INFO *nameinfo;
     WCHAR *p = NULL;
 
@@ -1142,7 +1142,7 @@ static bool is_stderr_cyg_pty(void) {
     if (GetFileType(stderr_handle) != FILE_TYPE_PIPE) {
         return 0;
     }
-    nameinfo = (FILE_NAME_INFO *)allocate<char>(size);
+    nameinfo = reinterpret_cast<FILE_NAME_INFO *>(heap::c_allocator.allocate<char>(size));
     if (nameinfo == NULL) {
         return 0;
     }
@@ -1179,7 +1179,7 @@ static bool is_stderr_cyg_pty(void) {
             }
         }
     }
-    free(nameinfo);
+    heap::c_allocator.deallocate(reinterpret_cast<char *>(nameinfo), size);
     return (p != NULL);
 }
 #endif

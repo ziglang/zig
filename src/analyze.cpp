@@ -80,7 +80,7 @@ ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, const AstNode *node, 
 }
 
 ZigType *new_type_table_entry(ZigTypeId id) {
-    ZigType *entry = allocate<ZigType>(1);
+    ZigType *entry = heap::c_allocator.create<ZigType>();
     entry->id = id;
     return entry;
 }
@@ -140,7 +140,7 @@ void init_scope(CodeGen *g, Scope *dest, ScopeId id, AstNode *source_node, Scope
 static ScopeDecls *create_decls_scope(CodeGen *g, AstNode *node, Scope *parent, ZigType *container_type,
         ZigType *import, Buf *bare_name)
 {
-    ScopeDecls *scope = allocate<ScopeDecls>(1);
+    ScopeDecls *scope = heap::c_allocator.create<ScopeDecls>();
     init_scope(g, &scope->base, ScopeIdDecls, node, parent);
     scope->decl_table.init(4);
     scope->container_type = container_type;
@@ -151,7 +151,7 @@ static ScopeDecls *create_decls_scope(CodeGen *g, AstNode *node, Scope *parent, 
 
 ScopeBlock *create_block_scope(CodeGen *g, AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeBlock);
-    ScopeBlock *scope = allocate<ScopeBlock>(1);
+    ScopeBlock *scope = heap::c_allocator.create<ScopeBlock>();
     init_scope(g, &scope->base, ScopeIdBlock, node, parent);
     scope->name = node->data.block.name;
     return scope;
@@ -159,20 +159,20 @@ ScopeBlock *create_block_scope(CodeGen *g, AstNode *node, Scope *parent) {
 
 ScopeDefer *create_defer_scope(CodeGen *g, AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeDefer);
-    ScopeDefer *scope = allocate<ScopeDefer>(1);
+    ScopeDefer *scope = heap::c_allocator.create<ScopeDefer>();
     init_scope(g, &scope->base, ScopeIdDefer, node, parent);
     return scope;
 }
 
 ScopeDeferExpr *create_defer_expr_scope(CodeGen *g, AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeDefer);
-    ScopeDeferExpr *scope = allocate<ScopeDeferExpr>(1);
+    ScopeDeferExpr *scope = heap::c_allocator.create<ScopeDeferExpr>();
     init_scope(g, &scope->base, ScopeIdDeferExpr, node, parent);
     return scope;
 }
 
 Scope *create_var_scope(CodeGen *g, AstNode *node, Scope *parent, ZigVar *var) {
-    ScopeVarDecl *scope = allocate<ScopeVarDecl>(1);
+    ScopeVarDecl *scope = heap::c_allocator.create<ScopeVarDecl>();
     init_scope(g, &scope->base, ScopeIdVarDecl, node, parent);
     scope->var = var;
     return &scope->base;
@@ -180,14 +180,14 @@ Scope *create_var_scope(CodeGen *g, AstNode *node, Scope *parent, ZigVar *var) {
 
 ScopeCImport *create_cimport_scope(CodeGen *g, AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeFnCallExpr);
-    ScopeCImport *scope = allocate<ScopeCImport>(1);
+    ScopeCImport *scope = heap::c_allocator.create<ScopeCImport>();
     init_scope(g, &scope->base, ScopeIdCImport, node, parent);
     buf_resize(&scope->buf, 0);
     return scope;
 }
 
 ScopeLoop *create_loop_scope(CodeGen *g, AstNode *node, Scope *parent) {
-    ScopeLoop *scope = allocate<ScopeLoop>(1);
+    ScopeLoop *scope = heap::c_allocator.create<ScopeLoop>();
     init_scope(g, &scope->base, ScopeIdLoop, node, parent);
     if (node->type == NodeTypeWhileExpr) {
         scope->name = node->data.while_expr.name;
@@ -200,7 +200,7 @@ ScopeLoop *create_loop_scope(CodeGen *g, AstNode *node, Scope *parent) {
 }
 
 Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstSrc *is_comptime) {
-    ScopeRuntime *scope = allocate<ScopeRuntime>(1);
+    ScopeRuntime *scope = heap::c_allocator.create<ScopeRuntime>();
     scope->is_comptime = is_comptime;
     init_scope(g, &scope->base, ScopeIdRuntime, node, parent);
     return &scope->base;
@@ -208,37 +208,37 @@ Scope *create_runtime_scope(CodeGen *g, AstNode *node, Scope *parent, IrInstSrc 
 
 ScopeSuspend *create_suspend_scope(CodeGen *g, AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeSuspend);
-    ScopeSuspend *scope = allocate<ScopeSuspend>(1);
+    ScopeSuspend *scope = heap::c_allocator.create<ScopeSuspend>();
     init_scope(g, &scope->base, ScopeIdSuspend, node, parent);
     return scope;
 }
 
 ScopeFnDef *create_fndef_scope(CodeGen *g, AstNode *node, Scope *parent, ZigFn *fn_entry) {
-    ScopeFnDef *scope = allocate<ScopeFnDef>(1);
+    ScopeFnDef *scope = heap::c_allocator.create<ScopeFnDef>();
     init_scope(g, &scope->base, ScopeIdFnDef, node, parent);
     scope->fn_entry = fn_entry;
     return scope;
 }
 
 Scope *create_comptime_scope(CodeGen *g, AstNode *node, Scope *parent) {
-    ScopeCompTime *scope = allocate<ScopeCompTime>(1);
+    ScopeCompTime *scope = heap::c_allocator.create<ScopeCompTime>();
     init_scope(g, &scope->base, ScopeIdCompTime, node, parent);
     return &scope->base;
 }
 
 Scope *create_typeof_scope(CodeGen *g, AstNode *node, Scope *parent) {
-    ScopeTypeOf *scope = allocate<ScopeTypeOf>(1);
+    ScopeTypeOf *scope = heap::c_allocator.create<ScopeTypeOf>();
     init_scope(g, &scope->base, ScopeIdTypeOf, node, parent);
     return &scope->base;
 }
 
 ScopeExpr *create_expr_scope(CodeGen *g, AstNode *node, Scope *parent) {
-    ScopeExpr *scope = allocate<ScopeExpr>(1);
+    ScopeExpr *scope = heap::c_allocator.create<ScopeExpr>();
     init_scope(g, &scope->base, ScopeIdExpr, node, parent);
     ScopeExpr *parent_expr = find_expr_scope(parent);
     if (parent_expr != nullptr) {
         size_t new_len = parent_expr->children_len + 1;
-        parent_expr->children_ptr = reallocate_nonzero<ScopeExpr *>(
+        parent_expr->children_ptr = heap::c_allocator.reallocate_nonzero<ScopeExpr *>(
                 parent_expr->children_ptr, parent_expr->children_len, new_len);
         parent_expr->children_ptr[parent_expr->children_len] = scope;
         parent_expr->children_len = new_len;
@@ -1104,8 +1104,8 @@ ZigValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *
 {
     Error err;
 
-    ZigValue *result = create_const_vals(1);
-    ZigValue *result_ptr = create_const_vals(1);
+    ZigValue *result = g->pass1_arena->create<ZigValue>();
+    ZigValue *result_ptr = g->pass1_arena->create<ZigValue>();
     result->special = ConstValSpecialUndef;
     result->type = (type_entry == nullptr) ? g->builtin_types.entry_var : type_entry;
     result_ptr->special = ConstValSpecialStatic;
@@ -1122,7 +1122,6 @@ ZigValue *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, ZigType *
     {
         return g->invalid_inst_gen->value;
     }
-    destroy(result_ptr, "ZigValue");
     return result;
 }
 
@@ -1507,7 +1506,7 @@ void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, CallingConventio
 
     fn_type_id->cc = cc;
     fn_type_id->param_count = fn_proto->params.length;
-    fn_type_id->param_info = allocate<FnTypeParamInfo>(param_count_alloc);
+    fn_type_id->param_info = heap::c_allocator.allocate<FnTypeParamInfo>(param_count_alloc);
     fn_type_id->next_param_index = 0;
     fn_type_id->is_var_args = fn_proto->is_var_args;
 }
@@ -2171,7 +2170,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
     bool packed = (struct_type->data.structure.layout == ContainerLayoutPacked);
     struct_type->data.structure.resolve_loop_flag_other = true;
 
-    uint32_t *host_int_bytes = packed ? allocate<uint32_t>(struct_type->data.structure.gen_field_count) : nullptr;
+    uint32_t *host_int_bytes = packed ? heap::c_allocator.allocate<uint32_t>(struct_type->data.structure.gen_field_count) : nullptr;
 
     size_t packed_bits_offset = 0;
     size_t next_offset = 0;
@@ -2657,7 +2656,7 @@ static Error resolve_enum_zero_bits(CodeGen *g, ZigType *enum_type) {
     }
 
     enum_type->data.enumeration.src_field_count = field_count;
-    enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
+    enum_type->data.enumeration.fields = heap::c_allocator.allocate<TypeEnumField>(field_count);
     enum_type->data.enumeration.fields_by_name.init(field_count);
 
     HashMap<BigInt, AstNode *, bigint_hash, bigint_eql> occupied_tag_values = {};
@@ -3034,7 +3033,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
         return ErrorSemanticAnalyzeFail;
     }
     union_type->data.unionation.src_field_count = field_count;
-    union_type->data.unionation.fields = allocate<TypeUnionField>(field_count);
+    union_type->data.unionation.fields = heap::c_allocator.allocate<TypeUnionField>(field_count);
     union_type->data.unionation.fields_by_name.init(field_count);
 
     Scope *scope = &union_type->data.unionation.decls_scope->base;
@@ -3053,7 +3052,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
     if (create_enum_type) {
         occupied_tag_values.init(field_count);
 
-        di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
+        di_enumerators = heap::c_allocator.allocate<ZigLLVMDIEnumerator*>(field_count);
 
         ZigType *tag_int_type;
         if (enum_type_node != nullptr) {
@@ -3086,7 +3085,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
         tag_type->data.enumeration.decl_node = decl_node;
         tag_type->data.enumeration.layout = ContainerLayoutAuto;
         tag_type->data.enumeration.src_field_count = field_count;
-        tag_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
+        tag_type->data.enumeration.fields = heap::c_allocator.allocate<TypeEnumField>(field_count);
         tag_type->data.enumeration.fields_by_name.init(field_count);
         tag_type->data.enumeration.decls_scope = union_type->data.unionation.decls_scope;
     } else if (enum_type_node != nullptr) {
@@ -3106,7 +3105,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
             return err;
         }
         tag_type = enum_type;
-        covered_enum_fields = allocate<bool>(enum_type->data.enumeration.src_field_count);
+        covered_enum_fields = heap::c_allocator.allocate<bool>(enum_type->data.enumeration.src_field_count);
     } else {
         tag_type = nullptr;
     }
@@ -3244,7 +3243,7 @@ static Error resolve_union_zero_bits(CodeGen *g, ZigType *union_type) {
             }
             covered_enum_fields[union_field->enum_field->decl_index] = true;
         } else {
-            union_field->enum_field = allocate<TypeEnumField>(1);
+            union_field->enum_field = heap::c_allocator.create<TypeEnumField>();
             union_field->enum_field->name = field_name;
             union_field->enum_field->decl_index = i;
             bigint_init_unsigned(&union_field->enum_field->value, i);
@@ -3366,8 +3365,8 @@ static void get_fully_qualified_decl_name(CodeGen *g, Buf *buf, Tld *tld, bool i
 }
 
 ZigFn *create_fn_raw(CodeGen *g, FnInline inline_value) {
-    ZigFn *fn_entry = allocate<ZigFn>(1, "ZigFn");
-    fn_entry->ir_executable = allocate<IrExecutableSrc>(1, "IrExecutableSrc");
+    ZigFn *fn_entry = heap::c_allocator.create<ZigFn>();
+    fn_entry->ir_executable = heap::c_allocator.create<IrExecutableSrc>();
 
     fn_entry->prealloc_backward_branch_quota = default_backward_branch_quota;
 
@@ -3642,7 +3641,7 @@ static void preview_test_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope
         return;
     }
 
-    TldFn *tld_fn = allocate<TldFn>(1);
+    TldFn *tld_fn = heap::c_allocator.create<TldFn>();
     init_tld(&tld_fn->base, TldIdFn, test_name, VisibModPrivate, node, &decls_scope->base);
     g->resolve_queue.append(&tld_fn->base);
 }
@@ -3650,7 +3649,7 @@ static void preview_test_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope
 static void preview_comptime_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope) {
     assert(node->type == NodeTypeCompTime);
 
-    TldCompTime *tld_comptime = allocate<TldCompTime>(1);
+    TldCompTime *tld_comptime = heap::c_allocator.create<TldCompTime>();
     init_tld(&tld_comptime->base, TldIdCompTime, nullptr, VisibModPrivate, node, &decls_scope->base);
     g->resolve_queue.append(&tld_comptime->base);
 }
@@ -3673,7 +3672,7 @@ void update_compile_var(CodeGen *g, Buf *name, ZigValue *value) {
     resolve_top_level_decl(g, tld, tld->source_node, false);
     assert(tld->id == TldIdVar && tld->resolution == TldResolutionOk);
     TldVar *tld_var = (TldVar *)tld;
-    copy_const_val(tld_var->var->const_value, value);
+    copy_const_val(g, tld_var->var->const_value, value);
     tld_var->var->var_type = value->type;
     tld_var->var->align_bytes = get_abi_alignment(g, value->type);
 }
@@ -3693,7 +3692,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
             {
                 Buf *name = node->data.variable_declaration.symbol;
                 VisibMod visib_mod = node->data.variable_declaration.visib_mod;
-                TldVar *tld_var = allocate<TldVar>(1);
+                TldVar *tld_var = heap::c_allocator.create<TldVar>();
                 init_tld(&tld_var->base, TldIdVar, name, visib_mod, node, &decls_scope->base);
                 tld_var->extern_lib_name = node->data.variable_declaration.lib_name;
                 add_top_level_decl(g, decls_scope, &tld_var->base);
@@ -3709,7 +3708,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
                 }
 
                 VisibMod visib_mod = node->data.fn_proto.visib_mod;
-                TldFn *tld_fn = allocate<TldFn>(1);
+                TldFn *tld_fn = heap::c_allocator.create<TldFn>();
                 init_tld(&tld_fn->base, TldIdFn, fn_name, visib_mod, node, &decls_scope->base);
                 tld_fn->extern_lib_name = node->data.fn_proto.lib_name;
                 add_top_level_decl(g, decls_scope, &tld_fn->base);
@@ -3718,7 +3717,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
             }
         case NodeTypeUsingNamespace: {
             VisibMod visib_mod = node->data.using_namespace.visib_mod;
-            TldUsingNamespace *tld_using_namespace = allocate<TldUsingNamespace>(1);
+            TldUsingNamespace *tld_using_namespace = heap::c_allocator.create<TldUsingNamespace>();
             init_tld(&tld_using_namespace->base, TldIdUsingNamespace, nullptr, visib_mod, node, &decls_scope->base);
             add_top_level_decl(g, decls_scope, &tld_using_namespace->base);
             decls_scope->use_decls.append(tld_using_namespace);
@@ -3845,7 +3844,7 @@ ZigVar *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf 
     assert(const_value != nullptr);
     assert(var_type != nullptr);
 
-    ZigVar *variable_entry = allocate<ZigVar>(1);
+    ZigVar *variable_entry = heap::c_allocator.create<ZigVar>();
     variable_entry->const_value = const_value;
     variable_entry->var_type = var_type;
     variable_entry->parent_scope = parent_scope;
@@ -3984,7 +3983,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
     ZigType *type = explicit_type ? explicit_type : implicit_type;
     assert(type != nullptr); // should have been caught by the parser
 
-    ZigValue *init_val = (init_value != nullptr) ? init_value : create_const_runtime(type);
+    ZigValue *init_val = (init_value != nullptr) ? init_value : create_const_runtime(g, type);
 
     tld_var->var = add_variable(g, source_node, tld_var->base.parent_scope, var_decl->symbol,
             is_const, init_val, &tld_var->base, type);
@@ -4491,7 +4490,7 @@ static Error define_local_param_variables(CodeGen *g, ZigFn *fn_table_entry) {
         }
 
         ZigVar *var = add_variable(g, param_decl_node, fn_table_entry->child_scope,
-                param_name, true, create_const_runtime(param_type), nullptr, param_type);
+                param_name, true, create_const_runtime(g, param_type), nullptr, param_type);
         var->src_arg_index = i;
         fn_table_entry->child_scope = var->child_scope;
         var->shadowable = var->shadowable || is_var_args;
@@ -4786,7 +4785,7 @@ static void analyze_fn_ir(CodeGen *g, ZigFn *fn, AstNode *return_type_node) {
             } else {
                 return_err_set_type->data.error_set.err_count = inferred_err_set_type->data.error_set.err_count;
                 if (inferred_err_set_type->data.error_set.err_count > 0) {
-                    return_err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(inferred_err_set_type->data.error_set.err_count);
+                    return_err_set_type->data.error_set.errors = heap::c_allocator.allocate<ErrorTableEntry *>(inferred_err_set_type->data.error_set.err_count);
                     for (uint32_t i = 0; i < inferred_err_set_type->data.error_set.err_count; i += 1) {
                         return_err_set_type->data.error_set.errors[i] = inferred_err_set_type->data.error_set.errors[i];
                     }
@@ -4919,7 +4918,7 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
     Buf *bare_name = buf_alloc();
     os_path_extname(src_basename, bare_name, nullptr);
 
-    RootStruct *root_struct = allocate<RootStruct>(1);
+    RootStruct *root_struct = heap::c_allocator.create<RootStruct>();
     root_struct->package = package;
     root_struct->source_code = source_code;
     root_struct->line_offsets = tokenization.line_offsets;
@@ -4946,7 +4945,7 @@ ZigType *add_source_file(CodeGen *g, ZigPackage *package, Buf *resolved_path, Bu
         scan_decls(g, import_entry->data.structure.decls_scope, top_level_decl);
     }
 
-    TldContainer *tld_container = allocate<TldContainer>(1);
+    TldContainer *tld_container = heap::c_allocator.create<TldContainer>();
     init_tld(&tld_container->base, TldIdContainer, namespace_name, VisibModPub, root_node, nullptr);
     tld_container->type_entry = import_entry;
     tld_container->decls_scope = import_entry->data.structure.decls_scope;
@@ -5694,14 +5693,14 @@ ZigValue *get_the_one_possible_value(CodeGen *g, ZigType *type_entry) {
     if (entry != nullptr) {
         return entry->value;
     }
-    ZigValue *result = create_const_vals(1);
+    ZigValue *result = g->pass1_arena->create<ZigValue>();
     result->type = type_entry;
     result->special = ConstValSpecialStatic;
     if (result->type->id == ZigTypeIdStruct) {
         // The fields array cannot be left unpopulated
         const ZigType *struct_type = result->type;
         const size_t field_count = struct_type->data.structure.src_field_count;
-        result->data.x_struct.fields = alloc_const_vals_ptrs(field_count);
+        result->data.x_struct.fields = alloc_const_vals_ptrs(g, field_count);
         for (size_t i = 0; i < field_count; i += 1) {
             TypeStructField *field = struct_type->data.structure.fields[i];
             ZigType *field_type = resolve_struct_field_type(g, field);
@@ -5786,7 +5785,7 @@ void init_const_str_lit(CodeGen *g, ZigValue *const_val, Buf *str) {
     }
 
     // first we build the underlying array
-    ZigValue *array_val = create_const_vals(1);
+    ZigValue *array_val = g->pass1_arena->create<ZigValue>();
     array_val->special = ConstValSpecialStatic;
     array_val->type = get_array_type(g, g->builtin_types.entry_u8, buf_len(str), g->intern.for_zero_byte());
     array_val->data.x_array.special = ConstArraySpecialBuf;
@@ -5803,7 +5802,7 @@ void init_const_str_lit(CodeGen *g, ZigValue *const_val, Buf *str) {
 }
 
 ZigValue *create_const_str_lit(CodeGen *g, Buf *str) {
-    ZigValue *const_val = create_const_vals(1);
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_str_lit(g, const_val, str);
     return const_val;
 }
@@ -5814,8 +5813,8 @@ void init_const_bigint(ZigValue *const_val, ZigType *type, const BigInt *bigint)
     bigint_init_bigint(&const_val->data.x_bigint, bigint);
 }
 
-ZigValue *create_const_bigint(ZigType *type, const BigInt *bigint) {
-    ZigValue *const_val = create_const_vals(1);
+ZigValue *create_const_bigint(CodeGen *g, ZigType *type, const BigInt *bigint) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_bigint(const_val, type, bigint);
     return const_val;
 }
@@ -5828,8 +5827,8 @@ void init_const_unsigned_negative(ZigValue *const_val, ZigType *type, uint64_t x
     const_val->data.x_bigint.is_negative = negative;
 }
 
-ZigValue *create_const_unsigned_negative(ZigType *type, uint64_t x, bool negative) {
-    ZigValue *const_val = create_const_vals(1);
+ZigValue *create_const_unsigned_negative(CodeGen *g, ZigType *type, uint64_t x, bool negative) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_unsigned_negative(const_val, type, x, negative);
     return const_val;
 }
@@ -5839,7 +5838,7 @@ void init_const_usize(CodeGen *g, ZigValue *const_val, uint64_t x) {
 }
 
 ZigValue *create_const_usize(CodeGen *g, uint64_t x) {
-    return create_const_unsigned_negative(g->builtin_types.entry_usize, x, false);
+    return create_const_unsigned_negative(g, g->builtin_types.entry_usize, x, false);
 }
 
 void init_const_signed(ZigValue *const_val, ZigType *type, int64_t x) {
@@ -5848,8 +5847,8 @@ void init_const_signed(ZigValue *const_val, ZigType *type, int64_t x) {
     bigint_init_signed(&const_val->data.x_bigint, x);
 }
 
-ZigValue *create_const_signed(ZigType *type, int64_t x) {
-    ZigValue *const_val = create_const_vals(1);
+ZigValue *create_const_signed(CodeGen *g, ZigType *type, int64_t x) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_signed(const_val, type, x);
     return const_val;
 }
@@ -5860,8 +5859,8 @@ void init_const_null(ZigValue *const_val, ZigType *type) {
     const_val->data.x_optional = nullptr;
 }
 
-ZigValue *create_const_null(ZigType *type) {
-    ZigValue *const_val = create_const_vals(1);
+ZigValue *create_const_null(CodeGen *g, ZigType *type) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_null(const_val, type);
     return const_val;
 }
@@ -5893,8 +5892,8 @@ void init_const_float(ZigValue *const_val, ZigType *type, double value) {
     }
 }
 
-ZigValue *create_const_float(ZigType *type, double value) {
-    ZigValue *const_val = create_const_vals(1);
+ZigValue *create_const_float(CodeGen *g, ZigType *type, double value) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_float(const_val, type, value);
     return const_val;
 }
@@ -5905,8 +5904,8 @@ void init_const_enum(ZigValue *const_val, ZigType *type, const BigInt *tag) {
     bigint_init_bigint(&const_val->data.x_enum_tag, tag);
 }
 
-ZigValue *create_const_enum(ZigType *type, const BigInt *tag) {
-    ZigValue *const_val = create_const_vals(1);
+ZigValue *create_const_enum(CodeGen *g, ZigType *type, const BigInt *tag) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_enum(const_val, type, tag);
     return const_val;
 }
@@ -5919,7 +5918,7 @@ void init_const_bool(CodeGen *g, ZigValue *const_val, bool value) {
 }
 
 ZigValue *create_const_bool(CodeGen *g, bool value) {
-    ZigValue *const_val = create_const_vals(1);
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_bool(g, const_val, value);
     return const_val;
 }
@@ -5929,8 +5928,8 @@ void init_const_runtime(ZigValue *const_val, ZigType *type) {
     const_val->type = type;
 }
 
-ZigValue *create_const_runtime(ZigType *type) {
-    ZigValue *const_val = create_const_vals(1);
+ZigValue *create_const_runtime(CodeGen *g, ZigType *type) {
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_runtime(const_val, type);
     return const_val;
 }
@@ -5942,7 +5941,7 @@ void init_const_type(CodeGen *g, ZigValue *const_val, ZigType *type_value) {
 }
 
 ZigValue *create_const_type(CodeGen *g, ZigType *type_value) {
-    ZigValue *const_val = create_const_vals(1);
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_type(g, const_val, type_value);
     return const_val;
 }
@@ -5957,7 +5956,7 @@ void init_const_slice(CodeGen *g, ZigValue *const_val, ZigValue *array_val,
 
     const_val->special = ConstValSpecialStatic;
     const_val->type = get_slice_type(g, ptr_type);
-    const_val->data.x_struct.fields = alloc_const_vals_ptrs(2);
+    const_val->data.x_struct.fields = alloc_const_vals_ptrs(g, 2);
 
     init_const_ptr_array(g, const_val->data.x_struct.fields[slice_ptr_index], array_val, start, is_const,
             PtrLenUnknown);
@@ -5965,7 +5964,7 @@ void init_const_slice(CodeGen *g, ZigValue *const_val, ZigValue *array_val,
 }
 
 ZigValue *create_const_slice(CodeGen *g, ZigValue *array_val, size_t start, size_t len, bool is_const) {
-    ZigValue *const_val = create_const_vals(1);
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_slice(g, const_val, array_val, start, len, is_const);
     return const_val;
 }
@@ -5987,7 +5986,7 @@ void init_const_ptr_array(CodeGen *g, ZigValue *const_val, ZigValue *array_val,
 ZigValue *create_const_ptr_array(CodeGen *g, ZigValue *array_val, size_t elem_index, bool is_const,
         PtrLen ptr_len)
 {
-    ZigValue *const_val = create_const_vals(1);
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_ptr_array(g, const_val, array_val, elem_index, is_const, ptr_len);
     return const_val;
 }
@@ -6000,7 +5999,7 @@ void init_const_ptr_ref(CodeGen *g, ZigValue *const_val, ZigValue *pointee_val, 
 }
 
 ZigValue *create_const_ptr_ref(CodeGen *g, ZigValue *pointee_val, bool is_const) {
-    ZigValue *const_val = create_const_vals(1);
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_ptr_ref(g, const_val, pointee_val, is_const);
     return const_val;
 }
@@ -6017,25 +6016,21 @@ void init_const_ptr_hard_coded_addr(CodeGen *g, ZigValue *const_val, ZigType *po
 ZigValue *create_const_ptr_hard_coded_addr(CodeGen *g, ZigType *pointee_type,
         size_t addr, bool is_const)
 {
-    ZigValue *const_val = create_const_vals(1);
+    ZigValue *const_val = g->pass1_arena->create<ZigValue>();
     init_const_ptr_hard_coded_addr(g, const_val, pointee_type, addr, is_const);
     return const_val;
 }
 
-ZigValue *create_const_vals(size_t count) {
-    return allocate<ZigValue>(count, "ZigValue");
+ZigValue **alloc_const_vals_ptrs(CodeGen *g, size_t count) {
+    return realloc_const_vals_ptrs(g, nullptr, 0, count);
 }
 
-ZigValue **alloc_const_vals_ptrs(size_t count) {
-    return realloc_const_vals_ptrs(nullptr, 0, count);
-}
-
-ZigValue **realloc_const_vals_ptrs(ZigValue **ptr, size_t old_count, size_t new_count) {
+ZigValue **realloc_const_vals_ptrs(CodeGen *g, ZigValue **ptr, size_t old_count, size_t new_count) {
     assert(new_count >= old_count);
 
     size_t new_item_count = new_count - old_count;
-    ZigValue **result = reallocate(ptr, old_count, new_count, "ZigValue*");
-    ZigValue *vals = create_const_vals(new_item_count);
+    ZigValue **result = heap::c_allocator.reallocate(ptr, old_count, new_count);
+    ZigValue *vals = g->pass1_arena->allocate<ZigValue>(new_item_count);
     for (size_t i = old_count; i < new_count; i += 1) {
         result[i] = &vals[i - old_count];
     }
@@ -6050,8 +6045,8 @@ TypeStructField **realloc_type_struct_fields(TypeStructField **ptr, size_t old_c
     assert(new_count >= old_count);
 
     size_t new_item_count = new_count - old_count;
-    TypeStructField **result = reallocate(ptr, old_count, new_count, "TypeStructField*");
-    TypeStructField *vals = allocate<TypeStructField>(new_item_count, "TypeStructField");
+    TypeStructField **result = heap::c_allocator.reallocate(ptr, old_count, new_count);
+    TypeStructField *vals = heap::c_allocator.allocate<TypeStructField>(new_item_count);
     for (size_t i = old_count; i < new_count; i += 1) {
         result[i] = &vals[i - old_count];
     }
@@ -6062,7 +6057,7 @@ static ZigType *get_async_fn_type(CodeGen *g, ZigType *orig_fn_type) {
     if (orig_fn_type->data.fn.fn_type_id.cc == CallingConventionAsync)
         return orig_fn_type;
 
-    ZigType *fn_type = allocate_nonzero<ZigType>(1);
+    ZigType *fn_type = heap::c_allocator.allocate_nonzero<ZigType>(1);
     *fn_type = *orig_fn_type;
     fn_type->data.fn.fn_type_id.cc = CallingConventionAsync;
     fn_type->llvm_type = nullptr;
@@ -6236,11 +6231,11 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     ZigType *fn_type = get_async_fn_type(g, fn->type_entry);
 
     if (fn->analyzed_executable.need_err_code_spill) {
-        IrInstGenAlloca *alloca_gen = allocate<IrInstGenAlloca>(1);
+        IrInstGenAlloca *alloca_gen = heap::c_allocator.create<IrInstGenAlloca>();
         alloca_gen->base.id = IrInstGenIdAlloca;
         alloca_gen->base.base.source_node = fn->proto_node;
         alloca_gen->base.base.scope = fn->child_scope;
-        alloca_gen->base.value = allocate<ZigValue>(1, "ZigValue");
+        alloca_gen->base.value = g->pass1_arena->create<ZigValue>();
         alloca_gen->base.value->type = get_pointer_to_type(g, g->builtin_types.entry_global_error_set, false);
         alloca_gen->base.base.ref_count = 1;
         alloca_gen->name_hint = "";
@@ -7375,7 +7370,7 @@ static void init_const_undefined(CodeGen *g, ZigValue *const_val) {
 
         const_val->special = ConstValSpecialStatic;
         size_t field_count = wanted_type->data.structure.src_field_count;
-        const_val->data.x_struct.fields = alloc_const_vals_ptrs(field_count);
+        const_val->data.x_struct.fields = alloc_const_vals_ptrs(g, field_count);
         for (size_t i = 0; i < field_count; i += 1) {
             ZigValue *field_val = const_val->data.x_struct.fields[i];
             field_val->type = resolve_struct_field_type(g, wanted_type->data.structure.fields[i]);
@@ -7418,7 +7413,7 @@ void expand_undef_array(CodeGen *g, ZigValue *const_val) {
             return;
         case ConstArraySpecialUndef: {
             const_val->data.x_array.special = ConstArraySpecialNone;
-            const_val->data.x_array.data.s_none.elements = create_const_vals(elem_count);
+            const_val->data.x_array.data.s_none.elements = g->pass1_arena->allocate<ZigValue>(elem_count);
             for (size_t i = 0; i < elem_count; i += 1) {
                 ZigValue *element_val = &const_val->data.x_array.data.s_none.elements[i];
                 element_val->type = elem_type;
@@ -7437,7 +7432,7 @@ void expand_undef_array(CodeGen *g, ZigValue *const_val) {
 
             const_val->data.x_array.special = ConstArraySpecialNone;
             assert(elem_count == buf_len(buf));
-            const_val->data.x_array.data.s_none.elements = create_const_vals(elem_count);
+            const_val->data.x_array.data.s_none.elements = g->pass1_arena->allocate<ZigValue>(elem_count);
             for (size_t i = 0; i < elem_count; i += 1) {
                 ZigValue *this_char = &const_val->data.x_array.data.s_none.elements[i];
                 this_char->special = ConstValSpecialStatic;
@@ -7609,7 +7604,7 @@ const char *type_id_name(ZigTypeId id) {
 }
 
 LinkLib *create_link_lib(Buf *name) {
-    LinkLib *link_lib = allocate<LinkLib>(1);
+    LinkLib *link_lib = heap::c_allocator.create<LinkLib>();
     link_lib->name = name;
     return link_lib;
 }
@@ -8137,7 +8132,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
 
     size_t field_count = struct_type->data.structure.src_field_count;
     // Every field could potentially have a generated padding field after it.
-    LLVMTypeRef *element_types = allocate<LLVMTypeRef>(field_count * 2);
+    LLVMTypeRef *element_types = heap::c_allocator.allocate<LLVMTypeRef>(field_count * 2);
 
     bool packed = (struct_type->data.structure.layout == ContainerLayoutPacked);
     size_t packed_bits_offset = 0;
@@ -8272,7 +8267,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
                 (unsigned)struct_type->data.structure.gen_field_count, packed);
     }
 
-    ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(debug_field_count);
+    ZigLLVMDIType **di_element_types = heap::c_allocator.allocate<ZigLLVMDIType*>(debug_field_count);
     size_t debug_field_index = 0;
     for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *field = struct_type->data.structure.fields[i];
@@ -8389,7 +8384,7 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatu
     uint32_t field_count = enum_type->data.enumeration.src_field_count;
 
     assert(field_count == 0 || enum_type->data.enumeration.fields != nullptr);
-    ZigLLVMDIEnumerator **di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
+    ZigLLVMDIEnumerator **di_enumerators = heap::c_allocator.allocate<ZigLLVMDIEnumerator*>(field_count);
 
     for (uint32_t i = 0; i < field_count; i += 1) {
         TypeEnumField *enum_field = &enum_type->data.enumeration.fields[i];
@@ -8456,7 +8451,7 @@ static void resolve_llvm_types_union(CodeGen *g, ZigType *union_type, ResolveSta
         if (ResolveStatusLLVMFwdDecl >= wanted_resolve_status) return;
     }
 
-    ZigLLVMDIType **union_inner_di_types = allocate<ZigLLVMDIType*>(gen_field_count);
+    ZigLLVMDIType **union_inner_di_types = heap::c_allocator.allocate<ZigLLVMDIType*>(gen_field_count);
     uint32_t field_count = union_type->data.unionation.src_field_count;
     for (uint32_t i = 0; i < field_count; i += 1) {
         TypeUnionField *union_field = &union_type->data.unionation.fields[i];
@@ -8895,7 +8890,7 @@ static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
         param_di_types.append(get_llvm_di_type(g, gen_type));
     }
     if (is_async) {
-        fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(2);
+        fn_type->data.fn.gen_param_info = heap::c_allocator.allocate<FnGenParamInfo>(2);
 
         ZigType *frame_type = get_any_frame_type(g, fn_type_id->return_type);
         gen_param_types.append(get_llvm_type(g, frame_type));
@@ -8912,7 +8907,7 @@ static void resolve_llvm_types_fn_type(CodeGen *g, ZigType *fn_type) {
         fn_type->data.fn.gen_param_info[1].gen_index = 1;
         fn_type->data.fn.gen_param_info[1].type = g->builtin_types.entry_usize;
     } else {
-        fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(fn_type_id->param_count);
+        fn_type->data.fn.gen_param_info = heap::c_allocator.allocate<FnGenParamInfo>(fn_type_id->param_count);
         for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
             FnTypeParamInfo *src_param_info = &fn_type->data.fn.fn_type_id.param_info[i];
             ZigType *type_entry = src_param_info->type;
@@ -9369,7 +9364,7 @@ bool type_has_optional_repr(ZigType *ty) {
     }
 }
 
-void copy_const_val(ZigValue *dest, ZigValue *src) {
+void copy_const_val(CodeGen *g, ZigValue *dest, ZigValue *src) {
     uint32_t prev_align = dest->llvm_align;
     ConstParent prev_parent = dest->parent;
     memcpy(dest, src, sizeof(ZigValue));
@@ -9378,26 +9373,26 @@ void copy_const_val(ZigValue *dest, ZigValue *src) {
         return;
     dest->parent = prev_parent;
     if (dest->type->id == ZigTypeIdStruct) {
-        dest->data.x_struct.fields = alloc_const_vals_ptrs(dest->type->data.structure.src_field_count);
+        dest->data.x_struct.fields = alloc_const_vals_ptrs(g, dest->type->data.structure.src_field_count);
         for (size_t i = 0; i < dest->type->data.structure.src_field_count; i += 1) {
-            copy_const_val(dest->data.x_struct.fields[i], src->data.x_struct.fields[i]);
+            copy_const_val(g, dest->data.x_struct.fields[i], src->data.x_struct.fields[i]);
             dest->data.x_struct.fields[i]->parent.id = ConstParentIdStruct;
             dest->data.x_struct.fields[i]->parent.data.p_struct.struct_val = dest;
             dest->data.x_struct.fields[i]->parent.data.p_struct.field_index = i;
         }
     } else if (dest->type->id == ZigTypeIdArray) {
         if (dest->data.x_array.special == ConstArraySpecialNone) {
-            dest->data.x_array.data.s_none.elements = create_const_vals(dest->type->data.array.len);
+            dest->data.x_array.data.s_none.elements = g->pass1_arena->allocate<ZigValue>(dest->type->data.array.len);
             for (uint64_t i = 0; i < dest->type->data.array.len; i += 1) {
-                copy_const_val(&dest->data.x_array.data.s_none.elements[i], &src->data.x_array.data.s_none.elements[i]);
+                copy_const_val(g, &dest->data.x_array.data.s_none.elements[i], &src->data.x_array.data.s_none.elements[i]);
                 dest->data.x_array.data.s_none.elements[i].parent.id = ConstParentIdArray;
                 dest->data.x_array.data.s_none.elements[i].parent.data.p_array.array_val = dest;
                 dest->data.x_array.data.s_none.elements[i].parent.data.p_array.elem_index = i;
             }
         }
     } else if (type_has_optional_repr(dest->type) && dest->data.x_optional != nullptr) {
-        dest->data.x_optional = create_const_vals(1);
-        copy_const_val(dest->data.x_optional, src->data.x_optional);
+        dest->data.x_optional = g->pass1_arena->create<ZigValue>();
+        copy_const_val(g, dest->data.x_optional, src->data.x_optional);
         dest->data.x_optional->parent.id = ConstParentIdOptionalPayload;
         dest->data.x_optional->parent.data.p_optional_payload.optional_val = dest;
     }

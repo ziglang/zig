@@ -21,6 +21,7 @@
 #include "userland.h"
 #include "dump_analysis.hpp"
 #include "softfloat.hpp"
+#include "mem_profile.hpp"
 
 #include <stdio.h>
 #include <errno.h>
@@ -57,7 +58,7 @@ static void init_darwin_native(CodeGen *g) {
 }
 
 static ZigPackage *new_package(const char *root_src_dir, const char *root_src_path, const char *pkg_path) {
-    ZigPackage *entry = allocate<ZigPackage>(1);
+    ZigPackage *entry = heap::c_allocator.create<ZigPackage>();
     entry->package_table.init(4);
     buf_init_from_str(&entry->root_src_dir, root_src_dir);
     buf_init_from_str(&entry->root_src_path, root_src_path);
@@ -4327,7 +4328,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutableGen *executable, IrIn
             }
             size_t field_count = arg_calc.field_index;
 
-            LLVMTypeRef *field_types = allocate_nonzero<LLVMTypeRef>(field_count);
+            LLVMTypeRef *field_types = heap::c_allocator.allocate_nonzero<LLVMTypeRef>(field_count);
             LLVMGetStructElementTypes(LLVMGetElementType(LLVMTypeOf(frame_result_loc)), field_types);
             assert(LLVMCountStructElementTypes(LLVMGetElementType(LLVMTypeOf(frame_result_loc))) == arg_calc_start.field_index);
 
@@ -4680,8 +4681,8 @@ static LLVMValueRef ir_render_asm_gen(CodeGen *g, IrExecutableGen *executable, I
                                  instruction->return_count;
     size_t total_index = 0;
     size_t param_index = 0;
-    LLVMTypeRef *param_types = allocate<LLVMTypeRef>(input_and_output_count);
-    LLVMValueRef *param_values = allocate<LLVMValueRef>(input_and_output_count);
+    LLVMTypeRef *param_types = heap::c_allocator.allocate<LLVMTypeRef>(input_and_output_count);
+    LLVMValueRef *param_values = heap::c_allocator.allocate<LLVMValueRef>(input_and_output_count);
     for (size_t i = 0; i < asm_expr->output_list.length; i += 1, total_index += 1) {
         AsmOutput *asm_output = asm_expr->output_list.at(i);
         bool is_return = (asm_output->return_type != nullptr);
@@ -4923,7 +4924,7 @@ static LLVMValueRef ir_render_shuffle_vector(CodeGen *g, IrExecutableGen *execut
     // second vector. These start at -1 and go down, and are easiest to use
     // with the ~ operator. Here we convert between the two formats.
     IrInstGen *mask = instruction->mask;
-    LLVMValueRef *values = allocate<LLVMValueRef>(len_mask);
+    LLVMValueRef *values = heap::c_allocator.allocate<LLVMValueRef>(len_mask);
     for (uint64_t i = 0; i < len_mask; i++) {
         if (mask->value->data.x_array.data.s_none.elements[i].special == ConstValSpecialUndef) {
             values[i] = LLVMGetUndef(LLVMInt32Type());
@@ -4935,7 +4936,7 @@ static LLVMValueRef ir_render_shuffle_vector(CodeGen *g, IrExecutableGen *execut
     }
 
     LLVMValueRef llvm_mask_value = LLVMConstVector(values, len_mask);
-    free(values);
+    heap::c_allocator.deallocate(values, len_mask);
 
     return LLVMBuildShuffleVector(g->builder,
         ir_llvm_value(g, instruction->a),
@@ -5003,8 +5004,8 @@ static LLVMValueRef ir_render_phi(CodeGen *g, IrExecutableGen *executable, IrIns
     }
 
     LLVMValueRef phi = LLVMBuildPhi(g->builder, phi_type, "");
-    LLVMValueRef *incoming_values = allocate<LLVMValueRef>(instruction->incoming_count);
-    LLVMBasicBlockRef *incoming_blocks = allocate<LLVMBasicBlockRef>(instruction->incoming_count);
+    LLVMValueRef *incoming_values = heap::c_allocator.allocate<LLVMValueRef>(instruction->incoming_count);
+    LLVMBasicBlockRef *incoming_blocks = heap::c_allocator.allocate<LLVMBasicBlockRef>(instruction->incoming_count);
     for (size_t i = 0; i < instruction->incoming_count; i += 1) {
         incoming_values[i] = ir_llvm_value(g, instruction->incoming_values[i]);
         incoming_blocks[i] = instruction->incoming_blocks[i]->llvm_exit_block;
@@ -5977,12 +5978,12 @@ static LLVMValueRef ir_render_bswap(CodeGen *g, IrExecutableGen *executable, IrI
     LLVMValueRef shift_amt = LLVMConstInt(get_llvm_type(g, extended_type), 8, false);
     if (is_vector) {
         extended_type = get_vector_type(g, expr_type->data.vector.len, extended_type);
-        LLVMValueRef *values = allocate_nonzero<LLVMValueRef>(expr_type->data.vector.len);
+        LLVMValueRef *values = heap::c_allocator.allocate_nonzero<LLVMValueRef>(expr_type->data.vector.len);
         for (uint32_t i = 0; i < expr_type->data.vector.len; i += 1) {
             values[i] = shift_amt;
         }
         shift_amt = LLVMConstVector(values, expr_type->data.vector.len);
-        free(values);
+        heap::c_allocator.deallocate(values, expr_type->data.vector.len);
     }
     // aabbcc
     LLVMValueRef extended = LLVMBuildZExt(g->builder, op, get_llvm_type(g, extended_type), "");
@@ -7015,7 +7016,7 @@ check: switch (const_val->special) {
             }
         case ZigTypeIdStruct:
             {
-                LLVMValueRef *fields = allocate<LLVMValueRef>(type_entry->data.structure.gen_field_count);
+                LLVMValueRef *fields = heap::c_allocator.allocate<LLVMValueRef>(type_entry->data.structure.gen_field_count);
                 size_t src_field_count = type_entry->data.structure.src_field_count;
                 bool make_unnamed_struct = false;
                 assert(type_entry->data.structure.resolve_status == ResolveStatusLLVMFull);
@@ -7074,7 +7075,7 @@ check: switch (const_val->special) {
                             } else {
                                 const LLVMValueRef AMT = LLVMConstInt(LLVMTypeOf(val), 8, false);
 
-                                LLVMValueRef *values = allocate<LLVMValueRef>(size_in_bytes);
+                                LLVMValueRef *values = heap::c_allocator.allocate<LLVMValueRef>(size_in_bytes);
                                 for (size_t i = 0; i < size_in_bytes; i++) {
                                     const size_t idx = is_big_endian ? size_in_bytes - 1 - i : i;
                                     values[idx] = LLVMConstTruncOrBitCast(val, LLVMInt8Type());
@@ -7138,7 +7139,7 @@ check: switch (const_val->special) {
                     case ConstArraySpecialNone: {
                         uint64_t extra_len_from_sentinel = (type_entry->data.array.sentinel != nullptr) ? 1 : 0;
                         uint64_t full_len = len + extra_len_from_sentinel;
-                        LLVMValueRef *values = allocate<LLVMValueRef>(full_len);
+                        LLVMValueRef *values = heap::c_allocator.allocate<LLVMValueRef>(full_len);
                         LLVMTypeRef element_type_ref = get_llvm_type(g, type_entry->data.array.child_type);
                         bool make_unnamed_struct = false;
                         for (uint64_t i = 0; i < len; i += 1) {
@@ -7170,7 +7171,7 @@ check: switch (const_val->special) {
                 case ConstArraySpecialUndef:
                     return LLVMGetUndef(get_llvm_type(g, type_entry));
                 case ConstArraySpecialNone: {
-                    LLVMValueRef *values = allocate<LLVMValueRef>(len);
+                    LLVMValueRef *values = heap::c_allocator.allocate<LLVMValueRef>(len);
                     for (uint64_t i = 0; i < len; i += 1) {
                         ZigValue *elem_value = &const_val->data.x_array.data.s_none.elements[i];
                         values[i] = gen_const_val(g, elem_value, "");
@@ -7180,7 +7181,7 @@ check: switch (const_val->special) {
                 case ConstArraySpecialBuf: {
                     Buf *buf = const_val->data.x_array.data.s_buf;
                     assert(buf_len(buf) == len);
-                    LLVMValueRef *values = allocate<LLVMValueRef>(len);
+                    LLVMValueRef *values = heap::c_allocator.allocate<LLVMValueRef>(len);
                     for (uint64_t i = 0; i < len; i += 1) {
                         values[i] = LLVMConstInt(g->builtin_types.entry_u8->llvm_type, buf_ptr(buf)[i], false);
                     }
@@ -7382,7 +7383,7 @@ static void generate_error_name_table(CodeGen *g) {
             PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0, false);
     ZigType *str_type = get_slice_type(g, u8_ptr_type);
 
-    LLVMValueRef *values = allocate<LLVMValueRef>(g->errors_by_index.length);
+    LLVMValueRef *values = heap::c_allocator.allocate<LLVMValueRef>(g->errors_by_index.length);
     values[0] = LLVMGetUndef(get_llvm_type(g, str_type));
     for (size_t i = 1; i < g->errors_by_index.length; i += 1) {
         ErrorTableEntry *err_entry = g->errors_by_index.at(i);
@@ -7911,6 +7912,9 @@ static void do_code_gen(CodeGen *g) {
 }
 
 static void zig_llvm_emit_output(CodeGen *g) {
+    g->pass1_arena->destruct(&heap::c_allocator);
+    g->pass1_arena = nullptr;
+
     bool is_small = g->build_mode == BuildModeSmallRelease;
 
     Buf *output_path = &g->o_file_output_path;
@@ -8207,7 +8211,7 @@ static void define_intern_values(CodeGen *g) {
 }
 
 static BuiltinFnEntry *create_builtin_fn(CodeGen *g, BuiltinFnId id, const char *name, size_t count) {
-    BuiltinFnEntry *builtin_fn = allocate<BuiltinFnEntry>(1);
+    BuiltinFnEntry *builtin_fn = heap::c_allocator.create<BuiltinFnEntry>();
     buf_init_from_str(&builtin_fn->name, name);
     builtin_fn->id = id;
     builtin_fn->param_count = count;
@@ -8925,16 +8929,16 @@ static void init(CodeGen *g) {
     define_builtin_types(g);
     define_intern_values(g);
 
-    IrInstGen *sentinel_instructions = allocate<IrInstGen>(2);
+    IrInstGen *sentinel_instructions = heap::c_allocator.allocate<IrInstGen>(2);
     g->invalid_inst_gen = &sentinel_instructions[0];
-    g->invalid_inst_gen->value = allocate<ZigValue>(1, "ZigValue");
+    g->invalid_inst_gen->value = g->pass1_arena->create<ZigValue>();
     g->invalid_inst_gen->value->type = g->builtin_types.entry_invalid;
 
     g->unreach_instruction = &sentinel_instructions[1];
-    g->unreach_instruction->value = allocate<ZigValue>(1, "ZigValue");
+    g->unreach_instruction->value = g->pass1_arena->create<ZigValue>();
     g->unreach_instruction->value->type = g->builtin_types.entry_unreachable;
 
-    g->invalid_inst_src = allocate<IrInstSrc>(1);
+    g->invalid_inst_src = heap::c_allocator.create<IrInstSrc>();
 
     define_builtin_fns(g);
     Error err;
@@ -9016,7 +9020,7 @@ static void detect_libc(CodeGen *g) {
                 buf_ptr(g->zig_lib_dir), target_os_name(g->zig_target->os));
 
         g->libc_include_dir_len = 4;
-        g->libc_include_dir_list = allocate<Buf*>(g->libc_include_dir_len);
+        g->libc_include_dir_list = heap::c_allocator.allocate<Buf*>(g->libc_include_dir_len);
         g->libc_include_dir_list[0] = arch_include_dir;
         g->libc_include_dir_list[1] = generic_include_dir;
         g->libc_include_dir_list[2] = arch_os_include_dir;
@@ -9025,7 +9029,7 @@ static void detect_libc(CodeGen *g) {
     }
 
     if (g->zig_target->is_native) {
-        g->libc = allocate<ZigLibCInstallation>(1);
+        g->libc = heap::c_allocator.create<ZigLibCInstallation>();
 
         // search for native_libc.txt in following dirs:
         //   - LOCAL_CACHE_DIR
@@ -9105,7 +9109,7 @@ static void detect_libc(CodeGen *g) {
         size_t want_um_and_shared_dirs = (g->zig_target->os == OsWindows) ? 2 : 0;
         size_t dir_count = 1 + want_sys_dir + want_um_and_shared_dirs;
         g->libc_include_dir_len = 0;
-        g->libc_include_dir_list = allocate<Buf*>(dir_count);
+        g->libc_include_dir_list = heap::c_allocator.allocate<Buf*>(dir_count);
 
         g->libc_include_dir_list[g->libc_include_dir_len] = &g->libc->include_dir;
         g->libc_include_dir_len += 1;
@@ -9472,10 +9476,10 @@ static void update_test_functions_builtin_decl(CodeGen *g) {
     if ((err = type_resolve(g, struct_type, ResolveStatusSizeKnown)))
         zig_unreachable();
 
-    ZigValue *test_fn_array = create_const_vals(1);
+    ZigValue *test_fn_array = g->pass1_arena->create<ZigValue>();
     test_fn_array->type = get_array_type(g, struct_type, g->test_fns.length, nullptr);
     test_fn_array->special = ConstValSpecialStatic;
-    test_fn_array->data.x_array.data.s_none.elements = create_const_vals(g->test_fns.length);
+    test_fn_array->data.x_array.data.s_none.elements = g->pass1_arena->allocate<ZigValue>(g->test_fns.length);
 
     for (size_t i = 0; i < g->test_fns.length; i += 1) {
         ZigFn *test_fn_entry = g->test_fns.at(i);
@@ -9486,7 +9490,7 @@ static void update_test_functions_builtin_decl(CodeGen *g) {
         this_val->parent.id = ConstParentIdArray;
         this_val->parent.data.p_array.array_val = test_fn_array;
         this_val->parent.data.p_array.elem_index = i;
-        this_val->data.x_struct.fields = alloc_const_vals_ptrs(3);
+        this_val->data.x_struct.fields = alloc_const_vals_ptrs(g, 3);
 
         ZigValue *name_field = this_val->data.x_struct.fields[0];
         ZigValue *name_array_val = create_const_str_lit(g, &test_fn_entry->symbol_name)->data.x_ptr.data.ref.pointee;
@@ -9505,7 +9509,7 @@ static void update_test_functions_builtin_decl(CodeGen *g) {
         frame_size_field->data.x_optional = nullptr;
 
         if (fn_is_async(test_fn_entry)) {
-            frame_size_field->data.x_optional = create_const_vals(1);
+            frame_size_field->data.x_optional = g->pass1_arena->create<ZigValue>();
             frame_size_field->data.x_optional->special = ConstValSpecialStatic;
             frame_size_field->data.x_optional->type = g->builtin_types.entry_usize;
             bigint_init_unsigned(&frame_size_field->data.x_optional->data.x_bigint,
@@ -9640,7 +9644,7 @@ static Error get_tmp_filename(CodeGen *g, Buf *out, Buf *suffix) {
 
 Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose) {
     Error err;
-    CacheHash *cache_hash = allocate<CacheHash>(1);
+    CacheHash *cache_hash = heap::c_allocator.create<CacheHash>();
     Buf *manifest_dir = buf_sprintf("%s" OS_SEP CACHE_HASH_SUBDIR, buf_ptr(g->cache_dir));
     cache_init(cache_hash, manifest_dir);
 
@@ -10794,7 +10798,8 @@ CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget 
     OutType out_type, BuildMode build_mode, Buf *override_lib_dir,
     ZigLibCInstallation *libc, Buf *cache_dir, bool is_test_build, Stage2ProgressNode *progress_node)
 {
-    CodeGen *g = allocate<CodeGen>(1);
+    CodeGen *g = heap::c_allocator.create<CodeGen>();
+    g->pass1_arena = heap::ArenaAllocator::construct(&heap::c_allocator, &heap::c_allocator, "pass1");
     g->main_progress_node = progress_node;
 
     codegen_add_time_event(g, "Initialize");
@@ -10937,35 +10942,35 @@ void codegen_switch_sub_prog_node(CodeGen *g, Stage2ProgressNode *node) {
 
 ZigValue *CodeGen::Intern::for_undefined() {
 #ifdef ZIG_ENABLE_MEM_PROFILE
-    memprof_intern_count.x_undefined += 1;
+    mem::intern_counters.x_undefined += 1;
 #endif
     return &this->x_undefined;
 }
 
 ZigValue *CodeGen::Intern::for_void() {
 #ifdef ZIG_ENABLE_MEM_PROFILE
-    memprof_intern_count.x_void += 1;
+    mem::intern_counters.x_void += 1;
 #endif
     return &this->x_void;
 }
 
 ZigValue *CodeGen::Intern::for_null() {
 #ifdef ZIG_ENABLE_MEM_PROFILE
-    memprof_intern_count.x_null += 1;
+    mem::intern_counters.x_null += 1;
 #endif
     return &this->x_null;
 }
 
 ZigValue *CodeGen::Intern::for_unreachable() {
 #ifdef ZIG_ENABLE_MEM_PROFILE
-    memprof_intern_count.x_unreachable += 1;
+    mem::intern_counters.x_unreachable += 1;
 #endif
     return &this->x_unreachable;
 }
 
 ZigValue *CodeGen::Intern::for_zero_byte() {
 #ifdef ZIG_ENABLE_MEM_PROFILE
-    memprof_intern_count.zero_byte += 1;
+    mem::intern_counters.zero_byte += 1;
 #endif
     return &this->zero_byte;
 }

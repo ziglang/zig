@@ -269,477 +269,467 @@ static IrInstGen *ir_analyze_test_non_null(IrAnalyze *ira, IrInst *source_inst, 
 static IrInstGen *ir_error_dependency_loop(IrAnalyze *ira, IrInst *source_instr);
 
 static void destroy_instruction_src(IrInstSrc *inst) {
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    const char *name = ir_inst_src_type_str(inst->id);
-#else
-    const char *name = nullptr;
-#endif
     switch (inst->id) {
         case IrInstSrcIdInvalid:
             zig_unreachable();
         case IrInstSrcIdReturn:
-            return destroy(reinterpret_cast<IrInstSrcReturn *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcReturn *>(inst));
         case IrInstSrcIdConst:
-            return destroy(reinterpret_cast<IrInstSrcConst *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcConst *>(inst));
         case IrInstSrcIdBinOp:
-            return destroy(reinterpret_cast<IrInstSrcBinOp *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBinOp *>(inst));
         case IrInstSrcIdMergeErrSets:
-            return destroy(reinterpret_cast<IrInstSrcMergeErrSets *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcMergeErrSets *>(inst));
         case IrInstSrcIdDeclVar:
-            return destroy(reinterpret_cast<IrInstSrcDeclVar *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcDeclVar *>(inst));
         case IrInstSrcIdCall:
-            return destroy(reinterpret_cast<IrInstSrcCall *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCall *>(inst));
         case IrInstSrcIdCallExtra:
-            return destroy(reinterpret_cast<IrInstSrcCallExtra *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCallExtra *>(inst));
         case IrInstSrcIdUnOp:
-            return destroy(reinterpret_cast<IrInstSrcUnOp *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcUnOp *>(inst));
         case IrInstSrcIdCondBr:
-            return destroy(reinterpret_cast<IrInstSrcCondBr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCondBr *>(inst));
         case IrInstSrcIdBr:
-            return destroy(reinterpret_cast<IrInstSrcBr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBr *>(inst));
         case IrInstSrcIdPhi:
-            return destroy(reinterpret_cast<IrInstSrcPhi *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcPhi *>(inst));
         case IrInstSrcIdContainerInitList:
-            return destroy(reinterpret_cast<IrInstSrcContainerInitList *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcContainerInitList *>(inst));
         case IrInstSrcIdContainerInitFields:
-            return destroy(reinterpret_cast<IrInstSrcContainerInitFields *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcContainerInitFields *>(inst));
         case IrInstSrcIdUnreachable:
-            return destroy(reinterpret_cast<IrInstSrcUnreachable *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcUnreachable *>(inst));
         case IrInstSrcIdElemPtr:
-            return destroy(reinterpret_cast<IrInstSrcElemPtr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcElemPtr *>(inst));
         case IrInstSrcIdVarPtr:
-            return destroy(reinterpret_cast<IrInstSrcVarPtr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcVarPtr *>(inst));
         case IrInstSrcIdLoadPtr:
-            return destroy(reinterpret_cast<IrInstSrcLoadPtr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcLoadPtr *>(inst));
         case IrInstSrcIdStorePtr:
-            return destroy(reinterpret_cast<IrInstSrcStorePtr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcStorePtr *>(inst));
         case IrInstSrcIdTypeOf:
-            return destroy(reinterpret_cast<IrInstSrcTypeOf *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTypeOf *>(inst));
         case IrInstSrcIdFieldPtr:
-            return destroy(reinterpret_cast<IrInstSrcFieldPtr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFieldPtr *>(inst));
         case IrInstSrcIdSetCold:
-            return destroy(reinterpret_cast<IrInstSrcSetCold *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSetCold *>(inst));
         case IrInstSrcIdSetRuntimeSafety:
-            return destroy(reinterpret_cast<IrInstSrcSetRuntimeSafety *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSetRuntimeSafety *>(inst));
         case IrInstSrcIdSetFloatMode:
-            return destroy(reinterpret_cast<IrInstSrcSetFloatMode *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSetFloatMode *>(inst));
         case IrInstSrcIdArrayType:
-            return destroy(reinterpret_cast<IrInstSrcArrayType *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcArrayType *>(inst));
         case IrInstSrcIdSliceType:
-            return destroy(reinterpret_cast<IrInstSrcSliceType *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSliceType *>(inst));
         case IrInstSrcIdAnyFrameType:
-            return destroy(reinterpret_cast<IrInstSrcAnyFrameType *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAnyFrameType *>(inst));
         case IrInstSrcIdAsm:
-            return destroy(reinterpret_cast<IrInstSrcAsm *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAsm *>(inst));
         case IrInstSrcIdSizeOf:
-            return destroy(reinterpret_cast<IrInstSrcSizeOf *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSizeOf *>(inst));
         case IrInstSrcIdTestNonNull:
-            return destroy(reinterpret_cast<IrInstSrcTestNonNull *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTestNonNull *>(inst));
         case IrInstSrcIdOptionalUnwrapPtr:
-            return destroy(reinterpret_cast<IrInstSrcOptionalUnwrapPtr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcOptionalUnwrapPtr *>(inst));
         case IrInstSrcIdPopCount:
-            return destroy(reinterpret_cast<IrInstSrcPopCount *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcPopCount *>(inst));
         case IrInstSrcIdClz:
-            return destroy(reinterpret_cast<IrInstSrcClz *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcClz *>(inst));
         case IrInstSrcIdCtz:
-            return destroy(reinterpret_cast<IrInstSrcCtz *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCtz *>(inst));
         case IrInstSrcIdBswap:
-            return destroy(reinterpret_cast<IrInstSrcBswap *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBswap *>(inst));
         case IrInstSrcIdBitReverse:
-            return destroy(reinterpret_cast<IrInstSrcBitReverse *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBitReverse *>(inst));
         case IrInstSrcIdSwitchBr:
-            return destroy(reinterpret_cast<IrInstSrcSwitchBr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSwitchBr *>(inst));
         case IrInstSrcIdSwitchVar:
-            return destroy(reinterpret_cast<IrInstSrcSwitchVar *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSwitchVar *>(inst));
         case IrInstSrcIdSwitchElseVar:
-            return destroy(reinterpret_cast<IrInstSrcSwitchElseVar *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSwitchElseVar *>(inst));
         case IrInstSrcIdSwitchTarget:
-            return destroy(reinterpret_cast<IrInstSrcSwitchTarget *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSwitchTarget *>(inst));
         case IrInstSrcIdImport:
-            return destroy(reinterpret_cast<IrInstSrcImport *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcImport *>(inst));
         case IrInstSrcIdRef:
-            return destroy(reinterpret_cast<IrInstSrcRef *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcRef *>(inst));
         case IrInstSrcIdCompileErr:
-            return destroy(reinterpret_cast<IrInstSrcCompileErr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCompileErr *>(inst));
         case IrInstSrcIdCompileLog:
-            return destroy(reinterpret_cast<IrInstSrcCompileLog *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCompileLog *>(inst));
         case IrInstSrcIdErrName:
-            return destroy(reinterpret_cast<IrInstSrcErrName *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcErrName *>(inst));
         case IrInstSrcIdCImport:
-            return destroy(reinterpret_cast<IrInstSrcCImport *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCImport *>(inst));
         case IrInstSrcIdCInclude:
-            return destroy(reinterpret_cast<IrInstSrcCInclude *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCInclude *>(inst));
         case IrInstSrcIdCDefine:
-            return destroy(reinterpret_cast<IrInstSrcCDefine *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCDefine *>(inst));
         case IrInstSrcIdCUndef:
-            return destroy(reinterpret_cast<IrInstSrcCUndef *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCUndef *>(inst));
         case IrInstSrcIdEmbedFile:
-            return destroy(reinterpret_cast<IrInstSrcEmbedFile *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcEmbedFile *>(inst));
         case IrInstSrcIdCmpxchg:
-            return destroy(reinterpret_cast<IrInstSrcCmpxchg *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCmpxchg *>(inst));
         case IrInstSrcIdFence:
-            return destroy(reinterpret_cast<IrInstSrcFence *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFence *>(inst));
         case IrInstSrcIdTruncate:
-            return destroy(reinterpret_cast<IrInstSrcTruncate *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTruncate *>(inst));
         case IrInstSrcIdIntCast:
-            return destroy(reinterpret_cast<IrInstSrcIntCast *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcIntCast *>(inst));
         case IrInstSrcIdFloatCast:
-            return destroy(reinterpret_cast<IrInstSrcFloatCast *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFloatCast *>(inst));
         case IrInstSrcIdErrSetCast:
-            return destroy(reinterpret_cast<IrInstSrcErrSetCast *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcErrSetCast *>(inst));
         case IrInstSrcIdFromBytes:
-            return destroy(reinterpret_cast<IrInstSrcFromBytes *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFromBytes *>(inst));
         case IrInstSrcIdToBytes:
-            return destroy(reinterpret_cast<IrInstSrcToBytes *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcToBytes *>(inst));
         case IrInstSrcIdIntToFloat:
-            return destroy(reinterpret_cast<IrInstSrcIntToFloat *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcIntToFloat *>(inst));
         case IrInstSrcIdFloatToInt:
-            return destroy(reinterpret_cast<IrInstSrcFloatToInt *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFloatToInt *>(inst));
         case IrInstSrcIdBoolToInt:
-            return destroy(reinterpret_cast<IrInstSrcBoolToInt *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBoolToInt *>(inst));
         case IrInstSrcIdIntType:
-            return destroy(reinterpret_cast<IrInstSrcIntType *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcIntType *>(inst));
         case IrInstSrcIdVectorType:
-            return destroy(reinterpret_cast<IrInstSrcVectorType *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcVectorType *>(inst));
         case IrInstSrcIdShuffleVector:
-            return destroy(reinterpret_cast<IrInstSrcShuffleVector *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcShuffleVector *>(inst));
         case IrInstSrcIdSplat:
-            return destroy(reinterpret_cast<IrInstSrcSplat *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSplat *>(inst));
         case IrInstSrcIdBoolNot:
-            return destroy(reinterpret_cast<IrInstSrcBoolNot *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBoolNot *>(inst));
         case IrInstSrcIdMemset:
-            return destroy(reinterpret_cast<IrInstSrcMemset *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcMemset *>(inst));
         case IrInstSrcIdMemcpy:
-            return destroy(reinterpret_cast<IrInstSrcMemcpy *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcMemcpy *>(inst));
         case IrInstSrcIdSlice:
-            return destroy(reinterpret_cast<IrInstSrcSlice *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSlice *>(inst));
         case IrInstSrcIdMemberCount:
-            return destroy(reinterpret_cast<IrInstSrcMemberCount *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcMemberCount *>(inst));
         case IrInstSrcIdMemberType:
-            return destroy(reinterpret_cast<IrInstSrcMemberType *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcMemberType *>(inst));
         case IrInstSrcIdMemberName:
-            return destroy(reinterpret_cast<IrInstSrcMemberName *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcMemberName *>(inst));
         case IrInstSrcIdBreakpoint:
-            return destroy(reinterpret_cast<IrInstSrcBreakpoint *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBreakpoint *>(inst));
         case IrInstSrcIdReturnAddress:
-            return destroy(reinterpret_cast<IrInstSrcReturnAddress *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcReturnAddress *>(inst));
         case IrInstSrcIdFrameAddress:
-            return destroy(reinterpret_cast<IrInstSrcFrameAddress *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFrameAddress *>(inst));
         case IrInstSrcIdFrameHandle:
-            return destroy(reinterpret_cast<IrInstSrcFrameHandle *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFrameHandle *>(inst));
         case IrInstSrcIdFrameType:
-            return destroy(reinterpret_cast<IrInstSrcFrameType *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFrameType *>(inst));
         case IrInstSrcIdFrameSize:
-            return destroy(reinterpret_cast<IrInstSrcFrameSize *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFrameSize *>(inst));
         case IrInstSrcIdAlignOf:
-            return destroy(reinterpret_cast<IrInstSrcAlignOf *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAlignOf *>(inst));
         case IrInstSrcIdOverflowOp:
-            return destroy(reinterpret_cast<IrInstSrcOverflowOp *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcOverflowOp *>(inst));
         case IrInstSrcIdTestErr:
-            return destroy(reinterpret_cast<IrInstSrcTestErr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTestErr *>(inst));
         case IrInstSrcIdUnwrapErrCode:
-            return destroy(reinterpret_cast<IrInstSrcUnwrapErrCode *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcUnwrapErrCode *>(inst));
         case IrInstSrcIdUnwrapErrPayload:
-            return destroy(reinterpret_cast<IrInstSrcUnwrapErrPayload *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcUnwrapErrPayload *>(inst));
         case IrInstSrcIdFnProto:
-            return destroy(reinterpret_cast<IrInstSrcFnProto *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFnProto *>(inst));
         case IrInstSrcIdTestComptime:
-            return destroy(reinterpret_cast<IrInstSrcTestComptime *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTestComptime *>(inst));
         case IrInstSrcIdPtrCast:
-            return destroy(reinterpret_cast<IrInstSrcPtrCast *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcPtrCast *>(inst));
         case IrInstSrcIdBitCast:
-            return destroy(reinterpret_cast<IrInstSrcBitCast *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBitCast *>(inst));
         case IrInstSrcIdPtrToInt:
-            return destroy(reinterpret_cast<IrInstSrcPtrToInt *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcPtrToInt *>(inst));
         case IrInstSrcIdIntToPtr:
-            return destroy(reinterpret_cast<IrInstSrcIntToPtr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcIntToPtr *>(inst));
         case IrInstSrcIdIntToEnum:
-            return destroy(reinterpret_cast<IrInstSrcIntToEnum *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcIntToEnum *>(inst));
         case IrInstSrcIdIntToErr:
-            return destroy(reinterpret_cast<IrInstSrcIntToErr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcIntToErr *>(inst));
         case IrInstSrcIdErrToInt:
-            return destroy(reinterpret_cast<IrInstSrcErrToInt *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcErrToInt *>(inst));
         case IrInstSrcIdCheckSwitchProngs:
-            return destroy(reinterpret_cast<IrInstSrcCheckSwitchProngs *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCheckSwitchProngs *>(inst));
         case IrInstSrcIdCheckStatementIsVoid:
-            return destroy(reinterpret_cast<IrInstSrcCheckStatementIsVoid *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCheckStatementIsVoid *>(inst));
         case IrInstSrcIdTypeName:
-            return destroy(reinterpret_cast<IrInstSrcTypeName *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTypeName *>(inst));
         case IrInstSrcIdTagName:
-            return destroy(reinterpret_cast<IrInstSrcTagName *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTagName *>(inst));
         case IrInstSrcIdPtrType:
-            return destroy(reinterpret_cast<IrInstSrcPtrType *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcPtrType *>(inst));
         case IrInstSrcIdDeclRef:
-            return destroy(reinterpret_cast<IrInstSrcDeclRef *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcDeclRef *>(inst));
         case IrInstSrcIdPanic:
-            return destroy(reinterpret_cast<IrInstSrcPanic *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcPanic *>(inst));
         case IrInstSrcIdFieldParentPtr:
-            return destroy(reinterpret_cast<IrInstSrcFieldParentPtr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFieldParentPtr *>(inst));
         case IrInstSrcIdByteOffsetOf:
-            return destroy(reinterpret_cast<IrInstSrcByteOffsetOf *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcByteOffsetOf *>(inst));
         case IrInstSrcIdBitOffsetOf:
-            return destroy(reinterpret_cast<IrInstSrcBitOffsetOf *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBitOffsetOf *>(inst));
         case IrInstSrcIdTypeInfo:
-            return destroy(reinterpret_cast<IrInstSrcTypeInfo *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTypeInfo *>(inst));
         case IrInstSrcIdType:
-            return destroy(reinterpret_cast<IrInstSrcType *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcType *>(inst));
         case IrInstSrcIdHasField:
-            return destroy(reinterpret_cast<IrInstSrcHasField *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcHasField *>(inst));
         case IrInstSrcIdTypeId:
-            return destroy(reinterpret_cast<IrInstSrcTypeId *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTypeId *>(inst));
         case IrInstSrcIdSetEvalBranchQuota:
-            return destroy(reinterpret_cast<IrInstSrcSetEvalBranchQuota *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSetEvalBranchQuota *>(inst));
         case IrInstSrcIdAlignCast:
-            return destroy(reinterpret_cast<IrInstSrcAlignCast *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAlignCast *>(inst));
         case IrInstSrcIdImplicitCast:
-            return destroy(reinterpret_cast<IrInstSrcImplicitCast *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcImplicitCast *>(inst));
         case IrInstSrcIdResolveResult:
-            return destroy(reinterpret_cast<IrInstSrcResolveResult *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcResolveResult *>(inst));
         case IrInstSrcIdResetResult:
-            return destroy(reinterpret_cast<IrInstSrcResetResult *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcResetResult *>(inst));
         case IrInstSrcIdOpaqueType:
-            return destroy(reinterpret_cast<IrInstSrcOpaqueType *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcOpaqueType *>(inst));
         case IrInstSrcIdSetAlignStack:
-            return destroy(reinterpret_cast<IrInstSrcSetAlignStack *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSetAlignStack *>(inst));
         case IrInstSrcIdArgType:
-            return destroy(reinterpret_cast<IrInstSrcArgType *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcArgType *>(inst));
         case IrInstSrcIdTagType:
-            return destroy(reinterpret_cast<IrInstSrcTagType *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcTagType *>(inst));
         case IrInstSrcIdExport:
-            return destroy(reinterpret_cast<IrInstSrcExport *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcExport *>(inst));
         case IrInstSrcIdErrorReturnTrace:
-            return destroy(reinterpret_cast<IrInstSrcErrorReturnTrace *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcErrorReturnTrace *>(inst));
         case IrInstSrcIdErrorUnion:
-            return destroy(reinterpret_cast<IrInstSrcErrorUnion *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcErrorUnion *>(inst));
         case IrInstSrcIdAtomicRmw:
-            return destroy(reinterpret_cast<IrInstSrcAtomicRmw *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAtomicRmw *>(inst));
         case IrInstSrcIdSaveErrRetAddr:
-            return destroy(reinterpret_cast<IrInstSrcSaveErrRetAddr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSaveErrRetAddr *>(inst));
         case IrInstSrcIdAddImplicitReturnType:
-            return destroy(reinterpret_cast<IrInstSrcAddImplicitReturnType *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAddImplicitReturnType *>(inst));
         case IrInstSrcIdFloatOp:
-            return destroy(reinterpret_cast<IrInstSrcFloatOp *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFloatOp *>(inst));
         case IrInstSrcIdMulAdd:
-            return destroy(reinterpret_cast<IrInstSrcMulAdd *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcMulAdd *>(inst));
         case IrInstSrcIdAtomicLoad:
-            return destroy(reinterpret_cast<IrInstSrcAtomicLoad *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAtomicLoad *>(inst));
         case IrInstSrcIdAtomicStore:
-            return destroy(reinterpret_cast<IrInstSrcAtomicStore *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAtomicStore *>(inst));
         case IrInstSrcIdEnumToInt:
-            return destroy(reinterpret_cast<IrInstSrcEnumToInt *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcEnumToInt *>(inst));
         case IrInstSrcIdCheckRuntimeScope:
-            return destroy(reinterpret_cast<IrInstSrcCheckRuntimeScope *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCheckRuntimeScope *>(inst));
         case IrInstSrcIdHasDecl:
-            return destroy(reinterpret_cast<IrInstSrcHasDecl *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcHasDecl *>(inst));
         case IrInstSrcIdUndeclaredIdent:
-            return destroy(reinterpret_cast<IrInstSrcUndeclaredIdent *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcUndeclaredIdent *>(inst));
         case IrInstSrcIdAlloca:
-            return destroy(reinterpret_cast<IrInstSrcAlloca *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAlloca *>(inst));
         case IrInstSrcIdEndExpr:
-            return destroy(reinterpret_cast<IrInstSrcEndExpr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcEndExpr *>(inst));
         case IrInstSrcIdUnionInitNamedField:
-            return destroy(reinterpret_cast<IrInstSrcUnionInitNamedField *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcUnionInitNamedField *>(inst));
         case IrInstSrcIdSuspendBegin:
-            return destroy(reinterpret_cast<IrInstSrcSuspendBegin *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSuspendBegin *>(inst));
         case IrInstSrcIdSuspendFinish:
-            return destroy(reinterpret_cast<IrInstSrcSuspendFinish *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSuspendFinish *>(inst));
         case IrInstSrcIdResume:
-            return destroy(reinterpret_cast<IrInstSrcResume *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcResume *>(inst));
         case IrInstSrcIdAwait:
-            return destroy(reinterpret_cast<IrInstSrcAwait *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcAwait *>(inst));
         case IrInstSrcIdSpillBegin:
-            return destroy(reinterpret_cast<IrInstSrcSpillBegin *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSpillBegin *>(inst));
         case IrInstSrcIdSpillEnd:
-            return destroy(reinterpret_cast<IrInstSrcSpillEnd *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcSpillEnd *>(inst));
         case IrInstSrcIdCallArgs:
-            return destroy(reinterpret_cast<IrInstSrcCallArgs *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcCallArgs *>(inst));
     }
     zig_unreachable();
 }
 
 void destroy_instruction_gen(IrInstGen *inst) {
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    const char *name = ir_inst_gen_type_str(inst->id);
-#else
-    const char *name = nullptr;
-#endif
     switch (inst->id) {
         case IrInstGenIdInvalid:
             zig_unreachable();
         case IrInstGenIdReturn:
-            return destroy(reinterpret_cast<IrInstGenReturn *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenReturn *>(inst));
         case IrInstGenIdConst:
-            return destroy(reinterpret_cast<IrInstGenConst *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenConst *>(inst));
         case IrInstGenIdBinOp:
-            return destroy(reinterpret_cast<IrInstGenBinOp *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenBinOp *>(inst));
         case IrInstGenIdCast:
-            return destroy(reinterpret_cast<IrInstGenCast *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenCast *>(inst));
         case IrInstGenIdCall:
-            return destroy(reinterpret_cast<IrInstGenCall *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenCall *>(inst));
         case IrInstGenIdCondBr:
-            return destroy(reinterpret_cast<IrInstGenCondBr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenCondBr *>(inst));
         case IrInstGenIdBr:
-            return destroy(reinterpret_cast<IrInstGenBr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenBr *>(inst));
         case IrInstGenIdPhi:
-            return destroy(reinterpret_cast<IrInstGenPhi *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenPhi *>(inst));
         case IrInstGenIdUnreachable:
-            return destroy(reinterpret_cast<IrInstGenUnreachable *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenUnreachable *>(inst));
         case IrInstGenIdElemPtr:
-            return destroy(reinterpret_cast<IrInstGenElemPtr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenElemPtr *>(inst));
         case IrInstGenIdVarPtr:
-            return destroy(reinterpret_cast<IrInstGenVarPtr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenVarPtr *>(inst));
         case IrInstGenIdReturnPtr:
-            return destroy(reinterpret_cast<IrInstGenReturnPtr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenReturnPtr *>(inst));
         case IrInstGenIdLoadPtr:
-            return destroy(reinterpret_cast<IrInstGenLoadPtr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenLoadPtr *>(inst));
         case IrInstGenIdStorePtr:
-            return destroy(reinterpret_cast<IrInstGenStorePtr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenStorePtr *>(inst));
         case IrInstGenIdVectorStoreElem:
-            return destroy(reinterpret_cast<IrInstGenVectorStoreElem *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenVectorStoreElem *>(inst));
         case IrInstGenIdStructFieldPtr:
-            return destroy(reinterpret_cast<IrInstGenStructFieldPtr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenStructFieldPtr *>(inst));
         case IrInstGenIdUnionFieldPtr:
-            return destroy(reinterpret_cast<IrInstGenUnionFieldPtr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenUnionFieldPtr *>(inst));
         case IrInstGenIdAsm:
-            return destroy(reinterpret_cast<IrInstGenAsm *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenAsm *>(inst));
         case IrInstGenIdTestNonNull:
-            return destroy(reinterpret_cast<IrInstGenTestNonNull *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenTestNonNull *>(inst));
         case IrInstGenIdOptionalUnwrapPtr:
-            return destroy(reinterpret_cast<IrInstGenOptionalUnwrapPtr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenOptionalUnwrapPtr *>(inst));
         case IrInstGenIdPopCount:
-            return destroy(reinterpret_cast<IrInstGenPopCount *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenPopCount *>(inst));
         case IrInstGenIdClz:
-            return destroy(reinterpret_cast<IrInstGenClz *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenClz *>(inst));
         case IrInstGenIdCtz:
-            return destroy(reinterpret_cast<IrInstGenCtz *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenCtz *>(inst));
         case IrInstGenIdBswap:
-            return destroy(reinterpret_cast<IrInstGenBswap *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenBswap *>(inst));
         case IrInstGenIdBitReverse:
-            return destroy(reinterpret_cast<IrInstGenBitReverse *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenBitReverse *>(inst));
         case IrInstGenIdSwitchBr:
-            return destroy(reinterpret_cast<IrInstGenSwitchBr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenSwitchBr *>(inst));
         case IrInstGenIdUnionTag:
-            return destroy(reinterpret_cast<IrInstGenUnionTag *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenUnionTag *>(inst));
         case IrInstGenIdRef:
-            return destroy(reinterpret_cast<IrInstGenRef *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenRef *>(inst));
         case IrInstGenIdErrName:
-            return destroy(reinterpret_cast<IrInstGenErrName *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenErrName *>(inst));
         case IrInstGenIdCmpxchg:
-            return destroy(reinterpret_cast<IrInstGenCmpxchg *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenCmpxchg *>(inst));
         case IrInstGenIdFence:
-            return destroy(reinterpret_cast<IrInstGenFence *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenFence *>(inst));
         case IrInstGenIdTruncate:
-            return destroy(reinterpret_cast<IrInstGenTruncate *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenTruncate *>(inst));
         case IrInstGenIdShuffleVector:
-            return destroy(reinterpret_cast<IrInstGenShuffleVector *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenShuffleVector *>(inst));
         case IrInstGenIdSplat:
-            return destroy(reinterpret_cast<IrInstGenSplat *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenSplat *>(inst));
         case IrInstGenIdBoolNot:
-            return destroy(reinterpret_cast<IrInstGenBoolNot *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenBoolNot *>(inst));
         case IrInstGenIdMemset:
-            return destroy(reinterpret_cast<IrInstGenMemset *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenMemset *>(inst));
         case IrInstGenIdMemcpy:
-            return destroy(reinterpret_cast<IrInstGenMemcpy *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenMemcpy *>(inst));
         case IrInstGenIdSlice:
-            return destroy(reinterpret_cast<IrInstGenSlice *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenSlice *>(inst));
         case IrInstGenIdBreakpoint:
-            return destroy(reinterpret_cast<IrInstGenBreakpoint *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenBreakpoint *>(inst));
         case IrInstGenIdReturnAddress:
-            return destroy(reinterpret_cast<IrInstGenReturnAddress *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenReturnAddress *>(inst));
         case IrInstGenIdFrameAddress:
-            return destroy(reinterpret_cast<IrInstGenFrameAddress *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenFrameAddress *>(inst));
         case IrInstGenIdFrameHandle:
-            return destroy(reinterpret_cast<IrInstGenFrameHandle *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenFrameHandle *>(inst));
         case IrInstGenIdFrameSize:
-            return destroy(reinterpret_cast<IrInstGenFrameSize *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenFrameSize *>(inst));
         case IrInstGenIdOverflowOp:
-            return destroy(reinterpret_cast<IrInstGenOverflowOp *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenOverflowOp *>(inst));
         case IrInstGenIdTestErr:
-            return destroy(reinterpret_cast<IrInstGenTestErr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenTestErr *>(inst));
         case IrInstGenIdUnwrapErrCode:
-            return destroy(reinterpret_cast<IrInstGenUnwrapErrCode *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenUnwrapErrCode *>(inst));
         case IrInstGenIdUnwrapErrPayload:
-            return destroy(reinterpret_cast<IrInstGenUnwrapErrPayload *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenUnwrapErrPayload *>(inst));
         case IrInstGenIdOptionalWrap:
-            return destroy(reinterpret_cast<IrInstGenOptionalWrap *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenOptionalWrap *>(inst));
         case IrInstGenIdErrWrapCode:
-            return destroy(reinterpret_cast<IrInstGenErrWrapCode *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenErrWrapCode *>(inst));
         case IrInstGenIdErrWrapPayload:
-            return destroy(reinterpret_cast<IrInstGenErrWrapPayload *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenErrWrapPayload *>(inst));
         case IrInstGenIdPtrCast:
-            return destroy(reinterpret_cast<IrInstGenPtrCast *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenPtrCast *>(inst));
         case IrInstGenIdBitCast:
-            return destroy(reinterpret_cast<IrInstGenBitCast *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenBitCast *>(inst));
         case IrInstGenIdWidenOrShorten:
-            return destroy(reinterpret_cast<IrInstGenWidenOrShorten *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenWidenOrShorten *>(inst));
         case IrInstGenIdPtrToInt:
-            return destroy(reinterpret_cast<IrInstGenPtrToInt *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenPtrToInt *>(inst));
         case IrInstGenIdIntToPtr:
-            return destroy(reinterpret_cast<IrInstGenIntToPtr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenIntToPtr *>(inst));
         case IrInstGenIdIntToEnum:
-            return destroy(reinterpret_cast<IrInstGenIntToEnum *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenIntToEnum *>(inst));
         case IrInstGenIdIntToErr:
-            return destroy(reinterpret_cast<IrInstGenIntToErr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenIntToErr *>(inst));
         case IrInstGenIdErrToInt:
-            return destroy(reinterpret_cast<IrInstGenErrToInt *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenErrToInt *>(inst));
         case IrInstGenIdTagName:
-            return destroy(reinterpret_cast<IrInstGenTagName *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenTagName *>(inst));
         case IrInstGenIdPanic:
-            return destroy(reinterpret_cast<IrInstGenPanic *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenPanic *>(inst));
         case IrInstGenIdFieldParentPtr:
-            return destroy(reinterpret_cast<IrInstGenFieldParentPtr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenFieldParentPtr *>(inst));
         case IrInstGenIdAlignCast:
-            return destroy(reinterpret_cast<IrInstGenAlignCast *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenAlignCast *>(inst));
         case IrInstGenIdErrorReturnTrace:
-            return destroy(reinterpret_cast<IrInstGenErrorReturnTrace *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenErrorReturnTrace *>(inst));
         case IrInstGenIdAtomicRmw:
-            return destroy(reinterpret_cast<IrInstGenAtomicRmw *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenAtomicRmw *>(inst));
         case IrInstGenIdSaveErrRetAddr:
-            return destroy(reinterpret_cast<IrInstGenSaveErrRetAddr *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenSaveErrRetAddr *>(inst));
         case IrInstGenIdFloatOp:
-            return destroy(reinterpret_cast<IrInstGenFloatOp *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenFloatOp *>(inst));
         case IrInstGenIdMulAdd:
-            return destroy(reinterpret_cast<IrInstGenMulAdd *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenMulAdd *>(inst));
         case IrInstGenIdAtomicLoad:
-            return destroy(reinterpret_cast<IrInstGenAtomicLoad *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenAtomicLoad *>(inst));
         case IrInstGenIdAtomicStore:
-            return destroy(reinterpret_cast<IrInstGenAtomicStore *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenAtomicStore *>(inst));
         case IrInstGenIdDeclVar:
-            return destroy(reinterpret_cast<IrInstGenDeclVar *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenDeclVar *>(inst));
         case IrInstGenIdArrayToVector:
-            return destroy(reinterpret_cast<IrInstGenArrayToVector *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenArrayToVector *>(inst));
         case IrInstGenIdVectorToArray:
-            return destroy(reinterpret_cast<IrInstGenVectorToArray *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenVectorToArray *>(inst));
         case IrInstGenIdPtrOfArrayToSlice:
-            return destroy(reinterpret_cast<IrInstGenPtrOfArrayToSlice *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenPtrOfArrayToSlice *>(inst));
         case IrInstGenIdAssertZero:
-            return destroy(reinterpret_cast<IrInstGenAssertZero *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenAssertZero *>(inst));
         case IrInstGenIdAssertNonNull:
-            return destroy(reinterpret_cast<IrInstGenAssertNonNull *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenAssertNonNull *>(inst));
         case IrInstGenIdResizeSlice:
-            return destroy(reinterpret_cast<IrInstGenResizeSlice *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenResizeSlice *>(inst));
         case IrInstGenIdAlloca:
-            return destroy(reinterpret_cast<IrInstGenAlloca *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenAlloca *>(inst));
         case IrInstGenIdSuspendBegin:
-            return destroy(reinterpret_cast<IrInstGenSuspendBegin *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenSuspendBegin *>(inst));
         case IrInstGenIdSuspendFinish:
-            return destroy(reinterpret_cast<IrInstGenSuspendFinish *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenSuspendFinish *>(inst));
         case IrInstGenIdResume:
-            return destroy(reinterpret_cast<IrInstGenResume *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenResume *>(inst));
         case IrInstGenIdAwait:
-            return destroy(reinterpret_cast<IrInstGenAwait *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenAwait *>(inst));
         case IrInstGenIdSpillBegin:
-            return destroy(reinterpret_cast<IrInstGenSpillBegin *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenSpillBegin *>(inst));
         case IrInstGenIdSpillEnd:
-            return destroy(reinterpret_cast<IrInstGenSpillEnd *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenSpillEnd *>(inst));
         case IrInstGenIdVectorExtractElem:
-            return destroy(reinterpret_cast<IrInstGenVectorExtractElem *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenVectorExtractElem *>(inst));
         case IrInstGenIdBinaryNot:
-            return destroy(reinterpret_cast<IrInstGenBinaryNot *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenBinaryNot *>(inst));
         case IrInstGenIdNegation:
-            return destroy(reinterpret_cast<IrInstGenNegation *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenNegation *>(inst));
         case IrInstGenIdNegationWrapping:
-            return destroy(reinterpret_cast<IrInstGenNegationWrapping *>(inst), name);
+            return heap::c_allocator.destroy(reinterpret_cast<IrInstGenNegationWrapping *>(inst));
     }
     zig_unreachable();
 }
@@ -760,15 +750,14 @@ static void ira_deref(IrAnalyze *ira) {
             IrInstSrc *pass1_inst = pass1_bb->instruction_list.items[inst_i];
             destroy_instruction_src(pass1_inst);
         }
-        destroy(pass1_bb, "IrBasicBlockSrc");
+        heap::c_allocator.destroy(pass1_bb);
     }
     ira->old_irb.exec->basic_block_list.deinit();
     ira->old_irb.exec->tld_list.deinit();
-    // cannot destroy here because of var->owner_exec
-    //destroy(ira->old_irb.exec, "IrExecutableSrc");
+    heap::c_allocator.destroy(ira->old_irb.exec);
     ira->src_implicit_return_type_list.deinit();
     ira->resume_stack.deinit();
-    destroy(ira, "IrAnalyze");
+    heap::c_allocator.destroy(ira);
 }
 
 static ZigValue *const_ptr_pointee_unchecked_no_isf(CodeGen *g, ZigValue *const_val) {
@@ -1017,8 +1006,8 @@ static void ir_ref_var(ZigVar *var) {
 static void create_result_ptr(CodeGen *codegen, ZigType *expected_type,
         ZigValue **out_result, ZigValue **out_result_ptr)
 {
-    ZigValue *result = create_const_vals(1);
-    ZigValue *result_ptr = create_const_vals(1);
+    ZigValue *result = codegen->pass1_arena->create<ZigValue>();
+    ZigValue *result_ptr = codegen->pass1_arena->create<ZigValue>();
     result->special = ConstValSpecialUndef;
     result->type = expected_type;
     result_ptr->special = ConstValSpecialStatic;
@@ -1050,14 +1039,11 @@ ZigType *ir_analyze_type_expr(IrAnalyze *ira, Scope *scope, AstNode *node) {
     assert(result->special != ConstValSpecialRuntime);
     ZigType *res_type = result->data.x_type;
 
-    destroy(result_ptr, "ZigValue");
-    destroy(result, "ZigValue");
-
     return res_type;
 }
 
 static IrBasicBlockSrc *ir_create_basic_block(IrBuilderSrc *irb, Scope *scope, const char *name_hint) {
-    IrBasicBlockSrc *result = allocate<IrBasicBlockSrc>(1, "IrBasicBlockSrc");
+    IrBasicBlockSrc *result = heap::c_allocator.create<IrBasicBlockSrc>();
     result->scope = scope;
     result->name_hint = name_hint;
     result->debug_id = exec_next_debug_id(irb->exec);
@@ -1066,7 +1052,7 @@ static IrBasicBlockSrc *ir_create_basic_block(IrBuilderSrc *irb, Scope *scope, c
 }
 
 static IrBasicBlockGen *ir_create_basic_block_gen(IrAnalyze *ira, Scope *scope, const char *name_hint) {
-    IrBasicBlockGen *result = allocate<IrBasicBlockGen>(1, "IrBasicBlockGen");
+    IrBasicBlockGen *result = heap::c_allocator.create<IrBasicBlockGen>();
     result->scope = scope;
     result->name_hint = name_hint;
     result->debug_id = exec_next_debug_id_gen(ira->new_irb.exec);
@@ -1983,12 +1969,7 @@ static constexpr IrInstGenId ir_inst_id(IrInstGenConst *) {
 
 template<typename T>
 static T *ir_create_instruction(IrBuilderSrc *irb, Scope *scope, AstNode *source_node) {
-    const char *name = nullptr;
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    T *dummy = nullptr;
-    name = ir_inst_src_type_str(ir_inst_id(dummy));
-#endif
-    T *special_instruction = allocate<T>(1, name);
+    T *special_instruction = heap::c_allocator.create<T>();
     special_instruction->base.id = ir_inst_id(special_instruction);
     special_instruction->base.base.scope = scope;
     special_instruction->base.base.source_node = source_node;
@@ -1999,29 +1980,19 @@ static T *ir_create_instruction(IrBuilderSrc *irb, Scope *scope, AstNode *source
 
 template<typename T>
 static T *ir_create_inst_gen(IrBuilderGen *irb, Scope *scope, AstNode *source_node) {
-    const char *name = nullptr;
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    T *dummy = nullptr;
-    name = ir_inst_gen_type_str(ir_inst_id(dummy));
-#endif
-    T *special_instruction = allocate<T>(1, name);
+    T *special_instruction = heap::c_allocator.create<T>();
     special_instruction->base.id = ir_inst_id(special_instruction);
     special_instruction->base.base.scope = scope;
     special_instruction->base.base.source_node = source_node;
     special_instruction->base.base.debug_id = exec_next_debug_id_gen(irb->exec);
     special_instruction->base.owner_bb = irb->current_basic_block;
-    special_instruction->base.value = allocate<ZigValue>(1, "ZigValue");
+    special_instruction->base.value = irb->codegen->pass1_arena->create<ZigValue>();
     return special_instruction;
 }
 
 template<typename T>
 static T *ir_create_inst_noval(IrBuilderGen *irb, Scope *scope, AstNode *source_node) {
-    const char *name = nullptr;
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    T *dummy = nullptr;
-    name = ir_inst_gen_type_str(ir_inst_id(dummy));
-#endif
-    T *special_instruction = allocate<T>(1, name);
+    T *special_instruction = heap::c_allocator.create<T>();
     special_instruction->base.id = ir_inst_id(special_instruction);
     special_instruction->base.base.scope = scope;
     special_instruction->base.base.source_node = source_node;
@@ -2063,11 +2034,11 @@ static T *ir_build_inst_void(IrBuilderGen *irb, Scope *scope, AstNode *source_no
 IrInstGen *ir_create_alloca(CodeGen *g, Scope *scope, AstNode *source_node, ZigFn *fn,
         ZigType *var_type, const char *name_hint)
 {
-    IrInstGenAlloca *alloca_gen = allocate<IrInstGenAlloca>(1);
+    IrInstGenAlloca *alloca_gen = heap::c_allocator.create<IrInstGenAlloca>();
     alloca_gen->base.id = IrInstGenIdAlloca;
     alloca_gen->base.base.source_node = source_node;
     alloca_gen->base.base.scope = scope;
-    alloca_gen->base.value = allocate<ZigValue>(1, "ZigValue");
+    alloca_gen->base.value = g->pass1_arena->create<ZigValue>();
     alloca_gen->base.value->type = get_pointer_to_type(g, var_type, false);
     alloca_gen->base.base.ref_count = 1;
     alloca_gen->name_hint = name_hint;
@@ -2157,7 +2128,7 @@ static IrInstSrc *ir_build_const_undefined(IrBuilderSrc *irb, Scope *scope, AstN
 
 static IrInstSrc *ir_build_const_uint(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, uint64_t value) {
     IrInstSrcConst *const_instruction = ir_build_instruction<IrInstSrcConst>(irb, scope, source_node);
-    const_instruction->value = create_const_vals(1);
+    const_instruction->value = irb->codegen->pass1_arena->create<ZigValue>();
     const_instruction->value->type = irb->codegen->builtin_types.entry_num_lit_int;
     const_instruction->value->special = ConstValSpecialStatic;
     bigint_init_unsigned(&const_instruction->value->data.x_bigint, value);
@@ -2166,7 +2137,7 @@ static IrInstSrc *ir_build_const_uint(IrBuilderSrc *irb, Scope *scope, AstNode *
 
 static IrInstSrc *ir_build_const_bigint(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, BigInt *bigint) {
     IrInstSrcConst *const_instruction = ir_build_instruction<IrInstSrcConst>(irb, scope, source_node);
-    const_instruction->value = create_const_vals(1);
+    const_instruction->value = irb->codegen->pass1_arena->create<ZigValue>();
     const_instruction->value->type = irb->codegen->builtin_types.entry_num_lit_int;
     const_instruction->value->special = ConstValSpecialStatic;
     bigint_init_bigint(&const_instruction->value->data.x_bigint, bigint);
@@ -2175,7 +2146,7 @@ static IrInstSrc *ir_build_const_bigint(IrBuilderSrc *irb, Scope *scope, AstNode
 
 static IrInstSrc *ir_build_const_bigfloat(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, BigFloat *bigfloat) {
     IrInstSrcConst *const_instruction = ir_build_instruction<IrInstSrcConst>(irb, scope, source_node);
-    const_instruction->value = create_const_vals(1);
+    const_instruction->value = irb->codegen->pass1_arena->create<ZigValue>();
     const_instruction->value->type = irb->codegen->builtin_types.entry_num_lit_float;
     const_instruction->value->special = ConstValSpecialStatic;
     bigfloat_init_bigfloat(&const_instruction->value->data.x_bigfloat, bigfloat);
@@ -2191,7 +2162,7 @@ static IrInstSrc *ir_build_const_null(IrBuilderSrc *irb, Scope *scope, AstNode *
 
 static IrInstSrc *ir_build_const_usize(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, uint64_t value) {
     IrInstSrcConst *const_instruction = ir_build_instruction<IrInstSrcConst>(irb, scope, source_node);
-    const_instruction->value = create_const_vals(1);
+    const_instruction->value = irb->codegen->pass1_arena->create<ZigValue>();
     const_instruction->value->type = irb->codegen->builtin_types.entry_usize;
     const_instruction->value->special = ConstValSpecialStatic;
     bigint_init_unsigned(&const_instruction->value->data.x_bigint, value);
@@ -2202,7 +2173,7 @@ static IrInstSrc *ir_create_const_type(IrBuilderSrc *irb, Scope *scope, AstNode 
         ZigType *type_entry)
 {
     IrInstSrcConst *const_instruction = ir_create_instruction<IrInstSrcConst>(irb, scope, source_node);
-    const_instruction->value = create_const_vals(1);
+    const_instruction->value = irb->codegen->pass1_arena->create<ZigValue>();
     const_instruction->value->type = irb->codegen->builtin_types.entry_type;
     const_instruction->value->special = ConstValSpecialStatic;
     const_instruction->value->data.x_type = type_entry;
@@ -2219,7 +2190,7 @@ static IrInstSrc *ir_build_const_type(IrBuilderSrc *irb, Scope *scope, AstNode *
 
 static IrInstSrc *ir_build_const_import(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, ZigType *import) {
     IrInstSrcConst *const_instruction = ir_build_instruction<IrInstSrcConst>(irb, scope, source_node);
-    const_instruction->value = create_const_vals(1);
+    const_instruction->value = irb->codegen->pass1_arena->create<ZigValue>();
     const_instruction->value->type = irb->codegen->builtin_types.entry_type;
     const_instruction->value->special = ConstValSpecialStatic;
     const_instruction->value->data.x_type = import;
@@ -2228,7 +2199,7 @@ static IrInstSrc *ir_build_const_import(IrBuilderSrc *irb, Scope *scope, AstNode
 
 static IrInstSrc *ir_build_const_bool(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, bool value) {
     IrInstSrcConst *const_instruction = ir_build_instruction<IrInstSrcConst>(irb, scope, source_node);
-    const_instruction->value = create_const_vals(1);
+    const_instruction->value = irb->codegen->pass1_arena->create<ZigValue>();
     const_instruction->value->type = irb->codegen->builtin_types.entry_bool;
     const_instruction->value->special = ConstValSpecialStatic;
     const_instruction->value->data.x_bool = value;
@@ -2237,7 +2208,7 @@ static IrInstSrc *ir_build_const_bool(IrBuilderSrc *irb, Scope *scope, AstNode *
 
 static IrInstSrc *ir_build_const_enum_literal(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, Buf *name) {
     IrInstSrcConst *const_instruction = ir_build_instruction<IrInstSrcConst>(irb, scope, source_node);
-    const_instruction->value = create_const_vals(1);
+    const_instruction->value = irb->codegen->pass1_arena->create<ZigValue>();
     const_instruction->value->type = irb->codegen->builtin_types.entry_enum_literal;
     const_instruction->value->special = ConstValSpecialStatic;
     const_instruction->value->data.x_enum_literal = name;
@@ -2246,7 +2217,7 @@ static IrInstSrc *ir_build_const_enum_literal(IrBuilderSrc *irb, Scope *scope, A
 
 static IrInstSrc *ir_create_const_str_lit(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, Buf *str) {
     IrInstSrcConst *const_instruction = ir_create_instruction<IrInstSrcConst>(irb, scope, source_node);
-    const_instruction->value = create_const_vals(1);
+    const_instruction->value = irb->codegen->pass1_arena->create<ZigValue>();
     init_const_str_lit(irb->codegen, const_instruction->value, str);
 
     return &const_instruction->base;
@@ -5244,7 +5215,7 @@ static IrInstSrc *ir_gen_return(IrBuilderSrc *irb, Scope *scope, AstNode *node, 
     switch (node->data.return_expr.kind) {
         case ReturnKindUnconditional:
             {
-                ResultLocReturn *result_loc_ret = allocate<ResultLocReturn>(1, "ResultLocReturn");
+                ResultLocReturn *result_loc_ret = heap::c_allocator.create<ResultLocReturn>();
                 result_loc_ret->base.id = ResultLocIdReturn;
                 ir_build_reset_result(irb, scope, node, &result_loc_ret->base);
 
@@ -5332,7 +5303,7 @@ static IrInstSrc *ir_gen_return(IrBuilderSrc *irb, Scope *scope, AstNode *node, 
                 ir_mark_gen(ir_build_add_implicit_return_type(irb, scope, node, err_val, nullptr));
                 IrInstSrcSpillBegin *spill_begin = ir_build_spill_begin_src(irb, scope, node, err_val,
                         SpillIdRetErrCode);
-                ResultLocReturn *result_loc_ret = allocate<ResultLocReturn>(1, "ResultLocReturn");
+                ResultLocReturn *result_loc_ret = heap::c_allocator.create<ResultLocReturn>();
                 result_loc_ret->base.id = ResultLocIdReturn;
                 ir_build_reset_result(irb, scope, node, &result_loc_ret->base);
                 ir_build_end_expr(irb, scope, node, err_val, &result_loc_ret->base);
@@ -5360,12 +5331,12 @@ static ZigVar *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_s
         Buf *name, bool src_is_const, bool gen_is_const, bool is_shadowable, IrInstSrc *is_comptime,
         bool skip_name_check)
 {
-    ZigVar *variable_entry = allocate<ZigVar>(1, "ZigVar");
+    ZigVar *variable_entry = heap::c_allocator.create<ZigVar>();
     variable_entry->parent_scope = parent_scope;
     variable_entry->shadowable = is_shadowable;
     variable_entry->is_comptime = is_comptime;
     variable_entry->src_arg_index = SIZE_MAX;
-    variable_entry->const_value = create_const_vals(1);
+    variable_entry->const_value = codegen->pass1_arena->create<ZigValue>();
 
     if (is_comptime != nullptr) {
         is_comptime->base.ref_count += 1;
@@ -5425,15 +5396,12 @@ static ZigVar *ir_create_var(IrBuilderSrc *irb, AstNode *node, Scope *scope, Buf
     ZigVar *var = create_local_var(irb->codegen, node, scope,
             (is_underscored ? nullptr : name), src_is_const, gen_is_const,
             (is_underscored ? true : is_shadowable), is_comptime, false);
-    if (is_comptime != nullptr || gen_is_const) {
-        var->owner_exec = irb->exec;
-    }
     assert(var->child_scope);
     return var;
 }
 
 static ResultLocPeer *create_peer_result(ResultLocPeerParent *peer_parent) {
-    ResultLocPeer *result = allocate<ResultLocPeer>(1, "ResultLocPeer");
+    ResultLocPeer *result = heap::c_allocator.create<ResultLocPeer>();
     result->base.id = ResultLocIdPeer;
     result->base.source_instruction = peer_parent->base.source_instruction;
     result->parent = peer_parent;
@@ -5472,7 +5440,7 @@ static IrInstSrc *ir_gen_block(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
         scope_block->is_comptime = ir_build_const_bool(irb, parent_scope, block_node,
                 ir_should_inline(irb->exec, parent_scope));
 
-        scope_block->peer_parent = allocate<ResultLocPeerParent>(1, "ResultLocPeerParent");
+        scope_block->peer_parent = heap::c_allocator.create<ResultLocPeerParent>();
         scope_block->peer_parent->base.id = ResultLocIdPeerParent;
         scope_block->peer_parent->base.source_instruction = scope_block->is_comptime;
         scope_block->peer_parent->base.allow_write_through_const = result_loc->allow_write_through_const;
@@ -5562,7 +5530,7 @@ static IrInstSrc *ir_gen_block(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
     // only generate unconditional defers
 
     ir_mark_gen(ir_build_add_implicit_return_type(irb, child_scope, block_node, result, nullptr));
-    ResultLocReturn *result_loc_ret = allocate<ResultLocReturn>(1, "ResultLocReturn");
+    ResultLocReturn *result_loc_ret = heap::c_allocator.create<ResultLocReturn>();
     result_loc_ret->base.id = ResultLocIdReturn;
     ir_build_reset_result(irb, parent_scope, block_node, &result_loc_ret->base);
     ir_mark_gen(ir_build_end_expr(irb, parent_scope, block_node, result, &result_loc_ret->base));
@@ -5604,7 +5572,7 @@ static IrInstSrc *ir_gen_assign(IrBuilderSrc *irb, Scope *scope, AstNode *node) 
     if (lvalue == irb->codegen->invalid_inst_src)
         return irb->codegen->invalid_inst_src;
 
-    ResultLocInstruction *result_loc_inst = allocate<ResultLocInstruction>(1, "ResultLocInstruction");
+    ResultLocInstruction *result_loc_inst = heap::c_allocator.create<ResultLocInstruction>();
     result_loc_inst->base.id = ResultLocIdInstruction;
     result_loc_inst->base.source_instruction = lvalue;
     ir_ref_instruction(lvalue, irb->current_basic_block);
@@ -5676,10 +5644,10 @@ static IrInstSrc *ir_gen_bool_or(IrBuilderSrc *irb, Scope *scope, AstNode *node)
 
     ir_set_cursor_at_end_and_append_block(irb, true_block);
 
-    IrInstSrc **incoming_values = allocate<IrInstSrc *>(2, "IrInstSrc *");
+    IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
     incoming_values[0] = val1;
     incoming_values[1] = val2;
-    IrBasicBlockSrc **incoming_blocks = allocate<IrBasicBlockSrc *>(2, "IrBasicBlockSrc *");
+    IrBasicBlockSrc **incoming_blocks = heap::c_allocator.allocate<IrBasicBlockSrc *>(2);
     incoming_blocks[0] = post_val1_block;
     incoming_blocks[1] = post_val2_block;
 
@@ -5718,10 +5686,10 @@ static IrInstSrc *ir_gen_bool_and(IrBuilderSrc *irb, Scope *scope, AstNode *node
 
     ir_set_cursor_at_end_and_append_block(irb, false_block);
 
-    IrInstSrc **incoming_values = allocate<IrInstSrc *>(2);
+    IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
     incoming_values[0] = val1;
     incoming_values[1] = val2;
-    IrBasicBlockSrc **incoming_blocks = allocate<IrBasicBlockSrc *>(2, "IrBasicBlockSrc *");
+    IrBasicBlockSrc **incoming_blocks = heap::c_allocator.allocate<IrBasicBlockSrc *>(2);
     incoming_blocks[0] = post_val1_block;
     incoming_blocks[1] = post_val2_block;
 
@@ -5731,7 +5699,7 @@ static IrInstSrc *ir_gen_bool_and(IrBuilderSrc *irb, Scope *scope, AstNode *node
 static ResultLocPeerParent *ir_build_result_peers(IrBuilderSrc *irb, IrInstSrc *cond_br_inst,
         IrBasicBlockSrc *end_block, ResultLoc *parent, IrInstSrc *is_comptime)
 {
-    ResultLocPeerParent *peer_parent = allocate<ResultLocPeerParent>(1);
+    ResultLocPeerParent *peer_parent = heap::c_allocator.create<ResultLocPeerParent>();
     peer_parent->base.id = ResultLocIdPeerParent;
     peer_parent->base.source_instruction = cond_br_inst;
     peer_parent->base.allow_write_through_const = parent->allow_write_through_const;
@@ -5809,10 +5777,10 @@ static IrInstSrc *ir_gen_orelse(IrBuilderSrc *irb, Scope *parent_scope, AstNode 
     ir_build_br(irb, parent_scope, node, end_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(irb, end_block);
-    IrInstSrc **incoming_values = allocate<IrInstSrc *>(2);
+    IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
     incoming_values[0] = null_result;
     incoming_values[1] = unwrapped_payload;
-    IrBasicBlockSrc **incoming_blocks = allocate<IrBasicBlockSrc *>(2, "IrBasicBlockSrc *");
+    IrBasicBlockSrc **incoming_blocks = heap::c_allocator.allocate<IrBasicBlockSrc *>(2);
     incoming_blocks[0] = after_null_block;
     incoming_blocks[1] = after_ok_block;
     IrInstSrc *phi = ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values, peer_parent);
@@ -5966,7 +5934,7 @@ static void populate_invalid_variable_in_scope(CodeGen *g, Scope *scope, AstNode
         }
         scope = scope->parent;
     }
-    TldVar *tld_var = allocate<TldVar>(1);
+    TldVar *tld_var = heap::c_allocator.create<TldVar>();
     init_tld(&tld_var->base, TldIdVar, var_name, VisibModPub, node, &scope_decls->base);
     tld_var->base.resolution = TldResolutionInvalid;
     tld_var->var = add_variable(g, node, &scope_decls->base, var_name, false,
@@ -5983,7 +5951,7 @@ static IrInstSrc *ir_gen_symbol(IrBuilderSrc *irb, Scope *scope, AstNode *node, 
     if (buf_eql_str(variable_name, "_")) {
         if (lval == LValPtr) {
             IrInstSrcConst *const_instruction = ir_build_instruction<IrInstSrcConst>(irb, scope, node);
-            const_instruction->value = create_const_vals(1);
+            const_instruction->value = irb->codegen->pass1_arena->create<ZigValue>();
             const_instruction->value->type = get_pointer_to_type(irb->codegen,
                     irb->codegen->builtin_types.entry_void, false);
             const_instruction->value->special = ConstValSpecialStatic;
@@ -6177,7 +6145,7 @@ static IrInstSrc *ir_gen_async_call(IrBuilderSrc *irb, Scope *scope, AstNode *aw
         return fn_ref;
 
     size_t arg_count = call_node->data.fn_call_expr.params.length - arg_offset;
-    IrInstSrc **args = allocate<IrInstSrc*>(arg_count);
+    IrInstSrc **args = heap::c_allocator.allocate<IrInstSrc*>(arg_count);
     for (size_t i = 0; i < arg_count; i += 1) {
         AstNode *arg_node = call_node->data.fn_call_expr.params.at(i + arg_offset);
         IrInstSrc *arg = ir_gen_node(irb, arg_node, scope);
@@ -6203,7 +6171,7 @@ static IrInstSrc *ir_gen_fn_call_with_args(IrBuilderSrc *irb, Scope *scope, AstN
 
     IrInstSrc *fn_type = ir_build_typeof(irb, scope, source_node, fn_ref);
 
-    IrInstSrc **args = allocate<IrInstSrc*>(args_len);
+    IrInstSrc **args = heap::c_allocator.allocate<IrInstSrc*>(args_len);
     for (size_t i = 0; i < args_len; i += 1) {
         AstNode *arg_node = args_ptr[i];
 
@@ -6388,7 +6356,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
             }
         case BuiltinFnIdCompileLog:
             {
-                IrInstSrc **args = allocate<IrInstSrc*>(actual_param_count);
+                IrInstSrc **args = heap::c_allocator.allocate<IrInstSrc*>(actual_param_count);
 
                 for (size_t i = 0; i < actual_param_count; i += 1) {
                     AstNode *arg_node = node->data.fn_call_expr.params.at(i);
@@ -7013,7 +6981,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
                 if (dest_type == irb->codegen->invalid_inst_src)
                     return dest_type;
 
-                ResultLocBitCast *result_loc_bit_cast = allocate<ResultLocBitCast>(1);
+                ResultLocBitCast *result_loc_bit_cast = heap::c_allocator.create<ResultLocBitCast>();
                 result_loc_bit_cast->base.id = ResultLocIdBitCast;
                 result_loc_bit_cast->base.source_instruction = dest_type;
                 result_loc_bit_cast->base.allow_write_through_const = result_loc->allow_write_through_const;
@@ -7166,7 +7134,7 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
 
                 size_t arg_count = node->data.fn_call_expr.params.length - 2;
 
-                IrInstSrc **args = allocate<IrInstSrc*>(arg_count);
+                IrInstSrc **args = heap::c_allocator.allocate<IrInstSrc*>(arg_count);
                 for (size_t i = 0; i < arg_count; i += 1) {
                     AstNode *arg_node = node->data.fn_call_expr.params.at(i + 2);
                     args[i] = ir_gen_node(irb, arg_node, scope);
@@ -7595,10 +7563,10 @@ static IrInstSrc *ir_gen_if_bool_expr(IrBuilderSrc *irb, Scope *scope, AstNode *
         ir_mark_gen(ir_build_br(irb, scope, node, endif_block, is_comptime));
 
     ir_set_cursor_at_end_and_append_block(irb, endif_block);
-    IrInstSrc **incoming_values = allocate<IrInstSrc *>(2);
+    IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
     incoming_values[0] = then_expr_result;
     incoming_values[1] = else_expr_result;
-    IrBasicBlockSrc **incoming_blocks = allocate<IrBasicBlockSrc *>(2, "IrBasicBlockSrc *");
+    IrBasicBlockSrc **incoming_blocks = heap::c_allocator.allocate<IrBasicBlockSrc *>(2);
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
@@ -7799,7 +7767,7 @@ static IrInstSrc *ir_gen_union_init_expr(IrBuilderSrc *irb, Scope *scope, AstNod
     IrInstSrc *field_ptr = ir_build_field_ptr_instruction(irb, scope, source_node, container_ptr,
             field_name, true);
 
-    ResultLocInstruction *result_loc_inst = allocate<ResultLocInstruction>(1);
+    ResultLocInstruction *result_loc_inst = heap::c_allocator.create<ResultLocInstruction>();
     result_loc_inst->base.id = ResultLocIdInstruction;
     result_loc_inst->base.source_instruction = field_ptr;
     ir_ref_instruction(field_ptr, irb->current_basic_block);
@@ -7875,7 +7843,7 @@ static IrInstSrc *ir_gen_container_init_expr(IrBuilderSrc *irb, Scope *scope, As
                     nullptr);
 
             size_t field_count = container_init_expr->entries.length;
-            IrInstSrcContainerInitFieldsField *fields = allocate<IrInstSrcContainerInitFieldsField>(field_count);
+            IrInstSrcContainerInitFieldsField *fields = heap::c_allocator.allocate<IrInstSrcContainerInitFieldsField>(field_count);
             for (size_t i = 0; i < field_count; i += 1) {
                 AstNode *entry_node = container_init_expr->entries.at(i);
                 assert(entry_node->type == NodeTypeStructValueField);
@@ -7884,7 +7852,7 @@ static IrInstSrc *ir_gen_container_init_expr(IrBuilderSrc *irb, Scope *scope, As
                 AstNode *expr_node = entry_node->data.struct_val_field.expr;
 
                 IrInstSrc *field_ptr = ir_build_field_ptr(irb, scope, entry_node, container_ptr, name, true);
-                ResultLocInstruction *result_loc_inst = allocate<ResultLocInstruction>(1);
+                ResultLocInstruction *result_loc_inst = heap::c_allocator.create<ResultLocInstruction>();
                 result_loc_inst->base.id = ResultLocIdInstruction;
                 result_loc_inst->base.source_instruction = field_ptr;
                 result_loc_inst->base.allow_write_through_const = true;
@@ -7914,14 +7882,14 @@ static IrInstSrc *ir_gen_container_init_expr(IrBuilderSrc *irb, Scope *scope, As
             IrInstSrc *container_ptr = ir_build_resolve_result(irb, scope, node, child_result_loc,
                     nullptr);
 
-            IrInstSrc **result_locs = allocate<IrInstSrc *>(item_count);
+            IrInstSrc **result_locs = heap::c_allocator.allocate<IrInstSrc *>(item_count);
             for (size_t i = 0; i < item_count; i += 1) {
                 AstNode *expr_node = container_init_expr->entries.at(i);
 
                 IrInstSrc *elem_index = ir_build_const_usize(irb, scope, expr_node, i);
                 IrInstSrc *elem_ptr = ir_build_elem_ptr(irb, scope, expr_node, container_ptr,
                         elem_index, false, PtrLenSingle, init_array_type_source_node);
-                ResultLocInstruction *result_loc_inst = allocate<ResultLocInstruction>(1);
+                ResultLocInstruction *result_loc_inst = heap::c_allocator.create<ResultLocInstruction>();
                 result_loc_inst->base.id = ResultLocIdInstruction;
                 result_loc_inst->base.source_instruction = elem_ptr;
                 result_loc_inst->base.allow_write_through_const = true;
@@ -7947,7 +7915,7 @@ static IrInstSrc *ir_gen_container_init_expr(IrBuilderSrc *irb, Scope *scope, As
 }
 
 static ResultLocVar *ir_build_var_result_loc(IrBuilderSrc *irb, IrInstSrc *alloca, ZigVar *var) {
-    ResultLocVar *result_loc_var = allocate<ResultLocVar>(1);
+    ResultLocVar *result_loc_var = heap::c_allocator.create<ResultLocVar>();
     result_loc_var->base.id = ResultLocIdVar;
     result_loc_var->base.source_instruction = alloca;
     result_loc_var->base.allow_write_through_const = true;
@@ -7961,7 +7929,7 @@ static ResultLocVar *ir_build_var_result_loc(IrBuilderSrc *irb, IrInstSrc *alloc
 static ResultLocCast *ir_build_cast_result_loc(IrBuilderSrc *irb, IrInstSrc *dest_type,
         ResultLoc *parent_result_loc)
 {
-    ResultLocCast *result_loc_cast = allocate<ResultLocCast>(1);
+    ResultLocCast *result_loc_cast = heap::c_allocator.create<ResultLocCast>();
     result_loc_cast->base.id = ResultLocIdCast;
     result_loc_cast->base.source_instruction = dest_type;
     result_loc_cast->base.allow_write_through_const = parent_result_loc->allow_write_through_const;
@@ -8804,9 +8772,9 @@ static IrInstSrc *ir_gen_asm_expr(IrBuilderSrc *irb, Scope *scope, AstNode *node
                                 nullptr, 0, is_volatile, true);
     }
 
-    IrInstSrc **input_list = allocate<IrInstSrc *>(asm_expr->input_list.length);
-    IrInstSrc **output_types = allocate<IrInstSrc *>(asm_expr->output_list.length);
-    ZigVar **output_vars = allocate<ZigVar *>(asm_expr->output_list.length);
+    IrInstSrc **input_list = heap::c_allocator.allocate<IrInstSrc *>(asm_expr->input_list.length);
+    IrInstSrc **output_types = heap::c_allocator.allocate<IrInstSrc *>(asm_expr->output_list.length);
+    ZigVar **output_vars = heap::c_allocator.allocate<ZigVar *>(asm_expr->output_list.length);
     size_t return_count = 0;
     if (!is_volatile && asm_expr->output_list.length == 0) {
         add_node_error(irb->codegen, node,
@@ -8940,10 +8908,10 @@ static IrInstSrc *ir_gen_if_optional_expr(IrBuilderSrc *irb, Scope *scope, AstNo
         ir_mark_gen(ir_build_br(irb, scope, node, endif_block, is_comptime));
 
     ir_set_cursor_at_end_and_append_block(irb, endif_block);
-    IrInstSrc **incoming_values = allocate<IrInstSrc *>(2);
+    IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
     incoming_values[0] = then_expr_result;
     incoming_values[1] = else_expr_result;
-    IrBasicBlockSrc **incoming_blocks = allocate<IrBasicBlockSrc *>(2, "IrBasicBlockSrc *");
+    IrBasicBlockSrc **incoming_blocks = heap::c_allocator.allocate<IrBasicBlockSrc *>(2);
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
@@ -9037,10 +9005,10 @@ static IrInstSrc *ir_gen_if_err_expr(IrBuilderSrc *irb, Scope *scope, AstNode *n
         ir_mark_gen(ir_build_br(irb, scope, node, endif_block, is_comptime));
 
     ir_set_cursor_at_end_and_append_block(irb, endif_block);
-    IrInstSrc **incoming_values = allocate<IrInstSrc *>(2);
+    IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
     incoming_values[0] = then_expr_result;
     incoming_values[1] = else_expr_result;
-    IrBasicBlockSrc **incoming_blocks = allocate<IrBasicBlockSrc *>(2, "IrBasicBlockSrc *");
+    IrBasicBlockSrc **incoming_blocks = heap::c_allocator.allocate<IrBasicBlockSrc *>(2);
     incoming_blocks[0] = after_then_block;
     incoming_blocks[1] = after_else_block;
 
@@ -9133,7 +9101,7 @@ static IrInstSrc *ir_gen_switch_expr(IrBuilderSrc *irb, Scope *scope, AstNode *n
 
     IrInstSrcSwitchElseVar *switch_else_var = nullptr;
 
-    ResultLocPeerParent *peer_parent = allocate<ResultLocPeerParent>(1);
+    ResultLocPeerParent *peer_parent = heap::c_allocator.create<ResultLocPeerParent>();
     peer_parent->base.id = ResultLocIdPeerParent;
     peer_parent->base.allow_write_through_const = result_loc->allow_write_through_const;
     peer_parent->end_bb = end_block;
@@ -9295,7 +9263,7 @@ static IrInstSrc *ir_gen_switch_expr(IrBuilderSrc *irb, Scope *scope, AstNode *n
         ResultLocPeer *this_peer_result_loc = create_peer_result(peer_parent);
 
         IrBasicBlockSrc *prong_block = ir_create_basic_block(irb, scope, "SwitchProng");
-        IrInstSrc **items = allocate<IrInstSrc *>(prong_item_count);
+        IrInstSrc **items = heap::c_allocator.allocate<IrInstSrc *>(prong_item_count);
 
         for (size_t item_i = 0; item_i < prong_item_count; item_i += 1) {
             AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
@@ -9677,10 +9645,10 @@ static IrInstSrc *ir_gen_catch(IrBuilderSrc *irb, Scope *parent_scope, AstNode *
     ir_build_br(irb, parent_scope, node, end_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(irb, end_block);
-    IrInstSrc **incoming_values = allocate<IrInstSrc *>(2);
+    IrInstSrc **incoming_values = heap::c_allocator.allocate<IrInstSrc *>(2);
     incoming_values[0] = err_result;
     incoming_values[1] = unwrapped_payload;
-    IrBasicBlockSrc **incoming_blocks = allocate<IrBasicBlockSrc *>(2, "IrBasicBlockSrc *");
+    IrBasicBlockSrc **incoming_blocks = heap::c_allocator.allocate<IrBasicBlockSrc *>(2);
     incoming_blocks[0] = after_err_block;
     incoming_blocks[1] = after_ok_block;
     IrInstSrc *phi = ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values, peer_parent);
@@ -9747,7 +9715,7 @@ static IrInstSrc *ir_gen_container_decl(IrBuilderSrc *irb, Scope *parent_scope, 
         scan_decls(irb->codegen, child_scope, child_node);
     }
 
-    TldContainer *tld_container = allocate<TldContainer>(1);
+    TldContainer *tld_container = heap::c_allocator.create<TldContainer>();
     init_tld(&tld_container->base, TldIdContainer, bare_name, VisibModPub, node, parent_scope);
     tld_container->type_entry = container_type;
     tld_container->decls_scope = child_scope;
@@ -9790,7 +9758,7 @@ static ZigType *get_error_set_union(CodeGen *g, ErrorTableEntry **errors, ZigTyp
     }
 
     err_set_type->data.error_set.err_count = count;
-    err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(count);
+    err_set_type->data.error_set.errors = heap::c_allocator.allocate<ErrorTableEntry *>(count);
 
     bool need_comma = false;
     for (uint32_t i = 0; i < set1->data.error_set.err_count; i += 1) {
@@ -9837,7 +9805,7 @@ static ZigType *make_err_set_with_one_item(CodeGen *g, Scope *parent_scope, AstN
     err_set_type->abi_align = g->builtin_types.entry_global_error_set->abi_align;
     err_set_type->abi_size = g->builtin_types.entry_global_error_set->abi_size;
     err_set_type->data.error_set.err_count = 1;
-    err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(1);
+    err_set_type->data.error_set.errors = heap::c_allocator.create<ErrorTableEntry *>();
 
     err_set_type->data.error_set.errors[0] = err_entry;
 
@@ -9868,16 +9836,16 @@ static IrInstSrc *ir_gen_err_set_decl(IrBuilderSrc *irb, Scope *parent_scope, As
     err_set_type->size_in_bits = irb->codegen->builtin_types.entry_global_error_set->size_in_bits;
     err_set_type->abi_align = irb->codegen->builtin_types.entry_global_error_set->abi_align;
     err_set_type->abi_size = irb->codegen->builtin_types.entry_global_error_set->abi_size;
-    err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(err_count);
+    err_set_type->data.error_set.errors = heap::c_allocator.allocate<ErrorTableEntry *>(err_count);
 
     size_t errors_count = irb->codegen->errors_by_index.length + err_count;
-    ErrorTableEntry **errors = allocate<ErrorTableEntry *>(errors_count, "ErrorTableEntry *");
+    ErrorTableEntry **errors = heap::c_allocator.allocate<ErrorTableEntry *>(errors_count);
 
     for (uint32_t i = 0; i < err_count; i += 1) {
         AstNode *field_node = node->data.err_set_decl.decls.at(i);
         AstNode *symbol_node = ast_field_to_symbol_node(field_node);
         Buf *err_name = symbol_node->data.symbol_expr.symbol;
-        ErrorTableEntry *err = allocate<ErrorTableEntry>(1);
+        ErrorTableEntry *err = heap::c_allocator.create<ErrorTableEntry>();
         err->decl_node = field_node;
         buf_init_from_buf(&err->name, err_name);
 
@@ -9902,7 +9870,7 @@ static IrInstSrc *ir_gen_err_set_decl(IrBuilderSrc *irb, Scope *parent_scope, As
         }
         errors[err->value] = err;
     }
-    deallocate(errors, errors_count, "ErrorTableEntry *");
+    heap::c_allocator.deallocate(errors, errors_count);
     return ir_build_const_type(irb, parent_scope, node, err_set_type);
 }
 
@@ -9910,7 +9878,7 @@ static IrInstSrc *ir_gen_fn_proto(IrBuilderSrc *irb, Scope *parent_scope, AstNod
     assert(node->type == NodeTypeFnProto);
 
     size_t param_count = node->data.fn_proto.params.length;
-    IrInstSrc **param_types = allocate<IrInstSrc*>(param_count);
+    IrInstSrc **param_types = heap::c_allocator.allocate<IrInstSrc*>(param_count);
 
     bool is_var_args = false;
     for (size_t i = 0; i < param_count; i += 1) {
@@ -10191,7 +10159,7 @@ static IrInstSrc *ir_gen_node_raw(IrBuilderSrc *irb, AstNode *node, Scope *scope
 }
 
 static ResultLoc *no_result_loc(void) {
-    ResultLocNone *result_loc_none = allocate<ResultLocNone>(1);
+    ResultLocNone *result_loc_none = heap::c_allocator.create<ResultLocNone>();
     result_loc_none->base.id = ResultLocIdNone;
     return &result_loc_none->base;
 }
@@ -10280,7 +10248,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutableSrc *ir_e
     if (!instr_is_unreachable(result)) {
         ir_mark_gen(ir_build_add_implicit_return_type(irb, scope, result->base.source_node, result, nullptr));
         // no need for save_err_ret_addr because this cannot return error
-        ResultLocReturn *result_loc_ret = allocate<ResultLocReturn>(1, "ResultLocReturn");
+        ResultLocReturn *result_loc_ret = heap::c_allocator.create<ResultLocReturn>();
         result_loc_ret->base.id = ResultLocIdReturn;
         ir_build_reset_result(irb, scope, node, &result_loc_ret->base);
         ir_mark_gen(ir_build_end_expr(irb, scope, node, result, &result_loc_ret->base));
@@ -10372,7 +10340,7 @@ static Error eval_comptime_ptr_reinterpret(IrAnalyze *ira, CodeGen *codegen, Ast
     if ((err = ir_read_const_ptr(ira, codegen, source_node, &tmp, ptr_val)))
         return err;
     ZigValue *child_val = const_ptr_pointee_unchecked(codegen, ptr_val);
-    copy_const_val(child_val, &tmp);
+    copy_const_val(codegen, child_val, &tmp);
     return ErrorNone;
 }
 
@@ -11522,7 +11490,7 @@ static ZigType *get_error_set_intersection(IrAnalyze *ira, ZigType *set1, ZigTyp
         return set1;
     }
     size_t errors_count = ira->codegen->errors_by_index.length;
-    ErrorTableEntry **errors = allocate<ErrorTableEntry *>(errors_count, "ErrorTableEntry *");
+    ErrorTableEntry **errors = heap::c_allocator.allocate<ErrorTableEntry *>(errors_count);
     populate_error_set_table(errors, set1);
     ZigList<ErrorTableEntry *> intersection_list = {};
 
@@ -11543,7 +11511,7 @@ static ZigType *get_error_set_intersection(IrAnalyze *ira, ZigType *set1, ZigTyp
             buf_appendf(&err_set_type->name, "%s%s", comma, buf_ptr(&existing_entry_with_docs->name));
         }
     }
-    deallocate(errors, errors_count, "ErrorTableEntry *");
+    heap::c_allocator.deallocate(errors, errors_count);
 
     err_set_type->data.error_set.err_count = intersection_list.length;
     err_set_type->data.error_set.errors = intersection_list.items;
@@ -11596,7 +11564,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             actual_ptr_type->data.pointer.ptr_len == PtrLenC;
         if (!ok_null_term_ptrs) {
             result.id = ConstCastResultIdPtrSentinel;
-            result.data.bad_ptr_sentinel = allocate_nonzero<ConstCastPtrSentinel>(1);
+            result.data.bad_ptr_sentinel = heap::c_allocator.allocate_nonzero<ConstCastPtrSentinel>(1);
             result.data.bad_ptr_sentinel->wanted_type = wanted_ptr_type;
             result.data.bad_ptr_sentinel->actual_type = actual_ptr_type;
             return result;
@@ -11612,7 +11580,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             (!actual_ptr_type->data.pointer.is_volatile || wanted_ptr_type->data.pointer.is_volatile);
         if (!ok_cv_qualifiers) {
             result.id = ConstCastResultIdCV;
-            result.data.bad_cv = allocate_nonzero<ConstCastBadCV>(1);
+            result.data.bad_cv = heap::c_allocator.allocate_nonzero<ConstCastBadCV>(1);
             result.data.bad_cv->wanted_type = wanted_ptr_type;
             result.data.bad_cv->actual_type = actual_ptr_type;
             return result;
@@ -11624,7 +11592,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             return child;
         if (child.id != ConstCastResultIdOk) {
             result.id = ConstCastResultIdPointerChild;
-            result.data.pointer_mismatch = allocate_nonzero<ConstCastPointerMismatch>(1);
+            result.data.pointer_mismatch = heap::c_allocator.allocate_nonzero<ConstCastPointerMismatch>(1);
             result.data.pointer_mismatch->child = child;
             result.data.pointer_mismatch->wanted_child = wanted_ptr_type->data.pointer.child_type;
             result.data.pointer_mismatch->actual_child = actual_ptr_type->data.pointer.child_type;
@@ -11635,7 +11603,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             (!wanted_allows_zero && !actual_allows_zero);
         if (!ok_allows_zero) {
             result.id = ConstCastResultIdBadAllowsZero;
-            result.data.bad_allows_zero = allocate_nonzero<ConstCastBadAllowsZero>(1);
+            result.data.bad_allows_zero = heap::c_allocator.allocate_nonzero<ConstCastBadAllowsZero>(1);
             result.data.bad_allows_zero->wanted_type = wanted_type;
             result.data.bad_allows_zero->actual_type = actual_type;
             return result;
@@ -11675,7 +11643,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             return child;
         if (child.id != ConstCastResultIdOk) {
             result.id = ConstCastResultIdArrayChild;
-            result.data.array_mismatch = allocate_nonzero<ConstCastArrayMismatch>(1);
+            result.data.array_mismatch = heap::c_allocator.allocate_nonzero<ConstCastArrayMismatch>(1);
             result.data.array_mismatch->child = child;
             result.data.array_mismatch->wanted_child = wanted_type->data.array.child_type;
             result.data.array_mismatch->actual_child = actual_type->data.array.child_type;
@@ -11686,7 +11654,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             const_values_equal(ira->codegen, wanted_type->data.array.sentinel, actual_type->data.array.sentinel));
         if (!ok_null_terminated) {
             result.id = ConstCastResultIdSentinelArrays;
-            result.data.sentinel_arrays = allocate_nonzero<ConstCastBadNullTermArrays>(1);
+            result.data.sentinel_arrays = heap::c_allocator.allocate_nonzero<ConstCastBadNullTermArrays>(1);
             result.data.sentinel_arrays->child = child;
             result.data.sentinel_arrays->wanted_type = wanted_type;
             result.data.sentinel_arrays->actual_type = actual_type;
@@ -11714,7 +11682,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
                  actual_ptr_type->data.pointer.sentinel));
         if (!ok_sentinels) {
             result.id = ConstCastResultIdPtrSentinel;
-            result.data.bad_ptr_sentinel = allocate_nonzero<ConstCastPtrSentinel>(1);
+            result.data.bad_ptr_sentinel = heap::c_allocator.allocate_nonzero<ConstCastPtrSentinel>(1);
             result.data.bad_ptr_sentinel->wanted_type = wanted_ptr_type;
             result.data.bad_ptr_sentinel->actual_type = actual_ptr_type;
             return result;
@@ -11731,7 +11699,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
                 return child;
             if (child.id != ConstCastResultIdOk) {
                 result.id = ConstCastResultIdSliceChild;
-                result.data.slice_mismatch = allocate_nonzero<ConstCastSliceMismatch>(1);
+                result.data.slice_mismatch = heap::c_allocator.allocate_nonzero<ConstCastSliceMismatch>(1);
                 result.data.slice_mismatch->child = child;
                 result.data.slice_mismatch->actual_child = actual_ptr_type->data.pointer.child_type;
                 result.data.slice_mismatch->wanted_child = wanted_ptr_type->data.pointer.child_type;
@@ -11748,7 +11716,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             return child;
         if (child.id != ConstCastResultIdOk) {
             result.id = ConstCastResultIdOptionalChild;
-            result.data.optional = allocate_nonzero<ConstCastOptionalMismatch>(1);
+            result.data.optional = heap::c_allocator.allocate_nonzero<ConstCastOptionalMismatch>(1);
             result.data.optional->child = child;
             result.data.optional->wanted_child = wanted_type->data.maybe.child_type;
             result.data.optional->actual_child = actual_type->data.maybe.child_type;
@@ -11764,7 +11732,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             return payload_child;
         if (payload_child.id != ConstCastResultIdOk) {
             result.id = ConstCastResultIdErrorUnionPayload;
-            result.data.error_union_payload = allocate_nonzero<ConstCastErrUnionPayloadMismatch>(1);
+            result.data.error_union_payload = heap::c_allocator.allocate_nonzero<ConstCastErrUnionPayloadMismatch>(1);
             result.data.error_union_payload->child = payload_child;
             result.data.error_union_payload->wanted_payload = wanted_type->data.error_union.payload_type;
             result.data.error_union_payload->actual_payload = actual_type->data.error_union.payload_type;
@@ -11776,7 +11744,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             return error_set_child;
         if (error_set_child.id != ConstCastResultIdOk) {
             result.id = ConstCastResultIdErrorUnionErrorSet;
-            result.data.error_union_error_set = allocate_nonzero<ConstCastErrUnionErrSetMismatch>(1);
+            result.data.error_union_error_set = heap::c_allocator.allocate_nonzero<ConstCastErrUnionErrSetMismatch>(1);
             result.data.error_union_error_set->child = error_set_child;
             result.data.error_union_error_set->wanted_err_set = wanted_type->data.error_union.err_set_type;
             result.data.error_union_error_set->actual_err_set = actual_type->data.error_union.err_set_type;
@@ -11810,7 +11778,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
         }
 
         size_t errors_count = g->errors_by_index.length;
-        ErrorTableEntry **errors = allocate<ErrorTableEntry *>(errors_count, "ErrorTableEntry *");
+        ErrorTableEntry **errors = heap::c_allocator.allocate<ErrorTableEntry *>(errors_count);
         for (uint32_t i = 0; i < container_set->data.error_set.err_count; i += 1) {
             ErrorTableEntry *error_entry = container_set->data.error_set.errors[i];
             assert(errors[error_entry->value] == nullptr);
@@ -11822,12 +11790,12 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
             if (error_entry == nullptr) {
                 if (result.id == ConstCastResultIdOk) {
                     result.id = ConstCastResultIdErrSet;
-                    result.data.error_set_mismatch = allocate<ConstCastErrSetMismatch>(1);
+                    result.data.error_set_mismatch = heap::c_allocator.create<ConstCastErrSetMismatch>();
                 }
                 result.data.error_set_mismatch->missing_errors.append(contained_error_entry);
             }
         }
-        deallocate(errors, errors_count, "ErrorTableEntry *");
+        heap::c_allocator.deallocate(errors, errors_count);
         return result;
     }
 
@@ -11856,7 +11824,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
                 return child;
             if (child.id != ConstCastResultIdOk) {
                 result.id = ConstCastResultIdFnReturnType;
-                result.data.return_type = allocate_nonzero<ConstCastOnly>(1);
+                result.data.return_type = heap::c_allocator.allocate_nonzero<ConstCastOnly>(1);
                 *result.data.return_type = child;
                 return result;
             }
@@ -11885,7 +11853,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
                 result.data.fn_arg.arg_index = i;
                 result.data.fn_arg.actual_param_type = actual_param_info->type;
                 result.data.fn_arg.expected_param_type = expected_param_info->type;
-                result.data.fn_arg.child = allocate_nonzero<ConstCastOnly>(1);
+                result.data.fn_arg.child = heap::c_allocator.allocate_nonzero<ConstCastOnly>(1);
                 *result.data.fn_arg.child = arg_child;
                 return result;
             }
@@ -11906,14 +11874,14 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
 
     if (wanted_type->id == ZigTypeIdInt && actual_type->id == ZigTypeIdInt) {
         result.id = ConstCastResultIdIntShorten;
-        result.data.int_shorten = allocate_nonzero<ConstCastIntShorten>(1);
+        result.data.int_shorten = heap::c_allocator.allocate_nonzero<ConstCastIntShorten>(1);
         result.data.int_shorten->wanted_type = wanted_type;
         result.data.int_shorten->actual_type = actual_type;
         return result;
     }
 
     result.id = ConstCastResultIdType;
-    result.data.type_mismatch = allocate_nonzero<ConstCastTypeMismatch>(1);
+    result.data.type_mismatch = heap::c_allocator.allocate_nonzero<ConstCastTypeMismatch>(1);
     result.data.type_mismatch->wanted_type = wanted_type;
     result.data.type_mismatch->actual_type = actual_type;
     return result;
@@ -11922,7 +11890,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, ZigType *wanted
 static void update_errors_helper(CodeGen *g, ErrorTableEntry ***errors, size_t *errors_count) {
     size_t old_errors_count = *errors_count;
     *errors_count = g->errors_by_index.length;
-    *errors = reallocate(*errors, old_errors_count, *errors_count);
+    *errors = heap::c_allocator.reallocate(*errors, old_errors_count, *errors_count);
 }
 
 static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigType *expected_type,
@@ -12592,7 +12560,7 @@ static ZigType *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, ZigT
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    free(errors);
+    heap::c_allocator.deallocate(errors, errors_count);
 
     if (convert_to_const_slice) {
         if (prev_inst->value->type->id == ZigTypeIdPointer) {
@@ -12671,7 +12639,7 @@ static bool eval_const_expr_implicit_cast(IrAnalyze *ira, IrInst *source_instr,
         case CastOpBitCast:
             zig_panic("TODO");
         case CastOpNoop: {
-            copy_const_val(const_val, other_val);
+            copy_const_val(ira->codegen, const_val, other_val);
             const_val->type = new_type;
             break;
         }
@@ -13200,7 +13168,7 @@ Error ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
     if (type_is_invalid(return_ptr->type))
         return ErrorSemanticAnalyzeFail;
 
-    IrExecutableSrc *ir_executable = allocate<IrExecutableSrc>(1, "IrExecutableSrc");
+    IrExecutableSrc *ir_executable = heap::c_allocator.create<IrExecutableSrc>();
     ir_executable->source_node = source_node;
     ir_executable->parent_exec = parent_exec;
     ir_executable->name = exec_name;
@@ -13224,7 +13192,7 @@ Error ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
         ir_print_src(codegen, stderr, ir_executable, 2);
         fprintf(stderr, "}\n");
     }
-    IrExecutableGen *analyzed_executable = allocate<IrExecutableGen>(1, "IrExecutableGen");
+    IrExecutableGen *analyzed_executable = heap::c_allocator.create<IrExecutableGen>();
     analyzed_executable->source_node = source_node;
     analyzed_executable->parent_exec = parent_exec;
     analyzed_executable->source_exec = ir_executable;
@@ -13425,7 +13393,7 @@ static IrInstGen *ir_analyze_optional_wrap(IrAnalyze *ira, IrInst* source_instr,
                 source_instr->scope, source_instr->source_node);
         const_instruction->base.value->special = ConstValSpecialStatic;
         if (types_have_same_zig_comptime_repr(ira->codegen, wanted_type, payload_type)) {
-            copy_const_val(const_instruction->base.value, val);
+            copy_const_val(ira->codegen, const_instruction->base.value, val);
         } else {
             const_instruction->base.value->data.x_optional = val;
         }
@@ -13466,7 +13434,7 @@ static IrInstGen *ir_analyze_err_wrap_payload(IrAnalyze *ira, IrInst* source_ins
         if (val == nullptr)
             return ira->codegen->invalid_inst_gen;
 
-        ZigValue *err_set_val = create_const_vals(1);
+        ZigValue *err_set_val = ira->codegen->pass1_arena->create<ZigValue>();
         err_set_val->type = err_set_type;
         err_set_val->special = ConstValSpecialStatic;
         err_set_val->data.x_err_set = nullptr;
@@ -13578,7 +13546,7 @@ static IrInstGen *ir_analyze_err_wrap_code(IrAnalyze *ira, IrInst* source_instr,
         if (!val)
             return ira->codegen->invalid_inst_gen;
 
-        ZigValue *err_set_val = create_const_vals(1);
+        ZigValue *err_set_val = ira->codegen->pass1_arena->create<ZigValue>();
         err_set_val->special = ConstValSpecialStatic;
         err_set_val->type = wanted_type->data.error_union.err_set_type;
         err_set_val->data.x_err_set = val->data.x_err_set;
@@ -13843,7 +13811,7 @@ static IrInstGen *ir_analyze_enum_to_union(IrAnalyze *ira, IrInst* source_instr,
         result->value->special = ConstValSpecialStatic;
         result->value->type = wanted_type;
         bigint_init_bigint(&result->value->data.x_union.tag, &val->data.x_enum_tag);
-        result->value->data.x_union.payload = create_const_vals(1);
+        result->value->data.x_union.payload = ira->codegen->pass1_arena->create<ZigValue>();
         result->value->data.x_union.payload->special = ConstValSpecialStatic;
         result->value->data.x_union.payload->type = field_type;
         return result;
@@ -14148,7 +14116,7 @@ static IrInstGen *ir_analyze_ptr_to_array(IrAnalyze *ira, IrInst* source_instr, 
         if (pointee == nullptr)
             return ira->codegen->invalid_inst_gen;
         if (pointee->special != ConstValSpecialRuntime) {
-            ZigValue *array_val = create_const_vals(1);
+            ZigValue *array_val = ira->codegen->pass1_arena->create<ZigValue>();
             array_val->special = ConstValSpecialStatic;
             array_val->type = array_type;
             array_val->data.x_array.special = ConstArraySpecialNone;
@@ -14362,7 +14330,7 @@ static IrInstGen *ir_analyze_array_to_vector(IrAnalyze *ira, IrInst* source_inst
     if (instr_is_comptime(array)) {
         // arrays and vectors have the same ZigValue representation
         IrInstGen *result = ir_const(ira, source_instr, vector_type);
-        copy_const_val(result->value, array->value);
+        copy_const_val(ira->codegen, result->value, array->value);
         result->value->type = vector_type;
         return result;
     }
@@ -14375,7 +14343,7 @@ static IrInstGen *ir_analyze_vector_to_array(IrAnalyze *ira, IrInst* source_inst
     if (instr_is_comptime(vector)) {
         // arrays and vectors have the same ZigValue representation
         IrInstGen *result = ir_const(ira, source_instr, array_type);
-        copy_const_val(result->value, vector->value);
+        copy_const_val(ira->codegen, result->value, vector->value);
         result->value->type = array_type;
         return result;
     }
@@ -14675,7 +14643,7 @@ static IrInstGen *ir_analyze_cast(IrAnalyze *ira, IrInst *source_instr,
             if (wanted_type->id == ZigTypeIdComptimeInt || wanted_type->id == ZigTypeIdInt) {
                 IrInstGen *result = ir_const(ira, source_instr, wanted_type);
                 if (actual_type->id == ZigTypeIdComptimeInt || actual_type->id == ZigTypeIdInt) {
-                    copy_const_val(result->value, value->value);
+                    copy_const_val(ira->codegen, result->value, value->value);
                     result->value->type = wanted_type;
                 } else {
                     float_init_bigint(&result->value->data.x_bigint, value->value);
@@ -16508,7 +16476,7 @@ static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_i
         IrInstGen *result = ir_const(ira, &bin_op_instruction->base.base,
             get_vector_type(ira->codegen, resolved_type->data.vector.len, ira->codegen->builtin_types.entry_bool));
         result->value->data.x_array.data.s_none.elements =
-            create_const_vals(resolved_type->data.vector.len);
+            ira->codegen->pass1_arena->allocate<ZigValue>(resolved_type->data.vector.len);
 
         expand_undef_array(ira->codegen, result->value);
         for (size_t i = 0;i < resolved_type->data.vector.len;i++) {
@@ -16516,7 +16484,7 @@ static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_i
                 &op1_val->data.x_array.data.s_none.elements[i],
                 &op2_val->data.x_array.data.s_none.elements[i],
                 bin_op_instruction, op_id, one_possible_value);
-            copy_const_val(&result->value->data.x_array.data.s_none.elements[i], cur_res->value);
+            copy_const_val(ira->codegen, &result->value->data.x_array.data.s_none.elements[i], cur_res->value);
         }
         return result;
     }
@@ -17416,7 +17384,7 @@ static IrInstGen *ir_analyze_array_cat(IrAnalyze *ira, IrInstSrcBinOp *instructi
     ZigValue *out_array_val;
     size_t new_len = (op1_array_end - op1_array_index) + (op2_array_end - op2_array_index);
     if (op1_type->id == ZigTypeIdPointer || op2_type->id == ZigTypeIdPointer) {
-        out_array_val = create_const_vals(1);
+        out_array_val = ira->codegen->pass1_arena->create<ZigValue>();
         out_array_val->special = ConstValSpecialStatic;
         out_array_val->type = get_array_type(ira->codegen, child_type, new_len, sentinel);
 
@@ -17428,11 +17396,11 @@ static IrInstGen *ir_analyze_array_cat(IrAnalyze *ira, IrInstSrcBinOp *instructi
                 true, false, PtrLenUnknown, 0, 0, 0, false,
                 VECTOR_INDEX_NONE, nullptr, sentinel);
         result->value->type = get_slice_type(ira->codegen, ptr_type);
-        out_array_val = create_const_vals(1);
+        out_array_val = ira->codegen->pass1_arena->create<ZigValue>();
         out_array_val->special = ConstValSpecialStatic;
         out_array_val->type = get_array_type(ira->codegen, child_type, new_len, sentinel);
 
-        out_val->data.x_struct.fields = alloc_const_vals_ptrs(2);
+        out_val->data.x_struct.fields = alloc_const_vals_ptrs(ira->codegen, 2);
 
         out_val->data.x_struct.fields[slice_ptr_index]->type = ptr_type;
         out_val->data.x_struct.fields[slice_ptr_index]->special = ConstValSpecialStatic;
@@ -17449,7 +17417,7 @@ static IrInstGen *ir_analyze_array_cat(IrAnalyze *ira, IrInstSrcBinOp *instructi
     } else {
         result->value->type = get_pointer_to_type_extra2(ira->codegen, child_type, true, false, PtrLenUnknown,
                 0, 0, 0, false, VECTOR_INDEX_NONE, nullptr, sentinel);
-        out_array_val = create_const_vals(1);
+        out_array_val = ira->codegen->pass1_arena->create<ZigValue>();
         out_array_val->special = ConstValSpecialStatic;
         out_array_val->type = get_array_type(ira->codegen, child_type, new_len, sentinel);
         out_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
@@ -17465,7 +17433,7 @@ static IrInstGen *ir_analyze_array_cat(IrAnalyze *ira, IrInstSrcBinOp *instructi
     }
 
     uint64_t full_len = new_len + ((sentinel != nullptr) ? 1 : 0);
-    out_array_val->data.x_array.data.s_none.elements = create_const_vals(full_len);
+    out_array_val->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(full_len);
     // TODO handle the buf case here for an optimization
     expand_undef_array(ira->codegen, op1_array_val);
     expand_undef_array(ira->codegen, op2_array_val);
@@ -17473,21 +17441,21 @@ static IrInstGen *ir_analyze_array_cat(IrAnalyze *ira, IrInstSrcBinOp *instructi
     size_t next_index = 0;
     for (size_t i = op1_array_index; i < op1_array_end; i += 1, next_index += 1) {
         ZigValue *elem_dest_val = &out_array_val->data.x_array.data.s_none.elements[next_index];
-        copy_const_val(elem_dest_val, &op1_array_val->data.x_array.data.s_none.elements[i]);
+        copy_const_val(ira->codegen, elem_dest_val, &op1_array_val->data.x_array.data.s_none.elements[i]);
         elem_dest_val->parent.id = ConstParentIdArray;
         elem_dest_val->parent.data.p_array.array_val = out_array_val;
         elem_dest_val->parent.data.p_array.elem_index = next_index;
     }
     for (size_t i = op2_array_index; i < op2_array_end; i += 1, next_index += 1) {
         ZigValue *elem_dest_val = &out_array_val->data.x_array.data.s_none.elements[next_index];
-        copy_const_val(elem_dest_val, &op2_array_val->data.x_array.data.s_none.elements[i]);
+        copy_const_val(ira->codegen, elem_dest_val, &op2_array_val->data.x_array.data.s_none.elements[i]);
         elem_dest_val->parent.id = ConstParentIdArray;
         elem_dest_val->parent.data.p_array.array_val = out_array_val;
         elem_dest_val->parent.data.p_array.elem_index = next_index;
     }
     if (next_index < full_len) {
         ZigValue *elem_dest_val = &out_array_val->data.x_array.data.s_none.elements[next_index];
-        copy_const_val(elem_dest_val, sentinel);
+        copy_const_val(ira->codegen, elem_dest_val, sentinel);
         elem_dest_val->parent.id = ConstParentIdArray;
         elem_dest_val->parent.data.p_array.array_val = out_array_val;
         elem_dest_val->parent.data.p_array.elem_index = next_index;
@@ -17566,13 +17534,13 @@ static IrInstGen *ir_analyze_array_mult(IrAnalyze *ira, IrInstSrcBinOp *instruct
         // TODO optimize the buf case
         expand_undef_array(ira->codegen, array_val);
         size_t extra_null_term = (array_type->data.array.sentinel != nullptr) ? 1 : 0;
-        out_val->data.x_array.data.s_none.elements = create_const_vals(new_array_len + extra_null_term);
+        out_val->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(new_array_len + extra_null_term);
 
         uint64_t i = 0;
         for (uint64_t x = 0; x < mult_amt; x += 1) {
             for (uint64_t y = 0; y < old_array_len; y += 1) {
                 ZigValue *elem_dest_val = &out_val->data.x_array.data.s_none.elements[i];
-                copy_const_val(elem_dest_val, &array_val->data.x_array.data.s_none.elements[y]);
+                copy_const_val(ira->codegen, elem_dest_val, &array_val->data.x_array.data.s_none.elements[y]);
                 elem_dest_val->parent.id = ConstParentIdArray;
                 elem_dest_val->parent.data.p_array.array_val = out_val;
                 elem_dest_val->parent.data.p_array.elem_index = i;
@@ -17583,7 +17551,7 @@ static IrInstGen *ir_analyze_array_mult(IrAnalyze *ira, IrInstSrcBinOp *instruct
 
         if (array_type->data.array.sentinel != nullptr) {
             ZigValue *elem_dest_val = &out_val->data.x_array.data.s_none.elements[i];
-            copy_const_val(elem_dest_val, array_type->data.array.sentinel);
+            copy_const_val(ira->codegen, elem_dest_val, array_type->data.array.sentinel);
             elem_dest_val->parent.id = ConstParentIdArray;
             elem_dest_val->parent.data.p_array.array_val = out_val;
             elem_dest_val->parent.data.p_array.elem_index = i;
@@ -17624,14 +17592,14 @@ static IrInstGen *ir_analyze_instruction_merge_err_sets(IrAnalyze *ira,
     }
 
     size_t errors_count = ira->codegen->errors_by_index.length;
-    ErrorTableEntry **errors = allocate<ErrorTableEntry *>(errors_count, "ErrorTableEntry *");
+    ErrorTableEntry **errors = heap::c_allocator.allocate<ErrorTableEntry *>(errors_count);
     for (uint32_t i = 0, count = op1_type->data.error_set.err_count; i < count; i += 1) {
         ErrorTableEntry *error_entry = op1_type->data.error_set.errors[i];
         assert(errors[error_entry->value] == nullptr);
         errors[error_entry->value] = error_entry;
     }
     ZigType *result_type = get_error_set_union(ira->codegen, errors, op1_type, op2_type, instruction->type_name);
-    deallocate(errors, errors_count, "ErrorTableEntry *");
+    heap::c_allocator.deallocate(errors, errors_count);
 
     return ir_const_type(ira, &instruction->base.base, result_type);
 }
@@ -17730,8 +17698,8 @@ static IrInstGen *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstSrcDeclV
             if (var->gen_is_const) {
                 var->const_value = init_val;
             } else {
-                var->const_value = create_const_vals(1);
-                copy_const_val(var->const_value, init_val);
+                var->const_value = ira->codegen->pass1_arena->create<ZigValue>();
+                copy_const_val(ira->codegen, var->const_value, init_val);
             }
         }
     }
@@ -17905,7 +17873,7 @@ static IrInstGen *ir_analyze_instruction_export(IrAnalyze *ira, IrInstSrcExport 
     // It's not clear how all the different types are supposed to be handled.
     // Need comprehensive tests for exporting one thing in one file and declaring an extern var
     // in another file.
-    TldFn *tld_fn = allocate<TldFn>(1);
+    TldFn *tld_fn = heap::c_allocator.create<TldFn>();
     tld_fn->base.id = TldIdFn;
     tld_fn->base.source_node = instruction->base.base.source_node;
 
@@ -18134,7 +18102,7 @@ static IrInstGen *ir_analyze_instruction_error_union(IrAnalyze *ira, IrInstSrcEr
     IrInstGen *result = ir_const(ira, &instruction->base.base, ira->codegen->builtin_types.entry_type);
     result->value->special = ConstValSpecialLazy;
 
-    LazyValueErrUnionType *lazy_err_union_type = allocate<LazyValueErrUnionType>(1, "LazyValueErrUnionType");
+    LazyValueErrUnionType *lazy_err_union_type = heap::c_allocator.create<LazyValueErrUnionType>();
     lazy_err_union_type->ira = ira; ira_ref(ira);
     result->value->data.x_lazy = &lazy_err_union_type->base;
     lazy_err_union_type->base.id = LazyValueIdErrUnionType;
@@ -18155,7 +18123,7 @@ static IrInstGen *ir_analyze_alloca(IrAnalyze *ira, IrInst *source_inst, ZigType
 {
     Error err;
 
-    ZigValue *pointee = create_const_vals(1);
+    ZigValue *pointee = ira->codegen->pass1_arena->create<ZigValue>();
     pointee->special = ConstValSpecialUndef;
     pointee->llvm_align = align;
 
@@ -18236,8 +18204,8 @@ static bool type_can_bit_cast(ZigType *t) {
     }
 }
 
-static void set_up_result_loc_for_inferred_comptime(IrInstGen *ptr) {
-    ZigValue *undef_child = create_const_vals(1);
+static void set_up_result_loc_for_inferred_comptime(IrAnalyze *ira, IrInstGen *ptr) {
+    ZigValue *undef_child = ira->codegen->pass1_arena->create<ZigValue>();
     undef_child->type = ptr->value->type->data.pointer.child_type;
     undef_child->special = ConstValSpecialUndef;
     ptr->value->special = ConstValSpecialStatic;
@@ -18283,7 +18251,7 @@ static IrInstGen *ir_resolve_no_result_loc(IrAnalyze *ira, IrInst *suspend_sourc
     IrInstGenAlloca *alloca_gen = ir_build_alloca_gen(ira, suspend_source_instr, 0, "");
     alloca_gen->base.value->type = get_pointer_to_type_extra(ira->codegen, value_type, false, false,
             PtrLenSingle, 0, 0, 0, false);
-    set_up_result_loc_for_inferred_comptime(&alloca_gen->base);
+    set_up_result_loc_for_inferred_comptime(ira, &alloca_gen->base);
     ZigFn *fn_entry = ira->new_irb.exec->fn_entry;
     if (fn_entry != nullptr && get_scope_typeof(suspend_source_instr->scope) == nullptr) {
         fn_entry->alloca_gen_list.append(alloca_gen);
@@ -18347,7 +18315,6 @@ static IrInstGen *ir_resolve_result_raw(IrAnalyze *ira, IrInst *suspend_source_i
                 ZigVar *new_var = create_local_var(ira->codegen, var->decl_node, var->child_scope,
                     buf_create_from_str(var->name), var->src_is_const, var->gen_is_const,
                     var->shadowable, var->is_comptime, true);
-                new_var->owner_exec = var->owner_exec;
                 new_var->align_bytes = var->align_bytes;
 
                 var->next_var = new_var;
@@ -18686,15 +18653,15 @@ static IrInstGen *ir_resolve_result(IrAnalyze *ira, IrInst *suspend_source_instr
                 if (!val)
                     return ira->codegen->invalid_inst_gen;
                 field->is_comptime = true;
-                field->init_val = create_const_vals(1);
-                copy_const_val(field->init_val, val);
+                field->init_val = ira->codegen->pass1_arena->create<ZigValue>();
+                copy_const_val(ira->codegen, field->init_val, val);
                 return result_loc;
             }
 
             ZigType *struct_ptr_type = get_pointer_to_type(ira->codegen, isf->inferred_struct_type, false);
             if (instr_is_comptime(result_loc)) {
                 casted_ptr = ir_const(ira, suspend_source_instr, struct_ptr_type);
-                copy_const_val(casted_ptr->value, result_loc->value);
+                copy_const_val(ira->codegen, casted_ptr->value, result_loc->value);
                 casted_ptr->value->type = struct_ptr_type;
             } else {
                 casted_ptr = result_loc;
@@ -18707,8 +18674,8 @@ static IrInstGen *ir_resolve_result(IrAnalyze *ira, IrInst *suspend_source_instr
                     ZigValue *struct_val = const_ptr_pointee(ira, ira->codegen, ptr_val,
                             suspend_source_instr->source_node);
                     struct_val->special = ConstValSpecialStatic;
-                    struct_val->data.x_struct.fields = realloc_const_vals_ptrs(struct_val->data.x_struct.fields,
-                            old_field_count, new_field_count);
+                    struct_val->data.x_struct.fields = realloc_const_vals_ptrs(ira->codegen,
+                            struct_val->data.x_struct.fields, old_field_count, new_field_count);
 
                     ZigValue *field_val = struct_val->data.x_struct.fields[old_field_count];
                     field_val->special = ConstValSpecialUndef;
@@ -19008,10 +18975,10 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
         if (!arg_val)
             return false;
     } else {
-        arg_val = create_const_runtime(casted_arg->value->type);
+        arg_val = create_const_runtime(ira->codegen, casted_arg->value->type);
     }
     if (arg_part_of_generic_id) {
-        copy_const_val(&generic_id->params[generic_id->param_count], arg_val);
+        copy_const_val(ira->codegen, &generic_id->params[generic_id->param_count], arg_val);
         generic_id->param_count += 1;
     }
 
@@ -19160,7 +19127,7 @@ static IrInstGen *ir_analyze_store_ptr(IrAnalyze *ira, IrInst* source_instr,
                 if (dest_val == nullptr)
                     return ira->codegen->invalid_inst_gen;
                 if (dest_val->special != ConstValSpecialRuntime) {
-                    copy_const_val(dest_val, value->value);
+                    copy_const_val(ira->codegen, dest_val, value->value);
 
                     if (ptr->value->data.x_ptr.mut == ConstPtrMutComptimeVar &&
                         !ira->new_irb.current_basic_block->must_be_comptime_source_instr)
@@ -19395,8 +19362,6 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
             {
                 return ira->codegen->invalid_inst_gen;
             }
-            destroy(result_ptr, "ZigValue");
-            result_ptr = nullptr;
 
             if (inferred_err_set_type != nullptr) {
                 inferred_err_set_type->data.error_set.incomplete = false;
@@ -19404,7 +19369,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
                     ErrorTableEntry *err = result->data.x_err_union.error_set->data.x_err_set;
                     if (err != nullptr) {
                         inferred_err_set_type->data.error_set.err_count = 1;
-                        inferred_err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(1);
+                        inferred_err_set_type->data.error_set.errors = heap::c_allocator.create<ErrorTableEntry *>();
                         inferred_err_set_type->data.error_set.errors[0] = err;
                     }
                     ZigType *fn_inferred_err_set_type = result->type->data.error_union.err_set_type;
@@ -19438,12 +19403,12 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
 
         size_t new_fn_arg_count = first_arg_1_or_0 + args_len;
 
-        IrInstGen **casted_args = allocate<IrInstGen *>(new_fn_arg_count);
+        IrInstGen **casted_args = heap::c_allocator.allocate<IrInstGen *>(new_fn_arg_count);
 
         // Fork a scope of the function with known values for the parameters.
         Scope *parent_scope = fn_entry->fndef_scope->base.parent;
         ZigFn *impl_fn = create_fn(ira->codegen, fn_proto_node);
-        impl_fn->param_source_nodes = allocate<AstNode *>(new_fn_arg_count);
+        impl_fn->param_source_nodes = heap::c_allocator.allocate<AstNode *>(new_fn_arg_count);
         buf_init_from_buf(&impl_fn->symbol_name, &fn_entry->symbol_name);
         impl_fn->fndef_scope = create_fndef_scope(ira->codegen, impl_fn->body_node, parent_scope, impl_fn);
         impl_fn->child_scope = &impl_fn->fndef_scope->base;
@@ -19454,10 +19419,10 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
 
         // TODO maybe GenericFnTypeId can be replaced with using the child_scope directly
         // as the key in generic_table
-        GenericFnTypeId *generic_id = allocate<GenericFnTypeId>(1);
+        GenericFnTypeId *generic_id = heap::c_allocator.create<GenericFnTypeId>();
         generic_id->fn_entry = fn_entry;
         generic_id->param_count = 0;
-        generic_id->params = create_const_vals(new_fn_arg_count);
+        generic_id->params = ira->codegen->pass1_arena->allocate<ZigValue>(new_fn_arg_count);
         size_t next_proto_i = 0;
 
         if (first_arg_ptr) {
@@ -19517,7 +19482,6 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
             IrInstGenConst *const_instruction = ir_create_inst_noval<IrInstGenConst>(&ira->new_irb,
                     impl_fn->child_scope, fn_proto_node->data.fn_proto.align_expr);
             const_instruction->base.value = align_result;
-            destroy(result_ptr, "ZigValue");
 
             uint32_t align_bytes = 0;
             ir_resolve_align(ira, &const_instruction->base, nullptr, &align_bytes);
@@ -19650,7 +19614,7 @@ static IrInstGen *ir_analyze_fn_call(IrAnalyze *ira, IrInst* source_instr,
     }
 
 
-    IrInstGen **casted_args = allocate<IrInstGen *>(call_param_count);
+    IrInstGen **casted_args = heap::c_allocator.allocate<IrInstGen *>(call_param_count);
     size_t next_arg_index = 0;
     if (first_arg_ptr) {
         assert(first_arg_ptr->value->type->id == ZigTypeIdPointer);
@@ -19782,7 +19746,7 @@ static IrInstGen *ir_analyze_fn_call_src(IrAnalyze *ira, IrInstSrcCall *call_ins
             return ira->codegen->invalid_inst_gen;
         new_stack_src = &call_instruction->new_stack->base;
     }
-    IrInstGen **args_ptr = allocate<IrInstGen *>(call_instruction->arg_count, "IrInstGen *");
+    IrInstGen **args_ptr = heap::c_allocator.allocate<IrInstGen *>(call_instruction->arg_count);
     for (size_t i = 0; i < call_instruction->arg_count; i += 1) {
         args_ptr[i] = call_instruction->args[i]->child;
         if (type_is_invalid(args_ptr[i]->value->type))
@@ -19798,7 +19762,7 @@ static IrInstGen *ir_analyze_fn_call_src(IrAnalyze *ira, IrInstSrcCall *call_ins
             first_arg_ptr, first_arg_ptr_src, modifier, new_stack, new_stack_src,
             call_instruction->is_async_call_builtin, args_ptr, call_instruction->arg_count, ret_ptr,
             call_instruction->result_loc);
-    deallocate(args_ptr, call_instruction->arg_count, "IrInstGen *");
+    heap::c_allocator.deallocate(args_ptr, call_instruction->arg_count);
     return result;
 }
 
@@ -19918,7 +19882,7 @@ static IrInstGen *ir_analyze_instruction_call_extra(IrAnalyze *ira, IrInstSrcCal
 
     if (is_tuple(args_type)) {
         args_len = args_type->data.structure.src_field_count;
-        args_ptr = allocate<IrInstGen *>(args_len, "IrInstGen *");
+        args_ptr = heap::c_allocator.allocate<IrInstGen *>(args_len);
         for (size_t i = 0; i < args_len; i += 1) {
             TypeStructField *arg_field = args_type->data.structure.fields[i];
             args_ptr[i] = ir_analyze_struct_value_field_value(ira, &instruction->base.base, args, arg_field);
@@ -19931,12 +19895,12 @@ static IrInstGen *ir_analyze_instruction_call_extra(IrAnalyze *ira, IrInstSrcCal
     }
     IrInstGen *result = ir_analyze_call_extra(ira, &instruction->base.base, instruction->options,
             instruction->fn_ref, args_ptr, args_len, instruction->result_loc);
-    deallocate(args_ptr, args_len, "IrInstGen *");
+    heap::c_allocator.deallocate(args_ptr, args_len);
     return result;
 }
 
 static IrInstGen *ir_analyze_instruction_call_args(IrAnalyze *ira, IrInstSrcCallArgs *instruction) {
-    IrInstGen **args_ptr = allocate<IrInstGen *>(instruction->args_len, "IrInstGen *");
+    IrInstGen **args_ptr = heap::c_allocator.allocate<IrInstGen *>(instruction->args_len);
     for (size_t i = 0; i < instruction->args_len; i += 1) {
         args_ptr[i] = instruction->args_ptr[i]->child;
         if (type_is_invalid(args_ptr[i]->value->type))
@@ -19945,7 +19909,7 @@ static IrInstGen *ir_analyze_instruction_call_args(IrAnalyze *ira, IrInstSrcCall
 
     IrInstGen *result = ir_analyze_call_extra(ira, &instruction->base.base, instruction->options,
             instruction->fn_ref, args_ptr, instruction->args_len, instruction->result_loc);
-    deallocate(args_ptr, instruction->args_len, "IrInstGen *");
+    heap::c_allocator.deallocate(args_ptr, instruction->args_len);
     return result;
 }
 
@@ -20020,7 +19984,7 @@ static Error ir_read_const_ptr(IrAnalyze *ira, CodeGen *codegen, AstNode *source
 
     if (dst_size <= src_size) {
         if (src_size == dst_size && types_have_same_zig_comptime_repr(codegen, out_val->type, pointee->type)) {
-            copy_const_val(out_val, pointee);
+            copy_const_val(codegen, out_val, pointee);
             return ErrorNone;
         }
         Buf buf = BUF_INIT;
@@ -20088,7 +20052,7 @@ static IrInstGen *ir_analyze_optional_type(IrAnalyze *ira, IrInstSrcUnOp *instru
     IrInstGen *result = ir_const(ira, &instruction->base.base, ira->codegen->builtin_types.entry_type);
     result->value->special = ConstValSpecialLazy;
 
-    LazyValueOptType *lazy_opt_type = allocate<LazyValueOptType>(1, "LazyValueOptType");
+    LazyValueOptType *lazy_opt_type = heap::c_allocator.create<LazyValueOptType>();
     lazy_opt_type->ira = ira; ira_ref(ira);
     result->value->data.x_lazy = &lazy_opt_type->base;
     lazy_opt_type->base.id = LazyValueIdOptType;
@@ -20372,7 +20336,7 @@ static IrInstGen *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstSrcPhi *phi_i
 
             if (value->value->special != ConstValSpecialRuntime) {
                 IrInstGen *result = ir_const(ira, &phi_instruction->base.base, nullptr);
-                copy_const_val(result->value, value->value);
+                copy_const_val(ira->codegen, result->value, value->value);
                 return result;
             } else {
                 return value;
@@ -20386,7 +20350,7 @@ static IrInstGen *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstSrcPhi *phi_i
         peer_parent->peers.length >= 2)
     {
         if (peer_parent->resolved_type == nullptr) {
-            IrInstGen **instructions = allocate<IrInstGen *>(peer_parent->peers.length);
+            IrInstGen **instructions = heap::c_allocator.allocate<IrInstGen *>(peer_parent->peers.length);
             for (size_t i = 0; i < peer_parent->peers.length; i += 1) {
                 ResultLocPeer *this_peer = peer_parent->peers.at(i);
 
@@ -20759,7 +20723,7 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
             if (index == array_len && array_type->data.array.sentinel != nullptr) {
                 ZigType *elem_type = array_type->data.array.child_type;
                 IrInstGen *sentinel_elem = ir_const(ira, &elem_ptr_instruction->base.base, elem_type);
-                copy_const_val(sentinel_elem->value, array_type->data.array.sentinel);
+                copy_const_val(ira->codegen, sentinel_elem->value, array_type->data.array.sentinel);
                 return ir_get_ref(ira, &elem_ptr_instruction->base.base, sentinel_elem, true, false);
             }
             if (index >= array_len) {
@@ -20823,7 +20787,7 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
             {
                 if (array_type->id == ZigTypeIdArray || array_type->id == ZigTypeIdVector) {
                     array_ptr_val->data.x_array.special = ConstArraySpecialNone;
-                    array_ptr_val->data.x_array.data.s_none.elements = create_const_vals(array_type->data.array.len);
+                    array_ptr_val->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(array_type->data.array.len);
                     array_ptr_val->special = ConstValSpecialStatic;
                     for (size_t i = 0; i < array_type->data.array.len; i += 1) {
                         ZigValue *elem_val = &array_ptr_val->data.x_array.data.s_none.elements[i];
@@ -20846,11 +20810,11 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
                         return ira->codegen->invalid_inst_gen;
                     }
 
-                    ZigValue *array_init_val = create_const_vals(1);
+                    ZigValue *array_init_val = ira->codegen->pass1_arena->create<ZigValue>();
                     array_init_val->special = ConstValSpecialStatic;
                     array_init_val->type = actual_array_type;
                     array_init_val->data.x_array.special = ConstArraySpecialNone;
-                    array_init_val->data.x_array.data.s_none.elements = create_const_vals(actual_array_type->data.array.len);
+                    array_init_val->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(actual_array_type->data.array.len);
                     array_init_val->special = ConstValSpecialStatic;
                     for (size_t i = 0; i < actual_array_type->data.array.len; i += 1) {
                         ZigValue *elem_val = &array_init_val->data.x_array.data.s_none.elements[i];
@@ -21176,7 +21140,7 @@ static IrInstGen *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInst* source_ins
     if (field->is_comptime) {
         IrInstGen *elem = ir_const(ira, source_instr, field_type);
         memoize_field_init_val(ira->codegen, struct_type, field);
-        copy_const_val(elem->value, field->init_val);
+        copy_const_val(ira->codegen, elem->value, field->init_val);
         return ir_get_ref2(ira, source_instr, elem, field_type, true, false);
     }
     switch (type_has_one_possible_value(ira->codegen, field_type)) {
@@ -21224,7 +21188,7 @@ static IrInstGen *ir_analyze_struct_field_ptr(IrAnalyze *ira, IrInst* source_ins
             if (type_is_invalid(struct_val->type))
                 return ira->codegen->invalid_inst_gen;
             if (initializing && struct_val->special == ConstValSpecialUndef) {
-                struct_val->data.x_struct.fields = alloc_const_vals_ptrs(struct_type->data.structure.src_field_count);
+                struct_val->data.x_struct.fields = alloc_const_vals_ptrs(ira->codegen, struct_type->data.structure.src_field_count);
                 struct_val->special = ConstValSpecialStatic;
                 for (size_t i = 0; i < struct_type->data.structure.src_field_count; i += 1) {
                     ZigValue *field_val = struct_val->data.x_struct.fields[i];
@@ -21266,7 +21230,7 @@ static IrInstGen *ir_analyze_inferred_field_ptr(IrAnalyze *ira, Buf *field_name,
     ZigType *container_ptr_type = container_ptr->value->type;
     ir_assert(container_ptr_type->id == ZigTypeIdPointer, source_instr);
 
-    InferredStructField *inferred_struct_field = allocate<InferredStructField>(1, "InferredStructField");
+    InferredStructField *inferred_struct_field = heap::c_allocator.create<InferredStructField>();
     inferred_struct_field->inferred_struct_type = container_type;
     inferred_struct_field->field_name = field_name;
 
@@ -21286,7 +21250,7 @@ static IrInstGen *ir_analyze_inferred_field_ptr(IrAnalyze *ira, Buf *field_name,
         } else {
             result = ir_const(ira, source_instr, field_ptr_type);
         }
-        copy_const_val(result->value, ptr_val);
+        copy_const_val(ira->codegen, result->value, ptr_val);
         result->value->type = field_ptr_type;
         return result;
     }
@@ -21357,7 +21321,7 @@ static IrInstGen *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name
                     return ira->codegen->invalid_inst_gen;
 
                 if (initializing) {
-                    ZigValue *payload_val = create_const_vals(1);
+                    ZigValue *payload_val = ira->codegen->pass1_arena->create<ZigValue>();
                     payload_val->special = ConstValSpecialUndef;
                     payload_val->type = field_type;
                     payload_val->parent.id = ConstParentIdUnion;
@@ -21540,7 +21504,7 @@ static IrInstGen *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstSrcFiel
         }
     } else if (is_array_ref(container_type) && !field_ptr_instruction->initializing) {
         if (buf_eql_str(field_name, "len")) {
-            ZigValue *len_val = create_const_vals(1);
+            ZigValue *len_val = ira->codegen->pass1_arena->create<ZigValue>();
             if (container_type->id == ZigTypeIdPointer) {
                 init_const_usize(ira->codegen, len_val, container_type->data.pointer.child_type->data.array.len);
             } else {
@@ -21586,7 +21550,7 @@ static IrInstGen *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstSrcFiel
                     bool ptr_is_const = true;
                     bool ptr_is_volatile = false;
                     return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                            create_const_enum(child_type, &field->value), child_type,
+                            create_const_enum(ira->codegen, child_type, &field->value), child_type,
                             ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
                 }
             }
@@ -21615,7 +21579,7 @@ static IrInstGen *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstSrcFiel
                     bool ptr_is_const = true;
                     bool ptr_is_volatile = false;
                     return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                            create_const_enum(enum_type, &field->enum_field->value), enum_type,
+                            create_const_enum(ira->codegen, enum_type, &field->enum_field->value), enum_type,
                             ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
                 }
             }
@@ -21633,7 +21597,7 @@ static IrInstGen *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstSrcFiel
                 if (existing_entry) {
                     err_entry = existing_entry->value;
                 } else {
-                    err_entry = allocate<ErrorTableEntry>(1);
+                    err_entry = heap::c_allocator.create<ErrorTableEntry>();
                     err_entry->decl_node = field_ptr_instruction->base.base.source_node;
                     buf_init_from_buf(&err_entry->name, field_name);
                     size_t error_value_count = ira->codegen->errors_by_index.length;
@@ -21660,7 +21624,7 @@ static IrInstGen *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstSrcFiel
                 }
                 err_set_type = child_type;
             }
-            ZigValue *const_val = create_const_vals(1);
+            ZigValue *const_val = ira->codegen->pass1_arena->create<ZigValue>();
             const_val->special = ConstValSpecialStatic;
             const_val->type = err_set_type;
             const_val->data.x_err_set = err_entry;
@@ -21674,7 +21638,7 @@ static IrInstGen *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstSrcFiel
                 bool ptr_is_const = true;
                 bool ptr_is_volatile = false;
                 return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                    create_const_unsigned_negative(ira->codegen->builtin_types.entry_num_lit_int,
+                    create_const_unsigned_negative(ira->codegen, ira->codegen->builtin_types.entry_num_lit_int,
                         child_type->data.integral.bit_count, false),
                     ira->codegen->builtin_types.entry_num_lit_int,
                     ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
@@ -21696,7 +21660,7 @@ static IrInstGen *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstSrcFiel
                 bool ptr_is_const = true;
                 bool ptr_is_volatile = false;
                 return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                    create_const_unsigned_negative(ira->codegen->builtin_types.entry_num_lit_int,
+                    create_const_unsigned_negative(ira->codegen, ira->codegen->builtin_types.entry_num_lit_int,
                         child_type->data.floating.bit_count, false),
                     ira->codegen->builtin_types.entry_num_lit_int,
                     ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
@@ -21723,7 +21687,7 @@ static IrInstGen *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstSrcFiel
                     return ira->codegen->invalid_inst_gen;
                 }
                 return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                    create_const_unsigned_negative(ira->codegen->builtin_types.entry_num_lit_int,
+                    create_const_unsigned_negative(ira->codegen, ira->codegen->builtin_types.entry_num_lit_int,
                         get_ptr_align(ira->codegen, child_type), false),
                     ira->codegen->builtin_types.entry_num_lit_int,
                     ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
@@ -21745,7 +21709,7 @@ static IrInstGen *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstSrcFiel
                 bool ptr_is_const = true;
                 bool ptr_is_volatile = false;
                 return ir_get_const_ptr(ira, &field_ptr_instruction->base.base,
-                    create_const_unsigned_negative(ira->codegen->builtin_types.entry_num_lit_int,
+                    create_const_unsigned_negative(ira->codegen, ira->codegen->builtin_types.entry_num_lit_int,
                         child_type->data.array.len, false),
                     ira->codegen->builtin_types.entry_num_lit_int,
                     ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile, 0);
@@ -22025,7 +21989,7 @@ static IrInstGen *ir_analyze_instruction_slice_type(IrAnalyze *ira, IrInstSrcSli
     IrInstGen *result = ir_const(ira, &slice_type_instruction->base.base, ira->codegen->builtin_types.entry_type);
     result->value->special = ConstValSpecialLazy;
 
-    LazyValueSliceType *lazy_slice_type = allocate<LazyValueSliceType>(1, "LazyValueSliceType");
+    LazyValueSliceType *lazy_slice_type = heap::c_allocator.create<LazyValueSliceType>();
     lazy_slice_type->ira = ira; ira_ref(ira);
     result->value->data.x_lazy = &lazy_slice_type->base;
     lazy_slice_type->base.id = LazyValueIdSliceType;
@@ -22098,8 +22062,8 @@ static IrInstGen *ir_analyze_instruction_asm(IrAnalyze *ira, IrInstSrcAsm *asm_i
 
     // TODO validate the output types and variable types
 
-    IrInstGen **input_list = allocate<IrInstGen *>(asm_expr->input_list.length);
-    IrInstGen **output_types = allocate<IrInstGen *>(asm_expr->output_list.length);
+    IrInstGen **input_list = heap::c_allocator.allocate<IrInstGen *>(asm_expr->input_list.length);
+    IrInstGen **output_types = heap::c_allocator.allocate<IrInstGen *>(asm_expr->output_list.length);
 
     ZigType *return_type = ira->codegen->builtin_types.entry_void;
     for (size_t i = 0; i < asm_expr->output_list.length; i += 1) {
@@ -22138,7 +22102,7 @@ static IrInstGen *ir_analyze_instruction_array_type(IrAnalyze *ira, IrInstSrcArr
     IrInstGen *result = ir_const(ira, &array_type_instruction->base.base, ira->codegen->builtin_types.entry_type);
     result->value->special = ConstValSpecialLazy;
 
-    LazyValueArrayType *lazy_array_type = allocate<LazyValueArrayType>(1, "LazyValueArrayType");
+    LazyValueArrayType *lazy_array_type = heap::c_allocator.create<LazyValueArrayType>();
     lazy_array_type->ira = ira; ira_ref(ira);
     result->value->data.x_lazy = &lazy_array_type->base;
     lazy_array_type->base.id = LazyValueIdArrayType;
@@ -22163,7 +22127,7 @@ static IrInstGen *ir_analyze_instruction_size_of(IrAnalyze *ira, IrInstSrcSizeOf
     IrInstGen *result = ir_const(ira, &instruction->base.base, ira->codegen->builtin_types.entry_num_lit_int);
     result->value->special = ConstValSpecialLazy;
 
-    LazyValueSizeOf *lazy_size_of = allocate<LazyValueSizeOf>(1, "LazyValueSizeOf");
+    LazyValueSizeOf *lazy_size_of = heap::c_allocator.create<LazyValueSizeOf>();
     lazy_size_of->ira = ira; ira_ref(ira);
     result->value->data.x_lazy = &lazy_size_of->base;
     lazy_size_of->base.id = LazyValueIdSizeOf;
@@ -22283,7 +22247,7 @@ static IrInstGen *ir_analyze_unwrap_optional_payload(IrAnalyze *ira, IrInst* sou
                         return ira->codegen->invalid_inst_gen;
                     case OnePossibleValueNo:
                         if (!same_comptime_repr) {
-                            ZigValue *payload_val = create_const_vals(1);
+                            ZigValue *payload_val = ira->codegen->pass1_arena->create<ZigValue>();
                             payload_val->type = child_type;
                             payload_val->special = ConstValSpecialUndef;
                             payload_val->parent.id = ConstParentIdOptionalPayload;
@@ -22530,7 +22494,7 @@ static IrInstGen *ir_analyze_instruction_switch_br(IrAnalyze *ira,
         }
     }
 
-    IrInstGenSwitchBrCase *cases = allocate<IrInstGenSwitchBrCase>(case_count);
+    IrInstGenSwitchBrCase *cases = heap::c_allocator.allocate<IrInstGenSwitchBrCase>(case_count);
     for (size_t i = 0; i < case_count; i += 1) {
         IrInstSrcSwitchBrCase *old_case = &switch_br_instruction->cases[i];
         IrInstGenSwitchBrCase *new_case = &cases[i];
@@ -22615,7 +22579,7 @@ static IrInstGen *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case ZigTypeIdErrorSet: {
             if (pointee_val) {
                 IrInstGen *result = ir_const(ira, &switch_target_instruction->base.base, nullptr);
-                copy_const_val(result->value, pointee_val);
+                copy_const_val(ira->codegen, result->value, pointee_val);
                 result->value->type = target_type;
                 return result;
             }
@@ -22835,7 +22799,7 @@ static IrInstGen *ir_analyze_instruction_switch_else_var(IrAnalyze *ira,
             return target_value_ptr;
         }
         // Make note of the errors handled by other cases
-        ErrorTableEntry **errors = allocate<ErrorTableEntry *>(ira->codegen->errors_by_index.length);
+        ErrorTableEntry **errors = heap::c_allocator.allocate<ErrorTableEntry *>(ira->codegen->errors_by_index.length);
         // We may not have any case in the switch if this is a lone else
         const size_t switch_cases = instruction->switch_br ? instruction->switch_br->case_count : 0;
         for (size_t case_i = 0; case_i < switch_cases; case_i += 1) {
@@ -22871,7 +22835,7 @@ static IrInstGen *ir_analyze_instruction_switch_else_var(IrAnalyze *ira,
                 buf_appendf(&err_set_type->name, "%s,", buf_ptr(&error_entry->name));
             }
         }
-        free(errors);
+        heap::c_allocator.deallocate(errors, ira->codegen->errors_by_index.length);
 
         err_set_type->data.error_set.err_count = result_list.length;
         err_set_type->data.error_set.errors = result_list.items;
@@ -23019,7 +22983,7 @@ static IrInstGen *ir_analyze_container_init_fields(IrAnalyze *ira, IrInst *sourc
 
     IrInstGen *first_non_const_instruction = nullptr;
 
-    AstNode **field_assign_nodes = allocate<AstNode *>(actual_field_count);
+    AstNode **field_assign_nodes = heap::c_allocator.allocate<AstNode *>(actual_field_count);
     ZigList<IrInstGen *> const_ptrs = {};
 
     bool is_comptime = ir_should_inline(ira->old_irb.exec, source_instr->scope)
@@ -23090,7 +23054,7 @@ static IrInstGen *ir_analyze_container_init_fields(IrAnalyze *ira, IrInst *sourc
             return ira->codegen->invalid_inst_gen;
 
         IrInstGen *runtime_inst = ir_const(ira, source_instr, field->init_val->type);
-        copy_const_val(runtime_inst->value, field->init_val);
+        copy_const_val(ira->codegen, runtime_inst->value, field->init_val);
 
         IrInstGen *field_ptr = ir_analyze_struct_field_ptr(ira, source_instr, field, result_loc,
                 container_type, true);
@@ -23354,7 +23318,7 @@ static IrInstGen *ir_analyze_instruction_err_name(IrAnalyze *ira, IrInstSrcErrNa
             err->cached_error_name_val = create_const_slice(ira->codegen, array_val, 0, buf_len(&err->name), true);
         }
         IrInstGen *result = ir_const(ira, &instruction->base.base, nullptr);
-        copy_const_val(result->value, err->cached_error_name_val);
+        copy_const_val(ira->codegen, result->value, err->cached_error_name_val);
         result->value->type = str_type;
         return result;
     }
@@ -23680,11 +23644,11 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
         }
     }
 
-    ZigValue *declaration_array = create_const_vals(1);
+    ZigValue *declaration_array = ira->codegen->pass1_arena->create<ZigValue>();
     declaration_array->special = ConstValSpecialStatic;
     declaration_array->type = get_array_type(ira->codegen, type_info_declaration_type, declaration_count, nullptr);
     declaration_array->data.x_array.special = ConstArraySpecialNone;
-    declaration_array->data.x_array.data.s_none.elements = create_const_vals(declaration_count);
+    declaration_array->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(declaration_count);
     init_const_slice(ira->codegen, out_val, declaration_array, 0, declaration_count, false);
 
     // Loop through the declarations and generate info.
@@ -23706,7 +23670,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
         declaration_val->special = ConstValSpecialStatic;
         declaration_val->type = type_info_declaration_type;
 
-        ZigValue **inner_fields = alloc_const_vals_ptrs(3);
+        ZigValue **inner_fields = alloc_const_vals_ptrs(ira->codegen, 3);
         ZigValue *name = create_const_str_lit(ira->codegen, curr_entry->key)->data.x_ptr.data.ref.pointee;
         init_const_slice(ira->codegen, inner_fields[0], name, 0, buf_len(curr_entry->key), true);
         inner_fields[1]->special = ConstValSpecialStatic;
@@ -23737,7 +23701,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
                         // 1: Data.Var: type
                         bigint_init_unsigned(&inner_fields[2]->data.x_union.tag, 1);
 
-                        ZigValue *payload = create_const_vals(1);
+                        ZigValue *payload = ira->codegen->pass1_arena->create<ZigValue>();
                         payload->special = ConstValSpecialStatic;
                         payload->type = ira->codegen->builtin_types.entry_type;
                         payload->data.x_type = var->const_value->type;
@@ -23758,13 +23722,13 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
 
                     AstNodeFnProto *fn_node = &fn_entry->proto_node->data.fn_proto;
 
-                    ZigValue *fn_decl_val = create_const_vals(1);
+                    ZigValue *fn_decl_val = ira->codegen->pass1_arena->create<ZigValue>();
                     fn_decl_val->special = ConstValSpecialStatic;
                     fn_decl_val->type = type_info_fn_decl_type;
                     fn_decl_val->parent.id = ConstParentIdUnion;
                     fn_decl_val->parent.data.p_union.union_val = inner_fields[2];
 
-                    ZigValue **fn_decl_fields = alloc_const_vals_ptrs(9);
+                    ZigValue **fn_decl_fields = alloc_const_vals_ptrs(ira->codegen, 9);
                     fn_decl_val->data.x_struct.fields = fn_decl_fields;
 
                     // fn_type: type
@@ -23802,7 +23766,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
                         0, 0, 0, false);
                     fn_decl_fields[5]->type = get_optional_type(ira->codegen, get_slice_type(ira->codegen, u8_ptr));
                     if (fn_node->is_extern && fn_node->lib_name != nullptr && buf_len(fn_node->lib_name) > 0) {
-                        fn_decl_fields[5]->data.x_optional = create_const_vals(1);
+                        fn_decl_fields[5]->data.x_optional = ira->codegen->pass1_arena->create<ZigValue>();
                         ZigValue *lib_name = create_const_str_lit(ira->codegen, fn_node->lib_name)->data.x_ptr.data.ref.pointee;
                         init_const_slice(ira->codegen, fn_decl_fields[5]->data.x_optional, lib_name, 0,
                                 buf_len(fn_node->lib_name), true);
@@ -23817,12 +23781,12 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
                     // arg_names: [][] const u8
                     ensure_field_index(fn_decl_val->type, "arg_names", 7);
                     size_t fn_arg_count = fn_entry->variable_list.length;
-                    ZigValue *fn_arg_name_array = create_const_vals(1);
+                    ZigValue *fn_arg_name_array = ira->codegen->pass1_arena->create<ZigValue>();
                     fn_arg_name_array->special = ConstValSpecialStatic;
                     fn_arg_name_array->type = get_array_type(ira->codegen,
                             get_slice_type(ira->codegen, u8_ptr), fn_arg_count, nullptr);
                     fn_arg_name_array->data.x_array.special = ConstArraySpecialNone;
-                    fn_arg_name_array->data.x_array.data.s_none.elements = create_const_vals(fn_arg_count);
+                    fn_arg_name_array->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(fn_arg_count);
 
                     init_const_slice(ira->codegen, fn_decl_fields[7], fn_arg_name_array, 0, fn_arg_count, false);
 
@@ -23849,7 +23813,7 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
                     // This is a type.
                     bigint_init_unsigned(&inner_fields[2]->data.x_union.tag, 0);
 
-                    ZigValue *payload = create_const_vals(1);
+                    ZigValue *payload = ira->codegen->pass1_arena->create<ZigValue>();
                     payload->special = ConstValSpecialStatic;
                     payload->type = ira->codegen->builtin_types.entry_type;
                     payload->data.x_type = type_entry;
@@ -23915,11 +23879,11 @@ static ZigValue *create_ptr_like_type_info(IrAnalyze *ira, ZigType *ptr_type_ent
     ZigType *type_info_pointer_type = ir_type_info_get_type(ira, "Pointer", nullptr);
     assertNoError(type_resolve(ira->codegen, type_info_pointer_type, ResolveStatusSizeKnown));
 
-    ZigValue *result = create_const_vals(1);
+    ZigValue *result = ira->codegen->pass1_arena->create<ZigValue>();
     result->special = ConstValSpecialStatic;
     result->type = type_info_pointer_type;
 
-    ZigValue **fields = alloc_const_vals_ptrs(7);
+    ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 7);
     result->data.x_struct.fields = fields;
 
     // size: Size
@@ -23974,7 +23938,7 @@ static void make_enum_field_val(IrAnalyze *ira, ZigValue *enum_field_val, TypeEn
     enum_field_val->special = ConstValSpecialStatic;
     enum_field_val->type = type_info_enum_field_type;
 
-    ZigValue **inner_fields = alloc_const_vals_ptrs(2);
+    ZigValue **inner_fields = alloc_const_vals_ptrs(ira->codegen, 2);
     inner_fields[1]->special = ConstValSpecialStatic;
     inner_fields[1]->type = ira->codegen->builtin_types.entry_num_lit_int;
 
@@ -24020,11 +23984,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
             break;
         case ZigTypeIdInt:
             {
-                result = create_const_vals(1);
+                result = ira->codegen->pass1_arena->create<ZigValue>();
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Int", nullptr);
 
-                ZigValue **fields = alloc_const_vals_ptrs(2);
+                ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 2);
                 result->data.x_struct.fields = fields;
 
                 // is_signed: bool
@@ -24042,11 +24006,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
             }
         case ZigTypeIdFloat:
             {
-                result = create_const_vals(1);
+                result = ira->codegen->pass1_arena->create<ZigValue>();
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Float", nullptr);
 
-                ZigValue **fields = alloc_const_vals_ptrs(1);
+                ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 1);
                 result->data.x_struct.fields = fields;
 
                 // bits: u8
@@ -24066,11 +24030,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
             }
         case ZigTypeIdArray:
             {
-                result = create_const_vals(1);
+                result = ira->codegen->pass1_arena->create<ZigValue>();
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Array", nullptr);
 
-                ZigValue **fields = alloc_const_vals_ptrs(3);
+                ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 3);
                 result->data.x_struct.fields = fields;
 
                 // len: usize
@@ -24090,11 +24054,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 break;
             }
         case ZigTypeIdVector: {
-            result = create_const_vals(1);
+            result = ira->codegen->pass1_arena->create<ZigValue>();
             result->special = ConstValSpecialStatic;
             result->type = ir_type_info_get_type(ira, "Vector", nullptr);
 
-            ZigValue **fields = alloc_const_vals_ptrs(2);
+            ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 2);
             result->data.x_struct.fields = fields;
 
             // len: usize
@@ -24112,11 +24076,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
         }
         case ZigTypeIdOptional:
             {
-                result = create_const_vals(1);
+                result = ira->codegen->pass1_arena->create<ZigValue>();
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Optional", nullptr);
 
-                ZigValue **fields = alloc_const_vals_ptrs(1);
+                ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 1);
                 result->data.x_struct.fields = fields;
 
                 // child: type
@@ -24128,11 +24092,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 break;
             }
         case ZigTypeIdAnyFrame: {
-            result = create_const_vals(1);
+            result = ira->codegen->pass1_arena->create<ZigValue>();
             result->special = ConstValSpecialStatic;
             result->type = ir_type_info_get_type(ira, "AnyFrame", nullptr);
 
-            ZigValue **fields = alloc_const_vals_ptrs(1);
+            ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 1);
             result->data.x_struct.fields = fields;
 
             // child: ?type
@@ -24145,11 +24109,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
         }
         case ZigTypeIdEnum:
             {
-                result = create_const_vals(1);
+                result = ira->codegen->pass1_arena->create<ZigValue>();
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Enum", nullptr);
 
-                ZigValue **fields = alloc_const_vals_ptrs(5);
+                ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 5);
                 result->data.x_struct.fields = fields;
 
                 // layout: ContainerLayout
@@ -24171,11 +24135,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 }
                 uint32_t enum_field_count = type_entry->data.enumeration.src_field_count;
 
-                ZigValue *enum_field_array = create_const_vals(1);
+                ZigValue *enum_field_array = ira->codegen->pass1_arena->create<ZigValue>();
                 enum_field_array->special = ConstValSpecialStatic;
                 enum_field_array->type = get_array_type(ira->codegen, type_info_enum_field_type, enum_field_count, nullptr);
                 enum_field_array->data.x_array.special = ConstArraySpecialNone;
-                enum_field_array->data.x_array.data.s_none.elements = create_const_vals(enum_field_count);
+                enum_field_array->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(enum_field_count);
 
                 init_const_slice(ira->codegen, fields[2], enum_field_array, 0, enum_field_count, false);
 
@@ -24205,7 +24169,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
             }
         case ZigTypeIdErrorSet:
             {
-                result = create_const_vals(1);
+                result = ira->codegen->pass1_arena->create<ZigValue>();
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "ErrorSet", nullptr);
 
@@ -24220,15 +24184,15 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 if ((err = type_resolve(ira->codegen, type_info_error_type, ResolveStatusSizeKnown))) {
                     zig_unreachable();
                 }
-                ZigValue *slice_val = create_const_vals(1);
+                ZigValue *slice_val = ira->codegen->pass1_arena->create<ZigValue>();
                 result->data.x_optional = slice_val;
 
                 uint32_t error_count = type_entry->data.error_set.err_count;
-                ZigValue *error_array = create_const_vals(1);
+                ZigValue *error_array = ira->codegen->pass1_arena->create<ZigValue>();
                 error_array->special = ConstValSpecialStatic;
                 error_array->type = get_array_type(ira->codegen, type_info_error_type, error_count, nullptr);
                 error_array->data.x_array.special = ConstArraySpecialNone;
-                error_array->data.x_array.data.s_none.elements = create_const_vals(error_count);
+                error_array->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(error_count);
 
                 init_const_slice(ira->codegen, slice_val, error_array, 0, error_count, false);
                 for (uint32_t error_index = 0; error_index < error_count; error_index++) {
@@ -24238,7 +24202,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                     error_val->special = ConstValSpecialStatic;
                     error_val->type = type_info_error_type;
 
-                    ZigValue **inner_fields = alloc_const_vals_ptrs(2);
+                    ZigValue **inner_fields = alloc_const_vals_ptrs(ira->codegen, 2);
                     inner_fields[1]->special = ConstValSpecialStatic;
                     inner_fields[1]->type = ira->codegen->builtin_types.entry_num_lit_int;
 
@@ -24260,11 +24224,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
             }
         case ZigTypeIdErrorUnion:
             {
-                result = create_const_vals(1);
+                result = ira->codegen->pass1_arena->create<ZigValue>();
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "ErrorUnion", nullptr);
 
-                ZigValue **fields = alloc_const_vals_ptrs(2);
+                ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 2);
                 result->data.x_struct.fields = fields;
 
                 // error_set: type
@@ -24283,11 +24247,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
             }
         case ZigTypeIdUnion:
             {
-                result = create_const_vals(1);
+                result = ira->codegen->pass1_arena->create<ZigValue>();
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Union", nullptr);
 
-                ZigValue **fields = alloc_const_vals_ptrs(4);
+                ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 4);
                 result->data.x_struct.fields = fields;
 
                 // layout: ContainerLayout
@@ -24304,7 +24268,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 if (union_decl_node->data.container_decl.auto_enum ||
                     union_decl_node->data.container_decl.init_arg_expr != nullptr)
                 {
-                    ZigValue *tag_type = create_const_vals(1);
+                    ZigValue *tag_type = ira->codegen->pass1_arena->create<ZigValue>();
                     tag_type->special = ConstValSpecialStatic;
                     tag_type->type = ira->codegen->builtin_types.entry_type;
                     tag_type->data.x_type = type_entry->data.unionation.tag_type;
@@ -24320,11 +24284,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                     zig_unreachable();
                 uint32_t union_field_count = type_entry->data.unionation.src_field_count;
 
-                ZigValue *union_field_array = create_const_vals(1);
+                ZigValue *union_field_array = ira->codegen->pass1_arena->create<ZigValue>();
                 union_field_array->special = ConstValSpecialStatic;
                 union_field_array->type = get_array_type(ira->codegen, type_info_union_field_type, union_field_count, nullptr);
                 union_field_array->data.x_array.special = ConstArraySpecialNone;
-                union_field_array->data.x_array.data.s_none.elements = create_const_vals(union_field_count);
+                union_field_array->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(union_field_count);
 
                 init_const_slice(ira->codegen, fields[2], union_field_array, 0, union_field_count, false);
 
@@ -24337,14 +24301,14 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                     union_field_val->special = ConstValSpecialStatic;
                     union_field_val->type = type_info_union_field_type;
 
-                    ZigValue **inner_fields = alloc_const_vals_ptrs(3);
+                    ZigValue **inner_fields = alloc_const_vals_ptrs(ira->codegen, 3);
                     inner_fields[1]->special = ConstValSpecialStatic;
                     inner_fields[1]->type = get_optional_type(ira->codegen, type_info_enum_field_type);
 
                     if (fields[1]->data.x_optional == nullptr) {
                         inner_fields[1]->data.x_optional = nullptr;
                     } else {
-                        inner_fields[1]->data.x_optional = create_const_vals(1);
+                        inner_fields[1]->data.x_optional = ira->codegen->pass1_arena->create<ZigValue>();
                         make_enum_field_val(ira, inner_fields[1]->data.x_optional, union_field->enum_field, type_info_enum_field_type);
                     }
 
@@ -24379,11 +24343,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                     break;
                 }
 
-                result = create_const_vals(1);
+                result = ira->codegen->pass1_arena->create<ZigValue>();
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Struct", nullptr);
 
-                ZigValue **fields = alloc_const_vals_ptrs(3);
+                ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 3);
                 result->data.x_struct.fields = fields;
 
                 // layout: ContainerLayout
@@ -24400,11 +24364,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 }
                 uint32_t struct_field_count = type_entry->data.structure.src_field_count;
 
-                ZigValue *struct_field_array = create_const_vals(1);
+                ZigValue *struct_field_array = ira->codegen->pass1_arena->create<ZigValue>();
                 struct_field_array->special = ConstValSpecialStatic;
                 struct_field_array->type = get_array_type(ira->codegen, type_info_struct_field_type, struct_field_count, nullptr);
                 struct_field_array->data.x_array.special = ConstArraySpecialNone;
-                struct_field_array->data.x_array.data.s_none.elements = create_const_vals(struct_field_count);
+                struct_field_array->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(struct_field_count);
 
                 init_const_slice(ira->codegen, fields[1], struct_field_array, 0, struct_field_count, false);
 
@@ -24415,7 +24379,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                     struct_field_val->special = ConstValSpecialStatic;
                     struct_field_val->type = type_info_struct_field_type;
 
-                    ZigValue **inner_fields = alloc_const_vals_ptrs(4);
+                    ZigValue **inner_fields = alloc_const_vals_ptrs(ira->codegen, 4);
                     inner_fields[1]->special = ConstValSpecialStatic;
                     inner_fields[1]->type = get_optional_type(ira->codegen, ira->codegen->builtin_types.entry_num_lit_int);
 
@@ -24428,7 +24392,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                         inner_fields[1]->data.x_optional = nullptr;
                     } else {
                         size_t byte_offset = struct_field->offset;
-                        inner_fields[1]->data.x_optional = create_const_vals(1);
+                        inner_fields[1]->data.x_optional = ira->codegen->pass1_arena->create<ZigValue>();
                         inner_fields[1]->data.x_optional->special = ConstValSpecialStatic;
                         inner_fields[1]->data.x_optional->type = ira->codegen->builtin_types.entry_num_lit_int;
                         bigint_init_unsigned(&inner_fields[1]->data.x_optional->data.x_bigint, byte_offset);
@@ -24464,11 +24428,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
             }
         case ZigTypeIdFn:
             {
-                result = create_const_vals(1);
+                result = ira->codegen->pass1_arena->create<ZigValue>();
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Fn", nullptr);
 
-                ZigValue **fields = alloc_const_vals_ptrs(5);
+                ZigValue **fields = alloc_const_vals_ptrs(ira->codegen, 5);
                 result->data.x_struct.fields = fields;
 
                 // calling_convention: TypeInfo.CallingConvention
@@ -24495,7 +24459,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 if (type_entry->data.fn.fn_type_id.return_type == nullptr)
                     fields[3]->data.x_optional = nullptr;
                 else {
-                    ZigValue *return_type = create_const_vals(1);
+                    ZigValue *return_type = ira->codegen->pass1_arena->create<ZigValue>();
                     return_type->special = ConstValSpecialStatic;
                     return_type->type = ira->codegen->builtin_types.entry_type;
                     return_type->data.x_type = type_entry->data.fn.fn_type_id.return_type;
@@ -24509,11 +24473,11 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 size_t fn_arg_count = type_entry->data.fn.fn_type_id.param_count -
                         (is_varargs && type_entry->data.fn.fn_type_id.cc != CallingConventionC);
 
-                ZigValue *fn_arg_array = create_const_vals(1);
+                ZigValue *fn_arg_array = ira->codegen->pass1_arena->create<ZigValue>();
                 fn_arg_array->special = ConstValSpecialStatic;
                 fn_arg_array->type = get_array_type(ira->codegen, type_info_fn_arg_type, fn_arg_count, nullptr);
                 fn_arg_array->data.x_array.special = ConstArraySpecialNone;
-                fn_arg_array->data.x_array.data.s_none.elements = create_const_vals(fn_arg_count);
+                fn_arg_array->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(fn_arg_count);
 
                 init_const_slice(ira->codegen, fields[4], fn_arg_array, 0, fn_arg_count, false);
 
@@ -24527,7 +24491,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                     bool arg_is_generic = fn_param_info->type == nullptr;
                     if (arg_is_generic) assert(is_generic);
 
-                    ZigValue **inner_fields = alloc_const_vals_ptrs(3);
+                    ZigValue **inner_fields = alloc_const_vals_ptrs(ira->codegen, 3);
                     inner_fields[0]->special = ConstValSpecialStatic;
                     inner_fields[0]->type = ira->codegen->builtin_types.entry_bool;
                     inner_fields[0]->data.x_bool = arg_is_generic;
@@ -24540,7 +24504,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                     if (arg_is_generic)
                         inner_fields[2]->data.x_optional = nullptr;
                     else {
-                        ZigValue *arg_type = create_const_vals(1);
+                        ZigValue *arg_type = ira->codegen->pass1_arena->create<ZigValue>();
                         arg_type->special = ConstValSpecialStatic;
                         arg_type->type = ira->codegen->builtin_types.entry_type;
                         arg_type->data.x_type = fn_param_info->type;
@@ -24866,7 +24830,7 @@ static IrInstGen *ir_analyze_instruction_type_name(IrAnalyze *ira, IrInstSrcType
         type_entry->cached_const_name_val = create_const_str_lit(ira->codegen, type_bare_name(type_entry));
     }
     IrInstGen *result = ir_const(ira, &instruction->base.base, nullptr);
-    copy_const_val(result->value, type_entry->cached_const_name_val);
+    copy_const_val(ira->codegen, result->value, type_entry->cached_const_name_val);
     return result;
 }
 
@@ -24898,7 +24862,6 @@ static IrInstGen *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstSrcCImpo
     }
     if (type_is_invalid(cimport_result->type))
         return ira->codegen->invalid_inst_gen;
-    destroy(result_ptr, "ZigValue");
 
     ZigPackage *cur_scope_pkg = scope_package(instruction->base.base.scope);
     Buf *namespace_name = buf_sprintf("%s.cimport:%" ZIG_PRI_usize ":%" ZIG_PRI_usize,
@@ -25577,11 +25540,11 @@ static IrInstGen *ir_analyze_instruction_to_bytes(IrAnalyze *ira, IrInstSrcToByt
             return ira->codegen->invalid_inst_gen;
 
         IrInstGen *result = ir_const(ira, &instruction->base.base, dest_slice_type);
-        result->value->data.x_struct.fields = alloc_const_vals_ptrs(2);
+        result->value->data.x_struct.fields = alloc_const_vals_ptrs(ira->codegen, 2);
 
         ZigValue *ptr_val = result->value->data.x_struct.fields[slice_ptr_index];
         ZigValue *target_ptr_val = target_val->data.x_struct.fields[slice_ptr_index];
-        copy_const_val(ptr_val, target_ptr_val);
+        copy_const_val(ira->codegen, ptr_val, target_ptr_val);
         ptr_val->type = dest_ptr_type;
 
         ZigValue *len_val = result->value->data.x_struct.fields[slice_len_index];
@@ -25868,7 +25831,7 @@ static IrInstGen *ir_analyze_shuffle_vector(IrAnalyze *ira, IrInst* source_instr
         expand_undef_array(ira->codegen, b_val);
 
         IrInstGen *result = ir_const(ira, source_instr, result_type);
-        result->value->data.x_array.data.s_none.elements = create_const_vals(len_mask);
+        result->value->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(len_mask);
         for (uint32_t i = 0; i < mask_val->type->data.vector.len; i += 1) {
             ZigValue *mask_elem_val = &mask_val->data.x_array.data.s_none.elements[i];
             ZigValue *result_elem_val = &result->value->data.x_array.data.s_none.elements[i];
@@ -25881,7 +25844,7 @@ static IrInstGen *ir_analyze_shuffle_vector(IrAnalyze *ira, IrInst* source_instr
             ZigValue *src_elem_val = (v >= 0) ?
                 &a->value->data.x_array.data.s_none.elements[v] :
                 &b->value->data.x_array.data.s_none.elements[~v];
-            copy_const_val(result_elem_val, src_elem_val);
+            copy_const_val(ira->codegen, result_elem_val, src_elem_val);
 
             ir_assert(result_elem_val->special == ConstValSpecialStatic, source_instr);
         }
@@ -25901,7 +25864,7 @@ static IrInstGen *ir_analyze_shuffle_vector(IrAnalyze *ira, IrInst* source_instr
 
         IrInstGen *expand_mask = ir_const(ira, &mask->base,
             get_vector_type(ira->codegen, len_max, ira->codegen->builtin_types.entry_i32));
-        expand_mask->value->data.x_array.data.s_none.elements = create_const_vals(len_max);
+        expand_mask->value->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(len_max);
         uint32_t i = 0;
         for (; i < len_min; i += 1)
             bigint_init_unsigned(&expand_mask->value->data.x_array.data.s_none.elements[i].data.x_bigint, i);
@@ -25971,9 +25934,9 @@ static IrInstGen *ir_analyze_instruction_splat(IrAnalyze *ira, IrInstSrcSplat *i
             return ir_const_undef(ira, &instruction->base.base, return_type);
 
         IrInstGen *result = ir_const(ira, &instruction->base.base, return_type);
-        result->value->data.x_array.data.s_none.elements = create_const_vals(len_int);
+        result->value->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(len_int);
         for (uint32_t i = 0; i < len_int; i += 1) {
-            copy_const_val(&result->value->data.x_array.data.s_none.elements[i], scalar_val);
+            copy_const_val(ira->codegen, &result->value->data.x_array.data.s_none.elements[i], scalar_val);
         }
         return result;
     }
@@ -26111,7 +26074,7 @@ static IrInstGen *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstSrcMemset 
             }
 
             for (size_t i = start; i < end; i += 1) {
-                copy_const_val(&dest_elements[i], byte_val);
+                copy_const_val(ira->codegen, &dest_elements[i], byte_val);
             }
 
             return ir_const_void(ira, &instruction->base.base);
@@ -26287,7 +26250,7 @@ static IrInstGen *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstSrcMemcpy 
             // TODO check for noalias violations - this should be generalized to work for any function
 
             for (size_t i = 0; i < count; i += 1) {
-                copy_const_val(&dest_elements[dest_start + i], &src_elements[src_start + i]);
+                copy_const_val(ira->codegen, &dest_elements[dest_start + i], &src_elements[src_start + i]);
             }
 
             return ir_const_void(ira, &instruction->base.base);
@@ -26571,7 +26534,7 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
 
         IrInstGen *result = ir_const(ira, &instruction->base.base, return_type);
         ZigValue *out_val = result->value;
-        out_val->data.x_struct.fields = alloc_const_vals_ptrs(2);
+        out_val->data.x_struct.fields = alloc_const_vals_ptrs(ira->codegen, 2);
 
         ZigValue *ptr_val = out_val->data.x_struct.fields[slice_ptr_index];
 
@@ -26866,7 +26829,7 @@ static IrInstGen *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstSrcAlign
     IrInstGen *result = ir_const(ira, &instruction->base.base, ira->codegen->builtin_types.entry_num_lit_int);
     result->value->special = ConstValSpecialLazy;
 
-    LazyValueAlignOf *lazy_align_of = allocate<LazyValueAlignOf>(1, "LazyValueAlignOf");
+    LazyValueAlignOf *lazy_align_of = heap::c_allocator.create<LazyValueAlignOf>();
     lazy_align_of->ira = ira; ira_ref(ira);
     result->value->data.x_lazy = &lazy_align_of->base;
     lazy_align_of->base.id = LazyValueIdAlignOf;
@@ -27192,7 +27155,7 @@ static IrInstGen *ir_analyze_unwrap_err_code(IrAnalyze *ira, IrInst* source_inst
                 return ira->codegen->invalid_inst_gen;
 
             if (initializing && err_union_val->special == ConstValSpecialUndef) {
-                ZigValue *vals = create_const_vals(2);
+                ZigValue *vals = ira->codegen->pass1_arena->allocate<ZigValue>(2);
                 ZigValue *err_set_val = &vals[0];
                 ZigValue *payload_val = &vals[1];
 
@@ -27273,7 +27236,7 @@ static IrInstGen *ir_analyze_unwrap_error_payload(IrAnalyze *ira, IrInst* source
             if (err_union_val == nullptr)
                 return ira->codegen->invalid_inst_gen;
             if (initializing && err_union_val->special == ConstValSpecialUndef) {
-                ZigValue *vals = create_const_vals(2);
+                ZigValue *vals = ira->codegen->pass1_arena->allocate<ZigValue>(2);
                 ZigValue *err_set_val = &vals[0];
                 ZigValue *payload_val = &vals[1];
 
@@ -27335,7 +27298,7 @@ static IrInstGen *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstSrcFnPro
     IrInstGen *result = ir_const(ira, &instruction->base.base, ira->codegen->builtin_types.entry_type);
     result->value->special = ConstValSpecialLazy;
 
-    LazyValueFnType *lazy_fn_type = allocate<LazyValueFnType>(1, "LazyValueFnType");
+    LazyValueFnType *lazy_fn_type = heap::c_allocator.create<LazyValueFnType>();
     lazy_fn_type->ira = ira; ira_ref(ira);
     result->value->data.x_lazy = &lazy_fn_type->base;
     lazy_fn_type->base.id = LazyValueIdFnType;
@@ -27363,7 +27326,7 @@ static IrInstGen *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstSrcFnPro
 
     size_t param_count = proto_node->data.fn_proto.params.length;
     lazy_fn_type->proto_node = proto_node;
-    lazy_fn_type->param_types = allocate<IrInstGen *>(param_count);
+    lazy_fn_type->param_types = heap::c_allocator.allocate<IrInstGen *>(param_count);
 
     for (size_t param_index = 0; param_index < param_count; param_index += 1) {
         AstNode *param_node = proto_node->data.fn_proto.params.at(param_index);
@@ -27518,7 +27481,7 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
         }
 
         size_t field_prev_uses_count = ira->codegen->errors_by_index.length;
-        AstNode **field_prev_uses = allocate<AstNode *>(field_prev_uses_count, "AstNode *");
+        AstNode **field_prev_uses = heap::c_allocator.allocate<AstNode *>(field_prev_uses_count);
 
         for (size_t range_i = 0; range_i < instruction->range_count; range_i += 1) {
             IrInstSrcCheckSwitchProngsRange *range = &instruction->ranges[range_i];
@@ -27575,7 +27538,7 @@ static IrInstGen *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira,
             }
         }
 
-        deallocate(field_prev_uses, field_prev_uses_count, "AstNode *");
+        heap::c_allocator.deallocate(field_prev_uses, field_prev_uses_count);
     } else if (switch_type->id == ZigTypeIdInt) {
         RangeSet rs = {0};
         for (size_t range_i = 0; range_i < instruction->range_count; range_i += 1) {
@@ -27768,7 +27731,7 @@ static IrInstGen *ir_align_cast(IrAnalyze *ira, IrInstGen *target, uint32_t alig
         }
 
         IrInstGen *result = ir_const(ira, &target->base, result_type);
-        copy_const_val(result->value, val);
+        copy_const_val(ira->codegen, result->value, val);
         result->value->type = result_type;
         return result;
     }
@@ -27864,7 +27827,7 @@ static IrInstGen *ir_analyze_ptr_cast(IrAnalyze *ira, IrInst* source_instr, IrIn
         InferredStructField *isf = (val->type->id == ZigTypeIdPointer) ?
             val->type->data.pointer.inferred_struct_field : nullptr;
         if (isf == nullptr) {
-            copy_const_val(result->value, val);
+            copy_const_val(ira->codegen, result->value, val);
         } else {
             // The destination value should have x_ptr struct pointing to underlying struct value
             result->value->data.x_ptr.mut = val->data.x_ptr.mut;
@@ -28021,7 +27984,7 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ZigValue *val)
                     while (gen_i < gen_field_count) {
                         size_t big_int_byte_count = val->type->data.structure.host_int_bytes[gen_i];
                         if (big_int_byte_count > child_buf_len) {
-                            child_buf = allocate_nonzero<uint8_t>(big_int_byte_count);
+                            child_buf = heap::c_allocator.allocate_nonzero<uint8_t>(big_int_byte_count);
                             child_buf_len = big_int_byte_count;
                         }
                         BigInt big_int;
@@ -28084,7 +28047,7 @@ static Error buf_read_value_bytes_array(IrAnalyze *ira, CodeGen *codegen, AstNod
 
     switch (val->data.x_array.special) {
         case ConstArraySpecialNone:
-            val->data.x_array.data.s_none.elements = create_const_vals(len);
+            val->data.x_array.data.s_none.elements = codegen->pass1_arena->allocate<ZigValue>(len);
             for (size_t i = 0; i < len; i++) {
                 ZigValue *elem = &val->data.x_array.data.s_none.elements[i];
                 elem->special = ConstValSpecialStatic;
@@ -28170,7 +28133,7 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                 }
                 case ContainerLayoutExtern: {
                     size_t src_field_count = val->type->data.structure.src_field_count;
-                    val->data.x_struct.fields = alloc_const_vals_ptrs(src_field_count);
+                    val->data.x_struct.fields = alloc_const_vals_ptrs(codegen, src_field_count);
                     for (size_t field_i = 0; field_i < src_field_count; field_i += 1) {
                         ZigValue *field_val = val->data.x_struct.fields[field_i];
                         field_val->special = ConstValSpecialStatic;
@@ -28187,7 +28150,7 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                 }
                 case ContainerLayoutPacked: {
                     size_t src_field_count = val->type->data.structure.src_field_count;
-                    val->data.x_struct.fields = alloc_const_vals_ptrs(src_field_count);
+                    val->data.x_struct.fields = alloc_const_vals_ptrs(codegen, src_field_count);
                     size_t gen_field_count = val->type->data.structure.gen_field_count;
                     size_t gen_i = 0;
                     size_t src_i = 0;
@@ -28199,7 +28162,7 @@ static Error buf_read_value_bytes(IrAnalyze *ira, CodeGen *codegen, AstNode *sou
                     while (gen_i < gen_field_count) {
                         size_t big_int_byte_count = val->type->data.structure.host_int_bytes[gen_i];
                         if (big_int_byte_count > child_buf_len) {
-                            child_buf = allocate_nonzero<uint8_t>(big_int_byte_count);
+                            child_buf = heap::c_allocator.allocate_nonzero<uint8_t>(big_int_byte_count);
                             child_buf_len = big_int_byte_count;
                         }
                         BigInt big_int;
@@ -28309,7 +28272,7 @@ static IrInstGen *ir_analyze_bit_cast(IrAnalyze *ira, IrInst* source_instr, IrIn
             return ira->codegen->invalid_inst_gen;
 
         IrInstGen *result = ir_const(ira, source_instr, dest_type);
-        uint8_t *buf = allocate_nonzero<uint8_t>(src_size_bytes);
+        uint8_t *buf = heap::c_allocator.allocate_nonzero<uint8_t>(src_size_bytes);
         buf_write_value_bytes(ira->codegen, buf, val);
         if ((err = buf_read_value_bytes(ira, ira->codegen, source_instr->source_node, buf, result->value)))
             return ira->codegen->invalid_inst_gen;
@@ -28451,7 +28414,7 @@ static IrInstGen *ir_analyze_instruction_ptr_type(IrAnalyze *ira, IrInstSrcPtrTy
     IrInstGen *result = ir_const(ira, &instruction->base.base, ira->codegen->builtin_types.entry_type);
     result->value->special = ConstValSpecialLazy;
 
-    LazyValuePtrType *lazy_ptr_type = allocate<LazyValuePtrType>(1, "LazyValuePtrType");
+    LazyValuePtrType *lazy_ptr_type = heap::c_allocator.create<LazyValuePtrType>();
     lazy_ptr_type->ira = ira; ira_ref(ira);
     result->value->data.x_lazy = &lazy_ptr_type->base;
     lazy_ptr_type->base.id = LazyValueIdPtrType;
@@ -29150,11 +29113,11 @@ static IrInstGen *ir_analyze_instruction_bswap(IrAnalyze *ira, IrInstSrcBswap *i
             return ir_const_undef(ira, &instruction->base.base, op_type);
 
         IrInstGen *result = ir_const(ira, &instruction->base.base, op_type);
-        size_t buf_size = int_type->data.integral.bit_count / 8;
-        uint8_t *buf = allocate_nonzero<uint8_t>(buf_size);
+        const size_t buf_size = int_type->data.integral.bit_count / 8;
+        uint8_t *buf = heap::c_allocator.allocate_nonzero<uint8_t>(buf_size);
         if (is_vector) {
             expand_undef_array(ira->codegen, val);
-            result->value->data.x_array.data.s_none.elements = create_const_vals(op_type->data.vector.len);
+            result->value->data.x_array.data.s_none.elements = ira->codegen->pass1_arena->allocate<ZigValue>(op_type->data.vector.len);
             for (unsigned i = 0; i < op_type->data.vector.len; i += 1) {
                 ZigValue *op_elem_val = &val->data.x_array.data.s_none.elements[i];
                 if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec, instruction->base.base.source_node,
@@ -29178,7 +29141,7 @@ static IrInstGen *ir_analyze_instruction_bswap(IrAnalyze *ira, IrInstSrcBswap *i
             bigint_read_twos_complement(&result->value->data.x_bigint, buf, int_type->data.integral.bit_count, false,
                     int_type->data.integral.is_signed);
         }
-        free(buf);
+        heap::c_allocator.deallocate(buf, buf_size);
         return result;
     }
 
@@ -29210,8 +29173,8 @@ static IrInstGen *ir_analyze_instruction_bit_reverse(IrAnalyze *ira, IrInstSrcBi
         IrInstGen *result = ir_const(ira, &instruction->base.base, int_type);
         size_t num_bits = int_type->data.integral.bit_count;
         size_t buf_size = (num_bits + 7) / 8;
-        uint8_t *comptime_buf = allocate_nonzero<uint8_t>(buf_size);
-        uint8_t *result_buf = allocate_nonzero<uint8_t>(buf_size);
+        uint8_t *comptime_buf = heap::c_allocator.allocate_nonzero<uint8_t>(buf_size);
+        uint8_t *result_buf = heap::c_allocator.allocate_nonzero<uint8_t>(buf_size);
         memset(comptime_buf,0,buf_size);
         memset(result_buf,0,buf_size);
 
@@ -29897,7 +29860,7 @@ ZigType *ir_analyze(CodeGen *codegen, IrExecutableSrc *old_exec, IrExecutableGen
     assert(old_exec->first_err_trace_msg == nullptr);
     assert(expected_type == nullptr || !type_is_invalid(expected_type));
 
-    IrAnalyze *ira = allocate<IrAnalyze>(1, "IrAnalyze");
+    IrAnalyze *ira = heap::c_allocator.create<IrAnalyze>();
     ira->ref_count = 1;
     old_exec->analysis = ira;
     ira->codegen = codegen;

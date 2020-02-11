@@ -37,6 +37,4 @@ ZigValue *const_ptr_pointee(IrAnalyze *ira, CodeGen *codegen, ZigValue *const_va
 void dbg_ir_break(const char *src_file, uint32_t line);
 void dbg_ir_clear(void);
 
-void destroy_instruction_gen(IrInstGen *inst);
-
 #endif
