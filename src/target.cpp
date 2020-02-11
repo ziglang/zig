@@ -520,7 +520,7 @@ void get_native_target(ZigTarget *target) {
         target->abi = target_default_abi(target->arch, target->os);
     }
     if (target_is_glibc(target)) {
-        target->glibc_version = allocate<ZigGLibCVersion>(1);
+        target->glibc_version = heap::c_allocator.create<ZigGLibCVersion>();
         target_init_default_glibc_version(target);
 #ifdef ZIG_OS_LINUX
         Error err;

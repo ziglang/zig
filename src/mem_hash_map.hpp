@@ -5,21 +5,21 @@
  * See http://opensource.org/licenses/MIT
  */
 
-#ifndef ZIG_HASH_MAP_HPP
-#define ZIG_HASH_MAP_HPP
+#ifndef ZIG_MEM_HASH_MAP_HPP
+#define ZIG_MEM_HASH_MAP_HPP
 
-#include "util.hpp"
+#include "mem.hpp"
 
-#include <stdint.h>
+namespace mem {
 
 template<typename K, typename V, uint32_t (*HashFunction)(K key), bool (*EqualFn)(K a, K b)>
 class HashMap {
 public:
-    void init(int capacity) {
-        init_capacity(capacity);
+    void init(Allocator& allocator, int capacity) {
+        init_capacity(allocator, capacity);
     }
-    void deinit(void) {
-        heap::c_allocator.deallocate(_entries, _capacity);
+    void deinit(Allocator& allocator) {
+        allocator.deallocate(_entries, _capacity);
     }
 
     struct Entry {
@@ -42,7 +42,7 @@ public:
         return _size;
     }
 
-    void put(const K &key, const V &value) {
+    void put(Allocator& allocator, const K &key, const V &value) {
         _modification_count += 1;
         internal_put(key, value);
 
@@ -50,23 +50,23 @@ public:
         if (_size * 5 >= _capacity * 3) {
             Entry *old_entries = _entries;
             int old_capacity = _capacity;
-            init_capacity(_capacity * 2);
+            init_capacity(allocator, _capacity * 2);
             // dump all of the old elements into the new table
             for (int i = 0; i < old_capacity; i += 1) {
                 Entry *old_entry = &old_entries[i];
                 if (old_entry->used)
                     internal_put(old_entry->key, old_entry->value);
             }
-            heap::c_allocator.deallocate(old_entries, old_capacity);
+            allocator.deallocate(old_entries, old_capacity);
         }
     }
 
-    Entry *put_unique(const K &key, const V &value) {
+    Entry *put_unique(Allocator& allocator, const K &key, const V &value) {
         // TODO make this more efficient
         Entry *entry = internal_get(key);
         if (entry)
             return entry;
-        put(key, value);
+        put(allocator, key, value);
         return nullptr;
     }
 
@@ -134,6 +134,7 @@ public:
             }
             zig_panic("no next item");
         }
+
     private:
         const HashMap * _table;
         // how many items have we returned
@@ -154,7 +155,6 @@ public:
     }
 
 private:
-
     Entry *_entries;
     int _capacity;
     int _size;
@@ -162,9 +162,9 @@ private:
     // this is used to detect bugs where a hashtable is edited while an iterator is running.
     uint32_t _modification_count;
 
-    void init_capacity(int capacity) {
+    void init_capacity(Allocator& allocator, int capacity) {
         _capacity = capacity;
-        _entries = heap::c_allocator.allocate<Entry>(_capacity);
+        _entries = allocator.allocate<Entry>(_capacity);
         _size = 0;
         _max_distance_from_start_index = 0;
         for (int i = 0; i < _capacity; i += 1) {
@@ -238,5 +238,7 @@ private:
         return (int)(HashFunction(key) % ((uint32_t)_capacity));
     }
 };
+
+} // namespace mem
 
 #endif

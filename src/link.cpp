@@ -650,7 +650,7 @@ static const char *build_libunwind(CodeGen *parent, Stage2ProgressNode *progress
     };
     ZigList<CFile *> c_source_files = {0};
     for (size_t i = 0; i < array_length(unwind_src); i += 1) {
-        CFile *c_file = allocate<CFile>(1);
+        CFile *c_file = heap::c_allocator.create<CFile>();
         c_file->source_path = path_from_libunwind(parent, unwind_src[i].path);
         switch (unwind_src[i].kind) {
             case SrcC:
@@ -1111,7 +1111,7 @@ static const char *build_musl(CodeGen *parent, Stage2ProgressNode *progress_node
         Buf *full_path = buf_sprintf("%s" OS_SEP "libc" OS_SEP "%s",
                 buf_ptr(parent->zig_lib_dir), buf_ptr(src_file));
 
-        CFile *c_file = allocate<CFile>(1);
+        CFile *c_file = heap::c_allocator.create<CFile>();
         c_file->source_path = buf_ptr(full_path);
 
         musl_add_cc_args(parent, c_file, src_kind == MuslSrcO3);
@@ -1127,7 +1127,7 @@ static const char *build_musl(CodeGen *parent, Stage2ProgressNode *progress_node
 }
 
 static void add_msvcrt_os_dep(CodeGen *parent, CodeGen *child_gen, const char *src_path) {
-    CFile *c_file = allocate<CFile>(1);
+    CFile *c_file = heap::c_allocator.create<CFile>();
     c_file->source_path = buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "%s",
             buf_ptr(parent->zig_lib_dir), src_path));
     c_file->args.append("-DHAVE_CONFIG_H");
@@ -1151,7 +1151,7 @@ static void add_msvcrt_os_dep(CodeGen *parent, CodeGen *child_gen, const char *s
 }
 
 static void add_mingwex_os_dep(CodeGen *parent, CodeGen *child_gen, const char *src_path) {
-    CFile *c_file = allocate<CFile>(1);
+    CFile *c_file = heap::c_allocator.create<CFile>();
     c_file->source_path = buf_ptr(buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "%s",
             buf_ptr(parent->zig_lib_dir), src_path));
     c_file->args.append("-DHAVE_CONFIG_H");
@@ -1178,7 +1178,7 @@ static void add_mingwex_os_dep(CodeGen *parent, CodeGen *child_gen, const char *
 static const char *get_libc_crt_file(CodeGen *parent, const char *file, Stage2ProgressNode *progress_node) {
     if (parent->libc == nullptr && parent->zig_target->os == OsWindows) {
         if (strcmp(file, "crt2.o") == 0) {
-            CFile *c_file = allocate<CFile>(1);
+            CFile *c_file = heap::c_allocator.create<CFile>();
             c_file->source_path = buf_ptr(buf_sprintf(
                 "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "crt" OS_SEP "crtexe.c", buf_ptr(parent->zig_lib_dir)));
             mingw_add_cc_args(parent, c_file);
@@ -1190,7 +1190,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file, Stage2Pr
             //c_file->args.append("-DWPRFLAG=1");
             return build_libc_object(parent, "crt2", c_file, progress_node);
         } else if (strcmp(file, "dllcrt2.o") == 0) {
-            CFile *c_file = allocate<CFile>(1);
+            CFile *c_file = heap::c_allocator.create<CFile>();
             c_file->source_path = buf_ptr(buf_sprintf(
                 "%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "crt" OS_SEP "crtdll.c", buf_ptr(parent->zig_lib_dir)));
             mingw_add_cc_args(parent, c_file);
@@ -1231,7 +1231,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file, Stage2Pr
                 "mingw" OS_SEP "crt" OS_SEP "cxa_atexit.c",
             };
             for (size_t i = 0; i < array_length(deps); i += 1) {
-                CFile *c_file = allocate<CFile>(1);
+                CFile *c_file = heap::c_allocator.create<CFile>();
                 c_file->source_path = path_from_libc(parent, deps[i]);
                 c_file->args.append("-DHAVE_CONFIG_H");
                 c_file->args.append("-D_SYSCRT=1");
@@ -1301,7 +1301,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file, Stage2Pr
         }
     } else if (parent->libc == nullptr && target_is_glibc(parent->zig_target)) {
         if (strcmp(file, "crti.o") == 0) {
-            CFile *c_file = allocate<CFile>(1);
+            CFile *c_file = heap::c_allocator.create<CFile>();
             c_file->source_path = glibc_start_asm_path(parent, "crti.S");
             glibc_add_include_dirs(parent, c_file);
             c_file->args.append("-D_LIBC_REENTRANT");
@@ -1317,7 +1317,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file, Stage2Pr
             c_file->args.append("-Wa,--noexecstack");
             return build_libc_object(parent, "crti", c_file, progress_node);
         } else if (strcmp(file, "crtn.o") == 0) {
-            CFile *c_file = allocate<CFile>(1);
+            CFile *c_file = heap::c_allocator.create<CFile>();
             c_file->source_path = glibc_start_asm_path(parent, "crtn.S");
             glibc_add_include_dirs(parent, c_file);
             c_file->args.append("-D_LIBC_REENTRANT");
@@ -1328,7 +1328,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file, Stage2Pr
             c_file->args.append("-Wa,--noexecstack");
             return build_libc_object(parent, "crtn", c_file, progress_node);
         } else if (strcmp(file, "start.os") == 0) {
-            CFile *c_file = allocate<CFile>(1);
+            CFile *c_file = heap::c_allocator.create<CFile>();
             c_file->source_path = glibc_start_asm_path(parent, "start.S");
             glibc_add_include_dirs(parent, c_file);
             c_file->args.append("-D_LIBC_REENTRANT");
@@ -1346,7 +1346,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file, Stage2Pr
             c_file->args.append("-Wa,--noexecstack");
             return build_libc_object(parent, "start", c_file, progress_node);
         } else if (strcmp(file, "abi-note.o") == 0) {
-            CFile *c_file = allocate<CFile>(1);
+            CFile *c_file = heap::c_allocator.create<CFile>();
             c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "csu" OS_SEP "abi-note.S");
             c_file->args.append("-I");
             c_file->args.append(path_from_libc(parent, "glibc" OS_SEP "csu"));
@@ -1369,7 +1369,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file, Stage2Pr
         } else if (strcmp(file, "libc_nonshared.a") == 0) {
             CodeGen *child_gen = create_child_codegen(parent, nullptr, OutTypeLib, nullptr, "c_nonshared", progress_node);
             {
-                CFile *c_file = allocate<CFile>(1);
+                CFile *c_file = heap::c_allocator.create<CFile>();
                 c_file->source_path = path_from_libc(parent, "glibc" OS_SEP "csu" OS_SEP "elf-init.c");
                 c_file->args.append("-std=gnu11");
                 c_file->args.append("-fgnu89-inline");
@@ -1419,7 +1419,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file, Stage2Pr
                 {"stack_chk_fail_local", "glibc" OS_SEP "debug" OS_SEP "stack_chk_fail_local.c"},
             };
             for (size_t i = 0; i < array_length(deps); i += 1) {
-                CFile *c_file = allocate<CFile>(1);
+                CFile *c_file = heap::c_allocator.create<CFile>();
                 c_file->source_path = path_from_libc(parent, deps[i].path);
                 c_file->args.append("-std=gnu11");
                 c_file->args.append("-fgnu89-inline");
@@ -1451,26 +1451,26 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file, Stage2Pr
         }
     } else if (parent->libc == nullptr && target_is_musl(parent->zig_target)) {
         if (strcmp(file, "crti.o") == 0) {
-            CFile *c_file = allocate<CFile>(1);
+            CFile *c_file = heap::c_allocator.create<CFile>();
             c_file->source_path = musl_start_asm_path(parent, "crti.s");
             musl_add_cc_args(parent, c_file, false);
             c_file->args.append("-Qunused-arguments");
             return build_libc_object(parent, "crti", c_file, progress_node);
         } else if (strcmp(file, "crtn.o") == 0) {
-            CFile *c_file = allocate<CFile>(1);
+            CFile *c_file = heap::c_allocator.create<CFile>();
             c_file->source_path = musl_start_asm_path(parent, "crtn.s");
             c_file->args.append("-Qunused-arguments");
             musl_add_cc_args(parent, c_file, false);
             return build_libc_object(parent, "crtn", c_file, progress_node);
         } else if (strcmp(file, "crt1.o") == 0) {
-            CFile *c_file = allocate<CFile>(1);
+            CFile *c_file = heap::c_allocator.create<CFile>();
             c_file->source_path = path_from_libc(parent, "musl" OS_SEP "crt" OS_SEP "crt1.c");
             musl_add_cc_args(parent, c_file, false);
             c_file->args.append("-fno-stack-protector");
             c_file->args.append("-DCRT");
             return build_libc_object(parent, "crt1", c_file, progress_node);
         } else if (strcmp(file, "Scrt1.o") == 0) {
-            CFile *c_file = allocate<CFile>(1);
+            CFile *c_file = heap::c_allocator.create<CFile>();
             c_file->source_path = path_from_libc(parent, "musl" OS_SEP "crt" OS_SEP "Scrt1.c");
             musl_add_cc_args(parent, c_file, false);
             c_file->args.append("-fPIC");
@@ -1982,7 +1982,7 @@ static const char *get_def_lib(CodeGen *parent, const char *name, Buf *def_in_fi
     Buf *def_include_dir = buf_sprintf("%s" OS_SEP "libc" OS_SEP "mingw" OS_SEP "def-include",
             buf_ptr(parent->zig_lib_dir));
 
-    CacheHash *cache_hash = allocate<CacheHash>(1);
+    CacheHash *cache_hash = heap::c_allocator.create<CacheHash>();
     cache_init(cache_hash, manifest_dir);
 
     cache_buf(cache_hash, compiler_id);
@@ -2367,7 +2367,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
         lj->args.append(get_def_lib(g, name, &lib_path));
 
-        free(name);
+        mem::os::free(name);
     }
 }
 

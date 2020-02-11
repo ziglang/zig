@@ -5,20 +5,24 @@
  * See http://opensource.org/licenses/MIT
  */
 
-#ifndef ZIG_LIST_HPP
-#define ZIG_LIST_HPP
+#ifndef ZIG_MEM_LIST_HPP
+#define ZIG_MEM_LIST_HPP
 
-#include "util.hpp"
+#include "mem.hpp"
+
+namespace mem {
 
 template<typename T>
-struct ZigList {
-    void deinit() {
-        heap::c_allocator.deallocate(items, capacity);
+struct List {
+    void deinit(Allocator& allocator) {
+        allocator.deallocate<T>(items, capacity);
     }
-    void append(const T& item) {
-        ensure_capacity(length + 1);
+
+    void append(Allocator& allocator, const T& item) {
+        ensure_capacity(allocator, length + 1);
         items[length++] = item;
     }
+
     // remember that the pointer to this item is invalid after you
     // modify the length of the list
     const T & at(size_t index) const {
@@ -26,11 +30,13 @@ struct ZigList {
         assert(index < length);
         return items[index];
     }
+
     T & at(size_t index) {
         assert(index != SIZE_MAX);
         assert(index < length);
         return items[index];
     }
+
     T pop() {
         assert(length >= 1);
         return items[--length];
@@ -51,9 +57,9 @@ struct ZigList {
         return items[length - 1];
     }
 
-    void resize(size_t new_length) {
+    void resize(Allocator& allocator, size_t new_length) {
         assert(new_length != SIZE_MAX);
-        ensure_capacity(new_length);
+        ensure_capacity(allocator, new_length);
         length = new_length;
     }
 
@@ -61,7 +67,7 @@ struct ZigList {
         length = 0;
     }
 
-    void ensure_capacity(size_t new_capacity) {
+    void ensure_capacity(Allocator& allocator, size_t new_capacity) {
         if (capacity >= new_capacity)
             return;
 
@@ -70,7 +76,7 @@ struct ZigList {
             better_capacity = better_capacity * 5 / 2 + 8;
         } while (better_capacity < new_capacity);
 
-        items = heap::c_allocator.reallocate_nonzero(items, capacity, better_capacity);
+        items = allocator.reallocate_nonzero<T>(items, capacity, better_capacity);
         capacity = better_capacity;
     }
 
@@ -85,9 +91,11 @@ struct ZigList {
         return old_item;
     }
 
-    T *items;
-    size_t length;
-    size_t capacity;
+    T *items{nullptr};
+    size_t length{0};
+    size_t capacity{0};
 };
+
+} // namespace mem
 
 #endif

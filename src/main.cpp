@@ -11,12 +11,14 @@
 #include "compiler.hpp"
 #include "config.h"
 #include "error.hpp"
+#include "heap.hpp"
 #include "os.hpp"
 #include "target.hpp"
 #include "libc_installation.hpp"
 #include "userland.h"
 #include "glibc.hpp"
 #include "dump_analysis.hpp"
+#include "mem_profile.hpp"
 
 #include <stdio.h>
 
@@ -243,21 +245,10 @@ int main_exit(Stage2ProgressNode *root_progress_node, int exit_code) {
     if (root_progress_node != nullptr) {
         stage2_progress_end(root_progress_node);
     }
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    if (mem_report) {
-        memprof_dump_stats(stderr);
-    }
-#endif
     return exit_code;
 }
 
-int main(int argc, char **argv) {
-    stage2_attach_segfault_handler();
-
-#ifdef ZIG_ENABLE_MEM_PROFILE
-    memprof_init();
-#endif
-
+static int main0(int argc, char **argv) {
     char *arg0 = argv[0];
     Error err;
 
@@ -277,9 +268,6 @@ int main(int argc, char **argv) {
     {
         return ZigClang_main(argc, argv);
     }
-
-    // Must be before all os.hpp function calls.
-    os_init();
 
     if (argc == 2 && strcmp(argv[1], "id") == 0) {
         Buf *compiler_id;
@@ -439,7 +427,7 @@ int main(int argc, char **argv) {
     bool enable_doc_generation = false;
     bool disable_bin_generation = false;
     const char *cache_dir = nullptr;
-    CliPkg *cur_pkg = allocate<CliPkg>(1);
+    CliPkg *cur_pkg = heap::c_allocator.create<CliPkg>();
     BuildMode build_mode = BuildModeDebug;
     ZigList<const char *> test_exec_args = {0};
     int runtime_args_start = -1;
@@ -635,6 +623,7 @@ int main(int argc, char **argv) {
             } else if (strcmp(arg, "-fmem-report") == 0) {
 #ifdef ZIG_ENABLE_MEM_PROFILE
                 mem_report = true;
+                mem::report_print = true;
 #else
                 fprintf(stderr, "-fmem-report requires configuring with -DZIG_ENABLE_MEM_PROFILE=ON\n");
                 return print_error_usage(arg0);
@@ -695,7 +684,7 @@ int main(int argc, char **argv) {
                     fprintf(stderr, "Expected 2 arguments after --pkg-begin\n");
                     return print_error_usage(arg0);
                 }
-                CliPkg *new_cur_pkg = allocate<CliPkg>(1);
+                CliPkg *new_cur_pkg = heap::c_allocator.create<CliPkg>();
                 i += 1;
                 new_cur_pkg->name = argv[i];
                 i += 1;
@@ -810,7 +799,7 @@ int main(int argc, char **argv) {
                 } else if (strcmp(arg, "--object") == 0) {
                     objects.append(argv[i]);
                 } else if (strcmp(arg, "--c-source") == 0) {
-                    CFile *c_file = allocate<CFile>(1);
+                    CFile *c_file = heap::c_allocator.create<CFile>();
                     for (;;) {
                         if (argv[i][0] == '-') {
                             c_file->args.append(argv[i]);
@@ -990,7 +979,7 @@ int main(int argc, char **argv) {
             }
         }
         if (target_is_glibc(&target)) {
-            target.glibc_version = allocate<ZigGLibCVersion>(1);
+            target.glibc_version = heap::c_allocator.create<ZigGLibCVersion>();
 
             if (target_glibc != nullptr) {
                 if ((err = target_parse_glibc_version(target.glibc_version, target_glibc))) {
@@ -1138,7 +1127,7 @@ int main(int argc, char **argv) {
             }
             ZigLibCInstallation *libc = nullptr;
             if (libc_txt != nullptr) {
-                libc = allocate<ZigLibCInstallation>(1);
+                libc = heap::c_allocator.create<ZigLibCInstallation>();
                 if ((err = zig_libc_parse(libc, buf_create_from_str(libc_txt), &target, true))) {
                     fprintf(stderr, "Unable to parse --libc text file: %s\n", err_str(err));
                     return main_exit(root_progress_node, EXIT_FAILURE);
@@ -1269,7 +1258,8 @@ int main(int argc, char **argv) {
 
                 if (cmd == CmdRun) {
 #ifdef ZIG_ENABLE_MEM_PROFILE
-                    memprof_dump_stats(stderr);
+                    if (mem::report_print)
+                        mem::print_report();
 #endif
 
                     const char *exec_path = buf_ptr(&g->output_file_path);
@@ -1384,4 +1374,20 @@ int main(int argc, char **argv) {
     case CmdNone:
         return print_full_usage(arg0, stderr, EXIT_FAILURE);
     }
+    zig_unreachable();
+}
+
+int main(int argc, char **argv) {
+    stage2_attach_segfault_handler();
+    os_init();
+    mem::init();
+
+    auto result = main0(argc, argv);
+
+#ifdef ZIG_ENABLE_MEM_PROFILE
+    if (mem::report_print)
+        mem::intern_counters.print_report();
+#endif
+    mem::deinit();
+    return result;
 }
