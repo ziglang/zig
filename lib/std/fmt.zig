@@ -1643,10 +1643,10 @@ test "hexToBytes" {
 test "formatIntValue with comptime_int" {
     const value: comptime_int = 123456789123456789;
 
-    var buf = try std.Buffer.init(std.testing.allocator, "");
+    var buf = std.ArrayList(u8).init(std.testing.allocator);
     defer buf.deinit();
-    try formatIntValue(value, "", FormatOptions{}, &buf, @TypeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append);
-    std.testing.expect(mem.eql(u8, buf.toSlice(), "123456789123456789"));
+    try formatIntValue(value, "", FormatOptions{}, &buf, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice);
+    std.testing.expect(mem.eql(u8, buf.toSliceConst(), "123456789123456789"));
 }
 
 test "formatType max_depth" {
@@ -1698,24 +1698,24 @@ test "formatType max_depth" {
     inst.a = &inst;
     inst.tu.ptr = &inst.tu;
 
-    var buf0 = try std.Buffer.init(std.testing.allocator, "");
+    var buf0 = std.ArrayList(u8).init(std.testing.allocator);
     defer buf0.deinit();
-    try formatType(inst, "", FormatOptions{}, &buf0, @TypeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 0);
+    try formatType(inst, "", FormatOptions{}, &buf0, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 0);
     std.testing.expect(mem.eql(u8, buf0.toSlice(), "S{ ... }"));
 
-    var buf1 = try std.Buffer.init(std.testing.allocator, "");
+    var buf1 = std.ArrayList(u8).init(std.testing.allocator);
     defer buf1.deinit();
-    try formatType(inst, "", FormatOptions{}, &buf1, @TypeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 1);
+    try formatType(inst, "", FormatOptions{}, &buf1, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 1);
     std.testing.expect(mem.eql(u8, buf1.toSlice(), "S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }"));
 
-    var buf2 = try std.Buffer.init(std.testing.allocator, "");
+    var buf2 = std.ArrayList(u8).init(std.testing.allocator);
     defer buf2.deinit();
-    try formatType(inst, "", FormatOptions{}, &buf2, @TypeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 2);
+    try formatType(inst, "", FormatOptions{}, &buf2, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 2);
     std.testing.expect(mem.eql(u8, buf2.toSlice(), "S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }"));
 
-    var buf3 = try std.Buffer.init(std.testing.allocator, "");
+    var buf3 = std.ArrayList(u8).init(std.testing.allocator);
     defer buf3.deinit();
-    try formatType(inst, "", FormatOptions{}, &buf3, @TypeOf(std.Buffer.append).ReturnType.ErrorSet, std.Buffer.append, 3);
+    try formatType(inst, "", FormatOptions{}, &buf3, @TypeOf(std.ArrayList(u8).appendSlice).ReturnType.ErrorSet, std.ArrayList(u8).appendSlice, 3);
     std.testing.expect(mem.eql(u8, buf3.toSlice(), "S{ .a = S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ .ptr = TU{ ... } } }, .e = E.Two, .vec = (10.200,2.220) }"));
 }
 
