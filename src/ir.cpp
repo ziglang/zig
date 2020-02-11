@@ -24564,7 +24564,9 @@ static Error ir_make_type_info_value(IrAnalyze *ira, IrInst* source_instr, ZigTy
                 break;
             }
         case ZigTypeIdFnFrame:
-            zig_panic("TODO @typeInfo for async function frames");
+            ir_add_error(ira, source_instr,
+                buf_sprintf("compiler bug: TODO @typeInfo for async function frames. https://github.com/ziglang/zig/issues/3066"));
+            return ErrorSemanticAnalyzeFail;
     }
 
     assert(result != nullptr);
