@@ -696,8 +696,10 @@ fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const Mach
     return null;
 }
 
-fn printSourceAtAddressMacOs(di: *DebugInfo, out_stream: var, address: usize, tty_config: TTY.Config) !void {
-    const base_addr = process.getBaseAddress();
+fn printSourceAtAddressMacOs(di1: *DebugInfo, out_stream: var, address: usize, tty_config: TTY.Config) !void {
+    const di = try di1.lookupByAddress(address);
+
+    const base_addr = di.base_address;
     const adjusted_addr = 0x100000000 + (address - base_addr);
 
     const symbol = machoSearchSymbols(di.symbols, adjusted_addr) orelse {
@@ -826,10 +828,7 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
     if (@hasDecl(root, "os") and @hasDecl(root.os, "debug") and @hasDecl(root.os.debug, "openSelfDebugInfo")) {
         return noasync root.os.debug.openSelfDebugInfo(allocator);
     }
-    if (comptime std.Target.current.isDarwin()) {
-        return noasync openSelfDebugInfoMacOs(allocator);
-    }
-    if (builtin.os == .linux or builtin.os == .windows) {
+    if (builtin.os == .linux or builtin.os == .windows or builtin.os == .macosx) {
         _ = try allocator.create(u32);
         return DebugInfo.init(allocator);
     }
@@ -1220,11 +1219,32 @@ pub const DebugInfo = struct {
     }
 
     pub fn lookupByAddress(self: *DebugInfo, address: usize) !*ObjectDebugInfo {
-        const obj_di = if (builtin.os == .windows)
+        const obj_di = if (comptime std.Target.current.isDarwin())
+            try self.lookupModuleDyld(address)
+        else if (builtin.os == .windows)
             try self.lookupModuleWin32(address)
         else
             try self.lookupModuleDl(address);
         return obj_di;
+    }
+
+    fn lookupModuleDyld(self: *DebugInfo, address: usize) !*ObjectDebugInfo {
+        const image_count = std.c._dyld_image_count();
+
+        var i: u32 = 0;
+        while (i < image_count) : (i += 1) {
+            const header = std.c._dyld_get_image_header(i) orelse continue;
+            // The array of load commands is right after the header
+            var cmd_ptr = @intToPtr([*]u8, @ptrToInt(header) + @sizeOf(macho.mach_header_64));
+            const cmd_ptr_end = cmd_ptr + header.sizeofcmds;
+
+            var cmd = 
+            for (cmds) |*lc| {
+                if (lc.cmd != macho.LC_SEGMENT_64) continue;
+
+                const segment_cmd = @ptrCast(*macho.segment_command_64, lc);
+            }
+        }
     }
 
     fn lookupModuleWin32(self: *DebugInfo, address: usize) !*ObjectDebugInfo {
@@ -1298,10 +1318,7 @@ pub const DebugInfo = struct {
         if (os.dl_iterate_phdr(DIPContext, dl_iterate_phdr_callback, &ctx) == 0)
             return error.DebugInfoNotFound;
 
-        warn("found in \"{s}\"\n", .{ctx.name});
-
         if (self.address_map.getValue(ctx.base_address)) |obj_di| {
-            warn("cache hit!\n", .{});
             return obj_di;
         }
 
@@ -1377,6 +1394,7 @@ fn dl_iterate_phdr_callback(info: *os.dl_phdr_info, size: usize, context: ?*DIPC
 
 pub const ObjectDebugInfo = switch (builtin.os) {
     .macosx, .ios, .watchos, .tvos => struct {
+        base_address: usize,
         symbols: []const MachoSymbol,
         strings: []const u8,
         ofiles: OFileTable,
