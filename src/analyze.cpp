@@ -6937,9 +6937,9 @@ static void render_const_val_array(CodeGen *g, Buf *buf, Buf *type_name, ZigValu
             return;
         }
         case ConstArraySpecialNone: {
-            ZigValue *base = &array->data.s_none.elements[start];
-            assert(base != nullptr);
             assert(start + len <= const_val->type->data.array.len);
+            ZigValue *base = &array->data.s_none.elements[start];
+            assert(len == 0 || base != nullptr);
 
             buf_appendf(buf, "%s{", buf_ptr(type_name));
             for (uint64_t i = 0; i < len; i += 1) {
