@@ -14840,6 +14840,16 @@ static IrInstGen *ir_analyze_cast(IrAnalyze *ira, IrInst *source_instr,
         }
     }
 
+    // @Vector(N,T1) to @Vector(N,T2)
+    if (actual_type->id == ZigTypeIdVector && wanted_type->id == ZigTypeIdVector) {
+        if (actual_type->data.vector.len == wanted_type->data.vector.len &&
+            types_match_const_cast_only(ira, wanted_type->data.vector.elem_type,
+                actual_type->data.vector.elem_type, source_node, false).id == ConstCastResultIdOk)
+        {
+            return ir_analyze_bit_cast(ira, source_instr, value, wanted_type);
+        }
+    }
+
     // *@Frame(func) to anyframe->T or anyframe
     // *@Frame(func) to ?anyframe->T or ?anyframe
     // *@Frame(func) to E!anyframe->T or E!anyframe
@@ -16409,9 +16419,11 @@ static IrInstGen *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstSrcBinOp *bin_op_i
         case ZigTypeIdComptimeInt:
         case ZigTypeIdInt:
         case ZigTypeIdFloat:
-        case ZigTypeIdVector:
             zig_unreachable(); // handled with the type_is_numeric checks above
 
+        case ZigTypeIdVector:
+            // Not every case is handled by the type_is_numeric checks above,
+            // vectors of bool trigger this code path
         case ZigTypeIdBool:
         case ZigTypeIdMetaType:
         case ZigTypeIdVoid:
