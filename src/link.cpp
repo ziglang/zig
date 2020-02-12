@@ -2642,13 +2642,6 @@ void codegen_link(CodeGen *g) {
     lj.rpath_table.init(4);
     lj.codegen = g;
 
-    if (g->verbose_llvm_ir) {
-        fprintf(stderr, "\nOptimization:\n");
-        fprintf(stderr, "---------------\n");
-        fflush(stderr);
-        LLVMDumpModule(g->module);
-    }
-
     if (g->out_type == OutTypeObj) {
         lj.args.append("-r");
     }
