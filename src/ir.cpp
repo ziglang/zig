@@ -267,6 +267,7 @@ static IrInstGen *ir_analyze_inferred_field_ptr(IrAnalyze *ira, Buf *field_name,
 static ResultLoc *no_result_loc(void);
 static IrInstGen *ir_analyze_test_non_null(IrAnalyze *ira, IrInst *source_inst, IrInstGen *value);
 static IrInstGen *ir_error_dependency_loop(IrAnalyze *ira, IrInst *source_instr);
+static IrInstGen *ir_const_undef(IrAnalyze *ira, IrInst *source_instruction, ZigType *ty);
 
 static void destroy_instruction_src(IrInstSrc *inst) {
     switch (inst->id) {
@@ -12784,13 +12785,19 @@ static IrInstGen *ir_resolve_ptr_of_array_to_unknown_len_ptr(IrAnalyze *ira, IrI
     wanted_type = adjust_ptr_align(ira->codegen, wanted_type, get_ptr_align(ira->codegen, value->value->type));
 
     if (instr_is_comptime(value)) {
-        ZigValue *pointee = const_ptr_pointee(ira, ira->codegen, value->value, source_instr->source_node);
+        ZigValue *val = ir_resolve_const(ira, value, UndefOk);
+        if (val == nullptr)
+            return ira->codegen->invalid_inst_gen;
+        if (val->special == ConstValSpecialUndef)
+            return ir_const_undef(ira, source_instr, wanted_type);
+
+        ZigValue *pointee = const_ptr_pointee(ira, ira->codegen, val, source_instr->source_node);
         if (pointee == nullptr)
             return ira->codegen->invalid_inst_gen;
         if (pointee->special != ConstValSpecialRuntime) {
             IrInstGen *result = ir_const(ira, source_instr, wanted_type);
             result->value->data.x_ptr.special = ConstPtrSpecialBaseArray;
-            result->value->data.x_ptr.mut = value->value->data.x_ptr.mut;
+            result->value->data.x_ptr.mut = val->data.x_ptr.mut;
             result->value->data.x_ptr.data.base_array.array_val = pointee;
             result->value->data.x_ptr.data.base_array.elem_index = 0;
             return result;
