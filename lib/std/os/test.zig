@@ -276,8 +276,11 @@ test "mmap" {
         testing.expectEqual(@as(usize, 1234), data.len);
 
         // By definition the data returned by mmap is zero-filled
-        std.mem.set(u8, data[0 .. data.len - 1], 0x55);
-        testing.expect(mem.indexOfScalar(u8, data, 0).? == 1234 - 1);
+        testing.expect(mem.eql(u8, data, &[_]u8{0x00} ** 1234));
+
+        // Make sure the memory is writeable as requested
+        std.mem.set(u8, data, 0x55);
+        testing.expect(mem.eql(u8, data, &[_]u8{0x55} ** 1234));
     }
 
     const test_out_file = "os_tmp_test";
@@ -300,10 +303,7 @@ test "mmap" {
 
     // Map the whole file
     {
-        const file = try fs.cwd().createFile(test_out_file, .{
-            .read = true,
-            .truncate = false,
-        });
+        const file = try fs.cwd().openFile(test_out_file, .{});
         defer file.close();
 
         const data = try os.mmap(
@@ -327,15 +327,12 @@ test "mmap" {
 
     // Map the upper half of the file
     {
-        const file = try fs.cwd().createFile(test_out_file, .{
-            .read = true,
-            .truncate = false,
-        });
+        const file = try fs.cwd().openFile(test_out_file, .{});
         defer file.close();
 
         const data = try os.mmap(
             null,
-            alloc_size,
+            alloc_size / 2,
             os.PROT_READ,
             os.MAP_PRIVATE,
             file.handle,
