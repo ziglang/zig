@@ -1,4 +1,5 @@
 const std = @import("std");
+const mem = std.mem;
 const panic = std.debug.panic;
 
 fn AssertionsForType(comptime T: type) type {
@@ -22,6 +23,16 @@ fn AssertionsForType(comptime T: type) type {
         .Int,
         .Float
             => ComparisonAssertions(T),
+
+        .Array
+            => SliceAssertions(info.Array.child),
+
+        .Pointer
+            => switch (info.Pointer.size) {
+                .One => AssertionsForType(info.Pointer.child),
+                .Slice => SliceAssertions(info.Pointer.child),
+                else => @compileError("unsupported pointer type " ++ @tagName(info.Pointer.size) ++ " for type " ++ @typeName(T)),
+            },
 
         else
             => @compileError("unsupported type " ++ @typeName(T) ++ " in assertions"),
@@ -70,8 +81,18 @@ pub fn expect(actual: var) ret: {
         .Float
             => return ComparisonAssertions(T).init(actual),
 
+        .Array
+            => return SliceAssertions(info.Array.child).init(actual[0..]),
+
+        .Pointer
+            => return switch (info.Pointer.size) {
+                .One => expect(actual.*),
+                .Slice => SliceAssertions(info.Pointer.child).init(actual),
+                else => unreachable,
+            },
+
         else
-            => @compileError("unsupported type " ++ @typeName(T) ++ " in assertions"),
+            => unreachable,
     }
 }
 
@@ -219,6 +240,47 @@ pub fn ComparisonAssertions(comptime T: type) type {
     };
 }
 
+/// Object for slice assertions.
+pub fn SliceAssertions(comptime Element: type) type {
+    return struct {
+        const Self = @This();
+
+        actual: []const Element,
+
+        inline fn init(actual: []const Element) Self {
+            return .{ .actual = actual, };
+        }
+
+        /// Asserts that 2 slices hold the same values in the same order.
+        pub fn toBe(self: Self, expected: []const Element) void {
+            if (!mem.eql(Element, expected, self.actual)) {
+                panic("expected `{}` to be `{}`", .{ self.actual, expected });
+            }
+        }
+
+        /// Asserts that 2 slices do not hold the same values in the same order.
+        pub fn toNotBe(self: Self, unexpected: []const Element) void {
+            if (mem.eql(Element, unexpected, self.actual)) {
+                panic("expected `{}` to not be `{}`", .{ self.actual, unexpected });
+            }
+        }
+
+        /// Asserts that a slice has the given length.
+        pub fn toHaveLength(self: Self, length: usize) void {
+            if (self.actual.len != length) {
+                panic("expected `{}` to have a length of {}", .{ self.actual, length });
+            }
+        }
+
+        /// Asserts that the given needle can be found in the slice.
+        pub fn toContainSlice(self: Self, needle: []const Element) void {
+            if (mem.indexOf(Element, self.actual, needle) == null) {
+                panic("expected `{}` to contain subslice `{}`", .{ self.actual, needle });
+            }
+        }
+    };
+}
+
 test "backward compatible expect" {
     expect(true);
     expect(@TypeOf(expect(true))).toBe(void);
@@ -253,4 +315,14 @@ test "comparison assertions" {
     expect(@floatCast(f32, 3.33333)).toBeAround(3.33, 0.005);
 
     expect(@intCast(i32, -3)).toNotBeAround(0, 1);
+}
+
+test "slice assertions" {
+    expect("zig").toBe("zig");
+    expect("zag").toNotBe("zig");
+
+    expect("andrew").toHaveLength(6);
+
+    var zig_utf32 = [_:0]u32{ 0x7a, 0x69, 0x67 };
+    expect(zig_utf32).toBe(&[_]u32{ 0x7a, 0x69, 0x67 });
 }
