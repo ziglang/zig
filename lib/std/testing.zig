@@ -2,6 +2,8 @@ const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 const std = @import("std.zig");
 
+pub const expect = @import("./testing/expect.zig").expect;
+
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
 /// and then aborts when actual_error_union is not expected_error.
 pub fn expectError(expected_error: anyerror, actual_error_union: var) void {
@@ -171,11 +173,9 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     }
 }
 
-/// This function is intended to be used only in tests. When `ok` is false, the test fails.
-/// A message is printed to stderr and then abort is called.
-pub fn expect(ok: bool) void {
-    if (!ok) @panic("test failure");
-}
+test "expect" {
+    _ = @import("./testing/expect.zig");
+} 
 
 test "expectEqual nested array" {
     const a = [2][2]f32{
