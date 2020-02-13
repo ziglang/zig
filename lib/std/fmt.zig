@@ -74,7 +74,7 @@ fn peekIsAlign(comptime fmt: []const u8) bool {
 /// with `?` being the type formatted, this function will be called instead of the default implementation.
 /// This allows user types to be formatted in a logical manner instead of dumping all fields of the type.
 ///
-/// A user type may be a `struct`, `union` or `enum` type.
+/// A user type may be a `struct`, `vector`, `union` or `enum` type.
 pub fn format(
     context: var,
     comptime Errors: type,
@@ -474,6 +474,18 @@ pub fn formatType(
             });
             return formatType(@as(Slice, &value), fmt, options, context, Errors, output, max_depth);
         },
+        .Vector => {
+            const len = @typeInfo(T).Vector.len;
+            try output(context, "{ ");
+            var i: usize = 0;
+            while (i < len) : (i += 1) {
+                try formatValue(value[i], fmt, options, context, Errors, output);
+                if (i < len - 1) {
+                    try output(context, ", ");
+                }
+            }
+            try output(context, " }");
+        },
         .Fn => {
             return format(context, Errors, output, "{}@{x}", .{ @typeName(T), @ptrToInt(value) });
         },
@@ -500,6 +512,7 @@ fn formatValue(
     switch (@typeId(T)) {
         .Float => return formatFloatValue(value, fmt, options, context, Errors, output),
         .Int, .ComptimeInt => return formatIntValue(value, fmt, options, context, Errors, output),
+        .Bool => return output(context, if (value) "true" else "false"),
         else => comptime unreachable,
     }
 }
@@ -1712,4 +1725,21 @@ test "positional with specifier" {
 
 test "positional/alignment/width/precision" {
     try testFmt("10.0", "{0d: >3.1}", .{@as(f64, 9.999)});
+}
+
+test "vector" {
+    // https://github.com/ziglang/zig/issues/3317
+    if (builtin.arch == .mipsel) return error.SkipZigTest;
+
+    const vbool: @Vector(4, bool) = [_]bool{ true, false, true, false };
+    const vi64: @Vector(4, i64) = [_]i64{ -2, -1, 0, 1 };
+    const vu64: @Vector(4, u64) = [_]u64{ 1000, 2000, 3000, 4000 };
+
+    try testFmt("{ true, false, true, false }", "{}", .{vbool});
+    try testFmt("{ -2, -1, 0, 1 }", "{}", .{vi64});
+    try testFmt("{ -   2, -   1, +   0, +   1 }", "{d:5}", .{vi64});
+    try testFmt("{ 1000, 2000, 3000, 4000 }", "{}", .{vu64});
+    try testFmt("{ 3e8, 7d0, bb8, fa0 }", "{x}", .{vu64});
+    try testFmt("{ 1kB, 2kB, 3kB, 4kB }", "{B}", .{vu64});
+    try testFmt("{ 1000B, 1.953125KiB, 2.9296875KiB, 3.90625KiB }", "{Bi}", .{vu64});
 }
