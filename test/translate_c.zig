@@ -1362,11 +1362,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("basic macro function",
         \\extern int c;
         \\#define BASIC(c) (c*2)
+        \\#define FOO(L,b) (L + b)
     , &[_][]const u8{
         \\pub extern var c: c_int;
     ,
         \\pub inline fn BASIC(c_1: var) @TypeOf(c_1 * 2) {
         \\    return c_1 * 2;
+        \\}
+    ,
+        \\pub inline fn FOO(L: var, b: var) @TypeOf(L + b) {
+        \\    return L + b;
         \\}
     });
 
