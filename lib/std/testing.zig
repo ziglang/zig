@@ -56,7 +56,6 @@ pub fn expectEqual(expected: var, actual: @TypeOf(expected)) void {
         .EnumLiteral,
         .Enum,
         .Fn,
-        .Vector,
         .ErrorSet,
         => {
             if (actual != expected) {
@@ -87,6 +86,15 @@ pub fn expectEqual(expected: var, actual: @TypeOf(expected)) void {
         },
 
         .Array => |array| expectEqualSlices(array.child, &expected, &actual),
+
+        .Vector => |vectorType| {
+            var i: usize = 0;
+            while (i < vectorType.len) : (i += 1) {
+                if (!std.meta.eql(expected[i], actual[i])) {
+                    std.debug.panic("index {} incorrect. expected {}, found {}", .{ i, expected[i], actual[i] });
+                }
+            }
+        },
 
         .Struct => |structType| {
             inline for (structType.fields) |field| {
@@ -199,6 +207,13 @@ test "expectEqual nested array" {
         [_]f32{ 1.0, 0.0 },
         [_]f32{ 0.0, 1.0 },
     };
+
+    expectEqual(a, b);
+}
+
+test "expectEqual vector" {
+    var a = @splat(4, @as(u32, 4));
+    var b = @splat(4, @as(u32, 4));
 
     expectEqual(a, b);
 }
