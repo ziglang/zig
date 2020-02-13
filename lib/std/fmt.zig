@@ -1728,6 +1728,7 @@ test "positional/alignment/width/precision" {
 }
 
 test "vector" {
+    // https://github.com/ziglang/zig/issues/3317
     if (builtin.arch == .mipsel) return error.SkipZigTest;
 
     const vbool: @Vector(4, bool) = [_]bool{ true, false, true, false };
