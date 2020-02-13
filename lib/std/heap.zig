@@ -533,7 +533,7 @@ pub const ArenaAllocator = struct {
         };
     }
 
-    pub fn deinit(self: *ArenaAllocator) void {
+    pub fn deinit(self: ArenaAllocator) void {
         var it = self.buffer_list.first;
         while (it) |node| {
             // this has to occur before the free because the free frees node
