@@ -651,6 +651,7 @@ pub const Tokenizer = struct {
                         state = .StringLiteral;
                     },
                     else => {
+                        self.index -= 1;
                         state = .Identifier;
                     },
                 },
@@ -660,6 +661,7 @@ pub const Tokenizer = struct {
                         state = .StringLiteral;
                     },
                     else => {
+                        self.index -= 1;
                         state = .Identifier;
                     },
                 },
@@ -673,6 +675,7 @@ pub const Tokenizer = struct {
                         state = .StringLiteral;
                     },
                     else => {
+                        self.index -= 1;
                         state = .Identifier;
                     },
                 },
@@ -686,6 +689,7 @@ pub const Tokenizer = struct {
                         state = .StringLiteral;
                     },
                     else => {
+                        self.index -= 1;
                         state = .Identifier;
                     },
                 },
