@@ -95,8 +95,6 @@ test "cpu count" {
 }
 
 test "AtomicFile" {
-    var buffer: [1024]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(buffer[0..]).allocator;
     const test_out_file = "tmp_atomic_file_test_dest.txt";
     const test_content =
         \\ hello!
@@ -108,7 +106,8 @@ test "AtomicFile" {
         try af.file.write(test_content);
         try af.finish();
     }
-    const content = try io.readFileAlloc(allocator, test_out_file);
+    const content = try io.readFileAlloc(testing.allocator, test_out_file);
+    defer testing.allocator.free(content);
     expect(mem.eql(u8, content, test_content));
 
     try fs.cwd().deleteFile(test_out_file);

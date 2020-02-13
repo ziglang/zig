@@ -89,16 +89,14 @@ pub fn joinPosix(allocator: *Allocator, paths: []const []const u8) ![]u8 {
 }
 
 fn testJoinWindows(paths: []const []const u8, expected: []const u8) void {
-    var buf: [1024]u8 = undefined;
-    const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    const actual = joinWindows(a, paths) catch @panic("fail");
+    const actual = joinWindows(testing.allocator, paths) catch @panic("fail");
+    defer testing.allocator.free(actual);
     testing.expectEqualSlices(u8, expected, actual);
 }
 
 fn testJoinPosix(paths: []const []const u8, expected: []const u8) void {
-    var buf: [1024]u8 = undefined;
-    const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    const actual = joinPosix(a, paths) catch @panic("fail");
+    const actual = joinPosix(testing.allocator, paths) catch @panic("fail");
+    defer testing.allocator.free(actual);
     testing.expectEqualSlices(u8, expected, actual);
 }
 

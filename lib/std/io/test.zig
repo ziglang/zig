@@ -11,9 +11,6 @@ const fs = std.fs;
 const File = std.fs.File;
 
 test "write a file, read it, then delete it" {
-    var raw_bytes: [200 * 1024]u8 = undefined;
-    var allocator = &std.heap.FixedBufferAllocator.init(raw_bytes[0..]).allocator;
-
     const cwd = fs.cwd();
 
     var data: [1024]u8 = undefined;
@@ -53,8 +50,8 @@ test "write a file, read it, then delete it" {
         var file_in_stream = file.inStream();
         var buf_stream = io.BufferedInStream(File.ReadError).init(&file_in_stream.stream);
         const st = &buf_stream.stream;
-        const contents = try st.readAllAlloc(allocator, 2 * 1024);
-        defer allocator.free(contents);
+        const contents = try st.readAllAlloc(std.testing.allocator, 2 * 1024);
+        defer std.testing.allocator.free(contents);
 
         expect(mem.eql(u8, contents[0.."begin".len], "begin"));
         expect(mem.eql(u8, contents["begin".len .. contents.len - "end".len], &data));
@@ -64,10 +61,8 @@ test "write a file, read it, then delete it" {
 }
 
 test "BufferOutStream" {
-    var bytes: [100]u8 = undefined;
-    var allocator = &std.heap.FixedBufferAllocator.init(bytes[0..]).allocator;
-
-    var buffer = try std.Buffer.initSize(allocator, 0);
+    var buffer = try std.Buffer.initSize(std.testing.allocator, 0);
+    defer buffer.deinit();
     var buf_stream = &std.io.BufferOutStream.init(&buffer).stream;
 
     const x: i32 = 42;

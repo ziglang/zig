@@ -1495,10 +1495,7 @@ fn unescapeString(output: []u8, input: []const u8) !void {
 }
 
 test "json.parser.dynamic" {
-    var memory: [1024 * 16]u8 = undefined;
-    var buf_alloc = std.heap.FixedBufferAllocator.init(&memory);
-
-    var p = Parser.init(&buf_alloc.allocator, false);
+    var p = Parser.init(testing.allocator, false);
     defer p.deinit();
 
     const s =
@@ -1588,10 +1585,10 @@ test "write json then parse it" {
 
     try jw.endObject();
 
-    var mem_buffer: [1024 * 20]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(&mem_buffer).allocator;
-    var parser = Parser.init(allocator, false);
-    const tree = try parser.parse(slice_out_stream.getWritten());
+    var parser = Parser.init(testing.allocator, false);
+    defer parser.deinit();
+    var tree = try parser.parse(slice_out_stream.getWritten());
+    defer tree.deinit();
 
     testing.expect(tree.root.Object.get("f").?.value.Bool == false);
     testing.expect(tree.root.Object.get("t").?.value.Bool == true);
