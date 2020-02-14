@@ -7,13 +7,12 @@ const testing = std.testing;
 
 pub const trait = @import("meta/trait.zig");
 
-const TypeId = builtin.TypeId;
 const TypeInfo = builtin.TypeInfo;
 
 pub fn tagName(v: var) []const u8 {
     const T = @TypeOf(v);
     switch (@typeInfo(T)) {
-        TypeId.ErrorSet => return @errorName(v),
+        .ErrorSet => return @errorName(v),
         else => return @tagName(v),
     }
 }
@@ -55,7 +54,7 @@ test "std.meta.tagName" {
 
 pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
     inline for (@typeInfo(T).Enum.fields) |enumField| {
-        if (std.mem.eql(u8, str, enumField.name)) {
+        if (mem.eql(u8, str, enumField.name)) {
             return @field(T, enumField.name);
         }
     }
@@ -74,9 +73,9 @@ test "std.meta.stringToEnum" {
 
 pub fn bitCount(comptime T: type) comptime_int {
     return switch (@typeInfo(T)) {
-        TypeId.Bool => 1,
-        TypeId.Int => |info| info.bits,
-        TypeId.Float => |info| info.bits,
+        .Bool => 1,
+        .Int => |info| info.bits,
+        .Float => |info| info.bits,
         else => @compileError("Expected bool, int or float type, found '" ++ @typeName(T) ++ "'"),
     };
 }
@@ -88,7 +87,7 @@ test "std.meta.bitCount" {
 
 pub fn alignment(comptime T: type) comptime_int {
     //@alignOf works on non-pointer types
-    const P = if (comptime trait.is(TypeId.Pointer)(T)) T else *T;
+    const P = if (comptime trait.is(.Pointer)(T)) T else *T;
     return @typeInfo(P).Pointer.alignment;
 }
 
@@ -102,9 +101,9 @@ test "std.meta.alignment" {
 
 pub fn Child(comptime T: type) type {
     return switch (@typeInfo(T)) {
-        TypeId.Array => |info| info.child,
-        TypeId.Pointer => |info| info.child,
-        TypeId.Optional => |info| info.child,
+        .Array => |info| info.child,
+        .Pointer => |info| info.child,
+        .Optional => |info| info.child,
         else => @compileError("Expected pointer, optional, or array type, " ++ "found '" ++ @typeName(T) ++ "'"),
     };
 }
@@ -118,9 +117,9 @@ test "std.meta.Child" {
 
 pub fn containerLayout(comptime T: type) TypeInfo.ContainerLayout {
     return switch (@typeInfo(T)) {
-        TypeId.Struct => |info| info.layout,
-        TypeId.Enum => |info| info.layout,
-        TypeId.Union => |info| info.layout,
+        .Struct => |info| info.layout,
+        .Enum => |info| info.layout,
+        .Union => |info| info.layout,
         else => @compileError("Expected struct, enum or union type, found '" ++ @typeName(T) ++ "'"),
     };
 }
@@ -148,22 +147,22 @@ test "std.meta.containerLayout" {
         a: u8,
     };
 
-    testing.expect(containerLayout(E1) == TypeInfo.ContainerLayout.Auto);
-    testing.expect(containerLayout(E2) == TypeInfo.ContainerLayout.Packed);
-    testing.expect(containerLayout(E3) == TypeInfo.ContainerLayout.Extern);
-    testing.expect(containerLayout(S1) == TypeInfo.ContainerLayout.Auto);
-    testing.expect(containerLayout(S2) == TypeInfo.ContainerLayout.Packed);
-    testing.expect(containerLayout(S3) == TypeInfo.ContainerLayout.Extern);
-    testing.expect(containerLayout(U1) == TypeInfo.ContainerLayout.Auto);
-    testing.expect(containerLayout(U2) == TypeInfo.ContainerLayout.Packed);
-    testing.expect(containerLayout(U3) == TypeInfo.ContainerLayout.Extern);
+    testing.expect(containerLayout(E1) == .Auto);
+    testing.expect(containerLayout(E2) == .Packed);
+    testing.expect(containerLayout(E3) == .Extern);
+    testing.expect(containerLayout(S1) == .Auto);
+    testing.expect(containerLayout(S2) == .Packed);
+    testing.expect(containerLayout(S3) == .Extern);
+    testing.expect(containerLayout(U1) == .Auto);
+    testing.expect(containerLayout(U2) == .Packed);
+    testing.expect(containerLayout(U3) == .Extern);
 }
 
 pub fn declarations(comptime T: type) []TypeInfo.Declaration {
     return switch (@typeInfo(T)) {
-        TypeId.Struct => |info| info.decls,
-        TypeId.Enum => |info| info.decls,
-        TypeId.Union => |info| info.decls,
+        .Struct => |info| info.decls,
+        .Enum => |info| info.decls,
+        .Union => |info| info.decls,
         else => @compileError("Expected struct, enum or union type, found '" ++ @typeName(T) ++ "'"),
     };
 }
@@ -232,17 +231,17 @@ test "std.meta.declarationInfo" {
 }
 
 pub fn fields(comptime T: type) switch (@typeInfo(T)) {
-    TypeId.Struct => []TypeInfo.StructField,
-    TypeId.Union => []TypeInfo.UnionField,
-    TypeId.ErrorSet => []TypeInfo.Error,
-    TypeId.Enum => []TypeInfo.EnumField,
+    .Struct => []TypeInfo.StructField,
+    .Union => []TypeInfo.UnionField,
+    .ErrorSet => []TypeInfo.Error,
+    .Enum => []TypeInfo.EnumField,
     else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
 } {
     return switch (@typeInfo(T)) {
-        TypeId.Struct => |info| info.fields,
-        TypeId.Union => |info| info.fields,
-        TypeId.Enum => |info| info.fields,
-        TypeId.ErrorSet => |errors| errors.?, // must be non global error set
+        .Struct => |info| info.fields,
+        .Union => |info| info.fields,
+        .Enum => |info| info.fields,
+        .ErrorSet => |errors| errors.?, // must be non global error set
         else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
     };
 }
@@ -277,10 +276,10 @@ test "std.meta.fields" {
 }
 
 pub fn fieldInfo(comptime T: type, comptime field_name: []const u8) switch (@typeInfo(T)) {
-    TypeId.Struct => TypeInfo.StructField,
-    TypeId.Union => TypeInfo.UnionField,
-    TypeId.ErrorSet => TypeInfo.Error,
-    TypeId.Enum => TypeInfo.EnumField,
+    .Struct => TypeInfo.StructField,
+    .Union => TypeInfo.UnionField,
+    .ErrorSet => TypeInfo.Error,
+    .Enum => TypeInfo.EnumField,
     else => @compileError("Expected struct, union, error set or enum type, found '" ++ @typeName(T) ++ "'"),
 } {
     inline for (comptime fields(T)) |field| {
@@ -318,8 +317,8 @@ test "std.meta.fieldInfo" {
 
 pub fn TagType(comptime T: type) type {
     return switch (@typeInfo(T)) {
-        TypeId.Enum => |info| info.tag_type,
-        TypeId.Union => |info| if (info.tag_type) |Tag| Tag else null,
+        .Enum => |info| info.tag_type,
+        .Union => |info| if (info.tag_type) |Tag| Tag else null,
         else => @compileError("expected enum or union type, found '" ++ @typeName(T) ++ "'"),
     };
 }
@@ -365,7 +364,7 @@ test "std.meta.activeTag" {
 ///Given a tagged union type, and an enum, return the type of the union
 /// field corresponding to the enum tag.
 pub fn TagPayloadType(comptime U: type, tag: @TagType(U)) type {
-    testing.expect(trait.is(builtin.TypeId.Union)(U));
+    testing.expect(trait.is(.Union)(U));
 
     const info = @typeInfo(U).Union;
 
@@ -387,30 +386,26 @@ test "std.meta.TagPayloadType" {
     testing.expect(MovedEvent == @TypeOf(e.Moved));
 }
 
-///Compares two of any type for equality. Containers are compared on a field-by-field basis,
+/// Compares two of any type for equality. Containers are compared on a field-by-field basis,
 /// where possible. Pointers are not followed.
 pub fn eql(a: var, b: @TypeOf(a)) bool {
     const T = @TypeOf(a);
 
-    switch (@typeId(T)) {
-        builtin.TypeId.Struct => {
-            const info = @typeInfo(T).Struct;
-
+    switch (@typeInfo(T)) {
+        .Struct => |info| {
             inline for (info.fields) |field_info| {
                 if (!eql(@field(a, field_info.name), @field(b, field_info.name))) return false;
             }
             return true;
         },
-        builtin.TypeId.ErrorUnion => {
+        .ErrorUnion => {
             if (a) |a_p| {
                 if (b) |b_p| return eql(a_p, b_p) else |_| return false;
             } else |a_e| {
                 if (b) |_| return false else |b_e| return a_e == b_e;
             }
         },
-        builtin.TypeId.Union => {
-            const info = @typeInfo(T).Union;
-
+        .Union => |info| {
             if (info.tag_type) |_| {
                 const tag_a = activeTag(a);
                 const tag_b = activeTag(b);
@@ -427,23 +422,26 @@ pub fn eql(a: var, b: @TypeOf(a)) bool {
 
             @compileError("cannot compare untagged union type " ++ @typeName(T));
         },
-        builtin.TypeId.Array => {
+        .Array => {
             if (a.len != b.len) return false;
             for (a) |e, i|
                 if (!eql(e, b[i])) return false;
             return true;
         },
-        builtin.TypeId.Pointer => {
-            const info = @typeInfo(T).Pointer;
-            switch (info.size) {
-                builtin.TypeInfo.Pointer.Size.One,
-                builtin.TypeInfo.Pointer.Size.Many,
-                builtin.TypeInfo.Pointer.Size.C,
-                => return a == b,
-                builtin.TypeInfo.Pointer.Size.Slice => return a.ptr == b.ptr and a.len == b.len,
+        .Vector => |info| {
+            var i: usize = 0;
+            while (i < info.len) : (i += 1) {
+                if (!eql(a[i], b[i])) return false;
             }
+            return true;
         },
-        builtin.TypeId.Optional => {
+        .Pointer => |info| {
+            return switch (info.size) {
+                .One, .Many, .C, => a == b,
+                .Slice => a.ptr == b.ptr and a.len == b.len,
+            };
+        },
+        .Optional => {
             if (a == null and b == null) return true;
             if (a == null or b == null) return false;
             return eql(a.?, b.?);
@@ -510,6 +508,13 @@ test "std.meta.eql" {
     testing.expect(eql(EU.tst(true), EU.tst(true)));
     testing.expect(eql(EU.tst(false), EU.tst(false)));
     testing.expect(!eql(EU.tst(false), EU.tst(true)));
+
+    var v1 = @splat(4, @as(u32, 1));
+    var v2 = @splat(4, @as(u32, 1));
+    var v3 = @splat(4, @as(u32, 2));
+
+    testing.expect(eql(v1, v2));
+    testing.expect(!eql(v1, v3));
 }
 
 test "intToEnum with error return" {

@@ -101,7 +101,7 @@ Error stage2_cpu_features_parse(struct Stage2CpuFeatures **out, const char *zig_
         const char *cpu_name, const char *cpu_features)
 {
     if (zig_triple == nullptr) {
-        Stage2CpuFeatures *result = allocate<Stage2CpuFeatures>(1, "Stage2CpuFeatures");
+        Stage2CpuFeatures *result = heap::c_allocator.create<Stage2CpuFeatures>();
         result->llvm_cpu_name = ZigLLVMGetHostCPUName();
         result->llvm_cpu_features = ZigLLVMGetNativeFeatures();
         result->builtin_str = "arch.getBaselineCpuFeatures();\n";
@@ -110,7 +110,7 @@ Error stage2_cpu_features_parse(struct Stage2CpuFeatures **out, const char *zig_
         return ErrorNone;
     }
     if (cpu_name == nullptr && cpu_features == nullptr) {
-        Stage2CpuFeatures *result = allocate<Stage2CpuFeatures>(1, "Stage2CpuFeatures");
+        Stage2CpuFeatures *result = heap::c_allocator.create<Stage2CpuFeatures>();
         result->builtin_str = "arch.getBaselineCpuFeatures();\n";
         result->cache_hash = "\n\n";
         *out = result;

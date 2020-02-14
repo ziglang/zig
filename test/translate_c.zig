@@ -621,9 +621,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("float suffixes",
         \\#define foo 3.14f
         \\#define bar 16.e-2l
+        \\#define FOO 0.12345
+        \\#define BAR .12345
     , &[_][]const u8{
         "pub const foo = @as(f32, 3.14);",
         "pub const bar = @as(c_longdouble, 16.e-2);",
+        "pub const FOO = 0.12345;",
+        "pub const BAR = 0.12345;",
     });
 
     cases.add("comments",
@@ -1358,11 +1362,16 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("basic macro function",
         \\extern int c;
         \\#define BASIC(c) (c*2)
+        \\#define FOO(L,b) (L + b)
     , &[_][]const u8{
         \\pub extern var c: c_int;
     ,
         \\pub inline fn BASIC(c_1: var) @TypeOf(c_1 * 2) {
         \\    return c_1 * 2;
+        \\}
+    ,
+        \\pub inline fn FOO(L: var, b: var) @TypeOf(L + b) {
+        \\    return L + b;
         \\}
     });
 
@@ -2529,10 +2538,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("macro cast",
         \\#define FOO(bar) baz((void *)(baz))
+        \\#define BAR (void*) a
     , &[_][]const u8{
         \\pub inline fn FOO(bar: var) @TypeOf(baz(if (@typeId(@TypeOf(baz)) == .Pointer) @ptrCast(*c_void, baz) else if (@typeId(@TypeOf(baz)) == .Int) @intToPtr(*c_void, baz) else @as(*c_void, baz))) {
         \\    return baz(if (@typeId(@TypeOf(baz)) == .Pointer) @ptrCast(*c_void, baz) else if (@typeId(@TypeOf(baz)) == .Int) @intToPtr(*c_void, baz) else @as(*c_void, baz));
         \\}
+    ,
+        \\pub const BAR = if (@typeId(@TypeOf(a)) == .Pointer) @ptrCast(*c_void, a) else if (@typeId(@TypeOf(a)) == .Int) @intToPtr(*c_void, a) else @as(*c_void, a);
     });
 
     cases.add("macro conditional operator",

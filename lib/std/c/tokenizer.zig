@@ -651,6 +651,7 @@ pub const Tokenizer = struct {
                         state = .StringLiteral;
                     },
                     else => {
+                        self.index -= 1;
                         state = .Identifier;
                     },
                 },
@@ -660,6 +661,7 @@ pub const Tokenizer = struct {
                         state = .StringLiteral;
                     },
                     else => {
+                        self.index -= 1;
                         state = .Identifier;
                     },
                 },
@@ -673,6 +675,7 @@ pub const Tokenizer = struct {
                         state = .StringLiteral;
                     },
                     else => {
+                        self.index -= 1;
                         state = .Identifier;
                     },
                 },
@@ -686,6 +689,7 @@ pub const Tokenizer = struct {
                         state = .StringLiteral;
                     },
                     else => {
+                        self.index -= 1;
                         state = .Identifier;
                     },
                 },
@@ -1079,6 +1083,9 @@ pub const Tokenizer = struct {
                     'x', 'X' => {
                         state = .IntegerLiteralHex;
                     },
+                    '.' => {
+                        state = .FloatFraction;
+                    },
                     else => {
                         state = .IntegerSuffix;
                         self.index -= 1;
@@ -1261,12 +1268,15 @@ pub const Tokenizer = struct {
                 .UnicodeEscape,
                 .MultiLineComment,
                 .MultiLineCommentAsterisk,
-                .FloatFraction,
-                .FloatFractionHex,
                 .FloatExponent,
-                .FloatExponentDigits,
                 .MacroString,
                 => result.id = .Invalid,
+
+                .FloatExponentDigits => result.id = if (counter == 0) .Invalid else .{ .FloatLiteral = .None },
+
+                .FloatFraction,
+                .FloatFractionHex,
+                => result.id = .{ .FloatLiteral = .None },
 
                 .IntegerLiteralOct,
                 .IntegerLiteralBinary,

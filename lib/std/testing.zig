@@ -12,7 +12,7 @@ pub var allocator_instance = LeakCountAllocator.init(&base_allocator_instance.al
 pub const failing_allocator = &FailingAllocator.init(&base_allocator_instance.allocator, 0).allocator;
 
 pub var base_allocator_instance = std.heap.ThreadSafeFixedBufferAllocator.init(allocator_mem[0..]);
-var allocator_mem: [512 * 1024]u8 = undefined;
+var allocator_mem: [1024 * 1024]u8 = undefined;
 
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
 /// and then aborts when actual_error_union is not expected_error.
@@ -56,7 +56,6 @@ pub fn expectEqual(expected: var, actual: @TypeOf(expected)) void {
         .EnumLiteral,
         .Enum,
         .Fn,
-        .Vector,
         .ErrorSet,
         => {
             if (actual != expected) {
@@ -87,6 +86,15 @@ pub fn expectEqual(expected: var, actual: @TypeOf(expected)) void {
         },
 
         .Array => |array| expectEqualSlices(array.child, &expected, &actual),
+
+        .Vector => |vectorType| {
+            var i: usize = 0;
+            while (i < vectorType.len) : (i += 1) {
+                if (!std.meta.eql(expected[i], actual[i])) {
+                    std.debug.panic("index {} incorrect. expected {}, found {}", .{ i, expected[i], actual[i] });
+                }
+            }
+        },
 
         .Struct => |structType| {
             inline for (structType.fields) |field| {
@@ -199,6 +207,13 @@ test "expectEqual nested array" {
         [_]f32{ 1.0, 0.0 },
         [_]f32{ 0.0, 1.0 },
     };
+
+    expectEqual(a, b);
+}
+
+test "expectEqual vector" {
+    var a = @splat(4, @as(u32, 4));
+    var b = @splat(4, @as(u32, 4));
 
     expectEqual(a, b);
 }

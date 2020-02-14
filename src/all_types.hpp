@@ -1999,6 +1999,9 @@ struct CFile {
 
 // When adding fields, check if they should be added to the hash computation in build_with_cache
 struct CodeGen {
+    // arena allocator destroyed just prior to codegen emit
+    heap::ArenaAllocator *pass1_arena;
+
     //////////////////////////// Runtime State
     LLVMModuleRef module;
     ZigList<ErrorMsg*> errors;
@@ -2279,7 +2282,6 @@ struct ZigVar {
     Scope *parent_scope;
     Scope *child_scope;
     LLVMValueRef param_value_ref;
-    IrExecutableSrc *owner_exec;
 
     Buf *section_name;
 

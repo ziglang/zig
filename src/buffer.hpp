@@ -50,7 +50,7 @@ static inline void buf_resize(Buf *buf, size_t new_len) {
 }
 
 static inline Buf *buf_alloc_fixed(size_t size) {
-    Buf *buf = allocate<Buf>(1);
+    Buf *buf = heap::c_allocator.create<Buf>();
     buf_resize(buf, size);
     return buf;
 }
@@ -65,7 +65,7 @@ static inline void buf_deinit(Buf *buf) {
 
 static inline void buf_destroy(Buf *buf) {
     buf_deinit(buf);
-    free(buf);
+    heap::c_allocator.destroy(buf);
 }
 
 static inline void buf_init_from_mem(Buf *buf, const char *ptr, size_t len) {
@@ -85,7 +85,7 @@ static inline void buf_init_from_buf(Buf *buf, Buf *other) {
 
 static inline Buf *buf_create_from_mem(const char *ptr, size_t len) {
     assert(len != SIZE_MAX);
-    Buf *buf = allocate<Buf>(1);
+    Buf *buf = heap::c_allocator.create<Buf>();
     buf_init_from_mem(buf, ptr, len);
     return buf;
 }
@@ -108,7 +108,7 @@ static inline Buf *buf_slice(Buf *in_buf, size_t start, size_t end) {
     assert(end != SIZE_MAX);
     assert(start < buf_len(in_buf));
     assert(end <= buf_len(in_buf));
-    Buf *out_buf = allocate<Buf>(1);
+    Buf *out_buf = heap::c_allocator.create<Buf>();
     out_buf->list.resize(end - start + 1);
     memcpy(buf_ptr(out_buf), buf_ptr(in_buf) + start, end - start);
     out_buf->list.at(buf_len(out_buf)) = 0;
@@ -210,6 +210,5 @@ static inline void buf_replace(Buf* buf, char from, char to) {
             l = to;
     }
 }
-
 
 #endif

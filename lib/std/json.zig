@@ -1495,10 +1495,7 @@ fn unescapeString(output: []u8, input: []const u8) !void {
 }
 
 test "json.parser.dynamic" {
-    var memory: [1024 * 16]u8 = undefined;
-    var buf_alloc = std.heap.FixedBufferAllocator.init(&memory);
-
-    var p = Parser.init(&buf_alloc.allocator, false);
+    var p = Parser.init(testing.allocator, false);
     defer p.deinit();
 
     const s =
@@ -1588,10 +1585,10 @@ test "write json then parse it" {
 
     try jw.endObject();
 
-    var mem_buffer: [1024 * 20]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(&mem_buffer).allocator;
-    var parser = Parser.init(allocator, false);
-    const tree = try parser.parse(slice_out_stream.getWritten());
+    var parser = Parser.init(testing.allocator, false);
+    defer parser.deinit();
+    var tree = try parser.parse(slice_out_stream.getWritten());
+    defer tree.deinit();
 
     testing.expect(tree.root.Object.get("f").?.value.Bool == false);
     testing.expect(tree.root.Object.get("t").?.value.Bool == true);
@@ -1601,21 +1598,21 @@ test "write json then parse it" {
     testing.expect(mem.eql(u8, tree.root.Object.get("str").?.value.String, "hello"));
 }
 
-fn test_parse(memory: []u8, json_str: []const u8) !Value {
-    // buf_alloc goes out of scope, but we don't use it after parsing
-    var buf_alloc = std.heap.FixedBufferAllocator.init(memory);
-    var p = Parser.init(&buf_alloc.allocator, false);
+fn test_parse(arena_allocator: *std.mem.Allocator, json_str: []const u8) !Value {
+    var p = Parser.init(arena_allocator, false);
     return (try p.parse(json_str)).root;
 }
 
 test "parsing empty string gives appropriate error" {
-    var memory: [1024 * 4]u8 = undefined;
-    testing.expectError(error.UnexpectedEndOfJson, test_parse(&memory, ""));
+    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_allocator.deinit();
+    testing.expectError(error.UnexpectedEndOfJson, test_parse(&arena_allocator.allocator, ""));
 }
 
 test "integer after float has proper type" {
-    var memory: [1024 * 8]u8 = undefined;
-    const json = try test_parse(&memory,
+    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_allocator.deinit();
+    const json = try test_parse(&arena_allocator.allocator,
         \\{
         \\  "float": 3.14,
         \\  "ints": [1, 2, 3]
@@ -1625,7 +1622,8 @@ test "integer after float has proper type" {
 }
 
 test "escaped characters" {
-    var memory: [1024 * 16]u8 = undefined;
+    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_allocator.deinit();
     const input =
         \\{
         \\  "backslash": "\\",
@@ -1641,7 +1639,7 @@ test "escaped characters" {
         \\}
     ;
 
-    const obj = (try test_parse(&memory, input)).Object;
+    const obj = (try test_parse(&arena_allocator.allocator, input)).Object;
 
     testing.expectEqualSlices(u8, obj.get("backslash").?.value.String, "\\");
     testing.expectEqualSlices(u8, obj.get("forwardslash").?.value.String, "/");
@@ -1665,13 +1663,13 @@ test "string copy option" {
         \\}
     ;
 
-    var mem_buffer: [1024 * 16]u8 = undefined;
-    var buf_alloc = std.heap.FixedBufferAllocator.init(&mem_buffer);
+    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_allocator.deinit();
 
-    const tree_nocopy = try Parser.init(&buf_alloc.allocator, false).parse(input);
+    const tree_nocopy = try Parser.init(&arena_allocator.allocator, false).parse(input);
     const obj_nocopy = tree_nocopy.root.Object;
 
-    const tree_copy = try Parser.init(&buf_alloc.allocator, true).parse(input);
+    const tree_copy = try Parser.init(&arena_allocator.allocator, true).parse(input);
     const obj_copy = tree_copy.root.Object;
 
     for ([_][]const u8{ "noescape", "simple", "unicode", "surrogatepair" }) |field_name| {

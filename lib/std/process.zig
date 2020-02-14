@@ -27,10 +27,8 @@ pub fn getCwdAlloc(allocator: *Allocator) ![]u8 {
 }
 
 test "getCwdAlloc" {
-    // at least call it so it gets compiled
-    var buf: [1000]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    _ = getCwdAlloc(allocator) catch undefined;
+    const cwd = try getCwdAlloc(testing.allocator);
+    testing.allocator.free(cwd);
 }
 
 /// Caller must free result when done.

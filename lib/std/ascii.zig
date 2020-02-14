@@ -236,9 +236,8 @@ pub fn allocLowerString(allocator: *std.mem.Allocator, ascii_string: []const u8)
 }
 
 test "allocLowerString" {
-    var buf: [100]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    const result = try allocLowerString(allocator, "aBcDeFgHiJkLmNOPqrst0234+💩!");
+    const result = try allocLowerString(std.testing.allocator, "aBcDeFgHiJkLmNOPqrst0234+💩!");
+    defer std.testing.allocator.free(result);
     std.testing.expect(std.mem.eql(u8, "abcdefghijklmnopqrst0234+💩!", result));
 }
 

@@ -21,7 +21,7 @@ static const ZigGLibCLib glibc_libs[] = {
 Error glibc_load_metadata(ZigGLibCAbi **out_result, Buf *zig_lib_dir, bool verbose) {
     Error err;
 
-    ZigGLibCAbi *glibc_abi = allocate<ZigGLibCAbi>(1);
+    ZigGLibCAbi *glibc_abi = heap::c_allocator.create<ZigGLibCAbi>();
     glibc_abi->vers_txt_path = buf_sprintf("%s" OS_SEP "libc" OS_SEP "glibc" OS_SEP "vers.txt", buf_ptr(zig_lib_dir));
     glibc_abi->fns_txt_path = buf_sprintf("%s" OS_SEP "libc" OS_SEP "glibc" OS_SEP "fns.txt", buf_ptr(zig_lib_dir));
     glibc_abi->abi_txt_path = buf_sprintf("%s" OS_SEP "libc" OS_SEP "glibc" OS_SEP "abi.txt", buf_ptr(zig_lib_dir));
@@ -100,10 +100,10 @@ Error glibc_load_metadata(ZigGLibCAbi **out_result, Buf *zig_lib_dir, bool verbo
                 Optional<Slice<uint8_t>> opt_line = SplitIterator_next_separate(&it);
                 if (!opt_line.is_some) break;
 
-                ver_list_base = allocate<ZigGLibCVerList>(glibc_abi->all_functions.length);
+                ver_list_base = heap::c_allocator.allocate<ZigGLibCVerList>(glibc_abi->all_functions.length);
                 SplitIterator line_it = memSplit(opt_line.value, str(" "));
                 for (;;) {
-                    ZigTarget *target = allocate<ZigTarget>(1);
+                    ZigTarget *target = heap::c_allocator.create<ZigTarget>();
                     Optional<Slice<uint8_t>> opt_target = SplitIterator_next(&line_it);
                     if (!opt_target.is_some) break;
 
@@ -174,7 +174,7 @@ Error glibc_build_dummies_and_maps(CodeGen *g, const ZigGLibCAbi *glibc_abi, con
     Error err;
 
     Buf *cache_dir = get_global_cache_dir();
-    CacheHash *cache_hash = allocate<CacheHash>(1);
+    CacheHash *cache_hash = heap::c_allocator.create<CacheHash>();
     Buf *manifest_dir = buf_sprintf("%s" OS_SEP CACHE_HASH_SUBDIR, buf_ptr(cache_dir));
     cache_init(cache_hash, manifest_dir);
 

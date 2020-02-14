@@ -41,9 +41,8 @@ pub fn addNullByte(allocator: *mem.Allocator, slice: []const u8) ![:0]u8 {
 }
 
 test "addNullByte" {
-    var buf: [30]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    const slice = try addNullByte(allocator, "hello"[0..4]);
+    const slice = try addNullByte(std.testing.allocator, "hello"[0..4]);
+    defer std.testing.allocator.free(slice);
     testing.expect(slice.len == 4);
     testing.expect(slice[4] == 0);
 }
