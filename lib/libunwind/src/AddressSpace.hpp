@@ -27,9 +27,16 @@
 
 #if _LIBUNWIND_USE_DLADDR
 #include <dlfcn.h>
-#if defined(__unix__) &&  defined(__ELF__) && defined(_LIBUNWIND_HAS_COMMENT_LIB_PRAGMA)
+#if defined(__ELF__) && defined(_LIBUNWIND_LINK_DL_LIB)
 #pragma comment(lib, "dl")
 #endif
+#endif
+
+#if defined(_LIBUNWIND_ARM_EHABI)
+struct EHABIIndexEntry {
+  uint32_t functionOffset;
+  uint32_t data;
+};
 #endif
 
 #ifdef __APPLE__
@@ -426,8 +433,12 @@ inline bool LocalAddressSpace::findUnwindSections(pint_t targetAddr,
   HANDLE process = GetCurrentProcess();
   DWORD needed;
 
-  if (!EnumProcessModules(process, mods, sizeof(mods), &needed))
+  if (!EnumProcessModules(process, mods, sizeof(mods), &needed)) {
+    DWORD err = GetLastError();
+    _LIBUNWIND_TRACE_UNWINDING("findUnwindSections: EnumProcessModules failed, "
+                               "returned error %d", (int)err);
     return false;
+  }
 
   for (unsigned i = 0; i < (needed / sizeof(HMODULE)); i++) {
     PIMAGE_DOS_HEADER pidh = (PIMAGE_DOS_HEADER)mods[i];
@@ -462,12 +473,13 @@ inline bool LocalAddressSpace::findUnwindSections(pint_t targetAddr,
   (void)targetAddr;
   (void)info;
   return true;
-#elif defined(_LIBUNWIND_ARM_EHABI) && defined(__BIONIC__) &&                  \
-    (__ANDROID_API__ < 21)
+#elif defined(_LIBUNWIND_ARM_EHABI) && defined(__BIONIC__)
+  // For ARM EHABI, Bionic didn't implement dl_iterate_phdr until API 21. After
+  // API 21, dl_iterate_phdr exists, but dl_unwind_find_exidx is much faster.
   int length = 0;
   info.arm_section =
       (uintptr_t)dl_unwind_find_exidx((_Unwind_Ptr)targetAddr, &length);
-  info.arm_section_length = (uintptr_t)length;
+  info.arm_section_length = (uintptr_t)length * sizeof(EHABIIndexEntry);
   if (info.arm_section && info.arm_section_length)
     return true;
 #elif defined(_LIBUNWIND_ARM_EHABI) || defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
@@ -497,8 +509,28 @@ inline bool LocalAddressSpace::findUnwindSections(pint_t targetAddr,
 #if !defined(Elf_Phdr)
         typedef ElfW(Phdr) Elf_Phdr;
 #endif
-#if !defined(Elf_Addr) && defined(__ANDROID__)
+#if !defined(Elf_Addr)
         typedef ElfW(Addr) Elf_Addr;
+#endif
+
+        Elf_Addr image_base = pinfo->dlpi_addr;
+
+#if defined(__ANDROID__) && __ANDROID_API__ < 18
+        if (image_base == 0) {
+          // Normally, an image base of 0 indicates a non-PIE executable. On
+          // versions of Android prior to API 18, the dynamic linker reported a
+          // dlpi_addr of 0 for PIE executables. Compute the true image base
+          // using the PT_PHDR segment.
+          // See https://github.com/android/ndk/issues/505.
+          for (Elf_Half i = 0; i < pinfo->dlpi_phnum; i++) {
+            const Elf_Phdr *phdr = &pinfo->dlpi_phdr[i];
+            if (phdr->p_type == PT_PHDR) {
+              image_base = reinterpret_cast<Elf_Addr>(pinfo->dlpi_phdr) -
+                  phdr->p_vaddr;
+              break;
+            }
+          }
+        }
 #endif
 
  #if defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
@@ -506,23 +538,11 @@ inline bool LocalAddressSpace::findUnwindSections(pint_t targetAddr,
    #error "_LIBUNWIND_SUPPORT_DWARF_UNWIND requires _LIBUNWIND_SUPPORT_DWARF_INDEX on this platform."
   #endif
         size_t object_length;
-#if defined(__ANDROID__)
-        Elf_Addr image_base =
-            pinfo->dlpi_phnum
-                ? reinterpret_cast<Elf_Addr>(pinfo->dlpi_phdr) -
-                      reinterpret_cast<const Elf_Phdr *>(pinfo->dlpi_phdr)
-                          ->p_offset
-                : 0;
-#endif
 
         for (Elf_Half i = 0; i < pinfo->dlpi_phnum; i++) {
           const Elf_Phdr *phdr = &pinfo->dlpi_phdr[i];
           if (phdr->p_type == PT_LOAD) {
-            uintptr_t begin = pinfo->dlpi_addr + phdr->p_vaddr;
-#if defined(__ANDROID__)
-            if (pinfo->dlpi_addr == 0 && phdr->p_vaddr < image_base)
-              begin = begin + image_base;
-#endif
+            uintptr_t begin = image_base + phdr->p_vaddr;
             uintptr_t end = begin + phdr->p_memsz;
             if (cbdata->targetAddr >= begin && cbdata->targetAddr < end) {
               cbdata->sects->dso_base = begin;
@@ -531,11 +551,7 @@ inline bool LocalAddressSpace::findUnwindSections(pint_t targetAddr,
             }
           } else if (phdr->p_type == PT_GNU_EH_FRAME) {
             EHHeaderParser<LocalAddressSpace>::EHHeaderInfo hdrInfo;
-            uintptr_t eh_frame_hdr_start = pinfo->dlpi_addr + phdr->p_vaddr;
-#if defined(__ANDROID__)
-            if (pinfo->dlpi_addr == 0 && phdr->p_vaddr < image_base)
-              eh_frame_hdr_start = eh_frame_hdr_start + image_base;
-#endif
+            uintptr_t eh_frame_hdr_start = image_base + phdr->p_vaddr;
             cbdata->sects->dwarf_index_section = eh_frame_hdr_start;
             cbdata->sects->dwarf_index_section_length = phdr->p_memsz;
             found_hdr = EHHeaderParser<LocalAddressSpace>::decodeEHHdr(
@@ -556,12 +572,12 @@ inline bool LocalAddressSpace::findUnwindSections(pint_t targetAddr,
         for (Elf_Half i = 0; i < pinfo->dlpi_phnum; i++) {
           const Elf_Phdr *phdr = &pinfo->dlpi_phdr[i];
           if (phdr->p_type == PT_LOAD) {
-            uintptr_t begin = pinfo->dlpi_addr + phdr->p_vaddr;
+            uintptr_t begin = image_base + phdr->p_vaddr;
             uintptr_t end = begin + phdr->p_memsz;
             if (cbdata->targetAddr >= begin && cbdata->targetAddr < end)
               found_obj = true;
           } else if (phdr->p_type == PT_ARM_EXIDX) {
-            uintptr_t exidx_start = pinfo->dlpi_addr + phdr->p_vaddr;
+            uintptr_t exidx_start = image_base + phdr->p_vaddr;
             cbdata->sects->arm_section = exidx_start;
             cbdata->sects->arm_section_length = phdr->p_memsz;
             found_hdr = true;
