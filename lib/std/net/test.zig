@@ -67,10 +67,8 @@ test "resolve DNS" {
         // DNS resolution not implemented on Windows yet.
         return error.SkipZigTest;
     }
-    var buf: [1000 * 10]u8 = undefined;
-    const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
 
-    const address_list = net.getAddressList(a, "example.com", 80) catch |err| switch (err) {
+    const address_list = net.getAddressList(testing.allocator, "example.com", 80) catch |err| switch (err) {
         // The tests are required to work even when there is no Internet connection,
         // so some of these errors we must accept and skip the test.
         error.UnknownHostName => return error.SkipZigTest,

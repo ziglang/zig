@@ -254,11 +254,11 @@ test "json write stream" {
     var slice_stream = std.io.SliceOutStream.init(&out_buf);
     const out = &slice_stream.stream;
 
-    var mem_buf: [1024 * 10]u8 = undefined;
-    const allocator = &std.heap.FixedBufferAllocator.init(&mem_buf).allocator;
+    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_allocator.deinit();
 
     var w = std.json.WriteStream(@TypeOf(out).Child, 10).init(out);
-    try w.emitJson(try getJson(allocator));
+    try w.emitJson(try getJson(&arena_allocator.allocator));
 
     const result = slice_stream.getWritten();
     const expected =

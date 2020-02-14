@@ -12,7 +12,7 @@ pub var allocator_instance = LeakCountAllocator.init(&base_allocator_instance.al
 pub const failing_allocator = &FailingAllocator.init(&base_allocator_instance.allocator, 0).allocator;
 
 pub var base_allocator_instance = std.heap.ThreadSafeFixedBufferAllocator.init(allocator_mem[0..]);
-var allocator_mem: [512 * 1024]u8 = undefined;
+var allocator_mem: [1024 * 1024]u8 = undefined;
 
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
 /// and then aborts when actual_error_union is not expected_error.
