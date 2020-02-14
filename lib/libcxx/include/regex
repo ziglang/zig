@@ -169,15 +169,15 @@ public:
     // assign:
     basic_regex& assign(const basic_regex& that);
     basic_regex& assign(basic_regex&& that) noexcept;
-    basic_regex& assign(const charT* ptr, flag_type f = regex_constants::ECMAScript);
-    basic_regex& assign(const charT* p, size_t len, flag_type f);
+    basic_regex& assign(const charT* ptr,           flag_type f = regex_constants::ECMAScript);
+    basic_regex& assign(const charT* p, size_t len, flag_type f = regex_constants::ECMAScript);
     template <class string_traits, class A>
         basic_regex& assign(const basic_string<charT, string_traits, A>& s,
-                            flag_type f = regex_constants::ECMAScript);
+                                                    flag_type f = regex_constants::ECMAScript);
     template <class InputIterator>
         basic_regex& assign(InputIterator first, InputIterator last,
-                            flag_type f = regex_constants::ECMAScript);
-    basic_regex& assign(initializer_list<charT>, flag_type = regex_constants::ECMAScript);
+                                                    flag_type f = regex_constants::ECMAScript);
+    basic_regex& assign(initializer_list<charT>,    flag_type f = regex_constants::ECMAScript);
 
     // const operations:
     unsigned mark_count() const;
@@ -965,7 +965,8 @@ enum error_type
     error_stack,
     __re_err_grammar,
     __re_err_empty,
-    __re_err_unknown
+    __re_err_unknown,
+    __re_err_parse
 };
 
 }  // regex_constants
@@ -2539,8 +2540,7 @@ public:
         : __flags_(__f), __marked_count_(0), __loop_count_(0), __open_count_(0),
           __end_(0)
         {
-        if (__get_grammar(__flags_) == 0) __flags_ |= regex_constants::ECMAScript;
-        __parse(__p, __p + __traits_.length(__p));
+        __init(__p, __p + __traits_.length(__p));
         }
 
     _LIBCPP_INLINE_VISIBILITY
@@ -2548,8 +2548,7 @@ public:
         : __flags_(__f), __marked_count_(0), __loop_count_(0), __open_count_(0),
           __end_(0)
         {
-        if (__get_grammar(__flags_) == 0) __flags_ |= regex_constants::ECMAScript;
-        __parse(__p, __p + __len);
+        __init(__p, __p + __len);
         }
 
 //     basic_regex(const basic_regex&) = default;
@@ -2561,8 +2560,7 @@ public:
         : __flags_(__f), __marked_count_(0), __loop_count_(0), __open_count_(0),
           __end_(0)
         {
-        if (__get_grammar(__flags_) == 0) __flags_ |= regex_constants::ECMAScript;
-        __parse(__p.begin(), __p.end());
+        __init(__p.begin(), __p.end());
         }
 
     template <class _ForwardIterator>
@@ -2572,8 +2570,7 @@ public:
         : __flags_(__f), __marked_count_(0), __loop_count_(0), __open_count_(0),
           __end_(0)
         {
-        if (__get_grammar(__flags_) == 0) __flags_ |= regex_constants::ECMAScript;
-        __parse(__first, __last);
+        __init(__first, __last);
         }
 #ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
@@ -2582,8 +2579,7 @@ public:
         : __flags_(__f), __marked_count_(0), __loop_count_(0), __open_count_(0),
           __end_(0)
         {
-        if (__get_grammar(__flags_) == 0) __flags_ |= regex_constants::ECMAScript;
-        __parse(__il.begin(), __il.end());
+        __init(__il.begin(), __il.end());
         }
 #endif  // _LIBCPP_CXX03_LANG
 
@@ -2617,7 +2613,7 @@ public:
     basic_regex& assign(const value_type* __p, flag_type __f = regex_constants::ECMAScript)
         {return assign(__p, __p + __traits_.length(__p), __f);}
     _LIBCPP_INLINE_VISIBILITY
-    basic_regex& assign(const value_type* __p, size_t __len, flag_type __f)
+    basic_regex& assign(const value_type* __p, size_t __len, flag_type __f = regex_constants::ECMAScript)
         {return assign(__p, __p + __len, __f);}
     template <class _ST, class _SA>
         _LIBCPP_INLINE_VISIBILITY
@@ -2629,8 +2625,8 @@ public:
         _LIBCPP_INLINE_VISIBILITY
         typename enable_if
         <
-             __is_input_iterator  <_InputIterator>::value &&
-            !__is_forward_iterator<_InputIterator>::value,
+             __is_cpp17_input_iterator  <_InputIterator>::value &&
+            !__is_cpp17_forward_iterator<_InputIterator>::value,
             basic_regex&
         >::type
         assign(_InputIterator __first, _InputIterator __last,
@@ -2656,7 +2652,7 @@ public:
         _LIBCPP_INLINE_VISIBILITY
         typename enable_if
         <
-            __is_forward_iterator<_ForwardIterator>::value,
+            __is_cpp17_forward_iterator<_ForwardIterator>::value,
             basic_regex&
         >::type
         assign(_ForwardIterator __first, _ForwardIterator __last,
@@ -2698,6 +2694,9 @@ private:
     _LIBCPP_INLINE_VISIBILITY
     unsigned __loop_count() const {return __loop_count_;}
 
+    template <class _ForwardIterator>
+        void
+        __init(_ForwardIterator __first, _ForwardIterator __last);
     template <class _ForwardIterator>
         _ForwardIterator
         __parse(_ForwardIterator __first, _ForwardIterator __last);
@@ -2953,7 +2952,7 @@ private:
 
 #ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
 template <class _ForwardIterator,
-          class = typename enable_if<__is_forward_iterator<_ForwardIterator>::value, nullptr_t>::type
+          class = typename enable_if<__is_cpp17_forward_iterator<_ForwardIterator>::value, nullptr_t>::type
 >
 basic_regex(_ForwardIterator, _ForwardIterator,
             regex_constants::syntax_option_type = regex_constants::ECMAScript)
@@ -3052,6 +3051,17 @@ __lookahead<_CharT, _Traits>::__exec(__state& __s) const
         __s.__do_ = __state::__reject;
         __s.__node_ = nullptr;
     }
+}
+
+template <class _CharT, class _Traits>
+template <class _ForwardIterator>
+void
+basic_regex<_CharT, _Traits>::__init(_ForwardIterator __first, _ForwardIterator __last)
+{
+    if (__get_grammar(__flags_) == 0) __flags_ |= regex_constants::ECMAScript;
+    _ForwardIterator __temp = __parse(__first, __last);
+    if ( __temp != __last)
+        __throw_regex_error<regex_constants::__re_err_parse>();
 }
 
 template <class _CharT, class _Traits>

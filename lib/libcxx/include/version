@@ -43,6 +43,7 @@ __cpp_lib_constexpr_misc                                201811L <array> <functio
 __cpp_lib_constexpr_swap_algorithms                     201806L <algorithm>
 __cpp_lib_destroying_delete                             201806L <new>
 __cpp_lib_enable_shared_from_this                       201603L <memory>
+__cpp_lib_endian                                        201907L <bit>
 __cpp_lib_erase_if                                      201811L <string> <deque> <forward_list>
                                                                 <list> <vector> <map>
                                                                 <set> <unordered_map> <unordered_set>
@@ -223,6 +224,7 @@ __cpp_lib_void_t                                        201411L <type_traits>
 # if _LIBCPP_STD_VER > 17 && defined(__cpp_impl_destroying_delete) && __cpp_impl_destroying_delete >= 201806L
 #   define __cpp_lib_destroying_delete                  201806L
 # endif
+# define __cpp_lib_endian                               201907L
 # define __cpp_lib_erase_if                             201811L
 // # define __cpp_lib_generic_unordered_lookup             201811L
 # define __cpp_lib_interpolate                          201902L

@@ -51,7 +51,6 @@ template <class P> struct hash<coroutine_handle<P>>;
 #include <functional>
 #include <memory> // for hash<T*>
 #include <cstddef>
-#include <cassert>
 #include <__debug>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

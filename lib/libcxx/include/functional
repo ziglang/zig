@@ -440,6 +440,13 @@ public:
     template <typename T> const T* target() const noexcept;
 };
 
+// Deduction guides
+template<class R, class ...Args>
+function(R(*)(Args...)) -> function<R(Args...)>; // since C++17
+
+template<class F>
+function(F) -> function<see-below>; // since C++17
+
 // Null pointer comparisons:
 template <class R, class ... ArgTypes>
   bool operator==(const function<R(ArgTypes...)>&, nullptr_t) noexcept;
@@ -2334,6 +2341,53 @@ public:
     template <typename _Tp> const _Tp* target() const _NOEXCEPT;
 #endif  // _LIBCPP_NO_RTTI
 };
+
+#ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
+template<class _Rp, class ..._Ap>
+function(_Rp(*)(_Ap...)) -> function<_Rp(_Ap...)>;
+
+template<class _Fp>
+struct __strip_signature;
+
+template<class _Rp, class _Gp, class ..._Ap>
+struct __strip_signature<_Rp (_Gp::*) (_Ap...)> { using type = _Rp(_Ap...); };
+template<class _Rp, class _Gp, class ..._Ap>
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) const> { using type = _Rp(_Ap...); };
+template<class _Rp, class _Gp, class ..._Ap>
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) volatile> { using type = _Rp(_Ap...); };
+template<class _Rp, class _Gp, class ..._Ap>
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) const volatile> { using type = _Rp(_Ap...); };
+
+template<class _Rp, class _Gp, class ..._Ap>
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) &> { using type = _Rp(_Ap...); };
+template<class _Rp, class _Gp, class ..._Ap>
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) const &> { using type = _Rp(_Ap...); };
+template<class _Rp, class _Gp, class ..._Ap>
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) volatile &> { using type = _Rp(_Ap...); };
+template<class _Rp, class _Gp, class ..._Ap>
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) const volatile &> { using type = _Rp(_Ap...); };
+
+template<class _Rp, class _Gp, class ..._Ap>
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) noexcept> { using type = _Rp(_Ap...); };
+template<class _Rp, class _Gp, class ..._Ap>
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) const noexcept> { using type = _Rp(_Ap...); };
+template<class _Rp, class _Gp, class ..._Ap>
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) volatile noexcept> { using type = _Rp(_Ap...); };
+template<class _Rp, class _Gp, class ..._Ap>
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) const volatile noexcept> { using type = _Rp(_Ap...); };
+
+template<class _Rp, class _Gp, class ..._Ap>
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) & noexcept> { using type = _Rp(_Ap...); };
+template<class _Rp, class _Gp, class ..._Ap>
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) const & noexcept> { using type = _Rp(_Ap...); };
+template<class _Rp, class _Gp, class ..._Ap>
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) volatile & noexcept> { using type = _Rp(_Ap...); };
+template<class _Rp, class _Gp, class ..._Ap>
+struct __strip_signature<_Rp (_Gp::*) (_Ap...) const volatile & noexcept> { using type = _Rp(_Ap...); };
+
+template<class _Fp, class _Stripped = typename __strip_signature<decltype(&_Fp::operator())>::type>
+function(_Fp) -> function<_Stripped>;
+#endif // !_LIBCPP_HAS_NO_DEDUCTION_GUIDES
 
 template<class _Rp, class ..._ArgTypes>
 function<_Rp(_ArgTypes...)>::function(const function& __f) : __f_(__f.__f_) {}

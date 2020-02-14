@@ -39,7 +39,7 @@ struct destroying_delete_t { // C++20
 };
 inline constexpr destroying_delete_t destroying_delete{}; // C++20
 
-struct nothrow_t {};
+struct nothrow_t { explicit nothrow_t() = default; };
 extern const nothrow_t nothrow;
 typedef void (*new_handler)();
 new_handler set_new_handler(new_handler new_p) noexcept;
@@ -126,7 +126,7 @@ namespace std  // purposefully not using versioning namespace
 {
 
 #if !defined(_LIBCPP_ABI_VCRUNTIME)
-struct _LIBCPP_TYPE_VIS nothrow_t {};
+struct _LIBCPP_TYPE_VIS nothrow_t { explicit nothrow_t() = default; };
 extern _LIBCPP_FUNC_VIS const nothrow_t nothrow;
 
 class _LIBCPP_EXCEPTION_ABI bad_alloc

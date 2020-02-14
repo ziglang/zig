@@ -775,10 +775,13 @@ private:
     typedef __tree_node_types<pointer> _NodeTypes;
     allocator_type& __na_;
 
-    __tree_node_destructor& operator=(const __tree_node_destructor&);
 
 public:
     bool __value_constructed;
+
+
+    __tree_node_destructor(const __tree_node_destructor &) = default;
+    __tree_node_destructor& operator=(const __tree_node_destructor&) = delete;
 
     _LIBCPP_INLINE_VISIBILITY
     explicit __tree_node_destructor(allocator_type& __na, bool __val = false) _NOEXCEPT
@@ -1574,8 +1577,8 @@ __tree<_Tp, _Compare, _Allocator>::__tree(const value_compare& __comp)
 template <class _Tp, class _Compare, class _Allocator>
 __tree<_Tp, _Compare, _Allocator>::__tree(const allocator_type& __a)
     : __begin_node_(__iter_pointer()),
-      __pair1_(__second_tag(), __node_allocator(__a)),
-      __pair3_(0)
+      __pair1_(__default_init_tag(), __node_allocator(__a)),
+      __pair3_(0, __default_init_tag())
 {
     __begin_node() = __end_node();
 }
@@ -1584,7 +1587,7 @@ template <class _Tp, class _Compare, class _Allocator>
 __tree<_Tp, _Compare, _Allocator>::__tree(const value_compare& __comp,
                                            const allocator_type& __a)
     : __begin_node_(__iter_pointer()),
-      __pair1_(__second_tag(), __node_allocator(__a)),
+      __pair1_(__default_init_tag(), __node_allocator(__a)),
       __pair3_(0, __comp)
 {
     __begin_node() = __end_node();
@@ -1656,7 +1659,7 @@ __tree<_Tp, _Compare, _Allocator>::__assign_unique(_ForwardIterator __first, _Fo
     typedef typename _ITraits::value_type _ItValueType;
     static_assert((is_same<_ItValueType, __container_value_type>::value),
                   "__assign_unique may only be called with the containers value type");
-    static_assert(__is_forward_iterator<_ForwardIterator>::value,
+    static_assert(__is_cpp17_forward_iterator<_ForwardIterator>::value,
                   "__assign_unique requires a forward iterator");
     if (size() != 0)
     {
@@ -1697,7 +1700,7 @@ __tree<_Tp, _Compare, _Allocator>::__assign_multi(_InputIterator __first, _Input
 template <class _Tp, class _Compare, class _Allocator>
 __tree<_Tp, _Compare, _Allocator>::__tree(const __tree& __t)
     : __begin_node_(__iter_pointer()),
-      __pair1_(__second_tag(), __node_traits::select_on_container_copy_construction(__t.__node_alloc())),
+      __pair1_(__default_init_tag(), __node_traits::select_on_container_copy_construction(__t.__node_alloc())),
       __pair3_(0, __t.value_comp())
 {
     __begin_node() = __end_node();
@@ -1727,7 +1730,7 @@ __tree<_Tp, _Compare, _Allocator>::__tree(__tree&& __t)
 
 template <class _Tp, class _Compare, class _Allocator>
 __tree<_Tp, _Compare, _Allocator>::__tree(__tree&& __t, const allocator_type& __a)
-    : __pair1_(__second_tag(), __node_allocator(__a)),
+    : __pair1_(__default_init_tag(), __node_allocator(__a)),
       __pair3_(0, _VSTD::move(__t.value_comp()))
 {
     if (__a == __t.__alloc())

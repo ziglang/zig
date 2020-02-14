@@ -510,7 +510,11 @@ _LIBCPP_INLINE_VISIBILITY
 bool
 __libcpp_isnan(_A1 __lcpp_x) _NOEXCEPT
 {
+#if __has_builtin(__builtin_isnan)
+    return __builtin_isnan(__lcpp_x);
+#else
     return isnan(__lcpp_x);
+#endif
 }
 
 #undef isnan

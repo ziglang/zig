@@ -69,11 +69,11 @@ struct pair
 
     pair(const pair&) = default;
     pair(pair&&) = default;
-    constexpr pair();
-    pair(const T1& x, const T2& y);                          // constexpr in C++14
-    template <class U, class V> pair(U&& x, V&& y);          // constexpr in C++14
-    template <class U, class V> pair(const pair<U, V>& p);   // constexpr in C++14
-    template <class U, class V> pair(pair<U, V>&& p);        // constexpr in C++14
+    explicit(see-below) constexpr pair();
+    explicit(see-below) pair(const T1& x, const T2& y);                          // constexpr in C++14
+    template <class U, class V> explicit(see-below) pair(U&& x, V&& y);          // constexpr in C++14
+    template <class U, class V> explicit(see-below) pair(const pair<U, V>& p);   // constexpr in C++14
+    template <class U, class V> explicit(see-below) pair(pair<U, V>&& p);        // constexpr in C++14
     template <class... Args1, class... Args2>
         pair(piecewise_construct_t, tuple<Args1...> first_args,
              tuple<Args2...> second_args);
@@ -99,7 +99,7 @@ template <class T1, class T2>
 void
 swap(pair<T1, T2>& x, pair<T1, T2>& y) noexcept(noexcept(x.swap(y)));
 
-struct piecewise_construct_t { };
+struct piecewise_construct_t { explicit piecewise_construct_t() = default; };
 inline constexpr piecewise_construct_t piecewise_construct = piecewise_construct_t();
 
 template <class T> struct tuple_size;
@@ -248,29 +248,11 @@ operator>=(const _Tp& __x, const _Tp& __y)
 
 }  // rel_ops
 
-// swap_ranges
+// swap_ranges is defined in <type_traits>`
 
+// swap is defined in <type_traits>
 
-template <class _ForwardIterator1, class _ForwardIterator2>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-_ForwardIterator2
-swap_ranges(_ForwardIterator1 __first1, _ForwardIterator1 __last1, _ForwardIterator2 __first2)
-{
-    for(; __first1 != __last1; ++__first1, (void) ++__first2)
-        swap(*__first1, *__first2);
-    return __first2;
-}
-
-// forward declared in <type_traits>
-template<class _Tp, size_t _Np>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-typename enable_if<
-    __is_swappable<_Tp>::value
->::type
-swap(_Tp (&__a)[_Np], _Tp (&__b)[_Np]) _NOEXCEPT_(__is_nothrow_swappable<_Tp>::value)
-{
-    _VSTD::swap_ranges(__a, __a + _Np, __b);
-}
+// move_if_noexcept
 
 template <class _Tp>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
@@ -294,7 +276,7 @@ template <class _Tp> constexpr add_const_t<_Tp>& as_const(_Tp& __t) noexcept { r
 template <class _Tp>                        void as_const(const _Tp&&) = delete;
 #endif
 
-struct _LIBCPP_TEMPLATE_VIS piecewise_construct_t { };
+struct _LIBCPP_TEMPLATE_VIS piecewise_construct_t { explicit piecewise_construct_t() = default; };
 #if defined(_LIBCPP_CXX03_LANG) || defined(_LIBCPP_BUILDING_LIBRARY)
 extern _LIBCPP_EXPORTED_FROM_ABI const piecewise_construct_t piecewise_construct;// = piecewise_construct_t();
 #else
@@ -352,10 +334,17 @@ struct _LIBCPP_TEMPLATE_VIS pair
     using _EnableB _LIBCPP_NODEBUG_TYPE = typename enable_if<_Val, bool>::type;
 
     struct _CheckArgs {
-      template <class _U1, class _U2>
-      static constexpr bool __enable_default() {
-          return is_default_constructible<_U1>::value
-              && is_default_constructible<_U2>::value;
+      template <int&...>
+      static constexpr bool __enable_explicit_default() {
+          return is_default_constructible<_T1>::value
+              && is_default_constructible<_T2>::value
+              && !__enable_implicit_default<>();
+      }
+
+      template <int&...>
+      static constexpr bool __enable_implicit_default() {
+          return __is_implicitly_default_constructible<_T1>::value
+              && __is_implicitly_default_constructible<_T2>::value;
       }
 
       template <class _U1, class _U2>
@@ -406,7 +395,15 @@ struct _LIBCPP_TEMPLATE_VIS pair
     >::type;
 
     template<bool _Dummy = true, _EnableB<
-            _CheckArgsDep<_Dummy>::template __enable_default<_T1, _T2>()
+            _CheckArgsDep<_Dummy>::__enable_explicit_default()
+    > = false>
+    explicit _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
+    pair() _NOEXCEPT_(is_nothrow_default_constructible<first_type>::value &&
+                      is_nothrow_default_constructible<second_type>::value)
+        : first(), second() {}
+
+    template<bool _Dummy = true, _EnableB<
+            _CheckArgsDep<_Dummy>::__enable_implicit_default()
     > = false>
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
     pair() _NOEXCEPT_(is_nothrow_default_constructible<first_type>::value &&

@@ -1619,7 +1619,7 @@ operator>>(basic_istream<_CharT, _Traits>& __is, bitset<_Size>& __x)
                  __is.rdbuf()->sbumpc();
             }
             __x = bitset<_Size>(__str);
-            if (__c == 0)
+            if (_Size > 0 && __c == 0)
                __state |= ios_base::failbit;
 #ifndef _LIBCPP_NO_EXCEPTIONS
         }

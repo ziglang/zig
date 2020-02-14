@@ -27,7 +27,9 @@ extern "C" {
 
 #include <android/api-level.h>
 #include <android/ndk-version.h>
+#if __ANDROID_API__ < 21
 #include <support/xlocale/__posix_l_fallback.h>
+#endif
 // In NDK versions later than 16, locale-aware functions are provided by
 // legacy_stdlib_inlines.h
 #if __NDK_MAJOR__ <= 16

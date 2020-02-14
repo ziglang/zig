@@ -3645,7 +3645,7 @@ generate_canonical(_URNG& __g)
     const size_t __logR = __log2<uint64_t, _URNG::max() - _URNG::min() + uint64_t(1)>::value;
 #endif
     const size_t __k = __b / __logR + (__b % __logR != 0) + (__b == 0);
-    const _RealType _Rp = _URNG::max() - _URNG::min() + _RealType(1);
+    const _RealType _Rp = static_cast<_RealType>(_URNG::max() - _URNG::min()) + _RealType(1);
     _RealType __base = _Rp;
     _RealType _Sp = __g() - _URNG::min();
     for (size_t __i = 1; __i < __k; ++__i, __base *= _Rp)
@@ -4592,7 +4592,10 @@ public:
 
 template<class _IntType>
 poisson_distribution<_IntType>::param_type::param_type(double __mean)
-    : __mean_(__mean)
+    // According to the standard `inf` is a valid input, but it causes the
+    // distribution to hang, so we replace it with the maximum representable
+    // mean.
+    : __mean_(isinf(__mean) ? numeric_limits<double>::max() : __mean)
 {
     if (__mean_ < 10)
     {
@@ -4610,7 +4613,7 @@ poisson_distribution<_IntType>::param_type::param_type(double __mean)
     {
         __s_ = _VSTD::sqrt(__mean_);
         __d_ = 6 * __mean_ * __mean_;
-        __l_ = static_cast<result_type>(__mean_ - 1.1484);
+        __l_ = std::trunc(__mean_ - 1.1484);
         __omega_ = .3989423 / __s_;
         double __b1_ = .4166667E-1 / __mean_;
         double __b2_ = .3 * __b1_ * __b1_;
@@ -4627,12 +4630,12 @@ template<class _URNG>
 _IntType
 poisson_distribution<_IntType>::operator()(_URNG& __urng, const param_type& __pr)
 {
-    result_type __x;
+    double __tx;
     uniform_real_distribution<double> __urd;
     if (__pr.__mean_ < 10)
     {
-         __x = 0;
-        for (double __p = __urd(__urng); __p > __pr.__l_; ++__x)
+         __tx = 0;
+        for (double __p = __urd(__urng); __p > __pr.__l_; ++__tx)
             __p *= __urd(__urng);
     }
     else
@@ -4642,19 +4645,19 @@ poisson_distribution<_IntType>::operator()(_URNG& __urng, const param_type& __pr
         double __u;
         if (__g > 0)
         {
-            __x = static_cast<result_type>(__g);
-            if (__x >= __pr.__l_)
-                return __x;
-            __difmuk = __pr.__mean_ - __x;
+            __tx = std::trunc(__g);
+            if (__tx >= __pr.__l_)
+                return std::__clamp_to_integral<result_type>(__tx);
+            __difmuk = __pr.__mean_ - __tx;
             __u = __urd(__urng);
             if (__pr.__d_ * __u >= __difmuk * __difmuk * __difmuk)
-                return __x;
+                return std::__clamp_to_integral<result_type>(__tx);
         }
         exponential_distribution<double> __edist;
         for (bool __using_exp_dist = false; true; __using_exp_dist = true)
         {
             double __e;
-            if (__using_exp_dist || __g < 0)
+            if (__using_exp_dist || __g <= 0)
             {
                 double __t;
                 do
@@ -4664,31 +4667,31 @@ poisson_distribution<_IntType>::operator()(_URNG& __urng, const param_type& __pr
                     __u += __u - 1;
                     __t = 1.8 + (__u < 0 ? -__e : __e);
                 } while (__t <= -.6744);
-                __x = __pr.__mean_ + __pr.__s_ * __t;
-                __difmuk = __pr.__mean_ - __x;
+                __tx = std::trunc(__pr.__mean_ + __pr.__s_ * __t);
+                __difmuk = __pr.__mean_ - __tx;
                 __using_exp_dist = true;
             }
             double __px;
             double __py;
-            if (__x < 10)
+            if (__tx < 10 && __tx >= 0)
             {
                 const double __fac[] = {1, 1, 2, 6, 24, 120, 720, 5040,
                                              40320, 362880};
                 __px = -__pr.__mean_;
-                __py = _VSTD::pow(__pr.__mean_, (double)__x) / __fac[__x];
+                __py = _VSTD::pow(__pr.__mean_, (double)__tx) / __fac[static_cast<int>(__tx)];
             }
             else
             {
-                double __del = .8333333E-1 / __x;
+                double __del = .8333333E-1 / __tx;
                 __del -= 4.8 * __del * __del * __del;
-                double __v = __difmuk / __x;
+                double __v = __difmuk / __tx;
                 if (_VSTD::abs(__v) > 0.25)
-                    __px = __x * _VSTD::log(1 + __v) - __difmuk - __del;
+                    __px = __tx * _VSTD::log(1 + __v) - __difmuk - __del;
                 else
-                    __px = __x * __v * __v * (((((((.1250060 * __v + -.1384794) *
+                    __px = __tx * __v * __v * (((((((.1250060 * __v + -.1384794) *
                            __v + .1421878) * __v + -.1661269) * __v + .2000118) *
                            __v + -.2500068) * __v + .3333333) * __v + -.5) - __del;
-                __py = .3989423 / _VSTD::sqrt(__x);
+                __py = .3989423 / _VSTD::sqrt(__tx);
             }
             double __r = (0.5 - __difmuk) / __pr.__s_;
             double __r2 = __r * __r;
@@ -4708,7 +4711,7 @@ poisson_distribution<_IntType>::operator()(_URNG& __urng, const param_type& __pr
             }
         }
     }
-    return __x;
+    return std::__clamp_to_integral<result_type>(__tx);
 }
 
 template <class _CharT, class _Traits, class _IntType>
@@ -6102,6 +6105,7 @@ public:
         template<class _UnaryOperation>
             param_type(size_t __nw, result_type __xmin, result_type __xmax,
                        _UnaryOperation __fw);
+        param_type(param_type const&) = default;
         param_type & operator=(const param_type& __rhs);
 
         _LIBCPP_INLINE_VISIBILITY
@@ -6425,6 +6429,7 @@ public:
         template<class _UnaryOperation>
             param_type(size_t __nw, result_type __xmin, result_type __xmax,
                        _UnaryOperation __fw);
+        param_type(param_type const&) = default;
         param_type & operator=(const param_type& __rhs);
 
         _LIBCPP_INLINE_VISIBILITY

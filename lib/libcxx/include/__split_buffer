@@ -116,15 +116,15 @@ public:
     template <class _InputIter>
         typename enable_if
         <
-            __is_input_iterator<_InputIter>::value &&
-           !__is_forward_iterator<_InputIter>::value,
+            __is_cpp17_input_iterator<_InputIter>::value &&
+           !__is_cpp17_forward_iterator<_InputIter>::value,
             void
         >::type
         __construct_at_end(_InputIter __first, _InputIter __last);
     template <class _ForwardIterator>
         typename enable_if
         <
-            __is_forward_iterator<_ForwardIterator>::value,
+            __is_cpp17_forward_iterator<_ForwardIterator>::value,
             void
         >::type
         __construct_at_end(_ForwardIterator __first, _ForwardIterator __last);
@@ -161,6 +161,19 @@ private:
     _LIBCPP_INLINE_VISIBILITY
     void __move_assign_alloc(__split_buffer&, false_type) _NOEXCEPT
         {}
+
+    struct _ConstructTransaction {
+      explicit _ConstructTransaction(pointer* __p, size_type __n) _NOEXCEPT
+      : __pos_(*__p), __end_(*__p + __n), __dest_(__p) {
+      }
+      ~_ConstructTransaction() {
+        *__dest_ = __pos_;
+      }
+      pointer __pos_;
+     const pointer __end_;
+    private:
+     pointer *__dest_;
+    };
 };
 
 template <class _Tp, class _Allocator>
@@ -197,13 +210,10 @@ template <class _Tp, class _Allocator>
 void
 __split_buffer<_Tp, _Allocator>::__construct_at_end(size_type __n)
 {
-    __alloc_rr& __a = this->__alloc();
-    do
-    {
-        __alloc_traits::construct(__a, _VSTD::__to_raw_pointer(this->__end_));
-        ++this->__end_;
-        --__n;
-    } while (__n > 0);
+    _ConstructTransaction __tx(&this->__end_, __n);
+    for (; __tx.__pos_ != __tx.__end_; ++__tx.__pos_) {
+        __alloc_traits::construct(this->__alloc(), _VSTD::__to_address(__tx.__pos_));
+    }
 }
 
 //  Copy constructs __n objects starting at __end_ from __x
@@ -216,21 +226,19 @@ template <class _Tp, class _Allocator>
 void
 __split_buffer<_Tp, _Allocator>::__construct_at_end(size_type __n, const_reference __x)
 {
-    __alloc_rr& __a = this->__alloc();
-    do
-    {
-        __alloc_traits::construct(__a, _VSTD::__to_raw_pointer(this->__end_), __x);
-        ++this->__end_;
-        --__n;
-    } while (__n > 0);
+    _ConstructTransaction __tx(&this->__end_, __n);
+    for (; __tx.__pos_ != __tx.__end_; ++__tx.__pos_) {
+        __alloc_traits::construct(this->__alloc(),
+            _VSTD::__to_address(__tx.__pos_), __x);
+    }
 }
 
 template <class _Tp, class _Allocator>
 template <class _InputIter>
 typename enable_if
 <
-     __is_input_iterator<_InputIter>::value &&
-    !__is_forward_iterator<_InputIter>::value,
+     __is_cpp17_input_iterator<_InputIter>::value &&
+    !__is_cpp17_forward_iterator<_InputIter>::value,
     void
 >::type
 __split_buffer<_Tp, _Allocator>::__construct_at_end(_InputIter __first, _InputIter __last)
@@ -245,10 +253,10 @@ __split_buffer<_Tp, _Allocator>::__construct_at_end(_InputIter __first, _InputIt
             __split_buffer __buf(__new_cap, 0, __a);
             for (pointer __p = __begin_; __p != __end_; ++__p, ++__buf.__end_)
                 __alloc_traits::construct(__buf.__alloc(),
-                        _VSTD::__to_raw_pointer(__buf.__end_), _VSTD::move(*__p));
+                        _VSTD::__to_address(__buf.__end_), _VSTD::move(*__p));
             swap(__buf);
         }
-        __alloc_traits::construct(__a, _VSTD::__to_raw_pointer(this->__end_), *__first);
+        __alloc_traits::construct(__a, _VSTD::__to_address(this->__end_), *__first);
         ++this->__end_;
     }
 }
@@ -257,16 +265,15 @@ template <class _Tp, class _Allocator>
 template <class _ForwardIterator>
 typename enable_if
 <
-    __is_forward_iterator<_ForwardIterator>::value,
+    __is_cpp17_forward_iterator<_ForwardIterator>::value,
     void
 >::type
 __split_buffer<_Tp, _Allocator>::__construct_at_end(_ForwardIterator __first, _ForwardIterator __last)
 {
-    __alloc_rr& __a = this->__alloc();
-    for (; __first != __last; ++__first)
-    {
-        __alloc_traits::construct(__a, _VSTD::__to_raw_pointer(this->__end_), *__first);
-        ++this->__end_;
+    _ConstructTransaction __tx(&this->__end_, std::distance(__first, __last));
+    for (; __tx.__pos_ != __tx.__end_; ++__tx.__pos_, ++__first) {
+        __alloc_traits::construct(this->__alloc(),
+            _VSTD::__to_address(__tx.__pos_), *__first);
     }
 }
 
@@ -276,7 +283,7 @@ void
 __split_buffer<_Tp, _Allocator>::__destruct_at_begin(pointer __new_begin, false_type)
 {
     while (__begin_ != __new_begin)
-        __alloc_traits::destroy(__alloc(), __to_raw_pointer(__begin_++));
+        __alloc_traits::destroy(__alloc(), __to_address(__begin_++));
 }
 
 template <class _Tp, class _Allocator>
@@ -293,7 +300,7 @@ void
 __split_buffer<_Tp, _Allocator>::__destruct_at_end(pointer __new_last, false_type) _NOEXCEPT
 {
     while (__new_last != __end_)
-        __alloc_traits::destroy(__alloc(), __to_raw_pointer(--__end_));
+        __alloc_traits::destroy(__alloc(), __to_address(--__end_));
 }
 
 template <class _Tp, class _Allocator>
@@ -317,7 +324,7 @@ template <class _Tp, class _Allocator>
 inline
 __split_buffer<_Tp, _Allocator>::__split_buffer()
     _NOEXCEPT_(is_nothrow_default_constructible<allocator_type>::value)
-    : __first_(nullptr), __begin_(nullptr), __end_(nullptr), __end_cap_(nullptr)
+    : __first_(nullptr), __begin_(nullptr), __end_(nullptr), __end_cap_(nullptr, __default_init_tag())
 {
 }
 
@@ -361,7 +368,7 @@ __split_buffer<_Tp, _Allocator>::__split_buffer(__split_buffer&& __c)
 
 template <class _Tp, class _Allocator>
 __split_buffer<_Tp, _Allocator>::__split_buffer(__split_buffer&& __c, const __alloc_rr& __a)
-    : __end_cap_(__second_tag(), __a)
+    : __end_cap_(nullptr, __a)
 {
     if (__a == __c.__alloc())
     {
@@ -488,7 +495,7 @@ __split_buffer<_Tp, _Allocator>::push_front(const_reference __x)
             _VSTD::swap(__end_cap(), __t.__end_cap());
         }
     }
-    __alloc_traits::construct(__alloc(), _VSTD::__to_raw_pointer(__begin_-1), __x);
+    __alloc_traits::construct(__alloc(), _VSTD::__to_address(__begin_-1), __x);
     --__begin_;
 }
 
@@ -519,7 +526,7 @@ __split_buffer<_Tp, _Allocator>::push_front(value_type&& __x)
             _VSTD::swap(__end_cap(), __t.__end_cap());
         }
     }
-    __alloc_traits::construct(__alloc(), _VSTD::__to_raw_pointer(__begin_-1),
+    __alloc_traits::construct(__alloc(), _VSTD::__to_address(__begin_-1),
             _VSTD::move(__x));
     --__begin_;
 }
@@ -552,7 +559,7 @@ __split_buffer<_Tp, _Allocator>::push_back(const_reference __x)
             _VSTD::swap(__end_cap(), __t.__end_cap());
         }
     }
-    __alloc_traits::construct(__alloc(), _VSTD::__to_raw_pointer(__end_), __x);
+    __alloc_traits::construct(__alloc(), _VSTD::__to_address(__end_), __x);
     ++__end_;
 }
 
@@ -583,7 +590,7 @@ __split_buffer<_Tp, _Allocator>::push_back(value_type&& __x)
             _VSTD::swap(__end_cap(), __t.__end_cap());
         }
     }
-    __alloc_traits::construct(__alloc(), _VSTD::__to_raw_pointer(__end_),
+    __alloc_traits::construct(__alloc(), _VSTD::__to_address(__end_),
             _VSTD::move(__x));
     ++__end_;
 }
@@ -614,7 +621,7 @@ __split_buffer<_Tp, _Allocator>::emplace_back(_Args&&... __args)
             _VSTD::swap(__end_cap(), __t.__end_cap());
         }
     }
-    __alloc_traits::construct(__alloc(), _VSTD::__to_raw_pointer(__end_),
+    __alloc_traits::construct(__alloc(), _VSTD::__to_address(__end_),
                               _VSTD::forward<_Args>(__args)...);
     ++__end_;
 }
