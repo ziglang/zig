@@ -3,6 +3,13 @@ const builtin = @import("builtin");
 const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
+    cases.add("macro line continuation",
+        \\#define FOO -\
+        \\BAR
+    , &[_][]const u8{
+        \\pub const FOO = -BAR;
+    });
+
     cases.add("function prototype translated as optional",
         \\typedef void (*fnptr_ty)(void);
         \\typedef __attribute__((cdecl)) void (*fnptr_attr_ty)(void);
