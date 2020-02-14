@@ -2538,10 +2538,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("macro cast",
         \\#define FOO(bar) baz((void *)(baz))
+        \\#define BAR (void*) a
     , &[_][]const u8{
         \\pub inline fn FOO(bar: var) @TypeOf(baz(if (@typeId(@TypeOf(baz)) == .Pointer) @ptrCast(*c_void, baz) else if (@typeId(@TypeOf(baz)) == .Int) @intToPtr(*c_void, baz) else @as(*c_void, baz))) {
         \\    return baz(if (@typeId(@TypeOf(baz)) == .Pointer) @ptrCast(*c_void, baz) else if (@typeId(@TypeOf(baz)) == .Int) @intToPtr(*c_void, baz) else @as(*c_void, baz));
         \\}
+    ,
+        \\pub const BAR = if (@typeId(@TypeOf(a)) == .Pointer) @ptrCast(*c_void, a) else if (@typeId(@TypeOf(a)) == .Int) @intToPtr(*c_void, a) else @as(*c_void, a);
     });
 
     cases.add("macro conditional operator",

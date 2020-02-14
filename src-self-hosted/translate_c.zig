@@ -5341,12 +5341,27 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
         .LParen => {
             const inner_node = try parseCExpr(c, it, source, source_loc, scope);
 
-            if (it.peek().?.id == .RParen) {
-                _ = it.next();
-                if (it.peek().?.id != .LParen) {
-                    return inner_node;
-                }
-                _ = it.next();
+            if (it.next().?.id != .RParen) {
+                const first_tok = it.list.at(0);
+                try failDecl(
+                    c,
+                    source_loc,
+                    source[first_tok.start..first_tok.end],
+                    "unable to translate C expr: expected ')'' here",
+                    .{},
+                );
+                return error.ParseError;
+            }
+            var saw_l_paren = false;
+            switch (it.peek().?.id) {
+                // (type)(to_cast)
+                .LParen => {
+                    saw_l_paren = true;
+                    _ = it.next();
+                },
+                // (type)identifier
+                .Identifier => {},
+                else => return inner_node,
             }
 
             // hack to get zig fmt to render a comma in builtin calls
@@ -5354,7 +5369,7 @@ fn parseCPrimaryExpr(c: *Context, it: *CTokenList.Iterator, source: []const u8, 
 
             const node_to_cast = try parseCExpr(c, it, source, source_loc, scope);
 
-            if (it.next().?.id != .RParen) {
+            if (saw_l_paren and it.next().?.id != .RParen) {
                 const first_tok = it.list.at(0);
                 try failDecl(
                     c,
