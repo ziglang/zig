@@ -6,7 +6,6 @@ const testing = std.testing;
 
 fn testTypes(comptime types: []const type) void {
     inline for (types) |testType| {
-        std.debug.warn("Type: {}\n", .{@typeName(testType)});
         testing.expect(testType == @Type(@typeInfo(testType)));
     }
 }
