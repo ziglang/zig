@@ -1011,11 +1011,21 @@ pub fn join(allocator: *Allocator, separator: []const u8, slices: []const []cons
 }
 
 test "mem.join" {
-    var buf: [1024]u8 = undefined;
-    const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    testing.expect(eql(u8, try join(a, ",", &[_][]const u8{ "a", "b", "c" }), "a,b,c"));
-    testing.expect(eql(u8, try join(a, ",", &[_][]const u8{"a"}), "a"));
-    testing.expect(eql(u8, try join(a, ",", &[_][]const u8{ "a", "", "b", "", "c" }), "a,,b,,c"));
+    {
+        const str = try join(testing.allocator, ",", &[_][]const u8{ "a", "b", "c" });
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, "a,b,c"));
+    }
+    {
+        const str = try join(testing.allocator, ",", &[_][]const u8{"a"});
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, "a"));
+    }
+    {
+        const str = try join(testing.allocator, ",", &[_][]const u8{ "a", "", "b", "", "c" });
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, "a,,b,,c"));
+    }
 }
 
 /// Copies each T from slices into a new slice that exactly holds all the elements.
@@ -1044,15 +1054,21 @@ pub fn concat(allocator: *Allocator, comptime T: type, slices: []const []const T
 }
 
 test "concat" {
-    var buf: [1024]u8 = undefined;
-    const a = &std.heap.FixedBufferAllocator.init(&buf).allocator;
-    testing.expect(eql(u8, try concat(a, u8, &[_][]const u8{ "abc", "def", "ghi" }), "abcdefghi"));
-    testing.expect(eql(u32, try concat(a, u32, &[_][]const u32{
-        &[_]u32{ 0, 1 },
-        &[_]u32{ 2, 3, 4 },
-        &[_]u32{},
-        &[_]u32{5},
-    }), &[_]u32{ 0, 1, 2, 3, 4, 5 }));
+    {
+        const str = try concat(testing.allocator, u8, &[_][]const u8{ "abc", "def", "ghi" });
+        defer testing.allocator.free(str);
+        testing.expect(eql(u8, str, "abcdefghi"));
+    }
+    {
+        const str = try concat(testing.allocator, u32, &[_][]const u32{
+            &[_]u32{ 0, 1 },
+            &[_]u32{ 2, 3, 4 },
+            &[_]u32{},
+            &[_]u32{5},
+        });
+        defer testing.allocator.free(str);
+        testing.expect(eql(u32, str, &[_]u32{ 0, 1, 2, 3, 4, 5 }));
+    }
 }
 
 test "testStringEquality" {
