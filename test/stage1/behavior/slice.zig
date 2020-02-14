@@ -1,6 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const expectEqualSlices = std.testing.expectEqualSlices;
+const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
 
 const x = @intToPtr([*]i32, 0x1000)[0..0x500];
@@ -40,6 +41,17 @@ test "C pointer" {
     var len: u32 = 10;
     var slice = buf[0..len];
     expectEqualSlices(u8, "kjdhfkjdhf", slice);
+}
+
+test "C pointer slice access" {
+    var buf: [10]u32 = [1]u32{42} ** 10;
+    const c_ptr = @ptrCast([*c]const u32, &buf);
+
+    comptime expectEqual([]const u32, @TypeOf(c_ptr[0..1]));
+
+    for (c_ptr[0..5]) |*cl| {
+        expectEqual(@as(u32, 42), cl.*);
+    }
 }
 
 fn sliceSum(comptime q: []const u8) i32 {

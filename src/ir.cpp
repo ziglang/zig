@@ -26346,9 +26346,11 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
             elem_type = array_type->data.pointer.child_type;
             if (array_type->data.pointer.ptr_len == PtrLenC) {
                 array_type = adjust_ptr_len(ira->codegen, array_type, PtrLenUnknown);
-                assert(array_type->id == ZigTypeIdPointer && array_type->data.pointer.allow_zero);
-                array_type->data.pointer.allow_zero = false;
-                generate_non_zero_assert = true;
+
+                if (array_type->data.pointer.allow_zero) {
+                    array_type->data.pointer.allow_zero = false;
+                    generate_non_zero_assert = true;
+                }
             }
             ZigType *maybe_sentineled_slice_ptr_type = array_type;
             non_sentinel_slice_ptr_type = adjust_ptr_sentinel(ira->codegen, maybe_sentineled_slice_ptr_type, nullptr);
