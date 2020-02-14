@@ -137,10 +137,9 @@ pub const Int = struct {
     }
 
     /// Frees all memory associated with an Int.
-    pub fn deinit(self: *Int) void {
+    pub fn deinit(self: Int) void {
         self.assertWritable();
         self.allocator.?.free(self.limbs);
-        self.* = undefined;
     }
 
     /// Clones an Int and returns a new Int with the same value. The new Int is a deep copy and
