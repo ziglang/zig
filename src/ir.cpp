@@ -20626,6 +20626,17 @@ static ZigType *adjust_ptr_len(CodeGen *g, ZigType *ptr_type, PtrLen ptr_len) {
             ptr_type->data.pointer.allow_zero);
 }
 
+static ZigType *adjust_ptr_allow_zero(CodeGen *g, ZigType *ptr_type, bool allow_zero) {
+    assert(ptr_type->id == ZigTypeIdPointer);
+    return get_pointer_to_type_extra(g,
+            ptr_type->data.pointer.child_type,
+            ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
+            ptr_type->data.pointer.ptr_len,
+            ptr_type->data.pointer.explicit_alignment,
+            ptr_type->data.pointer.bit_offset_in_host, ptr_type->data.pointer.host_int_bytes,
+            allow_zero);
+}
+
 static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemPtr *elem_ptr_instruction) {
     Error err;
     IrInstGen *array_ptr = elem_ptr_instruction->array_ptr->child;
@@ -26348,7 +26359,7 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
                 array_type = adjust_ptr_len(ira->codegen, array_type, PtrLenUnknown);
 
                 if (array_type->data.pointer.allow_zero) {
-                    array_type->data.pointer.allow_zero = false;
+                    array_type = adjust_ptr_allow_zero(ira->codegen, array_type, false);
                     generate_non_zero_assert = true;
                 }
             }
