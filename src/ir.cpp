@@ -26317,6 +26317,8 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
     ZigType *non_sentinel_slice_ptr_type;
     ZigType *elem_type;
 
+    bool generate_non_zero_assert = false;
+
     if (array_type->id == ZigTypeIdArray) {
         elem_type = array_type->data.array.child_type;
         bool is_comptime_const = ptr_ptr->value->special == ConstValSpecialStatic &&
@@ -26344,6 +26346,9 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
             elem_type = array_type->data.pointer.child_type;
             if (array_type->data.pointer.ptr_len == PtrLenC) {
                 array_type = adjust_ptr_len(ira->codegen, array_type, PtrLenUnknown);
+                assert(array_type->id == ZigTypeIdPointer && array_type->data.pointer.allow_zero);
+                array_type->data.pointer.allow_zero = false;
+                generate_non_zero_assert = true;
             }
             ZigType *maybe_sentineled_slice_ptr_type = array_type;
             non_sentinel_slice_ptr_type = adjust_ptr_sentinel(ira->codegen, maybe_sentineled_slice_ptr_type, nullptr);
@@ -26618,8 +26623,14 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
     if (type_is_invalid(result_loc->value->type) || result_loc->value->type->id == ZigTypeIdUnreachable) {
         return result_loc;
     }
-    return ir_build_slice_gen(ira, &instruction->base.base, return_type,
-        ptr_ptr, casted_start, end, instruction->safety_check_on, result_loc);
+
+    if (generate_non_zero_assert) {
+        IrInstGen *c_ptr_val = ir_get_deref(ira, &instruction->base.base, ptr_ptr, nullptr);
+        ir_build_assert_non_null(ira, &instruction->base.base, c_ptr_val);
+    }
+
+    return ir_build_slice_gen(ira, &instruction->base.base, return_type, ptr_ptr,
+            casted_start, end, instruction->safety_check_on, result_loc);
 }
 
 static IrInstGen *ir_analyze_instruction_member_count(IrAnalyze *ira, IrInstSrcMemberCount *instruction) {
