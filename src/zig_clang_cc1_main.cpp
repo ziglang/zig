@@ -36,6 +36,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/Process.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
@@ -69,7 +70,7 @@ static void LLVMErrorHandler(void *UserData, const std::string &Message,
   // We cannot recover from llvm errors.  When reporting a fatal error, exit
   // with status 70 to generate crash diagnostics.  For BSD systems this is
   // defined as an internal software error.  Otherwise, exit with status 1.
-  exit(GenCrashDiag ? 70 : 1);
+  llvm::sys::Process::Exit(GenCrashDiag ? 70 : 1);
 }
 
 #ifdef CLANG_HAVE_RLIMITS
