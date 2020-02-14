@@ -2181,7 +2181,7 @@ void _mm_sfence(void);
 ///    3: Bits [63:48] are copied to the destination.
 /// \returns A 16-bit integer containing the extracted 16 bits of packed data.
 #define _mm_extract_pi16(a, n) \
-  (int)__builtin_ia32_vec_ext_v4hi((__m64)a, (int)n)
+  (int)__builtin_ia32_vec_ext_v4hi((__v4hi)a, (int)n)
 
 /// Copies data from the 64-bit vector of [4 x i16] to the destination,
 ///    and inserts the lower 16-bits of an integer operand at the 16-bit offset
@@ -2212,7 +2212,7 @@ void _mm_sfence(void);
 /// \returns A 64-bit integer vector containing the copied packed data from the
 ///    operands.
 #define _mm_insert_pi16(a, d, n) \
-  (__m64)__builtin_ia32_vec_set_v4hi((__m64)a, (int)d, (int)n)
+  (__m64)__builtin_ia32_vec_set_v4hi((__v4hi)a, (int)d, (int)n)
 
 /// Compares each of the corresponding packed 16-bit integer values of
 ///    the 64-bit integer vectors, and writes the greater value to the
