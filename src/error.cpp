@@ -64,6 +64,7 @@ const char *err_str(Error err) {
         case ErrorInvalidCpuFeatures: return "invalid CPU features";
         case ErrorInvalidLlvmCpuFeaturesFormat: return "invalid LLVM CPU features format";
         case ErrorUnknownApplicationBinaryInterface: return "unknown application binary interface";
+        case ErrorASTUnitFailure: return "ASTUnit failure";
     }
     return "(invalid error)";
 }

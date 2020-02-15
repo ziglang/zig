@@ -92,6 +92,7 @@ const Error = extern enum {
     InvalidCpuFeatures,
     InvalidLlvmCpuFeaturesFormat,
     UnknownApplicationBinaryInterface,
+    ASTUnitFailure,
 };
 
 const FILE = std.c.FILE;
@@ -114,6 +115,7 @@ export fn stage2_translate_c(
             out_errors_len.* = errors.len;
             return Error.CCompileErrors;
         },
+        error.ASTUnitFailure => return Error.ASTUnitFailure,
         error.OutOfMemory => return Error.OutOfMemory,
     };
     return Error.None;
