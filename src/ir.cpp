@@ -20638,11 +20638,11 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
     if (type_is_invalid(array_ptr->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    ZigValue *orig_array_ptr_val = array_ptr->value;
-
     IrInstGen *elem_index = elem_ptr_instruction->elem_index->child;
     if (type_is_invalid(elem_index->value->type))
         return ira->codegen->invalid_inst_gen;
+
+    ZigValue *orig_array_ptr_val = array_ptr->value;
 
     ZigType *ptr_type = orig_array_ptr_val->type;
     assert(ptr_type->id == ZigTypeIdPointer);
@@ -20653,23 +20653,25 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
     // We will adjust return_type's alignment before returning it.
     ZigType *return_type;
 
-    if (type_is_invalid(array_type)) {
+    if (type_is_invalid(array_type))
         return ira->codegen->invalid_inst_gen;
-    } else if (array_type->id == ZigTypeIdArray ||
-        (array_type->id == ZigTypeIdPointer &&
-         array_type->data.pointer.ptr_len == PtrLenSingle &&
-         array_type->data.pointer.child_type->id == ZigTypeIdArray))
+
+    if (array_type->id == ZigTypeIdPointer &&
+        array_type->data.pointer.ptr_len == PtrLenSingle &&
+        array_type->data.pointer.child_type->id == ZigTypeIdArray)
     {
-        if (array_type->id == ZigTypeIdPointer) {
-            array_type = array_type->data.pointer.child_type;
-            ptr_type = ptr_type->data.pointer.child_type;
-            if (orig_array_ptr_val->special != ConstValSpecialRuntime) {
-                orig_array_ptr_val = const_ptr_pointee(ira, ira->codegen, orig_array_ptr_val,
-                        elem_ptr_instruction->base.base.source_node);
-                if (orig_array_ptr_val == nullptr)
-                    return ira->codegen->invalid_inst_gen;
-            }
-        }
+        IrInstGen *ptr_value = ir_get_deref(ira, &elem_ptr_instruction->base.base,
+            array_ptr, nullptr);
+        if (type_is_invalid(ptr_value->value->type))
+            return ira->codegen->invalid_inst_gen;
+
+        array_type = array_type->data.pointer.child_type;
+        ptr_type = ptr_type->data.pointer.child_type;
+
+        orig_array_ptr_val = ptr_value->value;
+    }
+
+    if (array_type->id == ZigTypeIdArray) {
         if (array_type->data.array.len == 0) {
             ir_add_error_node(ira, elem_ptr_instruction->base.base.source_node,
                     buf_sprintf("index 0 outside array of size 0"));
@@ -20807,8 +20809,14 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
             orig_array_ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr &&
             (orig_array_ptr_val->data.x_ptr.mut != ConstPtrMutRuntimeVar || array_type->id == ZigTypeIdArray))
         {
+            if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec,
+                elem_ptr_instruction->base.base.source_node, orig_array_ptr_val, UndefBad)))
+            {
+                return ira->codegen->invalid_inst_gen;
+            }
+
             ZigValue *array_ptr_val = const_ptr_pointee(ira, ira->codegen, orig_array_ptr_val,
-                                        elem_ptr_instruction->base.base.source_node);
+                elem_ptr_instruction->base.base.source_node);
             if (array_ptr_val == nullptr)
                 return ira->codegen->invalid_inst_gen;
 
