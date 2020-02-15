@@ -584,10 +584,16 @@ fn renderExpression(
                 },
 
                 .Try,
-                .Await,
                 .Cancel,
                 .Resume,
                 => {
+                    try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.Space);
+                },
+
+                .Await => |await_info| {
+                    if (await_info.noasync_token) |tok| {
+                        try renderToken(tree, stream, tok, indent, start_col, Space.Space);
+                    }
                     try renderToken(tree, stream, prefix_op_node.op_token, indent, start_col, Space.Space);
                 },
             }

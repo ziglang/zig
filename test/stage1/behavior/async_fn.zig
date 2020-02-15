@@ -1510,3 +1510,20 @@ test "take address of temporary async frame" {
     };
     S.doTheTest();
 }
+
+test "noasync await" {
+    const S = struct {
+        fn doTheTest() void {
+            var frame = async foo(false);
+            expect(noasync await frame == 42);
+        }
+
+        fn foo(want_suspend: bool) i32 {
+            if (want_suspend) {
+                suspend;
+            }
+            return 42;
+        }
+    };
+    S.doTheTest();
+}

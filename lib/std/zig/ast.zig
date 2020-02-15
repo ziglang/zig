@@ -1564,7 +1564,9 @@ pub const Node = struct {
         pub const Op = union(enum) {
             AddressOf,
             ArrayType: ArrayInfo,
-            Await,
+            Await: struct {
+                noasync_token: ?TokenIndex = null,
+            },
             BitNot,
             BoolNot,
             Cancel,

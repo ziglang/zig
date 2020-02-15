@@ -1,3 +1,12 @@
+test "zig fmt: noasync await" {
+    try testCanonical(
+        \\fn foo() void {
+        \\    x = noasync await y;
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: trailing comma in container declaration" {
     try testCanonical(
         \\const X = struct { foo: i32 };
