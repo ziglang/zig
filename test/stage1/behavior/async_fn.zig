@@ -1481,3 +1481,32 @@ test "handle defer interfering with return value spill" {
     };
     S.doTheTest();
 }
+
+test "take address of temporary async frame" {
+    const S = struct {
+        var global_frame: anyframe = undefined;
+        var finished = false;
+
+        fn doTheTest() void {
+            _ = async asyncDoTheTest();
+            resume global_frame;
+            expect(finished);
+        }
+
+        fn asyncDoTheTest() void {
+            expect(finishIt(&async foo(10)) == 1245);
+            finished = true;
+        }
+
+        fn foo(arg: i32) i32 {
+            global_frame = @frame();
+            suspend;
+            return arg + 1234;
+        }
+
+        fn finishIt(frame: anyframe->i32) i32 {
+            return (await frame) + 1;
+        }
+    };
+    S.doTheTest();
+}

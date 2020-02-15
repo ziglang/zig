@@ -5018,6 +5018,12 @@ static LLVMValueRef ir_render_ref(CodeGen *g, IrExecutableGen *executable, IrIns
     if (!type_has_bits(instruction->base.value->type)) {
         return nullptr;
     }
+    if (instruction->operand->id == IrInstGenIdCall) {
+        IrInstGenCall *call = reinterpret_cast<IrInstGenCall *>(instruction->operand);
+        if (call->result_loc != nullptr) {
+            return ir_llvm_value(g, call->result_loc);
+        }
+    }
     LLVMValueRef value = ir_llvm_value(g, instruction->operand);
     if (handle_is_ptr(instruction->operand->value->type)) {
         return value;
@@ -6533,7 +6539,7 @@ static void ir_render(CodeGen *g, ZigFn *fn_entry) {
                 set_debug_location(g, instruction);
             }
             instruction->llvm_value = ir_render_instruction(g, executable, instruction);
-            if (instruction->spill != nullptr) {
+            if (instruction->spill != nullptr && instruction->llvm_value != nullptr) {
                 LLVMValueRef spill_ptr = ir_llvm_value(g, instruction->spill);
                 gen_assign_raw(g, spill_ptr, instruction->spill->value->type, instruction->llvm_value);
                 instruction->llvm_value = nullptr;
