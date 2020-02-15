@@ -84,6 +84,7 @@ enum Error {
     ErrorInvalidCpuFeatures,
     ErrorInvalidLlvmCpuFeaturesFormat,
     ErrorUnknownApplicationBinaryInterface,
+    ErrorASTUnitFailure,
 };
 
 // ABI warning

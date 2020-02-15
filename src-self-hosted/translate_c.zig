@@ -264,7 +264,7 @@ pub fn translate(
         &errors.len,
         resources_path,
     ) orelse {
-        if (errors.len == 0) return error.OutOfMemory;
+        if (errors.len == 0) return error.ASTUnitFailure;
         return error.SemanticAnalyzeFail;
     };
     defer ZigClangASTUnit_delete(ast_unit);
