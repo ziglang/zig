@@ -414,10 +414,8 @@ pub const Tokenizer = struct {
 
     pub fn next(self: *Tokenizer) Token {
         if (self.pending_invalid_token) |token| {
-            // TODO: Audit this pattern once #2915 is closed
-            const copy = token;
             self.pending_invalid_token = null;
-            return copy;
+            return token;
         }
         const start_index = self.index;
         var state = State.Start;
@@ -1270,10 +1268,8 @@ pub const Tokenizer = struct {
 
         if (result.id == Token.Id.Eof) {
             if (self.pending_invalid_token) |token| {
-                // TODO: Audit this pattern once #2915 is closed
-                const copy = token;
                 self.pending_invalid_token = null;
-                return copy;
+                return token;
             }
         }
 
