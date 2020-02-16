@@ -1139,6 +1139,7 @@ struct AstNodeErrorType {
 };
 
 struct AstNodeAwaitExpr {
+    Token *noasync_token;
     AstNode *expr;
 };
 
@@ -4500,6 +4501,7 @@ struct IrInstSrcAwait {
 
     IrInstSrc *frame;
     ResultLoc *result_loc;
+    bool is_noasync;
 };
 
 struct IrInstGenAwait {
@@ -4508,6 +4510,7 @@ struct IrInstGenAwait {
     IrInstGen *frame;
     IrInstGen *result_loc;
     ZigFn *target_fn;
+    bool is_noasync;
 };
 
 struct IrInstSrcResume {

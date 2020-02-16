@@ -2596,10 +2596,14 @@ static AstNode *ast_parse_prefix_op(ParseContext *pc) {
         return res;
     }
 
+    Token *noasync_token = eat_token_if(pc, TokenIdKeywordNoAsync);
     Token *await = eat_token_if(pc, TokenIdKeywordAwait);
     if (await != nullptr) {
         AstNode *res = ast_create_node(pc, NodeTypeAwaitExpr, await);
+        res->data.await_expr.noasync_token = noasync_token;
         return res;
+    } else if (noasync_token != nullptr) {
+        put_back_token(pc);
     }
 
     return nullptr;

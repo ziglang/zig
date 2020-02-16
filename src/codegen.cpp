@@ -6188,7 +6188,9 @@ static LLVMValueRef ir_render_await(CodeGen *g, IrExecutableGen *executable, IrI
     LLVMValueRef result_loc = (instruction->result_loc == nullptr) ?
         nullptr : ir_llvm_value(g, instruction->result_loc);
 
-    if (instruction->target_fn != nullptr && !fn_is_async(instruction->target_fn)) {
+    if (instruction->is_noasync ||
+        (instruction->target_fn != nullptr && !fn_is_async(instruction->target_fn)))
+    {
         return gen_await_early_return(g, &instruction->base, target_frame_ptr, result_type,
                 ptr_result_type, result_loc, true);
     }

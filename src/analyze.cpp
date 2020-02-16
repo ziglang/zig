@@ -4710,8 +4710,7 @@ static void analyze_fn_async(CodeGen *g, ZigFn *fn, bool resolve_frame) {
     }
     for (size_t i = 0; i < fn->await_list.length; i += 1) {
         IrInstGenAwait *await = fn->await_list.at(i);
-        // TODO If this is a noasync await, it doesn't count
-        // https://github.com/ziglang/zig/issues/3157
+        if (await->is_noasync) continue;
         switch (analyze_callee_async(g, fn, await->target_fn, await->base.base.source_node, must_not_be_async,
                     CallModifierNone))
         {
@@ -6315,8 +6314,9 @@ static Error resolve_async_frame(CodeGen *g, ZigType *frame_type) {
     // The funtion call result of foo() must be spilled.
     for (size_t i = 0; i < fn->await_list.length; i += 1) {
         IrInstGenAwait *await = fn->await_list.at(i);
-        // TODO If this is a noasync await, it doesn't suspend
-        // https://github.com/ziglang/zig/issues/3157
+        if (await->is_noasync) {
+            continue;
+        }
         if (await->base.value->special != ConstValSpecialRuntime) {
             // Known at comptime. No spill, no suspend.
             continue;

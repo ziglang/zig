@@ -4956,11 +4956,12 @@ static IrInstGen *ir_build_suspend_finish_gen(IrAnalyze *ira, IrInst *source_ins
 }
 
 static IrInstSrc *ir_build_await_src(IrBuilderSrc *irb, Scope *scope, AstNode *source_node,
-        IrInstSrc *frame, ResultLoc *result_loc)
+        IrInstSrc *frame, ResultLoc *result_loc, bool is_noasync)
 {
     IrInstSrcAwait *instruction = ir_build_instruction<IrInstSrcAwait>(irb, scope, source_node);
     instruction->frame = frame;
     instruction->result_loc = result_loc;
+    instruction->is_noasync = is_noasync;
 
     ir_ref_instruction(frame, irb->current_basic_block);
 
@@ -4968,13 +4969,14 @@ static IrInstSrc *ir_build_await_src(IrBuilderSrc *irb, Scope *scope, AstNode *s
 }
 
 static IrInstGenAwait *ir_build_await_gen(IrAnalyze *ira, IrInst *source_instruction,
-        IrInstGen *frame, ZigType *result_type, IrInstGen *result_loc)
+        IrInstGen *frame, ZigType *result_type, IrInstGen *result_loc, bool is_noasync)
 {
     IrInstGenAwait *instruction = ir_build_inst_gen<IrInstGenAwait>(&ira->new_irb,
             source_instruction->scope, source_instruction->source_node);
     instruction->base.value->type = result_type;
     instruction->frame = frame;
     instruction->result_loc = result_loc;
+    instruction->is_noasync = is_noasync;
 
     ir_ref_inst_gen(frame, ira->new_irb.current_basic_block);
     if (result_loc != nullptr) ir_ref_inst_gen(result_loc, ira->new_irb.current_basic_block);
@@ -9953,6 +9955,8 @@ static IrInstSrc *ir_gen_await_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
 {
     assert(node->type == NodeTypeAwaitExpr);
 
+    bool is_noasync = node->data.await_expr.noasync_token != nullptr;
+
     AstNode *expr_node = node->data.await_expr.expr;
     if (expr_node->type == NodeTypeFnCallExpr && expr_node->data.fn_call_expr.modifier == CallModifierBuiltin) {
         AstNode *fn_ref_expr = expr_node->data.fn_call_expr.fn_ref_expr;
@@ -9985,7 +9989,7 @@ static IrInstSrc *ir_gen_await_expr(IrBuilderSrc *irb, Scope *scope, AstNode *no
     if (target_inst == irb->codegen->invalid_inst_src)
         return irb->codegen->invalid_inst_src;
 
-    IrInstSrc *await_inst = ir_build_await_src(irb, scope, node, target_inst, result_loc);
+    IrInstSrc *await_inst = ir_build_await_src(irb, scope, node, target_inst, result_loc, is_noasync);
     return ir_lval_wrap(irb, scope, await_inst, lval, result_loc);
 }
 
@@ -29505,7 +29509,7 @@ static IrInstGen *ir_analyze_instruction_await(IrAnalyze *ira, IrInstSrcAwait *i
     ir_assert(fn_entry != nullptr, &instruction->base.base);
 
     // If it's not @Frame(func) then it's definitely a suspend point
-    if (target_fn == nullptr) {
+    if (target_fn == nullptr && !instruction->is_noasync) {
         if (fn_entry->inferred_async_node == nullptr) {
             fn_entry->inferred_async_node = instruction->base.base.source_node;
         }
@@ -29528,7 +29532,8 @@ static IrInstGen *ir_analyze_instruction_await(IrAnalyze *ira, IrInstSrcAwait *i
         result_loc = nullptr;
     }
 
-    IrInstGenAwait *result = ir_build_await_gen(ira, &instruction->base.base, frame, result_type, result_loc);
+    IrInstGenAwait *result = ir_build_await_gen(ira, &instruction->base.base, frame, result_type, result_loc,
+            instruction->is_noasync);
     result->target_fn = target_fn;
     fn_entry->await_list.append(result);
     return ir_finish_anal(ira, &result->base);
