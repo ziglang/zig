@@ -1003,9 +1003,22 @@ static int main0(int argc, char **argv) {
         return main_exit(root_progress_node, EXIT_FAILURE);
     }
 
+    // If both output_dir and enable_cache are provided, and doing build-lib, we
+    // will just do a file copy at the end. This helps when bootstrapping zig from zig0
+    // because we want to pass something like this:
+    // zig0 build-lib --cache on --output-dir ${CMAKE_BINARY_DIR}
+    // And we don't have access to `zig0 build` because that would require detecting native libc
+    // on systems where we are not able to build a libc from source for them.
+    // But that's the only reason this works, so otherwise we give an error here.
+    Buf *final_output_dir_step = nullptr;
     if (output_dir != nullptr && enable_cache == CacheOptOn) {
-        fprintf(stderr, "`--output-dir` is incompatible with --cache on.\n");
-        return print_error_usage(arg0);
+        if (cmd == CmdBuild && out_type == OutTypeLib) {
+            final_output_dir_step = output_dir;
+            output_dir = nullptr;
+        } else {
+            fprintf(stderr, "`--output-dir` is incompatible with --cache on.\n");
+            return print_error_usage(arg0);
+        }
     }
 
     if (target_requires_pic(&target, have_libc) && want_pic == WantPICDisabled) {
@@ -1290,8 +1303,21 @@ static int main0(int argc, char **argv) {
 #if defined(ZIG_OS_WINDOWS)
                         buf_replace(&g->output_file_path, '/', '\\');
 #endif
-                        if (printf("%s\n", buf_ptr(&g->output_file_path)) < 0)
-                            return main_exit(root_progress_node, EXIT_FAILURE);
+                        if (final_output_dir_step != nullptr) {
+                            Buf *dest_basename = buf_alloc();
+                            os_path_split(&g->output_file_path, nullptr, dest_basename);
+                            Buf *dest_path = buf_alloc();
+                            os_path_join(final_output_dir_step, dest_basename, dest_path);
+
+                            if ((err = os_copy_file(&g->output_file_path, dest_path))) {
+                                fprintf(stderr, "unable to copy %s to %s: %s\n", buf_ptr(&g->output_file_path),
+                                        buf_ptr(dest_path), err_str(err));
+                                return main_exit(root_progress_node, EXIT_FAILURE);
+                            }
+                        } else {
+                            if (printf("%s\n", buf_ptr(&g->output_file_path)) < 0)
+                                return main_exit(root_progress_node, EXIT_FAILURE);
+                        }
                     }
                     return main_exit(root_progress_node, EXIT_SUCCESS);
                 } else {

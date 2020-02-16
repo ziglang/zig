@@ -204,14 +204,17 @@ pub const LibCInstallation = struct {
                 }
             }
         } else {
-            var batch = Batch(FindError!void, 2, .auto_async).init();
-            batch.add(&async self.findNativeIncludeDirPosix(allocator));
-            if (is_freebsd or is_netbsd) {
-                self.crt_dir = try std.mem.dupeZ(allocator, u8, "/usr/lib");
-            } else if (is_linux or is_dragonfly) {
-                batch.add(&async self.findNativeCrtDirPosix(allocator));
-            }
-            try batch.wait();
+            try blk: {
+                var batch = Batch(FindError!void, 2, .auto_async).init();
+                errdefer batch.wait() catch {};
+                batch.add(&async self.findNativeIncludeDirPosix(allocator));
+                if (is_freebsd or is_netbsd) {
+                    self.crt_dir = try std.mem.dupeZ(allocator, u8, "/usr/lib");
+                } else if (is_linux or is_dragonfly) {
+                    batch.add(&async self.findNativeCrtDirPosix(allocator));
+                }
+                break :blk batch.wait();
+            };
         }
         return self;
     }

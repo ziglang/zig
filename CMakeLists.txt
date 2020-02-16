@@ -604,27 +604,28 @@ else()
     set(LIBUSERLAND "${CMAKE_BINARY_DIR}/libuserland.a")
 endif()
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
-    set(LIBUSERLAND_RELEASE_MODE "false")
+    set(LIBUSERLAND_RELEASE_ARG "")
 else()
-    set(LIBUSERLAND_RELEASE_MODE "true")
+    set(LIBUSERLAND_RELEASE_ARG "--release-fast --strip")
+endif()
+if(WIN32)
+    set(LIBUSERLAND_WINDOWS_ARGS "-lntdll")
+else()
+    set(LIBUSERLAND_WINDOWS_ARGS "")
 endif()
 
-set(BUILD_LIBUSERLAND_ARGS "build"
+set(BUILD_LIBUSERLAND_ARGS "build-lib"
     --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
-    "-Doutput-dir=${CMAKE_BINARY_DIR}"
-    "-Drelease=${LIBUSERLAND_RELEASE_MODE}"
-    "-Dlib-files-only"
-    --prefix "${CMAKE_INSTALL_PREFIX}"
-    libuserland
+    --cache on
+    --output-dir "${CMAKE_BINARY_DIR}"
+    ${LIBUSERLAND_RELEASE_ARG}
+    "src-self-hosted/stage1.zig"
+    --disable-gen-h
+    --bundle-compiler-rt
+    -fPIC
+    -lc
+    ${LIBUSERLAND_WINDOWS_ARGS}
 )
-
-# When using Visual Studio build system generator we default to libuserland install.
-if(MSVC)
-    set(ZIG_SKIP_INSTALL_LIB_FILES off CACHE BOOL "Disable copying lib/ files to install prefix")
-    if(NOT ZIG_SKIP_INSTALL_LIB_FILES)
-        set(BUILD_LIBUSERLAND_ARGS ${BUILD_LIBUSERLAND_ARGS} install)
-    endif()
-endif()
 
 add_custom_target(zig_build_libuserland ALL
     COMMAND zig0 ${BUILD_LIBUSERLAND_ARGS}
@@ -648,12 +649,30 @@ add_dependencies(zig zig_build_libuserland)
 
 install(TARGETS zig DESTINATION bin)
 
-# CODE has no effect with Visual Studio build system generator.
-if(NOT MSVC)
-    get_target_property(zig0_BINARY_DIR zig0 BINARY_DIR)
-    install(CODE "set(zig0_EXE \"${zig0_BINARY_DIR}/zig0\")")
-    install(CODE "set(INSTALL_LIBUSERLAND_ARGS \"${BUILD_LIBUSERLAND_ARGS}\" install)")
-    install(CODE "set(BUILD_LIBUSERLAND_ARGS \"${BUILD_LIBUSERLAND_ARGS}\")")
+set(ZIG_INSTALL_ARGS "build"
+    --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
+    "-Dlib-files-only"
+    --prefix "${CMAKE_INSTALL_PREFIX}"
+    install
+)
+
+# CODE has no effect with Visual Studio build system generator, therefore
+# when using Visual Studio build system generator we resort to running
+# `zig build install` during the build phase.
+if(MSVC)
+    set(ZIG_SKIP_INSTALL_LIB_FILES off CACHE BOOL
+        "Windows-only: Disable copying lib/ files to install prefix during the build phase")
+    if(NOT ZIG_SKIP_INSTALL_LIB_FILES)
+        add_custom_target(zig_install_lib_files ALL
+            COMMAND zig ${ZIG_INSTALL_ARGS}
+            DEPENDS zig
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        )
+    endif()
+else()
+    get_target_property(zig_BINARY_DIR zig BINARY_DIR)
+    install(CODE "set(zig_EXE \"${zig_BINARY_DIR}/zig\")")
+    install(CODE "set(ZIG_INSTALL_ARGS \"${ZIG_INSTALL_ARGS}\")")
     install(CODE "set(CMAKE_SOURCE_DIR \"${CMAKE_SOURCE_DIR}\")")
     install(SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/cmake/install.cmake)
 endif()

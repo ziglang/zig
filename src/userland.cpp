@@ -146,19 +146,8 @@ int stage2_cmd_targets(const char *zig_triple) {
 }
 
 enum Error stage2_libc_parse(struct Stage2LibCInstallation *libc, const char *libc_file) {
-    libc->include_dir = "/dummy/include";
-    libc->include_dir_len = strlen(libc->include_dir);
-    libc->sys_include_dir = "/dummy/sys/include";
-    libc->sys_include_dir_len = strlen(libc->sys_include_dir);
-    libc->crt_dir = "";
-    libc->crt_dir_len = strlen(libc->crt_dir);
-    libc->static_crt_dir = "";
-    libc->static_crt_dir_len = strlen(libc->static_crt_dir);
-    libc->msvc_lib_dir = "";
-    libc->msvc_lib_dir_len = strlen(libc->msvc_lib_dir);
-    libc->kernel32_lib_dir = "";
-    libc->kernel32_lib_dir_len = strlen(libc->kernel32_lib_dir);
-    return ErrorNone;
+    const char *msg = "stage0 called stage2_libc_parse";
+    stage2_panic(msg, strlen(msg));
 }
 
 enum Error stage2_libc_render(struct Stage2LibCInstallation *self, FILE *file) {
