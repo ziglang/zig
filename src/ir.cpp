@@ -23653,14 +23653,13 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
     if ((err = type_resolve(ira->codegen, type_info_fn_decl_inline_type, ResolveStatusSizeKnown)))
         return err;
 
-    // Loop through our declarations once to figure out how many declarations we will generate info for.
+    // The unresolved declarations are collected in a separate queue to avoid
+    // modifying decl_table while iterating over it
+    ZigList<Tld*> resolve_decl_queue{};
+
     auto decl_it = decls_scope->decl_table.entry_iterator();
     decltype(decls_scope->decl_table)::Entry *curr_entry = nullptr;
-    int declaration_count = 0;
-
     while ((curr_entry = decl_it.next()) != nullptr) {
-        // If the declaration is unresolved, force it to be resolved again.
-        resolve_top_level_decl(ira->codegen, curr_entry->value, curr_entry->value->source_node, false);
         if (curr_entry->value->resolution == TldResolutionInvalid) {
             return ErrorSemanticAnalyzeFail;
         }
@@ -23670,16 +23669,36 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
             return ErrorSemanticAnalyzeFail;
         }
 
-        // Skip comptime blocks and test functions.
-        if (curr_entry->value->id != TldIdCompTime) {
-            if (curr_entry->value->id == TldIdFn) {
-                ZigFn *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
-                if (fn_entry->is_test)
-                    continue;
-            }
+        // If the declaration is unresolved, force it to be resolved again.
+        if (curr_entry->value->resolution == TldResolutionUnresolved)
+            resolve_decl_queue.append(curr_entry->value);
+    }
 
-            declaration_count += 1;
+    for (size_t i = 0; i < resolve_decl_queue.length; i++) {
+        Tld *decl = resolve_decl_queue.at(i);
+        resolve_top_level_decl(ira->codegen, decl, decl->source_node, false);
+        if (decl->resolution == TldResolutionInvalid) {
+            return ErrorSemanticAnalyzeFail;
         }
+    }
+
+    resolve_decl_queue.deinit();
+
+    // Loop through our declarations once to figure out how many declarations we will generate info for.
+    int declaration_count = 0;
+    decl_it = decls_scope->decl_table.entry_iterator();
+    while ((curr_entry = decl_it.next()) != nullptr) {
+        // Skip comptime blocks and test functions.
+        if (curr_entry->value->id == TldIdCompTime)
+            continue;
+
+        if (curr_entry->value->id == TldIdFn) {
+            ZigFn *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
+            if (fn_entry->is_test)
+                continue;
+        }
+
+        declaration_count += 1;
     }
 
     ZigValue *declaration_array = ira->codegen->pass1_arena->create<ZigValue>();

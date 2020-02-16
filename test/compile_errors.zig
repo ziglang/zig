@@ -3,13 +3,13 @@ const builtin = @import("builtin");
 const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
-    cases.addTest("access of undefined pointer to array",
-        \\const ram_u32: *[4096]u32 = undefined;
-        \\export fn entry() void {
-        \\    @ptrCast(*u32, &(ram_u32[0])) = &(ram_u32[0]);
+    cases.addTest("",
+        \\const A = B;
+        \\test "Crash" {
+        \\    _ = @typeInfo(@This()).Struct.decls;
         \\}
     , &[_][]const u8{
-        "tmp.zig:3:29: error: use of undefined value here causes undefined behavior",
+        "tmp.zig:1:11: error: use of undeclared identifier 'B'",
     });
 
     cases.addTest("duplicate field in anonymous struct literal",
