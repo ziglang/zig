@@ -2553,10 +2553,42 @@ pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: u32, flags: u32) Acces
 }
 
 /// Same as `faccessat` except asserts the target is Windows and the path parameter
-/// is null-terminated WTF-16 encoded.
+/// is NtDll-prefixed, null-terminated, WTF-16 encoded.
 /// TODO currently this ignores `mode` and `flags`
-pub fn faccessatW(dirfd: fd_t, path: [*:0]const u16, mode: u32, flags: u32) AccessError!void {
-    @compileError("TODO implement faccessatW on Windows");
+pub fn faccessatW(dirfd: fd_t, sub_path_w: [*:0]const u16, mode: u32, flags: u32) AccessError!void {
+    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+        return;
+    }
+    if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
+        return;
+    }
+
+    const path_len_bytes = math.cast(u16, mem.toSliceConst(u16, sub_path_w).len * 2) catch |err| switch (err) {
+        error.Overflow => return error.NameTooLong,
+    };
+    var nt_name = windows.UNICODE_STRING{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
+    };
+    var attr = windows.OBJECT_ATTRIBUTES{
+        .Length = @sizeOf(windows.OBJECT_ATTRIBUTES),
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w)) null else dirfd,
+        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+        .ObjectName = &nt_name,
+        .SecurityDescriptor = null,
+        .SecurityQualityOfService = null,
+    };
+    var basic_info: windows.FILE_BASIC_INFORMATION = undefined;
+    switch (windows.ntdll.NtQueryAttributesFile(&attr, &basic_info)) {
+        .SUCCESS => return,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .INVALID_PARAMETER => unreachable,
+        .ACCESS_DENIED => return error.PermissionDenied,
+        .OBJECT_PATH_SYNTAX_BAD => unreachable,
+        else => |rc| return windows.unexpectedStatus(rc),
+    }
 }
 
 pub const PipeError = error{

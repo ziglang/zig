@@ -818,6 +818,13 @@ pub const Dir = struct {
     ) File.OpenError!File {
         const w = os.windows;
 
+        if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+            return error.IsDir;
+        }
+        if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
+            return error.IsDir;
+        }
+
         var result = File{
             .handle = undefined,
             .io_mode = .blocking,
@@ -839,12 +846,6 @@ pub const Dir = struct {
             .SecurityDescriptor = null,
             .SecurityQualityOfService = null,
         };
-        if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
-            return error.IsDir;
-        }
-        if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
-            return error.IsDir;
-        }
         var io: w.IO_STATUS_BLOCK = undefined;
         const rc = w.ntdll.NtCreateFile(
             &result.handle,
@@ -1332,12 +1333,20 @@ pub const Dir = struct {
     /// For example, instead of testing if a file exists and then opening it, just
     /// open it and handle the error for file not found.
     pub fn access(self: Dir, sub_path: []const u8, flags: File.OpenFlags) AccessError!void {
+        if (builtin.os == .windows) {
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            return self.accessW(&sub_path_w, flags);
+        }
         const path_c = try os.toPosixPath(sub_path);
         return self.accessZ(&path_c, flags);
     }
 
     /// Same as `access` except the path parameter is null-terminated.
     pub fn accessZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) AccessError!void {
+        if (builtin.os == .windows) {
+            const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path);
+            return self.accessW(&sub_path_w, flags);
+        }
         const os_mode = if (flags.write and flags.read)
             @as(u32, os.R_OK | os.W_OK)
         else if (flags.write)
@@ -1351,9 +1360,13 @@ pub const Dir = struct {
         return result;
     }
 
-    /// Same as `access` except the parameter is null-terminated UTF16LE-encoded.
-    pub fn accessW(self: Dir, sub_path: [*:0]const u16, flags: File.OpenFlags) AccessError!void {
-        return os.faccessatW(self.fd, sub_path, 0, 0);
+    /// Same as `access` except asserts the target OS is Windows and the path parameter is
+    /// * WTF-16 encoded
+    /// * null-terminated
+    /// * NtDll prefixed
+    /// TODO currently this ignores `flags`.
+    pub fn accessW(self: Dir, sub_path_w: [*:0]const u16, flags: File.OpenFlags) AccessError!void {
+        return os.faccessatW(self.fd, sub_path_w, 0, 0);
     }
 };
 

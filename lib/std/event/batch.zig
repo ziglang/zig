@@ -109,13 +109,13 @@ pub fn Batch(
 
 test "std.event.Batch" {
     var count: usize = 0;
-    var batch = Batch(void, 2).init();
+    var batch = Batch(void, 2, .auto_async).init();
     batch.add(&async sleepALittle(&count));
     batch.add(&async increaseByTen(&count));
     batch.wait();
     testing.expect(count == 11);
 
-    var another = Batch(anyerror!void, 2).init();
+    var another = Batch(anyerror!void, 2, .auto_async).init();
     another.add(&async somethingElse());
     another.add(&async doSomethingThatFails());
     testing.expectError(error.ItBroke, another.wait());
