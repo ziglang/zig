@@ -64,7 +64,7 @@ const char *err_str(Error err) {
         case ErrorInvalidCpuFeatures: return "invalid CPU features";
         case ErrorInvalidLlvmCpuFeaturesFormat: return "invalid LLVM CPU features format";
         case ErrorUnknownApplicationBinaryInterface: return "unknown application binary interface";
-        case ErrorASTUnitFailure: return "ASTUnit failure";
+        case ErrorASTUnitFailure: return "compiler bug: clang encountered a compile error, but the libclang API does not expose the error. See https://github.com/ziglang/zig/issues/4455 for more details";
     }
     return "(invalid error)";
 }
