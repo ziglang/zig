@@ -144,3 +144,25 @@ int stage2_cmd_targets(const char *zig_triple) {
     const char *msg = "stage0 called stage2_cmd_targets";
     stage2_panic(msg, strlen(msg));
 }
+
+enum Error stage2_libc_parse(struct Stage2LibCInstallation *libc, const char *libc_file) {
+    const char *msg = "stage0 called stage2_libc_parse";
+    stage2_panic(msg, strlen(msg));
+}
+
+enum Error stage2_libc_render(struct Stage2LibCInstallation *self, FILE *file) {
+    const char *msg = "stage0 called stage2_libc_render";
+    stage2_panic(msg, strlen(msg));
+}
+
+enum Error stage2_libc_find_native(struct Stage2LibCInstallation *libc) {
+    const char *msg = "stage0 called stage2_libc_find_native";
+    stage2_panic(msg, strlen(msg));
+}
+
+enum Error stage2_libc_cc_print_file_name(char **out_ptr, size_t *out_len,
+        const char *o_file, bool want_dirname)
+{
+    const char *msg = "stage0 called stage2_libc_cc_print_file_name";
+    stage2_panic(msg, strlen(msg));
+}

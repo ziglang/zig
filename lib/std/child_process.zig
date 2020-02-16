@@ -48,7 +48,6 @@ pub const ChildProcess = struct {
     cwd: ?[]const u8,
 
     err_pipe: if (builtin.os == .windows) void else [2]os.fd_t,
-    llnode: if (builtin.os == .windows) void else TailQueue(*ChildProcess).Node,
 
     pub const SpawnError = error{
         OutOfMemory,
@@ -90,7 +89,6 @@ pub const ChildProcess = struct {
             .handle = undefined,
             .thread_handle = undefined,
             .err_pipe = undefined,
-            .llnode = undefined,
             .term = null,
             .env_map = null,
             .cwd = null,
@@ -453,7 +451,6 @@ pub const ChildProcess = struct {
 
         self.pid = pid;
         self.err_pipe = err_pipe;
-        self.llnode = TailQueue(*ChildProcess).Node.init(self);
         self.term = null;
 
         if (self.stdin_behavior == StdIo.Pipe) {

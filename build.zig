@@ -175,7 +175,7 @@ fn dependOnLib(b: *Builder, lib_exe_obj: var, dep: LibraryDep) void {
 }
 
 fn fileExists(filename: []const u8) !bool {
-    fs.File.access(filename) catch |err| switch (err) {
+    fs.cwd().access(filename, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => return err,
     };

@@ -950,7 +950,7 @@ pub fn execvpeC(file: [*:0]const u8, child_argv: [*:null]const ?[*:0]const u8, e
     const file_slice = mem.toSliceConst(u8, file);
     if (mem.indexOfScalar(u8, file_slice, '/') != null) return execveC(file, child_argv, envp);
 
-    const PATH = getenv("PATH") orelse "/usr/local/bin:/bin/:/usr/bin";
+    const PATH = getenvZ("PATH") orelse "/usr/local/bin:/bin/:/usr/bin";
     var path_buf: [MAX_PATH_BYTES]u8 = undefined;
     var it = mem.tokenize(PATH, ":");
     var seen_eacces = false;
@@ -1038,7 +1038,7 @@ pub fn freeNullDelimitedEnvMap(allocator: *mem.Allocator, envp_buf: []?[*:0]u8) 
 }
 
 /// Get an environment variable.
-/// See also `getenvC`.
+/// See also `getenvZ`.
 /// TODO make this go through libc when we have it
 pub fn getenv(key: []const u8) ?[]const u8 {
     for (environ) |ptr| {
@@ -1056,9 +1056,12 @@ pub fn getenv(key: []const u8) ?[]const u8 {
     return null;
 }
 
+/// Deprecated in favor of `getenvZ`.
+pub const getenvC = getenvZ;
+
 /// Get an environment variable with a null-terminated name.
 /// See also `getenv`.
-pub fn getenvC(key: [*:0]const u8) ?[]const u8 {
+pub fn getenvZ(key: [*:0]const u8) ?[]const u8 {
     if (builtin.link_libc) {
         const value = system.getenv(key) orelse return null;
         return mem.toSliceConst(u8, value);
@@ -2452,6 +2455,9 @@ pub const AccessError = error{
     InputOutput,
     SystemResources,
     BadPathName,
+    FileBusy,
+    SymLinkLoop,
+    ReadOnlyFileSystem,
 
     /// On Windows, file paths must be valid Unicode.
     InvalidUtf8,
@@ -2469,8 +2475,11 @@ pub fn access(path: []const u8, mode: u32) AccessError!void {
     return accessC(&path_c, mode);
 }
 
+/// Deprecated in favor of `accessZ`.
+pub const accessC = accessZ;
+
 /// Same as `access` except `path` is null-terminated.
-pub fn accessC(path: [*:0]const u8, mode: u32) AccessError!void {
+pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
     if (builtin.os == .windows) {
         const path_w = try windows.cStrToPrefixedFileW(path);
         _ = try windows.GetFileAttributesW(&path_w);
@@ -2479,12 +2488,11 @@ pub fn accessC(path: [*:0]const u8, mode: u32) AccessError!void {
     switch (errno(system.access(path, mode))) {
         0 => return,
         EACCES => return error.PermissionDenied,
-        EROFS => return error.PermissionDenied,
-        ELOOP => return error.PermissionDenied,
-        ETXTBSY => return error.PermissionDenied,
+        EROFS => return error.ReadOnlyFileSystem,
+        ELOOP => return error.SymLinkLoop,
+        ETXTBSY => return error.FileBusy,
         ENOTDIR => return error.FileNotFound,
         ENOENT => return error.FileNotFound,
-
         ENAMETOOLONG => return error.NameTooLong,
         EINVAL => unreachable,
         EFAULT => unreachable,
@@ -2508,6 +2516,47 @@ pub fn accessW(path: [*:0]const u16, mode: u32) windows.GetFileAttributesError!v
         .ACCESS_DENIED => return error.PermissionDenied,
         else => |err| return windows.unexpectedError(err),
     }
+}
+
+/// Check user's permissions for a file, based on an open directory handle.
+/// TODO currently this ignores `mode` and `flags` on Windows.
+pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessError!void {
+    if (builtin.os == .windows) {
+        const path_w = try windows.sliceToPrefixedFileW(path);
+        return faccessatW(dirfd, &path_w, mode, flags);
+    }
+    const path_c = try toPosixPath(path);
+    return faccessatZ(dirfd, &path_c, mode, flags);
+}
+
+/// Same as `faccessat` except the path parameter is null-terminated.
+pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: u32, flags: u32) AccessError!void {
+    if (builtin.os == .windows) {
+        const path_w = try windows.cStrToPrefixedFileW(path);
+        return faccessatW(dirfd, &path_w, mode, flags);
+    }
+    switch (errno(system.faccessat(dirfd, path, mode, flags))) {
+        0 => return,
+        EACCES => return error.PermissionDenied,
+        EROFS => return error.ReadOnlyFileSystem,
+        ELOOP => return error.SymLinkLoop,
+        ETXTBSY => return error.FileBusy,
+        ENOTDIR => return error.FileNotFound,
+        ENOENT => return error.FileNotFound,
+        ENAMETOOLONG => return error.NameTooLong,
+        EINVAL => unreachable,
+        EFAULT => unreachable,
+        EIO => return error.InputOutput,
+        ENOMEM => return error.SystemResources,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+/// Same as `faccessat` except asserts the target is Windows and the path parameter
+/// is null-terminated WTF-16 encoded.
+/// TODO currently this ignores `mode` and `flags`
+pub fn faccessatW(dirfd: fd_t, path: [*:0]const u16, mode: u32, flags: u32) AccessError!void {
+    @compileError("TODO implement faccessatW on Windows");
 }
 
 pub const PipeError = error{

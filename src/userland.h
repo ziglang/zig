@@ -85,6 +85,20 @@ enum Error {
     ErrorInvalidLlvmCpuFeaturesFormat,
     ErrorUnknownApplicationBinaryInterface,
     ErrorASTUnitFailure,
+    ErrorBadPathName,
+    ErrorSymLinkLoop,
+    ErrorProcessFdQuotaExceeded,
+    ErrorSystemFdQuotaExceeded,
+    ErrorNoDevice,
+    ErrorDeviceBusy,
+    ErrorUnableToSpawnCCompiler,
+    ErrorCCompilerExitCode,
+    ErrorCCompilerCrashed,
+    ErrorCCompilerCannotFindHeaders,
+    ErrorLibCRuntimeNotFound,
+    ErrorLibCStdLibHeaderNotFound,
+    ErrorLibCKernel32LibNotFound,
+    ErrorUnsupportedArchitecture,
 };
 
 // ABI warning
@@ -185,7 +199,7 @@ ZIG_EXTERN_C void stage2_progress_update_node(Stage2ProgressNode *node,
 struct Stage2CpuFeatures;
 
 // ABI warning
-ZIG_EXTERN_C Error stage2_cpu_features_parse(struct Stage2CpuFeatures **result,
+ZIG_EXTERN_C enum Error stage2_cpu_features_parse(struct Stage2CpuFeatures **result,
         const char *zig_triple, const char *cpu_name, const char *cpu_features);
 
 // ABI warning
@@ -205,5 +219,30 @@ ZIG_EXTERN_C void stage2_cpu_features_get_cache_hash(const struct Stage2CpuFeatu
 // ABI warning
 ZIG_EXTERN_C int stage2_cmd_targets(const char *zig_triple);
 
+// ABI warning
+struct Stage2LibCInstallation {
+    const char *include_dir;
+    size_t include_dir_len;
+    const char *sys_include_dir;
+    size_t sys_include_dir_len;
+    const char *crt_dir;
+    size_t crt_dir_len;
+    const char *static_crt_dir;
+    size_t static_crt_dir_len;
+    const char *msvc_lib_dir;
+    size_t msvc_lib_dir_len;
+    const char *kernel32_lib_dir;
+    size_t kernel32_lib_dir_len;
+};
+
+// ABI warning
+ZIG_EXTERN_C enum Error stage2_libc_parse(struct Stage2LibCInstallation *libc, const char *libc_file);
+// ABI warning
+ZIG_EXTERN_C enum Error stage2_libc_render(struct Stage2LibCInstallation *self, FILE *file);
+// ABI warning
+ZIG_EXTERN_C enum Error stage2_libc_find_native(struct Stage2LibCInstallation *libc);
+// ABI warning
+ZIG_EXTERN_C enum Error stage2_libc_cc_print_file_name(char **out_ptr, size_t *out_len,
+        const char *o_file, bool want_dirname);
 
 #endif

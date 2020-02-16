@@ -457,7 +457,6 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/heap.cpp"
     "${CMAKE_SOURCE_DIR}/src/ir.cpp"
     "${CMAKE_SOURCE_DIR}/src/ir_print.cpp"
-    "${CMAKE_SOURCE_DIR}/src/libc_installation.cpp"
     "${CMAKE_SOURCE_DIR}/src/link.cpp"
     "${CMAKE_SOURCE_DIR}/src/mem.cpp"
     "${CMAKE_SOURCE_DIR}/src/os.cpp"

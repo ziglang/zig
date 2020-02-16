@@ -1323,6 +1323,38 @@ pub const Dir = struct {
         defer file.close();
         try file.write(data);
     }
+
+    pub const AccessError = os.AccessError;
+
+    /// Test accessing `path`.
+    /// `path` is UTF8-encoded.
+    /// Be careful of Time-Of-Check-Time-Of-Use race conditions when using this function.
+    /// For example, instead of testing if a file exists and then opening it, just
+    /// open it and handle the error for file not found.
+    pub fn access(self: Dir, sub_path: []const u8, flags: File.OpenFlags) AccessError!void {
+        const path_c = try os.toPosixPath(sub_path);
+        return self.accessZ(&path_c, flags);
+    }
+
+    /// Same as `access` except the path parameter is null-terminated.
+    pub fn accessZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) AccessError!void {
+        const os_mode = if (flags.write and flags.read)
+            @as(u32, os.R_OK | os.W_OK)
+        else if (flags.write)
+            @as(u32, os.W_OK)
+        else
+            @as(u32, os.F_OK);
+        const result = if (need_async_thread)
+            std.event.Loop.instance.?.faccessatZ(self.fd, sub_path, os_mode)
+        else
+            os.faccessatZ(self.fd, sub_path, os_mode, 0);
+        return result;
+    }
+
+    /// Same as `access` except the parameter is null-terminated UTF16LE-encoded.
+    pub fn accessW(self: Dir, sub_path: [*:0]const u16, flags: File.OpenFlags) AccessError!void {
+        return os.faccessatW(self.fd, sub_path, 0, 0);
+    }
 };
 
 /// Returns an handle to the current working directory that is open for traversal.

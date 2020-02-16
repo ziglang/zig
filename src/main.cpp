@@ -14,7 +14,6 @@
 #include "heap.hpp"
 #include "os.hpp"
 #include "target.hpp"
-#include "libc_installation.hpp"
 #include "userland.h"
 #include "glibc.hpp"
 #include "dump_analysis.hpp"
@@ -1027,15 +1026,22 @@ static int main0(int argc, char **argv) {
     switch (cmd) {
     case CmdLibC: {
         if (in_file) {
-            ZigLibCInstallation libc;
-            if ((err = zig_libc_parse(&libc, buf_create_from_str(in_file), &target, true)))
+            Stage2LibCInstallation libc;
+            if ((err = stage2_libc_parse(&libc, in_file))) {
+                fprintf(stderr, "unable to parse libc file: %s\n", err_str(err));
                 return main_exit(root_progress_node, EXIT_FAILURE);
+            }
             return main_exit(root_progress_node, EXIT_SUCCESS);
         }
-        ZigLibCInstallation libc;
-        if ((err = zig_libc_find_native(&libc, true)))
+        Stage2LibCInstallation libc;
+        if ((err = stage2_libc_find_native(&libc))) {
+            fprintf(stderr, "unable to find native libc file: %s\n", err_str(err));
             return main_exit(root_progress_node, EXIT_FAILURE);
-        zig_libc_render(&libc, stdout);
+        }
+        if ((err = stage2_libc_render(&libc, stdout))) {
+            fprintf(stderr, "unable to print libc file: %s\n", err_str(err));
+            return main_exit(root_progress_node, EXIT_FAILURE);
+        }
         return main_exit(root_progress_node, EXIT_SUCCESS);
     }
     case CmdBuiltin: {
@@ -1125,10 +1131,10 @@ static int main0(int argc, char **argv) {
             if (cmd == CmdRun && buf_out_name == nullptr) {
                 buf_out_name = buf_create_from_str("run");
             }
-            ZigLibCInstallation *libc = nullptr;
+            Stage2LibCInstallation *libc = nullptr;
             if (libc_txt != nullptr) {
-                libc = heap::c_allocator.create<ZigLibCInstallation>();
-                if ((err = zig_libc_parse(libc, buf_create_from_str(libc_txt), &target, true))) {
+                libc = heap::c_allocator.create<Stage2LibCInstallation>();
+                if ((err = stage2_libc_parse(libc, libc_txt))) {
                     fprintf(stderr, "Unable to parse --libc text file: %s\n", err_str(err));
                     return main_exit(root_progress_node, EXIT_FAILURE);
                 }

@@ -1037,6 +1037,13 @@ pub const Target = union(enum) {
         };
     }
 
+    pub fn isDragonFlyBSD(self: Target) bool {
+        return switch (self.getOs()) {
+            .dragonfly => true,
+            else => false,
+        };
+    }
+
     pub fn isUefi(self: Target) bool {
         return switch (self.getOs()) {
             .uefi => true,

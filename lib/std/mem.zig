@@ -387,11 +387,19 @@ pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
     return true;
 }
 
-/// Copies ::m to newly allocated memory. Caller is responsible to free it.
+/// Copies `m` to newly allocated memory. Caller owns the memory.
 pub fn dupe(allocator: *Allocator, comptime T: type, m: []const T) ![]T {
     const new_buf = try allocator.alloc(T, m.len);
     copy(T, new_buf, m);
     return new_buf;
+}
+
+/// Copies `m` to newly allocated memory, with a null-terminated element. Caller owns the memory.
+pub fn dupeZ(allocator: *Allocator, comptime T: type, m: []const T) ![:0]T {
+    const new_buf = try allocator.alloc(T, m.len + 1);
+    copy(T, new_buf, m);
+    new_buf[m.len] = 0;
+    return new_buf[0..m.len :0];
 }
 
 /// Remove values from the beginning of a slice.

@@ -1483,7 +1483,7 @@ static const char *get_libc_crt_file(CodeGen *parent, const char *file, Stage2Pr
     } else {
         assert(parent->libc != nullptr);
         Buf *out_buf = buf_alloc();
-        os_path_join(&parent->libc->crt_dir, buf_create_from_str(file), out_buf);
+        os_path_join(buf_create_from_str(parent->libc->crt_dir), buf_create_from_str(file), out_buf);
         return buf_ptr(out_buf);
     }
 }
@@ -1747,7 +1747,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
     if (g->libc_link_lib != nullptr) {
         if (g->libc != nullptr) {
             lj->args.append("-L");
-            lj->args.append(buf_ptr(&g->libc->crt_dir));
+            lj->args.append(g->libc->crt_dir);
         }
 
         if (g->have_dynamic_link && (is_dyn_lib || g->out_type == OutTypeExe)) {
@@ -2251,14 +2251,14 @@ static void construct_linker_job_coff(LinkJob *lj) {
     lj->args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(&g->output_file_path))));
 
     if (g->libc_link_lib != nullptr && g->libc != nullptr) {
-        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->crt_dir))));
+        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", g->libc->crt_dir)));
 
         if (target_abi_is_gnu(g->zig_target->abi)) {
-            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->sys_include_dir))));
-            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->include_dir))));
+            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", g->libc->sys_include_dir)));
+            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", g->libc->include_dir)));
         } else {
-            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->msvc_lib_dir))));
-            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(&g->libc->kernel32_lib_dir))));
+            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", g->libc->msvc_lib_dir)));
+            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", g->libc->kernel32_lib_dir)));
         }
     }
 

@@ -8,6 +8,7 @@ const math = std.math;
 pub const epoch = @import("time/epoch.zig");
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
+/// TODO integrate with evented I/O
 pub fn sleep(nanoseconds: u64) void {
     if (builtin.os == .windows) {
         const ns_per_ms = ns_per_s / ms_per_s;

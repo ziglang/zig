@@ -29,7 +29,7 @@ test "makePath, put some files in it, deleteTree" {
 
 test "access file" {
     try fs.makePath(a, "os_test_tmp");
-    if (File.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt")) |ok| {
+    if (fs.cwd().access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{})) |ok| {
         @panic("expected error");
     } else |err| {
         expect(err == error.FileNotFound);
