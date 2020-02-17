@@ -1070,9 +1070,11 @@ static FILETIME windows_os_timestamp_to_filetime(OsTimeStamp mtime) {
 
 static Error set_file_times(OsFile file, OsTimeStamp ts) {
 #if defined(ZIG_OS_WINDOWS)
-    const atime_ft = windows.nanoSecondsToFileTime(atime);
-    const mtime_ft = windows.nanoSecondsToFileTime(mtime);
-    return SetFileTime(file, null, &atime_ft, &mtime_ft);
+    FILETIME ft = windows_os_timestamp_to_filetime(ts);
+    if (SetFileTime(file, nullptr, &ft, &ft) == 0) {
+        return ErrorUnexpected;
+    }
+    return ErrorNone;
 #else
     struct timespec times[2] = {
         { ts.sec, ts.nsec },
@@ -1114,14 +1116,25 @@ Error os_update_file(Buf *src_path, Buf *dst_path) {
         os_file_close(&dst_file);
         return ErrorNone;
     }
-
-    FILE *src_libc_file = fdopen(src_file, "rb");
-    FILE *dst_libc_file = fdopen(dst_file, "wb");
-    assert(src_libc_file);
-    assert(dst_libc_file);
+#if defined(ZIG_OS_WINDOWS)
+    if (SetEndOfFile(dst_file) == 0) {
+        return ErrorUnexpected;
+    }
+#else
     if (ftruncate(dst_file, 0) == -1) {
         return ErrorUnexpected;
     }
+#endif
+#if defined(ZIG_OS_WINDOWS)
+    FILE *src_libc_file = _fdopen(_open_osfhandle((intptr_t)src_file, _O_RDONLY), "rb");
+    FILE *dst_libc_file = _fdopen(_open_osfhandle((intptr_t)dst_file, 0), "wb");
+#else
+    FILE *src_libc_file = fdopen(src_file, "rb");
+    FILE *dst_libc_file = fdopen(dst_file, "wb");
+#endif
+    assert(src_libc_file);
+    assert(dst_libc_file);
+
     if ((err = copy_open_files(src_libc_file, dst_libc_file))) {
         fclose(src_libc_file);
         fclose(dst_libc_file);
