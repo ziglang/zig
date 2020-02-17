@@ -263,7 +263,7 @@ pub const all_features = blk: {
 pub const cpu = struct {
     pub const baseline_rv32 = Cpu{
         .name = "baseline_rv32",
-        .llvm_name = "generic-rv32",
+        .llvm_name = null,
         .features = featureSet(&[_]Feature{
             .a,
             .c,
@@ -275,7 +275,7 @@ pub const cpu = struct {
 
     pub const baseline_rv64 = Cpu{
         .name = "baseline_rv64",
-        .llvm_name = "generic-rv64",
+        .llvm_name = null,
         .features = featureSet(&[_]Feature{
             .@"64bit",
             .a,
@@ -288,14 +288,14 @@ pub const cpu = struct {
 
     pub const generic_rv32 = Cpu{
         .name = "generic_rv32",
-        .llvm_name = "generic-rv32",
+        .llvm_name = null,
         .features = featureSet(&[_]Feature{
             .rvc_hints,
         }),
     };
     pub const generic_rv64 = Cpu{
         .name = "generic_rv64",
-        .llvm_name = "generic-rv64",
+        .llvm_name = null,
         .features = featureSet(&[_]Feature{
             .@"64bit",
             .rvc_hints,

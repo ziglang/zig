@@ -199,6 +199,43 @@ const test_targets = blk: {
         TestTarget{
             .target = Target{
                 .Cross = CrossTarget{
+                    .os = .linux,
+                    .arch = .riscv64,
+                    .cpu_features = Target.Arch.riscv64.getBaselineCpuFeatures(),
+                    .abi = .none,
+                },
+            },
+        },
+
+        // https://github.com/ziglang/zig/issues/4485
+        //TestTarget{
+        //    .target = Target{
+        //        .Cross = CrossTarget{
+        //            .os = .linux,
+        //            .arch = .riscv64,
+        //            .cpu_features = Target.Arch.riscv64.getBaselineCpuFeatures(),
+        //            .abi = .musl,
+        //        },
+        //    },
+        //    .link_libc = true,
+        //},
+
+        // https://github.com/ziglang/zig/issues/3340
+        //TestTarget{
+        //    .target = Target{
+        //        .Cross = CrossTarget{
+        //            .os = .linux,
+        //            .arch = .riscv64,
+        //            .cpu_features = Target.Arch.riscv64.getBaselineCpuFeatures(),
+        //            .abi = .gnu,
+        //        },
+        //    },
+        //    .link_libc = true,
+        //},
+
+        TestTarget{
+            .target = Target{
+                .Cross = CrossTarget{
                     .os = .macosx,
                     .arch = .x86_64,
                     .cpu_features = Target.Arch.x86_64.getBaselineCpuFeatures(),
