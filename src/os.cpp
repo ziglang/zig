@@ -826,7 +826,9 @@ static Error os_exec_process_posix(ZigList<const char *> &args,
         if (errno == ENOENT) {
             report_err = ErrorFileNotFound;
         }
-        write(err_pipe[1], &report_err, sizeof(Error));
+        if (write(err_pipe[1], &report_err, sizeof(Error)) == -1) {
+            zig_panic("write failed");
+        }
         exit(1);
     } else {
         // parent
@@ -851,9 +853,13 @@ static Error os_exec_process_posix(ZigList<const char *> &args,
         if (err2) return err2;
 
         Error child_err = ErrorNone;
-        write(err_pipe[1], &child_err, sizeof(Error));
+        if (write(err_pipe[1], &child_err, sizeof(Error)) == -1) {
+            zig_panic("write failed");
+        }
         close(err_pipe[1]);
-        read(err_pipe[0], &child_err, sizeof(Error));
+        if (read(err_pipe[0], &child_err, sizeof(Error)) == -1) {
+            zig_panic("write failed");
+        }
         close(err_pipe[0]);
         return child_err;
     }
