@@ -11,7 +11,7 @@
 #include "parser.hpp"
 #include "errmsg.hpp"
 #include "target.hpp"
-#include "userland.h"
+#include "stage2.h"
 
 #include <stdio.h>
 

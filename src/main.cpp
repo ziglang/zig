@@ -14,7 +14,7 @@
 #include "heap.hpp"
 #include "os.hpp"
 #include "target.hpp"
-#include "userland.h"
+#include "stage2.h"
 #include "glibc.hpp"
 #include "dump_analysis.hpp"
 #include "mem_profile.hpp"

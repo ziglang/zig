@@ -434,8 +434,8 @@ find_package(Threads)
 # CMake doesn't let us create an empty executable, so we hang on to this one separately.
 set(ZIG_MAIN_SRC "${CMAKE_SOURCE_DIR}/src/main.cpp")
 
-# This is our shim which will be replaced by libuserland written in Zig.
-set(ZIG0_SHIM_SRC "${CMAKE_SOURCE_DIR}/src/userland.cpp")
+# This is our shim which will be replaced by libstage2 written in Zig.
+set(ZIG0_SHIM_SRC "${CMAKE_SOURCE_DIR}/src/stage2.cpp")
 
 if(ZIG_ENABLE_MEM_PROFILE)
     set(ZIG_SOURCES_MEM_PROFILE "${CMAKE_SOURCE_DIR}/src/mem_profile.cpp")
@@ -599,38 +599,38 @@ set_target_properties(zig0 PROPERTIES
 target_link_libraries(zig0 compiler)
 
 if(MSVC)
-    set(LIBUSERLAND "${CMAKE_BINARY_DIR}/userland.lib")
+    set(LIBSTAGE2 "${CMAKE_BINARY_DIR}/stage2.lib")
 else()
-    set(LIBUSERLAND "${CMAKE_BINARY_DIR}/libuserland.a")
+    set(LIBSTAGE2 "${CMAKE_BINARY_DIR}/libstage2.a")
 endif()
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
-    set(LIBUSERLAND_RELEASE_ARG "")
+    set(LIBSTAGE2_RELEASE_ARG "")
 else()
-    set(LIBUSERLAND_RELEASE_ARG --release-fast --strip)
+    set(LIBSTAGE2_RELEASE_ARG --release-fast --strip)
 endif()
 if(WIN32)
-    set(LIBUSERLAND_WINDOWS_ARGS "-lntdll")
+    set(LIBSTAGE2_WINDOWS_ARGS "-lntdll")
 else()
-    set(LIBUSERLAND_WINDOWS_ARGS "")
+    set(LIBSTAGE2_WINDOWS_ARGS "")
 endif()
 
-set(BUILD_LIBUSERLAND_ARGS "build-lib"
+set(BUILD_LIBSTAGE2_ARGS "build-lib"
     --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
     --cache on
     --output-dir "${CMAKE_BINARY_DIR}"
-    ${LIBUSERLAND_RELEASE_ARG}
-    "src-self-hosted/stage1.zig"
+    ${LIBSTAGE2_RELEASE_ARG}
+    "src-self-hosted/stage2.zig"
     --disable-gen-h
     --bundle-compiler-rt
     -fPIC
     -lc
-    ${LIBUSERLAND_WINDOWS_ARGS}
+    ${LIBSTAGE2_WINDOWS_ARGS}
 )
 
-add_custom_target(zig_build_libuserland ALL
-    COMMAND zig0 ${BUILD_LIBUSERLAND_ARGS}
+add_custom_target(zig_build_libstage2 ALL
+    COMMAND zig0 ${BUILD_LIBSTAGE2_ARGS}
     DEPENDS zig0
-    BYPRODUCTS "${LIBUSERLAND}"
+    BYPRODUCTS "${LIBSTAGE2}"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 add_executable(zig "${ZIG_MAIN_SRC}")
@@ -639,13 +639,13 @@ set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-target_link_libraries(zig compiler "${LIBUSERLAND}")
+target_link_libraries(zig compiler "${LIBSTAGE2}")
 if(MSVC)
   target_link_libraries(zig ntdll.lib)
 elseif(MINGW) 
   target_link_libraries(zig ntdll)
 endif()
-add_dependencies(zig zig_build_libuserland)
+add_dependencies(zig zig_build_libstage2)
 
 install(TARGETS zig DESTINATION bin)
 

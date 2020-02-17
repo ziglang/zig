@@ -1,7 +1,7 @@
 // This file is a shim for zig1. The real implementations of these are in
 // src-self-hosted/stage1.zig
 
-#include "userland.h"
+#include "stage2.h"
 #include "util.hpp"
 #include "zig_llvm.h"
 #include <stdio.h>

@@ -18,7 +18,7 @@
 #include "target.hpp"
 #include "util.hpp"
 #include "zig_llvm.h"
-#include "userland.h"
+#include "stage2.h"
 #include "dump_analysis.hpp"
 #include "softfloat.hpp"
 #include "mem_profile.hpp"

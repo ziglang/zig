@@ -19,9 +19,9 @@ if(_result)
     message(":: ERROR: ${_result}")
     message(":: (execute_process)")
 
-    string(REPLACE ";" " " s_INSTALL_LIBUSERLAND_ARGS "${ZIG_INSTALL_ARGS}")
+    string(REPLACE ";" " " s_INSTALL_LIBSTAGE2_ARGS "${ZIG_INSTALL_ARGS}")
     message("::")
-    message(":: argv: ${zig_EXE} ${s_INSTALL_LIBUSERLAND_ARGS}")
+    message(":: argv: ${zig_EXE} ${s_INSTALL_LIBSTAGE2_ARGS}")
 
     set(_args ${zig_EXE} ${ZIG_INSTALL_ARGS})
     list(LENGTH _args _len)

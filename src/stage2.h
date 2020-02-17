@@ -5,8 +5,8 @@
  * See http://opensource.org/licenses/MIT
  */
 
-#ifndef ZIG_USERLAND_H
-#define ZIG_USERLAND_H
+#ifndef ZIG_STAGE2_H
+#define ZIG_STAGE2_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -25,7 +25,7 @@
 #endif
 
 // ABI warning: the types and declarations in this file must match both those in
-// userland.cpp and src-self-hosted/stage1.zig.
+// stage2.cpp and src-self-hosted/stage2.zig.
 
 // ABI warning
 enum Error {
