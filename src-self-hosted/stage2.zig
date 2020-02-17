@@ -1034,19 +1034,23 @@ const Stage2GLibCVersion = extern struct {
 
 // ABI warning
 export fn stage2_detect_dynamic_linker(in_target: *const Stage2Target, out_ptr: *[*:0]u8, out_len: *usize) Error {
+    const in_arch = in_target.arch - 1; // skip over ZigLLVM_UnknownArch
+    const in_sub_arch = in_target.sub_arch - 1; // skip over ZigLLVM_NoSubArch
+    const in_os = in_target.os;
+    const in_abi = in_target.abi - 1; // skip over ZigLLVM_UnknownEnvironment
     const target: Target = if (in_target.is_native) .Native else .{
         .Cross = .{
-            .arch = switch (enumInt(@TagType(Target.Arch), in_target.arch)) {
-                .arm => .{ .arm = enumInt(Target.Arch.Arm32, in_target.sub_arch) },
-                .armeb => .{ .armeb = enumInt(Target.Arch.Arm32, in_target.sub_arch) },
-                .thumb => .{ .thumb = enumInt(Target.Arch.Arm32, in_target.sub_arch) },
-                .thumbeb => .{ .thumbeb = enumInt(Target.Arch.Arm32, in_target.sub_arch) },
+            .arch = switch (enumInt(@TagType(Target.Arch), in_arch)) {
+                .arm => .{ .arm = enumInt(Target.Arch.Arm32, in_sub_arch) },
+                .armeb => .{ .armeb = enumInt(Target.Arch.Arm32, in_sub_arch) },
+                .thumb => .{ .thumb = enumInt(Target.Arch.Arm32, in_sub_arch) },
+                .thumbeb => .{ .thumbeb = enumInt(Target.Arch.Arm32, in_sub_arch) },
 
-                .aarch64 => .{ .aarch64 = enumInt(Target.Arch.Arm64, in_target.sub_arch) },
-                .aarch64_be => .{ .aarch64_be = enumInt(Target.Arch.Arm64, in_target.sub_arch) },
-                .aarch64_32 => .{ .aarch64_32 = enumInt(Target.Arch.Arm64, in_target.sub_arch) },
+                .aarch64 => .{ .aarch64 = enumInt(Target.Arch.Arm64, in_sub_arch) },
+                .aarch64_be => .{ .aarch64_be = enumInt(Target.Arch.Arm64, in_sub_arch) },
+                .aarch64_32 => .{ .aarch64_32 = enumInt(Target.Arch.Arm64, in_sub_arch) },
 
-                .kalimba => .{ .kalimba = enumInt(Target.Arch.Kalimba, in_target.sub_arch) },
+                .kalimba => .{ .kalimba = enumInt(Target.Arch.Kalimba, in_sub_arch) },
 
                 .arc => .arc,
                 .avr => .avr,
@@ -1091,8 +1095,8 @@ export fn stage2_detect_dynamic_linker(in_target: *const Stage2Target, out_ptr: 
                 .renderscript32 => .renderscript32,
                 .renderscript64 => .renderscript64,
             },
-            .os = enumInt(Target.Os, in_target.os),
-            .abi = enumInt(Target.Abi, in_target.abi),
+            .os = enumInt(Target.Os, in_os),
+            .abi = enumInt(Target.Abi, in_abi),
             .cpu_features = in_target.cpu_features.cpu_features,
         },
     };
