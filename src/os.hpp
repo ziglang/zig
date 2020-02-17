@@ -99,6 +99,7 @@ struct OsTimeStamp {
 
 struct OsFileAttr {
     OsTimeStamp mtime;
+    uint64_t size;
     uint64_t inode;
     uint32_t mode;
 };

@@ -1108,9 +1108,10 @@ Error os_update_file(Buf *src_path, Buf *dst_path) {
         return err;
     }
 
-    if (src_attr.mtime.sec == dst_attr.mtime.sec &&
-        src_attr.mtime.nsec == dst_attr.mtime.nsec &&
-        src_attr.mode == dst_attr.mode)
+    if (src_attr.size == dst_attr.size &&
+        src_attr.mode == dst_attr.mode &&
+        src_attr.mtime.sec == dst_attr.mtime.sec &&
+        src_attr.mtime.nsec == dst_attr.mtime.nsec)
     {
         os_file_close(&src_file);
         os_file_close(&dst_file);
@@ -1871,6 +1872,7 @@ Error os_file_open_rw(Buf *full_path, OsFile *out_file, OsFileAttr *attr, bool n
         windows_filetime_to_os_timestamp(&file_info.ftLastWriteTime, &attr->mtime);
         attr->inode = (((uint64_t)file_info.nFileIndexHigh) << 32) | file_info.nFileIndexLow;
         attr->mode = 0;
+        attr->size = (((uint64_t)file_info.nFileSizeHigh) << 32) | file_info.nFileSizeLow;
     }
 
     return ErrorNone;
@@ -1918,6 +1920,7 @@ Error os_file_open_rw(Buf *full_path, OsFile *out_file, OsFileAttr *attr, bool n
             attr->mtime.nsec = statbuf.st_mtim.tv_nsec;
 #endif
             attr->mode = statbuf.st_mode;
+            attr->size = statbuf.st_size;
         }
         return ErrorNone;
     }
