@@ -241,8 +241,16 @@ pub const LibCInstallation = struct {
             "-xc",
             dev_null,
         };
-        const max_bytes = 1024 * 1024;
-        const exec_res = std.ChildProcess.exec(allocator, &argv, null, null, max_bytes) catch |err| switch (err) {
+        const exec_res = std.ChildProcess.exec2(.{
+            .allocator = allocator,
+            .argv = &argv,
+            .max_output_bytes = 1024 * 1024,
+            // Some C compilers, such as Clang, are known to rely on argv[0] to find the path
+            // to their own executable, without even bothering to resolve PATH. This results in the message:
+            // error: unable to execute command: Executable "" doesn't exist!
+            // So we use the expandArg0 variant of ChildProcess to give them a helping hand.
+            .expand_arg0 = .expand,
+        }) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => return error.UnableToSpawnCCompiler,
         };
@@ -494,8 +502,16 @@ pub fn ccPrintFileName(
     defer allocator.free(arg1);
     const argv = [_][]const u8{ cc_exe, arg1 };
 
-    const max_bytes = 1024 * 1024;
-    const exec_res = std.ChildProcess.exec(allocator, &argv, null, null, max_bytes) catch |err| switch (err) {
+    const exec_res = std.ChildProcess.exec2(.{
+        .allocator = allocator,
+        .argv = &argv,
+        .max_output_bytes = 1024 * 1024,
+        // Some C compilers, such as Clang, are known to rely on argv[0] to find the path
+        // to their own executable, without even bothering to resolve PATH. This results in the message:
+        // error: unable to execute command: Executable "" doesn't exist!
+        // So we use the expandArg0 variant of ChildProcess to give them a helping hand.
+        .expand_arg0 = .expand,
+    }) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return error.UnableToSpawnCCompiler,
     };

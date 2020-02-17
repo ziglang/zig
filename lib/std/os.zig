@@ -916,10 +916,13 @@ pub const ExecveError = error{
     NameTooLong,
 } || UnexpectedError;
 
+/// Deprecated in favor of `execveZ`.
+pub const execveC = execveZ;
+
 /// Like `execve` except the parameters are null-terminated,
 /// matching the syscall API on all targets. This removes the need for an allocator.
-/// This function ignores PATH environment variable. See `execvpeC` for that.
-pub fn execveC(path: [*:0]const u8, child_argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) ExecveError {
+/// This function ignores PATH environment variable. See `execvpeZ` for that.
+pub fn execveZ(path: [*:0]const u8, child_argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) ExecveError {
     switch (errno(system.execve(path, child_argv, envp))) {
         0 => unreachable,
         EFAULT => unreachable,
@@ -942,11 +945,25 @@ pub fn execveC(path: [*:0]const u8, child_argv: [*:null]const ?[*:0]const u8, en
     }
 }
 
-/// Like `execvpe` except the parameters are null-terminated,
-/// matching the syscall API on all targets. This removes the need for an allocator.
-/// This function also uses the PATH environment variable to get the full path to the executable.
-/// If `file` is an absolute path, this is the same as `execveC`.
-pub fn execvpeC(file: [*:0]const u8, child_argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) ExecveError {
+/// Deprecated in favor of `execvpeZ`.
+pub const execvpeC = execvpeZ;
+
+pub const Arg0Expand = enum {
+    expand,
+    no_expand,
+};
+
+/// Like `execvpeZ` except if `arg0_expand` is `.expand`, then `argv` is mutable,
+/// and `argv[0]` is expanded to be the same absolute path that is passed to the execve syscall.
+pub fn execvpeZ_expandArg0(
+    comptime arg0_expand: Arg0Expand,
+    file: [*:0]const u8,
+    child_argv: switch (arg0_expand) {
+        .expand => [*:null]?[*:0]const u8,
+        .no_expand => [*:null]const ?[*:0]const u8,
+    },
+    envp: [*:null]const ?[*:0]const u8,
+) ExecveError {
     const file_slice = mem.toSliceConst(u8, file);
     if (mem.indexOfScalar(u8, file_slice, '/') != null) return execveC(file, child_argv, envp);
 
@@ -962,7 +979,12 @@ pub fn execvpeC(file: [*:0]const u8, child_argv: [*:null]const ?[*:0]const u8, e
         mem.copy(u8, path_buf[search_path.len + 1 ..], file_slice);
         const path_len = search_path.len + file_slice.len + 1;
         path_buf[path_len] = 0;
-        err = execveC(path_buf[0..path_len :0].ptr, child_argv, envp);
+        const full_path = path_buf[0..path_len :0].ptr;
+        switch (arg0_expand) {
+            .expand => child_argv[0] = full_path,
+            .no_expand => {},
+        }
+        err = execveC(full_path, child_argv, envp);
         switch (err) {
             error.AccessDenied => seen_eacces = true,
             error.FileNotFound, error.NotDir => {},
@@ -973,13 +995,24 @@ pub fn execvpeC(file: [*:0]const u8, child_argv: [*:null]const ?[*:0]const u8, e
     return err;
 }
 
-/// This function must allocate memory to add a null terminating bytes on path and each arg.
-/// It must also convert to KEY=VALUE\0 format for environment variables, and include null
-/// pointers after the args and after the environment variables.
-/// `argv_slice[0]` is the executable path.
+/// Like `execvpe` except the parameters are null-terminated,
+/// matching the syscall API on all targets. This removes the need for an allocator.
 /// This function also uses the PATH environment variable to get the full path to the executable.
-pub fn execvpe(
+/// If `file` is an absolute path, this is the same as `execveC`.
+pub fn execvpeZ(
+    file: [*:0]const u8,
+    argv: [*:null]const ?[*:0]const u8,
+    envp: [*:null]const ?[*:0]const u8,
+) ExecveError {
+    return execvpeZ_expandArg0(.no_expand, file, argv, envp);
+}
+
+/// This is the same as `execvpe` except if the `arg0_expand` parameter is set to `.expand`,
+/// then argv[0] will be replaced with the expanded version of it, after resolving in accordance
+/// with the PATH environment variable.
+pub fn execvpe_expandArg0(
     allocator: *mem.Allocator,
+    arg0_expand: Arg0Expand,
     argv_slice: []const []const u8,
     env_map: *const std.BufMap,
 ) (ExecveError || error{OutOfMemory}) {
@@ -1004,7 +1037,23 @@ pub fn execvpe(
     const envp_buf = try createNullDelimitedEnvMap(allocator, env_map);
     defer freeNullDelimitedEnvMap(allocator, envp_buf);
 
-    return execvpeC(argv_buf.ptr[0].?, argv_ptr, envp_buf.ptr);
+    switch (arg0_expand) {
+        .expand => return execvpeZ_expandArg0(.expand, argv_buf.ptr[0].?, argv_ptr, envp_buf.ptr),
+        .no_expand => return execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_ptr, envp_buf.ptr),
+    }
+}
+
+/// This function must allocate memory to add a null terminating bytes on path and each arg.
+/// It must also convert to KEY=VALUE\0 format for environment variables, and include null
+/// pointers after the args and after the environment variables.
+/// `argv_slice[0]` is the executable path.
+/// This function also uses the PATH environment variable to get the full path to the executable.
+pub fn execvpe(
+    allocator: *mem.Allocator,
+    argv_slice: []const []const u8,
+    env_map: *const std.BufMap,
+) (ExecveError || error{OutOfMemory}) {
+    return execvpe_expandArg0(allocator, .no_expand, argv_slice, env_map);
 }
 
 pub fn createNullDelimitedEnvMap(allocator: *mem.Allocator, env_map: *const std.BufMap) ![:null]?[*:0]u8 {
