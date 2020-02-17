@@ -666,6 +666,6 @@ pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]
             }
             return paths.toOwnedSlice();
         },
-        else => return error.UnimplementedSelfExeSharedPaths,
+        else => @compileError("getSelfExeSharedLibPaths unimplemented for this target"),
     }
 }

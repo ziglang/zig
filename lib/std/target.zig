@@ -1220,6 +1220,28 @@ pub const Target = union(enum) {
         };
     }
 
+    pub fn hasDynamicLinker(self: Target) bool {
+        switch (self.getArch()) {
+            .wasm32,
+            .wasm64,
+            => return false,
+            else => {},
+        }
+        switch (self.getOs()) {
+            .freestanding,
+            .ios,
+            .tvos,
+            .watchos,
+            .macosx,
+            .uefi,
+            .windows,
+            .emscripten,
+            .other,
+            => return false,
+            else => return true,
+        }
+    }
+
     /// Caller owns returned memory.
     pub fn getStandardDynamicLinkerPath(
         self: Target,

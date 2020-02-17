@@ -536,7 +536,11 @@ fn ccPrintFileName(
 }
 
 /// Caller owns returned memory.
-pub fn detectNativeDynamicLinker(allocator: *Allocator) ![:0]u8 {
+pub fn detectNativeDynamicLinker(allocator: *Allocator) error{OutOfMemory, TargetHasNoDynamicLinker, UnknownDynamicLinkerPath}![:0]u8 {
+    if (!comptime Target.current.hasDynamicLinker()) {
+        return error.TargetHasNoDynamicLinker;
+    }
+
     const standard_ld_path = try std.Target.current.getStandardDynamicLinkerPath(allocator);
     var standard_ld_path_resource: ?[:0]u8 = standard_ld_path; // Set to null to avoid freeing it.
     defer if (standard_ld_path_resource) |s| allocator.free(s);
