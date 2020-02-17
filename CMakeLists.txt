@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8.5)
 
 if(NOT ZIG_TARGET)
 	string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" sysname)
-	set(ZIG_TARGET "${CMAKE_HOST_SYSTEM_PROCESSOR}-${sysname}")
+	set(ZIG_TARGET "${CMAKE_HOST_SYSTEM_PROCESSOR}-${sysname}-gnu")
 endif()
 
 if(NOT CMAKE_BUILD_TYPE)
