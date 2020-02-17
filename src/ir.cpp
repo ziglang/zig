@@ -26328,7 +26328,7 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
     ZigType *non_sentinel_slice_ptr_type;
     ZigType *elem_type;
 
-    bool generate_non_zero_assert = false;
+    bool generate_non_null_assert = false;
 
     if (array_type->id == ZigTypeIdArray) {
         elem_type = array_type->data.array.child_type;
@@ -26358,9 +26358,12 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
             if (array_type->data.pointer.ptr_len == PtrLenC) {
                 array_type = adjust_ptr_len(ira->codegen, array_type, PtrLenUnknown);
 
+                // C pointers are allowzero by default.  
+                // However, we want to be able to slice them without generating an allowzero slice (see issue #4401).
+                // To achieve this, we generate a runtime safety check and make the slice type non-allowzero.
                 if (array_type->data.pointer.allow_zero) {
                     array_type = adjust_ptr_allow_zero(ira->codegen, array_type, false);
-                    generate_non_zero_assert = true;
+                    generate_non_null_assert = true;
                 }
             }
             ZigType *maybe_sentineled_slice_ptr_type = array_type;
@@ -26637,9 +26640,13 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
         return result_loc;
     }
 
-    if (generate_non_zero_assert) {
-        IrInstGen *c_ptr_val = ir_get_deref(ira, &instruction->base.base, ptr_ptr, nullptr);
-        ir_build_assert_non_null(ira, &instruction->base.base, c_ptr_val);
+    if (generate_non_null_assert) {
+        IrInstGen *ptr_val = ir_get_deref(ira, &instruction->base.base, ptr_ptr, nullptr);
+
+        if (type_is_invalid(ptr_val->value->type))
+            return ira->codegen->invalid_inst_gen;
+    
+        ir_build_assert_non_null(ira, &instruction->base.base, ptr_val);
     }
 
     return ir_build_slice_gen(ira, &instruction->base.base, return_type, ptr_ptr,

@@ -979,7 +979,7 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
         case PanicMsgIdSliceWidenRemainder:
             return buf_create_from_str("slice widening size mismatch");
         case PanicMsgIdUnwrapOptionalFail:
-            return buf_create_from_str("attempt to use null pointer");
+            return buf_create_from_str("attempt to use null value");
         case PanicMsgIdUnreachable:
             return buf_create_from_str("reached unreachable code");
         case PanicMsgIdInvalidErrorCode:
