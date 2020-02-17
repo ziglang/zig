@@ -957,42 +957,37 @@ static int main0(int argc, char **argv) {
     ZigTarget target;
     if (target_string == nullptr) {
 	target_string = ZIG_TARGET;
-        if (target_glibc != nullptr) {
-            fprintf(stderr, "-target-glibc provided but no -target parameter\n");
+    }
+    if ((err = target_parse_triple(&target, target_string))) {
+        if (err == ErrorUnknownArchitecture && target.arch != ZigLLVM_UnknownArch) {
+            fprintf(stderr, "'%s' requires a sub-architecture. Try one of these:\n",
+                    target_arch_name(target.arch));
+            SubArchList sub_arch_list = target_subarch_list(target.arch);
+            size_t subarch_count = target_subarch_count(sub_arch_list);
+            for (size_t sub_i = 0; sub_i < subarch_count; sub_i += 1) {
+               ZigLLVM_SubArchType sub = target_subarch_enum(sub_arch_list, sub_i);
+               fprintf(stderr, "  %s%s\n", target_arch_name(target.arch), target_subarch_name(sub));
+            }
+            return print_error_usage(arg0);
+        } else {
+            fprintf(stderr, "invalid target: %s\n", err_str(err));
             return print_error_usage(arg0);
         }
-    } else {
-        if ((err = target_parse_triple(&target, target_string))) {
-            if (err == ErrorUnknownArchitecture && target.arch != ZigLLVM_UnknownArch) {
-                fprintf(stderr, "'%s' requires a sub-architecture. Try one of these:\n",
-                        target_arch_name(target.arch));
-                SubArchList sub_arch_list = target_subarch_list(target.arch);
-                size_t subarch_count = target_subarch_count(sub_arch_list);
-                for (size_t sub_i = 0; sub_i < subarch_count; sub_i += 1) {
-                    ZigLLVM_SubArchType sub = target_subarch_enum(sub_arch_list, sub_i);
-                    fprintf(stderr, "  %s%s\n", target_arch_name(target.arch), target_subarch_name(sub));
-                }
-                return print_error_usage(arg0);
-            } else {
-                fprintf(stderr, "invalid target: %s\n", err_str(err));
-                return print_error_usage(arg0);
-            }
-        }
-        if (target_is_glibc(&target)) {
-            target.glibc_version = heap::c_allocator.create<ZigGLibCVersion>();
+    }
+    if (target_is_glibc(&target)) {
+        target.glibc_version = heap::c_allocator.create<ZigGLibCVersion>();
 
-            if (target_glibc != nullptr) {
-                if ((err = target_parse_glibc_version(target.glibc_version, target_glibc))) {
-                    fprintf(stderr, "invalid glibc version '%s': %s\n", target_glibc, err_str(err));
-                    return print_error_usage(arg0);
-                }
-            } else {
-                target_init_default_glibc_version(&target);
+        if (target_glibc != nullptr) {
+            if ((err = target_parse_glibc_version(target.glibc_version, target_glibc))) {
+                fprintf(stderr, "invalid glibc version '%s': %s\n", target_glibc, err_str(err));
+                return print_error_usage(arg0);
             }
-        } else if (target_glibc != nullptr) {
-            fprintf(stderr, "'%s' is not a glibc-compatible target", target_string);
-            return print_error_usage(arg0);
+        } else {
+            target_init_default_glibc_version(&target);
         }
+    } else if (target_glibc != nullptr) {
+        fprintf(stderr, "'%s' is not a glibc-compatible target", target_string);
+        return print_error_usage(arg0);
     }
 
     Buf zig_triple_buf = BUF_INIT;
