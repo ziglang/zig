@@ -1309,7 +1309,7 @@ static int main0(int argc, char **argv) {
                             Buf *dest_path = buf_alloc();
                             os_path_join(final_output_dir_step, dest_basename, dest_path);
 
-                            if ((err = os_copy_file(&g->output_file_path, dest_path))) {
+                            if ((err = os_update_file(&g->output_file_path, dest_path))) {
                                 fprintf(stderr, "unable to copy %s to %s: %s\n", buf_ptr(&g->output_file_path),
                                         buf_ptr(dest_path), err_str(err));
                                 return main_exit(root_progress_node, EXIT_FAILURE);

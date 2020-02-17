@@ -93,13 +93,14 @@ struct Termination {
 #endif
 
 struct OsTimeStamp {
-    uint64_t sec;
-    uint64_t nsec;
+    int64_t sec;
+    int64_t nsec;
 };
 
 struct OsFileAttr {
     OsTimeStamp mtime;
     uint64_t inode;
+    uint32_t mode;
 };
 
 int os_init(void);
@@ -121,6 +122,7 @@ Error ATTRIBUTE_MUST_USE os_make_path(Buf *path);
 Error ATTRIBUTE_MUST_USE os_make_dir(Buf *path);
 
 Error ATTRIBUTE_MUST_USE os_file_open_r(Buf *full_path, OsFile *out_file, OsFileAttr *attr);
+Error ATTRIBUTE_MUST_USE os_file_open_w(Buf *full_path, OsFile *out_file, OsFileAttr *attr, uint32_t mode);
 Error ATTRIBUTE_MUST_USE os_file_open_lock_rw(Buf *full_path, OsFile *out_file);
 Error ATTRIBUTE_MUST_USE os_file_read(OsFile file, void *ptr, size_t *len);
 Error ATTRIBUTE_MUST_USE os_file_read_all(OsFile file, Buf *contents);
@@ -129,6 +131,7 @@ void os_file_close(OsFile *file);
 
 Error ATTRIBUTE_MUST_USE os_write_file(Buf *full_path, Buf *contents);
 Error ATTRIBUTE_MUST_USE os_copy_file(Buf *src_path, Buf *dest_path);
+Error ATTRIBUTE_MUST_USE os_update_file(Buf *src_path, Buf *dest_path);
 
 Error ATTRIBUTE_MUST_USE os_fetch_file(FILE *file, Buf *out_contents);
 Error ATTRIBUTE_MUST_USE os_fetch_file_path(Buf *full_path, Buf *out_contents);

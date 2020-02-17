@@ -565,12 +565,12 @@ set_target_properties(opt_c_util PROPERTIES
     COMPILE_FLAGS "${OPTIMIZED_C_FLAGS}"
 )
 
-add_library(compiler STATIC ${ZIG_SOURCES})
-set_target_properties(compiler PROPERTIES
+add_library(zigcompiler STATIC ${ZIG_SOURCES})
+set_target_properties(zigcompiler PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-target_link_libraries(compiler LINK_PUBLIC
+target_link_libraries(zigcompiler LINK_PUBLIC
     zig_cpp
     opt_c_util
     ${SOFTFLOAT_LIBRARIES}
@@ -580,15 +580,15 @@ target_link_libraries(compiler LINK_PUBLIC
     ${CMAKE_THREAD_LIBS_INIT}
 )
 if(NOT MSVC)
-    target_link_libraries(compiler LINK_PUBLIC ${LIBXML2})
+    target_link_libraries(zigcompiler LINK_PUBLIC ${LIBXML2})
 endif()
 
 if(ZIG_DIA_GUIDS_LIB)
-    target_link_libraries(compiler LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
+    target_link_libraries(zigcompiler LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
 endif()
 
 if(MSVC OR MINGW)
-    target_link_libraries(compiler LINK_PUBLIC version)
+    target_link_libraries(zigcompiler LINK_PUBLIC version)
 endif()
 
 add_executable(zig0 "${ZIG_MAIN_SRC}" "${ZIG0_SHIM_SRC}")
@@ -596,12 +596,12 @@ set_target_properties(zig0 PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-target_link_libraries(zig0 compiler)
+target_link_libraries(zig0 zigcompiler)
 
 if(MSVC)
-    set(LIBSTAGE2 "${CMAKE_BINARY_DIR}/stage2.lib")
+    set(LIBSTAGE2 "${CMAKE_BINARY_DIR}/zigstage2.lib")
 else()
-    set(LIBSTAGE2 "${CMAKE_BINARY_DIR}/libstage2.a")
+    set(LIBSTAGE2 "${CMAKE_BINARY_DIR}/libzigstage2.a")
 endif()
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     set(LIBSTAGE2_RELEASE_ARG "")
@@ -615,11 +615,12 @@ else()
 endif()
 
 set(BUILD_LIBSTAGE2_ARGS "build-lib"
+    "src-self-hosted/stage2.zig"
+    --name zigstage2
     --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
     --cache on
     --output-dir "${CMAKE_BINARY_DIR}"
     ${LIBSTAGE2_RELEASE_ARG}
-    "src-self-hosted/stage2.zig"
     --disable-gen-h
     --bundle-compiler-rt
     -fPIC
@@ -639,7 +640,7 @@ set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-target_link_libraries(zig compiler "${LIBSTAGE2}")
+target_link_libraries(zig zigcompiler "${LIBSTAGE2}")
 if(MSVC)
   target_link_libraries(zig ntdll.lib)
 elseif(MINGW) 
