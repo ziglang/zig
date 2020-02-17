@@ -36,6 +36,7 @@ pub const LibCInstallation = struct {
         LibCStdLibHeaderNotFound,
         LibCKernel32LibNotFound,
         UnsupportedArchitecture,
+        WindowsSdkNotFound,
     };
 
     pub fn parse(
@@ -174,7 +175,7 @@ pub const LibCInstallation = struct {
     }
 
     /// Finds the default, native libc.
-    pub fn findNative(allocator: *Allocator) !LibCInstallation {
+    pub fn findNative(allocator: *Allocator) FindError!LibCInstallation {
         var self: LibCInstallation = .{};
 
         if (is_windows) {
@@ -199,8 +200,8 @@ pub const LibCInstallation = struct {
                         try batch.wait();
                     },
                     .OutOfMemory => return error.OutOfMemory,
-                    .NotFound => return error.NotFound,
-                    .PathTooLong => return error.NotFound,
+                    .NotFound => return error.WindowsSdkNotFound,
+                    .PathTooLong => return error.WindowsSdkNotFound,
                 }
             }
         } else {
@@ -311,7 +312,11 @@ pub const LibCInstallation = struct {
         return error.LibCStdLibHeaderNotFound;
     }
 
-    fn findNativeIncludeDirWindows(self: *LibCInstallation, allocator: *Allocator, sdk: *ZigWindowsSDK) !void {
+    fn findNativeIncludeDirWindows(
+        self: *LibCInstallation,
+        allocator: *Allocator,
+        sdk: *ZigWindowsSDK,
+    ) FindError!void {
         var search_buf: [2]Search = undefined;
         const searches = fillSearch(&search_buf, sdk);
 
@@ -431,6 +436,48 @@ pub const LibCInstallation = struct {
             return;
         }
         return error.LibCKernel32LibNotFound;
+    }
+
+    fn findNativeMsvcIncludeDir(
+        self: *LibCInstallation,
+        allocator: *Allocator,
+        sdk: *ZigWindowsSDK,
+    ) FindError!void {
+        const msvc_lib_dir_ptr = sdk.msvc_lib_dir_ptr orelse return error.LibCStdLibHeaderNotFound;
+        const msvc_lib_dir = msvc_lib_dir_ptr[0..sdk.msvc_lib_dir_len];
+        const up1 = fs.path.dirname(msvc_lib_dir) orelse return error.LibCStdLibHeaderNotFound;
+        const up2 = fs.path.dirname(up1) orelse return error.LibCStdLibHeaderNotFound;
+
+        var result_buf = try std.Buffer.init(allocator, up2);
+        defer result_buf.deinit();
+
+        try result_buf.append("\\include");
+
+        var dir = fs.cwd().openDirList(result_buf.toSliceConst()) catch |err| switch (err) {
+            error.FileNotFound,
+            error.NotDir,
+            error.NoDevice,
+            => return error.LibCStdLibHeaderNotFound,
+
+            else => return error.FileSystem,
+        };
+        defer dir.close();
+
+        dir.accessZ("vcruntime.h", .{}) catch |err| switch (err) {
+            error.FileNotFound => return error.LibCStdLibHeaderNotFound,
+            else => return error.FileSystem,
+        };
+
+        self.sys_include_dir = result_buf.toOwnedSlice();
+    }
+
+    fn findNativeMsvcLibDir(
+        self: *LibCInstallation,
+        allocator: *Allocator,
+        sdk: *ZigWindowsSDK,
+    ) FindError!void {
+        const msvc_lib_dir_ptr = sdk.msvc_lib_dir_ptr orelse return error.LibCRuntimeNotFound;
+        self.msvc_lib_dir = try std.mem.dupeZ(allocator, u8, msvc_lib_dir_ptr[0..sdk.msvc_lib_dir_len]);
     }
 };
 

@@ -79,6 +79,7 @@ const char *err_str(Error err) {
         case ErrorLibCStdLibHeaderNotFound: return "libc std lib headers not found";
         case ErrorLibCKernel32LibNotFound: return "kernel32 library not found";
         case ErrorUnsupportedArchitecture: return "unsupported architecture";
+        case ErrorWindowsSdkNotFound: return "Windows SDK not found";
     }
     return "(invalid error)";
 }

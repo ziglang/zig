@@ -108,6 +108,7 @@ const Error = extern enum {
     LibCStdLibHeaderNotFound,
     LibCKernel32LibNotFound,
     UnsupportedArchitecture,
+    WindowsSdkNotFound,
 };
 
 const FILE = std.c.FILE;
@@ -985,6 +986,7 @@ export fn stage2_libc_find_native(stage1_libc: *Stage2LibCInstallation) Error {
         error.LibCStdLibHeaderNotFound => return .LibCStdLibHeaderNotFound,
         error.LibCKernel32LibNotFound => return .LibCKernel32LibNotFound,
         error.UnsupportedArchitecture => return .UnsupportedArchitecture,
+        error.WindowsSdkNotFound => return .WindowsSdkNotFound,
     };
     stage1_libc.initFromStage2(libc);
     return .None;

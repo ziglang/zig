@@ -99,6 +99,7 @@ enum Error {
     ErrorLibCStdLibHeaderNotFound,
     ErrorLibCKernel32LibNotFound,
     ErrorUnsupportedArchitecture,
+    ErrorWindowsSdkNotFound,
 };
 
 // ABI warning

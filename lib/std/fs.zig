@@ -96,7 +96,6 @@ pub fn updateFile(source_path: []const u8, dest_path: []const u8) !PrevStatus {
 /// atime, and mode of the source file so that the next call to `updateFile` will not need a copy.
 /// Returns the previous status of the file before updating.
 /// If any of the directories do not exist for dest_path, they are created.
-/// TODO https://github.com/ziglang/zig/issues/2885
 pub fn updateFileMode(source_path: []const u8, dest_path: []const u8, mode: ?File.Mode) !PrevStatus {
     const my_cwd = cwd();
 
