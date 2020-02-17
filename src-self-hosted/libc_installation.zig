@@ -492,7 +492,7 @@ pub const LibCInstallation = struct {
 const default_cc_exe = if (is_windows) "cc.exe" else "cc";
 
 /// caller owns returned memory
-pub fn ccPrintFileName(
+fn ccPrintFileName(
     allocator: *Allocator,
     o_file: []const u8,
     want_dirname: enum { full_path, only_dir },
@@ -533,6 +533,43 @@ pub fn ccPrintFileName(
             return std.mem.dupeZ(allocator, u8, dirname);
         },
     }
+}
+
+/// Caller owns returned memory.
+pub fn detectNativeDynamicLinker(allocator: *Allocator) ![:0]u8 {
+    const standard_ld_path = try std.Target.current.getStandardDynamicLinkerPath(allocator);
+    var standard_ld_path_resource: ?[:0]u8 = standard_ld_path; // Set to null to avoid freeing it.
+    defer if (standard_ld_path_resource) |s| allocator.free(s);
+
+    const standard_ld_basename = fs.path.basename(standard_ld_path);
+
+    {
+        // Best case scenario: the current executable is dynamically linked, and we can iterate
+        // over our own shared objects and find a dynamic linker.
+        const lib_paths = try std.process.getSelfExeSharedLibPaths(allocator);
+        defer allocator.free(lib_paths);
+
+        for (lib_paths) |lib_path| {
+            if (std.mem.endsWith(u8, lib_path, standard_ld_basename)) {
+                return std.mem.dupeZ(allocator, u8, lib_path);
+            }
+        }
+    }
+
+    // If Zig is statically linked, such as via distributed binary static builds, the above
+    // trick won't work. What are we left with? Try to run the system C compiler and get
+    // it to tell us the dynamic linker path.
+    return ccPrintFileName(allocator, standard_ld_basename, .full_path) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.LibCRuntimeNotFound,
+        error.CCompilerExitCode,
+        error.CCompilerCrashed,
+        error.UnableToSpawnCCompiler,
+        => {
+            standard_ld_path_resource = null; // Prevent freeing standard_ld_path.
+            return standard_ld_path;
+        },
+    };
 }
 
 const Search = struct {

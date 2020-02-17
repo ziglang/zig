@@ -109,6 +109,7 @@ const Error = extern enum {
     LibCKernel32LibNotFound,
     UnsupportedArchitecture,
     WindowsSdkNotFound,
+    UnknownDynamicLinkerPath,
 };
 
 const FILE = std.c.FILE;
@@ -1012,24 +1013,100 @@ export fn stage2_libc_render(stage1_libc: *Stage2LibCInstallation, output_file: 
 }
 
 // ABI warning
-export fn stage2_libc_cc_print_file_name(
-    out_ptr: *[*:0]u8,
-    out_len: *usize,
-    o_file: [*:0]const u8,
-    want_dirname: bool,
-) Error {
-    const result = @import("libc_installation.zig").ccPrintFileName(
+const Stage2Target = extern struct {
+    arch: c_int,
+    sub_arch: c_int,
+    vendor: c_int,
+    os: c_int,
+    abi: c_int,
+    glibc_version: ?*Stage2GLibCVersion, // null means default
+    cpu_features: *Stage2CpuFeatures,
+    is_native: bool,
+};
+
+// ABI warning
+const Stage2GLibCVersion = extern struct {
+    major: u32,
+    minor: u32,
+    patch: u32,
+};
+
+// ABI warning
+export fn stage2_detect_dynamic_linker(in_target: *const Stage2Target, out_ptr: *[*:0]u8, out_len: *usize) Error {
+    const target: Target = if (in_target.is_native) .Native else .{
+        .Cross = .{
+            .arch = switch (enumInt(@TagType(Target.Arch), in_target.arch)) {
+                .arm => .{ .arm = enumInt(Target.Arch.Arm32, in_target.sub_arch) },
+                .armeb => .{ .armeb = enumInt(Target.Arch.Arm32, in_target.sub_arch) },
+                .thumb => .{ .thumb = enumInt(Target.Arch.Arm32, in_target.sub_arch) },
+                .thumbeb => .{ .thumbeb = enumInt(Target.Arch.Arm32, in_target.sub_arch) },
+
+                .aarch64 => .{ .aarch64 = enumInt(Target.Arch.Arm64, in_target.sub_arch) },
+                .aarch64_be => .{ .aarch64_be = enumInt(Target.Arch.Arm64, in_target.sub_arch) },
+                .aarch64_32 => .{ .aarch64_32 = enumInt(Target.Arch.Arm64, in_target.sub_arch) },
+
+                .kalimba => .{ .kalimba = enumInt(Target.Arch.Kalimba, in_target.sub_arch) },
+
+                .arc => .arc,
+                .avr => .avr,
+                .bpfel => .bpfel,
+                .bpfeb => .bpfeb,
+                .hexagon => .hexagon,
+                .mips => .mips,
+                .mipsel => .mipsel,
+                .mips64 => .mips64,
+                .mips64el => .mips64el,
+                .msp430 => .msp430,
+                .powerpc => .powerpc,
+                .powerpc64 => .powerpc64,
+                .powerpc64le => .powerpc64le,
+                .r600 => .r600,
+                .amdgcn => .amdgcn,
+                .riscv32 => .riscv32,
+                .riscv64 => .riscv64,
+                .sparc => .sparc,
+                .sparcv9 => .sparcv9,
+                .sparcel => .sparcel,
+                .s390x => .s390x,
+                .tce => .tce,
+                .tcele => .tcele,
+                .i386 => .i386,
+                .x86_64 => .x86_64,
+                .xcore => .xcore,
+                .nvptx => .nvptx,
+                .nvptx64 => .nvptx64,
+                .le32 => .le32,
+                .le64 => .le64,
+                .amdil => .amdil,
+                .amdil64 => .amdil64,
+                .hsail => .hsail,
+                .hsail64 => .hsail64,
+                .spir => .spir,
+                .spir64 => .spir64,
+                .shave => .shave,
+                .lanai => .lanai,
+                .wasm32 => .wasm32,
+                .wasm64 => .wasm64,
+                .renderscript32 => .renderscript32,
+                .renderscript64 => .renderscript64,
+            },
+            .os = enumInt(Target.Os, in_target.os),
+            .abi = enumInt(Target.Abi, in_target.abi),
+            .cpu_features = in_target.cpu_features.cpu_features,
+        },
+    };
+    const result = @import("introspect.zig").detectDynamicLinker(
         std.heap.c_allocator,
-        mem.toSliceConst(u8, o_file),
-        if (want_dirname) .only_dir else .full_path,
+        target,
     ) catch |err| switch (err) {
         error.OutOfMemory => return .OutOfMemory,
-        error.LibCRuntimeNotFound => return .FileNotFound,
-        error.CCompilerExitCode => return .CCompilerExitCode,
-        error.CCompilerCrashed => return .CCompilerCrashed,
-        error.UnableToSpawnCCompiler => return .UnableToSpawnCCompiler,
+        error.UnknownDynamicLinkerPath => return .UnknownDynamicLinkerPath,
     };
     out_ptr.* = result.ptr;
     out_len.* = result.len;
     return .None;
+}
+
+fn enumInt(comptime Enum: type, int: c_int) Enum {
+    return @intToEnum(Enum, @intCast(@TagType(Enum), int));
 }

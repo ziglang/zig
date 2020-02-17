@@ -12,6 +12,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "zig_llvm.h"
+
 #ifdef __cplusplus
 #define ZIG_EXTERN_C extern "C"
 #else
@@ -100,6 +102,7 @@ enum Error {
     ErrorLibCKernel32LibNotFound,
     ErrorUnsupportedArchitecture,
     ErrorWindowsSdkNotFound,
+    ErrorUnknownDynamicLinkerPath,
 };
 
 // ABI warning
@@ -242,8 +245,70 @@ ZIG_EXTERN_C enum Error stage2_libc_parse(struct Stage2LibCInstallation *libc, c
 ZIG_EXTERN_C enum Error stage2_libc_render(struct Stage2LibCInstallation *self, FILE *file);
 // ABI warning
 ZIG_EXTERN_C enum Error stage2_libc_find_native(struct Stage2LibCInstallation *libc);
+
 // ABI warning
-ZIG_EXTERN_C enum Error stage2_libc_cc_print_file_name(char **out_ptr, size_t *out_len,
-        const char *o_file, bool want_dirname);
+// Synchronize with target.cpp::os_list
+enum Os {
+    OsFreestanding,
+    OsAnanas,
+    OsCloudABI,
+    OsDragonFly,
+    OsFreeBSD,
+    OsFuchsia,
+    OsIOS,
+    OsKFreeBSD,
+    OsLinux,
+    OsLv2,        // PS3
+    OsMacOSX,
+    OsNetBSD,
+    OsOpenBSD,
+    OsSolaris,
+    OsWindows,
+    OsHaiku,
+    OsMinix,
+    OsRTEMS,
+    OsNaCl,       // Native Client
+    OsCNK,        // BG/P Compute-Node Kernel
+    OsAIX,
+    OsCUDA,       // NVIDIA CUDA
+    OsNVCL,       // NVIDIA OpenCL
+    OsAMDHSA,     // AMD HSA Runtime
+    OsPS4,
+    OsELFIAMCU,
+    OsTvOS,       // Apple tvOS
+    OsWatchOS,    // Apple watchOS
+    OsMesa3D,
+    OsContiki,
+    OsAMDPAL,
+    OsHermitCore,
+    OsHurd,
+    OsWASI,
+    OsEmscripten,
+    OsUefi,
+    OsOther,
+};
+
+// ABI warning
+struct ZigGLibCVersion {
+    uint32_t major; // always 2
+    uint32_t minor;
+    uint32_t patch;
+};
+
+// ABI warning
+struct ZigTarget {
+    enum ZigLLVM_ArchType arch;
+    enum ZigLLVM_SubArchType sub_arch;
+    enum ZigLLVM_VendorType vendor;
+    Os os;
+    enum ZigLLVM_EnvironmentType abi;
+    struct ZigGLibCVersion *glibc_version; // null means default
+    struct Stage2CpuFeatures *cpu_features;
+    bool is_native;
+};
+
+// ABI warning
+ZIG_EXTERN_C enum Error stage2_detect_dynamic_linker(const struct ZigTarget *target,
+        char **out_ptr, size_t *out_len);
 
 #endif

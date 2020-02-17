@@ -171,9 +171,7 @@ enum Error stage2_libc_find_native(struct Stage2LibCInstallation *libc) {
     stage2_panic(msg, strlen(msg));
 }
 
-enum Error stage2_libc_cc_print_file_name(char **out_ptr, size_t *out_len,
-        const char *o_file, bool want_dirname)
-{
-    const char *msg = "stage0 called stage2_libc_cc_print_file_name";
+enum Error stage2_detect_dynamic_linker(const struct ZigTarget *target, char **out_ptr, size_t *out_len) {
+    const char *msg = "stage0 called stage2_detect_dynamic_linker";
     stage2_panic(msg, strlen(msg));
 }

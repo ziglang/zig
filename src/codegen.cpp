@@ -8624,7 +8624,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             break;
     }
     buf_appendf(contents, "pub const output_mode = OutputMode.%s;\n", out_type);
-    const char *link_type = g->is_dynamic ? "Dynamic" : "Static";
+    const char *link_type = g->have_dynamic_link ? "Dynamic" : "Static";
     buf_appendf(contents, "pub const link_mode = LinkMode.%s;\n", link_type);
     buf_appendf(contents, "pub const is_test = %s;\n", bool_to_str(g->is_test_build));
     buf_appendf(contents, "pub const single_threaded = %s;\n", bool_to_str(g->is_single_threaded));
@@ -8731,7 +8731,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_int(&cache_hash, g->build_mode);
     cache_bool(&cache_hash, g->strip_debug_symbols);
     cache_int(&cache_hash, g->out_type);
-    cache_bool(&cache_hash, g->is_dynamic);
+    cache_bool(&cache_hash, detect_dynamic_link(g));
     cache_bool(&cache_hash, g->is_test_build);
     cache_bool(&cache_hash, g->is_single_threaded);
     cache_bool(&cache_hash, g->test_is_evented);
@@ -8957,6 +8957,8 @@ static void init(CodeGen *g) {
 }
 
 static void detect_dynamic_linker(CodeGen *g) {
+    Error err;
+
     if (g->dynamic_linker_path != nullptr)
         return;
     if (!g->have_dynamic_link)
@@ -8964,45 +8966,15 @@ static void detect_dynamic_linker(CodeGen *g) {
     if (g->out_type == OutTypeObj || (g->out_type == OutTypeLib && !g->is_dynamic))
         return;
 
-    const char *standard_ld_path = target_dynamic_linker(g->zig_target);
-    if (standard_ld_path == nullptr)
-        return;
-
-    if (g->zig_target->is_native) {
-        // target_dynamic_linker is usually correct. However on some systems, such as NixOS
-        // it will be incorrect. See if we can do better by looking at what zig's own
-        // dynamic linker path is.
-        g->dynamic_linker_path = get_self_dynamic_linker_path();
-        if (g->dynamic_linker_path != nullptr)
-            return;
-
-        // If Zig is statically linked, such as via distributed binary static builds, the above
-        // trick won't work. What are we left with? Try to run the system C compiler and get
-        // it to tell us the dynamic linker path
-#if defined(ZIG_OS_LINUX)
-        {
-            Error err;
-            for (size_t i = 0; possible_ld_names[i] != NULL; i += 1) {
-                const char *lib_name = possible_ld_names[i];
-                char *result_ptr;
-                size_t result_len;
-                if ((err = stage2_libc_cc_print_file_name(&result_ptr, &result_len, lib_name, false))) {
-                    if (err != ErrorCCompilerCannotFindFile && err != ErrorNoCCompilerInstalled) {
-                        fprintf(stderr, "Unable to detect native dynamic linker: %s\n", err_str(err));
-                        exit(1);
-                    }
-                    continue;
-                }
-                g->dynamic_linker_path = buf_create_from_mem(result_ptr, result_len);
-                // Skips heap::c_allocator because the memory is allocated by stage2 library.
-                free(result_ptr);
-                return;
-            }
-        }
-#endif
+    char *dynamic_linker_ptr;
+    size_t dynamic_linker_len;
+    if ((err = stage2_detect_dynamic_linker(g->zig_target, &dynamic_linker_ptr, &dynamic_linker_len))) {
+        fprintf(stderr, "Unable to detect dynamic linker: %s\n", err_str(err));
+        exit(1);
     }
-
-    g->dynamic_linker_path = buf_create_from_str(standard_ld_path);
+    g->dynamic_linker_path = buf_create_from_mem(dynamic_linker_ptr, dynamic_linker_len);
+    // Skips heap::c_allocator because the memory is allocated by stage2 library.
+    free(dynamic_linker_ptr);
 }
 
 static void detect_libc(CodeGen *g) {

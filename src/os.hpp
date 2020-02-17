@@ -43,10 +43,6 @@
 #define ZIG_ARCH_UNKNOWN
 #endif
 
-#ifdef ZIG_OS_LINUX
-extern const char *possible_ld_names[];
-#endif
-
 #if defined(ZIG_OS_WINDOWS)
 #define ZIG_PRI_usize "I64u"
 #define ZIG_PRI_i64 "I64d"

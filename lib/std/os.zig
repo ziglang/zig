@@ -2974,18 +2974,26 @@ pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
 }
 
 pub fn dl_iterate_phdr(
-    comptime T: type,
-    callback: extern fn (info: *dl_phdr_info, size: usize, data: ?*T) i32,
-    data: ?*T,
-) isize {
+    context: var,
+    comptime Error: type,
+    comptime callback: fn (info: *dl_phdr_info, size: usize, context: @TypeOf(context)) Error!void,
+) Error!void {
+    const Context = @TypeOf(context);
+
     if (builtin.object_format != .elf)
         @compileError("dl_iterate_phdr is not available for this target");
 
     if (builtin.link_libc) {
-        return system.dl_iterate_phdr(
-            @ptrCast(std.c.dl_iterate_phdr_callback, callback),
-            @ptrCast(?*c_void, data),
-        );
+        switch (system.dl_iterate_phdr(struct {
+            fn callbackC(info: *dl_phdr_info, size: usize, data: ?*c_void) callconv(.C) c_int {
+                const context_ptr = @ptrCast(*const Context, @alignCast(@alignOf(*const Context), data));
+                callback(info, size, context_ptr.*) catch |err| return @errorToInt(err);
+                return 0;
+            }
+        }.callbackC, @intToPtr(?*c_void, @ptrToInt(&context)))) {
+            0 => return,
+            else => |err| return @errSetCast(Error, @intToError(@intCast(u16, err))), // TODO don't hardcode u16
+        }
     }
 
     const elf_base = std.process.getBaseAddress();
@@ -3007,11 +3015,10 @@ pub fn dl_iterate_phdr(
             .dlpi_phnum = ehdr.e_phnum,
         };
 
-        return callback(&info, @sizeOf(dl_phdr_info), data);
+        return callback(&info, @sizeOf(dl_phdr_info), context);
     }
 
     // Last return value from the callback function
-    var last_r: isize = 0;
     while (it.next()) |entry| {
         var dlpi_phdr: [*]elf.Phdr = undefined;
         var dlpi_phnum: u16 = undefined;
@@ -3033,11 +3040,8 @@ pub fn dl_iterate_phdr(
             .dlpi_phnum = dlpi_phnum,
         };
 
-        last_r = callback(&info, @sizeOf(dl_phdr_info), data);
-        if (last_r != 0) break;
+        try callback(&info, @sizeOf(dl_phdr_info), context);
     }
-
-    return last_r;
 }
 
 pub const ClockGetTimeError = error{UnsupportedClock} || UnexpectedError;

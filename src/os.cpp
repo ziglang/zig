@@ -2129,21 +2129,3 @@ void os_file_close(OsFile *file) {
     *file = -1;
 #endif
 }
-
-#ifdef ZIG_OS_LINUX
-const char *possible_ld_names[] = {
-#if defined(ZIG_ARCH_X86_64)
-    "ld-linux-x86-64.so.2",
-    "ld-musl-x86_64.so.1",
-#elif defined(ZIG_ARCH_ARM64)
-    "ld-linux-aarch64.so.1",
-    "ld-musl-aarch64.so.1",
-#elif defined(ZIG_ARCH_ARM)
-    "ld-linux-armhf.so.3",
-    "ld-musl-armhf.so.1",
-    "ld-linux.so.3",
-    "ld-musl-arm.so.1",
-#endif
-    NULL,
-};
-#endif
