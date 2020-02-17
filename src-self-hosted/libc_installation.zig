@@ -98,7 +98,7 @@ pub const LibCInstallation = struct {
             try stderr.print("sys_include_dir may not be empty\n", .{});
             return error.ParseError;
         }
-        if (self.crt_dir == null and is_darwin) {
+        if (self.crt_dir == null and !is_darwin) {
             try stderr.print("crt_dir may not be empty for {}\n", .{@tagName(Target.current.getOs())});
             return error.ParseError;
         }
@@ -153,7 +153,7 @@ pub const LibCInstallation = struct {
             \\
             \\# The directory that contains `crtbegin.o`.
             \\# On POSIX, can be found with `cc -print-file-name=crtbegin.o`.
-            \\# Not needed when targeting MacOS.
+            \\# Only needed when targeting MinGW-w64 on Windows.
             \\static_crt_dir={}
             \\
             \\# The directory that contains `vcruntime.lib`.
