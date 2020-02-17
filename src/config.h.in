@@ -23,4 +23,6 @@
 
 #cmakedefine ZIG_ENABLE_MEM_PROFILE
 
+#define ZIG_TARGET "@ZIG_TARGET@"
+
 #endif

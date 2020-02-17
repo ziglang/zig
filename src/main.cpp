@@ -956,7 +956,7 @@ static int main0(int argc, char **argv) {
 
     ZigTarget target;
     if (target_string == nullptr) {
-        get_native_target(&target);
+	target_string = ZIG_TARGET;
         if (target_glibc != nullptr) {
             fprintf(stderr, "-target-glibc provided but no -target parameter\n");
             return print_error_usage(arg0);
