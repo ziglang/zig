@@ -8375,8 +8375,6 @@ static bool detect_dynamic_link(CodeGen *g) {
         return true;
     if (g->zig_target->os == OsFreestanding)
         return false;
-    if (target_requires_pic(g->zig_target, g->libc_link_lib != nullptr))
-        return true;
     // If there are no dynamic libraries then we can disable PIC
     for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
         LinkLib *link_lib = g->link_libs_list.at(i);
