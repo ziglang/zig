@@ -80,7 +80,8 @@ const char *err_str(Error err) {
         case ErrorLibCKernel32LibNotFound: return "kernel32 library not found";
         case ErrorUnsupportedArchitecture: return "unsupported architecture";
         case ErrorWindowsSdkNotFound: return "Windows SDK not found";
-        case ErrorUnknownDynamicLinkerPath: return "Windows SDK not found";
+        case ErrorUnknownDynamicLinkerPath: return "unknown dynamic linker path";
+        case ErrorTargetHasNoDynamicLinker: return "target has no dynamic linker";
     }
     return "(invalid error)";
 }

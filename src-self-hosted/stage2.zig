@@ -110,6 +110,7 @@ const Error = extern enum {
     UnsupportedArchitecture,
     WindowsSdkNotFound,
     UnknownDynamicLinkerPath,
+    TargetHasNoDynamicLinker,
 };
 
 const FILE = std.c.FILE;
@@ -1101,6 +1102,7 @@ export fn stage2_detect_dynamic_linker(in_target: *const Stage2Target, out_ptr: 
     ) catch |err| switch (err) {
         error.OutOfMemory => return .OutOfMemory,
         error.UnknownDynamicLinkerPath => return .UnknownDynamicLinkerPath,
+        error.TargetHasNoDynamicLinker => return .TargetHasNoDynamicLinker,
     };
     out_ptr.* = result.ptr;
     out_len.* = result.len;

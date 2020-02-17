@@ -8969,6 +8969,7 @@ static void detect_dynamic_linker(CodeGen *g) {
     char *dynamic_linker_ptr;
     size_t dynamic_linker_len;
     if ((err = stage2_detect_dynamic_linker(g->zig_target, &dynamic_linker_ptr, &dynamic_linker_len))) {
+        if (err == ErrorTargetHasNoDynamicLinker) return;
         fprintf(stderr, "Unable to detect dynamic linker: %s\n", err_str(err));
         exit(1);
     }

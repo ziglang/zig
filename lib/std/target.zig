@@ -1227,6 +1227,7 @@ pub const Target = union(enum) {
     ) error{
         OutOfMemory,
         UnknownDynamicLinkerPath,
+        TargetHasNoDynamicLinker,
     }![:0]u8 {
         const a = allocator;
         if (self.isAndroid()) {
@@ -1300,6 +1301,10 @@ pub const Target = union(enum) {
                 .riscv32 => return mem.dupeZ(a, u8, "/lib/ld-linux-riscv32-ilp32.so.1"),
                 .riscv64 => return mem.dupeZ(a, u8, "/lib/ld-linux-riscv64-lp64.so.1"),
 
+                .wasm32,
+                .wasm64,
+                => return error.TargetHasNoDynamicLinker,
+
                 .arc,
                 .avr,
                 .bpfel,
@@ -1324,12 +1329,22 @@ pub const Target = union(enum) {
                 .kalimba,
                 .shave,
                 .lanai,
-                .wasm32,
-                .wasm64,
                 .renderscript32,
                 .renderscript64,
                 => return error.UnknownDynamicLinkerPath,
             },
+
+            .freestanding,
+            .ios,
+            .tvos,
+            .watchos,
+            .macosx,
+            .uefi,
+            .windows,
+            .emscripten,
+            .other,
+            => return error.TargetHasNoDynamicLinker,
+
             else => return error.UnknownDynamicLinkerPath,
         }
     }

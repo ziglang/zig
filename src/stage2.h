@@ -103,6 +103,7 @@ enum Error {
     ErrorUnsupportedArchitecture,
     ErrorWindowsSdkNotFound,
     ErrorUnknownDynamicLinkerPath,
+    ErrorTargetHasNoDynamicLinker,
 };
 
 // ABI warning
