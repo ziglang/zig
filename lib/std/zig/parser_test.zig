@@ -92,10 +92,12 @@ test "zig fmt: convert extern/nakedcc/stdcallcc into callconv(...)" {
         \\nakedcc fn foo1() void {}
         \\stdcallcc fn foo2() void {}
         \\extern fn foo3() void {}
+        \\extern "mylib" fn foo4() void {}
     ,
         \\fn foo1() callconv(.Naked) void {}
         \\fn foo2() callconv(.Stdcall) void {}
         \\fn foo3() callconv(.C) void {}
+        \\fn foo4() callconv(.C) void {}
         \\
     );
 }
