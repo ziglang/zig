@@ -916,10 +916,13 @@ pub const ExecveError = error{
     NameTooLong,
 } || UnexpectedError;
 
+/// Deprecated in favor of `execveZ`.
+pub const execveC = execveZ;
+
 /// Like `execve` except the parameters are null-terminated,
 /// matching the syscall API on all targets. This removes the need for an allocator.
-/// This function ignores PATH environment variable. See `execvpeC` for that.
-pub fn execveC(path: [*:0]const u8, child_argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) ExecveError {
+/// This function ignores PATH environment variable. See `execvpeZ` for that.
+pub fn execveZ(path: [*:0]const u8, child_argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) ExecveError {
     switch (errno(system.execve(path, child_argv, envp))) {
         0 => unreachable,
         EFAULT => unreachable,
@@ -942,15 +945,29 @@ pub fn execveC(path: [*:0]const u8, child_argv: [*:null]const ?[*:0]const u8, en
     }
 }
 
-/// Like `execvpe` except the parameters are null-terminated,
-/// matching the syscall API on all targets. This removes the need for an allocator.
-/// This function also uses the PATH environment variable to get the full path to the executable.
-/// If `file` is an absolute path, this is the same as `execveC`.
-pub fn execvpeC(file: [*:0]const u8, child_argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) ExecveError {
+/// Deprecated in favor of `execvpeZ`.
+pub const execvpeC = execvpeZ;
+
+pub const Arg0Expand = enum {
+    expand,
+    no_expand,
+};
+
+/// Like `execvpeZ` except if `arg0_expand` is `.expand`, then `argv` is mutable,
+/// and `argv[0]` is expanded to be the same absolute path that is passed to the execve syscall.
+pub fn execvpeZ_expandArg0(
+    comptime arg0_expand: Arg0Expand,
+    file: [*:0]const u8,
+    child_argv: switch (arg0_expand) {
+        .expand => [*:null]?[*:0]const u8,
+        .no_expand => [*:null]const ?[*:0]const u8,
+    },
+    envp: [*:null]const ?[*:0]const u8,
+) ExecveError {
     const file_slice = mem.toSliceConst(u8, file);
     if (mem.indexOfScalar(u8, file_slice, '/') != null) return execveC(file, child_argv, envp);
 
-    const PATH = getenv("PATH") orelse "/usr/local/bin:/bin/:/usr/bin";
+    const PATH = getenvZ("PATH") orelse "/usr/local/bin:/bin/:/usr/bin";
     var path_buf: [MAX_PATH_BYTES]u8 = undefined;
     var it = mem.tokenize(PATH, ":");
     var seen_eacces = false;
@@ -962,7 +979,12 @@ pub fn execvpeC(file: [*:0]const u8, child_argv: [*:null]const ?[*:0]const u8, e
         mem.copy(u8, path_buf[search_path.len + 1 ..], file_slice);
         const path_len = search_path.len + file_slice.len + 1;
         path_buf[path_len] = 0;
-        err = execveC(path_buf[0..path_len :0].ptr, child_argv, envp);
+        const full_path = path_buf[0..path_len :0].ptr;
+        switch (arg0_expand) {
+            .expand => child_argv[0] = full_path,
+            .no_expand => {},
+        }
+        err = execveC(full_path, child_argv, envp);
         switch (err) {
             error.AccessDenied => seen_eacces = true,
             error.FileNotFound, error.NotDir => {},
@@ -973,13 +995,24 @@ pub fn execvpeC(file: [*:0]const u8, child_argv: [*:null]const ?[*:0]const u8, e
     return err;
 }
 
-/// This function must allocate memory to add a null terminating bytes on path and each arg.
-/// It must also convert to KEY=VALUE\0 format for environment variables, and include null
-/// pointers after the args and after the environment variables.
-/// `argv_slice[0]` is the executable path.
+/// Like `execvpe` except the parameters are null-terminated,
+/// matching the syscall API on all targets. This removes the need for an allocator.
 /// This function also uses the PATH environment variable to get the full path to the executable.
-pub fn execvpe(
+/// If `file` is an absolute path, this is the same as `execveC`.
+pub fn execvpeZ(
+    file: [*:0]const u8,
+    argv: [*:null]const ?[*:0]const u8,
+    envp: [*:null]const ?[*:0]const u8,
+) ExecveError {
+    return execvpeZ_expandArg0(.no_expand, file, argv, envp);
+}
+
+/// This is the same as `execvpe` except if the `arg0_expand` parameter is set to `.expand`,
+/// then argv[0] will be replaced with the expanded version of it, after resolving in accordance
+/// with the PATH environment variable.
+pub fn execvpe_expandArg0(
     allocator: *mem.Allocator,
+    arg0_expand: Arg0Expand,
     argv_slice: []const []const u8,
     env_map: *const std.BufMap,
 ) (ExecveError || error{OutOfMemory}) {
@@ -1004,7 +1037,23 @@ pub fn execvpe(
     const envp_buf = try createNullDelimitedEnvMap(allocator, env_map);
     defer freeNullDelimitedEnvMap(allocator, envp_buf);
 
-    return execvpeC(argv_buf.ptr[0].?, argv_ptr, envp_buf.ptr);
+    switch (arg0_expand) {
+        .expand => return execvpeZ_expandArg0(.expand, argv_buf.ptr[0].?, argv_ptr, envp_buf.ptr),
+        .no_expand => return execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_ptr, envp_buf.ptr),
+    }
+}
+
+/// This function must allocate memory to add a null terminating bytes on path and each arg.
+/// It must also convert to KEY=VALUE\0 format for environment variables, and include null
+/// pointers after the args and after the environment variables.
+/// `argv_slice[0]` is the executable path.
+/// This function also uses the PATH environment variable to get the full path to the executable.
+pub fn execvpe(
+    allocator: *mem.Allocator,
+    argv_slice: []const []const u8,
+    env_map: *const std.BufMap,
+) (ExecveError || error{OutOfMemory}) {
+    return execvpe_expandArg0(allocator, .no_expand, argv_slice, env_map);
 }
 
 pub fn createNullDelimitedEnvMap(allocator: *mem.Allocator, env_map: *const std.BufMap) ![:null]?[*:0]u8 {
@@ -1038,7 +1087,7 @@ pub fn freeNullDelimitedEnvMap(allocator: *mem.Allocator, envp_buf: []?[*:0]u8) 
 }
 
 /// Get an environment variable.
-/// See also `getenvC`.
+/// See also `getenvZ`.
 /// TODO make this go through libc when we have it
 pub fn getenv(key: []const u8) ?[]const u8 {
     for (environ) |ptr| {
@@ -1056,9 +1105,12 @@ pub fn getenv(key: []const u8) ?[]const u8 {
     return null;
 }
 
+/// Deprecated in favor of `getenvZ`.
+pub const getenvC = getenvZ;
+
 /// Get an environment variable with a null-terminated name.
 /// See also `getenv`.
-pub fn getenvC(key: [*:0]const u8) ?[]const u8 {
+pub fn getenvZ(key: [*:0]const u8) ?[]const u8 {
     if (builtin.link_libc) {
         const value = system.getenv(key) orelse return null;
         return mem.toSliceConst(u8, value);
@@ -2452,6 +2504,9 @@ pub const AccessError = error{
     InputOutput,
     SystemResources,
     BadPathName,
+    FileBusy,
+    SymLinkLoop,
+    ReadOnlyFileSystem,
 
     /// On Windows, file paths must be valid Unicode.
     InvalidUtf8,
@@ -2469,8 +2524,11 @@ pub fn access(path: []const u8, mode: u32) AccessError!void {
     return accessC(&path_c, mode);
 }
 
+/// Deprecated in favor of `accessZ`.
+pub const accessC = accessZ;
+
 /// Same as `access` except `path` is null-terminated.
-pub fn accessC(path: [*:0]const u8, mode: u32) AccessError!void {
+pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
     if (builtin.os == .windows) {
         const path_w = try windows.cStrToPrefixedFileW(path);
         _ = try windows.GetFileAttributesW(&path_w);
@@ -2479,12 +2537,11 @@ pub fn accessC(path: [*:0]const u8, mode: u32) AccessError!void {
     switch (errno(system.access(path, mode))) {
         0 => return,
         EACCES => return error.PermissionDenied,
-        EROFS => return error.PermissionDenied,
-        ELOOP => return error.PermissionDenied,
-        ETXTBSY => return error.PermissionDenied,
+        EROFS => return error.ReadOnlyFileSystem,
+        ELOOP => return error.SymLinkLoop,
+        ETXTBSY => return error.FileBusy,
         ENOTDIR => return error.FileNotFound,
         ENOENT => return error.FileNotFound,
-
         ENAMETOOLONG => return error.NameTooLong,
         EINVAL => unreachable,
         EFAULT => unreachable,
@@ -2507,6 +2564,79 @@ pub fn accessW(path: [*:0]const u16, mode: u32) windows.GetFileAttributesError!v
         .PATH_NOT_FOUND => return error.FileNotFound,
         .ACCESS_DENIED => return error.PermissionDenied,
         else => |err| return windows.unexpectedError(err),
+    }
+}
+
+/// Check user's permissions for a file, based on an open directory handle.
+/// TODO currently this ignores `mode` and `flags` on Windows.
+pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessError!void {
+    if (builtin.os == .windows) {
+        const path_w = try windows.sliceToPrefixedFileW(path);
+        return faccessatW(dirfd, &path_w, mode, flags);
+    }
+    const path_c = try toPosixPath(path);
+    return faccessatZ(dirfd, &path_c, mode, flags);
+}
+
+/// Same as `faccessat` except the path parameter is null-terminated.
+pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: u32, flags: u32) AccessError!void {
+    if (builtin.os == .windows) {
+        const path_w = try windows.cStrToPrefixedFileW(path);
+        return faccessatW(dirfd, &path_w, mode, flags);
+    }
+    switch (errno(system.faccessat(dirfd, path, mode, flags))) {
+        0 => return,
+        EACCES => return error.PermissionDenied,
+        EROFS => return error.ReadOnlyFileSystem,
+        ELOOP => return error.SymLinkLoop,
+        ETXTBSY => return error.FileBusy,
+        ENOTDIR => return error.FileNotFound,
+        ENOENT => return error.FileNotFound,
+        ENAMETOOLONG => return error.NameTooLong,
+        EINVAL => unreachable,
+        EFAULT => unreachable,
+        EIO => return error.InputOutput,
+        ENOMEM => return error.SystemResources,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+/// Same as `faccessat` except asserts the target is Windows and the path parameter
+/// is NtDll-prefixed, null-terminated, WTF-16 encoded.
+/// TODO currently this ignores `mode` and `flags`
+pub fn faccessatW(dirfd: fd_t, sub_path_w: [*:0]const u16, mode: u32, flags: u32) AccessError!void {
+    if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
+        return;
+    }
+    if (sub_path_w[0] == '.' and sub_path_w[1] == '.' and sub_path_w[2] == 0) {
+        return;
+    }
+
+    const path_len_bytes = math.cast(u16, mem.toSliceConst(u16, sub_path_w).len * 2) catch |err| switch (err) {
+        error.Overflow => return error.NameTooLong,
+    };
+    var nt_name = windows.UNICODE_STRING{
+        .Length = path_len_bytes,
+        .MaximumLength = path_len_bytes,
+        .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
+    };
+    var attr = windows.OBJECT_ATTRIBUTES{
+        .Length = @sizeOf(windows.OBJECT_ATTRIBUTES),
+        .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w)) null else dirfd,
+        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+        .ObjectName = &nt_name,
+        .SecurityDescriptor = null,
+        .SecurityQualityOfService = null,
+    };
+    var basic_info: windows.FILE_BASIC_INFORMATION = undefined;
+    switch (windows.ntdll.NtQueryAttributesFile(&attr, &basic_info)) {
+        .SUCCESS => return,
+        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .INVALID_PARAMETER => unreachable,
+        .ACCESS_DENIED => return error.PermissionDenied,
+        .OBJECT_PATH_SYNTAX_BAD => unreachable,
+        else => |rc| return windows.unexpectedStatus(rc),
     }
 }
 
@@ -2844,18 +2974,26 @@ pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
 }
 
 pub fn dl_iterate_phdr(
-    comptime T: type,
-    callback: extern fn (info: *dl_phdr_info, size: usize, data: ?*T) i32,
-    data: ?*T,
-) isize {
+    context: var,
+    comptime Error: type,
+    comptime callback: fn (info: *dl_phdr_info, size: usize, context: @TypeOf(context)) Error!void,
+) Error!void {
+    const Context = @TypeOf(context);
+
     if (builtin.object_format != .elf)
         @compileError("dl_iterate_phdr is not available for this target");
 
     if (builtin.link_libc) {
-        return system.dl_iterate_phdr(
-            @ptrCast(std.c.dl_iterate_phdr_callback, callback),
-            @ptrCast(?*c_void, data),
-        );
+        switch (system.dl_iterate_phdr(struct {
+            fn callbackC(info: *dl_phdr_info, size: usize, data: ?*c_void) callconv(.C) c_int {
+                const context_ptr = @ptrCast(*const Context, @alignCast(@alignOf(*const Context), data));
+                callback(info, size, context_ptr.*) catch |err| return @errorToInt(err);
+                return 0;
+            }
+        }.callbackC, @intToPtr(?*c_void, @ptrToInt(&context)))) {
+            0 => return,
+            else => |err| return @errSetCast(Error, @intToError(@intCast(u16, err))), // TODO don't hardcode u16
+        }
     }
 
     const elf_base = std.process.getBaseAddress();
@@ -2877,11 +3015,10 @@ pub fn dl_iterate_phdr(
             .dlpi_phnum = ehdr.e_phnum,
         };
 
-        return callback(&info, @sizeOf(dl_phdr_info), data);
+        return callback(&info, @sizeOf(dl_phdr_info), context);
     }
 
     // Last return value from the callback function
-    var last_r: isize = 0;
     while (it.next()) |entry| {
         var dlpi_phdr: [*]elf.Phdr = undefined;
         var dlpi_phnum: u16 = undefined;
@@ -2903,11 +3040,8 @@ pub fn dl_iterate_phdr(
             .dlpi_phnum = dlpi_phnum,
         };
 
-        last_r = callback(&info, @sizeOf(dl_phdr_info), data);
-        if (last_r != 0) break;
+        try callback(&info, @sizeOf(dl_phdr_info), context);
     }
-
-    return last_r;
 }
 
 pub const ClockGetTimeError = error{UnsupportedClock} || UnexpectedError;

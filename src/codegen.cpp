@@ -18,7 +18,7 @@
 #include "target.hpp"
 #include "util.hpp"
 #include "zig_llvm.h"
-#include "userland.h"
+#include "stage2.h"
 #include "dump_analysis.hpp"
 #include "softfloat.hpp"
 #include "mem_profile.hpp"
@@ -8375,9 +8375,11 @@ static bool detect_dynamic_link(CodeGen *g) {
         return true;
     if (g->zig_target->os == OsFreestanding)
         return false;
-    if (target_requires_pic(g->zig_target, g->libc_link_lib != nullptr))
+    if (target_os_requires_libc(g->zig_target->os))
         return true;
-    // If there are no dynamic libraries then we can disable PIC
+    if (g->libc_link_lib != nullptr && target_is_glibc(g->zig_target))
+        return true;
+    // If there are no dynamic libraries then we can disable dynamic linking.
     for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
         LinkLib *link_lib = g->link_libs_list.at(i);
         if (target_is_libc_lib_name(g->zig_target, buf_ptr(link_lib->name)))
@@ -8624,7 +8626,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
             break;
     }
     buf_appendf(contents, "pub const output_mode = OutputMode.%s;\n", out_type);
-    const char *link_type = g->is_dynamic ? "Dynamic" : "Static";
+    const char *link_type = g->have_dynamic_link ? "Dynamic" : "Static";
     buf_appendf(contents, "pub const link_mode = LinkMode.%s;\n", link_type);
     buf_appendf(contents, "pub const is_test = %s;\n", bool_to_str(g->is_test_build));
     buf_appendf(contents, "pub const single_threaded = %s;\n", bool_to_str(g->is_single_threaded));
@@ -8731,7 +8733,7 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_int(&cache_hash, g->build_mode);
     cache_bool(&cache_hash, g->strip_debug_symbols);
     cache_int(&cache_hash, g->out_type);
-    cache_bool(&cache_hash, g->is_dynamic);
+    cache_bool(&cache_hash, detect_dynamic_link(g));
     cache_bool(&cache_hash, g->is_test_build);
     cache_bool(&cache_hash, g->is_single_threaded);
     cache_bool(&cache_hash, g->test_is_evented);
@@ -8957,6 +8959,8 @@ static void init(CodeGen *g) {
 }
 
 static void detect_dynamic_linker(CodeGen *g) {
+    Error err;
+
     if (g->dynamic_linker_path != nullptr)
         return;
     if (!g->have_dynamic_link)
@@ -8964,42 +8968,16 @@ static void detect_dynamic_linker(CodeGen *g) {
     if (g->out_type == OutTypeObj || (g->out_type == OutTypeLib && !g->is_dynamic))
         return;
 
-    const char *standard_ld_path = target_dynamic_linker(g->zig_target);
-    if (standard_ld_path == nullptr)
-        return;
-
-    if (g->zig_target->is_native) {
-        // target_dynamic_linker is usually correct. However on some systems, such as NixOS
-        // it will be incorrect. See if we can do better by looking at what zig's own
-        // dynamic linker path is.
-        g->dynamic_linker_path = get_self_dynamic_linker_path();
-        if (g->dynamic_linker_path != nullptr)
-            return;
-
-        // If Zig is statically linked, such as via distributed binary static builds, the above
-        // trick won't work. What are we left with? Try to run the system C compiler and get
-        // it to tell us the dynamic linker path
-#if defined(ZIG_OS_LINUX)
-        {
-            Error err;
-            Buf *result = buf_alloc();
-            for (size_t i = 0; possible_ld_names[i] != NULL; i += 1) {
-                const char *lib_name = possible_ld_names[i];
-                if ((err = zig_libc_cc_print_file_name(lib_name, result, false, true))) {
-                    if (err != ErrorCCompilerCannotFindFile && err != ErrorNoCCompilerInstalled) {
-                        fprintf(stderr, "Unable to detect native dynamic linker: %s\n", err_str(err));
-                        exit(1);
-                    }
-                    continue;
-                }
-                g->dynamic_linker_path = result;
-                return;
-            }
-        }
-#endif
+    char *dynamic_linker_ptr;
+    size_t dynamic_linker_len;
+    if ((err = stage2_detect_dynamic_linker(g->zig_target, &dynamic_linker_ptr, &dynamic_linker_len))) {
+        if (err == ErrorTargetHasNoDynamicLinker) return;
+        fprintf(stderr, "Unable to detect dynamic linker: %s\n", err_str(err));
+        exit(1);
     }
-
-    g->dynamic_linker_path = buf_create_from_str(standard_ld_path);
+    g->dynamic_linker_path = buf_create_from_mem(dynamic_linker_ptr, dynamic_linker_len);
+    // Skips heap::c_allocator because the memory is allocated by stage2 library.
+    free(dynamic_linker_ptr);
 }
 
 static void detect_libc(CodeGen *g) {
@@ -9028,16 +9006,16 @@ static void detect_libc(CodeGen *g) {
                 buf_ptr(g->zig_lib_dir), target_os_name(g->zig_target->os));
 
         g->libc_include_dir_len = 4;
-        g->libc_include_dir_list = heap::c_allocator.allocate<Buf*>(g->libc_include_dir_len);
-        g->libc_include_dir_list[0] = arch_include_dir;
-        g->libc_include_dir_list[1] = generic_include_dir;
-        g->libc_include_dir_list[2] = arch_os_include_dir;
-        g->libc_include_dir_list[3] = generic_os_include_dir;
+        g->libc_include_dir_list = heap::c_allocator.allocate<const char*>(g->libc_include_dir_len);
+        g->libc_include_dir_list[0] = buf_ptr(arch_include_dir);
+        g->libc_include_dir_list[1] = buf_ptr(generic_include_dir);
+        g->libc_include_dir_list[2] = buf_ptr(arch_os_include_dir);
+        g->libc_include_dir_list[3] = buf_ptr(generic_os_include_dir);
         return;
     }
 
     if (g->zig_target->is_native) {
-        g->libc = heap::c_allocator.create<ZigLibCInstallation>();
+        g->libc = heap::c_allocator.create<Stage2LibCInstallation>();
 
         // search for native_libc.txt in following dirs:
         //   - LOCAL_CACHE_DIR
@@ -9082,8 +9060,8 @@ static void detect_libc(CodeGen *g) {
         if (libc_txt == nullptr)
             libc_txt = &global_libc_txt;
 
-        if ((err = zig_libc_parse(g->libc, libc_txt, g->zig_target, false))) {
-            if ((err = zig_libc_find_native(g->libc, true))) {
+        if ((err = stage2_libc_parse(g->libc, buf_ptr(libc_txt)))) {
+            if ((err = stage2_libc_find_native(g->libc))) {
                 fprintf(stderr,
                     "Unable to link against libc: Unable to find libc installation: %s\n"
                     "See `zig libc --help` for more details.\n", err_str(err));
@@ -9103,7 +9081,7 @@ static void detect_libc(CodeGen *g) {
                 fprintf(stderr, "Unable to open %s: %s\n", buf_ptr(native_libc_tmp), strerror(errno));
                 exit(1);
             }
-            zig_libc_render(g->libc, file);
+            stage2_libc_render(g->libc, file);
             if (fclose(file) != 0) {
                 fprintf(stderr, "Unable to save %s: %s\n", buf_ptr(native_libc_tmp), strerror(errno));
                 exit(1);
@@ -9113,27 +9091,28 @@ static void detect_libc(CodeGen *g) {
                 exit(1);
             }
         }
-        bool want_sys_dir = !buf_eql_buf(&g->libc->include_dir, &g->libc->sys_include_dir);
+        bool want_sys_dir = !mem_eql_mem(g->libc->include_dir,     g->libc->include_dir_len,
+                                         g->libc->sys_include_dir, g->libc->sys_include_dir_len);
         size_t want_um_and_shared_dirs = (g->zig_target->os == OsWindows) ? 2 : 0;
         size_t dir_count = 1 + want_sys_dir + want_um_and_shared_dirs;
         g->libc_include_dir_len = 0;
-        g->libc_include_dir_list = heap::c_allocator.allocate<Buf*>(dir_count);
+        g->libc_include_dir_list = heap::c_allocator.allocate<const char *>(dir_count);
 
-        g->libc_include_dir_list[g->libc_include_dir_len] = &g->libc->include_dir;
+        g->libc_include_dir_list[g->libc_include_dir_len] = g->libc->include_dir;
         g->libc_include_dir_len += 1;
 
         if (want_sys_dir) {
-            g->libc_include_dir_list[g->libc_include_dir_len] = &g->libc->sys_include_dir;
+            g->libc_include_dir_list[g->libc_include_dir_len] = g->libc->sys_include_dir;
             g->libc_include_dir_len += 1;
         }
 
         if (want_um_and_shared_dirs != 0) {
-            g->libc_include_dir_list[g->libc_include_dir_len] = buf_sprintf("%s" OS_SEP ".." OS_SEP "um",
-                    buf_ptr(&g->libc->include_dir));
+            g->libc_include_dir_list[g->libc_include_dir_len] = buf_ptr(buf_sprintf(
+                        "%s" OS_SEP ".." OS_SEP "um", g->libc->include_dir));
             g->libc_include_dir_len += 1;
 
-            g->libc_include_dir_list[g->libc_include_dir_len] = buf_sprintf("%s" OS_SEP ".." OS_SEP "shared",
-                    buf_ptr(&g->libc->include_dir));
+            g->libc_include_dir_list[g->libc_include_dir_len] = buf_ptr(buf_sprintf(
+                        "%s" OS_SEP ".." OS_SEP "shared", g->libc->include_dir));
             g->libc_include_dir_len += 1;
         }
         assert(g->libc_include_dir_len == dir_count);
@@ -9208,9 +9187,9 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
     args.append(buf_ptr(g->zig_c_headers_dir));
 
     for (size_t i = 0; i < g->libc_include_dir_len; i += 1) {
-        Buf *include_dir = g->libc_include_dir_list[i];
+        const char *include_dir = g->libc_include_dir_list[i];
         args.append("-isystem");
-        args.append(buf_ptr(include_dir));
+        args.append(include_dir);
     }
 
     if (g->zig_target->is_native) {
@@ -9666,7 +9645,7 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     cache_buf(cache_hash, compiler_id);
     cache_int(cache_hash, g->err_color);
     cache_buf(cache_hash, g->zig_c_headers_dir);
-    cache_list_of_buf(cache_hash, g->libc_include_dir_list, g->libc_include_dir_len);
+    cache_list_of_str(cache_hash, g->libc_include_dir_list, g->libc_include_dir_len);
     cache_int(cache_hash, g->zig_target->is_native);
     cache_int(cache_hash, g->zig_target->arch);
     cache_int(cache_hash, g->zig_target->sub_arch);
@@ -10482,11 +10461,11 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_list_of_str(ch, g->lib_dirs.items, g->lib_dirs.length);
     cache_list_of_str(ch, g->framework_dirs.items, g->framework_dirs.length);
     if (g->libc) {
-        cache_buf(ch, &g->libc->include_dir);
-        cache_buf(ch, &g->libc->sys_include_dir);
-        cache_buf(ch, &g->libc->crt_dir);
-        cache_buf(ch, &g->libc->msvc_lib_dir);
-        cache_buf(ch, &g->libc->kernel32_lib_dir);
+        cache_str(ch, g->libc->include_dir);
+        cache_str(ch, g->libc->sys_include_dir);
+        cache_str(ch, g->libc->crt_dir);
+        cache_str(ch, g->libc->msvc_lib_dir);
+        cache_str(ch, g->libc->kernel32_lib_dir);
     }
     cache_buf_opt(ch, g->dynamic_linker_path);
     cache_buf_opt(ch, g->version_script_path);
@@ -10765,7 +10744,7 @@ ZigPackage *codegen_create_package(CodeGen *g, const char *root_src_dir, const c
 }
 
 CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType out_type,
-        ZigLibCInstallation *libc, const char *name, Stage2ProgressNode *parent_progress_node)
+        Stage2LibCInstallation *libc, const char *name, Stage2ProgressNode *parent_progress_node)
 {
     Stage2ProgressNode *child_progress_node = stage2_progress_start(
             parent_progress_node ? parent_progress_node : parent_gen->sub_progress_node,
@@ -10804,7 +10783,7 @@ CodeGen *create_child_codegen(CodeGen *parent_gen, Buf *root_src_path, OutType o
 
 CodeGen *codegen_create(Buf *main_pkg_path, Buf *root_src_path, const ZigTarget *target,
     OutType out_type, BuildMode build_mode, Buf *override_lib_dir,
-    ZigLibCInstallation *libc, Buf *cache_dir, bool is_test_build, Stage2ProgressNode *progress_node)
+    Stage2LibCInstallation *libc, Buf *cache_dir, bool is_test_build, Stage2ProgressNode *progress_node)
 {
     CodeGen *g = heap::c_allocator.create<CodeGen>();
     g->pass1_arena = heap::ArenaAllocator::construct(&heap::c_allocator, &heap::c_allocator, "pass1");

@@ -613,3 +613,59 @@ pub fn getBaseAddress() usize {
         else => @compileError("Unsupported OS"),
     }
 }
+
+/// Caller owns the result value and each inner slice.
+pub fn getSelfExeSharedLibPaths(allocator: *Allocator) error{OutOfMemory}![][:0]u8 {
+    switch (builtin.link_mode) {
+        .Static => return &[_][:0]u8{},
+        .Dynamic => {},
+    }
+    const List = std.ArrayList([:0]u8);
+    switch (builtin.os) {
+        .linux,
+        .freebsd,
+        .netbsd,
+        .dragonfly,
+        => {
+            var paths = List.init(allocator);
+            errdefer {
+                const slice = paths.toOwnedSlice();
+                for (slice) |item| {
+                    allocator.free(item);
+                }
+                allocator.free(slice);
+            }
+            try os.dl_iterate_phdr(&paths, error{OutOfMemory}, struct {
+                fn callback(info: *os.dl_phdr_info, size: usize, list: *List) !void {
+                    const name = info.dlpi_name orelse return;
+                    if (name[0] == '/') {
+                        const item = try mem.dupeZ(list.allocator, u8, mem.toSliceConst(u8, name));
+                        errdefer list.allocator.free(item);
+                        try list.append(item);
+                    }
+                }
+            }.callback);
+            return paths.toOwnedSlice();
+        },
+        .macosx, .ios, .watchos, .tvos => {
+            var paths = List.init(allocator);
+            errdefer {
+                const slice = paths.toOwnedSlice();
+                for (slice) |item| {
+                    allocator.free(item);
+                }
+                allocator.free(slice);
+            }
+            const img_count = std.c._dyld_image_count();
+            var i: u32 = 0;
+            while (i < img_count) : (i += 1) {
+                const name = std.c._dyld_get_image_name(i);
+                const item = try mem.dupeZ(allocator, u8, mem.toSliceConst(u8, name));
+                errdefer allocator.free(item);
+                try paths.append(item);
+            }
+            return paths.toOwnedSlice();
+        },
+        else => @compileError("getSelfExeSharedLibPaths unimplemented for this target"),
+    }
+}

@@ -14,6 +14,7 @@ const self_hosted_main = @import("main.zig");
 const errmsg = @import("errmsg.zig");
 const DepTokenizer = @import("dep_tokenizer.zig").Tokenizer;
 const assert = std.debug.assert;
+const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 
 var stderr_file: fs.File = undefined;
 var stderr: *io.OutStream(fs.File.WriteError) = undefined;
@@ -93,6 +94,23 @@ const Error = extern enum {
     InvalidLlvmCpuFeaturesFormat,
     UnknownApplicationBinaryInterface,
     ASTUnitFailure,
+    BadPathName,
+    SymLinkLoop,
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+    NoDevice,
+    DeviceBusy,
+    UnableToSpawnCCompiler,
+    CCompilerExitCode,
+    CCompilerCrashed,
+    CCompilerCannotFindHeaders,
+    LibCRuntimeNotFound,
+    LibCStdLibHeaderNotFound,
+    LibCKernel32LibNotFound,
+    UnsupportedArchitecture,
+    WindowsSdkNotFound,
+    UnknownDynamicLinkerPath,
+    TargetHasNoDynamicLinker,
 };
 
 const FILE = std.c.FILE;
@@ -113,12 +131,12 @@ export fn stage2_translate_c(
         error.SemanticAnalyzeFail => {
             out_errors_ptr.* = errors.ptr;
             out_errors_len.* = errors.len;
-            return Error.CCompileErrors;
+            return .CCompileErrors;
         },
-        error.ASTUnitFailure => return Error.ASTUnitFailure,
-        error.OutOfMemory => return Error.OutOfMemory,
+        error.ASTUnitFailure => return .ASTUnitFailure,
+        error.OutOfMemory => return .OutOfMemory,
     };
-    return Error.None;
+    return .None;
 }
 
 export fn stage2_free_clang_errors(errors_ptr: [*]translate_c.ClangErrMsg, errors_len: usize) void {
@@ -129,18 +147,18 @@ export fn stage2_render_ast(tree: *ast.Tree, output_file: *FILE) Error {
     const c_out_stream = &std.io.COutStream.init(output_file).stream;
     _ = std.zig.render(std.heap.c_allocator, c_out_stream, tree) catch |e| switch (e) {
         error.WouldBlock => unreachable, // stage1 opens stuff in exclusively blocking mode
-        error.SystemResources => return Error.SystemResources,
-        error.OperationAborted => return Error.OperationAborted,
-        error.BrokenPipe => return Error.BrokenPipe,
-        error.DiskQuota => return Error.DiskQuota,
-        error.FileTooBig => return Error.FileTooBig,
-        error.NoSpaceLeft => return Error.NoSpaceLeft,
-        error.AccessDenied => return Error.AccessDenied,
-        error.OutOfMemory => return Error.OutOfMemory,
-        error.Unexpected => return Error.Unexpected,
-        error.InputOutput => return Error.FileSystem,
+        error.SystemResources => return .SystemResources,
+        error.OperationAborted => return .OperationAborted,
+        error.BrokenPipe => return .BrokenPipe,
+        error.DiskQuota => return .DiskQuota,
+        error.FileTooBig => return .FileTooBig,
+        error.NoSpaceLeft => return .NoSpaceLeft,
+        error.AccessDenied => return .AccessDenied,
+        error.OutOfMemory => return .OutOfMemory,
+        error.Unexpected => return .Unexpected,
+        error.InputOutput => return .FileSystem,
     };
-    return Error.None;
+    return .None;
 }
 
 // TODO: just use the actual self-hosted zig fmt. Until https://github.com/ziglang/zig/issues/2377,
@@ -831,4 +849,270 @@ export fn stage2_cpu_features_get_llvm_cpu(cpu_features: *const Stage2CpuFeature
 // ABI warning
 export fn stage2_cpu_features_get_llvm_features(cpu_features: *const Stage2CpuFeatures) ?[*:0]const u8 {
     return cpu_features.llvm_features_str;
+}
+
+// ABI warning
+const Stage2LibCInstallation = extern struct {
+    include_dir: [*:0]const u8,
+    include_dir_len: usize,
+    sys_include_dir: [*:0]const u8,
+    sys_include_dir_len: usize,
+    crt_dir: [*:0]const u8,
+    crt_dir_len: usize,
+    static_crt_dir: [*:0]const u8,
+    static_crt_dir_len: usize,
+    msvc_lib_dir: [*:0]const u8,
+    msvc_lib_dir_len: usize,
+    kernel32_lib_dir: [*:0]const u8,
+    kernel32_lib_dir_len: usize,
+
+    fn initFromStage2(self: *Stage2LibCInstallation, libc: LibCInstallation) void {
+        if (libc.include_dir) |s| {
+            self.include_dir = s.ptr;
+            self.include_dir_len = s.len;
+        } else {
+            self.include_dir = "";
+            self.include_dir_len = 0;
+        }
+        if (libc.sys_include_dir) |s| {
+            self.sys_include_dir = s.ptr;
+            self.sys_include_dir_len = s.len;
+        } else {
+            self.sys_include_dir = "";
+            self.sys_include_dir_len = 0;
+        }
+        if (libc.crt_dir) |s| {
+            self.crt_dir = s.ptr;
+            self.crt_dir_len = s.len;
+        } else {
+            self.crt_dir = "";
+            self.crt_dir_len = 0;
+        }
+        if (libc.static_crt_dir) |s| {
+            self.static_crt_dir = s.ptr;
+            self.static_crt_dir_len = s.len;
+        } else {
+            self.static_crt_dir = "";
+            self.static_crt_dir_len = 0;
+        }
+        if (libc.msvc_lib_dir) |s| {
+            self.msvc_lib_dir = s.ptr;
+            self.msvc_lib_dir_len = s.len;
+        } else {
+            self.msvc_lib_dir = "";
+            self.msvc_lib_dir_len = 0;
+        }
+        if (libc.kernel32_lib_dir) |s| {
+            self.kernel32_lib_dir = s.ptr;
+            self.kernel32_lib_dir_len = s.len;
+        } else {
+            self.kernel32_lib_dir = "";
+            self.kernel32_lib_dir_len = 0;
+        }
+    }
+
+    fn toStage2(self: Stage2LibCInstallation) LibCInstallation {
+        var libc: LibCInstallation = .{};
+        if (self.include_dir_len != 0) {
+            libc.include_dir = self.include_dir[0..self.include_dir_len :0];
+        }
+        if (self.sys_include_dir_len != 0) {
+            libc.sys_include_dir = self.sys_include_dir[0..self.sys_include_dir_len :0];
+        }
+        if (self.crt_dir_len != 0) {
+            libc.crt_dir = self.crt_dir[0..self.crt_dir_len :0];
+        }
+        if (self.static_crt_dir_len != 0) {
+            libc.static_crt_dir = self.static_crt_dir[0..self.static_crt_dir_len :0];
+        }
+        if (self.msvc_lib_dir_len != 0) {
+            libc.msvc_lib_dir = self.msvc_lib_dir[0..self.msvc_lib_dir_len :0];
+        }
+        if (self.kernel32_lib_dir_len != 0) {
+            libc.kernel32_lib_dir = self.kernel32_lib_dir[0..self.kernel32_lib_dir_len :0];
+        }
+        return libc;
+    }
+};
+
+// ABI warning
+export fn stage2_libc_parse(stage1_libc: *Stage2LibCInstallation, libc_file_z: [*:0]const u8) Error {
+    stderr_file = std.io.getStdErr();
+    stderr = &stderr_file.outStream().stream;
+    const libc_file = mem.toSliceConst(u8, libc_file_z);
+    var libc = LibCInstallation.parse(std.heap.c_allocator, libc_file, stderr) catch |err| switch (err) {
+        error.ParseError => return .SemanticAnalyzeFail,
+        error.DiskQuota => return .DiskQuota,
+        error.FileTooBig => return .FileTooBig,
+        error.InputOutput => return .FileSystem,
+        error.NoSpaceLeft => return .NoSpaceLeft,
+        error.AccessDenied => return .AccessDenied,
+        error.BrokenPipe => return .BrokenPipe,
+        error.SystemResources => return .SystemResources,
+        error.OperationAborted => return .OperationAborted,
+        error.WouldBlock => unreachable,
+        error.Unexpected => return .Unexpected,
+        error.EndOfStream => return .EndOfFile,
+        error.IsDir => return .IsDir,
+        error.ConnectionResetByPeer => unreachable,
+        error.OutOfMemory => return .OutOfMemory,
+        error.Unseekable => unreachable,
+        error.SharingViolation => return .SharingViolation,
+        error.PathAlreadyExists => unreachable,
+        error.FileNotFound => return .FileNotFound,
+        error.PipeBusy => return .PipeBusy,
+        error.NameTooLong => return .PathTooLong,
+        error.InvalidUtf8 => return .BadPathName,
+        error.BadPathName => return .BadPathName,
+        error.SymLinkLoop => return .SymLinkLoop,
+        error.ProcessFdQuotaExceeded => return .ProcessFdQuotaExceeded,
+        error.SystemFdQuotaExceeded => return .SystemFdQuotaExceeded,
+        error.NoDevice => return .NoDevice,
+        error.NotDir => return .NotDir,
+        error.DeviceBusy => return .DeviceBusy,
+    };
+    stage1_libc.initFromStage2(libc);
+    return .None;
+}
+
+// ABI warning
+export fn stage2_libc_find_native(stage1_libc: *Stage2LibCInstallation) Error {
+    var libc = LibCInstallation.findNative(std.heap.c_allocator) catch |err| switch (err) {
+        error.OutOfMemory => return .OutOfMemory,
+        error.FileSystem => return .FileSystem,
+        error.UnableToSpawnCCompiler => return .UnableToSpawnCCompiler,
+        error.CCompilerExitCode => return .CCompilerExitCode,
+        error.CCompilerCrashed => return .CCompilerCrashed,
+        error.CCompilerCannotFindHeaders => return .CCompilerCannotFindHeaders,
+        error.LibCRuntimeNotFound => return .LibCRuntimeNotFound,
+        error.LibCStdLibHeaderNotFound => return .LibCStdLibHeaderNotFound,
+        error.LibCKernel32LibNotFound => return .LibCKernel32LibNotFound,
+        error.UnsupportedArchitecture => return .UnsupportedArchitecture,
+        error.WindowsSdkNotFound => return .WindowsSdkNotFound,
+    };
+    stage1_libc.initFromStage2(libc);
+    return .None;
+}
+
+// ABI warning
+export fn stage2_libc_render(stage1_libc: *Stage2LibCInstallation, output_file: *FILE) Error {
+    var libc = stage1_libc.toStage2();
+    const c_out_stream = &std.io.COutStream.init(output_file).stream;
+    libc.render(c_out_stream) catch |err| switch (err) {
+        error.WouldBlock => unreachable, // stage1 opens stuff in exclusively blocking mode
+        error.SystemResources => return .SystemResources,
+        error.OperationAborted => return .OperationAborted,
+        error.BrokenPipe => return .BrokenPipe,
+        error.DiskQuota => return .DiskQuota,
+        error.FileTooBig => return .FileTooBig,
+        error.NoSpaceLeft => return .NoSpaceLeft,
+        error.AccessDenied => return .AccessDenied,
+        error.Unexpected => return .Unexpected,
+        error.InputOutput => return .FileSystem,
+    };
+    return .None;
+}
+
+// ABI warning
+const Stage2Target = extern struct {
+    arch: c_int,
+    sub_arch: c_int,
+    vendor: c_int,
+    os: c_int,
+    abi: c_int,
+    glibc_version: ?*Stage2GLibCVersion, // null means default
+    cpu_features: *Stage2CpuFeatures,
+    is_native: bool,
+};
+
+// ABI warning
+const Stage2GLibCVersion = extern struct {
+    major: u32,
+    minor: u32,
+    patch: u32,
+};
+
+// ABI warning
+export fn stage2_detect_dynamic_linker(in_target: *const Stage2Target, out_ptr: *[*:0]u8, out_len: *usize) Error {
+    const in_arch = in_target.arch - 1; // skip over ZigLLVM_UnknownArch
+    const in_sub_arch = in_target.sub_arch - 1; // skip over ZigLLVM_NoSubArch
+    const in_os = in_target.os;
+    const in_abi = in_target.abi - 1; // skip over ZigLLVM_UnknownEnvironment
+    const target: Target = if (in_target.is_native) .Native else .{
+        .Cross = .{
+            .arch = switch (enumInt(@TagType(Target.Arch), in_arch)) {
+                .arm => .{ .arm = enumInt(Target.Arch.Arm32, in_sub_arch) },
+                .armeb => .{ .armeb = enumInt(Target.Arch.Arm32, in_sub_arch) },
+                .thumb => .{ .thumb = enumInt(Target.Arch.Arm32, in_sub_arch) },
+                .thumbeb => .{ .thumbeb = enumInt(Target.Arch.Arm32, in_sub_arch) },
+
+                .aarch64 => .{ .aarch64 = enumInt(Target.Arch.Arm64, in_sub_arch) },
+                .aarch64_be => .{ .aarch64_be = enumInt(Target.Arch.Arm64, in_sub_arch) },
+                .aarch64_32 => .{ .aarch64_32 = enumInt(Target.Arch.Arm64, in_sub_arch) },
+
+                .kalimba => .{ .kalimba = enumInt(Target.Arch.Kalimba, in_sub_arch) },
+
+                .arc => .arc,
+                .avr => .avr,
+                .bpfel => .bpfel,
+                .bpfeb => .bpfeb,
+                .hexagon => .hexagon,
+                .mips => .mips,
+                .mipsel => .mipsel,
+                .mips64 => .mips64,
+                .mips64el => .mips64el,
+                .msp430 => .msp430,
+                .powerpc => .powerpc,
+                .powerpc64 => .powerpc64,
+                .powerpc64le => .powerpc64le,
+                .r600 => .r600,
+                .amdgcn => .amdgcn,
+                .riscv32 => .riscv32,
+                .riscv64 => .riscv64,
+                .sparc => .sparc,
+                .sparcv9 => .sparcv9,
+                .sparcel => .sparcel,
+                .s390x => .s390x,
+                .tce => .tce,
+                .tcele => .tcele,
+                .i386 => .i386,
+                .x86_64 => .x86_64,
+                .xcore => .xcore,
+                .nvptx => .nvptx,
+                .nvptx64 => .nvptx64,
+                .le32 => .le32,
+                .le64 => .le64,
+                .amdil => .amdil,
+                .amdil64 => .amdil64,
+                .hsail => .hsail,
+                .hsail64 => .hsail64,
+                .spir => .spir,
+                .spir64 => .spir64,
+                .shave => .shave,
+                .lanai => .lanai,
+                .wasm32 => .wasm32,
+                .wasm64 => .wasm64,
+                .renderscript32 => .renderscript32,
+                .renderscript64 => .renderscript64,
+            },
+            .os = enumInt(Target.Os, in_os),
+            .abi = enumInt(Target.Abi, in_abi),
+            .cpu_features = in_target.cpu_features.cpu_features,
+        },
+    };
+    const result = @import("introspect.zig").detectDynamicLinker(
+        std.heap.c_allocator,
+        target,
+    ) catch |err| switch (err) {
+        error.OutOfMemory => return .OutOfMemory,
+        error.UnknownDynamicLinkerPath => return .UnknownDynamicLinkerPath,
+        error.TargetHasNoDynamicLinker => return .TargetHasNoDynamicLinker,
+    };
+    out_ptr.* = result.ptr;
+    out_len.* = result.len;
+    return .None;
+}
+
+fn enumInt(comptime Enum: type, int: c_int) Enum {
+    return @intToEnum(Enum, @intCast(@TagType(Enum), int));
 }

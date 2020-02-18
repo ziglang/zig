@@ -48,7 +48,10 @@ pub const ChildProcess = struct {
     cwd: ?[]const u8,
 
     err_pipe: if (builtin.os == .windows) void else [2]os.fd_t,
-    llnode: if (builtin.os == .windows) void else TailQueue(*ChildProcess).Node,
+
+    expand_arg0: Arg0Expand,
+
+    pub const Arg0Expand = os.Arg0Expand;
 
     pub const SpawnError = error{
         OutOfMemory,
@@ -90,7 +93,6 @@ pub const ChildProcess = struct {
             .handle = undefined,
             .thread_handle = undefined,
             .err_pipe = undefined,
-            .llnode = undefined,
             .term = null,
             .env_map = null,
             .cwd = null,
@@ -102,6 +104,7 @@ pub const ChildProcess = struct {
             .stdin_behavior = StdIo.Inherit,
             .stdout_behavior = StdIo.Inherit,
             .stderr_behavior = StdIo.Inherit,
+            .expand_arg0 = .no_expand,
         };
         errdefer allocator.destroy(child);
         return child;
@@ -174,34 +177,56 @@ pub const ChildProcess = struct {
 
     /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
     /// If it succeeds, the caller owns result.stdout and result.stderr memory.
+    /// TODO deprecate in favor of exec2
     pub fn exec(
         allocator: *mem.Allocator,
         argv: []const []const u8,
         cwd: ?[]const u8,
         env_map: ?*const BufMap,
-        max_output_size: usize,
+        max_output_bytes: usize,
     ) !ExecResult {
-        const child = try ChildProcess.init(argv, allocator);
+        return exec2(.{
+            .allocator = allocator,
+            .argv = argv,
+            .cwd = cwd,
+            .env_map = env_map,
+            .max_output_bytes = max_output_bytes,
+        });
+    }
+
+    /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
+    /// If it succeeds, the caller owns result.stdout and result.stderr memory.
+    /// TODO rename to exec
+    pub fn exec2(args: struct {
+        allocator: *mem.Allocator,
+        argv: []const []const u8,
+        cwd: ?[]const u8 = null,
+        env_map: ?*const BufMap = null,
+        max_output_bytes: usize = 50 * 1024,
+        expand_arg0: Arg0Expand = .no_expand,
+    }) !ExecResult {
+        const child = try ChildProcess.init(args.argv, args.allocator);
         defer child.deinit();
 
-        child.stdin_behavior = ChildProcess.StdIo.Ignore;
-        child.stdout_behavior = ChildProcess.StdIo.Pipe;
-        child.stderr_behavior = ChildProcess.StdIo.Pipe;
-        child.cwd = cwd;
-        child.env_map = env_map;
+        child.stdin_behavior = .Ignore;
+        child.stdout_behavior = .Pipe;
+        child.stderr_behavior = .Pipe;
+        child.cwd = args.cwd;
+        child.env_map = args.env_map;
+        child.expand_arg0 = args.expand_arg0;
 
         try child.spawn();
 
-        var stdout = Buffer.initNull(allocator);
-        var stderr = Buffer.initNull(allocator);
+        var stdout = Buffer.initNull(args.allocator);
+        var stderr = Buffer.initNull(args.allocator);
         defer Buffer.deinit(&stdout);
         defer Buffer.deinit(&stderr);
 
         var stdout_file_in_stream = child.stdout.?.inStream();
         var stderr_file_in_stream = child.stderr.?.inStream();
 
-        try stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
-        try stderr_file_in_stream.stream.readAllBuffer(&stderr, max_output_size);
+        try stdout_file_in_stream.stream.readAllBuffer(&stdout, args.max_output_bytes);
+        try stderr_file_in_stream.stream.readAllBuffer(&stderr, args.max_output_bytes);
 
         return ExecResult{
             .term = try child.wait(),
@@ -420,7 +445,7 @@ pub const ChildProcess = struct {
                 os.setreuid(uid, uid) catch |err| forkChildErrReport(err_pipe[1], err);
             }
 
-            const err = os.execvpe(self.allocator, self.argv, env_map);
+            const err = os.execvpe_expandArg0(self.allocator, self.expand_arg0, self.argv, env_map);
             forkChildErrReport(err_pipe[1], err);
         }
 
@@ -453,7 +478,6 @@ pub const ChildProcess = struct {
 
         self.pid = pid;
         self.err_pipe = err_pipe;
-        self.llnode = TailQueue(*ChildProcess).Node.init(self);
         self.term = null;
 
         if (self.stdin_behavior == StdIo.Pipe) {

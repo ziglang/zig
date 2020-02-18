@@ -1,7 +1,7 @@
 // This file is a shim for zig1. The real implementations of these are in
 // src-self-hosted/stage1.zig
 
-#include "userland.h"
+#include "stage2.h"
 #include "util.hpp"
 #include "zig_llvm.h"
 #include <stdio.h>
@@ -142,5 +142,36 @@ void stage2_cpu_features_get_builtin_str(const Stage2CpuFeatures *cpu_features,
 
 int stage2_cmd_targets(const char *zig_triple) {
     const char *msg = "stage0 called stage2_cmd_targets";
+    stage2_panic(msg, strlen(msg));
+}
+
+enum Error stage2_libc_parse(struct Stage2LibCInstallation *libc, const char *libc_file) {
+    libc->include_dir = "/dummy/include";
+    libc->include_dir_len = strlen(libc->include_dir);
+    libc->sys_include_dir = "/dummy/sys/include";
+    libc->sys_include_dir_len = strlen(libc->sys_include_dir);
+    libc->crt_dir = "";
+    libc->crt_dir_len = strlen(libc->crt_dir);
+    libc->static_crt_dir = "";
+    libc->static_crt_dir_len = strlen(libc->static_crt_dir);
+    libc->msvc_lib_dir = "";
+    libc->msvc_lib_dir_len = strlen(libc->msvc_lib_dir);
+    libc->kernel32_lib_dir = "";
+    libc->kernel32_lib_dir_len = strlen(libc->kernel32_lib_dir);
+    return ErrorNone;
+}
+
+enum Error stage2_libc_render(struct Stage2LibCInstallation *self, FILE *file) {
+    const char *msg = "stage0 called stage2_libc_render";
+    stage2_panic(msg, strlen(msg));
+}
+
+enum Error stage2_libc_find_native(struct Stage2LibCInstallation *libc) {
+    const char *msg = "stage0 called stage2_libc_find_native";
+    stage2_panic(msg, strlen(msg));
+}
+
+enum Error stage2_detect_dynamic_linker(const struct ZigTarget *target, char **out_ptr, size_t *out_len) {
+    const char *msg = "stage0 called stage2_detect_dynamic_linker";
     stage2_panic(msg, strlen(msg));
 }

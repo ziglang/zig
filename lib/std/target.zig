@@ -1037,6 +1037,20 @@ pub const Target = union(enum) {
         };
     }
 
+    pub fn isAndroid(self: Target) bool {
+        return switch (self.getAbi()) {
+            .android => true,
+            else => false,
+        };
+    }
+
+    pub fn isDragonFlyBSD(self: Target) bool {
+        return switch (self.getOs()) {
+            .dragonfly => true,
+            else => false,
+        };
+    }
+
     pub fn isUefi(self: Target) bool {
         return switch (self.getOs()) {
             .uefi => true,
@@ -1188,6 +1202,173 @@ pub const Target = union(enum) {
         }
 
         return .unavailable;
+    }
+
+    pub const FloatAbi = enum {
+        hard,
+        soft,
+        soft_fp,
+    };
+
+    pub fn getFloatAbi(self: Target) FloatAbi {
+        return switch (self.getAbi()) {
+            .gnueabihf,
+            .eabihf,
+            .musleabihf,
+            => .hard,
+            else => .soft,
+        };
+    }
+
+    pub fn hasDynamicLinker(self: Target) bool {
+        switch (self.getArch()) {
+            .wasm32,
+            .wasm64,
+            => return false,
+            else => {},
+        }
+        switch (self.getOs()) {
+            .freestanding,
+            .ios,
+            .tvos,
+            .watchos,
+            .macosx,
+            .uefi,
+            .windows,
+            .emscripten,
+            .other,
+            => return false,
+            else => return true,
+        }
+    }
+
+    /// Caller owns returned memory.
+    pub fn getStandardDynamicLinkerPath(
+        self: Target,
+        allocator: *mem.Allocator,
+    ) error{
+        OutOfMemory,
+        UnknownDynamicLinkerPath,
+        TargetHasNoDynamicLinker,
+    }![:0]u8 {
+        const a = allocator;
+        if (self.isAndroid()) {
+            return mem.dupeZ(a, u8, if (self.getArchPtrBitWidth() == 64)
+                "/system/bin/linker64"
+            else
+                "/system/bin/linker");
+        }
+
+        if (self.isMusl()) {
+            var result = try std.Buffer.init(allocator, "/lib/ld-musl-");
+            defer result.deinit();
+
+            var is_arm = false;
+            switch (self.getArch()) {
+                .arm, .thumb => {
+                    try result.append("arm");
+                    is_arm = true;
+                },
+                .armeb, .thumbeb => {
+                    try result.append("armeb");
+                    is_arm = true;
+                },
+                else => |arch| try result.append(@tagName(arch)),
+            }
+            if (is_arm and self.getFloatAbi() == .hard) {
+                try result.append("hf");
+            }
+            try result.append(".so.1");
+            return result.toOwnedSlice();
+        }
+
+        switch (self.getOs()) {
+            .freebsd => return mem.dupeZ(a, u8, "/libexec/ld-elf.so.1"),
+            .netbsd => return mem.dupeZ(a, u8, "/libexec/ld.elf_so"),
+            .dragonfly => return mem.dupeZ(a, u8, "/libexec/ld-elf.so.2"),
+            .linux => switch (self.getArch()) {
+                .i386,
+                .sparc,
+                .sparcel,
+                => return mem.dupeZ(a, u8, "/lib/ld-linux.so.2"),
+
+                .aarch64 => return mem.dupeZ(a, u8, "/lib/ld-linux-aarch64.so.1"),
+                .aarch64_be => return mem.dupeZ(a, u8, "/lib/ld-linux-aarch64_be.so.1"),
+                .aarch64_32 => return mem.dupeZ(a, u8, "/lib/ld-linux-aarch64_32.so.1"),
+
+                .arm,
+                .armeb,
+                .thumb,
+                .thumbeb,
+                => return mem.dupeZ(a, u8, switch (self.getFloatAbi()) {
+                    .hard => "/lib/ld-linux-armhf.so.3",
+                    else => "/lib/ld-linux.so.3",
+                }),
+
+                .mips,
+                .mipsel,
+                .mips64,
+                .mips64el,
+                => return error.UnknownDynamicLinkerPath,
+
+                .powerpc => return mem.dupeZ(a, u8, "/lib/ld.so.1"),
+                .powerpc64, .powerpc64le => return mem.dupeZ(a, u8, "/lib64/ld64.so.2"),
+                .s390x => return mem.dupeZ(a, u8, "/lib64/ld64.so.1"),
+                .sparcv9 => return mem.dupeZ(a, u8, "/lib64/ld-linux.so.2"),
+                .x86_64 => return mem.dupeZ(a, u8, switch (self.getAbi()) {
+                    .gnux32 => "/libx32/ld-linux-x32.so.2",
+                    else => "/lib64/ld-linux-x86-64.so.2",
+                }),
+
+                .riscv32 => return mem.dupeZ(a, u8, "/lib/ld-linux-riscv32-ilp32.so.1"),
+                .riscv64 => return mem.dupeZ(a, u8, "/lib/ld-linux-riscv64-lp64.so.1"),
+
+                .wasm32,
+                .wasm64,
+                => return error.TargetHasNoDynamicLinker,
+
+                .arc,
+                .avr,
+                .bpfel,
+                .bpfeb,
+                .hexagon,
+                .msp430,
+                .r600,
+                .amdgcn,
+                .tce,
+                .tcele,
+                .xcore,
+                .nvptx,
+                .nvptx64,
+                .le32,
+                .le64,
+                .amdil,
+                .amdil64,
+                .hsail,
+                .hsail64,
+                .spir,
+                .spir64,
+                .kalimba,
+                .shave,
+                .lanai,
+                .renderscript32,
+                .renderscript64,
+                => return error.UnknownDynamicLinkerPath,
+            },
+
+            .freestanding,
+            .ios,
+            .tvos,
+            .watchos,
+            .macosx,
+            .uefi,
+            .windows,
+            .emscripten,
+            .other,
+            => return error.TargetHasNoDynamicLinker,
+
+            else => return error.UnknownDynamicLinkerPath,
+        }
     }
 };
 

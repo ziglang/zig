@@ -64,8 +64,6 @@ pub fn build(b: *Builder) !void {
     try configureStage2(b, test_stage2, ctx);
     try configureStage2(b, exe, ctx);
 
-    addLibUserlandStep(b, mode);
-
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
     const skip_release_fast = b.option(bool, "skip-release-fast", "Main test suite skips release-fast builds") orelse skip_release;
@@ -175,7 +173,7 @@ fn dependOnLib(b: *Builder, lib_exe_obj: var, dep: LibraryDep) void {
 }
 
 fn fileExists(filename: []const u8) !bool {
-    fs.File.access(filename) catch |err| switch (err) {
+    fs.cwd().access(filename, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => return err,
     };
@@ -366,28 +364,3 @@ const Context = struct {
     dia_guids_lib: []const u8,
     llvm: LibraryDep,
 };
-
-fn addLibUserlandStep(b: *Builder, mode: builtin.Mode) void {
-    const artifact = b.addStaticLibrary("userland", "src-self-hosted/stage1.zig");
-    artifact.disable_gen_h = true;
-    artifact.bundle_compiler_rt = true;
-    artifact.setTarget(builtin.arch, builtin.os, builtin.abi);
-    artifact.setBuildMode(mode);
-    artifact.force_pic = true;
-    if (mode != .Debug) {
-        artifact.strip = true;
-    }
-    artifact.linkSystemLibrary("c");
-    if (builtin.os == .windows) {
-        artifact.linkSystemLibrary("ntdll");
-    }
-    const libuserland_step = b.step("libuserland", "Build the userland compiler library for use in stage1");
-    libuserland_step.dependOn(&artifact.step);
-
-    const output_dir = b.option(
-        []const u8,
-        "output-dir",
-        "For libuserland step, where to put the output",
-    ) orelse return;
-    artifact.setOutputDir(output_dir);
-}

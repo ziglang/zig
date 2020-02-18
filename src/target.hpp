@@ -8,50 +8,9 @@
 #ifndef ZIG_TARGET_HPP
 #define ZIG_TARGET_HPP
 
-#include <zig_llvm.h>
+#include "stage2.h"
 
 struct Buf;
-
-// Synchronize with target.cpp::os_list
-enum Os {
-    OsFreestanding,
-    OsAnanas,
-    OsCloudABI,
-    OsDragonFly,
-    OsFreeBSD,
-    OsFuchsia,
-    OsIOS,
-    OsKFreeBSD,
-    OsLinux,
-    OsLv2,        // PS3
-    OsMacOSX,
-    OsNetBSD,
-    OsOpenBSD,
-    OsSolaris,
-    OsWindows,
-    OsHaiku,
-    OsMinix,
-    OsRTEMS,
-    OsNaCl,       // Native Client
-    OsCNK,        // BG/P Compute-Node Kernel
-    OsAIX,
-    OsCUDA,       // NVIDIA CUDA
-    OsNVCL,       // NVIDIA OpenCL
-    OsAMDHSA,     // AMD HSA Runtime
-    OsPS4,
-    OsELFIAMCU,
-    OsTvOS,       // Apple tvOS
-    OsWatchOS,    // Apple watchOS
-    OsMesa3D,
-    OsContiki,
-    OsAMDPAL,
-    OsHermitCore,
-    OsHurd,
-    OsWASI,
-    OsEmscripten,
-    OsUefi,
-    OsOther,
-};
 
 // Synchronize with target.cpp::subarch_list_list
 enum SubArchList {
@@ -76,23 +35,6 @@ enum TargetSubsystem {
     // It's last so that the indexes of other items can line up
     // with the enum in builtin.zig.
     TargetSubsystemAuto
-};
-
-struct ZigGLibCVersion {
-    uint32_t major; // always 2
-    uint32_t minor;
-    uint32_t patch;
-};
-
-struct ZigTarget {
-    ZigLLVM_ArchType arch;
-    ZigLLVM_SubArchType sub_arch;
-    ZigLLVM_VendorType vendor;
-    Os os;
-    ZigLLVM_EnvironmentType abi;
-    ZigGLibCVersion *glibc_version; // null means default
-    Stage2CpuFeatures *cpu_features;
-    bool is_native;
 };
 
 enum CIntType {
@@ -167,8 +109,6 @@ const char *target_exe_file_ext(const ZigTarget *target);
 const char *target_lib_file_prefix(const ZigTarget *target);
 const char *target_lib_file_ext(const ZigTarget *target, bool is_static,
         size_t version_major, size_t version_minor, size_t version_patch);
-
-const char *target_dynamic_linker(const ZigTarget *target);
 
 bool target_can_exec(const ZigTarget *host_target, const ZigTarget *guest_target);
 ZigLLVM_OSType get_llvm_os_type(Os os_type);

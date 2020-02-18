@@ -29,7 +29,7 @@ test "makePath, put some files in it, deleteTree" {
 
 test "access file" {
     try fs.makePath(a, "os_test_tmp");
-    if (File.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt")) |ok| {
+    if (fs.cwd().access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{})) |ok| {
         @panic("expected error");
     } else |err| {
         expect(err == error.FileNotFound);
@@ -165,16 +165,19 @@ test "sigaltstack" {
 // analyzed
 const dl_phdr_info = if (@hasDecl(os, "dl_phdr_info")) os.dl_phdr_info else c_void;
 
-fn iter_fn(info: *dl_phdr_info, size: usize, data: ?*usize) callconv(.C) i32 {
-    if (builtin.os == .windows or builtin.os == .wasi or builtin.os == .macosx)
-        return 0;
+const IterFnError = error{
+    MissingPtLoadSegment,
+    MissingLoad,
+    BadElfMagic,
+    FailedConsistencyCheck,
+};
 
-    var counter = data.?;
+fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
     // Count how many libraries are loaded
     counter.* += @as(usize, 1);
 
     // The image should contain at least a PT_LOAD segment
-    if (info.dlpi_phnum < 1) return -1;
+    if (info.dlpi_phnum < 1) return error.MissingPtLoadSegment;
 
     // Quick & dirty validation of the phdr pointers, make sure we're not
     // pointing to some random gibberish
@@ -189,17 +192,15 @@ fn iter_fn(info: *dl_phdr_info, size: usize, data: ?*usize) callconv(.C) i32 {
         // Find the ELF header
         const elf_header = @intToPtr(*elf.Ehdr, reloc_addr - phdr.p_offset);
         // Validate the magic
-        if (!mem.eql(u8, elf_header.e_ident[0..4], "\x7fELF")) return -1;
+        if (!mem.eql(u8, elf_header.e_ident[0..4], "\x7fELF")) return error.BadElfMagic;
         // Consistency check
-        if (elf_header.e_phnum != info.dlpi_phnum) return -1;
+        if (elf_header.e_phnum != info.dlpi_phnum) return error.FailedConsistencyCheck;
 
         found_load = true;
         break;
     }
 
-    if (!found_load) return -1;
-
-    return 42;
+    if (!found_load) return error.MissingLoad;
 }
 
 test "dl_iterate_phdr" {
@@ -207,7 +208,7 @@ test "dl_iterate_phdr" {
         return error.SkipZigTest;
 
     var counter: usize = 0;
-    expect(os.dl_iterate_phdr(usize, iter_fn, &counter) != 0);
+    try os.dl_iterate_phdr(&counter, IterFnError, iter_fn);
     expect(counter != 0);
 }
 
