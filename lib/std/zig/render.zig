@@ -1396,6 +1396,7 @@ fn renderExpression(
                     try renderToken(tree, stream, extern_export_inline_token, indent, start_col, Space.Space); // extern/export
                 } else {
                     cc_rewrite_str = ".C";
+                    fn_proto.lib_name = null;
                 }
             }
 
