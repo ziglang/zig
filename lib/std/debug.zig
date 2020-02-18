@@ -822,23 +822,20 @@ pub const OpenSelfDebugInfoError = error{
 /// TODO resources https://github.com/ziglang/zig/issues/4353
 /// TODO once https://github.com/ziglang/zig/issues/3157 is fully implemented,
 /// make this `noasync fn` and remove the individual noasync calls.
-pub fn openSelfDebugInfo(allocator: *mem.Allocator) !DebugInfo {
+pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
     if (builtin.strip_debug_info)
         return error.MissingDebugInfo;
     if (@hasDecl(root, "os") and @hasDecl(root.os, "debug") and @hasDecl(root.os.debug, "openSelfDebugInfo")) {
         return noasync root.os.debug.openSelfDebugInfo(allocator);
     }
-    if (builtin.os == .linux or builtin.os == .windows or builtin.os == .macosx) {
-        _ = try allocator.create(u32);
-        return DebugInfo.init(allocator);
+    switch (builtin.os) {
+        .linux,
+        .freebsd,
+        .macosx,
+        .windows,
+        => return DebugInfo.init(allocator),
+        else => @compileError("openSelfDebugInfo unsupported for this platform"),
     }
-    return noasync openSelfDebugInfoPosix(allocator);
-}
-
-fn openSelfDebugInfoWindows(allocator: *mem.Allocator) !ObjectDebugInfo {
-    const self_file = try fs.openSelfExe();
-    defer self_file.close();
-    return openCoffDebugInfo(allocator, self_file);
 }
 
 fn openCoffDebugInfo(allocator: *mem.Allocator, self_file: fs.File) !ObjectDebugInfo {
@@ -846,7 +843,7 @@ fn openCoffDebugInfo(allocator: *mem.Allocator, self_file: fs.File) !ObjectDebug
     coff_obj.* = coff.Coff.init(allocator, self_file);
 
     var di = ObjectDebugInfo{
-        .base_address = 0,
+        .base_address = undefined,
         .coff = coff_obj,
         .pdb = undefined,
         .sect_contribs = undefined,
@@ -1018,10 +1015,16 @@ fn findDwarfSectionFromElf(elf_file: *elf.Elf, name: []const u8) !?DW.DwarfInfo.
     };
 }
 
+fn chopSlice(ptr: []const u8, offset: u64, size: u64) ![]const u8 {
+    const start = try math.cast(usize, offset);
+    const end = start + try math.cast(usize, size);
+    return ptr[start..end];
+}
+
 /// TODO resources https://github.com/ziglang/zig/issues/4353
 pub fn openElfDebugInfo(
     allocator: *mem.Allocator,
-    data: []u8,
+    data: []const u8,
 ) !DW.DwarfInfo {
     var seekable_stream = io.SliceSeekableInStream.init(data);
     var efile = try elf.Elf.openStream(
@@ -1043,38 +1046,18 @@ pub fn openElfDebugInfo(
 
     var di = DW.DwarfInfo{
         .endian = efile.endian,
-        .debug_info = (data[@intCast(usize, debug_info.sh_offset)..@intCast(usize, debug_info.sh_offset + debug_info.sh_size)]),
-        .debug_abbrev = (data[@intCast(usize, debug_abbrev.sh_offset)..@intCast(usize, debug_abbrev.sh_offset + debug_abbrev.sh_size)]),
-        .debug_str = (data[@intCast(usize, debug_str.sh_offset)..@intCast(usize, debug_str.sh_offset + debug_str.sh_size)]),
-        .debug_line = (data[@intCast(usize, debug_line.sh_offset)..@intCast(usize, debug_line.sh_offset + debug_line.sh_size)]),
+        .debug_info = try chopSlice(data, debug_info.sh_offset, debug_info.sh_size),
+        .debug_abbrev = try chopSlice(data, debug_abbrev.sh_offset, debug_abbrev.sh_size),
+        .debug_str = try chopSlice(data, debug_str.sh_offset, debug_str.sh_size),
+        .debug_line = try chopSlice(data, debug_line.sh_offset, debug_line.sh_size),
         .debug_ranges = if (opt_debug_ranges) |debug_ranges|
-            data[@intCast(usize, debug_ranges.sh_offset)..@intCast(usize, debug_ranges.sh_offset + debug_ranges.sh_size)]
+            try chopSlice(data, debug_ranges.sh_offset, debug_ranges.sh_size)
         else
             null,
     };
 
     try DW.openDwarfDebugInfo(&di, allocator);
     return di;
-}
-
-/// TODO resources https://github.com/ziglang/zig/issues/4353
-fn openSelfDebugInfoPosix(allocator: *mem.Allocator) !DW.DwarfInfo {
-    var exe_file = try fs.openSelfExe();
-    errdefer exe_file.close();
-
-    const exe_len = math.cast(usize, try exe_file.getEndPos()) catch
-        return error.DebugInfoTooLarge;
-    const exe_mmap = try os.mmap(
-        null,
-        exe_len,
-        os.PROT_READ,
-        os.MAP_SHARED,
-        exe_file.handle,
-        0,
-    );
-    errdefer os.munmap(exe_mmap);
-
-    return openElfDebugInfo(allocator, exe_mmap);
 }
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
@@ -1220,7 +1203,7 @@ pub const DebugInfo = struct {
     }
 
     pub fn deinit(self: *DebugInfo) void {
-        // XXX Free the values
+        // TODO: resources https://github.com/ziglang/zig/issues/4353
         self.address_map.deinit();
     }
 
@@ -1450,8 +1433,6 @@ pub const DebugInfo = struct {
     }
 };
 
-const DIPContext = struct {};
-
 pub const ObjectDebugInfo = switch (builtin.os) {
     .macosx, .ios, .watchos, .tvos => struct {
         base_address: usize,
@@ -1540,7 +1521,10 @@ fn getLineNumberInfoMacOs(di: *ObjectDebugInfo, symbol: MachoSymbol, address: us
         var opt_debug_str: ?*const macho.section_64 = null;
         var opt_debug_ranges: ?*const macho.section_64 = null;
 
-        const sections = @ptrCast([*]const macho.section_64, @alignCast(@alignOf(macho.section_64), ptr + @sizeOf(std.macho.segment_command_64)))[0..segcmd.nsects];
+        const sections = @ptrCast(
+            [*]const macho.section_64,
+            @alignCast(@alignOf(macho.section_64), ptr + @sizeOf(std.macho.segment_command_64)),
+        )[0..segcmd.nsects];
         for (sections) |*sect| {
             // The section name may not exceed 16 chars and a trailing null may
             // not be present
@@ -1573,12 +1557,12 @@ fn getLineNumberInfoMacOs(di: *ObjectDebugInfo, symbol: MachoSymbol, address: us
 
         gop.kv.value = DW.DwarfInfo{
             .endian = .Little,
-            .debug_info = exe_mmap[@intCast(usize, debug_info.offset)..@intCast(usize, debug_info.offset + debug_info.size)],
-            .debug_abbrev = exe_mmap[@intCast(usize, debug_abbrev.offset)..@intCast(usize, debug_abbrev.offset + debug_abbrev.size)],
-            .debug_str = exe_mmap[@intCast(usize, debug_str.offset)..@intCast(usize, debug_str.offset + debug_str.size)],
-            .debug_line = exe_mmap[@intCast(usize, debug_line.offset)..@intCast(usize, debug_line.offset + debug_line.size)],
+            .debug_info = try chopSlice(exe_mmap, debug_info.offset, debug_info.size),
+            .debug_abbrev = try chopSlice(exe_mmap, debug_abbrev.offset, debug_abbrev.size),
+            .debug_str = try chopSlice(exe_mmap, debug_str.offset, debug_str.size),
+            .debug_line = try chopSlice(exe_mmap, debug_line.offset, debug_line.size),
             .debug_ranges = if (opt_debug_ranges) |debug_ranges|
-                exe_mmap[@intCast(usize, debug_ranges.offset)..@intCast(usize, debug_ranges.offset + debug_ranges.size)]
+                try chopSlice(exe_mmap, debug_ranges.offset, debug_ranges.size)
             else
                 null,
         };

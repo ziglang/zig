@@ -387,11 +387,11 @@ fn getAbbrevTableEntry(abbrev_table: *const AbbrevTable, abbrev_code: u64) ?*con
 pub const DwarfInfo = struct {
     endian: builtin.Endian,
     // No memory is owned by the DwarfInfo
-    debug_info: []u8,
-    debug_abbrev: []u8,
-    debug_str: []u8,
-    debug_line: []u8,
-    debug_ranges: ?[]u8,
+    debug_info: []const u8,
+    debug_abbrev: []const u8,
+    debug_str: []const u8,
+    debug_line: []const u8,
+    debug_ranges: ?[]const u8,
     // Filled later by the initializer
     abbrev_table_list: ArrayList(AbbrevTableHeader) = undefined,
     compile_unit_list: ArrayList(CompileUnit) = undefined,
