@@ -526,6 +526,9 @@ fn ccPrintFileName(
 
     var it = std.mem.tokenize(exec_res.stdout, "\n\r");
     const line = it.next() orelse return error.LibCRuntimeNotFound;
+    // When this command fails, it returns exit code 0 and duplicates the input file name.
+    // So we detect failure by checking if the output matches exactly the input.
+    if (std.mem.eql(u8, line, o_file)) return error.LibCRuntimeNotFound;
     switch (want_dirname) {
         .full_path => return std.mem.dupeZ(allocator, u8, line),
         .only_dir => {
@@ -536,26 +539,74 @@ fn ccPrintFileName(
 }
 
 /// Caller owns returned memory.
-pub fn detectNativeDynamicLinker(allocator: *Allocator) error{OutOfMemory, TargetHasNoDynamicLinker, UnknownDynamicLinkerPath}![:0]u8 {
+pub fn detectNativeDynamicLinker(allocator: *Allocator) error{
+    OutOfMemory,
+    TargetHasNoDynamicLinker,
+    UnknownDynamicLinkerPath,
+}![:0]u8 {
     if (!comptime Target.current.hasDynamicLinker()) {
         return error.TargetHasNoDynamicLinker;
     }
 
-    const standard_ld_path = try std.Target.current.getStandardDynamicLinkerPath(allocator);
-    var standard_ld_path_resource: ?[:0]u8 = standard_ld_path; // Set to null to avoid freeing it.
-    defer if (standard_ld_path_resource) |s| allocator.free(s);
+    // The current target's ABI cannot be relied on for this. For example, we may build the zig
+    // compiler for target riscv64-linux-musl and provide a tarball for users to download.
+    // A user could then run that zig compiler on riscv64-linux-gnu. This use case is well-defined
+    // and supported by Zig. But that means that we must detect the system ABI here rather than
+    // relying on `std.Target.current`.
 
-    const standard_ld_basename = fs.path.basename(standard_ld_path);
+    const LdInfo = struct {
+        ld_path: []u8,
+        abi: Target.Abi,
+    };
+    var ld_info_list = std.ArrayList(LdInfo).init(allocator);
+    defer {
+        for (ld_info_list.toSlice()) |ld_info| allocator.free(ld_info.ld_path);
+        ld_info_list.deinit();
+    }
 
+    const all_abis = comptime blk: {
+        const fields = std.meta.fields(Target.Abi);
+        var array: [fields.len]Target.Abi = undefined;
+        inline for (fields) |field, i| {
+            array[i] = @field(Target.Abi, field.name);
+        }
+        break :blk array;
+    };
+    for (all_abis) |abi| {
+        // This may be a nonsensical parameter. We detect this with error.UnknownDynamicLinkerPath and
+        // skip adding it to `ld_info_list`.
+        const target: Target = .{
+            .Cross = .{
+                .arch = Target.current.getArch(),
+                .os = Target.current.getOs(),
+                .abi = abi,
+                .cpu_features = Target.current.getArch().getBaselineCpuFeatures(),
+            },
+        };
+        const standard_ld_path = target.getStandardDynamicLinkerPath(allocator) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.UnknownDynamicLinkerPath, error.TargetHasNoDynamicLinker => continue,
+        };
+        errdefer allocator.free(standard_ld_path);
+        try ld_info_list.append(.{
+            .ld_path = standard_ld_path,
+            .abi = abi,
+        });
+    }
+
+    // Best case scenario: the zig compiler is dynamically linked, and we can iterate
+    // over our own shared objects and find a dynamic linker.
     {
-        // Best case scenario: the current executable is dynamically linked, and we can iterate
-        // over our own shared objects and find a dynamic linker.
         const lib_paths = try std.process.getSelfExeSharedLibPaths(allocator);
         defer allocator.free(lib_paths);
 
+        // This is O(N^M) but typical case here is N=2 and M=10.
         for (lib_paths) |lib_path| {
-            if (std.mem.endsWith(u8, lib_path, standard_ld_basename)) {
-                return std.mem.dupeZ(allocator, u8, lib_path);
+            for (ld_info_list.toSlice()) |ld_info| {
+                const standard_ld_basename = fs.path.basename(ld_info.ld_path);
+                if (std.mem.endsWith(u8, lib_path, standard_ld_basename)) {
+                    return std.mem.dupeZ(allocator, u8, lib_path);
+                }
             }
         }
     }
@@ -563,17 +614,23 @@ pub fn detectNativeDynamicLinker(allocator: *Allocator) error{OutOfMemory, Targe
     // If Zig is statically linked, such as via distributed binary static builds, the above
     // trick won't work. What are we left with? Try to run the system C compiler and get
     // it to tell us the dynamic linker path.
-    return ccPrintFileName(allocator, standard_ld_basename, .full_path) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.LibCRuntimeNotFound,
-        error.CCompilerExitCode,
-        error.CCompilerCrashed,
-        error.UnableToSpawnCCompiler,
-        => {
-            standard_ld_path_resource = null; // Prevent freeing standard_ld_path.
-            return standard_ld_path;
-        },
-    };
+    // TODO: instead of this, look at the shared libs of /usr/bin/env.
+    for (ld_info_list.toSlice()) |ld_info| {
+        const standard_ld_basename = fs.path.basename(ld_info.ld_path);
+
+        const full_ld_path = ccPrintFileName(allocator, standard_ld_basename, .full_path) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.LibCRuntimeNotFound,
+            error.CCompilerExitCode,
+            error.CCompilerCrashed,
+            error.UnableToSpawnCCompiler,
+            => continue,
+        };
+        return full_ld_path;
+    }
+
+    // Finally, we fall back on the standard path.
+    return Target.current.getStandardDynamicLinkerPath(allocator);
 }
 
 const Search = struct {
