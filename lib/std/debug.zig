@@ -700,7 +700,8 @@ fn printSourceAtAddressMacOs(di1: *DebugInfo, out_stream: var, address: usize, t
     const di = try di1.lookupByAddress(address);
 
     const base_addr = di.base_address;
-    const adjusted_addr = 0x100000000 + (address - base_addr);
+    const adjusted_addr = address - base_addr;
+    assert(adjusted_addr >= 0x100000000);
 
     const symbol = machoSearchSymbols(di.symbols, adjusted_addr) orelse {
         return printLineInfo(out_stream, null, address, "???", "???", tty_config, printLineFromFileAnyOs);
@@ -734,7 +735,6 @@ pub fn printSourceAtAddressPosix(debug_info: *DebugInfo, out_stream: var, addres
     const module = try debug_info.lookupByAddress(address);
 
     const reloc_address = address - module.base_address;
-    warn("reloc {x} => {x}\n", .{ address, reloc_address });
 
     if (module.dwarf.findCompileUnit(reloc_address) catch null) |compile_unit| {
         const compile_unit_name = try compile_unit.die.getAttrString(&module.dwarf, DW.AT_name);
@@ -1078,29 +1078,33 @@ fn openSelfDebugInfoPosix(allocator: *mem.Allocator) !DW.DwarfInfo {
 }
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
-fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
-    const hdr = &std.c._mh_execute_header;
+fn openMachODebugInfo(allocator: *mem.Allocator, memmo: []const u8) !ObjectDebugInfo {
+    // const hdr = &std.c._mh_execute_header;
+    const hdr = @ptrCast(
+        *const macho.mach_header_64,
+        @alignCast(@alignOf(macho.mach_header_64), memmo.ptr),
+    );
     assert(hdr.magic == std.macho.MH_MAGIC_64);
 
-    const hdr_base = @ptrCast([*]u8, hdr);
+    const hdr_base = @ptrCast([*]const u8, hdr);
     var ptr = hdr_base + @sizeOf(macho.mach_header_64);
     var ncmd: u32 = hdr.ncmds;
     const symtab = while (ncmd != 0) : (ncmd -= 1) {
-        const lc = @ptrCast(*std.macho.load_command, ptr);
+        const lc = @ptrCast(*const std.macho.load_command, ptr);
         switch (lc.cmd) {
-            std.macho.LC_SYMTAB => break @ptrCast(*std.macho.symtab_command, ptr),
+            std.macho.LC_SYMTAB => break @ptrCast(*const std.macho.symtab_command, ptr),
             else => {},
         }
         ptr = @alignCast(@alignOf(std.macho.load_command), ptr + lc.cmdsize);
     } else {
         return error.MissingDebugInfo;
     };
-    const syms = @ptrCast([*]macho.nlist_64, @alignCast(@alignOf(macho.nlist_64), hdr_base + symtab.symoff))[0..symtab.nsyms];
-    const strings = @ptrCast([*]u8, hdr_base + symtab.stroff)[0..symtab.strsize];
+    const syms = @ptrCast([*]const macho.nlist_64, @alignCast(@alignOf(macho.nlist_64), hdr_base + symtab.symoff))[0..symtab.nsyms];
+    const strings = @ptrCast([*]const u8, hdr_base + symtab.stroff)[0..symtab.strsize];
 
     const symbols_buf = try allocator.alloc(MachoSymbol, syms.len);
 
-    var ofile: ?*macho.nlist_64 = null;
+    var ofile: ?*const macho.nlist_64 = null;
     var reloc: u64 = 0;
     var symbol_index: usize = 0;
     var last_len: u64 = 0;
@@ -1148,8 +1152,10 @@ fn openSelfDebugInfoMacOs(allocator: *mem.Allocator) !DebugInfo {
     // This sort is so that we can binary search later.
     std.sort.sort(MachoSymbol, symbols, MachoSymbol.addressLessThan);
 
-    return DebugInfo{
-        .ofiles = DebugInfo.OFileTable.init(allocator),
+    return ObjectDebugInfo{
+        .base_address = undefined,
+        .mapped_memory = undefined,
+        .ofiles = ObjectDebugInfo.OFileTable.init(allocator),
         .symbols = symbols,
         .strings = strings,
     };
@@ -1188,8 +1194,8 @@ fn printLineFromFileAnyOs(out_stream: var, line_info: LineInfo) !void {
 }
 
 const MachoSymbol = struct {
-    nlist: *macho.nlist_64,
-    ofile: ?*macho.nlist_64,
+    nlist: *const macho.nlist_64,
+    ofile: ?*const macho.nlist_64,
     reloc: u64,
 
     /// Returns the address from the macho file
@@ -1233,18 +1239,68 @@ pub const DebugInfo = struct {
 
         var i: u32 = 0;
         while (i < image_count) : (i += 1) {
+            const base_address = std.c._dyld_get_image_vmaddr_slide(i);
+
+            if (address < base_address) continue;
+
             const header = std.c._dyld_get_image_header(i) orelse continue;
             // The array of load commands is right after the header
             var cmd_ptr = @intToPtr([*]u8, @ptrToInt(header) + @sizeOf(macho.mach_header_64));
-            const cmd_ptr_end = cmd_ptr + header.sizeofcmds;
 
-            var cmd = 
-            for (cmds) |*lc| {
+            var cmds = header.ncmds;
+            while (cmds != 0) : (cmds -= 1) {
+                const lc = @ptrCast(
+                    *macho.load_command,
+                    @alignCast(@alignOf(macho.load_command), cmd_ptr),
+                );
+                cmd_ptr += lc.cmdsize;
                 if (lc.cmd != macho.LC_SEGMENT_64) continue;
 
-                const segment_cmd = @ptrCast(*macho.segment_command_64, lc);
+                const segment_cmd = @ptrCast(
+                    *const std.macho.segment_command_64,
+                    @alignCast(@alignOf(std.macho.segment_command_64), lc),
+                );
+
+                const rebased_address = address - base_address;
+                const seg_start = segment_cmd.vmaddr;
+                const seg_end = seg_start + segment_cmd.vmsize;
+
+                if (rebased_address >= seg_start and rebased_address < seg_end) {
+                    if (self.address_map.getValue(base_address)) |obj_di| {
+                        return obj_di;
+                    }
+
+                    const image_name = std.c._dyld_get_image_name(i);
+                    const exe_file = try fs.openFileAbsoluteC(image_name, .{});
+                    errdefer exe_file.close();
+
+                    const exe_len = math.cast(usize, try exe_file.getEndPos()) catch
+                        return error.DebugInfoTooLarge;
+                    const exe_mmap = try os.mmap(
+                        null,
+                        exe_len,
+                        os.PROT_READ,
+                        os.MAP_SHARED,
+                        exe_file.handle,
+                        0,
+                    );
+                    errdefer os.munmap(exe_mmap);
+
+                    const obj_di = try self.allocator.create(ObjectDebugInfo);
+                    errdefer self.allocator.destroy(obj_di);
+
+                    try self.address_map.putNoClobber(base_address, obj_di);
+
+                    obj_di.* = try openMachODebugInfo(self.allocator, exe_mmap);
+                    obj_di.base_address = base_address;
+                    obj_di.mapped_memory = exe_mmap;
+
+                    return obj_di;
+                }
             }
         }
+
+        return error.DebugInfoNotFound;
     }
 
     fn lookupModuleWin32(self: *DebugInfo, address: usize) !*ObjectDebugInfo {
@@ -1252,7 +1308,8 @@ pub const DebugInfo = struct {
 
         var modules: [32]windows.HMODULE = undefined;
         var modules_needed: windows.DWORD = undefined;
-        // XXX Ask for the number of modules by passing size zero
+        // TODO: Ask for the number of modules by passing size zero, 32 ought to
+        // be enough for everyone in the meanwhile
         if (windows.kernel32.K32EnumProcessModules(
             process_handle,
             @ptrCast([*]windows.HMODULE, &modules),
@@ -1275,6 +1332,10 @@ pub const DebugInfo = struct {
             const seg_end = seg_start + info.SizeOfImage;
 
             if (address >= seg_start and address < seg_end) {
+                if (self.address_map.getValue(seg_start)) |obj_di| {
+                    return obj_di;
+                }
+
                 var name_buffer: [windows.PATH_MAX_WIDE + 4:0]u16 = undefined;
                 // openFileAbsoluteW requires the prefix to be present
                 mem.copy(u16, name_buffer[0..4], &[_]u16{ '\\', '?', '?', '\\' });
@@ -1286,12 +1347,8 @@ pub const DebugInfo = struct {
                 );
                 assert(len > 0);
 
-                if (self.address_map.getValue(seg_start)) |obj_di| {
-                    return obj_di;
-                }
-
-                // XXX: The compiler segfaults if the slicing is done as a
-                // parameter (#4423)
+                // The compiler segfaults if the slicing is done as a parameter
+                // (#4423)
                 const tmp = name_buffer[0..:0];
                 const file_obj = try fs.openFileAbsoluteW(tmp, .{});
                 errdefer file_obj.close();
@@ -1312,11 +1369,49 @@ pub const DebugInfo = struct {
     }
 
     fn lookupModuleDl(self: *DebugInfo, address: usize) !*ObjectDebugInfo {
-        var ctx = DIPContext{ .address = address };
+        var ctx: struct {
+            // Input
+            address: usize,
+            // Output
+            base_address: usize = undefined,
+            name: []const u8 = undefined,
+        } = .{ .address = address };
+        const CtxTy = @TypeOf(ctx);
 
-        // XXX Locking?
-        if (os.dl_iterate_phdr(DIPContext, dl_iterate_phdr_callback, &ctx) == 0)
+        if (os.dl_iterate_phdr(&ctx, anyerror, struct {
+            fn callback(info: *os.dl_phdr_info, size: usize, context: *CtxTy) !void {
+                // The base address is too high
+                if (context.address < info.dlpi_addr)
+                    return;
+
+                const phdrs = info.dlpi_phdr[0..info.dlpi_phnum];
+                for (phdrs) |*phdr| {
+                    if (phdr.p_type != elf.PT_LOAD) continue;
+
+                    const seg_start = info.dlpi_addr + phdr.p_vaddr;
+                    const seg_end = seg_start + phdr.p_memsz;
+
+                    if (context.address >= seg_start and context.address < seg_end) {
+                        // Android libc uses NULL instead of an empty string to mark the
+                        // main program
+                        context.name = if (info.dlpi_name) |dlpi_name|
+                            mem.toSliceConst(u8, dlpi_name)
+                        else
+                            "";
+                        context.base_address = info.dlpi_addr;
+                        // Stop the iteration
+                        return error.Found;
+                    }
+                }
+            }
+        }.callback)) {
             return error.DebugInfoNotFound;
+        } else |err| {
+            switch (err) {
+                error.Found => {},
+                else => return error.DebugInfoNotFound,
+            }
+        }
 
         if (self.address_map.getValue(ctx.base_address)) |obj_di| {
             return obj_di;
@@ -1355,58 +1450,24 @@ pub const DebugInfo = struct {
     }
 };
 
-const DIPContext = struct {
-    address: usize,
-    base_address: usize = undefined,
-    name: []const u8 = undefined,
-};
-
-fn dl_iterate_phdr_callback(info: *os.dl_phdr_info, size: usize, context: ?*DIPContext) callconv(.C) i32 {
-    const address = context.?.address;
-
-    // The base address is too high
-    if (address < info.dlpi_addr)
-        return 0;
-
-    const phdrs = info.dlpi_phdr[0..info.dlpi_phnum];
-    for (phdrs) |*phdr| {
-        if (phdr.p_type != elf.PT_LOAD) continue;
-
-        const seg_start = info.dlpi_addr + phdr.p_vaddr;
-        const seg_end = seg_start + phdr.p_memsz;
-
-        if (address >= seg_start and address < seg_end) {
-            // Android libc uses NULL instead of an empty string to mark the
-            // main program
-            context.?.name = if (info.dlpi_name) |dlpi_name|
-                mem.toSliceConst(u8, dlpi_name)
-            else
-                "";
-            context.?.base_address = info.dlpi_addr;
-            // Stop the iteration
-            return 1;
-        }
-    }
-
-    // Continue the iteration
-    return 0;
-}
+const DIPContext = struct {};
 
 pub const ObjectDebugInfo = switch (builtin.os) {
     .macosx, .ios, .watchos, .tvos => struct {
         base_address: usize,
+        mapped_memory: []u8,
         symbols: []const MachoSymbol,
         strings: []const u8,
         ofiles: OFileTable,
 
         const OFileTable = std.HashMap(
-            *macho.nlist_64,
+            *const macho.nlist_64,
             DW.DwarfInfo,
-            std.hash_map.getHashPtrAddrFn(*macho.nlist_64),
-            std.hash_map.getTrivialEqlFn(*macho.nlist_64),
+            std.hash_map.getHashPtrAddrFn(*const macho.nlist_64),
+            std.hash_map.getTrivialEqlFn(*const macho.nlist_64),
         );
 
-        pub fn allocator(self: DebugInfo) *mem.Allocator {
+        pub fn allocator(self: @This()) *mem.Allocator {
             return self.ofiles.allocator;
         }
     },
@@ -1426,7 +1487,7 @@ pub const ObjectDebugInfo = switch (builtin.os) {
 };
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
-fn getLineNumberInfoMacOs(di: *DebugInfo, symbol: MachoSymbol, address: usize) !LineInfo {
+fn getLineNumberInfoMacOs(di: *ObjectDebugInfo, symbol: MachoSymbol, address: usize) !LineInfo {
     const ofile = symbol.ofile orelse return error.MissingDebugInfo;
     const gop = try di.ofiles.getOrPut(ofile);
     const dwarf_info = if (gop.found_existing) &gop.kv.value else blk: {
