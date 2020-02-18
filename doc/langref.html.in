@@ -7399,7 +7399,7 @@ comptime {
     @export(internalName, .{ .name = "foo", .linkage = .Strong });
 }
 
-extern fn internalName() void {}
+fn internalName() callconv(.C) void {}
       {#code_end#}
       <p>This is equivalent to:</p>
       {#code_begin|obj#}
