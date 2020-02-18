@@ -25508,12 +25508,6 @@ static IrInstGen *ir_analyze_instruction_from_bytes(IrAnalyze *ira, IrInstSrcFro
         }
     }
 
-    IrInstGen *result_loc = ir_resolve_result(ira, &instruction->base.base, instruction->result_loc,
-            dest_slice_type, nullptr, true, true);
-    if (result_loc != nullptr && (type_is_invalid(result_loc->value->type) || result_loc->value->type->id == ZigTypeIdUnreachable)) {
-        return result_loc;
-    }
-
     if (target->value->type->id == ZigTypeIdPointer &&
         target->value->type->data.pointer.ptr_len == PtrLenSingle &&
         target->value->type->data.pointer.child_type->id == ZigTypeIdArray)
@@ -25539,6 +25533,35 @@ static IrInstGen *ir_analyze_instruction_from_bytes(IrAnalyze *ira, IrInstSrcFro
                 buf_ptr(&dest_child_type->name), child_type_size, remainder));
             return ira->codegen->invalid_inst_gen;
         }
+    }
+
+    if (instr_is_comptime(casted_value) && have_known_len) {
+        ZigValue *val = ir_resolve_const(ira, casted_value, UndefBad);
+        if (!val)
+            return ira->codegen->invalid_inst_gen;
+
+        IrInstGen *result = ir_const(ira, &instruction->target->base, dest_slice_type);
+        result->value->special = ConstValSpecialStatic;
+        result->value->type = dest_slice_type;
+        result->value->data.x_struct.fields = alloc_const_vals_ptrs(ira->codegen, 2);
+
+        ZigValue *ptr_val = result->value->data.x_struct.fields[slice_ptr_index];
+        ZigValue *src_ptr_val = val->data.x_struct.fields[slice_ptr_index];
+        copy_const_val(ira->codegen, ptr_val, src_ptr_val);
+        ptr_val->type = dest_ptr_type;
+
+        // The length is already validated, this division yields no remainder
+        const uint64_t elem_count = known_len / type_size(ira->codegen, dest_child_type);
+        result->value->data.x_struct.fields[slice_ptr_index] = ptr_val;
+        init_const_usize(ira->codegen, result->value->data.x_struct.fields[slice_len_index], elem_count);
+
+        return result;
+    }
+
+    IrInstGen *result_loc = ir_resolve_result(ira, &instruction->base.base, instruction->result_loc,
+            dest_slice_type, nullptr, true, true);
+    if (result_loc != nullptr && (type_is_invalid(result_loc->value->type) || result_loc->value->type->id == ZigTypeIdUnreachable)) {
+        return result_loc;
     }
 
     return ir_build_resize_slice(ira, &instruction->base.base, casted_value, dest_slice_type, result_loc);

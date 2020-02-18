@@ -1,8 +1,9 @@
 const std = @import("std");
-const expect = std.testing.expect;
-const expectEqualSlices = std.testing.expectEqualSlices;
 const mem = std.mem;
-const builtin = @import("builtin");
+const testing = std.testing;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
+const expectEqualSlices = testing.expectEqualSlices;
 const maxInt = std.math.maxInt;
 
 // normal comment
@@ -428,7 +429,7 @@ fn testArray2DConstDoublePtr(ptr: *const f32) void {
     expect(ptr2[1] == 2.0);
 }
 
-const Tid = builtin.TypeId;
+const Tid = std.builtin.TypeId;
 const AStruct = struct {
     x: i32,
 };
@@ -472,7 +473,7 @@ test "@typeId" {
         expect(@typeId(AUnionEnum) == Tid.Union);
         expect(@typeId(AUnion) == Tid.Union);
         expect(@typeId(fn () void) == Tid.Fn);
-        expect(@typeId(@TypeOf(builtin)) == Tid.Type);
+        expect(@typeId(@TypeOf(std)) == Tid.Type);
         // TODO bound fn
         // TODO arg tuple
         // TODO opaque
@@ -778,8 +779,8 @@ threadlocal var buffer: [11]u8 = undefined;
 
 test "pointer to thread local array" {
     const s = "Hello world";
-    std.mem.copy(u8, buffer[0..], s);
-    std.testing.expectEqualSlices(u8, buffer[0..], s);
+    mem.copy(u8, buffer[0..], s);
+    expectEqualSlices(u8, buffer[0..], s);
 }
 
 test "auto created variables have correct alignment" {
@@ -793,4 +794,20 @@ test "auto created variables have correct alignment" {
     };
     expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
     comptime expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
+}
+
+test "@bytesToSlice at comptime" {
+    const S = struct {
+        fn doTheTest() void {
+            var bytes = [_]u8{ 0xff, 0xff, 0xff, 0xff };
+            const slice = @bytesToSlice(u32, bytes[0..]);
+            expect(slice.len == 1);
+            expectEqual(@as(u32, 0xffffffff), slice[0]);
+            bytes[0] = 0;
+            bytes[3] = 0;
+            expectEqual(@as(u32, 0x00ffff00), slice[0]);
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
 }
