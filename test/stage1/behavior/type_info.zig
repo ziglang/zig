@@ -375,3 +375,14 @@ test "sentinel of opaque pointer type" {
     const c_void_info = @typeInfo(*c_void);
     expect(c_void_info.Pointer.sentinel == null);
 }
+
+test "@typeInfo does not force declarations into existence" {
+    const S = struct {
+        x: i32,
+
+        fn doNotReferenceMe() void {
+            @compileError("test failed");
+        }
+    };
+    comptime expect(@typeInfo(S).Struct.fields.len == 1);
+}
