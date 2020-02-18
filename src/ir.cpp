@@ -20642,11 +20642,11 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
     if (type_is_invalid(array_ptr->value->type))
         return ira->codegen->invalid_inst_gen;
 
-    ZigValue *orig_array_ptr_val = array_ptr->value;
-
     IrInstGen *elem_index = elem_ptr_instruction->elem_index->child;
     if (type_is_invalid(elem_index->value->type))
         return ira->codegen->invalid_inst_gen;
+
+    ZigValue *orig_array_ptr_val = array_ptr->value;
 
     ZigType *ptr_type = orig_array_ptr_val->type;
     assert(ptr_type->id == ZigTypeIdPointer);
@@ -20657,23 +20657,25 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
     // We will adjust return_type's alignment before returning it.
     ZigType *return_type;
 
-    if (type_is_invalid(array_type)) {
+    if (type_is_invalid(array_type))
         return ira->codegen->invalid_inst_gen;
-    } else if (array_type->id == ZigTypeIdArray ||
-        (array_type->id == ZigTypeIdPointer &&
-         array_type->data.pointer.ptr_len == PtrLenSingle &&
-         array_type->data.pointer.child_type->id == ZigTypeIdArray))
+
+    if (array_type->id == ZigTypeIdPointer &&
+        array_type->data.pointer.ptr_len == PtrLenSingle &&
+        array_type->data.pointer.child_type->id == ZigTypeIdArray)
     {
-        if (array_type->id == ZigTypeIdPointer) {
-            array_type = array_type->data.pointer.child_type;
-            ptr_type = ptr_type->data.pointer.child_type;
-            if (orig_array_ptr_val->special != ConstValSpecialRuntime) {
-                orig_array_ptr_val = const_ptr_pointee(ira, ira->codegen, orig_array_ptr_val,
-                        elem_ptr_instruction->base.base.source_node);
-                if (orig_array_ptr_val == nullptr)
-                    return ira->codegen->invalid_inst_gen;
-            }
-        }
+        IrInstGen *ptr_value = ir_get_deref(ira, &elem_ptr_instruction->base.base,
+            array_ptr, nullptr);
+        if (type_is_invalid(ptr_value->value->type))
+            return ira->codegen->invalid_inst_gen;
+
+        array_type = array_type->data.pointer.child_type;
+        ptr_type = ptr_type->data.pointer.child_type;
+
+        orig_array_ptr_val = ptr_value->value;
+    }
+
+    if (array_type->id == ZigTypeIdArray) {
         if (array_type->data.array.len == 0) {
             ir_add_error_node(ira, elem_ptr_instruction->base.base.source_node,
                     buf_sprintf("index 0 outside array of size 0"));
@@ -20811,8 +20813,14 @@ static IrInstGen *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstSrcElemP
             orig_array_ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr &&
             (orig_array_ptr_val->data.x_ptr.mut != ConstPtrMutRuntimeVar || array_type->id == ZigTypeIdArray))
         {
+            if ((err = ir_resolve_const_val(ira->codegen, ira->new_irb.exec,
+                elem_ptr_instruction->base.base.source_node, orig_array_ptr_val, UndefBad)))
+            {
+                return ira->codegen->invalid_inst_gen;
+            }
+
             ZigValue *array_ptr_val = const_ptr_pointee(ira, ira->codegen, orig_array_ptr_val,
-                                        elem_ptr_instruction->base.base.source_node);
+                elem_ptr_instruction->base.base.source_node);
             if (array_ptr_val == nullptr)
                 return ira->codegen->invalid_inst_gen;
 
@@ -23674,14 +23682,13 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
     if ((err = type_resolve(ira->codegen, type_info_fn_decl_inline_type, ResolveStatusSizeKnown)))
         return err;
 
-    // Loop through our declarations once to figure out how many declarations we will generate info for.
+    // The unresolved declarations are collected in a separate queue to avoid
+    // modifying decl_table while iterating over it
+    ZigList<Tld*> resolve_decl_queue{};
+
     auto decl_it = decls_scope->decl_table.entry_iterator();
     decltype(decls_scope->decl_table)::Entry *curr_entry = nullptr;
-    int declaration_count = 0;
-
     while ((curr_entry = decl_it.next()) != nullptr) {
-        // If the declaration is unresolved, force it to be resolved again.
-        resolve_top_level_decl(ira->codegen, curr_entry->value, curr_entry->value->source_node, false);
         if (curr_entry->value->resolution == TldResolutionInvalid) {
             return ErrorSemanticAnalyzeFail;
         }
@@ -23691,16 +23698,36 @@ static Error ir_make_type_info_decls(IrAnalyze *ira, IrInst* source_instr, ZigVa
             return ErrorSemanticAnalyzeFail;
         }
 
-        // Skip comptime blocks and test functions.
-        if (curr_entry->value->id != TldIdCompTime) {
-            if (curr_entry->value->id == TldIdFn) {
-                ZigFn *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
-                if (fn_entry->is_test)
-                    continue;
-            }
+        // If the declaration is unresolved, force it to be resolved again.
+        if (curr_entry->value->resolution == TldResolutionUnresolved)
+            resolve_decl_queue.append(curr_entry->value);
+    }
 
-            declaration_count += 1;
+    for (size_t i = 0; i < resolve_decl_queue.length; i++) {
+        Tld *decl = resolve_decl_queue.at(i);
+        resolve_top_level_decl(ira->codegen, decl, decl->source_node, false);
+        if (decl->resolution == TldResolutionInvalid) {
+            return ErrorSemanticAnalyzeFail;
         }
+    }
+
+    resolve_decl_queue.deinit();
+
+    // Loop through our declarations once to figure out how many declarations we will generate info for.
+    int declaration_count = 0;
+    decl_it = decls_scope->decl_table.entry_iterator();
+    while ((curr_entry = decl_it.next()) != nullptr) {
+        // Skip comptime blocks and test functions.
+        if (curr_entry->value->id == TldIdCompTime)
+            continue;
+
+        if (curr_entry->value->id == TldIdFn) {
+            ZigFn *fn_entry = ((TldFn *)curr_entry->value)->fn_entry;
+            if (fn_entry->is_test)
+                continue;
+        }
+
+        declaration_count += 1;
     }
 
     ZigValue *declaration_array = ira->codegen->pass1_arena->create<ZigValue>();
