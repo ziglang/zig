@@ -121,76 +121,37 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type)
 
         unbuffered_in_stream: *Stream,
 
-        buffer: [buffer_size]u8,
-        start_index: usize,
-        end_index: usize,
+        const FifoType = std.fifo.LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = buffer_size });
+        fifo: FifoType,
 
         pub fn init(unbuffered_in_stream: *Stream) Self {
             return Self{
                 .unbuffered_in_stream = unbuffered_in_stream,
-                .buffer = undefined,
-
-                // Initialize these two fields to buffer_size so that
-                // in `readFn` we treat the state as being able to read
-                // more from the unbuffered stream. If we set them to 0
-                // and 0, the code would think we already hit EOF.
-                .start_index = buffer_size,
-                .end_index = buffer_size,
-
+                .fifo = FifoType.init(),
                 .stream = Stream{ .readFn = readFn },
             };
         }
 
         fn readFn(in_stream: *Stream, dest: []u8) !usize {
             const self = @fieldParentPtr(Self, "stream", in_stream);
-
-            // Hot path for one byte reads
-            if (dest.len == 1 and self.end_index > self.start_index) {
-                dest[0] = self.buffer[self.start_index];
-                self.start_index += 1;
-                return 1;
-            }
-
             var dest_index: usize = 0;
-            while (true) {
-                const dest_space = dest.len - dest_index;
-                if (dest_space == 0) {
-                    return dest_index;
-                }
-                const amt_buffered = self.end_index - self.start_index;
-                if (amt_buffered == 0) {
-                    assert(self.end_index <= buffer_size);
-                    // Make sure the last read actually gave us some data
-                    if (self.end_index == 0) {
+            while (dest_index < dest.len) {
+                const written = self.fifo.read(dest[dest_index..]);
+                if (written == 0) {
+                    // fifo empty, fill it
+                    const writable = self.fifo.writableSlice(0);
+                    assert(writable.len > 0);
+                    const n = try self.unbuffered_in_stream.read(writable);
+                    if (n == 0) {
                         // reading from the unbuffered stream returned nothing
                         // so we have nothing left to read.
                         return dest_index;
                     }
-                    // we can read more data from the unbuffered stream
-                    if (dest_space < buffer_size) {
-                        self.start_index = 0;
-                        self.end_index = try self.unbuffered_in_stream.read(self.buffer[0..]);
-
-                        // Shortcut
-                        if (self.end_index >= dest_space) {
-                            mem.copy(u8, dest[dest_index..], self.buffer[0..dest_space]);
-                            self.start_index = dest_space;
-                            return dest.len;
-                        }
-                    } else {
-                        // asking for so much data that buffering is actually less efficient.
-                        // forward the request directly to the unbuffered stream
-                        const amt_read = try self.unbuffered_in_stream.read(dest[dest_index..]);
-                        return dest_index + amt_read;
-                    }
+                    self.fifo.update(n);
                 }
-
-                const copy_amount = math.min(dest_space, amt_buffered);
-                const copy_end_index = self.start_index + copy_amount;
-                mem.copy(u8, dest[dest_index..], self.buffer[self.start_index..copy_end_index]);
-                self.start_index = copy_end_index;
-                dest_index += copy_amount;
+                dest_index += written;
             }
+            return dest.len;
         }
     };
 }
@@ -235,7 +196,7 @@ test "io.BufferedInStream" {
 
 /// Creates a stream which supports 'un-reading' data, so that it can be read again.
 /// This makes look-ahead style parsing much easier.
-pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) type {
+pub fn PeekStream(comptime buffer_type: std.fifo.LinearFifoBufferType, comptime InStreamError: type) type {
     return struct {
         const Self = @This();
         pub const Error = InStreamError;
@@ -244,57 +205,57 @@ pub fn PeekStream(comptime buffer_size: usize, comptime InStreamError: type) typ
         stream: Stream,
         base: *Stream,
 
-        // Right now the look-ahead space is statically allocated, but a version with dynamic allocation
-        // is not too difficult to derive from this.
-        buffer: [buffer_size]u8,
-        index: usize,
-        at_end: bool,
+        const FifoType = std.fifo.LinearFifo(u8, buffer_type);
+        fifo: FifoType,
 
-        pub fn init(base: *Stream) Self {
-            return Self{
-                .base = base,
-                .buffer = undefined,
-                .index = 0,
-                .at_end = false,
-                .stream = Stream{ .readFn = readFn },
-            };
+        pub usingnamespace switch (buffer_type) {
+            .Static => struct {
+                pub fn init(base: *Stream) Self {
+                    return .{
+                        .base = base,
+                        .fifo = FifoType.init(),
+                        .stream = Stream{ .readFn = readFn },
+                    };
+                }
+            },
+            .Slice => struct {
+                pub fn init(base: *Stream, buf: []u8) Self {
+                    return .{
+                        .base = base,
+                        .fifo = FifoType.init(buf),
+                        .stream = Stream{ .readFn = readFn },
+                    };
+                }
+            },
+            .Dynamic => struct {
+                pub fn init(base: *Stream, allocator: *mem.Allocator) Self {
+                    return .{
+                        .base = base,
+                        .fifo = FifoType.init(allocator),
+                        .stream = Stream{ .readFn = readFn },
+                    };
+                }
+            },
+        };
+
+        pub fn putBackByte(self: *Self, byte: u8) !void {
+            try self.putBack(&[_]u8{byte});
         }
 
-        pub fn putBackByte(self: *Self, byte: u8) void {
-            self.buffer[self.index] = byte;
-            self.index += 1;
-        }
-
-        pub fn putBack(self: *Self, bytes: []const u8) void {
-            var pos = bytes.len;
-            while (pos != 0) {
-                pos -= 1;
-                self.putBackByte(bytes[pos]);
-            }
+        pub fn putBack(self: *Self, bytes: []const u8) !void {
+            try self.fifo.unget(bytes);
         }
 
         fn readFn(in_stream: *Stream, dest: []u8) Error!usize {
             const self = @fieldParentPtr(Self, "stream", in_stream);
 
             // copy over anything putBack()'d
-            var pos: usize = 0;
-            while (pos < dest.len and self.index != 0) {
-                dest[pos] = self.buffer[self.index - 1];
-                self.index -= 1;
-                pos += 1;
-            }
-
-            if (pos == dest.len or self.at_end) {
-                return pos;
-            }
+            var dest_index = self.fifo.read(dest);
+            if (dest_index == dest.len) return dest_index;
 
             // ask the backing stream for more
-            const left = dest.len - pos;
-            const read = try self.base.read(dest[pos..]);
-            assert(read <= left);
-
-            self.at_end = (read < left);
-            return pos + read;
+            dest_index += try self.base.read(dest[dest_index..]);
+            return dest_index;
         }
     };
 }
@@ -607,52 +568,33 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamEr
 
         unbuffered_out_stream: *Stream,
 
-        buffer: [buffer_size]u8,
-        index: usize,
+        const FifoType = std.fifo.LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = buffer_size });
+        fifo: FifoType,
 
         pub fn init(unbuffered_out_stream: *Stream) Self {
             return Self{
                 .unbuffered_out_stream = unbuffered_out_stream,
-                .buffer = undefined,
-                .index = 0,
+                .fifo = FifoType.init(),
                 .stream = Stream{ .writeFn = writeFn },
             };
         }
 
         pub fn flush(self: *Self) !void {
-            try self.unbuffered_out_stream.write(self.buffer[0..self.index]);
-            self.index = 0;
+            while (true) {
+                const slice = self.fifo.readableSlice(0);
+                if (slice.len == 0) break;
+                try self.unbuffered_out_stream.write(slice);
+                self.fifo.discard(slice.len);
+            }
         }
 
         fn writeFn(out_stream: *Stream, bytes: []const u8) Error!void {
             const self = @fieldParentPtr(Self, "stream", out_stream);
-
-            if (bytes.len == 1) {
-                // This is not required logic but a shorter path
-                // for single byte writes
-                self.buffer[self.index] = bytes[0];
-                self.index += 1;
-                if (self.index == buffer_size) {
-                    try self.flush();
-                }
-                return;
-            } else if (bytes.len >= self.buffer.len) {
+            if (bytes.len >= self.fifo.writableLength()) {
                 try self.flush();
                 return self.unbuffered_out_stream.write(bytes);
             }
-            var src_index: usize = 0;
-
-            while (src_index < bytes.len) {
-                const dest_space_left = self.buffer.len - self.index;
-                const copy_amt = math.min(dest_space_left, bytes.len - src_index);
-                mem.copy(u8, self.buffer[self.index..], bytes[src_index .. src_index + copy_amt]);
-                self.index += copy_amt;
-                assert(self.index <= self.buffer.len);
-                if (self.index == self.buffer.len) {
-                    try self.flush();
-                }
-                src_index += copy_amt;
-            }
+            self.fifo.writeAssumeCapacity(bytes);
         }
     };
 }
