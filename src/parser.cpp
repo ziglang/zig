@@ -689,6 +689,9 @@ static AstNode *ast_parse_top_level_decl(ParseContext *pc, VisibMod visib_mod, B
 
             AstNode *res = fn_proto;
             if (body != nullptr) {
+                if (fn_proto->data.fn_proto.is_extern) {
+                    ast_error(pc, first, "Extern functions have no body");
+                }
                 res = ast_create_node_copy_line_info(pc, NodeTypeFnDef, fn_proto);
                 res->data.fn_def.fn_proto = fn_proto;
                 res->data.fn_def.body = body;
