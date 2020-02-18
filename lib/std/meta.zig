@@ -437,7 +437,7 @@ pub fn eql(a: var, b: @TypeOf(a)) bool {
         },
         .Pointer => |info| {
             return switch (info.size) {
-                .One, .Many, .C, => a == b,
+                .One, .Many, .C => a == b,
                 .Slice => a.ptr == b.ptr and a.len == b.len,
             };
         },
@@ -559,7 +559,9 @@ pub fn fieldIndex(comptime T: type, comptime name: []const u8) ?comptime_int {
 /// Given a type, reference all the declarations inside, so that the semantic analyzer sees them.
 pub fn refAllDecls(comptime T: type) void {
     if (!builtin.is_test) return;
-    _ = declarations(T);
+    inline for (declarations(T)) |decl| {
+        _ = decl;
+    }
 }
 
 /// Returns a slice of pointers to public declarations of a namespace.
