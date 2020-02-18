@@ -3,10 +3,10 @@ const builtin = @import("builtin");
 const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
-    cases.addTest("",
+    cases.addTest("access invalid @typeInfo decl",
         \\const A = B;
         \\test "Crash" {
-        \\    _ = @typeInfo(@This()).Struct.decls;
+        \\    _ = @typeInfo(@This()).Struct.decls[0];
         \\}
     , &[_][]const u8{
         "tmp.zig:1:11: error: use of undeclared identifier 'B'",
