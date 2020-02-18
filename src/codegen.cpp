@@ -8375,6 +8375,8 @@ static bool detect_dynamic_link(CodeGen *g) {
         return true;
     if (g->zig_target->os == OsFreestanding)
         return false;
+    if (target_os_requires_libc(g->zig_target->os))
+        return true;
     if (g->libc_link_lib != nullptr && target_is_glibc(g->zig_target))
         return true;
     // If there are no dynamic libraries then we can disable dynamic linking.
