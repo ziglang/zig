@@ -1459,7 +1459,7 @@ pub const ObjectDebugInfo = switch (builtin.os) {
         sect_contribs: []pdb.SectionContribEntry,
         modules: []Module,
     },
-    .linux => struct {
+    .linux, .freebsd => struct {
         base_address: usize,
         dwarf: DW.DwarfInfo,
         mapped_memory: []u8,
