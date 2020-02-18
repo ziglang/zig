@@ -248,7 +248,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
     }
 
     switch (@atomicRmw(u8, &panicking, .Add, 1, .SeqCst)) {
-        0, 1 => {
+        0 => {
             const stderr = getStderrStream();
             noasync stderr.print(format ++ "\n", args) catch os.abort();
             if (trace) |t| {
@@ -256,7 +256,7 @@ pub fn panicExtra(trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, c
             }
             dumpCurrentStackTrace(first_trace_addr);
         },
-        2 => {
+        1 => {
             // TODO detect if a different thread caused the panic, because in that case
             // we would want to return here instead of calling abort, so that the thread
             // which first called panic can finish printing a stack trace.
@@ -1289,19 +1289,37 @@ pub const DebugInfo = struct {
     fn lookupModuleWin32(self: *DebugInfo, address: usize) !*ObjectDebugInfo {
         const process_handle = windows.kernel32.GetCurrentProcess();
 
-        var modules: [32]windows.HMODULE = undefined;
-        var modules_needed: windows.DWORD = undefined;
-        // TODO: Ask for the number of modules by passing size zero, 32 ought to
-        // be enough for everyone in the meanwhile
+        // Find how many modules are actually loaded
+        var dummy: windows.HMODULE = undefined;
+        var bytes_needed: windows.DWORD = undefined;
         if (windows.kernel32.K32EnumProcessModules(
             process_handle,
-            @ptrCast([*]windows.HMODULE, &modules),
-            @sizeOf(@TypeOf(modules)),
-            &modules_needed,
+            @ptrCast([*]windows.HMODULE, &dummy),
+            0,
+            &bytes_needed,
         ) == 0)
             return error.DebugInfoNotFound;
 
-        for (modules[0..modules_needed]) |module| {
+        const needed_modules = bytes_needed / @sizeOf(windows.HMODULE);
+
+        // Fetch the complete module list
+        var modules = try self.allocator.alloc(windows.HMODULE, needed_modules);
+        defer self.allocator.free(modules);
+        if (windows.kernel32.K32EnumProcessModules(
+            process_handle,
+            modules.ptr,
+            try math.cast(windows.DWORD, modules.len * @sizeOf(windows.HMODULE)),
+            &bytes_needed,
+        ) == 0)
+            return error.DebugInfoNotFound;
+
+        // There's an unavoidable TOCTOU problem here, the module list may have
+        // changed between the two EnumProcessModules call.
+        // Pick the smallest amount of elements to avoid processing garbage.
+        const needed_modules_after = bytes_needed / @sizeOf(windows.HMODULE);
+        const loaded_modules = math.min(needed_modules, needed_modules_after);
+
+        for (modules[0..loaded_modules]) |module| {
             var info: windows.MODULEINFO = undefined;
             if (windows.kernel32.K32GetModuleInformation(
                 process_handle,
