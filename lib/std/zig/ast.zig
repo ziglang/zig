@@ -161,6 +161,7 @@ pub const Error = union(enum) {
     ExpectedLoopExpr: ExpectedLoopExpr,
     ExpectedDerefOrUnwrap: ExpectedDerefOrUnwrap,
     ExpectedSuffixOp: ExpectedSuffixOp,
+    UnexpectedExternBody: UnexpectedExternBody,
 
     pub fn render(self: *const Error, tokens: *Tree.TokenList, stream: var) !void {
         switch (self.*) {
@@ -208,6 +209,7 @@ pub const Error = union(enum) {
             .ExpectedLoopExpr => |*x| return x.render(tokens, stream),
             .ExpectedDerefOrUnwrap => |*x| return x.render(tokens, stream),
             .ExpectedSuffixOp => |*x| return x.render(tokens, stream),
+            .UnexpectedExternBody => |*x| return x.render(tokens, stream),
         }
     }
 
@@ -257,6 +259,7 @@ pub const Error = union(enum) {
             .ExpectedLoopExpr => |x| return x.token,
             .ExpectedDerefOrUnwrap => |x| return x.token,
             .ExpectedSuffixOp => |x| return x.token,
+            .UnexpectedExternBody => |x| return x.token,
         }
     }
 
@@ -301,6 +304,7 @@ pub const Error = union(enum) {
     pub const ExtraConstQualifier = SimpleError("Extra const qualifier");
     pub const ExtraVolatileQualifier = SimpleError("Extra volatile qualifier");
     pub const ExtraAllowZeroQualifier = SimpleError("Extra allowzero qualifier");
+    pub const UnexpectedExternBody = SimpleError("Extern functions have no body");
 
     pub const ExpectedCall = struct {
         node: *Node,

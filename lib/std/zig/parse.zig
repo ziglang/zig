@@ -247,6 +247,15 @@ fn parseTopLevelDecl(arena: *Allocator, it: *TokenIterator, tree: *Tree) !?*Node
         fn_node.*.lib_name = lib_name;
         if (eatToken(it, .Semicolon)) |_| return node;
         if (try parseBlock(arena, it, tree)) |body_node| {
+            // Functions marked `extern` have no body
+            if (extern_export_inline_token) |token| {
+                if (tree.tokens.at(token).id == .Keyword_extern) {
+                    try tree.errors.push(AstError{
+                        .UnexpectedExternBody = AstError.UnexpectedExternBody{ .token = token },
+                    });
+                    return error.ParseError;
+                }
+            }
             fn_node.body_node = body_node;
             return node;
         }

@@ -3,6 +3,14 @@ const builtin = @import("builtin");
 const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("reject extern function definitions with body",
+        \\extern "c" fn definitelyNotInLibC(a: i32, b: i32) i32 {
+        \\    return a + b;
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:1:1: error: Extern functions have no body",
+    });
+
     cases.addTest("duplicate field in anonymous struct literal",
         \\export fn entry() void {
         \\    const anon = .{
