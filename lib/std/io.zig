@@ -239,7 +239,7 @@ pub fn PeekStream(comptime buffer_type: std.fifo.LinearFifoBufferType, comptime 
         };
 
         pub fn putBackByte(self: *Self, byte: u8) !void {
-            try self.putBack(@ptrCast([*]const u8, &byte)[0..1]);
+            try self.putBack(&[_]u8{byte});
         }
 
         pub fn putBack(self: *Self, bytes: []const u8) !void {
