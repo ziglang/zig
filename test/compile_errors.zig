@@ -17,7 +17,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         \\    return a + b;
         \\}
     , &[_][]const u8{
-        "tmp.zig:1:1: error: Extern functions have no body",
+        "tmp.zig:1:1: error: extern functions have no body",
     });
 
     cases.addTest("duplicate field in anonymous struct literal",
