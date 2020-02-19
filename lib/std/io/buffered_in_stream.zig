@@ -3,6 +3,9 @@ const io = std.io;
 const assert = std.debug.assert;
 const testing = std.testing;
 
+/// Creates a readable stream which buffers data
+/// It also supports 'un-reading' data, so that it can be read again.
+/// This makes look-ahead style parsing much easier.
 pub fn BufferedInStream(comptime buffer_type: std.fifo.LinearFifoBufferType, comptime InStreamType: type) type {
     return struct {
         unbuffered_in_stream: InStreamType,
@@ -64,6 +67,14 @@ pub fn BufferedInStream(comptime buffer_type: std.fifo.LinearFifoBufferType, com
                 dest_index += written;
             }
             return dest.len;
+        }
+
+        pub fn putBackByte(self: *Self, byte: u8) !void {
+            try self.putBack(&[_]u8{byte});
+        }
+
+        pub fn putBack(self: *Self, bytes: []const u8) !void {
+            try self.fifo.unget(bytes);
         }
 
         pub fn inStream(self: *Self) InStream {

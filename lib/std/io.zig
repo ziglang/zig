@@ -98,9 +98,6 @@ pub const bufferedOutStream = @import("io/buffered_out_stream.zig").bufferedOutS
 pub const BufferedInStream = @import("io/buffered_in_stream.zig").BufferedInStream;
 pub const bufferedInStream = @import("io/buffered_in_stream.zig").bufferedInStream;
 
-pub const PeekStream = @import("io/peek_stream.zig").PeekStream;
-pub const peekStream = @import("io/peek_stream.zig").peekStream;
-
 pub const FixedBufferStream = @import("io/fixed_buffer_stream.zig").FixedBufferStream;
 pub const fixedBufferStream = @import("io/fixed_buffer_stream.zig").fixedBufferStream;
 
@@ -151,7 +148,6 @@ test "" {
     _ = @import("io/fixed_buffer_stream.zig");
     _ = @import("io/in_stream.zig");
     _ = @import("io/out_stream.zig");
-    _ = @import("io/peek_stream.zig");
     _ = @import("io/seekable_stream.zig");
     _ = @import("io/serialization.zig");
     _ = @import("io/stream_source.zig");
