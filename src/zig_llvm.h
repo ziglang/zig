@@ -46,17 +46,10 @@ ZIG_EXTERN_C void ZigLLVMInitializeLowerIntrinsicsPass(LLVMPassRegistryRef R);
 ZIG_EXTERN_C char *ZigLLVMGetHostCPUName(void);
 ZIG_EXTERN_C char *ZigLLVMGetNativeFeatures(void);
 
-// We use a custom enum here since LLVM does not expose LLVMIr as an emit
-// output through the same mechanism as assembly/binary.
-enum ZigLLVM_EmitOutputType {
-    ZigLLVM_EmitAssembly,
-    ZigLLVM_EmitBinary,
-    ZigLLVM_EmitLLVMIr,
-};
-
 ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
-        const char *filename, enum ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug,
-        bool is_small, bool time_report);
+        char **error_message, bool is_debug,
+        bool is_small, bool time_report,
+        const char *asm_filename, const char *bin_filename, const char *llvm_ir_filename);
 
 ZIG_EXTERN_C LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Triple,
     const char *CPU, const char *Features, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,

@@ -1155,6 +1155,9 @@ pub const LibExeObjStep = struct {
     frameworks: BufSet,
     verbose_link: bool,
     verbose_cc: bool,
+    emit_llvm_ir: bool = false,
+    emit_asm: bool = false,
+    emit_bin: bool = true,
     disable_gen_h: bool,
     bundle_compiler_rt: bool,
     disable_stack_probing: bool,
@@ -1940,6 +1943,10 @@ pub const LibExeObjStep = struct {
         if (builder.verbose_llvm_ir) zig_args.append("--verbose-llvm-ir") catch unreachable;
         if (builder.verbose_link or self.verbose_link) zig_args.append("--verbose-link") catch unreachable;
         if (builder.verbose_cc or self.verbose_cc) zig_args.append("--verbose-cc") catch unreachable;
+
+        if (self.emit_llvm_ir) try zig_args.append("-femit-llvm-ir");
+        if (self.emit_asm) try zig_args.append("-femit-asm");
+        if (!self.emit_bin) try zig_args.append("-fno-emit-bin");
 
         if (self.strip) {
             try zig_args.append("--strip");

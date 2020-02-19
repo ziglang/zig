@@ -62,17 +62,21 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -fno-stack-check             disable stack probing in safe builds\n"
         "  -fsanitize-c                 enable C undefined behavior detection in unsafe builds\n"
         "  -fno-sanitize-c              disable C undefined behavior detection in safe builds\n"
-        "  --emit [asm|bin|llvm-ir]     emit a specific file format as compilation output\n"
+        "  --emit [asm|bin|llvm-ir]     (deprecated) emit a specific file format as compilation output\n"
         "  -fPIC                        enable Position Independent Code\n"
         "  -fno-PIC                     disable Position Independent Code\n"
         "  -ftime-report                print timing diagnostics\n"
         "  -fstack-report               print stack size diagnostics\n"
-#ifdef ZIG_ENABLE_MEM_PROFILE
         "  -fmem-report                 print memory usage diagnostics\n"
-#endif
         "  -fdump-analysis              write analysis.json file with type information\n"
         "  -femit-docs                  create a docs/ dir with html documentation\n"
-        "  -fno-emit-bin                skip emitting machine code\n"
+        "  -fno-emit-docs               do not produce docs/ dir with html documentation\n"
+        "  -femit-bin                   (default) output machine code\n"
+        "  -fno-emit-bin                do not output machine code\n"
+        "  -femit-asm                   output .s (assembly code)\n"
+        "  -fno-emit-asm                (default) do not output .s (assembly code)\n"
+        "  -femit-llvm-ir               produce a .ll file with LLVM IR\n"
+        "  -fno-emit-llvm-ir            (default) do not produce a .ll file with LLVM IR\n"
         "  --libc [file]                Provide a file which specifies libc paths\n"
         "  --name [name]                override output name\n"
         "  --output-dir [dir]           override output directory (defaults to cwd)\n"
@@ -376,7 +380,6 @@ static int main0(int argc, char **argv) {
     }
 
     Cmd cmd = CmdNone;
-    EmitFileType emit_file_type = EmitFileTypeBinary;
     const char *in_file = nullptr;
     Buf *output_dir = nullptr;
     bool strip = false;
@@ -424,7 +427,9 @@ static int main0(int argc, char **argv) {
     bool stack_report = false;
     bool enable_dump_analysis = false;
     bool enable_doc_generation = false;
-    bool disable_bin_generation = false;
+    bool emit_bin = true;
+    bool emit_asm = false;
+    bool emit_llvm_ir = false;
     const char *cache_dir = nullptr;
     CliPkg *cur_pkg = heap::c_allocator.create<CliPkg>();
     BuildMode build_mode = BuildModeDebug;
@@ -552,7 +557,7 @@ static int main0(int argc, char **argv) {
         }
 
         Termination term;
-        args.items[0] = buf_ptr(&g->output_file_path);
+        args.items[0] = buf_ptr(&g->bin_file_output_path);
         os_spawn_process(args, &term);
         if (term.how != TerminationIdClean || term.code != 0) {
             fprintf(stderr, "\nBuild failed. The following command failed:\n");
@@ -631,8 +636,6 @@ static int main0(int argc, char **argv) {
                 enable_dump_analysis = true;
             } else if (strcmp(arg, "-femit-docs") == 0) {
                 enable_doc_generation = true;
-            } else if (strcmp(arg, "-fno-emit-bin") == 0) {
-                disable_bin_generation = true;
             } else if (strcmp(arg, "--enable-valgrind") == 0) {
                 valgrind_support = ValgrindSupportEnabled;
             } else if (strcmp(arg, "--disable-valgrind") == 0) {
@@ -701,6 +704,18 @@ static int main0(int argc, char **argv) {
                 function_sections = true;
             } else if (strcmp(arg, "--test-evented-io") == 0) {
                 test_evented_io = true;
+            } else if (strcmp(arg, "-femit-bin") == 0) {
+                emit_bin = true;
+            } else if (strcmp(arg, "-fno-emit-bin") == 0) {
+                emit_bin = false;
+            } else if (strcmp(arg, "-femit-asm") == 0) {
+                emit_asm = true;
+            } else if (strcmp(arg, "-fno-emit-asm") == 0) {
+                emit_asm = false;
+            } else if (strcmp(arg, "-femit-llvm-ir") == 0) {
+                emit_llvm_ir = true;
+            } else if (strcmp(arg, "-fno-emit-llvm-ir") == 0) {
+                emit_llvm_ir = false;
             } else if (i + 1 >= argc) {
                 fprintf(stderr, "Expected another argument after %s\n", arg);
                 return print_error_usage(arg0);
@@ -732,11 +747,13 @@ static int main0(int argc, char **argv) {
                     }
                 } else if (strcmp(arg, "--emit") == 0) {
                     if (strcmp(argv[i], "asm") == 0) {
-                        emit_file_type = EmitFileTypeAssembly;
+                        emit_asm = true;
+                        emit_bin = false;
                     } else if (strcmp(argv[i], "bin") == 0) {
-                        emit_file_type = EmitFileTypeBinary;
+                        emit_bin = true;
                     } else if (strcmp(argv[i], "llvm-ir") == 0) {
-                        emit_file_type = EmitFileTypeLLVMIr;
+                        emit_llvm_ir = true;
+                        emit_bin = false;
                     } else {
                         fprintf(stderr, "--emit options are 'asm', 'bin', or 'llvm-ir'\n");
                         return print_error_usage(arg0);
@@ -1026,8 +1043,8 @@ static int main0(int argc, char **argv) {
         return print_error_usage(arg0);
     }
 
-    if (emit_file_type != EmitFileTypeBinary && in_file == nullptr) {
-        fprintf(stderr, "A root source file is required when using `--emit asm` or `--emit llvm-ir`\n");
+    if ((emit_asm || emit_llvm_ir) && in_file == nullptr) {
+        fprintf(stderr, "A root source file is required when using `-femit-asm` or `-femit-llvm-ir`\n");
         return print_error_usage(arg0);
     }
 
@@ -1098,8 +1115,8 @@ static int main0(int argc, char **argv) {
             {
                 fprintf(stderr, "Expected source file argument.\n");
                 return print_error_usage(arg0);
-            } else if (cmd == CmdRun && emit_file_type != EmitFileTypeBinary) {
-                fprintf(stderr, "Cannot run non-executable file.\n");
+            } else if (cmd == CmdRun && !emit_bin) {
+                fprintf(stderr, "Cannot run without emitting a binary file.\n");
                 return print_error_usage(arg0);
             }
 
@@ -1176,7 +1193,10 @@ static int main0(int argc, char **argv) {
             g->enable_stack_report = stack_report;
             g->enable_dump_analysis = enable_dump_analysis;
             g->enable_doc_generation = enable_doc_generation;
-            g->disable_bin_generation = disable_bin_generation;
+            g->emit_bin = emit_bin;
+            g->emit_asm = emit_asm;
+            g->emit_llvm_ir = emit_llvm_ir;
+
             codegen_set_out_name(g, buf_out_name);
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
             g->want_single_threaded = want_single_threaded;
@@ -1262,8 +1282,6 @@ static int main0(int argc, char **argv) {
 
 
             if (cmd == CmdBuild || cmd == CmdRun) {
-                codegen_set_emit_file_type(g, emit_file_type);
-
                 g->enable_cache = get_cache_opt(enable_cache, cmd == CmdRun);
                 codegen_build_and_link(g);
                 if (root_progress_node != nullptr) {
@@ -1281,7 +1299,7 @@ static int main0(int argc, char **argv) {
                         mem::print_report();
 #endif
 
-                    const char *exec_path = buf_ptr(&g->output_file_path);
+                    const char *exec_path = buf_ptr(&g->bin_file_output_path);
                     ZigList<const char*> args = {0};
 
                     args.append(exec_path);
@@ -1301,21 +1319,21 @@ static int main0(int argc, char **argv) {
                 } else if (cmd == CmdBuild) {
                     if (g->enable_cache) {
 #if defined(ZIG_OS_WINDOWS)
-                        buf_replace(&g->output_file_path, '/', '\\');
+                        buf_replace(&g->bin_file_output_path, '/', '\\');
 #endif
                         if (final_output_dir_step != nullptr) {
                             Buf *dest_basename = buf_alloc();
-                            os_path_split(&g->output_file_path, nullptr, dest_basename);
+                            os_path_split(&g->bin_file_output_path, nullptr, dest_basename);
                             Buf *dest_path = buf_alloc();
                             os_path_join(final_output_dir_step, dest_basename, dest_path);
 
-                            if ((err = os_update_file(&g->output_file_path, dest_path))) {
-                                fprintf(stderr, "unable to copy %s to %s: %s\n", buf_ptr(&g->output_file_path),
+                            if ((err = os_update_file(&g->bin_file_output_path, dest_path))) {
+                                fprintf(stderr, "unable to copy %s to %s: %s\n", buf_ptr(&g->bin_file_output_path),
                                         buf_ptr(dest_path), err_str(err));
                                 return main_exit(root_progress_node, EXIT_FAILURE);
                             }
                         } else {
-                            if (printf("%s\n", buf_ptr(&g->output_file_path)) < 0)
+                            if (printf("%s\n", buf_ptr(&g->bin_file_output_path)) < 0)
                                 return main_exit(root_progress_node, EXIT_FAILURE);
                         }
                     }
@@ -1330,8 +1348,6 @@ static int main0(int argc, char **argv) {
                     codegen_print_timing_report(g, stderr);
                 return main_exit(root_progress_node, EXIT_SUCCESS);
             } else if (cmd == CmdTest) {
-                codegen_set_emit_file_type(g, emit_file_type);
-
                 ZigTarget native;
                 get_native_target(&native);
 
@@ -1350,17 +1366,17 @@ static int main0(int argc, char **argv) {
                     zig_print_stack_report(g, stdout);
                 }
 
-                if (g->disable_bin_generation) {
+                if (!g->emit_bin) {
                     fprintf(stderr, "Semantic analysis complete. No binary produced due to -fno-emit-bin.\n");
                     return main_exit(root_progress_node, EXIT_SUCCESS);
                 }
 
-                Buf *test_exe_path_unresolved = &g->output_file_path;
+                Buf *test_exe_path_unresolved = &g->bin_file_output_path;
                 Buf *test_exe_path = buf_alloc();
                 *test_exe_path = os_path_resolve(&test_exe_path_unresolved, 1);
 
-                if (emit_file_type != EmitFileTypeBinary) {
-                    fprintf(stderr, "Created %s but skipping execution because it is non executable.\n",
+                if (!g->emit_bin) {
+                    fprintf(stderr, "Created %s but skipping execution because no binary generated.\n",
                             buf_ptr(test_exe_path));
                     return main_exit(root_progress_node, EXIT_SUCCESS);
                 }
