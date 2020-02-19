@@ -1120,6 +1120,33 @@ static int main0(int argc, char **argv) {
                 return print_error_usage(arg0);
             }
 
+            if (target.is_native && link_libs.length != 0) {
+                Error err;
+                Stage2NativePaths paths;
+                if ((err = stage2_detect_native_paths(&paths))) {
+                    fprintf(stderr, "unable to detect native system paths: %s\n", err_str(err));
+                    exit(1);
+                }
+                for (size_t i = 0; i < paths.warnings_len; i += 1) {
+                    const char *warning = paths.warnings_ptr[i];
+                    fprintf(stderr, "warning: %s\n", warning);
+                }
+                for (size_t i = 0; i < paths.include_dirs_len; i += 1) {
+                    const char *include_dir = paths.include_dirs_ptr[i];
+                    clang_argv.append("-I");
+                    clang_argv.append(include_dir);
+                }
+                for (size_t i = 0; i < paths.lib_dirs_len; i += 1) {
+                    const char *lib_dir = paths.lib_dirs_ptr[i];
+                    lib_dirs.append(lib_dir);
+                }
+                for (size_t i = 0; i < paths.rpaths_len; i += 1) {
+                    const char *rpath = paths.rpaths_ptr[i];
+                    rpath_list.append(rpath);
+                }
+            }
+
+
             assert(cmd != CmdBuild || out_type != OutTypeUnknown);
 
             bool need_name = (cmd == CmdBuild || cmd == CmdTranslateC);
@@ -1225,7 +1252,6 @@ static int main0(int argc, char **argv) {
             g->system_linker_hack = system_linker_hack;
             g->function_sections = function_sections;
             g->code_model = code_model;
-
 
             for (size_t i = 0; i < lib_dirs.length; i += 1) {
                 codegen_add_lib_dir(g, lib_dirs.at(i));

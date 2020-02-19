@@ -1116,3 +1116,41 @@ export fn stage2_detect_dynamic_linker(in_target: *const Stage2Target, out_ptr: 
 fn enumInt(comptime Enum: type, int: c_int) Enum {
     return @intToEnum(Enum, @intCast(@TagType(Enum), int));
 }
+
+// ABI warning
+const Stage2NativePaths = extern struct {
+    include_dirs_ptr: [*][*:0]u8,
+    include_dirs_len: usize,
+    lib_dirs_ptr: [*][*:0]u8,
+    lib_dirs_len: usize,
+    rpaths_ptr: [*][*:0]u8,
+    rpaths_len: usize,
+    warnings_ptr: [*][*:0]u8,
+    warnings_len: usize,
+};
+// ABI warning
+export fn stage2_detect_native_paths(stage1_paths: *Stage2NativePaths) Error {
+    stage2DetectNativePaths(stage1_paths) catch |err| switch (err) {
+        error.OutOfMemory => return .OutOfMemory,
+    };
+    return .None;
+}
+
+fn stage2DetectNativePaths(stage1_paths: *Stage2NativePaths) !void {
+    var paths = try std.zig.system.NativePaths.detect(std.heap.c_allocator);
+    errdefer paths.deinit();
+
+    try convertSlice(paths.include_dirs.toSlice(), &stage1_paths.include_dirs_ptr, &stage1_paths.include_dirs_len);
+    try convertSlice(paths.lib_dirs.toSlice(), &stage1_paths.lib_dirs_ptr, &stage1_paths.lib_dirs_len);
+    try convertSlice(paths.rpaths.toSlice(), &stage1_paths.rpaths_ptr, &stage1_paths.rpaths_len);
+    try convertSlice(paths.warnings.toSlice(), &stage1_paths.warnings_ptr, &stage1_paths.warnings_len);
+}
+
+fn convertSlice(slice: [][:0]u8, ptr: *[*][*:0]u8, len: *usize) !void {
+    len.* = slice.len;
+    const new_slice = try std.heap.c_allocator.alloc([*:0]u8, slice.len);
+    for (slice) |item, i| {
+        new_slice[i] = item.ptr;
+    }
+    ptr.* = new_slice.ptr;
+}

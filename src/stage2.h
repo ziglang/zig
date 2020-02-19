@@ -312,4 +312,20 @@ struct ZigTarget {
 ZIG_EXTERN_C enum Error stage2_detect_dynamic_linker(const struct ZigTarget *target,
         char **out_ptr, size_t *out_len);
 
+
+
+// ABI warning
+struct Stage2NativePaths {
+    const char **include_dirs_ptr;
+    size_t include_dirs_len;
+    const char **lib_dirs_ptr;
+    size_t lib_dirs_len;
+    const char **rpaths_ptr;
+    size_t rpaths_len;
+    const char **warnings_ptr;
+    size_t warnings_len;
+};
+// ABI warning
+ZIG_EXTERN_C enum Error stage2_detect_native_paths(struct Stage2NativePaths *native_paths);
+
 #endif

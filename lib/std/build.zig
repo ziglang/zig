@@ -27,9 +27,6 @@ pub const Builder = struct {
     install_tls: TopLevelStep,
     uninstall_tls: TopLevelStep,
     allocator: *Allocator,
-    native_system_lib_paths: ArrayList([]const u8),
-    native_system_include_dirs: ArrayList([]const u8),
-    native_system_rpaths: ArrayList([]const u8),
     user_input_options: UserInputOptionsMap,
     available_options_map: AvailableOptionsMap,
     available_options_list: ArrayList(AvailableOption),
@@ -139,9 +136,6 @@ pub const Builder = struct {
             .verbose_cimport = false,
             .invalid_user_input = false,
             .allocator = allocator,
-            .native_system_lib_paths = ArrayList([]const u8).init(allocator),
-            .native_system_include_dirs = ArrayList([]const u8).init(allocator),
-            .native_system_rpaths = ArrayList([]const u8).init(allocator),
             .user_input_options = UserInputOptionsMap.init(allocator),
             .available_options_map = AvailableOptionsMap.init(allocator),
             .available_options_list = ArrayList(AvailableOption).init(allocator),
@@ -172,15 +166,11 @@ pub const Builder = struct {
         };
         try self.top_level_steps.append(&self.install_tls);
         try self.top_level_steps.append(&self.uninstall_tls);
-        self.detectNativeSystemPaths();
         self.default_step = &self.install_tls.step;
         return self;
     }
 
     pub fn destroy(self: *Builder) void {
-        self.native_system_lib_paths.deinit();
-        self.native_system_include_dirs.deinit();
-        self.native_system_rpaths.deinit();
         self.env_map.deinit();
         self.top_level_steps.deinit();
         self.allocator.destroy(self);
@@ -347,18 +337,6 @@ pub const Builder = struct {
         };
     }
 
-    pub fn addNativeSystemIncludeDir(self: *Builder, path: []const u8) void {
-        self.native_system_include_dirs.append(path) catch unreachable;
-    }
-
-    pub fn addNativeSystemRPath(self: *Builder, path: []const u8) void {
-        self.native_system_rpaths.append(path) catch unreachable;
-    }
-
-    pub fn addNativeSystemLibPath(self: *Builder, path: []const u8) void {
-        self.native_system_lib_paths.append(path) catch unreachable;
-    }
-
     pub fn make(self: *Builder, step_names: []const []const u8) !void {
         try self.makePath(self.cache_root);
 
@@ -431,87 +409,6 @@ pub const Builder = struct {
         }
         warn("Cannot run step '{}' because it does not exist\n", .{name});
         return error.InvalidStepName;
-    }
-
-    fn detectNativeSystemPaths(self: *Builder) void {
-        var is_nixos = false;
-        if (process.getEnvVarOwned(self.allocator, "NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
-            is_nixos = true;
-            var it = mem.tokenize(nix_cflags_compile, " ");
-            while (true) {
-                const word = it.next() orelse break;
-                if (mem.eql(u8, word, "-isystem")) {
-                    const include_path = it.next() orelse {
-                        warn("Expected argument after -isystem in NIX_CFLAGS_COMPILE\n", .{});
-                        break;
-                    };
-                    self.addNativeSystemIncludeDir(include_path);
-                } else {
-                    warn("Unrecognized C flag from NIX_CFLAGS_COMPILE: {}\n", .{word});
-                    break;
-                }
-            }
-        } else |err| {
-            assert(err == error.EnvironmentVariableNotFound);
-        }
-        if (process.getEnvVarOwned(self.allocator, "NIX_LDFLAGS")) |nix_ldflags| {
-            is_nixos = true;
-            var it = mem.tokenize(nix_ldflags, " ");
-            while (true) {
-                const word = it.next() orelse break;
-                if (mem.eql(u8, word, "-rpath")) {
-                    const rpath = it.next() orelse {
-                        warn("Expected argument after -rpath in NIX_LDFLAGS\n", .{});
-                        break;
-                    };
-                    self.addNativeSystemRPath(rpath);
-                } else if (word.len > 2 and word[0] == '-' and word[1] == 'L') {
-                    const lib_path = word[2..];
-                    self.addNativeSystemLibPath(lib_path);
-                } else {
-                    warn("Unrecognized C flag from NIX_LDFLAGS: {}\n", .{word});
-                    break;
-                }
-            }
-        } else |err| {
-            assert(err == error.EnvironmentVariableNotFound);
-        }
-        if (is_nixos) return;
-        switch (builtin.os) {
-            .windows => {},
-            else => {
-                const triple = (Target{
-                    .Cross = CrossTarget{
-                        .arch = builtin.arch,
-                        .os = builtin.os,
-                        .abi = builtin.abi,
-                        .cpu_features = builtin.cpu_features,
-                    },
-                }).linuxTriple(self.allocator);
-
-                // TODO: $ ld --verbose | grep SEARCH_DIR
-                // the output contains some paths that end with lib64, maybe include them too?
-                // also, what is the best possible order of things?
-
-                self.addNativeSystemIncludeDir("/usr/local/include");
-                self.addNativeSystemLibPath("/usr/local/lib");
-                self.addNativeSystemLibPath("/usr/local/lib64");
-
-                self.addNativeSystemIncludeDir(self.fmt("/usr/include/{}", .{triple}));
-                self.addNativeSystemLibPath(self.fmt("/usr/lib/{}", .{triple}));
-
-                self.addNativeSystemIncludeDir("/usr/include");
-                self.addNativeSystemLibPath("/lib");
-                self.addNativeSystemLibPath("/lib64");
-                self.addNativeSystemLibPath("/usr/lib");
-                self.addNativeSystemLibPath("/usr/lib64");
-
-                // example: on a 64-bit debian-based linux distro, with zlib installed from apt:
-                // zlib.h is in /usr/include (added above)
-                // libz.so.1 is in /lib/x86_64-linux-gnu (added here)
-                self.addNativeSystemLibPath(self.fmt("/lib/{}", .{triple}));
-            },
-        }
     }
 
     pub fn option(self: *Builder, comptime T: type, name: []const u8, description: []const u8) ?T {
@@ -1185,7 +1082,6 @@ pub const LibExeObjStep = struct {
     include_dirs: ArrayList(IncludeDir),
     c_macros: ArrayList([]const u8),
     output_dir: ?[]const u8,
-    need_system_paths: bool,
     is_linking_libc: bool = false,
     vcpkg_bin_path: ?[]const u8 = null,
 
@@ -1323,7 +1219,6 @@ pub const LibExeObjStep = struct {
             .disable_stack_probing = false,
             .disable_sanitize_c = false,
             .output_dir = null,
-            .need_system_paths = false,
             .single_threaded = false,
             .installed_path = null,
             .install_step = null,
@@ -1499,7 +1394,6 @@ pub const LibExeObjStep = struct {
     /// Prefer to use `linkSystemLibrary` instead.
     pub fn linkSystemLibraryName(self: *LibExeObjStep, name: []const u8) void {
         self.link_objects.append(LinkObject{ .SystemLib = self.builder.dupe(name) }) catch unreachable;
-        self.need_system_paths = true;
     }
 
     /// This links against a system library, exclusively using pkg-config to find the library.
@@ -2157,23 +2051,6 @@ pub const LibExeObjStep = struct {
         for (self.lib_paths.toSliceConst()) |lib_path| {
             try zig_args.append("-L");
             try zig_args.append(lib_path);
-        }
-
-        if (self.need_system_paths and self.target == Target.Native) {
-            for (builder.native_system_include_dirs.toSliceConst()) |include_path| {
-                zig_args.append("-isystem") catch unreachable;
-                zig_args.append(builder.pathFromRoot(include_path)) catch unreachable;
-            }
-
-            for (builder.native_system_rpaths.toSliceConst()) |rpath| {
-                zig_args.append("-rpath") catch unreachable;
-                zig_args.append(rpath) catch unreachable;
-            }
-
-            for (builder.native_system_lib_paths.toSliceConst()) |lib_path| {
-                zig_args.append("--library-path") catch unreachable;
-                zig_args.append(lib_path) catch unreachable;
-            }
         }
 
         for (self.c_macros.toSliceConst()) |c_macro| {

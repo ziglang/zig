@@ -175,3 +175,19 @@ enum Error stage2_detect_dynamic_linker(const struct ZigTarget *target, char **o
     const char *msg = "stage0 called stage2_detect_dynamic_linker";
     stage2_panic(msg, strlen(msg));
 }
+
+enum Error stage2_detect_native_paths(struct Stage2NativePaths *native_paths) {
+    native_paths->include_dirs_ptr = nullptr;
+    native_paths->include_dirs_len = 0;
+
+    native_paths->lib_dirs_ptr = nullptr;
+    native_paths->lib_dirs_len = 0;
+
+    native_paths->rpaths_ptr = nullptr;
+    native_paths->rpaths_len = 0;
+
+    native_paths->warnings_ptr = nullptr;
+    native_paths->warnings_len = 0;
+
+    return ErrorNone;
+}
