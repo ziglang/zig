@@ -91,10 +91,10 @@ test "SliceInStream" {
     expect(read == 0);
 }
 
-test "PeekStream" {
+test "BufferedInStream putBack" {
     const bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
     var ss = io.SliceInStream.init(&bytes);
-    var ps = io.PeekStream(.{ .Static = 2 }, io.SliceInStream.Error).init(&ss.stream);
+    var ps = io.BufferedInStreamCustom(.{ .Static = 2 }, io.SliceInStream.Error).init(&ss.stream);
 
     var dest: [4]u8 = undefined;
 

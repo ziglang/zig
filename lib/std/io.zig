@@ -109,94 +109,13 @@ pub fn readFileAlloc(allocator: *mem.Allocator, path: []const u8) ![]u8 {
 }
 
 pub fn BufferedInStream(comptime Error: type) type {
-    return BufferedInStreamCustom(mem.page_size, Error);
+    return BufferedInStreamCustom(.{ .Static = mem.page_size }, Error);
 }
 
-pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type) type {
-    return struct {
-        const Self = @This();
-        const Stream = InStream(Error);
-
-        stream: Stream,
-
-        unbuffered_in_stream: *Stream,
-
-        const FifoType = std.fifo.LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = buffer_size });
-        fifo: FifoType,
-
-        pub fn init(unbuffered_in_stream: *Stream) Self {
-            return Self{
-                .unbuffered_in_stream = unbuffered_in_stream,
-                .fifo = FifoType.init(),
-                .stream = Stream{ .readFn = readFn },
-            };
-        }
-
-        fn readFn(in_stream: *Stream, dest: []u8) !usize {
-            const self = @fieldParentPtr(Self, "stream", in_stream);
-            var dest_index: usize = 0;
-            while (dest_index < dest.len) {
-                const written = self.fifo.read(dest[dest_index..]);
-                if (written == 0) {
-                    // fifo empty, fill it
-                    const writable = self.fifo.writableSlice(0);
-                    assert(writable.len > 0);
-                    const n = try self.unbuffered_in_stream.read(writable);
-                    if (n == 0) {
-                        // reading from the unbuffered stream returned nothing
-                        // so we have nothing left to read.
-                        return dest_index;
-                    }
-                    self.fifo.update(n);
-                }
-                dest_index += written;
-            }
-            return dest.len;
-        }
-    };
-}
-
-test "io.BufferedInStream" {
-    const OneByteReadInStream = struct {
-        const Error = error{NoError};
-        const Stream = InStream(Error);
-
-        stream: Stream,
-        str: []const u8,
-        curr: usize,
-
-        fn init(str: []const u8) @This() {
-            return @This(){
-                .stream = Stream{ .readFn = readFn },
-                .str = str,
-                .curr = 0,
-            };
-        }
-
-        fn readFn(in_stream: *Stream, dest: []u8) Error!usize {
-            const self = @fieldParentPtr(@This(), "stream", in_stream);
-            if (self.str.len <= self.curr or dest.len == 0)
-                return 0;
-
-            dest[0] = self.str[self.curr];
-            self.curr += 1;
-            return 1;
-        }
-    };
-
-    const str = "This is a test";
-    var one_byte_stream = OneByteReadInStream.init(str);
-    var buf_in_stream = BufferedInStream(OneByteReadInStream.Error).init(&one_byte_stream.stream);
-    const stream = &buf_in_stream.stream;
-
-    const res = try stream.readAllAlloc(testing.allocator, str.len + 1);
-    defer testing.allocator.free(res);
-    testing.expectEqualSlices(u8, str, res);
-}
-
-/// Creates a stream which supports 'un-reading' data, so that it can be read again.
+/// Creates a readable stream which buffers data
+/// It also supports 'un-reading' data, so that it can be read again.
 /// This makes look-ahead style parsing much easier.
-pub fn PeekStream(comptime buffer_type: std.fifo.LinearFifoBufferType, comptime InStreamError: type) type {
+pub fn BufferedInStreamCustom(comptime buffer_type: std.fifo.LinearFifoBufferType, comptime InStreamError: type) type {
     return struct {
         const Self = @This();
         pub const Error = InStreamError;
@@ -248,16 +167,64 @@ pub fn PeekStream(comptime buffer_type: std.fifo.LinearFifoBufferType, comptime 
 
         fn readFn(in_stream: *Stream, dest: []u8) Error!usize {
             const self = @fieldParentPtr(Self, "stream", in_stream);
-
-            // copy over anything putBack()'d
-            var dest_index = self.fifo.read(dest);
-            if (dest_index == dest.len) return dest_index;
-
-            // ask the backing stream for more
-            dest_index += try self.base.read(dest[dest_index..]);
-            return dest_index;
+            var dest_index: usize = 0;
+            while (dest_index < dest.len) {
+                const written = self.fifo.read(dest[dest_index..]);
+                if (written == 0) {
+                    // fifo empty, fill it
+                    const writable = self.fifo.writableSlice(0);
+                    assert(writable.len > 0);
+                    const n = try self.base.read(writable);
+                    if (n == 0) {
+                        // reading from the unbuffered stream returned nothing
+                        // so we have nothing left to read.
+                        return dest_index;
+                    }
+                    self.fifo.update(n);
+                }
+                dest_index += written;
+            }
+            return dest.len;
         }
     };
+}
+
+test "io.BufferedInStream" {
+    const OneByteReadInStream = struct {
+        const Error = error{NoError};
+        const Stream = InStream(Error);
+
+        stream: Stream,
+        str: []const u8,
+        curr: usize,
+
+        fn init(str: []const u8) @This() {
+            return @This(){
+                .stream = Stream{ .readFn = readFn },
+                .str = str,
+                .curr = 0,
+            };
+        }
+
+        fn readFn(in_stream: *Stream, dest: []u8) Error!usize {
+            const self = @fieldParentPtr(@This(), "stream", in_stream);
+            if (self.str.len <= self.curr or dest.len == 0)
+                return 0;
+
+            dest[0] = self.str[self.curr];
+            self.curr += 1;
+            return 1;
+        }
+    };
+
+    const str = "This is a test";
+    var one_byte_stream = OneByteReadInStream.init(str);
+    var buf_in_stream = BufferedInStream(OneByteReadInStream.Error).init(&one_byte_stream.stream);
+    const stream = &buf_in_stream.stream;
+
+    const res = try stream.readAllAlloc(testing.allocator, str.len + 1);
+    defer testing.allocator.free(res);
+    testing.expectEqualSlices(u8, str, res);
 }
 
 pub const SliceInStream = struct {
