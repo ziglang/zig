@@ -1155,9 +1155,9 @@ pub const LibExeObjStep = struct {
     frameworks: BufSet,
     verbose_link: bool,
     verbose_cc: bool,
-    emit_ir: bool,
-    emit_asm: bool,
-    emit_bin: bool,
+    emit_llvm_ir: bool = false,
+    emit_asm: bool = false,
+    emit_bin: bool = true,
     disable_gen_h: bool,
     bundle_compiler_rt: bool,
     disable_stack_probing: bool,
@@ -1288,9 +1288,6 @@ pub const LibExeObjStep = struct {
             .builder = builder,
             .verbose_link = false,
             .verbose_cc = false,
-            .emit_ir = false,
-            .emit_asm = false,
-            .emit_bin = true,
             .build_mode = builtin.Mode.Debug,
             .is_dynamic = is_dynamic,
             .kind = kind,
@@ -1947,9 +1944,9 @@ pub const LibExeObjStep = struct {
         if (builder.verbose_link or self.verbose_link) zig_args.append("--verbose-link") catch unreachable;
         if (builder.verbose_cc or self.verbose_cc) zig_args.append("--verbose-cc") catch unreachable;
 
-        try zig_args.append(if (self.emit_ir) "-femit-llvm-ir" else "-fno-emit-llvm-ir");
-        try zig_args.append(if (self.emit_asm) "-femit-asm" else "-fno-emit-asm");
-        try zig_args.append(if (self.emit_bin) "-femit-bin" else "-fno-emit-bin");
+        if (self.emit_llvm_ir) try zig_args.append("-femit-llvm-ir");
+        if (self.emit_asm) try zig_args.append("-femit-asm");
+        if (!self.emit_bin) try zig_args.append("-fno-emit-bin");
 
         if (self.strip) {
             try zig_args.append("--strip");

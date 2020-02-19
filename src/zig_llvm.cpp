@@ -161,17 +161,32 @@ unsigned ZigLLVMDataLayoutGetProgramAddressSpace(LLVMTargetDataRef TD) {
 }
 
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
-        const char *filename, ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug,
-        bool is_small, bool time_report)
+        char **error_message, bool is_debug,
+        bool is_small, bool time_report,
+        const char *asm_filename, const char *bin_filename, const char *llvm_ir_filename)
 {
     TimePassesIsEnabled = time_report;
 
-    std::error_code EC;
-    raw_fd_ostream dest(filename, EC, sys::fs::F_None);
-    if (EC) {
-        *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
-        return true;
+    raw_fd_ostream *dest_asm = nullptr;
+    raw_fd_ostream *dest_bin = nullptr;
+
+    if (asm_filename) {
+        std::error_code EC;
+        dest_asm = new(std::nothrow) raw_fd_ostream(asm_filename, EC, sys::fs::F_None);
+        if (EC) {
+            *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
+            return true;
+        }
     }
+    if (bin_filename) {
+        std::error_code EC;
+        dest_bin = new(std::nothrow) raw_fd_ostream(bin_filename, EC, sys::fs::F_None);
+        if (EC) {
+            *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
+            return true;
+        }
+    }
+
     TargetMachine* target_machine = reinterpret_cast<TargetMachine*>(targ_machine_ref);
     target_machine->setO0WantsFastISel(true);
 
@@ -222,49 +237,51 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     }
     PMBuilder->populateFunctionPassManager(FPM);
 
-    // Set up the per-module pass manager.
-    legacy::PassManager MPM;
-    MPM.add(createTargetTransformInfoWrapperPass(target_machine->getTargetIRAnalysis()));
-    PMBuilder->populateModulePassManager(MPM);
+    {
+        // Set up the per-module pass manager.
+        legacy::PassManager MPM;
+        MPM.add(createTargetTransformInfoWrapperPass(target_machine->getTargetIRAnalysis()));
+        PMBuilder->populateModulePassManager(MPM);
 
-    // Set output pass.
-    TargetMachine::CodeGenFileType ft;
-    if (output_type != ZigLLVM_EmitLLVMIr) {
-        switch (output_type) {
-            case ZigLLVM_EmitAssembly:
-                ft = TargetMachine::CGFT_AssemblyFile;
-                break;
-            case ZigLLVM_EmitBinary:
-                ft = TargetMachine::CGFT_ObjectFile;
-                break;
-            default:
-                abort();
+        // Set output passes.
+        if (dest_bin) {
+            if (target_machine->addPassesToEmitFile(MPM, *dest_bin, nullptr, TargetMachine::CGFT_ObjectFile)) {
+                *error_message = strdup("TargetMachine can't emit an object file");
+                return true;
+            }
+        }
+        if (dest_asm) {
+            if (target_machine->addPassesToEmitFile(MPM, *dest_asm, nullptr, TargetMachine::CGFT_AssemblyFile)) {
+                *error_message = strdup("TargetMachine can't emit an assembly file");
+                return true;
+            }
         }
 
-        if (target_machine->addPassesToEmitFile(MPM, dest, nullptr, ft)) {
-            *error_message = strdup("TargetMachine can't emit a file of this type");
-            return true;
+        // run per function optimization passes
+        FPM.doInitialization();
+        for (Function &F : *module)
+        if (!F.isDeclaration())
+            FPM.run(F);
+        FPM.doFinalization();
+
+        MPM.run(*module);
+
+        if (llvm_ir_filename) {
+            if (LLVMPrintModuleToFile(module_ref, llvm_ir_filename, error_message)) {
+                return true;
+            }
         }
-    }
 
-    // run per function optimization passes
-    FPM.doInitialization();
-    for (Function &F : *module)
-      if (!F.isDeclaration())
-        FPM.run(F);
-    FPM.doFinalization();
-
-    MPM.run(*module);
-
-    if (output_type == ZigLLVM_EmitLLVMIr) {
-        if (LLVMPrintModuleToFile(module_ref, filename, error_message)) {
-            return true;
+        if (time_report) {
+            TimerGroup::printAll(errs());
         }
+
+        // MPM goes out of scope and writes to the out streams
     }
 
-    if (time_report) {
-        TimerGroup::printAll(errs());
-    }
+    delete dest_asm;
+    delete dest_bin;
+
     return false;
 }
 
