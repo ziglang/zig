@@ -219,7 +219,7 @@ pub const Target = union(enum) {
             pub const Set = struct {
                 ints: [usize_count]usize,
 
-                pub const needed_bit_count = 138;
+                pub const needed_bit_count = 154;
                 pub const byte_count = (needed_bit_count + 7) / 8;
                 pub const usize_count = (byte_count + (@sizeOf(usize) - 1)) / @sizeOf(usize);
                 pub const Index = std.math.Log2Int(@IntType(false, usize_count * @bitSizeOf(usize)));
