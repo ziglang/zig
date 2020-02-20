@@ -8504,25 +8504,9 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
         for (uint32_t arch_i = 0; arch_i < field_count; arch_i += 1) {
             ZigLLVM_ArchType arch = target_arch_enum(arch_i);
             const char *arch_name = target_arch_name(arch);
-            SubArchList sub_arch_list = target_subarch_list(arch);
-            if (sub_arch_list == SubArchListNone) {
-                if (arch == g->zig_target->arch) {
-                    g->target_arch_index = arch_i;
-                    cur_arch = buf_ptr(buf_sprintf("Arch.%s", arch_name));
-                }
-            } else {
-                const char *sub_arch_list_name = target_subarch_list_name(sub_arch_list);
-                if (arch == g->zig_target->arch) {
-                    size_t sub_count = target_subarch_count(sub_arch_list);
-                    for (size_t sub_i = 0; sub_i < sub_count; sub_i += 1) {
-                        ZigLLVM_SubArchType sub = target_subarch_enum(sub_arch_list, sub_i);
-                        if (sub == g->zig_target->sub_arch) {
-                            g->target_sub_arch_index = sub_i;
-                            cur_arch = buf_ptr(buf_sprintf("Arch{ .%s = Arch.%s.%s }",
-                                        arch_name, sub_arch_list_name, target_subarch_name(sub)));
-                        }
-                    }
-                }
+            if (arch == g->zig_target->arch) {
+                g->target_arch_index = arch_i;
+                cur_arch = arch_name;
             }
         }
     }
@@ -8621,7 +8605,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const is_test = %s;\n", bool_to_str(g->is_test_build));
     buf_appendf(contents, "pub const single_threaded = %s;\n", bool_to_str(g->is_single_threaded));
     buf_appendf(contents, "pub const os = Os.%s;\n", cur_os);
-    buf_appendf(contents, "pub const arch = %s;\n", cur_arch);
+    buf_appendf(contents, "pub const arch = Arch.%s;\n", cur_arch);
     buf_appendf(contents, "pub const abi = Abi.%s;\n", cur_abi);
     {
         buf_append_str(contents, "pub const cpu: Cpu = ");
