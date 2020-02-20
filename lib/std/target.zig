@@ -1258,7 +1258,7 @@ test "Target.parse" {
     {
         const target = (try Target.parse(.{
             .arch_os_abi = "x86_64-linux-gnu",
-            .cpu = "x86_64-sse-avx-cx8",
+            .cpu = "x86_64-sse-sse2-avx-cx8",
         })).Cross;
 
         std.testing.expect(target.os == .linux);
