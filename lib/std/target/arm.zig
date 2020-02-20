@@ -9,6 +9,39 @@ pub const Feature = enum {
     aclass,
     acquire_release,
     aes,
+    armv2,
+    armv2a,
+    armv3,
+    armv3m,
+    armv4,
+    armv4t,
+    armv5t,
+    armv5te,
+    armv5tej,
+    armv6,
+    armv6_m,
+    armv6j,
+    armv6k,
+    armv6kz,
+    armv6s_m,
+    armv6t2,
+    armv7_a,
+    armv7_m,
+    armv7_r,
+    armv7e_m,
+    armv7k,
+    armv7s,
+    armv7ve,
+    armv8_a,
+    armv8_m_base,
+    armv8_m_main,
+    armv8_r,
+    armv8_1_a,
+    armv8_1_m_main,
+    armv8_2_a,
+    armv8_3_a,
+    armv8_4_a,
+    armv8_5_a,
     avoid_movs_shop,
     avoid_partial_cpsr,
     cheap_predicable_cpsr,
@@ -24,13 +57,13 @@ pub const Feature = enum {
     execute_only,
     expand_fp_mlx,
     exynos,
-    fp16,
-    fp16fml,
-    fp64,
     fp_armv8,
     fp_armv8d16,
     fp_armv8d16sp,
     fp_armv8sp,
+    fp16,
+    fp16fml,
+    fp64,
     fpao,
     fpregs,
     fpregs16,
@@ -82,46 +115,29 @@ pub const Feature = enum {
     splat_vfp_neon,
     strict_align,
     swift,
-    thumb2,
     thumb_mode,
+    thumb2,
     trustzone,
     use_aa,
     use_misched,
-    v2,
-    v2a,
-    v3,
-    v3m,
-    v4,
     v4t,
     v5t,
     v5te,
-    v5tej,
     v6,
-    v6j,
     v6k,
-    v6kz,
     v6m,
-    v6sm,
     v6t2,
     v7,
-    v7a,
-    v7m,
-    v7r,
     v7clrex,
-    v7em,
-    v7k,
-    v7s,
-    v7ve,
     v8a,
-    v8m,
-    v8m_main,
-    v8r,
     v8_1a,
     v8_1m_main,
     v8_2a,
     v8_3a,
     v8_4a,
     v8_5a,
+    v8m,
+    v8m_main,
     vfp2,
     vfp2d16,
     vfp2d16sp,
@@ -180,6 +196,368 @@ pub const all_features = blk: {
         .description = "Enable AES support",
         .dependencies = featureSet(&[_]Feature{
             .neon,
+        }),
+    };
+    result[@enumToInt(Feature.armv2)] = .{
+        .llvm_name = "armv2",
+        .description = "ARMv2 architecture",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.armv2a)] = .{
+        .llvm_name = "armv2a",
+        .description = "ARMv2a architecture",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.armv3)] = .{
+        .llvm_name = "armv3",
+        .description = "ARMv3 architecture",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.armv3m)] = .{
+        .llvm_name = "armv3m",
+        .description = "ARMv3m architecture",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.armv4)] = .{
+        .llvm_name = "armv4",
+        .description = "ARMv4 architecture",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.armv4t)] = .{
+        .llvm_name = "armv4t",
+        .description = "ARMv4t architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .v4t,
+        }),
+    };
+    result[@enumToInt(Feature.armv5t)] = .{
+        .llvm_name = "armv5t",
+        .description = "ARMv5t architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .v5t,
+        }),
+    };
+    result[@enumToInt(Feature.armv5te)] = .{
+        .llvm_name = "armv5te",
+        .description = "ARMv5te architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .v5te,
+        }),
+    };
+    result[@enumToInt(Feature.armv5tej)] = .{
+        .llvm_name = "armv5tej",
+        .description = "ARMv5tej architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .v5te,
+        }),
+    };
+    result[@enumToInt(Feature.armv6)] = .{
+        .llvm_name = "armv6",
+        .description = "ARMv6 architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .dsp,
+            .v6,
+        }),
+    };
+    result[@enumToInt(Feature.armv6_m)] = .{
+        .llvm_name = "armv6-m",
+        .description = "ARMv6m architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .db,
+            .mclass,
+            .noarm,
+            .strict_align,
+            .thumb_mode,
+            .v6m,
+        }),
+    };
+    result[@enumToInt(Feature.armv6j)] = .{
+        .llvm_name = "armv6j",
+        .description = "ARMv7a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .armv6,
+        }),
+    };
+    result[@enumToInt(Feature.armv6k)] = .{
+        .llvm_name = "armv6k",
+        .description = "ARMv6k architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .v6k,
+        }),
+    };
+    result[@enumToInt(Feature.armv6kz)] = .{
+        .llvm_name = "armv6kz",
+        .description = "ARMv6kz architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .trustzone,
+            .v6k,
+        }),
+    };
+    result[@enumToInt(Feature.armv6s_m)] = .{
+        .llvm_name = "armv6s-m",
+        .description = "ARMv6sm architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .db,
+            .mclass,
+            .noarm,
+            .strict_align,
+            .thumb_mode,
+            .v6m,
+        }),
+    };
+    result[@enumToInt(Feature.armv6t2)] = .{
+        .llvm_name = "armv6t2",
+        .description = "ARMv6t2 architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .dsp,
+            .v6t2,
+        }),
+    };
+    result[@enumToInt(Feature.armv7_a)] = .{
+        .llvm_name = "armv7-a",
+        .description = "ARMv7a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .aclass,
+            .db,
+            .dsp,
+            .neon,
+            .v7,
+        }),
+    };
+    result[@enumToInt(Feature.armv7_m)] = .{
+        .llvm_name = "armv7-m",
+        .description = "ARMv7m architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .db,
+            .hwdiv,
+            .mclass,
+            .noarm,
+            .thumb_mode,
+            .thumb2,
+            .v7,
+        }),
+    };
+    result[@enumToInt(Feature.armv7_r)] = .{
+        .llvm_name = "armv7-r",
+        .description = "ARMv7r architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .db,
+            .dsp,
+            .hwdiv,
+            .rclass,
+            .v7,
+        }),
+    };
+    result[@enumToInt(Feature.armv7e_m)] = .{
+        .llvm_name = "armv7e-m",
+        .description = "ARMv7em architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .db,
+            .dsp,
+            .hwdiv,
+            .mclass,
+            .noarm,
+            .thumb_mode,
+            .thumb2,
+            .v7,
+        }),
+    };
+    result[@enumToInt(Feature.armv7k)] = .{
+        .llvm_name = "armv7k",
+        .description = "ARMv7a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .armv7_a,
+        }),
+    };
+    result[@enumToInt(Feature.armv7s)] = .{
+        .llvm_name = "armv7s",
+        .description = "ARMv7a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .armv7_a,
+        }),
+    };
+    result[@enumToInt(Feature.armv7ve)] = .{
+        .llvm_name = "armv7ve",
+        .description = "ARMv7ve architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .aclass,
+            .db,
+            .dsp,
+            .mp,
+            .neon,
+            .trustzone,
+            .v7,
+            .virtualization,
+        }),
+    };
+    result[@enumToInt(Feature.armv8_a)] = .{
+        .llvm_name = "armv8-a",
+        .description = "ARMv8a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .aclass,
+            .crc,
+            .crypto,
+            .db,
+            .dsp,
+            .fp_armv8,
+            .mp,
+            .neon,
+            .trustzone,
+            .v8a,
+            .virtualization,
+        }),
+    };
+    result[@enumToInt(Feature.armv8_m_base)] = .{
+        .llvm_name = "armv8-m.base",
+        .description = "ARMv8mBaseline architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .@"8msecext",
+            .acquire_release,
+            .db,
+            .hwdiv,
+            .mclass,
+            .noarm,
+            .strict_align,
+            .thumb_mode,
+            .v7clrex,
+            .v8m,
+        }),
+    };
+    result[@enumToInt(Feature.armv8_m_main)] = .{
+        .llvm_name = "armv8-m.main",
+        .description = "ARMv8mMainline architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .@"8msecext",
+            .acquire_release,
+            .db,
+            .hwdiv,
+            .mclass,
+            .noarm,
+            .thumb_mode,
+            .v8m_main,
+        }),
+    };
+    result[@enumToInt(Feature.armv8_r)] = .{
+        .llvm_name = "armv8-r",
+        .description = "ARMv8r architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .crc,
+            .db,
+            .dfb,
+            .dsp,
+            .fp_armv8,
+            .mp,
+            .neon,
+            .rclass,
+            .v8a,
+            .virtualization,
+        }),
+    };
+    result[@enumToInt(Feature.armv8_1_a)] = .{
+        .llvm_name = "armv8.1-a",
+        .description = "ARMv81a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .aclass,
+            .crc,
+            .crypto,
+            .db,
+            .dsp,
+            .fp_armv8,
+            .mp,
+            .neon,
+            .trustzone,
+            .v8_1a,
+            .virtualization,
+        }),
+    };
+    result[@enumToInt(Feature.armv8_1_m_main)] = .{
+        .llvm_name = "armv8.1-m.main",
+        .description = "ARMv81mMainline architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .@"8msecext",
+            .acquire_release,
+            .db,
+            .hwdiv,
+            .lob,
+            .mclass,
+            .noarm,
+            .ras,
+            .thumb_mode,
+            .v8_1m_main,
+        }),
+    };
+    result[@enumToInt(Feature.armv8_2_a)] = .{
+        .llvm_name = "armv8.2-a",
+        .description = "ARMv82a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .aclass,
+            .crc,
+            .crypto,
+            .db,
+            .dsp,
+            .fp_armv8,
+            .mp,
+            .neon,
+            .ras,
+            .trustzone,
+            .v8_2a,
+            .virtualization,
+        }),
+    };
+    result[@enumToInt(Feature.armv8_3_a)] = .{
+        .llvm_name = "armv8.3-a",
+        .description = "ARMv83a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .aclass,
+            .crc,
+            .crypto,
+            .db,
+            .dsp,
+            .fp_armv8,
+            .mp,
+            .neon,
+            .ras,
+            .trustzone,
+            .v8_3a,
+            .virtualization,
+        }),
+    };
+    result[@enumToInt(Feature.armv8_4_a)] = .{
+        .llvm_name = "armv8.4-a",
+        .description = "ARMv84a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .aclass,
+            .crc,
+            .crypto,
+            .db,
+            .dotprod,
+            .dsp,
+            .fp_armv8,
+            .mp,
+            .neon,
+            .ras,
+            .trustzone,
+            .v8_4a,
+            .virtualization,
+        }),
+    };
+    result[@enumToInt(Feature.armv8_5_a)] = .{
+        .llvm_name = "armv8.5-a",
+        .description = "ARMv85a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .aclass,
+            .crc,
+            .crypto,
+            .db,
+            .dotprod,
+            .dsp,
+            .fp_armv8,
+            .mp,
+            .neon,
+            .ras,
+            .trustzone,
+            .v8_5a,
+            .virtualization,
         }),
     };
     result[@enumToInt(Feature.avoid_movs_shop)] = .{
@@ -281,25 +659,6 @@ pub const all_features = blk: {
             .zcz,
         }),
     };
-    result[@enumToInt(Feature.fp16)] = .{
-        .llvm_name = "fp16",
-        .description = "Enable half-precision floating point",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.fp16fml)] = .{
-        .llvm_name = "fp16fml",
-        .description = "Enable full half-precision floating point fml instructions",
-        .dependencies = featureSet(&[_]Feature{
-            .fullfp16,
-        }),
-    };
-    result[@enumToInt(Feature.fp64)] = .{
-        .llvm_name = "fp64",
-        .description = "Floating point unit supports double precision",
-        .dependencies = featureSet(&[_]Feature{
-            .fpregs64,
-        }),
-    };
     result[@enumToInt(Feature.fp_armv8)] = .{
         .llvm_name = "fp-armv8",
         .description = "Enable ARMv8 FP",
@@ -332,6 +691,25 @@ pub const all_features = blk: {
             .d32,
             .fp_armv8d16sp,
             .vfp4sp,
+        }),
+    };
+    result[@enumToInt(Feature.fp16)] = .{
+        .llvm_name = "fp16",
+        .description = "Enable half-precision floating point",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.fp16fml)] = .{
+        .llvm_name = "fp16fml",
+        .description = "Enable full half-precision floating point fml instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .fullfp16,
+        }),
+    };
+    result[@enumToInt(Feature.fp64)] = .{
+        .llvm_name = "fp64",
+        .description = "Floating point unit supports double precision",
+        .dependencies = featureSet(&[_]Feature{
+            .fpregs64,
         }),
     };
     result[@enumToInt(Feature.fpao)] = .{
@@ -615,14 +993,14 @@ pub const all_features = blk: {
         .description = "Swift ARM processors",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.thumb2)] = .{
-        .llvm_name = "thumb2",
-        .description = "Enable Thumb2 instructions",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
     result[@enumToInt(Feature.thumb_mode)] = .{
         .llvm_name = "thumb-mode",
         .description = "Thumb mode",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.thumb2)] = .{
+        .llvm_name = "thumb2",
+        .description = "Enable Thumb2 instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.trustzone)] = .{
@@ -640,116 +1018,50 @@ pub const all_features = blk: {
         .description = "Use the MachineScheduler",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.v2)] = .{
-        .llvm_name = "armv2",
-        .description = "ARMv2 architecture",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.v2a)] = .{
-        .llvm_name = "armv2a",
-        .description = "ARMv2a architecture",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.v3)] = .{
-        .llvm_name = "armv3",
-        .description = "ARMv3 architecture",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.v3m)] = .{
-        .llvm_name = "armv3m",
-        .description = "ARMv3m architecture",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.v4)] = .{
-        .llvm_name = "armv4",
-        .description = "ARMv4 architecture",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
     result[@enumToInt(Feature.v4t)] = .{
-        .llvm_name = "armv4t",
-        .description = "ARMv4t architecture",
+        .llvm_name = "v4t",
+        .description = "Support ARM v4T instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.v5t)] = .{
-        .llvm_name = "armv5t",
-        .description = "ARMv5t architecture",
+        .llvm_name = "v5t",
+        .description = "Support ARM v5T instructions",
         .dependencies = featureSet(&[_]Feature{
             .v4t,
         }),
     };
     result[@enumToInt(Feature.v5te)] = .{
-        .llvm_name = "armv5te",
-        .description = "ARMv5te architecture",
+        .llvm_name = "v5te",
+        .description = "Support ARM v5TE, v5TEj, and v5TExp instructions",
         .dependencies = featureSet(&[_]Feature{
             .v5t,
         }),
     };
-    result[@enumToInt(Feature.v5tej)] = .{
-        .llvm_name = "armv5tej",
-        .description = "ARMv5tej architecture",
-        .dependencies = featureSet(&[_]Feature{
-            .v5te,
-        }),
-    };
     result[@enumToInt(Feature.v6)] = .{
-        .llvm_name = "armv6",
-        .description = "ARMv6 architecture",
+        .llvm_name = "v6",
+        .description = "Support ARM v6 instructions",
         .dependencies = featureSet(&[_]Feature{
-            .dsp,
             .v5te,
-        }),
-    };
-    result[@enumToInt(Feature.v6j)] = .{
-        .llvm_name = "armv6j",
-        .description = "ARMv7a architecture",
-        .dependencies = featureSet(&[_]Feature{
-            .v6,
         }),
     };
     result[@enumToInt(Feature.v6k)] = .{
-        .llvm_name = "armv6k",
-        .description = "ARMv6k architecture",
+        .llvm_name = "v6k",
+        .description = "Support ARM v6k instructions",
         .dependencies = featureSet(&[_]Feature{
             .v6,
-        }),
-    };
-    result[@enumToInt(Feature.v6kz)] = .{
-        .llvm_name = "armv6kz",
-        .description = "ARMv6kz architecture",
-        .dependencies = featureSet(&[_]Feature{
-            .trustzone,
-            .v6k,
         }),
     };
     result[@enumToInt(Feature.v6m)] = .{
-        .llvm_name = "armv6-m",
-        .description = "ARMv6m architecture",
+        .llvm_name = "v6m",
+        .description = "Support ARM v6M instructions",
         .dependencies = featureSet(&[_]Feature{
-            .db,
-            .mclass,
-            .noarm,
-            .strict_align,
-            .thumb_mode,
-            .v6,
-        }),
-    };
-    result[@enumToInt(Feature.v6sm)] = .{
-        .llvm_name = "armv6s-m",
-        .description = "ARMv6sm architecture",
-        .dependencies = featureSet(&[_]Feature{
-            .db,
-            .mclass,
-            .noarm,
-            .strict_align,
-            .thumb_mode,
             .v6,
         }),
     };
     result[@enumToInt(Feature.v6t2)] = .{
-        .llvm_name = "armv6t2",
-        .description = "ARMv6t2 architecture",
+        .llvm_name = "v6t2",
+        .description = "Support ARM v6t2 instructions",
         .dependencies = featureSet(&[_]Feature{
-            .dsp,
             .thumb2,
             .v6k,
             .v8m,
@@ -764,197 +1076,75 @@ pub const all_features = blk: {
             .v7clrex,
         }),
     };
-    result[@enumToInt(Feature.v7a)] = .{
-        .llvm_name = "armv7-a",
-        .description = "ARMv7a architecture",
-        .dependencies = featureSet(&[_]Feature{
-            .aclass,
-            .db,
-            .dsp,
-            .neon,
-            .v7,
-        }),
-    };
-    result[@enumToInt(Feature.v7m)] = .{
-        .llvm_name = "armv7-m",
-        .description = "ARMv7m architecture",
-        .dependencies = featureSet(&[_]Feature{
-            .db,
-            .hwdiv,
-            .mclass,
-            .noarm,
-            .thumb_mode,
-            .thumb2,
-            .v7,
-        }),
-    };
-    result[@enumToInt(Feature.v7r)] = .{
-        .llvm_name = "armv7-r",
-        .description = "ARMv7r architecture",
-        .dependencies = featureSet(&[_]Feature{
-            .db,
-            .dsp,
-            .hwdiv,
-            .rclass,
-            .v7,
-        }),
-    };
     result[@enumToInt(Feature.v7clrex)] = .{
         .llvm_name = "v7clrex",
         .description = "Has v7 clrex instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.v7em)] = .{
-        .llvm_name = "armv7e-m",
-        .description = "ARMv7em architecture",
-        .dependencies = featureSet(&[_]Feature{
-            .db,
-            .dsp,
-            .hwdiv,
-            .mclass,
-            .noarm,
-            .thumb_mode,
-            .thumb2,
-            .v7,
-        }),
-    };
-    result[@enumToInt(Feature.v7k)] = .{
-        .llvm_name = "armv7k",
-        .description = "ARMv7a architecture",
-        .dependencies = featureSet(&[_]Feature{
-            .v7a,
-        }),
-    };
-    result[@enumToInt(Feature.v7s)] = .{
-        .llvm_name = "armv7s",
-        .description = "ARMv7a architecture",
-        .dependencies = featureSet(&[_]Feature{
-            .v7a,
-        }),
-    };
-    result[@enumToInt(Feature.v7ve)] = .{
-        .llvm_name = "armv7ve",
-        .description = "ARMv7ve architecture",
-        .dependencies = featureSet(&[_]Feature{
-            .aclass,
-            .db,
-            .dsp,
-            .mp,
-            .neon,
-            .trustzone,
-            .v7,
-            .virtualization,
-        }),
-    };
     result[@enumToInt(Feature.v8a)] = .{
-        .llvm_name = "armv8-a",
-        .description = "ARMv8a architecture",
+        .llvm_name = "v8a",
+        .description = "Support ARM v8a instructions",
         .dependencies = featureSet(&[_]Feature{
-            .aclass,
             .acquire_release,
-            .crc,
-            .crypto,
-            .db,
-            .fp_armv8,
-            .mp,
-            .neon,
-            .trustzone,
             .v7,
-            .virtualization,
-        }),
-    };
-    result[@enumToInt(Feature.v8m)] = .{
-        .llvm_name = "armv8-m.base",
-        .description = "ARMv8mBaseline architecture",
-        .dependencies = featureSet(&[_]Feature{
-            .@"8msecext",
-            .acquire_release,
-            .db,
-            .hwdiv,
-            .mclass,
-            .noarm,
-            .strict_align,
-            .thumb_mode,
-            .v6m,
-            .v7clrex,
-        }),
-    };
-    result[@enumToInt(Feature.v8m_main)] = .{
-        .llvm_name = "armv8-m.main",
-        .description = "ARMv8mMainline architecture",
-        .dependencies = featureSet(&[_]Feature{
-            .@"8msecext",
-            .acquire_release,
-            .db,
-            .hwdiv,
-            .mclass,
-            .noarm,
-            .thumb_mode,
-            .v7,
-        }),
-    };
-    result[@enumToInt(Feature.v8r)] = .{
-        .llvm_name = "armv8-r",
-        .description = "ARMv8r architecture",
-        .dependencies = featureSet(&[_]Feature{
-            .dfb,
-            .rclass,
-            .v8a,
         }),
     };
     result[@enumToInt(Feature.v8_1a)] = .{
-        .llvm_name = "armv8.1-a",
-        .description = "ARMv81a architecture",
+        .llvm_name = "v8.1a",
+        .description = "Support ARM v8.1a instructions",
         .dependencies = featureSet(&[_]Feature{
             .v8a,
         }),
     };
     result[@enumToInt(Feature.v8_1m_main)] = .{
-        .llvm_name = "armv8.1-m.main",
-        .description = "ARMv81mMainline architecture",
+        .llvm_name = "v8.1m.main",
+        .description = "Support ARM v8-1M Mainline instructions",
         .dependencies = featureSet(&[_]Feature{
-            .@"8msecext",
-            .acquire_release,
-            .db,
-            .hwdiv,
-            .lob,
-            .mclass,
-            .noarm,
-            .ras,
-            .thumb_mode,
             .v8m_main,
         }),
     };
     result[@enumToInt(Feature.v8_2a)] = .{
-        .llvm_name = "armv8.2-a",
-        .description = "ARMv82a architecture",
+        .llvm_name = "v8.2a",
+        .description = "Support ARM v8.2a instructions",
         .dependencies = featureSet(&[_]Feature{
-            .ras,
             .v8_1a,
         }),
     };
     result[@enumToInt(Feature.v8_3a)] = .{
-        .llvm_name = "armv8.3-a",
-        .description = "ARMv83a architecture",
+        .llvm_name = "v8.3a",
+        .description = "Support ARM v8.3a instructions",
         .dependencies = featureSet(&[_]Feature{
             .v8_2a,
         }),
     };
     result[@enumToInt(Feature.v8_4a)] = .{
-        .llvm_name = "armv8.4-a",
-        .description = "ARMv84a architecture",
+        .llvm_name = "v8.4a",
+        .description = "Support ARM v8.4a instructions",
         .dependencies = featureSet(&[_]Feature{
             .dotprod,
             .v8_3a,
         }),
     };
     result[@enumToInt(Feature.v8_5a)] = .{
-        .llvm_name = "armv8.5-a",
-        .description = "ARMv85a architecture",
+        .llvm_name = "v8.5a",
+        .description = "Support ARM v8.5a instructions",
         .dependencies = featureSet(&[_]Feature{
-            .dotprod,
             .sb,
             .v8_4a,
+        }),
+    };
+    result[@enumToInt(Feature.v8m)] = .{
+        .llvm_name = "v8m",
+        .description = "Support ARM v8M Baseline instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .v6m,
+        }),
+    };
+    result[@enumToInt(Feature.v8m_main)] = .{
+        .llvm_name = "v8m.main",
+        .description = "Support ARM v8M Mainline instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .v7,
         }),
     };
     result[@enumToInt(Feature.vfp2)] = .{
