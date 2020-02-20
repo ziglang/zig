@@ -1095,10 +1095,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.addWithTarget("Calling convention", tests.Target{
         .Cross = .{
+            .cpu = Target.Cpu.baseline(.i386),
             .os = .linux,
-            .arch = .i386,
             .abi = .none,
-            .cpu_features = Target.Arch.i386.getBaselineCpuFeatures(),
         },
     },
         \\void __attribute__((fastcall)) foo1(float *a);

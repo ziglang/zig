@@ -135,13 +135,13 @@ const test_targets = blk: {
         TestTarget{
             .target = Target.parse(.{
                 .arch_os_abi = "arm-linux-none",
-                .cpu = "generic+v8a",
+                .cpu_features = "generic+v8a",
             }) catch unreachable,
         },
         TestTarget{
             .target = Target.parse(.{
                 .arch_os_abi = "arm-linux-musleabihf",
-                .cpu = "generic+v8a",
+                .cpu_features = "generic+v8a",
             }) catch unreachable,
             .link_libc = true,
         },
@@ -149,7 +149,7 @@ const test_targets = blk: {
         //TestTarget{
         //    .target = Target.parse(.{
         //        .arch_os_abi = "arm-linux-gnueabihf",
-        //        .cpu = "generic+v8a",
+        //        .cpu_features = "generic+v8a",
         //    }) catch unreachable,
         //    .link_libc = true,
         //},
@@ -449,7 +449,7 @@ pub fn addPkgTests(
         const ArchTag = @TagType(builtin.Arch);
         if (test_target.disable_native and
             test_target.target.getOs() == builtin.os and
-            @as(ArchTag, test_target.target.getArch()) == @as(ArchTag, builtin.arch))
+            test_target.target.getArch() == builtin.arch)
         {
             continue;
         }

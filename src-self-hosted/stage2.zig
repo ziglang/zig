@@ -675,8 +675,8 @@ fn stage2TargetParse(
 ) !void {
     const target: Target = if (zig_triple_oz) |zig_triple_z| blk: {
         const zig_triple = mem.toSliceConst(u8, zig_triple_z);
-        const mcpu = if (mcpu_oz) |mcpu_z| mem.toSliceConst(u8, mcpu_z) else null;
-        break :blk try Target.parse(.{ .arch_os_abi = zig_triple, .cpu = mcpu });
+        const mcpu = if (mcpu_oz) |mcpu_z| mem.toSliceConst(u8, mcpu_z) else "baseline";
+        break :blk try Target.parse(.{ .arch_os_abi = zig_triple, .cpu_features = mcpu });
     } else Target.Native;
 
     try stage1_target.fromTarget(target);

@@ -97,10 +97,20 @@ Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, cons
     if (zig_triple == nullptr) {
         get_native_target(target);
 
-        target->llvm_cpu_name = ZigLLVMGetHostCPUName();
-        target->llvm_cpu_features = ZigLLVMGetNativeFeatures();
-        target->builtin_str = "Target.Cpu.baseline(arch);\n";
-        target->cache_hash = "native\n\n";
+        if (mcpu == nullptr) {
+            target->llvm_cpu_name = ZigLLVMGetHostCPUName();
+            target->llvm_cpu_features = ZigLLVMGetNativeFeatures();
+            target->builtin_str = "Target.Cpu.baseline(arch);\n";
+            target->cache_hash = "native\n\n";
+        } else if (strcmp(mcpu, "baseline") == 0) {
+            target->llvm_cpu_name = "";
+            target->llvm_cpu_features = "";
+            target->builtin_str = "Target.Cpu.baseline(arch);\n";
+            target->cache_hash = "baseline\n\n";
+        } else {
+            const char *msg = "stage0 can't handle CPU/features in the target";
+            stage2_panic(msg, strlen(msg));
+        }
     } else {
         // first initialize all to zero
         *target = {};
@@ -135,13 +145,12 @@ Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, cons
             target->abi = target_default_abi(target->arch, target->os);
         }
 
+        if (mcpu != nullptr && strcmp(mcpu, "baseline") != 0) {
+            const char *msg = "stage0 can't handle CPU/features in the target";
+            stage2_panic(msg, strlen(msg));
+        }
         target->builtin_str = "Target.Cpu.baseline(arch);\n";
         target->cache_hash = "\n\n";
-    }
-
-    if (mcpu != nullptr) {
-        const char *msg = "stage0 can't handle CPU/features in the target";
-        stage2_panic(msg, strlen(msg));
     }
 
     return ErrorNone;

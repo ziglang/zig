@@ -726,8 +726,7 @@ pub const Target = union(enum) {
         /// Looks like "name+a+b-c-d+e", where "name" is a CPU Model name, "a", "b", and "e"
         /// are examples of CPU features to add to the set, and "c" and "d" are examples of CPU features
         /// to remove from the set.
-        /// The default value of `null` means to use the "baseline" feature set.
-        cpu: ?[]const u8 = null,
+        cpu_features: []const u8 = "baseline",
     };
 
     pub fn parse(args: ParseOptions) !Target {
@@ -742,23 +741,29 @@ pub const Target = union(enum) {
         const abi = if (abi_name) |n| try Abi.parse(n) else Abi.default(arch, os);
 
         const all_features = arch.allFeaturesList();
-        const cpu: Cpu = if (args.cpu) |cpu_text| blk: {
-            var index: usize = 0;
-            while (index < cpu_text.len and cpu_text[index] != '+' and cpu_text[index] != '-') {
-                index += 1;
-            }
-            const cpu_name = cpu_text[0..index];
+        var index: usize = 0;
+        while (index < args.cpu_features.len and
+            args.cpu_features[index] != '+' and
+            args.cpu_features[index] != '-')
+        {
+            index += 1;
+        }
+        const cpu_name = args.cpu_features[0..index];
+        const cpu: Cpu = if (mem.eql(u8, cpu_name, "baseline")) Cpu.baseline(arch) else blk: {
             const cpu_model = try arch.parseCpuModel(cpu_name);
 
             var set = cpu_model.features;
-            while (index < cpu_text.len) {
-                const op = cpu_text[index];
+            while (index < args.cpu_features.len) {
+                const op = args.cpu_features[index];
                 index += 1;
                 const start = index;
-                while (index < cpu_text.len and cpu_text[index] != '+' and cpu_text[index] != '-') {
+                while (index < args.cpu_features.len and
+                    args.cpu_features[index] != '+' and
+                    args.cpu_features[index] != '-')
+                {
                     index += 1;
                 }
-                const feature_name = cpu_text[start..index];
+                const feature_name = args.cpu_features[start..index];
                 for (all_features) |feature, feat_index_usize| {
                     const feat_index = @intCast(Cpu.Feature.Set.Index, feat_index_usize);
                     if (mem.eql(u8, feature_name, feature.name)) {
@@ -779,8 +784,7 @@ pub const Target = union(enum) {
                 .model = cpu_model,
                 .features = set,
             };
-        } else Cpu.baseline(arch);
-
+        };
         var cross = Cross{
             .cpu = cpu,
             .os = os,

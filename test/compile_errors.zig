@@ -350,8 +350,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         });
         tc.target = Target{
             .Cross = .{
-                .arch = .wasm32,
-                .cpu_features = Target.Arch.wasm32.getBaselineCpuFeatures(),
+                .cpu = Target.Cpu.baseline(.wasm32),
                 .os = .wasi,
                 .abi = .none,
             },
