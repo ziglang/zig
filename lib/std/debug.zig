@@ -838,9 +838,13 @@ pub fn openSelfDebugInfo(allocator: *mem.Allocator) anyerror!DebugInfo {
     }
 }
 
-fn openCoffDebugInfo(allocator: *mem.Allocator, self_file: fs.File) !ObjectDebugInfo {
+/// TODO resources https://github.com/ziglang/zig/issues/4353
+fn openCoffDebugInfo(allocator: *mem.Allocator, coff_file_path: [:0]const u16) !ObjectDebugInfo {
+    const coff_file = try std.fs.openFileAbsoluteW(coff_file_path.ptr, .{});
+    errdefer coff_file.close();
+
     const coff_obj = try allocator.create(coff.Coff);
-    coff_obj.* = coff.Coff.init(allocator, self_file);
+    coff_obj.* = coff.Coff.init(allocator, coff_file);
 
     var di = ObjectDebugInfo{
         .base_address = undefined,
@@ -1007,14 +1011,6 @@ fn readSparseBitVector(stream: var, allocator: *mem.Allocator) ![]usize {
     return list.toOwnedSlice();
 }
 
-fn findDwarfSectionFromElf(elf_file: *elf.Elf, name: []const u8) !?DW.DwarfInfo.Section {
-    const elf_header = (try elf_file.findSection(name)) orelse return null;
-    return DW.DwarfInfo.Section{
-        .offset = elf_header.sh_offset,
-        .size = elf_header.sh_size,
-    };
-}
-
 fn chopSlice(ptr: []const u8, offset: u64, size: u64) ![]const u8 {
     const start = try math.cast(usize, offset);
     const end = start + try math.cast(usize, size);
@@ -1022,11 +1018,10 @@ fn chopSlice(ptr: []const u8, offset: u64, size: u64) ![]const u8 {
 }
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
-pub fn openElfDebugInfo(
-    allocator: *mem.Allocator,
-    data: []const u8,
-) !DW.DwarfInfo {
-    var seekable_stream = io.SliceSeekableInStream.init(data);
+pub fn openElfDebugInfo(allocator: *mem.Allocator, elf_file_path: []const u8) !ObjectDebugInfo {
+    const mapped_mem = mapWholeFile(elf_file_path) catch |_| return error.InvalidDebugInfo;
+
+    var seekable_stream = io.SliceSeekableInStream.init(mapped_mem);
     var efile = try elf.Elf.openStream(
         allocator,
         @ptrCast(*DW.DwarfSeekableStream, &seekable_stream.seekable_stream),
@@ -1046,26 +1041,32 @@ pub fn openElfDebugInfo(
 
     var di = DW.DwarfInfo{
         .endian = efile.endian,
-        .debug_info = try chopSlice(data, debug_info.sh_offset, debug_info.sh_size),
-        .debug_abbrev = try chopSlice(data, debug_abbrev.sh_offset, debug_abbrev.sh_size),
-        .debug_str = try chopSlice(data, debug_str.sh_offset, debug_str.sh_size),
-        .debug_line = try chopSlice(data, debug_line.sh_offset, debug_line.sh_size),
+        .debug_info = try chopSlice(mapped_mem, debug_info.sh_offset, debug_info.sh_size),
+        .debug_abbrev = try chopSlice(mapped_mem, debug_abbrev.sh_offset, debug_abbrev.sh_size),
+        .debug_str = try chopSlice(mapped_mem, debug_str.sh_offset, debug_str.sh_size),
+        .debug_line = try chopSlice(mapped_mem, debug_line.sh_offset, debug_line.sh_size),
         .debug_ranges = if (opt_debug_ranges) |debug_ranges|
-            try chopSlice(data, debug_ranges.sh_offset, debug_ranges.sh_size)
+            try chopSlice(mapped_mem, debug_ranges.sh_offset, debug_ranges.sh_size)
         else
             null,
     };
 
     try DW.openDwarfDebugInfo(&di, allocator);
-    return di;
+
+    return ObjectDebugInfo{
+        .base_address = undefined,
+        .dwarf = di,
+        .mapped_memory = mapped_mem,
+    };
 }
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
-fn openMachODebugInfo(allocator: *mem.Allocator, memmo: []const u8) !ObjectDebugInfo {
-    // const hdr = &std.c._mh_execute_header;
+fn openMachODebugInfo(allocator: *mem.Allocator, macho_file_path: []const u8) !ObjectDebugInfo {
+    const mapped_mem = mapWholeFile(macho_file_path) catch |_| return error.InvalidDebugInfo;
+
     const hdr = @ptrCast(
         *const macho.mach_header_64,
-        @alignCast(@alignOf(macho.mach_header_64), memmo.ptr),
+        @alignCast(@alignOf(macho.mach_header_64), mapped_mem.ptr),
     );
     assert(hdr.magic == std.macho.MH_MAGIC_64);
 
@@ -1137,7 +1138,7 @@ fn openMachODebugInfo(allocator: *mem.Allocator, memmo: []const u8) !ObjectDebug
 
     return ObjectDebugInfo{
         .base_address = undefined,
-        .mapped_memory = undefined,
+        .mapped_memory = mapped_mem,
         .ofiles = ObjectDebugInfo.OFileTable.init(allocator),
         .symbols = symbols,
         .strings = strings,
@@ -1190,6 +1191,24 @@ const MachoSymbol = struct {
         return lhs.address() < rhs.address();
     }
 };
+
+fn mapWholeFile(path: []const u8) ![]const u8 {
+    const file = try fs.openFileAbsolute(path, .{});
+    defer file.close();
+
+    const file_len = try math.cast(usize, try file.getEndPos());
+    const mapped_mem = try os.mmap(
+        null,
+        file_len,
+        os.PROT_READ,
+        os.MAP_SHARED,
+        file.handle,
+        0,
+    );
+    errdefer os.munmap(mapped_mem);
+
+    return mapped_mem;
+}
 
 pub const DebugInfo = struct {
     allocator: *mem.Allocator,
@@ -1253,30 +1272,14 @@ pub const DebugInfo = struct {
                         return obj_di;
                     }
 
-                    const image_name = std.c._dyld_get_image_name(i);
-                    const exe_file = try fs.openFileAbsoluteC(image_name, .{});
-                    errdefer exe_file.close();
-
-                    const exe_len = math.cast(usize, try exe_file.getEndPos()) catch
-                        return error.DebugInfoTooLarge;
-                    const exe_mmap = try os.mmap(
-                        null,
-                        exe_len,
-                        os.PROT_READ,
-                        os.MAP_SHARED,
-                        exe_file.handle,
-                        0,
-                    );
-                    errdefer os.munmap(exe_mmap);
-
                     const obj_di = try self.allocator.create(ObjectDebugInfo);
                     errdefer self.allocator.destroy(obj_di);
 
                     try self.address_map.putNoClobber(base_address, obj_di);
 
-                    obj_di.* = try openMachODebugInfo(self.allocator, exe_mmap);
+                    const macho_path = mem.toSliceConst(u8, std.c._dyld_get_image_name(i));
+                    obj_di.* = try openMachODebugInfo(self.allocator, macho_path);
                     obj_di.base_address = base_address;
-                    obj_di.mapped_memory = exe_mmap;
 
                     return obj_di;
                 }
@@ -1348,18 +1351,12 @@ pub const DebugInfo = struct {
                 );
                 assert(len > 0);
 
-                // The compiler segfaults if the slicing is done as a parameter
-                // (#4423)
-                const tmp = name_buffer[0..:0];
-                const file_obj = try fs.openFileAbsoluteW(tmp, .{});
-                errdefer file_obj.close();
-
                 const obj_di = try self.allocator.create(ObjectDebugInfo);
                 errdefer self.allocator.destroy(obj_di);
 
                 try self.address_map.putNoClobber(seg_start, obj_di);
 
-                obj_di.* = try openCoffDebugInfo(self.allocator, file_obj);
+                obj_di.* = try openCoffDebugInfo(self.allocator, name_buffer[0..:0]);
                 obj_di.base_address = seg_start;
 
                 return obj_di;
@@ -1407,45 +1404,29 @@ pub const DebugInfo = struct {
             }
         }.callback)) {
             return error.DebugInfoNotFound;
-        } else |err| {
-            switch (err) {
-                error.Found => {},
-                else => return error.DebugInfoNotFound,
-            }
+        } else |err| switch (err) {
+            error.Found => {},
+            else => return error.DebugInfoNotFound,
         }
 
         if (self.address_map.getValue(ctx.base_address)) |obj_di| {
             return obj_di;
         }
 
-        const exe_file = if (ctx.name.len > 0)
-            try fs.openFileAbsolute(ctx.name, .{})
-        else
-            try fs.openSelfExe();
-        defer exe_file.close();
-
-        const exe_len = math.cast(usize, try exe_file.getEndPos()) catch
-            return error.DebugInfoTooLarge;
-        const exe_mmap = try os.mmap(
-            null,
-            exe_len,
-            os.PROT_READ,
-            os.MAP_SHARED,
-            exe_file.handle,
-            0,
-        );
-        errdefer os.munmap(exe_mmap);
+        const elf_path = if (ctx.name.len > 0)
+            ctx.name
+        else blk: {
+            var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+            break :blk try fs.selfExePath(&buf);
+        };
 
         const obj_di = try self.allocator.create(ObjectDebugInfo);
         errdefer self.allocator.destroy(obj_di);
 
         try self.address_map.putNoClobber(ctx.base_address, obj_di);
 
-        obj_di.* = .{
-            .dwarf = try openElfDebugInfo(self.allocator, exe_mmap),
-            .mapped_memory = exe_mmap,
-            .base_address = ctx.base_address,
-        };
+        obj_di.* = try openElfDebugInfo(self.allocator, elf_path);
+        obj_di.base_address = ctx.base_address;
 
         return obj_di;
     }
@@ -1454,7 +1435,7 @@ pub const DebugInfo = struct {
 pub const ObjectDebugInfo = switch (builtin.os) {
     .macosx, .ios, .watchos, .tvos => struct {
         base_address: usize,
-        mapped_memory: []u8,
+        mapped_memory: []const u8,
         symbols: []const MachoSymbol,
         strings: []const u8,
         ofiles: OFileTable,
@@ -1480,7 +1461,7 @@ pub const ObjectDebugInfo = switch (builtin.os) {
     .linux, .freebsd => struct {
         base_address: usize,
         dwarf: DW.DwarfInfo,
-        mapped_memory: []u8,
+        mapped_memory: []const u8,
     },
     else => DW.DwarfInfo,
 };

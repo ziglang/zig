@@ -21,7 +21,7 @@ const PcRange = struct {
 
 const Func = struct {
     pc_range: ?PcRange,
-    name: ?[]u8,
+    name: ?[]const u8,
 };
 
 const CompileUnit = struct {
@@ -60,7 +60,7 @@ const FormValue = union(enum) {
     SecOffset: u64,
     Ref: u64,
     RefAddr: u64,
-    String: []u8,
+    String: []const u8,
     StrPtr: u64,
 };
 
@@ -124,7 +124,7 @@ const Die = struct {
         };
     }
 
-    fn getAttrString(self: *const Die, di: *DwarfInfo, id: u64) ![]u8 {
+    fn getAttrString(self: *const Die, di: *DwarfInfo, id: u64) ![]const u8 {
         const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.String => |value| value,
@@ -740,7 +740,7 @@ pub const DwarfInfo = struct {
             }
         }
 
-        var include_directories = ArrayList([]u8).init(di.allocator());
+        var include_directories = ArrayList([]const u8).init(di.allocator());
         try include_directories.append(compile_unit_cwd);
         while (true) {
             const dir = try s.stream.readUntilDelimiterAlloc(di.allocator(), 0, math.maxInt(usize));
@@ -861,7 +861,7 @@ pub const DwarfInfo = struct {
         return error.MissingDebugInfo;
     }
 
-    fn getString(di: *DwarfInfo, offset: u64) ![]u8 {
+    fn getString(di: *DwarfInfo, offset: u64) ![]const u8 {
         if (offset > di.debug_str.len)
             return error.InvalidDebugInfo;
         const casted_offset = math.cast(usize, offset) catch
