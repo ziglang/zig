@@ -577,10 +577,9 @@ pub fn detectNativeDynamicLinker(allocator: *Allocator) error{
         // skip adding it to `ld_info_list`.
         const target: Target = .{
             .Cross = .{
-                .arch = Target.current.getArch(),
+                .cpu = Target.Cpu.baseline(Target.current.getArch()),
                 .os = Target.current.getOs(),
                 .abi = abi,
-                .cpu_features = Target.current.getArch().getBaselineCpuFeatures(),
             },
         };
         const standard_ld_path = target.getStandardDynamicLinkerPath(allocator) catch |err| switch (err) {

@@ -776,42 +776,8 @@ Error target_parse_abi(ZigLLVM_EnvironmentType *out_abi, const char *abi_ptr, si
     return ErrorUnknownABI;
 }
 
-Error target_parse_triple(ZigTarget *target, const char *triple) {
-    Error err;
-
-    // first initialize all to zero
-    *target = {};
-
-    SplitIterator it = memSplit(str(triple), str("-"));
-
-    Optional<Slice<uint8_t>> opt_archsub = SplitIterator_next(&it);
-    Optional<Slice<uint8_t>> opt_os = SplitIterator_next(&it);
-    Optional<Slice<uint8_t>> opt_abi = SplitIterator_next(&it);
-
-    if (!opt_archsub.is_some)
-        return ErrorMissingArchitecture;
-
-    if ((err = target_parse_archsub(&target->arch, &target->sub_arch,
-                    (char*)opt_archsub.value.ptr, opt_archsub.value.len)))
-    {
-        return err;
-    }
-
-    if (!opt_os.is_some)
-        return ErrorMissingOperatingSystem;
-
-    if ((err = target_parse_os(&target->os, (char*)opt_os.value.ptr, opt_os.value.len))) {
-        return err;
-    }
-
-    if (opt_abi.is_some) {
-        if ((err = target_parse_abi(&target->abi, (char*)opt_abi.value.ptr, opt_abi.value.len))) {
-            return err;
-        }
-    } else {
-        target->abi = target_default_abi(target->arch, target->os);
-    }
-    return ErrorNone;
+Error target_parse_triple(ZigTarget *target, const char *triple, const char *mcpu) {
+    return stage2_target_parse(target, triple, mcpu);
 }
 
 const char *target_arch_name(ZigLLVM_ArchType arch) {

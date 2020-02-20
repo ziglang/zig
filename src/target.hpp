@@ -50,7 +50,7 @@ enum CIntType {
     CIntTypeCount,
 };
 
-Error target_parse_triple(ZigTarget *target, const char *triple);
+Error target_parse_triple(ZigTarget *target, const char *triple, const char *mcpu);
 Error target_parse_archsub(ZigLLVM_ArchType *arch, ZigLLVM_SubArchType *sub,
         const char *archsub_ptr, size_t archsub_len);
 Error target_parse_os(Os *os, const char *os_ptr, size_t os_len);
