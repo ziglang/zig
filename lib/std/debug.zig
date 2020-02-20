@@ -404,26 +404,30 @@ pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: us
 
 /// TODO resources https://github.com/ziglang/zig/issues/4353
 fn printSourceAtAddressWindows(
-    di1: *DebugInfo,
+    debug_info: *DebugInfo,
     out_stream: var,
-    relocated_address: usize,
+    address: usize,
     tty_config: TTY.Config,
 ) !void {
-    const di = try di1.lookupByAddress(relocated_address);
+    const allocator = debug_info.allocator;
 
-    const allocator = getDebugInfoAllocator();
-    const base_address = di.base_address;
-    const relative_address = relocated_address - base_address;
+    const module = debug_info.lookupByAddress(address) catch |err| switch (err) {
+        error.MissingDebugInfo, error.InvalidDebugInfo => {
+            return printLineInfo(out_stream, null, address, "???", "???", tty_config, printLineFromFileAnyOs);
+        },
+        else => return err,
+    };
+    const relocated_address = address - module.base_address;
 
     var coff_section: *coff.Section = undefined;
-    const mod_index = for (di.sect_contribs) |sect_contrib| {
-        if (sect_contrib.Section > di.coff.sections.len) continue;
+    const mod_index = for (module.sect_contribs) |sect_contrib| {
+        if (sect_contrib.Section > module.coff.sections.len) continue;
         // Remember that SectionContribEntry.Section is 1-based.
-        coff_section = &di.coff.sections.toSlice()[sect_contrib.Section - 1];
+        coff_section = &module.coff.sections.toSlice()[sect_contrib.Section - 1];
 
         const vaddr_start = coff_section.header.virtual_address + sect_contrib.Offset;
         const vaddr_end = vaddr_start + sect_contrib.Size;
-        if (relative_address >= vaddr_start and relative_address < vaddr_end) {
+        if (relocated_address >= vaddr_start and relocated_address < vaddr_end) {
             break sect_contrib.ModuleIndex;
         }
     } else {
@@ -431,8 +435,8 @@ fn printSourceAtAddressWindows(
         return printLineInfo(out_stream, null, relocated_address, "???", "???", tty_config, printLineFromFileAnyOs);
     };
 
-    const mod = &di.modules[mod_index];
-    try populateModule(di, mod);
+    const mod = &module.modules[mod_index];
+    try populateModule(module, mod);
     const obj_basename = fs.path.basename(mod.obj_file_name);
 
     var symbol_i: usize = 0;
@@ -445,7 +449,7 @@ fn printSourceAtAddressWindows(
                 const proc_sym = @ptrCast(*pdb.ProcSym, &mod.symbols[symbol_i + @sizeOf(pdb.RecordPrefix)]);
                 const vaddr_start = coff_section.header.virtual_address + proc_sym.CodeOffset;
                 const vaddr_end = vaddr_start + proc_sym.CodeSize;
-                if (relative_address >= vaddr_start and relative_address < vaddr_end) {
+                if (relocated_address >= vaddr_start and relocated_address < vaddr_end) {
                     break mem.toSliceConst(u8, @ptrCast([*:0]u8, proc_sym) + @sizeOf(pdb.ProcSym));
                 }
             },
@@ -477,7 +481,7 @@ fn printSourceAtAddressWindows(
                     const frag_vaddr_start = coff_section.header.virtual_address + line_hdr.RelocOffset;
                     const frag_vaddr_end = frag_vaddr_start + line_hdr.CodeSize;
 
-                    if (relative_address >= frag_vaddr_start and relative_address < frag_vaddr_end) {
+                    if (relocated_address >= frag_vaddr_start and relocated_address < frag_vaddr_end) {
                         // There is an unknown number of LineBlockFragmentHeaders (and their accompanying line and column records)
                         // from now on. We will iterate through them, and eventually find a LineInfo that we're interested in,
                         // breaking out to :subsections. If not, we will make sure to not read anything outside of this subsection.
@@ -491,7 +495,8 @@ fn printSourceAtAddressWindows(
                             const has_column = line_hdr.Flags.LF_HaveColumns;
 
                             // All line entries are stored inside their line block by ascending start address.
-                            // Heuristic: we want to find the last line entry that has a vaddr_start <= relative_address.
+                            // Heuristic: we want to find the last line entry
+                            // that has a vaddr_start <= relocated_address.
                             // This is done with a simple linear search.
                             var line_i: u32 = 0;
                             while (line_i < block_hdr.NumLines) : (line_i += 1) {
@@ -499,7 +504,7 @@ fn printSourceAtAddressWindows(
                                 line_index += @sizeOf(pdb.LineNumberEntry);
 
                                 const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
-                                if (relative_address < vaddr_start) {
+                                if (relocated_address < vaddr_start) {
                                     break;
                                 }
                             }
@@ -509,8 +514,8 @@ fn printSourceAtAddressWindows(
                                 const subsect_index = checksum_offset + block_hdr.NameIndex;
                                 const chksum_hdr = @ptrCast(*pdb.FileChecksumEntryHeader, &mod.subsect_info[subsect_index]);
                                 const strtab_offset = @sizeOf(pdb.PDBStringTableHeader) + chksum_hdr.FileNameOffset;
-                                try di.pdb.string_table.seekTo(strtab_offset);
-                                const source_file_name = try di.pdb.string_table.readNullTermString(allocator);
+                                try module.pdb.string_table.seekTo(strtab_offset);
+                                const source_file_name = try module.pdb.string_table.readNullTermString(allocator);
 
                                 const line_entry_idx = line_i - 1;
 
@@ -696,24 +701,28 @@ fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const Mach
     return null;
 }
 
-fn printSourceAtAddressMacOs(di1: *DebugInfo, out_stream: var, address: usize, tty_config: TTY.Config) !void {
-    const di = try di1.lookupByAddress(address);
+fn printSourceAtAddressMacOs(debug_info: *DebugInfo, out_stream: var, address: usize, tty_config: TTY.Config) !void {
+    const module = debug_info.lookupByAddress(address) catch |err| switch (err) {
+        error.MissingDebugInfo, error.InvalidDebugInfo => {
+            return printLineInfo(out_stream, null, address, "???", "???", tty_config, printLineFromFileAnyOs);
+        },
+        else => return err,
+    };
 
-    const base_addr = di.base_address;
-    const adjusted_addr = address - base_addr;
-    assert(adjusted_addr >= 0x100000000);
+    const relocated_address = address - module.base_address;
+    assert(relocated_address >= 0x100000000);
 
-    const symbol = machoSearchSymbols(di.symbols, adjusted_addr) orelse {
+    const symbol = machoSearchSymbols(module.symbols, relocated_address) orelse {
         return printLineInfo(out_stream, null, address, "???", "???", tty_config, printLineFromFileAnyOs);
     };
 
-    const symbol_name = mem.toSliceConst(u8, @ptrCast([*:0]const u8, di.strings.ptr + symbol.nlist.n_strx));
+    const symbol_name = mem.toSliceConst(u8, @ptrCast([*:0]const u8, module.strings.ptr + symbol.nlist.n_strx));
     const compile_unit_name = if (symbol.ofile) |ofile| blk: {
-        const ofile_path = mem.toSliceConst(u8, @ptrCast([*:0]const u8, di.strings.ptr + ofile.n_strx));
+        const ofile_path = mem.toSliceConst(u8, @ptrCast([*:0]const u8, module.strings.ptr + ofile.n_strx));
         break :blk fs.path.basename(ofile_path);
     } else "???";
 
-    const line_info = getLineNumberInfoMacOs(di, symbol.*, adjusted_addr) catch |err| switch (err) {
+    const line_info = getLineNumberInfoMacOs(module, symbol.*, relocated_address) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => null,
         else => return err,
     };
@@ -731,37 +740,41 @@ fn printSourceAtAddressMacOs(di1: *DebugInfo, out_stream: var, address: usize, t
 }
 
 pub fn printSourceAtAddressPosix(debug_info: *DebugInfo, out_stream: var, address: usize, tty_config: TTY.Config) !void {
-    // XXX Print as much as possible anyway
-    const module = try debug_info.lookupByAddress(address);
+    var symbol_name: []const u8 = "";
+    var compile_unit_name: []const u8 = "";
+    var line_info: ?LineInfo = null;
 
-    const reloc_address = address - module.base_address;
+    if (debug_info.lookupByAddress(address)) |module| {
+        // Translate the VA into an address into this object
+        const relocated_address = address - module.base_address;
 
-    if (module.dwarf.findCompileUnit(reloc_address) catch null) |compile_unit| {
-        const compile_unit_name = try compile_unit.die.getAttrString(&module.dwarf, DW.AT_name);
-        const symbol_name = module.dwarf.getSymbolName(reloc_address) orelse "???";
-        const line_info = module.dwarf.getLineNumberInfo(compile_unit.*, reloc_address) catch |err| switch (err) {
-            error.MissingDebugInfo, error.InvalidDebugInfo => null,
+        if (module.dwarf.findCompileUnit(relocated_address)) |compile_unit| {
+            symbol_name = module.dwarf.getSymbolName(relocated_address) orelse "???";
+            compile_unit_name = compile_unit.die.getAttrString(&module.dwarf, DW.AT_name) catch |err| switch (err) {
+                error.MissingDebugInfo, error.InvalidDebugInfo => "???",
+                else => return err,
+            };
+            line_info = module.dwarf.getLineNumberInfo(compile_unit.*, relocated_address) catch |err| switch (err) {
+                error.MissingDebugInfo, error.InvalidDebugInfo => null,
+                else => return err,
+            };
+        } else |err| switch (err) {
+            error.MissingDebugInfo, error.InvalidDebugInfo => {},
             else => return err,
-        };
-        defer if (line_info) |li| li.deinit();
-
-        return printLineInfo(
-            out_stream,
-            line_info,
-            address,
-            symbol_name,
-            compile_unit_name,
-            tty_config,
-            printLineFromFileAnyOs,
-        );
+        }
+    } else |err| switch (err) {
+        error.MissingDebugInfo, error.InvalidDebugInfo => {},
+        else => return err,
     }
+
+    defer if (line_info) |li| li.deinit();
 
     return printLineInfo(
         out_stream,
-        null,
+        line_info,
         address,
-        "???",
-        "???",
+        symbol_name,
+        compile_unit_name,
         tty_config,
         printLineFromFileAnyOs,
     );
@@ -1286,7 +1299,7 @@ pub const DebugInfo = struct {
             }
         }
 
-        return error.DebugInfoNotFound;
+        return error.MissingDebugInfo;
     }
 
     fn lookupModuleWin32(self: *DebugInfo, address: usize) !*ObjectDebugInfo {
@@ -1301,7 +1314,7 @@ pub const DebugInfo = struct {
             0,
             &bytes_needed,
         ) == 0)
-            return error.DebugInfoNotFound;
+            return error.MissingDebugInfo;
 
         const needed_modules = bytes_needed / @sizeOf(windows.HMODULE);
 
@@ -1314,7 +1327,7 @@ pub const DebugInfo = struct {
             try math.cast(windows.DWORD, modules.len * @sizeOf(windows.HMODULE)),
             &bytes_needed,
         ) == 0)
-            return error.DebugInfoNotFound;
+            return error.MissingDebugInfo;
 
         // There's an unavoidable TOCTOU problem here, the module list may have
         // changed between the two EnumProcessModules call.
@@ -1330,7 +1343,7 @@ pub const DebugInfo = struct {
                 &info,
                 @sizeOf(@TypeOf(info)),
             ) == 0)
-                return error.DebugInfoNotFound;
+                return error.MissingDebugInfo;
 
             const seg_start = @ptrToInt(info.lpBaseOfDll);
             const seg_end = seg_start + info.SizeOfImage;
@@ -1363,7 +1376,7 @@ pub const DebugInfo = struct {
             }
         }
 
-        return error.DebugInfoNotFound;
+        return error.MissingDebugInfo;
     }
 
     fn lookupModuleDl(self: *DebugInfo, address: usize) !*ObjectDebugInfo {
@@ -1403,10 +1416,10 @@ pub const DebugInfo = struct {
                 }
             }
         }.callback)) {
-            return error.DebugInfoNotFound;
+            return error.MissingDebugInfo;
         } else |err| switch (err) {
             error.Found => {},
-            else => return error.DebugInfoNotFound,
+            else => return error.MissingDebugInfo,
         }
 
         if (self.address_map.getValue(ctx.base_address)) |obj_di| {
