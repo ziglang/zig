@@ -677,8 +677,10 @@ pub const StackTracesContext = struct {
             const got: []const u8 = got_result: {
                 var buf = try Buffer.initSize(b.allocator, 0);
                 defer buf.deinit();
-                var bytes = stderr.toSliceConst();
-                if (bytes.len != 0 and bytes[bytes.len - 1] == '\n') bytes = bytes[0 .. bytes.len - 1];
+                const bytes = if (stderr.endsWith("\n"))
+                    stderr.toSliceConst()[0 .. stderr.len() - 1]
+                else
+                    stderr.toSliceConst()[0..stderr.len()];
                 var it = mem.separate(bytes, "\n");
                 process_lines: while (it.next()) |line| {
                     if (line.len == 0) continue;

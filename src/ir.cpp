@@ -26677,9 +26677,19 @@ static IrInstGen *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstSrcSlice *i
 
     IrInstGen *result_loc = ir_resolve_result(ira, &instruction->base.base, instruction->result_loc,
             return_type, nullptr, true, true);
-    if (type_is_invalid(result_loc->value->type) || result_loc->value->type->id == ZigTypeIdUnreachable) {
-        return result_loc;
+
+    if (result_loc != nullptr) {
+        if (type_is_invalid(result_loc->value->type) || result_loc->value->type->id == ZigTypeIdUnreachable) {
+            return result_loc;
+        }
+        IrInstGen *dummy_value = ir_const(ira, &instruction->base.base, return_type);
+        dummy_value->value->special = ConstValSpecialRuntime;
+        IrInstGen *dummy_result = ir_implicit_cast2(ira, &instruction->base.base,
+                dummy_value, result_loc->value->type->data.pointer.child_type);
+        if (type_is_invalid(dummy_result->value->type))
+            return ira->codegen->invalid_inst_gen;
     }
+
     return ir_build_slice_gen(ira, &instruction->base.base, return_type,
         ptr_ptr, casted_start, end, instruction->safety_check_on, result_loc);
 }

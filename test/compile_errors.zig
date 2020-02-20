@@ -3,6 +3,18 @@ const builtin = @import("builtin");
 const Target = @import("std").Target;
 
 pub fn addCases(cases: *tests.CompileErrorContext) void {
+    cases.addTest("slice to pointer conversion mismatch",
+        \\pub fn bytesAsSlice(bytes: var) [*]align(1) const u16 {
+        \\    return @ptrCast([*]align(1) const u16, bytes.ptr)[0..1];
+        \\}
+        \\test "bytesAsSlice" {
+        \\    const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
+        \\    const slice = bytesAsSlice(bytes[0..]);
+        \\}
+    , &[_][]const u8{
+        "tmp.zig:2:54: error: expected type '[*]align(1) const u16', found '[]align(1) const u16'",
+    });
+
     cases.addTest("access invalid @typeInfo decl",
         \\const A = B;
         \\test "Crash" {
