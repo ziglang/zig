@@ -1113,14 +1113,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn foo5(a: [*c]f32) callconv(.Thiscall) void;
     });
 
-    cases.addWithTarget("Calling convention", tests.Target{
-        .Cross = .{
-            .os = .linux,
-            .arch = .{ .arm = .v8_5a },
-            .abi = .none,
-            .cpu_features = (Target.Arch{ .arm = .v8_5a }).getBaselineCpuFeatures(),
-        },
-    },
+    cases.addWithTarget("Calling convention", Target.parse(.{
+        .arch_os_abi = "arm-linux-none",
+        .cpu_features = "generic+v8_5a",
+    }) catch unreachable,
         \\void __attribute__((pcs("aapcs"))) foo1(float *a);
         \\void __attribute__((pcs("aapcs-vfp"))) foo2(float *a);
     , &[_][]const u8{
@@ -1128,14 +1124,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub fn foo2(a: [*c]f32) callconv(.AAPCSVFP) void;
     });
 
-    cases.addWithTarget("Calling convention", tests.Target{
-        .Cross = .{
-            .os = .linux,
-            .arch = .{ .aarch64 = .v8_5a },
-            .abi = .none,
-            .cpu_features = (Target.Arch{ .aarch64 = .v8_5a }).getBaselineCpuFeatures(),
-        },
-    },
+    cases.addWithTarget("Calling convention", Target.parse(.{
+        .arch_os_abi = "aarch64-linux-none",
+        .cpu_features = "generic+v8_5a",
+    }) catch unreachable,
         \\void __attribute__((aarch64_vector_pcs)) foo1(float *a);
     , &[_][]const u8{
         \\pub fn foo1(a: [*c]f32) callconv(.Vectorcall) void;

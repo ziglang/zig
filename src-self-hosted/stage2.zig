@@ -930,7 +930,7 @@ const Stage2Target = extern struct {
         const in_arch = in_target.arch - 1; // skip over ZigLLVM_UnknownArch
         const in_sub_arch = in_target.sub_arch - 1; // skip over ZigLLVM_NoSubArch
         const in_os = in_target.os;
-        const in_abi = in_target.abi - 1; // skip over ZigLLVM_UnknownEnvironment
+        const in_abi = in_target.abi;
 
         return .{
             .Cross = .{
@@ -956,7 +956,7 @@ const Stage2Target = extern struct {
         self.sub_arch = 0;
         self.vendor = 0;
         self.os = @enumToInt(target.getOs());
-        self.abi = @enumToInt(target.getAbi()) + 1; // skip over ZigLLVM_UnknownEnvironment
+        self.abi = @enumToInt(target.getAbi());
         try initStage1TargetCpuFeatures(self, cpu);
     }
 };
