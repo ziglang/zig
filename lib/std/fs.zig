@@ -864,6 +864,7 @@ pub const Dir = struct {
             .OBJECT_NAME_INVALID => unreachable,
             .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
             .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .NO_MEDIA_IN_DEVICE => return error.NoDevice,
             .INVALID_PARAMETER => unreachable,
             .SHARING_VIOLATION => return error.SharingViolation,
             .ACCESS_DENIED => return error.AccessDenied,

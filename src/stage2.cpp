@@ -103,6 +103,7 @@ Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, cons
             target->builtin_str = "Target.Cpu.baseline(arch);\n";
             target->cache_hash = "native\n\n";
         } else if (strcmp(mcpu, "baseline") == 0) {
+            target->is_native = false;
             target->llvm_cpu_name = "";
             target->llvm_cpu_features = "";
             target->builtin_str = "Target.Cpu.baseline(arch);\n";
