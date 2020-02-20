@@ -616,6 +616,7 @@ endif()
 
 set(BUILD_LIBSTAGE2_ARGS "build-lib"
     "src-self-hosted/stage2.zig"
+    -mcpu=baseline
     --name zigstage2
     --override-lib-dir "${CMAKE_SOURCE_DIR}/lib"
     --cache on

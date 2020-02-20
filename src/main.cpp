@@ -450,6 +450,7 @@ static int main0(int argc, char **argv) {
     const char *cpu = nullptr;
     const char *features = nullptr;
     CodeModel code_model = CodeModelDefault;
+    bool baseline_cpu = false;
 
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
@@ -716,6 +717,8 @@ static int main0(int argc, char **argv) {
                 emit_llvm_ir = true;
             } else if (strcmp(arg, "-fno-emit-llvm-ir") == 0) {
                 emit_llvm_ir = false;
+            } else if (strcmp(arg, "-mcpu=baseline") == 0) {
+                baseline_cpu = true;
             } else if (i + 1 >= argc) {
                 fprintf(stderr, "Expected another argument after %s\n", arg);
                 return print_error_usage(arg0);
@@ -976,6 +979,9 @@ static int main0(int argc, char **argv) {
         if (target_glibc != nullptr) {
             fprintf(stderr, "-target-glibc provided but no -target parameter\n");
             return print_error_usage(arg0);
+        }
+        if (baseline_cpu) {
+            target.is_native = false;
         }
     } else {
         if ((err = target_parse_triple(&target, target_string))) {
