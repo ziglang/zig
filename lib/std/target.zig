@@ -49,8 +49,6 @@ pub const Target = union(enum) {
         other,
 
         pub fn parse(text: []const u8) !Os {
-            if (mem.eql(u8, text, "native")) return builtin.os;
-
             const info = @typeInfo(Os);
             inline for (info.Enum.fields) |field| {
                 if (mem.eql(u8, text, field.name)) {
@@ -152,8 +150,6 @@ pub const Target = union(enum) {
         }
 
         pub fn parse(text: []const u8) !Abi {
-            if (mem.eql(u8, text, "native")) return builtin.abi;
-
             const info = @typeInfo(Abi);
             inline for (info.Enum.fields) |field| {
                 if (mem.eql(u8, text, field.name)) {
@@ -582,8 +578,6 @@ pub const Target = union(enum) {
             }
 
             pub fn parse(text: []const u8) !Arch {
-                if (mem.eql(u8, text, "native")) return builtin.arch;
-
                 const info = @typeInfo(Arch);
                 inline for (info.Enum.fields) |field| {
                     if (mem.eql(u8, text, field.name)) {
@@ -727,14 +721,12 @@ pub const Target = union(enum) {
         /// * CPU Architecture
         /// * Operating System
         /// * C ABI (optional)
-        /// "native" can be used for any of the fields.
         arch_os_abi: []const u8,
 
         /// Looks like "name+a+b-c-d+e", where "name" is a CPU Model name, "a", "b", and "e"
         /// are examples of CPU features to add to the set, and "c" and "d" are examples of CPU features
         /// to remove from the set.
         /// The default value of `null` means to use the "baseline" feature set.
-        /// "native" can be used to perform CPU introspection.
         cpu: ?[]const u8 = null,
     };
 
