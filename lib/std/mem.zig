@@ -1486,6 +1486,76 @@ test "bytesToValue" {
     testing.expect(deadbeef == @as(u32, 0xDEADBEEF));
 }
 
+//TODO copy also is_volatile, etc. I tried to use @typeInfo, modify child type, use @Type, but ran into issues.
+fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type) type {
+    if (comptime !trait.isSlice(bytesType) or comptime meta.Child(bytesType) != u8) {
+        @compileError("expected []u8, passed " ++ @typeName(bytesType));
+    }
+
+    const alignment = comptime meta.alignment(bytesType);
+
+    return if (comptime trait.isConstPtr(bytesType)) []align(alignment) const T else []align(alignment) T;
+}
+
+pub fn bytesAsSlice(comptime T: type, bytes: var) BytesAsSliceReturnType(T, @TypeOf(bytes)) {
+    // let's not give an undefined pointer to @ptrCast
+    // it may be equal to zero and fail a null check
+    if (bytes.len == 0) {
+        return &[0]T{};
+    }
+
+    const bytesType = @TypeOf(bytes);
+    const alignment = comptime meta.alignment(bytesType);
+
+    const castTarget = if (comptime trait.isConstPtr(bytesType)) [*]align(alignment) const T else [*]align(alignment) T;
+
+    return @ptrCast(castTarget, bytes.ptr)[0..@divExact(bytes.len, @sizeOf(T))];
+}
+
+test "bytesAsSlice" {
+    const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
+    const slice = bytesAsSlice(u16, bytes[0..]);
+    testing.expect(slice.len == 2);
+    testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
+    testing.expect(bigToNative(u16, slice[1]) == 0xBEEF);
+}
+
+//TODO copy also is_volatile, etc. I tried to use @typeInfo, modify child type, use @Type, but ran into issues.
+fn SliceAsBytesReturnType(comptime sliceType: type) type {
+    if (comptime !trait.isSlice(sliceType)) {
+        @compileError("expected []T, passed " ++ @typeName(sliceType));
+    }
+
+    const alignment = comptime meta.alignment(sliceType);
+
+    return if (comptime trait.isConstPtr(sliceType)) []align(alignment) const u8 else []align(alignment) u8;
+}
+
+pub fn sliceAsBytes(slice: var) SliceAsBytesReturnType(@TypeOf(slice)) {
+    // let's not give an undefined pointer to @ptrCast
+    // it may be equal to zero and fail a null check
+    if (slice.len == 0) {
+        return &[0]u8{};
+    }
+
+    const sliceType = @TypeOf(slice);
+    const alignment = comptime meta.alignment(sliceType);
+
+    const castTarget = if (comptime trait.isConstPtr(sliceType)) [*]align(alignment) const u8 else [*]align(alignment) u8;
+
+    return @ptrCast(castTarget, slice.ptr)[0 .. slice.len * @sizeOf(comptime meta.Child(sliceType))];
+}
+
+test "sliceAsBytes" {
+    const bytes = [_]u16{ 0xDEAD, 0xBEEF };
+    const slice = sliceAsBytes(bytes[0..]);
+    testing.expect(slice.len == 4);
+    testing.expect(eql(u8, slice, switch (builtin.endian) {
+        .Big => "\xDE\xAD\xBE\xEF",
+        .Little => "\xAD\xDE\xEF\xBE",
+    }));
+}
+
 fn SubArrayPtrReturnType(comptime T: type, comptime length: usize) type {
     if (trait.isConstPtr(T))
         return *const [length]meta.Child(meta.Child(T));
