@@ -5,6 +5,7 @@ const fmt = std.fmt;
 
 pub fn main() !void {
     const stdout = &io.getStdOut().outStream().stream;
+    const stdin = io.getStdIn();
 
     try stdout.print("Welcome to the Guess Number Game in Zig.\n", .{});
 
@@ -22,13 +23,12 @@ pub fn main() !void {
         try stdout.print("\nGuess a number between 1 and 100: ", .{});
         var line_buf: [20]u8 = undefined;
 
-        const line = io.readLineSlice(line_buf[0..]) catch |err| switch (err) {
-            error.OutOfMemory => {
-                try stdout.print("Input too long.\n", .{});
-                continue;
-            },
-            else => return err,
-        };
+        const amt = try stdin.read(&line_buf);
+        if (amt == line_buf.len) {
+            try stdout.print("Input too long.\n", .{});
+            continue;
+        }
+        const line = std.mem.trimRight(u8, line_buf[0..amt], "\r\n");
 
         const guess = fmt.parseUnsigned(u8, line, 10) catch {
             try stdout.print("Invalid number.\n", .{});
