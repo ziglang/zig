@@ -324,41 +324,6 @@ enum ZigLLVM_ArchType {
     ZigLLVM_LastArchType = ZigLLVM_renderscript64
 };
 
-// synchronize with lists in target.cpp
-enum ZigLLVM_SubArchType {
-    ZigLLVM_NoSubArch,
-
-    ZigLLVM_ARMSubArch_v8_5a,
-    ZigLLVM_ARMSubArch_v8_4a,
-    ZigLLVM_ARMSubArch_v8_3a,
-    ZigLLVM_ARMSubArch_v8_2a,
-    ZigLLVM_ARMSubArch_v8_1a,
-    ZigLLVM_ARMSubArch_v8,
-    ZigLLVM_ARMSubArch_v8r,
-    ZigLLVM_ARMSubArch_v8m_baseline,
-    ZigLLVM_ARMSubArch_v8m_mainline,
-    ZigLLVM_ARMSubArch_v8_1m_mainline,
-    ZigLLVM_ARMSubArch_v7,
-    ZigLLVM_ARMSubArch_v7em,
-    ZigLLVM_ARMSubArch_v7m,
-    ZigLLVM_ARMSubArch_v7s,
-    ZigLLVM_ARMSubArch_v7k,
-    ZigLLVM_ARMSubArch_v7ve,
-    ZigLLVM_ARMSubArch_v6,
-    ZigLLVM_ARMSubArch_v6m,
-    ZigLLVM_ARMSubArch_v6k,
-    ZigLLVM_ARMSubArch_v6t2,
-    ZigLLVM_ARMSubArch_v5,
-    ZigLLVM_ARMSubArch_v5te,
-    ZigLLVM_ARMSubArch_v4t,
-
-    ZigLLVM_KalimbaSubArch_v3,
-    ZigLLVM_KalimbaSubArch_v4,
-    ZigLLVM_KalimbaSubArch_v5,
-
-    ZigLLVM_MipsSubArch_r6,
-};
-
 enum ZigLLVM_VendorType {
     ZigLLVM_UnknownVendor,
 
@@ -518,7 +483,6 @@ LLVMValueRef ZigLLVMBuildAtomicRMW(LLVMBuilderRef B, enum ZigLLVM_AtomicRMWBinOp
 #define ZigLLVM_DIFlags_AllCallsDescribed (1U << 29)
 
 ZIG_EXTERN_C const char *ZigLLVMGetArchTypeName(enum ZigLLVM_ArchType arch);
-ZIG_EXTERN_C const char *ZigLLVMGetSubArchTypeName(enum ZigLLVM_SubArchType sub_arch);
 ZIG_EXTERN_C const char *ZigLLVMGetVendorTypeName(enum ZigLLVM_VendorType vendor);
 ZIG_EXTERN_C const char *ZigLLVMGetOSTypeName(enum ZigLLVM_OSType os);
 ZIG_EXTERN_C const char *ZigLLVMGetEnvironmentTypeName(enum ZigLLVM_EnvironmentType abi);
@@ -532,7 +496,7 @@ ZIG_EXTERN_C bool ZigLLVMWriteArchive(const char *archive_name, const char **fil
 bool ZigLLVMWriteImportLibrary(const char *def_path, const enum ZigLLVM_ArchType arch,
                                const char *output_lib_path, const bool kill_at);
 
-ZIG_EXTERN_C void ZigLLVMGetNativeTarget(enum ZigLLVM_ArchType *arch_type, enum ZigLLVM_SubArchType *sub_arch_type,
+ZIG_EXTERN_C void ZigLLVMGetNativeTarget(enum ZigLLVM_ArchType *arch_type,
         enum ZigLLVM_VendorType *vendor_type, enum ZigLLVM_OSType *os_type, enum ZigLLVM_EnvironmentType *environ_type,
         enum ZigLLVM_ObjectFormatType *oformat);
 

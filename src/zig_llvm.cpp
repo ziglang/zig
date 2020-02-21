@@ -806,7 +806,7 @@ const char *ZigLLVMGetEnvironmentTypeName(ZigLLVM_EnvironmentType env_type) {
     return (const char*)Triple::getEnvironmentTypeName((Triple::EnvironmentType)env_type).bytes_begin();
 }
 
-void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *sub_arch_type,
+void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type,
         ZigLLVM_VendorType *vendor_type, ZigLLVM_OSType *os_type, ZigLLVM_EnvironmentType *environ_type,
         ZigLLVM_ObjectFormatType *oformat)
 {
@@ -814,75 +814,12 @@ void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *su
     Triple triple(Triple::normalize(native_triple));
 
     *arch_type = (ZigLLVM_ArchType)triple.getArch();
-    *sub_arch_type = (ZigLLVM_SubArchType)triple.getSubArch();
     *vendor_type = (ZigLLVM_VendorType)triple.getVendor();
     *os_type = (ZigLLVM_OSType)triple.getOS();
     *environ_type = (ZigLLVM_EnvironmentType)triple.getEnvironment();
     *oformat = (ZigLLVM_ObjectFormatType)triple.getObjectFormat();
 
     free(native_triple);
-}
-
-const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
-    switch (sub_arch) {
-        case ZigLLVM_NoSubArch:
-            return "";
-        case ZigLLVM_ARMSubArch_v8_5a:
-            return "v8.5a";
-        case ZigLLVM_ARMSubArch_v8_4a:
-            return "v8.4a";
-        case ZigLLVM_ARMSubArch_v8_3a:
-            return "v8.3a";
-        case ZigLLVM_ARMSubArch_v8_2a:
-            return "v8.2a";
-        case ZigLLVM_ARMSubArch_v8_1a:
-            return "v8.1a";
-        case ZigLLVM_ARMSubArch_v8:
-            return "v8a";
-        case ZigLLVM_ARMSubArch_v8r:
-            return "v8r";
-        case ZigLLVM_ARMSubArch_v8m_baseline:
-            return "v8m.base";
-        case ZigLLVM_ARMSubArch_v8m_mainline:
-            return "v8m.main";
-        case ZigLLVM_ARMSubArch_v8_1m_mainline:
-            return "v8.1m.main";
-        case ZigLLVM_ARMSubArch_v7:
-            return "v7a";
-        case ZigLLVM_ARMSubArch_v7em:
-            return "v7em";
-        case ZigLLVM_ARMSubArch_v7m:
-            return "v7m";
-        case ZigLLVM_ARMSubArch_v7s:
-            return "v7s";
-        case ZigLLVM_ARMSubArch_v7k:
-            return "v7k";
-        case ZigLLVM_ARMSubArch_v7ve:
-            return "v7ve";
-        case ZigLLVM_ARMSubArch_v6:
-            return "v6";
-        case ZigLLVM_ARMSubArch_v6m:
-            return "v6m";
-        case ZigLLVM_ARMSubArch_v6k:
-            return "v6k";
-        case ZigLLVM_ARMSubArch_v6t2:
-            return "v6t2";
-        case ZigLLVM_ARMSubArch_v5:
-            return "v5";
-        case ZigLLVM_ARMSubArch_v5te:
-            return "v5te";
-        case ZigLLVM_ARMSubArch_v4t:
-            return "v4t";
-        case ZigLLVM_KalimbaSubArch_v3:
-            return "v3";
-        case ZigLLVM_KalimbaSubArch_v4:
-            return "v4";
-        case ZigLLVM_KalimbaSubArch_v5:
-            return "v5";
-        case ZigLLVM_MipsSubArch_r6:
-            return "r6";
-    }
-    abort();
 }
 
 void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module) {
@@ -1217,35 +1154,6 @@ static_assert((Triple::ArchType)ZigLLVM_wasm64 == Triple::wasm64, "");
 static_assert((Triple::ArchType)ZigLLVM_renderscript32 == Triple::renderscript32, "");
 static_assert((Triple::ArchType)ZigLLVM_renderscript64 == Triple::renderscript64, "");
 static_assert((Triple::ArchType)ZigLLVM_LastArchType == Triple::LastArchType, "");
-
-static_assert((Triple::SubArchType)ZigLLVM_NoSubArch == Triple::NoSubArch, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8_4a == Triple::ARMSubArch_v8_4a, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8_3a == Triple::ARMSubArch_v8_3a, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8_2a == Triple::ARMSubArch_v8_2a, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8_1a == Triple::ARMSubArch_v8_1a, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8 == Triple::ARMSubArch_v8, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8r == Triple::ARMSubArch_v8r, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8m_baseline == Triple::ARMSubArch_v8m_baseline, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8m_mainline == Triple::ARMSubArch_v8m_mainline, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v8_1m_mainline == Triple::ARMSubArch_v8_1m_mainline, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7 == Triple::ARMSubArch_v7, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7em == Triple::ARMSubArch_v7em, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7m == Triple::ARMSubArch_v7m, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7s == Triple::ARMSubArch_v7s, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7k == Triple::ARMSubArch_v7k, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v7ve == Triple::ARMSubArch_v7ve, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v6 == Triple::ARMSubArch_v6, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v6m == Triple::ARMSubArch_v6m, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v6k == Triple::ARMSubArch_v6k, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v6t2 == Triple::ARMSubArch_v6t2, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v5 == Triple::ARMSubArch_v5, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v5te == Triple::ARMSubArch_v5te, "");
-static_assert((Triple::SubArchType)ZigLLVM_ARMSubArch_v4t == Triple::ARMSubArch_v4t, "");
-static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v3 == Triple::KalimbaSubArch_v3, "");
-static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v4 == Triple::KalimbaSubArch_v4, "");
-static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v5 == Triple::KalimbaSubArch_v5, "");
-static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v5 == Triple::KalimbaSubArch_v5, "");
-static_assert((Triple::SubArchType)ZigLLVM_MipsSubArch_r6 == Triple::MipsSubArch_r6, "");
 
 static_assert((Triple::VendorType)ZigLLVM_UnknownVendor == Triple::UnknownVendor, "");
 static_assert((Triple::VendorType)ZigLLVM_Apple == Triple::Apple, "");

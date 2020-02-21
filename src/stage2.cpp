@@ -125,9 +125,7 @@ Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, cons
         if (!opt_archsub.is_some)
             return ErrorMissingArchitecture;
 
-        if ((err = target_parse_archsub(&target->arch, &target->sub_arch,
-                        (char*)opt_archsub.value.ptr, opt_archsub.value.len)))
-        {
+        if ((err = target_parse_arch(&target->arch, (char*)opt_archsub.value.ptr, opt_archsub.value.len))) {
             return err;
         }
 

@@ -8711,7 +8711,6 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_int(&cache_hash, g->code_model);
     cache_int(&cache_hash, g->zig_target->is_native);
     cache_int(&cache_hash, g->zig_target->arch);
-    cache_int(&cache_hash, g->zig_target->sub_arch);
     cache_int(&cache_hash, g->zig_target->vendor);
     cache_int(&cache_hash, g->zig_target->os);
     cache_int(&cache_hash, g->zig_target->abi);
@@ -9616,7 +9615,6 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     cache_list_of_str(cache_hash, g->libc_include_dir_list, g->libc_include_dir_len);
     cache_int(cache_hash, g->zig_target->is_native);
     cache_int(cache_hash, g->zig_target->arch);
-    cache_int(cache_hash, g->zig_target->sub_arch);
     cache_int(cache_hash, g->zig_target->vendor);
     cache_int(cache_hash, g->zig_target->os);
     cache_int(cache_hash, g->zig_target->abi);
@@ -10380,7 +10378,6 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_int(ch, g->out_type);
     cache_bool(ch, g->zig_target->is_native);
     cache_int(ch, g->zig_target->arch);
-    cache_int(ch, g->zig_target->sub_arch);
     cache_int(ch, g->zig_target->vendor);
     cache_int(ch, g->zig_target->os);
     cache_int(ch, g->zig_target->abi);

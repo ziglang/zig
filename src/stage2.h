@@ -279,12 +279,11 @@ struct Stage2TargetData;
 // ABI warning
 struct ZigTarget {
     enum ZigLLVM_ArchType arch;
-    enum ZigLLVM_SubArchType sub_arch;
-
     enum ZigLLVM_VendorType vendor;
-    enum ZigLLVM_EnvironmentType abi;
 
+    enum ZigLLVM_EnvironmentType abi;
     Os os;
+
     bool is_native;
 
     struct ZigGLibCVersion *glibc_version; // null means default

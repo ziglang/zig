@@ -909,12 +909,11 @@ export fn stage2_libc_render(stage1_libc: *Stage2LibCInstallation, output_file: 
 // ABI warning
 const Stage2Target = extern struct {
     arch: c_int,
-    sub_arch: c_int,
-
     vendor: c_int,
-    abi: c_int,
 
+    abi: c_int,
     os: c_int,
+
     is_native: bool,
 
     glibc_version: ?*Stage2GLibCVersion, // null means default
@@ -928,7 +927,6 @@ const Stage2Target = extern struct {
         if (in_target.is_native) return .Native;
 
         const in_arch = in_target.arch - 1; // skip over ZigLLVM_UnknownArch
-        const in_sub_arch = in_target.sub_arch - 1; // skip over ZigLLVM_NoSubArch
         const in_os = in_target.os;
         const in_abi = in_target.abi;
 
@@ -954,7 +952,6 @@ const Stage2Target = extern struct {
         };
         self.* = .{
             .arch = @enumToInt(target.getArch()) + 1, // skip over ZigLLVM_UnknownArch
-            .sub_arch = 0,
             .vendor = 0,
             .os = @enumToInt(target.getOs()),
             .abi = @enumToInt(target.getAbi()),
