@@ -1262,7 +1262,7 @@ test "Target.parse" {
     {
         const target = (try Target.parse(.{
             .arch_os_abi = "x86_64-linux-gnu",
-            .cpu = "x86_64-sse-sse2-avx-cx8",
+            .cpu_features = "x86_64-sse-sse2-avx-cx8",
         })).Cross;
 
         std.testing.expect(target.os == .linux);
@@ -1277,7 +1277,7 @@ test "Target.parse" {
     {
         const target = (try Target.parse(.{
             .arch_os_abi = "arm-linux-musleabihf",
-            .cpu = "generic+v8a",
+            .cpu_features = "generic+v8a",
         })).Cross;
 
         std.testing.expect(target.os == .linux);
