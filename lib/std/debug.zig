@@ -740,41 +740,22 @@ fn printSourceAtAddressMacOs(debug_info: *DebugInfo, out_stream: var, address: u
 }
 
 pub fn printSourceAtAddressPosix(debug_info: *DebugInfo, out_stream: var, address: usize, tty_config: TTY.Config) !void {
-    var symbol_name: []const u8 = "";
-    var compile_unit_name: []const u8 = "";
-    var line_info: ?LineInfo = null;
-
-    if (debug_info.lookupByAddress(address)) |module| {
-        // Translate the VA into an address into this object
-        const relocated_address = address - module.base_address;
-
-        if (module.dwarf.findCompileUnit(relocated_address)) |compile_unit| {
-            symbol_name = module.dwarf.getSymbolName(relocated_address) orelse "???";
-            compile_unit_name = compile_unit.die.getAttrString(&module.dwarf, DW.AT_name) catch |err| switch (err) {
-                error.MissingDebugInfo, error.InvalidDebugInfo => "???",
-                else => return err,
-            };
-            line_info = module.dwarf.getLineNumberInfo(compile_unit.*, relocated_address) catch |err| switch (err) {
-                error.MissingDebugInfo, error.InvalidDebugInfo => null,
-                else => return err,
-            };
-        } else |err| switch (err) {
-            error.MissingDebugInfo, error.InvalidDebugInfo => {},
-            else => return err,
-        }
-    } else |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => {},
+    const module = debug_info.lookupByAddress(address) catch |err| switch (err) {
+        error.MissingDebugInfo, error.InvalidDebugInfo => {
+            return printLineInfo(out_stream, null, address, "???", "???", tty_config, printLineFromFileAnyOs);
+        },
         else => return err,
-    }
+    };
 
-    defer if (line_info) |li| li.deinit();
+    const info = try module.getSymbolAtAddress(address);
+    defer if (info.line_info) |li| li.deinit();
 
     return printLineInfo(
         out_stream,
-        line_info,
+        info.line_info,
         address,
-        symbol_name,
-        compile_unit_name,
+        info.symbol_name,
+        info.compile_unit_name,
         tty_config,
         printLineFromFileAnyOs,
     );
@@ -1445,6 +1426,12 @@ pub const DebugInfo = struct {
     }
 };
 
+const SymbolInfo = struct {
+    symbol_name: []const u8,
+    compile_unit_name: []const u8,
+    line_info: ?LineInfo,
+};
+
 pub const ObjectDebugInfo = switch (builtin.os) {
     .macosx, .ios, .watchos, .tvos => struct {
         base_address: usize,
@@ -1475,6 +1462,36 @@ pub const ObjectDebugInfo = switch (builtin.os) {
         base_address: usize,
         dwarf: DW.DwarfInfo,
         mapped_memory: []const u8,
+
+        fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
+            // Translate the VA into an address into this object
+            const relocated_address = address - self.base_address;
+
+            if (self.dwarf.findCompileUnit(relocated_address)) |compile_unit| {
+                return SymbolInfo{
+                    .symbol_name = self.dwarf.getSymbolName(relocated_address) orelse "???",
+                    .compile_unit_name = compile_unit.die.getAttrString(&self.dwarf, DW.AT_name) catch |err| switch (err) {
+                        error.MissingDebugInfo, error.InvalidDebugInfo => "???",
+                        else => return err,
+                    },
+                    .line_info = self.dwarf.getLineNumberInfo(compile_unit.*, relocated_address) catch |err| switch (err) {
+                        error.MissingDebugInfo, error.InvalidDebugInfo => null,
+                        else => return err,
+                    },
+                };
+            } else |err| switch (err) {
+                error.MissingDebugInfo, error.InvalidDebugInfo => {
+                    return SymbolInfo{
+                        .symbol_name = "???",
+                        .compile_unit_name = "???",
+                        .line_info = null,
+                    };
+                },
+                else => return err,
+            }
+
+            unreachable;
+        }
     },
     else => DW.DwarfInfo,
 };
