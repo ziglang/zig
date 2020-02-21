@@ -18,7 +18,7 @@ pub const Address = extern union {
     in6: os.sockaddr_in6,
     un: if (has_unix_sockets) os.sockaddr_un else void,
 
-    // TODO this crashed the compiler
+    // TODO this crashed the compiler. https://github.com/ziglang/zig/issues/3512
     //pub const localhost = initIp4(parseIp4("127.0.0.1") catch unreachable, 0);
 
     pub fn parseIp(name: []const u8, port: u16) !Address {
