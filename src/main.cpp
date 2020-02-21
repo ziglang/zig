@@ -106,8 +106,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  --override-lib-dir [arg]     override path to Zig lib directory\n"
         "  -ffunction-sections          places each function in a separate section\n"
         "  -D[macro]=[value]            define C [macro] to [value] (1 if [value] omitted)\n"
-        "  -target-cpu [cpu]            target one specific CPU by name\n"
-        "  -target-feature [features]   specify the set of CPU features to target\n"
+        "  -mcpu [cpu]                  specify target CPU and feature set\n"
         "  -code-model [default|tiny|   set target code model\n"
         "               small|kernel|\n"
         "               medium|large]\n"
@@ -236,6 +235,14 @@ static int zig_error_no_build_file(void) {
         "or see `zig --help` for more options.\n"
     );
     return EXIT_FAILURE;
+}
+
+static bool str_starts_with(const char *s1, const char *s2) {
+    size_t s2_len = strlen(s2);
+    if (strlen(s1) < s2_len) {
+        return false;
+    }
+    return memcmp(s1, s2, s2_len) == 0;
 }
 
 extern "C" int ZigClang_main(int argc, char **argv);
@@ -447,10 +454,8 @@ static int main0(int argc, char **argv) {
     WantStackCheck want_stack_check = WantStackCheckAuto;
     WantCSanitize want_sanitize_c = WantCSanitizeAuto;
     bool function_sections = false;
-    const char *cpu = nullptr;
-    const char *features = nullptr;
+    const char *mcpu = nullptr;
     CodeModel code_model = CodeModelDefault;
-    bool baseline_cpu = false;
 
     ZigList<const char *> llvm_argv = {0};
     llvm_argv.append("zig (LLVM option parsing)");
@@ -717,8 +722,8 @@ static int main0(int argc, char **argv) {
                 emit_llvm_ir = true;
             } else if (strcmp(arg, "-fno-emit-llvm-ir") == 0) {
                 emit_llvm_ir = false;
-            } else if (strcmp(arg, "-mcpu=baseline") == 0) {
-                baseline_cpu = true;
+            } else if (str_starts_with(arg, "-mcpu=")) {
+                mcpu = arg + strlen("-mcpu=");
             } else if (i + 1 >= argc) {
                 fprintf(stderr, "Expected another argument after %s\n", arg);
                 return print_error_usage(arg0);
@@ -895,10 +900,8 @@ static int main0(int argc, char **argv) {
                             , argv[i]);
                         return EXIT_FAILURE;
                     }
-                } else if (strcmp(arg, "-target-cpu") == 0) {
-                    cpu = argv[i];
-                } else if (strcmp(arg, "-target-feature") == 0) {
-                    features = argv[i];
+                } else if (strcmp(arg, "-mcpu") == 0) {
+                    mcpu = argv[i];
                 } else {
                     fprintf(stderr, "Invalid argument: %s\n", arg);
                     return print_error_usage(arg0);
@@ -974,57 +977,29 @@ static int main0(int argc, char **argv) {
     init_all_targets();
 
     ZigTarget target;
-    if (target_string == nullptr) {
-        get_native_target(&target);
-        if (target_glibc != nullptr) {
-            fprintf(stderr, "-target-glibc provided but no -target parameter\n");
-            return print_error_usage(arg0);
-        }
-        if (baseline_cpu) {
-            target.is_native = false;
-        }
-    } else {
-        if ((err = target_parse_triple(&target, target_string))) {
-            if (err == ErrorUnknownArchitecture && target.arch != ZigLLVM_UnknownArch) {
-                fprintf(stderr, "'%s' requires a sub-architecture. Try one of these:\n",
-                        target_arch_name(target.arch));
-                SubArchList sub_arch_list = target_subarch_list(target.arch);
-                size_t subarch_count = target_subarch_count(sub_arch_list);
-                for (size_t sub_i = 0; sub_i < subarch_count; sub_i += 1) {
-                    ZigLLVM_SubArchType sub = target_subarch_enum(sub_arch_list, sub_i);
-                    fprintf(stderr, "  %s%s\n", target_arch_name(target.arch), target_subarch_name(sub));
-                }
-                return print_error_usage(arg0);
-            } else {
-                fprintf(stderr, "invalid target: %s\n", err_str(err));
-                return print_error_usage(arg0);
-            }
-        }
-        if (target_is_glibc(&target)) {
-            target.glibc_version = heap::c_allocator.create<ZigGLibCVersion>();
+    if ((err = target_parse_triple(&target, target_string, mcpu))) {
+        fprintf(stderr, "invalid target: %s\n"
+                "See `%s targets` to display valid targets.\n", err_str(err), arg0);
+        return print_error_usage(arg0);
+    }
+    if (target_is_glibc(&target)) {
+        target.glibc_version = heap::c_allocator.create<ZigGLibCVersion>();
 
-            if (target_glibc != nullptr) {
-                if ((err = target_parse_glibc_version(target.glibc_version, target_glibc))) {
-                    fprintf(stderr, "invalid glibc version '%s': %s\n", target_glibc, err_str(err));
-                    return print_error_usage(arg0);
-                }
-            } else {
-                target_init_default_glibc_version(&target);
+        if (target_glibc != nullptr) {
+            if ((err = target_parse_glibc_version(target.glibc_version, target_glibc))) {
+                fprintf(stderr, "invalid glibc version '%s': %s\n", target_glibc, err_str(err));
+                return print_error_usage(arg0);
             }
-        } else if (target_glibc != nullptr) {
-            fprintf(stderr, "'%s' is not a glibc-compatible target", target_string);
-            return print_error_usage(arg0);
+        } else {
+            target_init_default_glibc_version(&target);
         }
+    } else if (target_glibc != nullptr) {
+        fprintf(stderr, "'%s' is not a glibc-compatible target", target_string);
+        return print_error_usage(arg0);
     }
 
     Buf zig_triple_buf = BUF_INIT;
     target_triple_zig(&zig_triple_buf, &target);
-
-    const char *stage2_triple_arg = target.is_native ? nullptr : buf_ptr(&zig_triple_buf);
-    if ((err = stage2_cpu_features_parse(&target.cpu_features, stage2_triple_arg, cpu, features))) {
-        fprintf(stderr, "unable to initialize CPU features: %s\n", err_str(err));
-        return main_exit(root_progress_node, EXIT_FAILURE);
-    }
 
     // If both output_dir and enable_cache are provided, and doing build-lib, we
     // will just do a file copy at the end. This helps when bootstrapping zig from zig0

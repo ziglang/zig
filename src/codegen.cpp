@@ -8504,25 +8504,9 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
         for (uint32_t arch_i = 0; arch_i < field_count; arch_i += 1) {
             ZigLLVM_ArchType arch = target_arch_enum(arch_i);
             const char *arch_name = target_arch_name(arch);
-            SubArchList sub_arch_list = target_subarch_list(arch);
-            if (sub_arch_list == SubArchListNone) {
-                if (arch == g->zig_target->arch) {
-                    g->target_arch_index = arch_i;
-                    cur_arch = buf_ptr(buf_sprintf("Arch.%s", arch_name));
-                }
-            } else {
-                const char *sub_arch_list_name = target_subarch_list_name(sub_arch_list);
-                if (arch == g->zig_target->arch) {
-                    size_t sub_count = target_subarch_count(sub_arch_list);
-                    for (size_t sub_i = 0; sub_i < sub_count; sub_i += 1) {
-                        ZigLLVM_SubArchType sub = target_subarch_enum(sub_arch_list, sub_i);
-                        if (sub == g->zig_target->sub_arch) {
-                            g->target_sub_arch_index = sub_i;
-                            cur_arch = buf_ptr(buf_sprintf("Arch{ .%s = Arch.%s.%s }",
-                                        arch_name, sub_arch_list_name, target_subarch_name(sub)));
-                        }
-                    }
-                }
+            if (arch == g->zig_target->arch) {
+                g->target_arch_index = arch_i;
+                cur_arch = arch_name;
             }
         }
     }
@@ -8621,17 +8605,14 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const is_test = %s;\n", bool_to_str(g->is_test_build));
     buf_appendf(contents, "pub const single_threaded = %s;\n", bool_to_str(g->is_single_threaded));
     buf_appendf(contents, "pub const os = Os.%s;\n", cur_os);
-    buf_appendf(contents, "pub const arch = %s;\n", cur_arch);
+    buf_appendf(contents, "pub const arch = Arch.%s;\n", cur_arch);
     buf_appendf(contents, "pub const abi = Abi.%s;\n", cur_abi);
     {
-        buf_append_str(contents, "pub const cpu_features: CpuFeatures = ");
-        if (g->zig_target->cpu_features != nullptr) {
-            const char *ptr;
-            size_t len;
-            stage2_cpu_features_get_builtin_str(g->zig_target->cpu_features, &ptr, &len);
-            buf_append_mem(contents, ptr, len);
+        buf_append_str(contents, "pub const cpu: Cpu = ");
+        if (g->zig_target->builtin_str != nullptr) {
+            buf_append_str(contents, g->zig_target->builtin_str);
         } else {
-            buf_append_str(contents, "arch.getBaselineCpuFeatures();\n");
+            buf_append_str(contents, "Target.Cpu.baseline(arch);\n");
         }
     }
     if (g->libc_link_lib != nullptr && g->zig_target->glibc_version != nullptr) {
@@ -8730,15 +8711,11 @@ static Error define_builtin_compile_vars(CodeGen *g) {
     cache_int(&cache_hash, g->code_model);
     cache_int(&cache_hash, g->zig_target->is_native);
     cache_int(&cache_hash, g->zig_target->arch);
-    cache_int(&cache_hash, g->zig_target->sub_arch);
     cache_int(&cache_hash, g->zig_target->vendor);
     cache_int(&cache_hash, g->zig_target->os);
     cache_int(&cache_hash, g->zig_target->abi);
-    if (g->zig_target->cpu_features != nullptr) {
-        const char *ptr;
-        size_t len;
-        stage2_cpu_features_get_cache_hash(g->zig_target->cpu_features, &ptr, &len);
-        cache_str(&cache_hash, ptr);
+    if (g->zig_target->cache_hash != nullptr) {
+        cache_str(&cache_hash, g->zig_target->cache_hash);
     }
     if (g->zig_target->glibc_version != nullptr) {
         cache_int(&cache_hash, g->zig_target->glibc_version->major);
@@ -8873,9 +8850,11 @@ static void init(CodeGen *g) {
     }
 
     // Override CPU and features if defined by user.
-    if (g->zig_target->cpu_features != nullptr) {
-        target_specific_cpu_args = stage2_cpu_features_get_llvm_cpu(g->zig_target->cpu_features);
-        target_specific_features = stage2_cpu_features_get_llvm_features(g->zig_target->cpu_features);
+    if (g->zig_target->llvm_cpu_name != nullptr) {
+        target_specific_cpu_args = g->zig_target->llvm_cpu_name;
+    }
+    if (g->zig_target->llvm_cpu_features != nullptr) {
+        target_specific_features = g->zig_target->llvm_cpu_features;
     }
     if (g->verbose_llvm_cpu_features) {
         fprintf(stderr, "name=%s triple=%s\n", buf_ptr(g->root_out_name), buf_ptr(&g->llvm_triple_str));
@@ -9190,19 +9169,17 @@ void add_cc_args(CodeGen *g, ZigList<const char *> &args, const char *out_dep_pa
         args.append("-target");
         args.append(buf_ptr(&g->llvm_triple_str));
 
-        const char *llvm_cpu = stage2_cpu_features_get_llvm_cpu(g->zig_target->cpu_features);
-        if (llvm_cpu != nullptr) {
+        if (g->zig_target->llvm_cpu_name != nullptr) {
             args.append("-Xclang");
             args.append("-target-cpu");
             args.append("-Xclang");
-            args.append(llvm_cpu);
+            args.append(g->zig_target->llvm_cpu_name);
         }
-        const char *llvm_target_features = stage2_cpu_features_get_llvm_features(g->zig_target->cpu_features);
-        if (llvm_target_features != nullptr) {
+        if (g->zig_target->llvm_cpu_features != nullptr) {
             args.append("-Xclang");
             args.append("-target-feature");
             args.append("-Xclang");
-            args.append(llvm_target_features);
+            args.append(g->zig_target->llvm_cpu_features);
         }
     }
 
@@ -9638,7 +9615,6 @@ Error create_c_object_cache(CodeGen *g, CacheHash **out_cache_hash, bool verbose
     cache_list_of_str(cache_hash, g->libc_include_dir_list, g->libc_include_dir_len);
     cache_int(cache_hash, g->zig_target->is_native);
     cache_int(cache_hash, g->zig_target->arch);
-    cache_int(cache_hash, g->zig_target->sub_arch);
     cache_int(cache_hash, g->zig_target->vendor);
     cache_int(cache_hash, g->zig_target->os);
     cache_int(cache_hash, g->zig_target->abi);
@@ -10402,15 +10378,11 @@ static Error check_cache(CodeGen *g, Buf *manifest_dir, Buf *digest) {
     cache_int(ch, g->out_type);
     cache_bool(ch, g->zig_target->is_native);
     cache_int(ch, g->zig_target->arch);
-    cache_int(ch, g->zig_target->sub_arch);
     cache_int(ch, g->zig_target->vendor);
     cache_int(ch, g->zig_target->os);
     cache_int(ch, g->zig_target->abi);
-    if (g->zig_target->cpu_features != nullptr) {
-        const char *ptr;
-        size_t len;
-        stage2_cpu_features_get_cache_hash(g->zig_target->cpu_features, &ptr, &len);
-        cache_str(ch, ptr);
+    if (g->zig_target->cache_hash != nullptr) {
+        cache_str(ch, g->zig_target->cache_hash);
     }
     if (g->zig_target->glibc_version != nullptr) {
         cache_int(ch, g->zig_target->glibc_version->major);

@@ -362,8 +362,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         });
         tc.target = Target{
             .Cross = .{
-                .arch = .wasm32,
-                .cpu_features = Target.Arch.wasm32.getBaselineCpuFeatures(),
+                .cpu = Target.Cpu.baseline(.wasm32),
                 .os = .wasi,
                 .abi = .none,
             },
@@ -764,8 +763,7 @@ pub fn addCases(cases: *tests.CompileErrorContext) void {
         });
         tc.target = Target{
             .Cross = .{
-                .arch = .x86_64,
-                .cpu_features = Target.Arch.x86_64.getBaselineCpuFeatures(),
+                .cpu = Target.Cpu.baseline(.x86_64),
                 .os = .linux,
                 .abi = .gnu,
             },

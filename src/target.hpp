@@ -12,15 +12,6 @@
 
 struct Buf;
 
-// Synchronize with target.cpp::subarch_list_list
-enum SubArchList {
-    SubArchListNone,
-    SubArchListArm32,
-    SubArchListArm64,
-    SubArchListKalimba,
-    SubArchListMips,
-};
-
 enum TargetSubsystem {
     TargetSubsystemConsole,
     TargetSubsystemWindows,
@@ -50,9 +41,8 @@ enum CIntType {
     CIntTypeCount,
 };
 
-Error target_parse_triple(ZigTarget *target, const char *triple);
-Error target_parse_archsub(ZigLLVM_ArchType *arch, ZigLLVM_SubArchType *sub,
-        const char *archsub_ptr, size_t archsub_len);
+Error target_parse_triple(ZigTarget *target, const char *triple, const char *mcpu);
+Error target_parse_arch(ZigLLVM_ArchType *arch, const char *arch_ptr, size_t arch_len);
 Error target_parse_os(Os *os, const char *os_ptr, size_t os_len);
 Error target_parse_abi(ZigLLVM_EnvironmentType *abi, const char *abi_ptr, size_t abi_len);
 
@@ -62,15 +52,6 @@ void target_init_default_glibc_version(ZigTarget *target);
 size_t target_arch_count(void);
 ZigLLVM_ArchType target_arch_enum(size_t index);
 const char *target_arch_name(ZigLLVM_ArchType arch);
-
-SubArchList target_subarch_list(ZigLLVM_ArchType arch);
-size_t target_subarch_count(SubArchList sub_arch_list);
-ZigLLVM_SubArchType target_subarch_enum(SubArchList subarch_list, size_t index);
-const char *target_subarch_name(ZigLLVM_SubArchType subarch);
-
-size_t target_subarch_list_count(void);
-SubArchList target_subarch_list_enum(size_t index);
-const char *target_subarch_list_name(SubArchList sub_arch_list);
 
 const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch);
 

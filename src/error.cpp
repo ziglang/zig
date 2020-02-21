@@ -59,7 +59,6 @@ const char *err_str(Error err) {
         case ErrorIsAsync: return "is async";
         case ErrorImportOutsidePkgPath: return "import of file outside package path";
         case ErrorUnknownCpu: return "unknown CPU";
-        case ErrorUnknownSubArchitecture: return "unknown sub-architecture";
         case ErrorUnknownCpuFeature: return "unknown CPU feature";
         case ErrorInvalidCpuFeatures: return "invalid CPU features";
         case ErrorInvalidLlvmCpuFeaturesFormat: return "invalid LLVM CPU features format";

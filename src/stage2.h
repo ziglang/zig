@@ -81,7 +81,6 @@ enum Error {
     ErrorIsAsync,
     ErrorImportOutsidePkgPath,
     ErrorUnknownCpu,
-    ErrorUnknownSubArchitecture,
     ErrorUnknownCpuFeature,
     ErrorInvalidCpuFeatures,
     ErrorInvalidLlvmCpuFeaturesFormat,
@@ -201,27 +200,6 @@ ZIG_EXTERN_C void stage2_progress_update_node(Stage2ProgressNode *node,
         size_t completed_count, size_t estimated_total_items);
 
 // ABI warning
-struct Stage2CpuFeatures;
-
-// ABI warning
-ZIG_EXTERN_C enum Error stage2_cpu_features_parse(struct Stage2CpuFeatures **result,
-        const char *zig_triple, const char *cpu_name, const char *cpu_features);
-
-// ABI warning
-ZIG_EXTERN_C const char *stage2_cpu_features_get_llvm_cpu(const struct Stage2CpuFeatures *cpu_features);
-
-// ABI warning
-ZIG_EXTERN_C const char *stage2_cpu_features_get_llvm_features(const struct Stage2CpuFeatures *cpu_features);
-
-// ABI warning
-ZIG_EXTERN_C void stage2_cpu_features_get_builtin_str(const struct Stage2CpuFeatures *cpu_features,
-        const char **ptr, size_t *len);
-
-// ABI warning
-ZIG_EXTERN_C void stage2_cpu_features_get_cache_hash(const struct Stage2CpuFeatures *cpu_features,
-        const char **ptr, size_t *len);
-
-// ABI warning
 ZIG_EXTERN_C int stage2_cmd_targets(const char *zig_triple);
 
 // ABI warning
@@ -296,22 +274,32 @@ struct ZigGLibCVersion {
     uint32_t patch;
 };
 
+struct Stage2TargetData;
+
 // ABI warning
 struct ZigTarget {
     enum ZigLLVM_ArchType arch;
-    enum ZigLLVM_SubArchType sub_arch;
     enum ZigLLVM_VendorType vendor;
-    Os os;
+
     enum ZigLLVM_EnvironmentType abi;
-    struct ZigGLibCVersion *glibc_version; // null means default
-    struct Stage2CpuFeatures *cpu_features;
+    Os os;
+
     bool is_native;
+
+    struct ZigGLibCVersion *glibc_version; // null means default
+
+    const char *llvm_cpu_name;
+    const char *llvm_cpu_features;
+    const char *builtin_str;
+    const char *cache_hash;
 };
 
 // ABI warning
 ZIG_EXTERN_C enum Error stage2_detect_dynamic_linker(const struct ZigTarget *target,
         char **out_ptr, size_t *out_len);
 
+// ABI warning
+ZIG_EXTERN_C enum Error stage2_target_parse(struct ZigTarget *target, const char *zig_triple, const char *mcpu);
 
 
 // ABI warning
