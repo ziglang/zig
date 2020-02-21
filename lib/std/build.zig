@@ -1921,7 +1921,7 @@ pub const LibExeObjStep = struct {
                     }
                 } else {
                     var mcpu_buffer = try std.Buffer.init(builder.allocator, "-mcpu=");
-                    try zig_args.append(cross.cpu.model.name);
+                    try mcpu_buffer.append(cross.cpu.model.name);
 
                     for (all_features) |feature, i_usize| {
                         const i = @intCast(Target.Cpu.Feature.Set.Index, i_usize);
