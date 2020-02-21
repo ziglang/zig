@@ -412,27 +412,37 @@ fn renderExpression(
             };
             try renderExpression(allocator, stream, tree, indent, start_col, infix_op_node.lhs, op_space);
 
-            const after_op_space = blk: {
+            var after_op_space : Space = undefined;
+            var new_indent : usize = undefined;
+            {
                 const loc = tree.tokenLocation(tree.tokens.at(infix_op_node.op_token).end, tree.nextToken(infix_op_node.op_token));
-                break :blk if (loc.line == 0) op_space else Space.Newline;
-            };
+                if (infix_op_node.rhs.id == .MultilineStringLiteral) {
+                    after_op_space = Space.None;
+                    new_indent = indent + indent_delta;
+                } else if (loc.line == 0) {
+                    after_op_space = op_space;
+                    new_indent = indent;
+                } else {
+                    after_op_space = Space.Newline;
+                    new_indent = indent + indent_delta;
+                }
+            }
 
             try renderToken(tree, stream, infix_op_node.op_token, indent, start_col, after_op_space);
-            if (after_op_space == Space.Newline and
-                tree.tokens.at(tree.nextToken(infix_op_node.op_token)).id != .MultilineStringLiteralLine)
+            if (after_op_space == Space.Newline)
             {
-                try stream.writeByteNTimes(' ', indent + indent_delta);
-                start_col.* = indent + indent_delta;
+                try stream.writeByteNTimes(' ', new_indent);
+                start_col.* = new_indent;
             }
 
             switch (infix_op_node.op) {
                 ast.Node.InfixOp.Op.Catch => |maybe_payload| if (maybe_payload) |payload| {
-                    try renderExpression(allocator, stream, tree, indent, start_col, payload, Space.Space);
+                    try renderExpression(allocator, stream, tree, new_indent, start_col, payload, Space.Space);
                 },
                 else => {},
             }
 
-            return renderExpression(allocator, stream, tree, indent, start_col, infix_op_node.rhs, space);
+            return renderExpression(allocator, stream, tree, new_indent, start_col, infix_op_node.rhs, space);
         },
 
         .PrefixOp => {
@@ -631,21 +641,15 @@ fn renderExpression(
                         var it = call_info.params.iterator(0);
                         while (true) {
                             const param_node = it.next().?;
-
-                            const param_node_new_indent = if (param_node.*.id == .MultilineStringLiteral) blk: {
-                                break :blk indent;
-                            } else blk: {
-                                try stream.writeByteNTimes(' ', new_indent);
-                                break :blk new_indent;
-                            };
+                            try stream.writeByteNTimes(' ', new_indent);
 
                             if (it.peek()) |next_node| {
-                                try renderExpression(allocator, stream, tree, param_node_new_indent, start_col, param_node.*, Space.None);
+                                try renderExpression(allocator, stream, tree, new_indent, start_col, param_node.*, Space.None);
                                 const comma = tree.nextToken(param_node.*.lastToken());
                                 try renderToken(tree, stream, comma, new_indent, start_col, Space.Newline); // ,
                                 try renderExtraNewline(tree, stream, start_col, next_node.*);
                             } else {
-                                try renderExpression(allocator, stream, tree, param_node_new_indent, start_col, param_node.*, Space.Comma);
+                                try renderExpression(allocator, stream, tree, new_indent, start_col, param_node.*, Space.Comma);
                                 try stream.writeByteNTimes(' ', indent);
                                 return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space);
                             }
@@ -654,13 +658,20 @@ fn renderExpression(
 
                     try renderToken(tree, stream, lparen, indent, start_col, Space.None); // (
 
+                    const extra_indent = indent + indent_delta;
+                    var new_indent = indent;
                     var it = call_info.params.iterator(0);
                     while (it.next()) |param_node| {
-                        try renderExpression(allocator, stream, tree, indent, start_col, param_node.*, Space.None);
+                        if (param_node.*.id == .MultilineStringLiteral) {
+                            new_indent = extra_indent;
+                            try stream.writeByte('\n');
+                            try stream.writeByteNTimes(' ', new_indent);
+                        }
+                        try renderExpression(allocator, stream, tree, new_indent, start_col, param_node.*, Space.None);
 
                         if (it.peek() != null) {
                             const comma = tree.nextToken(param_node.*.lastToken());
-                            try renderToken(tree, stream, comma, indent, start_col, Space.Space);
+                            try renderToken(tree, stream, comma, new_indent, start_col, Space.Space);
                         }
                     }
                     return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space);
@@ -841,29 +852,20 @@ fn renderExpression(
                         .node => |node| tree.nextToken(node.lastToken()),
                     };
 
-                    if (exprs.len == 0) {
-                        switch (suffix_op.lhs) {
-                            .dot => |dot| try renderToken(tree, stream, dot, indent, start_col, Space.None),
-                            .node => |node| try renderExpression(allocator, stream, tree, indent, start_col, node, Space.None),
-                        }
-                        try renderToken(tree, stream, lbrace, indent, start_col, Space.None);
-                        return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space);
-                    }
-                    if (exprs.len == 1 and tree.tokens.at(exprs.at(0).*.lastToken() + 1).id == .RBrace) {
-                        const expr = exprs.at(0).*;
-
-                        switch (suffix_op.lhs) {
-                            .dot => |dot| try renderToken(tree, stream, dot, indent, start_col, Space.None),
-                            .node => |node| try renderExpression(allocator, stream, tree, indent, start_col, node, Space.None),
-                        }
-                        try renderToken(tree, stream, lbrace, indent, start_col, Space.None);
-                        try renderExpression(allocator, stream, tree, indent, start_col, expr, Space.None);
-                        return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space);
-                    }
-
                     switch (suffix_op.lhs) {
                         .dot => |dot| try renderToken(tree, stream, dot, indent, start_col, Space.None),
                         .node => |node| try renderExpression(allocator, stream, tree, indent, start_col, node, Space.None),
+                    }
+                    if (exprs.len == 0) {
+                        try renderToken(tree, stream, lbrace, indent, start_col, Space.None);
+                        return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space);
+                    }
+                    if (exprs.len == 1 and exprs.at(0).*.id != .MultilineStringLiteral and tree.tokens.at(exprs.at(0).*.lastToken() + 1).id == .RBrace) {
+                        const expr = exprs.at(0).*;
+
+                        try renderToken(tree, stream, lbrace, indent, start_col, Space.None);
+                        try renderExpression(allocator, stream, tree, indent, start_col, expr, Space.None);
+                        return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space);
                     }
 
                     // scan to find row size
@@ -874,12 +876,12 @@ fn renderExpression(
                             const expr = it.next().?.*;
                             if (it.peek()) |next_expr| {
                                 const expr_last_token = expr.*.lastToken() + 1;
-                                const loc = tree.tokenLocation(tree.tokens.at(expr_last_token).end, next_expr.*.firstToken());
+                                const loc = tree.tokenLocation(tree.tokens.at(expr_last_token).start, next_expr.*.firstToken());
                                 if (loc.line != 0) break :blk count;
                                 count += 1;
                             } else {
                                 const expr_last_token = expr.*.lastToken();
-                                const loc = tree.tokenLocation(tree.tokens.at(expr_last_token).end, suffix_op.rtoken);
+                                const loc = tree.tokenLocation(tree.tokens.at(expr_last_token).start, suffix_op.rtoken);
                                 if (loc.line == 0) {
                                     // all on one line
                                     const src_has_trailing_comma = trailblk: {
@@ -907,81 +909,88 @@ fn renderExpression(
                         var column_widths = widths[widths.len - row_size ..];
 
                         // Null stream for counting the printed length of each expression
-                        var null_stream = std.io.NullOutStream.init();
-                        var counting_stream = std.io.CountingOutStream(std.io.NullOutStream.Error).init(&null_stream.stream);
+                        var line_find_stream = FindByteOutStream.init('\n');
+                        var counting_stream = std.io.CountingOutStream(Error).init(&line_find_stream.stream);
 
                         var it = exprs.iterator(0);
                         var i: usize = 0;
+                        var c: usize = 0;
 
                         while (it.next()) |expr| : (i += 1) {
+                            expr.*.dump(0);
+                            
                             counting_stream.bytes_written = 0;
                             var dummy_col: usize = 0;
+                            line_find_stream.byte_found = false;
                             try renderExpression(allocator, &counting_stream.stream, tree, indent, &dummy_col, expr.*, Space.None);
                             const width = @intCast(usize, counting_stream.bytes_written);
-                            const col = i % row_size;
-                            column_widths[col] = std.math.max(column_widths[col], width);
                             expr_widths[i] = width;
+
+                            if (! line_find_stream.byte_found)
+                            {
+                                const col = c % row_size;
+                                column_widths[col] = std.math.max(column_widths[col], width);
+                                c += 1;
+                            }
+                            else
+                            {
+                                c = 0;
+                            }
                         }
 
                         var new_indent = indent + indent_delta;
 
-                        if (tree.tokens.at(tree.nextToken(lbrace)).id != .MultilineStringLiteralLine) {
-                            try renderToken(tree, stream, lbrace, new_indent, start_col, Space.Newline);
-                            try stream.writeByteNTimes(' ', new_indent);
-                        } else {
-                            new_indent -= indent_delta;
-                            try renderToken(tree, stream, lbrace, new_indent, start_col, Space.None);
-                        }
+                        try renderToken(tree, stream, lbrace, new_indent, start_col, Space.Newline);
+                        try stream.writeByteNTimes(' ', new_indent);
 
                         it.set(0);
                         i = 0;
-                        var col: usize = 1;
+                        c = 0;
+                        var last_col_index: usize = row_size - 1;
                         while (it.next()) |expr| : (i += 1) {
                             if (it.peek()) |next_expr| {
                                 try renderExpression(allocator, stream, tree, new_indent, start_col, expr.*, Space.None);
 
                                 const comma = tree.nextToken(expr.*.lastToken());
+                                if (c != last_col_index) {
+                                    line_find_stream.byte_found = false;
+                                    var dummy_col: usize = 0;
+                                    try renderExpression(allocator, &line_find_stream.stream, tree, indent, &dummy_col, expr.*, Space.None);
+                                    try renderExpression(allocator, &line_find_stream.stream, tree, indent, &dummy_col, next_expr.*, Space.None);
+                                    // Either the current or next expression is multiline
+                                    if (! line_find_stream.byte_found)
+                                    {
+                                        try renderToken(tree, stream, comma, new_indent, start_col, Space.Space); // ,
+                                        assert(column_widths[c % row_size] >= expr_widths[i]);
+                                        const padding = column_widths[c % row_size] - expr_widths[i];
+                                        try stream.writeByteNTimes(' ', padding);
 
-                                if (col != row_size) {
-                                    try renderToken(tree, stream, comma, new_indent, start_col, Space.Space); // ,
-
-                                    const padding = column_widths[i % row_size] - expr_widths[i];
-                                    try stream.writeByteNTimes(' ', padding);
-
-                                    col += 1;
-                                    continue;
+                                        c += 1;
+                                        continue;
+                                    }
                                 }
-                                col = 1;
+                                c = 0;
 
-                                if (tree.tokens.at(tree.nextToken(comma)).id != .MultilineStringLiteralLine) {
-                                    try renderToken(tree, stream, comma, new_indent, start_col, Space.Newline); // ,
-                                } else {
-                                    try renderToken(tree, stream, comma, new_indent, start_col, Space.None); // ,
-                                }
-
+                                try renderToken(tree, stream, comma, new_indent, start_col, Space.Newline); // ,
                                 try renderExtraNewline(tree, stream, start_col, next_expr.*);
-                                if (next_expr.*.id != .MultilineStringLiteral) {
-                                    try stream.writeByteNTimes(' ', new_indent);
-                                }
+                                try stream.writeByteNTimes(' ', new_indent);
                             } else {
                                 try renderExpression(allocator, stream, tree, new_indent, start_col, expr.*, Space.Comma); // ,
                             }
                         }
-                        const last_node = it.prev().?;
-                        if (last_node.*.id != .MultilineStringLiteral) {
-                            try stream.writeByteNTimes(' ', indent);
-                        }
+                        try stream.writeByteNTimes(' ', indent);
                         return renderToken(tree, stream, suffix_op.rtoken, indent, start_col, space);
                     } else {
-                        try renderToken(tree, stream, lbrace, indent, start_col, Space.Space);
+                        var new_indent = indent + indent_delta;
+                        try renderToken(tree, stream, lbrace, new_indent, start_col, Space.Space);
                         var it = exprs.iterator(0);
                         while (it.next()) |expr| {
                             if (it.peek()) |next_expr| {
-                                try renderExpression(allocator, stream, tree, indent, start_col, expr.*, Space.None);
+                                try renderExpression(allocator, stream, tree, new_indent, start_col, expr.*, Space.None);
                                 const comma = tree.nextToken(expr.*.lastToken());
-                                try renderToken(tree, stream, comma, indent, start_col, Space.Space); // ,
+                                try renderToken(tree, stream, comma, new_indent, start_col, Space.Space); // ,
                             } else {
-                                try renderExpression(allocator, stream, tree, indent, start_col, expr.*, Space.Space);
+                                try renderExpression(allocator, stream, tree, new_indent, start_col, expr.*, Space.Space);
                             }
                         }
 
@@ -1079,7 +1088,14 @@ fn renderExpression(
             const grouped_expr = @fieldParentPtr(ast.Node.GroupedExpression, "base", base);
 
             try renderToken(tree, stream, grouped_expr.lparen, indent, start_col, Space.None);
-            try renderExpression(allocator, stream, tree, indent, start_col, grouped_expr.expr, Space.None);
+            if (grouped_expr.expr.id == .MultilineStringLiteral) {
+                try stream.writeByte('\n');
+                try stream.writeByteNTimes(' ', indent + indent_delta);
+                try renderExpression(allocator, stream, tree, indent + indent_delta, start_col, grouped_expr.expr, Space.None);
+                try stream.writeByteNTimes(' ', indent);
+            } else {
+                try renderExpression(allocator, stream, tree, indent, start_col, grouped_expr.expr, Space.None);
+            }
             return renderToken(tree, stream, grouped_expr.rparen, indent, start_col, space);
         },
 
@@ -1303,26 +1319,36 @@ fn renderExpression(
         },
 
         .MultilineStringLiteral => {
-            // TODO: Don't indent in this function, but let the caller indent.
-            // If this has been implemented, a lot of hacky solutions in i.e. ArrayInit and FunctionCall can be removed
             const multiline_str_literal = @fieldParentPtr(ast.Node.MultilineStringLiteral, "base", base);
 
             var skip_first_indent = true;
-            if (tree.tokens.at(multiline_str_literal.firstToken() - 1).id != .LineComment) {
-                try stream.print("\n", .{});
-                skip_first_indent = false;
+            const prev_token_id = tree.tokens.at(multiline_str_literal.firstToken() - 1).id;
+            switch (prev_token_id) {
+                .LineComment, .LBrace, .LParen, .Comma => {},
+                else => {
+                    try stream.writeByte('\n');
+                    skip_first_indent = false;
+                }
             }
 
             var i: usize = 0;
             while (i < multiline_str_literal.lines.len) : (i += 1) {
                 const t = multiline_str_literal.lines.at(i).*;
                 if (!skip_first_indent) {
-                    try stream.writeByteNTimes(' ', indent + indent_delta);
+                    try stream.writeByteNTimes(' ', indent);
                 }
                 try renderToken(tree, stream, t, indent, start_col, Space.None);
                 skip_first_indent = false;
             }
-            try stream.writeByteNTimes(' ', indent);
+            const next_token_index = tree.nextToken(multiline_str_literal.lines.at(multiline_str_literal.lines.len - 1).*);
+            var next_token = tree.tokens.at(next_token_index);
+            if (next_token.id == .Comma) next_token = tree.tokens.at(next_token_index + 1);
+            const next_line_indent = switch (next_token.id) {
+                .RParen, .RBrace, .RBracket => 0,
+                else => indent,
+            };
+            try stream.writeByteNTimes(' ', next_line_indent);
+            start_col.* = next_line_indent;
         },
         .UndefinedLiteral => {
             const undefined_literal = @fieldParentPtr(ast.Node.UndefinedLiteral, "base", base);
@@ -1886,14 +1912,7 @@ fn renderExpression(
             try renderExpression(allocator, stream, tree, indent, start_col, asm_node.template, Space.Newline);
 
             const indent_once = indent + indent_delta;
-
-            if (asm_node.template.id == .MultilineStringLiteral) {
-                // After rendering a multiline string literal the cursor is
-                // already offset by indent
-                try stream.writeByteNTimes(' ', indent_delta);
-            } else {
-                try stream.writeByteNTimes(' ', indent_once);
-            }
+            try stream.writeByteNTimes(' ', indent_once);
 
             const colon1 = tree.nextToken(asm_node.template.lastToken());
             const indent_extra = indent_once + 2;
@@ -2107,9 +2126,13 @@ fn renderVarDecl(
     }
 
     if (var_decl.init_node) |init_node| {
-        const s = if (init_node.id == .MultilineStringLiteral) Space.None else Space.Space;
-        try renderToken(tree, stream, var_decl.eq_token.?, indent, start_col, s); // =
-        try renderExpression(allocator, stream, tree, indent, start_col, init_node, Space.None);
+        if (init_node.id == .MultilineStringLiteral){
+            try renderToken(tree, stream, var_decl.eq_token.?, indent, start_col, Space.None); // =
+            try renderExpression(allocator, stream, tree, indent + indent_delta, start_col, init_node, Space.None);
+        } else {
+            try renderToken(tree, stream, var_decl.eq_token.?, indent, start_col, Space.Space); // =
+            try renderExpression(allocator, stream, tree, indent, start_col, init_node, Space.None);
+        }
     }
 
     try renderToken(tree, stream, var_decl.semicolon_token, indent, start_col, Space.Newline);
@@ -2216,14 +2239,9 @@ fn renderTokenOffset(
             return renderToken(tree, stream, token_index + 1, indent, start_col, Space.Newline);
         },
         else => {
-            if (token_index + 2 < tree.tokens.len and tree.tokens.at(token_index + 2).id == .MultilineStringLiteralLine) {
-                try stream.write(",");
-                return;
-            } else {
-                try stream.write(",\n");
-                start_col.* = 0;
-                return;
-            }
+            try stream.write(",\n");
+            start_col.* = 0;
+            return;
         },
     };
 
@@ -2241,17 +2259,11 @@ fn renderTokenOffset(
         switch (space) {
             Space.None, Space.NoNewline => return,
             Space.Newline => {
-                if (next_token.id == .MultilineStringLiteralLine) {
-                    return;
-                } else {
-                    try stream.write("\n");
-                    start_col.* = 0;
-                    return;
-                }
+                try stream.write("\n");
+                start_col.* = 0;
+                return;
             },
             Space.Space, Space.SpaceOrOutdent => {
-                if (next_token.id == .MultilineStringLiteralLine)
-                    return;
                 try stream.writeByte(' ');
                 return;
             },
@@ -2304,13 +2316,9 @@ fn renderTokenOffset(
                     start_col.* = indent;
                 },
                 Space.Newline => {
-                    if (next_token.id == .MultilineStringLiteralLine) {
-                        return;
-                    } else {
-                        try stream.write("\n");
-                        start_col.* = 0;
-                        return;
-                    }
+                    try stream.write("\n");
+                    start_col.* = 0;
+                    return;
                 },
                 Space.NoNewline => {},
                 Space.NoComment, Space.Comma, Space.BlockStart => unreachable,
@@ -2333,13 +2341,9 @@ fn renderTokenOffset(
         if (next_token.id != .LineComment) {
             switch (space) {
                 Space.Newline => {
-                    if (next_token.id == .MultilineStringLiteralLine) {
-                        return;
-                    } else {
-                        try stream.write("\n");
-                        start_col.* = 0;
-                        return;
-                    }
+                    try stream.write("\n");
+                    start_col.* = 0;
+                    return;
                 },
                 Space.None, Space.Space => {
                     try stream.writeByte('\n');
