@@ -1778,7 +1778,7 @@ pub fn isCygwinPty(handle: fd_t) bool {
 
     const name_info = @ptrCast(*const windows.FILE_NAME_INFO, &name_info_bytes[0]);
     const name_bytes = name_info_bytes[size .. size + @as(usize, name_info.FileNameLength)];
-    const name_wide = @bytesToSlice(u16, name_bytes);
+    const name_wide = mem.bytesAsSlice(u16, name_bytes);
     return mem.indexOf(u16, name_wide, &[_]u16{ 'm', 's', 'y', 's', '-' }) != null or
         mem.indexOf(u16, name_wide, &[_]u16{ '-', 'p', 't', 'y' }) != null;
 }

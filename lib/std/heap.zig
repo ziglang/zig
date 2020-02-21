@@ -283,14 +283,14 @@ const WasmPageAllocator = struct {
 
         fn getBit(self: FreeBlock, idx: usize) PageStatus {
             const bit_offset = 0;
-            return @intToEnum(PageStatus, Io.get(@sliceToBytes(self.data), idx, bit_offset));
+            return @intToEnum(PageStatus, Io.get(mem.sliceAsBytes(self.data), idx, bit_offset));
         }
 
         fn setBits(self: FreeBlock, start_idx: usize, len: usize, val: PageStatus) void {
             const bit_offset = 0;
             var i: usize = 0;
             while (i < len) : (i += 1) {
-                Io.set(@sliceToBytes(self.data), start_idx + i, bit_offset, @enumToInt(val));
+                Io.set(mem.sliceAsBytes(self.data), start_idx + i, bit_offset, @enumToInt(val));
             }
         }
 
@@ -552,7 +552,7 @@ pub const ArenaAllocator = struct {
             if (len >= actual_min_size) break;
         }
         const buf = try self.child_allocator.alignedAlloc(u8, @alignOf(BufNode), len);
-        const buf_node_slice = @bytesToSlice(BufNode, buf[0..@sizeOf(BufNode)]);
+        const buf_node_slice = mem.bytesAsSlice(BufNode, buf[0..@sizeOf(BufNode)]);
         const buf_node = &buf_node_slice[0];
         buf_node.* = BufNode{
             .data = buf,

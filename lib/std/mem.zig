@@ -132,7 +132,7 @@ pub const Allocator = struct {
             // their own frame with @Frame(func).
             return @intToPtr([*]T, @ptrToInt(byte_slice.ptr))[0..n];
         } else {
-            return @bytesToSlice(T, @alignCast(a, byte_slice));
+            return mem.bytesAsSlice(T, @alignCast(a, byte_slice));
         }
     }
 
@@ -173,7 +173,7 @@ pub const Allocator = struct {
             return @as([*]align(new_alignment) T, undefined)[0..0];
         }
 
-        const old_byte_slice = @sliceToBytes(old_mem);
+        const old_byte_slice = mem.sliceAsBytes(old_mem);
         const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return Error.OutOfMemory;
         // Note: can't set shrunk memory to undefined as memory shouldn't be modified on realloc failure
         const byte_slice = try self.reallocFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
@@ -181,7 +181,7 @@ pub const Allocator = struct {
         if (new_n > old_mem.len) {
             @memset(byte_slice.ptr + old_byte_slice.len, undefined, byte_slice.len - old_byte_slice.len);
         }
-        return @bytesToSlice(T, @alignCast(new_alignment, byte_slice));
+        return mem.bytesAsSlice(T, @alignCast(new_alignment, byte_slice));
     }
 
     /// Prefer calling realloc to shrink if you can tolerate failure, such as
@@ -221,18 +221,18 @@ pub const Allocator = struct {
         // new_n <= old_mem.len and the multiplication didn't overflow for that operation.
         const byte_count = @sizeOf(T) * new_n;
 
-        const old_byte_slice = @sliceToBytes(old_mem);
+        const old_byte_slice = mem.sliceAsBytes(old_mem);
         @memset(old_byte_slice.ptr + byte_count, undefined, old_byte_slice.len - byte_count);
         const byte_slice = self.shrinkFn(self, old_byte_slice, Slice.alignment, byte_count, new_alignment);
         assert(byte_slice.len == byte_count);
-        return @bytesToSlice(T, @alignCast(new_alignment, byte_slice));
+        return mem.bytesAsSlice(T, @alignCast(new_alignment, byte_slice));
     }
 
     /// Free an array allocated with `alloc`. To free a single item,
     /// see `destroy`.
     pub fn free(self: *Allocator, memory: var) void {
         const Slice = @typeInfo(@TypeOf(memory)).Pointer;
-        const bytes = @sliceToBytes(memory);
+        const bytes = mem.sliceAsBytes(memory);
         const bytes_len = bytes.len + if (Slice.sentinel != null) @sizeOf(Slice.child) else 0;
         if (bytes_len == 0) return;
         const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));

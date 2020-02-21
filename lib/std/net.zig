@@ -120,7 +120,7 @@ pub const Address = extern union {
                 ip_slice[10] = 0xff;
                 ip_slice[11] = 0xff;
 
-                const ptr = @sliceToBytes(@as(*const [1]u32, &addr)[0..]);
+                const ptr = mem.sliceAsBytes(@as(*const [1]u32, &addr)[0..]);
 
                 ip_slice[12] = ptr[0];
                 ip_slice[13] = ptr[1];
@@ -164,7 +164,7 @@ pub const Address = extern union {
                 .addr = undefined,
             },
         };
-        const out_ptr = @sliceToBytes(@as(*[1]u32, &result.in.addr)[0..]);
+        const out_ptr = mem.sliceAsBytes(@as(*[1]u32, &result.in.addr)[0..]);
 
         var x: u8 = 0;
         var index: u8 = 0;
