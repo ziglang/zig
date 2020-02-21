@@ -952,11 +952,19 @@ const Stage2Target = extern struct {
             },
             .Cross => target.getCpu(),
         };
-        self.arch = @enumToInt(target.getArch()) + 1; // skip over ZigLLVM_UnknownArch
-        self.sub_arch = 0;
-        self.vendor = 0;
-        self.os = @enumToInt(target.getOs());
-        self.abi = @enumToInt(target.getAbi());
+        self.* = .{
+            .arch = @enumToInt(target.getArch()) + 1, // skip over ZigLLVM_UnknownArch
+            .sub_arch = 0,
+            .vendor = 0,
+            .os = @enumToInt(target.getOs()),
+            .abi = @enumToInt(target.getAbi()),
+            .llvm_cpu_name = null,
+            .llvm_cpu_features = null,
+            .builtin_str = null,
+            .cache_hash = null,
+            .is_native = target == .Native,
+            .glibc_version = null,
+        };
         try initStage1TargetCpuFeatures(self, cpu);
     }
 };
