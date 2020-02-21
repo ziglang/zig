@@ -225,7 +225,14 @@ Error glibc_build_dummies_and_maps(CodeGen *g, const ZigGLibCAbi *glibc_abi, con
     ZigGLibCVerList *ver_list_base = glibc_abi->version_table.get(target);
 
     uint8_t target_ver_index = 0;
-    for (;target_ver_index < glibc_abi->all_versions.length; target_ver_index += 1) {
+    const size_t abi_vers_len = glibc_abi->all_versions.length;
+    if (abi_vers_len == 0) {
+        if (verbose) {
+            fprintf(stderr, "No glibc found for abi");
+        }
+        return ErrorUnknownABI;
+    }
+    for (;target_ver_index < abi_vers_len; target_ver_index += 1) {
         const ZigGLibCVersion *this_ver = &glibc_abi->all_versions.at(target_ver_index);
         if (this_ver->major == target->glibc_version->major &&
             this_ver->minor == target->glibc_version->minor &&
@@ -234,20 +241,16 @@ Error glibc_build_dummies_and_maps(CodeGen *g, const ZigGLibCAbi *glibc_abi, con
             break;
         }
     }
-    if (target_ver_index == glibc_abi->all_versions.length) {
-        if (verbose) {
-            fprintf(stderr, "Unrecognized glibc version: %d.%d.%d\n",
-                   target->glibc_version->major,
-                   target->glibc_version->minor,
-                   target->glibc_version->patch);
-        }
-        return ErrorUnknownABI;
-    }
+    //NOTE: glibc versions are sorted, so we can just pick the last version in
+    //the list
+    if (target_ver_index == abi_vers_len) {
+        target_ver_index = abi_vers_len - 1;
 
+    }
     Buf *map_file_path = buf_sprintf("%s" OS_SEP "all.map", buf_ptr(dummy_dir));
     Buf *map_contents = buf_alloc();
 
-    for (uint8_t ver_i = 0; ver_i < glibc_abi->all_versions.length; ver_i += 1) {
+    for (uint8_t ver_i = 0; ver_i < abi_vers_len; ver_i += 1) {
         const ZigGLibCVersion *ver = &glibc_abi->all_versions.at(ver_i);
         if (ver->patch == 0) {
             buf_appendf(map_contents, "GLIBC_%d.%d { };\n", ver->major, ver->minor);
