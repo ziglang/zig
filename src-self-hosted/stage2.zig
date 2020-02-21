@@ -661,9 +661,7 @@ export fn stage2_target_parse(
         error.MissingOperatingSystem => return .MissingOperatingSystem,
         error.MissingArchitecture => return .MissingArchitecture,
         error.InvalidLlvmCpuFeaturesFormat => return .InvalidLlvmCpuFeaturesFormat,
-        error.UnknownCpu => return .UnknownCpu,
         error.UnexpectedExtraField => return .SemanticAnalyzeFail,
-        error.UnknownCpuFeature => return .UnknownCpuFeature,
     };
     return .None;
 }
@@ -676,7 +674,38 @@ fn stage2TargetParse(
     const target: Target = if (zig_triple_oz) |zig_triple_z| blk: {
         const zig_triple = mem.toSliceConst(u8, zig_triple_z);
         const mcpu = if (mcpu_oz) |mcpu_z| mem.toSliceConst(u8, mcpu_z) else "baseline";
-        break :blk try Target.parse(.{ .arch_os_abi = zig_triple, .cpu_features = mcpu });
+        var diags: std.Target.ParseOptions.Diagnostics = .{};
+        break :blk Target.parse(.{
+            .arch_os_abi = zig_triple,
+            .cpu_features = mcpu,
+            .diagnostics = &diags,
+        }) catch |err| switch (err) {
+            error.UnknownCpu => {
+                std.debug.warn("Unknown CPU: '{}'\nAvailable CPUs for architecture '{}':\n", .{
+                    diags.cpu_name.?,
+                    @tagName(diags.arch.?),
+                });
+                for (diags.arch.?.allCpuModels()) |cpu| {
+                    std.debug.warn(" {}\n", .{cpu.name});
+                }
+                process.exit(1);
+            },
+            error.UnknownCpuFeature => {
+                std.debug.warn(
+                    \\Unknown CPU feature: '{}'
+                    \\Available CPU features for architecture '{}':
+                    \\
+                , .{
+                    diags.unknown_feature_name,
+                    @tagName(diags.arch.?),
+                });
+                for (diags.arch.?.allFeaturesList()) |feature| {
+                    std.debug.warn(" {}: {}\n", .{ feature.name, feature.description });
+                }
+                process.exit(1);
+            },
+            else => |e| return e,
+        };
     } else Target.Native;
 
     try stage1_target.fromTarget(target);

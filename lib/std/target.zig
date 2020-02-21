@@ -727,18 +727,47 @@ pub const Target = union(enum) {
         /// are examples of CPU features to add to the set, and "c" and "d" are examples of CPU features
         /// to remove from the set.
         cpu_features: []const u8 = "baseline",
+
+        /// If this is provided, the function will populate some information about parsing failures,
+        /// so that user-friendly error messages can be delivered.
+        diagnostics: ?*Diagnostics = null,
+
+        pub const Diagnostics = struct {
+            /// If the architecture was determined, this will be populated.
+            arch: ?Cpu.Arch = null,
+
+            /// If the OS was determined, this will be populated.
+            os: ?Os = null,
+
+            /// If the ABI was determined, this will be populated.
+            abi: ?Abi = null,
+
+            /// If the CPU name was determined, this will be populated.
+            cpu_name: ?[]const u8 = null,
+
+            /// If error.UnknownCpuFeature is returned, this will be populated.
+            unknown_feature_name: ?[]const u8 = null,
+        };
     };
 
     pub fn parse(args: ParseOptions) !Target {
+        var dummy_diags: ParseOptions.Diagnostics = undefined;
+        var diags = args.diagnostics orelse &dummy_diags;
+
         var it = mem.separate(args.arch_os_abi, "-");
         const arch_name = it.next() orelse return error.MissingArchitecture;
-        const os_name = it.next() orelse return error.MissingOperatingSystem;
-        const abi_name = it.next();
-        if (it.next() != null) return error.UnexpectedExtraField;
-
         const arch = try Cpu.Arch.parse(arch_name);
+        diags.arch = arch;
+
+        const os_name = it.next() orelse return error.MissingOperatingSystem;
         const os = try Os.parse(os_name);
+        diags.os = os;
+
+        const abi_name = it.next();
         const abi = if (abi_name) |n| try Abi.parse(n) else Abi.default(arch, os);
+        diags.abi = abi;
+
+        if (it.next() != null) return error.UnexpectedExtraField;
 
         const all_features = arch.allFeaturesList();
         var index: usize = 0;
@@ -749,6 +778,8 @@ pub const Target = union(enum) {
             index += 1;
         }
         const cpu_name = args.cpu_features[0..index];
+        diags.cpu_name = cpu_name;
+
         const cpu: Cpu = if (mem.eql(u8, cpu_name, "baseline")) Cpu.baseline(arch) else blk: {
             const cpu_model = try arch.parseCpuModel(cpu_name);
 
@@ -775,6 +806,7 @@ pub const Target = union(enum) {
                         break;
                     }
                 } else {
+                    diags.unknown_feature_name = feature_name;
                     return error.UnknownCpuFeature;
                 }
             }
