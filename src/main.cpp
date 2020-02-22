@@ -992,6 +992,14 @@ static int main0(int argc, char **argv) {
             }
         } else {
             target_init_default_glibc_version(&target);
+#if defined(ZIG_OS_LINUX)
+            if (target.is_native) {
+                // TODO self-host glibc version detection, and then this logic can go away
+                if ((err = glibc_detect_native_version(target.glibc_version))) {
+                    // Fall back to the default version.
+                }
+            }
+#endif
         }
     } else if (target_glibc != nullptr) {
         fprintf(stderr, "'%s' is not a glibc-compatible target", target_string);

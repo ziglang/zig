@@ -467,12 +467,6 @@ void get_native_target(ZigTarget *target) {
     if (target_is_glibc(target)) {
         target->glibc_version = heap::c_allocator.create<ZigGLibCVersion>();
         target_init_default_glibc_version(target);
-#ifdef ZIG_OS_LINUX
-        Error err;
-        if ((err = glibc_detect_native_version(target->glibc_version))) {
-            // Fall back to the default version.
-        }
-#endif
     }
 }
 
