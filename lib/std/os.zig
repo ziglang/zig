@@ -955,6 +955,7 @@ pub const Arg0Expand = enum {
 
 /// Like `execvpeZ` except if `arg0_expand` is `.expand`, then `argv` is mutable,
 /// and `argv[0]` is expanded to be the same absolute path that is passed to the execve syscall.
+/// If this function returns with an error, `argv[0]` will be restored to the value it was when it was passed in.
 pub fn execvpeZ_expandArg0(
     comptime arg0_expand: Arg0Expand,
     file: [*:0]const u8,
@@ -972,6 +973,14 @@ pub fn execvpeZ_expandArg0(
     var it = mem.tokenize(PATH, ":");
     var seen_eacces = false;
     var err: ExecveError = undefined;
+
+    // In case of expanding arg0 we must put it back if we return with an error.
+    const prev_arg0 = child_argv[0];
+    defer switch (arg0_expand) {
+        .expand => child_argv[0] = prev_arg0,
+        .no_expand => {},
+    };
+
     while (it.next()) |search_path| {
         if (path_buf.len < search_path.len + file_slice.len + 1) return error.NameTooLong;
         mem.copy(u8, &path_buf, search_path);

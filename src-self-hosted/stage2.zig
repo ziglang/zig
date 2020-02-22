@@ -899,7 +899,10 @@ export fn stage2_libc_parse(stage1_libc: *Stage2LibCInstallation, libc_file_z: [
 
 // ABI warning
 export fn stage2_libc_find_native(stage1_libc: *Stage2LibCInstallation) Error {
-    var libc = LibCInstallation.findNative(std.heap.c_allocator) catch |err| switch (err) {
+    var libc = LibCInstallation.findNative(.{
+        .allocator = std.heap.c_allocator,
+        .verbose = true,
+    }) catch |err| switch (err) {
         error.OutOfMemory => return .OutOfMemory,
         error.FileSystem => return .FileSystem,
         error.UnableToSpawnCCompiler => return .UnableToSpawnCCompiler,
