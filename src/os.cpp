@@ -81,11 +81,7 @@ static clock_serv_t macos_monotonic_clock;
 #include <errno.h>
 #include <time.h>
 
-// Apple doesn't provide the environ global variable
-#if defined(__APPLE__) && !defined(environ)
-#include <crt_externs.h>
-#define environ (*_NSGetEnviron())
-#elif defined(ZIG_OS_FREEBSD) || defined(ZIG_OS_NETBSD) || defined(ZIG_OS_DRAGONFLY)
+#if !defined(environ)
 extern char **environ;
 #endif
 

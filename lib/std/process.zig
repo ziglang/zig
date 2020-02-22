@@ -1,5 +1,5 @@
-const builtin = @import("builtin");
 const std = @import("std.zig");
+const builtin = std.builtin;
 const os = std.os;
 const fs = std.fs;
 const BufMap = std.BufMap;
@@ -31,13 +31,13 @@ test "getCwdAlloc" {
     testing.allocator.free(cwd);
 }
 
-/// Caller must free result when done.
-/// TODO make this go through libc when we have it
+/// Caller owns resulting `BufMap`.
 pub fn getEnvMap(allocator: *Allocator) !BufMap {
     var result = BufMap.init(allocator);
     errdefer result.deinit();
 
     if (builtin.os == .windows) {
+        // TODO update this to use the ProcessEnvironmentBlock
         const ptr = try os.windows.GetEnvironmentStringsW();
         defer os.windows.FreeEnvironmentStringsW(ptr);
 
@@ -95,15 +95,29 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             }
         }
         return result;
-    } else {
-        for (os.environ) |ptr| {
+    } else if (builtin.link_libc) {
+        var ptr = std.c.environ;
+        while (ptr.*) |line| : (ptr += 1) {
             var line_i: usize = 0;
-            while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
-            const key = ptr[0..line_i];
+            while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
+            const key = line[0..line_i];
 
             var end_i: usize = line_i;
-            while (ptr[end_i] != 0) : (end_i += 1) {}
-            const value = ptr[line_i + 1 .. end_i];
+            while (line[end_i] != 0) : (end_i += 1) {}
+            const value = line[line_i + 1 .. end_i];
+
+            try result.set(key, value);
+        }
+        return result;
+    } else {
+        for (os.environ) |line| {
+            var line_i: usize = 0;
+            while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
+            const key = line[0..line_i];
+
+            var end_i: usize = line_i;
+            while (line[end_i] != 0) : (end_i += 1) {}
+            const value = line[line_i + 1 .. end_i];
 
             try result.set(key, value);
         }
@@ -125,7 +139,6 @@ pub const GetEnvVarOwnedError = error{
 };
 
 /// Caller must free returned memory.
-/// TODO make this go through libc when we have it
 pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (builtin.os == .windows) {
         const key_with_null = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
