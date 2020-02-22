@@ -493,7 +493,7 @@ fn populateModule(di: *ModuleDebugInfo, mod: *Module) !void {
         sect_offset += @sizeOf(pdb.DebugSubsectionHeader);
 
         switch (subsect_hdr.Kind) {
-            pdb.DebugSubsectionKind.FileChecksums => {
+            .FileChecksums => {
                 mod.checksum_offset = sect_offset;
                 break;
             },
@@ -1465,7 +1465,7 @@ pub const ModuleDebugInfo = switch (builtin.os) {
                     sect_offset += @sizeOf(pdb.DebugSubsectionHeader);
 
                     switch (subsect_hdr.Kind) {
-                        pdb.DebugSubsectionKind.Lines => {
+                        .Lines => {
                             var line_index = sect_offset;
 
                             const line_hdr = @ptrCast(*pdb.LineFragmentHeader, &subsect_info[line_index]);
