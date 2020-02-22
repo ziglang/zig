@@ -535,7 +535,7 @@ pub const Builder = struct {
             return Target.Native;
         } else {
             const target_str = self.option([]const u8, "target", "the target to build for") orelse return Target.Native;
-            return Target.parse(target_str) catch unreachable; // TODO better error message for bad target
+            return Target.parse(.{ .arch_os_abi = target_str }) catch unreachable; // TODO better error message for bad target
         }
     }
 
