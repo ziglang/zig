@@ -37,14 +37,11 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
     errdefer result.deinit();
 
     if (builtin.os == .windows) {
-        // TODO update this to use the ProcessEnvironmentBlock
-        const ptr = try os.windows.GetEnvironmentStringsW();
+        const ptr = windows.peb().ProcessParameters.Environment;
         defer os.windows.FreeEnvironmentStringsW(ptr);
 
         var i: usize = 0;
-        while (true) {
-            if (ptr[i] == 0) return result;
-
+        while (ptr[i] != 0) {
             const key_start = i;
 
             while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
@@ -64,6 +61,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
 
             try result.setMove(key, value);
         }
+        return result;
     } else if (builtin.os == .wasi) {
         var environ_count: usize = undefined;
         var environ_buf_size: usize = undefined;
@@ -141,34 +139,18 @@ pub const GetEnvVarOwnedError = error{
 /// Caller must free returned memory.
 pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (builtin.os == .windows) {
-        const key_with_null = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
-        defer allocator.free(key_with_null);
+        const result_w = blk: {
+            const key_w = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
+            defer allocator.free(key_w);
 
-        var buf = try allocator.alloc(u16, 256);
-        defer allocator.free(buf);
-
-        while (true) {
-            const windows_buf_len = math.cast(os.windows.DWORD, buf.len) catch return error.OutOfMemory;
-            const result = os.windows.GetEnvironmentVariableW(
-                key_with_null.ptr,
-                buf.ptr,
-                windows_buf_len,
-            ) catch |err| switch (err) {
-                error.Unexpected => return error.EnvironmentVariableNotFound,
-                else => |e| return e,
-            };
-            if (result > buf.len) {
-                buf = try allocator.realloc(buf, result);
-                continue;
-            }
-
-            return std.unicode.utf16leToUtf8Alloc(allocator, buf[0..result]) catch |err| switch (err) {
-                error.DanglingSurrogateHalf => return error.InvalidUtf8,
-                error.ExpectedSecondSurrogateHalf => return error.InvalidUtf8,
-                error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
-                else => |e| return e,
-            };
-        }
+            break :blk std.os.getenvW(key_w) orelse return error.EnvironmentVariableNotFound;
+        };
+        return std.unicode.utf16leToUtf8Alloc(allocator, result_w) catch |err| switch (err) {
+            error.DanglingSurrogateHalf => return error.InvalidUtf8,
+            error.ExpectedSecondSurrogateHalf => return error.InvalidUtf8,
+            error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
+            else => |e| return e,
+        };
     } else {
         const result = os.getenv(key) orelse return error.EnvironmentVariableNotFound;
         return mem.dupe(allocator, u8, result);

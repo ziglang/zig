@@ -1104,10 +1104,6 @@ pub fn freeNullDelimitedEnvMap(allocator: *mem.Allocator, envp_buf: []?[*:0]u8) 
 /// Get an environment variable.
 /// See also `getenvZ`.
 pub fn getenv(key: []const u8) ?[]const u8 {
-    if (builtin.os == .windows) {
-        // TODO update this to use the ProcessEnvironmentBlock
-        @compileError("TODO implement std.os.getenv for Windows");
-    }
     if (builtin.link_libc) {
         var small_key_buf: [64]u8 = undefined;
         if (key.len < small_key_buf.len) {
@@ -1133,6 +1129,9 @@ pub fn getenv(key: []const u8) ?[]const u8 {
         }
         return null;
     }
+    if (builtin.os == .windows) {
+        @compileError("std.os.getenv is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
+    }
     // TODO see https://github.com/ziglang/zig/issues/4524
     for (environ) |ptr| {
         var line_i: usize = 0;
@@ -1155,15 +1154,42 @@ pub const getenvC = getenvZ;
 /// Get an environment variable with a null-terminated name.
 /// See also `getenv`.
 pub fn getenvZ(key: [*:0]const u8) ?[]const u8 {
-    if (builtin.os == .windows) {
-        // TODO update this to use the ProcessEnvironmentBlock
-        @compileError("TODO implement std.os.getenv for Windows");
-    }
     if (builtin.link_libc) {
         const value = system.getenv(key) orelse return null;
         return mem.toSliceConst(u8, value);
     }
+    if (builtin.os == .windows) {
+        @compileError("std.os.getenvZ is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
+    }
     return getenv(mem.toSliceConst(u8, key));
+}
+
+/// Windows-only. Get an environment variable with a null-terminated, WTF-16 encoded name.
+/// See also `getenv`.
+pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
+    if (builtin.os != .windows) {
+        @compileError("std.os.getenvW is a Windows-only API");
+    }
+    const key_slice = mem.toSliceConst(u16, key);
+    const ptr = windows.peb().ProcessParameters.Environment;
+    var i: usize = 0;
+    while (ptr[i] != 0) {
+        const key_start = i;
+
+        while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
+        const this_key = ptr[key_start..i];
+
+        if (ptr[i] == '=') i += 1;
+
+        const value_start = i;
+        while (ptr[i] != 0) : (i += 1) {}
+        const this_value = ptr[value_start..i :0];
+
+        if (mem.eql(u16, key_slice, this_key)) return this_value;
+
+        i += 1; // skip over null byte
+    }
+    return null;
 }
 
 pub const GetCwdError = error{
