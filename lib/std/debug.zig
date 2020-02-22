@@ -393,9 +393,9 @@ pub fn writeCurrentStackTraceWindows(
 /// TODO once https://github.com/ziglang/zig/issues/3157 is fully implemented,
 /// make this `noasync fn` and remove the individual noasync calls.
 pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: var, address: usize, tty_config: TTY.Config) !void {
-    if (builtin.os == .windows) {
-        return noasync printSourceAtAddressWindows(debug_info, out_stream, address, tty_config);
-    }
+    // if (builtin.os == .windows) {
+    //     return noasync printSourceAtAddressWindows(debug_info, out_stream, address, tty_config);
+    // }
     return noasync printSourceAtAddressPosix(debug_info, out_stream, address, tty_config);
 }
 
@@ -1516,8 +1516,6 @@ pub const ModuleDebugInfo = switch (builtin.os) {
             assert(symbol.ofile.?.n_strx < self.strings.len);
             const o_file_path = mem.toSliceConst(u8, self.strings.ptr + symbol.ofile.?.n_strx);
 
-            warn("Loading .o file: {s}\n", .{o_file_path});
-
             // Check if its debug infos are already in the cache
             var o_file_di = self.ofiles.getValue(o_file_path) orelse
                 (self.loadOFile(o_file_path) catch |err| switch (err) {
@@ -1560,6 +1558,158 @@ pub const ModuleDebugInfo = switch (builtin.os) {
         coff: *coff.Coff,
         sect_contribs: []pdb.SectionContribEntry,
         modules: []Module,
+
+        pub fn allocator(self: @This()) *mem.Allocator {
+            return self.coff.allocator;
+        }
+
+        fn getSymbolAtAddress(self: *@This(), address: usize) !SymbolInfo {
+            // Translate the VA into an address into this object
+            const relocated_address = address - self.base_address;
+
+            var coff_section: *coff.Section = undefined;
+            const mod_index = for (self.sect_contribs) |sect_contrib| {
+                if (sect_contrib.Section > self.coff.sections.len) continue;
+                // Remember that SectionContribEntry.Section is 1-based.
+                coff_section = &self.coff.sections.toSlice()[sect_contrib.Section - 1];
+
+                const vaddr_start = coff_section.header.virtual_address + sect_contrib.Offset;
+                const vaddr_end = vaddr_start + sect_contrib.Size;
+                if (relocated_address >= vaddr_start and relocated_address < vaddr_end) {
+                    break sect_contrib.ModuleIndex;
+                }
+            } else {
+                // we have no information to add to the address
+                return SymbolInfo{};
+            };
+
+            const mod = &self.modules[mod_index];
+            try populateModule(self, mod);
+            const obj_basename = fs.path.basename(mod.obj_file_name);
+
+            var symbol_i: usize = 0;
+            const symbol_name = if (!mod.populated) "???" else while (symbol_i != mod.symbols.len) {
+                const prefix = @ptrCast(*pdb.RecordPrefix, &mod.symbols[symbol_i]);
+                if (prefix.RecordLen < 2)
+                    return error.InvalidDebugInfo;
+                switch (prefix.RecordKind) {
+                    .S_LPROC32, .S_GPROC32 => {
+                        const proc_sym = @ptrCast(*pdb.ProcSym, &mod.symbols[symbol_i + @sizeOf(pdb.RecordPrefix)]);
+                        const vaddr_start = coff_section.header.virtual_address + proc_sym.CodeOffset;
+                        const vaddr_end = vaddr_start + proc_sym.CodeSize;
+                        if (relocated_address >= vaddr_start and relocated_address < vaddr_end) {
+                            break mem.toSliceConst(u8, @ptrCast([*:0]u8, proc_sym) + @sizeOf(pdb.ProcSym));
+                        }
+                    },
+                    else => {},
+                }
+                symbol_i += prefix.RecordLen + @sizeOf(u16);
+                if (symbol_i > mod.symbols.len)
+                    return error.InvalidDebugInfo;
+            } else "???";
+
+            const subsect_info = mod.subsect_info;
+
+            var sect_offset: usize = 0;
+            var skip_len: usize = undefined;
+            const opt_line_info = subsections: {
+                const checksum_offset = mod.checksum_offset orelse break :subsections null;
+                while (sect_offset != subsect_info.len) : (sect_offset += skip_len) {
+                    const subsect_hdr = @ptrCast(*pdb.DebugSubsectionHeader, &subsect_info[sect_offset]);
+                    skip_len = subsect_hdr.Length;
+                    sect_offset += @sizeOf(pdb.DebugSubsectionHeader);
+
+                    switch (subsect_hdr.Kind) {
+                        pdb.DebugSubsectionKind.Lines => {
+                            var line_index = sect_offset;
+
+                            const line_hdr = @ptrCast(*pdb.LineFragmentHeader, &subsect_info[line_index]);
+                            if (line_hdr.RelocSegment == 0)
+                                return error.MissingDebugInfo;
+                            line_index += @sizeOf(pdb.LineFragmentHeader);
+                            const frag_vaddr_start = coff_section.header.virtual_address + line_hdr.RelocOffset;
+                            const frag_vaddr_end = frag_vaddr_start + line_hdr.CodeSize;
+
+                            if (relocated_address >= frag_vaddr_start and relocated_address < frag_vaddr_end) {
+                                // There is an unknown number of LineBlockFragmentHeaders (and their accompanying line and column records)
+                                // from now on. We will iterate through them, and eventually find a LineInfo that we're interested in,
+                                // breaking out to :subsections. If not, we will make sure to not read anything outside of this subsection.
+                                const subsection_end_index = sect_offset + subsect_hdr.Length;
+
+                                while (line_index < subsection_end_index) {
+                                    const block_hdr = @ptrCast(*pdb.LineBlockFragmentHeader, &subsect_info[line_index]);
+                                    line_index += @sizeOf(pdb.LineBlockFragmentHeader);
+                                    const start_line_index = line_index;
+
+                                    const has_column = line_hdr.Flags.LF_HaveColumns;
+
+                                    // All line entries are stored inside their line block by ascending start address.
+                                    // Heuristic: we want to find the last line entry
+                                    // that has a vaddr_start <= relocated_address.
+                                    // This is done with a simple linear search.
+                                    var line_i: u32 = 0;
+                                    while (line_i < block_hdr.NumLines) : (line_i += 1) {
+                                        const line_num_entry = @ptrCast(*pdb.LineNumberEntry, &subsect_info[line_index]);
+                                        line_index += @sizeOf(pdb.LineNumberEntry);
+
+                                        const vaddr_start = frag_vaddr_start + line_num_entry.Offset;
+                                        if (relocated_address < vaddr_start) {
+                                            break;
+                                        }
+                                    }
+
+                                    // line_i == 0 would mean that no matching LineNumberEntry was found.
+                                    if (line_i > 0) {
+                                        const subsect_index = checksum_offset + block_hdr.NameIndex;
+                                        const chksum_hdr = @ptrCast(*pdb.FileChecksumEntryHeader, &mod.subsect_info[subsect_index]);
+                                        const strtab_offset = @sizeOf(pdb.PDBStringTableHeader) + chksum_hdr.FileNameOffset;
+                                        try self.pdb.string_table.seekTo(strtab_offset);
+                                        const source_file_name = try self.pdb.string_table.readNullTermString(self.allocator());
+
+                                        const line_entry_idx = line_i - 1;
+
+                                        const column = if (has_column) blk: {
+                                            const start_col_index = start_line_index + @sizeOf(pdb.LineNumberEntry) * block_hdr.NumLines;
+                                            const col_index = start_col_index + @sizeOf(pdb.ColumnNumberEntry) * line_entry_idx;
+                                            const col_num_entry = @ptrCast(*pdb.ColumnNumberEntry, &subsect_info[col_index]);
+                                            break :blk col_num_entry.StartColumn;
+                                        } else 0;
+
+                                        const found_line_index = start_line_index + line_entry_idx * @sizeOf(pdb.LineNumberEntry);
+                                        const line_num_entry = @ptrCast(*pdb.LineNumberEntry, &subsect_info[found_line_index]);
+                                        const flags = @ptrCast(*pdb.LineNumberEntry.Flags, &line_num_entry.Flags);
+
+                                        break :subsections LineInfo{
+                                            .allocator = self.allocator(),
+                                            .file_name = source_file_name,
+                                            .line = flags.Start,
+                                            .column = column,
+                                        };
+                                    }
+                                }
+
+                                // Checking that we are not reading garbage after the (possibly) multiple block fragments.
+                                if (line_index != subsection_end_index) {
+                                    return error.InvalidDebugInfo;
+                                }
+                            }
+                        },
+                        else => {},
+                    }
+
+                    if (sect_offset > subsect_info.len)
+                        return error.InvalidDebugInfo;
+                } else {
+                    break :subsections null;
+                }
+            };
+
+            return SymbolInfo{
+                .symbol_name = symbol_name,
+                .compile_unit_name = obj_basename,
+                .line_info = opt_line_info,
+            };
+        }
     },
     .linux, .freebsd => struct {
         base_address: usize,
