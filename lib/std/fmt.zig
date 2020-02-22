@@ -757,8 +757,6 @@ pub fn formatFloatDecimal(
             } else {
                 try output(context, ".0");
             }
-        } else {
-            try output(context, "0");
         }
 
         return;
@@ -1399,6 +1397,7 @@ test "float.special" {
 
 test "float.decimal" {
     try testFmt("f64: 152314000000000000000000000000", "f64: {d}", .{@as(f64, 1.52314e+29)});
+    try testFmt("f32: 0", "f32: {d}", .{@as(f32, 0.0)});
     try testFmt("f32: 1.1", "f32: {d:.1}", .{@as(f32, 1.1234)});
     try testFmt("f32: 1234.57", "f32: {d:.2}", .{@as(f32, 1234.567)});
     // -11.1234 is converted to f64 -11.12339... internally (errol3() function takes f64).
