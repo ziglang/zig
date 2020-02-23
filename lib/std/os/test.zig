@@ -351,3 +351,11 @@ test "mmap" {
 
     try fs.cwd().deleteFile(test_out_file);
 }
+
+test "getenv" {
+    if (builtin.os == .windows) {
+        expect(os.getenvW(&[_:0]u16{ 'B', 'O', 'G', 'U', 'S', 0x11, 0x22, 0x33, 0x44, 0x55 }) == null);
+    } else {
+        expect(os.getenvZ("BOGUSDOESNOTEXISTENVVAR") == null);
+    }
+}

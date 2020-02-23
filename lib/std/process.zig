@@ -1,5 +1,5 @@
-const builtin = @import("builtin");
 const std = @import("std.zig");
+const builtin = std.builtin;
 const os = std.os;
 const fs = std.fs;
 const BufMap = std.BufMap;
@@ -31,20 +31,16 @@ test "getCwdAlloc" {
     testing.allocator.free(cwd);
 }
 
-/// Caller must free result when done.
-/// TODO make this go through libc when we have it
+/// Caller owns resulting `BufMap`.
 pub fn getEnvMap(allocator: *Allocator) !BufMap {
     var result = BufMap.init(allocator);
     errdefer result.deinit();
 
     if (builtin.os == .windows) {
-        const ptr = try os.windows.GetEnvironmentStringsW();
-        defer os.windows.FreeEnvironmentStringsW(ptr);
+        const ptr = os.windows.peb().ProcessParameters.Environment;
 
         var i: usize = 0;
-        while (true) {
-            if (ptr[i] == 0) return result;
-
+        while (ptr[i] != 0) {
             const key_start = i;
 
             while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
@@ -64,6 +60,7 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
 
             try result.setMove(key, value);
         }
+        return result;
     } else if (builtin.os == .wasi) {
         var environ_count: usize = undefined;
         var environ_buf_size: usize = undefined;
@@ -95,15 +92,29 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
             }
         }
         return result;
-    } else {
-        for (os.environ) |ptr| {
+    } else if (builtin.link_libc) {
+        var ptr = std.c.environ;
+        while (ptr.*) |line| : (ptr += 1) {
             var line_i: usize = 0;
-            while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
-            const key = ptr[0..line_i];
+            while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
+            const key = line[0..line_i];
 
             var end_i: usize = line_i;
-            while (ptr[end_i] != 0) : (end_i += 1) {}
-            const value = ptr[line_i + 1 .. end_i];
+            while (line[end_i] != 0) : (end_i += 1) {}
+            const value = line[line_i + 1 .. end_i];
+
+            try result.set(key, value);
+        }
+        return result;
+    } else {
+        for (os.environ) |line| {
+            var line_i: usize = 0;
+            while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
+            const key = line[0..line_i];
+
+            var end_i: usize = line_i;
+            while (line[end_i] != 0) : (end_i += 1) {}
+            const value = line[line_i + 1 .. end_i];
 
             try result.set(key, value);
         }
@@ -125,37 +136,20 @@ pub const GetEnvVarOwnedError = error{
 };
 
 /// Caller must free returned memory.
-/// TODO make this go through libc when we have it
 pub fn getEnvVarOwned(allocator: *mem.Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (builtin.os == .windows) {
-        const key_with_null = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
-        defer allocator.free(key_with_null);
+        const result_w = blk: {
+            const key_w = try std.unicode.utf8ToUtf16LeWithNull(allocator, key);
+            defer allocator.free(key_w);
 
-        var buf = try allocator.alloc(u16, 256);
-        defer allocator.free(buf);
-
-        while (true) {
-            const windows_buf_len = math.cast(os.windows.DWORD, buf.len) catch return error.OutOfMemory;
-            const result = os.windows.GetEnvironmentVariableW(
-                key_with_null.ptr,
-                buf.ptr,
-                windows_buf_len,
-            ) catch |err| switch (err) {
-                error.Unexpected => return error.EnvironmentVariableNotFound,
-                else => |e| return e,
-            };
-            if (result > buf.len) {
-                buf = try allocator.realloc(buf, result);
-                continue;
-            }
-
-            return std.unicode.utf16leToUtf8Alloc(allocator, buf[0..result]) catch |err| switch (err) {
-                error.DanglingSurrogateHalf => return error.InvalidUtf8,
-                error.ExpectedSecondSurrogateHalf => return error.InvalidUtf8,
-                error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
-                else => |e| return e,
-            };
-        }
+            break :blk std.os.getenvW(key_w) orelse return error.EnvironmentVariableNotFound;
+        };
+        return std.unicode.utf16leToUtf8Alloc(allocator, result_w) catch |err| switch (err) {
+            error.DanglingSurrogateHalf => return error.InvalidUtf8,
+            error.ExpectedSecondSurrogateHalf => return error.InvalidUtf8,
+            error.UnexpectedSecondSurrogateHalf => return error.InvalidUtf8,
+            else => |e| return e,
+        };
     } else {
         const result = os.getenv(key) orelse return error.EnvironmentVariableNotFound;
         return mem.dupe(allocator, u8, result);

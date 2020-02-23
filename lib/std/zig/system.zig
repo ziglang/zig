@@ -5,6 +5,8 @@ const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const process = std.process;
 
+const is_windows = std.Target.current.isWindows();
+
 pub const NativePaths = struct {
     include_dirs: ArrayList([:0]u8),
     lib_dirs: ArrayList([:0]u8),
@@ -21,7 +23,9 @@ pub const NativePaths = struct {
         errdefer self.deinit();
 
         var is_nix = false;
-        if (std.os.getenvZ("NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
+        if (process.getEnvVarOwned(allocator, "NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
+            defer allocator.free(nix_cflags_compile);
+
             is_nix = true;
             var it = mem.tokenize(nix_cflags_compile, " ");
             while (true) {
@@ -37,8 +41,14 @@ pub const NativePaths = struct {
                     break;
                 }
             }
+        } else |err| switch (err) {
+            error.InvalidUtf8 => {},
+            error.EnvironmentVariableNotFound => {},
+            error.OutOfMemory => |e| return e,
         }
-        if (std.os.getenvZ("NIX_LDFLAGS")) |nix_ldflags| {
+        if (process.getEnvVarOwned(allocator, "NIX_LDFLAGS")) |nix_ldflags| {
+            defer allocator.free(nix_ldflags);
+
             is_nix = true;
             var it = mem.tokenize(nix_ldflags, " ");
             while (true) {
@@ -57,39 +67,40 @@ pub const NativePaths = struct {
                     break;
                 }
             }
+        } else |err| switch (err) {
+            error.InvalidUtf8 => {},
+            error.EnvironmentVariableNotFound => {},
+            error.OutOfMemory => |e| return e,
         }
         if (is_nix) {
             return self;
         }
 
-        switch (std.builtin.os) {
-            .windows => {},
-            else => {
-                const triple = try std.Target.current.linuxTriple(allocator);
+        if (!is_windows) {
+            const triple = try std.Target.current.linuxTriple(allocator);
 
-                // TODO: $ ld --verbose | grep SEARCH_DIR
-                // the output contains some paths that end with lib64, maybe include them too?
-                // TODO: what is the best possible order of things?
-                // TODO: some of these are suspect and should only be added on some systems. audit needed.
+            // TODO: $ ld --verbose | grep SEARCH_DIR
+            // the output contains some paths that end with lib64, maybe include them too?
+            // TODO: what is the best possible order of things?
+            // TODO: some of these are suspect and should only be added on some systems. audit needed.
 
-                try self.addIncludeDir("/usr/local/include");
-                try self.addLibDir("/usr/local/lib");
-                try self.addLibDir("/usr/local/lib64");
+            try self.addIncludeDir("/usr/local/include");
+            try self.addLibDir("/usr/local/lib");
+            try self.addLibDir("/usr/local/lib64");
 
-                try self.addIncludeDirFmt("/usr/include/{}", .{triple});
-                try self.addLibDirFmt("/usr/lib/{}", .{triple});
+            try self.addIncludeDirFmt("/usr/include/{}", .{triple});
+            try self.addLibDirFmt("/usr/lib/{}", .{triple});
 
-                try self.addIncludeDir("/usr/include");
-                try self.addLibDir("/lib");
-                try self.addLibDir("/lib64");
-                try self.addLibDir("/usr/lib");
-                try self.addLibDir("/usr/lib64");
+            try self.addIncludeDir("/usr/include");
+            try self.addLibDir("/lib");
+            try self.addLibDir("/lib64");
+            try self.addLibDir("/usr/lib");
+            try self.addLibDir("/usr/lib64");
 
-                // example: on a 64-bit debian-based linux distro, with zlib installed from apt:
-                // zlib.h is in /usr/include (added above)
-                // libz.so.1 is in /lib/x86_64-linux-gnu (added here)
-                try self.addLibDirFmt("/lib/{}", .{triple});
-            },
+            // example: on a 64-bit debian-based linux distro, with zlib installed from apt:
+            // zlib.h is in /usr/include (added above)
+            // libz.so.1 is in /lib/x86_64-linux-gnu (added here)
+            try self.addLibDirFmt("/lib/{}", .{triple});
         }
 
         return self;

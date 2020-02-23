@@ -70,6 +70,8 @@ else switch (builtin.os) {
 pub usingnamespace @import("os/bits.zig");
 
 /// See also `getenv`. Populated by startup code before main().
+/// TODO this is a footgun because the value will be undefined when using `zig build-lib`.
+/// https://github.com/ziglang/zig/issues/4524
 pub var environ: [][*:0]u8 = undefined;
 
 /// Populated by startup code before main().
@@ -922,7 +924,11 @@ pub const execveC = execveZ;
 /// Like `execve` except the parameters are null-terminated,
 /// matching the syscall API on all targets. This removes the need for an allocator.
 /// This function ignores PATH environment variable. See `execvpeZ` for that.
-pub fn execveZ(path: [*:0]const u8, child_argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) ExecveError {
+pub fn execveZ(
+    path: [*:0]const u8,
+    child_argv: [*:null]const ?[*:0]const u8,
+    envp: [*:null]const ?[*:0]const u8,
+) ExecveError {
     switch (errno(system.execve(path, child_argv, envp))) {
         0 => unreachable,
         EFAULT => unreachable,
@@ -966,7 +972,7 @@ pub fn execvpeZ_expandArg0(
     envp: [*:null]const ?[*:0]const u8,
 ) ExecveError {
     const file_slice = mem.toSliceConst(u8, file);
-    if (mem.indexOfScalar(u8, file_slice, '/') != null) return execveC(file, child_argv, envp);
+    if (mem.indexOfScalar(u8, file_slice, '/') != null) return execveZ(file, child_argv, envp);
 
     const PATH = getenvZ("PATH") orelse "/usr/local/bin:/bin/:/usr/bin";
     var path_buf: [MAX_PATH_BYTES]u8 = undefined;
@@ -993,7 +999,7 @@ pub fn execvpeZ_expandArg0(
             .expand => child_argv[0] = full_path,
             .no_expand => {},
         }
-        err = execveC(full_path, child_argv, envp);
+        err = execveZ(full_path, child_argv, envp);
         switch (err) {
             error.AccessDenied => seen_eacces = true,
             error.FileNotFound, error.NotDir => {},
@@ -1007,7 +1013,7 @@ pub fn execvpeZ_expandArg0(
 /// Like `execvpe` except the parameters are null-terminated,
 /// matching the syscall API on all targets. This removes the need for an allocator.
 /// This function also uses the PATH environment variable to get the full path to the executable.
-/// If `file` is an absolute path, this is the same as `execveC`.
+/// If `file` is an absolute path, this is the same as `execveZ`.
 pub fn execvpeZ(
     file: [*:0]const u8,
     argv: [*:null]const ?[*:0]const u8,
@@ -1097,8 +1103,36 @@ pub fn freeNullDelimitedEnvMap(allocator: *mem.Allocator, envp_buf: []?[*:0]u8) 
 
 /// Get an environment variable.
 /// See also `getenvZ`.
-/// TODO make this go through libc when we have it
 pub fn getenv(key: []const u8) ?[]const u8 {
+    if (builtin.link_libc) {
+        var small_key_buf: [64]u8 = undefined;
+        if (key.len < small_key_buf.len) {
+            mem.copy(u8, &small_key_buf, key);
+            small_key_buf[key.len] = 0;
+            const key0 = small_key_buf[0..key.len :0];
+            return getenvZ(key0);
+        }
+        // Search the entire `environ` because we don't have a null terminated pointer.
+        var ptr = std.c.environ;
+        while (ptr.*) |line| : (ptr += 1) {
+            var line_i: usize = 0;
+            while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
+            const this_key = line[0..line_i];
+
+            if (!mem.eql(u8, this_key, key)) continue;
+
+            var end_i: usize = line_i;
+            while (line[end_i] != 0) : (end_i += 1) {}
+            const value = line[line_i + 1 .. end_i];
+
+            return value;
+        }
+        return null;
+    }
+    if (builtin.os == .windows) {
+        @compileError("std.os.getenv is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
+    }
+    // TODO see https://github.com/ziglang/zig/issues/4524
     for (environ) |ptr| {
         var line_i: usize = 0;
         while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
@@ -1124,7 +1158,38 @@ pub fn getenvZ(key: [*:0]const u8) ?[]const u8 {
         const value = system.getenv(key) orelse return null;
         return mem.toSliceConst(u8, value);
     }
+    if (builtin.os == .windows) {
+        @compileError("std.os.getenvZ is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
+    }
     return getenv(mem.toSliceConst(u8, key));
+}
+
+/// Windows-only. Get an environment variable with a null-terminated, WTF-16 encoded name.
+/// See also `getenv`.
+pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
+    if (builtin.os != .windows) {
+        @compileError("std.os.getenvW is a Windows-only API");
+    }
+    const key_slice = mem.toSliceConst(u16, key);
+    const ptr = windows.peb().ProcessParameters.Environment;
+    var i: usize = 0;
+    while (ptr[i] != 0) {
+        const key_start = i;
+
+        while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
+        const this_key = ptr[key_start..i];
+
+        if (ptr[i] == '=') i += 1;
+
+        const value_start = i;
+        while (ptr[i] != 0) : (i += 1) {}
+        const this_value = ptr[value_start..i :0];
+
+        if (mem.eql(u16, key_slice, this_key)) return this_value;
+
+        i += 1; // skip over null byte
+    }
+    return null;
 }
 
 pub const GetCwdError = error{

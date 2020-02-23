@@ -62,6 +62,8 @@ pub fn versionCheck(glibc_version: builtin.Version) type {
     };
 }
 
+pub extern "c" var environ: [*:null]?[*:0]u8;
+
 pub extern "c" fn fopen(filename: [*:0]const u8, modes: [*:0]const u8) ?*FILE;
 pub extern "c" fn fclose(stream: *FILE) c_int;
 pub extern "c" fn fwrite(ptr: [*]const u8, size_of_type: usize, item_count: usize, stream: *FILE) usize;
