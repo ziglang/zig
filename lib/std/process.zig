@@ -38,7 +38,6 @@ pub fn getEnvMap(allocator: *Allocator) !BufMap {
 
     if (builtin.os == .windows) {
         const ptr = os.windows.peb().ProcessParameters.Environment;
-        defer os.windows.FreeEnvironmentStringsW(ptr);
 
         var i: usize = 0;
         while (ptr[i] != 0) {
