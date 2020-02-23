@@ -153,15 +153,9 @@ pub const Timer = struct {
     }
 
     /// Reads the timer value since start or the last reset in nanoseconds
-    pub fn read(self: *Timer) u64 {
+    pub fn read(self: Timer) u64 {
         var clock = clockNative() - self.start_time;
-        if (builtin.os == .windows) {
-            return @divFloor(clock * ns_per_s, self.frequency);
-        }
-        if (comptime std.Target.current.isDarwin()) {
-            return @divFloor(clock * self.frequency.numer, self.frequency.denom);
-        }
-        return clock;
+        return self.nativeDurationToNanos(clock);
     }
 
     /// Resets the timer value to 0/now.
@@ -172,7 +166,7 @@ pub const Timer = struct {
     /// Returns the current value of the timer in nanoseconds, then resets it
     pub fn lap(self: *Timer) u64 {
         var now = clockNative();
-        var lap_time = self.read();
+        var lap_time = self.nativeDurationToNanos(now - self.start_time);
         self.start_time = now;
         return lap_time;
     }
@@ -187,6 +181,16 @@ pub const Timer = struct {
         var ts: os.timespec = undefined;
         os.clock_gettime(monotonic_clock_id, &ts) catch unreachable;
         return @intCast(u64, ts.tv_sec) * @as(u64, ns_per_s) + @intCast(u64, ts.tv_nsec);
+    }
+
+    fn nativeDurationToNanos(self: Timer, duration: u64) u64 {
+        if (builtin.os == .windows) {
+            return @divFloor(duration * ns_per_s, self.frequency);
+        }
+        if (comptime std.Target.current.isDarwin()) {
+            return @divFloor(duration * self.frequency.numer, self.frequency.denom);
+        }
+        return duration;
     }
 };
 
