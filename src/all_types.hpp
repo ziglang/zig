@@ -1750,8 +1750,6 @@ enum BuiltinFnId {
     BuiltinFnIdIntCast,
     BuiltinFnIdFloatCast,
     BuiltinFnIdErrSetCast,
-    BuiltinFnIdToBytes,
-    BuiltinFnIdFromBytes,
     BuiltinFnIdIntToFloat,
     BuiltinFnIdFloatToInt,
     BuiltinFnIdBoolToInt,
@@ -1821,7 +1819,6 @@ enum PanicMsgId {
     PanicMsgIdDivisionByZero,
     PanicMsgIdRemainderDivisionByZero,
     PanicMsgIdExactDivisionRemainder,
-    PanicMsgIdSliceWidenRemainder,
     PanicMsgIdUnwrapOptionalFail,
     PanicMsgIdInvalidErrorCode,
     PanicMsgIdIncorrectAlignment,
@@ -2699,8 +2696,6 @@ enum IrInstSrcId {
     IrInstSrcIdSaveErrRetAddr,
     IrInstSrcIdAddImplicitReturnType,
     IrInstSrcIdErrSetCast,
-    IrInstSrcIdToBytes,
-    IrInstSrcIdFromBytes,
     IrInstSrcIdCheckRuntimeScope,
     IrInstSrcIdHasDecl,
     IrInstSrcIdUndeclaredIdent,
@@ -2739,7 +2734,6 @@ enum IrInstGenId {
     IrInstGenIdCall,
     IrInstGenIdReturn,
     IrInstGenIdCast,
-    IrInstGenIdResizeSlice,
     IrInstGenIdUnreachable,
     IrInstGenIdAsm,
     IrInstGenIdTestNonNull,
@@ -3271,13 +3265,6 @@ struct IrInstGenCast {
     CastOp cast_op;
 };
 
-struct IrInstGenResizeSlice {
-    IrInstGen base;
-
-    IrInstGen *operand;
-    IrInstGen *result_loc;
-};
-
 struct IrInstSrcContainerInitList {
     IrInstSrc base;
 
@@ -3627,21 +3614,6 @@ struct IrInstSrcErrSetCast {
 
     IrInstSrc *dest_type;
     IrInstSrc *target;
-};
-
-struct IrInstSrcToBytes {
-    IrInstSrc base;
-
-    IrInstSrc *target;
-    ResultLoc *result_loc;
-};
-
-struct IrInstSrcFromBytes {
-    IrInstSrc base;
-
-    IrInstSrc *dest_child_type;
-    IrInstSrc *target;
-    ResultLoc *result_loc;
 };
 
 struct IrInstSrcIntToFloat {
