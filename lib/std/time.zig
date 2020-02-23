@@ -153,7 +153,7 @@ pub const Timer = struct {
     }
 
     /// Reads the timer value since start or the last reset in nanoseconds
-    pub fn read(self: *Timer) u64 {
+    pub fn read(self: Timer) u64 {
         var clock = clockNative() - self.start_time;
         return nativeDurationToNanos(clock);
     }
