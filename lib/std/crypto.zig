@@ -57,3 +57,34 @@ test "crypto" {
     _ = @import("crypto/sha3.zig");
     _ = @import("crypto/x25519.zig");
 }
+
+test "issue #4532: no index out of bounds" {
+    const types = [_]type{
+        Md5,
+        Sha1,
+        Sha224,
+        Sha256,
+        Sha384,
+        Sha512,
+        Blake2s224,
+        Blake2s256,
+        Blake2b384,
+        Blake2b512,
+    };
+
+    inline for (types) |Hasher| {
+        var block = [_]u8{'#'} ** Hasher.block_length;
+        var out1: [Hasher.digest_length]u8 = undefined;
+        var out2: [Hasher.digest_length]u8 = undefined;
+
+        var h = Hasher.init();
+        h.update(block[0..]);
+        h.final(out1[0..]);
+        h.reset();
+        h.update(block[0..1]);
+        h.update(block[1..]);
+        h.final(out2[0..]);
+
+        std.testing.expectEqual(out1, out2);
+    }
+}

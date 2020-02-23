@@ -63,7 +63,7 @@ pub const Md5 = struct {
         var off: usize = 0;
 
         // Partial buffer exists from previous update. Copy into buffer then hash.
-        if (d.buf_len != 0 and d.buf_len + b.len > 64) {
+        if (d.buf_len != 0 and d.buf_len + b.len >= 64) {
             off += 64 - d.buf_len;
             mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
 
