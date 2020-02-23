@@ -155,7 +155,7 @@ pub const Timer = struct {
     /// Reads the timer value since start or the last reset in nanoseconds
     pub fn read(self: Timer) u64 {
         var clock = clockNative() - self.start_time;
-        return nativeDurationToNanos(clock);
+        return self.nativeDurationToNanos(clock);
     }
 
     /// Resets the timer value to 0/now.
@@ -166,7 +166,7 @@ pub const Timer = struct {
     /// Returns the current value of the timer in nanoseconds, then resets it
     pub fn lap(self: *Timer) u64 {
         var now = clockNative();
-        var lap_time = nativeDurationToNanos(now - self.start_time);
+        var lap_time = self.nativeDurationToNanos(now - self.start_time);
         self.start_time = now;
         return lap_time;
     }
@@ -183,7 +183,7 @@ pub const Timer = struct {
         return @intCast(u64, ts.tv_sec) * @as(u64, ns_per_s) + @intCast(u64, ts.tv_nsec);
     }
 
-    fn nativeDurationToNanos(duration: u64) u64 {
+    fn nativeDurationToNanos(self: Timer, duration: u64) u64 {
         if (builtin.os == .windows) {
             return @divFloor(duration * ns_per_s, self.frequency);
         }
