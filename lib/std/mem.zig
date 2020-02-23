@@ -1488,28 +1488,34 @@ test "bytesToValue" {
 
 //TODO copy also is_volatile, etc. I tried to use @typeInfo, modify child type, use @Type, but ran into issues.
 fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type) type {
-    if (comptime !trait.isSlice(bytesType) or comptime meta.Child(bytesType) != u8) {
-        @compileError("expected []u8, passed " ++ @typeName(bytesType));
+    if (!(trait.isSlice(bytesType) and meta.Child(bytesType) == u8) and !(trait.isPtrTo(.Array)(bytesType) and meta.Child(meta.Child(bytesType)) == u8)) {
+        @compileError("expected []u8 or *[_]u8, passed " ++ @typeName(bytesType));
     }
 
-    const alignment = comptime meta.alignment(bytesType);
+    if (trait.isPtrTo(.Array)(bytesType) and @typeInfo(meta.Child(bytesType)).Array.len % @sizeOf(T) != 0) {
+        @compileError("number of bytes in " ++ @typeName(bytesType) ++ " is not divisible by size of " ++ @typeName(T));
+    }
 
-    return if (comptime trait.isConstPtr(bytesType)) []align(alignment) const T else []align(alignment) T;
+    const alignment = meta.alignment(bytesType);
+
+    return if (trait.isConstPtr(bytesType)) []align(alignment) const T else []align(alignment) T;
 }
 
 pub fn bytesAsSlice(comptime T: type, bytes: var) BytesAsSliceReturnType(T, @TypeOf(bytes)) {
+    const bytesSlice = if (comptime trait.isPtrTo(.Array)(@TypeOf(bytes))) bytes[0..] else bytes;
+
     // let's not give an undefined pointer to @ptrCast
     // it may be equal to zero and fail a null check
-    if (bytes.len == 0) {
+    if (bytesSlice.len == 0) {
         return &[0]T{};
     }
 
-    const bytesType = @TypeOf(bytes);
+    const bytesType = @TypeOf(bytesSlice);
     const alignment = comptime meta.alignment(bytesType);
 
     const castTarget = if (comptime trait.isConstPtr(bytesType)) [*]align(alignment) const T else [*]align(alignment) T;
 
-    return @ptrCast(castTarget, bytes.ptr)[0..@divExact(bytes.len, @sizeOf(T))];
+    return @ptrCast(castTarget, bytesSlice.ptr)[0..@divExact(bytes.len, @sizeOf(T))];
 }
 
 test "bytesAsSlice" {
@@ -1520,30 +1526,59 @@ test "bytesAsSlice" {
     testing.expect(bigToNative(u16, slice[1]) == 0xBEEF);
 }
 
+test "bytesAsSlice keeps pointer alignment" {
+    var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
+    const numbers = bytesAsSlice(u32, bytes[0..]);
+    comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
+}
+
+test "bytesAsSlice on a packed struct" {
+    const F = packed struct {
+        a: u8,
+    };
+
+    var b = [1]u8{9};
+    var f = bytesAsSlice(F, &b);
+    testing.expect(f[0].a == 9);
+}
+
+test "bytesAsSlice with specified alignment" {
+    var bytes align(4) = [_]u8{
+        0x33,
+        0x33,
+        0x33,
+        0x33,
+    };
+    const slice: []u32 = std.mem.bytesAsSlice(u32, bytes[0..]);
+    testing.expect(slice[0] == 0x33333333);
+}
+
 //TODO copy also is_volatile, etc. I tried to use @typeInfo, modify child type, use @Type, but ran into issues.
 fn SliceAsBytesReturnType(comptime sliceType: type) type {
-    if (comptime !trait.isSlice(sliceType)) {
-        @compileError("expected []T, passed " ++ @typeName(sliceType));
+    if (!trait.isSlice(sliceType) and !trait.isPtrTo(.Array)(sliceType)) {
+        @compileError("expected []T or *[_]T, passed " ++ @typeName(sliceType));
     }
 
-    const alignment = comptime meta.alignment(sliceType);
+    const alignment = meta.alignment(sliceType);
 
-    return if (comptime trait.isConstPtr(sliceType)) []align(alignment) const u8 else []align(alignment) u8;
+    return if (trait.isConstPtr(sliceType)) []align(alignment) const u8 else []align(alignment) u8;
 }
 
 pub fn sliceAsBytes(slice: var) SliceAsBytesReturnType(@TypeOf(slice)) {
+    const actualSlice = if (comptime trait.isPtrTo(.Array)(@TypeOf(slice))) slice[0..] else slice;
+
     // let's not give an undefined pointer to @ptrCast
     // it may be equal to zero and fail a null check
-    if (slice.len == 0) {
+    if (actualSlice.len == 0) {
         return &[0]u8{};
     }
 
-    const sliceType = @TypeOf(slice);
+    const sliceType = @TypeOf(actualSlice);
     const alignment = comptime meta.alignment(sliceType);
 
     const castTarget = if (comptime trait.isConstPtr(sliceType)) [*]align(alignment) const u8 else [*]align(alignment) u8;
 
-    return @ptrCast(castTarget, slice.ptr)[0 .. slice.len * @sizeOf(comptime meta.Child(sliceType))];
+    return @ptrCast(castTarget, actualSlice.ptr)[0 .. actualSlice.len * @sizeOf(comptime meta.Child(sliceType))];
 }
 
 test "sliceAsBytes" {
@@ -1554,6 +1589,57 @@ test "sliceAsBytes" {
         .Big => "\xDE\xAD\xBE\xEF",
         .Little => "\xAD\xDE\xEF\xBE",
     }));
+}
+
+test "sliceAsBytes packed struct at runtime and comptime" {
+    const Foo = packed struct {
+        a: u4,
+        b: u4,
+    };
+    const S = struct {
+        fn doTheTest() void {
+            var foo: Foo = undefined;
+            var slice = sliceAsBytes(@as(*[1]Foo, &foo)[0..1]);
+            slice[0] = 0x13;
+            switch (builtin.endian) {
+                .Big => {
+                    testing.expect(foo.a == 0x1);
+                    testing.expect(foo.b == 0x3);
+                },
+                .Little => {
+                    testing.expect(foo.a == 0x3);
+                    testing.expect(foo.b == 0x1);
+                },
+            }
+        }
+    };
+    S.doTheTest();
+    comptime S.doTheTest();
+}
+
+test "sliceAsBytes and bytesAsSlice back" {
+    testing.expect(@sizeOf(i32) == 4);
+
+    var big_thing_array = [_]i32{ 1, 2, 3, 4 };
+    const big_thing_slice: []i32 = big_thing_array[0..];
+
+    const bytes = sliceAsBytes(big_thing_slice);
+    testing.expect(bytes.len == 4 * 4);
+
+    bytes[4] = 0;
+    bytes[5] = 0;
+    bytes[6] = 0;
+    bytes[7] = 0;
+    testing.expect(big_thing_slice[1] == 0);
+
+    const big_thing_again = bytesAsSlice(i32, bytes);
+    testing.expect(big_thing_again[2] == 3);
+
+    big_thing_again[2] = -1;
+    testing.expect(bytes[8] == math.maxInt(u8));
+    testing.expect(bytes[9] == math.maxInt(u8));
+    testing.expect(bytes[10] == math.maxInt(u8));
+    testing.expect(bytes[11] == math.maxInt(u8));
 }
 
 fn SubArrayPtrReturnType(comptime T: type, comptime length: usize) type {

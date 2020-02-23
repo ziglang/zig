@@ -304,20 +304,6 @@ fn cast128Float(x: u128) f128 {
     return @bitCast(f128, x);
 }
 
-test "const slice widen cast" {
-    const bytes align(4) = [_]u8{
-        0x12,
-        0x12,
-        0x12,
-        0x12,
-    };
-
-    const u32_value = @bytesToSlice(u32, bytes[0..])[0];
-    expect(u32_value == 0x12121212);
-
-    expect(@bitCast(u32, bytes) == 0x12121212);
-}
-
 test "single-item pointer of array to slice and to unknown length pointer" {
     testCastPtrOfArrayToSliceAndPtr();
     comptime testCastPtrOfArrayToSliceAndPtr();
@@ -390,12 +376,6 @@ test "comptime_int @intToFloat" {
         expect(@TypeOf(result) == f32);
         expect(result == 1234.0);
     }
-}
-
-test "@bytesToSlice keeps pointer alignment" {
-    var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
-    const numbers = @bytesToSlice(u32, bytes[0..]);
-    comptime expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
 }
 
 test "@intCast i32 to u7" {

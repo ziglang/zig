@@ -81,20 +81,6 @@ fn testBytesAlign(b: u8) void {
     expect(ptr.* == 0x33333333);
 }
 
-test "specifying alignment allows slice cast" {
-    testBytesAlignSlice(0x33);
-}
-fn testBytesAlignSlice(b: u8) void {
-    var bytes align(4) = [_]u8{
-        b,
-        b,
-        b,
-        b,
-    };
-    const slice: []u32 = @bytesToSlice(u32, bytes[0..]);
-    expect(slice[0] == 0x33333333);
-}
-
 test "@alignCast pointers" {
     var x: u32 align(4) = 1;
     expectsOnly1(&x);

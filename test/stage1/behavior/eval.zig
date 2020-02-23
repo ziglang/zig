@@ -711,16 +711,6 @@ test "bit shift a u1" {
     expect(y == 1);
 }
 
-test "@bytesToslice on a packed struct" {
-    const F = packed struct {
-        a: u8,
-    };
-
-    var b = [1]u8{9};
-    var f = @bytesToSlice(F, &b);
-    expect(f[0].a == 9);
-}
-
 test "comptime pointer cast array and then slice" {
     const array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
 

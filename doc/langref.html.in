@@ -2025,7 +2025,8 @@ test "volatile" {
       conversions are not possible.
       </p>
       {#code_begin|test#}
-const assert = @import("std").debug.assert;
+const std = @import("std");
+const assert = std.debug.assert;
 
 test "pointer casting" {
     const bytes align(@alignOf(u32)) = [_]u8{ 0x12, 0x12, 0x12, 0x12 };
@@ -2034,7 +2035,7 @@ test "pointer casting" {
 
     // Even this example is contrived - there are better ways to do the above than
     // pointer casting. For example, using a slice narrowing cast:
-    const u32_value = @bytesToSlice(u32, bytes[0..])[0];
+    const u32_value = std.mem.bytesAsSlice(u32, bytes[0..])[0];
     assert(u32_value == 0x12121212);
 
     // And even another way, the most straightforward way to do it:
@@ -2114,16 +2115,16 @@ test "function alignment" {
       {#link|safety check|Incorrect Pointer Alignment#}:
       </p>
       {#code_begin|test_safety|incorrect alignment#}
-const assert = @import("std").debug.assert;
+const std = @import("std");
 
 test "pointer alignment safety" {
     var array align(4) = [_]u32{ 0x11111111, 0x11111111 };
-    const bytes = @sliceToBytes(array[0..]);
-    assert(foo(bytes) == 0x11111111);
+    const bytes = std.mem.sliceAsBytes(array[0..]);
+    std.debug.assert(foo(bytes) == 0x11111111);
 }
 fn foo(bytes: []u8) u32 {
     const slice4 = bytes[1..5];
-    const int_slice = @bytesToSlice(u32, @alignCast(4, slice4));
+    const int_slice = std.mem.bytesAsSlice(u32, @alignCast(4, slice4));
     return int_slice[0];
 }
       {#code_end#}
@@ -2249,7 +2250,7 @@ test "slice widening" {
     // Zig supports slice widening and slice narrowing. Cast a slice of u8
     // to a slice of anything else, and Zig will perform the length conversion.
     const array align(@alignOf(u32)) = [_]u8{ 0x12, 0x12, 0x12, 0x12, 0x13, 0x13, 0x13, 0x13 };
-    const slice = @bytesToSlice(u32, array[0..]);
+    const slice = mem.bytesAsSlice(u32, array[0..]);
     assert(slice.len == 2);
     assert(slice[0] == 0x12121212);
     assert(slice[1] == 0x13131313);
@@ -5186,7 +5187,6 @@ test "coercion of zero bit types" {
           <li>{#link|@bitCast#} - change type but maintain bit representation</li>
           <li>{#link|@alignCast#} - make a pointer have more alignment</li>
           <li>{#link|@boolToInt#} - convert true to 1 and false to 0</li>
-          <li>{#link|@bytesToSlice#} - convert a slice of bytes to a slice of another type</li>
           <li>{#link|@enumToInt#} - obtain the integer tag value of an enum or tagged union</li>
           <li>{#link|@errSetCast#} - convert to a smaller error set</li>
           <li>{#link|@errorToInt#} - obtain the integer value of an error code</li>
@@ -5199,7 +5199,6 @@ test "coercion of zero bit types" {
           <li>{#link|@intToPtr#} - convert an address to a pointer</li>
           <li>{#link|@ptrCast#} - convert between pointer types</li>
           <li>{#link|@ptrToInt#} - obtain the address of a pointer</li>
-          <li>{#link|@sliceToBytes#} - convert a slice of anything to a slice of bytes</li>
           <li>{#link|@truncate#} - convert between integer types, chopping off bits</li>
       </ul>
       {#header_close#}
@@ -6929,18 +6928,6 @@ async fn func(y: *i32) void {
       {#see_also|@bitOffsetOf#}
       {#header_close#}
 
-      {#header_open|@bytesToSlice#}
-      <pre>{#syntax#}@bytesToSlice(comptime Element: type, bytes: []u8) []Element{#endsyntax#}</pre>
-      <p>
-      Converts a slice of bytes or array of bytes into a slice of {#syntax#}Element{#endsyntax#}.
-      The resulting slice has the same {#link|pointer|Pointers#} properties as the parameter.
-      </p>
-      <p>
-      Attempting to convert a number of bytes with a length that does not evenly divide into a slice of
-      elements results in safety-protected {#link|Undefined Behavior#}.
-      </p>
-      {#header_close#}
-
       {#header_open|@call#}
       <pre>{#syntax#}@call(options: std.builtin.CallOptions, function: var, args: var) var{#endsyntax#}</pre>
       <p>
@@ -8101,14 +8088,6 @@ test "@setRuntimeSafety" {
       {#see_also|@bitSizeOf|@typeInfo#}
       {#header_close#}
 
-      {#header_open|@sliceToBytes#}
-      <pre>{#syntax#}@sliceToBytes(value: var) []u8{#endsyntax#}</pre>
-      <p>
-      Converts a slice or array to a slice of {#syntax#}u8{#endsyntax#}. The resulting slice has the same
-      {#link|pointer|Pointers#} properties as the parameter.
-      </p>
-      {#header_close#}
-
       {#header_open|@splat#}
       <pre>{#syntax#}@splat(comptime len: u32, scalar: var) @Vector(len, @TypeOf(scalar)){#endsyntax#}</pre>
       <p>
@@ -8922,25 +8901,6 @@ pub fn main() void {
 }
       {#code_end#}
       {#header_close#}
-      {#header_open|Slice Widen Remainder#}
-      <p>At compile-time:</p>
-      {#code_begin|test_err|unable to convert#}
-comptime {
-    var bytes = [5]u8{ 1, 2, 3, 4, 5 };
-    var slice = @bytesToSlice(u32, bytes[0..]);
-}
-      {#code_end#}
-      <p>At runtime:</p>
-      {#code_begin|exe_err#}
-const std = @import("std");
-
-pub fn main() void {
-    var bytes = [5]u8{ 1, 2, 3, 4, 5 };
-    var slice = @bytesToSlice(u32, bytes[0..]);
-    std.debug.warn("value: {}\n", .{slice[0]});
-}
-      {#code_end#}
-      {#header_close#}
       {#header_open|Attempt to Unwrap Null#}
       <p>At compile-time:</p>
       {#code_begin|test_err|unable to unwrap null#}
@@ -9119,14 +9079,15 @@ comptime {
       {#code_end#}
       <p>At runtime:</p>
       {#code_begin|exe_err#}
+const mem = @import("std").mem;
 pub fn main() !void {
     var array align(4) = [_]u32{ 0x11111111, 0x11111111 };
-    const bytes = @sliceToBytes(array[0..]);
+    const bytes = mem.sliceAsBytes(array[0..]);
     if (foo(bytes) != 0x11111111) return error.Wrong;
 }
 fn foo(bytes: []u8) u32 {
     const slice4 = bytes[1..5];
-    const int_slice = @bytesToSlice(u32, @alignCast(4, slice4));
+    const int_slice = mem.bytesAsSlice(u32, @alignCast(4, slice4));
     return int_slice[0];
 }
       {#code_end#}

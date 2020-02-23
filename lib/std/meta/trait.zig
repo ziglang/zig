@@ -135,6 +135,22 @@ test "std.meta.trait.isPtrTo" {
     testing.expect(!isPtrTo(.Struct)(**struct {}));
 }
 
+pub fn isSliceOf(comptime id: builtin.TypeId) TraitFn {
+    const Closure = struct {
+        pub fn trait(comptime T: type) bool {
+            if (!comptime isSlice(T)) return false;
+            return id == @typeId(meta.Child(T));
+        }
+    };
+    return Closure.trait;
+}
+
+test "std.meta.trait.isSliceOf" {
+    testing.expect(!isSliceOf(.Struct)(struct {}));
+    testing.expect(isSliceOf(.Struct)([]struct {}));
+    testing.expect(!isSliceOf(.Struct)([][]struct {}));
+}
+
 ///////////Strait trait Fns
 
 //@TODO:
