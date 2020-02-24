@@ -276,8 +276,12 @@ pub fn set(comptime T: type, dest: []T, value: T) void {
         d.* = value;
 }
 
+/// Generally, Zig users are encouraged to explicitly initialize all fields of a struct explicitly rather than using this function.
+/// However, it is recognized that there are sometimes use cases for initializing all fields to a "zero" value. For example, when
+/// interfacing with a C API where this practice is more common and relied upon. If you are performing code review and see this
+/// function used, examine closely - it may be a code smell.
 /// Zero initializes the type.
-/// This can be used to zero initialize a C-struct.
+/// This can be used to zero initialize a any type for which it makes sense. Structs will be initialized recursively.
 pub fn zeroes(comptime T: type) T {
     switch (@typeInfo(T)) {
         .ComptimeInt, .Int, .ComptimeFloat, .Float => {
@@ -295,7 +299,7 @@ pub fn zeroes(comptime T: type) T {
         .Optional, .Null => {
             return null;
         },
-        .Struct => {
+        .Struct => |struct_info| {
             if (@sizeOf(T) == 0) return T{};
             if (comptime meta.containerLayout(T) == .Extern) {
                 var item: T = undefined;
@@ -303,25 +307,23 @@ pub fn zeroes(comptime T: type) T {
                 return item;
             } else {
                 var structure: T = undefined;
-                comptime var field_i = 0;
-                inline while (field_i < @memberCount(T)) : (field_i += 1) {
-                    @field(structure, @memberName(T, field_i)) = zeroes(@TypeOf(@field(structure, @memberName(T, field_i))));
+                inline for (struct_info.fields) |field| {
+                    @field(structure, field.name) = zeroes(@TypeOf(@field(structure, field.name)));
                 }
                 return structure;
             }
         },
         .Pointer => |ptr_info| {
-            if (ptr_info.is_allowzero) {
-                return null;
-            } else {
-                switch (ptr_info.size) {
-                    .Slice => {
-                        return &[_]ptr_info.child{};
-                    },
-                    .One, .Many, .C => {
-                        @compileError("Can't set a non nullable pointer to zero.");
-                    },
-                }
+            switch (ptr_info.size) {
+                .Slice => {
+                    return &[_]ptr_info.child{};
+                },
+                .C => {
+                    return null;
+                },
+                .One, .Many => {
+                    @compileError("Can't set a non nullable pointer to zero.");
+                },
             }
         },
         .Array => |info| {
@@ -372,6 +374,7 @@ test "mem.zeroes" {
 
         const Pointers = struct {
             optional: ?*u8,
+            c_pointer: [*c]u8,
             slice: []u8,
         };
         pointers: Pointers,
@@ -397,6 +400,7 @@ test "mem.zeroes" {
     testing.expectEqual(@as(f32, 0), b.integral_types.float_32);
     testing.expectEqual(@as(f64, 0), b.integral_types.float_64);
     testing.expectEqual(@as(?*u8, null), b.pointers.optional);
+    testing.expectEqual(@as([*c]u8, null), b.pointers.c_pointer);
     testing.expectEqual(@as([]u8, &[_]u8{}), b.pointers.slice);
     for (b.array) |e| {
         testing.expectEqual(@as(u32, 0), e);
