@@ -1289,35 +1289,7 @@ pub const Value = union(enum) {
         defer held.release();
 
         const stderr = std.debug.getStderrStream();
-        self.dumpStream(stderr, 1024) catch return;
-    }
-
-    pub fn dumpIndent(self: Value, comptime indent: usize) void {
-        if (indent == 0) {
-            self.dump();
-        } else {
-            var held = std.debug.getStderrMutex().acquire();
-            defer held.release();
-
-            const stderr = std.debug.getStderrStream();
-            self.dumpStreamIndent(indent, stderr, 1024) catch return;
-        }
-    }
-
-    pub fn dumpStream(self: @This(), stream: var, comptime max_depth: usize) !void {
-        var w = std.json.WriteStream(@TypeOf(stream).Child, max_depth).init(stream);
-        w.newline = "";
-        w.one_indent = "";
-        w.space = "";
-        try w.emitJson(self);
-    }
-
-    pub fn dumpStreamIndent(self: @This(), comptime indent: usize, stream: var, comptime max_depth: usize) !void {
-        var one_indent = " " ** indent;
-
-        var w = std.json.WriteStream(@TypeOf(stream).Child, max_depth).init(stream);
-        w.one_indent = one_indent;
-        try w.emitJson(self);
+        std.json.stringify(self, std.json.StringifyOptions{ .whitespace = null }, stderr) catch return;
     }
 };
 
