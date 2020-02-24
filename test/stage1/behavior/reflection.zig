@@ -26,36 +26,6 @@ fn dummy(a: bool, b: i32, c: f32) i32 {
     return 1234;
 }
 
-test "reflection: struct member types and names" {
-    comptime {
-        expect(@memberCount(Foo) == 3);
-
-        expect(@memberType(Foo, 0) == i32);
-        expect(@memberType(Foo, 1) == bool);
-        expect(@memberType(Foo, 2) == void);
-
-        expect(mem.eql(u8, @memberName(Foo, 0), "one"));
-        expect(mem.eql(u8, @memberName(Foo, 1), "two"));
-        expect(mem.eql(u8, @memberName(Foo, 2), "three"));
-    }
-}
-
-test "reflection: enum member types and names" {
-    comptime {
-        expect(@memberCount(Bar) == 4);
-
-        expect(@memberType(Bar, 0) == void);
-        expect(@memberType(Bar, 1) == i32);
-        expect(@memberType(Bar, 2) == bool);
-        expect(@memberType(Bar, 3) == f64);
-
-        expect(mem.eql(u8, @memberName(Bar, 0), "One"));
-        expect(mem.eql(u8, @memberName(Bar, 1), "Two"));
-        expect(mem.eql(u8, @memberName(Bar, 2), "Three"));
-        expect(mem.eql(u8, @memberName(Bar, 3), "Four"));
-    }
-}
-
 test "reflection: @field" {
     var f = Foo{
         .one = 42,

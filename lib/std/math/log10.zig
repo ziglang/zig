@@ -7,8 +7,6 @@
 const std = @import("../std.zig");
 const math = std.math;
 const testing = std.testing;
-const builtin = @import("builtin");
-const TypeId = builtin.TypeId;
 const maxInt = std.math.maxInt;
 
 /// Returns the base-10 logarithm of x.
@@ -20,21 +18,21 @@ const maxInt = std.math.maxInt;
 ///  - log10(nan)   = nan
 pub fn log10(x: var) @TypeOf(x) {
     const T = @TypeOf(x);
-    switch (@typeId(T)) {
-        TypeId.ComptimeFloat => {
+    switch (@typeInfo(T)) {
+        .ComptimeFloat => {
             return @as(comptime_float, log10_64(x));
         },
-        TypeId.Float => {
+        .Float => {
             return switch (T) {
                 f32 => log10_32(x),
                 f64 => log10_64(x),
                 else => @compileError("log10 not implemented for " ++ @typeName(T)),
             };
         },
-        TypeId.ComptimeInt => {
+        .ComptimeInt => {
             return @as(comptime_int, math.floor(log10_64(@as(f64, x))));
         },
-        TypeId.Int => {
+        .Int => {
             return @floatToInt(T, math.floor(log10_64(@intToFloat(f64, x))));
         },
         else => @compileError("log10 not implemented for " ++ @typeName(T)),

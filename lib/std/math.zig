@@ -1,6 +1,4 @@
-const builtin = @import("builtin");
 const std = @import("std.zig");
-const TypeId = builtin.TypeId;
 const assert = std.debug.assert;
 const testing = std.testing;
 
@@ -89,7 +87,7 @@ pub const snan = @import("math/nan.zig").snan;
 pub const inf = @import("math/inf.zig").inf;
 
 pub fn approxEq(comptime T: type, x: T, y: T, epsilon: T) bool {
-    assert(@typeId(T) == TypeId.Float);
+    assert(@typeInfo(T) == .Float);
     return fabs(x - y) < epsilon;
 }
 
@@ -198,7 +196,7 @@ test "" {
 }
 
 pub fn floatMantissaBits(comptime T: type) comptime_int {
-    assert(@typeId(T) == builtin.TypeId.Float);
+    assert(@typeInfo(T) == .Float);
 
     return switch (T.bit_count) {
         16 => 10,
@@ -211,7 +209,7 @@ pub fn floatMantissaBits(comptime T: type) comptime_int {
 }
 
 pub fn floatExponentBits(comptime T: type) comptime_int {
-    assert(@typeId(T) == builtin.TypeId.Float);
+    assert(@typeInfo(T) == .Float);
 
     return switch (T.bit_count) {
         16 => 5,
@@ -526,7 +524,7 @@ fn testOverflow() void {
 
 pub fn absInt(x: var) !@TypeOf(x) {
     const T = @TypeOf(x);
-    comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
+    comptime assert(@typeInfo(T) == .Int); // must pass an integer to absInt
     comptime assert(T.is_signed); // must pass a signed integer to absInt
 
     if (x == minInt(@TypeOf(x))) {
@@ -560,7 +558,7 @@ fn testAbsFloat() void {
 pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
-    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
+    if (@typeInfo(T) == .Int and T.is_signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
     return @divTrunc(numerator, denominator);
 }
 
@@ -581,7 +579,7 @@ fn testDivTrunc() void {
 pub fn divFloor(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
-    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
+    if (@typeInfo(T) == .Int and T.is_signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
     return @divFloor(numerator, denominator);
 }
 
@@ -602,7 +600,7 @@ fn testDivFloor() void {
 pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
-    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
+    if (@typeInfo(T) == .Int and T.is_signed and numerator == minInt(T) and denominator == -1) return error.Overflow;
     const result = @divTrunc(numerator, denominator);
     if (result * denominator != numerator) return error.UnexpectedRemainder;
     return result;
@@ -727,8 +725,8 @@ test "math.negateCast" {
 /// Cast an integer to a different integer type. If the value doesn't fit,
 /// return an error.
 pub fn cast(comptime T: type, x: var) (error{Overflow}!T) {
-    comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer
-    comptime assert(@typeId(@TypeOf(x)) == builtin.TypeId.Int); // must pass an integer
+    comptime assert(@typeInfo(T) == .Int); // must pass an integer
+    comptime assert(@typeInfo(@TypeOf(x)) == .Int); // must pass an integer
     if (maxInt(@TypeOf(x)) > maxInt(T) and x > maxInt(T)) {
         return error.Overflow;
     } else if (minInt(@TypeOf(x)) < minInt(T) and x < minInt(T)) {
@@ -793,7 +791,7 @@ fn testFloorPowerOfTwo() void {
 /// Only unsigned integers can be used. Zero is not an allowed input.
 /// Result is a type with 1 more bit than the input type.
 pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) @IntType(T.is_signed, T.bit_count + 1) {
-    comptime assert(@typeId(T) == builtin.TypeId.Int);
+    comptime assert(@typeInfo(T) == .Int);
     comptime assert(!T.is_signed);
     assert(value != 0);
     comptime const PromotedType = @IntType(T.is_signed, T.bit_count + 1);
@@ -805,7 +803,7 @@ pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) @IntType(T.is_signed, T
 /// Only unsigned integers can be used. Zero is not an allowed input.
 /// If the value doesn't fit, returns an error.
 pub fn ceilPowerOfTwo(comptime T: type, value: T) (error{Overflow}!T) {
-    comptime assert(@typeId(T) == builtin.TypeId.Int);
+    comptime assert(@typeInfo(T) == .Int);
     comptime assert(!T.is_signed);
     comptime const PromotedType = @IntType(T.is_signed, T.bit_count + 1);
     comptime const overflowBit = @as(PromotedType, 1) << T.bit_count;
@@ -878,10 +876,10 @@ test "std.math.log2_int_ceil" {
 
 pub fn lossyCast(comptime T: type, value: var) T {
     switch (@typeInfo(@TypeOf(value))) {
-        builtin.TypeId.Int => return @intToFloat(T, value),
-        builtin.TypeId.Float => return @floatCast(T, value),
-        builtin.TypeId.ComptimeInt => return @as(T, value),
-        builtin.TypeId.ComptimeFloat => return @as(T, value),
+        .Int => return @intToFloat(T, value),
+        .Float => return @floatCast(T, value),
+        .ComptimeInt => return @as(T, value),
+        .ComptimeFloat => return @as(T, value),
         else => @compileError("bad type"),
     }
 }

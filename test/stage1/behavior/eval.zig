@@ -654,8 +654,8 @@ test "call method with comptime pass-by-non-copying-value self parameter" {
     expect(b == 2);
 }
 
-test "@tagName of @typeId" {
-    const str = @tagName(@typeId(u8));
+test "@tagName of @typeInfo" {
+    const str = @tagName(@typeInfo(u8));
     expect(std.mem.eql(u8, str, "Int"));
 }
 

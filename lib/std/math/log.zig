@@ -6,8 +6,6 @@
 
 const std = @import("../std.zig");
 const math = std.math;
-const builtin = @import("builtin");
-const TypeId = builtin.TypeId;
 const expect = std.testing.expect;
 
 /// Returns the logarithm of x for the provided base.
@@ -16,24 +14,24 @@ pub fn log(comptime T: type, base: T, x: T) T {
         return math.log2(x);
     } else if (base == 10) {
         return math.log10(x);
-    } else if ((@typeId(T) == TypeId.Float or @typeId(T) == TypeId.ComptimeFloat) and base == math.e) {
+    } else if ((@typeInfo(T) == .Float or @typeInfo(T) == .ComptimeFloat) and base == math.e) {
         return math.ln(x);
     }
 
     const float_base = math.lossyCast(f64, base);
-    switch (@typeId(T)) {
-        TypeId.ComptimeFloat => {
+    switch (@typeInfo(T)) {
+        .ComptimeFloat => {
             return @as(comptime_float, math.ln(@as(f64, x)) / math.ln(float_base));
         },
-        TypeId.ComptimeInt => {
+        .ComptimeInt => {
             return @as(comptime_int, math.floor(math.ln(@as(f64, x)) / math.ln(float_base)));
         },
-        builtin.TypeId.Int => {
+        .Int => {
             // TODO implement integer log without using float math
             return @floatToInt(T, math.floor(math.ln(@intToFloat(f64, x)) / math.ln(float_base)));
         },
 
-        builtin.TypeId.Float => {
+        .Float => {
             switch (T) {
                 f32 => return @floatCast(f32, math.ln(@as(f64, x)) / math.ln(float_base)),
                 f64 => return math.ln(x) / math.ln(float_base),

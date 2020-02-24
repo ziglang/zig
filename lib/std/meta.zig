@@ -536,9 +536,8 @@ test "intToEnum with error return" {
 pub const IntToEnumError = error{InvalidEnumTag};
 
 pub fn intToEnum(comptime Tag: type, tag_int: var) IntToEnumError!Tag {
-    comptime var i = 0;
-    inline while (i != @memberCount(Tag)) : (i += 1) {
-        const this_tag_value = @field(Tag, @memberName(Tag, i));
+    inline for (@typeInfo(Tag).Enum.fields) |f| {
+        const this_tag_value = @field(Tag, f.name);
         if (tag_int == @enumToInt(this_tag_value)) {
             return this_tag_value;
         }

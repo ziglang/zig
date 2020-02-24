@@ -607,13 +607,13 @@ pub const Builder = struct {
     }
 
     fn typeToEnum(comptime T: type) TypeId {
-        return switch (@typeId(T)) {
-            builtin.TypeId.Int => TypeId.Int,
-            builtin.TypeId.Float => TypeId.Float,
-            builtin.TypeId.Bool => TypeId.Bool,
+        return switch (@typeInfo(T)) {
+            .Int => .Int,
+            .Float => .Float,
+            .Bool => .Bool,
             else => switch (T) {
-                []const u8 => TypeId.String,
-                []const []const u8 => TypeId.List,
+                []const u8 => .String,
+                []const []const u8 => .List,
                 else => @compileError("Unsupported type: " ++ @typeName(T)),
             },
         };
@@ -625,11 +625,11 @@ pub const Builder = struct {
 
     pub fn typeIdName(id: TypeId) []const u8 {
         return switch (id) {
-            TypeId.Bool => "bool",
-            TypeId.Int => "int",
-            TypeId.Float => "float",
-            TypeId.String => "string",
-            TypeId.List => "list",
+            .Bool => "bool",
+            .Int => "int",
+            .Float => "float",
+            .String => "string",
+            .List => "list",
         };
     }
 

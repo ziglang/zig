@@ -407,7 +407,6 @@ fn testArray2DConstDoublePtr(ptr: *const f32) void {
     expect(ptr2[1] == 2.0);
 }
 
-const Tid = builtin.TypeId;
 const AStruct = struct {
     x: i32,
 };
@@ -423,40 +422,6 @@ const AUnion = union {
     One: void,
     Two: void,
 };
-
-test "@typeId" {
-    comptime {
-        expect(@typeId(type) == Tid.Type);
-        expect(@typeId(void) == Tid.Void);
-        expect(@typeId(bool) == Tid.Bool);
-        expect(@typeId(noreturn) == Tid.NoReturn);
-        expect(@typeId(i8) == Tid.Int);
-        expect(@typeId(u8) == Tid.Int);
-        expect(@typeId(i64) == Tid.Int);
-        expect(@typeId(u64) == Tid.Int);
-        expect(@typeId(f32) == Tid.Float);
-        expect(@typeId(f64) == Tid.Float);
-        expect(@typeId(*f32) == Tid.Pointer);
-        expect(@typeId([2]u8) == Tid.Array);
-        expect(@typeId(AStruct) == Tid.Struct);
-        expect(@typeId(@TypeOf(1)) == Tid.ComptimeInt);
-        expect(@typeId(@TypeOf(1.0)) == Tid.ComptimeFloat);
-        expect(@typeId(@TypeOf(undefined)) == Tid.Undefined);
-        expect(@typeId(@TypeOf(null)) == Tid.Null);
-        expect(@typeId(?i32) == Tid.Optional);
-        expect(@typeId(anyerror!i32) == Tid.ErrorUnion);
-        expect(@typeId(anyerror) == Tid.ErrorSet);
-        expect(@typeId(AnEnum) == Tid.Enum);
-        expect(@typeId(@TypeOf(AUnionEnum.One)) == Tid.Enum);
-        expect(@typeId(AUnionEnum) == Tid.Union);
-        expect(@typeId(AUnion) == Tid.Union);
-        expect(@typeId(fn () void) == Tid.Fn);
-        expect(@typeId(@TypeOf(builtin)) == Tid.Type);
-        // TODO bound fn
-        // TODO arg tuple
-        // TODO opaque
-    }
-}
 
 test "@typeName" {
     const Struct = struct {};

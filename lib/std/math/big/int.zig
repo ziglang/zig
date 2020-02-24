@@ -1,5 +1,4 @@
 const std = @import("../../std.zig");
-const builtin = @import("builtin");
 const debug = std.debug;
 const testing = std.testing;
 const math = std.math;
@@ -8,8 +7,6 @@ const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
-
-const TypeId = builtin.TypeId;
 
 pub const Limb = usize;
 pub const DoubleLimb = @IntType(false, 2 * Limb.bit_count);
@@ -270,7 +267,7 @@ pub const Int = struct {
         const T = @TypeOf(value);
 
         switch (@typeInfo(T)) {
-            TypeId.Int => |info| {
+            .Int => |info| {
                 const UT = if (T.is_signed) @IntType(false, T.bit_count - 1) else T;
 
                 try self.ensureCapacity(@sizeOf(UT) / @sizeOf(Limb));
@@ -294,7 +291,7 @@ pub const Int = struct {
                     }
                 }
             },
-            TypeId.ComptimeInt => {
+            .ComptimeInt => {
                 comptime var w_value = if (value < 0) -value else value;
 
                 const req_limbs = @divFloor(math.log2(w_value), Limb.bit_count) + 1;
@@ -332,8 +329,8 @@ pub const Int = struct {
     ///
     /// Returns an error if self cannot be narrowed into the requested type without truncation.
     pub fn to(self: Int, comptime T: type) ConvertError!T {
-        switch (@typeId(T)) {
-            TypeId.Int => {
+        switch (@typeInfo(T)) {
+            .Int => {
                 const UT = @IntType(false, T.bit_count);
 
                 if (self.bitCountTwosComp() > T.bit_count) {

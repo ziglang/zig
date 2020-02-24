@@ -96,8 +96,8 @@ test "enum type" {
     const bar = Bar.B;
 
     expect(bar == Bar.B);
-    expect(@memberCount(Foo) == 3);
-    expect(@memberCount(Bar) == 4);
+    expect(@typeInfo(Foo).Union.fields.len == 3);
+    expect(@typeInfo(Bar).Enum.fields.len == 4);
     expect(@sizeOf(Foo) == @sizeOf(FooNoVoid));
     expect(@sizeOf(Bar) == 1);
 }

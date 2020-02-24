@@ -405,7 +405,7 @@ pub fn formatType(
                 try format(context, Errors, output, "@{x}", .{@ptrToInt(&value)});
             }
         },
-        .Struct => {
+        .Struct => |StructT| {
             if (comptime std.meta.trait.hasFn("format")(T)) {
                 return value.format(fmt, options, context, Errors, output);
             }
@@ -416,27 +416,28 @@ pub fn formatType(
             }
             comptime var field_i = 0;
             try output(context, "{");
-            inline while (field_i < @memberCount(T)) : (field_i += 1) {
+            inline for (StructT.fields) |f| {
                 if (field_i == 0) {
                     try output(context, " .");
                 } else {
                     try output(context, ", .");
                 }
-                try output(context, @memberName(T, field_i));
+                try output(context, f.name);
                 try output(context, " = ");
-                try formatType(@field(value, @memberName(T, field_i)), fmt, options, context, Errors, output, max_depth - 1);
+                try formatType(@field(value, f.name), fmt, options, context, Errors, output, max_depth - 1);
+                field_i += 1;
             }
             try output(context, " }");
         },
         .Pointer => |ptr_info| switch (ptr_info.size) {
             .One => switch (@typeInfo(ptr_info.child)) {
-                builtin.TypeId.Array => |info| {
+                .Array => |info| {
                     if (info.child == u8) {
                         return formatText(value, fmt, options, context, Errors, output);
                     }
                     return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) });
                 },
-                builtin.TypeId.Enum, builtin.TypeId.Union, builtin.TypeId.Struct => {
+                .Enum, .Union, .Struct => {
                     return formatType(value.*, fmt, options, context, Errors, output, max_depth);
                 },
                 else => return format(context, Errors, output, "{}@{x}", .{ @typeName(T.Child), @ptrToInt(value) }),
@@ -509,7 +510,7 @@ fn formatValue(
     }
 
     const T = @TypeOf(value);
-    switch (@typeId(T)) {
+    switch (@typeInfo(T)) {
         .Float => return formatFloatValue(value, fmt, options, context, Errors, output),
         .Int, .ComptimeInt => return formatIntValue(value, fmt, options, context, Errors, output),
         .Bool => return output(context, if (value) "true" else "false"),
