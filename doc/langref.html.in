@@ -2810,10 +2810,10 @@ test "@TagType" {
     assert(@TagType(Small) == u2);
 }
 
-// @typeInfo tells us the field count and the fields name:
+// @typeInfo tells us the field count and the fields names:
 test "@typeInfo" {
     assert(@typeInfo(Small).Enum.fields.len == 4);
-    assert(mem.eql(u8, @typeInfo(Small).Enum.fields[0].name, "Two"));
+    assert(mem.eql(u8, @typeInfo(Small).Enum.fields[1].name, "Two"));
 }
 
 // @tagName gives a []const u8 representation of an enum value:

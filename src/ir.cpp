@@ -389,8 +389,6 @@ static void destroy_instruction_src(IrInstSrc *inst) {
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcFloatToInt *>(inst));
         case IrInstSrcIdBoolToInt:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcBoolToInt *>(inst));
-        case IrInstSrcIdIntType:
-            return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcIntType *>(inst));
         case IrInstSrcIdVectorType:
             return heap::c_allocator.destroy(reinterpret_cast<IrInstSrcVectorType *>(inst));
         case IrInstSrcIdShuffleVector:
@@ -1283,10 +1281,6 @@ static constexpr IrInstSrcId ir_inst_id(IrInstSrcFloatToInt *) {
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcBoolToInt *) {
     return IrInstSrcIdBoolToInt;
-}
-
-static constexpr IrInstSrcId ir_inst_id(IrInstSrcIntType *) {
-    return IrInstSrcIdIntType;
 }
 
 static constexpr IrInstSrcId ir_inst_id(IrInstSrcVectorType *) {
@@ -3514,19 +3508,6 @@ static IrInstSrc *ir_build_bool_to_int(IrBuilderSrc *irb, Scope *scope, AstNode 
     instruction->target = target;
 
     ir_ref_instruction(target, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstSrc *ir_build_int_type(IrBuilderSrc *irb, Scope *scope, AstNode *source_node, IrInstSrc *is_signed,
-        IrInstSrc *bit_count)
-{
-    IrInstSrcIntType *instruction = ir_build_instruction<IrInstSrcIntType>(irb, scope, source_node);
-    instruction->is_signed = is_signed;
-    instruction->bit_count = bit_count;
-
-    ir_ref_instruction(is_signed, irb->current_basic_block);
-    ir_ref_instruction(bit_count, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -6530,21 +6511,6 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
                 IrInstSrc *result = ir_build_bool_to_int(irb, scope, node, arg0_value);
                 return ir_lval_wrap(irb, scope, result, lval, result_loc);
             }
-        case BuiltinFnIdIntType:
-            {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(irb, arg0_node, scope);
-                if (arg0_value == irb->codegen->invalid_inst_src)
-                    return arg0_value;
-
-                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(irb, arg1_node, scope);
-                if (arg1_value == irb->codegen->invalid_inst_src)
-                    return arg1_value;
-
-                IrInstSrc *int_type = ir_build_int_type(irb, scope, node, arg0_value, arg1_value);
-                return ir_lval_wrap(irb, scope, int_type, lval, result_loc);
-            }
         case BuiltinFnIdVectorType:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
@@ -7073,21 +7039,6 @@ static IrInstSrc *ir_gen_builtin_fn_call(IrBuilderSrc *irb, Scope *scope, AstNod
 
                 IrInstSrc *set_align_stack = ir_build_set_align_stack(irb, scope, node, arg0_value);
                 return ir_lval_wrap(irb, scope, set_align_stack, lval, result_loc);
-            }
-        case BuiltinFnIdArgType:
-            {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstSrc *arg0_value = ir_gen_node(irb, arg0_node, scope);
-                if (arg0_value == irb->codegen->invalid_inst_src)
-                    return arg0_value;
-
-                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstSrc *arg1_value = ir_gen_node(irb, arg1_node, scope);
-                if (arg1_value == irb->codegen->invalid_inst_src)
-                    return arg1_value;
-
-                IrInstSrc *arg_type = ir_build_arg_type(irb, scope, node, arg0_value, arg1_value, false);
-                return ir_lval_wrap(irb, scope, arg_type, lval, result_loc);
             }
         case BuiltinFnIdExport:
             {
@@ -25385,20 +25336,6 @@ static IrInstGen *ir_analyze_instruction_bool_to_int(IrAnalyze *ira, IrInstSrcBo
     return ir_resolve_cast(ira, &instruction->base.base, target, u1_type, CastOpBoolToInt);
 }
 
-static IrInstGen *ir_analyze_instruction_int_type(IrAnalyze *ira, IrInstSrcIntType *instruction) {
-    IrInstGen *is_signed_value = instruction->is_signed->child;
-    bool is_signed;
-    if (!ir_resolve_bool(ira, is_signed_value, &is_signed))
-        return ira->codegen->invalid_inst_gen;
-
-    IrInstGen *bit_count_value = instruction->bit_count->child;
-    uint64_t bit_count;
-    if (!ir_resolve_unsigned(ira, bit_count_value, ira->codegen->builtin_types.entry_u16, &bit_count))
-        return ira->codegen->invalid_inst_gen;
-
-    return ir_const_type(ira, &instruction->base.base, get_int_type(ira->codegen, is_signed, (uint32_t)bit_count));
-}
-
 static IrInstGen *ir_analyze_instruction_vector_type(IrAnalyze *ira, IrInstSrcVectorType *instruction) {
     uint64_t len;
     if (!ir_resolve_unsigned(ira, instruction->len->child, ira->codegen->builtin_types.entry_u32, &len))
@@ -29270,8 +29207,6 @@ static IrInstGen *ir_analyze_instruction_base(IrAnalyze *ira, IrInstSrc *instruc
             return ir_analyze_instruction_float_to_int(ira, (IrInstSrcFloatToInt *)instruction);
         case IrInstSrcIdBoolToInt:
             return ir_analyze_instruction_bool_to_int(ira, (IrInstSrcBoolToInt *)instruction);
-        case IrInstSrcIdIntType:
-            return ir_analyze_instruction_int_type(ira, (IrInstSrcIntType *)instruction);
         case IrInstSrcIdVectorType:
             return ir_analyze_instruction_vector_type(ira, (IrInstSrcVectorType *)instruction);
         case IrInstSrcIdShuffleVector:
@@ -29754,7 +29689,6 @@ bool ir_inst_src_has_side_effects(IrInstSrc *instruction) {
         case IrInstSrcIdRef:
         case IrInstSrcIdEmbedFile:
         case IrInstSrcIdTruncate:
-        case IrInstSrcIdIntType:
         case IrInstSrcIdVectorType:
         case IrInstSrcIdShuffleVector:
         case IrInstSrcIdSplat:

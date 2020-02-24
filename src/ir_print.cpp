@@ -179,8 +179,6 @@ const char* ir_inst_src_type_str(IrInstSrcId id) {
             return "SrcFloatToInt";
         case IrInstSrcIdBoolToInt:
             return "SrcBoolToInt";
-        case IrInstSrcIdIntType:
-            return "SrcIntType";
         case IrInstSrcIdVectorType:
             return "SrcVectorType";
         case IrInstSrcIdBoolNot:
@@ -1652,14 +1650,6 @@ static void ir_print_bool_to_int(IrPrintSrc *irp, IrInstSrcBoolToInt *instructio
     fprintf(irp->f, ")");
 }
 
-static void ir_print_int_type(IrPrintSrc *irp, IrInstSrcIntType *instruction) {
-    fprintf(irp->f, "@IntType(");
-    ir_print_other_inst_src(irp, instruction->is_signed);
-    fprintf(irp->f, ", ");
-    ir_print_other_inst_src(irp, instruction->bit_count);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_vector_type(IrPrintSrc *irp, IrInstSrcVectorType *instruction) {
     fprintf(irp->f, "@Vector(");
     ir_print_other_inst_src(irp, instruction->len);
@@ -2738,9 +2728,6 @@ static void ir_print_inst_src(IrPrintSrc *irp, IrInstSrc *instruction, bool trai
             break;
         case IrInstSrcIdBoolToInt:
             ir_print_bool_to_int(irp, (IrInstSrcBoolToInt *)instruction);
-            break;
-        case IrInstSrcIdIntType:
-            ir_print_int_type(irp, (IrInstSrcIntType *)instruction);
             break;
         case IrInstSrcIdVectorType:
             ir_print_vector_type(irp, (IrInstSrcVectorType *)instruction);
