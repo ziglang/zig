@@ -138,13 +138,13 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
 
         pub fn emitNull(self: *Self) !void {
             assert(self.state[self.state_index] == State.Value);
-            try self.stream.writeAll("null");
+            try self.stringify(null);
             self.popState();
         }
 
         pub fn emitBool(self: *Self, value: bool) !void {
             assert(self.state[self.state_index] == State.Value);
-            try std.json.stringify(value, std.json.StringifyOptions{}, self.stream);
+            try self.stringify(value);
             self.popState();
         }
 
@@ -186,14 +186,12 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
 
         fn writeEscapedString(self: *Self, string: []const u8) !void {
             assert(std.unicode.utf8ValidateSlice(string));
-            try std.json.stringify(string, std.json.StringifyOptions{}, self.stream);
+            try self.stringify(string);
         }
 
         /// Writes the complete json into the output stream
         pub fn emitJson(self: *Self, json: std.json.Value) Stream.Error!void {
-            try json.jsonStringify(std.json.StringifyOptions{
-                .whitespace = self.whitespace,
-            }, self.stream);
+            try self.stringify(json);
         }
 
         fn indent(self: *Self) !void {
@@ -209,6 +207,12 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
 
         fn popState(self: *Self) void {
             self.state_index -= 1;
+        }
+
+        fn stringify(self: *Self, value: var) !void {
+            try std.json.stringify(value, std.json.StringifyOptions{
+                .whitespace = self.whitespace,
+            }, self.stream);
         }
     };
 }
