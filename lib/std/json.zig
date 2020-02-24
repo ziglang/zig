@@ -2241,7 +2241,45 @@ test "string copy option" {
 }
 
 pub const StringifyOptions = struct {
-    // TODO: indentation options?
+    pub const Whitespace = struct {
+        /// How many indentation levels deep are we?
+        indent_level: usize = 0,
+
+        pub const Indentation = union(enum) {
+            Space: u8,
+            Tab: void,
+        };
+
+        /// What character(s) should be used for indentation?
+        indent: Indentation = Indentation{ .Space = 4 },
+
+        fn outputIndent(
+            whitespace: @This(),
+            out_stream: var,
+        ) @TypeOf(out_stream).Error!void {
+            var char: u8 = undefined;
+            var n_chars: usize = undefined;
+            switch (whitespace.indent) {
+                .Space => |n_spaces| {
+                    char = ' ';
+                    n_chars = n_spaces;
+                },
+                .Tab => {
+                    char = '\t';
+                    n_chars = 1;
+                },
+            }
+            n_chars *= whitespace.indent_level;
+            try out_stream.writeByteNTimes(char, n_chars);
+        }
+
+        /// After a colon, should whitespace be inserted?
+        separator: bool = true,
+    };
+
+    /// Controls the whitespace emitted
+    whitespace: ?Whitespace = null,
+
     // TODO: make escaping '/' in strings optional?
     // TODO: allow picking if []u8 is string or array?
 };
@@ -2297,8 +2335,12 @@ pub fn stringify(
                 return value.jsonStringify(options, out_stream);
             }
 
-            try out_stream.writeAll("{");
+            try out_stream.writeByte('{');
             comptime var field_output = false;
+            var child_options = options;
+            if (child_options.whitespace) |*child_whitespace| {
+                child_whitespace.indent_level += 1;
+            }
             inline for (S.fields) |Field, field_i| {
                 // don't include void fields
                 if (Field.field_type == void) continue;
@@ -2306,14 +2348,28 @@ pub fn stringify(
                 if (!field_output) {
                     field_output = true;
                 } else {
-                    try out_stream.writeAll(",");
+                    try out_stream.writeByte(',');
                 }
-
+                if (child_options.whitespace) |child_whitespace| {
+                    try out_stream.writeByte('\n');
+                    try child_whitespace.outputIndent(out_stream);
+                }
                 try stringify(Field.name, options, out_stream);
-                try out_stream.writeAll(":");
-                try stringify(@field(value, Field.name), options, out_stream);
+                try out_stream.writeByte(':');
+                if (child_options.whitespace) |child_whitespace| {
+                    if (child_whitespace.separator) {
+                        try out_stream.writeByte(' ');
+                    }
+                }
+                try stringify(@field(value, Field.name), child_options, out_stream);
             }
-            try out_stream.writeAll("}");
+            if (field_output) {
+                if (options.whitespace) |whitespace| {
+                    try out_stream.writeByte('\n');
+                    try whitespace.outputIndent(out_stream);
+                }
+            }
+            try out_stream.writeByte('}');
             return;
         },
         .Pointer => |ptr_info| switch (ptr_info.size) {
@@ -2330,7 +2386,7 @@ pub fn stringify(
             // TODO: .Many when there is a sentinel (waiting for https://github.com/ziglang/zig/pull/3972)
             .Slice => {
                 if (ptr_info.child == u8 and std.unicode.utf8ValidateSlice(value)) {
-                    try out_stream.writeAll("\"");
+                    try out_stream.writeByte('\"');
                     var i: usize = 0;
                     while (i < value.len) : (i += 1) {
                         switch (value[i]) {
@@ -2368,18 +2424,32 @@ pub fn stringify(
                             },
                         }
                     }
-                    try out_stream.writeAll("\"");
+                    try out_stream.writeByte('\"');
                     return;
                 }
 
-                try out_stream.writeAll("[");
+                try out_stream.writeByte('[');
+                var child_options = options;
+                if (child_options.whitespace) |*whitespace| {
+                    whitespace.indent_level += 1;
+                }
                 for (value) |x, i| {
                     if (i != 0) {
-                        try out_stream.writeAll(",");
+                        try out_stream.writeByte(',');
                     }
-                    try stringify(x, options, out_stream);
+                    if (child_options.whitespace) |child_whitespace| {
+                        try out_stream.writeByte('\n');
+                        try child_whitespace.outputIndent(out_stream);
+                    }
+                    try stringify(x, child_options, out_stream);
                 }
-                try out_stream.writeAll("]");
+                if (value.len != 0) {
+                    if (options.whitespace) |whitespace| {
+                        try out_stream.writeByte('\n');
+                        try whitespace.outputIndent(out_stream);
+                    }
+                }
+                try out_stream.writeByte(']');
                 return;
             },
             else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
@@ -2486,6 +2556,46 @@ test "stringify struct" {
     }{ .foo = 42 }, StringifyOptions{});
 }
 
+test "stringify struct with indentation" {
+    try teststringify(
+        \\{
+        \\    "foo": 42,
+        \\    "bar": [
+        \\        1,
+        \\        2,
+        \\        3
+        \\    ]
+        \\}
+    ,
+        struct {
+                foo: u32,
+                bar: [3]u32,
+            }{
+            .foo = 42,
+            .bar = .{ 1, 2, 3 },
+        },
+        StringifyOptions{
+            .whitespace = .{},
+        },
+    );
+    try teststringify(
+        "{\n\t\"foo\":42,\n\t\"bar\":[\n\t\t1,\n\t\t2,\n\t\t3\n\t]\n}",
+        struct {
+                foo: u32,
+                bar: [3]u32,
+            }{
+            .foo = 42,
+            .bar = .{ 1, 2, 3 },
+        },
+        StringifyOptions{
+            .whitespace = .{
+                .indent = .Tab,
+                .separator = false,
+            },
+        },
+    );
+}
+
 test "stringify struct with void field" {
     try teststringify("{\"foo\":42}", struct {
         foo: u32,
@@ -2515,7 +2625,7 @@ test "stringify struct with custom stringifier" {
         ) !void {
             try out_stream.writeAll("[\"something special\",");
             try stringify(42, options, out_stream);
-            try out_stream.writeAll("]");
+            try out_stream.writeByte(']');
         }
     }{ .foo = 42 }, StringifyOptions{});
 }
