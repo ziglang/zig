@@ -1,30 +1,53 @@
 const std = @import("std.zig");
 const mem = std.mem;
 const builtin = std.builtin;
+const Version = std.builtin.Version;
 
 /// TODO Nearly all the functions in this namespace would be
 /// better off if https://github.com/ziglang/zig/issues/425
 /// was solved.
-pub const Target = union(enum) {
-    Native: void,
-    Cross: Cross,
+pub const Target = struct {
+    cpu: Cpu,
+    os: Os,
+    abi: Abi,
 
-    pub const Os = enum {
+    /// The version ranges here represent the minimum OS version to be supported
+    /// and the maximum OS version to be supported. The default values represent
+    /// the range that the Zig Standard Library bases its abstractions on.
+    ///
+    /// The minimum version of the range is the main setting to tweak for a target.
+    /// Usually, the maximum target OS version will remain the default, which is
+    /// the latest released version of the OS.
+    ///
+    /// To test at compile time if the target is guaranteed to support a given OS feature,
+    /// one should check that the minimum version of the range is greater than or equal to
+    /// the version the feature was introduced in.
+    ///
+    /// To test at compile time if the target certainly will not support a given OS feature,
+    /// one should check that the maximum version of the range is less than the version the
+    /// feature was introduced in.
+    ///
+    /// If neither of these cases apply, a runtime check should be used to determine if the
+    /// target supports a given OS feature.
+    ///
+    /// Binaries built with a given maximum version will continue to function on newer operating system
+    /// versions. However, such a binary may not take full advantage of the newer operating system APIs.
+    pub const Os = union(enum) {
         freestanding,
         ananas,
         cloudabi,
         dragonfly,
-        freebsd,
+        freebsd: Version.Range,
         fuchsia,
         ios,
         kfreebsd,
-        linux,
+        linux: LinuxVersionRange,
         lv2,
-        macosx,
-        netbsd,
-        openbsd,
+        macosx: Version.Range,
+        netbsd: Version.Range,
+        openbsd: Version.Range,
         solaris,
-        windows,
+        windows: WindowsVersion.Range,
         haiku,
         minix,
         rtems,
@@ -48,14 +71,230 @@ pub const Target = union(enum) {
         uefi,
         other,
 
+        /// See the documentation for `Os` for an explanation of the default version range.
+        pub fn defaultVersionRange(tag: @TagType(Os)) Os {
+            switch (tag) {
+                .freestanding => return .freestanding,
+                .ananas => return .ananas,
+                .cloudabi => return .cloudabi,
+                .dragonfly => return .dragonfly,
+                .freebsd => return .{
+                    .freebsd = Version.Range{
+                        .min = .{ .major = 12, .minor = 0 },
+                        .max = .{ .major = 12, .minor = 1 },
+                    },
+                },
+                .fuchsia => return .fuchsia,
+                .ios => return .ios,
+                .kfreebsd => return .kfreebsd,
+                .linux => return .{
+                    .linux = .{
+                        .range = .{
+                            .min = .{ .major = 3, .minor = 16 },
+                            .max = .{ .major = 5, .minor = 5, .patch = 5 },
+                        },
+                        .glibc = .{ .major = 2, .minor = 17 },
+                    },
+                },
+                .lv2 => return .lv2,
+                .macosx => return .{
+                    .min = .{ .major = 10, .minor = 13 },
+                    .max = .{ .major = 10, .minor = 15, .patch = 3 },
+                },
+                .netbsd => return .{
+                    .min = .{ .major = 8, .minor = 0 },
+                    .max = .{ .major = 9, .minor = 0 },
+                },
+                .openbsd => return .{
+                    .min = .{ .major = 6, .minor = 6 },
+                    .max = .{ .major = 6, .minor = 6 },
+                },
+                solaris => return .solaris,
+                windows => return .{
+                    .windows = .{
+                        .min = .win8_1,
+                        .max = .win10_19h1,
+                    },
+                },
+                haiku => return .haiku,
+                minix => return .minix,
+                rtems => return .rtems,
+                nacl => return .nacl,
+                cnk => return .cnk,
+                aix => return .aix,
+                cuda => return .cuda,
+                nvcl => return .nvcl,
+                amdhsa => return .amdhsa,
+                ps4 => return .ps4,
+                elfiamcu => return .elfiamcu,
+                tvos => return .tvos,
+                watchos => return .watchos,
+                mesa3d => return .mesa3d,
+                contiki => return .contiki,
+                amdpal => return .amdpal,
+                hermit => return .hermit,
+                hurd => return .hurd,
+                wasi => return .wasi,
+                emscripten => return .emscripten,
+                uefi => return .uefi,
+                other => return .other,
+            }
+        }
+
+        pub const LinuxVersionRange = struct {
+            range: Version.Range,
+            glibc: Version,
+
+            pub fn includesVersion(self: LinuxVersionRange, ver: Version) bool {
+                return self.range.includesVersion(ver);
+            }
+        };
+
+        /// Based on NTDDI version constants from
+        /// https://docs.microsoft.com/en-us/cpp/porting/modifying-winver-and-win32-winnt
+        pub const WindowsVersion = enum(u32) {
+            nt4 = 0x04000000,
+            win2k = 0x05000000,
+            xp = 0x05010000,
+            ws2003 = 0x05020000,
+            vista = 0x06000000,
+            win7 = 0x06010000,
+            win8 = 0x06020000,
+            win8_1 = 0x06030000,
+            win10 = 0x0A000000,
+            win10_th2 = 0x0A000001,
+            win10_rs1 = 0x0A000002,
+            win10_rs2 = 0x0A000003,
+            win10_rs3 = 0x0A000004,
+            win10_rs4 = 0x0A000005,
+            win10_rs5 = 0x0A000006,
+            win10_19h1 = 0x0A000007,
+
+            pub const Range = struct {
+                min: WindowsVersion,
+                max: WindowsVersion,
+
+                pub fn includesVersion(self: Range, ver: WindowsVersion) bool {
+                    return @enumToInt(ver) >= @enumToInt(self.min) and @enumToInt(ver) <= @enumToInt(self.max);
+                }
+            };
+
+            pub fn nameToTag(name: []const u8) ?WindowsVersion {
+                const info = @typeInfo(WindowsVersion);
+                inline for (info.Enum.fields) |field| {
+                    if (mem.eql(u8, name, field.name)) {
+                        return @field(WindowsVersion, field.name);
+                    }
+                }
+                return null;
+            }
+        };
+
         pub fn parse(text: []const u8) !Os {
+            var it = mem.separate(text, ".");
+            const os_name = it.next().?;
+            const tag = nameToTag(os_name) orelse return error.UnknownOperatingSystem;
+            const version_text = it.rest();
+            const S = struct {
+                fn parseNone(s: []const u8) !void {
+                    if (s.len != 0) return error.InvalidOperatingSystemVersion;
+                }
+                fn parseSemVer(s: []const u8, default: Version.Range) !Version.Range {
+                    if (s.len == 0) return default;
+                    var range_it = mem.separate(s, "...");
+
+                    const min_text = range_it.next().?;
+                    const min_ver = Version.parse(min_text) catch |err| switch (err) {
+                        error.Overflow => return error.InvalidOperatingSystemVersion,
+                        error.InvalidCharacter => return error.InvalidOperatingSystemVersion,
+                        error.InvalidVersion => return error.InvalidOperatingSystemVersion,
+                    };
+
+                    const max_text = range_it.next() orelse return Version.Range{
+                        .min = min_ver,
+                        .max = default.max,
+                    };
+                    const max_ver = Version.parse(max_text) catch |err| switch (err) {
+                        error.Overflow => return error.InvalidOperatingSystemVersion,
+                        error.InvalidCharacter => return error.InvalidOperatingSystemVersion,
+                        error.InvalidVersion => return error.InvalidOperatingSystemVersion,
+                    };
+
+                    return Version.Range{ .min = min_ver, .max = max_ver };
+                }
+                fn parseWindows(s: []const u8, default: WindowsVersion.Range) !WindowsVersion.Range {
+                    if (s.len == 0) return default;
+                    var range_it = mem.separate(s, "...");
+
+                    const min_text = range_it.next().?;
+                    const min_ver = WindowsVersion.nameToTag(min_text) orelse
+                        return error.InvalidOperatingSystemVersion;
+
+                    const max_text = range_it.next() orelse return WindowsVersion.Range{
+                        .min = min_ver,
+                        .max = default.max,
+                    };
+                    const max_ver = WindowsVersion.nameToTag(max_text) orelse
+                        return error.InvalidOperatingSystemVersion;
+
+                    return WindowsVersion.Range{ .min = min_ver, .max = max_ver };
+                }
+            };
+            const default = defaultVersionRange(tag);
+            switch (tag) {
+                .freestanding => return Os{ .freestanding = try S.parseNone(version_text) },
+                .ananas => return Os{ .ananas = try S.parseNone(version_text) },
+                .cloudabi => return Os{ .cloudabi = try S.parseNone(version_text) },
+                .dragonfly => return Os{ .dragonfly = try S.parseNone(version_text) },
+                .freebsd => return Os{ .freebsd = try S.parseSemVer(version_text, default.freebsd) },
+                .fuchsia => return Os{ .fuchsia = try S.parseNone(version_text) },
+                .ios => return Os{ .ios = try S.parseNone(version_text) },
+                .kfreebsd => return Os{ .kfreebsd = try S.parseNone(version_text) },
+                .linux => return Os{
+                    .linux = .{
+                        .range = try S.parseSemVer(version_text, default.linux.range),
+                        .glibc = default.linux.glibc,
+                    },
+                },
+                .lv2 => return Os{ .lv2 = try S.parseNone(version_text) },
+                .macosx => return Os{ .macosx = try S.parseSemVer(version_text, default.macosx) },
+                .netbsd => return Os{ .netbsd = try S.parseSemVer(version_text, default.netbsd) },
+                .openbsd => return Os{ .openbsd = try S.parseSemVer(version_text, default.openbsd) },
+                .solaris => return Os{ .solaris = try S.parseNone(version_text) },
+                .windows => return Os{ .windows = try S.parseWindows(version_text, default.windows) },
+                .haiku => return Os{ .haiku = try S.parseNone(version_text) },
+                .minix => return Os{ .minix = try S.parseNone(version_text) },
+                .rtems => return Os{ .rtems = try S.parseNone(version_text) },
+                .nacl => return Os{ .nacl = try S.parseNone(version_text) },
+                .cnk => return Os{ .cnk = try S.parseNone(version_text) },
+                .aix => return Os{ .aix = try S.parseNone(version_text) },
+                .cuda => return Os{ .cuda = try S.parseNone(version_text) },
+                .nvcl => return Os{ .nvcl = try S.parseNone(version_text) },
+                .amdhsa => return Os{ .amdhsa = try S.parseNone(version_text) },
+                .ps4 => return Os{ .ps4 = try S.parseNone(version_text) },
+                .elfiamcu => return Os{ .elfiamcu = try S.parseNone(version_text) },
+                .tvos => return Os{ .tvos = try S.parseNone(version_text) },
+                .watchos => return Os{ .watchos = try S.parseNone(version_text) },
+                .mesa3d => return Os{ .mesa3d = try S.parseNone(version_text) },
+                .contiki => return Os{ .contiki = try S.parseNone(version_text) },
+                .amdpal => return Os{ .amdpal = try S.parseNone(version_text) },
+                .hermit => return Os{ .hermit = try S.parseNone(version_text) },
+                .hurd => return Os{ .hurd = try S.parseNone(version_text) },
+                .wasi => return Os{ .wasi = try S.parseNone(version_text) },
+                .emscripten => return Os{ .emscripten = try S.parseNone(version_text) },
+                .uefi => return Os{ .uefi = try S.parseNone(version_text) },
+                .other => return Os{ .other = try S.parseNone(version_text) },
+            }
+        }
+
+        pub fn nameToTag(name: []const u8) ?@TagType(Os) {
             const info = @typeInfo(Os);
-            inline for (info.Enum.fields) |field| {
-                if (mem.eql(u8, text, field.name)) {
+            inline for (info.Union.fields) |field| {
+                if (mem.eql(u8, name, field.name)) {
                     return @field(Os, field.name);
                 }
             }
-            return error.UnknownOperatingSystem;
+            return null;
         }
     };
 
@@ -149,14 +388,39 @@ pub const Target = union(enum) {
             }
         }
 
-        pub fn parse(text: []const u8) !Abi {
+        pub fn nameToTag(text: []const u8) ?Abi {
             const info = @typeInfo(Abi);
             inline for (info.Enum.fields) |field| {
                 if (mem.eql(u8, text, field.name)) {
                     return @field(Abi, field.name);
                 }
             }
-            return error.UnknownApplicationBinaryInterface;
+            return null;
+        }
+
+        pub fn parse(text: []const u8, os: *Os) !Abi {
+            var it = mem.separate(text, ".");
+            const tag = nameToTag(it.next().?) orelse return error.UnknownApplicationBinaryInterface;
+            const version_text = it.rest();
+            if (version_text.len != 0) {
+                if (@as(@TagType(Os), os.*) == .linux and tag.isGnu()) {
+                    os.linux.glibc = Version.parse(version_text) catch |err| switch (err) {
+                        error.Overflow => return error.InvalidGlibcVersion,
+                        error.InvalidCharacter => return error.InvalidGlibcVersion,
+                        error.InvalidVersion => return error.InvalidGlibcVersion,
+                    };
+                } else {
+                    return error.InvalidAbiVersion;
+                }
+            }
+            return tag;
+        }
+
+        pub fn isGnu(abi: Abi) bool {
+            return switch (abi) {
+                .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => true,
+                else => false,
+            };
         }
     };
 
@@ -177,12 +441,6 @@ pub const Target = union(enum) {
         EfiBootServiceDriver,
         EfiRom,
         EfiRuntimeDriver,
-    };
-
-    pub const Cross = struct {
-        cpu: Cpu,
-        os: Os,
-        abi: Abi,
     };
 
     pub const Cpu = struct {
@@ -641,20 +899,19 @@ pub const Target = union(enum) {
     };
 
     pub const current = Target{
-        .Cross = Cross{
-            .cpu = builtin.cpu,
-            .os = builtin.os,
-            .abi = builtin.abi,
-        },
+        .cpu = builtin.cpu,
+        .os = builtin.os,
+        .abi = builtin.abi,
     };
 
     pub const stack_align = 16;
 
+    /// TODO add OS version ranges and glibc version
     pub fn zigTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
         return std.fmt.allocPrint(allocator, "{}-{}-{}", .{
             @tagName(self.getArch()),
-            @tagName(self.getOs()),
-            @tagName(self.getAbi()),
+            @tagName(self.os),
+            @tagName(self.abi),
         });
     }
 
@@ -678,7 +935,7 @@ pub const Target = union(enum) {
             else => return error.VcpkgNoSuchArchitecture,
         };
 
-        const os = switch (target.getOs()) {
+        const os = switch (target.os) {
             .windows => "windows",
             .linux => "linux",
             .macosx => "macos",
@@ -701,16 +958,16 @@ pub const Target = union(enum) {
     pub fn zigTripleNoSubArch(self: Target, allocator: *mem.Allocator) ![]u8 {
         return std.fmt.allocPrint(allocator, "{}-{}-{}", .{
             @tagName(self.getArch()),
-            @tagName(self.getOs()),
-            @tagName(self.getAbi()),
+            @tagName(self.os),
+            @tagName(self.abi),
         });
     }
 
     pub fn linuxTriple(self: Target, allocator: *mem.Allocator) ![]u8 {
         return std.fmt.allocPrint(allocator, "{}-{}-{}", .{
             @tagName(self.getArch()),
-            @tagName(self.getOs()),
-            @tagName(self.getAbi()),
+            @tagName(self.os),
+            @tagName(self.abi),
         });
     }
 
@@ -760,11 +1017,11 @@ pub const Target = union(enum) {
         diags.arch = arch;
 
         const os_name = it.next() orelse return error.MissingOperatingSystem;
-        const os = try Os.parse(os_name);
+        var os = try Os.parse(os_name); // var because Abi.parse can update linux.glibc version
         diags.os = os;
 
         const abi_name = it.next();
-        const abi = if (abi_name) |n| try Abi.parse(n) else Abi.default(arch, os);
+        const abi = if (abi_name) |n| try Abi.parse(n, &os) else Abi.default(arch, os);
         diags.abi = abi;
 
         if (it.next() != null) return error.UnexpectedExtraField;
@@ -817,16 +1074,15 @@ pub const Target = union(enum) {
                 .features = set,
             };
         };
-        var cross = Cross{
+        return Target{
             .cpu = cpu,
             .os = os,
             .abi = abi,
         };
-        return Target{ .Cross = cross };
     }
 
     pub fn oFileExt(self: Target) []const u8 {
-        return switch (self.getAbi()) {
+        return switch (self.abi) {
             .msvc => ".obj",
             else => ".o",
         };
@@ -848,7 +1104,7 @@ pub const Target = union(enum) {
         if (self.isWasm()) {
             return ".wasm";
         }
-        switch (self.getAbi()) {
+        switch (self.abi) {
             .msvc => return ".lib",
             else => return ".a",
         }
@@ -858,7 +1114,7 @@ pub const Target = union(enum) {
         if (self.isDarwin()) {
             return ".dylib";
         }
-        switch (self.getOs()) {
+        switch (self.os) {
             .windows => return ".dll",
             else => return ".so",
         }
@@ -868,52 +1124,41 @@ pub const Target = union(enum) {
         if (self.isWasm()) {
             return "";
         }
-        switch (self.getAbi()) {
+        switch (self.abi) {
             .msvc => return "",
             else => return "lib",
         }
     }
 
-    pub fn getOs(self: Target) Os {
-        return switch (self) {
-            .Native => builtin.os,
-            .Cross => |t| t.os,
-        };
+    /// Deprecated; access the `os` field directly.
+    pub fn getOs(self: Target) @TagType(Os) {
+        return self.os;
     }
 
+    /// Deprecated; access the `cpu` field directly.
     pub fn getCpu(self: Target) Cpu {
-        return switch (self) {
-            .Native => builtin.cpu,
-            .Cross => |cross| cross.cpu,
-        };
+        return self.cpu;
+    }
+
+    /// Deprecated; access the `abi` field directly.
+    pub fn getAbi(self: Target) Abi {
+        return self.abi;
     }
 
     pub fn getArch(self: Target) Cpu.Arch {
-        return self.getCpu().arch;
-    }
-
-    pub fn getAbi(self: Target) Abi {
-        switch (self) {
-            .Native => return builtin.abi,
-            .Cross => |t| return t.abi,
-        }
+        return self.cpu.arch;
     }
 
     pub fn getObjectFormat(self: Target) ObjectFormat {
-        switch (self) {
-            .Native => return @import("builtin").object_format,
-            .Cross => blk: {
-                if (self.isWindows() or self.isUefi()) {
-                    return .coff;
-                } else if (self.isDarwin()) {
-                    return .macho;
-                }
-                if (self.isWasm()) {
-                    return .wasm;
-                }
-                return .elf;
-            },
+        if (self.isWindows() or self.isUefi()) {
+            return .coff;
+        } else if (self.isDarwin()) {
+            return .macho;
         }
+        if (self.isWasm()) {
+            return .wasm;
+        }
+        return .elf;
     }
 
     pub fn isMinGW(self: Target) bool {
@@ -921,56 +1166,53 @@ pub const Target = union(enum) {
     }
 
     pub fn isGnu(self: Target) bool {
-        return switch (self.getAbi()) {
-            .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => true,
-            else => false,
-        };
+        return self.abi.isGnu();
     }
 
     pub fn isMusl(self: Target) bool {
-        return switch (self.getAbi()) {
+        return switch (self.abi) {
             .musl, .musleabi, .musleabihf => true,
             else => false,
         };
     }
 
     pub fn isDarwin(self: Target) bool {
-        return switch (self.getOs()) {
+        return switch (self.os) {
             .ios, .macosx, .watchos, .tvos => true,
             else => false,
         };
     }
 
     pub fn isWindows(self: Target) bool {
-        return switch (self.getOs()) {
+        return switch (self.os) {
             .windows => true,
             else => false,
         };
     }
 
     pub fn isLinux(self: Target) bool {
-        return switch (self.getOs()) {
+        return switch (self.os) {
             .linux => true,
             else => false,
         };
     }
 
     pub fn isAndroid(self: Target) bool {
-        return switch (self.getAbi()) {
+        return switch (self.abi) {
             .android => true,
             else => false,
         };
     }
 
     pub fn isDragonFlyBSD(self: Target) bool {
-        return switch (self.getOs()) {
+        return switch (self.os) {
             .dragonfly => true,
             else => false,
         };
     }
 
     pub fn isUefi(self: Target) bool {
-        return switch (self.getOs()) {
+        return switch (self.os) {
             .uefi => true,
             else => false,
         };
@@ -984,14 +1226,14 @@ pub const Target = union(enum) {
     }
 
     pub fn isFreeBSD(self: Target) bool {
-        return switch (self.getOs()) {
+        return switch (self.os) {
             .freebsd => true,
             else => false,
         };
     }
 
     pub fn isNetBSD(self: Target) bool {
-        return switch (self.getOs()) {
+        return switch (self.os) {
             .netbsd => true,
             else => false,
         };
@@ -1081,7 +1323,7 @@ pub const Target = union(enum) {
         if (@as(@TagType(Target), self) == .Native) return .native;
 
         // If the target OS matches the host OS, we can use QEMU to emulate a foreign architecture.
-        if (self.getOs() == builtin.os) {
+        if (self.os == builtin.os) {
             return switch (self.getArch()) {
                 .aarch64 => Executor{ .qemu = "qemu-aarch64" },
                 .aarch64_be => Executor{ .qemu = "qemu-aarch64_be" },
@@ -1112,7 +1354,7 @@ pub const Target = union(enum) {
             }
         }
 
-        if (self.getOs() == .wasi) {
+        if (self.os == .wasi) {
             switch (self.getArchPtrBitWidth()) {
                 32 => return Executor{ .wasmtime = "wasmtime" },
                 else => return .unavailable,
@@ -1129,7 +1371,7 @@ pub const Target = union(enum) {
     };
 
     pub fn getFloatAbi(self: Target) FloatAbi {
-        return switch (self.getAbi()) {
+        return switch (self.abi) {
             .gnueabihf,
             .eabihf,
             .musleabihf,
@@ -1145,7 +1387,7 @@ pub const Target = union(enum) {
             => return false,
             else => {},
         }
-        switch (self.getOs()) {
+        switch (self.os) {
             .freestanding,
             .ios,
             .tvos,
@@ -1200,7 +1442,7 @@ pub const Target = union(enum) {
             return result.toOwnedSlice();
         }
 
-        switch (self.getOs()) {
+        switch (self.os) {
             .freebsd => return mem.dupeZ(a, u8, "/libexec/ld-elf.so.1"),
             .netbsd => return mem.dupeZ(a, u8, "/libexec/ld.elf_so"),
             .dragonfly => return mem.dupeZ(a, u8, "/libexec/ld-elf.so.2"),
@@ -1233,7 +1475,7 @@ pub const Target = union(enum) {
                 .powerpc64, .powerpc64le => return mem.dupeZ(a, u8, "/lib64/ld64.so.2"),
                 .s390x => return mem.dupeZ(a, u8, "/lib64/ld64.so.1"),
                 .sparcv9 => return mem.dupeZ(a, u8, "/lib64/ld-linux.so.2"),
-                .x86_64 => return mem.dupeZ(a, u8, switch (self.getAbi()) {
+                .x86_64 => return mem.dupeZ(a, u8, switch (self.abi) {
                     .gnux32 => "/libx32/ld-linux-x32.so.2",
                     else => "/lib64/ld-linux-x86-64.so.2",
                 }),
@@ -1292,10 +1534,10 @@ pub const Target = union(enum) {
 
 test "Target.parse" {
     {
-        const target = (try Target.parse(.{
+        const target = try Target.parse(.{
             .arch_os_abi = "x86_64-linux-gnu",
             .cpu_features = "x86_64-sse-sse2-avx-cx8",
-        })).Cross;
+        });
 
         std.testing.expect(target.os == .linux);
         std.testing.expect(target.abi == .gnu);
@@ -1307,10 +1549,10 @@ test "Target.parse" {
         std.testing.expect(Target.x86.featureSetHas(target.cpu.features, .fxsr));
     }
     {
-        const target = (try Target.parse(.{
+        const target = try Target.parse(.{
             .arch_os_abi = "arm-linux-musleabihf",
             .cpu_features = "generic+v8a",
-        })).Cross;
+        });
 
         std.testing.expect(target.os == .linux);
         std.testing.expect(target.abi == .musleabihf);

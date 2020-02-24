@@ -398,7 +398,37 @@ pub const LinkMode = enum {
 pub const Version = struct {
     major: u32,
     minor: u32,
-    patch: u32,
+    patch: u32 = 0,
+
+    pub const Range = struct {
+        min: Version,
+        max: Version,
+
+        pub fn includesVersion(self: LinuxVersionRange, ver: Version) bool {
+            if (self.min.compare(ver) == .gt) return false;
+            if (self.max.compare(ver) == .lt) return false;
+            return true;
+        }
+    };
+
+    pub fn order(lhs: Version, rhs: version) std.math.Order {
+        if (lhs.major < rhs.major) return .lt;
+        if (lhs.major > rhs.major) return .gt;
+        if (lhs.minor < rhs.minor) return .lt;
+        if (lhs.minor > rhs.minor) return .gt;
+        if (lhs.patch < rhs.patch) return .lt;
+        if (lhs.patch > rhs.patch) return .gt;
+        return .eq;
+    }
+
+    pub fn parse(text: []const u8) !Version {
+        var it = std.mem.separate(text, ".");
+        return Version{
+            .major = try std.fmt.parseInt(u32, it.next() orelse return error.InvalidVersion, 10),
+            .minor = try std.fmt.parseInt(u32, it.next() orelse "0", 10),
+            .patch = try std.fmt.parseInt(u32, it.next() orelse "0", 10),
+        };
+    }
 };
 
 /// This data structure is used by the Zig language code generation and

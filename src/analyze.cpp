@@ -3963,7 +3963,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var, bool allow_lazy) {
 
     // TODO more validation for types that can't be used for export/extern variables
     ZigType *implicit_type = nullptr;
-    if (explicit_type != nullptr && explicit_type->id == ZigTypeIdInvalid) {
+    if (explicit_type != nullptr && type_is_invalid(explicit_type)) {
         implicit_type = explicit_type;
     } else if (var_decl->expr) {
         init_value = analyze_const_value(g, tld_var->base.parent_scope, var_decl->expr, explicit_type,

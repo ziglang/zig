@@ -56,7 +56,7 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .cpu = Target.Cpu.baseline(.x86_64),
-                    .os = .linux,
+                    .os = Target.Os.defaultVersionRange(.linux),
                     .abi = .none,
                 },
             },
@@ -65,7 +65,7 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .cpu = Target.Cpu.baseline(.x86_64),
-                    .os = .linux,
+                    .os = Target.Os.defaultVersionRange(.linux),
                     .abi = .gnu,
                 },
             },
@@ -75,7 +75,7 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .cpu = Target.Cpu.baseline(.x86_64),
-                    .os = .linux,
+                    .os = Target.Os.defaultVersionRange(.linux),
                     .abi = .musl,
                 },
             },
@@ -86,7 +86,7 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .cpu = Target.Cpu.baseline(.i386),
-                    .os = .linux,
+                    .os = Target.Os.defaultVersionRange(.linux),
                     .abi = .none,
                 },
             },
@@ -95,7 +95,7 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .cpu = Target.Cpu.baseline(.i386),
-                    .os = .linux,
+                    .os = Target.Os.defaultVersionRange(.linux),
                     .abi = .musl,
                 },
             },
@@ -106,7 +106,7 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .cpu = Target.Cpu.baseline(.aarch64),
-                    .os = .linux,
+                    .os = Target.Os.defaultVersionRange(.linux),
                     .abi = .none,
                 },
             },
@@ -115,7 +115,7 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .cpu = Target.Cpu.baseline(.aarch64),
-                    .os = .linux,
+                    .os = Target.Os.defaultVersionRange(.linux),
                     .abi = .musl,
                 },
             },
@@ -125,7 +125,7 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .cpu = Target.Cpu.baseline(.aarch64),
-                    .os = .linux,
+                    .os = Target.Os.defaultVersionRange(.linux),
                     .abi = .gnu,
                 },
             },
@@ -158,7 +158,7 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .cpu = Target.Cpu.baseline(.mipsel),
-                    .os = .linux,
+                    .os = Target.Os.defaultVersionRange(.linux),
                     .abi = .none,
                 },
             },
@@ -167,7 +167,7 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .cpu = Target.Cpu.baseline(.mipsel),
-                    .os = .linux,
+                    .os = Target.Os.defaultVersionRange(.linux),
                     .abi = .musl,
                 },
             },
@@ -178,7 +178,7 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .cpu = Target.Cpu.baseline(.x86_64),
-                    .os = .macosx,
+                    .os = Target.Os.defaultVersionRange(.macosx),
                     .abi = .gnu,
                 },
             },
@@ -190,7 +190,7 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .cpu = Target.Cpu.baseline(.i386),
-                    .os = .windows,
+                    .os = Target.Os.defaultVersionRange(.windows),
                     .abi = .msvc,
                 },
             },
@@ -200,7 +200,7 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .cpu = Target.Cpu.baseline(.x86_64),
-                    .os = .windows,
+                    .os = Target.Os.defaultVersionRange(.windows),
                     .abi = .msvc,
                 },
             },
@@ -210,7 +210,7 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .cpu = Target.Cpu.baseline(.i386),
-                    .os = .windows,
+                    .os = Target.Os.defaultVersionRange(.windows),
                     .abi = .gnu,
                 },
             },
@@ -221,7 +221,7 @@ const test_targets = blk: {
             .target = Target{
                 .Cross = CrossTarget{
                     .cpu = Target.Cpu.baseline(.x86_64),
-                    .os = .windows,
+                    .os = Target.Os.defaultVersionRange(.windows),
                     .abi = .gnu,
                 },
             },
