@@ -24,35 +24,6 @@ test "call disabled extern fn" {
     disabledExternFn();
 }
 
-test "@IntType builtin" {
-    expect(@IntType(true, 8) == i8);
-    expect(@IntType(true, 16) == i16);
-    expect(@IntType(true, 32) == i32);
-    expect(@IntType(true, 64) == i64);
-
-    expect(@IntType(false, 8) == u8);
-    expect(@IntType(false, 16) == u16);
-    expect(@IntType(false, 32) == u32);
-    expect(@IntType(false, 64) == u64);
-
-    expect(i8.bit_count == 8);
-    expect(i16.bit_count == 16);
-    expect(i32.bit_count == 32);
-    expect(i64.bit_count == 64);
-
-    expect(i8.is_signed);
-    expect(i16.is_signed);
-    expect(i32.is_signed);
-    expect(i64.is_signed);
-    expect(isize.is_signed);
-
-    expect(!u8.is_signed);
-    expect(!u16.is_signed);
-    expect(!u32.is_signed);
-    expect(!u64.is_signed);
-    expect(!usize.is_signed);
-}
-
 test "floating point primitive bit counts" {
     expect(f16.bit_count == 16);
     expect(f32.bit_count == 32);

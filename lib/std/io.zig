@@ -337,7 +337,7 @@ pub fn BitInStream(endian: builtin.Endian, comptime Error: type) type {
                 assert(u_bit_count >= bits);
                 break :bc if (u_bit_count <= u8_bit_count) u8_bit_count else u_bit_count;
             };
-            const Buf = @IntType(false, buf_bit_count);
+            const Buf = std.meta.IntType(false, buf_bit_count);
             const BufShift = math.Log2Int(Buf);
 
             out_bits.* = @as(usize, 0);
@@ -659,7 +659,7 @@ pub fn BitOutStream(endian: builtin.Endian, comptime Error: type) type {
                 assert(u_bit_count >= bits);
                 break :bc if (u_bit_count <= u8_bit_count) u8_bit_count else u_bit_count;
             };
-            const Buf = @IntType(false, buf_bit_count);
+            const Buf = std.meta.IntType(false, buf_bit_count);
             const BufShift = math.Log2Int(Buf);
 
             const buf_value = @intCast(Buf, value);
@@ -836,7 +836,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
             const u8_bit_count = 8;
             const t_bit_count = comptime meta.bitCount(T);
 
-            const U = @IntType(false, t_bit_count);
+            const U = std.meta.IntType(false, t_bit_count);
             const Log2U = math.Log2Int(U);
             const int_size = (U.bit_count + 7) / 8;
 
@@ -851,7 +851,7 @@ pub fn Deserializer(comptime endian: builtin.Endian, comptime packing: Packing, 
 
             if (int_size == 1) {
                 if (t_bit_count == 8) return @bitCast(T, buffer[0]);
-                const PossiblySignedByte = @IntType(T.is_signed, 8);
+                const PossiblySignedByte = std.meta.IntType(T.is_signed, 8);
                 return @truncate(T, @bitCast(PossiblySignedByte, buffer[0]));
             }
 
@@ -1014,7 +1014,7 @@ pub fn Serializer(comptime endian: builtin.Endian, comptime packing: Packing, co
             const t_bit_count = comptime meta.bitCount(T);
             const u8_bit_count = comptime meta.bitCount(u8);
 
-            const U = @IntType(false, t_bit_count);
+            const U = std.meta.IntType(false, t_bit_count);
             const Log2U = math.Log2Int(U);
             const int_size = (U.bit_count + 7) / 8;
 

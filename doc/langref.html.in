@@ -550,7 +550,7 @@ pub fn main() void {
       {#syntax#}i7{#endsyntax#} refers to a signed 7-bit integer. The maximum allowed bit-width of an
       integer type is {#syntax#}65535{#endsyntax#}.
       </p>
-      {#see_also|Integers|Floats|void|Errors|@IntType#}
+      {#see_also|Integers|Floats|void|Errors|@Type#}
       {#header_close#}
       {#header_open|Primitive Values#}
       <div class="table-wrapper">
@@ -6667,18 +6667,6 @@ comptime {
       </p>
       {#see_also|Alignment#}
       {#header_close#}
-      {#header_open|@ArgType#}
-      <pre>{#syntax#}@ArgType(comptime T: type, comptime n: usize) type{#endsyntax#}</pre>
-      <p>
-      This builtin function takes a function type and returns the type of the parameter at index {#syntax#}n{#endsyntax#}.
-      </p>
-      <p>
-      {#syntax#}T{#endsyntax#} must be a function type.
-      </p>
-      <p>
-      Note: This function is deprecated. Use {#link|@typeInfo#} instead.
-      </p>
-      {#header_close#}
 
       {#header_open|@as#}
       <pre>{#syntax#}@as(comptime T: type, expression) T{#endsyntax#}</pre>
@@ -7337,7 +7325,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@errorToInt#}
-      <pre>{#syntax#}@errorToInt(err: var) @IntType(false, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
+      <pre>{#syntax#}@errorToInt(err: var) std.meta.IntType(false, @sizeOf(anyerror) * 8){#endsyntax#}</pre>
       <p>
       Supports the following types:
       </p>
@@ -7631,7 +7619,7 @@ test "@hasDecl" {
       {#header_close#}
 
       {#header_open|@intToError#}
-      <pre>{#syntax#}@intToError(value: @IntType(false, @sizeOf(anyerror) * 8)) anyerror{#endsyntax#}</pre>
+      <pre>{#syntax#}@intToError(value: std.meta.IntType(false, @sizeOf(anyerror) * 8)) anyerror{#endsyntax#}</pre>
       <p>
       Converts from the integer representation of an error into {#link|The Global Error Set#} type.
       </p>
@@ -7661,17 +7649,6 @@ test "@hasDecl" {
       <p>
       If the destination pointer type does not allow address zero and {#syntax#}address{#endsyntax#}
       is zero, this invokes safety-checked {#link|Undefined Behavior#}.
-      </p>
-      {#header_close#}
-
-      {#header_open|@IntType#}
-      <pre>{#syntax#}@IntType(comptime is_signed: bool, comptime bit_count: u16) type{#endsyntax#}</pre>
-      <p>
-      This function returns an integer type with the given signness and bit count. The maximum
-      bit count for an integer type is {#syntax#}65535{#endsyntax#}.
-      </p>
-      <p>
-      Deprecated. Use {#link|@Type#}.
       </p>
       {#header_close#}
 

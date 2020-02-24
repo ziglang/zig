@@ -16,9 +16,9 @@ test "reflection: function return type, var args, and param types" {
         expect(@TypeOf(dummy).ReturnType == i32);
         expect(!@TypeOf(dummy).is_var_args);
         expect(@TypeOf(dummy).arg_count == 3);
-        expect(@ArgType(@TypeOf(dummy), 0) == bool);
-        expect(@ArgType(@TypeOf(dummy), 1) == i32);
-        expect(@ArgType(@TypeOf(dummy), 2) == f32);
+        expect(@typeInfo(@TypeOf(dummy)).Fn.args[0].arg_type.? == bool);
+        expect(@typeInfo(@TypeOf(dummy)).Fn.args[1].arg_type.? == i32);
+        expect(@typeInfo(@TypeOf(dummy)).Fn.args[2].arg_type.? == f32);
     }
 }
 

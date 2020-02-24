@@ -318,6 +318,7 @@ test "BitStreams with File Stream" {
 }
 
 fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packing: io.Packing) !void {
+    @setEvalBranchQuota(1500);
     //@NOTE: if this test is taking too long, reduce the maximum tested bitsize
     const max_test_bitsize = 128;
 
@@ -341,8 +342,8 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packi
 
     comptime var i = 0;
     inline while (i <= max_test_bitsize) : (i += 1) {
-        const U = @IntType(false, i);
-        const S = @IntType(true, i);
+        const U = std.meta.IntType(false, i);
+        const S = std.meta.IntType(true, i);
         try serializer.serializeInt(@as(U, i));
         if (i != 0) try serializer.serializeInt(@as(S, -1)) else try serializer.serialize(@as(S, 0));
     }
@@ -350,8 +351,8 @@ fn testIntSerializerDeserializer(comptime endian: builtin.Endian, comptime packi
 
     i = 0;
     inline while (i <= max_test_bitsize) : (i += 1) {
-        const U = @IntType(false, i);
-        const S = @IntType(true, i);
+        const U = std.meta.IntType(false, i);
+        const S = std.meta.IntType(true, i);
         const x = try deserializer.deserializeInt(U);
         const y = try deserializer.deserializeInt(S);
         expect(x == @as(U, i));

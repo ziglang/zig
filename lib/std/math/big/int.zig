@@ -9,7 +9,7 @@ const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 
 pub const Limb = usize;
-pub const DoubleLimb = @IntType(false, 2 * Limb.bit_count);
+pub const DoubleLimb = std.meta.IntType(false, 2 * Limb.bit_count);
 pub const Log2Limb = math.Log2Int(Limb);
 
 comptime {
@@ -268,7 +268,7 @@ pub const Int = struct {
 
         switch (@typeInfo(T)) {
             .Int => |info| {
-                const UT = if (T.is_signed) @IntType(false, T.bit_count - 1) else T;
+                const UT = if (T.is_signed) std.meta.IntType(false, T.bit_count - 1) else T;
 
                 try self.ensureCapacity(@sizeOf(UT) / @sizeOf(Limb));
                 self.metadata = 0;
@@ -331,7 +331,7 @@ pub const Int = struct {
     pub fn to(self: Int, comptime T: type) ConvertError!T {
         switch (@typeInfo(T)) {
             .Int => {
-                const UT = @IntType(false, T.bit_count);
+                const UT = std.meta.IntType(false, T.bit_count);
 
                 if (self.bitCountTwosComp() > T.bit_count) {
                     return error.TargetTooSmall;

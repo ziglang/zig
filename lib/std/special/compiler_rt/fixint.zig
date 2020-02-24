@@ -45,7 +45,7 @@ pub fn fixint(comptime fp_t: type, comptime fixint_t: type, a: fp_t) fixint_t {
     if (exponent < 0) return 0;
 
     // The unsigned result needs to be large enough to handle an fixint_t or rep_t
-    const fixuint_t = @IntType(false, fixint_t.bit_count);
+    const fixuint_t = std.meta.IntType(false, fixint_t.bit_count);
     const UintResultType = if (fixint_t.bit_count > rep_t.bit_count) fixuint_t else rep_t;
     var uint_result: UintResultType = undefined;
 

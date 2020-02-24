@@ -128,7 +128,7 @@ pub const Rational = struct {
         // Translated from golang.go/src/math/big/rat.go.
         debug.assert(@typeInfo(T) == .Float);
 
-        const UnsignedIntType = @IntType(false, T.bit_count);
+        const UnsignedIntType = std.meta.IntType(false, T.bit_count);
         const f_bits = @bitCast(UnsignedIntType, f);
 
         const exponent_bits = math.floatExponentBits(T);
@@ -187,7 +187,7 @@ pub const Rational = struct {
         debug.assert(@typeInfo(T) == .Float);
 
         const fsize = T.bit_count;
-        const BitReprType = @IntType(false, T.bit_count);
+        const BitReprType = std.meta.IntType(false, T.bit_count);
 
         const msize = math.floatMantissaBits(T);
         const msize1 = msize + 1;
@@ -462,7 +462,7 @@ pub const Rational = struct {
     }
 };
 
-const SignedDoubleLimb = @IntType(true, DoubleLimb.bit_count);
+const SignedDoubleLimb = std.meta.IntType(true, DoubleLimb.bit_count);
 
 fn gcd(rma: *Int, x: Int, y: Int) !void {
     rma.assertWritable();

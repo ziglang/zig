@@ -444,7 +444,7 @@ pub fn Log2Int(comptime T: type) type {
         count += 1;
     }
 
-    return @IntType(false, count);
+    return std.meta.IntType(false, count);
 }
 
 pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) type {
@@ -460,7 +460,7 @@ pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) t
     if (is_signed) {
         magnitude_bits += 1;
     }
-    return @IntType(is_signed, magnitude_bits);
+    return std.meta.IntType(is_signed, magnitude_bits);
 }
 
 test "math.IntFittingRange" {
@@ -674,13 +674,13 @@ pub fn absCast(x: var) t: {
     if (@TypeOf(x) == comptime_int) {
         break :t comptime_int;
     } else {
-        break :t @IntType(false, @TypeOf(x).bit_count);
+        break :t std.meta.IntType(false, @TypeOf(x).bit_count);
     }
 } {
     if (@TypeOf(x) == comptime_int) {
         return if (x < 0) -x else x;
     }
-    const uint = @IntType(false, @TypeOf(x).bit_count);
+    const uint = std.meta.IntType(false, @TypeOf(x).bit_count);
     if (x >= 0) return @intCast(uint, x);
 
     return @intCast(uint, -(x + 1)) + 1;
@@ -701,10 +701,10 @@ test "math.absCast" {
 
 /// Returns the negation of the integer parameter.
 /// Result is a signed integer.
-pub fn negateCast(x: var) !@IntType(true, @TypeOf(x).bit_count) {
+pub fn negateCast(x: var) !std.meta.IntType(true, @TypeOf(x).bit_count) {
     if (@TypeOf(x).is_signed) return negate(x);
 
-    const int = @IntType(true, @TypeOf(x).bit_count);
+    const int = std.meta.IntType(true, @TypeOf(x).bit_count);
     if (x > -minInt(int)) return error.Overflow;
 
     if (x == -minInt(int)) return minInt(int);
@@ -790,11 +790,11 @@ fn testFloorPowerOfTwo() void {
 /// Returns the next power of two (if the value is not already a power of two).
 /// Only unsigned integers can be used. Zero is not an allowed input.
 /// Result is a type with 1 more bit than the input type.
-pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) @IntType(T.is_signed, T.bit_count + 1) {
+pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) std.meta.IntType(T.is_signed, T.bit_count + 1) {
     comptime assert(@typeInfo(T) == .Int);
     comptime assert(!T.is_signed);
     assert(value != 0);
-    comptime const PromotedType = @IntType(T.is_signed, T.bit_count + 1);
+    comptime const PromotedType = std.meta.IntType(T.is_signed, T.bit_count + 1);
     comptime const shiftType = std.math.Log2Int(PromotedType);
     return @as(PromotedType, 1) << @intCast(shiftType, T.bit_count - @clz(T, value - 1));
 }
@@ -805,7 +805,7 @@ pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) @IntType(T.is_signed, T
 pub fn ceilPowerOfTwo(comptime T: type, value: T) (error{Overflow}!T) {
     comptime assert(@typeInfo(T) == .Int);
     comptime assert(!T.is_signed);
-    comptime const PromotedType = @IntType(T.is_signed, T.bit_count + 1);
+    comptime const PromotedType = std.meta.IntType(T.is_signed, T.bit_count + 1);
     comptime const overflowBit = @as(PromotedType, 1) << T.bit_count;
     var x = ceilPowerOfTwoPromote(T, value);
     if (overflowBit & x != 0) {
@@ -947,8 +947,8 @@ test "max value type" {
     testing.expect(x == 2147483647);
 }
 
-pub fn mulWide(comptime T: type, a: T, b: T) @IntType(T.is_signed, T.bit_count * 2) {
-    const ResultInt = @IntType(T.is_signed, T.bit_count * 2);
+pub fn mulWide(comptime T: type, a: T, b: T) std.meta.IntType(T.is_signed, T.bit_count * 2) {
+    const ResultInt = std.meta.IntType(T.is_signed, T.bit_count * 2);
     return @as(ResultInt, a) * @as(ResultInt, b);
 }
 

@@ -148,7 +148,7 @@ pub const Thread = struct {
         const default_stack_size = 16 * 1024 * 1024;
 
         const Context = @TypeOf(context);
-        comptime assert(@ArgType(@TypeOf(startFn), 0) == Context);
+        comptime assert(@typeInfo(@TypeOf(startFn)).Fn.args[0].arg_type.? == Context);
 
         if (builtin.os == builtin.Os.windows) {
             const WinThread = struct {

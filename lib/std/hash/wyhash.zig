@@ -10,7 +10,7 @@ const primes = [_]u64{
 };
 
 fn read_bytes(comptime bytes: u8, data: []const u8) u64 {
-    const T = @IntType(false, 8 * bytes);
+    const T = std.meta.IntType(false, 8 * bytes);
     return mem.readIntSliceLittle(T, data[0..bytes]);
 }
 

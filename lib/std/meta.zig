@@ -580,3 +580,12 @@ pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const De
         return &array;
     }
 }
+
+pub fn IntType(comptime is_signed: bool, comptime bit_count: u16) type {
+    return @Type(TypeInfo{
+        .Int = .{
+            .is_signed = is_signed,
+            .bits = bit_count,
+        },
+    });
+}

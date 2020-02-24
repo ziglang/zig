@@ -54,21 +54,21 @@ pub fn __aeabi_dsub(a: f64, b: f64) callconv(.AAPCS) f64 {
 }
 
 // TODO: restore inline keyword, see: https://github.com/ziglang/zig/issues/2154
-fn normalize(comptime T: type, significand: *@IntType(false, T.bit_count)) i32 {
-    const Z = @IntType(false, T.bit_count);
-    const S = @IntType(false, T.bit_count - @clz(Z, @as(Z, T.bit_count) - 1));
+fn normalize(comptime T: type, significand: *std.meta.IntType(false, T.bit_count)) i32 {
+    const Z = std.meta.IntType(false, T.bit_count);
+    const S = std.meta.IntType(false, T.bit_count - @clz(Z, @as(Z, T.bit_count) - 1));
     const significandBits = std.math.floatMantissaBits(T);
     const implicitBit = @as(Z, 1) << significandBits;
 
-    const shift = @clz(@IntType(false, T.bit_count), significand.*) - @clz(Z, implicitBit);
+    const shift = @clz(std.meta.IntType(false, T.bit_count), significand.*) - @clz(Z, implicitBit);
     significand.* <<= @intCast(S, shift);
     return 1 - shift;
 }
 
 // TODO: restore inline keyword, see: https://github.com/ziglang/zig/issues/2154
 fn addXf3(comptime T: type, a: T, b: T) T {
-    const Z = @IntType(false, T.bit_count);
-    const S = @IntType(false, T.bit_count - @clz(Z, @as(Z, T.bit_count) - 1));
+    const Z = std.meta.IntType(false, T.bit_count);
+    const S = std.meta.IntType(false, T.bit_count - @clz(Z, @as(Z, T.bit_count) - 1));
 
     const typeWidth = T.bit_count;
     const significandBits = std.math.floatMantissaBits(T);
@@ -182,7 +182,7 @@ fn addXf3(comptime T: type, a: T, b: T) T {
         // If partial cancellation occured, we need to left-shift the result
         // and adjust the exponent:
         if (aSignificand < implicitBit << 3) {
-            const shift = @intCast(i32, @clz(Z, aSignificand)) - @intCast(i32, @clz(@IntType(false, T.bit_count), implicitBit << 3));
+            const shift = @intCast(i32, @clz(Z, aSignificand)) - @intCast(i32, @clz(std.meta.IntType(false, T.bit_count), implicitBit << 3));
             aSignificand <<= @intCast(S, shift);
             aExponent -= shift;
         }

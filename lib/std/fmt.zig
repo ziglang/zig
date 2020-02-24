@@ -82,7 +82,7 @@ pub fn format(
     comptime fmt: []const u8,
     args: var,
 ) Errors!void {
-    const ArgSetType = @IntType(false, 32);
+    const ArgSetType = u32;
     if (@typeInfo(@TypeOf(args)) != .Struct) {
         @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
     }
@@ -944,7 +944,7 @@ fn formatIntSigned(
         .fill = options.fill,
     };
 
-    const uint = @IntType(false, @TypeOf(value).bit_count);
+    const uint = std.meta.IntType(false, @TypeOf(value).bit_count);
     if (value < 0) {
         const minus_sign: u8 = '-';
         try output(context, @as(*const [1]u8, &minus_sign)[0..]);
@@ -972,7 +972,7 @@ fn formatIntUnsigned(
     assert(base >= 2);
     var buf: [math.max(@TypeOf(value).bit_count, 1)]u8 = undefined;
     const min_int_bits = comptime math.max(@TypeOf(value).bit_count, @TypeOf(base).bit_count);
-    const MinInt = @IntType(@TypeOf(value).is_signed, min_int_bits);
+    const MinInt = std.meta.IntType(@TypeOf(value).is_signed, min_int_bits);
     var a: MinInt = value;
     var index: usize = buf.len;
 
